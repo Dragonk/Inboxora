@@ -1250,10 +1250,11 @@ function drainWaiters(pool: ConnectionPool): void {
 
 async function acquirePooledClient(account: EmailAccountRow): Promise<ImapClient> {
   const id = account.id;
-  if (!connectionPools.has(id)) {
-    connectionPools.set(id, { clients: [], inUse: new Set(), waiters: [] });
+  let pool = connectionPools.get(id);
+  if (!pool) {
+    pool = { clients: [], inUse: new Set(), waiters: [] };
+    connectionPools.set(id, pool);
   }
-  const pool = connectionPools.get(id);
 
   // Find an idle client
   const idle = pool.clients.find(c => !pool.inUse.has(c));
@@ -1393,6 +1394,12 @@ async function withFreshLogin(account: EmailAccountRow, fn) {
  * .filter or .map straight off the result throws. Normalise in one place.
  */
 /** The currently open mailbox, or undefined when none is selected (imapflow uses `false`). */
+/** Close a pooled or temporary connection, ignoring an already-dead socket. */
+async function closeImapClient(client: ImapClient | null | undefined): Promise<void> {
+  if (!client) return;
+  try { await client.logout(); } catch { /* already disconnected */ }
+}
+
 function openMailbox(client: ImapClient): MailboxObject | undefined {
   return client.mailbox || undefined;
 }
@@ -3508,7 +3515,7 @@ export class ImapManager {
 
     const openBfClient = async () => {
       // Always clean up any existing client before creating a new one
-      if (bfClient) { try { await bfClient.logout(); } catch { /* already disconnected */ } bfClient = null; }
+      await closeImapClient(bfClient); bfClient = null;
       const row = (await query('SELECT * FROM email_accounts WHERE id = $1', [account.id])).rows[0];
       // Re-check enabled here: a backfill can sit queued behind the per-host semaphore, and
       // the user may disable the account while it waits. disconnectAccount doesn't cancel a
@@ -3875,7 +3882,7 @@ export class ImapManager {
           consecutiveErrors++;
           const detail = extractImapError(err);
           // Discard the broken connection — openBfClient will reconnect next iteration
-          if (bfClient) { try { await bfClient.logout(); } catch { /* already disconnected */ } bfClient = null; }
+          await closeImapClient(bfClient); bfClient = null;
           batchesOnConn = cfg.batchesPerConn; // force reconnect
 
           if (consecutiveErrors >= 3) {
@@ -3915,7 +3922,7 @@ export class ImapManager {
       const err = toAppError(caught);
       console.error(`Backfill failed for ${logAccount(account)}/${folder}:`, err.message);
     } finally {
-      if (bfClient) { try { await bfClient.logout(); } catch { /* already disconnected */ } }
+      await closeImapClient(bfClient);
       this.backfillRunning.delete(backfillKey);
     }
   }
@@ -4118,7 +4125,7 @@ export class ImapManager {
     const batchDelay = Math.max(cfg.batchDelay, 2000); // at least 2s between batches
     const MAX_BATCHES_PER_RUN = 200; // 10,000 messages max per session
 
-    let siClient = null;
+    let siClient: ImapClient | null = null;
     // Hoisted so the finally can distinguish a productive run from one that failed
     // without indexing anything (the case that should trip the circuit breaker).
     let batchCount = 0;
