@@ -266,7 +266,7 @@ export const api = {
   getMessage: (id: string) => request('GET', `/mail/messages/${id}`),
   // Resolve a deep-link reference (stable Message-ID header, or a legacy UUID) to the
   // current message row — durable across folder moves (#270).
-  resolveMessage: (ref, accountId = undefined) => {
+  resolveMessage: (ref: string, accountId: string | undefined = undefined) => {
     const qs = new URLSearchParams({ ref });
     if (accountId) qs.set('accountId', accountId);
     return request('GET', `/mail/resolve-message?${qs}`);
@@ -401,12 +401,12 @@ export const api = {
       if (Array.isArray(calendarIds)) params.set('calendarIds', calendarIds.join(','));
       return request('GET', `/calendar/events?${params}`, undefined, undefined, { signal });
     },
-    createEvent: (data: CalendarEventPayload, idempotencyKey = undefined) => request('POST', '/calendar/events', data, idempotencyKey ? { 'X-Idempotency-Key': idempotencyKey } : undefined),
-    updateEvent: (id: string, data: CalendarEventPayload, idempotencyKey = undefined) => request('PATCH', `/calendar/events/${id}${data.recurrenceId ? '/occurrence' : ''}`, data, idempotencyKey ? { 'X-Idempotency-Key': idempotencyKey } : undefined),
+    createEvent: (data: CalendarEventPayload, idempotencyKey: string | undefined = undefined) => request('POST', '/calendar/events', data, idempotencyKey ? { 'X-Idempotency-Key': idempotencyKey } : undefined),
+    updateEvent: (id: string, data: CalendarEventPayload, idempotencyKey: string | undefined = undefined) => request('PATCH', `/calendar/events/${id}${data.recurrenceId ? '/occurrence' : ''}`, data, idempotencyKey ? { 'X-Idempotency-Key': idempotencyKey } : undefined),
     // scope 'following' ends the series just before this occurrence; with no recurrenceId the
     // whole event is removed. Removing an entire series goes through the plain event DELETE,
     // which is also the path that notifies invited attendees.
-    deleteEvent: (id: string, calendarId, recurrenceId = undefined, scope = undefined) =>recurrenceId ? request('DELETE', `/calendar/events/${encodeURIComponent(id)}/occurrence`, { calendarId, recurrenceId, ...(scope ? { scope } : {}) }) : request('DELETE', `/calendar/events/${encodeURIComponent(id)}?calendarId=${encodeURIComponent(calendarId)}`),
+    deleteEvent: (id: string, calendarId: string, recurrenceId: string | null | undefined = undefined, scope: string | null | undefined = undefined) =>recurrenceId ? request('DELETE', `/calendar/events/${encodeURIComponent(id)}/occurrence`, { calendarId, recurrenceId, ...(scope ? { scope } : {}) }) : request('DELETE', `/calendar/events/${encodeURIComponent(id)}?calendarId=${encodeURIComponent(calendarId)}`),
     listSources: () => request('GET', '/calendar/sources'),
     createSource: (data: unknown) => request('POST', '/calendar/sources', data),
     updateSource: (id: string, data: unknown) => request('PATCH', `/calendar/sources/${encodeURIComponent(id)}`, data),
@@ -436,7 +436,7 @@ export const api = {
   updateRule:  (id, data) => request('PUT',    `/rules/${id}`, data),
   deleteRule:  (id: string)       => request('DELETE', `/rules/${id}`),
   reorderRules:(ids)      => request('PATCH',  '/rules/reorder', { ids }),
-  runRules:    (accountId = undefined) => request('POST',  '/rules/run', accountId ? { accountId } : {}),
+  runRules:    (accountId: string | undefined = undefined) => request('POST',  '/rules/run', accountId ? { accountId } : {}),
 
   // Drafts
   saveDraft:   (data)              => request('POST',   '/mail/draft', data),
@@ -502,7 +502,7 @@ export const api = {
   // GTD "done": strip the row's label(s) for these states, mark read, archive the INBOX
   // copy. id is the rail head's row id (its label-folder copy); the server resolves the
   // INBOX copy from the shared Message-ID.
-  gtdDone: (id: string, states = undefined) => request('POST', '/gtd/done', { id, states }),
+  gtdDone: (id: string, states: Record<string, unknown> | undefined = undefined) => request('POST', '/gtd/done', { id, states }),
   gtdEnsureFolders: (accountId: string, folders) => request('POST', '/gtd/folders/ensure', { accountId, folders }),
 
   // GTD — Inbox-Zero pet. Import uploads your own pet (pet.json text + a base64 spritesheet)

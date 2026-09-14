@@ -211,8 +211,8 @@ export default function MessageList() {
   const setMessagesReadStateRef = useRef(null);
   const lastScrollTopRef = useRef(0);
   const [pullDistance, setPullDistance] = useState(0);
-  const pullStartXRef = useRef(null);
-  const pullStartYRef = useRef(null);
+  const pullStartXRef = useRef<number | null>(null);
+  const pullStartYRef = useRef<number | null>(null);
   const pullDirectionRef = useRef<'h' | 'v' | null>(null);
   const pullDistRef = useRef(0);
   const handleSyncRef = useRef<(() => Promise<void>) | null>(null);

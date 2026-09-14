@@ -344,7 +344,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   const aiAbortRefs = useRef<Record<string, AbortController | undefined>>({});
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
-  const roRef = useRef(null);
+  const roRef = useRef<ResizeObserver | null>(null);
   // Session-scoped set of message IDs where the user has clicked "Load images once".
   // This is intentionally declared before renderableHtml so the div renderer can use
   // the same effective policy as the API fetch and iframe renderer.

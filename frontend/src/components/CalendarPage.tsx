@@ -77,8 +77,8 @@ export default function CalendarPage({ isActive = true }) {
   const isMobile = useMobile();
   const compactViewport = useCompactLayout();
   const surfaceRef = useRef<HTMLDivElement | null>(null);
-  const railResizeRef = useRef(null);
-  const agendaResizeRef = useRef(null);
+  const railResizeRef = useRef<(() => void) | null>(null);
+  const agendaResizeRef = useRef<(() => void) | null>(null);
   // The rail carries the shared list width (Mail, Contacts, Calendar rail stay in
   // step). The day agenda is a supplementary column and keeps its own persisted
   // width, so resizing either one never disturbs the other.
@@ -135,7 +135,7 @@ export default function CalendarPage({ isActive = true }) {
   // Requests in flight for this page. Every new load aborts the previous one, and
   // unmounting aborts whatever is still running, so a superseded range cannot
   // keep fetching, and the backend stops expanding work nobody will display.
-  const abortRef = useRef(null);
+  const abortRef = useRef<AbortController | null>(null);
   // The selection is sent to the server so unselected series are not expanded at
   // all. `null` keeps the historical "every calendar" semantics.
   const selectionKey = visibleCalendarIds == null ? null : [...visibleCalendarIds].sort().join(',');

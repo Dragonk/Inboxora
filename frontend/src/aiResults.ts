@@ -41,7 +41,7 @@ export function getResults(messageId?: string | null): Record<string, AiActionRe
 }
 
 // Persist a completed action result, marking the message as most-recently-used.
-export function saveResult(messageId: string | null | undefined, actionKey: string | null | undefined, text: string, label = undefined) {
+export function saveResult(messageId: string | null | undefined, actionKey: string | null | undefined, text: string, label: string | null | undefined = undefined) {
   if (!messageId || !actionKey) return;
   const store = read();
   if (!store.data[messageId]) store.data[messageId] = {};

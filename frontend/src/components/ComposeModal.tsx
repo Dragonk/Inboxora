@@ -312,7 +312,7 @@ export default function ComposeModal() {
   // Stable idempotency key for the current logical send. Generated on the first send
   // attempt, reused across retries (so a retry after a lost response dedupes rather than
   // double-sending), and cleared on success. Fixes audit finding [1].
-  const idempotencyKeyRef = useRef(null);
+  const idempotencyKeyRef = useRef<string | null>(null);
   const replyTypeRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -320,7 +320,7 @@ export default function ComposeModal() {
   const signatureRef = useRef<HTMLDivElement | null>(null);
   const quotedHtmlRef = useRef<HTMLDivElement | null>(null);
   const composeWindowRef = useRef<HTMLDivElement | null>(null);
-  const posRef = useRef(null);
+  const posRef = useRef<{ x: number; y: number } | null>(null);
   const customSizeRef = useRef<{ width?: number; height?: number } | null>(null);
   const dragCleanupRef = useRef(null);
   posRef.current = pos;

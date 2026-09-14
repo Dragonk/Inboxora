@@ -287,7 +287,7 @@ export default function MailApp() {
 
   const [showShortcutHelp, setShowShortcutHelp] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
-  const sidebarDragRef = useRef(null);
+  const sidebarDragRef = useRef<{ startX: number; startY: number; [key: string]: unknown } | null>(null);
   const sidebarResizeRef = useRef(null);
   const listResizeRef = useRef(null);
   const rightSidebarResizeRef = useRef(null);
