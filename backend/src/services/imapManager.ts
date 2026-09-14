@@ -1973,7 +1973,7 @@ export class ImapManager {
         // which we own via op.value. A concurrent pull may have reverted the row, so
         // re-assert our intended value locally (with a fresh marker) before pushing the
         // same value, so a slow cycle can never let the change be silently lost.
-        const { rows: [msg] } = await query(
+        const { rows: [msg] } = await query<{ uid: number | string; folder: string }>(
           'SELECT uid, folder FROM messages WHERE id = $1',
           [op.messageId]
         );
@@ -4600,7 +4600,7 @@ export class ImapManager {
     for (const msg of messages) {
       try {
         // Skip if body already cached (concurrent click may have triggered this too)
-        const existing = await query(
+        const existing = await query<{ id: string }>(
           'SELECT id FROM messages WHERE id = $1 AND (body_html IS NOT NULL OR body_text IS NOT NULL)',
           [msg.id]
         );
@@ -4654,7 +4654,7 @@ export class ImapManager {
       }
 
       try {
-        const existing = await query(
+        const existing = await query<{ id: string }>(
           'SELECT id FROM messages WHERE id = $1 AND (body_html IS NOT NULL OR body_text IS NOT NULL)',
           [msg.id]
         );
@@ -5477,7 +5477,7 @@ export class ImapManager {
   }
 
   async syncNow(userId: string, accountId = null) {
-    const result = await query(
+    const result = await query<EmailAccountRow>(
       'SELECT * FROM email_accounts WHERE user_id = $1 AND enabled = true AND protocol = $2',
       [userId, 'imap']
     );
@@ -5541,7 +5541,7 @@ export class ImapManager {
   // run alongside a message sync. Disconnected accounts reconnect instead, which
   // runs syncFolders as part of connectAccount's startup sequence.
   async syncFoldersNow(userId: string, accountId = null) {
-    const result = await query(
+    const result = await query<EmailAccountRow>(
       'SELECT * FROM email_accounts WHERE user_id = $1 AND enabled = true AND protocol = $2',
       [userId, 'imap']
     );
@@ -5839,7 +5839,7 @@ export class ImapManager {
       console.warn(`Failed to load sync preference for user ${userId}:`, err.message);
     }
 
-    const result = await query(
+    const result = await query<EmailAccountRow>(
       'SELECT * FROM email_accounts WHERE user_id = $1 AND enabled = true AND protocol = $2',
       [userId, 'imap']
     );
