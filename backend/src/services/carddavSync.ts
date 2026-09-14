@@ -79,6 +79,8 @@ function contactFromVCard(vcard: string, href: string) {
 }
 
 type CardavContact = ReturnType<typeof contactFromVCard>;
+type CardavBook = Awaited<ReturnType<typeof discoverAddressBooks>>[number];
+type CardavCredentials = { username: string; password: string; allowPrivate: boolean };
 
 async function upsertCardavContact(bookId: string, userId: string, c: CardavContact) {
   const etag = crypto.createHash('md5').update(c.vcard).digest('hex');
@@ -128,7 +130,7 @@ async function mergeIntoExisting(id: string, c: CardavContact) {
       JSON.stringify(c.urls), JSON.stringify(c.instantMessages), JSON.stringify(c.categories), JSON.stringify(c.addresses), c.vcard, etag]);
 }
 
-async function syncBook(userId: string, book, dupMode, creds) {
+async function syncBook(userId: string, book: CardavBook, dupMode: string, creds: CardavCredentials) {
   const rawCards = await fetchAddressBookCards({ ...book, ...creds });
   const cards = rawCards.map(rc => contactFromVCard(rc.vcard, rc.href));
   if (cards.some(card => card.invalidDates.length || card.invalidDateLabels.length)) {
@@ -191,7 +193,10 @@ export async function syncUser(userId: string) {
   syncing.add(userId);
   try {
     const policy = await getConnectionPolicy();
-    const creds = { username: config.username, password: decrypt(config.password), allowPrivate: policy.allowPrivateHosts };
+    if (typeof config.username !== 'string') throw new Error('CardDAV username is missing');
+    const decryptedPassword: unknown = decrypt(config.password);
+    if (typeof decryptedPassword !== 'string') throw new Error('CardDAV password could not be decrypted');
+    const creds: CardavCredentials = { username: config.username, password: decryptedPassword, allowPrivate: policy.allowPrivateHosts };
     const books = await discoverAddressBooks({ serverUrl: config.serverUrl, ...creds });
     let contactCount = 0;
     const seenUrls = [];
