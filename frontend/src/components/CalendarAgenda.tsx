@@ -16,7 +16,14 @@ function AgendaEntries({ events, locale, onOpen, t }: {
   </button>);
 }
 
-export default function CalendarAgenda({ events, anchor, locale, onOpen, t, monthly = false }) {
+export default function CalendarAgenda({ events, anchor, locale, onOpen, t, monthly = false }: {
+  events: CalendarViewEvent[];
+  anchor: Date;
+  locale: string;
+  onOpen: (event: CalendarViewEvent) => void;
+  t: TFunction;
+  monthly?: boolean;
+}) {
   if (monthly) {
     const groups = agendaDays(events, anchor);
     return <div data-testid="calendar-agenda-view" className="calendar-month-agenda">

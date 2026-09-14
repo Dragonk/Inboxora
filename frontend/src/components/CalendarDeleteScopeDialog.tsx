@@ -1,4 +1,6 @@
 import { Button, Dialog } from './ui.tsx';
+import type { CalendarViewEvent } from './calendarView';
+import type { TFunction } from 'i18next';
 
 // Deleting one occurrence of a series is not the same operation as deleting the series, and the
 // difference is not something a yes/no confirmation can express: the three answers produce three
@@ -8,7 +10,13 @@ import { Button, Dialog } from './ui.tsx';
 // "This and every following occurrence" is sent to the server as a rule truncation, because a
 // `RECURRENCE-ID;RANGE=THISANDFUTURE` exception carrying STATUS:CANCELLED was measured to leave
 // the series completely unchanged.
-export default function CalendarDeleteScopeDialog({ event, busy = false, onSelect, onClose, t }) {
+export default function CalendarDeleteScopeDialog({ event, busy = false, onSelect, onClose, t }: {
+  event: CalendarViewEvent | null;
+  busy?: boolean;
+  onSelect: (scope: string) => void;
+  onClose: () => void;
+  t: TFunction;
+}) {
   const when = event?.starts_at
     ? new Date(event.starts_at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
     : '';
