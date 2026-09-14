@@ -297,7 +297,7 @@ export default function MailApp() {
     document.documentElement.style.setProperty('--right-sidebar-width', rightSidebarWidth + 'px');
   }, [rightSidebarWidth]);
 
-  const handleSidebarResizeMouseDown = (e) => {
+  const handleSidebarResizeMouseDown = (e: React.MouseEvent) => {
     e.preventDefault();
     const startX = e.clientX;
     const startWidth = sidebarWidth;
@@ -305,7 +305,7 @@ export default function MailApp() {
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
 
-    const onMouseMove = (mv) => {
+    const onMouseMove = (mv: MouseEvent) => {
       const dx = mv.clientX - startX;
       const clamped = Math.min(400, Math.max(160, startWidth + dx));
       setSidebarWidth(clamped);
@@ -362,7 +362,7 @@ export default function MailApp() {
   const rightSidebarContent = rightSidebarProviders.length ? rightSidebarProviders[0].render(rightSidebarCtx) : null;
   const rightSidebarApplicable = !isMobile && currentLayout.direction === 'row' && rightSidebarContent != null;
 
-  const handleListResizeMouseDown = (e) => {
+  const handleListResizeMouseDown = (e: React.MouseEvent) => {
     // The mail list is the canonical left panel: the width it sets here is the
     // same shared width the contact list, calendar rail and day agenda use.
     listResizeRef.current?.();
@@ -371,7 +371,7 @@ export default function MailApp() {
 
   // Right-sidebar resize — its own width var + handle, independent of --list-width.
   // The handle sits to its left, so dragging left widens the sidebar.
-  const handleRightSidebarResizeMouseDown = (e) => {
+  const handleRightSidebarResizeMouseDown = (e: React.MouseEvent) => {
     e.preventDefault();
     const startX = e.clientX;
     const startWidth = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--right-sidebar-width')) || rightSidebarWidth || 296;
@@ -379,7 +379,7 @@ export default function MailApp() {
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
 
-    const onMouseMove = (mv) => {
+    const onMouseMove = (mv: MouseEvent) => {
       const dx = mv.clientX - startX;
       const clamped = Math.max(200, Math.min(600, startWidth - dx));
       document.documentElement.style.setProperty('--right-sidebar-width', clamped + 'px');
@@ -519,10 +519,10 @@ export default function MailApp() {
     try {
       const mt = new URL(raw);
       if (mt.protocol !== 'mailto:') return;
-      const safeDecode = (x) => { try { return decodeURIComponent(x); } catch { return x; } };
+      const safeDecode = (x: string) => { try { return decodeURIComponent(x); } catch { return x; } };
       // pathname addresses are raw-encoded; searchParams values are already decoded.
-      const splitAddrs = (s, decode) => !s ? [] : s.split(',').map(a => decode ? safeDecode(a.trim()) : a.trim()).filter(Boolean);
-      const esc = (x) => x.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      const splitAddrs = (s: string, decode: boolean) => !s ? [] : s.split(',').map((a: string) => decode ? safeDecode(a.trim()) : a.trim()).filter(Boolean);
+      const esc = (x: string) => x.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
       // A mailto body is plain text (RFC 6068); escape it so it renders literally in
       // the HTML editor and can't inject markup.
       const bodyText = mt.searchParams.get('body') || '';
@@ -630,11 +630,14 @@ export default function MailApp() {
       if (pendingTimer) { clearTimeout(pendingTimer); pendingTimer = null; }
     };
 
-    const handler = (e) => {
+    const handler = (e: KeyboardEvent) => {
       // Never intercept when the compose modal or admin panel is open, or an input is focused
       if (composingRef.current || showAdminRef.current) return;
-      const tag = e.target.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target.isContentEditable) return;
+      const target = e.target;
+      if (target instanceof HTMLElement) {
+        const tag = target.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable) return;
+      }
       // Modifier combos: emit registered actions, pass everything else through
       if (e.ctrlKey || e.metaKey) {
         const action = modKeyMap[e.key.toLowerCase()];
@@ -722,14 +725,14 @@ export default function MailApp() {
   // Close help overlay on Escape
   useEffect(() => {
     if (!showShortcutHelp) return;
-    const handler = (e) => { if (e.key === 'Escape') { e.preventDefault(); setShowShortcutHelp(false); } };
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.preventDefault(); setShowShortcutHelp(false); } };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
   }, [showShortcutHelp]);
 
   // Cmd+K / Ctrl+K opens command palette
   useEffect(() => {
-    const handler = (e) => {
+    const handler = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
         e.preventDefault();
         setPaletteOpen(v => !v);
