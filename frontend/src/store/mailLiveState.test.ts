@@ -89,8 +89,9 @@ test('a late unread-count response cannot overwrite a newer response or an optim
   const { api } = await import('../utils/api.ts');
   const { refreshUnreadCounts } = await import('../utils/unreadRefresh.ts');
   const original = api.getUnreadCounts;
-  const resolvers = [];
-  api.getUnreadCounts = () => new Promise(resolve => resolvers.push(resolve));
+  type UnreadCounts = Awaited<ReturnType<typeof api.getUnreadCounts>>;
+  const resolvers: Array<(value: UnreadCounts | PromiseLike<UnreadCounts>) => void> = [];
+  api.getUnreadCounts = () => new Promise<UnreadCounts>(resolve => resolvers.push(resolve));
   try {
     useStore.setState({ accounts: [{ id: 'a', enabled: true }], unreadCounts: { total: 3, byAccount: { a: 3 } } });
     const old = refreshUnreadCounts(); const recent = refreshUnreadCounts();

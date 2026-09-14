@@ -99,12 +99,12 @@ export interface StoreState {
       enabled?: boolean;
       include_in_unified_inbox?: boolean;
       [key: string]: unknown;
-  }>) => void;
+  }> | undefined) => void;
   updateAccount: (id: string, updates: Record<string, unknown>) => void;
   selectedAccountId: string | null;
   selectedFolder: string;
   messagesRefreshToken: number;
-  setSelectedAccount: (accountId: string | null, folder?: string) => void;
+  setSelectedAccount: (accountId: string | null | undefined, folder?: string) => void;
   messages: StoreMessageRow[];
   setMessages: (messages: StoreMessageRow[]) => void;
   appendMessages: (newMessages: StoreMessageRow[]) => void;

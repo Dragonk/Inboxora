@@ -74,6 +74,7 @@ describe('CE v2 real copy scopes', () => {
   it('THIS_COPY affects exactly one physical row', async () => {
     const f = await fixture();
     const target = f.copies.find(c => c.folder === 'INBOX' && c.logicalId === f.lm1);
+    assert.ok(target);
     const result = await applyConversationAction({ userId, conversationId: f.conversationId, scope: 'THIS_COPY', copyId: target.id, action: 'archive' });
     assert.equal(result.affectedCount, 1);
     const rows = await q('SELECT folder FROM messages WHERE id=$1', [target.id]);
@@ -85,6 +86,7 @@ describe('CE v2 real copy scopes', () => {
   it('ALL_COPIES_OF_LOGICAL_MESSAGE affects only LM1 copies', async () => {
     const f = await fixture();
     const target = f.copies.find(c => c.logicalId === f.lm1);
+    assert.ok(target);
     const result = await applyConversationAction({ userId, conversationId: f.conversationId, scope: 'ALL_COPIES_OF_LOGICAL_MESSAGE', copyId: target.id, action: 'delete' });
     // Logical-message identity is account-local, so the action affects only
     // the two Account A copies; Account B has a distinct LM with the same
@@ -97,6 +99,7 @@ describe('CE v2 real copy scopes', () => {
   it('COPIES_ON_THIS_ACCOUNT excludes account B copies', async () => {
     const f = await fixture();
     const target = f.copies.find(c => c.logicalId === f.lm1 && c.account === accountA);
+    assert.ok(target);
     const result = await applyConversationAction({ userId, conversationId: f.conversationId, scope: 'COPIES_ON_THIS_ACCOUNT', copyId: target.id, action: 'delete' });
     assert.equal(result.affectedCount, 2);
     const accountBRows = await q('SELECT COUNT(*)::int AS count FROM messages WHERE conversation_id=$1 AND account_id=$2 AND NOT is_deleted', [f.conversationId,accountB]);

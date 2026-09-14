@@ -152,7 +152,7 @@ export function findGtdFolderCollisions(folders: GtdFolderMap | null | undefined
 // Which GTD states a message's thread is currently labelled with, given the
 // thread's folder paths and the account's resolved state→folder map. Drives the
 // "Remove from <state>" context-menu options (only shown for labels present).
-export function gtdStatesInFolders(folders: string[] | null | undefined, resolvedMap: GtdFolderMap): string[] {
+export function gtdStatesInFolders(folders: string[] | null | undefined, resolvedMap: GtdFolderMap): Array<(typeof GTD_STATES)[number]> {
   const set = new Set(Array.isArray(folders) ? folders : []);
   return GTD_STATES.filter(state => set.has(resolvedMap?.[state]));
 }

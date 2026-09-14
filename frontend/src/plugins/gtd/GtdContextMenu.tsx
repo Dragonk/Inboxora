@@ -1,5 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import { GTD_STATES, GTD_COLORS, resolveAccountGtdFolders, gtdStatesInFolders, unclassifyThread } from '../../utils/gtd.ts';
+import type { GtdAccountLike } from '../../utils/gtd.ts';
 import { useStore } from '../../store/index.ts';
 import { api } from '../../utils/api.ts';
 import { classifyWithUndo } from './classification.ts';
@@ -14,9 +15,29 @@ import type { StoreState } from '../../store/index.ts';
 // The classify + remove submenu shown when the "GTD" item is opened. Renders its own back row and
 // takes over the menu content area (via core's generic plugin-submenu view). Classify offers every
 // state; "Remove from <state>" is offered only for the states this thread is actually labelled with.
+type GtdState = (typeof GTD_STATES)[number];
+
+type GtdContextMessage = {
+  id: string;
+  folders?: string[];
+  [key: string]: unknown;
+};
+
+type GtdContextTranslation = (key: string, options?: Record<string, string>) => string;
+
+type GtdContextMenuContext = {
+  message: GtdContextMessage;
+  account?: GtdAccountLike;
+  variant: string;
+  onAction: (action: string) => void;
+  onClose: () => void;
+  openSubmenu: (render: (onBack: () => void) => React.ReactNode) => void;
+  t: GtdContextTranslation;
+};
+
 function GtdContextSubmenu({ message, account, onClose, onBack }: {
-  message: { id?: string; folders?: string[]; [key: string]: unknown };
-  account: { id: string; [key: string]: unknown };
+  message: GtdContextMessage;
+  account: GtdAccountLike;
   onClose: () => void;
   onBack: () => void;
 }) {
@@ -27,7 +48,7 @@ function GtdContextSubmenu({ message, account, onClose, onBack }: {
   const removableStates = gtdStatesInFolders(message.folders, gtdFolders);
   // Classify = COPY into the state's label folder (message stays put); remove = strip that label.
   // Store-based, so they run the same on every surface — no dependency on the caller's onAction.
-  const classify = (state) => {
+  const classify = (state: GtdState) => {
     void classifyWithUndo(message.id, state, {
       api,
       store: { addNotification, scheduleGtdSectionsFetch },
@@ -35,7 +56,7 @@ function GtdContextSubmenu({ message, account, onClose, onBack }: {
     });
     onClose();
   };
-  const removeFrom = (state) => { unclassifyThread(message.id, state, { gtdUnclassify: api.gtdUnclassify, addNotification, scheduleGtdSectionsFetch, t }); onClose(); };
+  const removeFrom = (state: GtdState) => { unclassifyThread(message.id, state, { gtdUnclassify: api.gtdUnclassify, addNotification, scheduleGtdSectionsFetch, t }); onClose(); };
   return (
     <>
       <div
@@ -91,7 +112,7 @@ function GtdContextSubmenu({ message, account, onClose, onBack }: {
 // { message, account, variant, onAction, onClose, openSubmenu, t }. Returns [] when GTD is off for
 // the account (so a non-GTD account contributes nothing). The "Done" entry is sidebar-only, mirroring
 // the old menuPolicy.done gate (variant === 'gtdSidebar').
-export function buildGtdContextItems(ctx) {
+export function buildGtdContextItems(ctx: GtdContextMenuContext) {
   const { message, account, variant, onAction, onClose, openSubmenu, t } = ctx;
   const items: unknown[] = [];
   if (account?.gtd_enabled) {
