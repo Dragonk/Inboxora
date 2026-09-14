@@ -2152,7 +2152,7 @@ router.post('/messages/:id/spam', async (req, res) => {
   const { id } = req.params;
   if (!UUID_RE.test(id)) return res.status(400).json({ error: 'Invalid message id' });
 
-  const lookup = await query(`
+  const lookup = await query<{ account_id: string; folder_mappings?: FolderMappings | null }>(`
     SELECT m.account_id, a.folder_mappings FROM messages m
     JOIN email_accounts a ON m.account_id = a.id
     WHERE m.id = $1 AND a.user_id = $2
@@ -2184,7 +2184,7 @@ router.get('/category-counts', async (req, res) => {
   const { accountIds: scopedIds } = resolveAccountScope(accountsResult.rows, accountId);
   if (!scopedIds.length) return res.json({ counts: {} });
 
-  const result = await query(`
+  const result = await query<{ category: string; unread_count: number }>(`
     SELECT COALESCE(m.category, 'primary') AS category,
            COUNT(*) FILTER (WHERE m.is_read = false)::int AS unread_count
     FROM messages m
@@ -2194,7 +2194,7 @@ router.get('/category-counts', async (req, res) => {
     GROUP BY COALESCE(m.category, 'primary')
   `, [scopedIds]);
 
-  const counts = {};
+  const counts: Record<string, number> = {};
   for (const row of result.rows) {
     counts[row.category] = row.unread_count;
   }
