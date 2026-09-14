@@ -583,7 +583,7 @@ function AccountsTab() {
     }
   };
 
-  const handleFolderMappingOpen = async (account) => {
+  const handleFolderMappingOpen = async (account: { id: string; folder_mappings?: { inbox?: string | null; spam?: string | null; sent?: string | null; drafts?: string | null; trash?: string | null; archive?: string | null } | null; [key: string]: unknown }) => {
     setEditTarget(account);
     setFolderMappings(account.folder_mappings || {});
     setSubview('folders');
@@ -617,7 +617,7 @@ function AccountsTab() {
     }
   };
 
-  const handleAliasOpen = (account) => {
+  const handleAliasOpen = (account: { id: string; aliases?: Array<{ id: string; address?: string; name?: string; email?: string }>; [key: string]: unknown }) => {
     setEditTarget(account);
     setAliasFormMode(null);
     setAliasFormData({ name: '', email: '', reply_to: '', signature: '' });
@@ -662,7 +662,7 @@ function AccountsTab() {
     }
   };
 
-  const handleAliasEdit = (alias) => {
+  const handleAliasEdit = (alias: { id: string; name?: string; email?: string; reply_to?: string; signature?: string }) => {
     setAliasFormId(alias.id);
     setAliasFormData({
       name: alias.name,
@@ -674,7 +674,7 @@ function AccountsTab() {
     setAliasFormMode('edit');
   };
 
-  const handleAliasDelete = (aliasId) => {
+  const handleAliasDelete = (aliasId: string) => {
     if (!editTarget) return;
     setConfirmDialog({
       title: t('admin.aliases.deleteConfirmTitle'),
@@ -1791,7 +1791,7 @@ function LayoutsTab() {
     { id: 'disabled', label: t('admin.messageList.swipeDisabled'), desc: t('admin.messageList.swipeDisabledDesc') },
   ];
 
-  const renderSwipePicker = (direction, title) => (
+  const renderSwipePicker = (direction: string, title: string) => (
     <div>
       <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>{title}</div>
       <div style={{ border: '1px solid var(--border-subtle)', borderRadius: 8, overflow: 'hidden' }}>
@@ -2442,7 +2442,7 @@ function CardDavCard() {
     catch (e) { setError(toAppError(e).message); }
     finally { setDisconnecting(false); }
   };
-  const updateSetting = async (patch) => {
+  const updateSetting = async (patch: Record<string, unknown>) => {
     setStatus(s => ({ ...s, ...patch }));
     try { await api.carddav.update(patch); } catch (e) { setError(toAppError(e).message); }
   };
@@ -2622,7 +2622,7 @@ function IntegrationsTab() {
     // Listen for oauth_success / oauth_error messages from the OAuth popup tab.
     // URL-param detection has been moved to MailApp so it works regardless of
     // which tab/modal is currently open.
-    const handleMessage = (e) => {
+    const handleMessage = (e: MessageEvent) => {
       if (e.origin !== window.location.origin) return;
       if (e.data?.type === 'oauth_success' && e.data?.provider === 'microsoft') {
         setSaveMsg(t('admin.integrations.microsoft.connectedNote'));
@@ -3489,7 +3489,7 @@ function SSOTab() {
     });
   };
 
-  const copyRedirectUri = (slug, id) => {
+  const copyRedirectUri = (slug: string, id: string) => {
     const uri = `${window.location.origin}/auth/oidc/${slug}/callback`;
     navigator.clipboard.writeText(uri).then(() => {
       setCopiedId(id);
@@ -4014,7 +4014,7 @@ function AISection() {
     };
   }, [persistForm]);
 
-  const handleSave = async (e) => {
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true); setMsg(null);
     try {
@@ -4755,7 +4755,7 @@ function SystemEmailSection() {
       .finally(() => setLoading(false));
   }, []);
 
-  const handleSave = async (e) => {
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true); setMsg(null);
     try {
