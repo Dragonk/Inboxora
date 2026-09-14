@@ -6,7 +6,7 @@ import 'express-session';
 declare module 'express-session' {
   interface SessionData {
     userId?: string;
-    username?: string;
+    username?: string | null;
     isAdmin?: boolean;
     locked?: boolean;
     pendingUserId?: string;
