@@ -383,7 +383,7 @@ export function createPostgresCodexStore() {
     },
 
     async getCredential(): Promise<string | null> {
-      const result = await query('SELECT encrypted_payload FROM ai_codex_credentials WHERE singleton = TRUE');
+      const result = await query<{ encrypted_payload?: string | null }>('SELECT encrypted_payload FROM ai_codex_credentials WHERE singleton = TRUE');
       return result.rows[0]?.encrypted_payload || null;
     },
 

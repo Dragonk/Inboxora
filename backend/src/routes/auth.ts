@@ -776,7 +776,7 @@ router.get('/preferences', async (req, res) => {
   if (!req.session.userId) return res.status(401).json({ error: 'Not authenticated' });
   const [userResult, cssResult] = await Promise.all([
     query<{ preferences?: { customCss?: string | null; [key: string]: unknown } | null }>('SELECT preferences FROM users WHERE id = $1', [req.session.userId]),
-    query("SELECT value FROM system_settings WHERE key = 'custom_css'"),
+    query<{ value: string }>("SELECT value FROM system_settings WHERE key = 'custom_css'"),
   ]);
   const prefs = userResult.rows[0]?.preferences || {};
   const customCss = cssResult.rows[0]?.value;

@@ -193,7 +193,7 @@ router.post('/ai/chat', requireAuth, async (req: Request, res: Response) => {
 
   let language = 'en';
   try {
-    const prefResult = await query('SELECT preferences FROM users WHERE id = $1', [req.session.userId]);
+    const prefResult = await query<{ preferences?: { language?: string | null; [key: string]: unknown } | null }>('SELECT preferences FROM users WHERE id = $1', [req.session.userId]);
     language = prefResult.rows[0]?.preferences?.language || 'en';
   } catch { /* non-critical: fall back to English on a preferences read error */ }
   const providerMessages = [
