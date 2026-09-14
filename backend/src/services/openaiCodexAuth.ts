@@ -254,7 +254,7 @@ export function createPostgresCodexStore() {
           `DELETE FROM ai_codex_device_flows
            WHERE expires_at < NOW() - INTERVAL '1 day'`,
         );
-        const result = await client.query(
+        const result = await client.query<CodexFlowDbRow>(
           `INSERT INTO ai_codex_device_flows
              (admin_user_id, session_hash, device_auth_id_enc, user_code_enc,
               interval_ms, expires_at, next_poll_at, state, created_at, updated_at)

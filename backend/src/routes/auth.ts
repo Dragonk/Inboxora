@@ -308,7 +308,7 @@ router.post('/login', authLimiter, async (req, res) => {
     }
 
     // Load enforcement policy and device trust setting together
-    const policyResult = await query(
+    const policyResult = await query<{ key: string; value: string }>(
       "SELECT key, value FROM system_settings WHERE key IN ('mfa_enforcement', 'mfa_device_trust')"
     );
     const policyMap: Record<string, string> = {};
@@ -640,7 +640,7 @@ router.post('/logout', async (req, res) => {
 
 router.get('/me', async (req, res) => {
   if (!req.session.userId) return res.status(401).json({ error: 'Not authenticated' });
-  const result = await query('SELECT id, username, display_name, avatar, is_admin, totp_enabled, password_hash, lock_pin_hash FROM users WHERE id = $1', [req.session.userId]);
+  const result = await query<{ id: string; username?: string | null; display_name?: string | null; avatar?: string | null; is_admin?: boolean; totp_enabled?: boolean; password_hash?: string | null; lock_pin_hash?: string | null }>('SELECT id, username, display_name, avatar, is_admin, totp_enabled, password_hash, lock_pin_hash FROM users WHERE id = $1', [req.session.userId]);
   const user = result.rows[0];
   if (!user) return res.status(401).json({ error: 'Not authenticated' });
   req.session.isAdmin = user.is_admin;
@@ -750,7 +750,7 @@ router.delete('/avatar', async (req, res) => {
 
 // Public endpoint: check registration and auth settings (used by login page)
 router.get('/registration-status', async (req, res) => {
-  const result = await query(
+  const result = await query<{ key: string; value: string }>(
     "SELECT key, value FROM system_settings WHERE key IN ('registration_open', 'internal_auth_disabled')"
   );
   const map: Record<string, string> = {};
