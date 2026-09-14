@@ -79,7 +79,7 @@ router.get('/', async (req, res) => {
   const accountIds = result.rows.map(a => a.id);
   let aliasMap = {};
   if (accountIds.length) {
-    const aliasResult = await query(
+    const aliasResult = await query<{ id: string; account_id: string; name?: string | null; email?: string | null; reply_to?: string | null; signature?: string | null; created_at?: string | Date | null }>(
       `SELECT id, account_id, name, email, reply_to, signature, created_at
        FROM account_aliases WHERE account_id = ANY($1) ORDER BY created_at`,
       [accountIds]
@@ -92,7 +92,7 @@ router.get('/', async (req, res) => {
 
   // Let plugins re-attach their own account-scoped fields (GTD: gtd_enabled/gtd_folders, no longer
   // columns) so the client sees them as before. Each enrichAccount handler returns a field patch.
-  const enriched = await Promise.all(result.rows.map(async (a) => {
+  const enriched = await Promise.all(result.rows.map(async (a: EmailAccountRow) => {
     const patches = await pluginRegistry.collectHook<Record<string, unknown>>('enrichAccount', { account: a });
     return {
       ...a,
@@ -354,7 +354,7 @@ router.get('/:id/aliases', async (req, res) => {
   const check = await query<{ id: string }>('SELECT id FROM email_accounts WHERE id = $1 AND user_id = $2', [id, req.session.userId]);
   if (!check.rows.length) return res.status(404).json({ error: 'Account not found' });
 
-  const result = await query(
+  const result = await query<{ id: string; account_id: string; name?: string | null; email?: string | null; reply_to?: string | null; signature?: string | null; created_at?: string | Date | null }>(
     'SELECT id, account_id, name, email, reply_to, signature, created_at FROM account_aliases WHERE account_id = $1 ORDER BY created_at',
     [id]
   );
