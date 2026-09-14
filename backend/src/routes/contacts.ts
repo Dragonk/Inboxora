@@ -607,7 +607,7 @@ router.delete('/:id', async (req, res) => {
     if (owner.rows[0].source === 'carddav') {
       return res.status(403).json({ error: 'This contact is synced from CardDAV and is read-only' });
     }
-    const result = await query(
+    const result = await query<{ address_book_id: string }>(
       'DELETE FROM contacts WHERE id = $1 AND user_id = $2 RETURNING address_book_id',
       [req.params.id, userId]
     );

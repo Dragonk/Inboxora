@@ -5826,11 +5826,11 @@ export class ImapManager {
     try {
       const prefResult = await query<{ preferences?: { syncInterval?: string | number | null; folderSyncInterval?: string | number | null; [key: string]: unknown } | null }>('SELECT preferences FROM users WHERE id = $1', [userId]);
       const prefs = prefResult.rows[0]?.preferences || {};
-      const sec = parseInt(prefs.syncInterval);
+      const sec = Number(prefs.syncInterval);
       if (sec >= 15 && sec <= 120) {
         this.userSyncIntervalMs.set(userId, sec * 1000);
       }
-      const folderSec = parseInt(prefs.folderSyncInterval);
+      const folderSec = Number(prefs.folderSyncInterval);
       if ([0, 900, 1800, 3600].includes(folderSec)) {
         this.userFolderSyncIntervalMs.set(userId, folderSec * 1000);
       }
