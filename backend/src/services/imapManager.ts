@@ -1151,7 +1151,7 @@ interface ResolvedConnection {
 }
 
 /** A body part the parser collects while walking the structure. */
-interface BodyPartRef { part: string; type: string; encoding: string; charset?: string }
+interface BodyPartRef { part: string; type: string; encoding: string; charset?: string; cid?: string | null }
 
 /** An attachment entry the parser collects. */
 interface AttachmentRef { part: string; filename?: string; type?: string; encoding?: string; size?: number; disposition?: string; [key: string]: unknown }
@@ -1287,7 +1287,7 @@ async function acquirePooledClient(account: EmailAccountRow): Promise<ImapClient
 
   // Pool full — queue a waiter; on 10s timeout fall back to a temporary client
   return new Promise((resolve, reject) => {
-    const entry = { resolve, reject, timer: null };
+    const entry: ConnectionWaiter = { resolve, reject };
     entry.timer = setTimeout(async () => {
       pool.waiters = pool.waiters.filter(w => w !== entry);
       try {
@@ -4684,7 +4684,7 @@ export class ImapManager {
           throw new Error('Command failed');
         }
 
-        const results = { textParts: [], attachments: [], inlineImages: [] };
+        const results: { textParts: BodyPartRef[]; attachments: AttachmentRef[]; inlineImages: BodyPartRef[] } = { textParts: [], attachments: [], inlineImages: [] };
         walkStructure(structure, results);
 
         // Handle single-part root node (no childNodes, type is the content type)
@@ -4875,7 +4875,7 @@ export class ImapManager {
         for await (const msg of client.fetch(uidStr, { uid: true, bodyStructure: true, bodyParts: [partNum] }, { uid: true })) {
           let encoding = 'base64';
           if (msg.bodyStructure) {
-            const r = { textParts: [], attachments: [] };
+            const r: { textParts: BodyPartRef[]; attachments: AttachmentRef[] } = { textParts: [], attachments: [] };
             walkStructure(msg.bodyStructure, r);
             encoding = attachmentTransferEncoding(r, partNum);
           }
@@ -4910,7 +4910,7 @@ export class ImapManager {
           // Build a live encoding map from BODYSTRUCTURE (more reliable than stored metadata)
           const liveEncodings = new Map();
           if (msg.bodyStructure) {
-            const r = { textParts: [], attachments: [] };
+            const r: { textParts: BodyPartRef[]; attachments: AttachmentRef[] } = { textParts: [], attachments: [] };
             walkStructure(msg.bodyStructure, r);
             for (const att of r.attachments) liveEncodings.set(att.part, att.encoding);
           }

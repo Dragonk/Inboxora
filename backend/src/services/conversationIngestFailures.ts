@@ -1,11 +1,19 @@
 import { withTransaction } from './db.js';
+import { toAppError } from '../utils/errors.js';
 
-export async function recordConversationIngestFailure({ userId, accountId = null, messageRowId = null, operation, error, diagnostics = {} }) {
+export async function recordConversationIngestFailure({ userId, accountId = null, messageRowId = null, operation, error, diagnostics = {} }: {
+  userId: string;
+  accountId?: string | null;
+  messageRowId?: string | null;
+  operation: string;
+  error: unknown;
+  diagnostics?: Record<string, unknown>;
+}) {
   if (!userId || !operation || !error) return;
   await withTransaction(async client => {
     await client.query(`
       INSERT INTO conversation_ingest_failures (user_id, account_id, message_row_id, operation, error_code, error_message, diagnostics)
-      VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb)`, [userId, accountId, messageRowId, operation, error.code || null, String(error.message || error), JSON.stringify(diagnostics)]);
+      VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb)`, [userId, accountId, messageRowId, operation, toAppError(error).code || null, toAppError(error).message, JSON.stringify(diagnostics)]);
   });
 }
 

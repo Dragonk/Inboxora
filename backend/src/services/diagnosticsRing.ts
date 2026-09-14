@@ -12,7 +12,7 @@ let wsConnects = 0;
 let wsDisconnects = 0;
 let currentSockets = 0;
 
-export function recordWarning(code: string, accountId = null) {
+export function recordWarning(code: string, accountId: string | null = null) {
   if (!code) return;
   warnings.push({ t: Date.now(), code, accountId: accountId || null });
   if (warnings.length > WARN_CAP) warnings.shift();
