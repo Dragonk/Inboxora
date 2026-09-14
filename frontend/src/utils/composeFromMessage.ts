@@ -18,11 +18,26 @@ export interface ReplyMessageLike extends OwnAddressMessage {
   [key: string]: unknown;
 }
 
+/** A message attachment returned by the body endpoint. */
+interface MessageBodyAttachment {
+  part?: string;
+  filename?: string;
+  type?: string;
+  size?: number;
+}
+
+/** A message body returned by the body endpoint. */
+interface MessageBody {
+  text?: string;
+  html?: string;
+  attachments?: MessageBodyAttachment[];
+}
+
 /** Collaborators the reply flow is handed. */
 export interface ReplyOpenOptions {
   accounts: Array<OwnAddressAccount & { id?: string }>;
   openCompose: (draft: Record<string, unknown>) => unknown;
-  getMessageBody: (id: string, remoteImages?: boolean, copyId?: string | null) => Promise<{ text?: string; html?: string } | null>;
+  getMessageBody: (id: string, remoteImages?: boolean, copyId?: string | null) => Promise<MessageBody | null>;
   replyAll?: boolean;
 }
 
@@ -79,15 +94,19 @@ function addressList(value: unknown): Array<{ name?: string; email?: string }> {
   return parsed.filter((entry): entry is { name?: string; email?: string } => !!entry && typeof entry === 'object');
 }
 
+function isAddressLike(value: unknown): value is { name?: unknown; email?: unknown } {
+  return typeof value === 'object' && value !== null;
+}
+
 function parseAddressField(raw: unknown): string {
   try {
     const parsed: unknown = Array.isArray(raw) ? raw : JSON.parse(String(raw || '[]'));
     if (!Array.isArray(parsed)) return '';
     return parsed
-      .map((entry: Record<string, unknown>) => {
-        const address = entry as { name?: unknown; email?: unknown };
-        const name = typeof address.name === 'string' ? address.name : '';
-        const email = typeof address.email === 'string' ? address.email : '';
+      .map((entry: unknown) => {
+        if (!isAddressLike(entry)) return '';
+        const name = typeof entry.name === 'string' ? entry.name : '';
+        const email = typeof entry.email === 'string' ? entry.email : '';
         return name ? `${name} <${email}>` : email;
       })
       .filter(Boolean)
@@ -136,7 +155,7 @@ export async function openReplyFromMessage(message: ReplyMessageLike, { accounts
   const { inReplyTo, references: referencesChain } = buildReplyHeaders(message);
   const rawSubject = (message.subject || '').trim();
 
-  const replyBody = await getMessageBody(message.id, false, message.selectedCopyId || message.id).catch(() => null);
+  const replyBody = await getMessageBody(String(message.id), false, message.selectedCopyId || message.id).catch(() => null);
   const replyDate = message.date ? new Date(message.date).toLocaleString() : '';
   const replySafeName = (message.from_name || '').replace(/[\r\n]+/g, ' ');
   const replyFromStr = replySafeName
@@ -171,7 +190,7 @@ export async function openReplyFromMessage(message: ReplyMessageLike, { accounts
 }
 
 export async function openForwardFromMessage(message: ReplyMessageLike, { openCompose, getMessageBody }: Pick<ReplyOpenOptions, 'openCompose' | 'getMessageBody'>) {
-  const fwdBody = await getMessageBody(message.id, false, message.selectedCopyId || message.id).catch(() => null);
+  const fwdBody = await getMessageBody(String(message.id), false, message.selectedCopyId || message.id).catch(() => null);
   const fwdDate = message.date ? new Date(message.date).toLocaleString() : '';
   const fwdSafeName = (message.from_name || '').replace(/[\r\n]+/g, ' ');
   const fwdFromStr = fwdSafeName

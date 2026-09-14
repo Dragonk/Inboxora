@@ -11,8 +11,8 @@ export const CALENDAR_VIEW_DEFAULT = 'month';
 // desktop can therefore keep different views without fighting each other.
 export const CALENDAR_VIEW_STORAGE_KEY = 'mailflow_calendar_view';
 
-export function normalizeCalendarView(value) {
-  return CALENDAR_VIEWS.includes(value) ? value : CALENDAR_VIEW_DEFAULT;
+export function normalizeCalendarView(value: unknown) {
+  return typeof value === 'string' && CALENDAR_VIEWS.includes(value) ? value : CALENDAR_VIEW_DEFAULT;
 }
 
 export function readStoredCalendarView() {
@@ -24,7 +24,7 @@ export function readStoredCalendarView() {
   }
 }
 
-export function storeCalendarView(value) {
+export function storeCalendarView(value: unknown) {
   const view = normalizeCalendarView(value);
   try {
     localStorage.setItem(CALENDAR_VIEW_STORAGE_KEY, view);
@@ -32,13 +32,13 @@ export function storeCalendarView(value) {
   return view;
 }
 
-export function normalizeCalendarWorkDays(value) {
+export function normalizeCalendarWorkDays(value: unknown) {
   if (!Array.isArray(value)) return [...DEFAULT_CALENDAR_PREFERENCES.calendarWorkDays];
-  const days = [...new Set(value.filter(day => Number.isInteger(day) && day >= 0 && day <= 6))].sort((a, b) => a - b);
+  const days = [...new Set(value.filter((day: unknown): day is number => typeof day === 'number' && Number.isInteger(day) && day >= 0 && day <= 6))].sort((a, b) => a - b);
   return days.length ? days : [...DEFAULT_CALENDAR_PREFERENCES.calendarWorkDays];
 }
 
-export function normalizeCalendarWorkTime(value, fallback = '09:00') {
+export function normalizeCalendarWorkTime(value: unknown, fallback: string = '09:00') {
   if (typeof value !== 'string' || !/^([01]\d|2[0-3]):[0-5]\d$/.test(value)) return fallback;
   return value;
 }

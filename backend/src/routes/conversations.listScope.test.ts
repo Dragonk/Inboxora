@@ -1,7 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { listeningPort } from '../test/net.js';
 import type { Server } from 'node:http';
-import type { JsonBody } from '../test/json.js';
 
 vi.mock('../services/db.js', () => ({ query: vi.fn(), pool: {} }));
 vi.mock('../middleware/auth.js', () => ({
@@ -13,15 +12,43 @@ vi.mock('../middleware/auth.js', () => ({
 
 import express from 'express';
 import conversationsRoutes from './conversations.js';
-import { query as __mock_query } from '../services/db.js';
+import { query } from '../services/db.js';
 
-// Cast mocked module exports so their vitest mock helpers type-check.
-const query = vi.mocked(__mock_query);
+// Expose mocked module exports with their Vitest mock helpers.
+const mockQuery = vi.mocked(query);
 
 const ACCOUNT_A = '11111111-1111-4111-8111-111111111119';
 const ACCOUNT_B = '22222222-2222-4222-8222-222222222229';
 const CONVERSATION_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const CONVERSATION_B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+
+interface ConversationRow {
+  conversation_id: string;
+  account_id: string;
+  logical_messages: unknown[];
+}
+
+function isConversationRow(value: unknown): value is ConversationRow {
+  return typeof value === 'object'
+    && value !== null
+    && 'conversation_id' in value
+    && typeof value.conversation_id === 'string'
+    && 'account_id' in value
+    && typeof value.account_id === 'string'
+    && 'logical_messages' in value
+    && Array.isArray(value.logical_messages);
+}
+
+function conversationRows(body: unknown): ConversationRow[] {
+  if (typeof body !== 'object'
+    || body === null
+    || !('conversations' in body)
+    || !Array.isArray(body.conversations)
+    || !body.conversations.every(isConversationRow)) {
+    throw new Error('Expected a conversation-list response');
+  }
+  return body.conversations;
+}
 
 function buildApp() {
   const app = express();
@@ -62,26 +89,37 @@ describe('GET /api/mail/conversations list contract', () => {
     await new Promise(resolve => server.close(resolve));
   });
 
-  beforeEach(() => query.mockReset());
+  beforeEach(() => mockQuery.mockReset());
 
   it('uses INBOX only as an entry condition and returns all 5 logical children from 6 copies', async () => {
-    query.mockResolvedValueOnce({ rows: [goldenRow()] });
+    mockQuery.mockResolvedValueOnce({ rows: [goldenRow()] });
 
     const response = await fetch(`${base}/api/mail/conversations?accountId=${ACCOUNT_A}&folder=INBOX`, {
       headers: { 'x-test-user': 'user-a' },
     });
     expect(response.status).toBe(200);
-    const body = (await response.json()) as JsonBody;
-    expect(body.conversations).toHaveLength(1);
-    expect(body.conversations[0]).toMatchObject({
+    const conversations = conversationRows(await response.json());
+    expect(conversations).toHaveLength(1);
+    const conversation = conversations[0];
+    if (conversation === undefined) {
+      throw new Error('Expected one conversation');
+    }
+    expect(conversation).toMatchObject({
       conversation_id: CONVERSATION_A,
       account_id: ACCOUNT_A,
       logical_message_count: 5,
       copy_count: 6,
     });
-    expect(body.conversations[0].logical_messages).toHaveLength(5);
+    expect(conversation.logical_messages).toHaveLength(5);
 
-    const [sql, params] = query.mock.calls[0];
+    const firstCall = mockQuery.mock.calls[0];
+    if (firstCall === undefined) {
+      throw new Error('Expected a database query');
+    }
+    const [sql, params] = firstCall;
+    if (params === undefined) {
+      throw new Error('Expected query parameters');
+    }
     expect(params.slice(0, 3)).toEqual(['user-a', ACCOUNT_A, 'INBOX']);
     expect(sql).toContain('COUNT(DISTINCT m.logical_message_id)::int AS logical_message_count');
     expect(sql).toContain('COUNT(m.id)::int AS copy_count');
@@ -93,7 +131,7 @@ describe('GET /api/mail/conversations list contract', () => {
   });
 
   it('keeps the same RFC exchange as two account-local unified rows', async () => {
-    query.mockResolvedValueOnce({ rows: [
+    mockQuery.mockResolvedValueOnce({ rows: [
       goldenRow(),
       goldenRow({
         conversation_id: CONVERSATION_B,
@@ -110,12 +148,12 @@ describe('GET /api/mail/conversations list contract', () => {
       headers: { 'x-test-user': 'user-a' },
     });
     expect(response.status).toBe(200);
-    const rows = ((await response.json()) as JsonBody).conversations;
+    const rows = conversationRows(await response.json());
     expect(rows.map(row => [row.conversation_id, row.account_id])).toEqual([
       [CONVERSATION_A, ACCOUNT_A],
       [CONVERSATION_B, ACCOUNT_B],
     ]);
-    const [sql] = query.mock.calls[0];
+    const [sql] = mockQuery.mock.calls[0];
     expect(sql).toContain('m_entry.account_id = c.account_id');
     expect(sql).toContain('include_in_unified_inbox = true');
     expect(sql).toContain('ca.account_id = c.account_id');
