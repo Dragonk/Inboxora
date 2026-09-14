@@ -1380,7 +1380,7 @@ router.post('/messages/bulk-delete', async (req, res) => {
 router.get('/mailbox-usage', async (req, res) => {
   const accountId = queryString(req.query.accountId);
   if (!accountId || !UUID_RE.test(accountId)) return res.status(400).json({ error: 'valid accountId required' });
-  const acct = await query('SELECT id, folder_mappings FROM email_accounts WHERE id = $1 AND user_id = $2', [accountId, req.session.userId]);
+  const acct = await query<{ id: string; folder_mappings?: Record<string, string> | null }>('SELECT id, folder_mappings FROM email_accounts WHERE id = $1 AND user_id = $2', [accountId, req.session.userId]);
   if (!acct.rows.length) return res.status(404).json({ error: 'Account not found' });
   // Whether Archive is a usable cleanup action for this account (#403): the client
   // offers Archive vs Trash and needs to know if an archive folder can be resolved.
