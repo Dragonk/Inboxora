@@ -35,6 +35,37 @@ export interface RuleAction {
   [key: string]: unknown;
 }
 
+interface RuleMessageRow {
+  id: string;
+  uid: number;
+  folder: string;
+  from_email?: string | null;
+  from_name?: string | null;
+  to_addresses?: unknown;
+  subject?: string | null;
+  has_attachments?: boolean | null;
+  is_read?: boolean | null;
+}
+
+interface RuleRecipient {
+  email: string;
+  name: string;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function normalizeRecipient(value: unknown): RuleRecipient {
+  if (!isRecord(value)) return { email: '', name: '' };
+  const email = typeof value.address === 'string'
+    ? value.address
+    : typeof value.email === 'string'
+      ? value.email
+      : '';
+  return { email, name: typeof value.name === 'string' ? value.name : '' };
+}
+
 // Untrusted as stored or posted: the validators below are what turn these into the shapes above.
 export interface RuleConditionInput {
   field?: unknown;
@@ -87,6 +118,10 @@ export function validateActions(actions: ReadonlyArray<RuleActionInput>): string
 // Strip duplicate destination and forward actions (keeping the first) and trim
 // move and forward values.
 // Silently drops malformed entries (null, non-object, missing/non-string type).
+function isMoveActionWithDestination(action: RuleAction): action is RuleAction & { type: 'move'; value: string } {
+  return action.type === 'move' && typeof action.value === 'string' && action.value.trim().length > 0;
+}
+
 export function normalizeActions(actions: ReadonlyArray<RuleActionInput>): RuleAction[] {
   let destSeen = false;
   let forwardSeen = false;
@@ -171,7 +206,7 @@ router.post('/run', async (req: Request, res: Response) => {
       const BATCH = 500;
       let lastId: string | null = null;
       while (true) {
-        const msgResult = await query<{ id: string; uid: number; folder: string; from_email?: string | null; from_name?: string | null; to_addresses?: unknown; subject?: string | null; has_attachments?: boolean | null; is_read?: boolean | null }>(
+        const msgResult: { rows: RuleMessageRow[]; rowCount?: number } = await query<RuleMessageRow>(
           `SELECT id, uid, folder, from_email, from_name, to_addresses, subject, has_attachments, is_read
            FROM messages
            WHERE account_id = $1 AND lower(folder) = 'inbox'
@@ -187,11 +222,11 @@ router.post('/run', async (req: Request, res: Response) => {
         const messages = msgResult.rows.map(row => {
           let toArr: Array<{ email: string; name: string }> = [];
           try {
-            const raw = typeof row.to_addresses === 'string'
+            const raw: unknown = typeof row.to_addresses === 'string'
               ? JSON.parse(row.to_addresses)
               : row.to_addresses;
             if (Array.isArray(raw)) {
-              toArr = raw.map(a => ({ email: a.address || a.email || '', name: a.name || '' }));
+              toArr = raw.map((value: unknown) => normalizeRecipient(value));
             }
           } catch { /* malformed to_addresses — leave toArr empty */ }
           return {
@@ -247,7 +282,7 @@ router.post('/', async (req: Request, res: Response) => {
     }
     // Strip move actions for all-account rules — a move needs a known account to
     // resolve folder paths. The UI enforces this but a direct API call could bypass it.
-    const moveAction = normalizedActions.find(a => a.type === 'move' && a.value?.trim());
+    const moveAction = normalizedActions.find(isMoveActionWithDestination);
     if (moveAction && accountId) {
       const folderResult = await query<{ total: string; match: string }>(
         `SELECT COUNT(*) AS total, COUNT(*) FILTER (WHERE path = $2) AS match
@@ -309,7 +344,7 @@ router.put('/:id', async (req: Request, res: Response) => {
       );
       if (!owned.rows.length) return res.status(403).json({ error: 'Account not found' });
     }
-    const moveAction = normalizedActions.find(a => a.type === 'move' && a.value?.trim());
+    const moveAction = normalizedActions.find(isMoveActionWithDestination);
     if (moveAction && accountId) {
       const folderResult = await query<{ total: string; match: string }>(
         `SELECT COUNT(*) AS total, COUNT(*) FILTER (WHERE path = $2) AS match
