@@ -2443,7 +2443,7 @@ export class ImapManager {
     if (this.syncingAccounts.has(account.id)) return;
     this.syncingAccounts.add(account.id);
     this.syncStartedAt.set(account.id, Date.now());
-    let activeClient: ImapFlow | null = null;
+    let activeClient: ImapClient | undefined;
     let usedFreshSyncClient = false;
     let syncResult;
     try {
