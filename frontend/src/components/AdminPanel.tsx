@@ -1898,7 +1898,7 @@ function LayoutsTab() {
             <button
               key={key}
               type="button"
-              onClick={() => setFontSize(value)}
+              onClick={() => setFontSize(Number(value))}
               aria-pressed={fontSize === value}
               style={{
                 border: 0, padding: '5px 12px', borderRadius: 6, fontSize: 12, cursor: 'pointer',
@@ -5631,7 +5631,7 @@ function NotificationsTab() {
     const reader = new FileReader();
     reader.onload = (ev) => {
       const dataUrl = ev.target.result;
-      setCustomSoundDataUrl(dataUrl);
+      setCustomSoundDataUrl(String(dataUrl));
       setCustomFileName(file.name);
       localStorage.setItem('mailflow_custom_sound_name', file.name);
       setNotificationSound('custom');

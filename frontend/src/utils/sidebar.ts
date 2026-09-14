@@ -24,7 +24,7 @@ export function activateOnKey(activate: () => void): (event: { key: string; prev
 
 export const FOLDER_ORDER_DRAG_TYPE = 'application/x-mailflow-folder-order';
 
-function delimiterFor(folders: SidebarFolderNode[]): string {
+function delimiterFor(folders: Array<{ delimiter?: string; [key: string]: unknown }>): string {
   return folders.find(folder => (
     typeof folder?.delimiter === 'string' && folder.delimiter
   ))?.delimiter || '/';
@@ -35,7 +35,7 @@ function folderParent(path: string, delimiter: string): string | null {
   return index === -1 ? null : path.slice(0, index);
 }
 
-function folderPathsWithAncestors(folders: SidebarFolderNode[]): string[] {
+function folderPathsWithAncestors(folders: Array<{ path: string; [key: string]: unknown }>): string[] {
   const delimiter = delimiterFor(folders);
   const paths = new Set<string>();
   for (const folder of folders) {
@@ -64,10 +64,10 @@ export function sanitizeFolderOrder(value: unknown): Record<string, string[]> {
   return clean;
 }
 
-export function normalizeFolderOrder(folders, savedOrder = []) {
+export function normalizeFolderOrder(folders: Array<{ path: string; [key: string]: unknown }> | null | undefined, savedOrder: string[] = []): string[] {
   const known = folderPathsWithAncestors(Array.isArray(folders) ? folders : []);
   const knownSet = new Set(known);
-  const ranked: unknown[] = [];
+  const ranked: string[] = [];
   const seen = new Set();
   if (Array.isArray(savedOrder)) {
     for (const folderPath of savedOrder) {
@@ -141,17 +141,17 @@ export function buildFolderTree(folders, savedOrder = []) {
 }
 
 export function reorderFolderPaths(
-  folders,
-  savedOrder,
-  draggedPath,
-  targetPath,
-  position,
-) {
+  folders: Array<{ path: string; delimiter?: string; [key: string]: unknown }>,
+  savedOrder: string[],
+  draggedPath: string,
+  targetPath: string,
+  position: unknown,
+): string[] | null {
   if (position !== 'before' && position !== 'after') return null;
   const safeFolders = Array.isArray(folders) ? folders : [];
   const delimiter = delimiterFor(safeFolders);
   const current = normalizeFolderOrder(safeFolders, savedOrder);
-  const known = new Set(current);
+  const known: Set<string> = new Set(current);
   if (
     draggedPath === targetPath
     || !known.has(draggedPath)
@@ -172,14 +172,14 @@ export function folderDropPosition(clientY, rect) {
 }
 
 export function resolveFolderOrderDrop(
-  folders,
-  savedOrder,
-  dataTransfer,
-  targetAccountId,
-  targetPath,
-  clientY,
-  rect,
-) {
+  folders: Array<{ path: string; delimiter?: string; [key: string]: unknown }>,
+  savedOrder: string[],
+  dataTransfer: { types?: readonly string[]; getData?: (type: string) => string } | null,
+  targetAccountId: string | number,
+  targetPath: string,
+  clientY: number,
+  rect: { top: number; bottom?: number; height?: number; [key: string]: unknown },
+): string[] | null {
   if (
     !Array.from(dataTransfer?.types || []).includes(FOLDER_ORDER_DRAG_TYPE)
     || typeof dataTransfer?.getData !== 'function'

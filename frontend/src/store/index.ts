@@ -92,7 +92,7 @@ export interface StoreState {
   lockScreen: () => void;
   autoLockMinutes: number;
   setAutoLockMinutes: (m: number) => void;
-  accounts: Array<{ id: string; name?: string | null; email_address?: string | null; sender_name?: string | null; color?: string | null; signature?: string | null; sync_error?: string | null; imap_host?: string | null; imap_port?: number | string | null; categorization_enabled?: boolean; enabled?: boolean; include_in_unified_inbox?: boolean; aliases?: Array<{ id: string; email?: string | null; name?: string | null; signature?: string | null; [key: string]: unknown }>; folder_mappings?: { inbox?: string | null; spam?: string | null; sent?: string | null; drafts?: string | null; trash?: string | null; archive?: string | null; [key: string]: unknown } | null; [key: string]: unknown }>;
+  accounts: Array<{ id: string; name?: string | null; email_address?: string | null; sender_name?: string | null; color?: string | null; signature?: string | null; sync_error?: string | null; last_sync?: string | number | null; imap_host?: string | null; imap_port?: number | string | null; categorization_enabled?: boolean; enabled?: boolean; include_in_unified_inbox?: boolean; aliases?: Array<{ id: string; email?: string | null; name?: string | null; signature?: string | null; [key: string]: unknown }>; folder_mappings?: { inbox?: string | null; spam?: string | null; sent?: string | null; drafts?: string | null; trash?: string | null; archive?: string | null; [key: string]: unknown } | null; [key: string]: unknown }>;
   accountsReady: boolean;
   setAccounts: (accounts: Array<{
       id: string;
@@ -362,6 +362,7 @@ export interface StoreMessageRow {
   to_addresses?: string | null;
   cc_addresses?: string | null;
   reply_to?: string | null;
+  delivery_addresses?: string | Array<{ email?: string | null; address?: string | null } | string> | null;
   category?: string | null;
   [key: string]: unknown;
 }
@@ -1458,7 +1459,8 @@ export const useStore = create<StoreState>()((set, get) => ({
   addFavoriteFolder: ({ accountId, path, name }: { accountId: string; path: string; name?: string }) => {
     const prev = get().favoriteFolders;
     if (prev.some((f: FavoriteFolderRow) => f.accountId === accountId && f.path === path)) return;
-    const next = [...prev, { accountId, path }];
+    // The caller passes a display name; the rest of the UI reads it as label (renameFavoriteFolder sets it).
+    const next = [...prev, { accountId, path, ...(name ? { label: name } : {}) }];
     localStorage.setItem('mailflow_favorite_folders', JSON.stringify(next));
     set({ favoriteFolders: next });
     schedulePrefSave({ favoriteFolders: next });
