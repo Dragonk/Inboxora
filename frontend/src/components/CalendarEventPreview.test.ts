@@ -9,7 +9,7 @@ describe('Calendar event preview contract', () => {
     const calendar = await source('./CalendarPage.tsx');
     // Opening a local event used to jump straight into the editor, so its
     // description was never rendered the way a message body is.
-    assert.match(calendar, /const openEvent = event => \{[\s\S]*?setPreview\(event\);/);
+    assert.match(calendar, /const openEvent = \(event: CalendarViewEvent\) => \{[\s\S]*?setPreview\(event\);/);
     assert.doesNotMatch(calendar, /if \(!event\.read_only && event\.source === 'local'\) openEdit\(event\);/);
     // Editing stays reachable from the preview, for editable events only, and the
     // preview closes as the editor opens so two dialogs are never stacked.
