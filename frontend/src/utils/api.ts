@@ -204,14 +204,14 @@ export const api = {
   // TOTP / 2FA
   totp: {
     setup: () => request('GET', '/totp/setup'),
-    enable: (code) => request('POST', '/totp/enable', { code }),
+    enable: (code: string) => request('POST', '/totp/enable', { code }),
     disable: (password: string) => request('POST', '/totp/disable', { password }),
     cancel: () => request('POST', '/totp/cancel'),
-    challenge: (code, rememberDevice) => request('POST', '/auth/2fa/challenge', { code, rememberDevice }),
+    challenge: (code: string, rememberDevice) => request('POST', '/auth/2fa/challenge', { code, rememberDevice }),
     sendEmailOtp: () => request('POST', '/auth/2fa/send-email-otp'),
-    verifyEmailOtp: (code, rememberDevice) => request('POST', '/auth/2fa/verify-email-otp', { code, rememberDevice }),
+    verifyEmailOtp: (code: string, rememberDevice) => request('POST', '/auth/2fa/verify-email-otp', { code, rememberDevice }),
     enrollmentSetup: () => request('GET', '/auth/2fa/enrollment/setup'),
-    enrollmentEnable: (code) => request('POST', '/auth/2fa/enrollment/enable', { code }),
+    enrollmentEnable: (code: string) => request('POST', '/auth/2fa/enrollment/enable', { code }),
   },
 
   // Admin
@@ -255,7 +255,7 @@ export const api = {
   getFolders: (accountId: string) => request('GET', `/accounts/${accountId}/folders`),
   getAliases: (accountId: string) => request('GET', `/accounts/${accountId}/aliases`),
   addAlias: (accountId: string, data: unknown) => request('POST', `/accounts/${accountId}/aliases`, data),
-  updateAlias: (accountId: string, aliasId, data: unknown) => request('PUT', `/accounts/${accountId}/aliases/${aliasId}`, data),
+  updateAlias: (accountId: string, aliasId: string, data: unknown) => request('PUT', `/accounts/${accountId}/aliases/${aliasId}`, data),
   deleteAlias: (accountId: string, aliasId) => request('DELETE', `/accounts/${accountId}/aliases/${aliasId}`),
 
   // Mail
@@ -272,7 +272,7 @@ export const api = {
     return request('GET', `/mail/resolve-message?${qs}`);
   },
   getMessageBody,
-  getThread: (threadId, folder: string, unified = false, accountId = null) =>{
+  getThread: (threadId: string, folder: string, unified = false, accountId = null) =>{
     const qs = new URLSearchParams();
     if (folder) qs.set('folder', folder);
     if (unified) qs.set('unified', 'true');
@@ -305,13 +305,13 @@ export const api = {
   snoozeMessage: (id: string, until) => request('POST', `/mail/messages/${id}/snooze`, { until }),
 
   // Sanitized diagnostics report (server-owned sections; scoped to the user).
-  diagnosticsReport: (salt) => request('POST', '/diagnostics/report', { salt }),
+  diagnosticsReport: (salt: string) => request('POST', '/diagnostics/report', { salt }),
 
   // Integrations
   getIntegrations: () => request('GET', '/integrations'),
   getIntegrationsStatus: () => request('GET', '/integrations/status'),
-  saveIntegration: (provider, config) => request('POST', `/integrations/${provider}`, config),
-  deleteIntegration: (provider) => request('DELETE', `/integrations/${provider}`),
+  saveIntegration: (provider: string, config) => request('POST', `/integrations/${provider}`, config),
+  deleteIntegration: (provider: string) => request('DELETE', `/integrations/${provider}`),
   startMsDeviceFlow: async () => {
     const res = await fetch('/oauth/microsoft/device', { method: 'POST', credentials: 'include' });
     const data = await res.json();
@@ -331,7 +331,7 @@ export const api = {
   // Folder management
   createFolder: (accountId: string, name: string, parentPath) => request('POST', '/mail/folders', { accountId, name, parentPath }),
   deleteFolder: (accountId: string, path: string) => request('POST', '/mail/folders/delete', { accountId, path }),
-  renameFolder: (accountId: string, oldPath, newName) => request('POST', '/mail/folders/rename', { accountId, oldPath, newName }),
+  renameFolder: (accountId: string, oldPath: string, newName) => request('POST', '/mail/folders/rename', { accountId, oldPath, newName }),
   emptyFolder: (accountId: string, path: string) => request('POST', '/mail/folders/empty', { accountId, path }),
 
   // Search
@@ -343,7 +343,7 @@ export const api = {
     if (offset) params.set('offset', String(offset));
     return request('GET', `/search?${params}`);
   },
-  suggestContacts: (q) => request('GET', `/search/contacts?q=${encodeURIComponent(q)}`),
+  suggestContacts: (q: string) => request('GET', `/search/contacts?q=${encodeURIComponent(q)}`),
 
   // Contacts
   getContacts:   ({ q, limit, offset, is_auto, addressBookId }: { q?: string; limit?: string | number; offset?: string | number; is_auto?: string | boolean; addressBookId?: string } = {}) => {
@@ -372,8 +372,8 @@ export const api = {
   // CardDAV contact sync (Nextcloud etc.)
   carddav: {
     status:     ()     => request('GET',    '/carddav'),
-    connect:    (data) => request('POST',   '/carddav/connect', data),
-    update:     (data) => request('PATCH',  '/carddav', data),
+    connect:    (data: unknown) => request('POST',   '/carddav/connect', data),
+    update:     (data: unknown) => request('PATCH',  '/carddav', data),
     sync:       ()     => request('POST',   '/carddav/sync'),
     disconnect: ()     => request('DELETE', '/carddav'),
   },
