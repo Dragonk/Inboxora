@@ -319,7 +319,7 @@ router.get('/thread/:threadId', async (req, res) => {
 // (~60 s) after new mail arrives. Querying messages directly means the count
 // returned immediately after the new_messages WS event is always authoritative.
 router.get('/unread-counts', async (req, res) => {
-  const result = await query(`
+  const result = await query<{ account_id: string; include_in_unified_inbox?: boolean; count: string }>(`
     SELECT m.account_id, a.include_in_unified_inbox, COUNT(*) AS count
     FROM messages m
     JOIN email_accounts a ON a.id = m.account_id
