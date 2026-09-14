@@ -1765,7 +1765,7 @@ function LayoutsTab() {
   // cross-browser path (works in Firefox and non-installed Chromium) and must be
   // called from a user gesture, so it lives behind this button. Feature-detected in
   // the JSX; not available on iOS/Safari.
-  const [mailtoStatus, setMailtoStatus] = useState(null);
+  const [mailtoStatus, setMailtoStatus] = useState<string | null>(null);
   const registerMailtoHandler = () => {
     try {
       navigator.registerProtocolHandler('mailto', window.location.origin + '/?mailto=%s');
@@ -2556,7 +2556,7 @@ function IntegrationsTab() {
   const [configs, setConfigs] = useState<Record<string, { clientId?: string; [key: string]: unknown }>>({});
   // Non-admins can't read the full config (admin-only), but need to know whether
   // Microsoft OAuth is configured so the connect buttons enable. (#315)
-  const [msStatus, setMsStatus] = useState(null); // { configured } for non-admins
+  const [msStatus, setMsStatus] = useState<Record<string, unknown> | null>(null); // { configured } for non-admins
   const [loading, setLoading] = useState(true);
   const [msForm, setMsForm] = useState({ clientId: '', clientSecret: '', tenantId: '', redirectUri: '' });
   const [msExpanded, setMsExpanded] = useState(false);
@@ -2564,7 +2564,7 @@ function IntegrationsTab() {
   const [saveMsg, setSaveMsg] = useState('');
   const [connectingMs, setConnectingMs] = useState(false);
   const [deviceFlow, setDeviceFlow] = useState<{ userCode?: string; verificationUri?: string; interval?: number; [key: string]: unknown } | null>(null); // { userCode, verificationUri, interval }
-  const [deviceStatus, setDeviceStatus] = useState(null); // 'pending'|'success'|'declined'|'expired'|'error'
+  const [deviceStatus, setDeviceStatus] = useState<string | null>(null); // 'pending'|'success'|'declined'|'expired'|'error'
   const devicePollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Todoist state
@@ -3373,7 +3373,7 @@ function SSOTab() {
   useBackLayer(editing, () => { if (!saving) setEditing(null); }, 2010);
   const [error, setError] = useState('');
   const [confirmDialog, setConfirmDialog] = useState(null);
-  const [copiedId, setCopiedId] = useState(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
   const [templateNote, setTemplateNote] = useState('');
   const [internalAuthDisabled, setInternalAuthDisabled] = useState(false);
   const [internalAuthSaving, setInternalAuthSaving] = useState(false);
@@ -4292,7 +4292,7 @@ function AiActionsTab() {
   const { t } = useTranslation();
   const { aiActions, setAiActions } = useStore();
   const [items, setItems] = useState(() => (aiActions || []).map(a => ({ ...a })));
-  const [aiEnabled, setAiEnabled] = useState(null);
+  const [aiEnabled, setAiEnabled] = useState<boolean | null>(null);
 
   // Populate once when prefs finish loading, without clobbering in-progress edits.
   useEffect(() => {
@@ -4646,7 +4646,7 @@ function PluginsSection({ onNavigate }: PluginsSectionProps) {
   const enabledPlugins = useStore((s: StoreState) => s.enabledPlugins);
   const setPluginActivated = useStore((s: StoreState) => s.setPluginActivated);
   const [manifests, setManifests] = useState(null); // null = loading
-  const [busyId, setBusyId] = useState(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState(false);
 
   useEffect(() => {
@@ -4890,12 +4890,12 @@ function UsersAndInvitesPanel() {
   const [invites, setInvites] = useState<Array<{ id: string; token?: string; email?: string; expires_at?: string; used_at?: string; used_by_username?: string; [key: string]: unknown }>>([]);
   const [inviteTotal, setInviteTotal] = useState(0);
   const [invitesLoadingMore, setInvitesLoadingMore] = useState(false);
-  const [regOpen, setRegOpen] = useState(null); // null = loading
+  const [regOpen, setRegOpen] = useState<boolean | null>(null); // null = loading
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteLoading, setInviteLoading] = useState(false);
   const [inviteMsg, setInviteMsg] = useState<{ type?: string; text?: string; url?: string; [key: string]: unknown } | null>(null); // { type: 'ok'|'error', text, url? }
   const [loading, setLoading] = useState(true);
-  const [copiedId, setCopiedId] = useState(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
   const [confirmDialog, setConfirmDialog] = useState(null);
 
   useEffect(() => {
@@ -6029,7 +6029,7 @@ function SecurityPrivacyTab({ initialSubTab }: SubTabSectionProps) {
 // ─── About Tab ───────────────────────────────────────────────────────────────
 function AboutTab() {
   const { t } = useTranslation();
-  const [info, setInfo] = useState(null);
+  const [info, setInfo] = useState<{ version: string; sha: string } | null>(null);
   const [showDiagnostics, setShowDiagnostics] = useState(false);
 
   useEffect(() => {
@@ -6107,8 +6107,8 @@ function RulesTab() {
   const { accounts, folders: storeFolders, setFolders, rulesPreFill, setRulesPreFill } = useStore();
   const [rules, setRules] = useState<Array<{ id: string; enabled?: boolean; name?: string; [key: string]: unknown }>>([]);
   const [loading, setLoading] = useState(true);
-  const [formMode, setFormMode] = useState(null); // null | 'add' | 'edit'
-  const [formId, setFormId] = useState(null);
+  const [formMode, setFormMode] = useState<'add' | 'edit' | null>(null);
+  const [formId, setFormId] = useState<string | null>(null);
   const [formData, setFormData] = useState<{ accountId?: string; name?: string; conditionLogic?: string; conditions?: Array<{ field?: string; operator?: string; value?: string; headerName?: string; [key: string]: unknown }>; actions?: Array<{ type?: string; value?: string; [key: string]: unknown }>; stopProcessing?: boolean; [key: string]: unknown } | null>(null);
   const [formError, setFormError] = useState('');
   const [formSaving, setFormSaving] = useState(false);
@@ -6116,12 +6116,12 @@ function RulesTab() {
   const [confirmDelete, setConfirmDelete] = useState(null);
   useBackLayer(confirmDelete, () => setConfirmDelete(null), 2020);
   const [runningRules, setRunningRules] = useState(false);
-  const [runResult, setRunResult] = useState(null);
+  const [runResult, setRunResult] = useState<{ matched?: number; processed?: number; [key: string]: unknown } | null>(null);
   const [runError, setRunError] = useState('');
 
   // Drag-and-drop state for rules reorder
-  const [ruleDragIdx, setRuleDragIdx] = useState(null);
-  const [ruleDropIdx, setRuleDropIdx] = useState(null);
+  const [ruleDragIdx, setRuleDragIdx] = useState<number | null>(null);
+  const [ruleDropIdx, setRuleDropIdx] = useState<number | null>(null);
 
   const isMobile = useMobile();
 
@@ -6866,7 +6866,7 @@ function MailboxCleanupTab() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [busySender, setBusySender] = useState('');
-  const [progress, setProgress] = useState(null);
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   // Cleanup action for the whole view (#403): Archive is the default and recommended
   // choice; Trash stays available as an explicit alternative. One selector governs
   // every sender row, not a per-row pair of buttons.
@@ -7123,7 +7123,7 @@ const TABS = [
 function ShortcutsTab() {
   const { t } = useTranslation();
   const { shortcuts, setShortcuts } = useStore();
-  const [recording, setRecording] = useState(null); // action name currently being recorded
+  const [recording, setRecording] = useState<string | null>(null); // action name currently being recorded
   const [pendingConflict, setPendingConflict] = useState(null); // { action: conflictingAction, key }
   useBackLayer(recording || pendingConflict, () => { setPendingConflict(null); setRecording(null); }, 2010);
 
@@ -7567,7 +7567,7 @@ function ScreenLockSection() {
   const { t } = useTranslation();
   const { user, setUser, autoLockMinutes, setAutoLockMinutes } = useStore();
   const hasPin = !!user?.hasLockPin;
-  const [mode, setMode] = useState(null); // null | 'set' | 'change' | 'remove'
+  const [mode, setMode] = useState<'set' | 'change' | 'remove' | null>(null);
   const [currentPin, setCurrentPin] = useState('');
   const [pin, setPin] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -7670,7 +7670,7 @@ function SecurityTab() {
   const { t } = useTranslation();
   const { user, setUser } = useStore();
   const [step, setStep] = useState('idle'); // 'idle' | 'scan' | 'verify'
-  const [setupData, setSetupData] = useState(null); // { qrCode, secret }
+  const [setupData, setSetupData] = useState<{ qrCode: string; secret: string } | null>(null);
   const [verifyCode, setVerifyCode] = useState('');
   const [showDisable, setShowDisable] = useState(false);
   const [disablePassword, setDisablePassword] = useState('');
@@ -8675,7 +8675,7 @@ export default function AdminPanel() {
   }, [isMobile, isAdmin]);
 
   const [searchQuery, setSearchQuery] = useState('');
-  const [pendingSubTab, setPendingSubTab] = useState(null);
+  const [pendingSubTab, setPendingSubTab] = useState<string | null>(null);
   useBackLayer(searchQuery, () => setSearchQuery(''), 2005);
 
   const searchIndex = useMemo(() => makeSearchIndex(t), [t]);
