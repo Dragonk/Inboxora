@@ -333,11 +333,11 @@ export default function MessageList() {
 
   // Ref that always holds the latest values needed by shortcut handlers.
   // Updated synchronously on every render so handlers are never stale.
-  interface ListMessage {
-    id: string;
-    account_id?: string;
-    [key: string]: unknown;
-  }
+  /** A row in the list: the store's message row plus the addressing fields the list renders. */
+  type ListMessage = StoreMessageRow & {
+    to_addresses?: string | null;
+    cc_addresses?: string | null;
+  };
 
   type MessageQueryParams = {
     limit: number;
@@ -1373,7 +1373,7 @@ export default function MessageList() {
     });
   }, []);
 
-  const handleDelete = (e, message) => {
+  const handleDelete = (e: React.MouseEvent, message: ListMessage) => {
     e.stopPropagation();
     scheduleDelete(message);
   };
@@ -1439,7 +1439,7 @@ export default function MessageList() {
     setMessagesStarredState(message, !message.is_starred);
   }, [setMessagesStarredState]);
 
-  const handleSwipeReply = useCallback((message, replyAll = false) => {
+  const handleSwipeReply = useCallback((message: ListMessage, replyAll = false) => {
     const replyToArr = Array.isArray(message.reply_to)
       ? message.reply_to
       : (() => { try { return JSON.parse(message.reply_to || '[]'); } catch { return []; } })();
@@ -1582,7 +1582,7 @@ export default function MessageList() {
   scRef.current.displayMessages = displayMessages;
 
   // Arrow-key navigation: intercepts ArrowDown/ArrowUp when the list container has focus.
-  const handleListKeyDown = useCallback((e) => {
+  const handleListKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'ArrowDown') { e.preventDefault(); shortcutBus.emit('nextMessage'); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); shortcutBus.emit('prevMessage'); }
   }, []);
@@ -1707,7 +1707,7 @@ export default function MessageList() {
     });
   }, [searchHasMore, removeMessage, prefetchSearchAfterRemoval, resolveMessagesForThreadAction, decrementUnread, incrementUnread, addNotification, setThreadMessages, t]);
 
-  const handleBulkMove = useCallback(async (ids, msgs, folder) => {
+  const handleBulkMove = useCallback(async (ids: string[], msgs: ListMessage[], folder: string) => {
     // Selected thread rows move the whole conversation. A folder path is
     // account-specific, so scope each thread's expansion to its row's own
     // account — the server would just skip (and previously silently drop)
