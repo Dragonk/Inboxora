@@ -1,6 +1,7 @@
 import { useBackLayer } from '../hooks/useBackNavigation.ts';
 import { useState, useRef, useEffect, useCallback, forwardRef } from 'react';
-import type { MouseEventHandler, ReactNode } from 'react';
+import type { Editor } from '@tiptap/react';
+import type { CSSProperties, MouseEventHandler, ReactNode } from 'react';
 import type { ChangeEvent } from 'react';
 import { shouldAutosave, isAutosaveDue } from '../utils/draftAutosave.ts';
 import { useTranslation } from 'react-i18next';
@@ -42,7 +43,7 @@ function resizeImageToDataUrl(file: File, maxW = 800): Promise<string> {
   });
 }
 
-function ResizableImageView({ node, updateAttributes, selected }) {
+function ResizableImageView({ node, updateAttributes, selected }: { node: { attrs?: { src?: string; alt?: string | null; title?: string | null; width?: number; [key: string]: unknown } }; updateAttributes: (attrs: Record<string, unknown>) => void; selected?: boolean }) {
   const imgRef = useRef<HTMLImageElement | null>(null);
   const { src, alt, title, width } = node.attrs;
 
@@ -148,10 +149,10 @@ function normalizeTo(arr) {
 // Parse a normalizeTo string (or raw value) into an array of chips.
 // Splits on commas that are not inside quoted strings ("...") or angle brackets (<...>),
 // so display names like "Smith, John <j@example.com>" are kept intact.
-function parseChips(val) {
+function parseChips(val: unknown): string[] {
   const str = typeof val === 'string' ? val : normalizeTo(val);
   if (!str) return [];
-  const parts: unknown[] = [];
+  const parts: string[] = [];
   let current = '';
   let inQuote = false;
   let inAngle = false;
@@ -212,7 +213,7 @@ export default function ComposeModal() {
   const [draftFolder, setDraftFolder] = useState(() => composeData?.draftFolder ?? null);
   const [draftAccountId, setDraftAccountId] = useState(() => composeData?.accountId ?? null);
   const [savingDraft, setSavingDraft] = useState(false);
-  const [attachments, setAttachments] = useState([]);
+  const [attachments, setAttachments] = useState<Array<{ name?: string; size?: number; [key: string]: unknown }>>([]);
   const [fwdAttachments, setFwdAttachments] = useState(() => composeData?.forwardedAttachments || []);
 
   // Baseline values captured at open time — updated after each successful keep-open save
@@ -2410,7 +2411,7 @@ function Sep() {
   return <span style={{ width: 1, background: 'var(--border-subtle)', margin: '2px 4px', alignSelf: 'stretch' }} />;
 }
 
-function RichToolbar({ editor, onAttach, onInsertImage = undefined, htmlMode, onToggleHtml, isMobile = false, aiEnabled, onAiAction, aiPanelOpen }) {
+function RichToolbar({ editor, onAttach, onInsertImage = undefined, htmlMode, onToggleHtml, isMobile = false, aiEnabled, onAiAction, aiPanelOpen }: { editor: Editor; onAttach: () => void; onInsertImage?: () => void; htmlMode: boolean; onToggleHtml: () => void; isMobile?: boolean; aiEnabled: boolean; onAiAction: (id: string) => void; aiPanelOpen: boolean }) {
   const { t } = useTranslation();
   const uiScale = useUiScale();
   const savedSelectionRef = useRef(null);
@@ -2961,7 +2962,7 @@ function RichToolbar({ editor, onAttach, onInsertImage = undefined, htmlMode, on
   );
 }
 
-function TitleBtn({ children, onClick, danger = false, title }) {
+function TitleBtn({ children, onClick, danger = false, title }: { children?: ReactNode; onClick?: () => void; danger?: boolean; title?: string }) {
   const [hov, setHov] = useState(false);
   return (
     <button onClick={onClick} title={title}
@@ -2978,7 +2979,7 @@ function TitleBtn({ children, onClick, danger = false, title }) {
   );
 }
 
-function DropItem({ icon, label, active, onClick }) {
+function DropItem({ icon, label, active, onClick }: { icon?: ReactNode; label?: string; active?: boolean; onClick?: () => void }) {
   const [hov, setHov] = useState(false);
   return (
     <div onClick={onClick}
@@ -3009,7 +3010,7 @@ function formatBytes(bytes) {
   return `${(bytes / 1048576).toFixed(1)}MB`;
 }
 
-function AttachmentChips({ attachments, onRemove, mobile = false }) {
+function AttachmentChips({ attachments, onRemove, mobile = false }: { attachments: Array<{ filename?: string; name?: string; size?: number; [key: string]: unknown }>; onRemove: (index: number) => void; mobile?: boolean }) {
   return (
     <div style={{
       display: 'flex', flexWrap: 'wrap', gap: 6,
@@ -3044,7 +3045,7 @@ function AttachmentChips({ attachments, onRemove, mobile = false }) {
   );
 }
 
-function ChipInput({ chips, onChipsChange, value, onChange, placeholder, autoFocus = false, inputStyle, getSuggestions, containerStyle = undefined }) {
+function ChipInput({ chips, onChipsChange, value, onChange, placeholder, autoFocus = false, inputStyle, getSuggestions, containerStyle = undefined }: { chips: string[]; onChipsChange: (chips: string[]) => void; value: string; onChange: (value: string) => void; placeholder?: string; autoFocus?: boolean; inputStyle?: CSSProperties; getSuggestions?: (query: string) => Promise<string[]> | string[]; containerStyle?: CSSProperties }) {
   const { t } = useTranslation();
   const uiScale = useUiScale();
   const [suggestions, setSuggestions] = useState([]);

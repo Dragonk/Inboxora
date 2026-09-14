@@ -69,7 +69,7 @@ export interface ComposeDraft {
   references?: string;
   originalFrom?: string | string[] | Array<{ email: string; name?: string | null }>;
   allRecipients?: string[];
-  forwardedAttachments?: Array<{ messageId?: string; part?: string; [key: string]: unknown }>;
+  forwardedAttachments?: Array<{ messageId?: string; part?: string; filename?: string | null; size?: number | null; [key: string]: unknown }>;
   threadId?: string;
   threadCacheId?: string;
   conversationId?: string;
