@@ -1,5 +1,7 @@
 import { useCallback, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import type { ConversationLogicalMessage, MessageBody, MessageBodyStatus } from './ConversationReader.tsx';
+import type { StoreState } from '../store/index.ts';
 import { sanitizeMessageHtml } from './MessageBodyRenderer.tsx';
 import MessageDetailContent from './MessageDetailContent.tsx';
 import { MessageAvatar, MessageDirection } from './MessagePresentation.tsx';
@@ -29,7 +31,25 @@ function date(value) {
   }) : '';
 }
 
-export default function ConversationMessage({ conversationId, message, selectedCopyId, selectedAccountId, accounts, expanded, onToggle, body, status, onLoadBody, onRemoteImages, onReply, onActionComplete, onSetRead, onInitialBodyLayout = undefined }) {
+/** One logical message rendered inside the conversation. */
+interface ConversationMessageProps {
+  conversationId: string;
+  message: ConversationLogicalMessage;
+  selectedCopyId: string | null | undefined;
+  selectedAccountId: string | null | undefined;
+  accounts: StoreState['accounts'];
+  expanded: boolean;
+  onToggle: (id: string) => void;
+  body: MessageBody | null | undefined;
+  status: MessageBodyStatus | null | undefined;
+  onLoadBody: (logicalId: string, force?: boolean, remoteImages?: boolean) => void;
+  onRemoteImages: (id: string) => void;
+  onReply: (message: ConversationLogicalMessage, all?: boolean) => void;
+  onActionComplete: (mutation: { logicalMessageId?: string; copyId?: string; [key: string]: unknown }) => Promise<void>;
+  onSetRead: (copyId: string, read: boolean) => void;
+  onInitialBodyLayout?: (copyId: string) => void;
+}
+export default function ConversationMessage({ conversationId, message, selectedCopyId, selectedAccountId, accounts, expanded, onToggle, body, status, onLoadBody, onRemoteImages, onReply, onActionComplete, onSetRead, onInitialBodyLayout = undefined }: ConversationMessageProps) {
   const { t } = useTranslation();
   const isMobile = useMobile();
   const { replyDefault, aiActions, setShowAdmin, setAdminTab, blockRemoteImages, imageWhitelist } = useStore();
@@ -56,7 +76,7 @@ export default function ConversationMessage({ conversationId, message, selectedC
   const recipient = address(copy.to);
   const summary = String(copy.snippet || '').trim();
   const accountColor = account?.color || 'var(--accent)';
-  const accountLabel = account?.name || account?.email_address || account?.email || '';
+  const accountLabel = account?.name || account?.email_address || '';
   const [unsubscribeStatus, setUnsubscribeStatus] = useState(null);
   const [folders, setFolders] = useState([]);
   const [foldersLoading, setFoldersLoading] = useState(false);

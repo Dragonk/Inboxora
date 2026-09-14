@@ -11,6 +11,7 @@ import { queueReadStateMutation, isLatestReadStateMutation, pendingReadState } f
 import { setCompletedDelete, applyDeleteGuard } from '../utils/pendingDeletes.ts';
 import { setPending, pendingMarkReadMap } from '../utils/pendingReads.ts';
 import { useStore } from '../store/index.ts';
+import type { StoreState } from '../store/index.ts';
 import { toAppError } from '../utils/errors.ts';
 
 // Data-only CE adapter. It owns logical/physical identity and expansion policy;
@@ -25,7 +26,7 @@ import { toAppError } from '../utils/errors.ts';
 interface ConversationCopyRef { id?: string; accountId?: string; account_id?: string; folder?: string; [key: string]: unknown }
 
 /** A logical message with its copies, as the reader API returns it. */
-interface ConversationLogicalMessage { id: string; copies?: ConversationCopyRef[]; [key: string]: unknown }
+export interface ConversationLogicalMessage { id: string; copies?: ConversationCopyRef[]; [key: string]: unknown }
 
 /** The reader payload. */
 interface ConversationReaderData { logicalMessages: ConversationLogicalMessage[]; [key: string]: unknown }
@@ -35,7 +36,7 @@ interface ConversationReaderProps {
   targetLogicalMessageId?: string | null;
   selectedCopyId?: string | null;
   selectedAccountId?: string | null;
-  accounts?: Array<{ id?: string; [key: string]: unknown }>;
+  accounts?: StoreState['accounts'];
   onReply?: (message: unknown) => void;
   nativeThreadId?: string | null;
   nativeFolder?: string | null;
@@ -44,10 +45,10 @@ interface ConversationReaderProps {
 
 
 /** A fetched message body as the reader caches it. */
-interface MessageBody { html?: string | null; text?: string | null; body_html?: string | null; body_text?: string | null; attachments?: unknown[]; remoteImages?: boolean; remote_images?: boolean; [key: string]: unknown }
+export interface MessageBody { html?: string | null; text?: string | null; body_html?: string | null; body_text?: string | null; attachments?: unknown[]; remoteImages?: boolean; remote_images?: boolean; [key: string]: unknown }
 
 /** Whether a body is loading or unavailable. */
-interface MessageBodyStatus { loading?: boolean; unavailable?: boolean; [key: string]: unknown }
+export interface MessageBodyStatus { loading?: boolean; unavailable?: boolean; [key: string]: unknown }
 
 export default function ConversationReader({ conversationId, targetLogicalMessageId = null, selectedCopyId = null, selectedAccountId = null, accounts = [], onReply, nativeThreadId = null, nativeFolder = null, onNativeThreadUnavailable }: ConversationReaderProps) {
   const { t } = useTranslation();
