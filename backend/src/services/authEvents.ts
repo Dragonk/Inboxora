@@ -8,7 +8,7 @@ setInterval(() => {
 
 // Fire-and-forget audit log write. Never throws — a logging failure must
 // not block or crash authentication flows.
-export function logAuthEvent(eventType, { username = null, userId = null, ip, success }) {
+export function logAuthEvent(eventType: string, { username = null, userId = null, ip, success }: { username?: string | null; userId?: string | null; ip?: string | null; success: boolean }) {
   query(
     `INSERT INTO auth_events (event_type, username, user_id, ip, success)
      VALUES ($1, $2, $3, $4, $5)`,
