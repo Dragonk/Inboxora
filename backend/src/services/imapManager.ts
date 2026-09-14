@@ -38,10 +38,10 @@ interface BodyStructureNode {
   part?: string;
   type?: string;
   encoding?: string;
-  parameters?: { charset?: string };
+  parameters?: { charset?: string; name?: string };
   childNodes?: BodyStructureNode[];
   disposition?: string;
-  dispositionParameters?: { filename?: string };
+  dispositionParameters?: { filename?: string; size?: number };
   size?: number;
   id?: string;
 }
@@ -631,7 +631,7 @@ export function attachmentTransferEncoding(results: { attachments: AttachmentRef
   return match?.encoding || fallback;
 }
 
-function decodeAttachmentBuffer(buf, encoding) {
+function decodeAttachmentBuffer(buf: Buffer, encoding: string | null | undefined): Buffer {
   const enc = (encoding || '').toLowerCase();
   if (enc === 'base64') {
     return Buffer.from(buf.toString('utf8').replace(/\s/g, ''), 'base64');
@@ -659,7 +659,7 @@ function decodeAttachmentBuffer(buf, encoding) {
   return Buffer.isBuffer(buf) ? buf : Buffer.from(buf);
 }
 
-export function walkStructure(node, results) {
+export function walkStructure(node: BodyStructureNode, results: CollectedParts): void {
   if (!node) return;
   const type = (node.type || '').toLowerCase();
   if (node.childNodes && node.childNodes.length > 0) {
@@ -699,7 +699,7 @@ export function walkStructure(node, results) {
       filename: filename || 'attachment',
       type: node.type || 'application/octet-stream',
       encoding: node.encoding || 'base64',
-      size: node.dispositionParameters?.size ? parseInt(node.dispositionParameters.size) : node.size || 0,
+      size: node.dispositionParameters?.size ? Number(node.dispositionParameters.size) : node.size || 0,
       disposition,
     });
   } else if (type === 'text/html') {
@@ -737,31 +737,32 @@ export function walkStructure(node, results) {
       filename,
       type: node.type || 'application/octet-stream',
       encoding: node.encoding || 'base64',
-      size: node.dispositionParameters?.size ? parseInt(node.dispositionParameters.size) : node.size || 0,
+      size: node.dispositionParameters?.size ? Number(node.dispositionParameters.size) : node.size || 0,
       disposition,
     });
   }
 }
 
-export function shouldFallbackToTextPart(results) {
+export function shouldFallbackToTextPart(results: { textParts: BodyPartRef[]; calendarParts?: BodyPartRef[]; attachments?: AttachmentRef[] }): boolean {
   return results.textParts.length === 0 && !results.calendarParts?.length;
 }
 
 // Extract a human-readable message from an imapflow error.
 // imapflow command failures have a structured .response object; fall back to .message.
-function extractImapError(err) {
-  if (err.response && typeof err.response === 'object') {
-    const text = err.response.attributes?.find(a => a.type === 'TEXT')?.value;
-    if (text) return text;
-    if (err.response.command) return `${err.response.command}: ${err.message}`;
+function extractImapError(err: unknown): string {
+  const failure = err as { response?: { attributes?: Array<{ type?: string; value?: unknown }>; command?: string }; message?: string; serverResponse?: string };
+  if (failure.response && typeof failure.response === 'object') {
+    const text = failure.response.attributes?.find(a => a.type === 'TEXT')?.value;
+    if (text) return String(text);
+    if (failure.response.command) return `${failure.response.command}: ${failure.message}`;
   }
-  return err.serverResponse || err.message || String(err);
+  return failure.serverResponse || failure.message || String(err);
 }
 
 // Sanitize a date value — handles Go-style timestamps and other malformed dates
-function safeDate(d) {
+function safeDate(d: unknown): Date {
   if (!d) return new Date();
-  const date = new Date(d);
+  const date = new Date(String(d));
   if (!isNaN(date.getTime())) return date;
   // Try stripping Go monotonic clock suffix (e.g. " m=+12345.678")
   const stripped = String(d).replace(/\s+m=[+-][\d.]+$/, '').trim();
@@ -918,13 +919,13 @@ const PROVIDERS: Record<string, ProviderProfile> = {
 // paramIndex: the next positional bind index ($N) available in the caller's query.
 // Returns { clause, params }. With no exempt folders the clause is '' and params is
 // [], so an account with no label plugins runs byte-identical SQL to before this feature.
-export function relocateExemptGuard(exemptFolders, paramIndex) {
+export function relocateExemptGuard(exemptFolders: string[] | null | undefined, paramIndex: number): { clause: string; params: unknown[] } {
   if (!exemptFolders || exemptFolders.length === 0) return { clause: '', params: [] };
   const p = `$${paramIndex}`;
   const clause =
     `\n                  AND $1 <> ALL(${p}::text[])` +
     `\n                  AND folder <> ALL(${p}::text[])`;
-  return { clause, params: [exemptFolders] };
+  return { clause, params: [exemptFolders] as unknown[] };
 }
 
 // DB half of copyMessage: insert the destination sibling row for a message that was
@@ -988,7 +989,7 @@ export async function deleteMessageCopyRow(accountId: string, uid: number | stri
 // so a harmless over-emit is preferred to a missed one that leaves durable stale section data.
 // mgr is injected so plugin handlers stay unit-testable without a live socket server; the hook
 // swallows per-plugin errors so an emit failure never disturbs the caller.
-export async function emitSectionsChanged(mgr, account: EmailAccountRow, changedCount) {
+export async function emitSectionsChanged(mgr: { emit?: (...args: unknown[]) => void; broadcast?: (...args: unknown[]) => void } | null | undefined, account: EmailAccountRow, changedCount: number): Promise<void> {
   if (!(changedCount > 0)) return;
   await pluginRegistry.runHook('sectionsChanged', { mgr, account, changedCount });
 }
@@ -1166,6 +1167,9 @@ interface ResolvedConnection {
 }
 
 /** A body part the parser collects while walking the structure. */
+/** The parts collected while walking one body structure. */
+interface CollectedParts { textParts: BodyPartRef[]; attachments: AttachmentRef[]; calendarParts?: BodyPartRef[]; inlineImages?: BodyPartRef[] }
+
 interface BodyPartRef { part: string; type: string; encoding: string; charset?: string; cid?: string | null }
 
 /** An attachment entry the parser collects. */

@@ -1481,7 +1481,7 @@ describe('walkStructure attachment classification', () => {
   it('uses a plain-text fallback only when no calendar MIME part was discovered', () => {
     expect(shouldFallbackToTextPart({ textParts: [], calendarParts: [] })).toBe(true);
     expect(shouldFallbackToTextPart({ textParts: [], attachments: [] })).toBe(true);
-    expect(shouldFallbackToTextPart({ textParts: [], calendarParts: [{ part: '1' }] })).toBe(false);
+    expect(shouldFallbackToTextPart({ textParts: [], calendarParts: [{ part: '1', type: 'text/calendar', encoding: 'base64' }] })).toBe(false);
   });
 
   // Regression: an invitation received by mail could not be read or imported
