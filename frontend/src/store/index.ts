@@ -343,6 +343,7 @@ export interface StoreState {
 export interface StoreMessageRow {
   id: string;
   account_id: string;
+  has_contact_photo?: boolean | null;
   account_name?: string;
   account_color?: string;
   folder?: string;

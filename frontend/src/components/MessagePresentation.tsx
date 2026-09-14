@@ -9,7 +9,7 @@ export function messageDirection(direction) {
   return null;
 }
 
-export function MessageDirection({ direction, label }) {
+export function MessageDirection({ direction, label }: { direction?: string | null; label?: string | null }) {
   const normalized = messageDirection(direction);
   if (!normalized) return null;
   return <span
@@ -19,7 +19,7 @@ export function MessageDirection({ direction, label }) {
   >{normalized === 'outgoing' ? '→' : '←'}</span>;
 }
 
-export function MessageAvatar({ email, name, size = 40, hasContactPhoto }) {
+export function MessageAvatar({ email, name, size = 40, hasContactPhoto }: { email?: string | null; name?: string | null; size?: number; hasContactPhoto?: boolean | null }) {
   const value = name || email || '?';
   return <span style={{
     width: size, height: size, borderRadius: '50%', flexShrink: 0,
@@ -31,9 +31,9 @@ export function MessageAvatar({ email, name, size = 40, hasContactPhoto }) {
   </span>;
 }
 
-export function MessageActionBar({ onReply, onReplyAll, onForward, targetId }) {
+export function MessageActionBar({ onReply, onReplyAll, onForward, targetId }: { onReply: () => void; onReplyAll: () => void; onForward: () => void; targetId?: string }) {
   const { t } = useTranslation();
-  const actions = [
+  const actions: Array<[string, () => void, string]> = [
     [t('message.reply'), onReply, 'reply'],
     [t('message.replyAll'), onReplyAll, 'reply-all'],
     [t('message.forward'), onForward, 'forward'],
