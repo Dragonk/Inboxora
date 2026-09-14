@@ -1,13 +1,15 @@
 import { normalizeMessageIdList } from './threading/normalizeMessageId.js';
 import { normalizeProviderReferences, parseProviderMetadata, providerNamespace } from './providerThreadAdapter.js';
 
-function outlookConversationRoot(value) {
+function outlookConversationRoot(value: unknown): string | null {
   if (!value) return null;
   try {
     const raw = Buffer.from(String(value).replace(/\s+/g, ''), 'base64');
     if (raw.length < 22 || (raw.length - 22) % 5 !== 0) return null;
     return raw.subarray(0, 22).toString('hex');
-  } catch { return null; }
+  } catch {
+    return null;
+  }
 }
 
 export interface ProviderConversationMetadata {
@@ -17,45 +19,83 @@ export interface ProviderConversationMetadata {
   [key: string]: unknown;
 }
 
-type HeaderBag = Record<string, unknown> | Map<string, unknown>;
+type HeaderBag = Record<string, unknown> | Map<unknown, unknown>;
 
 interface ConversationMetadataInput {
-  attributes?: Record<string, unknown>;
-  parsedHeaders?: HeaderBag;
-  headers?: HeaderBag;
+  attributes?: Record<string, unknown> | null;
+  parsedHeaders?: HeaderBag | null;
+  headers?: HeaderBag | null;
   references?: unknown;
   inReplyTo?: unknown;
   [key: string]: unknown;
 }
 
+function firstPresent(first: unknown, second: unknown, third: unknown): unknown {
+  if (first !== null && first !== undefined) return first;
+  if (second !== null && second !== undefined) return second;
+  return third;
+}
+
+function headerValue(headers: HeaderBag | null, name: string): unknown {
+  if (headers === null) return null;
+
+  if (headers instanceof Map) {
+    const lowerCaseName = name.toLowerCase();
+    let direct = headers.get(name);
+    if (direct === undefined || direct === null) direct = headers.get(lowerCaseName);
+    if (direct !== undefined && direct !== null) return direct;
+    for (const [key, value] of headers.entries()) {
+      if (typeof key === 'string' && key.toLowerCase() === lowerCaseName) return value;
+    }
+    return null;
+  }
+
+  const lowerCaseName = name.toLowerCase();
+  for (const key of Object.keys(headers)) {
+    if (key.toLowerCase() === lowerCaseName) return headers[key];
+  }
+  return null;
+}
+
+function messageAttributes(parsed: ConversationMetadataInput | null | undefined): Record<string, unknown> {
+  if (parsed === null || parsed === undefined) return {};
+  if (parsed.attributes !== null && parsed.attributes !== undefined) return parsed.attributes;
+  return parsed;
+}
+
+function messageHeaders(parsed: ConversationMetadataInput | null | undefined): HeaderBag | null {
+  if (parsed === null || parsed === undefined) return null;
+  if (parsed.parsedHeaders !== null && parsed.parsedHeaders !== undefined) return parsed.parsedHeaders;
+  if (parsed.headers !== null && parsed.headers !== undefined) return parsed.headers;
+  return null;
+}
+
 export function providerMetadataForMessage(parsed: ConversationMetadataInput | null | undefined, account: { id?: string; imap_host?: string } | null | undefined): ProviderConversationMetadata {
   const metadata = parseProviderMetadata(parsed, account);
-  const attributes = parsed?.attributes || parsed || {};
-  const headers = parsed?.parsedHeaders || parsed?.headers || {};
-  const header = (name: string) => {
-    if (headers && typeof (headers as Map<string, unknown>).get === 'function') {
-      const map = headers as Map<string, unknown>;
-      const direct = map.get(name) ?? map.get(name.toLowerCase());
-      if (direct != null) return direct;
-      for (const [key, value] of map.entries()) {
-        if (String(key).toLowerCase() === name.toLowerCase()) return value;
-      }
-      return null;
-    }
-    const key = Object.keys(headers || {}).find(candidate => candidate.toLowerCase() === name.toLowerCase());
-    return key ? headers[key] : null;
-  };
-  const threadIndex = attributes.threadIndex ?? attributes['thread-index'] ?? header('thread-index');
-  const threadTopic = attributes.threadTopic ?? attributes['thread-topic'] ?? header('thread-topic');
+  const attributes = messageAttributes(parsed);
+  const headers = messageHeaders(parsed);
+  const threadIndex = firstPresent(attributes.threadIndex, attributes['thread-index'], headerValue(headers, 'thread-index'));
+  const threadTopic = firstPresent(attributes.threadTopic, attributes['thread-topic'], headerValue(headers, 'thread-topic'));
+  const conversationRoot = metadata.providerThreadId === null ? outlookConversationRoot(threadIndex) : null;
+  const accountId = account === null || account === undefined ? undefined : account.id;
+  const host = account === null || account === undefined ? undefined : account.imap_host;
+  const references = parsed === null || parsed === undefined ? undefined : parsed.references;
+  const inReplyTo = parsed === null || parsed === undefined ? undefined : parsed.inReplyTo;
+
+  const normalizedInReplyTo = normalizeMessageIdList(inReplyTo);
+  const latestInReplyTo = normalizedInReplyTo.length === 0 ? null : normalizedInReplyTo[normalizedInReplyTo.length - 1];
+
   return {
     ...metadata,
-    namespace: providerNamespace({ provider: metadata.provider, accountId: account?.id, host: account?.imap_host }),
-    threadIndex: threadIndex == null ? null : String(threadIndex),
-    threadTopic: threadTopic == null ? null : String(threadTopic),
-    providerThreadId: metadata.providerThreadId || (metadata.provider === 'outlook' ? outlookConversationRoot(threadIndex) : null),
-    isStrong: metadata.provider === 'gmail' && metadata.providerThreadId != null,
-    source: metadata.providerThreadId ? (metadata.source || 'provider-thread-id') : outlookConversationRoot(threadIndex) ? 'outlook-conversation-index-root' : metadata.source,
-    references: normalizeProviderReferences(parsed?.references || []),
-    inReplyTo: normalizeMessageIdList(parsed?.inReplyTo).at(-1) || null,
+    namespace: providerNamespace({ provider: metadata.provider, accountId, host }),
+    threadIndex: threadIndex === null || threadIndex === undefined ? null : String(threadIndex),
+    threadTopic: threadTopic === null || threadTopic === undefined ? null : String(threadTopic),
+    providerThreadId: metadata.providerThreadId === null && metadata.provider === 'outlook' ? conversationRoot : metadata.providerThreadId,
+    isStrong: metadata.provider === 'gmail' && metadata.providerThreadId !== null,
+    source: metadata.providerThreadId !== null
+      ? (metadata.source === null ? 'provider-thread-id' : metadata.source)
+      : (conversationRoot === null ? metadata.source : 'outlook-conversation-index-root'),
+    references: normalizeProviderReferences(references),
+    inReplyTo: latestInReplyTo,
   };
 }

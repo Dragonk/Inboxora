@@ -5,11 +5,36 @@ import { api } from '../utils/api.ts';
 import { useMobile } from '../hooks/useMobile.ts';
 import { toAppError } from '../utils/errors.ts';
 
-export default function MessageHeaderModal({ messageId, subject, onClose, onSubjectResolved = (_subject: string) => {} }) {
+interface MessageHeaderModalProps {
+  messageId: string;
+  subject?: string | null;
+  onClose: () => void;
+  onSubjectResolved?: (subject: string) => void;
+}
+
+interface MessageHeadersResponse {
+  headers: string;
+  subject?: string | null;
+}
+
+function isMessageHeadersResponse(value: unknown): value is MessageHeadersResponse {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const headers = Reflect.get(value, 'headers');
+  const subject = Reflect.get(value, 'subject');
+  return typeof headers === 'string'
+    && (subject === undefined || subject === null || typeof subject === 'string');
+}
+
+interface ParsedHeader {
+  key: string;
+  value: string;
+}
+
+export default function MessageHeaderModal({ messageId, subject, onClose, onSubjectResolved }: MessageHeaderModalProps) {
   const { t } = useTranslation();
   const isMobile = useMobile();
   const [headers, setHeaders] = useState<string | null>(null);
-  const [resolvedSubject, setResolvedSubject] = useState(subject);
+  const [resolvedSubject, setResolvedSubject] = useState<string | null | undefined>(subject);
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
   const onSubjectResolvedRef = useRef(onSubjectResolved);
@@ -19,29 +44,31 @@ export default function MessageHeaderModal({ messageId, subject, onClose, onSubj
 
   useEffect(() => {
     api.getMessageHeaders(messageId)
-      .then(data => {
+      .then((data: unknown) => {
+        if (!isMessageHeadersResponse(data)) throw new Error('Invalid message headers response');
         setHeaders(data.headers);
         if (data.subject && data.subject !== '(no subject)') {
           setResolvedSubject(data.subject);
-          onSubjectResolvedRef.current?.(data.subject);
+          const resolveSubject = onSubjectResolvedRef.current;
+          if (resolveSubject) resolveSubject(data.subject);
         }
       })
-      .catch(err => setHeaders(`Error: ${toAppError(err).message}`))
+      .catch((err: unknown) => setHeaders(`Error: ${toAppError(err).message}`))
       .finally(() => setLoading(false));
   }, [messageId]);
 
   useBackLayer(true, () => onCloseRef.current(), 5000);
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(headers || '');
+    navigator.clipboard.writeText(headers === null ? '' : headers);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const parsedHeaders: Array<{ key: string; value: string }> = [];
+  const parsedHeaders: ParsedHeader[] = [];
   if (headers) {
     const lines = headers.split('\n');
-    let current = null;
+    let current: ParsedHeader | null = null;
     for (const line of lines) {
       if (/^\s/.test(line) && current) {
         current.value += ' ' + line.trim();
@@ -59,9 +86,10 @@ export default function MessageHeaderModal({ messageId, subject, onClose, onSubj
     'return-path','received','x-mailer','mime-version','content-type','dkim-signature',
     'authentication-results','x-spam-status','x-spam-score']);
 
+  const subjectHeader = parsedHeaders.find((header) => header.key.toLowerCase() === 'subject');
   const displaySubject = (resolvedSubject && resolvedSubject !== '(no subject)')
     ? resolvedSubject
-    : (parsedHeaders.find(h => h.key.toLowerCase() === 'subject')?.value || t('common.noSubject'));
+    : (subjectHeader ? subjectHeader.value : t('common.noSubject'));
 
   if (isMobile) {
     return (
