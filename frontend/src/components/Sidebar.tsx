@@ -4,6 +4,7 @@ import { folderLabel } from '../utils/folderLabels.ts';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.ts';
+import type { StoreMessageRow, StoreState } from '../store/index.ts';
 import { api } from '../utils/api.ts';
 import { clearNativePush } from '../utils/nativePush.ts';
 import {
@@ -94,7 +95,7 @@ const ICONS = {
   ),
 };
 
-function folderIcon(path, specialUse, folderMappings) {
+function folderIcon(path: string | null | undefined, specialUse: string | null | undefined, folderMappings: { [key: string]: unknown } | null | undefined) {
   const p = (path || '').toLowerCase();
   const s = (specialUse || '').toLowerCase();
   if (s.includes('sent') || p.includes('sent') || folderMappings?.sent === path) return ICONS.sent;
@@ -107,7 +108,7 @@ function folderIcon(path, specialUse, folderMappings) {
 }
 
 // Folders that should not be renamed or deleted
-function isProtectedFolder(folder, folderMappings) {
+function isProtectedFolder(folder: { path?: string | null; special_use?: string | null }, folderMappings: { [key: string]: unknown } | null | undefined) {
   const p = (folder.path || '').toLowerCase();
   const s = (folder.special_use || '').toLowerCase();
   if (folderMappings && Object.values(folderMappings).includes(folder.path)) return true;
@@ -147,10 +148,10 @@ function SidebarCtxMenu({ x, y, items, title, subtitle, onClose }: { x: number; 
   useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
 
   useEffect(() => {
-    const handleMouseDown = (e) => {
-      if (menuRef.current && !menuRef.current.contains(e.target)) onCloseRef.current();
+    const handleMouseDown = (e: MouseEvent) => {
+      if (menuRef.current && e.target instanceof Node && !menuRef.current.contains(e.target)) onCloseRef.current();
     };
-    const handleKey = (e) => { if (e.key === 'Escape') onCloseRef.current(); };
+    const handleKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onCloseRef.current(); };
     document.addEventListener('mousedown', handleMouseDown);
     document.addEventListener('keydown', handleKey);
     return () => {
@@ -306,7 +307,7 @@ export default function Sidebar({ onEditProfile = null }) {
     return () => document.removeEventListener('dragend', clear);
   }, [clearFolderDrag]);
 
-  const handleMsgDrop = useCallback((e, targetFolder) => {
+  const handleMsgDrop = useCallback((e: React.DragEvent, targetFolder: string) => {
     e.preventDefault();
     setMsgDragTarget(null);
     const raw = e.dataTransfer.getData('application/x-mailflow-message');
@@ -317,25 +318,25 @@ export default function Sidebar({ onEditProfile = null }) {
     const pool = [...state.messages, ...state.searchResults];
     const ids = payload.messageIds ?? [payload.messageId];
     const msgs = ids
-      .map(id => pool.find(m => m.id === id))
-      .filter(m => m != null && m.folder !== targetFolder);
+      .map((id: string) => pool.find((m: StoreMessageRow) => m.id === id))
+      .filter((m: StoreMessageRow | undefined) => m != null && m.folder !== targetFolder);
     if (!msgs.length) return;
-    msgs.forEach(msg => {
+    msgs.forEach((msg: StoreMessageRow) => {
       state.removeMessage(msg.id);
       if (!msg.is_read) state.decrementUnread(msg.account_id);
     });
-    const movedIds = msgs.map(m => m.id);
+    const movedIds = msgs.map((m: StoreMessageRow) => m.id);
     let undone = false;
     const timer = setTimeout(async () => {
       if (undone) return;
       try {
         const result = await api.bulkMove(movedIds, targetFolder);
         const movedSet = new Set(result.moved ?? []);
-        const failedMsgs = msgs.filter(m => !movedSet.has(m.id));
+        const failedMsgs = msgs.filter((m: StoreMessageRow) => !movedSet.has(m.id));
         const s = useStore.getState();
         if (failedMsgs.length > 0) {
           s.restoreMessages(failedMsgs);
-          failedMsgs.forEach(m => { if (!m.is_read) s.incrementUnread(m.account_id); });
+          failedMsgs.forEach((m: StoreMessageRow) => { if (!m.is_read) s.incrementUnread(m.account_id); });
           s.addNotification({ title: t('messageList.bulkMoved.failTitle'), body: t('messageList.bulkMoved.failBody', { count: failedMsgs.length }) });
         } else {
           s.recordRecentFolder({ accountId: msgs[0].account_id, path: targetFolder });
@@ -343,7 +344,7 @@ export default function Sidebar({ onEditProfile = null }) {
       } catch {
         const s = useStore.getState();
         s.restoreMessages(msgs);
-        msgs.forEach(m => { if (!m.is_read) s.incrementUnread(m.account_id); });
+        msgs.forEach((m: StoreMessageRow) => { if (!m.is_read) s.incrementUnread(m.account_id); });
         s.addNotification({ title: t('messageList.bulkMoved.failTitle'), body: t('messageList.bulkMoved.failBody', { count: movedIds.length }) });
       }
     }, 4500);
@@ -355,7 +356,7 @@ export default function Sidebar({ onEditProfile = null }) {
         clearTimeout(timer);
         const s = useStore.getState();
         s.restoreMessages(msgs);
-        msgs.forEach(m => { if (!m.is_read) s.incrementUnread(m.account_id); });
+        msgs.forEach((m: StoreMessageRow) => { if (!m.is_read) s.incrementUnread(m.account_id); });
       },
     });
   }, [t]);
@@ -430,7 +431,7 @@ export default function Sidebar({ onEditProfile = null }) {
 
   const unhideFolderFn = useCallback((accountId: string, path: string) => {
     const current = hiddenFolders[accountId] || [];
-    const next = current.filter(p => p !== path);
+    const next = current.filter((p: string) => p !== path);
     const updated = { ...hiddenFolders };
     if (next.length === 0) delete updated[accountId]; else updated[accountId] = next;
     setHiddenFolders(updated);
@@ -518,14 +519,14 @@ export default function Sidebar({ onEditProfile = null }) {
   }, [creatingFolder]);
 
   // ── Folder context menu items ──────────────────────────────────────────────
-  const openFolderCtxMenu = useCallback((e, accountId, folderObj) => {
+  const openFolderCtxMenu = useCallback((e: React.MouseEvent, accountId: string, folderObj: { path: string; name?: string | null; special_use?: string | null }) => {
     e.preventDefault();
     e.stopPropagation();
     setFolderCtxMenu({ x: e.clientX, y: e.clientY, accountId, folderObj });
     setAccountCtxMenu(null);
   }, []);
 
-  const openAccountCtxMenu = useCallback((e, account) => {
+  const openAccountCtxMenu = useCallback((e: React.MouseEvent, account: StoreState['accounts'][number]) => {
     e.preventDefault();
     e.stopPropagation();
     setAccountCtxMenu({ x: e.clientX, y: e.clientY, account });
