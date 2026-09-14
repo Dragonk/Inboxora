@@ -95,7 +95,7 @@ export async function installCapacitorNativeBridge(): Promise<boolean> {
           const permission = result?.permission;
           return permission === 'granted' || permission === 'denied' ? permission : 'default';
         },
-        openSettings: async () => callNative('openNotificationSettings'),
+        openSettings: async () => callNativeWithFallback('openNotificationSettings', undefined, { status: 'unavailable' }),
         showNewMail: async (notification) => callNative('showNewMail', notification || {}),
         // Native push (Android) lifecycle. The native layer owns the provider
         // endpoint/token and the server registration; JS only triggers it and
@@ -104,8 +104,8 @@ export async function installCapacitorNativeBridge(): Promise<boolean> {
         register: async () => callNativeWithFallback('registerPush', undefined, { status: 'unavailable' }),
         clear: async () => callNativeWithFallback('clearPush', undefined, { status: 'unavailable' }),
         openDistributor: async () => callNativeWithFallback('openPushDistributor', undefined, { opened: false }),
-        openInstallPage: async () => callNative('openPushInstallPage'),
-        openHelp: async () => callNative('openPushHelp'),
+        openInstallPage: async () => callNativeWithFallback('openPushInstallPage', undefined, { status: 'unavailable' }),
+        openHelp: async () => callNativeWithFallback('openPushHelp', undefined, { status: 'unavailable' }),
       },
       actions: {
         ...existingBridge.actions,
