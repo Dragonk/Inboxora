@@ -29,7 +29,7 @@ router.get('/users', async (req, res) => {
       'SELECT id, username, is_admin, totp_enabled, created_at FROM users ORDER BY created_at ASC LIMIT $1 OFFSET $2',
       [limit, offset],
     ),
-    query('SELECT COUNT(*) AS total FROM users'),
+    query<{ total: string }>('SELECT COUNT(*) AS total FROM users'),
   ]);
   res.json({
     users: result.rows.map(u => ({ ...u, isAdmin: u.is_admin, totpEnabled: u.totp_enabled })),
@@ -107,7 +107,7 @@ router.get('/auth-events', async (req, res) => {
        FROM auth_events ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
       [limit, offset]
     ),
-    query('SELECT COUNT(*) AS total FROM auth_events'),
+    query<{ total: string }>('SELECT COUNT(*) AS total FROM auth_events'),
   ]);
   res.json({ events: eventsResult.rows, total: parseInt(countResult.rows[0].total) });
 });
@@ -245,7 +245,7 @@ router.get('/invites', async (req, res) => {
        LIMIT $1 OFFSET $2`,
       [limit, offset],
     ),
-    query('SELECT COUNT(*) AS total FROM invites'),
+    query<{ total: string }>('SELECT COUNT(*) AS total FROM invites'),
   ]);
   res.json({ invites: result.rows, total: parseInt(countResult.rows[0].total) });
 });

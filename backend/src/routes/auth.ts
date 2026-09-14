@@ -775,7 +775,7 @@ router.get('/invite/:token', async (req, res) => {
 router.get('/preferences', async (req, res) => {
   if (!req.session.userId) return res.status(401).json({ error: 'Not authenticated' });
   const [userResult, cssResult] = await Promise.all([
-    query('SELECT preferences FROM users WHERE id = $1', [req.session.userId]),
+    query<{ preferences?: { customCss?: string | null; [key: string]: unknown } | null }>('SELECT preferences FROM users WHERE id = $1', [req.session.userId]),
     query("SELECT value FROM system_settings WHERE key = 'custom_css'"),
   ]);
   const prefs = userResult.rows[0]?.preferences || {};
@@ -890,7 +890,7 @@ export async function patchPreferences(req, res) {
         return res.status(400).json({ error: 'calendar work hours must be a strictly increasing same-day range' });
       }
     } else {
-      const currentPreferences = (await query('SELECT preferences FROM users WHERE id = $1', [req.session.userId])).rows[0]?.preferences || {};
+      const currentPreferences = (await query<{ preferences?: { customCss?: string | null; [key: string]: unknown } | null }>('SELECT preferences FROM users WHERE id = $1', [req.session.userId])).rows[0]?.preferences || {};
       const currentStart = currentPreferences.calendarWorkHoursStart;
       const currentEnd = currentPreferences.calendarWorkHoursEnd;
       const baseStart = validWorkRange(currentStart, currentEnd) ? currentStart : '09:00';

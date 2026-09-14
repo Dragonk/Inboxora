@@ -744,7 +744,7 @@ router.patch('/messages/:id/read', async (req, res) => {
   // preventing a race where a concurrent sync fetch sees the old IMAP flag.
   const [, accountResult] = await Promise.all([
     query('UPDATE messages SET is_read = $1, read_changed_at = NOW() WHERE id = $2', [read, id]),
-    query('SELECT * FROM email_accounts WHERE id = $1', [message.account_id]),
+    query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1', [message.account_id]),
   ]);
 
   // Keep the cached folder unread_count in sync so pagination totals stay accurate.
@@ -807,7 +807,7 @@ router.patch('/messages/:id/star', async (req, res) => {
   // star_changed_at tells the IMAP sync not to overwrite this change for 30 s.
   const [, accountResult] = await Promise.all([
     query('UPDATE messages SET is_starred = $1, star_changed_at = NOW() WHERE id = $2', [starred, id]),
-    query('SELECT * FROM email_accounts WHERE id = $1', [message.account_id]),
+    query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1', [message.account_id]),
   ]);
 
   // GTD: fan the star change out to the message's sibling label rows (see the read
