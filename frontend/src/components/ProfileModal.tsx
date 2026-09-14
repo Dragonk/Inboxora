@@ -49,7 +49,7 @@ export default function ProfileModal({ onClose }) {
     }
     try {
       const dataUrl = await resizeImage(file);
-      setAvatarPreview(dataUrl);
+      setAvatarPreview(String(dataUrl));
       setPendingAvatar(dataUrl);
       setError('');
     } catch {

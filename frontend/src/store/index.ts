@@ -38,9 +38,9 @@ import i18n from '../i18n.ts';
 /** A message row as the store holds it. */
 /** The signed-in user as the store holds it. */
 /** A favourite folder entry. */
-interface FavoriteFolderRow { accountId?: string; path: string; label?: string; [key: string]: unknown }
+interface FavoriteFolderRow { accountId?: string; path: string; name?: string; label?: string; [key: string]: unknown }
 
-export interface StoreUserRow { id?: string; username?: string; email?: string; avatar?: string | null; isAdmin?: boolean; [key: string]: unknown }
+export interface StoreUserRow { id?: string; username?: string; email?: string; displayName?: string; avatar?: string | null; isAdmin?: boolean; [key: string]: unknown }
 
 /**
  * The store state. Written from the store itself (every member is declared here so the
@@ -92,7 +92,7 @@ export interface StoreState {
   lockScreen: () => void;
   autoLockMinutes: number;
   setAutoLockMinutes: (m: number) => void;
-  accounts: Array<{ id: string; name?: string | null; email_address?: string | null; sender_name?: string | null; color?: string | null; signature?: string | null; sync_error?: string | null; imap_host?: string | null; imap_port?: number | string | null; categorization_enabled?: boolean; enabled?: boolean; include_in_unified_inbox?: boolean; aliases?: Array<{ id: string; email?: string | null; name?: string | null; signature?: string | null; [key: string]: unknown }>; folder_mappings?: { spam?: string | null; sent?: string | null; drafts?: string | null; trash?: string | null; archive?: string | null; [key: string]: unknown } | null; [key: string]: unknown }>;
+  accounts: Array<{ id: string; name?: string | null; email_address?: string | null; sender_name?: string | null; color?: string | null; signature?: string | null; sync_error?: string | null; imap_host?: string | null; imap_port?: number | string | null; categorization_enabled?: boolean; enabled?: boolean; include_in_unified_inbox?: boolean; aliases?: Array<{ id: string; email?: string | null; name?: string | null; signature?: string | null; [key: string]: unknown }>; folder_mappings?: { inbox?: string | null; spam?: string | null; sent?: string | null; drafts?: string | null; trash?: string | null; archive?: string | null; [key: string]: unknown } | null; [key: string]: unknown }>;
   accountsReady: boolean;
   setAccounts: (accounts: Array<{
       id: string;
@@ -238,7 +238,7 @@ export interface StoreState {
   markReadBehavior: string;
   setMarkReadBehavior: (val: string) => void;
   markReadDelay: number;
-  setMarkReadDelay: (val: string) => void;
+  setMarkReadDelay: (val: string | number) => void;
   expandedThreadId: string | null;
   setExpandedThreadId: (id: string) => void;
   threadMessages: Record<string, StoreMessageRow[]>;
@@ -316,15 +316,12 @@ export interface StoreState {
   setHiddenFolders: (hf: string[]) => void;
   folderOrder: Record<string, string[]>;
   setFolderOrder: (accountId: string, paths: string[]) => void;
-  expandedAccounts: string[];
-  setExpandedAccounts: (updater: (prev: string[]) => string[]) => void;
+  expandedAccounts: Record<string, boolean>;
+  setExpandedAccounts: (updater: (prev: Record<string, boolean>) => Record<string, boolean>) => void;
   collapsedFolders: string[];
   toggleCollapsedFolder: (accountId: string, path: string) => void;
   favoriteFolders: FavoriteFolderRow[];
-  addFavoriteFolder: ({ accountId, path }: {
-      accountId: string;
-      path: string;
-  }) => void;
+  addFavoriteFolder: ({ accountId, path, name }: { accountId: string; path: string; name?: string }) => void;
   removeFavoriteFolder: ({ accountId, path }: {
       accountId: string;
       path: string;
@@ -354,6 +351,7 @@ export interface StoreMessageRow {
   message_id?: string | null;
   thread_id?: string;
   thread_key?: string;
+  uid?: number;
   message_count?: number | string | null;
   unread_count?: number | string | null;
   date?: string | number | Date | null;
@@ -361,8 +359,8 @@ export interface StoreMessageRow {
   snippet?: string | null;
   from_name?: string | null;
   from_email?: string | null;
-  to_addresses?: unknown;
-  cc_addresses?: unknown;
+  to_addresses?: string | null;
+  cc_addresses?: string | null;
   reply_to?: string | null;
   category?: string | null;
   [key: string]: unknown;
@@ -490,6 +488,7 @@ interface StoreMessage {
   date?: string | number | Date | null;
   thread_id?: string;
   thread_key?: string;
+  uid?: number;
   is_starred?: boolean;
   [key: string]: unknown;
 }
@@ -1080,8 +1079,8 @@ export const useStore = create<StoreState>()((set, get) => ({
     schedulePrefSave({ markReadBehavior: val });
   },
   markReadDelay: parseInt(localStorage.getItem('mailflow_mark_read_delay') || '1') || 1,
-  setMarkReadDelay: (val: string) =>{
-    const n = Math.max(1, Math.min(10, parseInt(val) || 1));
+  setMarkReadDelay: (val: string | number) =>{
+    const n = Math.max(1, Math.min(10, Number(val) || 1));
     localStorage.setItem('mailflow_mark_read_delay', String(n));
     set({ markReadDelay: n });
     schedulePrefSave({ markReadDelay: n });
@@ -1430,7 +1429,7 @@ export const useStore = create<StoreState>()((set, get) => ({
     try { return JSON.parse(localStorage.getItem('mailflow_expanded_accounts') || '{}'); }
     catch { return {}; }
   })(),
-  setExpandedAccounts: (updater: (prev: string[]) => string[]) => {
+  setExpandedAccounts: (updater: (prev: Record<string, boolean>) => Record<string, boolean>) => {
     const next = typeof updater === 'function' ? updater(get().expandedAccounts) : updater;
     localStorage.setItem('mailflow_expanded_accounts', JSON.stringify(next));
     set({ expandedAccounts: next });
@@ -1456,7 +1455,7 @@ export const useStore = create<StoreState>()((set, get) => ({
     try { return JSON.parse(localStorage.getItem('mailflow_favorite_folders') || '[]'); }
     catch { return []; }
   })(),
-  addFavoriteFolder: ({ accountId, path }: { accountId: string; path: string }) => {
+  addFavoriteFolder: ({ accountId, path, name }: { accountId: string; path: string; name?: string }) => {
     const prev = get().favoriteFolders;
     if (prev.some((f: FavoriteFolderRow) => f.accountId === accountId && f.path === path)) return;
     const next = [...prev, { accountId, path }];
