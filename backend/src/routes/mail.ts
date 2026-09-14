@@ -1093,7 +1093,7 @@ router.post('/messages/bulk-read', async (req, res) => {
   }
 
   try {
-    const result = await query(
+    const result = await query<ReadMessageRow>(
       `SELECT m.id, m.uid, m.folder, m.is_read, m.account_id, m.message_id FROM messages m
        JOIN email_accounts a ON m.account_id = a.id
        WHERE m.id = ANY($2::uuid[]) AND a.user_id = $1`,
