@@ -8,7 +8,7 @@ import { toAppError } from '../utils/errors.ts';
 export default function MessageHeaderModal({ messageId, subject, onClose, onSubjectResolved = (_subject: string) => {} }) {
   const { t } = useTranslation();
   const isMobile = useMobile();
-  const [headers, setHeaders] = useState(null);
+  const [headers, setHeaders] = useState<string | null>(null);
   const [resolvedSubject, setResolvedSubject] = useState(subject);
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);

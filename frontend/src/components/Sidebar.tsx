@@ -994,7 +994,7 @@ export default function Sidebar({ onEditProfile = null }) {
                     border: `1px solid ${account.color}66`,
                     flexShrink: 0,
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: 12, fontWeight: 600, color: account.color,
+                    fontSize: 12, fontWeight: 600, color: account.color ?? undefined,
                     outline: account.sync_error ? '2px solid rgba(248,113,113,0.5)' : 'none',
                     userSelect: 'none',
                   }}>
@@ -1003,7 +1003,7 @@ export default function Sidebar({ onEditProfile = null }) {
                 ) : (
                   <div style={{
                     width: 8, height: 8, borderRadius: '50%',
-                    background: account.color, flexShrink: 0,
+                    background: account.color ?? undefined, flexShrink: 0,
                     boxShadow: account.sync_error ? '0 0 0 2px rgba(248,113,113,0.4)' : 'none',
                   }} />
                 )}
@@ -1037,7 +1037,7 @@ export default function Sidebar({ onEditProfile = null }) {
                         <span style={{
                           fontFamily: 'var(--font-mono, ui-monospace, monospace)',
                           fontSize: 10, fontWeight: 600, color: 'white',
-                          background: account.color, padding: '1px 6px',
+                          background: account.color ?? undefined, padding: '1px 6px',
                           borderRadius: 9, minWidth: 18, textAlign: 'center',
                         }}>
                           {unread > 999 ? '999+' : unread}
@@ -1554,7 +1554,7 @@ export default function Sidebar({ onEditProfile = null }) {
                           {unreadCount}
                         </span>
                       )}
-                      <div style={{ width: 6, height: 6, borderRadius: '50%', background: account.color, flexShrink: 0 }} />
+                      <div style={{ width: 6, height: 6, borderRadius: '50%', background: account.color ?? undefined, flexShrink: 0 }} />
                     </div>
                   </div>
                 );

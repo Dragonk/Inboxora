@@ -1025,7 +1025,7 @@ function AccountsTab() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', flexWrap: 'wrap' }}>
             <div style={{
               width: 38, height: 38, borderRadius: '50%', flexShrink: 0,
-              background: account.color, display: 'flex', alignItems: 'center',
+              background: account.color ?? undefined, display: 'flex', alignItems: 'center',
               justifyContent: 'center', fontSize: 15, fontWeight: 600, color: 'white',
             }}>
               {account.name?.[0]?.toUpperCase() || '?'}
