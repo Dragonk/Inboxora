@@ -164,7 +164,7 @@ router.propfind('/:userId/:calendarId/', async (req: Request, res: Response) => 
 
 router.report('/:userId/:calendarId/', async (req: Request, res: Response) => {
   if (req.params.userId !== req.caldavUserId) return res.status(403).end();
-  const calendarResult = await query(
+  const calendarResult = await query<{ sync_version?: number | null; [key: string]: unknown }>(
     'SELECT id, sync_token, sync_version FROM calendars WHERE id = $1 AND user_id = $2',
     [req.params.calendarId, req.caldavUserId],
   );

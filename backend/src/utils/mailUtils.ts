@@ -201,7 +201,7 @@ export function adjustFolderCounts(accountId: string, path: string, totalDelta: 
 // actually having siblings, so a plain single-folder message never reaches here.
 export async function fanOutReadToSiblings(accountId: string, messageId: string | null, read: boolean) {
   if (!messageId) return; // no shared header → no siblings to fan out to
-  const res = await query(
+  const res = await query<{ folder: string }>(
     `UPDATE messages SET is_read = $1, read_changed_at = NOW()
       WHERE account_id = $2 AND message_id = $3 AND is_read <> $1
       RETURNING folder`,
