@@ -30,6 +30,7 @@ interface ReadMessageRow {
   user_id?: string | null;
   preferences?: unknown;
   calendar_invitation_id?: string | null;
+  folder_mappings?: unknown;
   [key: string]: unknown;
 }
 
@@ -724,7 +725,7 @@ router.patch('/messages/:id/read', async (req, res) => {
   if (!UUID_RE.test(id)) return res.status(400).json({ error: 'Invalid message id' });
   const { read } = req.body;
 
-  const result = await query(`
+  const result = await query<ReadMessageRow>(`
     SELECT m.*, a.user_id,
            CASE WHEN m.message_id IS NULL THEN 1
                 ELSE (SELECT COUNT(*) FROM messages s
@@ -788,7 +789,7 @@ router.patch('/messages/:id/star', async (req, res) => {
   if (!UUID_RE.test(id)) return res.status(400).json({ error: 'Invalid message id' });
   const { starred } = req.body;
 
-  const result = await query(`
+  const result = await query<ReadMessageRow>(`
     SELECT m.*, a.user_id,
            CASE WHEN m.message_id IS NULL THEN 1
                 ELSE (SELECT COUNT(*) FROM messages s
@@ -881,7 +882,7 @@ router.post('/sync-folder', async (req, res) => {
   if (!UUID_RE.test(accountId)) return res.status(400).json({ error: 'Invalid account id' });
   if (!isValidFolderName(folder)) return res.status(400).json({ error: 'Invalid folder name' });
 
-  const check = await query(
+  const check = await query<EmailAccountRow>(
     'SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2',
     [accountId, req.session.userId]
   );
@@ -899,7 +900,7 @@ router.post('/mark-all-read', async (req, res) => {
   const { accountId, folder = 'INBOX' } = req.body;
   if (!accountId || !UUID_RE.test(accountId)) return res.status(400).json({ error: 'Invalid account id' });
   if (!isValidFolderName(folder)) return res.status(400).json({ error: 'Invalid folder name' });
-  const check = await query(
+  const check = await query<EmailAccountRow>(
     'SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2',
     [accountId, req.session.userId]
   );
@@ -2040,7 +2041,7 @@ router.delete('/messages/:id', async (req, res) => {
 // Helper: move a single message to a destination folder, update DB, log to
 // training_log, and broadcast folder_updated. Shared between /spam and /ham.
 async function moveForSpamLabel(messageId: string, userId: string, destinationFolder, label: string) {
-  const result = await query(`
+  const result = await query<ReadMessageRow>(`
     SELECT m.*, a.user_id, a.folder_mappings FROM messages m
     JOIN email_accounts a ON m.account_id = a.id
     WHERE m.id = $1 AND a.user_id = $2
