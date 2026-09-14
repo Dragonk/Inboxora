@@ -44,16 +44,16 @@ export const NOTIFICATION_SOUNDS = {
 };
 
 const SYNTHS = {
-  tritone(ac) {
+  tritone(ac: AudioContext) {
     const t = ac.currentTime;
     note(ac, 1047, 'sine', 0.32, t, 0.12);
     note(ac, 1319, 'sine', 0.32, t + 0.14, 0.12);
     note(ac, 1568, 'sine', 0.35, t + 0.28, 0.16);
   },
 
-  marimba(ac) {
+  marimba(ac: AudioContext) {
     const t = ac.currentTime;
-    const hit = (freq, start, vol) => {
+    const hit = (freq: number, start: number, vol: number) => {
       const o = ac.createOscillator();
       const g = ac.createGain();
       o.connect(g); g.connect(ac.destination);
@@ -69,14 +69,14 @@ const SYNTHS = {
     hit(1175, t + 0.44, 0.3);
   },
 
-  xylophone(ac) {
+  xylophone(ac: AudioContext) {
     const t = ac.currentTime;
     note(ac, 523, 'triangle', 0.38, t, 0.4);
     note(ac, 659, 'triangle', 0.38, t + 0.18, 0.4);
     note(ac, 784, 'triangle', 0.38, t + 0.36, 0.4);
   },
 
-  belltower(ac) {
+  belltower(ac: AudioContext) {
     const t = ac.currentTime;
     note(ac, 220, 'sine', 0.35, t, 2.5);
     note(ac, 550, 'sine', 0.18, t, 2.0);
@@ -85,14 +85,14 @@ const SYNTHS = {
     note(ac, 1100, 'sine', 0.05, t, 1.0);
   },
 
-  vibraphone(ac) {
+  vibraphone(ac: AudioContext) {
     const t = ac.currentTime;
     note(ac, 622, 'sine', 0.32, t, 2.0);
     note(ac, 1244, 'sine', 0.07, t, 1.4);
     note(ac, 1866, 'sine', 0.03, t, 0.9);
   },
 
-  fanfare(ac) {
+  fanfare(ac: AudioContext) {
     const t = ac.currentTime;
     note(ac, 523, 'triangle', 0.22, t, 0.18);
     note(ac, 659, 'triangle', 0.22, t + 0.2, 0.18);
@@ -100,7 +100,7 @@ const SYNTHS = {
     note(ac, 1047, 'triangle', 0.26, t + 0.6, 0.55);
   },
 
-  windchimes(ac) {
+  windchimes(ac: AudioContext) {
     const t = ac.currentTime;
     const tones   = [1319, 1568, 1760, 2093, 1480, 1661, 1976];
     const offsets = [0, 0.14, 0.29, 0.41, 0.57, 0.71, 0.84];
@@ -109,7 +109,7 @@ const SYNTHS = {
     });
   },
 
-  bamboo(ac) {
+  bamboo(ac: AudioContext) {
     const t = ac.currentTime;
     const knock = (start) => {
       const o = ac.createOscillator();
@@ -126,7 +126,7 @@ const SYNTHS = {
     knock(t + 0.22);
   },
 
-  orchestra(ac) {
+  orchestra(ac: AudioContext) {
     const t = ac.currentTime;
     note(ac, 55,  'sine', 0.35, t, 0.65);
     note(ac, 110, 'sine', 0.25, t, 0.55);
@@ -135,7 +135,7 @@ const SYNTHS = {
     note(ac, 880, 'triangle', 0.05, t, 0.2);
   },
 
-  slack(ac) {
+  slack(ac: AudioContext) {
     const t = ac.currentTime;
     const o = ac.createOscillator();
     const g = ac.createGain();
@@ -148,7 +148,7 @@ const SYNTHS = {
     o.start(t); o.stop(t + 0.25);
   },
 
-  tweet(ac) {
+  tweet(ac: AudioContext) {
     const t = ac.currentTime;
     const chirp = (start, f0, f1) => {
       const o = ac.createOscillator();
