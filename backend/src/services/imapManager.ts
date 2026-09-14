@@ -4032,7 +4032,7 @@ export class ImapManager {
         const { resolved, policy } = await resolveAccountHost(fresh);
         client = await connectImapClient(fresh, resolved, { policy }, 30000, 'Flag-sync connect');
 
-        const uidToId = new Map(msgs.map(m => [m.uid, m.id]));
+        const uidToId = new Map(msgs.map((m: { uid?: number | string; id?: string }) => [m.uid, m.id]));
         const updates = [];
 
         const lock = await client.getMailboxLock(folder);
@@ -4438,6 +4438,18 @@ export class ImapManager {
     bodyHtml = null,
     bodyText = null,
     date = new Date(),
+  }: {
+    messageId: string;
+    subject?: string | null;
+    fromName?: string | null;
+    fromEmail?: string | null;
+    to?: Array<{ name?: string; email?: string }>;
+    cc?: Array<{ name?: string; email?: string }>;
+    inReplyTo?: string | { address?: string } | null;
+    snippet?: string;
+    bodyHtml?: string | null;
+    bodyText?: string | null;
+    date?: Date;
   }) {
     if (!uid || !folder) return;
     const msgId = sanitizeStr(messageId);
@@ -4578,7 +4590,7 @@ export class ImapManager {
   // Called in the background (via setImmediate) so it doesn't block the sync path.
   // By the time the user clicks the email (typically 2–10s later), the body is already
   // in the DB and the click returns instantly without a live IMAP round-trip.
-  async prefetchNewMessageBodies(account: EmailAccountRow, messages) {
+  async prefetchNewMessageBodies(account: EmailAccountRow, messages: Array<{ id?: string; uid?: number | string; folder?: string }>) {
     for (const msg of messages) {
       try {
         // Skip if body already cached (concurrent click may have triggered this too)
@@ -4614,7 +4626,7 @@ export class ImapManager {
   // without waiting for this work. Respects the quiet window — pauses between
   // messages when the user is actively clicking so live fetches stay snappy.
   // Skipped for providers that throttle background body fetching (e.g. Gmail).
-  async prefetchFolderBodies(accountId: string, messageIds) {
+  async prefetchFolderBodies(accountId: string, messageIds: Array<string | number>) {
     if (!messageIds.length) return;
 
     const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
@@ -4669,10 +4681,10 @@ export class ImapManager {
     // the first attempt uses the pool (withFreshClient); the retry uses a genuinely fresh
     // login (withFreshLogin) so a frozen/half-open pooled connection can't hang or return
     // a blank body for recently-arrived mail.
-    const doFetch = (acquire) => acquire(account, async (client) => {
-      let html = null;
-      let text = null;
-      let attachments;
+    const doFetch = (acquire: (account: EmailAccountRow, fn: (client: ImapClient) => Promise<{ html: string | null; text: string | null; attachments: AttachmentRef[] }>) => Promise<{ html: string | null; text: string | null; attachments: AttachmentRef[] }>) => acquire(account, async (client: ImapClient) => {
+      let html: string | null = null;
+      let text: string | null = null;
+      let attachments: AttachmentRef[] = [];
       // Always address by UID string with uid:true option — direct UID FETCH avoids
       // the two-step SEARCH+FETCH path that object-range syntax triggers, which can
       // silently return nothing on stale connections or when a server-side search
@@ -4904,7 +4916,7 @@ export class ImapManager {
     });
   }
 
-  async fetchAttachment(account: EmailAccountRow, uid: number | string, folder: string, partNum) {
+  async fetchAttachment(account: EmailAccountRow, uid: number | string, folder: string, partNum: string) {
     return withFreshClient(account, async (client) => {
       const lock = await client.getMailboxLock(folder);
       try {
@@ -4938,7 +4950,7 @@ export class ImapManager {
       const lock = await client.getMailboxLock(folder);
       try {
         const uidStr = String(uid);
-        const partNums = parts.map(p => p.part);
+        const partNums = parts.map((p: { part: string }) => p.part);
         const buffers = new Map();
 
         for await (const msg of client.fetch(
