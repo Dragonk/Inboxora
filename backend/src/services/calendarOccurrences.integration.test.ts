@@ -66,17 +66,17 @@ function eventRow(raw: string, overrides: Partial<ProjectedEvent> = {}): Project
   };
 }
 
-async function insertEvent(uid: string, raw: string, summary: string, { description = null, location = null } = {}) {
+async function insertEvent(uid: string, raw: string, summary: string, { description = null, location = null }: { description?: string | null; location?: string | null } = {}): Promise<string> {
   const result = await query(
     `INSERT INTO calendar_events (calendar_id, user_id, uid, raw_ical, etag, summary, description, location, starts_at, ends_at, all_day, timezone)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,false,'Europe/Warsaw') RETURNING id`,
     [CALENDAR_ID, USER_ID, uid, raw, `etag-${uid}`, summary, description, location, new Date('2026-01-05T08:00:00Z'), new Date('2026-01-05T09:00:00Z')],
   );
-  return result.rows[0].id;
+  return result.rows[0].id as string;
 }
 
 async function storedOccurrences(eventId: string) {
-  const result = await query(
+  const result = await query<{ starts_at: string | Date; ends_at: string | Date; all_day: boolean; summary: string | null; description: string | null; location: string | null }>(
     `SELECT o.starts_at, o.ends_at, o.all_day, COALESCE(o.summary, e.summary) AS summary,
             COALESCE(o.description, e.description) AS description, COALESCE(o.location, e.location) AS location
        FROM calendar_occurrences o JOIN calendar_events e ON e.id = o.event_id
