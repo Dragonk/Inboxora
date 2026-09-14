@@ -23,7 +23,7 @@ describe('Conversation settings contract', () => {
     assert.match(source, /testId="conversation-reader-toggle"/);
     // ...and the shared choice group carries one per value, so the calendar and the
     // mobile panel position read like the message-list settings.
-    assert.match(source, /function SettingsChoices\(\{ label, description, testId/);
+    assert.match(source, /function SettingsChoices(?:<[^>]*>)?\(\{ label, description, testId/);
     assert.match(source, /calendar\.firstDayOfWeekDescription/);
     assert.match(source, /calendar\.mondayDescription/);
     assert.match(source, /calendar\.sundayDescription/);

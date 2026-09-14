@@ -1710,8 +1710,16 @@ function CalendarSettingsTab() {
 // settings: the option name, a short line explaining what the group controls, and
 // one button per value carrying its own name and a short line saying what picking
 // that value means. Every tab reads the same way.
-function SettingsChoices({ label, description, testId, value, onChange, options, disabled = false }) {
-  return <div className="settings-choices" role="group" aria-label={label} data-testid={testId}>
+function SettingsChoices<T extends string | number>({ label, description, testId, value, onChange, options, disabled = false }: {
+  label: React.ReactNode;
+  description?: React.ReactNode;
+  testId?: string;
+  value: T;
+  onChange: (value: T) => void;
+  options: Array<[T, string, string?]>;
+  disabled?: boolean;
+}) {
+  return <div className="settings-choices" role="group" aria-label={typeof label === 'string' ? label : undefined} data-testid={testId}>
     <div className="settings-choice-label">{label}</div>
     {description && <p className="settings-choice-description">{description}</p>}
     <div className="settings-choice-options">{options.map(([id, title, optionDescription]) => <button key={id} type="button" disabled={disabled} aria-pressed={value === id} onClick={() => onChange(id)}><span className="settings-option-title">{title}</span>{optionDescription && <span className="settings-option-description">{optionDescription}</span>}</button>)}</div>
