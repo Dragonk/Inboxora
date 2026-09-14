@@ -35,6 +35,13 @@ pool.on('error', err => {
  * call site narrows what it reads. Typing this as Record<string, unknown> was measured
  * to cascade into ~220 errors across call sites — a separate, dedicated refactor.
  */
+/**
+ * A row from a dynamic SQL query.
+ *
+ * A call site that reads columns declares its own row type through the generic below
+ * (`query<AccountRow>(...)`); until then the row stays untyped at this single boundary,
+ * which is why the alias itself is still `any` and is the last thing to change.
+ */
 export type DbRow = any;
 
 /** The slice of a pool/transaction client this codebase uses. */
@@ -42,7 +49,7 @@ export interface DbClient {
   query(text: string, params?: unknown[]): Promise<{ rows: DbRow[]; rowCount?: number }>;
 }
 
-export async function query(text: string, params: unknown[] = []): Promise<{ rows: DbRow[]; rowCount?: number }> {
+export async function query<T = DbRow>(text: string, params: unknown[] = []): Promise<{ rows: T[]; rowCount?: number }> {
   // Time the query for the performance baseline (behavior-neutral). This is the
   // single top-level DB chokepoint; transaction clients (withTransaction) are not
   // timed here. process.hrtime avoids clock-skew and is ~nanosecond overhead.

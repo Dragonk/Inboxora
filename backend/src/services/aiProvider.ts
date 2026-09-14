@@ -1,5 +1,6 @@
 import { decrypt, encrypt } from './encryption.js';
 import { query } from './db.js';
+import type { DbRow } from './db.js';
 import { getConnectionPolicy } from './connectionPolicy.js';
 import { validateHost } from './hostValidation.js';
 import { createRequestSignal, parseJson, readLimited, readSseData, sanitizeText } from './aiHttp.js';
@@ -176,6 +177,17 @@ export function createAiProvider({
   getCodexStatusFn = getCodexStatus,
   streamCodexResponsesFn = streamCodexResponses,
   completeCodexTextFn = completeCodexText,
+}: {
+  queryFn?: (text: string, params?: unknown[]) => Promise<{ rows: DbRow[]; rowCount?: number }>;
+  encryptFn?: typeof encrypt;
+  decryptFn?: typeof decrypt;
+  validateHostFn?: typeof validateHost;
+  getConnectionPolicyFn?: typeof getConnectionPolicy;
+  fetchFn?: (...args: Parameters<typeof fetch>) => Promise<Response>;
+  getCodexAccessFn?: typeof getCodexAccess;
+  getCodexStatusFn?: typeof getCodexStatus;
+  streamCodexResponsesFn?: typeof streamCodexResponses;
+  completeCodexTextFn?: typeof completeCodexText;
 } = {}) {
   async function loadAiConfig() {
     const result = await queryFn("SELECT value FROM system_settings WHERE key = 'ai_config'");

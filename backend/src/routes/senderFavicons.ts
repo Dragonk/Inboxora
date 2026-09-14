@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth.js';
 import { query } from '../services/db.js';
+import type { DbRow } from '../services/db.js';
 import { consume } from '../services/rateLimiter.js';
 import { getSenderFavicon, normalizeSenderDomain } from '../services/senderFavicon.js';
 import type { Request, Response, NextFunction } from 'express';
@@ -14,6 +15,11 @@ export function createSenderFaviconHandler({
   consumeFn = consume,
   getFavicon = getSenderFavicon,
   normalizeDomain = normalizeSenderDomain,
+}: {
+  queryFn?: (text: string, params?: unknown[]) => Promise<{ rows: DbRow[]; rowCount?: number }>;
+  consumeFn?: typeof consume;
+  getFavicon?: typeof getSenderFavicon;
+  normalizeDomain?: typeof normalizeSenderDomain;
 } = {}) {
   return async function senderFaviconHandler(req, res) {
     setPrivateNoStore(res);
