@@ -904,14 +904,14 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
 
     let startX = 0, startY = 0, dir = null, active = false, fromEdge = false;
 
-    const onStart = (e) => {
+    const onStart = (e: TouchEvent) => {
       const t = e.touches[0];
       startX = t.clientX; startY = t.clientY;
       fromEdge = t.clientX <= 32;
       dir = null; active = false;
     };
 
-    const onMove = (e) => {
+    const onMove = (e: TouchEvent) => {
       const t = e.touches[0];
       const dx = t.clientX - startX;
       const dy = t.clientY - startY;
@@ -933,7 +933,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
       }
     };
 
-    const onEnd = (e) => {
+    const onEnd = (e: TouchEvent) => {
       if (!active) return;
       active = false;
       const dx = e.changedTouches[0].clientX - startX;
@@ -1146,16 +1146,16 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
 
   const handlePrint = () => {
     if (!message) return;
-    const esc = (s) => (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const esc = (s: string) => (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const date = message.date ? new Date(message.date).toLocaleString() : '';
     const fromStr = message.from_name
       ? `${esc(message.from_name)} &lt;${esc(message.from_email)}&gt;`
       : esc(message.from_email);
 
-    const parseList = (raw) => {
+    const parseList = (raw: string | unknown[] | null | undefined): unknown[] => {
       try { return Array.isArray(raw) ? raw : JSON.parse(raw || '[]'); } catch { return []; }
     };
-    const fmtAddr = (r) => r.name ? `${esc(r.name)} &lt;${esc(r.email)}&gt;` : esc(r.email);
+    const fmtAddr = (r: { name?: string | null; email?: string | null }) => r.name ? `${esc(r.name)} &lt;${esc(r.email || '')}&gt;` : esc(r.email || '');
     const toStr = parseList(message.to_addresses).map(fmtAddr).join(', ');
     const ccStr = parseList(message.cc_addresses).map(fmtAddr).join(', ');
 
@@ -1197,7 +1197,7 @@ ${bodyContent}
   // Label shown on a result box for a given action key. The built-in summarize
   // key maps to the translated "Summary"; custom actions use their label. Falls
   // back to a stored label (so a result survives its action being deleted).
-  const aiActionLabel = useCallback((key, fallback) => {
+  const aiActionLabel = useCallback((key: string, fallback: string) => {
     if (key === BUILTIN_SUMMARIZE.id) return t('message.summary');
     const found = (aiActions || []).find(a => a.id === key);
     return found?.label || fallback || key;
@@ -1205,7 +1205,7 @@ ${bodyContent}
 
   // Run an AI action against the current message and stream the result into a
   // pinned box. Cached results are shown instantly unless force=true (Regenerate).
-  const runAiAction = async (action, { force = false } = {}) => {
+  const runAiAction = async (action: { id: string; label: string; prompt?: string; builtin?: boolean }, { force = false }: { force?: boolean } = {}) => {
     if (!action?.id) return;
     const key = action.id;
 
@@ -1297,7 +1297,7 @@ ${bodyContent}
     return () => { Object.values(aiAbortRefs.current).forEach(c => c?.abort()); };
   }, []);
 
-  const handleDownload = async (messageId, part, filename) => {
+  const handleDownload = async (messageId: string, part: string, filename: string) => {
     setDownloadingPart(part);
     try {
       const res = await fetch(`/api/mail/messages/${messageId}/attachments/${encodeURIComponent(part)}`, {
