@@ -3153,7 +3153,7 @@ function ChipInput({ chips, onChipsChange, value, onChange, placeholder, autoFoc
   };
 
   // Open the chip menu, clamped so it stays within the viewport.
-  const openMenu = (clientX, clientY, index) => {
+  const openMenu = (clientX: number, clientY: number, index: number) => {
     setMenu({ x: Math.min(clientX, window.innerWidth - 176), y: Math.min(clientY, window.innerHeight - 168), index });
   };
   const onChipTouchStart = (e, i) => {

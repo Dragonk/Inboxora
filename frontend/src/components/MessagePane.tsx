@@ -2030,7 +2030,7 @@ ${bodyContent}
                     <span>{t('message.to')} </span>
                     <span style={{ color: 'var(--text-secondary)' }}>
                       {toList.length > 0
-                        ? toList.map((r, i) => (
+                        ? toList.map((r: { name?: string | null; email?: string | null }, i: number) => (
                             <span key={i}>{r.name || r.email}{i < toList.length - 1 ? ', ' : ''}</span>
                           ))
                         : (message.account_email || message.account_name || '')}
@@ -2040,7 +2040,7 @@ ${bodyContent}
                     <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       <span>Cc </span>
                       <span style={{ color: 'var(--text-secondary)' }}>
-                        {ccList.map((r, i) => (
+                        {ccList.map((r: { name?: string | null; email?: string | null }, i: number) => (
                           <span key={i}>{r.name || r.email}{i < ccList.length - 1 ? ', ' : ''}</span>
                         ))}
                       </span>

@@ -1112,7 +1112,7 @@ export default function Sidebar({ onEditProfile = null }) {
                   setFolderDropTarget(null);
                 };
 
-                const handleFolderOrderDragOver = (event, path, siblings) => {
+                const handleFolderOrderDragOver = (event: React.DragEvent, path: string, siblings: Array<{ path: string; [key: string]: unknown }>) => {
                   if (!event.dataTransfer.types.includes(FOLDER_ORDER_DRAG_TYPE)) return false;
                   event.preventDefault();
                   event.stopPropagation();
