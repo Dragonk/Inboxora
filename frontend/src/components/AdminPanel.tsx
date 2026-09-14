@@ -4657,7 +4657,7 @@ function PluginsSection({ onNavigate }: PluginsSectionProps) {
     return () => { alive = false; };
   }, []);
 
-  const toggle = async (id, next) => {
+  const toggle = async (id: string, next: boolean) => {
     setBusyId(id);
     setError(false);
     try { await setPluginActivated(id, next); }
@@ -4784,7 +4784,7 @@ function SystemEmailSection() {
     setMsg({ type: 'ok', text: t('admin.systemEmail.removed') });
   };
 
-  const field = (label, key, type = 'text', placeholder = '') => (
+  const field = (label: string, key: string, type = 'text', placeholder = '') => (
     <div style={{ marginBottom: 14 }}>
       <label style={{ display: 'block', fontSize: 12, color: 'var(--text-secondary)', marginBottom: 5 }}>{label}</label>
       <input
@@ -5003,7 +5003,7 @@ function UsersAndInvitesPanel() {
     setInvites(inv => inv.filter(i => i.id !== id));
   };
 
-  const copyInviteUrl = (url, id) => {
+  const copyInviteUrl = (url: string, id: string) => {
     navigator.clipboard.writeText(url).then(() => {
       setCopiedId(id);
       setTimeout(() => setCopiedId(null), 2000);
@@ -5369,7 +5369,7 @@ function NativePushSection() {
     } catch { /* clipboard unavailable — the URL is visible to type */ }
   };
 
-  const buttonStyle = (primary) => ({
+  const buttonStyle = (primary: boolean) => ({
     padding: '7px 14px', borderRadius: 7, fontSize: 13, fontWeight: 500,
     cursor: busy ? 'wait' : 'pointer',
     background: primary ? 'var(--accent)' : 'transparent',
@@ -6050,7 +6050,7 @@ function AboutTab() {
     [t('admin.about.sourceCode'), 'https://github.com/Dragonk/Inboxora'],
   ];
 
-  const rowStyle = (last) => ({
+  const rowStyle = (last: boolean) => ({
     display: 'flex', justifyContent: 'space-between', alignItems: 'center',
     padding: '11px 14px', background: 'var(--bg-secondary)',
     borderBottom: last ? 'none' : '1px solid var(--border-subtle)',
