@@ -284,7 +284,7 @@ export interface StoreState {
   gtdSections: GtdSections | null;
   fetchGtdSections: () => Promise<void>;
   scheduleGtdSectionsFetch: () => void;
-  removeGtdThread: (identity: string, states: string[]) => void;
+  removeGtdThread: (identity: string, states: string[]) => GtdRemovalSnapshot | null;
   restoreGtdThread: (snapshot: GtdRemovalSnapshot) => void;
   markGtdThreadRead: (identity: string, isRead: boolean) => void;
   markGtdThreadStarred: (identity: string, isStarred: boolean) => void;
@@ -1249,7 +1249,7 @@ export const useStore = create<StoreState>()((set, get) => ({
   // are the backend section keys whose labels were removed (todo/watch/delegated/…).
   // Delegates to a pure helper (unit-tested in gtd.test.js) that also keeps the deduped
   // Waiting rollup in step so the Waiting badge is correct instantly.
-  removeGtdThread: (identity: string, states: string[]) =>{
+  removeGtdThread: (identity: string, states: string[]): GtdRemovalSnapshot | null =>{
     let snapshot = null;
     set((state: StoreStateRead) => {
       snapshot = snapshotGtdThreadRemoval(state.gtdSections, identity, states);
