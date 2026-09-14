@@ -1646,7 +1646,7 @@ export class ImapManager {
             const cd = this._connectCooldown.get(row.id);
             if (cd && Date.now() < cd.until) continue;
             // Only fetch full credentials when a reconnect is actually needed
-            const full = await query('SELECT * FROM email_accounts WHERE id = $1', [row.id]);
+            const full = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1', [row.id]);
             const account = full.rows[0];
             if (!account) continue;
             console.log(`Health check: reconnecting ${logAccount(account)} (not connected)`);
@@ -1684,7 +1684,7 @@ export class ImapManager {
             [accountId]
           );
           if (!backlog.rows.length) continue;
-          const acct = await query('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
+          const acct = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
           if (!acct.rows.length) continue;
           // Host-level circuit breaker: skip if this account's provider host is backing off
           // (another account on it was just refused). startSnippetIndexer re-checks; this only
@@ -1744,7 +1744,7 @@ export class ImapManager {
           if (!observed) continue;
 
           try {
-            const acct = await query('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
+            const acct = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
             const account = acct.rows[0];
             if (!account) continue;
             // Our highest synced INBOX UID — the watermark for "have we seen the newest mail".
@@ -1957,7 +1957,7 @@ export class ImapManager {
       // attempt, so an outage doesn't burn the give-up budget.
       if (!this.connections.has(accountId)) continue;
 
-      const acct = await query('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
+      const acct = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
       const account = acct.rows[0];
       if (!account) { this._pendingFlagPush.delete(accountId); continue; }
 
@@ -2472,7 +2472,7 @@ export class ImapManager {
           // the IPv4 fallback (#382) — a single all-encompassing race would otherwise cut the
           // fallback attempt short.
           const setup = await raceTimeout((async () => {
-            const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [account.id]);
+            const accountResult = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1', [account.id]);
             // Bail if the account was deleted OR disabled since this reconnect was queued.
             // The staleness check schedules a reconnect via setTimeout that disconnectAccount
             // cannot cancel, so a user disabling a stuck account must not be silently revived.
@@ -3545,7 +3545,7 @@ export class ImapManager {
     const openBfClient = async () => {
       // Always clean up any existing client before creating a new one
       await closeImapClient(bfClient); bfClient = null;
-      const row = (await query('SELECT * FROM email_accounts WHERE id = $1', [account.id])).rows[0];
+      const row = (await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1', [account.id])).rows[0];
       // Re-check enabled here: a backfill can sit queued behind the per-host semaphore, and
       // the user may disable the account while it waits. disconnectAccount doesn't cancel a
       // queued backfill, so without this a disabled account would still get a fresh connection.
@@ -4029,7 +4029,7 @@ export class ImapManager {
     for (const [folder, msgs] of byFolder) {
       let client = null;
       try {
-        const row = (await query('SELECT * FROM email_accounts WHERE id = $1', [account.id])).rows[0];
+        const row = (await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1', [account.id])).rows[0];
         if (!row) return;
         const fresh = await ensureFreshToken(row);
         const { resolved, policy } = await resolveAccountHost(fresh);
@@ -4183,7 +4183,7 @@ export class ImapManager {
 
       const openClient = async () => {
         if (siClient) { try { await siClient.logout(); } catch { /* already disconnected */ } siClient = null; }
-        const row = (await query('SELECT * FROM email_accounts WHERE id = $1', [account.id])).rows[0];
+        const row = (await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1', [account.id])).rows[0];
         if (!row) throw new Error('Account deleted');
         const fresh = await ensureFreshToken(row);
         const { resolved, policy } = await resolveAccountHost(fresh);
@@ -4632,7 +4632,7 @@ export class ImapManager {
   async prefetchFolderBodies(accountId: string, messageIds: Array<string | number>) {
     if (!messageIds.length) return;
 
-    const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
+    const accountResult = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
     if (!accountResult.rows.length) return;
     const account = accountResult.rows[0];
     if (!providerProfile(account).snippetIndex) return;
@@ -5216,7 +5216,7 @@ export class ImapManager {
   // hook lets the owning plugin (GTD) broadcast its refresh event and, on the deferred path,
   // reconcile once the sibling lands. copyMessage itself stays label-feature-agnostic.
   async copyMessage(accountId: string, uid: number | string, fromFolder: string, toFolder: string) {
-    const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
+    const accountResult = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
     const account = accountResult.rows[0];
     if (!account) throw new Error(`copyMessage: account ${accountId} not found`);
 
@@ -5259,7 +5259,7 @@ export class ImapManager {
   // Post-remove notification is a plugin concern (generic `afterLabelRemove` hook), so this
   // stays label-feature-agnostic.
   async removeMessageCopy(accountId: string, uid: number | string, folder: string) {
-    const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
+    const accountResult = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
     const account = accountResult.rows[0];
     if (!account) throw new Error(`removeMessageCopy: account ${accountId} not found`);
 
@@ -5593,7 +5593,7 @@ export class ImapManager {
 
     for (const row of due.rows) {
       try {
-        const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [row.account_id]);
+        const accountResult = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1', [row.account_id]);
         if (!accountResult.rows.length) continue;
         const account = accountResult.rows[0];
 
