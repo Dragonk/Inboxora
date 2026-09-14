@@ -82,7 +82,7 @@ export function logicalMessageIdentity(message: ConversationMessageInput, { user
 export interface ConversationProviderHint {
   isStrong?: boolean;
   providerThreadId?: string | null;
-  source?: string;
+  source?: string | null;
 }
 
 export function threadingDecision({ message, parent, provider = undefined, identities = [] }: {

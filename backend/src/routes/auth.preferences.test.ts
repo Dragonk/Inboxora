@@ -41,6 +41,19 @@ import { patchPreferences } from './auth.js';
 // Cast mocked module exports so their vitest mock helpers type-check.
 const query = vi.mocked(__mock_query);
 
+// `query` declares its params argument with a default (`params: unknown[] = []`),
+// so a recorded mock call types that tuple element as optional. The route handlers
+// under test always pass a params array, so state that contract here rather than
+// asserting on the optional element.
+function recordedQueryCall(callIndex: number): [sql: string, params: unknown[]] {
+  const call = query.mock.calls[callIndex];
+  const params = call[1];
+  if (params === undefined) {
+    throw new Error(`query call ${callIndex} was not passed params`);
+  }
+  return [call[0], params];
+}
+
 beforeEach(() => {
   query.mockReset().mockResolvedValue({ rows: [] });
 });
@@ -56,7 +69,7 @@ describe('PATCH /auth/preferences folderOrder', () => {
 
     await patchPreferences(req, res);
 
-    const [sql, params] = query.mock.calls[0];
+    const [sql, params] = recordedQueryCall(0);
     expect(sql).toContain('SET preferences = preferences');
     expect(sql).toContain(
       "jsonb_build_object('folderOrder', $38::jsonb)",
@@ -77,7 +90,7 @@ describe('PATCH /auth/preferences senderFavicons', () => {
 
     await patchPreferences(req, res);
 
-    const [sql, params] = query.mock.calls[0];
+    const [sql, params] = recordedQueryCall(0);
     expect(sql).toContain(
       "jsonb_build_object('senderFavicons', $39::boolean)",
     );
@@ -111,7 +124,7 @@ describe('PATCH /auth/preferences obsolete favicon badge', () => {
 
     await patchPreferences(req, res);
 
-    const [sql, params] = query.mock.calls[0];
+    const [sql, params] = recordedQueryCall(0);
     expect(sql).not.toContain('showFaviconBadge');
     expect(params).not.toContain(true);
     expect(res.json).toHaveBeenCalledWith({ ok: true });
@@ -136,7 +149,7 @@ describe('PATCH /auth/preferences calendar preferences', () => {
     await patchPreferences(mockRequest({ session: mockSession({ userId: 'user-1' }), body: {
       calendarWorkDays: [1, 2, 3, 4, 5], calendarWorkHoursStart: '08:30', calendarWorkHoursEnd: '17:30',
     } }), res);
-    const [sql, params] = query.mock.calls[0];
+    const [sql, params] = recordedQueryCall(0);
     expect(sql).toContain("jsonb_build_object('calendarWorkDays', $46::jsonb)");
     expect(sql).toContain("jsonb_build_object('calendarWorkHoursStart', $47::text)");
     expect(sql).toContain("jsonb_build_object('calendarWorkHoursEnd', $48::text)");
@@ -170,7 +183,7 @@ describe('PATCH /auth/preferences calendar preferences', () => {
     query.mockResolvedValueOnce({ rows: [{ preferences: { calendarWorkHoursStart: '08:00', calendarWorkHoursEnd: '17:00' } }] }).mockResolvedValueOnce({ rows: [] });
     const res = mockResponse({ status: vi.fn().mockReturnThis(), json: vi.fn() });
     await patchPreferences(mockRequest({ session: { userId: 'user-1' }, body: { calendarWorkHoursEnd: '18:00' } }), res);
-    const [, params] = query.mock.calls[1];
+    const [, params] = recordedQueryCall(1);
     expect(params[46]).toBe('08:00');
     expect(params[47]).toBe('18:00');
     expect(res.json).toHaveBeenCalledWith({ ok: true });
@@ -180,7 +193,7 @@ describe('PATCH /auth/preferences calendar preferences', () => {
     query.mockResolvedValueOnce({ rows: [{ preferences: { calendarWorkHoursStart: '17:00', calendarWorkHoursEnd: '09:00' } }] }).mockResolvedValueOnce({ rows: [] });
     const res = mockResponse({ status: vi.fn().mockReturnThis(), json: vi.fn() });
     await patchPreferences(mockRequest({ session: { userId: 'user-1' }, body: { calendarWorkHoursEnd: '18:00' } }), res);
-    const [, params] = query.mock.calls[1];
+    const [, params] = recordedQueryCall(1);
     expect(params[46]).toBe('09:00');
     expect(params[47]).toBe('18:00');
     expect(res.json).toHaveBeenCalledWith({ ok: true });
@@ -203,7 +216,7 @@ describe('PATCH /auth/preferences calendar preferences', () => {
 
     await patchPreferences(req, res);
 
-    const [sql, params] = query.mock.calls[0];
+    const [sql, params] = recordedQueryCall(0);
     expect(sql).toContain("jsonb_build_object('calendarWeekStartsOn'");
     expect(sql).toContain("jsonb_build_object('mobileNavigationPosition'");
     expect(sql).toContain("jsonb_build_object('visibleCalendarIds'");

@@ -16,6 +16,15 @@ const CALDAV_MAX_REQUESTS = 500;
 const DAV_NS = 'DAV:';
 const CALDAV_NS = 'urn:ietf:params:xml:ns:caldav';
 
+/** Row shape shared by the event SELECTs below (calendar_events / calendar_sync_changes). */
+interface CalendarEventRow {
+  uid: string;
+  etag?: string | null;
+  deleted?: boolean;
+  raw_ical?: string | null;
+  dav_filename?: string | null;
+}
+
 setInterval(() => {
   const now = Date.now();
   for (const [key, bucket] of caldavBuckets) {
@@ -31,7 +40,7 @@ function xmlEscape(value: unknown): string {
     .replace(/"/g, '&quot;');
 }
 
-function sendXml(res, status, body) {
+function sendXml(res: Response, status: number, body: string) {
   res.status(status).setHeader('Content-Type', 'application/xml; charset=utf-8').send(body);
 }
 
@@ -59,7 +68,7 @@ function etagMatches(header: string, etag: string): boolean {
   return header === '*' || header.split(',').some((value: string) => value.trim().replace(/^W\//, '').replaceAll('"', '') === etag);
 }
 
-function multistatus(responses) {
+function multistatus(responses: string[]) {
   return [
     '<?xml version="1.0" encoding="UTF-8"?>',
     `<D:multistatus xmlns:D="${DAV_NS}" xmlns:C="${CALDAV_NS}">`,
@@ -68,7 +77,7 @@ function multistatus(responses) {
   ].join('');
 }
 
-function response(href: string, properties, status = '200 OK') {
+function response(href: string, properties: string[], status = '200 OK') {
   return [
     '<D:response>',
     `<D:href>${xmlEscape(href)}</D:href>`,
@@ -164,7 +173,7 @@ router.propfind('/:userId/:calendarId/', async (req: Request, res: Response) => 
 
 router.report('/:userId/:calendarId/', async (req: Request, res: Response) => {
   if (req.params.userId !== req.caldavUserId) return res.status(403).end();
-  const calendarResult = await query<{ sync_version?: number | null; [key: string]: unknown }>(
+  const calendarResult = await query<{ sync_version: number; [key: string]: unknown }>(
     'SELECT id, sync_token, sync_version FROM calendars WHERE id = $1 AND user_id = $2',
     [req.params.calendarId, req.caldavUserId],
   );
@@ -178,16 +187,16 @@ router.report('/:userId/:calendarId/', async (req: Request, res: Response) => {
   if (!isSyncCollection && !isCalendarQuery && !isCalendarMultiget) return res.status(400).end();
 
   const basePath = `/caldav/${req.caldavUserId}/${calendar.id}/`;
-  let events;
+  let events: CalendarEventRow[];
   if (isSyncCollection) {
     const requestedToken = body.match(/<(?:[A-Za-z][\w.-]*:)?sync-token(?:\s[^>]*)?>([^<]*)<\/(?:[A-Za-z][\w.-]*:)?sync-token>/)?.[1]?.trim();
     const match = requestedToken?.match(/^sync-(\d+)$/);
     const requestedVersion = match ? Number(match[1]) : null;
-    if (requestedToken && (!Number.isSafeInteger(requestedVersion) || requestedVersion > calendar.sync_version)) {
+    if (requestedToken && (requestedVersion === null || !Number.isSafeInteger(requestedVersion) || requestedVersion > calendar.sync_version)) {
       return sendXml(res, 409, `<?xml version="1.0" encoding="UTF-8"?><D:error xmlns:D="${DAV_NS}"><D:valid-sync-token/></D:error>`);
     }
     if (requestedToken) {
-      const changes = await query(
+      const changes = await query<CalendarEventRow>(
         `SELECT DISTINCT ON (uid, recurrence_id) uid, recurrence_id, etag, deleted, raw_ical, dav_filename
          FROM calendar_sync_changes
          WHERE calendar_id = $1 AND version > $2
@@ -196,7 +205,7 @@ router.report('/:userId/:calendarId/', async (req: Request, res: Response) => {
       );
       events = changes.rows;
     } else {
-      const current = await query(
+      const current = await query<CalendarEventRow>(
         "SELECT uid, recurrence_id, etag, false AS deleted, raw_ical, dav_filename FROM calendar_events WHERE calendar_id = $1 AND recurrence_id = $2 ORDER BY uid ASC",
         [calendar.id, ''],
       );
@@ -207,7 +216,7 @@ router.report('/:userId/:calendarId/', async (req: Request, res: Response) => {
       .map((match) => uidFromCalendarHref(match[1]))
       .filter(Boolean);
     if (!requestedUids.length) return res.status(400).end();
-    const current = await query(
+    const current = await query<CalendarEventRow>(
       "SELECT uid, recurrence_id, etag, raw_ical, dav_filename FROM calendar_events WHERE calendar_id = $1 AND recurrence_id = $2 AND COALESCE(dav_filename, uid || '.ics') = ANY($3) ORDER BY uid ASC",
       [calendar.id, '', requestedUids],
     );
@@ -218,13 +227,13 @@ router.report('/:userId/:calendarId/', async (req: Request, res: Response) => {
     const end = timeRange && parseUtc(timeRange[2]);
     if (timeRange && (!start || !end || end <= start)) return res.status(400).end();
     const current = start
-      ? await query(
+      ? await query<CalendarEventRow>(
         // `recurring` is the stored, indexed form of the old raw_ical regex, which could
         // not use an index and forced a scan of the calendar (see migration 0082).
         "SELECT uid, recurrence_id, etag, raw_ical, dav_filename FROM calendar_events WHERE calendar_id = $1 AND recurrence_id = $2 AND ((starts_at < $4 AND ends_at > $3) OR recurring) ORDER BY uid ASC",
         [calendar.id, '', start, end],
       )
-      : await query(
+      : await query<CalendarEventRow>(
         "SELECT uid, recurrence_id, etag, raw_ical, dav_filename FROM calendar_events WHERE calendar_id = $1 AND recurrence_id = $2 ORDER BY uid ASC",
         [calendar.id, ''],
       );
@@ -267,7 +276,7 @@ router.put('/:userId/:calendarId/:filename', async (req: Request, res: Response)
   const event = parseCalendarEvent(await rawBody(req));
   const filename = req.params.filename;
   if (!event) return res.status(400).end();
-  const currentResult = await query<{ uid: string; dav_filename?: string | null; etag?: string | null; invite_account_id?: string | null }>(
+  const currentResult = await query<{ uid: string; dav_filename?: string | null; etag: string; invite_account_id?: string | null }>(
     "SELECT uid, dav_filename, etag, invite_account_id FROM calendar_events WHERE calendar_id = $1 AND (uid = $2 OR COALESCE(dav_filename, uid || '.ics') = $4) AND recurrence_id = $3",
     [calendar.id, event.uid, '', filename],
   );
@@ -306,7 +315,7 @@ router.delete('/:userId/:calendarId/:filename', async (req: Request, res: Respon
   if (!calendar) return res.status(404).end();
   if (calendar.source !== 'local' || calendar.read_only) return res.status(403).end();
   const uid = req.params.filename;
-  const currentResult = await query<{ etag?: string | null; invite_account_id?: string | null }>("SELECT etag, invite_account_id FROM calendar_events WHERE calendar_id = $1 AND COALESCE(dav_filename, uid || '.ics') = $2 AND recurrence_id = $3", [calendar.id, uid, '']);
+  const currentResult = await query<{ etag: string; invite_account_id?: string | null }>("SELECT etag, invite_account_id FROM calendar_events WHERE calendar_id = $1 AND COALESCE(dav_filename, uid || '.ics') = $2 AND recurrence_id = $3", [calendar.id, uid, '']);
   const current = currentResult.rows[0];
   if (!current) return res.status(404).end();
   if (current.invite_account_id) return res.status(409).end();

@@ -70,7 +70,7 @@ export function calendarVisibleRange(anchor: Date, view: string, weekStartsOn = 
  * shown week contains it, otherwise the selected day. `-1` when neither is visible
  * (for example a work-week that excludes a weekend anchor), meaning "leave it alone".
  */
-export function weekFocusIndex(days: Date[], anchor: Date, today = new Date()): number {
+export function weekFocusIndex(days: Date[] | null | undefined, anchor: Date | null, today = new Date()): number {
   if (!Array.isArray(days) || !days.length) return -1;
   const todayIndex = days.findIndex(day => day.toDateString() === today.toDateString());
   if (todayIndex >= 0) return todayIndex;

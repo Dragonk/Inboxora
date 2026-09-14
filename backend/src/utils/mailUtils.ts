@@ -263,7 +263,11 @@ export async function fanOutBulkReadToSiblings(actedIds: string[], read: boolean
 // no Trash folder is configured (user would have no way to recover the message).
 // allTrashPaths (optional Set) broadens the expunge check to cover accounts that have
 // multiple trash-like folders (e.g. both "Trash" and "Deleted Messages").
-export function getDeleteStrategy(messageFolder: string, trashPath: string | null | undefined, allTrashPaths: Set<string> | null = null) {
+export function getDeleteStrategy(
+  messageFolder: string,
+  trashPath: string | null | undefined,
+  allTrashPaths: Set<string> | null = null,
+): { action: 'no_trash' } | { action: 'expunge' } | { action: 'move'; destination: string } {
   if (!trashPath) return { action: 'no_trash' };
   const isAlreadyInTrash = allTrashPaths ? allTrashPaths.has(messageFolder) : messageFolder === trashPath;
   if (isAlreadyInTrash) return { action: 'expunge' };

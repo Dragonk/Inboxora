@@ -11,8 +11,8 @@ import { useState, useCallback, useRef } from 'react';
  * @returns {{ selectedIds, setSelectedIds, toggleSelect, selectAll, clearSelection,
  *            handleRowToggleSelect, handleRangeSelect, lastSelectIdxRef }}
  */
-export function useSelection(getItemId = item => item.id) {
-  const [selectedIds, setSelectedIds] = useState(new Set());
+export function useSelection<T extends { id: string }>(getItemId: (item: T) => string = (item: T) => item.id) {
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [selectionModeActive, setSelectionModeActive] = useState(false);
   const lastSelectIdxRef = useRef(-1);
 
@@ -24,7 +24,7 @@ export function useSelection(getItemId = item => item.id) {
     });
   }, []);
 
-  const selectAll = useCallback((items) => {
+  const selectAll = useCallback((items: T[]) => {
     setSelectedIds(new Set(items.map(getItemId)));
     lastSelectIdxRef.current = items.length ? items.length - 1 : -1;
     setSelectionModeActive(items.length > 0);
@@ -36,7 +36,7 @@ export function useSelection(getItemId = item => item.id) {
     lastSelectIdxRef.current = -1;
   }, []);
 
-  const enterSelectionMode = useCallback((id, items = null) => {
+  const enterSelectionMode = useCallback((id: string, items: T[] | null = null) => {
     setSelectionModeActive(true);
     if (Array.isArray(items)) lastSelectIdxRef.current = items.findIndex(item => getItemId(item) === id);
     setSelectedIds(prev => {
@@ -48,7 +48,7 @@ export function useSelection(getItemId = item => item.id) {
 
   // Non-shift row checkbox toggle — tracks anchor for range select.
   // `items` is the ordered list for index resolution.
-  const handleRowToggleSelect = useCallback((id, items) => {
+  const handleRowToggleSelect = useCallback((id: string, items: T[]) => {
     const idx = items.findIndex(it => getItemId(it) === id);
     lastSelectIdxRef.current = idx;
     setSelectedIds(prev => {
@@ -59,7 +59,7 @@ export function useSelection(getItemId = item => item.id) {
   }, [getItemId]);
 
   // Shift-click: selects all rows between anchor and current index.
-  const handleRangeSelect = useCallback((id, items) => {
+  const handleRangeSelect = useCallback((id: string, items: T[]) => {
     const clickedIdx = items.findIndex(it => getItemId(it) === id);
     if (clickedIdx === -1) return;
     const anchor = lastSelectIdxRef.current >= 0 ? lastSelectIdxRef.current : clickedIdx;

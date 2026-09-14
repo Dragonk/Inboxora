@@ -17,8 +17,16 @@ vi.mock('../services/authEvents.js', () => ({ logAuthEvent: vi.fn() }));
 import express from 'express';
 import caldavRouter, { parseCalendarEvent } from './caldav.js';
 
-function basic(username, password) {
+function basic(username: string, password: string) {
   return `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`;
+}
+
+type ParsedEvent = NonNullable<ReturnType<typeof parseCalendarEvent>>;
+
+function parseEvent(raw: string): ParsedEvent {
+  const event = parseCalendarEvent(raw);
+  if (event === null) throw new Error('Expected the iCalendar document to contain a VEVENT');
+  return event;
 }
 
 let server: Server;
@@ -117,7 +125,7 @@ describe('CalDAV calendar objects', () => {
     expect(parseCalendarEvent(outlookCalendar().replace(/BEGIN:VTIMEZONE[\s\S]*?END:VTIMEZONE/, ''))).toBeNull();
   });
   it('accepts case-insensitive iCalendar component markers and properties', () => {
-    const event = parseCalendarEvent('begin:vcalendar\r\nbegin:vevent\r\nuid:case-insensitive\r\ndtstart:20260901T090000Z\r\ndtend:20260901T100000Z\r\nsummary:Planning\r\nend:vevent\r\nend:vcalendar\r\n');
+    const event = parseEvent('begin:vcalendar\r\nbegin:vevent\r\nuid:case-insensitive\r\ndtstart:20260901T090000Z\r\ndtend:20260901T100000Z\r\nsummary:Planning\r\nend:vevent\r\nend:vcalendar\r\n');
 
     expect(event).toMatchObject({ uid: 'case-insensitive', summary: 'Planning' });
     expect(event.startsAt).toEqual(new Date('2026-09-01T09:00:00.000Z'));
@@ -126,7 +134,7 @@ describe('CalDAV calendar objects', () => {
   it('projects a recurring VEVENT while preserving standard scheduling fields in its raw iCalendar object', () => {
     const raw = 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VTIMEZONE\r\nTZID:Europe/Berlin\r\nEND:VTIMEZONE\r\nBEGIN:VEVENT\r\nUID:weekly-planning\r\nDTSTART;TZID=Europe/Berlin:20260901T090000\r\nDURATION:PT1H\r\nRRULE:FREQ=WEEKLY;COUNT=4\r\nSTATUS:CONFIRMED\r\nTRANSP:OPAQUE\r\nATTENDEE;CN=Sam;PARTSTAT=ACCEPTED:mailto:sam@example.test\r\nBEGIN:VALARM\r\nTRIGGER:-PT15M\r\nACTION:DISPLAY\r\nDESCRIPTION:Reminder\r\nEND:VALARM\r\nEND:VEVENT\r\nBEGIN:VTODO\r\nUID:todo-1\r\nSUMMARY:Ignored task projection\r\nEND:VTODO\r\nEND:VCALENDAR\r\n';
 
-    const event = parseCalendarEvent(raw);
+    const event = parseEvent(raw);
 
     expect(event).toMatchObject({ uid: 'weekly-planning', summary: null, allDay: false, timeZone: 'Europe/Berlin' });
     expect(event.startsAt).toEqual(new Date('2026-09-01T07:00:00.000Z'));
@@ -385,7 +393,7 @@ describe('CalDAV calendar objects', () => {
   query.mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })
     .mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [{ uid: 'synthetic-exchange-event', etag: 'mapped' }] });
   const raw = outlookCalendar('09', 'DESCRIPTION:First line\\nSecond \r\n line\r\nLOCATION:Room\\, A\r\nURL:https://example.test/meeting\r\nORGANIZER;CN="Team: Europe":mailto:team@example.test\r\nATTENDEE;CN="Doe; Jane":mailto:jane@example.test\r\n');
-  const event = parseCalendarEvent(raw);
+  const event = parseEvent(raw);
   expect(event).toMatchObject({ description: 'First line\nSecond line', location: 'Room, A', url: 'https://example.test/meeting', organizer: 'team@example.test', attendees: ['jane@example.test'] });
   const response = await fetch(`${base}/caldav/user-1/calendar-1/synthetic-exchange-event.ics`, { method: 'PUT', headers: { authorization: basic('sam@example.test', 'test-dav-password') }, body: raw });
   expect(response.status).toBe(201);

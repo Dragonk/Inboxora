@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach, beforeAll, afterAll } from 'vitest';
+import type { MockInstance } from 'vitest';
 import type { NextFunction, Request, Response } from 'express';
 import { listeningPort } from '../test/net.js';
 import type { Server } from 'node:http';
@@ -27,7 +28,7 @@ const query = vi.mocked(__mock_query);
 // The route now signals identity changes through the generic `onAccountIdentityChanged` hook
 // (GTD's owner-address cache invalidation lives behind it), so we assert the hook dispatch as the
 // boundary rather than the plugin-internal cache call.
-let identityHook: ReturnType<typeof vi.spyOn>;
+let identityHook: MockInstance<typeof pluginRegistry.runHook>;
 
 const URL_ACCOUNT_ID = '11111111-1111-4111-8111-111111111111';
 const CHECKED_ACCOUNT_ID = '22222222-2222-4222-8222-222222222222';
@@ -44,7 +45,15 @@ const updatedAlias = { ...insertedAlias, account_id: CHECKED_ACCOUNT_ID, name: '
 
 // Route every query the three mutation handlers issue. The checked account id deliberately
 // differs from the URL id so PUT/DELETE cannot pass by invalidating the convenient value.
-function stubQueries({ accountExists = true, checkedAccountId = CHECKED_ACCOUNT_ID, mutationError = null } = {}) {
+function stubQueries({
+  accountExists = true,
+  checkedAccountId = CHECKED_ACCOUNT_ID,
+  mutationError = null,
+}: {
+  accountExists?: boolean;
+  checkedAccountId?: string | null;
+  mutationError?: Error | null;
+} = {}) {
   query.mockImplementation(async (sql) => {
     if (sql.includes('FROM account_aliases a') && sql.includes('JOIN email_accounts e')) {
       return { rows: checkedAccountId ? [{ id: ALIAS_ID, account_id: checkedAccountId }] : [] };
@@ -80,7 +89,7 @@ function buildApp() {
   return app;
 }
 
-function request(method, path: string, body = undefined) {
+function request(method: string, path: string, body?: unknown) {
   return fetch(`${base}/api/accounts/${path}`, {
     method,
     headers: body ? { 'Content-Type': 'application/json' } : undefined,

@@ -2,14 +2,19 @@ import { afterEach, describe, it, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { api, CSRF_HEADER, CSRF_VALUE, streamAiChat } from './api.ts';
 
+/** A fetch init as the API client builds it: a plain header record plus method/body. */
+type CapturedInit = Pick<RequestInit, 'method' | 'body'> & { headers: Record<string, string> };
+/** One request observed by the fetch stub. */
+type CapturedRequest = { url: string; init: CapturedInit };
+
 afterEach(() => {
   mock.restoreAll();
 });
 
 describe('ChatGPT authorization API', () => {
   it('uses the admin Codex lifecycle routes with CSRF-aware requests', async () => {
-    const calls = [];
-    const fetchStub = async (url: string, init: RequestInit) => {
+    const calls: [string, CapturedInit][] = [];
+    const fetchStub = async (url: string, init: CapturedInit) => {
       calls.push([url, init]);
       return { ok: true, json: async () => ({ ok: true }) };
     };
@@ -34,9 +39,9 @@ describe('ChatGPT authorization API', () => {
   });
 
   it('streams AI text deltas through the shared API client', async () => {
-    let request;
-    const fetchStub = async (url: string, init: RequestInit) => {
-      request = { url, init };
+    const requests: CapturedRequest[] = [];
+    const fetchStub = async (url: string, init: CapturedInit) => {
+      requests.push({ url, init });
       return new Response([
         'data: {"choices":[{"delta":{"content":"Hello "}}]}\n\n',
         'data: {"choices":[{"delta":{"content":"world"}}]}\n\n',
@@ -44,7 +49,7 @@ describe('ChatGPT authorization API', () => {
       ].join(''), { headers: { 'Content-Type': 'text/event-stream' } });
     };
     mock.method(globalThis, 'fetch', fetchStub);
-    const updates = [];
+    const updates: unknown[] = [];
 
     await assert.doesNotReject(async () => {
       const text = await streamAiChat([{ role: 'user', content: 'Draft a reply' }], {
@@ -52,9 +57,9 @@ describe('ChatGPT authorization API', () => {
       });
       assert.equal(text, 'Hello world');
     });
-    assert.equal(request.url, '/api/ai/chat');
-    assert.equal(request.init.headers[CSRF_HEADER], CSRF_VALUE);
-    assert.equal(request.init.body, JSON.stringify({
+    assert.equal(requests[0].url, '/api/ai/chat');
+    assert.equal(requests[0].init.headers[CSRF_HEADER], CSRF_VALUE);
+    assert.equal(requests[0].init.body, JSON.stringify({
       messages: [{ role: 'user', content: 'Draft a reply' }],
     }));
     assert.deepEqual(updates, ['Hello ', 'Hello world']);
@@ -67,7 +72,7 @@ describe('ChatGPT authorization API', () => {
       'data: [DONE]\n\n',
     ].join(''), { headers: { 'Content-Type': 'text/event-stream' } });
     mock.method(globalThis, 'fetch', fetchStub);
-    const updates = [];
+    const updates: string[] = [];
 
     await assert.rejects(
       streamAiChat([{ role: 'user', content: 'Draft a reply' }], {

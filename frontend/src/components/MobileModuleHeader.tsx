@@ -1,8 +1,8 @@
 import { createContext, useContext } from 'react';
-import type { ReactNode } from 'react';
+import type { ButtonHTMLAttributes, ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 
-export const MobileHeaderHost = createContext(null);
+export const MobileHeaderHost = createContext<HTMLElement | null>(null);
 
 // The active module owns its actions, including disabled/loading state. Rendering
 // them in the shell avoids duplicate headers and imperative cross-module events.
@@ -23,8 +23,16 @@ export function MobileModuleHeader({ leading = null, title = '', subtitle = unde
   </>, host);
 }
 
-export function HeaderAction({ icon, label, ...props }) {
-  const paths = {
+export type HeaderActionIcon = 'back' | 'previous' | 'next' | 'unread' | 'sync' | 'select' | 'close' | 'compose' | 'add' | 'books' | 'calendars' | 'agenda';
+
+export interface HeaderActionProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+  icon: HeaderActionIcon;
+  label: string;
+  'data-testid'?: string;
+}
+
+export function HeaderAction({ icon, label, ...props }: HeaderActionProps) {
+  const paths: Record<HeaderActionIcon, ReactNode> = {
     back: <path d="m15 18-6-6 6-6"/>,
     previous: <path d="m18 15-6-6-6 6"/>,
     next: <path d="m6 9 6 6 6-6"/>,

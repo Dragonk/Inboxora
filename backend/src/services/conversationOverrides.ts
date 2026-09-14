@@ -1,7 +1,11 @@
 import { pool, withTransaction } from './db.js';
 import { assertConversationOwner, assertNoAliasCycle, lockConversationsDeterministically, refreshConversationAggregates, resolveConversationAlias } from './conversationOverridePolicy.js';
 
-const OVERRIDE_TYPES = new Set([
+type ConversationOverrideType =
+  | 'force-include' | 'force-exclude' | 'manual-split' | 'manual-merge'
+  | 'lock-conversation' | 'unlock-conversation' | 'manual-move';
+
+const OVERRIDE_TYPES = new Set<string>([
   'force-include', 'force-exclude', 'manual-split', 'manual-merge',
   'lock-conversation', 'unlock-conversation', 'manual-move',
 ]);
@@ -9,23 +13,43 @@ const OVERRIDE_TYPES = new Set([
 // P1-01: Override scoping — CONVERSATION-LEVEL vs MESSAGE-LEVEL.
 // Conversation-level overrides apply to the whole conversation.
 // Message-level overrides apply ONLY to a specific logical_message_id.
-const CONVERSATION_LEVEL = new Set(['lock-conversation', 'unlock-conversation', 'manual-merge']);
-const MESSAGE_LEVEL = new Set(['force-include', 'force-exclude', 'manual-split', 'manual-move']);
+const CONVERSATION_LEVEL = new Set<string>(['lock-conversation', 'unlock-conversation', 'manual-merge']);
+const MESSAGE_LEVEL = new Set<string>(['force-include', 'force-exclude', 'manual-split', 'manual-move']);
 
-export function validateOverrideType(value) {
-  if (!OVERRIDE_TYPES.has(value)) throw new Error('Unsupported conversation override type');
+// Narrowing guard for the untrusted value accepted by validateOverrideType:
+// membership in OVERRIDE_TYPES is what promotes a string to a known override type.
+function isOverrideType(value: unknown): value is ConversationOverrideType {
+  return typeof value === 'string' && OVERRIDE_TYPES.has(value);
+}
+
+export function validateOverrideType(value: unknown): ConversationOverrideType {
+  if (!isOverrideType(value)) throw new Error('Unsupported conversation override type');
   return value;
 }
 
-export function isConversationLevel(overrideType) {
+export function isConversationLevel(overrideType: string): boolean {
   return CONVERSATION_LEVEL.has(overrideType);
 }
 
-export function isMessageLevel(overrideType) {
+export function isMessageLevel(overrideType: string): boolean {
   return MESSAGE_LEVEL.has(overrideType);
 }
 
-export async function applyConversationOverride({ userId, conversationId, logicalMessageId = null, scope = 'message-only', overrideType, targetId = null, targetConversationId = null, reason = null }) {
+// Parameters accepted by applyConversationOverride. logicalMessageId, targetId,
+// targetConversationId and reason are nullable and are reassigned to resolved
+// canonical ids inside the transaction, so their type must admit both.
+type ApplyConversationOverrideOptions = {
+  userId: string;
+  conversationId: string | string[];
+  logicalMessageId?: string | null;
+  scope?: string;
+  overrideType: string;
+  targetId?: string | null;
+  targetConversationId?: string | null;
+  reason?: string | null;
+};
+
+export async function applyConversationOverride({ userId, conversationId, logicalMessageId = null, scope = 'message-only', overrideType, targetId = null, targetConversationId = null, reason = null }: ApplyConversationOverrideOptions) {
   validateOverrideType(overrideType);
   return withTransaction(async client => {
     const accountRow = await client.query('SELECT account_id FROM conversations WHERE id = $1 AND user_id = $2 FOR UPDATE', [conversationId, userId]);
@@ -178,7 +202,7 @@ export async function applyConversationOverride({ userId, conversationId, logica
   }, { serializable: true });
 }
 
-export async function listConversationOverrides({ userId, conversationId }) {
+export async function listConversationOverrides({ userId, conversationId }: { userId: string; conversationId: string | string[] }) {
   const client = await pool.connect();
   try {
     const account = await client.query('SELECT account_id FROM conversations WHERE id = $1 AND user_id = $2', [conversationId, userId]);

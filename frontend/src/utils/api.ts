@@ -146,7 +146,7 @@ export async function streamAiChat(messages: unknown[], { signal, onDelta }: { s
   }
 }
 
-function getMessageBody(id: string, remoteImages = false, copyId = null) {
+function getMessageBody(id: string, remoteImages = false, copyId: string | null = null) {
   const key = `${id}:${copyId || 'default'}:${remoteImages ? 'remote' : 'blocked'}`;
   const existing = messageBodyRequests.get(key);
   if (existing) return existing;
@@ -189,7 +189,7 @@ export const api = {
     }
     throw new Error(data.error || 'Incorrect PIN');
   },
-  setLockPin: (pin: string, currentPin: string) => request('POST', '/auth/lock-pin', { pin, currentPin }),
+  setLockPin: (pin: string, currentPin?: string) => request('POST', '/auth/lock-pin', { pin, currentPin }),
   removeLockPin: (currentPin: string) => request('DELETE', '/auth/lock-pin', { currentPin }),
   me: () => request('GET', '/auth/me'),
   forgotPassword: (email: string) => request('POST', '/auth/forgot-password', { email }),
@@ -204,7 +204,7 @@ export const api = {
 
   // Recovery email (profile security)
   getRecoveryEmail: () => request('GET', '/auth/profile/recovery-email'),
-  updateRecoveryEmail: (email: string) => request('PATCH', '/auth/profile/recovery-email', { email }),
+  updateRecoveryEmail: (email: string | null) => request('PATCH', '/auth/profile/recovery-email', { email }),
 
   // TOTP / 2FA
   totp: {
@@ -277,7 +277,7 @@ export const api = {
     return request('GET', `/mail/resolve-message?${qs}`);
   },
   getMessageBody,
-  getThread: (threadId: string, folder: string, unified = false, accountId = null) =>{
+  getThread: (threadId: string, folder: string, unified = false, accountId: string | null = null) =>{
     const qs = new URLSearchParams();
     if (folder) qs.set('folder', folder);
     if (unified) qs.set('unified', 'true');

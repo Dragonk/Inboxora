@@ -8,6 +8,9 @@ import type { Request, Response, NextFunction } from 'express';
 const router = Router();
 router.use(requireAuth);
 
+interface SearchFilter { key: string; value: string; negate: boolean }
+interface SearchTerm { value: string; negate: boolean }
+
 // Simple in-memory rate limiter: 20 searches per minute per user.
 const searchBuckets = new Map();
 setInterval(() => {
@@ -38,16 +41,14 @@ function searchLimiter(req: Request, res: Response, next: NextFunction) {
 // (from:"John Smith"), and a leading '-' that negates either an operator
 // (-from:smith) or a bare word (-invoice). Filters are a list (not a map) so
 // repeated/negated operators like `from:a -from:b` are all preserved.
-export function parseSearchQuery(raw) {
-  interface SearchFilter { key: string; value: string; negate: boolean }
-  interface SearchTerm { value: string; negate: boolean }
+export function parseSearchQuery(raw: string) {
   const filters: SearchFilter[] = [];
   const terms: SearchTerm[] = [];
 
   // The leading (-?) captures optional negation. \b sits between an optional '-'
   // and the operator name, so both `from:` and `-from:` match.
   const opPattern = /(-?)\b(from|to|subject|has|is|after|before|in):("([^"]*)"|([\S]+))/gi;
-  const remaining = raw.replace(opPattern, (_, neg, key: string, _v, quoted, unquoted) => {
+  const remaining = raw.replace(opPattern, (_: string, neg: string, key: string, _v: string, quoted: string | undefined, unquoted: string | undefined) => {
     const k = key.toLowerCase();
     const v = (quoted !== undefined ? quoted : (unquoted || '')).toLowerCase().trim();
     if (v) filters.push({ key: k, value: v, negate: neg === '-' });
@@ -72,7 +73,7 @@ function negateCond(sql: string) {
   return `NOT COALESCE((${sql}), false)`;
 }
 
-export function resolveSearchFolderScope(filters, folderParam = '') {
+export function resolveSearchFolderScope(filters: SearchFilter[], folderParam = '') {
   let folderScope;
   let folderFuzzy = false; // in:<name> matches loosely; the folder param is exact
 
@@ -90,7 +91,7 @@ export function resolveSearchFolderScope(filters, folderParam = '') {
   return { folderScope, folderFuzzy };
 }
 
-export function shouldExcludeTrashFromSearch(folderScope) {
+export function shouldExcludeTrashFromSearch(folderScope: string | null) {
   return folderScope === null;
 }
 
@@ -116,7 +117,7 @@ export const FTS_BODY_CHAR_CAP = 600000;
 // Builds the per-term free-text OR-condition: a term matches if it appears in
 // the sender, the subject, the stored search_vector, or the length-capped body.
 // Extracted so the body cap is a single, testable source of truth.
-export function freeTextTermCondition(likeIdx, ftsIdx) {
+export function freeTextTermCondition(likeIdx: number, ftsIdx: number) {
   return `(
         m.from_name ILIKE $${likeIdx}
         OR m.from_email ILIKE $${likeIdx}

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { JsonBody } from '../test/json.js';
+import type { ParsedVCard } from '../utils/vcard.js';
 
 const { query, withTransaction } = vi.hoisted<any>(() => ({
   query: vi.fn(),
@@ -23,7 +24,13 @@ const existingVCard = [
   'END:VCARD',
 ].join('\r\n') + '\r\n';
 
-const updatedContact = {
+type ContactDateEntry = ParsedVCard['contactDates'][number];
+
+const updatedContact: {
+  id: string; uid: string; display_name: string;
+  emails: unknown[]; phones: unknown[]; contactDates: ContactDateEntry[];
+  birthday: string | null; anniversary: string | null;
+} = {
   id: 'contact-1', uid: 'contact-1', display_name: 'Ada',
   emails: [], phones: [], contactDates: [], birthday: null, anniversary: null,
 };
@@ -37,7 +44,7 @@ function createApp() {
   return app;
 }
 
-function arrangeQuery(contact, result = updatedContact) {
+function arrangeQuery(contact: ContactDateEntry[], result: typeof updatedContact = updatedContact) {
   query
     .mockResolvedValueOnce({ rows: [{ id: 'user-1' }] })
     .mockResolvedValueOnce({ rows: [{

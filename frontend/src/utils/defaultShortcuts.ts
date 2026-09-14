@@ -64,20 +64,20 @@ export function getEffectiveShortcuts(userOverrides: Record<string, string | nul
 const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navigator.platform);
 
 // Full modifier label for help overlay / settings (e.g. '⌘' or 'Ctrl')
-export function modLabel(mod) {
+export function modLabel(mod: string): string {
   if (mod === 'ctrl') return isMac ? '⌘' : 'Ctrl';
   return mod;
 }
 
 // Compact modifier label for toolbar badges (e.g. '⌘' or '^')
-export function modCompactLabel(mod) {
+export function modCompactLabel(mod: string): string {
   if (mod === 'ctrl') return isMac ? '⌘' : '^';
   return mod;
 }
 
 // Parses a modifier+key string. Returns { mod, bare } or null for plain keys.
 // e.g. parseModKey('ctrl+p') → { mod: 'ctrl', bare: 'p' }
-export function parseModKey(key: string) {
+export function parseModKey(key: string | null | undefined) {
   if (!key) return null;
   const plus = key.indexOf('+');
   if (plus < 0) return null;
@@ -87,10 +87,10 @@ export function parseModKey(key: string) {
 // Returns the reverse lookup map: key → action, for fast dispatch (plain keys only).
 // Collisions (two actions resolving to the same key, e.g. via user overrides)
 // keep last-writer-wins behavior but are logged so they're not silently lost.
-export function buildKeyMap(userOverrides = {}) {
+export function buildKeyMap(userOverrides: Record<string, string | null | undefined> = {}) {
   const effective = getEffectiveShortcuts(userOverrides);
-  const map: Record<string, any> = {};
-  for (const [action, key] of Object.entries(effective as Record<string, any>)) {
+  const map: Record<string, string> = {};
+  for (const [action, key] of Object.entries(effective)) {
     if (!key || parseModKey(key)) continue;
     if (map[key]) {
       console.warn(`[shortcuts] key "${key}" is bound to both "${map[key]}" and "${action}"; "${action}" wins`);
@@ -103,9 +103,9 @@ export function buildKeyMap(userOverrides = {}) {
 // Returns a reverse lookup for modifier+key shortcuts: bare key → action.
 // e.g. { p: 'printMessage' } when printMessage is bound to 'ctrl+p'.
 // Collisions are logged the same way as buildKeyMap (see above).
-export function buildModKeyMap(userOverrides = {}) {
+export function buildModKeyMap(userOverrides: Record<string, string | null | undefined> = {}) {
   const effective = getEffectiveShortcuts(userOverrides);
-  const map: Record<string, any> = {};
+  const map: Record<string, string> = {};
   for (const [action, key] of Object.entries(effective)) {
     const parsed = parseModKey(key);
     if (!parsed) continue;
@@ -122,7 +122,7 @@ export interface ShortcutAction {
   action: string;
   groupKey: string;
   labelKey: string;
-  descriptionKey?: string;
+  descriptionKey: string;
   defaultKey?: string;
   [key: string]: unknown;
 }

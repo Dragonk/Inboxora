@@ -21,9 +21,12 @@
 // Everything here is pure so it can be reasoned about and tested without a DOM; the walk
 // that applies it to a message lives with the sanitiser.
 
+/** A parsed RGB colour: three 0-255 channels, in that order. */
+type Rgb = [number, number, number];
+
 // Enough of the CSS named colours to cover what mail actually uses. Anything absent is
 // simply not recognised, which is the safe default (no adaptation).
-const NAMED_COLORS: Record<string, [number, number, number]> = {
+const NAMED_COLORS: Record<string, Rgb | null> = {
   white: [255, 255, 255], snow: [255, 250, 250], ivory: [255, 255, 240],
   whitesmoke: [245, 245, 245], gainsboro: [220, 220, 220], silver: [192, 192, 192],
   lightgrey: [211, 211, 211], lightgray: [211, 211, 211], grey: [128, 128, 128],
@@ -42,11 +45,20 @@ const FUNCTIONAL_RE = /^rgba?\(\s*([^)]+)\)$/i;
 // Functional notation is matched whole so its internal spaces never split it.
 const COLOR_TOKEN_RE = /(#[0-9a-f]{3,8}|rgba?\([^)]*\))/gi;
 
-function clampChannel(value) {
+function clampChannel(value: number): number {
   return Math.max(0, Math.min(255, Math.round(value)));
 }
 
-function parseHex(value: string): [number, number, number] | null {
+/**
+ * Narrows a nullable parsed colour to the tuple the colour-space maths needs. Reaching this
+ * without a colour is a programming error, so fail loudly rather than compute undefined.
+ */
+function requireRgb(color: Rgb | null): Rgb {
+  if (!color) throw new TypeError('Expected a parsed RGB colour');
+  return color;
+}
+
+function parseHex(value: string): Rgb | null {
   let hex = value.slice(1);
   if (hex.length === 3 || hex.length === 4) hex = [...hex].map(char => char + char).join('');
   if (hex.length !== 6 && hex.length !== 8) return null;
@@ -54,7 +66,7 @@ function parseHex(value: string): [number, number, number] | null {
   return [channel(0), channel(2), channel(4)];
 }
 
-function parseFunctional(value: string): [number, number, number] | null {
+function parseFunctional(value: string): Rgb | null {
   const match = value.match(FUNCTIONAL_RE);
   if (!match) return null;
   const parts = match[1].split(/[,\s/]+/).filter(Boolean);
@@ -69,7 +81,7 @@ function parseFunctional(value: string): [number, number, number] | null {
 }
 
 /** Parses a CSS colour to [r,g,b], or null when it is not one we recognise. */
-export function parseColor(value: unknown): [number, number, number] | null {
+export function parseColor(value: unknown): Rgb | null {
   const text = String(value ?? '').trim().toLowerCase();
   if (!text) return null;
   if (text in NAMED_COLORS) return NAMED_COLORS[text];
@@ -78,7 +90,7 @@ export function parseColor(value: unknown): [number, number, number] | null {
 }
 
 /** The first colour found in a declaration value, or null. */
-export function findColorToken(value) {
+export function findColorToken(value: unknown): string | null {
   const text = String(value ?? '').trim();
   if (parseColor(text)) return text;
   for (const match of text.matchAll(COLOR_TOKEN_RE)) {
@@ -90,12 +102,12 @@ export function findColorToken(value) {
   return null;
 }
 
-export function rgbToHex([r, g, b]: [number, number, number]) {
+export function rgbToHex([r, g, b]: Rgb): string {
   return `#${[r, g, b].map(channel => clampChannel(channel).toString(16).padStart(2, '0')).join('')}`;
 }
 
 /** HSL with h in degrees, s and l as fractions — the space adaptation works in. */
-export function rgbToHsl([r, g, b]: [number, number, number]): [number, number, number] {
+export function rgbToHsl([r, g, b]: Rgb): Rgb {
   const [red, green, blue] = [r / 255, g / 255, b / 255];
   const max = Math.max(red, green, blue);
   const min = Math.min(red, green, blue);
@@ -110,7 +122,7 @@ export function rgbToHsl([r, g, b]: [number, number, number]): [number, number, 
   return [(h * 60 + 360) % 360, s, l];
 }
 
-export function hslToRgb([h, s, l]: [number, number, number]): [number, number, number] {
+export function hslToRgb([h, s, l]: Rgb): Rgb {
   const chroma = (1 - Math.abs(2 * l - 1)) * s;
   const hp = (((h % 360) + 360) % 360) / 60;
   const second = chroma * (1 - Math.abs((hp % 2) - 1));
@@ -126,8 +138,8 @@ export function hslToRgb([h, s, l]: [number, number, number]): [number, number, 
 }
 
 /** Perceived lightness, 0 (black) to 1 (white). */
-export function lightness(color) {
-  return rgbToHsl(color)[2];
+export function lightness(color: Rgb | null): number {
+  return rgbToHsl(requireRgb(color))[2];
 }
 
 // A background at or above this is one a message painted for a light page; text inside it
@@ -145,23 +157,23 @@ const ADAPTED_LIGHT_MIN = 0.6;
 // becomes garish, while the hue still reads as the author's choice.
 const ADAPTED_SATURATION = 0.8;
 
-export function isLightBackground(color) {
+export function isLightBackground(color: Rgb | null): boolean {
   return lightness(color) >= LIGHT_BACKGROUND;
 }
 
 /** True when text this light cannot be read on the given region. */
-export function needsDarkening(textColor, onLightRegion) {
+export function needsDarkening(textColor: Rgb | null, onLightRegion: boolean): boolean {
   return Boolean(onLightRegion && lightness(textColor) > LIGHT_REGION_TEXT_ABOVE);
 }
 
 /** True when text this dark cannot be read on the app's dark canvas. */
-export function needsLifting(textColor, onLightRegion) {
+export function needsLifting(textColor: Rgb | null, onLightRegion: boolean): boolean {
   return Boolean(!onLightRegion && lightness(textColor) < DARK_REGION_TEXT_BELOW);
 }
 
 /** Mirrors a colour's lightness so it suits the canvas it will be read on. */
-export function adaptTextForCanvas(color, onLightRegion) {
-  const [h, s, l] = rgbToHsl(color);
+export function adaptTextForCanvas(color: Rgb | null, onLightRegion: boolean): Rgb {
+  const [h, s, l] = rgbToHsl(requireRgb(color));
   const mirrored = 1 - l;
   const target = onLightRegion
     ? Math.min(ADAPTED_DARK_MAX, mirrored)
@@ -174,7 +186,7 @@ export function adaptTextForCanvas(color, onLightRegion) {
  * text colour — the case where the app's light default used to land on a message's white
  * card and vanish.
  */
-export function textForLightBackground(background) {
-  const [h, s] = rgbToHsl(background);
+export function textForLightBackground(background: Rgb | null): Rgb {
+  const [h, s] = rgbToHsl(requireRgb(background));
   return hslToRgb([h, Math.min(s, 0.25), 0.14]);
 }

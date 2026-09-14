@@ -101,10 +101,10 @@ export interface StoreState {
       [key: string]: unknown;
   }>) => void;
   updateAccount: (id: string, updates: Record<string, unknown>) => void;
-  selectedAccountId: string;
+  selectedAccountId: string | null;
   selectedFolder: string;
   messagesRefreshToken: number;
-  setSelectedAccount: (accountId: string, folder?: string) => void;
+  setSelectedAccount: (accountId: string | null, folder?: string) => void;
   messages: StoreMessageRow[];
   setMessages: (messages: StoreMessageRow[]) => void;
   appendMessages: (newMessages: StoreMessageRow[]) => void;
@@ -308,8 +308,8 @@ export interface StoreState {
       type: string;
       value: string;
   }) => void;
-  shortcuts: Record<string, string>;
-  setShortcuts: (overrides: Record<string, string>) => void;
+  shortcuts: Record<string, string | null | undefined>;
+  setShortcuts: (overrides: Record<string, string | null | undefined>) => void;
   aiActions: Array<{ id: string; label: string; prompt?: string; [key: string]: unknown }> | null;
   setAiActions: (actions: Array<{ id: string; label: string; prompt?: string; [key: string]: unknown }>) => void;
   hiddenFolders: string[];
@@ -578,7 +578,7 @@ export const useStore = create<StoreState>()((set, get) => ({
   selectedAccountId: localStorage.getItem('mailflow_selected_account') || null, // '' stored as null
   selectedFolder: localStorage.getItem('mailflow_selected_folder') || 'INBOX',
   messagesRefreshToken: 0, // incremented on every nav click so the effect always re-fires
-  setSelectedAccount: (accountId: string, folder = 'INBOX') =>{
+  setSelectedAccount: (accountId: string | null, folder = 'INBOX') =>{
     localStorage.setItem('mailflow_selected_account', accountId ?? '');
     localStorage.setItem('mailflow_selected_folder', folder);
     return set((state: StoreStateRead) => {
@@ -632,7 +632,7 @@ export const useStore = create<StoreState>()((set, get) => ({
   updateMessage: (id: string, updates: Record<string, unknown>) =>set((state: StoreStateRead) => {
     const apply = (m: StoreMessageRow) => m.id === id ? { ...m, ...updates } : m;
     const threadMessages = Object.fromEntries(
-      Object.entries(state.threadMessages as Record<string, StoreMessageRow[]>).map(([tid, msgs]) => [tid, msgs.map(apply)])
+      Object.entries(state.threadMessages).map(([tid, msgs]) => [tid, msgs.map(apply)])
     );
     // An explicit unread_count is a whole-thread action. Otherwise a physical
     // copy (including the representative row itself) changes only its own state.
@@ -1276,7 +1276,7 @@ export const useStore = create<StoreState>()((set, get) => ({
   // every state a thread is labelled with (a merged Waiting row lives in both watch and
   // delegated), keeping them in sync. Star does not affect the unread rollup.
   markGtdThreadStarred: (identity: string, isStarred: boolean) =>set((state: StoreStateRead) => {
-    const cur = state.gtdSections as GtdSections | null;
+    const cur = state.gtdSections;
     if (!cur || identity == null) return {};
     const next = { ...cur };
     let changed = false;
@@ -1385,7 +1385,7 @@ export const useStore = create<StoreState>()((set, get) => ({
   // Keyboard shortcuts — stores only user overrides (action → key).
   // Merged with defaults at use-time via getEffectiveShortcuts().
   shortcuts: {},
-  setShortcuts: (overrides: Record<string, string>) =>{
+  setShortcuts: (overrides: Record<string, string | null | undefined>) =>{
     set({ shortcuts: overrides });
     return api.savePreferences({ shortcuts: overrides }).catch(() => {});
   },

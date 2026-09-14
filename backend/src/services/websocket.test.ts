@@ -3,7 +3,20 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 vi.mock('./diagnosticsRing.js', () => ({ recordWsConnect: vi.fn(), recordWsDisconnect: vi.fn() }));
 import { setupWebSocket } from './websocket.js';
 
-function setup(sessionMiddleware, manager = { connectAllForUser: vi.fn().mockResolvedValue(undefined) }) {
+type SessionNext = (err?: unknown) => void;
+
+type SessionMiddleware = (
+  req: { headers: { origin?: string }; session?: { userId?: string; locked?: boolean } | null },
+  res: { getHeader: () => void; setHeader: () => void; end: () => void },
+  next: SessionNext,
+) => void;
+
+type ImapManager = { connectAllForUser: (userId: string) => Promise<void> };
+
+function setup(
+  sessionMiddleware: SessionMiddleware,
+  manager: ImapManager = { connectAllForUser: vi.fn().mockResolvedValue(undefined) },
+) {
   const wss = new EventEmitter();
   const ws = Object.assign(new EventEmitter(), {
     readyState: 1, close: vi.fn(), terminate: vi.fn(), send: vi.fn(),
@@ -26,9 +39,10 @@ describe('WebSocket failure recovery', () => {
     expect(manager.connectAllForUser).not.toHaveBeenCalled();
   });
   it('does not authenticate a socket closed during session lookup', () => {
-    let finish;
+    let finish: SessionNext | undefined;
     const { ws, manager } = setup((_req, _res, next) => { finish = next; });
     ws.readyState = 3;
+    if (finish === undefined) throw new Error('session middleware did not run');
     finish();
     expect(ws.send).not.toHaveBeenCalled();
     expect(manager.connectAllForUser).not.toHaveBeenCalled();
