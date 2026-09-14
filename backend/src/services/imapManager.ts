@@ -2105,7 +2105,7 @@ export class ImapManager {
     // Refresh OAuth token if needed before connecting
     account = await ensureFreshToken(account);
     const { resolved, policy } = await resolveAccountHost(account);
-    let client;
+    let client: ImapFlow | undefined;
     try {
       // Connect via the shared helper: it attaches the #360 handshake-error listener, races the
       // connect against a 30s timeout (client.connect() has none — a slow/unresponsive server like
@@ -2443,7 +2443,7 @@ export class ImapManager {
     if (this.syncingAccounts.has(account.id)) return;
     this.syncingAccounts.add(account.id);
     this.syncStartedAt.set(account.id, Date.now());
-    let activeClient = null;
+    let activeClient: ImapFlow | null = null;
     let usedFreshSyncClient = false;
     let syncResult;
     try {
@@ -3388,7 +3388,7 @@ export class ImapManager {
           // it (PurelyMail, Gmail). A tiny mailbox clamps to 1:* anyway.
           const deltaLow = Math.max(1, maxKnownUid - DELTA_SCAN_UID_WINDOW + 1);
           const deltaStartedAt = Date.now();
-          const flagsToUpdate = [];
+          const flagsToUpdate: Array<{ uid: number; isRead: boolean; isStarred: boolean }> = [];
           try {
             const scan = (async () => {
               for await (const msg of client.fetch(`${deltaLow}:*`, { uid: true, flags: true }, { uid: true, changedSince: BigInt(storedModseq) })) {
@@ -5379,7 +5379,7 @@ export class ImapManager {
     }
 
     let destArrived = null;
-    let destNew = [];
+    let destNew: number[] = [];
     if (destUidNextBefore !== null) {
       try {
         destNew = await withFreshClient(account, async (client) => {
