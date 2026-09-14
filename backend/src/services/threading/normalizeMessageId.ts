@@ -2,7 +2,7 @@
 // Message-IDs are opaque tokens: preserve case and remove only transport noise.
 const MAX_MESSAGE_ID_LENGTH = 998;
 
-export function normalizeMessageId(value) {
+export function normalizeMessageId(value: unknown): string | null {
   if (value === null || value === undefined) return null;
   const text = String(value).replace(/[\r\n]+/g, ' ').trim();
   if (!text) return null;
@@ -15,11 +15,11 @@ export function normalizeMessageId(value) {
   return `<${candidate}>`;
 }
 
-export function normalizeMessageIdList(value) {
+export function normalizeMessageIdList(value: unknown): string[] {
   if (value === null || value === undefined) return [];
   const text = Array.isArray(value) ? value.join(' ') : String(value);
-  const ids = [];
-  const seen = new Set();
+  const ids: string[] = [];
+  const seen = new Set<string>();
   for (const match of text.matchAll(/<[^<>\r\n]+>/g)) {
     const normalized = normalizeMessageId(match[0]);
     if (normalized && !seen.has(normalized)) {
