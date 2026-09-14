@@ -4081,7 +4081,7 @@ function AISection() {
     }
   };
 
-  const field = (label, value, onChange, type = 'text', placeholder = '', help = null) => (
+  const field = (label: string, value: string, onChange: (value: string) => void, type = 'text', placeholder = '', help: React.ReactNode = null) => (
     <div style={{ marginBottom: 14 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, flexWrap: 'wrap', marginBottom: 5 }}>
         <label style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{label}</label>
@@ -4098,10 +4098,10 @@ function AISection() {
     </div>
   );
 
-  const toggle = (label, checked, onChange) => (
+  const toggle = (label: string, checked: boolean, onChange: (checked: boolean) => void) => (
     <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', marginBottom: 10 }}>
       <div
-        onClick={onChange}
+        onClick={() => onChange(!checked)}
         style={{
           width: 36, height: 20, borderRadius: 10, position: 'relative', cursor: 'pointer', flexShrink: 0,
           background: checked ? 'var(--accent)' : 'var(--border)', transition: 'background 0.2s',
@@ -4304,13 +4304,13 @@ function AiActionsTab() {
   }, []);
 
   // Persist only complete, trimmed, bounded actions (mirrors the backend validation).
-  const save = (list) => setAiActions(
+  const save = (list: Array<{ id: string; label: string; prompt?: string }>) => setAiActions(
     list.filter(a => a.label.trim() && a.prompt.trim())
       .map(a => ({ id: a.id, label: a.label.trim().slice(0, AI_ACTION_LIMITS.label), prompt: a.prompt.trim().slice(0, AI_ACTION_LIMITS.prompt) }))
   );
 
   const addAction = () => { if (items.length < AI_ACTION_LIMITS.max) setItems([...items, newAiAction('', '')]); };
-  const updateField = (id, field, value) => setItems(items.map(a => a.id === id ? { ...a, [field]: value } : a));
+  const updateField = (id: string, field: string, value: string) => setItems(items.map((a: { id: string; label: string; prompt: string }) => a.id === id ? { ...a, [field]: value } : a));
   const removeAction = (id: string) => { const next = items.filter(a => a.id !== id); setItems(next); save(next); };
 
   const inputStyle: CSSProperties = {
@@ -4403,7 +4403,7 @@ function CategoriesSection({ initialSubTab }: SubTabSectionProps) {
   const enabledAccounts = categorizationEnabled ? accounts : accounts.filter(a => a.categorization_enabled);
   const addedBuiltins = new Set(sources.filter(s => s.source_type === 'builtin').map(s => s.value));
 
-  const handleAddManual = async (e) => {
+  const handleAddManual = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!manualInput.trim()) return;
     setAdding(true); setAddError('');
@@ -4416,7 +4416,7 @@ function CategoriesSection({ initialSubTab }: SubTabSectionProps) {
     finally { setAdding(false); }
   };
 
-  const handleAddBuiltin = async (setName) => {
+  const handleAddBuiltin = async (setName: string) => {
     setAdding(true); setAddError('');
     try {
       const { source } = await api.categories.addSource({ sourceType: 'builtin', value: setName });
@@ -4426,7 +4426,7 @@ function CategoriesSection({ initialSubTab }: SubTabSectionProps) {
     finally { setAdding(false); }
   };
 
-  const handleAddUrl = async (e) => {
+  const handleAddUrl = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!urlInput.trim()) return;
     setAdding(true); setAddError('');
@@ -4439,7 +4439,7 @@ function CategoriesSection({ initialSubTab }: SubTabSectionProps) {
     finally { setAdding(false); }
   };
 
-  const handleToggle = async (id, enabled) => {
+  const handleToggle = async (id: string, enabled: boolean) => {
     try {
       const { source } = await api.categories.toggleSource(id, enabled);
       setSources(prev => prev.map(s => s.id === id ? source : s));
