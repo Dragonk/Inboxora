@@ -6,7 +6,7 @@ export interface ConversationCopyLike {
   accountId?: string;
   account_id?: string;
   folder?: string;
-  messageId?: string;
+  messageId?: string | null;
   message_id?: string;
   subject?: string;
   has_attachments?: boolean;

@@ -3,7 +3,7 @@
 const tails = new Map();
 const versions = new Map();
 
-export function queueStarStateMutation(id, starred, request) {
+export function queueStarStateMutation(id: string, starred: boolean, request: (starred: boolean) => Promise<unknown>) {
   const key = String(id);
   const version = (versions.get(key) || 0) + 1;
   versions.set(key, version);

@@ -53,7 +53,7 @@ export interface StoreUserRow { id?: string; username?: string; email?: string; 
 /** The draft the compose window opens with. */
 export interface ComposeDraft {
   accountId?: string;
-  aliasId?: string;
+  aliasId?: string | null;
   to?: string | string[] | Array<{ email: string; name?: string | null }>;
   cc?: string | string[] | Array<{ email: string; name?: string | null }>;
   bcc?: string | string[] | Array<{ email: string; name?: string | null }>;
@@ -61,12 +61,12 @@ export interface ComposeDraft {
   body?: string;
   bodyIsHtml?: boolean;
   quotedBody?: string;
-  quotedBodyHtml?: string;
+  quotedBodyHtml?: string | null;
   isReply?: boolean;
   isReplyAll?: boolean;
   isForward?: boolean;
-  inReplyTo?: string;
-  references?: string;
+  inReplyTo?: string | null;
+  references?: string | null;
   originalFrom?: string | string[] | Array<{ email: string; name?: string | null }>;
   allRecipients?: string[];
   forwardedAttachments?: Array<{ messageId?: string; part?: string; filename?: string | null; size?: number | null; [key: string]: unknown }>;

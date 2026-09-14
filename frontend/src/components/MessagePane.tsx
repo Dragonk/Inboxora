@@ -789,7 +789,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   useEffect(() => {
     if (!USE_DIV_RENDER || !prepared) return;
 
-    let rafId: number | undefined = null;
+    let rafId: number | undefined = undefined;
     const expandedEls = new Set<HTMLElement>();
 
     // Neutralize nested sender-created scroll containers (overflow:auto/scroll +
@@ -856,7 +856,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
 
     const scheduleScale = () => {
       if (rafId) cancelAnimationFrame(rafId);
-      rafId = requestAnimationFrame(() => { rafId = null; applyScale(); });
+      rafId = requestAnimationFrame(() => { rafId = undefined; applyScale(); });
     };
 
     // Store image listeners so we can remove them if the message changes mid-load.
@@ -987,7 +987,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
                     completedMarkReadMap.set(target.id, target.account_id);
                     setTimeout(() => completedMarkReadMap.delete(target.id), 10000);
                   })
-                  .catch(e => {
+                  .catch((e: unknown) => {
                     if (!isLatestReadStateMutation(target.id, mutation.version)) return;
                     console.error('markRead failed:', toAppError(e).message);
                     updMsg(target.id, { is_read: false });
@@ -1342,7 +1342,7 @@ ${bodyContent}
     completedMarkReadMap.delete(message.id);
     pendingMarkReadMap.delete(message.id);
     const mutation = queueReadStateMutation(message.id, false, read => api.bulkRead([message.id], read));
-    mutation.promise.catch(e => {
+    mutation.promise.catch((e: unknown) => {
       if (!isLatestReadStateMutation(message.id, mutation.version)) return;
       console.error('markUnread failed:', toAppError(e).message);
       updateMessage(message.id, { is_read: true });
@@ -1659,7 +1659,7 @@ ${bodyContent}
           adjustCategoryCount(message.category, -1);
           setPending(message.id, message.account_id);
           const mutation = queueReadStateMutation(message.id, true, read => api.bulkRead([message.id], read));
-          mutation.promise.catch(e => {
+          mutation.promise.catch((e: unknown) => {
             if (!isLatestReadStateMutation(message.id, mutation.version)) return;
             console.error('markRead failed:', toAppError(e).message);
             updateMessage(message.id, { is_read: false });

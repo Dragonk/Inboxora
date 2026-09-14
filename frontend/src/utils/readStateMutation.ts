@@ -4,7 +4,7 @@ const tails = new Map();
 const versions = new Map();
 const pendingIntents = new Map();
 
-export function queueReadStateMutation(id, read, request) {
+export function queueReadStateMutation(id: string, read: boolean, request: (read: boolean) => Promise<unknown>) {
   const key = String(id);
   const version = (versions.get(key) || 0) + 1;
   versions.set(key, version);

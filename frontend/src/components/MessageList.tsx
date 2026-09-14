@@ -1784,13 +1784,13 @@ export default function MessageList() {
     });
   }, [removeMessage, decrementUnread, incrementUnread, resolveMessagesForThreadAction, addNotification, setThreadMessages, t]);
 
-  const handleRowMove = useCallback((e, msg) => {
+  const handleRowMove = useCallback((e: React.DragEvent, msg: StoreMessageRow) => {
     e.stopPropagation();
     const rect = e.currentTarget.getBoundingClientRect();
     setContextMenu({ x: rect.left, y: rect.bottom + 4, message: msg, defaultMoveView: true });
   }, []);
 
-  const handleRowDragStart = useCallback((e, message) => {
+  const handleRowDragStart = useCallback((e: React.DragEvent, message: StoreMessageRow) => {
     const { selectedIds } = scRef.current;
     const isMulti = selectedIds.size > 1 && selectedIds.has(message.id);
     const payload = isMulti
