@@ -4126,7 +4126,19 @@ function UndoBar({ notification, onDismiss, showTopBorder }: UndoBarProps) {
   );
 }
 
-function EmptyState({ folderSyncing, searchQuery, unreadOnly, selectedFolder, accounts, onClearSearch, onShowAll, onCompose }) {
+/** The placeholder shown when the list has nothing to show. */
+interface EmptyStateProps {
+  folderSyncing: boolean;
+  searchQuery: string;
+  unreadOnly: boolean;
+  selectedFolder: string | null | undefined;
+  accounts: StoreState['accounts'];
+  onClearSearch: () => void;
+  onShowAll: () => void;
+  onCompose: () => void;
+}
+
+function EmptyState({ folderSyncing, searchQuery, unreadOnly, selectedFolder, accounts, onClearSearch, onShowAll, onCompose }: EmptyStateProps) {
   const { t } = useTranslation();
 
   if (folderSyncing) {
@@ -4654,7 +4666,19 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
   );
 }
 
-function ThreadChildRow({ msg, idx, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, children }) {
+/** A single message rendered under an expanded thread. */
+interface ThreadChildRowProps {
+  msg: StoreMessageRow;
+  idx: number;
+  isMobile: boolean;
+  swipeLeftAction?: string | null;
+  swipeRightAction?: string | null;
+  onSwipeLeft?: (message: StoreMessageRow) => void;
+  onSwipeRight?: (message: StoreMessageRow) => void;
+  children?: React.ReactNode;
+}
+
+function ThreadChildRow({ msg, idx, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, children }: ThreadChildRowProps) {
   const { t } = useTranslation();
   const { contentRef, swipeBgLeftRef, swipeBgRightRef, tappedRef } = useSwipeRow({
     isMobile, message: msg, onSwipeLeft, onSwipeRight,
