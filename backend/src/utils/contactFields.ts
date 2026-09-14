@@ -1,3 +1,4 @@
+import type { VCardContact } from './vcard.js';
 const TEXT_FIELDS = ['title', 'role', 'nickname'];
 const ADDRESS_FIELDS = ['pobox', 'extended', 'street', 'locality', 'region', 'postalCode', 'country'];
 const MAX_VALUE_LENGTH = 2048;
@@ -64,8 +65,8 @@ interface RichContactBody {
   [key: string]: unknown;
 }
 
-export function normalizeRichContactFields(body: RichContactBody) {
-  const normalized: { categories?: string[]; [key: string]: unknown } = {};
+export function normalizeRichContactFields(body: RichContactBody): Partial<Pick<VCardContact, 'title' | 'role' | 'nickname' | 'urls' | 'instantMessages' | 'addresses' | 'categories'>> | undefined {
+  const normalized: Partial<Pick<VCardContact, 'title' | 'role' | 'nickname' | 'urls' | 'instantMessages' | 'addresses' | 'categories'>> = {};
   for (const field of TEXT_FIELDS) {
     const value = text(body[field] ?? '');
     if (value === undefined) return undefined;
