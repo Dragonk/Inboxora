@@ -71,7 +71,8 @@ function ActionBar({ notification, onDismiss, isMobile }: { notification: ToastN
   };
 
   const handleUndo = () => {
-    notification.onUndo();
+    const onUndo = notification.onUndo;
+    if (onUndo) onUndo();
     dismiss();
   };
 
@@ -172,7 +173,8 @@ function Toast({ notification, onDismiss, isMobile }: { notification: ToastNotif
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleUndo = () => {
-    notification.onUndo();
+    const onUndo = notification.onUndo;
+    if (onUndo) onUndo();
     dismiss();
   };
 
@@ -227,7 +229,11 @@ function Toast({ notification, onDismiss, isMobile }: { notification: ToastNotif
       </div>
       {notification.onAction && (
         <button
-          onClick={() => { notification.onAction(); dismiss(); }}
+          onClick={() => {
+            const onAction = notification.onAction;
+            if (onAction) onAction();
+            dismiss();
+          }}
           style={{
             background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
             borderRadius: 5, color: 'var(--text-secondary)', fontSize: 11, fontWeight: 600,

@@ -2,9 +2,26 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { alignReaderHeader, readerVisibleTop } from './readerScrollAlignment.ts';
 
-function rect(top, bottom = top + 40) { return { top, bottom, height: bottom - top }; }
+interface Rectangle { top: number; bottom: number; height: number; }
+interface Sticky { getBoundingClientRect(): Rectangle; }
+interface Reader {
+  scrollTop: number;
+  scrollHeight: number;
+  clientHeight: number;
+  getBoundingClientRect(): Rectangle;
+  querySelectorAll(selector: string): Iterable<Sticky>;
+}
+interface ReaderOptions {
+  top?: number;
+  scrollTop?: number;
+  scrollHeight?: number;
+  clientHeight?: number;
+  sticky?: Iterable<Sticky>;
+}
 
-function reader({ top = 100, scrollTop = 0, scrollHeight = 3000, clientHeight = 600, sticky = [] } = {}) {
+function rect(top: number, bottom = top + 40): Rectangle { return { top, bottom, height: bottom - top }; }
+
+function reader({ top = 100, scrollTop = 0, scrollHeight = 3000, clientHeight = 600, sticky = [] }: ReaderOptions = {}): Reader {
   return {
     scrollTop, scrollHeight, clientHeight,
     getBoundingClientRect: () => rect(top, top + clientHeight),

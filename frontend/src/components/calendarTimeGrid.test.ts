@@ -2,10 +2,10 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { env, execPath } from 'node:process';
 import { test } from 'node:test';
-import { eventGeometryForDay, layoutTimedEvents, workHoursGeometry } from './calendarView.ts';
+import { eventGeometryForDay, layoutTimedEvents, workHoursGeometry, type CalendarViewEvent } from './calendarView.ts';
 
 const day = new Date(2026, 8, 3);
-const event = (id, start, end, allDay = false) => ({ id, starts_at: start, ends_at: end, all_day: allDay });
+const event = (id: string, start: string, end: string, allDay = false): CalendarViewEvent => ({ id, starts_at: start, ends_at: end, all_day: allDay });
 
 test('calculates local geometry at midnight and through the end of day', () => {
   assert.deepEqual(eventGeometryForDay(event('midnight', '2026-09-03T00:00:00', '2026-09-03T01:00:00'), day), { start: 0, end: 60 });

@@ -6,16 +6,17 @@
 import { redisClient } from './redis.js';
 
 // Fallback store, pruned periodically. Only used when Redis errors.
-const memory = new Map();
+type MemoryBucket = { count: number; resetAt: number };
+const memory = new Map<string, MemoryBucket>();
 const pruneTimer = setInterval(() => {
   const now = Date.now();
   for (const [k, b] of memory) if (now > b.resetAt) memory.delete(k);
 }, 5 * 60 * 1000);
-pruneTimer.unref?.();
+pruneTimer.unref();
 
 // Count this hit against `key`. Returns { limited, resetMs }.
 // `max` requests are allowed per `windowMs`; the (max+1)th is limited.
-export async function consume(key: string, max, windowMs) {
+export async function consume(key: string, max: number, windowMs: number) {
   const rk = `rl:${key}`;
   try {
     const count = await redisClient.incr(rk);
