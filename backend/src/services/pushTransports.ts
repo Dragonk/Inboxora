@@ -74,7 +74,7 @@ let cachedServiceAccountRaw: string | null = null;
 let cachedAccessToken: string | null = null;
 let cachedAccessTokenExpiry = 0;
 
-export function parseServiceAccount(raw: string): ServiceAccount | null {
+export function parseServiceAccount(raw?: string): ServiceAccount | null {
   if (!raw || typeof raw !== 'string') return null;
   let text = raw.trim();
   // Accept either raw JSON or a base64-encoded service-account file.

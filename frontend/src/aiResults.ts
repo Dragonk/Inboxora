@@ -45,18 +45,20 @@ export function saveResult(messageId: string | null | undefined, actionKey: stri
   if (!messageId || !actionKey) return;
   const store = read();
   if (!store.data[messageId]) store.data[messageId] = {};
-  store.data[messageId][actionKey] = { text, at: Date.now(), label };
+  const result: AiActionResult = { text, at: Date.now() };
+  if (label !== null && label !== undefined) result.label = label;
+  store.data[messageId][actionKey] = result;
   store.order = store.order.filter(id => id !== messageId);
   store.order.push(messageId);
   while (store.order.length > MSG_CAP) {
     const evicted = store.order.shift();
-    delete store.data[evicted];
+    if (evicted !== undefined) delete store.data[evicted];
   }
   write(store);
 }
 
 // Remove a single action's cached result (used by the dismiss button).
-export function removeResult(messageId, actionKey) {
+export function removeResult(messageId: string | null | undefined, actionKey: string | null | undefined) {
   if (!messageId || !actionKey) return;
   const store = read();
   const forMsg = store.data[messageId];

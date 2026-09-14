@@ -31,12 +31,12 @@ function streamResponse(chunks: string[], { status = 200, close = true, onCancel
   });
 }
 
-function event(payload) {
+function event(payload: unknown) {
   return `data: ${JSON.stringify(payload)}\n\n`;
 }
 
-async function collect(iterable) {
-  const chunks = [];
+async function collect(iterable: AsyncIterable<string>) {
+  const chunks: string[] = [];
   for await (const chunk of iterable) chunks.push(chunk);
   return chunks;
 }
@@ -247,6 +247,7 @@ describe('streamCodexResponses', () => {
     const assertion = expect(pending).rejects.toThrow(/timed out/i);
     await vi.advanceTimersByTimeAsync(25);
 
+    if (requestSignal === undefined) throw new Error('Fetch did not receive a request signal');
     expect(requestSignal.aborted).toBe(true);
     await assertion;
   });

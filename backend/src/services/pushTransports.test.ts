@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { safeFetch } = vi.hoisted<any>(() => ({ safeFetch: vi.fn() }));
+type SafeFetch = (url: string, options: RequestInit, policy: { allowPrivate: boolean; requireHttps: boolean }) => Promise<Response>;
+
+const { safeFetch } = vi.hoisted(() => ({ safeFetch: vi.fn<SafeFetch>() }));
 vi.mock('./safeFetch.js', () => ({ safeFetch }));
 vi.mock('jose', () => {
   class SignJWT {
@@ -30,19 +32,20 @@ afterEach(() => vi.unstubAllEnvs());
 
 describe('UnifiedPush transport', () => {
   it('POSTs the opaque event and reports delivery', async () => {
-    safeFetch.mockResolvedValue({ ok: true, status: 200 });
+    safeFetch.mockResolvedValue(new Response(null, { status: 200 }));
     await expect(sendUnifiedPush({ endpoint: 'https://distributor.example/up/topic' }, event)).resolves.toBe(TRANSPORT_DELIVERED);
     const [url, options, policy] = safeFetch.mock.calls[0];
     expect(url).toBe('https://distributor.example/up/topic');
     expect(options.method).toBe('POST');
+    if (typeof options.body !== 'string') throw new Error('UnifiedPush request body was not a string');
     expect(JSON.parse(options.body)).toEqual(event);
     expect(policy).toEqual({ allowPrivate: false, requireHttps: true });
   });
 
   it('treats 404/410 as a permanent rejection and 503 as retryable', async () => {
-    safeFetch.mockResolvedValue({ ok: false, status: 410 });
+    safeFetch.mockResolvedValue(new Response(null, { status: 410 }));
     await expect(sendUnifiedPush({ endpoint: 'https://x.example/up' }, event)).resolves.toBe(TRANSPORT_INVALID);
-    safeFetch.mockResolvedValue({ ok: false, status: 503 });
+    safeFetch.mockResolvedValue(new Response(null, { status: 503 }));
     await expect(sendUnifiedPush({ endpoint: 'https://x.example/up' }, event)).resolves.toBe(TRANSPORT_RETRY);
   });
 
@@ -55,7 +58,7 @@ describe('UnifiedPush transport', () => {
 
   it('allows a private distributor only when explicitly opted in', async () => {
     vi.stubEnv('PUSH_ALLOW_PRIVATE_ENDPOINTS', 'true');
-    safeFetch.mockResolvedValue({ ok: true, status: 200 });
+    safeFetch.mockResolvedValue(new Response(null, { status: 200 }));
     await sendUnifiedPush({ endpoint: 'https://192.168.1.10/up' }, event);
     expect(safeFetch.mock.calls[0][2]).toEqual({ allowPrivate: true, requireHttps: false });
   });
@@ -76,9 +79,9 @@ describe('FCM transport', () => {
     await expect(sendFcmPush({ endpoint: 'token' }, event)).resolves.toBe(TRANSPORT_DISABLED);
   });
 
-  function installFcmFetch(sendResponse) {
+  function installFcmFetch(sendResponse: Response) {
     const fetchMock = vi.fn<typeof fetch>(async (url) => {
-      if (String(url).includes('oauth2.googleapis.com')) return { ok: true, json: async () => ({ access_token: 'access-token', expires_in: 3600 }) };
+      if (String(url).includes('oauth2.googleapis.com')) return new Response(JSON.stringify({ access_token: 'access-token', expires_in: 3600 }), { status: 200 });
       return sendResponse;
     });
     vi.stubGlobal('fetch', fetchMock);
@@ -87,7 +90,7 @@ describe('FCM transport', () => {
 
   it('sends an opaque high-priority data message through the v1 API', async () => {
     vi.stubEnv('FCM_SERVICE_ACCOUNT_JSON', JSON.stringify({ project_id: 'proj', client_email: 'svc@proj.iam', private_key: '-----BEGIN PRIVATE KEY-----\\nkey' }));
-    const fetchMock = installFcmFetch({ ok: true, status: 200 });
+    const fetchMock = installFcmFetch(new Response(null, { status: 200 }));
 
     await expect(sendFcmPush({ endpoint: 'device-fcm-token' }, event)).resolves.toBe(TRANSPORT_DELIVERED);
 
@@ -95,7 +98,8 @@ describe('FCM transport', () => {
     if (!fcmCall) throw new Error('FCM request was not issued');
     const [url, options] = fcmCall;
     expect(url).toBe('https://fcm.googleapis.com/v1/projects/proj/messages:send');
-    const body = JSON.parse(String(options.body));
+    if (!options || typeof options.body !== 'string') throw new Error('FCM request body was not a string');
+    const body = JSON.parse(options.body);
     expect(body.message.token).toBe('device-fcm-token');
     expect(body.message.data).toEqual({ type: 'mail.changed', eventId: 'msg-1' });
     expect(body.message.android.priority).toBe('high');
@@ -105,17 +109,17 @@ describe('FCM transport', () => {
 
   it('maps UNREGISTERED/404 to invalid and 5xx to retry', async () => {
     vi.stubEnv('FCM_SERVICE_ACCOUNT_JSON', JSON.stringify({ project_id: 'proj', client_email: 'svc@proj.iam', private_key: 'key' }));
-    installFcmFetch({ ok: false, status: 404, json: async () => ({}) });
+    installFcmFetch(new Response(null, { status: 404 }));
     await expect(sendFcmPush({ endpoint: 'token' }, event)).resolves.toBe(TRANSPORT_INVALID);
 
-    installFcmFetch({ ok: false, status: 503, json: async () => ({}) });
+    installFcmFetch(new Response(null, { status: 503 }));
     await expect(sendFcmPush({ endpoint: 'token' }, event)).resolves.toBe(TRANSPORT_RETRY);
   });
 });
 
 describe('sendNativePush routing', () => {
   it('routes by device transport and ignores unknown transports', async () => {
-    safeFetch.mockResolvedValue({ ok: true, status: 200 });
+    safeFetch.mockResolvedValue(new Response(null, { status: 200 }));
     await expect(sendNativePush({ transport: 'unifiedpush', endpoint: 'https://x.example/up' }, event)).resolves.toBe(TRANSPORT_DELIVERED);
     await expect(sendNativePush({ transport: 'carrier-pigeon', endpoint: 'x' }, event)).resolves.toBe(TRANSPORT_DISABLED);
   });

@@ -25,6 +25,9 @@ describe.skipIf(process.env.REQUIRE_MAIL_POSTGRES !== '1')('Gmail native groupin
     const listed = await listMessages({ userId, accountId, threaded: true });
     expect(listed.messages).toHaveLength(2);
     const grouped = listed.messages.find(row => row.thread_key === 'gmail:90071992547409931');
+    if (grouped === undefined) {
+      throw new Error('Expected Gmail thread group to be listed');
+    }
     expect(Number(grouped.message_count)).toBe(2);
     expect(Number(grouped.unread_count)).toBe(2);
     const children = await query('SELECT id FROM messages WHERE account_id=$1 AND thread_key=$2', [accountId, grouped.thread_key]);

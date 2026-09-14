@@ -5,6 +5,13 @@ import { Button } from './ui.tsx';
 import { formatInvitationRange } from '../utils/invitationTime.ts';
 import type { CSSProperties } from 'react';
 
+interface WritableCalendar {
+  id: string;
+  name: string;
+  read_only: boolean;
+  source: string;
+}
+
 // A mail invitation renders as one compact action row, in the same register as the
 // unsubscribe notice: the message already shows the title above and the body below, so
 // the panel only carries what the message cannot — when the event is, which calendar it
@@ -16,7 +23,7 @@ import type { CSSProperties } from 'react';
 export default function CalendarInvitationCard({ messageId }: { messageId: string }) {
   const { t, i18n } = useTranslation();
   const [invitation, setInvitation] = useState<Record<string, unknown> | null>(null);
-  const [calendars, setCalendars] = useState([]);
+  const [calendars, setCalendars] = useState<WritableCalendar[]>([]);
   const [calendarId, setCalendarId] = useState('');
   const [error, setError] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -31,7 +38,7 @@ export default function CalendarInvitationCard({ messageId }: { messageId: strin
     setInvitation(null); setError(false); setOutcome(null); setLocalEvent(null);
     Promise.all([api.calendar.getInvitation(messageId), api.calendar.listCalendars()]).then(([result, list]) => {
       if (cancelled) return;
-      const writable = (list.calendars || []).filter(calendar => !calendar.read_only && calendar.source === 'local');
+      const writable = (list.calendars || []).filter((calendar: WritableCalendar) => !calendar.read_only && calendar.source === 'local');
       setInvitation(result.invitation);
       setLocalEvent(result.invitation?.localEvent || null);
       setCalendars(writable);
