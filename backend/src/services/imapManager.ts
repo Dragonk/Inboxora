@@ -3108,7 +3108,7 @@ export class ImapManager {
               } catch { /* non-fatal — leave category NULL */ }
             }
 
-            const result = await query(`
+            const result = await query<{ id: string; is_new?: boolean }>(`
               INSERT INTO messages (
                 account_id, uid, folder, message_id, subject,
                 from_name, from_email, to_addresses, cc_addresses,
@@ -3330,7 +3330,7 @@ export class ImapManager {
             // Try to include the total unread count for the home screen badge.
             // If the query fails for any reason, dispatch without it so
             // notifications are never silently dropped.
-            query(
+            query<{ total: number }>(
               `SELECT COUNT(*)::int AS total FROM messages m
                JOIN email_accounts a ON a.id = m.account_id
                WHERE a.user_id = $1 AND a.enabled = true AND m.folder = 'INBOX' AND m.is_read = false AND m.is_deleted = false`,
@@ -3569,7 +3569,7 @@ export class ImapManager {
       // backfill is only needed for historical gaps and first-time population.
       // A false skip is self-correcting: the next reconnect or explicit sync will
       // re-evaluate, and syncMessages independently checks UIDVALIDITY changes.
-      const folderMeta = await query(
+      const folderMeta = await query<{ uid_validity?: number | string | null; total_count?: number | string | null }>(
         'SELECT uid_validity, total_count FROM folders WHERE account_id = $1 AND path = $2',
         [account.id, folder]
       );
