@@ -1,4 +1,5 @@
 import nodemailer from 'nodemailer';
+import type { EmailAccountRow } from '../services/imapManager.js';
 import { randomBytes } from 'crypto';
 import { Router } from 'express';
 import { query } from '../services/db.js';
@@ -40,7 +41,7 @@ function textToHtml(text: string) {
 }
 
 async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml, quotedBody, quotedBodyHtml, editedSignature }) {
-  const acctResult = await query(
+  const acctResult = await query<EmailAccountRow>(
     'SELECT * FROM email_accounts WHERE id = $1',
     [accountId]
   );
@@ -205,7 +206,7 @@ router.delete('/draft/:uid', async (req, res) => {
   const folder = queryString(req.query.folder);
   if (!accountId || !folder) return res.status(400).json({ error: 'accountId and folder required' });
 
-  const ownerCheck = await query(
+  const ownerCheck = await query<EmailAccountRow>(
     'SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2',
     [accountId, req.session.userId]
   );
