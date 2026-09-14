@@ -1,28 +1,73 @@
 import { embedInlineDataImages } from '../utils/inlineImages.js';
 import { query } from './db.js';
 import { sanitizeEmail } from './emailSanitizer.js';
+import type { AttachmentRef } from './imapManager.js';
 import { createAccountSmtpTransport } from './smtpTransport.js';
 
 const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 
-/** A message row as the forwarder reads it. */
-interface ForwardRowLike {
-  id?: string;
-  uid?: string | null;
-  account_id?: string;
-  folder?: string;
+/** The header fields the forwarder reads from any message-like row. */
+interface ForwardHeaderRow {
+  subject?: string | null;
   from_email?: string | null;
   from_name?: string | null;
+  to_addresses?: unknown;
   cc_addresses?: unknown;
-  body_text?: string | null;
-  body_html?: string | null;
   date?: string | number | Date | null;
-  attachments?: unknown;
   [key: string]: unknown;
 }
 
+/** A messages-table row the forwarder loads (see migrations/0001_baseline.sql). */
+interface ForwardMessageRow extends ForwardHeaderRow {
+  id: string;
+  account_id: string;
+  uid: string | number;
+  folder: string;
+  body_text?: string | null;
+  body_html?: string | null;
+  attachments?: unknown;
+}
+
 /** The account slice the forwarder needs. */
-interface ForwardAccountLike { id?: string; email_address?: string | null; [key: string]: unknown }
+interface ForwardAccountLike {
+  id?: string;
+  name?: string | null;
+  sender_name?: string | null;
+  email_address?: string | null;
+  [key: string]: unknown;
+}
+
+/** An attachment attached to a forwarded message. */
+interface ForwardAttachment {
+  filename: string;
+  content: Buffer;
+  contentType: string;
+}
+
+/** The mail-engine methods the forwarder calls. */
+interface ForwardImapManager {
+  fetchMessageBody(
+    account: ForwardAccountLike,
+    uid: string | number,
+    folder: string
+  ): Promise<{ text?: string | null; html?: string | null; attachments?: unknown }>;
+  fetchMultipleAttachments(
+    account: ForwardAccountLike,
+    uid: string | number,
+    folder: string,
+    parts: AttachmentRef[]
+  ): Promise<Map<string, Buffer>>;
+}
+
+/** Input to buildForwardMessage. */
+interface BuildForwardMessageInput {
+  row: ForwardHeaderRow;
+  account: ForwardAccountLike;
+  recipient: string;
+  text?: string | null;
+  html?: string | null;
+  attachments?: ForwardAttachment[];
+}
 
 function escapeHtml(value: unknown) {
   return String(value ?? '')
@@ -101,7 +146,7 @@ function htmlToPlainText(value: unknown) {
     .trim();
 }
 
-function parseAttachments(value: unknown) {
+function parseAttachments(value: unknown): unknown[] {
   if (Array.isArray(value)) return value;
   if (typeof value !== 'string' || !value.trim()) return [];
 
@@ -113,7 +158,17 @@ function parseAttachments(value: unknown) {
   }
 }
 
-function forwardedHeaders(row: ForwardRowLike) {
+/** Whether a stored attachment entry carries the part reference the fetch needs. */
+function isAttachmentRef(value: unknown): value is AttachmentRef {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'part' in value &&
+    typeof value.part === 'string'
+  );
+}
+
+function forwardedHeaders(row: ForwardHeaderRow) {
   const from = formatAddress({
     name: row.from_name,
     address: row.from_email,
@@ -134,7 +189,7 @@ export function buildForwardMessage({
   text,
   html,
   attachments = [],
-}) {
+}: BuildForwardMessageInput) {
   const headers = forwardedHeaders(row);
   const forwardHeaderText = [
     '---------- Forwarded message ----------',
@@ -159,7 +214,7 @@ export function buildForwardMessage({
   };
 }
 
-function ensureAttachmentLimit(attachments: Array<{ content?: { length?: number } | null; [key: string]: unknown }>): void {
+function ensureAttachmentLimit(attachments: ReadonlyArray<{ content?: { length?: number } | null }>): void {
   const totalBytes = attachments.reduce(
     (sum, attachment) => sum + (attachment.content?.length ?? 0),
     0
@@ -169,10 +224,14 @@ function ensureAttachmentLimit(attachments: Array<{ content?: { length?: number 
   }
 }
 
-async function loadForwardContent({ row, account, imapManager }: { row: ForwardRowLike; account: ForwardAccountLike; imapManager: { fetchMessageBody(account: ForwardAccountLike, uid: string, folder: string): Promise<{ text?: string | null; html?: string | null; attachments?: unknown }>; fetchMultipleAttachments(account: ForwardAccountLike, uid: string, folder: string, parts: unknown[]): Promise<Map<string, Buffer>> } }) {
+async function loadForwardContent({ row, account, imapManager }: {
+  row: ForwardMessageRow;
+  account: ForwardAccountLike;
+  imapManager: ForwardImapManager;
+}) {
   let text = row.body_text;
   let html = row.body_html;
-  let fetchedParts = [];
+  let fetchedParts: unknown[] = [];
   if (!text && !html) {
     const fetched = await imapManager.fetchMessageBody(
       account,
@@ -184,24 +243,17 @@ async function loadForwardContent({ row, account, imapManager }: { row: ForwardR
     fetchedParts = parseAttachments(fetched.attachments);
   }
 
-  const storedParts = [];
-  const seenParts = new Set();
-  for (const attachment of [
+  const storedParts: AttachmentRef[] = [];
+  const seenParts = new Set<string>();
+  for (const candidate of [
     ...parseAttachments(row.attachments),
     ...fetchedParts,
   ]) {
-    if (
-      !attachment ||
-      typeof attachment !== 'object' ||
-      attachment.part === undefined ||
-      attachment.part === null
-    ) {
-      continue;
-    }
-    const partKey = String(attachment.part);
+    if (!isAttachmentRef(candidate)) continue;
+    const partKey = String(candidate.part);
     if (seenParts.has(partKey)) continue;
     seenParts.add(partKey);
-    storedParts.push(attachment);
+    storedParts.push(candidate);
   }
   const knownBytes = storedParts.reduce(
     (sum, attachment) =>
@@ -214,7 +266,7 @@ async function loadForwardContent({ row, account, imapManager }: { row: ForwardR
     throw new Error('Total attachment size exceeds 25 MB');
   }
 
-  let fetchedAttachments = [];
+  let fetchedAttachments: ForwardAttachment[] = [];
   if (storedParts.length) {
     const buffers = await imapManager.fetchMultipleAttachments(
       account,
@@ -236,7 +288,9 @@ async function loadForwardContent({ row, account, imapManager }: { row: ForwardR
   }
 
   const safeHtml = html ? sanitizeEmail(html) : html;
-  const embedded = embedInlineDataImages(safeHtml);
+  const embedded = typeof safeHtml === 'string'
+    ? embedInlineDataImages(safeHtml)
+    : embedInlineDataImages(safeHtml);
   const attachments = [
     ...embedded.attachments,
     ...fetchedAttachments,
@@ -256,6 +310,12 @@ export async function forwardRuleMessage({
   account,
   imapManager,
   recipient,
+}: {
+  ruleId: string;
+  message: { id: string };
+  account: ForwardAccountLike;
+  imapManager: ForwardImapManager;
+  recipient: string;
 }) {
   const reserved = await query(
     `INSERT INTO inbox_rule_forwards (rule_id, message_id)
@@ -278,7 +338,7 @@ export async function forwardRuleMessage({
   const reservationId = reserved.rows[0].id;
   let delivered = false;
   try {
-    const rowResult = await query(
+    const rowResult = await query<ForwardMessageRow>(
       `SELECT id, account_id, uid, folder, subject, from_name, from_email,
               to_addresses, cc_addresses, date, body_text, body_html, attachments
        FROM messages

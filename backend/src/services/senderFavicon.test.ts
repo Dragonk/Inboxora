@@ -19,7 +19,7 @@ function png(width = 64, height = width, extraBytes = 0) {
   return out;
 }
 
-function response(body, status = 200, contentType = 'image/png', extraHeaders = {}) {
+function response(body: ConstructorParameters<typeof Response>[0], status = 200, contentType = 'image/png', extraHeaders = {}) {
   return new Response(body, {
     status,
     headers: { 'Content-Type': contentType, ...extraHeaders },
@@ -40,6 +40,24 @@ function cacheDouble(initial: Map<string, string> = new Map()): SenderFaviconCac
     set: vi.fn(async (key: string, value: string) => { initial.set(key, value); }),
     del: vi.fn(async (key: string) => { initial.delete(key); }),
   };
+}
+
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+  let resolvePromise: () => void;
+  const promise = new Promise<void>(resolve => { resolvePromise = resolve; });
+  return { promise, resolve: () => { resolvePromise(); } };
+}
+
+function responseBody(upstream: Response): NonNullable<Response['body']> {
+  const body = upstream.body;
+  if (!body) throw new Error('expected the upstream response to carry a body');
+  return body;
+}
+
+function lastSetCall(cache: SenderFaviconCacheDouble) {
+  const call = cache.set.mock.calls.at(-1);
+  if (!call) throw new Error('expected a cache.set call');
+  return call;
 }
 
 describe('normalizeSenderDomain', () => {
@@ -176,7 +194,7 @@ describe('getSenderFavicon', () => {
   it.each([404, 503])('cancels an unused upstream body for status %s', async status => {
     const cache = cacheDouble();
     const upstream = response('unused', status, 'text/plain');
-    const cancel = vi.spyOn(upstream.body, 'cancel');
+    const cancel = vi.spyOn(responseBody(upstream), 'cancel');
     await getSenderFavicon('example.com', {
       cache,
       fetchImpl: vi.fn(async () => upstream),
@@ -198,7 +216,7 @@ describe('getSenderFavicon', () => {
   it('cancels a response body rejected by its declared length', async () => {
     const cache = cacheDouble();
     const upstream = response(png(), 200, 'image/png', { 'Content-Length': '65537' });
-    const cancel = vi.spyOn(upstream.body, 'cancel');
+    const cancel = vi.spyOn(responseBody(upstream), 'cancel');
     await getSenderFavicon('example.com', {
       cache,
       fetchImpl: vi.fn(async () => upstream),
@@ -241,7 +259,7 @@ describe('getSenderFavicon', () => {
     ['wrong', response(png(), 200, 'image/jpeg')],
   ])('cancels a response body with %s content type', async (_label, upstream) => {
     const cache = cacheDouble();
-    const cancel = vi.spyOn(upstream.body, 'cancel');
+    const cancel = vi.spyOn(responseBody(upstream), 'cancel');
     await getSenderFavicon('example.com', {
       cache,
       fetchImpl: vi.fn(async () => upstream),
@@ -336,20 +354,19 @@ describe('getSenderFavicon', () => {
 
   it('coalesces simultaneous misses for one normalized domain', async () => {
     const cache = cacheDouble();
-    let release: ((value?: unknown) => void) | undefined;
-    const blocked = new Promise(resolve => { release = resolve; });
-    const fetchImpl = vi.fn<typeof fetch>(async () => { await blocked; return response(png(64)); });
+    const blocked = deferred();
+    const fetchImpl = vi.fn<typeof fetch>(async () => { await blocked.promise; return response(png(64)); });
     const first = getSenderFavicon('EXAMPLE.com', { cache, fetchImpl });
     const second = getSenderFavicon('example.com.', { cache, fetchImpl });
-    release();
+    blocked.resolve();
     await Promise.all([first, second]);
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 });
 
 describe('getSenderFavicon parent walk-up', () => {
-  const url = domain => `https://twenty-icons.com/${domain}/64`;
-  const urls = fetchImpl => fetchImpl.mock.calls.map(call => call[0]);
+  const url = (domain: string) => `https://twenty-icons.com/${domain}/64`;
+  const urls = (fetchImpl: Mock<typeof fetch>) => fetchImpl.mock.calls.map(call => call[0]);
   const notFound = () => response('missing', 404, 'text/html');
 
   it('resolves a not-found subdomain to its registrable parent, caching under both keys', async () => {
@@ -465,7 +482,7 @@ describe('getSenderFavicon parent walk-up', () => {
 
     expect(result).toEqual({ kind: 'miss', reason: 'transient' });
     // The aggregate (last write) lands under the original key with the short transient TTL.
-    const aggregate = cache.set.mock.calls.at(-1);
+    const aggregate = lastSetCall(cache);
     expect(JSON.parse(aggregate[1])).toMatchObject({ kind: 'miss', reason: 'transient' });
     expect(aggregate[2]).toEqual({ EX: 300 });
   });
@@ -477,7 +494,7 @@ describe('getSenderFavicon parent walk-up', () => {
     const result = await getSenderFavicon('mail.notion.so', { cache, fetchImpl });
 
     expect(result).toEqual({ kind: 'miss', reason: 'not-found' });
-    const aggregate = cache.set.mock.calls.at(-1);
+    const aggregate = lastSetCall(cache);
     expect(JSON.parse(aggregate[1])).toMatchObject({ kind: 'miss', reason: 'not-found' });
     expect(aggregate[2]).toEqual({ EX: 21600 });
     // The original key is written exactly once.
@@ -486,16 +503,15 @@ describe('getSenderFavicon parent walk-up', () => {
 
   it('coalesces a subdomain walk and a direct parent request onto one parent fetch', async () => {
     const cache = cacheDouble();
-    let release: ((value?: unknown) => void) | undefined;
-    const blocked = new Promise(resolve => { release = resolve; });
+    const blocked = deferred();
     const fetchImpl = vi.fn<typeof fetch>(async target => {
-      if (String(target).includes('/notion.so/')) { await blocked; return response(png(64)); }
+      if (String(target).includes('/notion.so/')) { await blocked.promise; return response(png(64)); }
       return notFound();
     });
 
     const subdomain = getSenderFavicon('mail.notion.so', { cache, fetchImpl });
     const parent = getSenderFavicon('notion.so', { cache, fetchImpl });
-    release();
+    blocked.resolve();
     const [a, b] = await Promise.all([subdomain, parent]);
 
     expect(a).toMatchObject({ kind: 'image' });
@@ -522,20 +538,18 @@ describe('getSenderFavicon parent walk-up', () => {
 
   it('gives a direct request racing the walk the resolved image, not the exact-fetch miss', async () => {
     const cache = cacheDouble();
-    let reached;
-    const bReached = new Promise(resolve => { reached = resolve; });
-    let release: ((value?: unknown) => void) | undefined;
-    const blocked = new Promise(resolve => { release = resolve; });
+    const bReached = deferred();
+    const blocked = deferred();
     const fetchImpl = vi.fn<typeof fetch>(async target => {
-      if (String(target).includes('/b.corp.com/')) { reached(); await blocked; return notFound(); }
+      if (String(target).includes('/b.corp.com/')) { bReached.resolve(); await blocked.promise; return notFound(); }
       if (String(target).includes('/corp.com/')) return response(png(64));
       return notFound();
     });
 
     const walk = getSenderFavicon('a.b.corp.com', { cache, fetchImpl });
-    await bReached; // the walk owns inflight[b.corp.com] and is blocked fetching it
+    await bReached.promise; // the walk owns inflight[b.corp.com] and is blocked fetching it
     const direct = getSenderFavicon('b.corp.com', { cache, fetchImpl });
-    release();
+    blocked.resolve();
     const [a, b] = await Promise.all([walk, direct]);
 
     expect(a).toMatchObject({ kind: 'image' });

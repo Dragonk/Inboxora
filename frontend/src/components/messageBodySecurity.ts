@@ -21,8 +21,8 @@ function purifier() {
 const SAFE_PROPERTIES = new Set(['background','background-color','background-image','background-position','background-repeat','background-size','border','border-top','border-right','border-bottom','border-left','border-radius','border-collapse','border-spacing','color','display','float','clear','font','font-family','font-size','font-style','font-weight','letter-spacing','line-height','height','min-height','max-height','width','min-width','max-width','margin','margin-top','margin-right','margin-bottom','margin-left','padding','padding-top','padding-right','padding-bottom','padding-left','text-align','text-decoration','text-transform','text-indent','vertical-align','white-space','word-break','overflow','overflow-x','overflow-y','opacity','table-layout','visibility','mso-line-height-rule','-webkit-text-size-adjust','direction','unicode-bidi']);
 const BAD_CSS = /(?:expression\s*\(|behavior\s*:|-moz-binding\s*:|javascript\s*:|vbscript\s*:|@import\b)/i;
 const URL_RE = /url\(\s*(['"]?)(.*?)\1\s*\)/gi;
-function safeCssUrl(value) { let bad = false; const next = value.replace(URL_RE, (_all, _q, raw) => { const url = String(raw || '').trim(); if (/^(https?:|\/\/|cid:|data:image\/)/i.test(url)) return `url("${url.replace(/"/g, '%22')}")`; bad = true; return 'none'; }); return bad ? null : next; }
-export function sanitizeInlineStyle(style = '') { const kept: unknown[] = []; for (const declaration of String(style).split(';')) { const i = declaration.indexOf(':'); if (i < 1) continue; const property = declaration.slice(0, i).trim().toLowerCase(); let value = declaration.slice(i + 1).trim(); if (!SAFE_PROPERTIES.has(property) || !value || BAD_CSS.test(value)) continue; value = safeCssUrl(value); if (value != null) kept.push(`${property}:${value}`); } return kept.join(';'); }
+function safeCssUrl(value: string) { let bad = false; const next = value.replace(URL_RE, (_all, _q, raw) => { const url = String(raw || '').trim(); if (/^(https?:|\/\/|cid:|data:image\/)/i.test(url)) return `url("${url.replace(/"/g, '%22')}")`; bad = true; return 'none'; }); return bad ? null : next; }
+export function sanitizeInlineStyle(style: string | null = '') { const kept: unknown[] = []; for (const declaration of String(style).split(';')) { const i = declaration.indexOf(':'); if (i < 1) continue; const property = declaration.slice(0, i).trim().toLowerCase(); let value: string | null = declaration.slice(i + 1).trim(); if (!SAFE_PROPERTIES.has(property) || !value || BAD_CSS.test(value)) continue; value = safeCssUrl(value); if (value != null) kept.push(`${property}:${value}`); } return kept.join(';'); }
 export function sanitizeEmailCss(css = '') { let root; try { root = postcss.parse(String(css)); } catch { return ''; } root.walkAtRules(rule => { if (!['media','supports'].includes(rule.name.toLowerCase()) || BAD_CSS.test(rule.params)) rule.remove(); }); root.walkDecls(declaration => { const property = declaration.prop.toLowerCase(); const value = safeCssUrl(declaration.value); if (!SAFE_PROPERTIES.has(property) || BAD_CSS.test(declaration.value) || value == null) declaration.remove(); else declaration.value = value; }); return root.toString(); }
 
 // Shared email HTML security policy. This is a leaf module so browser tests and
@@ -34,7 +34,7 @@ export const EMAIL_SANITIZE_POLICY = {
   FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover'],
 };
 
-function preserveCid(html) {
+function preserveCid(html: string) {
   return html.replace(/(src|href)=("|')cid:/gi, '$1=$2cid:');
 }
 
@@ -53,7 +53,7 @@ function preserveCid(html) {
 // element, and rewriting its colours blind would break the rules targeting content inside
 // a message's own light cards. Real messages carry the colours that matter inline.
 
-function readDeclarations(styleText) {
+function readDeclarations(styleText: string | null | undefined): Map<string, string> {
   const found = new Map();
   for (const declaration of String(styleText || '').split(';')) {
     const separator = declaration.indexOf(':');
@@ -65,21 +65,21 @@ function readDeclarations(styleText) {
   return found;
 }
 
-function writeDeclarations(element, declarations) {
+function writeDeclarations(element: Element, declarations: Map<string, string>) {
   if (!declarations.size) { element.removeAttribute('style'); return; }
   element.setAttribute('style', [...declarations].map(([property, value]) => `${property}:${value}`).join(';'));
 }
 
 // The colour an element paints behind its content: the inline background, else the legacy
 // bgcolor attribute that table-based mail still uses.
-function elementBackground(element, declarations) {
+function elementBackground(element: Element, declarations: Map<string, string>) {
   const declared = declarations.get('background-color') || declarations.get('background');
   const fromStyle = declared ? parseColor(findColorToken(declared)) : null;
   if (fromStyle) return fromStyle;
   return parseColor(element.getAttribute('bgcolor'));
 }
 
-function elementForeground(declarations) {
+function elementForeground(declarations: Map<string, string>) {
   const declared = declarations.get('color');
   return declared ? parseColor(findColorToken(declared)) : null;
 }
@@ -88,7 +88,7 @@ function elementForeground(declarations) {
 // background, starting with the element itself. Walking all the way up and asking "is any
 // ancestor light?" is wrong — a dark band nested inside a light wrapper would be judged by
 // the wrapper, and its white text would be darkened into the band.
-function nearestPaintedBackground(element) {
+function nearestPaintedBackground(element: Element | null) {
   for (let node = element; node; node = node.parentElement) {
     const declarations = readDeclarations(node.getAttribute('style'));
     const background = elementBackground(node, declarations);
@@ -97,7 +97,7 @@ function nearestPaintedBackground(element) {
   return null;
 }
 
-function setColorDeclaration(declarations, color) {
+function setColorDeclaration(declarations: Map<string, string>, color: [number, number, number]) {
   declarations.delete('color');
   declarations.set('color', rgbToHex(color));
 }
@@ -106,7 +106,7 @@ function setColorDeclaration(declarations, color) {
  * Adapts an already-sanitised message to a dark canvas. Mutates the nodes in place.
  * Exported so the contract can be exercised directly in a browser test.
  */
-export function adaptMessageForDarkCanvas(root) {
+export function adaptMessageForDarkCanvas(root: ParentNode | null) {
   if (!root) return;
   for (const element of root.querySelectorAll('[style], [bgcolor]')) {
     const declarations = readDeclarations(element.getAttribute('style'));
@@ -200,7 +200,7 @@ export const EMAIL_BASE_TAG = '<base target="_blank" rel="noopener noreferrer">'
 // The values are re-checked here rather than trusted, so the exported helper stays
 // safe for any caller: only a plain CSS colour can reach the frame's stylesheet.
 const CSS_COLOR_RE = /^(?:#[0-9a-f]{3,8}|rgba?\(\s*[\d.%,\s/]+\)|hsla?\(\s*[\d.%,\s/deg]+\)|[a-z]{3,20})$/i;
-function safeCssColor(value) {
+function safeCssColor(value: unknown) {
   const candidate = String(value ?? '').trim();
   return CSS_COLOR_RE.test(candidate) ? candidate : null;
 }
@@ -223,7 +223,7 @@ function resolveEmailSurface(surface: EmailSurfaceLike | null | undefined) {
   return surface;
 }
 
-function emailSurfaceCss(surface) {
+function emailSurfaceCss(surface: EmailSurfaceLike | null | undefined) {
   if (!surface || (surface.tone !== 'light' && surface.tone !== 'dark')) return '';
   const tone = surface.tone;
   const background = safeCssColor(surface.background);
@@ -251,7 +251,7 @@ export function buildSrcDoc(html: unknown, { remoteImages = false, surface = nul
   // email's own `color-scheme` declarations: a message must not choose the frame's
   // scheme, the app does. It also drives form controls, scrollbars and the
   // prefers-color-scheme media query inside the frame.
-  const colorSchemeMeta = surfaceCss
+  const colorSchemeMeta = resolved && surfaceCss
     ? `<meta name="color-scheme" content="${resolved.tone === 'dark' ? 'dark' : 'light'}">\n`
     : '';
   return `<!DOCTYPE html><html><head><meta charset="utf-8">

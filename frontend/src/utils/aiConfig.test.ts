@@ -2,7 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import * as aiConfig from './aiConfig.ts';
-import type { CodexDeviceFlow, CodexDevicePollResult } from './aiConfig.ts';
+import type { CodexDeviceFlow, CodexDevicePollResult, CodexDeviceState } from './aiConfig.ts';
 
 const {
   AI_ACCOUNT_PROVIDER_OPTIONS,
@@ -46,16 +46,22 @@ describe('AI connection choices', () => {
   });
 });
 
+type FakeSchedulerTask = {
+  fn: () => void;
+  delay: number;
+  cancelled: boolean;
+};
+
 function fakeScheduler() {
-  const tasks = [];
+  const tasks: FakeSchedulerTask[] = [];
   return {
-    setTimer(fn, delay) {
-      const task = { fn, delay, cancelled: false };
+    setTimer(fn: () => void, delay: number) {
+      const task: FakeSchedulerTask = { fn, delay, cancelled: false };
       tasks.push(task);
       return task;
     },
-    clearTimer(task) {
-      if (task) task.cancelled = true;
+    clearTimer(task: unknown) {
+      if (task && typeof task === 'object' && 'cancelled' in task) task.cancelled = true;
     },
     delays() {
       return tasks.filter((task) => !task.cancelled).map((task) => task.delay);
@@ -69,10 +75,10 @@ function fakeScheduler() {
   };
 }
 
-function deferred() {
-  let resolve;
-  let reject;
-  const promise = new Promise((res, rej) => { resolve = res; reject = rej; });
+function deferred<T = CodexDevicePollResult>() {
+  let resolve: (value: T) => void = () => {};
+  let reject: (reason?: unknown) => void = () => {};
+  const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej; });
   return { promise, resolve, reject };
 }
 
@@ -94,9 +100,9 @@ function pollerFixture(overrides: {
   cancelDevice?: (flowId: string) => Promise<unknown>;
 } = {}) {
   const scheduler = fakeScheduler();
-  const states = [];
+  const states: CodexDeviceState[] = [];
   let currentTime = 10_000;
-  const calls = { start: 0, poll: [], cancel: [] };
+  const calls: { start: number; poll: string[]; cancel: string[] } = { start: 0, poll: [], cancel: [] };
   const startDevice = overrides.startDevice || (async () => {
     calls.start++;
     return deviceResponse();
@@ -123,7 +129,7 @@ function pollerFixture(overrides: {
     scheduler,
     states,
     calls,
-    setNow(value) { currentTime = value; },
+    setNow(value: number) { currentTime = value; },
   };
 }
 
@@ -328,6 +334,7 @@ describe('createCodexDevicePoller', () => {
   it('resumes a server-backed pending flow without requesting a second code', async () => {
     const fixture = pollerFixture();
     const state = await fixture.poller.start(deviceResponse({ intervalMs: 7000 }));
+    assert.ok(state);
     assert.equal(fixture.calls.start, 0);
     assert.equal(state.flowId, '11111111-1111-4111-8111-111111111111');
     assert.deepEqual(fixture.scheduler.delays(), [7000]);

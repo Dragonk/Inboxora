@@ -19,10 +19,11 @@ const SPAM_NAME_RE = /(spam|junk|bulk|indesiderata|spamverdacht|courrier\s*ind|p
 // ─── Context Menu ─────────────────────────────────────────────────────────────
 const CATEGORIES = ['primary', 'newsletter', 'promotion', 'automated', 'social'];
 
-/** The context-menu message subset. */
+/** The context-menu message subset. Every ContextMenu call site passes a full
+ * message row (StoreMessageRow / GtdTriageThread), where account_id is required. */
 interface ContextMenuMessage {
   id: string;
-  account_id?: string;
+  account_id: string;
   folder?: string;
   category?: string | null;
   from_email?: string | null;
@@ -38,14 +39,8 @@ interface ContextMenuMessage {
 /** A folder entry as the menu lists it. */
 interface ContextMenuFolder { path: string; name?: string; special_use?: string | null; [key: string]: unknown }
 
-/** The store members this menu reads. */
-interface ContextMenuStoreSlice {
-  recentFolders: ContextMenuFolder[];
-  favoriteFolders: Array<{ accountId?: string; path: string; label?: string; [key: string]: unknown }>;
-  accounts: Array<{ id: string; categorization_enabled?: boolean; folder_mappings?: Record<string, unknown> | null; [key: string]: unknown }>;
-  folders: Record<string, ContextMenuFolder[]>;
-  categorizationEnabled: boolean;
-}
+/** A plugin-contributed submenu render function; takes the back handler that returns to the item list. */
+type PluginSubmenuRender = (onDone: () => void) => React.ReactNode;
 
 interface ContextMenuProps {
   x: number;
@@ -66,20 +61,20 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
   // Variants share one menu; the policy removes actions that depend on the center
   // list or conflict with GTD's Done contract while preserving ordinary mail actions.
   const menuPolicy = getContextMenuPolicy(variant);
-  const recentFolders = useStore((s: ContextMenuStoreSlice) => s.recentFolders);
-  const favoriteFolders = useStore((s: ContextMenuStoreSlice) => s.favoriteFolders);
+  const recentFolders = useStore((s) => s.recentFolders);
+  const favoriteFolders = useStore((s) => s.favoriteFolders);
   // Pull the current account so we can render the spam/ham visibility based on
   // folder_mappings.spam + special_use heuristics instead of a fragile name match.
-  const account = useStore((s: ContextMenuStoreSlice) => s.accounts.find((a) => a.id === message.account_id));
-  const accountFolders = useStore((s: ContextMenuStoreSlice) => s.folders[message.account_id ?? ''] || []);
-  const categorizationEnabled = useStore((s: ContextMenuStoreSlice) => s.categorizationEnabled);
+  const account = useStore((s) => s.accounts.find((a) => a.id === message.account_id));
+  const accountFolders = useStore((s) => s.folders[message.account_id] || []);
+  const categorizationEnabled = useStore((s) => s.categorizationEnabled);
   const categorizationActive = categorizationEnabled || !!account?.categorization_enabled;
   const menuRef = useRef<HTMLDivElement | null>(null);
   useBackLayer(true, onClose, 4000);
   const [headerMessage, setHeaderMessage] = useState<ContextMenuMessage | null>(null);
   // A plugin submenu (render fn) takes over the menu content area, like categorizeView/moveView.
   // Set via the openSubmenu capability handed to context-menu-item contributions; null = item list.
-  const [pluginSubmenu, setPluginSubmenu] = useState<((onDone: () => void) => React.ReactNode) | null>(null);
+  const [pluginSubmenu, setPluginSubmenu] = useState<PluginSubmenuRender | null>(null);
   const [moveView, setMoveView] = useState(defaultMoveView);
   const [moveFolders, setMoveFolders] = useState<ContextMenuFolder[] | null>(null);
   const [moveFoldersLoading, setMoveFoldersLoading] = useState(defaultMoveView);
@@ -98,14 +93,14 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
   // server tagged it with \Junk special-use. Falls back to a multilingual name
   // heuristic so unconfigured accounts still get sensible context-menu items.
   // Mirrors resolveAllSpamPaths on the backend so server and client agree.
-  const spamFolderPaths = (() => {
+  const spamFolderPaths = ((): Set<string> => {
     const mapped = account?.folder_mappings?.spam;
-    if (mapped) return new Set([mapped]);
+    if (typeof mapped === 'string' && mapped) return new Set([mapped]);
     return new Set(accountFolders.filter((f) =>
       f.special_use === '\\Junk' || SPAM_NAME_RE.test(f.name || '')
     ).map(f => f.path));
   })();
-  const inSpamFolder = spamFolderPaths.has(message.folder);
+  const inSpamFolder = message.folder !== undefined && spamFolderPaths.has(message.folder);
 
   // Adjust position to stay within viewport. The menu's height changes after
   // mount (folders load async, subviews like Move/Snooze swap in), so re-clamp
@@ -171,7 +166,7 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
   // the content area with its own submenu render.
   const pluginActionItems = usePluginCollected('context-menu-actions', {
     message, account, variant, onAction, onClose,
-    openSubmenu: (render) => setPluginSubmenu(() => render),
+    openSubmenu: (render: PluginSubmenuRender) => setPluginSubmenu(() => render),
     t,
   });
 
@@ -693,11 +688,11 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
                 const recentForAccount = recentFolders
                   .filter(r => r.accountId === message.account_id && r.path !== message.folder)
                   .map(r => (moveFolders || []).find(f => f.path === r.path))
-                  .filter(Boolean);
+                  .filter((r): r is ContextMenuFolder => r !== undefined);
                 const favoritesForAccount = favoriteFolders
                   .filter(fav => fav.accountId === message.account_id && fav.path !== message.folder)
                   .map(fav => (moveFolders || []).find(f => f.path === fav.path))
-                  .filter(Boolean)
+                  .filter((f): f is ContextMenuFolder => f !== undefined)
                   .filter(f => !recentForAccount.some(r => r.path === f.path));
                 return (
                   <>
@@ -822,7 +817,11 @@ function MenuItem({ icon, label, onClick, danger, hasSubmenu, disabled }: {
   );
 }
 
-function FolderMenuItem({ folder, mappings, onClick }) {
+function FolderMenuItem({ folder, mappings, onClick }: {
+  folder: ContextMenuFolder;
+  mappings: Parameters<typeof folderLabel>[2];
+  onClick: () => void;
+}) {
   const { t } = useTranslation();
   const [hov, setHov] = useState(false);
   const su = (folder.special_use || '').toLowerCase();

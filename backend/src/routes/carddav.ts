@@ -10,6 +10,7 @@
 //   /carddav/{userId}/{bookId}/{uid}.vcf → GET, PUT, DELETE
 
 import { Router } from 'express';
+import type { Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
 import { query } from '../services/db.js';
 import { parseVCard } from '../utils/vcard.js';
@@ -18,6 +19,22 @@ import { createDavAuthMiddleware } from '../services/davServerAuth.js';
 import { toAppError } from '../utils/errors.js';
 
 const router = Router();
+
+interface AddressBookRow {
+  id: string;
+  name?: string | null;
+  sync_token?: string | null;
+  sync_version?: number | null;
+  source?: string | null;
+}
+
+interface CarddavContactRow {
+  uid?: string | null;
+  dav_filename?: string | null;
+  etag?: string | null;
+  vcard?: string | null;
+  deleted?: boolean | null;
+}
 
 
 // ── Rate limiting (shared config, separate buckets from login) ────────────────
@@ -34,7 +51,7 @@ setInterval(() => {
 // Use a generous per-IP ceiling independent of the login rate-limit config.
 const CARDDAV_MAX_REQUESTS = 500;
 
-function cardavRateLimit(req, res, next) {
+function cardavRateLimit(req: Request, res: Response, next: NextFunction) {
   const { windowMs } = authLimiterConfig;
   const key = req.ip;
   const now = Date.now();
@@ -65,14 +82,14 @@ router.use((req, _res, next) => {
 
 const DAV_NS     = 'DAV:';
 const CARD_NS    = 'urn:ietf:params:xml:ns:carddav';
-const syncToken = book => `urn:inboxora:carddav:${book.id}:${book.sync_version || 0}`;
+const syncToken = (book: AddressBookRow) => `urn:inboxora:carddav:${book.id}:${book.sync_version || 0}`;
 const CDAV_NS    = 'http://calendarserver.org/ns/';
 
 function xmlHeader() {
   return '<?xml version="1.0" encoding="UTF-8"?>';
 }
 
-function multistatus(responses) {
+function multistatus(responses: string[]) {
   return [
     xmlHeader(),
     `<D:multistatus xmlns:D="${DAV_NS}" xmlns:C="${CARD_NS}" xmlns:CS="${CDAV_NS}">`,
@@ -81,7 +98,7 @@ function multistatus(responses) {
   ].join('');
 }
 
-function response(href: string, propstats) {
+function response(href: string, propstats: string[]) {
   return [
     '<D:response>',
     `<D:href>${xmlEscape(href)}</D:href>`,
@@ -90,7 +107,7 @@ function response(href: string, propstats) {
   ].join('');
 }
 
-function propstat(props, status) {
+function propstat(props: string[], status: string) {
   return [
     '<D:propstat>',
     '<D:prop>',
@@ -101,7 +118,7 @@ function propstat(props, status) {
   ].join('');
 }
 
-function xmlEscape(s) {
+function xmlEscape(s: unknown) {
   return String(s || '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -109,7 +126,7 @@ function xmlEscape(s) {
     .replace(/"/g, '&quot;');
 }
 
-function sendXml(res, status, xml) {
+function sendXml(res: Response, status: number, xml: string) {
   res.status(status)
      .setHeader('Content-Type', 'application/xml; charset=utf-8')
      .send(xml);
@@ -117,14 +134,14 @@ function sendXml(res, status, xml) {
 
 // Collect the request body as a string by reading the raw stream.
 // We do not go through express.json/text — CardDAV uses custom content types.
-function rawBody(req) {
+function rawBody(req: Request) {
   return new Promise<string>(( resolve, reject) => {
     // If a body parser already collected it (unlikely here), use it.
     if (typeof req.body === 'string') return resolve(req.body);
     if (Buffer.isBuffer(req.body)) return resolve(req.body.toString('utf8'));
     let data = '';
     req.setEncoding('utf8');
-    req.on('data', chunk => { data += chunk; });
+    req.on('data', (chunk: string) => { data += chunk; });
     req.on('end', () => resolve(data));
     req.on('error', reject);
   });
@@ -163,7 +180,7 @@ router.propfind('/:userId/', async (req, res) => {
   if (req.params.userId !== userId) return res.status(403).end();
 
   const principalPath  = `/carddav/${userId}/`;
-  const r = await query('SELECT id, name, sync_token, sync_version FROM address_books WHERE user_id = $1 ORDER BY created_at', [userId]);
+  const r = await query<AddressBookRow>('SELECT id, name, sync_token, sync_version FROM address_books WHERE user_id = $1 ORDER BY created_at', [userId]);
   const principal = response(principalPath, [
     propstat([
       '<D:resourcetype><D:principal/><D:collection/></D:resourcetype>',
@@ -195,7 +212,7 @@ router.propfind('/:userId/:bookId/', async (req, res) => {
 
   const depth = req.headers['depth'] || '0';
 
-  const bookResult = await query(
+  const bookResult = await query<AddressBookRow>(
     'SELECT * FROM address_books WHERE id = $1 AND user_id = $2',
     [req.params.bookId, userId]
   );
@@ -242,7 +259,7 @@ router.report('/:userId/:bookId/', async (req, res) => {
   const userId = req.cardavUserId;
   if (req.params.userId !== userId) return res.status(403).end();
 
-  const bookResult = await query(
+  const bookResult = await query<AddressBookRow>(
     'SELECT * FROM address_books WHERE id = $1 AND user_id = $2',
     [req.params.bookId, userId]
   );
@@ -255,7 +272,7 @@ router.report('/:userId/:bookId/', async (req, res) => {
 
   const isMultiget = body.includes('addressbook-multiget');
   if (!isSyncCollection && !isMultiget && !body.includes('addressbook-query')) return res.status(400).end();
-  let contacts;
+  let contacts: { rows: CarddavContactRow[] } | undefined;
   let filenames: string[] = [];
   if (isSyncCollection) {
     const token = body.match(/<(?:[\w.-]+:)?sync-token(?:\s[^>]*)?>([^<]*)<\/(?:[\w.-]+:)?sync-token>/)?.[1]?.trim();
@@ -264,7 +281,7 @@ router.report('/:userId/:bookId/', async (req, res) => {
     if (token && (!Number.isSafeInteger(version) || version > Number(book.sync_version || 0))) {
       return sendXml(res, 409, `${xmlHeader()}<D:error xmlns:D="${DAV_NS}"><D:valid-sync-token/></D:error>`);
     }
-    if (token) contacts = await query(
+    if (token) contacts = await query<CarddavContactRow>(
       `SELECT DISTINCT ON (filename) filename AS dav_filename, etag, vcard, deleted
        FROM contact_sync_changes WHERE address_book_id = $1 AND version > $2 AND version <= $3
        ORDER BY filename, version DESC`, [book.id, version, book.sync_version || 0]);
@@ -274,9 +291,9 @@ router.report('/:userId/:bookId/', async (req, res) => {
         .map(match => decodeURIComponent(match[1].trim().replace(/^.*\//, ''))))];
     } catch { return res.status(400).end(); }
     if (!filenames.length) return res.status(400).end();
-    contacts = await query("SELECT uid, dav_filename, vcard, etag FROM contacts WHERE address_book_id = $1 AND COALESCE(dav_filename, uid || '.vcf') = ANY($2)", [book.id, filenames]);
+    contacts = await query<CarddavContactRow>("SELECT uid, dav_filename, vcard, etag FROM contacts WHERE address_book_id = $1 AND COALESCE(dav_filename, uid || '.vcf') = ANY($2)", [book.id, filenames]);
   }
-  if (!contacts) contacts = await query('SELECT uid, dav_filename, vcard, etag FROM contacts WHERE address_book_id = $1', [book.id]);
+  if (!contacts) contacts = await query<CarddavContactRow>('SELECT uid, dav_filename, vcard, etag FROM contacts WHERE address_book_id = $1', [book.id]);
 
   const cardResponses = contacts.rows.map(c => {
     const href = `${bookPath}${encodeURIComponent(c.dav_filename || `${c.uid}.vcf`)}`;
@@ -351,7 +368,7 @@ router.put('/:userId/:bookId/:filename', async (req, res) => {
   const primaryEmail = (parsed.emails.find(email => email.primary) || parsed.emails[0])?.value?.toLowerCase() || null;
 
   try {
-    const bookResult = await query(
+    const bookResult = await query<AddressBookRow>(
       'SELECT id, source FROM address_books WHERE id = $1 AND user_id = $2',
       [req.params.bookId, userId]
     );
@@ -440,7 +457,7 @@ router.delete('/:userId/:bookId/:filename', async (req, res) => {
   const uid = req.params.filename;
 
   try {
-    const bookResult = await query(
+    const bookResult = await query<AddressBookRow>(
       'SELECT id, source FROM address_books WHERE id = $1 AND user_id = $2',
       [req.params.bookId, userId]
     );

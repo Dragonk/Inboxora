@@ -1,6 +1,7 @@
 import { query } from './db.js';
 import { fanOutReadToSiblings } from '../utils/mailUtils.js';
 import { toAppError } from '../utils/errors.js';
+import type { PluginAccount, PluginMessage } from '../plugins/api.js';
 
 // Generic "labels" capability (v3.0 plugin platform).
 //
@@ -13,15 +14,54 @@ import { toAppError } from '../utils/errors.js';
 //
 // imapManager is injected (callers pass their handle) so the DB/IMAP logic is unit-testable
 // without a live connection pool — matching the pattern gtdTransitions/gtdSections already use.
+// The plugin-api barrel binds these functions to the engine it hands out (getMailEngine()), so
+// declare the three primitives the label service drives on that shared surface. The real
+// ImapManager implements each with this shape, which keeps setMailEngine(imapManager) and the
+// plugin test doubles assignable.
+declare module '../plugins/mailEngine.js' {
+  interface PluginMailEngine {
+    ensureFolder(account: PluginAccount, path: string, opts?: { resolvePath?: boolean }): Promise<{ path: string; created: boolean }>;
+    copyMessage(accountId: string | undefined, uid: number | string | undefined, fromFolder: string | undefined, toFolder: string): Promise<number | null>;
+    setFlag(account: PluginAccount, uid: number | string, folder: string, flag: string, value: boolean): Promise<void>;
+  }
+}
+
+/** The injected-engine slice applyLabel drives. */
+interface LabelApplyEngine {
+  ensureFolder(account: PluginAccount, path: string, opts?: { resolvePath?: boolean }): Promise<{ path: string; created: boolean }>;
+  copyMessage(accountId: string | undefined, uid: number | string | undefined, fromFolder: string | undefined, toFolder: string): Promise<number | null>;
+}
+
+/** The injected-engine slice removeLabel / removeExactLabelCopy drive. */
+interface LabelCopyEngine {
+  removeMessageCopy(accountId: string | undefined, uid: number | string, folder: string): Promise<unknown>;
+}
+
+/** The injected-engine slice ensureLabelFolders drives. */
+interface LabelFolderEngine {
+  ensureFolder(account: PluginAccount, path: string, opts?: { resolvePath?: boolean }): Promise<{ path: string; created: boolean }>;
+}
+
+/** The injected-engine slice markThreadRead drives. */
+interface ThreadReadEngine {
+  setFlag(account: PluginAccount, uid: number | string, folder: string, flag: string, value: boolean): Promise<void>;
+}
+
+/** The INBOX row markThreadRead looks up and hands back for the archive step. */
+type InboxCopyRow = {
+  id: string;
+  uid: number | string;
+  is_read: boolean;
+};
 
 // Resolve the uid of the message's copy that lives in `folder` for its account, or null. The
 // acted row is used directly when it already lives there; otherwise the shared RFC Message-ID
 // (an IMAP COPY duplicates it verbatim) joins to the sibling copy. A message with no
 // Message-ID can only be resolved via the acted-row case.
-export async function resolveLabelCopyUid(message, folder: string) {
+export async function resolveLabelCopyUid(message: PluginMessage, folder: string) {
   if (message.folder === folder) return message.uid;
   if (!message.message_id) return null;
-  const { rows } = await query(
+  const { rows } = await query<{ uid: number }>(
     'SELECT uid FROM messages WHERE account_id = $1 AND folder = $2 AND message_id = $3 AND is_deleted = false LIMIT 1',
     [message.account_id, folder, message.message_id]
   );
@@ -31,7 +71,7 @@ export async function resolveLabelCopyUid(message, folder: string) {
 // Apply a label: ensure the label folder exists, then COPY the message into it (leaving the
 // original in place). imapManager.copyMessage also emits the section-refresh event. No-op when
 // the message already lives in the label folder. `message` needs { uid, folder }.
-export async function applyLabel(imapManager, account, message, labelFolder) {
+export async function applyLabel(imapManager: LabelApplyEngine, account: PluginAccount, message: PluginMessage, labelFolder: string) {
   if (message.folder === labelFolder) {
     return { applied: false, uid: message.uid, reason: 'already-there' };
   }
@@ -48,9 +88,9 @@ export async function applyLabel(imapManager, account, message, labelFolder) {
 // This is the safe inverse for a COPY whose destination UID was returned by UIDPLUS: a stale or
 // forged UID cannot remove a different message's label copy. Without a Message-ID there is no
 // stable identity shared by the source and copied rows, so no inverse is advertised.
-export async function removeExactLabelCopy(imapManager, message, labelFolder, uid: number) {
+export async function removeExactLabelCopy(imapManager: LabelCopyEngine, message: PluginMessage, labelFolder: string, uid: number) {
   if (!message.message_id) return { removed: false };
-  const { rows } = await query(
+  const { rows } = await query<{ uid: number }>(
     `SELECT uid FROM messages
       WHERE account_id = $1 AND folder = $2 AND uid = $3
         AND message_id = $4 AND is_deleted = false
@@ -65,7 +105,7 @@ export async function removeExactLabelCopy(imapManager, message, labelFolder, ui
 // Remove a label: delete the message's copy living in the label folder, leaving INBOX and any
 // other labels intact. No-op when no such copy exists. `message` needs { account_id, uid,
 // folder, message_id }.
-export async function removeLabel(imapManager, message, labelFolder) {
+export async function removeLabel(imapManager: LabelCopyEngine, message: PluginMessage, labelFolder: string) {
   const uid = await resolveLabelCopyUid(message, labelFolder);
   if (uid == null) return { removed: false };
   await imapManager.removeMessageCopy(message.account_id, uid, labelFolder);
@@ -79,7 +119,7 @@ export async function removeLabel(imapManager, message, labelFolder) {
 // A single folder's failure is isolated (logged, marked) so one bad name never aborts the rest.
 // Core owns the IMAP mechanics; the caller owns any config persistence keyed off the results
 // (e.g. recording where a relocated folder actually landed).
-export async function ensureLabelFolders(imapManager, account, folderPaths) {
+export async function ensureLabelFolders(imapManager: LabelFolderEngine, account: PluginAccount, folderPaths: string[]) {
   const paths = [...new Set(folderPaths || [])];
   const results = [];
   for (const folder of paths) {
@@ -102,8 +142,12 @@ export async function ensureLabelFolders(imapManager, account, folderPaths) {
 // The lookup itself may throw (caller treats that as fatal, matching the plain read route); the
 // fan-out + flag push are best-effort and reported via the returned `error`, never thrown.
 // `message` needs { account_id, message_id }.
-export async function markThreadRead(imapManager, account, message) {
-  const { rows } = await query(
+export async function markThreadRead(
+  imapManager: ThreadReadEngine,
+  account: PluginAccount,
+  message
+): Promise<{ inboxCopy: InboxCopyRow | null; error?: unknown }> {
+  const { rows } = await query<InboxCopyRow>(
     'SELECT id, uid, is_read FROM messages WHERE account_id = $1 AND folder = $2 AND message_id = $3 AND is_deleted = false LIMIT 1',
     [message.account_id, 'INBOX', message.message_id]
   );

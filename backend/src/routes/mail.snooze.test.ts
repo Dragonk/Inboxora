@@ -10,11 +10,18 @@ import { query as __mock_query } from '../services/db.js';
 // Cast mocked module exports so their vitest mock helpers type-check.
 const query = vi.mocked(__mock_query);
 
-// Column subset that the pool query selects.
-function row(id, message_id, { in_reply_to = null, thread_references = null, folder = 'INBOX', is_read = true } = {}) {
+// Column subset that the pool query selects; shaped by the function's own row parameter.
+type SnoozeRow = Parameters<typeof gatherSnoozeConversation>[0];
+type RowOverrides = Partial<Pick<SnoozeRow, 'in_reply_to' | 'thread_references' | 'folder' | 'is_read'>>;
+
+function row(
+  id: string,
+  message_id: string,
+  { in_reply_to = null, thread_references = null, folder = 'INBOX', is_read = true }: RowOverrides = {}
+): SnoozeRow {
   return { id, uid: id.charCodeAt(0), account_id: 'acct', folder, message_id, in_reply_to, thread_references, is_read };
 }
-const ids = (rows) => rows.map(r => r.message_id).sort();
+const ids = (rows: SnoozeRow[]) => rows.map(r => r.message_id).sort();
 
 const A = row('A', '<a>');                                              // root, in inbox
 const B = row('B', '<b>', { in_reply_to: '<a>', thread_references: '<a>' });
@@ -23,10 +30,10 @@ const C = row('C', '<c>', { in_reply_to: '<b>', thread_references: '<a> <b>' });
 const X = row('X', '<x>');
 const Y = row('Y', '<y>');
 
-const msgOf = (r) => ({ ...r, thread_id: 't' });
+const msgOf = (r: SnoozeRow) => ({ ...r, thread_id: 't' });
 
 // gatherSnoozeConversation issues: (1) the thread pool query, (2) the already-snoozed lookup.
-function mockPool(rows, alreadySnoozed = []) {
+function mockPool(rows: SnoozeRow[], alreadySnoozed: string[] = []) {
   query.mockResolvedValueOnce({ rows });
   query.mockResolvedValueOnce({ rows: alreadySnoozed.map(m => ({ message_id_header: m })) });
 }

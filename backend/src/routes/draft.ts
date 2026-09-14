@@ -15,7 +15,25 @@ import { toAppError } from '../utils/errors.js';
 const router = Router();
 router.use(requireAuth);
 
-function sanitizeHeaderValue(value) {
+// An address field as it arrives from the compose request body: a single
+// address or a list of addresses (both optional).
+type RecipientInput = string | string[] | null | undefined;
+
+type RawDraftInput = {
+  accountId: string;
+  aliasId?: string | null;
+  to?: RecipientInput;
+  cc?: RecipientInput;
+  bcc?: RecipientInput;
+  subject?: string | null;
+  body?: string | null;
+  bodyIsHtml?: boolean;
+  quotedBody?: string | null;
+  quotedBodyHtml?: string | null;
+  editedSignature?: string | null;
+};
+
+function sanitizeHeaderValue(value: unknown) {
   if (typeof value !== 'string') return '';
   return value.replace(/[\r\n\0]/g, '').trim();
 }
@@ -30,7 +48,7 @@ function parseAddress(str: string) {
   if (bare) return { name: '', email: bare[1].trim().toLowerCase() };
   return { name: '', email: str.trim().toLowerCase() };
 }
-function mapRecipientList(list) {
+function mapRecipientList(list: RecipientInput) {
   return (Array.isArray(list) ? list : []).filter(Boolean).map(addr => parseAddress(addr));
 }
 
@@ -40,8 +58,8 @@ function textToHtml(text: string) {
     .join('');
 }
 
-async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml, quotedBody, quotedBodyHtml, editedSignature }) {
-  const acctResult = await query<EmailAccountRow>(
+async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml, quotedBody, quotedBodyHtml, editedSignature }: RawDraftInput) {
+  const acctResult = await query<EmailAccountRow & { email_address: string }>(
     'SELECT * FROM email_accounts WHERE id = $1',
     [accountId]
   );
@@ -53,7 +71,7 @@ async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, b
   let fromSignature = account.signature;
 
   if (aliasId) {
-    const aliasResult = await query<{ name?: string | null; email?: string | null; reply_to?: string | null; signature?: string | null; [key: string]: unknown }>(
+    const aliasResult = await query<{ name: string; email: string; signature: string | null }>(
       'SELECT * FROM account_aliases WHERE id = $1 AND account_id = $2',
       [aliasId, accountId]
     );
@@ -125,7 +143,7 @@ async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, b
   };
 }
 
-async function resolveDraftsFolder(account) {
+async function resolveDraftsFolder(account: EmailAccountRow) {
   const mapped = account.folder_mappings?.drafts;
   if (mapped) return mapped;
   const result = await query<{ path: string }>(

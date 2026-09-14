@@ -19,6 +19,69 @@ import { pluginRegistry } from '../plugins/registry.js';
 import { toAppError } from '../utils/errors.js';
 import type { InlineAttachment } from '../utils/inlineImages.js';
 
+/** One client-supplied attachment of an outgoing message (base64 payload). */
+interface ComposerAttachment {
+  filename: string;
+  content: string;
+  contentType?: string;
+}
+
+/** One client-supplied reference to an attachment stored on a synced message. */
+interface ForwardedAttachmentRef {
+  messageId: string;
+  part: string;
+}
+
+/** A single attachment entry as persisted in messages.attachments (jsonb or JSON text). */
+interface StoredAttachment {
+  part: string;
+  filename?: string | null;
+  type?: string | null;
+  size?: number | string | null;
+}
+
+/** The columns selected from messages when resolving forwarded attachments. */
+interface ForwardedMessageRow {
+  id: string;
+  uid: number;
+  folder: string;
+  attachments: string | StoredAttachment[] | null;
+  account_id: string;
+}
+
+/** A forwarded attachment whose bytes were fetched over IMAP. */
+interface ResolvedForwardedAttachment {
+  filename: string;
+  content: Buffer;
+  contentType: string;
+}
+
+/** The POST /send JSON payload after the request body is destructured. */
+interface SendRequestBody {
+  accountId?: string;
+  aliasId?: string;
+  to?: string[];
+  cc?: string[];
+  bcc?: string[];
+  subject?: string;
+  body?: unknown;
+  bodyIsHtml?: boolean;
+  quotedBody?: string;
+  quotedBodyHtml?: string;
+  inReplyTo?: string;
+  references?: string;
+  attachments?: ComposerAttachment[];
+  editedSignature?: string;
+  forwardedAttachments?: ForwardedAttachmentRef[];
+  priority?: string;
+}
+
+type EmailPriority = 'high' | 'normal' | 'low';
+
+function isEmailPriority(value: unknown): value is EmailPriority {
+  return value === 'high' || value === 'normal' || value === 'low';
+}
+
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function escapeHtml(str: string) {
@@ -149,7 +212,7 @@ export async function ensureServerAutoSavedSentCopy({
     return { saved: true, appended: true };
   } catch (caught) {
     const err = toAppError(caught);
-    console.error(`Post-send Sent-copy fallback APPEND failed for ${redactEmail(account.email_address)}/${sentFolder}: ${err.message}`);
+    console.error(`Post-send Sent-copy fallback APPEND failed for ${redactEmail(account.email_address || '')}/${sentFolder}: ${err.message}`);
     return { saved: false, appended: true };
   }
 }
@@ -206,9 +269,8 @@ router.use(requireAuth);
 
 
 router.post('/send', async (req, res) => {
-  const { accountId, aliasId, to, cc = [], bcc = [], subject, body, bodyIsHtml = false, quotedBody, quotedBodyHtml, inReplyTo, references, attachments, editedSignature, forwardedAttachments, priority } = req.body;
-  const VALID_PRIORITIES = new Set(['high', 'normal', 'low']);
-  const emailPriority = VALID_PRIORITIES.has(priority) ? priority : 'normal';
+  const { accountId, aliasId, to, cc = [], bcc = [], subject, body, bodyIsHtml = false, quotedBody, quotedBodyHtml, inReplyTo, references, attachments, editedSignature, forwardedAttachments, priority }: SendRequestBody = req.body;
+  const emailPriority = isEmailPriority(priority) ? priority : 'normal';
   if (!accountId || !to?.length) return res.status(400).json({ error: 'accountId and to required' });
 
   // Idempotency guard. The client sends a stable X-Idempotency-Key per logical send: a
@@ -267,8 +329,8 @@ router.post('/send', async (req, res) => {
   let account = result.rows[0];
 
   // Resolve the From identity — account by default, alias if requested
-  let fromName = account.sender_name || account.name;
-  let fromEmail = account.email_address || '';
+  let fromName: string | null | undefined = account.sender_name || account.name;
+  let fromEmail: string | null | undefined = account.email_address || '';
   let fromSignature = account.signature;
   let fromReplyTo = null;
 
@@ -295,19 +357,19 @@ router.post('/send', async (req, res) => {
 
   // Fetch forwarded attachment content from IMAP before entering the SMTP try-block so that
   // attachment errors return descriptive messages rather than being sanitized as SMTP errors.
-  let resolvedFwdAttachments = [];
+  let resolvedFwdAttachments: ResolvedForwardedAttachment[] = [];
   if (forwardedAttachments?.length) {
     try {
       // Resolve every referenced message in a SINGLE ownership-scoped query so a large
       // forwardedAttachments array can't fan out into one DB round-trip per entry.
       const distinctMsgIds = [...new Set(forwardedAttachments.map(fa => fa.messageId))];
-      const msgRows = await query(
+      const msgRows = await query<ForwardedMessageRow>(
         `SELECT m.id, m.uid, m.folder, m.attachments, m.account_id FROM messages m
          JOIN email_accounts a ON m.account_id = a.id
          WHERE m.id = ANY($1::uuid[]) AND a.user_id = $2`,
         [distinctMsgIds, req.session.userId]
       );
-      const msgById = new Map(msgRows.rows.map(m => [m.id, m]));
+      const msgById = new Map<string, ForwardedMessageRow>(msgRows.rows.map(m => [m.id, m]));
 
       // Build the fetch plan (one entry per requested attachment, order preserved) and sum the
       // DECLARED sizes so an oversized batch is rejected BEFORE any IMAP fetch happens.
@@ -318,7 +380,7 @@ router.post('/send', async (req, res) => {
       const fetchPlan = forwardedAttachments.map((fa) => {
         const msg = msgById.get(fa.messageId);
         if (!msg) throw Object.assign(new Error('Forwarded message not found'), { status: 404 });
-        const storedAtts = typeof msg.attachments === 'string'
+        const storedAtts: StoredAttachment[] = typeof msg.attachments === 'string'
           ? JSON.parse(msg.attachments || '[]')
           : (msg.attachments || []);
         const att = storedAtts.find(a => a.part === fa.part);
@@ -334,7 +396,7 @@ router.post('/send', async (req, res) => {
       // open a burst of fresh IMAP connections (fetchAttachment opens a connection per call).
       const distinctAcctIds = [...new Set(fetchPlan.map(p => p.msg.account_id))];
       const acctRows = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = ANY($1::uuid[])', [distinctAcctIds]);
-      const acctById = new Map(acctRows.rows.map(a => [a.id, a]));
+      const acctById = new Map<string, EmailAccountRow>(acctRows.rows.map(a => [a.id, a]));
 
       const FWD_FETCH_CONCURRENCY = 4;
       for (let i = 0; i < fetchPlan.length; i += FWD_FETCH_CONCURRENCY) {
@@ -369,13 +431,15 @@ router.post('/send', async (req, res) => {
   try {
     const smtp = await createAccountSmtpTransport(account);
     if (smtp.error) return res.status(smtp.status).json({ error: smtp.error });
+    if (!smtp.transport) throw new Error('SMTP transport is unavailable');
     account = smtp.account;
     const transport = smtp.transport;
 
     // Use a stable Message-ID so the SMTP copy and any IMAP APPEND reference the same message.
     const domain = (fromEmail || '').split('@')[1] || 'mailflow.local';
+    const messageId = `<${randomBytes(16).toString('hex')}@${domain}>`;
     const mailOptions: SendMailOptions = {
-      messageId: `<${randomBytes(16).toString('hex')}@${domain}>`,
+      messageId,
       from: `${fromName} <${fromEmail}>`,
       ...(fromReplyTo ? { replyTo: fromReplyTo } : {}),
       to: normalizedTo.join(', '),
@@ -540,14 +604,14 @@ router.post('/send', async (req, res) => {
     // Get the Sent folder path (manual mapping takes priority over special_use auto-detect,
     // but a mapping pointing at a non-selectable folder is ignored in favour of \Sent — #386).
     const sentFolder = await resolveSentFolder(accountId, account.folder_mappings);
-    console.log(`Post-send: ${redactEmail(account.email_address)} sentFolder=${sentFolder} autoSaves=${serverAutoSaves}`);
+    console.log(`Post-send: ${redactEmail(account.email_address || '')} sentFolder=${sentFolder} autoSaves=${serverAutoSaves}`);
 
     // sentCopySaved: null = not applicable (server auto-saves, or no Sent folder resolved);
     // true/false = whether OUR IMAP APPEND landed the Sent copy. Surfaced to the client so
     // it can warn when a delivered message could not be saved to Sent.
     let sentCopySaved = null;
     const sentMeta = sentFolder ? {
-      messageId: mailOptions.messageId,
+      messageId,
       subject: normalizedSubject,
       fromName,
       fromEmail,
@@ -593,7 +657,7 @@ router.post('/send', async (req, res) => {
           }, 1000);
         } catch (caught) {
           const appendErr = toAppError(caught);
-          console.error(`IMAP append to Sent failed for ${redactEmail(account.email_address)}/${sentFolder}: ${appendErr.message}`);
+          console.error(`IMAP append to Sent failed for ${redactEmail(account.email_address || '')}/${sentFolder}: ${appendErr.message}`);
           // The append may still have landed (or land shortly) — pull the folder so a
           // late-completing append self-corrects the DB rather than staying invisible.
           setTimeout(() => {
@@ -609,7 +673,7 @@ router.post('/send', async (req, res) => {
           ensureServerAutoSavedSentCopy({
             account,
             sentFolder,
-            messageId: mailOptions.messageId,
+            messageId,
             rawMessage,
             sentMeta,
           }).then(result => {

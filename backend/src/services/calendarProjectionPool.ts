@@ -61,7 +61,7 @@ interface ProjectionOptions {
   useWorkers?: boolean;
   maxIterations?: number;
   deadline?: number;
-  userId?: string;
+  userId?: unknown;
   cache?: unknown;
 }
 
@@ -108,13 +108,27 @@ function config() {
 }
 
 let slots: Array<ReturnType<typeof spawnSlot>> | null = null;
+interface ProjectionJobResult {
+  id: string | null;
+  events: ProjectionEvent[];
+  truncated: boolean;
+  reason: string | null;
+  error: string | null;
+}
+
 type PendingProjectionJob = {
   jobId: number;
   row: ProjectionEvent | null;
   from: Date;
   to: Date;
-  resolve: (value: { id: string | null; events: unknown[]; truncated: boolean; reason: string | null; error: string | null }) => void;
+  resolve: (value: ProjectionJobResult) => void;
   done: boolean;
+};
+
+type ProjectionSlot = {
+  worker: Worker;
+  job: PendingProjectionJob | null;
+  timer: NodeJS.Timeout | null;
 };
 let pending: PendingProjectionJob[] = [];
 let nextJobId = 1;
@@ -144,7 +158,7 @@ function workerExecArgv() {
 
 function spawnSlot(settings: ReturnType<typeof config>) {
   const worker = new Worker(WORKER_URL, { name: 'calendar-projection', execArgv: workerExecArgv() });
-  const slot = { worker, job: null, timer: null };
+  const slot: ProjectionSlot = { worker, job: null, timer: null };
   worker.unref?.();
   worker.on('message', (message) => {
     if (!slot.job || message?.jobId !== slot.job.jobId) return;
@@ -205,7 +219,7 @@ function ensureSlots(settings: ReturnType<typeof config>) {
   return slots;
 }
 
-function settleJob(slot, build) {
+function settleJob(slot: ProjectionSlot, build: (job: PendingProjectionJob) => void) {
   const job = slot.job;
   if (!job || job.done) return false;
   job.done = true;
@@ -226,7 +240,7 @@ function drain() {
   }
 }
 
-function startJob(slot: ReturnType<typeof spawnSlot>, job: Record<string, unknown>, settings: ReturnType<typeof config>) {
+function startJob(slot: ProjectionSlot, job: PendingProjectionJob, settings: ReturnType<typeof config>) {
   slot.job = job;
   // The projection loop cannot be interrupted from outside, so the hard budget
   // terminates this worker. Only this job is lost, and it is reported as such.
@@ -327,7 +341,7 @@ let projectionCacheEvents = 0;
 // events and its longest stall then looks small compared to the batch.
 let jobsDispatched = 0;
 
-function projectionKey(userId: string, row: ProjectionRow, horizonKey: string, maxIterations: number) {
+function projectionKey(userId: unknown, row: ProjectionRow, horizonKey: string, maxIterations: number) {
   return `${userId ?? ''}\u0000${row.id}\u0000${row.etag ?? ''}\u0000${horizonKey}\u0000${maxIterations}\u0000${PROJECTION_VERSION}`;
 }
 
@@ -472,13 +486,6 @@ async function dispatchProjection(rows: ProjectionRow[], from: Date, to: Date, o
     else accepted.push(row);
   }
 
-  interface ProjectionJobResult {
-    id: string | null;
-    events: unknown[];
-    truncated: boolean;
-    reason: string | null;
-    error: string | null;
-  }
   const jobs: Array<Promise<ProjectionJobResult>> = accepted.map(row => new Promise<ProjectionJobResult>((resolve) => {
     jobsDispatched += 1;
     pending.push({ jobId: nextJobId++, row, from, to, resolve, done: false });
@@ -486,7 +493,7 @@ async function dispatchProjection(rows: ProjectionRow[], from: Date, to: Date, o
   drain();
 
   const settled = await Promise.all(jobs);
-  const events = [];
+  const events: ProjectionEvent[] = [];
   const failures: ProjectionFailure[] = overflow.map(row => ({ id: row.id, error: 'Calendar projection queue is full', reason: 'overloaded' }));
   const truncatedSeries = [];
   for (const result of settled) {
@@ -514,8 +521,8 @@ async function dispatchProjection(rows: ProjectionRow[], from: Date, to: Date, o
  * unchanged resources are served from the projection cache, and identical
  * concurrent projections of the same resource share one computation.
  */
-export async function projectCalendarResources(rows, from, to, options: Record<string, any> = {}) {
-  const list = Array.isArray(rows) ? rows : [];
+export async function projectCalendarResources(rows: unknown, from: Date, to: Date, options: ProjectionOptions = {}) {
+  const list: ProjectionRow[] = Array.isArray(rows) ? rows : [];
   if (!list.length) return { events: [], failures: [], truncated: false, truncatedSeries: [], overloaded: false, degraded: false };
   const settings = config();
   if (options.maxIterations) settings.maxIterations = options.maxIterations;
@@ -530,7 +537,7 @@ export async function projectCalendarResources(rows, from, to, options: Record<s
   const statuses = new Map();
   const missing = [];
   const awaiting = [];
-  if (cacheEnabled) {
+  if (cacheEnabled && horizon) {
     for (const row of list) {
       const key = projectionKey(userId, row, horizon.key, settings.maxIterations);
       const cached = cacheGet(key, fromMs, toMs);

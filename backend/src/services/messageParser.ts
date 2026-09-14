@@ -71,7 +71,7 @@ function isDegenerateText(text: string) {
 // Build a plain-text snippet from either a decoded text/plain or text/html body.
 // Single canonical function used by all snippet-generation paths (IMAP sync,
 // body prefetch, backfill) so entity handling is identical everywhere.
-export function snippetFromBody(text: string, html = undefined) {
+export function snippetFromBody(text: string, html?: string | null) {
   // HTML shipped in the text/plain part must go through the HTML stripper,
   // otherwise the markup itself becomes the "preview" (<!DOCTYPE html ...).
   if (text && looksLikeHtml(text)) {
@@ -215,10 +215,9 @@ interface BodyStructureLike {
   disposition?: string | null;
   parameters?: { charset?: string | null; [key: string]: unknown } | null;
   childNodes?: BodyStructureLike[];
-  [key: string]: unknown;
 }
 interface BodyPartLike {
-  part?: string;
+  part: string;
   type?: string;
   encoding?: string | null;
   charset?: string | null;
@@ -392,7 +391,12 @@ export function headersToRawString(headers: unknown): string {
   return s === '[object Object]' ? '' : s;
 }
 
-function formatAddressEntry(entry) {
+interface AddressEntry {
+  name?: string | null;
+  email?: string | null;
+}
+
+function formatAddressEntry(entry: AddressEntry | string | null | undefined) {
   if (typeof entry === 'string') return decodeMimeWords(entry);
   const email = entry?.email || '';
   const name = entry?.name || '';
@@ -400,11 +404,11 @@ function formatAddressEntry(entry) {
   return email || decodeMimeWords(name) || '';
 }
 
-function parseAddressJson(value) {
+function parseAddressJson(value: unknown): AddressEntry[] {
   if (!value) return [];
   if (Array.isArray(value)) return value;
   try {
-    const parsed = typeof value === 'string' ? JSON.parse(value) : value;
+    const parsed: unknown = typeof value === 'string' ? JSON.parse(value) : value;
     return Array.isArray(parsed) ? parsed : [];
   } catch {
     return [];
@@ -412,8 +416,21 @@ function parseAddressJson(value) {
 }
 
 // Build a best-effort RFC822 header block from stored message metadata.
-export function buildHeadersFromMessage(msg) {
-  const lines = [];
+interface StoredMessageHeaders {
+  from_email?: string | null;
+  from_name?: string | null;
+  to_addresses?: unknown;
+  cc_addresses?: unknown;
+  reply_to?: unknown;
+  subject?: string | null;
+  message_id?: string | null;
+  date?: string | number | Date | null;
+  in_reply_to?: string | null;
+  thread_references?: string | null;
+}
+
+export function buildHeadersFromMessage(msg: StoredMessageHeaders) {
+  const lines: string[] = [];
   const fromEmail = msg.from_email || '';
   const fromName = msg.from_name || '';
   if (fromEmail || fromName) {
@@ -436,7 +453,7 @@ export function buildHeadersFromMessage(msg) {
   return lines.join('\r\n');
 }
 
-function resolveSubject(envelopeSubject, parsedHeaders) {
+function resolveSubject(envelopeSubject: string | null | undefined, parsedHeaders: Record<string, string>) {
   const fromEnvelope = envelopeSubject ? decodeMimeWords(envelopeSubject).trim() : '';
   const fromHeader = parsedHeaders.subject ? decodeMimeWords(parsedHeaders.subject).trim() : '';
   return fromEnvelope || fromHeader || '(no subject)';
@@ -458,7 +475,7 @@ function parseSingleMailbox(str: string) {
 }
 
 // Parse a comma-separated RFC 5322 address list (To/Cc/Bcc headers).
-export function parseMailboxList(headerValue) {
+export function parseMailboxList(headerValue: string) {
   if (!headerValue) return [];
   const results = [];
   let current = '';
@@ -483,8 +500,8 @@ const DELIVERY_HEADERS = ['delivered-to', 'x-delivered-to', 'x-original-to', 'en
 // Sender-controlled input persisted per message; capped like subject/snippet.
 const MAX_DELIVERY_ADDRESSES = 50;
 
-export function parseDeliveryAddresses(parsedHeaders) {
-  const emails = new Set();
+export function parseDeliveryAddresses(parsedHeaders?: Record<string, string>) {
+  const emails = new Set<string>();
   for (const header of DELIVERY_HEADERS) {
     const value = parsedHeaders?.[header];
     if (!value) continue;
@@ -506,7 +523,7 @@ export interface EnrichParsedInput {
   fromEmail?: string | null;
   fromName?: string | null;
   subject?: string | null;
-  parsedHeaders?: Record<string, unknown>;
+  parsedHeaders?: Record<string, string>;
   [key: string]: unknown;
 }
 
@@ -542,7 +559,7 @@ export function enrichParsedMetadata(parsed: EnrichParsedInput, {
   return parsed;
 }
 
-export function detectBulkFromParsedHeaders(h) {
+export function detectBulkFromParsedHeaders(h: Record<string, string> | null | undefined) {
   if (!h) return false;
   if (h['list-unsubscribe'] || h['list-id'] || h['list-post']) return true;
   const prec = (h['precedence'] || '').toLowerCase();
@@ -552,8 +569,16 @@ export function detectBulkFromParsedHeaders(h) {
 // Returns 'newsletter' | 'promotion' | 'automated' | null.
 // null means no header signal found — caller decides 'social' or 'primary'.
 // Does NOT check social domains (caller supplies those).
-export function detectCategoryFromHeaders(h) {
-  if (!h) return null;
+function isHeaderMap(value: unknown): value is Record<string, string> {
+  if (typeof value !== 'object' || value === null) return false;
+  for (const header of Object.values(value)) {
+    if (typeof header !== 'string') return false;
+  }
+  return true;
+}
+
+export function detectCategoryFromHeaders(h: unknown) {
+  if (!isHeaderMap(h)) return null;
 
   // Developer platform / issue tracker notifications — must run before the generic
   // newsletter check because services like GitHub set List-ID and Precedence: list
@@ -602,11 +627,56 @@ export function detectCategoryFromHeaders(h) {
   return null;
 }
 
-export async function parseMessage(msg) {
-  const envelope = msg.envelope || {};
+/** Address object as IMAP ENVELOPE emits it, plus the legacy mailbox/host form. */
+interface MessageAddressLike {
+  name?: string | null;
+  address?: string | null;
+  mailbox?: string | null;
+  host?: string | null;
+}
+
+/** Minimal ENVELOPE shape read by parseMessage (fields optional on partial inputs). */
+interface MessageEnvelopeLike {
+  from?: MessageAddressLike[] | null;
+  sender?: MessageAddressLike[] | null;
+  to?: MessageAddressLike[] | null;
+  cc?: MessageAddressLike[] | null;
+  replyTo?: MessageAddressLike[] | null;
+  subject?: string | null;
+  messageId?: string | null;
+  inReplyTo?: string | null;
+  date?: Date | null;
+}
+
+/** A header payload exposing a Map-like getter (imapflow returns one). */
+interface HeaderGetter {
+  get(name: string): string | null | undefined;
+}
+
+function hasHeaderGetter(value: unknown): value is HeaderGetter {
+  return typeof value === 'object' && value !== null && 'get' in value && typeof value.get === 'function';
+}
+
+/** Raw message as the ingest paths pass it: an imapflow FetchMessageObject or a partial row. */
+interface RawMessageLike {
+  uid?: number | string;
+  envelope?: MessageEnvelopeLike | null;
+  flags?: Iterable<unknown> | null;
+  bodyStructure?: BodyStructureLike | null;
+  bodyParts?: Map<string, Buffer> | null;
+  headers?: unknown;
+  internalDate?: Date | string | null;
+  emailId?: string | null;
+  threadId?: string | null;
+}
+
+const EMPTY_ADDRESS: MessageAddressLike = {};
+
+export async function parseMessage(msg: RawMessageLike) {
+  const envelope: MessageEnvelopeLike = msg.envelope || {};
   const flags = msg.flags ? [...msg.flags] : [];
 
-  const fromAddr = envelope.from?.[0] || {};
+  const fromAddr = envelope.from?.[0] || EMPTY_ADDRESS;
   // imapflow returns { name, address } — older typedefs showed mailbox+host but
   // that's not what the library actually emits. Fall back to the legacy form too.
   const fromEmail = fromAddr.address
@@ -617,12 +687,12 @@ export async function parseMessage(msg) {
   // message. Servers default ENVELOPE sender to From when the Sender header is absent, so only
   // treat it as meaningful when its address differs from From — the genuine "on behalf of" / "via"
   // case (mailing lists, send-as platforms, some spoofing). See #366.
-  const senderAddr = envelope.sender?.[0] || {};
+  const senderAddr = envelope.sender?.[0] || EMPTY_ADDRESS;
   const senderEmail = senderAddr.address
     || (senderAddr.mailbox && senderAddr.host ? `${senderAddr.mailbox}@${senderAddr.host}` : '');
   const hasDistinctSender = !!senderEmail && senderEmail.toLowerCase() !== fromEmail.toLowerCase();
 
-  const mapAddrs = (addrs) => (addrs || []).map(a => ({
+  const mapAddrs = (addrs: MessageAddressLike[] | null | undefined) => (addrs || []).map((a: MessageAddressLike) => ({
     name: a.name || '',
     email: a.address || (a.mailbox && a.host ? `${a.mailbox}@${a.host}` : ''),
   }));
@@ -636,8 +706,8 @@ export async function parseMessage(msg) {
     // Try to identify the correct part and its encoding from bodyStructure
     const partInfo = msg.bodyStructure ? findSnippetPart(msg.bodyStructure) : null;
 
-    let rawBuf = null;
-    let encoding = '';
+    let rawBuf: Buffer | Uint8Array | null | undefined = null;
+    let encoding: string | null | undefined = '';
     let charset = 'utf-8';
     let isHtml = false;
 
@@ -657,14 +727,17 @@ export async function parseMessage(msg) {
     if (rawBuf) {
       try {
         const text = decodeBodyPart(rawBuf, encoding, charset);
-        let htmlFallbackText;
-        if (!isHtml && partInfo?.htmlFallback && msg.bodyParts.has(partInfo.htmlFallback.part)) {
-          const fallback = partInfo.htmlFallback;
-          htmlFallbackText = decodeBodyPart(
-            msg.bodyParts.get(fallback.part),
-            fallback.encoding,
-            fallback.charset || 'utf-8'
-          );
+        let htmlFallbackText: string | undefined;
+        const fallback = partInfo?.htmlFallback;
+        if (!isHtml && fallback && msg.bodyParts.has(fallback.part)) {
+          const fallbackBuf = msg.bodyParts.get(fallback.part);
+          if (fallbackBuf) {
+            htmlFallbackText = decodeBodyPart(
+              fallbackBuf,
+              fallback.encoding,
+              fallback.charset || 'utf-8'
+            );
+          }
         }
         // Route through the canonical snippet builders so sync-time snippets get
         // the same link/markup/entity cleanup as body prefetch and backfill.
@@ -679,14 +752,15 @@ export async function parseMessage(msg) {
     hasAttachments = detectAttachments(msg.bodyStructure);
   }
 
-  const parsedHeaders: Record<string, any> = parseHeadersInput(msg.headers);
+  const parsedHeaders: Record<string, string> = parseHeadersInput(msg.headers);
   const references = (() => {
-    if (msg.headers && typeof msg.headers.get === 'function') return msg.headers.get('references') || null;
+    if (hasHeaderGetter(msg.headers)) return msg.headers.get('references') || null;
     return parsedHeaders.references || null;
   })();
 
   return {
-    uid: msg.uid,
+    // IMAP UIDs are numeric; normalize the loose row/input union (number | string) to number.
+    uid: Number(msg.uid),
     attributes: { emailId: msg.emailId ?? null, threadId: msg.threadId ?? null },
     messageId: envelope.messageId || null,
     subject: resolveSubject(envelope.subject, parsedHeaders),
@@ -711,7 +785,7 @@ export async function parseMessage(msg) {
   };
 }
 
-function detectAttachments(structure) {
+function detectAttachments(structure: BodyStructureLike | null | undefined): boolean {
   if (!structure) return false;
   if (structure.disposition === 'attachment') return true;
   if (structure.childNodes) {

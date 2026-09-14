@@ -23,24 +23,46 @@ interface OAuthTokenResponse {
 }
 
 interface DeviceCodeResponse {
-  device_code?: string;
-  user_code?: string;
-  verification_uri?: string;
-  expires_in?: number;
+  device_code: string;
+  user_code: string;
+  verification_uri: string;
+  expires_in: number;
   interval?: number;
   error?: string;
   error_description?: string;
 }
 
+/** Claims read from the verified Microsoft id_token. */
+type MicrosoftIdTokenClaims = {
+  tid?: string;
+  iss?: string;
+  email?: string;
+  preferred_username?: string;
+  name?: string;
+  [claim: string]: unknown;
+};
+
+/**
+ * x-www-form-urlencoded body. Values are stringified exactly as URLSearchParams does
+ * for its record form, so an absent env var still serializes as the literal "undefined"
+ * instead of being dropped.
+ */
+function formBody(values: Record<string, string | number | boolean | undefined>): URLSearchParams {
+  return new URLSearchParams(
+    Object.entries(values).map(([key, value]): [string, string] => [key, String(value)])
+  );
+}
+
 // Cache JWKS fetchers per tenant — createRemoteJWKSet handles caching internally.
-const jwksCache = new Map();
-function getMsJwks(tenantId) {
-  if (!jwksCache.has(tenantId)) {
-    jwksCache.set(tenantId, createRemoteJWKSet(
-      new URL(`https://login.microsoftonline.com/${tenantId}/discovery/v2.0/keys`)
-    ));
-  }
-  return jwksCache.get(tenantId);
+const jwksCache = new Map<string, ReturnType<typeof createRemoteJWKSet>>();
+function getMsJwks(tenantId: string) {
+  const cached = jwksCache.get(tenantId);
+  if (cached) return cached;
+  const jwks = createRemoteJWKSet(
+    new URL(`https://login.microsoftonline.com/${tenantId}/discovery/v2.0/keys`)
+  );
+  jwksCache.set(tenantId, jwks);
+  return jwks;
 }
 
 const router = Router();
@@ -119,7 +141,7 @@ router.get('/microsoft/callback', async (req: Request, res: Response) => {
     const tokenRes = await fetch(`${MICROSOFT_AUTH_URL}/${tenantId}/oauth2/v2.0/token`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
+      body: formBody({
         client_id: clientId,
         client_secret: clientSecret,
         code,
@@ -146,9 +168,13 @@ router.get('/microsoft/callback', async (req: Request, res: Response) => {
 });
 
 // Shared: validate tokens, upsert account, connect IMAP.
-async function processMicrosoftTokens(userId: string, tokens, { tenantId, clientId, publicClient = false }) {
+async function processMicrosoftTokens(
+  userId: string,
+  tokens: OAuthTokenResponse,
+  { tenantId, clientId, publicClient = false }: { tenantId: string; clientId: string | undefined; publicClient?: boolean },
+) {
   const { access_token, refresh_token, expires_in, id_token } = tokens;
-  const expiresInSecs = Number.isFinite(expires_in) && expires_in > 0 ? expires_in : 3600;
+  const expiresInSecs = typeof expires_in === 'number' && Number.isFinite(expires_in) && expires_in > 0 ? expires_in : 3600;
   const expiry = new Date(Date.now() + expiresInSecs * 1000);
 
   // Validate the id_token via Microsoft's JWKS, then extract user info.
@@ -158,7 +184,7 @@ async function processMicrosoftTokens(userId: string, tokens, { tenantId, client
   let displayName = null;
   if (id_token) {
     const jwks = getMsJwks(tenantId);
-    const verifyOpts: { audience: string; issuer?: string } = { audience: clientId };
+    const verifyOpts: { audience: string | undefined; issuer?: string } = { audience: clientId };
     // For multi-tenant ('common'/'organizations'/'consumers'), issuers vary per tenant,
     // so we skip issuer validation and rely on audience + signature instead.
     const fixedTenants = new Set(['common', 'organizations', 'consumers']);
@@ -166,7 +192,7 @@ async function processMicrosoftTokens(userId: string, tokens, { tenantId, client
       verifyOpts.issuer = `https://login.microsoftonline.com/${tenantId}/v2.0`;
     }
     try {
-      const { payload } = await jwtVerify(id_token, jwks, verifyOpts);
+      const { payload } = await jwtVerify<MicrosoftIdTokenClaims>(id_token, jwks, verifyOpts);
       // For multi-tenant configs the issuer check is skipped above, so validate that
       // the iss claim matches the token's own tid.  This prevents cross-tenant identity
       // injection where an attacker creates a Microsoft tenant with the victim's email,
@@ -339,8 +365,26 @@ router.get('/microsoft/device/poll', async (req: Request, res: Response) => {
 // Serialize refreshes per account so concurrent callers share one token-endpoint
 // call — AAD rotates the refresh token on each refresh, and two racing refreshes
 // would strand a superseded refresh token and lock the account out.
-const inFlightMsRefresh = new Map(); // accountId -> Promise
-export function refreshMicrosoftToken(account) {
+/** The account columns the Microsoft refresh path reads. */
+type MicrosoftRefreshAccount = Pick<EmailAccountRow, 'id'> & {
+  oauth_refresh_token?: string | null;
+  oauth_public_client?: boolean | null;
+};
+
+/** An account row plus the plaintext tokens a refresh hands back to its caller.
+ *  Partial because callers/tests may pass a subset of the row. */
+type RefreshedMicrosoftAccount = Partial<EmailAccountRow> & {
+  oauth_refresh_token?: string | null;
+  oauth_public_client?: boolean | null;
+  [key: string]: unknown;
+};
+
+const inFlightMsRefresh = new Map<string, Promise<RefreshedMicrosoftAccount>>(); // accountId -> Promise
+export function refreshMicrosoftToken(account: EmailAccountRow): Promise<EmailAccountRow>;
+export function refreshMicrosoftToken(account: MicrosoftRefreshAccount): Promise<RefreshedMicrosoftAccount>;
+export function refreshMicrosoftToken(
+  account: MicrosoftRefreshAccount,
+): Promise<EmailAccountRow | RefreshedMicrosoftAccount> {
   const existing = inFlightMsRefresh.get(account.id);
   if (existing) return existing;
   const p = doRefreshMicrosoftToken(account).finally(() => inFlightMsRefresh.delete(account.id));
@@ -349,7 +393,7 @@ export function refreshMicrosoftToken(account) {
 }
 
 // Refresh an expired Microsoft token
-async function doRefreshMicrosoftToken(account) {
+async function doRefreshMicrosoftToken(account: MicrosoftRefreshAccount): Promise<RefreshedMicrosoftAccount> {
   const { clientId, clientSecret, tenantId } = getMsConfig();
 
   const storedRefreshToken = decrypt(account.oauth_refresh_token);
@@ -361,14 +405,14 @@ async function doRefreshMicrosoftToken(account) {
   // Key this on the account's recorded flow, not on whether a secret is configured
   // globally, since one instance can host both kinds. (#216)
   const tokenUrl = `${MICROSOFT_AUTH_URL}/${tenantId}/oauth2/v2.0/token`;
-  const postRefresh = (withSecret) => {
-    const params = new URLSearchParams({
+  const postRefresh = (withSecret: boolean) => {
+    const params = formBody({
       client_id: clientId,
       refresh_token: storedRefreshToken,
       grant_type: 'refresh_token',
       scope: 'https://outlook.office.com/IMAP.AccessAsUser.All https://outlook.office.com/SMTP.Send offline_access',
     });
-    if (withSecret) params.set('client_secret', clientSecret);
+    if (withSecret && clientSecret) params.set('client_secret', clientSecret);
     return fetch(tokenUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -395,7 +439,7 @@ async function doRefreshMicrosoftToken(account) {
   if (!tokenRes.ok) throw new Error(tokens.error_description || 'Token refresh failed');
 
   const { access_token, refresh_token, expires_in } = tokens;
-  const refreshExpiresInSecs = Number.isFinite(expires_in) && expires_in > 0 ? expires_in : 3600;
+  const refreshExpiresInSecs = typeof expires_in === 'number' && Number.isFinite(expires_in) && expires_in > 0 ? expires_in : 3600;
   const expiry = new Date(Date.now() + refreshExpiresInSecs * 1000);
   const isPublic = !!account.oauth_public_client || becamePublic;
 

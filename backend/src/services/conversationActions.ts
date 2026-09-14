@@ -5,14 +5,44 @@ import { adjustFolderCounts } from '../utils/mailUtils.js';
 
 interface ConversationRow {
   id: string;
-  account_id?: string;
-  folder?: string;
+  // Both columns are selected by every message query this service issues (see
+  // resolvePhysicalIds), so they are required on the shared row shape.
+  account_id: string;
+  folder: string;
   uid?: number | string | null;
   is_read?: boolean;
   is_starred?: boolean;
   destinationFolder?: string;
   special_use?: string;
   [key: string]: unknown;
+}
+
+/** Row shape of the `UPDATE`/`DELETE ... RETURNING` statements issued by the actions. */
+interface ActionRow {
+  id: string;
+  [key: string]: unknown;
+}
+
+interface ActionResult {
+  rows: ActionRow[];
+  rowCount: number | null;
+}
+
+interface MovedConversationRow extends ConversationRow {
+  newUid: number | string | null | undefined;
+}
+
+interface ResyncTarget {
+  account: unknown;
+  folder: string;
+}
+
+/**
+ * The resolved row a result row was derived from. Every id in a result comes from
+ * the resolved rows passed alongside it, so the lookup always finds a row.
+ */
+function resolvedRowFor(rows: ConversationRow[], id: string): ConversationRow {
+  return rows[rows.findIndex(row => row.id === id)];
 }
 
 async function resolveArchiveDestination(client: DbClient, accountId: string, folderMappings: { archive?: string | null } | null | undefined) {
@@ -40,22 +70,26 @@ async function resolveMoveDestination(client: DbClient, accountId: string, targe
 // offline planning callers deterministic. The database row is updated only for
 // confirmed IMAP moves; non-UIDPLUS moves are removed locally and re-synced so
 // an unknown destination UID is never fabricated.
-async function movePhysicalRowsWithProvider(client: DbClient, rows: ConversationRow[], destinations: Map<string, { path: string }>, imapManager: ConversationImapManager | null) {
+async function movePhysicalRowsWithProvider(client: DbClient, rows: ConversationRow[], destinations: Map<string, { path: string }>, imapManager: ConversationImapManager | null): Promise<{ moved: MovedConversationRow[]; resync: ResyncTarget[] }> {
   if (!imapManager) {
     // Pure service callers (unit/planning paths) retain the deterministic DB-only
     // behavior. Application routes always pass the ImapManager and therefore take
     // the provider-confirmed branch below.
     return { moved: rows.map(row => ({ ...row, newUid: row.uid })), resync: [] };
   }
-  const moved = [];
-  const resync = [];
-  const groups = new Map();
+  const moved: MovedConversationRow[] = [];
+  const resync: ResyncTarget[] = [];
+  const groups = new Map<string, { accountId: string; fromFolder: string; destination: string; rows: ConversationRow[] }>();
   for (const row of rows) {
     const destination = destinations.get(row.id);
     if (!destination) continue;
     const key = `${row.account_id}\u0000${row.folder}\u0000${destination.path}`;
-    if (!groups.has(key)) groups.set(key, { accountId: row.account_id, fromFolder: row.folder, destination: destination.path, rows: [] });
-    groups.get(key).rows.push(row);
+    let group = groups.get(key);
+    if (!group) {
+      group = { accountId: row.account_id, fromFolder: row.folder, destination: destination.path, rows: [] };
+      groups.set(key, group);
+    }
+    group.rows.push(row);
   }
   for (const group of groups.values()) {
     const accountResult = await client.query(
@@ -64,7 +98,9 @@ async function movePhysicalRowsWithProvider(client: DbClient, rows: Conversation
     );
     const account = accountResult.rows[0];
     if (!account) throw Object.assign(new Error('Account not found'), { statusCode: 404 });
-    const result = await imapManager.bulkMoveMessages?.(account, group.rows.map(row => row.uid), group.fromFolder, group.destination);
+    const bulkMoveMessages = imapManager.bulkMoveMessages;
+    if (!bulkMoveMessages) throw new TypeError('imapManager.bulkMoveMessages is not a function');
+    const result = await bulkMoveMessages(account, group.rows.map(row => row.uid), group.fromFolder, group.destination);
     const succeeded = new Set((result.succeeded || []).map(String));
     for (const row of group.rows) {
       if (!succeeded.has(String(row.uid))) {
@@ -80,7 +116,7 @@ async function movePhysicalRowsWithProvider(client: DbClient, rows: Conversation
   return { moved, resync };
 }
 
-async function archiveRows(client: DbClient, rows: ConversationRow[], userId: string, imapManager: ConversationImapManager | null = null) {
+async function archiveRows(client: DbClient, rows: ConversationRow[], userId: string, imapManager: ConversationImapManager | null = null): Promise<{ rows: ActionRow[]; rowCount: number }> {
   const destinations = new Map();
   const accountMappings = new Map();
   for (const row of rows) {
@@ -96,17 +132,17 @@ async function archiveRows(client: DbClient, rows: ConversationRow[], userId: st
     destinations.set(row.id, destination);
   }
   const providerResult = await movePhysicalRowsWithProvider(client, rows, destinations, imapManager);
-  const changed = [];
+  const changed: ActionRow[] = [];
   for (const row of providerResult.moved) {
     const destination = destinations.get(row.id);
     if (destination.special_use === '\\All') {
-      const deleted = await client.query('DELETE FROM messages WHERE id = $1 RETURNING id, folder', [row.id]);
+      const deleted = await client.query<ActionRow>('DELETE FROM messages WHERE id = $1 RETURNING id, folder', [row.id]);
       changed.push(...deleted.rows.map(deletedRow => ({ ...row, ...deletedRow, destinationFolder: destination.path, special_use: destination.special_use })));
     } else if (row.newUid == null) {
       await client.query('DELETE FROM messages WHERE id = $1 RETURNING id, folder', [row.id]);
       changed.push({ ...row, id: row.id, folder: row.folder, destinationFolder: destination.path, special_use: destination.special_use, needsResync: true });
     } else {
-      const updated = await client.query(
+      const updated = await client.query<ActionRow>(
         'UPDATE messages SET folder = $1, uid = $2 WHERE id = $3 RETURNING id, folder',
         [destination.path, row.newUid, row.id],
       );
@@ -114,7 +150,7 @@ async function archiveRows(client: DbClient, rows: ConversationRow[], userId: st
     }
   }
   for (const item of providerResult.resync) {
-    imapManager?.syncFolderOnDemand(item.account, item.folder)?.catch(err => console.warn('CE archive resync failed:', err.message));
+    resyncFolderOnDemand(imapManager, item.account, item.folder, 'CE archive resync failed:');
   }
   return { rows: changed, rowCount: changed.length };
 }
@@ -301,17 +337,17 @@ export async function applyConversationAction({
       userId, conversationId, scope, copyId, logicalMessageId,
     });
     const ids = resolved.rows.map(row => row.id);
-    let result;
+    let result: ActionResult;
 
     if (action === 'read') {
-      result = await client.query('UPDATE messages SET is_read = $1, read_changed_at = NOW() WHERE id = ANY($2::uuid[]) RETURNING id, is_read', [!!isRead, ids]);
+      result = await client.query<ActionRow>('UPDATE messages SET is_read = $1, read_changed_at = NOW() WHERE id = ANY($2::uuid[]) RETURNING id, is_read', [!!isRead, ids]);
     } else if (action === 'star') {
-      result = await client.query('UPDATE messages SET is_starred = $1, star_changed_at = NOW() WHERE id = ANY($2::uuid[]) RETURNING id, is_starred', [!!isStarred, ids]);
+      result = await client.query<ActionRow>('UPDATE messages SET is_starred = $1, star_changed_at = NOW() WHERE id = ANY($2::uuid[]) RETURNING id, is_starred', [!!isStarred, ids]);
     } else if (action === 'delete') {
-      result = await client.query(`UPDATE messages SET is_deleted = true WHERE id = ANY($1::uuid[]) RETURNING id`, [ids]);
+      result = await client.query<ActionRow>(`UPDATE messages SET is_deleted = true WHERE id = ANY($1::uuid[]) RETURNING id`, [ids]);
     } else if (action === 'archive') {
       result = await archiveRows(client, resolved.rows, userId, imapManager);
-    } else {
+    } else if (action === 'move' && targetFolder) {
       const destinations = new Map();
       for (const row of resolved.rows) {
         const destination = await resolveMoveDestination(client, row.account_id, targetFolder);
@@ -319,19 +355,23 @@ export async function applyConversationAction({
         destinations.set(row.id, destination);
       }
       const providerResult = await movePhysicalRowsWithProvider(client, resolved.rows, destinations, imapManager);
-      result = { rows: [], rowCount: 0 };
+      const movedRows: ActionRow[] = [];
+      let movedRowCount = 0;
       for (const row of providerResult.moved) {
         if (row.newUid == null) {
           await client.query('DELETE FROM messages WHERE id = $1', [row.id]);
-          result.rows.push({ id: row.id, folder: targetFolder, needsResync: true });
-          result.rowCount++;
+          movedRows.push({ id: row.id, folder: targetFolder, needsResync: true });
+          movedRowCount++;
         } else {
-          const updated = await client.query('UPDATE messages SET folder = $1, uid = $2 WHERE id = $3 RETURNING id, folder', [targetFolder, row.newUid, row.id]);
-          result.rows.push(...updated.rows);
-          result.rowCount += updated.rowCount || updated.rows.length;
+          const updated = await client.query<ActionRow>('UPDATE messages SET folder = $1, uid = $2 WHERE id = $3 RETURNING id, folder', [targetFolder, row.newUid, row.id]);
+          movedRows.push(...updated.rows);
+          movedRowCount += updated.rowCount || updated.rows.length;
         }
       }
-      for (const item of providerResult.resync) imapManager?.syncFolderOnDemand(item.account, item.folder)?.catch(err => console.warn('CE move resync failed:', err.message));
+      result = { rows: movedRows, rowCount: movedRowCount };
+      for (const item of providerResult.resync) resyncFolderOnDemand(imapManager, item.account, item.folder, 'CE move resync failed:');
+    } else {
+      throw Object.assign(new Error(`Unsupported conversation action: ${action}`), { statusCode: 400 });
     }
 
     // Recompute aggregates for every affected conversation, including the source
@@ -396,6 +436,17 @@ export interface ConversationImapManager {
   syncFolderOnDemand?(account: unknown, folder: string): Promise<unknown>;
 }
 
+/**
+ * Dispatch a best-effort folder resync through an optional manager capability.
+ * A manager that lacks the method fails the same way the direct call would.
+ */
+function resyncFolderOnDemand(imapManager: ConversationImapManager | null, account: unknown, folder: string, warning: string) {
+  if (!imapManager) return;
+  const syncFolderOnDemand = imapManager.syncFolderOnDemand;
+  if (!syncFolderOnDemand) throw new TypeError('imapManager.syncFolderOnDemand is not a function');
+  syncFolderOnDemand(account, folder)?.catch((err: Error) => console.warn(warning, err.message));
+}
+
 export async function applyBulkConversationAction({ userId, conversationIds = null, items = null, scope, action, ...options }: BulkConversationActionInput) {
   const {
     imapManager = null,
@@ -416,7 +467,12 @@ export async function applyBulkConversationAction({ userId, conversationIds = nu
     throw Object.assign(new Error(`Unsupported conversation action: ${action}`), { statusCode: 400 });
   }
   return withTransaction(async client => {
-    const results = [];
+    const results: Array<{
+      conversationId: string;
+      selectedCopyId: string;
+      affectedIds: string[];
+      affectedCount: number;
+    }> = [];
     // Resolve/lock in deterministic conversation UUID order while retaining each
     // caller-selected physical/logical selector. This prevents a bulk action from
     // silently falling back to the globally latest copy.
@@ -427,11 +483,11 @@ export async function applyBulkConversationAction({ userId, conversationIds = nu
         logicalMessageId: item.logicalMessageId || options.logicalMessageId,
       });
       const physicalIds = resolved.rows.map(row => row.id);
-      let result;
+      let result: ActionResult;
       const previousRows = resolved.rows.map(row => ({ ...row }));
-      if (action === 'read') result = await client.query('UPDATE messages SET is_read = $1, read_changed_at = NOW() WHERE id = ANY($2::uuid[]) RETURNING id', [!!options.isRead, physicalIds]);
-      else if (action === 'star') result = await client.query('UPDATE messages SET is_starred = $1, star_changed_at = NOW() WHERE id = ANY($2::uuid[]) RETURNING id', [!!options.isStarred, physicalIds]);
-      else if (action === 'delete') result = await client.query('UPDATE messages SET is_deleted = true WHERE id = ANY($1::uuid[]) RETURNING id', [physicalIds]);
+      if (action === 'read') result = await client.query<ActionRow>('UPDATE messages SET is_read = $1, read_changed_at = NOW() WHERE id = ANY($2::uuid[]) RETURNING id', [!!options.isRead, physicalIds]);
+      else if (action === 'star') result = await client.query<ActionRow>('UPDATE messages SET is_starred = $1, star_changed_at = NOW() WHERE id = ANY($2::uuid[]) RETURNING id', [!!options.isStarred, physicalIds]);
+      else if (action === 'delete') result = await client.query<ActionRow>('UPDATE messages SET is_deleted = true WHERE id = ANY($1::uuid[]) RETURNING id', [physicalIds]);
       else if (action === 'archive') result = await archiveRows(client, resolved.rows, userId, imapManager);
       else {
         if (!options.targetFolder) throw Object.assign(new Error('targetFolder required'), { statusCode: 400 });
@@ -442,23 +498,25 @@ export async function applyBulkConversationAction({ userId, conversationIds = nu
           destinations.set(row.id, destination);
         }
         const providerResult = await movePhysicalRowsWithProvider(client, resolved.rows, destinations, imapManager);
-        result = { rows: [], rowCount: 0 };
+        const movedRows: ActionRow[] = [];
+        let movedRowCount = 0;
         for (const row of providerResult.moved) {
           if (row.newUid == null) {
             await client.query('DELETE FROM messages WHERE id = $1', [row.id]);
-            result.rows.push({ id: row.id });
-            result.rowCount++;
+            movedRows.push({ id: row.id });
+            movedRowCount++;
           } else {
-            const updated = await client.query('UPDATE messages SET folder = $1, uid = $2 WHERE id = $3 RETURNING id', [options.targetFolder, row.newUid, row.id]);
-            result.rows.push(...updated.rows);
-            result.rowCount += updated.rowCount || updated.rows.length;
+            const updated = await client.query<ActionRow>('UPDATE messages SET folder = $1, uid = $2 WHERE id = $3 RETURNING id', [options.targetFolder, row.newUid, row.id]);
+            movedRows.push(...updated.rows);
+            movedRowCount += updated.rowCount || updated.rows.length;
           }
         }
-        for (const item of providerResult.resync) imapManager?.syncFolderOnDemand(item.account, item.folder)?.catch(err => console.warn('CE bulk move resync failed:', err.message));
+        result = { rows: movedRows, rowCount: movedRowCount };
+        for (const item of providerResult.resync) resyncFolderOnDemand(imapManager, item.account, item.folder, 'CE bulk move resync failed:');
       }
       await client.query(`UPDATE conversations c SET logical_message_count = COALESCE((SELECT COUNT(DISTINCT m.logical_message_id) FROM messages m WHERE m.conversation_id = c.id AND NOT m.is_deleted),0), copy_count = COALESCE((SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.id AND NOT m.is_deleted),0), unread_count = COALESCE((SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.id AND NOT m.is_deleted AND NOT m.is_read),0), last_message_at = (SELECT MAX(m.date) FROM messages m WHERE m.conversation_id = c.id AND NOT m.is_deleted), updated_at = NOW() WHERE c.id = $1 AND c.user_id = $2`, [resolved.canonicalConversationId, userId]);
-      updateFolderCountsForAction(result.rows.map(row => ({ ...previousRows.find(previous => previous.id === row.id), ...row })), action, imapManager, userId);
-      results.push({ conversationId: resolved.canonicalConversationId, selectedCopyId: resolved.selected.id, affectedIds: result.rows.map(row => row.id), affectedCount: result.rowCount });
+      updateFolderCountsForAction(result.rows.map(row => ({ ...resolvedRowFor(previousRows, row.id), ...row })), action, imapManager, userId);
+      results.push({ conversationId: resolved.canonicalConversationId, selectedCopyId: resolved.selected.id, affectedIds: result.rows.map(row => row.id), affectedCount: result.rows.length });
     }
     return { ok: true, action, scope, conversationIds: normalizedItems.map(item => item.conversationId), affectedIds: results.flatMap(result => result.affectedIds), affectedCount: results.reduce((sum, result) => sum + result.affectedCount, 0) };
   }, { serializable: true });

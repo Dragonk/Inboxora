@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import MessageBodyRenderer from './MessageBodyRenderer.tsx';
 import ContextMenu from './ContextMenu.tsx';
 
-function formatBytes(bytes: number): string {
+function formatBytes(bytes: number | undefined): string {
   if (!bytes) return '';
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
@@ -19,6 +19,68 @@ function FileIcon({ type }: { type?: string }) {
   return <svg {...p}><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>;
 }
 
+/** One attachment row as the detail pane receives and renders it. */
+interface MessageDetailAttachment {
+  part?: string;
+  filename?: string;
+  type?: string;
+  size?: number;
+  [key: string]: unknown;
+}
+
+/** The message fields the detail pane reads (a store row or a reader copy). */
+interface MessageDetailMessage {
+  id: string;
+  account_id: string;
+  from_email?: string | null;
+  from_name?: string | null;
+  list_unsubscribe?: string | null;
+  listUnsubscribe?: string | null;
+  unsubscribed_at?: unknown;
+  unsubscribedAt?: unknown;
+  [key: string]: unknown;
+}
+
+/** The fetched body fields the detail pane reads. */
+interface MessageDetailBody {
+  html?: string | null;
+  text?: string | null;
+  body_html?: string | null;
+  body_text?: string | null;
+  attachments?: unknown;
+  hasBlockedRemoteImages?: boolean;
+  [key: string]: unknown;
+}
+
+/** Whether a body is loading, failed or unavailable. */
+interface MessageDetailStatus {
+  loading?: boolean;
+  error?: string | null;
+  unavailable?: boolean;
+}
+
+/** The context-menu position the body frame reports, taken from its own prop. */
+type BodyContextMenuPosition = Parameters<NonNullable<Parameters<typeof MessageBodyRenderer>[0]['onContextMenu']>>[0];
+
+interface MessageDetailContentProps {
+  physicalCopyId?: string;
+  message: MessageDetailMessage;
+  body?: MessageDetailBody | null;
+  status?: MessageDetailStatus;
+  remoteImages?: boolean;
+  onLoadBody?(physicalCopyId: string | undefined, force?: boolean): void;
+  onRemoteImages?(physicalCopyId: string | undefined): void;
+  onAllowSender?(physicalCopyId: string | undefined): void;
+  onAllowDomain?(physicalCopyId: string | undefined): void;
+  onUnsubscribe?(physicalCopyId: string): Promise<boolean | void> | boolean | void;
+  onDownload?(physicalCopyId: string, part: string | undefined, filename: string | undefined): void;
+  onContextAction?(action: string, data?: unknown, physicalCopyId?: string): void;
+  onInitialBodyLayout?: () => void;
+  canAccessCopy?: boolean;
+  mobile?: boolean;
+  className?: string;
+}
+
 /**
  * The one physical-copy scoped implementation of content below a message header.
  * It intentionally has no selected-message store dependency: every action receives
@@ -28,38 +90,34 @@ export default function MessageDetailContent({
   physicalCopyId,
   message,
   body,
-  status = {} as {
-    loading?: boolean;
-    error?: string | null;
-    unavailable?: boolean;
-  },
+  status = {},
   remoteImages = false,
   onLoadBody,
   onRemoteImages,
-  onAllowSender = undefined,
-  onAllowDomain = undefined,
+  onAllowSender,
+  onAllowDomain,
   onUnsubscribe,
   onDownload,
   onContextAction,
-  onInitialBodyLayout = undefined,
+  onInitialBodyLayout,
   canAccessCopy = true,
   mobile = false,
   className = '',
-}) {
+}: MessageDetailContentProps) {
   const { t } = useTranslation();
   // Keep existing catalogue entries live while native-only AI notices remain in the outer pane.
   const legacyAiLabels = [t('message.aiClassify.button'), t('message.aiClassify.info')];
-  const [downloadingPart, setDownloadingPart] = useState<string | null>(null);
+  const [downloadingPart, setDownloadingPart] = useState<string | null | undefined>(null);
   const [unsubscribeStatus, setUnsubscribeStatus] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; selectedText: string } | null>(null);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
-  const attachments = Array.isArray(body?.attachments) ? body.attachments : [];
+  const attachments: MessageDetailAttachment[] = Array.isArray(body?.attachments) ? body.attachments : [];
   const html = body?.html ?? body?.body_html ?? '';
   const text = body?.text ?? body?.body_text ?? '';
   const blocked = Boolean(body?.hasBlockedRemoteImages ?? body?.has_blocked_remote_images);
   const listUnsubscribe = message?.list_unsubscribe ?? message?.listUnsubscribe;
   const unsubscribedAt = message?.unsubscribed_at ?? message?.unsubscribedAt;
-  const openContextMenu = useCallback(({ x, y, selectedText = '' }) => {
+  const openContextMenu = useCallback(({ x, y, selectedText = '' }: BodyContextMenuPosition) => {
     setContextMenu({ x, y, selectedText });
   }, []);
   const download = async (attachment: { part?: string; filename?: string }) => {
