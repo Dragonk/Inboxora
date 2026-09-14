@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { query } from '../services/db.js';
+import { query, type DbRow } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { imapManager } from '../index.js';
 import type { EmailAccountRow } from '../services/imapManager.js';
@@ -21,7 +21,7 @@ const reconnectQueue = createKeyedSerializer();
 const ALLOWED_IMAP_PORTS = new Set([143, 993]);
 const ALLOWED_SMTP_PORTS = new Set([465, 587]);
 
-function validatePort(port: number, allowed) {
+function validatePort(port: number, allowed: Set<number>) {
   const n = Number(port);
   if (!Number.isInteger(n) || n < 1 || n > 65535) {
     return `Port ${port} is not a valid port number`;
@@ -57,15 +57,30 @@ const SAFE_FIELDS = [
   'last_sync', 'sync_error', 'sort_order', 'folder_mappings',
   'signature', 'created_at', 'categorization_enabled',
 ];
-function safeAccount(row) {
-  const obj = Object.fromEntries(SAFE_FIELDS.map(k => [k, row[k]]));
+function safeAccount(row: DbRow): Record<string, unknown> {
+  const obj: Record<string, unknown> = Object.fromEntries(SAFE_FIELDS.map(k => [k, row[k]]));
   // Sanitize on read so legacy values stored before the write-time sanitizer are safe
-  if (obj.signature) obj.signature = sanitizeSignature(obj.signature);
+  const signature = obj.signature;
+  if (typeof signature === 'string' && signature) obj.signature = sanitizeSignature(signature);
   return obj;
 }
 
+/** An account_aliases row as selected by the alias queries below. */
+type AccountAliasRow = {
+  id: string;
+  account_id: string;
+  name?: string | null;
+  email?: string | null;
+  reply_to?: string | null;
+  signature?: string | null;
+  created_at?: string | Date | null;
+};
+
+/** A full email_accounts row (SELECT * / RETURNING *), including columns like protocol that EmailAccountRow omits. */
+type EmailAccountDbRow = EmailAccountRow & { protocol?: string | null } & DbRow;
+
 router.get('/', async (req, res) => {
-  const result = await query(
+  const result = await query<EmailAccountRow>(
     `SELECT id, name, sender_name, email_address, color, protocol, imap_host, imap_port, imap_tls, imap_skip_tls_verify,
             smtp_host, smtp_port, smtp_tls, auth_user, smtp_auth_user, oauth_provider, enabled,
             include_in_unified_inbox,
@@ -77,14 +92,14 @@ router.get('/', async (req, res) => {
 
   // Attach aliases to each account in one query
   const accountIds = result.rows.map(a => a.id);
-  let aliasMap = {};
+  const aliasMap: Record<string, AccountAliasRow[]> = {};
   if (accountIds.length) {
-    const aliasResult = await query<{ id: string; account_id: string; name?: string | null; email?: string | null; reply_to?: string | null; signature?: string | null; created_at?: string | Date | null }>(
+    const aliasResult = await query<AccountAliasRow>(
       `SELECT id, account_id, name, email, reply_to, signature, created_at
        FROM account_aliases WHERE account_id = ANY($1) ORDER BY created_at`,
       [accountIds]
     );
-    for (const alias of aliasResult.rows as Array<{ account_id: string; [key: string]: unknown }>) {
+    for (const alias of aliasResult.rows) {
       if (!aliasMap[alias.account_id]) aliasMap[alias.account_id] = [];
       aliasMap[alias.account_id].push(alias);
     }
@@ -251,16 +266,16 @@ router.put('/:id', async (req, res) => {
   // their stores (GTD: gtd_enabled/gtd_folders → plugin_account_config). A request may touch ONLY
   // plugin fields (e.g. the GTD enable toggle), in which case there are no core columns to write —
   // re-read the row for the response base instead of running an empty UPDATE.
-  let updated;
+  let updated: EmailAccountDbRow;
   if (sets.length) {
     values.push(id);
-    const result = await query(
+    const result = await query<EmailAccountDbRow>(
       `UPDATE email_accounts SET ${sets.join(', ')} WHERE id = $${i} RETURNING *`,
       values
     );
     updated = result.rows[0];
   } else {
-    const reread = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1', [id]);
+    const reread = await query<EmailAccountDbRow>('SELECT * FROM email_accounts WHERE id = $1', [id]);
     updated = reread.rows[0];
   }
 

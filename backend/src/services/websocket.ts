@@ -13,11 +13,39 @@ if (!ALLOWED_ORIGIN) {
   }
 }
 
-export function setupWebSocket(wss, sessionMiddleware, imapManager) {
-  wss.on('connection', (ws, req) => {
+// The transport surface this module uses, declared structurally so both the real ws server and the
+// unit test's plain EventEmitter doubles satisfy it.
+interface WebSocketLike {
+  on(event: string, listener: (...args: unknown[]) => void): unknown;
+  send(data: string): void;
+  close(code?: number, reason?: string): void;
+  terminate(): void;
+  readyState?: number;
+  userId?: string;
+  _diagCounted?: boolean;
+}
+
+interface WebSocketServerLike {
+  on(event: string, listener: (...args: unknown[]) => void): unknown;
+}
+
+interface SessionMiddlewareLike {
+  (
+    req: { headers: { origin?: string }; session?: { userId?: string; locked?: boolean } | null },
+    res: { getHeader(name: string): unknown; setHeader(name: string, value: string): void; end(): void },
+    next: (err?: unknown) => void,
+  ): void;
+}
+
+interface ImapManagerLike {
+  connectAllForUser(userId: string): Promise<void>;
+}
+
+export function setupWebSocket(wss: WebSocketServerLike, sessionMiddleware: SessionMiddlewareLike, imapManager: ImapManagerLike) {
+  wss.on('connection', (ws: WebSocketLike, req: { headers: { origin?: string }; session?: { userId?: string; locked?: boolean } | null }) => {
     // Transport errors can arrive during session lookup, before authentication.
-    ws.on('error', err => {
-      console.warn('WebSocket transport error:', err.message);
+    ws.on('error', (err: unknown) => {
+      console.warn('WebSocket transport error:', err instanceof Error ? err.message : String(err));
       ws.terminate();
     });
     // Reject cross-origin WebSocket connections when APP_URL is configured.
@@ -65,14 +93,14 @@ export function setupWebSocket(wss, sessionMiddleware, imapManager) {
       console.log(`WebSocket connected for user ${userId}`);
       ws.send(JSON.stringify({ type: 'connected' }));
       // Re-establish IMAP connections if the server restarted (skips already-connected accounts)
-      imapManager.connectAllForUser(userId).catch(err => {
-        console.error('WebSocket account reconnect failed:', err.message);
+      imapManager.connectAllForUser(userId).catch((err: unknown) => {
+        console.error('WebSocket account reconnect failed:', err instanceof Error ? err.message : String(err));
       });
     });
 
-    ws.on('message', async (data) => {
+    ws.on('message', async (data: unknown) => {
       try {
-        const msg = JSON.parse(data);
+        const msg = JSON.parse(String(data));
         if (msg.type === 'ping') ws.send(JSON.stringify({ type: 'pong' }));
       } catch { /* ignore malformed client message */ }
     });

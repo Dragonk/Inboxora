@@ -21,9 +21,27 @@ export class CodexResponseError extends Error {
   }
 }
 
-function messageItem(role, content: string) {
+/** A single message as received from an untrusted caller before validation. */
+interface CodexMessageInput {
+  role?: unknown;
+  content?: unknown;
+}
+
+/** The untrusted request body accepted by [buildCodexRequest]. */
+export interface CodexRequestInput {
+  model: unknown;
+  messages: CodexMessageInput[];
+}
+
+function asRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function messageItem(role: unknown, content: unknown) {
   if (typeof content !== 'string') throw new Error('Each message content must be a string');
-  if (!['system', 'user', 'assistant'].includes(role)) throw new Error(`Unsupported message role: ${role}`);
+  if (typeof role !== 'string' || !['system', 'user', 'assistant'].includes(role)) {
+    throw new Error(`Unsupported message role: ${role}`);
+  }
   if (role === 'system') {
     return { type: 'message', role: 'developer', content: [{ type: 'input_text', text: content }] };
   }
@@ -33,7 +51,7 @@ function messageItem(role, content: string) {
   return { type: 'message', role, content: [{ type: 'input_text', text: content }] };
 }
 
-export function buildCodexRequest({ model, messages }) {
+export function buildCodexRequest({ model, messages }: CodexRequestInput) {
   if (typeof model !== 'string' || !model.trim()) throw new Error('ChatGPT model is required');
   if (!Array.isArray(messages) || messages.length === 0) throw new Error('messages array is required');
   return {
@@ -45,12 +63,14 @@ export function buildCodexRequest({ model, messages }) {
   };
 }
 
-function upstreamErrorMessage(status, bodyText) {
-  let detail;
+function upstreamErrorMessage(status: number, bodyText: string) {
+  let detail: unknown;
   try {
-    const parsed = JSON.parse(bodyText);
-    const error = parsed?.error;
-    detail = typeof error === 'string' ? error : error?.message;
+    const parsed: unknown = JSON.parse(bodyText);
+    const parsedRecord = asRecord(parsed) ? parsed : null;
+    const error = parsedRecord?.error;
+    const errorRecord = asRecord(error) ? error : null;
+    detail = typeof error === 'string' ? error : errorRecord?.message;
   } catch {
     detail = bodyText;
   }
@@ -58,16 +78,29 @@ function upstreamErrorMessage(status, bodyText) {
   return `ChatGPT provider error (${status})${safe ? `: ${safe}` : ''}`;
 }
 
-function eventError(event, fallback) {
-  const nested = event?.error && typeof event.error === 'object' ? event.error : null;
-  const responseError = event?.response?.error;
+interface CodexSseEvent {
+  type?: string;
+  delta?: unknown;
+  message?: unknown;
+  code?: unknown;
+  error?: unknown;
+  response?: unknown;
+}
+
+function eventError(event: CodexSseEvent, fallback: string) {
+  const nestedValue = event?.error;
+  const nested = asRecord(nestedValue) ? nestedValue : null;
+  const responseValue = event?.response;
+  const responseRecord = asRecord(responseValue) ? responseValue : null;
+  const responseErrorValue = responseRecord?.error;
+  const responseError = asRecord(responseErrorValue) ? responseErrorValue : null;
   const raw = event?.message || nested?.message || responseError?.message;
   const message = sanitizeText(raw);
   const code = sanitizeText(event?.code || nested?.code || responseError?.code, 100);
   return new CodexResponseError(message ? `${fallback}: ${message}` : fallback, { code: code || undefined });
 }
 
-function parseEventData(data) {
+function parseEventData(data: string): CodexSseEvent {
   if (data.trim() === '[DONE]') return { type: 'done' };
   try {
     return JSON.parse(data);
@@ -79,7 +112,7 @@ function parseEventData(data) {
 export async function* parseCodexSse(response: Response, { signal }: { signal?: AbortSignal } = {}) {
   let outputChars = 0;
   let terminal = false;
-  const createError = (reason) => {
+  const createError = (reason: string) => {
     if (reason === 'empty_body') return new CodexResponseError('ChatGPT response body was empty');
     if (reason === 'aborted') return new CodexResponseError('ChatGPT request was aborted');
     return new CodexResponseError('ChatGPT response event was too large');
@@ -159,7 +192,8 @@ export async function* streamCodexResponses({
     }
     if (signal?.aborted) throw new CodexResponseError('ChatGPT request was aborted');
     if (error instanceof CodexResponseError) throw error;
-    throw new CodexResponseError(`ChatGPT request failed: ${sanitizeText(error?.message) || 'network error'}`);
+    const errorRecord = asRecord(error) ? error : null;
+    throw new CodexResponseError(`ChatGPT request failed: ${sanitizeText(errorRecord?.message) || 'network error'}`);
   } finally {
     fetchSignal.cleanup();
   }

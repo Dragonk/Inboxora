@@ -11,13 +11,13 @@ const REPORT_SCHEMA_VERSION = 1;
 
 export function randomHex(bytes = 16) {
   const a = new Uint8Array(bytes);
-  (globalThis.crypto as Crypto | undefined)?.getRandomValues?.(a);
+  globalThis.crypto?.getRandomValues?.(a);
   return Array.from(a, b => b.toString(16).padStart(2, '0')).join('');
 }
 
 // Matches the backend hashRef exactly: sha256(`${salt}:${id}`) truncated to 8 hex
 // chars, so event accountRefs correlate with the accounts[] refs in the same report.
-export async function hashRefAsync(id, salt) {
+export async function hashRefAsync(id: unknown, salt: string) {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`${salt}:${id}`));
   return Array.from(new Uint8Array(buf), b => b.toString(16).padStart(2, '0')).join('').slice(0, 8);
 }
@@ -53,22 +53,24 @@ const PII_PATTERNS = [
   /(ghp_|gho_|sk-|xoxb-|Bearer\s+\S)/i,
 ];
 
-export function scrubReport(obj) {
+export function scrubReport<T extends object>(obj: T): { scrubbed: T; counters: { fieldsDropped: number; hitsRedacted: number } } {
   const counters = { fieldsDropped: 0, hitsRedacted: 0 };
-  const walk = (v) => {
+  const walk = (v: unknown): unknown => {
     if (typeof v === 'string') {
       if (PII_PATTERNS.some(re => re.test(v))) { counters.hitsRedacted += 1; return '[redacted]'; }
       return v;
     }
     if (Array.isArray(v)) return v.map(walk);
     if (v && typeof v === 'object') {
-      const out = {};
+      const out: Record<string, unknown> = {};
       for (const [k, val] of Object.entries(v)) out[k] = walk(val);
       return out;
     }
     return v;
   };
-  return { scrubbed: walk(obj), counters };
+  const scrubbed: T = { ...obj };
+  for (const [k, val] of Object.entries(obj)) Object.assign(scrubbed, { [k]: walk(val) });
+  return { scrubbed, counters };
 }
 
 export function collectEnvironment({ locale, theme, uiScale }: { locale?: string; theme?: string; uiScale?: number }) {
@@ -91,7 +93,7 @@ export function collectEnvironment({ locale, theme, uiScale }: { locale?: string
 }
 
 // Build the full sanitized report. Returns { report, json }.
-export async function generateReport({ locale, theme, uiScale }) {
+export async function generateReport({ locale, theme, uiScale }: Parameters<typeof collectEnvironment>[0]) {
   const salt = randomHex(16);
   const server = await api.diagnosticsReport(salt);
 
@@ -99,7 +101,7 @@ export async function generateReport({ locale, theme, uiScale }) {
   // correlate with the server-provided account refs.
   const rawEvents = getDiagEvents();
   const ids = [...new Set(rawEvents.map(e => e.accountId).filter(Boolean))];
-  const refMap = new Map();
+  const refMap = new Map<unknown, string>();
   for (const id of ids) refMap.set(id, await hashRefAsync(id, salt));
   const events = rawEvents.map(({ accountId, ...rest }) => (
     accountId ? { ...rest, accountRef: refMap.get(accountId) } : rest
@@ -131,13 +133,15 @@ export async function generateReport({ locale, theme, uiScale }) {
 
   const { scrubbed, counters } = scrubReport(merged);
   const serverScrub = server?.scrub ?? { fieldsDropped: 0, hitsRedacted: 0 };
-  scrubbed.scrub = {
-    fieldsDropped: (serverScrub.fieldsDropped || 0) + counters.fieldsDropped,
-    hitsRedacted: (serverScrub.hitsRedacted || 0) + counters.hitsRedacted,
-  };
+  const report = Object.assign(scrubbed, {
+    scrub: {
+      fieldsDropped: (serverScrub.fieldsDropped || 0) + counters.fieldsDropped,
+      hitsRedacted: (serverScrub.hitsRedacted || 0) + counters.hitsRedacted,
+    },
+  });
 
   return {
-    report: scrubbed,
-    json: JSON.stringify(scrubbed, null, 2),
+    report,
+    json: JSON.stringify(report, null, 2),
   };
 }

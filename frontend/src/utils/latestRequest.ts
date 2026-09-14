@@ -3,7 +3,7 @@ export function createLatestRequest() {
 
   return {
     invalidate: () => { sequence += 1; },
-    run: async (request, apply) => {
+    run: async <T>(request: () => Promise<T>, apply: (value: T) => void): Promise<boolean> => {
       const current = ++sequence;
       const value = await request();
       if (current !== sequence) return false;

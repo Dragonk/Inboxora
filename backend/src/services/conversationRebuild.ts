@@ -1,7 +1,9 @@
+import type { PoolClient } from 'pg';
 import { resolveOwnIdentityAddresses } from './conversationIngestEnvelope.js';
 import { providerIdentityForCopy } from './conversationProviderEnvelope.js';
 import { pool, query } from './db.js';
 import { _upsertConversationCopyWithClient } from './conversationPersistence.js';
+import type { ConversationCopyInput } from './conversationPersistence.js';
 
 const ALL_ACCOUNTS_SCOPE = '00000000-0000-0000-0000-000000000000';
 
@@ -9,7 +11,28 @@ function scopeId(accountId: string) {
   return accountId || ALL_ACCOUNTS_SCOPE;
 }
 
-function cursorPredicate(values, checkpoint) {
+/**
+ * A messages row selected by the rebuild query. The query joins messages to its
+ * owning account, so the message id and the non-null account_id are both present.
+ */
+type RebuildMessageRow = ConversationCopyInput & { id: string; account_id: string };
+
+/**
+ * Cursor state for the next batch: either the public caller-supplied cursor
+ * (`date`/`id`/`isNull`) or a conversation_rebuild_checkpoints row (`last_*`
+ * columns). Both spellings are read because the two callers pass each form.
+ */
+type RebuildCheckpoint = {
+  id?: string;
+  date?: string | null;
+  isNull?: boolean;
+  last_message_date?: string | null;
+  last_message_id?: string | null;
+  last_sort_is_null?: boolean | null;
+  status?: string;
+};
+
+function cursorPredicate(values: string[], checkpoint: RebuildCheckpoint | null) {
   if (!checkpoint?.last_message_id && !checkpoint?.id) return { sql: '', values };
   const lastIsNull = checkpoint.last_sort_is_null ?? checkpoint.isNull ?? false;
   const lastDate = checkpoint.last_message_date ?? checkpoint.date ?? null;
@@ -38,18 +61,37 @@ function cursorPredicate(values, checkpoint) {
  */
 const CE_SNAPSHOT_COLS = 'conversation_id, logical_message_id, canonical_message_id, provider_message_id, provider_thread_id, threading_reason, threading_confidence, threading_algorithm_version';
 
-async function snapshotMessage(client, messageRow) {
-  const r = await client.query(
+/** The CE-relevant columns snapshotMessage compares; a plain, JSON-comparable row. */
+type CeSnapshotRow = {
+  conversation_id: string | null;
+  logical_message_id: string | null;
+  canonical_message_id: string | null;
+  provider_message_id: string | null;
+  provider_thread_id: string | null;
+  threading_reason: string | null;
+  threading_confidence: number | null;
+  threading_algorithm_version: string | null;
+};
+
+async function snapshotMessage(client: PoolClient, messageRow: RebuildMessageRow): Promise<CeSnapshotRow | null> {
+  const r = await client.query<CeSnapshotRow>(
     `SELECT ${CE_SNAPSHOT_COLS} FROM messages WHERE id = $1`,
     [messageRow.id],
   );
   return r.rows[0] || null;
 }
 
-function ceSnapshotChanged(before, after) {
+function ceSnapshotChanged(before: CeSnapshotRow | null, after: CeSnapshotRow | null) {
   if (!before && !after) return false;
   if (!before || !after) return true;
   return JSON.stringify(before) !== JSON.stringify(after);
+}
+
+/** True when a thrown value carries PostgreSQL's serialization/deadlock code. */
+function isRetryableWriteError(err: unknown): boolean {
+  if (err === null || (typeof err !== 'object' && typeof err !== 'function')) return false;
+  if (!('code' in err)) return false;
+  return err.code === '40001' || err.code === '40P01';
 }
 
 /**
@@ -63,7 +105,7 @@ function ceSnapshotChanged(before, after) {
  * which gave wouldChange=0 for records that were historically over-merged but
  * still carry complete CE IDs.
  */
-async function dryRunBatch(client, rows, userId: string) {
+async function dryRunBatch(client: PoolClient, rows: RebuildMessageRow[], userId: string) {
   let wouldChange = 0;
   for (const row of rows) {
     const before = await snapshotMessage(client, row);
@@ -202,7 +244,7 @@ export async function rebuildConversationCopies({ userId, accountId = null, limi
           break;
         } catch (err) {
           await client.query('ROLLBACK').catch(() => {});
-          if ((err?.code === '40001' || err?.code === '40P01') && attempt < maxWriteRetries) {
+          if (isRetryableWriteError(err) && attempt < maxWriteRetries) {
             attempt++;
             await new Promise(resolve => setTimeout(resolve, 25 * 2 ** (attempt - 1)));
             continue;

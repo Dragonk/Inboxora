@@ -12,7 +12,7 @@ const withTransaction = vi.mocked(__mock_withTransaction);
 
 const KEY = '11'.repeat(32);
 
-function jsonResponse(body, status = 200) {
+function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
     headers: { 'content-type': 'application/json' },
@@ -27,6 +27,27 @@ function accessToken({ accountId = 'acct_123', email = 'owner@example.com', expi
     'https://api.openai.com/profile': { email },
   })).toString('base64url');
   return `${header}.${payload}.signature`;
+}
+
+/** A promise together with its settle functions, captured after construction. */
+function deferred<T>() {
+  const controls: { resolve: (value: T | PromiseLike<T>) => void; reject: (reason?: unknown) => void }[] = [];
+  const promise = new Promise<T>((resolve, reject) => {
+    controls.push({ resolve, reject });
+  });
+  const control = controls[0];
+  return { promise, resolve: control.resolve, reject: control.reject };
+}
+
+/** The persisted ChatGPT credential fields these tests seed and read back. */
+interface StoredCredential {
+  state: string;
+  accessToken: string | null;
+  refreshToken: string | null;
+  expiresAt: number;
+  accountId: string;
+  accountLabel: string;
+  failureCode: string | null;
 }
 
 class MemoryStore implements CodexStore {
@@ -167,8 +188,8 @@ class MemoryStore implements CodexStore {
 
   async withCredentialLock<T>(callback: (scope: CodexCredentialLock) => Promise<T>): Promise<T> {
     const previous = this.lock;
-    let release: ((value?: unknown) => void) | undefined;
-    this.lock = new Promise((resolve) => { release = resolve; });
+    const gate = deferred<void>();
+    this.lock = gate.promise;
     await previous;
     try {
       return await callback({
@@ -176,7 +197,7 @@ class MemoryStore implements CodexStore {
         save: async (value: string) => { this.credential = value; },
       });
     } finally {
-      release();
+      gate.resolve();
     }
   }
 }
@@ -185,7 +206,7 @@ function service({ store = new MemoryStore(), fetchFn = vi.fn(), now = () => Dat
   return { auth: createOpenAiCodexAuth({ store, fetchFn, now }), store, fetchFn };
 }
 
-function seedCredential(store, overrides = {}) {
+function seedCredential(store: MemoryStore, overrides: Partial<StoredCredential> = {}) {
   store.credential = encrypt(JSON.stringify({
     state: 'connected',
     accessToken: 'old-access',
@@ -198,7 +219,7 @@ function seedCredential(store, overrides = {}) {
   }));
 }
 
-function readCredential(store) {
+function readCredential(store: MemoryStore): Record<string, unknown> {
   return JSON.parse(decrypt(store.credential));
 }
 
@@ -294,9 +315,9 @@ describe('device authorization lifecycle', () => {
 
   it('keeps the authorization timeout active while reading a response body', async () => {
     vi.useFakeTimers();
-    let requestSignal: AbortSignal | undefined;
+    const requestSignals: AbortSignal[] = [];
     const fetchFn = vi.fn((_url, init) => {
-      requestSignal = init.signal;
+      requestSignals.push(init.signal);
       return Promise.resolve(new Response(new ReadableStream({
         start(controller) {
           init.signal.addEventListener('abort', () => controller.error(init.signal.reason), { once: true });
@@ -308,7 +329,7 @@ describe('device authorization lifecycle', () => {
     const assertion = expect(pending).rejects.toMatchObject({ transient: true });
     await vi.advanceTimersByTimeAsync(15_000);
 
-    expect(requestSignal.aborted).toBe(true);
+    expect(requestSignals[0].aborted).toBe(true);
     await assertion;
   });
 
@@ -419,8 +440,8 @@ describe('device authorization lifecycle', () => {
     });
     const { flowId } = await starter.startDeviceFlow({ userId: 'admin', sessionId: 'session' });
     store.flows.get(flowId).nextPollAt = 0;
-    let resolvePoll: ((value: Response) => void) | undefined;
-    const fetchFn = vi.fn<typeof fetch>(() => new Promise<Response>((resolve) => { resolvePoll = resolve; }));
+    const pollResponse = deferred<Response>();
+    const fetchFn = vi.fn<typeof fetch>(() => pollResponse.promise);
     const one = createOpenAiCodexAuth({ store, fetchFn: fetchFn, now: () => now });
     const two = createOpenAiCodexAuth({ store, fetchFn: fetchFn, now: () => now });
 
@@ -428,7 +449,7 @@ describe('device authorization lifecycle', () => {
     await vi.waitFor(() => expect(fetchFn).toHaveBeenCalledTimes(1));
     await expect(two.pollDeviceFlow({ flowId, userId: 'admin', sessionId: 'session' }))
       .resolves.toEqual({ status: 'pending', retryAfterMs: 1000 });
-    resolvePoll(new Response(null, { status: 404 }));
+    pollResponse.resolve(new Response(null, { status: 404 }));
     await expect(first).resolves.toEqual({ status: 'pending', retryAfterMs: 1000 });
     expect(fetchFn).toHaveBeenCalledTimes(1);
   });
@@ -484,14 +505,14 @@ describe('device authorization lifecycle', () => {
     });
     const { flowId } = await starter.startDeviceFlow({ userId: 'admin', sessionId: 'session' });
     store.flows.get(flowId).nextPollAt = 0;
-    let resolvePoll: ((value: Response) => void) | undefined;
-    const fetchFn = vi.fn<typeof fetch>(() => new Promise<Response>((resolve) => { resolvePoll = resolve; }));
+    const pollResponse = deferred<Response>();
+    const fetchFn = vi.fn<typeof fetch>(() => pollResponse.promise);
     const auth = createOpenAiCodexAuth({ store, fetchFn: fetchFn });
 
     const polling = auth.pollDeviceFlow({ flowId, userId: 'admin', sessionId: 'session' });
     await vi.waitFor(() => expect(fetchFn).toHaveBeenCalledTimes(1));
     await auth.cancelDeviceFlow({ flowId, userId: 'admin', sessionId: 'session' });
-    resolvePoll(jsonResponse({ authorization_code: 'code', code_verifier: 'verifier' }));
+    pollResponse.resolve(jsonResponse({ authorization_code: 'code', code_verifier: 'verifier' }));
 
     await expect(polling).resolves.toEqual({ status: 'cancelled' });
     expect(fetchFn).toHaveBeenCalledTimes(1);
@@ -506,15 +527,15 @@ describe('device authorization lifecycle', () => {
     });
     const { flowId } = await starter.startDeviceFlow({ userId: 'admin', sessionId: 'session' });
     store.flows.get(flowId).nextPollAt = 0;
-    let rejectPoll: ((reason?: unknown) => void) | undefined;
-    const fetchFn = vi.fn<typeof fetch>(() => new Promise<Response>((_resolve, reject) => { rejectPoll = reject; }));
+    const pollResponse = deferred<Response>();
+    const fetchFn = vi.fn<typeof fetch>(() => pollResponse.promise);
     const auth = createOpenAiCodexAuth({ store, fetchFn: fetchFn });
 
     const polling = auth.pollDeviceFlow({ flowId, userId: 'admin', sessionId: 'session' });
     const assertion = expect(polling).rejects.toThrow(/network error/i);
     await vi.waitFor(() => expect(fetchFn).toHaveBeenCalledTimes(1));
     await auth.cancelDeviceFlow({ flowId, userId: 'admin', sessionId: 'session' });
-    rejectPoll(new Error('network down'));
+    pollResponse.reject(new Error('network down'));
 
     await assertion;
     expect(store.flows.get(flowId).state).toBe('cancelled');
@@ -528,16 +549,16 @@ describe('device authorization lifecycle', () => {
     });
     const { flowId } = await starter.startDeviceFlow({ userId: 'admin', sessionId: 'session' });
     store.flows.get(flowId).nextPollAt = 0;
-    let resolveExchange: ((value: Response) => void) | undefined;
+    const exchangeResponse = deferred<Response>();
     const fetchFn = vi.fn()
       .mockResolvedValueOnce(jsonResponse({ authorization_code: 'code', code_verifier: 'verifier' }))
-      .mockImplementationOnce(() => new Promise((resolve) => { resolveExchange = resolve; }));
+      .mockImplementationOnce(() => exchangeResponse.promise);
     const auth = createOpenAiCodexAuth({ store, fetchFn: fetchFn });
 
     const polling = auth.pollDeviceFlow({ flowId, userId: 'admin', sessionId: 'session' });
     await vi.waitFor(() => expect(fetchFn).toHaveBeenCalledTimes(2));
     await auth.cancelDeviceFlow({ flowId, userId: 'admin', sessionId: 'session' });
-    resolveExchange(jsonResponse({
+    exchangeResponse.resolve(jsonResponse({
       access_token: accessToken(), refresh_token: 'refresh', expires_in: 3600,
     }));
 
@@ -677,8 +698,8 @@ describe('credential refresh and disconnect', () => {
   it('single-flights concurrent refreshes in one service instance', async () => {
     const store = new MemoryStore();
     seedCredential(store, { expiresAt: 0 });
-    let resolveFetch: ((value: Response) => void) | undefined;
-    const fetchFn = vi.fn<typeof fetch>(() => new Promise<Response>((resolve) => { resolveFetch = resolve; }));
+    const refreshResponse = deferred<Response>();
+    const fetchFn = vi.fn<typeof fetch>(() => refreshResponse.promise);
     const auth = createOpenAiCodexAuth({ store, fetchFn: fetchFn });
 
     const first = auth.getAccess();
@@ -686,7 +707,7 @@ describe('credential refresh and disconnect', () => {
     const third = auth.getAccess();
     await vi.waitFor(() => expect(fetchFn).toHaveBeenCalledTimes(1));
     const nextAccess = accessToken({ accountId: 'acct_single' });
-    resolveFetch(jsonResponse({ access_token: nextAccess, refresh_token: 'rotated', expires_in: 3600 }));
+    refreshResponse.resolve(jsonResponse({ access_token: nextAccess, refresh_token: 'rotated', expires_in: 3600 }));
 
     await expect(Promise.all([first, second, third])).resolves.toEqual([
       { accessToken: nextAccess, accountId: 'acct_single' },

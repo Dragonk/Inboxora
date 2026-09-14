@@ -1,17 +1,17 @@
 import { isIPv4, isIPv6 } from 'net';
 import { promises as dnsPromises } from 'dns';
 
-function ipv4ToLong(ip) {
+function ipv4ToLong(ip: string): number {
   const parts = ip.split('.').map(Number);
   return ((parts[0] << 24) | (parts[1] << 16) | (parts[2] << 8) | parts[3]) >>> 0;
 }
 
-function inCidr(ip, base, bits) {
+function inCidr(ip: string, base: string, bits: number): boolean {
   const mask = bits === 0 ? 0 : ((~0 << (32 - bits)) >>> 0);
   return (ipv4ToLong(ip) & mask) === (ipv4ToLong(base) & mask);
 }
 
-function isPrivateIPv4(ip) {
+function isPrivateIPv4(ip: string): boolean {
   return (
     inCidr(ip, '0.0.0.0', 8)      ||  // 0.x.x.x
     inCidr(ip, '10.0.0.0', 8)     ||  // private
@@ -27,7 +27,7 @@ function isPrivateIPv4(ip) {
   );
 }
 
-function isPrivateIPv6(ip) {
+function isPrivateIPv6(ip: string): boolean {
   const h = ip.toLowerCase();
   if (h === '::1' || h.startsWith('fc') || h.startsWith('fd') || h.startsWith('fe80')) return true;
   // IPv4-mapped IPv6 (::ffff:x.x.x.x) — check the embedded IPv4 address.
@@ -52,7 +52,7 @@ function isPrivateIPv6(ip) {
 }
 
 // Synchronous check: literal IPs and reserved hostnames.
-export function validateHostLiteral(host, { allowPrivate = false } = {}) {
+export function validateHostLiteral(host: unknown, { allowPrivate = false }: { allowPrivate?: boolean } = {}): string | null {
   if (!host || typeof host !== 'string') return null;
   if (allowPrivate) return null;
   const h = host.trim().toLowerCase();
@@ -67,7 +67,7 @@ export function validateHostLiteral(host, { allowPrivate = false } = {}) {
 
 // Async check: resolve A/AAAA records and reject any that are private/reserved.
 // Prevents SSRF via controlled hostnames that resolve to internal addresses.
-export async function validateHost(host, { allowPrivate = false } = {}) {
+export async function validateHost(host: string, { allowPrivate = false }: { allowPrivate?: boolean } = {}): Promise<string | null> {
   const literalErr = validateHostLiteral(host, { allowPrivate });
   if (literalErr) return literalErr;
 
@@ -154,9 +154,11 @@ export interface ResolvedConnectionInfo {
   lookup?: PinnedLookup;
 }
 
-export async function resolveForConnection(hostname, { allowPrivate = false } = {}): Promise<ResolvedConnectionInfo> {
+export async function resolveForConnection(hostname: unknown, { allowPrivate = false }: { allowPrivate?: boolean } = {}): Promise<ResolvedConnectionInfo> {
   const literalErr = validateHostLiteral(hostname, { allowPrivate });
   if (literalErr) throw new Error(literalErr);
+
+  if (typeof hostname !== 'string') throw new TypeError('Host must be a string');
 
   const h = hostname.trim();
   const bare = h.startsWith('[') && h.endsWith(']') ? h.slice(1, -1) : h.toLowerCase();

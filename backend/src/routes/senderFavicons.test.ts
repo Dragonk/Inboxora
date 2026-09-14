@@ -8,13 +8,23 @@ function request(domain = 'example.com') {
   return { params: { domain }, session: { userId: 7 } };
 }
 
-function response() {
+interface MockResponse {
+  headers: Record<string, string>;
+  statusCode: number;
+  body: Buffer | undefined;
+  set(name: string, value: string): MockResponse;
+  status(code: number): MockResponse;
+  send(body: Buffer): MockResponse;
+  end(): MockResponse;
+}
+
+function response(): MockResponse {
   return {
     headers: {}, statusCode: 200, body: undefined,
-    set: vi.fn(function set(name, value) { this.headers[name] = value; return this; }),
-    status: vi.fn(function status(code) { this.statusCode = code; return this; }),
-    send: vi.fn(function send(body) { this.body = body; return this; }),
-    end: vi.fn(function end() { return this; }),
+    set: vi.fn(function set(this: MockResponse, name: string, value: string) { this.headers[name] = value; return this; }),
+    status: vi.fn(function status(this: MockResponse, code: number) { this.statusCode = code; return this; }),
+    send: vi.fn(function send(this: MockResponse, body: Buffer) { this.body = body; return this; }),
+    end: vi.fn(function end(this: MockResponse) { return this; }),
   };
 }
 

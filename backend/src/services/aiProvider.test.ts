@@ -9,14 +9,14 @@ import {
 
 const encoder = new TextEncoder();
 
-function jsonResponse(body, status = 200) {
+function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
     headers: { 'content-type': 'application/json' },
   });
 }
 
-function sseResponse(chunks, { status = 200, close = true, onCancel }: { status?: number; close?: boolean; onCancel?: (reason: unknown) => void } = {}) {
+function sseResponse(chunks: string[], { status = 200, close = true, onCancel }: { status?: number; close?: boolean; onCancel?: (reason: unknown) => void } = {}) {
   return new Response(new ReadableStream({
     start(controller) {
       chunks.forEach((chunk) => controller.enqueue(encoder.encode(chunk)));
@@ -26,11 +26,11 @@ function sseResponse(chunks, { status = 200, close = true, onCancel }: { status?
   }), { status, headers: { 'content-type': 'text/event-stream' } });
 }
 
-function completionEvent(delta) {
+function completionEvent(delta: string) {
   return `data: ${JSON.stringify({ choices: [{ delta: { content: delta } }] })}\n\n`;
 }
 
-function memorySettings(initial) {
+function memorySettings(initial: Record<string, unknown> | undefined) {
   let stored = initial == null ? null : JSON.stringify(initial);
   const queryFn = vi.fn(async (sql, params = []) => {
     if (/SELECT value FROM system_settings/i.test(sql)) {
@@ -67,7 +67,7 @@ function factory({ initial, ...overrides }: { initial?: Record<string, unknown>;
   return { provider: createAiProvider(deps), settings, deps };
 }
 
-async function collect(iterable) {
+async function collect(iterable: AsyncIterable<string>) {
   const chunks = [];
   for await (const chunk of iterable) chunks.push(chunk);
   return chunks;
@@ -135,6 +135,7 @@ describe('configuration persistence', () => {
         features: { compose: true, summarize: false },
       });
 
+      if (saved == null) throw new Error('expected saveAiConfig to return the saved config');
       expect(settings.read().apiKeyConfig.apiKey).toBe('encrypted:original-key');
       expect(saved.apiKeyConfig.apiKey).toBe(MASKED_API_KEY);
       expect(saved.provider).toBe(AI_PROVIDER_CHATGPT);
@@ -149,6 +150,7 @@ describe('configuration persistence', () => {
       apiKeyConfig: { baseUrl: 'https://api.example/v1/', apiKey: 'new-secret', model: 'model' },
       chatgptConfig: { model: 'gpt-5.4-mini' },
     });
+    if (saved == null) throw new Error('expected saveAiConfig to return the saved config');
     expect(settings.read().apiKeyConfig.apiKey).toBe('encrypted:new-secret');
     expect(saved.apiKeyConfig.apiKey).toBe(MASKED_API_KEY);
     expect(JSON.stringify(saved)).not.toContain('new-secret');
@@ -296,6 +298,7 @@ describe('API-key provider regression', () => {
     const rejection = expect(completion).rejects.toThrow(/timed out/i);
     await vi.advanceTimersByTimeAsync(60_000);
 
+    if (!requestSignal) throw new Error('expected the fetch request signal to be captured');
     expect(requestSignal.aborted).toBe(true);
     await rejection;
   });

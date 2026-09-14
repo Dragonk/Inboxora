@@ -4,15 +4,21 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 // effects (Redis connect, migrations). Mock it so importing oauth.js is inert.
 vi.mock('../index.js', () => ({ imapManager: {} }));
 vi.mock('../services/db.js', () => ({ query: vi.fn(), withTransaction: vi.fn() }));
-vi.mock('../services/encryption.js', () => ({ encrypt: (v) => v, decrypt: (v) => v }));
+vi.mock('../services/encryption.js', () => ({ encrypt: (v: string) => v, decrypt: (v: string) => v }));
 
 const { query } = vi.mocked(await import('../services/db.js'));
 const { refreshMicrosoftToken } = vi.mocked(await import('./oauth.js'));
 
 const OK_TOKENS = { access_token: 'new-access', refresh_token: 'new-refresh', expires_in: 3600 };
-const res = (ok, body) => ({ ok, json: async () => body });
+const res = (ok: boolean, body: unknown) => ({ ok, json: async () => body });
 // fetch(url, { body: URLSearchParams }) — the URLSearchParams passed to the nth call
-const bodyOf = (call) => call[1].body;
+const bodyOf = (call: unknown[]): URLSearchParams => {
+  const init = call[1];
+  if (typeof init !== 'object' || init === null || !('body' in init) || !(init.body instanceof URLSearchParams)) {
+    throw new Error('expected a fetch call with a URLSearchParams body');
+  }
+  return init.body;
+};
 
 describe('Microsoft token refresh — public (device-code) vs confidential (auth-code) client', () => {
   beforeEach(() => {
@@ -74,6 +80,7 @@ describe('Microsoft token refresh — public (device-code) vs confidential (auth
     // The persisted UPDATE records the learned public flag (param index 3 = isPublic).
     const updateCall = query.mock.calls.find(c => /UPDATE email_accounts/.test(c[0]) && /oauth_public_client/.test(c[0]));
     expect(updateCall).toBeTruthy();
+    if (!updateCall || !updateCall[1]) throw new Error('UPDATE email_accounts call with params not found');
     expect(updateCall[1][3]).toBe(true);
   });
 
@@ -87,6 +94,7 @@ describe('Microsoft token refresh — public (device-code) vs confidential (auth
     expect(fetchMock).toHaveBeenCalledTimes(1); // succeeded with the secret, no retry
     expect(result.oauth_public_client).toBe(false);
     const updateCall = query.mock.calls.find(c => /UPDATE email_accounts/.test(c[0]) && /oauth_public_client/.test(c[0]));
+    if (!updateCall || !updateCall[1]) throw new Error('UPDATE email_accounts call with params not found');
     expect(updateCall[1][3]).toBe(false);
   });
 
