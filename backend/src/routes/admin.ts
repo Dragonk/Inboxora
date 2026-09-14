@@ -138,7 +138,7 @@ router.patch('/settings', async (req, res) => {
       }
       // Safety: the requesting admin must have a linked SSO identity so they
       // can still sign in after their current session expires.
-      const idCheck = await query(
+      const idCheck = await query<{ count: string }>(
         'SELECT COUNT(*) AS count FROM user_identities WHERE user_id = $1',
         [req.session.userId]
       );
@@ -280,7 +280,7 @@ router.post('/invites', async (req, res) => {
     let fromHeader = null;
 
     // 1. System SMTP (configured in Admin → Users → System Email)
-    const sysResult = await query(
+    const sysResult = await query<{ value: string }>(
       "SELECT value FROM system_settings WHERE key = 'system_email_config'"
     );
     if (sysResult.rows.length) {
@@ -572,7 +572,7 @@ router.post('/oidc', async (req, res) => {
 async function wouldLockOut(providerId) {
   const s = await query("SELECT value FROM system_settings WHERE key = 'internal_auth_disabled'");
   if (s.rows[0]?.value !== 'true') return null; // password login still available
-  const others = await query(
+  const others = await query<{ count: string }>(
     'SELECT COUNT(*) AS count FROM oidc_providers WHERE enabled = true AND id <> $1',
     [providerId]
   );
