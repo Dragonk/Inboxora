@@ -33,11 +33,13 @@ import { toAppError } from '../utils/errors.js';
 const logAccount = (account: EmailAccountRow) => redactEmail(account?.email_address || '');
 
 /** A raw message envelope as the ingest paths pass it (partial on Sent/retry paths). */
-interface RawMessageInput {
+type RawMessageInput = {
   envelope?: { messageId?: string | null } | null;
   messageId?: string | null;
-  [key: string]: unknown;
-}
+  inReplyTo?: unknown;
+  references?: unknown;
+};
+
 
 async function persistConversationCopyForRow(rowId: string, account: EmailAccountRow, rawMessage: RawMessageInput | null | undefined): Promise<void> {
   try {
@@ -417,7 +419,7 @@ const BIDI_OVERRIDE_RE = new RegExp(
 // Extract html/text/attachments from an already-fetched msg (no extra IMAP round-trip)
 function extractBodyFromMsg(msg) {
   if (!msg.bodyStructure) return { html: null, text: null, attachments: [] };
-  const results = { textParts: [], attachments: [] };
+  const results: { textParts: BodyPartRef[]; attachments: AttachmentRef[]; calendarParts?: BodyPartRef[] } = { textParts: [], attachments: [] };
   walkStructure(msg.bodyStructure, results);
   if (shouldFallbackToTextPart(results)) {
     const rootType = (msg.bodyStructure.type || '').toLowerCase();
@@ -440,7 +442,7 @@ function extractBodyFromMsg(msg) {
 
 export async function persistInboundCalendarInvitationFromMessage({ client, message, messageId }) {
   if (!client || !messageId || !message?.uid || !message.bodyStructure) return false;
-  const results = { textParts: [], attachments: [], calendarParts: [] };
+  const results: { textParts: BodyPartRef[]; attachments: AttachmentRef[]; calendarParts: BodyPartRef[] } = { textParts: [], attachments: [], calendarParts: [] };
   walkStructure(message.bodyStructure, results);
   let invitation = null;
   for (const part of results.calendarParts) {
@@ -1005,7 +1007,21 @@ export function connectStaggerFor(profile, accountCount) {
 }
 
 // Per-account connection pool for body fetches — avoids TLS handshake on every click
-const connectionPools = new Map(); // accountId -> { clients: [], waiting: [] }
+/** One account's pooled IMAP connections plus the queue waiting for a free slot. */
+/** A caller queued for a free connection. */
+interface ConnectionWaiter {
+  resolve: (client: ImapClient) => void;
+  reject: (reason?: unknown) => void;
+  timer?: ReturnType<typeof setTimeout>;
+}
+
+interface ConnectionPool {
+  clients: ImapClient[];
+  inUse: Set<ImapClient>;
+  waiters: ConnectionWaiter[];
+}
+
+const connectionPools = new Map<string, ConnectionPool>(); // accountId -> { clients, inUse, waiters }
 const POOL_SIZE = 2;
 
 // When a message moves folders (same Message-ID, new UID), refresh metadata too —
@@ -1134,6 +1150,12 @@ interface ResolvedConnection {
   addresses?: string[];
 }
 
+/** A body part the parser collects while walking the structure. */
+interface BodyPartRef { part: string; type: string; encoding: string; charset?: string }
+
+/** An attachment entry the parser collects. */
+interface AttachmentRef { part: string; filename?: string; type?: string; encoding?: string; size?: number; disposition?: string; [key: string]: unknown }
+
 export type EmailAccountRow = {
   user_id: string;
   name?: string;
@@ -1215,7 +1237,7 @@ export function makeClientCfg(account: EmailAccountRow, resolved: ResolvedConnec
   return cfg;
 }
 
-function drainWaiters(pool) {
+function drainWaiters(pool: ConnectionPool): void {
   while (pool.waiters.length > 0) {
     const free = pool.clients.find(c => !pool.inUse.has(c));
     if (!free) break;
@@ -1226,7 +1248,7 @@ function drainWaiters(pool) {
   }
 }
 
-async function acquirePooledClient(account: EmailAccountRow) {
+async function acquirePooledClient(account: EmailAccountRow): Promise<ImapClient> {
   const id = account.id;
   if (!connectionPools.has(id)) {
     connectionPools.set(id, { clients: [], inUse: new Set(), waiters: [] });
@@ -3481,7 +3503,7 @@ export class ImapManager {
 
     // Dedicated connection managed here — completely independent of the shared pool
     // so backfilling never blocks the user from opening emails.
-    let bfClient = null;
+    let bfClient: ImapClient | null = null;
     let batchesOnConn = 0;
 
     const openBfClient = async () => {
@@ -3534,7 +3556,7 @@ export class ImapManager {
       {
         const lock = await bfClient.getMailboxLock(folder);
         try {
-          const totalExists = bfClient.mailbox?.exists || 0;
+          const totalExists = openMailbox(bfClient)?.exists || 0;
           if (totalExists === 0) {
             logger.debug(`Backfill ${logAccount(account)}: mailbox empty`);
             await query(
@@ -3547,7 +3569,8 @@ export class ImapManager {
 
           // UIDVALIDITY check — if this backfill connection sees a different epoch than
           // what is stored, purge stale rows so the diff below re-fetches everything.
-          const currentValidity = bfClient.mailbox?.uidValidity ? Number(bfClient.mailbox.uidValidity) : null;
+          const box = openMailbox(bfClient);
+          const currentValidity = box?.uidValidity ? Number(box.uidValidity) : null;
           if (currentValidity) {
             const foldRow = await query(
               'SELECT uid_validity FROM folders WHERE account_id = $1 AND path = $2',
