@@ -4684,7 +4684,7 @@ export class ImapManager {
     const doFetch = (acquire: (account: EmailAccountRow, fn: (client: ImapClient) => Promise<{ html: string | null; text: string | null; attachments: AttachmentRef[] }>) => Promise<{ html: string | null; text: string | null; attachments: AttachmentRef[] }>) => acquire(account, async (client: ImapClient) => {
       let html: string | null = null;
       let text: string | null = null;
-      let attachments: AttachmentRef[] = [];
+      let attachments: AttachmentRef[];
       // Always address by UID string with uid:true option — direct UID FETCH avoids
       // the two-step SEARCH+FETCH path that object-range syntax triggers, which can
       // silently return nothing on stale connections or when a server-side search
