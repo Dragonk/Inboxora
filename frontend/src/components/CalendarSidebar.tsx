@@ -5,6 +5,7 @@ import { api } from '../utils/api.ts';
 import { Button, Dialog } from './ui.tsx';
 import type { CSSProperties } from 'react';
 import { toAppError } from '../utils/errors.ts';
+import type { TFunction } from 'i18next';
 
 function monthCells(anchor, weekStartsOn) {
   const first = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
@@ -17,7 +18,24 @@ function monthCells(anchor, weekStartsOn) {
   });
 }
 
-export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds, weekStartsOn = 1, locale, onSelectDate, onShiftMonth, onToggleCalendar, onSourcesChanged, onCalendarsChanged, onCreate, canCreate, sourcePanelRequest = 0, t }) {
+/** The calendar rail: mini month, source panel and calendar toggles. */
+interface CalendarSidebarProps {
+  anchor: Date;
+  calendars: Array<{ id: string; name?: string | null; color?: string | null; [key: string]: unknown }>;
+  visibleCalendarIds: string[] | null;
+  weekStartsOn?: number;
+  locale: string;
+  onSelectDate: (date: Date) => void;
+  onShiftMonth: (delta: number) => void;
+  onToggleCalendar: (id: string) => void;
+  onSourcesChanged: () => void;
+  onCalendarsChanged: () => void;
+  onCreate: () => void;
+  canCreate: boolean;
+  sourcePanelRequest?: number;
+  t: TFunction;
+}
+export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds, weekStartsOn = 1, locale, onSelectDate, onShiftMonth, onToggleCalendar, onSourcesChanged, onCalendarsChanged, onCreate, canCreate, sourcePanelRequest = 0, t }: CalendarSidebarProps) {
   const [showSources, setShowSources] = useState(false);
   const [sources, setSources] = useState<Array<{ id: string; displayName?: string; kind?: string; intervalMin?: number; lastError?: string | null; lastSyncAt?: string | null; [key: string]: unknown }>>([]);
   const [sourceError, setSourceError] = useState(null);
@@ -223,7 +241,7 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
 // choose rather than a free-text field that invites typos the server would reject.
 const SYNC_INTERVALS = [15, 30, 60, 180, 360, 720, 1440];
 
-function SourceIntervalSelect({ label, value, onChange, t }) {
+function SourceIntervalSelect({ label, value, onChange, t }: { label: string; value: number; onChange: (value: number) => void; t: TFunction }) {
   const known = SYNC_INTERVALS.includes(value);
   const format = minutes => (minutes % 60 === 0 && minutes >= 60
     ? t('calendar.sourceSyncHours', { count: minutes / 60 })
@@ -243,7 +261,7 @@ function SourceIntervalSelect({ label, value, onChange, t }) {
   </label>;
 }
 
-function SourceStatus({ source, pending, t }) {
+function SourceStatus({ source, pending, t }: { source: { id: string; displayName?: string; kind?: string; intervalMin?: number; lastError?: string | null; lastSyncAt?: string | null; [key: string]: unknown }; pending: boolean; t: TFunction }) {
   const warning = calendarSyncWarning(source.lastError);
   if (pending) return <small>{t('calendar.sourceSyncing')}</small>;
   if (!warning) return <small>{t('calendar.sourceReady')}</small>;
