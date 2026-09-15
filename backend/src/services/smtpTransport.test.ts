@@ -10,6 +10,7 @@ vi.mock('./hostValidation.js', () => ({ resolveForConnection: vi.fn() }));
 const nodemailer = (await import('nodemailer')).default;
 const { refreshMicrosoftToken } = (await import('../routes/oauth.js'));
 const { getConnectionPolicy } = (await import('./connectionPolicy.js'));
+const { decrypt } = (await import('./encryption.js'));
 const { resolveForConnection } = (await import('./hostValidation.js'));
 const {
   createAccountSmtpTransport,
@@ -132,8 +133,27 @@ describe('createAccountSmtpTransport', () => {
       expect.objectContaining({
         auth: { user: 'sender@example.com', pass: 'test-password' },
         secure: false,
+        requireTLS: true,
       })
     );
+  });
+
+  it.each([null, undefined, ''])('returns a controlled error for a missing SMTP password (%s)', async (auth_pass) => {
+    const result = await createAccountSmtpTransport({
+      smtp_host: 'smtp.example.com',
+      smtp_port: 587,
+      smtp_tls: 'STARTTLS',
+      auth_user: 'sender@example.com',
+      auth_pass,
+      smtp_auth_pass: null,
+    });
+
+    expect(result).toEqual({
+      status: 502,
+      error: 'SMTP password is corrupted or missing — please re-enter your account password in Settings.',
+    });
+    expect(decrypt).not.toHaveBeenCalled();
+    expect(nodemailer.createTransport).not.toHaveBeenCalled();
   });
 
   it('prefers separate SMTP credentials when the account has them', async () => {

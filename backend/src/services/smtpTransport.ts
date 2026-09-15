@@ -36,6 +36,7 @@ type SmtpTransportOptions = {
   port?: NodemailerTransportOptions['port'];
   secure?: NodemailerTransportOptions['secure'];
   ignoreTLS?: NodemailerTransportOptions['ignoreTLS'];
+  requireTLS?: NodemailerTransportOptions['requireTLS'];
   auth?: NodemailerTransportOptions['auth'];
   tls?: NodemailerTransportOptions['tls'];
   connectionTimeout?: NodemailerTransportOptions['connectionTimeout'];
@@ -173,7 +174,14 @@ export async function createAccountSmtpTransport<Account extends SmtpAccountFiel
     // username/password, use them; otherwise fall back to the IMAP login. Each
     // side falls back independently, so a different-username/same-password (or the
     // reverse) config also works. Empty/NULL columns are falsy and fall through.
-    const pass = decrypt(account.smtp_auth_pass || account.auth_pass);
+    const encryptedPass = account.smtp_auth_pass || account.auth_pass;
+    if (typeof encryptedPass !== 'string' || !encryptedPass) {
+      return {
+        status: 502,
+        error: 'SMTP password is corrupted or missing — please re-enter your account password in Settings.',
+      };
+    }
+    const pass = decrypt(encryptedPass);
     if (!pass) {
       return {
         status: 502,
@@ -204,6 +212,7 @@ export async function createAccountSmtpTransport<Account extends SmtpAccountFiel
   const transport = createSmtpTransport(resolved, {
     port: account.smtp_port,
     secure,
+    ...(account.smtp_tls === 'STARTTLS' ? { requireTLS: true } : {}),
     ...(account.smtp_tls === 'none' ? { ignoreTLS: true } : {}),
     auth,
     tls,

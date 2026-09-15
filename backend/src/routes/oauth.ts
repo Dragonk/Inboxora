@@ -237,7 +237,7 @@ async function processMicrosoftTokens(
       await client.query(`
         UPDATE email_accounts SET
           oauth_access_token = $1, oauth_refresh_token = $2, oauth_token_expiry = $3,
-          name = $4, oauth_public_client = $5, sync_error = NULL
+          name = $4, oauth_public_client = $5, oauth_provider = 'microsoft', sync_error = NULL
         WHERE id = $6
       `, [encrypt(access_token), encrypt(refresh_token), expiry, displayName || email, publicClient, accountId]);
     } else {
