@@ -54,7 +54,7 @@ function factory({ initial, ...overrides }: { initial?: Record<string, unknown>;
   const deps = {
     queryFn: settings.queryFn,
     encryptFn: (value: string) => `encrypted:${value}`,
-    decryptFn: (value: string) => value?.replace(/^encrypted:/, ''),
+    decryptFn: (value: unknown) => typeof value === 'string' ? value.replace(/^encrypted:/, '') : null,
     validateHostFn: vi.fn().mockResolvedValue(null),
     getConnectionPolicyFn: vi.fn().mockResolvedValue({ allowPrivateHosts: false }),
     fetchFn: vi.fn(),

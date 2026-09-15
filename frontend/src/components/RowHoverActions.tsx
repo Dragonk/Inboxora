@@ -4,6 +4,8 @@ import { PluginSlot } from '../plugins/PluginSlot.tsx';
 import type { StoreMessageRow } from '../store/index.ts';
 import type { ReactNode } from 'react';
 
+type PluginSlotContext = Parameters<typeof PluginSlot>[0]['ctx'];
+
 // Bottom-right hover quick-actions cluster shared by the flat MessageRow and the threaded
 // ThreadRow and GTD sidebar rows. Presentational and closure-free: each action
 // is a handler the caller passes as (e, message); a handler's absence hides its button (the
@@ -22,7 +24,7 @@ interface RowHoverActionsProps<M extends { [key: string]: unknown }> {
   onStar: (event: React.MouseEvent, message: M) => void;
   onDelete: (event: React.MouseEvent, message: M) => void;
   onMove: (event: React.MouseEvent, message: M) => void;
-  rowActionCtx?: unknown;
+  rowActionCtx?: PluginSlotContext;
 }
 
 export default function RowHoverActions<M extends { [key: string]: unknown } = StoreMessageRow>({ message, isRead, background, deleteTitleKey = 'common.delete', onMarkRead, onStar, onDelete, onMove, rowActionCtx }: RowHoverActionsProps<M>) {
@@ -35,7 +37,7 @@ export default function RowHoverActions<M extends { [key: string]: unknown } = S
       borderRadius: 5,
       padding: '1px 2px',
     }}>
-      {rowActionCtx && <PluginSlot name="row-hover-action" ctx={rowActionCtx} />}
+      {rowActionCtx !== undefined && <PluginSlot name="row-hover-action" ctx={rowActionCtx} />}
 
       <ActionBtn
         title={isRead ? t('contextMenu.markUnread') : t('contextMenu.markRead')}

@@ -1089,7 +1089,7 @@ export default function MessageList() {
       const results = await Promise.allSettled(mutations.map(({ mutation }) => mutation.promise));
       const failedIds = results
         .map((result, index) => result.status === 'rejected' ? mutations[index].msg.id : null)
-        .filter(Boolean);
+        .filter((id): id is string => id !== null);
       const latest = mutations.every(({ msg, mutation }) => isLatestStarStateMutation(msg.id, mutation.version));
       if (failedIds.length > 0 && latest && isLatestMutation(starIntentKey, starIntentVersion)) {
         const failedSet = new Set(failedIds.map(String));

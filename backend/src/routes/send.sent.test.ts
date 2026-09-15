@@ -12,11 +12,11 @@ const account = { id: 'account-1', email_address: 'me@example.com' };
 const sentMeta = { messageId: '<message@example.com>', subject: 'Test' };
 const rawMessage = Buffer.from('Message-ID: <message@example.com>\r\n\r\nHello');
 
-function createManager({ foundUid = null, appendResult = { uid: 99 } } = {}) {
+function createManager(foundUid: number | null, appendResult: { uid: number }) {
   return {
     findUidByMessageId: vi.fn().mockResolvedValue(foundUid),
     findSentMessageByMessageId: vi.fn().mockResolvedValue(
-      foundUid ? { state: 'found', uid: foundUid } : { state: 'missing' }
+      foundUid !== null ? { state: 'found', uid: foundUid } : { state: 'missing' }
     ),
     appendToSent: vi.fn().mockResolvedValue(appendResult),
     upsertSentMessageRecord: vi.fn().mockResolvedValue(undefined),
@@ -34,7 +34,7 @@ describe('ensureServerAutoSavedSentCopy', () => {
   });
 
   it('does not append a duplicate when the provider exposes its own Sent copy', async () => {
-    const manager = createManager({ foundUid: 42 });
+    const manager = createManager(42, { uid: 99 });
 
     const result = await ensureServerAutoSavedSentCopy({
       account,
@@ -53,7 +53,7 @@ describe('ensureServerAutoSavedSentCopy', () => {
   });
 
   it('appends exactly one CRLF MIME copy after provider autosave never appears', async () => {
-    const manager = createManager();
+    const manager = createManager(null, { uid: 99 });
 
     const result = await ensureServerAutoSavedSentCopy({
       account,
@@ -74,7 +74,7 @@ describe('ensureServerAutoSavedSentCopy', () => {
   });
 
   it('reports the missing remote copy when the fallback APPEND fails', async () => {
-    const manager = createManager();
+    const manager = createManager(null, { uid: 99 });
     manager.appendToSent.mockRejectedValue(new Error('IMAP unavailable'));
 
     const result = await ensureServerAutoSavedSentCopy({
@@ -93,7 +93,7 @@ describe('ensureServerAutoSavedSentCopy', () => {
   });
 
   it('does not risk a duplicate APPEND when Sent-copy verification is unavailable', async () => {
-    const manager = createManager();
+    const manager = createManager(null, { uid: 99 });
     manager.findSentMessageByMessageId.mockRejectedValue(new Error('IMAP unavailable'));
 
     const result = await ensureServerAutoSavedSentCopy({
@@ -112,7 +112,7 @@ describe('ensureServerAutoSavedSentCopy', () => {
   });
 
   it('does not append when Message-ID lookup is ambiguous', async () => {
-    const manager = createManager();
+    const manager = createManager(null, { uid: 99 });
     manager.findSentMessageByMessageId.mockResolvedValue({ state: 'ambiguous' });
 
     const result = await ensureServerAutoSavedSentCopy({
@@ -131,7 +131,7 @@ describe('ensureServerAutoSavedSentCopy', () => {
   });
 
   it('performs a final lookup before APPEND when the provider copy appears late', async () => {
-    const manager = createManager();
+    const manager = createManager(null, { uid: 99 });
     manager.findSentMessageByMessageId
       .mockResolvedValueOnce({ state: 'missing' })
       .mockResolvedValueOnce({ state: 'found', uid: 73 });

@@ -25,7 +25,16 @@ function ToolButton({ label, active = false, onActivate, testId, children }: {
   >{children}</button>;
 }
 
-export default function RichTextEditor({ value = '', onChange, placeholder = '', label = '', testId = 'rich-text-editor', minHeight = 120 }) {
+interface RichTextEditorProps {
+  value?: string;
+  onChange: (html: string) => void;
+  placeholder?: string;
+  label?: string;
+  testId?: string;
+  minHeight?: number;
+}
+
+export default function RichTextEditor({ value = '', onChange, placeholder = '', label = '', testId = 'rich-text-editor', minHeight = 120 }: RichTextEditorProps) {
   const { t } = useTranslation();
   const editor = useEditor({
     extensions: [
@@ -35,7 +44,7 @@ export default function RichTextEditor({ value = '', onChange, placeholder = '',
     ],
     content: richTextEditorContent(value),
     immediatelyRender: false,
-    onUpdate: ({ editor: instance }) => onChange?.(instance.getHTML()),
+    onUpdate: ({ editor: instance }) => onChange(instance.getHTML()),
     editorProps: { attributes: { 'aria-label': label || placeholder || '' } },
   });
 

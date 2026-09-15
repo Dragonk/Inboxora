@@ -1,6 +1,4 @@
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vitest';
-import type { JsonBody } from '../test/json.js';
-
 vi.mock('../services/db.js', () => ({ query: vi.fn() }));
 vi.mock('../middleware/auth.js', () => ({
   requireAuth: (req: { headers: Record<string, string>; session?: { userId?: string } }, _res: unknown, next: () => void) => { req.session = { userId: 'user-1' }; next(); },
@@ -18,7 +16,7 @@ import { imapManager as __mock_imapManager } from '../index.js';
 import type { Server } from 'node:http';
 import { listeningPort } from '../test/net.js';
 
-// Cast mocked module exports so their vitest mock helpers type-check.
+// Expose mocked module exports with their Vitest mock helpers.
 const query = vi.mocked(__mock_query);
 const imapManager = vi.mocked(__mock_imapManager);
 
@@ -42,15 +40,23 @@ describe('POST /api/mail/send — forwarded attachment guards (#F2)', () => {
   afterAll(async () => { await new Promise(r => server.close(r)); });
   beforeEach(() => { query.mockReset(); imapManager.fetchAttachment.mockReset(); });
 
-  const post = (body) => fetch(`${base}/api/mail/send`, {
+  const post = (body: unknown) => fetch(`${base}/api/mail/send`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
   });
+
+  const hasError = (body: unknown): body is { error: string } => (
+    typeof body === 'object' && body !== null && 'error' in body && typeof body.error === 'string'
+  );
 
   it('rejects more than 100 forwarded attachments before doing any DB work', async () => {
     const forwardedAttachments = Array.from({ length: 101 }, () => ({ messageId: MSG_ID, part: '2' }));
     const res = await post({ accountId: ACCOUNT_ID, to: ['x@example.com'], forwardedAttachments });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as JsonBody).error).toMatch(/Too many forwarded attachments/);
+    const body = await res.json();
+    expect(hasError(body)).toBe(true);
+    if (hasError(body)) {
+      expect(body.error).toMatch(/Too many forwarded attachments/);
+    }
     expect(query).not.toHaveBeenCalled();
     expect(imapManager.fetchAttachment).not.toHaveBeenCalled();
   });
@@ -73,7 +79,11 @@ describe('POST /api/mail/send — forwarded attachment guards (#F2)', () => {
       forwardedAttachments: [{ messageId: MSG_ID, part: '2' }],
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as JsonBody).error).toMatch(/exceeds 25 MB/);
+    const body = await res.json();
+    expect(hasError(body)).toBe(true);
+    if (hasError(body)) {
+      expect(body.error).toMatch(/exceeds 25 MB/);
+    }
     // The whole point: no IMAP fetch happens when the declared size already blows the limit.
     expect(imapManager.fetchAttachment).not.toHaveBeenCalled();
   });
