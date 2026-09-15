@@ -120,7 +120,7 @@ export async function removeLabel(imapManager: LabelCopyEngine, message: PluginM
 // Core owns the IMAP mechanics; the caller owns any config persistence keyed off the results
 // (e.g. recording where a relocated folder actually landed).
 export async function ensureLabelFolders(imapManager: LabelFolderEngine, account: PluginAccount, folderPaths: string[]) {
-  const paths = [...new Set(folderPaths || [])];
+  const paths = [...new Set(folderPaths)];
   const results = [];
   for (const folder of paths) {
     try {
@@ -145,8 +145,11 @@ export async function ensureLabelFolders(imapManager: LabelFolderEngine, account
 export async function markThreadRead(
   imapManager: ThreadReadEngine,
   account: PluginAccount,
-  message
+  message: PluginMessage
 ): Promise<{ inboxCopy: InboxCopyRow | null; error?: unknown }> {
+  if (typeof message.account_id !== 'string' || typeof message.message_id !== 'string') {
+    throw new Error('markThreadRead requires a message account_id and message_id');
+  }
   const { rows } = await query<InboxCopyRow>(
     'SELECT id, uid, is_read FROM messages WHERE account_id = $1 AND folder = $2 AND message_id = $3 AND is_deleted = false LIMIT 1',
     [message.account_id, 'INBOX', message.message_id]

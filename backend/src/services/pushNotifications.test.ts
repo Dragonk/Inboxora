@@ -1,5 +1,15 @@
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
-const { sendNotification, query, delay } = vi.hoisted<any>(() => ({ sendNotification: vi.fn(), query: vi.fn(), delay: vi.fn() }));
+import type webPush from 'web-push';
+import type { query as dbQuery } from './db.js';
+import type { setTimeout as timerDelay } from 'node:timers/promises';
+
+type SendNotification = (...args: Parameters<typeof webPush.sendNotification>) => Promise<{ statusCode: number }>;
+
+const { sendNotification, query, delay } = vi.hoisted(() => ({
+  sendNotification: vi.fn<SendNotification>(),
+  query: vi.fn<typeof dbQuery>(),
+  delay: vi.fn<typeof timerDelay>(),
+}));
 vi.mock('web-push', () => ({ default: { setVapidDetails: vi.fn(), sendNotification } }));
 vi.mock('./db.js', () => ({ query }));
 vi.mock('node:timers/promises', () => ({ setTimeout: delay }));

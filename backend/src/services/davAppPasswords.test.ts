@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { query } = vi.hoisted<any>(() => ({ query: vi.fn() }));
+type Query = typeof import('./db.js').query;
+
+const { query } = vi.hoisted(() => ({ query: vi.fn<Query>() }));
 vi.mock('./db.js', () => ({ query }));
 
 import {

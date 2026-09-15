@@ -1,5 +1,4 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import type { Mock } from 'vitest';
 
 vi.mock('imapflow', () => ({ ImapFlow: vi.fn() }));
 vi.mock('./db.js', () => ({ query: vi.fn() }));
@@ -26,19 +25,7 @@ import { invalidateGtdConfigCache } from '../plugins/gtd/gtdConfig.js';
 import { parseMessage as __mock_parseMessage } from './messageParser.js';
 import { dispatchMailNotification as __mock_dispatchMailNotification } from './pushDispatcher.js';
 import { mockImapClient } from '../test/imapClient.js';
-interface FakeImapClient extends EventEmitter {
-  authenticated?: boolean;
-  connect?: (...args: unknown[]) => Promise<unknown>;
-  logout?: (...args: unknown[]) => Promise<unknown>;
-  close?: () => void;
-  fetch?: Mock<(...args: unknown[]) => unknown>;
-  list?: ReturnType<typeof vi.fn>;
-  getMailboxLock?: ReturnType<typeof vi.fn>;
-  mailbox?: Record<string, unknown> | null;
-  [key: string]: unknown;
-}
-
-
+const fakeImapClient = () => mockImapClient(new EventEmitter());
 
 // Cast mocked module exports so their vitest mock helpers type-check.
 const ImapFlow = vi.mocked(__mock_ImapFlow);
@@ -644,14 +631,12 @@ describe('emitSectionsChanged', () => {
 
 describe('_startPluginSyncTimers / _stopPluginSyncTimers', () => {
   const makeMgr = () => { const m = Object.create(ImapManager.prototype); m.pluginSyncIntervals = new Map(); m.pluginFacade = { __facade: true }; return m; };
-  let listSpy: ReturnType<typeof vi.spyOn>;
-
   beforeEach(() => { vi.useFakeTimers(); vi.spyOn(Math, 'random').mockReturnValue(0); });
-  afterEach(() => { listSpy?.mockRestore(); vi.restoreAllMocks(); vi.useRealTimers(); });
+  afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); });
 
   it('arms a jittered first fire then a steady interval for an active plugin tick', async () => {
     const tick = vi.fn().mockResolvedValue(undefined);
-    listSpy = vi.spyOn(pluginRegistry, 'list').mockReturnValue([
+    vi.spyOn(pluginRegistry, 'list').mockReturnValue([
       { id: 'fake', name: 'Fake', version: '1.0.0', tier: 1, sync: { intervalMs: 1000, isActive: () => true, tick } },
     ]);
     const mgr = makeMgr();
@@ -667,8 +652,8 @@ describe('_startPluginSyncTimers / _stopPluginSyncTimers', () => {
 
   it('arms nothing for a plugin whose sync.isActive rejects the account', async () => {
     const tick = vi.fn();
-    listSpy = vi.spyOn(pluginRegistry, 'list').mockReturnValue([
-      { id: 'gated', name: 'Gated', version: '1.0.0', tier: 1, sync: { intervalMs: 1000, isActive: (ctx) => ctx.account?.on === true, tick } },
+    vi.spyOn(pluginRegistry, 'list').mockReturnValue([
+      { id: 'gated', name: 'Gated', version: '1.0.0', tier: 1, sync: { intervalMs: 1000, isActive: (ctx) => ctx.account.on === true, tick } },
     ]);
     const mgr = makeMgr();
     await mgr._startPluginSyncTimers({ id: 'a2', on: false });
@@ -678,7 +663,7 @@ describe('_startPluginSyncTimers / _stopPluginSyncTimers', () => {
   });
 
   it('ignores a plugin with no sync descriptor', async () => {
-    listSpy = vi.spyOn(pluginRegistry, 'list').mockReturnValue([{ id: 'routeronly', name: 'Router only', version: '1.0.0', tier: 1 }]);
+    vi.spyOn(pluginRegistry, 'list').mockReturnValue([{ id: 'routeronly', name: 'Router only', version: '1.0.0', tier: 1 }]);
     const mgr = makeMgr();
     await mgr._startPluginSyncTimers({ id: 'a3' });
     expect(mgr.pluginSyncIntervals.size).toBe(0);
@@ -686,7 +671,7 @@ describe('_startPluginSyncTimers / _stopPluginSyncTimers', () => {
 
   it('tears down only the given account\'s timers', async () => {
     const tick = vi.fn();
-    listSpy = vi.spyOn(pluginRegistry, 'list').mockReturnValue([
+    vi.spyOn(pluginRegistry, 'list').mockReturnValue([
       { id: 'fake', name: 'Fake', version: '1.0.0', tier: 1, sync: { intervalMs: 1000, isActive: () => true, tick } },
     ]);
     const mgr = makeMgr();
@@ -1447,9 +1432,13 @@ describe('walkStructure attachment classification', () => {
       ],
     });
     expect(results.inlineImages).toHaveLength(1);
-    expect(results.inlineImages?.[0]?.cid).toBe('logo@x');
+    const [inlineImage] = results.inlineImages;
+    if (!inlineImage) throw new Error('expected inline image');
+    expect(inlineImage.cid).toBe('logo@x');
     expect(results.attachments).toHaveLength(1);
-    expect(results.attachments[0].filename).toBe('photo.jpg');
+    const [attachment] = results.attachments;
+    if (!attachment) throw new Error('expected attachment');
+    expect(attachment.filename).toBe('photo.jpg');
   });
 
   it('named non-text parts without a disposition are still attachments', () => {
@@ -1541,15 +1530,16 @@ describe('walkStructure attachment classification', () => {
     // app emails out. The fetcher must decode it before anyone parses it.
     const rawParts = new Map([['2', Buffer.from(Buffer.from(ics, 'utf8').toString('base64'), 'utf8')]]);
     ImapFlow.mockImplementation(function () {
-      const client = (new EventEmitter() as FakeImapClient);
-      client.connect = vi.fn(async () => { client.authenticated = true; return client; });
-      client.logout = vi.fn(async () => {});
-      client.close = vi.fn();
-      client.mailbox = { exists: 1, uidValidity: 1n, path: 'INBOX' };
-      client.getMailboxLock = vi.fn(async () => ({ release: vi.fn() }));
-      client.fetch = vi.fn(() => (async function* generate() { yield { bodyStructure, bodyParts: rawParts }; })());
-      client.list = vi.fn(async () => []);
-      return client;
+      return mockImapClient(Object.assign(new EventEmitter(), {
+        authenticated: true,
+        connect: vi.fn(async () => {}),
+        logout: vi.fn(async () => {}),
+        close: vi.fn(),
+        mailbox: { exists: 1, uidValidity: 1n, path: 'INBOX' },
+        getMailboxLock: vi.fn(async () => ({ release: vi.fn() })),
+        fetch: vi.fn(() => (async function* generate() { yield { bodyStructure, bodyParts: rawParts }; })()),
+        list: vi.fn(async () => []),
+      }));
     });
     getConnectionPolicy.mockResolvedValue({ allowPrivateHosts: true, allowInsecureTls: true, allowNonstandardPorts: true });
     resolveForConnection.mockResolvedValue({ host: '127.0.0.1', addresses: ['127.0.0.1'], servername: null });
@@ -1646,18 +1636,19 @@ describe("connectAccount attaches 'error' before connect (#360)", () => {
     let emitThrew = false;
 
     ImapFlow.mockImplementation(function () {
-      const client = (new EventEmitter() as FakeImapClient);
-      client.connect = vi.fn(() => {
-        errorListenersAtConnect = client.listenerCount('error');
-        // Simulate a transport 'error' during the handshake. With the listener already
-        // attached this is a logged no-op; without it, emit() throws synchronously —
-        // which is exactly the process-killing #360 crash.
-        try { client.emit('error', new Error('Socket timeout')); } catch { emitThrew = true; }
-        return Promise.resolve();
+      const client = Object.assign(new EventEmitter(), {
+        connect: vi.fn(() => {
+          errorListenersAtConnect = client.listenerCount('error');
+          // Simulate a transport 'error' during the handshake. With the listener already
+          // attached this is a logged no-op; without it, emit() throws synchronously —
+          // which is exactly the process-killing #360 crash.
+          try { client.emit('error', new Error('Socket timeout')); } catch { emitThrew = true; }
+          return Promise.resolve();
+        }),
+        logout: vi.fn(() => Promise.resolve()),
+        close: vi.fn(),
       });
-      client.logout = vi.fn(() => Promise.resolve());
-      client.close = vi.fn();
-      return client;
+      return mockImapClient(client);
     });
 
     // PurelyMail host: preferFreshBodyFetch skips the pool pre-warm and its private
@@ -2063,7 +2054,7 @@ describe('syncMessages — empty mailbox still stamps last_sync', () => {
 });
 
 it('queues an IDLE arrival during a running sync instead of dropping it', () => {
-  const client = (new EventEmitter() as FakeImapClient);
+  const client = fakeImapClient();
   const mgr = new ImapManager({ clients: new Set() });
   const account = { id: 'idle-busy', user_id: 'user-1' };
   mgr.syncingAccounts.add(account.id);
