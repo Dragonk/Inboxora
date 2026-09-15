@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { ConversationLogicalMessage, ConversationReplyPayload, MessageBody, MessageBodyStatus } from './ConversationReader.tsx';
 import type { StoreState } from '../store/index.ts';
@@ -10,7 +10,7 @@ import MessageHeaderModal from './MessageHeaderModal.tsx';
 import { useMobile } from '../hooks/useMobile.ts';
 import { useStore } from '../store/index.ts';
 import { physicalCopyDirection, preferredAccountCopy } from '../utils/conversationDirection.ts';
-import { api } from '../utils/api.ts';
+import { api, isAbortError } from '../utils/api.ts';
 import { conversationApi } from '../utils/conversationApi.ts';
 import { toAppError } from '../utils/errors.ts';
 
@@ -223,6 +223,11 @@ export default function ConversationMessage({ conversationId, message, selectedC
   const [foldersLoading, setFoldersLoading] = useState(false);
   const [showHeaders, setShowHeaders] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [aiResults, setAiResults] = useState<Record<string, { status: 'loading' | 'done' | 'error'; text: string; label: string }>>({});
+  const aiAbortRefs = useRef<Record<string, AbortController | undefined>>({});
+  useEffect(() => () => {
+    Object.values(aiAbortRefs.current).forEach(controller => controller?.abort());
+  }, []);
 
   const toggle = () => {
     onToggle(message.id);
@@ -298,10 +303,27 @@ export default function ConversationMessage({ conversationId, message, selectedC
   };
   const inSpamFolder = /(^|\/)(spam|junk)(\/|$)/i.test(String(copy.folder || ''));
   const availableAiActions = body ? [{ id: 'summarize', label: t('message.summarize'), prompt: 'Summarize this email.' }, ...(aiActions || [])] : [];
-  const runAiAction = (action: { id: string; [key: string]: unknown }) => {
+  const runAiAction = async (action: { id: string; [key: string]: unknown }) => {
     const text = bodyText || String(bodyHtml || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-    if (!text || typeof action.prompt !== 'string') return;
-    api.ai.chat([{ role: 'user', content: `${action.prompt}\n\n${text.slice(0, 6000)}` }]).catch(error => setActionError(toAppError(error).message));
+    const prompt = typeof action.prompt === 'string' ? action.prompt : '';
+    if (!text || !prompt || !action.id) return;
+
+    const key = action.id;
+    const label = typeof action.label === 'string' ? action.label : key;
+    aiAbortRefs.current[key]?.abort();
+    const controller = new AbortController();
+    aiAbortRefs.current[key] = controller;
+    setAiResults(results => ({ ...results, [key]: { status: 'loading', text: '', label } }));
+    try {
+      const result = await api.ai.chat([{ role: 'user', content: `${prompt}\n\n${text.slice(0, 6000)}` }], {
+        signal: controller.signal,
+        onDelta: partial => setAiResults(results => ({ ...results, [key]: { status: 'loading', text: partial, label } })),
+      });
+      setAiResults(results => ({ ...results, [key]: { status: 'done', text: result, label } }));
+    } catch (error) {
+      if (isAbortError(error)) return;
+      setAiResults(results => ({ ...results, [key]: { status: 'error', text: toAppError(error).message, label } }));
+    }
   };
 
   const toggleLabel = t(expanded ? 'conversation.collapseMessage' : 'conversation.expandMessage', { sender, subject });
@@ -363,7 +385,7 @@ export default function ConversationMessage({ conversationId, message, selectedC
         onViewHeaders={() => setShowHeaders(true)}
         onPrint={body ? handlePrint : undefined}
         aiActions={availableAiActions}
-        onAiAction={runAiAction}
+        onAiAction={action => { void runAiAction(action); }}
         onManageAiActions={() => { setAdminTab('ai-actions'); setShowAdmin(true); }}
         onStar={() => {
           const isStarred = !(copy.isStarred ?? copy.is_starred);
@@ -446,6 +468,14 @@ export default function ConversationMessage({ conversationId, message, selectedC
     </div>
 
     {actionError && <div role="alert" style={{ padding: '8px 12px', color: 'var(--red)' }}>{actionError}</div>}
+    {Object.entries(aiResults).map(([key, result]) => (
+      <section key={key} data-testid="conversation-ai-result" data-ai-action-id={key} style={{ margin: '0 12px 12px', padding: '12px 14px', border: '1px solid var(--border)', borderLeft: '3px solid var(--accent)', borderRadius: 8, background: 'var(--bg-secondary)' }}>
+        <strong style={{ display: 'block', fontSize: 12, color: 'var(--accent)', marginBottom: 6 }}>{result.label}</strong>
+        {result.status === 'loading' && <span role="status" style={{ color: 'var(--text-tertiary)', fontStyle: 'italic', whiteSpace: 'pre-wrap' }}>{result.text || t('compose.toolbar.aiGenerating')}</span>}
+        {result.status === 'error' && <span role="alert" style={{ color: 'var(--red)', whiteSpace: 'pre-wrap' }}>{t('compose.toolbar.aiError', { message: result.text })}</span>}
+        {result.status === 'done' && <div style={{ whiteSpace: 'pre-wrap' }}>{result.text}</div>}
+      </section>
+    ))}
     {expanded && <div data-conversation-message-expanded-content="true" style={{ padding: '0 0 12px' }}>
       {expanded && !hasAccountCopy && <div role="status" style={{ padding: 16, color: 'var(--text-tertiary)' }}>{t('conversation.noBody')}</div>}
       {copy.id && detailMessage && <MessageDetailContent
