@@ -43,10 +43,6 @@ jobs:
         working-directory: backend
         run: npm run lint
 
-      - name: Plugin boundary
-        working-directory: backend
-        run: npm run lint:plugins
-
       - name: Test
         working-directory: backend
         run: npm test

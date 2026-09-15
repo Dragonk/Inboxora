@@ -70,8 +70,22 @@ Real defects found while typing the code — each is something JavaScript could 
   React 18 type definitions.
 - Test doubles and fixtures that silently disagreed with the code they stand in for (a missing
   `verify()` on the SMTP transport double, `parseMessage` results without their required
-  fields, mock return values without `rows`). The full running list of findings, with the
-  reasoning for each, is kept in `TYPESCRIPT_MIGRATION_FIXES.md`.
+  fields, mock return values without `rows`).
+- **HTTP query parameters were treated as strings without validation.** Express can provide a
+  string, an array or nested query data; shared `queryString`/`queryInt` guards now reject invalid
+  shapes before they reach mail, auth and calendar services.
+- **OAuth/OIDC, CardDAV, Todoist and AI provider payloads crossed the application boundary as
+  unchecked values.** Each now has an explicit response/request contract and narrows external
+  data before it is consumed.
+- **Calendar projection and IMAP timeout promises inferred `unknown` or mixed result shapes.**
+  The projection queue, provider profiles, mail append flow and sync planning now use declared
+  result and option types, preventing invalid field reads and wrong callback contracts.
+- **Conversation and message-action contracts disagreed across callers.** Optional copy/logical
+  message identifiers, body snippets, mail options and read-state action inputs now match the
+  behavior that production code implements.
+
+These fixes are documented here as the release record; no standalone migration report is kept at
+repository root.
 
 ### Notes
 

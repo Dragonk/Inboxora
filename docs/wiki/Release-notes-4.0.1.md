@@ -43,8 +43,10 @@ ones:
 - **Stream handling without narrowing**, request/response shapes read by the client but never
   produced by the server, and untyped frontend style objects that hid a missing React attribute.
 
-The full list, including the smaller items, is in `TYPESCRIPT_MIGRATION_FIXES.md` at the repository
-root.
+The audit also corrected unsafe Express query handling, external OAuth/OIDC, CardDAV, Todoist and
+AI-provider response boundaries, IMAP and calendar-projection result contracts, and mismatched
+conversation-action inputs. The complete release record is maintained in
+[`docs/CHANGELOG.md`](../CHANGELOG.md), not in separate migration reports at repository root.
 
 ## What changed for you
 
@@ -67,6 +69,6 @@ The source tree has no TypeScript suppression pragmas, ESLint-disable pragmas, o
 consumer declares or narrows the shape it needs. CI enforces the strict typecheck before building
 or testing.
 
-See `docs/CHANGELOG.md` for the change-by-change entry and `TYPESCRIPT_MIGRATION_STATUS.md` for the
-verified state.
+See [`docs/CHANGELOG.md`](../CHANGELOG.md) for the complete change and fix record. The developer
+verification commands are documented in the development guide.
 

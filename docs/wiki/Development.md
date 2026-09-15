@@ -140,10 +140,9 @@ reports, audit notes and one-off regression scripts do not belong in the tree â€
 into the relevant Wiki page, into [`docs/CHANGELOG.md`](https://github.com/Dragonk/Inboxora/blob/dev/docs/CHANGELOG.md),
 or into the commit message that fixed the issue. Git history keeps the full record.
 
-The one standing exception is the TypeScript migration audit trail: `TYPESCRIPT_MIGRATION_FIXES.md`,
-`TYPESCRIPT_MIGRATION_PLAN.md` and `TYPESCRIPT_MIGRATION_STATUS.md` live at the repository root so the
-finding-by-finding record behind [Release notes 4.0.1](Release-notes-4.0.1.md) stays reviewable.
-They can be folded into the Wiki once the 4.0.1 line is the only supported one.
+The 4.0.1 TypeScript migration is recorded in [Release notes 4.0.1](Release-notes-4.0.1.md) and
+[`docs/CHANGELOG.md`](https://github.com/Dragonk/Inboxora/blob/dev/docs/CHANGELOG.md); it has no
+separate root-level audit reports.
 
 ## Documentation policy
 
