@@ -1053,6 +1053,9 @@ interface ConnectionPool {
   clients: ImapClient[];
   inUse: Set<ImapClient>;
   waiters: ConnectionWaiter[];
+  // Slots reserved by a caller that is resolving/connecting but has not yet
+  // produced a client. They count against the pool limit.
+  connecting: number;
 }
 
 const connectionPools = new Map<string, ConnectionPool>(); // accountId -> { clients, inUse, waiters }
@@ -1303,7 +1306,7 @@ async function acquirePooledClient(account: EmailAccountRow): Promise<ImapClient
   const id = account.id;
   let pool = connectionPools.get(id);
   if (!pool) {
-    pool = { clients: [], inUse: new Set(), waiters: [] };
+    pool = { clients: [], inUse: new Set(), waiters: [], connecting: 0 };
     connectionPools.set(id, pool);
   }
 
@@ -1314,13 +1317,24 @@ async function acquirePooledClient(account: EmailAccountRow): Promise<ImapClient
     return idle;
   }
 
-  // Grow pool if under limit — refresh token before creating a new connection
-  if (pool.clients.length < POOL_SIZE) {
-    const freshAccount = await ensureFreshToken(account);
-    const { resolved, policy } = await resolveAccountHost(freshAccount);
-    // Connect with the shared IPv4-fallback helper (#382); it attaches the #360 handshake-error
-    // listener and recovers from a stalled IPv6 handshake by retrying IPv4-only.
-    const client = await connectImapClient(freshAccount, resolved, { policy }, 30000, 'IMAP pool connect');
+  // Reserve a slot synchronously, before any token/DNS/connect await. Otherwise a
+  // burst of callers can all observe an empty pool and create unbounded sockets.
+  if (pool.clients.length + pool.connecting < POOL_SIZE) {
+    pool.connecting += 1;
+    let reservationHeld = true;
+    try {
+      const freshAccount = await ensureFreshToken(account);
+      const { resolved, policy } = await resolveAccountHost(freshAccount);
+      // Connect with the shared IPv4-fallback helper (#382); it attaches the #360 handshake-error
+      // listener and recovers from a stalled IPv6 handshake by retrying IPv4-only.
+      const client = await connectImapClient(freshAccount, resolved, { policy }, 30000, 'IMAP pool connect');
+      pool.connecting -= 1;
+      reservationHeld = false;
+      // A disconnect can evict the pool while this connection was being made.
+      if (connectionPools.get(id) !== pool) {
+        client.logout().catch(() => {});
+        throw new Error('IMAP pool was evicted while connecting');
+      }
     // Remove from pool immediately when the server closes the socket, then
     // wake any waiters so they can claim another idle connection if one exists.
     client.on('close', () => {
@@ -1331,9 +1345,15 @@ async function acquirePooledClient(account: EmailAccountRow): Promise<ImapClient
         drainWaiters(p);
       }
     });
-    pool.clients.push(client);
-    pool.inUse.add(client);
-    return client;
+      pool.clients.push(client);
+      pool.inUse.add(client);
+      return client;
+    } finally {
+      if (reservationHeld) {
+        pool.connecting = Math.max(0, pool.connecting - 1);
+        drainWaiters(pool);
+      }
+    }
   }
 
   // Pool full — queue a waiter; on 10s timeout fall back to a temporary client
