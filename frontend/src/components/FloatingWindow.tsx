@@ -128,7 +128,7 @@ export default function FloatingWindow({
     document.body.style.userSelect = 'none';
     let curW = startRect.width;
     let curH = startRect.height;
-    const onMove = (ev) => {
+    const onMove = (ev: PointerEvent) => {
       curW = Math.min(window.innerWidth - x - 4, Math.max(MIN_W, startRect.width + ev.clientX - startMouseX));
       curH = Math.min(window.innerHeight - y - 4, Math.max(MIN_H, startRect.height + ev.clientY - startMouseY));
       el.style.width = curW + 'px';

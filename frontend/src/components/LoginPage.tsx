@@ -151,7 +151,7 @@ export default function LoginPage() {
           return;
         }
       } else {
-        data = await api.register(username, password, inviteToken || undefined);
+        data = await api.register(username, password, inviteToken);
       }
       setUser(data.user);
       await loadPreferences();
