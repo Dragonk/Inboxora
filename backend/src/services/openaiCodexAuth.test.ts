@@ -4,11 +4,11 @@ vi.mock('./db.js', () => ({ query: vi.fn(), withTransaction: vi.fn() }));
 import { OPENAI_CODEX_DEVICE_URL, createOpenAiCodexAuth, createPostgresCodexStore, decodeJwtClaims, extractChatGptAccount, hashSessionId } from './openaiCodexAuth.js';
 import type { CodexStore, CodexFlowInput, CodexClaimInput, CodexReleaseInput, CodexAuthorizeInput, CodexCompleteInput, CodexCancelInput, CodexLatestInput, CodexCredentialLock, CodexDeviceFlow } from './openaiCodexAuth.js';
 import { decrypt, encrypt } from './encryption.js';
-import { withTransaction as __mock_withTransaction } from './db.js';
+import { withTransaction } from './db.js';
 import { mockPoolClient } from '../test/poolClient.js';
 
-// Cast mocked module exports so their vitest mock helpers type-check.
-const withTransaction = vi.mocked(__mock_withTransaction);
+// Obtain Vitest's typed mock contract for the mocked transaction helper.
+const mockWithTransaction = vi.mocked(withTransaction);
 
 const KEY = '11'.repeat(32);
 
@@ -31,12 +31,14 @@ function accessToken({ accountId = 'acct_123', email = 'owner@example.com', expi
 
 /** A promise together with its settle functions, captured after construction. */
 function deferred<T>() {
-  const controls: { resolve: (value: T | PromiseLike<T>) => void; reject: (reason?: unknown) => void }[] = [];
+  let resolvePromise: ((value: T | PromiseLike<T>) => void) | undefined;
+  let rejectPromise: ((reason?: unknown) => void) | undefined;
   const promise = new Promise<T>((resolve, reject) => {
-    controls.push({ resolve, reject });
+    resolvePromise = resolve;
+    rejectPromise = reject;
   });
-  const control = controls[0];
-  return { promise, resolve: control.resolve, reject: control.reject };
+  if (!resolvePromise || !rejectPromise) throw new Error('Deferred promise controls were not initialized');
+  return { promise, resolve: resolvePromise, reject: rejectPromise };
 }
 
 /** The persisted ChatGPT credential fields these tests seed and read back. */
@@ -51,10 +53,10 @@ interface StoredCredential {
 }
 
 class MemoryStore implements CodexStore {
-  flows: Map<any, any>;
+  flows: Map<string, CodexDeviceFlow>;
   credential: string | null;
   nextId: number;
-  lock: Promise<any>;
+  lock: Promise<void>;
 
   constructor() {
     this.flows = new Map();
@@ -91,8 +93,8 @@ class MemoryStore implements CodexStore {
     return { ...record };
   }
 
-  owned(flow: CodexDeviceFlow, owner: { adminUserId: string; sessionHash: string }) {
-    return flow && flow.adminUserId === owner.adminUserId && flow.sessionHash === owner.sessionHash;
+  owned(flow: CodexDeviceFlow | undefined, owner: { adminUserId: string; sessionHash: string }): flow is CodexDeviceFlow {
+    return flow !== undefined && flow.adminUserId === owner.adminUserId && flow.sessionHash === owner.sessionHash;
   }
 
   async claimFlow({ id, adminUserId, sessionHash, now, staleBefore }: CodexClaimInput) {
@@ -118,7 +120,7 @@ class MemoryStore implements CodexStore {
 
   async releaseFlow({ id, state, intervalMs, nextPollAt, failureCode, clearSecrets = false }: CodexReleaseInput) {
     const flow = this.flows.get(id);
-    if (!['polling', 'authorized'].includes(flow.state)) return;
+    if (!flow || !['polling', 'authorized'].includes(flow.state)) return;
     flow.state = state;
     if (intervalMs !== undefined) flow.intervalMs = intervalMs;
     if (nextPollAt !== undefined) flow.nextPollAt = nextPollAt;
@@ -134,7 +136,7 @@ class MemoryStore implements CodexStore {
 
   async authorizeFlow({ id, authorizationCodeEnc, codeVerifierEnc }: CodexAuthorizeInput) {
     const flow = this.flows.get(id);
-    if (flow.state !== 'polling') return false;
+    if (!flow || flow.state !== 'polling') return false;
     flow.authorizationCodeEnc = authorizationCodeEnc;
     flow.codeVerifierEnc = codeVerifierEnc;
     flow.state = 'authorized';
@@ -143,7 +145,7 @@ class MemoryStore implements CodexStore {
 
   async completeFlow({ id, encryptedCredential }: CodexCompleteInput) {
     const flow = this.flows.get(id);
-    if (flow.state !== 'authorized' && flow.state !== 'polling') return false;
+    if (!flow || (flow.state !== 'authorized' && flow.state !== 'polling')) return false;
     this.credential = encryptedCredential;
     Object.assign(flow, {
       state: 'completed',
@@ -202,6 +204,12 @@ class MemoryStore implements CodexStore {
   }
 }
 
+function storedFlow(store: MemoryStore, flowId: string): CodexDeviceFlow {
+  const flow = store.flows.get(flowId);
+  if (!flow) throw new Error('Expected test flow ' + flowId + ' to exist');
+  return flow;
+}
+
 function service({ store = new MemoryStore(), fetchFn = vi.fn(), now = () => Date.now() } = {}) {
   return { auth: createOpenAiCodexAuth({ store, fetchFn, now }), store, fetchFn };
 }
@@ -225,7 +233,7 @@ function readCredential(store: MemoryStore): Record<string, unknown> {
 
 beforeEach(() => {
   process.env.ENCRYPTION_KEY = KEY;
-  withTransaction.mockReset();
+  mockWithTransaction.mockReset();
 });
 
 afterEach(() => {
@@ -253,7 +261,7 @@ describe('JWT helpers', () => {
 describe('Postgres credential lifecycle', () => {
   it('cancels active device flows before deleting the shared credential', async () => {
     const client = mockPoolClient({ query: vi.fn().mockResolvedValue({ rows: [] }) });
-    withTransaction.mockImplementation((callback) => callback(client));
+    mockWithTransaction.mockImplementation((callback) => callback(client));
 
     await createPostgresCodexStore().disconnect();
 
@@ -264,7 +272,7 @@ describe('Postgres credential lifecycle', () => {
 
   it('locks the admin row before replacing an active device flow', async () => {
     const client = mockPoolClient({ query: vi.fn().mockResolvedValue({ rows: [] }) });
-    withTransaction.mockImplementation((callback) => callback(client));
+    mockWithTransaction.mockImplementation((callback) => callback(client));
 
     await createPostgresCodexStore().createFlow({
       adminUserId: 'admin-1',
@@ -301,7 +309,7 @@ describe('device authorization lifecycle', () => {
       status: 'pending',
     });
     expect(result).not.toHaveProperty('deviceAuthId');
-    const stored = store.flows.get('flow-1');
+    const stored = storedFlow(store, 'flow-1');
     expect(stored.deviceAuthIdEnc).toMatch(/^enc:v1:/);
     expect(stored.userCodeEnc).toMatch(/^enc:v1:/);
     expect(stored.sessionHash).toBe(hashSessionId('session-secret'));
@@ -381,7 +389,7 @@ describe('device authorization lifecycle', () => {
       fetchFn: vi.fn().mockResolvedValue(jsonResponse({ device_auth_id: 'd', user_code: 'U', interval: 1 })),
     });
     const started = await first.startDeviceFlow({ userId: 'admin', sessionId: 'session' });
-    store.flows.get(started.flowId).nextPollAt = 0;
+    storedFlow(store, started.flowId).nextPollAt = 0;
 
     const fetchFn = vi.fn().mockResolvedValue(pendingResponse);
     const afterRestart = createOpenAiCodexAuth({ store, fetchFn: fetchFn });
@@ -390,7 +398,7 @@ describe('device authorization lifecycle', () => {
     });
 
     expect(result).toMatchObject({ status: 'pending', retryAfterMs: 1000 });
-    expect(store.flows.get(started.flowId).state).toBe('pending');
+    expect(storedFlow(store, started.flowId).state).toBe('pending');
     expect(fetchFn).toHaveBeenCalledTimes(1);
   });
 
@@ -401,7 +409,7 @@ describe('device authorization lifecycle', () => {
       fetchFn: vi.fn().mockResolvedValue(jsonResponse({ device_auth_id: 'd', user_code: 'U', interval: 1 })),
     });
     const { flowId } = await start.startDeviceFlow({ userId: 'admin', sessionId: 'session' });
-    store.flows.get(flowId).nextPollAt = 0;
+    storedFlow(store, flowId).nextPollAt = 0;
     const poll = createOpenAiCodexAuth({
       store,
       fetchFn: vi.fn().mockResolvedValue(jsonResponse({ error: 'slow_down' }, 400)),
@@ -409,7 +417,7 @@ describe('device authorization lifecycle', () => {
 
     await expect(poll.pollDeviceFlow({ flowId, userId: 'admin', sessionId: 'session' }))
       .resolves.toMatchObject({ status: 'pending', retryAfterMs: 6000 });
-    expect(store.flows.get(flowId).intervalMs).toBe(6000);
+    expect(storedFlow(store, flowId).intervalMs).toBe(6000);
   });
 
   it('recovers a stale polling claim after a backend restart', async () => {
@@ -421,7 +429,7 @@ describe('device authorization lifecycle', () => {
       fetchFn: vi.fn().mockResolvedValue(jsonResponse({ device_auth_id: 'd', user_code: 'U', interval: 1 })),
     });
     const { flowId } = await starter.startDeviceFlow({ userId: 'admin', sessionId: 'session' });
-    Object.assign(store.flows.get(flowId), { state: 'polling', updatedAt: 0, nextPollAt: 0 });
+    Object.assign(storedFlow(store, flowId), { state: 'polling', updatedAt: 0, nextPollAt: 0 });
     const fetchFn = vi.fn().mockResolvedValue(new Response(null, { status: 404 }));
     const restarted = createOpenAiCodexAuth({ store, fetchFn: fetchFn, now: () => now });
 
@@ -439,7 +447,7 @@ describe('device authorization lifecycle', () => {
       fetchFn: vi.fn().mockResolvedValue(jsonResponse({ device_auth_id: 'd', user_code: 'U', interval: 1 })),
     });
     const { flowId } = await starter.startDeviceFlow({ userId: 'admin', sessionId: 'session' });
-    store.flows.get(flowId).nextPollAt = 0;
+    storedFlow(store, flowId).nextPollAt = 0;
     const pollResponse = deferred<Response>();
     const fetchFn = vi.fn<typeof fetch>(() => pollResponse.promise);
     const one = createOpenAiCodexAuth({ store, fetchFn: fetchFn, now: () => now });
@@ -460,7 +468,7 @@ describe('device authorization lifecycle', () => {
     });
     const { flowId } = await auth.startDeviceFlow({ userId: 'admin', sessionId: 'owner' });
     fetchFn.mockClear();
-    store.flows.get(flowId).nextPollAt = 0;
+    storedFlow(store, flowId).nextPollAt = 0;
 
     await expect(auth.pollDeviceFlow({ flowId, userId: 'admin', sessionId: 'intruder' }))
       .rejects.toMatchObject({ status: 404 });
@@ -491,7 +499,7 @@ describe('device authorization lifecycle', () => {
     const fetchFn = vi.fn().mockResolvedValue(jsonResponse({ device_auth_id: 'd', user_code: 'U', interval: 1 }));
     const auth = createOpenAiCodexAuth({ store, fetchFn: fetchFn });
     const { flowId } = await auth.startDeviceFlow({ userId: 'admin', sessionId: 'session' });
-    store.flows.get(flowId).state = 'completed';
+    storedFlow(store, flowId).state = 'completed';
 
     await expect(auth.cancelDeviceFlow({ flowId, userId: 'admin', sessionId: 'session' }))
       .rejects.toMatchObject({ status: 404 });
@@ -504,7 +512,7 @@ describe('device authorization lifecycle', () => {
       fetchFn: vi.fn().mockResolvedValue(jsonResponse({ device_auth_id: 'd', user_code: 'U', interval: 1 })),
     });
     const { flowId } = await starter.startDeviceFlow({ userId: 'admin', sessionId: 'session' });
-    store.flows.get(flowId).nextPollAt = 0;
+    storedFlow(store, flowId).nextPollAt = 0;
     const pollResponse = deferred<Response>();
     const fetchFn = vi.fn<typeof fetch>(() => pollResponse.promise);
     const auth = createOpenAiCodexAuth({ store, fetchFn: fetchFn });
@@ -526,7 +534,7 @@ describe('device authorization lifecycle', () => {
       fetchFn: vi.fn().mockResolvedValue(jsonResponse({ device_auth_id: 'd', user_code: 'U', interval: 1 })),
     });
     const { flowId } = await starter.startDeviceFlow({ userId: 'admin', sessionId: 'session' });
-    store.flows.get(flowId).nextPollAt = 0;
+    storedFlow(store, flowId).nextPollAt = 0;
     const pollResponse = deferred<Response>();
     const fetchFn = vi.fn<typeof fetch>(() => pollResponse.promise);
     const auth = createOpenAiCodexAuth({ store, fetchFn: fetchFn });
@@ -538,7 +546,7 @@ describe('device authorization lifecycle', () => {
     pollResponse.reject(new Error('network down'));
 
     await assertion;
-    expect(store.flows.get(flowId).state).toBe('cancelled');
+    expect(storedFlow(store, flowId).state).toBe('cancelled');
   });
 
   it('does not persist credentials when cancellation wins an in-flight token exchange', async () => {
@@ -548,7 +556,7 @@ describe('device authorization lifecycle', () => {
       fetchFn: vi.fn().mockResolvedValue(jsonResponse({ device_auth_id: 'd', user_code: 'U', interval: 1 })),
     });
     const { flowId } = await starter.startDeviceFlow({ userId: 'admin', sessionId: 'session' });
-    store.flows.get(flowId).nextPollAt = 0;
+    storedFlow(store, flowId).nextPollAt = 0;
     const exchangeResponse = deferred<Response>();
     const fetchFn = vi.fn()
       .mockResolvedValueOnce(jsonResponse({ authorization_code: 'code', code_verifier: 'verifier' }))
@@ -573,7 +581,7 @@ describe('device authorization lifecycle', () => {
       fetchFn: vi.fn().mockResolvedValue(jsonResponse({ device_auth_id: 'd', user_code: 'U', interval: 1 })),
     });
     const { flowId } = await start.startDeviceFlow({ userId: 'admin', sessionId: 'session' });
-    store.flows.get(flowId).nextPollAt = 0;
+    storedFlow(store, flowId).nextPollAt = 0;
     const token = accessToken();
     const fetchFn = vi.fn()
       .mockResolvedValueOnce(jsonResponse({ authorization_code: 'auth-code', code_verifier: 'verifier' }))
@@ -588,7 +596,7 @@ describe('device authorization lifecycle', () => {
     expect(exchangeBody.get('code_verifier')).toBe('verifier');
     expect(store.credential).toMatch(/^enc:v1:/);
     expect(readCredential(store).accountLabel).toBe('o***@example.com');
-    expect(JSON.stringify(store.flows.get(flowId))).not.toMatch(/auth-code|verifier|refresh-secret/);
+    expect(JSON.stringify(storedFlow(store, flowId))).not.toMatch(/auth-code|verifier|refresh-secret/);
 
     await expect(auth.getStatus({ userId: 'admin', sessionId: 'session' })).resolves.toMatchObject({
       connected: true,
@@ -611,7 +619,7 @@ describe('device authorization lifecycle', () => {
       fetchFn: vi.fn().mockResolvedValue(jsonResponse({ device_auth_id: 'd', user_code: 'U', interval: 1 })),
     });
     const { flowId } = await starter.startDeviceFlow({ userId: 'admin', sessionId: 'session' });
-    store.flows.get(flowId).nextPollAt = 0;
+    storedFlow(store, flowId).nextPollAt = 0;
     const firstFetch = vi.fn()
       .mockResolvedValueOnce(jsonResponse({ authorization_code: 'auth-code', code_verifier: 'verifier' }))
       .mockResolvedValueOnce(jsonResponse({ error: 'server_error' }, 503));
@@ -619,8 +627,8 @@ describe('device authorization lifecycle', () => {
 
     await expect(firstPoll.pollDeviceFlow({ flowId, userId: 'admin', sessionId: 'session' }))
       .rejects.toMatchObject({ transient: true });
-    expect(store.flows.get(flowId).state).toBe('authorized');
-    expect(store.flows.get(flowId).authorizationCodeEnc).toMatch(/^enc:v1:/);
+    expect(storedFlow(store, flowId).state).toBe('authorized');
+    expect(storedFlow(store, flowId).authorizationCodeEnc).toMatch(/^enc:v1:/);
 
     const retryFetch = vi.fn().mockResolvedValue(jsonResponse({
       access_token: accessToken(), refresh_token: 'new-refresh', expires_in: 3600,
@@ -639,7 +647,7 @@ describe('device authorization lifecycle', () => {
       fetchFn: vi.fn().mockResolvedValue(jsonResponse({ device_auth_id: 'd', user_code: 'U', interval: 1 })),
     });
     const { flowId } = await starter.startDeviceFlow({ userId: 'admin', sessionId: 'session' });
-    store.flows.get(flowId).nextPollAt = 0;
+    storedFlow(store, flowId).nextPollAt = 0;
     const badToken = `${Buffer.from('{}').toString('base64url')}.${Buffer.from('{}').toString('base64url')}.x`;
     const auth = createOpenAiCodexAuth({
       store,
@@ -651,7 +659,7 @@ describe('device authorization lifecycle', () => {
     await expect(auth.pollDeviceFlow({ flowId, userId: 'admin', sessionId: 'session' }))
       .rejects.toThrow(/account/i);
     expect(store.credential).toBeNull();
-    expect(store.flows.get(flowId).state).toBe('failed');
+    expect(storedFlow(store, flowId).state).toBe('failed');
   });
 });
 
@@ -804,7 +812,7 @@ describe('credential refresh and disconnect', () => {
 
     await expect(auth.disconnectCodex()).resolves.toEqual({ status: 'disconnected' });
     expect(store.credential).toBeNull();
-    expect(store.flows.get(flowId).state).toBe('cancelled');
+    expect(storedFlow(store, flowId).state).toBe('cancelled');
     await expect(auth.getStatus()).resolves.toEqual({
       connected: false, state: 'disconnected', reconnectRequired: false,
     });

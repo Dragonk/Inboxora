@@ -19,7 +19,15 @@ import type { GtdNormalizedSection } from '../utils/gtd.ts';
 
 // Section key -> the state color/chip-bg used for its header, count chip, and the
 // row's left border. Waiting rows override per gtdKind (watch/delegated).
-const SECTION_STATE: Record<string, string> = { todo: 'todo', waiting: 'watch', reference: 'reference', someday: 'someday' };
+type GtdSidebarSectionKey = 'todo' | 'waiting' | 'reference' | 'someday';
+type GtdSidebarSection = GtdNormalizedSection & { key: GtdSidebarSectionKey };
+
+const SECTION_STATE: Record<GtdSidebarSectionKey, keyof typeof GTD_COLORS> = {
+  todo: 'todo',
+  waiting: 'watch',
+  reference: 'reference',
+  someday: 'someday',
+};
 
 export default function GtdSidebarContent({ onCollapse, toggleHint }: { onCollapse: () => void; toggleHint: string }) {
   const { t } = useTranslation();
@@ -71,7 +79,7 @@ export default function GtdSidebarContent({ onCollapse, toggleHint }: { onCollap
           <GtdSection
             key={section.key}
             section={section}
-            collapsed={!!gtdCollapsedSections[section.key]}
+            collapsed={gtdCollapsedSections[section.key] === true}
             onToggle={() => toggleGtdSection(section.key)}
             onOpenRow={openRow}
             rowActions={rowActions}
@@ -101,10 +109,10 @@ export default function GtdSidebarContent({ onCollapse, toggleHint }: { onCollap
 }
 
 function GtdSection({ section, collapsed, onToggle, onOpenRow, rowActions, selectedMessageId, selectedMid, t }: {
-  section: GtdNormalizedSection & { key: string };
+  section: GtdSidebarSection;
   collapsed: boolean;
   onToggle: () => void;
-  onOpenRow: (row: unknown) => void;
+  onOpenRow: ReturnType<typeof useGtdTriage>['openRow'];
   rowActions: GtdTriageRowActions;
   selectedMessageId: string | null;
   selectedMid: string | null;

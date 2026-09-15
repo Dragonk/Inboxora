@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { senderColor } from '../themes.ts';
 import SenderAvatarImage from './SenderAvatarImage.tsx';
 
-export function messageDirection(direction) {
+export function messageDirection(direction: unknown): 'outgoing' | 'incoming' | null {
   if (direction === 'outgoing' || direction === 'self') return 'outgoing';
   if (direction === 'incoming') return 'incoming';
   return null;
@@ -12,11 +12,13 @@ export function messageDirection(direction) {
 export function MessageDirection({ direction, label }: { direction?: string | null; label?: string | null }) {
   const normalized = messageDirection(direction);
   if (!normalized) return null;
-  return <span
-    data-message-direction={normalized}
-    aria-label={label}
-    style={{ color: normalized === 'outgoing' ? 'var(--accent)' : 'var(--blue, #3b82f6)', fontWeight: 700, flexShrink: 0 }}
-  >{normalized === 'outgoing' ? '→' : '←'}</span>;
+
+  const symbol = normalized === 'outgoing' ? '→' : '←';
+  const style = { color: normalized === 'outgoing' ? 'var(--accent)' : 'var(--blue, #3b82f6)', fontWeight: 700, flexShrink: 0 };
+  if (typeof label === 'string') {
+    return <span data-message-direction={normalized} aria-label={label} style={style}>{symbol}</span>;
+  }
+  return <span data-message-direction={normalized} style={style}>{symbol}</span>;
 }
 
 export function MessageAvatar({ email, name, size = 40, hasContactPhoto }: { email?: string | null; name?: string | null; size?: number; hasContactPhoto?: boolean | null }) {

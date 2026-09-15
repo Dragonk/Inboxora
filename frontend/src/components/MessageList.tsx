@@ -1684,7 +1684,7 @@ export default function MessageList() {
     const timer = setTimeout(async () => {
       pendingDeleteTimers.current.delete(key);
       if (undone) return;
-      const chunks = [];
+      const chunks: string[][] = [];
       for (let i = 0; i < deleteIds.length; i += 500) chunks.push(deleteIds.slice(i, i + 500));
       const results = await Promise.allSettled(chunks.map(chunk => api.bulkDelete(chunk)));
       results
@@ -2736,10 +2736,13 @@ export default function MessageList() {
 
   const handleThreadSwipeAction = async (action: string, message: StoreMessageRow) => {
     const members = message.thread_id ? await loadThreadChildren(message) : [message];
-    const target = isExpandableNativeThread(members)
-      ? message
-      : { ...singletonNativeThreadTarget(message, members), _normalizedSingleton: true };
-    if (target?.id) runSwipeAction(action, target);
+    if (isExpandableNativeThread(members)) {
+      runSwipeAction(action, message);
+      return;
+    }
+    const target = singletonNativeThreadTarget(message, members);
+    if (!target || !target.id) return;
+    runSwipeAction(action, { ...target, _normalizedSingleton: true });
   };
 
   const accountColor = selectedAccount?.color || 'currentColor';

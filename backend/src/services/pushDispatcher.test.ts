@@ -1,11 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { dispatchMailNotification, resetDispatchDedup } from './pushDispatcher.js';
 
-const { sendPushToUser, listActivePushDevices, disablePushDevice, markPushDeviceFailure, sendNativePush } = vi.hoisted<any>(() => ({
-  sendPushToUser: vi.fn(),
-  listActivePushDevices: vi.fn(),
-  disablePushDevice: vi.fn(),
-  markPushDeviceFailure: vi.fn(),
-  sendNativePush: vi.fn(),
+type DispatchEvent = Parameters<typeof dispatchMailNotification>[0];
+type PushDevice = Parameters<typeof import('./pushTransports.js').sendNativePush>[0];
+type NativeEvent = NonNullable<DispatchEvent['native']>;
+type NativeVerdict = 'delivered' | 'invalid' | 'retry' | 'disabled';
+
+const { sendPushToUser, listActivePushDevices, disablePushDevice, markPushDeviceFailure, sendNativePush } = vi.hoisted(() => ({
+  sendPushToUser: vi.fn<(userId: string, payload: unknown) => Promise<void>>(),
+  listActivePushDevices: vi.fn<(userId: string) => Promise<PushDevice[]>>(),
+  disablePushDevice: vi.fn<(id: unknown) => Promise<void>>(),
+  markPushDeviceFailure: vi.fn<(id: unknown) => Promise<void>>(),
+  sendNativePush: vi.fn<(device: PushDevice, event: NativeEvent) => Promise<NativeVerdict>>(),
 }));
 
 vi.mock('./pushNotifications.js', () => ({ pushConfigured: true, sendPushToUser }));
@@ -16,15 +22,22 @@ vi.mock('./pushTransports.js', () => ({
   TRANSPORT_RETRY: 'retry',
 }));
 
-import { dispatchMailNotification, resetDispatchDedup } from './pushDispatcher.js';
+function event(): DispatchEvent {
+  return {
+    userId: 'user-1',
+    eventId: 'msg-1',
+    webPush: { title: 'Ada', body: 'Hello' },
+    native: { type: 'mail.changed', eventId: 'msg-1' },
+  };
+}
 
-const event = (overrides = {}) => ({
-  userId: 'user-1',
-  eventId: 'msg-1',
-  webPush: { title: 'Ada', body: 'Hello' },
-  native: { type: 'mail.changed', eventId: 'msg-1' },
-  ...overrides,
-});
+function eventWithId(eventId: string): DispatchEvent {
+  return { ...event(), eventId, native: { type: 'mail.changed', eventId } };
+}
+
+function eventWithoutStableId(): DispatchEvent {
+  return { ...event(), eventId: null, native: null };
+}
 
 beforeEach(() => {
   resetDispatchDedup();
@@ -46,7 +59,9 @@ describe('dispatchMailNotification', () => {
 
     expect(sendPushToUser).toHaveBeenCalledWith('user-1', { title: 'Ada', body: 'Hello' });
     expect(sendNativePush).toHaveBeenCalledTimes(2);
-    expect(sendNativePush.mock.calls[0][1]).toEqual({ type: 'mail.changed', eventId: 'msg-1' });
+    const firstNativeCall = sendNativePush.mock.calls.at(0);
+    if (!firstNativeCall) throw new Error('Expected a native push call');
+    expect(firstNativeCall[1]).toEqual({ type: 'mail.changed', eventId: 'msg-1' });
     expect(summary).toEqual({ dispatched: true, webPush: 'delivered', native: { delivered: 2, invalid: 0, retry: 0, disabled: 0, skipped: null } });
   });
 
@@ -104,12 +119,12 @@ describe('dispatchMailNotification', () => {
     expect(sendPushToUser).toHaveBeenCalledTimes(1);
 
     // A different message is not suppressed.
-    const third = await dispatchMailNotification(event({ eventId: 'msg-2' }));
+    const third = await dispatchMailNotification(eventWithId('msg-2'));
     expect(third.dispatched).toBe(true);
   });
 
   it('skips an event that has no stable id', async () => {
-    const summary = await dispatchMailNotification(event({ eventId: null, native: null }));
+    const summary = await dispatchMailNotification(eventWithoutStableId());
     expect(summary.dispatched).toBe(false);
     expect(sendPushToUser).not.toHaveBeenCalled();
   });

@@ -51,7 +51,18 @@ describe('listMessages — account scope', () => {
     await listMessages({ userId: 'user-1' });
 
     expect(query.mock.calls[1][1]).toEqual([['acc-included']]);
-    expect(query.mock.calls[2][1][0]).toEqual(['acc-included']);
+
+    const messageQuery = query.mock.calls[2];
+    if (!messageQuery) {
+      throw new Error('Expected the messages query to be called');
+    }
+
+    const messageParameters = messageQuery[1];
+    if (!messageParameters) {
+      throw new Error('Expected the messages query to receive parameters');
+    }
+
+    expect(messageParameters[0]).toEqual(['acc-included']);
   });
 
   it('keeps an opted-out account available in its direct account view', async () => {
