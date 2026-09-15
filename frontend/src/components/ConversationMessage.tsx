@@ -13,6 +13,7 @@ import { physicalCopyDirection, preferredAccountCopy } from '../utils/conversati
 import { api, isAbortError } from '../utils/api.ts';
 import { conversationApi } from '../utils/conversationApi.ts';
 import { toAppError } from '../utils/errors.ts';
+import AiMarkdown from './AiMarkdown.tsx';
 
 function address(value: unknown): string {
   if (!value) return '';
@@ -468,16 +469,16 @@ export default function ConversationMessage({ conversationId, message, selectedC
     </div>
 
     {actionError && <div role="alert" style={{ padding: '8px 12px', color: 'var(--red)' }}>{actionError}</div>}
-    {Object.entries(aiResults).map(([key, result]) => (
-      <section key={key} data-testid="conversation-ai-result" data-ai-action-id={key} style={{ margin: '0 12px 12px', padding: '12px 14px', border: '1px solid var(--border)', borderLeft: '3px solid var(--accent)', borderRadius: 8, background: 'var(--bg-secondary)' }}>
-        <strong style={{ display: 'block', fontSize: 12, color: 'var(--accent)', marginBottom: 6 }}>{result.label}</strong>
-        {result.status === 'loading' && <span role="status" style={{ color: 'var(--text-tertiary)', fontStyle: 'italic', whiteSpace: 'pre-wrap' }}>{result.text || t('compose.toolbar.aiGenerating')}</span>}
-        {result.status === 'error' && <span role="alert" style={{ color: 'var(--red)', whiteSpace: 'pre-wrap' }}>{t('compose.toolbar.aiError', { message: result.text })}</span>}
-        {result.status === 'done' && <div style={{ whiteSpace: 'pre-wrap' }}>{result.text}</div>}
-      </section>
-    ))}
     {expanded && <div data-conversation-message-expanded-content="true" style={{ padding: '0 0 12px' }}>
-      {expanded && !hasAccountCopy && <div role="status" style={{ padding: 16, color: 'var(--text-tertiary)' }}>{t('conversation.noBody')}</div>}
+      {Object.entries(aiResults).map(([key, result]) => (
+        <section key={key} data-testid="conversation-ai-result" data-ai-action-id={key} style={{ margin: '0 12px 12px', padding: '12px 14px', border: '1px solid var(--border)', borderLeft: '3px solid var(--accent)', borderRadius: 8, background: 'var(--bg-secondary)' }}>
+          <strong style={{ display: 'block', fontSize: 12, color: 'var(--accent)', marginBottom: 6 }}>{result.label}</strong>
+          {result.status === 'loading' && <span role="status" style={{ color: 'var(--text-tertiary)', fontStyle: 'italic', whiteSpace: 'pre-wrap' }}>{result.text || t('compose.toolbar.aiGenerating')}</span>}
+          {result.status === 'error' && <span role="alert" style={{ color: 'var(--red)', whiteSpace: 'pre-wrap' }}>{t('compose.toolbar.aiError', { message: result.text })}</span>}
+          {result.status === 'done' && <AiMarkdown markdown={result.text} />}
+        </section>
+      ))}
+      {!hasAccountCopy && <div role="status" style={{ padding: 16, color: 'var(--text-tertiary)' }}>{t('conversation.noBody')}</div>}
       {copy.id && detailMessage && <MessageDetailContent
         physicalCopyId={copy.id}
         message={detailMessage}
