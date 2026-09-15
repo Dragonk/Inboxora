@@ -49,7 +49,7 @@ export function selectGistCandidates(sections: Record<string, GistSection | unde
 }
 
 // Bounded-concurrency runner: at most `limit` workers in flight over `items`.
-async function runPool<T>(items: T[], limit: number, worker: (item: T) => Promise<unknown>): Promise<void> {
+async function runPool<T>(items: readonly T[], limit: number, worker: (item: T) => Promise<void>): Promise<void> {
   let idx = 0;
   const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
     while (idx < items.length) {
@@ -61,18 +61,25 @@ async function runPool<T>(items: T[], limit: number, worker: (item: T) => Promis
 }
 
 // Guards against two overlapping sections fetches queueing the same message twice.
-const _inFlight = new Set();
+const _inFlight = new Set<string>();
+
+function hasGist(annotation: unknown): boolean {
+  return typeof annotation === 'object'
+    && annotation !== null
+    && 'gist' in annotation
+    && Boolean(annotation.gist);
+}
 
 async function generateForAccount(accountId: string, ids: string[]): Promise<number> {
   // Skip ids that already carry a cached gist (belt-and-suspenders over the sections-side filter,
   // so a head that got a gist since the sections snapshot isn't regenerated / doesn't re-broadcast).
-  const existing = (await getMessageAnnotations(accountId, ids, 'gtd')) as Record<string, { gist?: unknown } | undefined>;
-  const need = ids.filter((id: string) => !existing[id]?.gist);
+  const existing = await getMessageAnnotations(accountId, ids, 'gtd');
+  const need = ids.filter(id => !hasGist(existing[id]));
   if (!need.length) return 0;
 
   const rows = await getMessageFields(accountId, need);
   let wrote = 0;
-  await runPool(rows, GIST_CONCURRENCY, async (row: { id: string; subject?: string; from_name?: string; from_email?: string; content?: string }) => {
+  await runPool(rows, GIST_CONCURRENCY, async row => {
     const gist = await summarizeMessage({
       subject: row.subject,
       from: row.from_name || row.from_email,
@@ -105,10 +112,13 @@ export async function queueGistGeneration({ sections, userId, broadcast }: { sec
   try {
     if (!await summarizeAvailable()) return;
 
-    const byAccount = new Map();
+    const byAccount = new Map<string, string[]>();
     for (const c of candidates) {
-      if (!byAccount.has(c.account_id)) byAccount.set(c.account_id, []);
-      const ids = byAccount.get(c.account_id);
+      let ids = byAccount.get(c.account_id);
+      if (ids === undefined) {
+        ids = [];
+        byAccount.set(c.account_id, ids);
+      }
       if (ids.length < MAX_GISTS_PER_ACCOUNT) ids.push(c.id);
     }
 

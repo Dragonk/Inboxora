@@ -62,7 +62,7 @@ const account = { id: ACCOUNT_ID, user_id: 'u1' };
 
 // The account's stored GTD config (returned by the mocked getAccountConfig). Individual tests
 // mutate `.folders` to represent an already-saved folder map.
-let storedConfig: Record<string, unknown> | undefined;
+let storedConfig: Record<string, unknown> = { enabled: true, folders: {} };
 
 // Route the ownership SELECT (getOwnedAccount) to the account row; everything else resolves empty.
 function stubQuery() {
@@ -160,7 +160,6 @@ describe('POST /api/gtd/folders/ensure — persist effective paths', () => {
     // watch is already saved as 'todo' (not just typed in the form this request), so its
     // stored configured name matches what the request ensures; a case-insensitive server
     // then returns INBOX.Todo for both 'Todo' and 'todo'.
-    if (!storedConfig) throw new Error('expected a stored config');
     storedConfig.folders = { watch: 'todo' };
     imapManager.ensureFolder.mockImplementation(async (_acct, folder) => ({
       path: folder.toLowerCase() === 'todo' ? 'INBOX.Todo' : `INBOX.${folder}`,

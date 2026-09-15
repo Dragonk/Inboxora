@@ -15,7 +15,7 @@ import {
   deleteUserPet,
 } from './gtdPet.js';
 
-// Cast mocked module exports so their vitest mock helpers type-check.
+// Wrap the mocked module export so its Vitest mock helpers type-check.
 const query = vi.mocked(__mock_query);
 
 // ── Image-header fixtures (crafted magic bytes, no image library) ──────────────
@@ -305,9 +305,9 @@ describe('importPet', () => {
     // both, plus the global prototype, so an unsafe future refactor actually breaks this test.
     const polluted = '{"__proto__":{"polluted":"yes"},"displayName":"P","cols":8,"rows":9}';
     const pet = await importPet({ petJsonText: polluted, sheet: webpVP8X(1536, 1872), userId });
-    expect((pet.descriptor as { polluted?: unknown }).polluted).toBeUndefined();
+    expect('polluted' in pet.descriptor).toBe(false);
     expect(Object.prototype.hasOwnProperty.call(pet.descriptor, '__proto__')).toBe(false);
-    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+    expect('polluted' in {}).toBe(false);
   });
 });
 
@@ -318,7 +318,7 @@ describe('deleteUserPet', () => {
     query.mockResolvedValueOnce({ rows: [], rowCount: 1 });
     await deleteUserPet('11111111-1111-4111-8111-111111111111');
     const slug = customPetSlug('11111111-1111-4111-8111-111111111111');
-    const del = query.mock.calls.find(([sql]: [string]) => /DELETE FROM plugin_data/.test(sql));
+    const del = query.mock.calls.find(([sql]) => /DELETE FROM plugin_data/.test(sql));
     if (!del) throw new Error('expected the plugin_data DELETE');
     expect(del[1]).toEqual(['gtd', slug]);
   });

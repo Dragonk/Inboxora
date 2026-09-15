@@ -481,7 +481,10 @@ describe('local calendar API', () => {
       'DTSTART;TZID=Europe/Warsaw:20260105T090000', 'DTEND;TZID=Europe/Warsaw:20260105T100000',
       'RRULE:FREQ=DAILY;COUNT=10', 'SUMMARY:Daily', 'END:VEVENT', 'END:VCALENDAR'].join('\r\n');
     const startsOf = (raw: string) => projectCalendarResource({ id: 'event-1', uid: 'uid-1', raw_ical: raw, summary: 'Daily' }, new Date('2026-01-01'), new Date('2026-03-01'))
-      .map(event => event.starts_at.toISOString().slice(5, 16));
+      .map(event => {
+        if (!event.starts_at) throw new Error('Projected calendar event is missing starts_at');
+        return event.starts_at.toISOString().slice(5, 16);
+      });
     const cancel = (body: unknown) => fetch(`${base}/api/calendar/events/event-1/occurrence`, {
       method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
     });
