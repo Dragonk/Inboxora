@@ -1,8 +1,18 @@
 import { useMobile } from '../hooks/useMobile.ts';
 import { useStore } from '../store/index.ts';
+import type { MouseEventHandler } from 'react';
 import type { StoreState } from '../store/index.ts';
 
-export default function MobileFloatingAction({ label, onClick, icon = 'add', disabled = false, visible = true, inline = false }) {
+interface MobileFloatingActionProps {
+  label: string;
+  onClick: MouseEventHandler<HTMLButtonElement>;
+  icon?: 'add' | 'compose';
+  disabled?: boolean;
+  visible?: boolean;
+  inline?: boolean;
+}
+
+export default function MobileFloatingAction({ label, onClick, icon = 'add', disabled = false, visible = true, inline = false }: MobileFloatingActionProps) {
   const mobile = useMobile();
   const position = useStore((state: StoreState) => state.mobileNavigationPosition);
   if (!mobile || position === 'bottom') return null;

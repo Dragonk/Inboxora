@@ -2,32 +2,43 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { scheduleInitialLayoutReady } from './messageBodyLayout.ts';
 
-function rafHarness() {
+interface RafHarness {
+  requestAnimationFrame(callback: FrameRequestCallback): number;
+  cancelAnimationFrame(id: number): void;
+  runNext(): boolean;
+  pending(): number;
+  runCancelled(): void;
+  cancelled: number[];
+}
+
+function rafHarness(): RafHarness {
   let nextId = 1;
-  const callbacks = new Map();
-  const cancelledCallbacks = new Map();
-  const cancelled: unknown[] = [];
+  const callbacks = new Map<number, FrameRequestCallback>();
+  const cancelledCallbacks = new Map<number, FrameRequestCallback>();
+  const cancelled: number[] = [];
   return {
-    requestAnimationFrame(callback) {
+    requestAnimationFrame(callback: FrameRequestCallback) {
       const id = nextId++;
       callbacks.set(id, callback);
       return id;
     },
-    cancelAnimationFrame(id) {
+    cancelAnimationFrame(id: number) {
       cancelled.push(id);
-      if (callbacks.has(id)) cancelledCallbacks.set(id, callbacks.get(id));
+      const callback = callbacks.get(id);
+      if (callback !== undefined) cancelledCallbacks.set(id, callback);
       callbacks.delete(id);
     },
     runNext() {
-      const next = callbacks.entries().next().value;
-      if (!next) return false;
-      callbacks.delete(next[0]);
-      next[1]();
+      const next = callbacks.entries().next();
+      if (next.done) return false;
+      const [id, callback] = next.value;
+      callbacks.delete(id);
+      callback(0);
       return true;
     },
     pending: () => callbacks.size,
     runCancelled() {
-      for (const callback of cancelledCallbacks.values()) callback();
+      for (const callback of cancelledCallbacks.values()) callback(0);
       cancelledCallbacks.clear();
     },
     cancelled,

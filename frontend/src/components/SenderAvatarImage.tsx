@@ -9,17 +9,22 @@ const imageStyle: CSSProperties = {
   width: '100%', height: '100%', objectFit: 'cover',
 };
 
-export default function SenderAvatarImage({ email, hasContactPhoto }) {
+type SenderAvatarImageProps = {
+  email: string | null | undefined;
+  hasContactPhoto: boolean | null | undefined;
+};
+
+export default function SenderAvatarImage({ email, hasContactPhoto }: SenderAvatarImageProps) {
   const loaded = useStore((state: StoreState) => state.senderFaviconsLoaded);
   const enabled = useStore((state: StoreState) => state.senderFavicons);
   const gravatarAvatars = useStore((state: StoreState) => state.gravatarAvatars);
   const candidates = useMemo(() => avatarImageCandidates({
     email,
-    hasContactPhoto,
+    hasContactPhoto: hasContactPhoto === false ? false : undefined,
     gravatarAvatars,
     senderFavicons: loaded && enabled,
   }), [email, hasContactPhoto, gravatarAvatars, loaded, enabled]);
-  const [failed, setFailed] = useState(() => new Set());
+  const [failed, setFailed] = useState<Set<string>>(() => new Set());
 
   useEffect(() => { setFailed(new Set()); }, [email, hasContactPhoto, gravatarAvatars, loaded, enabled]);
 
