@@ -1,0 +1,28 @@
+import { useStore } from '../store/index.ts';
+import type { StoreState } from '../store/index.ts';
+
+// The whole app is rendered inside a `transform: scale(fontSize/100)` wrapper whose
+// transform-origin is the top-left corner (see MailApp). A CSS transform makes that
+// wrapper the containing block for `position: fixed` descendants AND scales them, so a
+// popover placed at coordinates taken from getBoundingClientRect() / window.inner* —
+// which are already in scaled (visual) space — gets scaled a second time and drifts away
+// from its anchor. The drift grows with the scale factor, which is why it only shows up
+// once font scaling is raised above 100%.
+//
+// Dividing an applied fixed coordinate by this scale converts the visual coordinate back
+// into the wrapper's layout space, so the popover lands on its anchor. It is an exact
+// no-op at 100% (value / 1 === value), so the default experience is unchanged.
+export function useUiScale(): number {
+  return (useStore((s: StoreState): number => s.fontSize) || 100) / 100;
+}
+
+// Convert one visual-space CSS coordinate (top/left/right/bottom/width/height) into the
+// scaled wrapper's layout space. Runtime callers may supply an untyped value; CSS accepts
+// numeric and string coordinates, while every other value leaves the coordinate unset.
+type CssCoordinate = number | string | undefined;
+
+export function descale(value: unknown, scale: number): CssCoordinate {
+  if (typeof value === 'number') return value / scale;
+  if (typeof value === 'string') return value;
+  return undefined;
+}

@@ -15,5 +15,5 @@ user-facing branding.
 | `mailflow_test` CI databases and `mailflow-ce-perf.mjs` | Non-production fixture/performance identifiers. | Keep isolated from public release artifacts; rename only with CI fixture updates. |
 | `mailflow.local`, timing hashes, message CID suffixes, OpenAI `originator`, notification tags/events, legacy desktop package detection, Android bridge class, and SVG/CSS identifiers | Safe fallback/internal values or existing client protocol fingerprints. | Not displayed as product branding; change only with contract and deliverability review. |
 
-The frontend `brandAudit.test.js` guards the visible surface and requires this compatibility
+The frontend `brandAudit.test.ts` guards the visible surface and requires this compatibility
 record to name the retained identifier families.

@@ -1,0 +1,68 @@
+// Pure view-model for the "Instant notifications" settings card.
+//
+// Keeping the branching here (instead of inside JSX) makes every state — no
+// distributor, distributor installed but not connected, connected, permission
+// denied, unsupported — unit-testable without a device.
+//
+//   unsupported       not a Capacitor native platform (web/PWA or desktop)
+//   permission_denied Android notification permission is off
+//   no_distributor    no UnifiedPush distributor app (e.g. ntfy) is installed
+//   pending           a distributor is installed but registration is not done yet
+//   connected         endpoint registered and a device token issued
+type PushState = Record<string, unknown>;
+
+function isPushState(value: unknown): value is PushState {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function readNonEmptyString(value: unknown): string | null {
+  return typeof value === 'string' && value.length > 0 ? value : null;
+}
+
+function hasDistributorPackage(value: unknown): boolean {
+  return Array.isArray(value) && value.some((item) => typeof item === 'string');
+}
+
+export function deriveInstantPushView(state: unknown) {
+  if (!isPushState(state) || state.platformSupported !== true) return { kind: 'unsupported' };
+
+  const pushBaseUrl = readNonEmptyString(state.pushBaseUrl);
+  const distributorName = readNonEmptyString(state.distributorLabel);
+
+  if (state.status === 'permission_denied') {
+    return { kind: 'permission_denied', showSettings: true, showRetry: false };
+  }
+
+  const hasDistributor = hasDistributorPackage(state.distributors) || readNonEmptyString(state.distributor) !== null;
+
+  if (state.status === 'connected') {
+    return {
+      kind: 'connected',
+      distributorName,
+      transport: readNonEmptyString(state.transport),
+      pushBaseUrl,
+      showSettings: false,
+      showRetry: false,
+    };
+  }
+
+  if (hasDistributor) {
+    return {
+      kind: 'pending',
+      distributorName,
+      pushBaseUrl,
+      showOpenDistributor: true,
+      showRetry: true,
+      showInstall: false,
+    };
+  }
+
+  // No distributor: explain the extra app instead of surfacing a technical error.
+  return {
+    kind: 'no_distributor',
+    pushBaseUrl,
+    showInstall: true,
+    showHelp: true,
+    showRetry: false,
+  };
+}

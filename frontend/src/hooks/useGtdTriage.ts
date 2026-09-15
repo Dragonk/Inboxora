@@ -1,0 +1,349 @@
+import { useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { useStore } from '../store/index.ts';
+import type { StoreMessageRow } from '../store/index.ts';
+import { api } from '../utils/api.ts';
+import {
+  openDeepLinkMessage, collectThreadReadIds, openGtdThreadWithAutoRead,
+  classifyThread, unclassifyThread,
+} from '../utils/gtd.ts';
+import type { GtdThread } from '../utils/gtd.ts';
+import { openReplyFromMessage, openForwardFromMessage } from '../utils/composeFromMessage.ts';
+import { resolveContextMenuMessage } from '../utils/contextMenuPolicy.ts';
+import { doneGtdRow } from '../utils/gtdDone.ts';
+import { toAppError } from '../utils/errors.ts';
+
+// One pending delayed auto-read across ALL GTD surfaces (module scope, not per hook
+// instance): the sidebar and the tab browse list are mounted together in desktop row
+// layouts, and opening a row on either surface must supersede a pending read the other
+// scheduled — per-instance timers would let a stale timer mark a left-behind thread
+// read, or double-fire bulkRead when the same thread is opened from both. `owner`
+// remembers which hook instance scheduled the timer so an unmounting surface cancels
+// only its own pending read, never one the still-mounted surface legitimately owns.
+interface GtdTriageThread extends GtdThread {
+  id: string;
+  account_id: string;
+  is_starred?: boolean;
+}
+
+/** GTD section payloads are external data, so validate before actions require row identifiers. */
+function isGtdTriageThread(thread: GtdThread): thread is GtdTriageThread {
+  return typeof thread.id === 'string' && thread.id !== ''
+    && typeof thread.account_id === 'string' && thread.account_id !== '';
+}
+
+function isStoreMessageRow(message: GtdThread): message is GtdThread & StoreMessageRow {
+  return typeof message.id === 'string' && typeof message.account_id === 'string';
+}
+
+function toGtdThread({ message_id, ...message }: StoreMessageRow): GtdThread & { id: string } {
+  if (message_id === null) return message;
+  return { ...message, message_id };
+}
+
+/** The right-click / move-picker menu state a GTD row opens. */
+interface GtdTriageContextMenu {
+  x: number;
+  y: number;
+  message: GtdTriageThread;
+  doneStates: string[];
+  defaultMoveView: boolean;
+}
+
+interface GtdTriageContextMenuInput {
+  x: number;
+  y: number;
+  message: GtdThread;
+  doneStates: string[];
+  defaultMoveView: boolean;
+}
+
+interface AutoMarkRead { timer: ReturnType<typeof setTimeout> | null; identity: string | null; owner: unknown }
+let autoMarkRead: AutoMarkRead = { timer: null, identity: null, owner: null };
+
+// Drop the pending delay-mode auto-read outright (handle + owner identity). openRow uses
+// this: a fresh open — from ANY GTD surface — genuinely supersedes the prior row's
+// pending read.
+const cancelAutoMarkRead = () => {
+  if (autoMarkRead.timer !== null) clearTimeout(autoMarkRead.timer);
+  autoMarkRead = { timer: null, identity: null, owner: null };
+};
+
+// Cancel the pending auto-read ONLY when it was scheduled for `thread`: an explicit
+// mark-unread or a done/delete/move on the just-opened row must not let a stale
+// (is_read=false) readThread later revert it or fire a spurious bulkRead — but the same
+// action on a DIFFERENT visible row (rapid triage) must leave that other row's
+// still-legitimate pending read running.
+const cancelAutoMarkReadFor = (thread: GtdThread) => {
+  const identity = thread.message_id || thread.id;
+  if (autoMarkRead.identity != null && autoMarkRead.identity === identity) {
+    cancelAutoMarkRead();
+  }
+};
+
+// The triage engine behind every GTD row surface: the right-sidebar section rows and
+// the tab browse list that replaces the inbox while a GTD pill is active. Each surface
+// mounts its own instance (own context-menu state) and wires the returned
+// `rowActions`/`openRow` into its rows plus `contextMenu`/`handleGtdAction` into a
+// ContextMenu portal — so both surfaces triage identically without either depending on
+// the other being mounted.
+//
+// The actions are standalone equivalents of MessageList's closures, deliberately
+// lighter: call the api and let the read/star fan-out + the gtd refetch reconcile,
+// with only the cheap optimistic touches (is_read flip, section-row removal) applied
+// here.
+export function useGtdTriage() {
+  const { t } = useTranslation();
+  const setThreadMessages = useStore((s) => s.setThreadMessages);
+  const setSelectedMessage = useStore((s) => s.setSelectedMessage);
+  const scheduleGtdSectionsFetch = useStore((s) => s.scheduleGtdSectionsFetch);
+  const removeGtdThread = useStore((s) => s.removeGtdThread);
+  const restoreGtdThread = useStore((s) => s.restoreGtdThread);
+  const markGtdThreadRead = useStore((s) => s.markGtdThreadRead);
+  const markGtdThreadStarred = useStore((s) => s.markGtdThreadStarred);
+  const addNotification = useStore((s) => s.addNotification);
+  const accounts = useStore((s) => s.accounts);
+  const openCompose = useStore((s) => s.openCompose);
+
+  // Right-click / move-picker menu for a GTD row. Carries the row's doneStates so the
+  // menu's "done" and "move" stay section-scoped (the row knows which section it's in).
+  const [contextMenu, setGtdTriageContextMenu] = useState<GtdTriageContextMenu | null>(null);
+  const setContextMenu = (menu: GtdTriageContextMenuInput | null) => {
+    if (menu === null) {
+      setGtdTriageContextMenu(null);
+      return;
+    }
+    if (isGtdTriageThread(menu.message)) {
+      setGtdTriageContextMenu({
+        x: menu.x,
+        y: menu.y,
+        message: menu.message,
+        doneStates: menu.doneStates,
+        defaultMoveView: menu.defaultMoveView,
+      });
+    }
+  };
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      // Cancel only a pending read THIS instance scheduled (owner check): tearing down
+      // one surface must not kill a read the other, still-mounted surface owns.
+      if (autoMarkRead.owner === mountedRef) cancelAutoMarkRead();
+    };
+  }, []);
+
+  // The GTD "done" action: strip this row's label(s) (`states`), mark read, archive.
+  // Optimistically drop and guard the row so stale refetches cannot resurrect it. On
+  // failure, restore its local snapshot and refetch for authoritative reconciliation.
+  const doneRow = (thread: GtdThread, states: string[]) => {
+    if (!isGtdTriageThread(thread)) return;
+    cancelAutoMarkReadFor(thread);
+    return doneGtdRow(thread, states, {
+      gtdDone: api.gtdDone,
+      removeGtdThread,
+      restoreGtdThread,
+      addNotification,
+      scheduleGtdSectionsFetch,
+      t,
+    });
+  };
+
+  // Read: flip is_read on the section thread instantly. Section rows carry thread-level
+  // unread, so marking READ acts on every message in the thread (collectThreadReadIds —
+  // the same-message_id fan-out alone can't reach an INBOX-only sibling reply), while
+  // marking UNREAD needs only the head copy. On failure, flip back.
+  const setRead = async (thread: GtdThread, read: boolean) => {
+    if (!isGtdTriageThread(thread)) return;
+    // Explicit mark-unread wins over a pending auto-read: cancel the timer before the no-op
+    // guard so it can't later flip this just-opened thread back to read.
+    if (!read) cancelAutoMarkReadFor(thread);
+    if (!!thread.is_read === read) return;
+    const identity = thread.message_id || thread.id;
+    markGtdThreadRead(identity, read);
+    try {
+      const getAccountThread = (threadKey: string) => api.getThread(threadKey, '', false, thread.account_id);
+      const readIds = (await collectThreadReadIds(thread, read, getAccountThread))
+        .filter((id): id is string => typeof id === 'string');
+      await api.bulkRead(readIds, read);
+      // Belt-and-braces under the WS read fan-out: reconcile the sidebar counts (the
+      // debounce coalesces this with any gtd_sections_updated the mark triggers).
+      scheduleGtdSectionsFetch();
+    } catch (err) {
+      console.error('GTD read toggle failed:', toAppError(err).message);
+      markGtdThreadRead(identity, !read);
+    }
+  };
+
+  const openRow = (thread: GtdThread) => {
+    if (!isGtdTriageThread(thread)) return;
+    cancelAutoMarkRead();
+    const identity = thread.message_id || thread.id;
+    return openGtdThreadWithAutoRead(thread, {
+      openThread: () => openDeepLinkMessage(thread.id, {
+        getMessage: async messageId => {
+          const message = await api.getMessage(messageId);
+          return message && isStoreMessageRow(message) ? message : null;
+        },
+        getThread: async threadKey => {
+          const { messages } = await api.getThread(threadKey, '', false, thread.account_id);
+          return { messages: messages.map(toGtdThread) };
+        },
+        setThreadMessages: (key, messages) => {
+          const storeMessages: StoreMessageRow[] = [];
+          for (const message of messages) {
+            if (!isStoreMessageRow(message)) throw new Error('Deep link returned a non-store message');
+            storeMessages.push(message);
+          }
+          setThreadMessages(key, storeMessages);
+        },
+        setSelectedMessage,
+        thread,
+        onMiss: scheduleGtdSectionsFetch,
+      }),
+      isCancelled: () => !mountedRef.current,
+      getPreferences: () => useStore.getState(),
+      readThread: setRead,
+      setTimer: (callback: () => void, delay: number) => setTimeout(callback, delay),
+      publishTimer: timerHandle => {
+        // Only a scheduled (delay-mode) timer has an identity/owner to guard;
+        // immediate/manual publish null. mountedRef doubles as the per-instance
+        // owner token (stable for the instance's lifetime).
+        autoMarkRead = timerHandle == null
+          ? { timer: null, identity: null, owner: null }
+          : { timer: timerHandle, identity, owner: mountedRef };
+      },
+    });
+  };
+
+  // Star: flip is_starred on the section thread instantly (identity-wide, so a merged
+  // Waiting row stays consistent across watch+delegated); the star fans out to sibling
+  // copies server-side. On failure, flip back.
+  const toggleStar = async (thread: GtdThread) => {
+    if (!isGtdTriageThread(thread)) return;
+    const identity = thread.message_id || thread.id;
+    const next = !thread.is_starred;
+    markGtdThreadStarred(identity, next);
+    try {
+      await api.markStarred(thread.id, next);
+    } catch (err) {
+      console.error('GTD star toggle failed:', toAppError(err).message);
+      markGtdThreadStarred(identity, !next);
+    }
+  };
+
+  // Delete this row's copy (the label-folder message). Optimistically drop the row from
+  // its section(s); the refetch reconciles (and, on failure, restores it) — no undo timer.
+  const deleteRow = (thread: GtdThread, states: string[]) => {
+    if (!isGtdTriageThread(thread)) return;
+    cancelAutoMarkReadFor(thread);
+    removeGtdThread(thread.message_id || thread.id, states);
+    api.deleteMessage(thread.id)
+      .then(scheduleGtdSectionsFetch)
+      .catch(err => {
+        console.error('GTD delete failed:', toAppError(err).message);
+        addNotification({ title: t('messageList.deleted.failTitle'), body: thread.subject || t('common.noSubject') });
+        scheduleGtdSectionsFetch();
+      });
+  };
+
+  // Move this row's copy to another folder — it leaves its GTD label folder, so drop it
+  // from its section(s) optimistically; the refetch reconciles.
+  const moveRow = (thread: GtdThread, states: string[], folder: string) => {
+    if (!folder || !isGtdTriageThread(thread)) return;
+    cancelAutoMarkReadFor(thread);
+    removeGtdThread(thread.message_id || thread.id, states);
+    api.bulkMove([thread.id], folder)
+      .then(() => {
+        useStore.getState().recordRecentFolder({ accountId: thread.account_id, path: folder });
+        scheduleGtdSectionsFetch();
+      })
+      .catch(err => {
+        console.error('GTD move failed:', toAppError(err).message);
+        addNotification({ title: t('message.moved.failTitle'), body: t('message.moved.failBody') });
+        scheduleGtdSectionsFetch();
+      });
+  };
+
+  // Classify (add a state label) / remove (strip one). The message stays put, so just
+  // poke the sidebar store to reconverge — mirrors MessageList's context-menu handlers.
+  const classifyRow = (thread: GtdThread, state: string) => {
+    if (!isGtdTriageThread(thread)) return;
+    return classifyThread(thread.id, state, {
+      gtdClassify: api.gtdClassify, addNotification, scheduleGtdSectionsFetch, t,
+    });
+  };
+
+  const removeStateRow = (thread: GtdThread, state: string) => {
+    if (!isGtdTriageThread(thread)) return;
+    return unclassifyThread(thread.id, state, {
+      gtdUnclassify: api.gtdUnclassify, addNotification, scheduleGtdSectionsFetch, t,
+    });
+  };
+
+  // ContextMenu's onAction, routed to the primitives above. GTD section heads are
+  // intentionally compact, so compose actions hydrate the full message first.
+  const handleGtdAction = async (action: string, menu: GtdTriageContextMenu, data: unknown) => {
+    const thread = menu.message;
+    switch (action) {
+      case 'open': openRow(thread); break;
+      case 'markRead': setRead(thread, true); break;
+      case 'markUnread': setRead(thread, false); break;
+      case 'toggleStar': toggleStar(thread); break;
+      case 'moveTo': if (typeof data === 'string') moveRow(thread, menu.doneStates, data); break;
+      case 'gtdClassify': if (typeof data === 'string') classifyRow(thread, data); break;
+      case 'gtdRemove': if (typeof data === 'string') removeStateRow(thread, data); break;
+      case 'gtdDone': doneRow(thread, menu.doneStates); break;
+      case 'delete': deleteRow(thread, menu.doneStates); break;
+      case 'reply':
+      case 'replyAll':
+      case 'forward': {
+        try {
+          const message = await resolveContextMenuMessage(thread, 'gtdSidebar', api.resolveMessage);
+          if (action === 'forward') {
+            await openForwardFromMessage(message, {
+              openCompose,
+              getMessageBody: api.getMessageBody,
+            });
+          } else {
+            await openReplyFromMessage(message, {
+              accounts,
+              openCompose,
+              getMessageBody: api.getMessageBody,
+              replyAll: action === 'replyAll',
+            });
+          }
+        } catch (err) {
+          console.error('GTD compose prefill failed:', toAppError(err).message);
+          scheduleGtdSectionsFetch();
+        }
+        break;
+      }
+      case 'createRuleFromMessage': {
+        const store = useStore.getState();
+        store.setRulesPreFill({
+          ...(thread.from_email === undefined ? {} : { fromEmail: thread.from_email }),
+          ...(thread.from_name === undefined ? {} : { fromName: thread.from_name }),
+        });
+        store.setAdminTab('rules');
+        store.setShowAdmin(true);
+        break;
+      }
+      case 'addToBlockList':
+        if (thread.from_email) {
+          api.addToBlockList(thread.from_email)
+            .then(() => addNotification({ title: t('blockList.blocked'), body: thread.from_email }))
+            .catch(() => addNotification({ title: t('blockList.errorAdd'), body: thread.from_email }));
+        }
+        break;
+      default: break;
+    }
+  };
+
+  // Bundle passed down to each row for its hover cluster + right-click menu.
+  const rowActions = { setRead, toggleStar, deleteRow, done: doneRow, openMenu: setContextMenu };
+
+  return { contextMenu, setContextMenu, handleGtdAction, openRow, rowActions };
+}

@@ -1,0 +1,2467 @@
+import { useBackLayer } from '../hooks/useBackNavigation.ts';
+ 
+import { useEffect, useLayoutEffect, useState, useRef, useCallback, useMemo, lazy, Suspense } from 'react';
+import { useTranslation } from 'react-i18next';
+import { useStore } from '../store/index.ts';
+// CE v2 conversation reader — lazy so single-message users never load it.
+const ConversationReader = lazy(() => import('./ConversationReader.tsx'));
+import type { ConversationReplyPayload } from './ConversationReader.tsx';
+import { api } from '../utils/api.ts';
+import { format } from 'date-fns';
+import { shortcutBus } from '../utils/shortcutBus.ts';
+import { getEffectiveShortcuts, parseModKey, modCompactLabel } from '../utils/defaultShortcuts.ts';
+import { useMobile } from '../hooks/useMobile.ts';
+import { clearDeleteGuard, clearPendingDelete, setCompletedDelete, setPendingDelete } from '../utils/pendingDeletes.ts';
+import { pendingMarkReadMap, completedMarkReadMap, setPending } from '../utils/pendingReads.ts';
+import { queueReadStateMutation, isLatestReadStateMutation } from '../utils/readStateMutation.ts';
+import { queueStarStateMutation, isLatestStarStateMutation } from '../utils/starStateMutation.ts';
+import { BUILTIN_SUMMARIZE, summarizePromptForLocale } from '../aiActions.ts';
+import { getResults, saveResult, removeResult } from '../aiResults.ts';
+import { pickReplyAlias, collectOwnAddresses } from '../utils/replyAlias.ts';
+import { buildReplyHeaders } from '../utils/composeFromMessage.ts';
+import { sanitizeMessageHtml } from './MessageBodyRenderer.tsx';
+import { getEmailSurface } from '../themes.ts';
+import MessageDetailContent from './MessageDetailContent.tsx';
+import { toAppError } from '../utils/errors.ts';
+const USE_DIV_RENDER = import.meta.env.VITE_EMAIL_DIV_RENDER === 'true';
+const MESSAGE_OPENING_EVENT = 'inboxora:message-opening';
+
+// Module-level regex so the spam-name heuristic isn't recompiled on every
+// render — same heuristic as ContextMenu.jsx, both files read this constant.
+const SPAM_NAME_RE = /(spam|junk|bulk|indesiderata|spamverdacht|courrier\s*ind|posta\s*indesiderata)/i;
+
+// Lazy-load the div-renderer utilities so PostCSS is excluded from the flag-off
+// bundle. Rollup treats the import() calls inside this block as dead code when
+// USE_DIV_RENDER compiles to false, stripping PostCSS and both utility modules.
+// In the flag-on build they live in the same chunk, so the dynamic imports
+// resolve synchronously — no perceptible delay before first render.
+type PrepareEmailHtml  = typeof import('../utils/scopeEmailCss.ts')['prepareEmailHtml'];
+type InjectEmailStyles = typeof import('../utils/emailStyleRegistry.ts')['injectEmailStyles'];
+type RemoveEmailStyles = typeof import('../utils/emailStyleRegistry.ts')['removeEmailStyles'];
+
+let prepareEmailHtml:  PrepareEmailHtml  | null = null;
+let injectEmailStyles: InjectEmailStyles | null = null;
+let removeEmailStyles: RemoveEmailStyles | null = null;
+if (USE_DIV_RENDER) {
+  ({ prepareEmailHtml }                    = await import('../utils/scopeEmailCss.ts'));
+  ({ injectEmailStyles, removeEmailStyles } = await import('../utils/emailStyleRegistry.ts'));
+}
+import MessageHeaderModal from './MessageHeaderModal.tsx';
+import { MessageAvatar } from './MessagePresentation.tsx';
+import MessageToolbar from './MessageToolbar.tsx';
+import { MobileModuleHeader, HeaderAction } from './MobileModuleHeader.tsx';
+import { renderMarkdown } from '../utils/renderMarkdown.ts';
+import type { StoreMessageRow, StoreState } from '../store/index.ts';
+
+function parseAddressField(raw: unknown): string {
+  try {
+    const arr = Array.isArray(raw) ? raw : JSON.parse(typeof raw === 'string' ? raw : '[]');
+    return arr.map((a: { name?: string; email?: string }) => a.name ? `${a.name} <${a.email}>` : a.email).filter(Boolean).join(', ');
+  } catch { return ''; }
+}
+
+
+
+function asText(value: unknown): string {
+  return typeof value === 'string' ? value : '';
+}
+
+interface MovePickerFolder {
+  path: string;
+  name?: string;
+  [key: string]: unknown;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function parseMovePickerFolders(data: unknown): MovePickerFolder[] {
+  const candidates: unknown[] = Array.isArray(data)
+    ? data
+    : isRecord(data) && Array.isArray(data.folders)
+      ? data.folders
+      : [];
+
+  return candidates.flatMap(folder => {
+    if (!isRecord(folder) || typeof folder.path !== 'string') return [];
+    const { path, name } = folder;
+    return typeof name === 'string' ? [{ ...folder, path, name }] : [{ ...folder, path }];
+  });
+}
+
+function _formatBytes(bytes: number): string {
+  if (!bytes) return '';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function _fileIcon(type: string | null | undefined): React.ReactNode {
+  const t = (type || '').toLowerCase();
+  const p = { width: 18, height: 18, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.75 };
+  if (t.startsWith('image/')) return (
+    <svg {...p}><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+  );
+  if (t === 'application/pdf') return (
+    <svg {...p}><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+  );
+  if (t.includes('word') || t.includes('document')) return (
+    <svg {...p}><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+  );
+  if (t.includes('sheet') || t.includes('excel') || t.includes('csv')) return (
+    <svg {...p}><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="10" y1="13" x2="10" y2="17"/><line x1="8" y1="15" x2="12" y2="15"/></svg>
+  );
+  if (t.includes('zip') || t.includes('compressed') || t.includes('archive')) return (
+    <svg {...p}><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="11" x2="16" y2="11"/></svg>
+  );
+  if (t.startsWith('video/')) return (
+    <svg {...p}><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
+  );
+  if (t.startsWith('audio/')) return (
+    <svg {...p}><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+  );
+  return (
+    <svg {...p}><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
+  );
+}
+
+interface MessagePaneProps {
+  windowMessageId?: string | null;
+  onWindowClose?: (() => void) | null;
+  mode?: string;
+  conversationId?: string | null;
+  targetLogicalMessageId?: string | null;
+  selectedConversationCopy?: { id?: string; accountId?: string | null } | null;
+  onReply?: ((message: ConversationReplyPayload, all?: boolean) => void) | null;
+  nativeThreadId?: string | null;
+  nativeFolder?: string | null;
+  onNativeThreadUnavailable?: ((copyId: string | null) => void) | null;
+  onMobileBack?: (() => void) | null;
+}
+
+interface MessageBodyState {
+  html?: string | null;
+  text?: string | null;
+  senderName?: string | null;
+  senderEmail?: string | null;
+  attachments?: Array<{ part?: string; filename?: string; type?: string; size?: number; [key: string]: unknown }>;
+  hasBlockedRemoteImages?: boolean;
+  [key: string]: unknown;
+}
+
+interface FindMatch { doc: Document; node: Node; start: number; end: number }
+
+export default function MessagePane({ windowMessageId = null, onWindowClose = null, mode = 'single', conversationId = null, targetLogicalMessageId = null, selectedConversationCopy = null, onReply = null, nativeThreadId = null, nativeFolder = null, onNativeThreadUnavailable = null, onMobileBack = null }: MessagePaneProps = {}) {
+  const { t, i18n } = useTranslation();
+  const {
+    messages, searchResults, searchQuery, selectedMessageId: globalSelectedId, setSelectedMessage,
+    updateMessage, removeMessage, decrementUnread, incrementUnread, openCompose, accounts, addNotification,
+    imageWhitelist, addToImageWhitelist, blockRemoteImages, threadMessages,
+    replyDefault, shortcuts,
+    categorizationEnabled: _categorizationEnabled, setCategoryCounts, adjustCategoryCount,
+    aiActions, setShowAdmin, setAdminTab,
+    showContacts, showCalendar,
+  } = useStore();
+
+  // Detached-window mode (#219): when a message id is passed in, this pane renders that
+  // specific message independently of the global list selection. Shadowing selectedMessageId
+  // lets the entire component below run unchanged — for the main reading pane windowMode is
+  // false and selectedMessageId === the global selection, so behavior is byte-identical.
+  const windowMode = windowMessageId != null;
+  const selectedMessageId = windowMode ? windowMessageId : globalSelectedId;
+  // Closing actions (archive/trash/move/spam/snooze) should dismiss the window they run in;
+  // in the main pane this is a no-op and the store's own selection handling applies.
+  const closeWindowIfWindowed = useCallback(() => {
+    if (windowMode) onWindowClose?.();
+  }, [windowMode, onWindowClose]);
+  const goBackToMobileList = useCallback(() => {
+    if (onMobileBack) onMobileBack();
+    else setSelectedMessage(null);
+  }, [onMobileBack, setSelectedMessage]);
+
+  const isMobile = useMobile();
+  // The shell's mobile top bar hosts exactly one module's header at a time. The reader
+  // claims it only while its pane is the visible module — when Contacts/Calendar are
+  // shown the pane is hidden, so the reader must not portal into the shared host.
+  const showMobileHeader = isMobile && !showContacts && !showCalendar;
+  const defaultReplyAll = replyDefault === 'replyAll';
+
+  const effectiveShortcuts = getEffectiveShortcuts(shortcuts);
+  const shortcutLabel = (action: string | undefined) => {
+    if (!action) return null;
+    const k = effectiveShortcuts[action];
+    if (!k) return null;
+    const mod = parseModKey(k);
+    return mod ? `${modCompactLabel(mod.mod)}${mod.bare.toUpperCase()}` : k.toUpperCase();
+  };
+  // Navigate to a message and mark it as read in one shot.
+  // Arrow buttons and swipe gestures bypass handleSelect in MessageList, so they
+  // must duplicate the mark-as-read logic here to keep state consistent.
+  const selectAndMarkRead = useCallback((msg: StoreMessageRow) => {
+    window.dispatchEvent(new CustomEvent(MESSAGE_OPENING_EVENT));
+    api.getMessageBody(msg.id).catch(() => {});
+    setSelectedMessage(msg.id);
+    if (autoMarkReadTimerRef.current) clearTimeout(autoMarkReadTimerRef.current);
+    autoMarkReadTimerRef.current = null;
+    if (!msg.is_read) {
+      const { markReadBehavior, markReadDelay } = useStore.getState();
+      if (markReadBehavior === 'manual') return;
+      const doMarkRead = () => {
+        updateMessage(msg.id, { is_read: true });
+        decrementUnread(msg.account_id);
+        adjustCategoryCount(msg.category || 'primary', -1);
+        setPending(msg.id, msg.account_id);
+        const mutation = queueReadStateMutation(msg.id, true, read => api.bulkRead([msg.id], read));
+        mutation.promise
+          .then(() => {
+            if (!isLatestReadStateMutation(msg.id, mutation.version)) return;
+            pendingMarkReadMap.delete(msg.id);
+            completedMarkReadMap.set(msg.id, msg.account_id);
+            setTimeout(() => completedMarkReadMap.delete(msg.id), 10000);
+          })
+          .catch((e: unknown) => {
+            if (!isLatestReadStateMutation(msg.id, mutation.version)) return;
+            console.error('markRead failed:', toAppError(e).message);
+            updateMessage(msg.id, { is_read: false });
+            incrementUnread(msg.account_id);
+            adjustCategoryCount(msg.category || 'primary', 1);
+            pendingMarkReadMap.delete(msg.id);
+          });
+      };
+      if (markReadBehavior === 'delay') {
+        autoMarkReadTimerRef.current = setTimeout(doMarkRead, (markReadDelay || 1) * 1000);
+      } else {
+        doMarkRead();
+      }
+    }
+  }, [setSelectedMessage, updateMessage, decrementUnread, incrementUnread, adjustCategoryCount]);
+
+  const paneRef = useRef<HTMLDivElement | null>(null);
+  const mountedRef = useRef(true);
+  const swipeBackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const autoMarkReadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    mountedRef.current = false;
+    if (swipeBackTimerRef.current) clearTimeout(swipeBackTimerRef.current);
+    if (autoMarkReadTimerRef.current) clearTimeout(autoMarkReadTimerRef.current);
+  }, []);
+
+  const resetPaneSwipeStyles = useCallback(() => {
+    const el = paneRef.current;
+    if (!el) return;
+    el.style.transition = '';
+    el.style.transform = '';
+  }, []);
+
+  // The mobile swipe-back gesture writes transform/transition inline for the
+  // dismiss animation. MessagePane stays mounted while hidden, so clear those
+  // inline styles before painting the next selected email. Also cancel the
+  // swipe-back timer so it can't close a newly selected email after a new email has
+  // already been selected (race: user selects email B within the 220ms window).
+  useLayoutEffect(() => {
+    if (!isMobile || !selectedMessageId) return;
+    if (swipeBackTimerRef.current) {
+      clearTimeout(swipeBackTimerRef.current);
+      swipeBackTimerRef.current = null;
+    }
+    resetPaneSwipeStyles();
+  }, [goBackToMobileList, isMobile, selectedMessageId, resetPaneSwipeStyles]);
+
+  // Reset scroll position and iframe height synchronously before the browser
+  // paints the new message, so the user never sees stale blank space from the
+  // previous (possibly taller) email.
+  useLayoutEffect(() => {
+    if (scrollContainerRef.current) scrollContainerRef.current.scrollTop = 0;
+    if (iframeRef.current) iframeRef.current.style.height = '300px';
+  }, [selectedMessageId]);
+
+  useEffect(() => {
+    // Abort any actions still streaming for the previous message.
+    Object.values(aiAbortRefs.current).forEach(c => c?.abort());
+    aiAbortRefs.current = {};
+    // Restore persisted results (#204) so they reappear instead of vanishing.
+    const saved = getResults(selectedMessageId);
+    const restored: Record<string, { status: string; text: string; label?: string }> = {};
+    for (const [key, r] of Object.entries(saved)) {
+      restored[key] = { status: 'done', text: r.text, label: r.label };
+    }
+    setAiResults(restored);
+  }, [selectedMessageId]);
+
+  const allMessages = searchQuery.trim() ? searchResults : messages;
+  const message = allMessages.find(m => m.id === selectedMessageId)
+    ?? Object.values(threadMessages).flat().find(m => m.id === selectedMessageId);
+
+  // Compose lives in the mobile top bar now that the reader owns it (the shell's
+  // fallback compose row is hidden while the reader is open). Target the account of
+  // the open message/conversation copy, matching the list header's compose action.
+  const openComposeFromMobileHeader = useCallback(() => {
+    openCompose({ accountId: message?.account_id || selectedConversationCopy?.accountId || undefined });
+  }, [openCompose, message, selectedConversationCopy]);
+
+  useEffect(() => {
+    setResolvedSubject(null);
+  }, [message?.id]);
+
+  // In window mode, if the message leaves the store (archived/moved from another view,
+  // a background sync, or an action taken here), close the window rather than showing an
+  // empty pane. The ref guards the initial mount, where the store copy can momentarily be
+  // absent, from self-closing before the message has ever resolved.
+  const sawMessageRef = useRef(false);
+  useEffect(() => {
+    if (!windowMode) return;
+    if (message) { sawMessageRef.current = true; return; }
+    if (sawMessageRef.current) onWindowClose?.();
+  }, [windowMode, message, onWindowClose]);
+
+  // Antispam (v0.1) — toolbar visibility for the spam / ham buttons.
+  // Mirrors the heuristic in ContextMenu.jsx so the toolbar matches the menu.
+  const account = accounts.find(a => a.id === message?.account_id);
+  const accountId = message?.account_id;
+  const accountFolders = useStore((s: StoreState) => (accountId ? s.folders[accountId] : undefined) || []);
+  const spamFolderPaths = (() => {
+    const mapped = account?.folder_mappings?.spam;
+    if (mapped) return new Set([mapped]);
+    return new Set(accountFolders.filter(f =>
+      f.special_use === '\\Junk' || SPAM_NAME_RE.test(f.name || '')
+    ).map(f => f.path));
+  })();
+  const inSpamFolder = message?.folder ? spamFolderPaths.has(message.folder) : false;
+  const hasSpamFolder = spamFolderPaths.size > 0;
+
+  // Mark current message as spam / ham from the MessagePane toolbar.
+  // Mirrors MessageList.performSpamLabel (single-message variant). Kept inline
+  // here so the MessagePane doesn't need to reach into MessageList internals.
+  const performSingleSpamLabel = useCallback(async (label: string) => {
+    if (!message) return;
+    const wasUnread = !message.is_read;
+    removeMessage(message.id);
+    closeWindowIfWindowed();
+    if (wasUnread) decrementUnread(message.account_id);
+    let settled = false;
+    const undo = () => {
+      settled = true;
+      useStore.getState().restoreMessages([message]);
+      if (wasUnread) incrementUnread(message.account_id);
+    };
+    setTimeout(async () => {
+      if (settled) return;
+      try {
+        const fn = label === 'spam' ? api.markSpam : api.markHam;
+        await fn(message.id);
+      } catch (err) {
+        useStore.getState().restoreMessages([message]);
+        if (wasUnread) incrementUnread(message.account_id);
+        addNotification({
+          type: 'error',
+          title: t(label === 'spam' ? 'spam.failTitle' : 'spam.failHamTitle'),
+          body: toAppError(err).message || t(label === 'spam' ? 'spam.failBody' : 'spam.failHamBody'),
+        });
+      }
+    }, 4500);
+    addNotification({
+      title: label === 'spam' ? t('spam.movedToSpam') : t('spam.movedToInbox'),
+      body: message.subject || t('common.noSubject'),
+      onUndo: undo,
+    });
+  }, [message, removeMessage, decrementUnread, incrementUnread, addNotification, t, closeWindowIfWindowed]);
+
+  const currentIdx = allMessages.findIndex(m => m.id === selectedMessageId);
+  const hasPrev = currentIdx > 0;
+  const hasNext = currentIdx >= 0 && currentIdx < allMessages.length - 1;
+
+  const [body, setBody] = useState<MessageBodyState | null>(null);
+  const [bodyError, setBodyError] = useState<string | null>(null);
+  const [retryKey, setRetryKey] = useState(0);
+  const [loadingBody, setLoadingBody] = useState(false);
+  const [_downloadingPart, setDownloadingPart] = useState<string | null>(null);
+  const [_savingAllow, setSavingAllow] = useState(false);
+  const [paneScrolled, setPaneScrolled] = useState(false);
+  const [showHeaderModal, setShowHeaderModal] = useState(false);
+  const [resolvedSubject, setResolvedSubject] = useState<string | null>(null);
+  const [movePickerFolders, setMovePickerFolders] = useState<MovePickerFolder[]>([]);
+  const [movePickerLoading, setMovePickerLoading] = useState(false);
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    message: Record<string, unknown>;
+    source: string;
+    selectedText?: string | null;
+  } | null>(null);
+  const [findDialogOpen, setFindDialogOpen] = useState(false);
+  useBackLayer(findDialogOpen, () => setFindDialogOpen(false), 3000);
+  const [findQuery, setFindQuery] = useState('');
+  const [findMatchCase, setFindMatchCase] = useState(false);
+  const [findMatchIndex, setFindMatchIndex] = useState(-1);
+  const findInputRef = useRef<HTMLInputElement | null>(null);
+  const [aiStatus, setAiStatus] = useState<{ enabled?: boolean; features?: { summarize?: boolean; [key: string]: unknown }; [key: string]: unknown } | null>(null);
+  // Per-action results for the current message: { [actionKey]: { status, text, label } }.
+  // status: 'loading' | 'done' | 'error'. Restored from localStorage on message change.
+  const [aiResults, setAiResults] = useState<Record<string, { status?: string; text?: string; [key: string]: unknown }>>({});
+  const [aiClassifying, setAiClassifying] = useState(false);
+  const [_unsubscribeStatus, setUnsubscribeStatus] = useState<string | null>(null); // null | 'loading' | 'done' | 'error'
+  // One AbortController per in-flight action, keyed by action key.
+  const aiAbortRefs = useRef<Record<string, AbortController | undefined>>({});
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const roRef = useRef<ResizeObserver | null>(null);
+  // Session-scoped set of message IDs where the user has clicked "Load images once".
+  // This is intentionally declared before renderableHtml so the div renderer can use
+  // the same effective policy as the API fetch and iframe renderer.
+  const imagesRequestedRef = useRef(new Set());
+  // useMemo so prepared is available in the same render as body.html — no extra frame,
+  // no flash of empty content between skeleton-gone and email-shown.
+  const allowRemoteImages = !blockRemoteImages || imagesRequestedRef.current.has(selectedMessageId);
+  // retryKey triggers a render after Load images/whitelist changes the ref, so
+  // allowRemoteImages is recalculated before this sanitizer projection runs.
+  // The div renderer bypasses the iframe, so it has to apply the same canvas contract
+  // itself: the tone drives the colour adaptation the sanitiser performs.
+  const paneTheme = useStore((state: StoreState) => state.theme);
+  const renderableHtml = useMemo(() => body?.html ? sanitizeMessageHtml(body.html, { remoteImages: allowRemoteImages, tone: getEmailSurface(paneTheme)?.tone }) : '', [body?.html, allowRemoteImages, paneTheme]);
+  const prepared = useMemo(() => {
+    if (!USE_DIV_RENDER || !renderableHtml || !prepareEmailHtml) return null;
+    return prepareEmailHtml(renderableHtml, windowMode ? `w${message?.id ?? 'preview'}` : String(message?.id ?? 'preview'));
+  }, [renderableHtml, message?.id, windowMode]);
+  const outerRef = useRef<HTMLDivElement | null>(null);
+  const scaleRef = useRef<HTMLDivElement | null>(null);
+  const innerRef = useRef<HTMLDivElement | null>(null);
+  const bodyCache = useRef<Record<string, MessageBodyState>>({}); // messageId -> body, so revisiting is instant (capped at 50)
+  const bodyCacheOrder = useRef<string[]>([]); // insertion-order keys for LRU eviction
+  // Ref holding the latest pane action handlers so shortcut subscriptions ([] deps) never go stale
+  const paneActionsRef = useRef<{
+    reply: () => void;
+    replyAll: () => void;
+    forward: () => void;
+    toggleStar: () => void;
+    print: () => void;
+  }>({
+    reply: () => {},
+    replyAll: () => {},
+    forward: () => {},
+    toggleStar: () => {},
+    print: () => {},
+  });
+  const emailScaleRef = useRef(1); // scale applied to wide emails that resist CSS reflow
+
+  const getPaneSelectionText = useCallback(() => {
+    const iframeDoc = iframeRef.current?.contentDocument;
+    const iframeSelection = iframeDoc?.getSelection?.()?.toString() || '';
+    if (iframeSelection.trim()) return iframeSelection;
+    return window.getSelection?.()?.toString() || '';
+  }, []);
+
+  const isSelectionContextTarget = useCallback((event: { target?: unknown }, doc: Document = document) => {
+    const selection = doc.getSelection?.();
+    if (!selection?.toString().trim() || selection.rangeCount === 0) return false;
+    const target = event.target;
+    if (!(target instanceof Node) || target === doc.body || target === doc.documentElement) return false;
+    try {
+      return selection.containsNode(target, true) || selection.getRangeAt(0).intersectsNode(target);
+    } catch {
+      return false;
+    }
+  }, []);
+
+  const hasNativeContextTarget = useCallback((event: { target?: unknown }, doc: Document = document) => {
+    if (isSelectionContextTarget(event, doc)) return true;
+    const target = event.target;
+    return target instanceof Element && Boolean(target.closest?.(
+      'a[href], img, input, textarea, select, button, [role="button"], [contenteditable="true"], [contenteditable=""]'
+    ));
+  }, [isSelectionContextTarget]);
+
+  const openPaneContextMenu = useCallback((x: number, y: number, options: { source?: string; selectedText?: string | null } = {}) => {
+    if (!message) return;
+    setContextMenu({
+      x,
+      y,
+      message,
+      source: options.source || 'pane',
+      selectedText: options.selectedText ?? getPaneSelectionText(),
+    });
+  }, [getPaneSelectionText, message]);
+
+  const handlePaneContextMenu = useCallback((event: React.MouseEvent) => {
+    if (hasNativeContextTarget(event, event.currentTarget?.ownerDocument || document)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    openPaneContextMenu(event.clientX, event.clientY, {
+      selectedText: getPaneSelectionText(),
+      source: 'pane',
+    });
+  }, [getPaneSelectionText, hasNativeContextTarget, openPaneContextMenu]);
+
+  // Track previous blocking policy so we can detect tightening vs loosening.
+  const prevBlockingPolicyRef = useRef<{ blockRemoteImages: boolean; addrCount: number; domainCount: number } | null>(null);
+
+  // Flush body cache when the image-blocking policy changes:
+  // - Tightening (blocking ON, or whitelist entry removed): evict unblocked entries so they
+  //   re-fetch with blocking applied. Also clear imagesRequestedRef for evicted IDs so a
+  //   prior "load images once" click doesn't silently bypass the re-tightened policy.
+  // - Loosening globally (blocking turned OFF): evict blocked entries so the current email
+  //   immediately shows images without requiring navigation. Whitelist additions are handled
+  //   directly in handleAllowSender/Domain to avoid triggering a double-eviction here.
+  useEffect(() => {
+    const prev = prevBlockingPolicyRef.current;
+    const curr = {
+      blockRemoteImages,
+      addrCount: (imageWhitelist?.addresses || []).length,
+      domainCount: (imageWhitelist?.domains || []).length,
+    };
+    prevBlockingPolicyRef.current = curr;
+    if (!prev) return; // skip initial mount
+
+    const tightened =
+      (!prev.blockRemoteImages && curr.blockRemoteImages) ||
+      prev.addrCount > curr.addrCount ||
+      prev.domainCount > curr.domainCount;
+    const loosenedGlobally = prev.blockRemoteImages && !curr.blockRemoteImages;
+    // Whitelist additions from any source (email banner or Admin Privacy tab) need
+    // blocked cache entries evicted. The email banner handlers also do this directly
+    // but a second eviction pass on an already-empty slot is harmless.
+    const loosenedViaWhitelist = !tightened && (
+      curr.addrCount > prev.addrCount || curr.domainCount > prev.domainCount
+    );
+
+    let evicted = false;
+    if (tightened) {
+      for (const id of Object.keys(bodyCache.current)) {
+        if (!bodyCache.current[id]?.hasBlockedRemoteImages) {
+          delete bodyCache.current[id];
+          imagesRequestedRef.current.delete(id); // clear "load once" so policy is respected
+          evicted = true;
+        }
+      }
+    }
+    if (loosenedGlobally || loosenedViaWhitelist) {
+      for (const id of Object.keys(bodyCache.current)) {
+        if (bodyCache.current[id]?.hasBlockedRemoteImages) {
+          delete bodyCache.current[id];
+          evicted = true;
+        }
+      }
+    }
+    if (evicted) {
+      bodyCacheOrder.current = bodyCacheOrder.current.filter(id => bodyCache.current[id]);
+      setRetryKey(k => k + 1);
+    }
+  }, [blockRemoteImages, imageWhitelist]);
+
+  useLayoutEffect(() => {
+    if (!selectedMessageId) {
+      setBody(null);
+      setBodyError(null);
+      setLoadingBody(false);
+      return;
+    }
+
+    // Serve from cache when available — avoids re-fetching on revisit.
+    // Skip the cache (or clear a stale blocked entry) when the user has explicitly
+    // requested images for this message so we re-fetch with ?remoteImages=1.
+    const wantsImages = imagesRequestedRef.current.has(selectedMessageId);
+    const cached = bodyCache.current[selectedMessageId];
+    if (cached && (cached.html || cached.text)) {
+      if (!wantsImages || !cached.hasBlockedRemoteImages) {
+        setBody(cached);
+        setBodyError(null);
+        setLoadingBody(false);
+        return;
+      }
+      // Cache has the blocked version but user wants images — evict and re-fetch
+      delete bodyCache.current[selectedMessageId];
+    }
+
+    // Clear previous content immediately so stale body never shows for a new message
+    setBody(null);
+    setBodyError(null);
+    setLoadingBody(true);
+
+    // Cancellation flag — prevents a slow in-flight fetch for a previous message
+    // from overwriting state after the user has already moved to a different message.
+    let cancelled = false;
+
+    // Auto-retry helper: retries on transient errors (not-found race, dead IMAP
+    // connection, etc.) with exponential backoff before surfacing a permanent error.
+    const fetchWithRetry = async (id: string, attemptsLeft = 2, delay = 500) => {
+      try {
+        return await api.getMessageBody(id, imagesRequestedRef.current.has(id));
+      } catch (err) {
+        const isNotFound = /not found/i.test(toAppError(err).message);
+        const isTransient = /Command failed|Command canceled|timed out|ECONNRESET|socket hang up|EPIPE/i.test(toAppError(err).message);
+        if ((isNotFound || isTransient) && attemptsLeft > 0 && !cancelled) {
+          await new Promise(r => setTimeout(r, delay));
+          if (cancelled) throw err; // user navigated away during wait
+          return fetchWithRetry(id, attemptsLeft - 1, delay * 2);
+        }
+        throw err;
+      }
+    };
+
+    fetchWithRetry(selectedMessageId)
+      .then(data => {
+        if (cancelled) return;
+        // Only cache if there's real content — empty results can be retried
+        if (data.html || data.text) {
+          bodyCache.current[selectedMessageId] = data;
+          bodyCacheOrder.current.push(selectedMessageId);
+          // Evict oldest entry when cache exceeds 50 messages
+          if (bodyCacheOrder.current.length > 50) {
+            const evicted = bodyCacheOrder.current.shift();
+            if (evicted) delete bodyCache.current[evicted];
+          }
+        }
+        setBody(data);
+      })
+      .catch(err => {
+        if (cancelled) return;
+        setBodyError(toAppError(err).message);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingBody(false);
+      });
+
+    return () => { cancelled = true; };
+  }, [selectedMessageId, retryKey]);
+
+  // Size the iframe to its full content height so no internal scrollbar appears.
+  // The outer overflow:auto container is the only scrollbar the user sees.
+  //
+  // Key design: overflow:hidden is injected via the srcDoc <style> (with !important)
+  // so email CSS can never make html/body fill the iframe height.  We never toggle
+  // overflow here, which eliminates the feedback loop where clearing overflow lets
+  // percentage-height elements expand → body grows → observer fires → repeat.
+  useEffect(() => {
+    const iframe = iframeRef.current;
+    if (!iframe || !body?.html) return;
+
+    let rafId: number | undefined;
+    let lastH = 0;
+    let contextMenuDoc: Document | null = null;
+    let iframeContextMenuHandler: ((event: MouseEvent) => void) | null = null;
+    let clickDoc: Document | null = null;
+    let iframeClickHandler: ((event: MouseEvent) => void) | null = null;
+
+    const setHeight = () => {
+      const doc: Document | null = iframe.contentDocument;
+      if (!doc) return;
+      const el = doc.documentElement;
+      const b  = doc.body;
+      const h  = Math.max(
+        el ? el.scrollHeight : 0,
+        el ? el.offsetHeight : 0,
+        b  ? b.scrollHeight  : 0,
+        b  ? b.offsetHeight  : 0,
+      );
+      // Scale visual height to match the proportional scale applied to the
+      // email wrapper (1 for normal emails, <1 for wide fixed-layout emails).
+      const scaled = Math.round(h * emailScaleRef.current);
+      if (scaled > lastH) {
+        lastH = scaled;
+        iframe.style.height = scaled + 'px';
+      }
+    };
+
+    const onLoaded = () => {
+      emailScaleRef.current = 1; // reset for each new email
+
+      const doc: Document | null = iframe.contentDocument;
+      if (!doc) return;
+
+      // Some marketing emails have inline styles on their <body> tag (e.g. overflow:auto,
+      // height:100%) that the HTML parser merges into the iframe's outer <body>.  Our
+      // injected <style> with !important can't win against inline !important rules.
+      // Setting the properties via JS style.setProperty(...,'important') writes them as
+      // inline !important, which always beats any same-property inline value from the email.
+      const b = doc.body;
+      const h = doc.documentElement;
+      if (b) {
+        b.style.setProperty('height', 'auto', 'important');
+        b.style.setProperty('min-height', '0', 'important');
+        b.style.setProperty('overflow-y', 'hidden', 'important');
+      }
+      if (h) {
+        h.style.setProperty('height', 'auto', 'important');
+        h.style.setProperty('min-height', '0', 'important');
+        h.style.setProperty('overflow-y', 'hidden', 'important');
+      }
+
+      // Some marketing emails (e.g. Avis) use class-based !important rules that
+      // lock layout to a fixed pixel width and cannot be overridden by our injected
+      // CSS. Measure the rendered content width and, if it exceeds the iframe,
+      // scale the entire wrapper div down proportionally so all content is visible.
+      const iframeW = iframe.offsetWidth;
+      if (iframeW > 0) {
+        // iOS Safari clamps scrollWidth to the iframe viewport when overflow:hidden
+        // is set on html/body, so wide fixed-layout emails are never detected.
+        // Temporarily expose overflow-x inline (beating the !important stylesheet
+        // rule) to let scrollWidth reflect the true content width, then restore.
+        // Note: overflow-x:visible is coerced to auto when overflow-y is non-visible —
+        // that's fine; auto still returns the real scrollable content width.
+        if (b) b.style.setProperty('overflow-x', 'visible', 'important');
+        if (h) h.style.setProperty('overflow-x', 'visible', 'important');
+        const contentW = Math.max(
+          h ? h.scrollWidth : 0,
+          b ? b.scrollWidth : 0,
+        );
+        if (b) b.style.removeProperty('overflow-x');
+        if (h) h.style.removeProperty('overflow-x');
+
+        const wrapper = doc.getElementById('mf-scale-wrapper');
+        if (contentW > iframeW + 2) { // +2 absorbs sub-pixel rounding
+          const scale = iframeW / contentW;
+          emailScaleRef.current = scale;
+          if (wrapper) {
+            wrapper.style.transform       = `scale(${scale})`;
+            wrapper.style.transformOrigin = 'top left';
+            // Lock the wrapper at its natural content width so the scale
+            // maps exactly contentW → iframeW with no clipping.
+            wrapper.style.width           = `${contentW}px`;
+          }
+        }
+      }
+
+      // Expand any nested scroll containers so their full content is visible
+      // without internal scrolling. Marketing emails sometimes apply overflow:auto
+      // plus a fixed height to inner divs/tds, which makes iOS scroll that element
+      // instead of the outer pane container — leaving the sender card pinned like a
+      // sticky header.
+      //
+      // Process in REVERSE document order (deepest elements first) so that when we
+      // expand an inner scroll container, the outer container's scrollHeight already
+      // reflects the expanded child when we evaluate it — preventing missed outer
+      // containers in a single pass.
+      //
+      // expandedEls tracks which elements we've already expanded so that subsequent
+      // calls from image load handlers can re-check and grow them as lazy images add
+      // height (an element that was 1 000 px after the first pass may be 3 000 px
+      // once all images are loaded).
+      const expandedEls = new Set<HTMLElement>();
+      const dv = doc.defaultView;
+      const expandScrollContainers = () => {
+        if (!dv) return;
+        Array.from(doc.querySelectorAll<HTMLElement>('*')).reverse().forEach(el => {
+          const cs = dv.getComputedStyle(el);
+          const oy = cs.overflowY;
+          const isScrollContainer = (oy === 'auto' || oy === 'scroll') && el.scrollHeight > el.clientHeight + 2;
+          const grewAfterExpansion = expandedEls.has(el) && el.scrollHeight > el.clientHeight + 2;
+          if (isScrollContainer || grewAfterExpansion) {
+            expandedEls.add(el);
+            el.style.setProperty('overflow-y', 'hidden', 'important');
+            el.style.setProperty('max-height', 'none', 'important');
+            el.style.setProperty('height', el.scrollHeight + 'px', 'important');
+          }
+        });
+      };
+      expandScrollContainers();
+
+      lastH = 0; // recalculate from scratch with the new scale
+      setHeight();
+      rafId = requestAnimationFrame(setHeight);
+
+      // Intercept all link clicks so they always open in a real browser tab.
+      // Without this, relative hrefs (e.g. href="/") resolve to the mailflow
+      // origin via allow-same-origin and open a new mailflow tab instead of
+      // the intended destination.  We read the raw attribute to bypass
+      // browser resolution and only forward absolute http(s)/mailto links.
+      // Tracked and removed like the contextmenu handler below — onLoaded can
+      // re-run on the same document when the effect's callback deps change,
+      // and an untracked listener stacks up, opening N duplicate tabs per click.
+      if (clickDoc && iframeClickHandler) {
+        clickDoc.removeEventListener('click', iframeClickHandler);
+      }
+      iframeClickHandler = (ev) => {
+        const target = ev.target;
+        const anchor = target instanceof Element ? target.closest('a[href]') : null;
+        if (!anchor) return;
+        ev.preventDefault();
+        let raw = anchor.getAttribute('href') || '';
+        if (raw.startsWith('//')) raw = 'https:' + raw;
+        if (/^https?:\/\//i.test(raw)) {
+          window.open(raw, '_blank', 'noopener,noreferrer');
+        } else if (/^mailto:/i.test(raw)) {
+          window.open(raw, '_blank', 'noopener,noreferrer');
+        }
+      };
+      clickDoc = doc;
+      doc.addEventListener('click', iframeClickHandler);
+
+      if (contextMenuDoc && iframeContextMenuHandler) {
+        contextMenuDoc.removeEventListener('contextmenu', iframeContextMenuHandler);
+      }
+      iframeContextMenuHandler = (ev) => {
+        if (hasNativeContextTarget(ev, doc)) return;
+        ev.preventDefault();
+        const rect = iframe.getBoundingClientRect();
+        openPaneContextMenu(rect.left + ev.clientX, rect.top + ev.clientY, {
+          source: 'iframe',
+          selectedText: doc.getSelection?.()?.toString() || '',
+        });
+      };
+      contextMenuDoc = doc;
+      doc.addEventListener('contextmenu', iframeContextMenuHandler);
+
+      // Re-measure after each lazy-loaded image settles; also re-expand any
+      // scroll containers whose content has grown due to the newly loaded image.
+      doc.querySelectorAll('img').forEach(img => {
+        if (!img.complete) {
+          img.addEventListener('load', () => { expandScrollContainers(); requestAnimationFrame(setHeight); }, { once: true });
+          img.addEventListener('error', () => requestAnimationFrame(setHeight), { once: true });
+        }
+      });
+
+      // Watch for content that reflows after load (web fonts, dynamic content).
+      // Guard: only grow — never shrink on observer fires — so any residual loop
+      // stalls immediately once height stabilises.
+      const root = doc.body || doc.documentElement;
+      if (window.ResizeObserver && root) {
+        roRef.current = new ResizeObserver(() => requestAnimationFrame(setHeight));
+        roRef.current.observe(root);
+      }
+    };
+
+    iframe.addEventListener('load', onLoaded, { once: true });
+    if (iframe.contentDocument?.readyState === 'complete') {
+      onLoaded();
+    }
+
+    return () => {
+      if (rafId) cancelAnimationFrame(rafId);
+      if (roRef.current) { roRef.current.disconnect(); roRef.current = null; }
+      if (contextMenuDoc && iframeContextMenuHandler) {
+        contextMenuDoc.removeEventListener('contextmenu', iframeContextMenuHandler);
+      }
+      if (clickDoc && iframeClickHandler) {
+        clickDoc.removeEventListener('click', iframeClickHandler);
+      }
+      iframe.removeEventListener('load', onLoaded);
+      emailScaleRef.current = 1;
+    };
+  }, [body?.html, selectedMessageId, hasNativeContextTarget, openPaneContextMenu]);
+
+  // Inject scoped email styles before paint so there is no flash of unstyled content.
+  // useLayoutEffect runs synchronously after DOM mutations and before the browser paints,
+  // so the <style> tag is in <head> before the email div becomes visible.
+  useLayoutEffect(() => {
+    const inject = injectEmailStyles;
+    const remove = removeEmailStyles;
+    if (!prepared || !inject || !remove) return;
+    inject(prepared.prefix, prepared.styleBlocks);
+    return () => remove(prepared.prefix);
+  }, [prepared]);
+
+  // Div render path — scale-to-fit for wide fixed-layout emails.
+  // Uses outer/inner refs: measures inner (natural dimensions, unaffected by transform),
+  // sets height/overflow on outer (not observed by the ResizeObserver, preventing loops).
+  useEffect(() => {
+    if (!USE_DIV_RENDER || !prepared) return;
+
+    let rafId: number | undefined = undefined;
+    const expandedEls = new Set<HTMLElement>();
+
+    // Neutralize nested sender-created scroll containers (overflow:auto/scroll +
+    // fixed height) so iOS scrolls the message pane instead of an inner block —
+    // the same fix the iframe renderer applies. Runs on the unscaled content and
+    // re-grows previously-expanded elements as lazy images add height.
+    const expandScrollContainers = (root: ParentNode | null) => {
+      if (!root) return;
+      Array.from(root.querySelectorAll<HTMLElement>('*')).reverse().forEach(el => {
+        const oy = window.getComputedStyle(el).overflowY;
+        const isScroll = (oy === 'auto' || oy === 'scroll') && el.scrollHeight > el.clientHeight + 2;
+        const grew = expandedEls.has(el) && el.scrollHeight > el.clientHeight + 2;
+        if (isScroll || grew) {
+          expandedEls.add(el);
+          el.style.setProperty('overflow-y', 'hidden', 'important');
+          el.style.setProperty('max-height', 'none', 'important');
+          el.style.setProperty('height', el.scrollHeight + 'px', 'important');
+        }
+      });
+    };
+
+    const applyScale = () => {
+      const inner  = innerRef.current;
+      const outer  = outerRef.current;
+      const scaler = scaleRef.current;
+      if (!inner || !outer || !scaler) return;
+
+      // Reset first so we measure natural/unscaled dimensions.
+      // Transform goes on scaleRef (not innerRef) so the base normalize's
+      // transform:none!important on .email-* never cancels the scale.
+      scaler.style.transform       = '';
+      scaler.style.transformOrigin = '';
+      scaler.style.width           = '';
+      outer.style.height    = '';
+      outer.style.overflowX = '';
+      outer.style.overflowY = '';
+
+      // Expand nested scroll containers before measuring so the outer height and
+      // scale account for their full (un-scrolled) content.
+      expandScrollContainers(inner);
+
+      const containerW = outer.clientWidth;
+      const contentW   = inner.scrollWidth; // unaffected by ancestor transforms
+
+      if (containerW > 0 && contentW > containerW + 2) {
+        const scale = containerW / contentW;
+        // Lock scaler to the email's natural content width before applying the
+        // transform so scale(containerW/contentW) maps contentW → containerW
+        // exactly. Without this, scaler inherits innerRef's max-width:100% (=
+        // containerW) and the transform scales the wrong box entirely.
+        scaler.style.width           = `${contentW}px`;
+        scaler.style.transform       = `scale(${scale})`;
+        scaler.style.transformOrigin = 'top left';
+        outer.style.height           = Math.round(inner.scrollHeight * scale) + 'px';
+        // Transform does not change layout dimensions; hide both axes so the
+        // scaled outer wrapper is never treated as a scroll container.  Setting
+        // only overflowX would coerce overflowY from visible to auto (CSS
+        // overflow invariant), creating an accidental vertical scroll container
+        // that iOS scrolls before the outer pane's scrollContainerRef.
+        outer.style.overflowX        = 'hidden';
+        outer.style.overflowY        = 'hidden';
+      }
+    };
+
+    const scheduleScale = () => {
+      if (rafId) cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(() => { rafId = undefined; applyScale(); });
+    };
+
+    // Store image listeners so we can remove them if the message changes mid-load.
+    const imageListeners: Array<{ img: HTMLImageElement; handler: () => void }> = [];
+    innerRef.current?.querySelectorAll('img').forEach(img => {
+      if (!img.complete) {
+        const handler = () => scheduleScale();
+        img.addEventListener('load', handler, { once: true });
+        imageListeners.push({ img, handler });
+      }
+    });
+
+    // Watch inner for content reflow (web fonts, dynamic content).
+    // Do NOT observe outer — we set outer.style.height ourselves, which would
+    // immediately re-fire the observer and produce a measurement loop.
+    let ro: ResizeObserver | undefined;
+    if (window.ResizeObserver && innerRef.current) {
+      ro = new ResizeObserver(scheduleScale);
+      ro.observe(innerRef.current);
+    }
+
+    scheduleScale();
+
+    return () => {
+      if (rafId) cancelAnimationFrame(rafId);
+      if (ro) ro.disconnect();
+      imageListeners.forEach(({ img, handler }) => img.removeEventListener('load', handler));
+    };
+  }, [prepared]);
+
+  // Fade in pane content when switching messages on desktop
+  useEffect(() => {
+    if (isMobile || !selectedMessageId || !paneRef.current) return;
+    const el = paneRef.current;
+    el.style.animation = 'none';
+    el.offsetHeight; // force reflow to restart animation
+    el.style.animation = 'pane-fade-in 0.15s ease';
+  }, [isMobile, selectedMessageId]);
+
+  // Swipe-back gesture: right-swipe from left edge returns to message list on mobile
+  useEffect(() => {
+    if (!isMobile) return;
+    const el = paneRef.current;
+    if (!el) return;
+
+    let startX = 0, startY = 0, dir: 'h' | 'v' | null = null, active = false, fromEdge = false;
+
+    const onStart = (e: TouchEvent) => {
+      const t = e.touches[0];
+      startX = t.clientX; startY = t.clientY;
+      fromEdge = t.clientX <= 32;
+      dir = null; active = false;
+    };
+
+    const onMove = (e: TouchEvent) => {
+      const t = e.touches[0];
+      const dx = t.clientX - startX;
+      const dy = t.clientY - startY;
+      if (!dir) {
+        if (Math.abs(dx) < 5 && Math.abs(dy) < 5) return;
+        dir = Math.abs(dx) > Math.abs(dy) ? 'h' : 'v';
+      }
+      if (dir === 'v') return;
+      if (fromEdge) {
+        if (dx < 0) return;
+        e.preventDefault();
+        active = true;
+        el.style.transition = 'none';
+        el.style.transform = `translateX(${dx}px)`;
+      } else {
+        if (Math.abs(dx) < 5) return;
+        e.preventDefault();
+        active = true;
+      }
+    };
+
+    const onEnd = (e: TouchEvent) => {
+      if (!active) return;
+      active = false;
+      const dx = e.changedTouches[0].clientX - startX;
+      if (fromEdge) {
+        // Prevent the synthesized click that fires ~300ms after touchend.
+        // After swipe-back the pane hides and the list is visible at the same
+        // coordinates — the phantom click would ghost-select a list row.
+        e.preventDefault();
+        if (dx > 80) {
+          el.style.transition = 'transform 0.22s ease';
+          el.style.transform = `translateX(${window.innerWidth}px)`;
+          if (swipeBackTimerRef.current) clearTimeout(swipeBackTimerRef.current);
+          swipeBackTimerRef.current = setTimeout(() => {
+            swipeBackTimerRef.current = null;
+            resetPaneSwipeStyles();
+            if (mountedRef.current) goBackToMobileList();
+          }, 220);
+        } else {
+          el.style.transition = 'transform 0.25s ease';
+          el.style.transform = 'translateX(0)';
+        }
+      } else {
+        const { messages: msgs, searchResults: sr, searchQuery: sq, selectedMessageId: selId, setSelectedMessage: setSel, updateMessage: updMsg, decrementUnread: decUnread, incrementUnread: incUnread, adjustCategoryCount: adjCat } = useStore.getState();
+        const list = sq.trim() ? sr : msgs;
+        const idx = list.findIndex(m => m.id === selId);
+        let target = null;
+        if (dx < -60 && idx >= 0 && idx < list.length - 1) {
+          target = list[idx + 1];
+        } else if (dx > 60 && idx > 0) {
+          target = list[idx - 1];
+        }
+        if (target) {
+          window.dispatchEvent(new CustomEvent(MESSAGE_OPENING_EVENT));
+          api.getMessageBody(target.id).catch(() => {});
+          setSel(target.id);
+          if (autoMarkReadTimerRef.current) clearTimeout(autoMarkReadTimerRef.current);
+          autoMarkReadTimerRef.current = null;
+          if (!target.is_read) {
+            const { markReadBehavior, markReadDelay } = useStore.getState();
+            if (markReadBehavior !== 'manual') {
+              const doMarkRead = () => {
+                updMsg(target.id, { is_read: true });
+                decUnread(target.account_id);
+                adjCat(target.category || 'primary', -1);
+                setPending(target.id, target.account_id);
+                const mutation = queueReadStateMutation(target.id, true, read => api.bulkRead([target.id], read));
+                mutation.promise
+                  .then(() => {
+                    if (!isLatestReadStateMutation(target.id, mutation.version)) return;
+                    pendingMarkReadMap.delete(target.id);
+                    completedMarkReadMap.set(target.id, target.account_id);
+                    setTimeout(() => completedMarkReadMap.delete(target.id), 10000);
+                  })
+                  .catch((e: unknown) => {
+                    if (!isLatestReadStateMutation(target.id, mutation.version)) return;
+                    console.error('markRead failed:', toAppError(e).message);
+                    updMsg(target.id, { is_read: false });
+                    incUnread(target.account_id);
+                    adjCat(target.category || 'primary', 1);
+                    pendingMarkReadMap.delete(target.id);
+                  });
+              };
+              if (markReadBehavior === 'delay') {
+                autoMarkReadTimerRef.current = setTimeout(doMarkRead, (markReadDelay || 1) * 1000);
+              } else {
+                doMarkRead();
+              }
+            }
+          }
+        }
+      }
+    };
+
+    el.addEventListener('touchstart', onStart, { passive: true });
+    el.addEventListener('touchmove', onMove, { passive: false });
+    // Non-passive so onEnd can call e.preventDefault() to suppress the phantom click.
+    el.addEventListener('touchend', onEnd, { passive: false });
+    return () => {
+      el.removeEventListener('touchstart', onStart);
+      el.removeEventListener('touchmove', onMove);
+      el.removeEventListener('touchend', onEnd);
+    };
+  }, [goBackToMobileList, isMobile, setSelectedMessage, resetPaneSwipeStyles]);
+
+  const handleReply = (replyAll = false) => {
+    if (!message) return;
+    const date = message.date ? new Date(message.date).toLocaleString() : '';
+    const safeName = (message.from_name || '').replace(/[\r\n]+/g, ' ');
+    const fromStr = safeName
+      ? `${safeName} <${message.from_email}>`
+      : message.from_email || '';
+    const quotedText = body?.text
+      ? `\n\n---\nOn ${date}, ${fromStr} wrote:\n${body.text.split('\n').map(l => '> ' + l).join('\n')}`
+      : '';
+    const quotedBodyHtml = body?.html
+      ? `<div style="border-left:3px solid var(--border,#ccc);padding-left:12px;margin-top:12px;color:var(--text-secondary,#666)"><p style="margin:0 0 6px;font-size:12px">On ${date}, ${fromStr} wrote:</p>${body.html}</div>`
+      : null;
+
+    const replyToArr = Array.isArray(message.reply_to)
+      ? message.reply_to
+      : (() => { try { return JSON.parse(message.reply_to || '[]'); } catch { return []; } })();
+    const replyTarget = (replyToArr.length && replyToArr[0].email)
+      ? replyToArr[0]
+      : { name: message.from_name || '', email: message.from_email || '' };
+    const sender = replyTarget.email ? [replyTarget] : [];
+
+    const myAccount = accounts.find(a => a.id === message.account_id);
+
+    const replyAliasId = pickReplyAlias({
+      aliases: myAccount?.aliases || [],
+      deliveryAddresses: message.delivery_addresses,
+      toAddresses: message.to_addresses,
+      ccAddresses: message.cc_addresses,
+      fromEmail: message.from_email,
+    });
+
+    const myAddresses = collectOwnAddresses({ account: myAccount, message });
+    const allRecipients = (() => {
+      try {
+        const toArr = Array.isArray(message.to_addresses)
+          ? message.to_addresses
+          : JSON.parse(message.to_addresses || '[]');
+        const ccArr = Array.isArray(message.cc_addresses)
+          ? message.cc_addresses
+          : JSON.parse(message.cc_addresses || '[]');
+        const seen = new Set();
+        return [...toArr, ...ccArr].filter(t => {
+          const email = t.email?.toLowerCase();
+          if (!email || myAddresses.has(email) || email === (replyTarget.email || '').toLowerCase() || seen.has(email)) return false;
+          seen.add(email);
+          return true;
+        });
+      } catch { return []; }
+    })();
+
+    // Use the shared buildReplyHeaders helper so single and conversation replies
+    // produce identical References/In-Reply-To headers (ordered, normalized, deduped).
+    const { inReplyTo, references: referencesChain } = buildReplyHeaders(message);
+
+    const rawSubject = (message.subject || '').trim();
+    const reSubject = rawSubject.startsWith('Re:') ? rawSubject : rawSubject ? `Re: ${rawSubject}` : 'Re:';
+
+    openCompose({
+      to: sender,
+      cc: replyAll ? allRecipients : [],
+      subject: reSubject,
+      body: '',
+      quotedBody: quotedText,
+      quotedBodyHtml,
+      inReplyTo,
+      references: referencesChain,
+      accountId: message.account_id,
+      aliasId: replyAliasId,
+      isReply: true,
+      isReplyAll: replyAll,
+      originalFrom: sender,
+      allRecipients,
+      threadId: message.thread_key || message.thread_id,
+      threadCacheId: message.thread_id || message.thread_key,
+    });
+  };
+
+  const handleForward = () => {
+    if (!message) return;
+    const date = message.date ? new Date(message.date).toLocaleString() : '';
+    const safeName = (message.from_name || '').replace(/[\r\n]+/g, ' ');
+    const fromStr = safeName
+      ? `${safeName} <${message.from_email}>`
+      : message.from_email || '';
+    const safeSubject = (message.subject || '').replace(/[\r\n]+/g, ' ');
+
+    const toStr = parseAddressField(message.to_addresses);
+    const ccStr = parseAddressField(message.cc_addresses);
+
+    const fwdText = `\n\n---------- Forwarded message ----------\nFrom: ${fromStr}\nDate: ${date}\nSubject: ${safeSubject}${toStr ? `\nTo: ${toStr}` : ''}${ccStr ? `\nCc: ${ccStr}` : ''}\n\n${body?.text || ''}`;
+    const fwdHtml = body?.html
+      ? `<div style="border-left:3px solid var(--border,#ccc);padding-left:12px;margin-top:12px;color:var(--text-secondary,#666)"><p style="margin:0 0 6px;font-size:12px">---------- Forwarded message ----------<br>From: ${fromStr}<br>Date: ${date}<br>Subject: ${safeSubject}${toStr ? `<br>To: ${toStr}` : ''}${ccStr ? `<br>Cc: ${ccStr}` : ''}</p>${body.html}</div>`
+      : null;
+    openCompose({
+      subject: message.subject?.startsWith('Fwd:') ? message.subject : `Fwd: ${message.subject}`,
+      body: '',
+      quotedBody: fwdText,
+      quotedBodyHtml: fwdHtml,
+      accountId: message.account_id,
+      isForward: true,
+      forwardedAttachments: (body?.attachments || []).map(att => ({
+        messageId: message.id,
+        part: att.part,
+        filename: att.filename || 'attachment',
+        type: att.type || 'application/octet-stream',
+        size: att.size || 0,
+      })),
+    });
+  };
+
+  const handleStarToggle = async () => {
+    if (!message) return;
+    const newVal = !message.is_starred;
+    updateMessage(message.id, { is_starred: newVal });
+    const mutation = queueStarStateMutation(message.id, newVal, target => api.markStarred(message.id, target));
+    try {
+      await mutation.promise;
+    } catch (err) {
+      if (isLatestStarStateMutation(message.id, mutation.version)) {
+        updateMessage(message.id, { is_starred: !newVal });
+      }
+      throw err;
+    }
+  };
+
+  const handlePrint = () => {
+    if (!message) return;
+    const esc = (s: string | null | undefined) => (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const date = message.date ? new Date(message.date).toLocaleString() : '';
+    const fromStr = message.from_name
+      ? `${esc(message.from_name)} &lt;${esc(message.from_email)}&gt;`
+      : esc(message.from_email);
+
+    const parseList = (raw: unknown): Array<{ name?: string | null; email?: string | null }> => {
+      try { return Array.isArray(raw) ? raw : JSON.parse(typeof raw === 'string' ? raw : '[]'); } catch { return []; }
+    };
+    const fmtAddr = (r: { name?: string | null; email?: string | null }) => r.name ? `${esc(r.name)} &lt;${esc(r.email || '')}&gt;` : esc(r.email || '');
+    const toStr = parseList(message.to_addresses).map(fmtAddr).join(', ');
+    const ccStr = parseList(message.cc_addresses).map(fmtAddr).join(', ');
+
+    const bodyContent = body?.html
+      ? sanitizeMessageHtml(body.html, { remoteImages: allowRemoteImages })
+      : body?.text
+        ? `<pre style="white-space:pre-wrap;font-family:sans-serif;font-size:14px">${esc(body.text)}</pre>`
+        : '';
+
+    const win = window.open('', '_blank');
+    if (!win) return;
+    // CSP blocks any script execution in this same-origin print window (it has no
+    // sandbox); combined with the DOMPurify pass above this neutralizes email HTML.
+    win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="script-src 'none'; object-src 'none'; base-uri 'none'"><title>${esc(message.subject)}</title>
+<style>
+  body { font-family: Arial, sans-serif; font-size: 14px; color: #111; margin: 32px; }
+  .header { border-bottom: 1px solid #ccc; padding-bottom: 16px; margin-bottom: 24px; }
+  .header h1 { font-size: 18px; margin: 0 0 12px; }
+  .meta { font-size: 13px; color: #444; line-height: 1.8; }
+  .meta span { font-weight: 600; color: #111; }
+  @media print { body { margin: 16px; } }
+</style></head><body>
+<div class="header">
+  <h1>${esc(message.subject) || '(no subject)'}</h1>
+  <div class="meta">
+    <div><span>From:</span> ${fromStr}</div>
+    <div><span>To:</span> ${toStr}</div>
+    ${ccStr ? `<div><span>Cc:</span> ${ccStr}</div>` : ''}
+    <div><span>Date:</span> ${date}</div>
+  </div>
+</div>
+${bodyContent}
+</body></html>`);
+    win.document.close();
+    win.focus();
+    win.print();
+  };
+
+  // Label shown on a result box for a given action key. The built-in summarize
+  // key maps to the translated "Summary"; custom actions use their label. Falls
+  // back to a stored label (so a result survives its action being deleted).
+  const aiActionLabel = useCallback((key: string, fallback: unknown) => {
+    if (key === BUILTIN_SUMMARIZE.id) return t('message.summary');
+    const found = (aiActions || []).find(a => a.id === key);
+    return found?.label || (typeof fallback === 'string' ? fallback : '') || key;
+  }, [aiActions, t]);
+
+  // Run an AI action against the current message and stream the result into a
+  // pinned box. Cached results are shown instantly unless force=true (Regenerate).
+  const runAiAction = async (action: { id: string; [key: string]: unknown }, { force = false }: { force?: boolean } = {}) => {
+    if (!action?.id) return;
+    const key = action.id;
+
+    // Show a cached result without re-calling the model (#204, cost-saving).
+    if (!force) {
+      if (aiResults[key]?.status === 'done') return;
+      const cached = getResults(selectedMessageId)[key];
+      if (cached) {
+        setAiResults(r => ({ ...r, [key]: { status: 'done', text: cached.text, label: cached.label } }));
+        return;
+      }
+    }
+
+    const textContent = body?.text
+      || body?.html?.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+      || '';
+    if (!textContent) return;
+
+    const label = aiActionLabel(key, action.label);
+    aiAbortRefs.current[key]?.abort();
+    const ctrl = new AbortController();
+    aiAbortRefs.current[key] = ctrl;
+    const msgId = selectedMessageId;
+    setAiResults(r => ({ ...r, [key]: { status: 'loading', text: '', label } }));
+    // The built-in Summarize prompt is uneditable, so steer its output to the
+    // user's UI language (#255). Custom actions keep their author's prompt as-is.
+    const promptText = action.builtin ? summarizePromptForLocale(i18n.language) : action.prompt;
+    try {
+      const fullText = await api.ai.chat([{
+        role: 'user',
+        content: `${promptText}\n\n${textContent.slice(0, 6000)}`,
+      }], {
+        signal: ctrl.signal,
+        onDelta: (text) => {
+          setAiResults(r => ({ ...r, [key]: { status: 'loading', text, label } }));
+        },
+      });
+      setAiResults(r => ({ ...r, [key]: { status: 'done', text: fullText, label } }));
+      // Persist only completed results, keyed to the message it ran against.
+      if (fullText) saveResult(msgId, key, fullText, label);
+    } catch (err) {
+      if (typeof err === 'object' && err !== null && 'name' in err && err.name === 'AbortError') return;
+      setAiResults(r => ({ ...r, [key]: { status: 'error', text: toAppError(err).message, label } }));
+    }
+  };
+
+  // Dismiss a pinned result box and drop its cached copy.
+  const _dismissAiResult = (key: string) => {
+    aiAbortRefs.current[key]?.abort();
+    removeResult(selectedMessageId, key);
+    setAiResults(r => { const next = { ...r }; delete next[key]; return next; });
+  };
+
+  // Keep pane action refs current every render
+  paneActionsRef.current = {
+    reply:      () => handleReply(defaultReplyAll),
+    replyAll:   () => handleReply(true),
+    forward:    handleForward,
+    toggleStar: handleStarToggle,
+    print:      handlePrint,
+  };
+
+  // Subscribe to keyboard shortcut actions that belong to the message pane.
+  // Registered once ([] deps); live state is accessed through paneActionsRef.
+  useEffect(() => {
+    const onReply        = () => paneActionsRef.current.reply();
+    const onReplyAll     = () => paneActionsRef.current.replyAll();
+    const onForward      = () => paneActionsRef.current.forward();
+    const onToggleStar   = () => paneActionsRef.current.toggleStar();
+    const onPrintMessage = () => paneActionsRef.current.print?.();
+
+    shortcutBus.on('reply',         onReply);
+    shortcutBus.on('replyAll',      onReplyAll);
+    shortcutBus.on('forward',       onForward);
+    shortcutBus.on('toggleStar',    onToggleStar);
+    shortcutBus.on('printMessage',  onPrintMessage);
+
+    return () => {
+      shortcutBus.off('reply',         onReply);
+      shortcutBus.off('replyAll',      onReplyAll);
+      shortcutBus.off('forward',       onForward);
+      shortcutBus.off('toggleStar',    onToggleStar);
+      shortcutBus.off('printMessage',  onPrintMessage);
+    };
+  }, []);
+
+  useEffect(() => {
+    api.ai.status().then(setAiStatus).catch(() => {});
+    return () => { Object.values(aiAbortRefs.current).forEach(c => c?.abort()); };
+  }, []);
+
+  const handleDownload = async (messageId: string, part: string, filename: string) => {
+    setDownloadingPart(part);
+    try {
+      const res = await fetch(`/api/mail/messages/${messageId}/attachments/${encodeURIComponent(part)}`, {
+        credentials: 'include'
+      });
+      if (!res.ok) throw new Error('Download failed');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Download error:', err);
+    } finally {
+      setDownloadingPart(null);
+    }
+  };
+
+  const handleLoadMoveFolders = useCallback(async () => {
+    if (!message) return;
+    setMovePickerLoading(true);
+    try {
+      const data = await api.getFolders(message.account_id);
+      setMovePickerFolders(parseMovePickerFolders(data));
+    } catch (err) {
+      console.error('Failed to load folders:', err);
+      setMovePickerFolders([]);
+    } finally {
+      setMovePickerLoading(false);
+    }
+  }, [message]);
+
+  const handleMarkUnread = useCallback(() => {
+    if (!message || !message.is_read) return;
+    updateMessage(message.id, { is_read: false });
+    incrementUnread(message.account_id);
+    adjustCategoryCount(message.category || 'primary', 1);
+    completedMarkReadMap.delete(message.id);
+    pendingMarkReadMap.delete(message.id);
+    const mutation = queueReadStateMutation(message.id, false, read => api.bulkRead([message.id], read));
+    mutation.promise.catch((e: unknown) => {
+      if (!isLatestReadStateMutation(message.id, mutation.version)) return;
+      console.error('markUnread failed:', toAppError(e).message);
+      updateMessage(message.id, { is_read: true });
+      decrementUnread(message.account_id);
+      adjustCategoryCount(message.category || 'primary', -1);
+    });
+    if (isMobile) setSelectedMessage(null);
+  }, [message, updateMessage, incrementUnread, decrementUnread, adjustCategoryCount, isMobile, setSelectedMessage]);
+
+  const _handleEmailClick = useCallback((ev: React.MouseEvent) => {
+    const target = ev.target;
+    const anchor = target instanceof Element ? target.closest('a[href]') : null;
+    if (!anchor) return;
+    ev.preventDefault();
+    let raw = anchor.getAttribute('href') || '';
+    if (raw.startsWith('//')) raw = 'https:' + raw;
+    if (/^https?:\/\//i.test(raw)) {
+      window.open(raw, '_blank', 'noopener,noreferrer');
+    } else if (/^mailto:/i.test(raw)) {
+      window.open(raw, '_blank', 'noopener,noreferrer');
+    }
+  }, []);
+
+  const getFindRoot = useCallback(() => {
+    if (!USE_DIV_RENDER && body?.html && iframeRef.current?.contentDocument?.body) {
+      return {
+        doc: iframeRef.current.contentDocument,
+        root: iframeRef.current.contentDocument.body,
+        iframe: iframeRef.current,
+      };
+    }
+    return {
+      doc: document,
+      root: innerRef.current || scrollContainerRef.current,
+      iframe: null,
+    };
+  }, [body?.html]);
+
+  const collectFindMatches = useCallback((query: string, matchCase: boolean) => {
+    const { doc, root } = getFindRoot();
+    if (!query || !root) return [];
+
+    const needle = matchCase ? query : query.toLowerCase();
+    const walker = doc.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+      acceptNode(node) {
+        if (!node.nodeValue?.trim()) return NodeFilter.FILTER_REJECT;
+        const parent = node.parentElement;
+        if (!parent || ['SCRIPT', 'STYLE', 'NOSCRIPT'].includes(parent.tagName)) return NodeFilter.FILTER_REJECT;
+        return NodeFilter.FILTER_ACCEPT;
+      },
+    });
+
+    const matches: FindMatch[] = [];
+    let node = walker.nextNode();
+    while (node) {
+      const text = node.nodeValue;
+      if (text !== null) {
+        const haystack = matchCase ? text : text.toLowerCase();
+        let index = haystack.indexOf(needle);
+        while (index !== -1) {
+          matches.push({ doc, node, start: index, end: index + query.length });
+          index = haystack.indexOf(needle, index + Math.max(needle.length, 1));
+        }
+      }
+      node = walker.nextNode();
+    }
+    return matches;
+  }, [getFindRoot]);
+
+  const selectFindMatch = useCallback((match: FindMatch | undefined) => {
+    if (!match) return;
+    const range = match.doc.createRange();
+    range.setStart(match.node, match.start);
+    range.setEnd(match.node, match.end);
+    const selection = match.doc.getSelection?.();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+
+    const rect = range.getBoundingClientRect();
+    if (match.doc === document) {
+      const container = scrollContainerRef.current;
+      if (container && rect.height) {
+        const containerRect = container.getBoundingClientRect();
+        container.scrollTop += rect.top - containerRect.top - Math.max(32, container.clientHeight * 0.25);
+      }
+    } else if (iframeRef.current && rect.height) {
+      const iframeRect = iframeRef.current.getBoundingClientRect();
+      const container = scrollContainerRef.current;
+      if (container) {
+        const containerRect = container.getBoundingClientRect();
+        container.scrollTop += iframeRect.top + rect.top - containerRect.top - Math.max(32, container.clientHeight * 0.25);
+      }
+    }
+  }, []);
+
+  const runMessageFind = useCallback((direction = 1) => {
+    const matches = collectFindMatches(findQuery, findMatchCase);
+    if (matches.length === 0) {
+      setFindMatchIndex(-1);
+      return;
+    }
+    const nextIndex = findMatchIndex < 0
+      ? (direction < 0 ? matches.length - 1 : 0)
+      : (findMatchIndex + direction + matches.length) % matches.length;
+    setFindMatchIndex(nextIndex);
+    selectFindMatch(matches[nextIndex]);
+  }, [collectFindMatches, findMatchCase, findMatchIndex, findQuery, selectFindMatch]);
+
+  useEffect(() => {
+    if (!findDialogOpen) return;
+    setTimeout(() => findInputRef.current?.focus(), 0);
+  }, [findDialogOpen]);
+
+  const handleMoveToFolder = useCallback((folder: string) => {
+    if (!message) return;
+    const moved = message;
+    removeMessage(moved.id);
+    closeWindowIfWindowed();
+    if (!moved.is_read) decrementUnread(moved.account_id);
+    let undone = false;
+    const timer = setTimeout(async () => {
+      if (undone) return;
+      try {
+        await api.bulkMove([moved.id], folder);
+        useStore.getState().recordRecentFolder({ accountId: moved.account_id, path: folder });
+      } catch (err) {
+        console.error('Move failed:', err);
+        useStore.getState().restoreMessages([moved]);
+        if (!moved.is_read) incrementUnread(moved.account_id);
+        addNotification({ title: t('message.moved.failTitle'), body: t('message.moved.failBody') });
+      }
+    }, 4500);
+    addNotification({
+      title: t('message.moved.title'),
+      body: folder,
+      onUndo: () => {
+        undone = true;
+        clearTimeout(timer);
+        useStore.getState().restoreMessages([moved]);
+        if (!moved.is_read) incrementUnread(moved.account_id);
+      },
+    });
+  }, [message, removeMessage, decrementUnread, incrementUnread, addNotification, t, closeWindowIfWindowed]);
+
+  // Close move picker when the selected message changes and handle click-outside
+  useEffect(() => {
+    setShowHeaderModal(false);
+    setContextMenu(null);
+    setUnsubscribeStatus(null);
+    setAiClassifying(false);
+  }, [selectedMessageId]);
+
+  // The reading-pane dropdown menus (move / more / AI) each dismiss via a transparent
+  // full-screen scrim rendered behind the menu — see their JSX below. A document-level
+  // pointerdown/click listener CANNOT catch taps inside the email <iframe> body (pointer
+  // events never cross the frame boundary), so tapping the message left the menu stuck open.
+  // The scrim sits above the iframe and closes the menu on any outside tap (mobile + desktop).
+  // It also can't be defeated by an ancestor's stopPropagation the way a bubbling handler can.
+
+  if (!message && mode !== 'conversation') {
+    // A detached window with no message is mid-close (see auto-close effect above) —
+    // render nothing rather than the list's "select a message" placeholder.
+    if (windowMode) return null;
+    return (
+      <div style={{
+        flex: 1, display: 'flex', flexDirection: 'column',
+        background: 'var(--bg-primary)',
+      }}>
+        {isMobile && (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 8,
+            padding: '10px 14px', borderBottom: '1px solid var(--border-subtle)',
+            background: 'var(--bg-secondary)', flexShrink: 0,
+          }}>
+            <button
+              onClick={() => setSelectedMessage(null)}
+              style={{
+                background: 'none', border: 'none', color: 'var(--accent)',
+                cursor: 'pointer', display: 'flex', alignItems: 'center',
+                gap: 2, padding: '4px 0', fontSize: 15, fontWeight: 500,
+              }}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <polyline points="15 18 9 12 15 6"/>
+              </svg>
+              {t('common.back')}
+            </button>
+          </div>
+        )}
+        <div style={{
+          flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
+          flexDirection: 'column', gap: 12,
+        }}>
+          <div style={{
+            width: 48, height: 48, borderRadius: 14,
+            background: 'var(--bg-secondary)', display: 'flex',
+            alignItems: 'center', justifyContent: 'center', color: 'var(--text-tertiary)',
+          }}>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+              <polyline points="22,6 12,13 2,6"/>
+            </svg>
+          </div>
+          <p style={{ color: 'var(--text-tertiary)', fontSize: 14, margin: 0 }}>
+            {t('message.selectToRead')}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  const handleDelete = () => {
+    if (!message) return;
+    const deleted = message;
+    setPendingDelete(deleted.id);
+    removeMessage(deleted.id);
+    closeWindowIfWindowed();
+    if (!deleted.is_read) decrementUnread(deleted.account_id);
+    let undone = false;
+    const timer = setTimeout(async () => {
+      if (undone) return;
+      try {
+        await api.deleteMessage(deleted.id);
+        setCompletedDelete(deleted.id);
+      } catch {
+        clearDeleteGuard(deleted.id);
+        useStore.getState().restoreMessages([deleted]);
+        if (!deleted.is_read) incrementUnread(deleted.account_id);
+        addNotification({ type: 'error', title: t('messageList.deleted.failTitle'), body: t('messageList.deleted.failBody') });
+      }
+    }, 4500);
+    addNotification({
+      title: t('messageList.deleted.title'),
+      body: t('messageList.deleted.body'),
+      onUndo: () => {
+        undone = true;
+        clearTimeout(timer);
+        clearPendingDelete(deleted.id);
+        useStore.getState().restoreMessages([deleted]);
+        if (!deleted.is_read) incrementUnread(deleted.account_id);
+      },
+    });
+  };
+
+  const handleArchive = () => {
+    if (!message) return;
+    const archived = message;
+    removeMessage(archived.id);
+    closeWindowIfWindowed();
+    if (!archived.is_read) decrementUnread(archived.account_id);
+    let undone = false;
+    const timer = setTimeout(async () => {
+      if (undone) return;
+      try {
+        const result = await api.bulkArchive([archived.id]);
+        if (result.noArchiveFolder?.length) {
+          addNotification({ title: t('message.archived.noFolderTitle'), body: t('message.archived.noFolderBody') });
+        }
+      } catch (err) {
+        console.error('Archive failed:', err);
+        addNotification({ title: t('message.archived.failTitle'), body: t('message.archived.failBody') });
+      }
+    }, 4500);
+    addNotification({
+      title: t('message.archived.title'),
+      body: archived.subject || t('common.noSubject'),
+      onUndo: () => {
+        undone = true;
+        clearTimeout(timer);
+        const state = useStore.getState();
+        state.setMessages([...state.messages, archived].sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime()));
+        if (!archived.is_read) incrementUnread(archived.account_id);
+      },
+    });
+  };
+
+  const handlePaneContextAction = async (action: string, data: unknown = undefined) => {
+    if (!message) return;
+
+    switch (action) {
+      case 'open':
+      case 'bulkSelect':
+        break;
+      case 'copy':
+      case 'copySelection': {
+        const text = getPaneSelectionText();
+        if (text) navigator.clipboard?.writeText(text).catch(() => {});
+        break;
+      }
+      case 'selectAllContent': {
+        const selection = window.getSelection?.();
+        selection?.removeAllRanges();
+        if (contextMenu?.source === 'iframe' && iframeRef.current?.contentDocument?.body) {
+          const doc = iframeRef.current.contentDocument;
+          const range = doc.createRange();
+          range.selectNodeContents(doc.body);
+          const docSelection = doc.getSelection?.();
+          docSelection?.removeAllRanges();
+          docSelection?.addRange(range);
+        } else if (scrollContainerRef.current) {
+          const range = document.createRange();
+          range.selectNodeContents(scrollContainerRef.current);
+          selection?.addRange(range);
+        }
+        break;
+      }
+      case 'findInContent': {
+        setFindDialogOpen(true);
+        setFindMatchIndex(-1);
+        break;
+      }
+      case 'print':
+        handlePrint();
+        break;
+      case 'markRead':
+        if (!message.is_read) {
+          updateMessage(message.id, { is_read: true });
+          decrementUnread(message.account_id);
+          adjustCategoryCount(message.category || 'primary', -1);
+          setPending(message.id, message.account_id);
+          const mutation = queueReadStateMutation(message.id, true, read => api.bulkRead([message.id], read));
+          mutation.promise.catch((e: unknown) => {
+            if (!isLatestReadStateMutation(message.id, mutation.version)) return;
+            console.error('markRead failed:', toAppError(e).message);
+            updateMessage(message.id, { is_read: false });
+            incrementUnread(message.account_id);
+            adjustCategoryCount(message.category || 'primary', 1);
+            pendingMarkReadMap.delete(message.id);
+          });
+        }
+        break;
+      case 'markUnread':
+        handleMarkUnread();
+        break;
+      case 'toggleStar':
+        await handleStarToggle();
+        break;
+      case 'reply':
+        handleReply(false);
+        break;
+      case 'replyAll':
+        handleReply(true);
+        break;
+      case 'forward':
+        handleForward();
+        break;
+      case 'archive':
+        handleArchive();
+        break;
+      case 'moveTo':
+        if (typeof data === 'string') handleMoveToFolder(data);
+        break;
+      case 'delete':
+        handleDelete();
+        break;
+      case 'markSpam':
+        performSingleSpamLabel('spam');
+        break;
+      case 'markHam':
+        performSingleSpamLabel('ham');
+        break;
+      case 'snooze':
+        if (data) {
+          const snoozedMsg = message;
+          removeMessage(snoozedMsg.id);
+          closeWindowIfWindowed();
+          if (!snoozedMsg.is_read) decrementUnread(snoozedMsg.account_id);
+          addNotification({ title: t('message.snoozed.title'), body: snoozedMsg.subject || t('common.noSubject') });
+          api.snoozeMessage(snoozedMsg.id, data).catch(err => {
+            console.error('Snooze failed:', toAppError(err).message);
+            useStore.getState().restoreMessages([snoozedMsg]);
+            if (!snoozedMsg.is_read) incrementUnread(snoozedMsg.account_id);
+            addNotification({ title: t('message.snoozed.failTitle'), body: t('message.snoozed.failBody') });
+          });
+        }
+        break;
+      case 'createRuleFromMessage': {
+        const store = useStore.getState();
+        store.setRulesPreFill?.({ fromEmail: message.from_email, fromName: message.from_name });
+        store.setAdminTab('rules');
+        store.setShowAdmin(true);
+        break;
+      }
+      case 'addToBlockList': {
+        const email = message.from_email;
+        if (!email) break;
+        api.addToBlockList(email).then(() => {
+          addNotification({ title: t('blockList.blocked'), body: email });
+        }).catch(() => {
+          addNotification({ title: t('blockList.errorAdd'), body: email });
+        });
+        break;
+      }
+      case 'setCategory': {
+        const newCategory = data || 'primary';
+        const dbCategory = newCategory === 'primary' ? null : newCategory;
+        try {
+          await api.setMessageCategory(message.id, newCategory);
+          updateMessage(message.id, { category: dbCategory });
+          const params = message.account_id ? { accountId: message.account_id } : {};
+          api.getCategoryCounts(params).then(d => setCategoryCounts(d.counts || {})).catch(() => {});
+        } catch (err) {
+          console.error('setCategory failed:', toAppError(err).message);
+        }
+        break;
+      }
+      default:
+        break;
+    }
+  };
+
+  const handleLoadImages = () => {
+    imagesRequestedRef.current.add(selectedMessageId);
+    if (selectedMessageId) delete bodyCache.current[selectedMessageId];
+    setRetryKey(k => k + 1);
+  };
+
+  const handleAllowSender = async () => {
+    if (!message) return;
+    const senderEmail = message.from_email?.toLowerCase();
+    if (!senderEmail) return;
+    setSavingAllow(true);
+    try {
+      await addToImageWhitelist({ type: 'address', value: senderEmail });
+      // The whitelist change permits the current message immediately. Keep the
+      // session opt-in marker in sync so the div renderer's sanitizer policy agrees
+      // with the API response even while the global block setting remains enabled.
+      if (selectedMessageId) imagesRequestedRef.current.add(selectedMessageId);
+      // Evict all blocked cache entries so they re-fetch with images unblocked
+      for (const id of Object.keys(bodyCache.current)) {
+        if (bodyCache.current[id]?.hasBlockedRemoteImages) delete bodyCache.current[id];
+      }
+      bodyCacheOrder.current = bodyCacheOrder.current.filter(id => bodyCache.current[id]);
+      setRetryKey(k => k + 1);
+    } catch {
+      addNotification({ title: t('message.whitelistFail.title'), body: t('message.whitelistFail.body') });
+    } finally {
+      setSavingAllow(false);
+    }
+  };
+
+  const handleUnsubscribe = async () => {
+    if (!message) return;
+    setUnsubscribeStatus('loading');
+    const msg = message;
+    try {
+      const result = await api.unsubscribeMessage(msg.id);
+      const succeeded = result.type === 'one-click' || result.type === 'url' || result.type === 'mailto';
+      if (!succeeded) { setUnsubscribeStatus('error'); return; }
+      if (result.type === 'url' && result.url) window.open(result.url, '_blank', 'noopener,noreferrer');
+      else if (result.type === 'mailto' && result.mailto) window.open(result.mailto, '_blank', 'noopener,noreferrer');
+      setUnsubscribeStatus('done');
+      addNotification({
+        title: t('message.unsubscribe.done'),
+        actionLabel: t('message.unsubscribe.moveToTrash'),
+        onAction: () => {
+          const { removeMessage, decrementUnread, restoreMessages, incrementUnread } = useStore.getState();
+          removeMessage(msg.id);
+          if (!msg.is_read) decrementUnread(msg.account_id);
+          api.deleteMessage(msg.id).catch(() => {
+            restoreMessages([msg]);
+            if (!msg.is_read) incrementUnread(msg.account_id);
+          });
+        },
+      });
+      return true;
+    } catch {
+      setUnsubscribeStatus('error');
+      addNotification({ type: 'error', title: t('message.unsubscribe.error') });
+      return false;
+    }
+  };
+
+  const _handleAiClassify = async () => {
+    if (!message || aiClassifying) return;
+    setAiClassifying(true);
+    try {
+      const result = await api.categories.aiClassify(message.id);
+      if (result.category) {
+        updateMessage(message.id, { category: result.category === 'primary' ? null : result.category });
+        // Refresh category counts since this message may have moved tabs.
+        const acct = accounts.find(a => a.id === message.account_id);
+        if (acct) {
+          const params = message.account_id ? { accountId: message.account_id } : {};
+          api.getCategoryCounts(params).then(d => setCategoryCounts(d.counts || {})).catch(() => {});
+        }
+        addNotification({ title: t('message.aiClassify.done', { category: t(`messageList.categories.${result.category}`) }) });
+      }
+    } catch {
+      addNotification({ type: 'error', title: t('message.aiClassify.error') });
+    } finally {
+      setAiClassifying(false);
+    }
+  };
+
+  const handleAllowDomain = async () => {
+    if (!message) return;
+    const senderEmail = message.from_email?.toLowerCase() || '';
+    const senderDomain = senderEmail.includes('@') ? senderEmail.split('@')[1] : '';
+    if (!senderDomain) return;
+    setSavingAllow(true);
+    try {
+      await addToImageWhitelist({ type: 'domain', value: senderDomain });
+      // The whitelist change permits the current message immediately; keep the
+      // renderer policy aligned with the newly fetched unblocked body.
+      if (selectedMessageId) imagesRequestedRef.current.add(selectedMessageId);
+      // Evict all blocked cache entries so they re-fetch with images unblocked
+      for (const id of Object.keys(bodyCache.current)) {
+        if (bodyCache.current[id]?.hasBlockedRemoteImages) delete bodyCache.current[id];
+      }
+      bodyCacheOrder.current = bodyCacheOrder.current.filter(id => bodyCache.current[id]);
+      setRetryKey(k => k + 1);
+    } catch {
+      addNotification({ title: t('message.whitelistFail.title'), body: t('message.whitelistFail.body') });
+    } finally {
+      setSavingAllow(false);
+    }
+  };
+
+  const toList: Array<{ name?: string | null; email?: string | null }> = (() => {
+    try {
+      return Array.isArray(message?.to_addresses)
+        ? message.to_addresses
+        : JSON.parse(message?.to_addresses || '[]');
+    } catch { return []; }
+  })();
+
+  const ccList: Array<{ name?: string | null; email?: string | null }> = (() => {
+    if (!message) return [];
+    try {
+      return Array.isArray(message?.cc_addresses)
+        ? message.cc_addresses
+        : JSON.parse(message?.cc_addresses || '[]');
+    } catch { return []; }
+  })();
+
+  const _attachments = body?.attachments || [];
+
+  // CE v2: when mode='conversation', render the conversation reader inside the
+  // native MessagePane container — sharing root pane, width, resize, scroll,
+  // global toolbar, and the mobile back bar. Single-message rendering below is skipped.
+  if (mode === 'conversation') {
+    return (
+      <div
+        ref={paneRef}
+        style={{
+          flex: 1, display: 'flex', flexDirection: 'column',
+          overflow: 'hidden', background: 'var(--bg-primary)',
+          animation: isMobile ? 'mobileSlideIn 0.22s ease' : 'none',
+        }}
+      >
+        {isMobile && <style>{`@keyframes mobileSlideIn { from { transform: translateX(100%) } to { transform: translateX(0) } }`}</style>}
+        {showMobileHeader && (
+          <MobileModuleHeader leading={
+            <HeaderAction icon="back" label={t('common.back')} onClick={goBackToMobileList} data-testid="message-pane-back" />
+          }>
+            <HeaderAction icon="compose" label={t('sidebar.compose')} onClick={openComposeFromMobileHeader} />
+          </MobileModuleHeader>
+        )}
+        {conversationId !== null && (
+          <Suspense fallback={<div style={{ padding: 24, textAlign: 'center', color: 'var(--text-tertiary)' }}>{t('conversation.loading')}</div>}>
+            <ConversationReader conversationId={conversationId} targetLogicalMessageId={targetLogicalMessageId} selectedCopyId={selectedConversationCopy?.id} selectedAccountId={selectedConversationCopy?.accountId} accounts={accounts} onReply={onReply ?? undefined} nativeThreadId={nativeThreadId} nativeFolder={nativeFolder} onNativeThreadUnavailable={onNativeThreadUnavailable ?? undefined} />
+          </Suspense>
+        )}
+      </div>
+    );
+  }
+
+  if (!message) return null;
+
+  return (
+    <div
+      ref={paneRef}
+      style={{
+        flex: 1, display: 'flex', flexDirection: 'column',
+        overflow: 'hidden', background: 'var(--bg-primary)',
+        animation: isMobile ? 'mobileSlideIn 0.22s ease' : 'none',
+      }}
+    >
+      {isMobile && <style>{`@keyframes mobileSlideIn { from { transform: translateX(100%) } to { transform: translateX(0) } }`}</style>}
+
+      {/* Mobile header — rendered into the shell's single top bar (see MobileTopBar). */}
+      {showMobileHeader && (
+        <MobileModuleHeader
+          leading={<HeaderAction icon="back" label={t('common.back')} onClick={goBackToMobileList} data-testid="message-pane-back" />}
+          title={message?.subject || ''}
+        >
+          <HeaderAction icon="previous" label={t('message.previousMessage')} disabled={!hasPrev} onClick={() => selectAndMarkRead(allMessages[currentIdx - 1])} />
+          <HeaderAction icon="next" label={t('message.nextMessage')} disabled={!hasNext} onClick={() => selectAndMarkRead(allMessages[currentIdx + 1])} />
+          <HeaderAction icon="compose" label={t('sidebar.compose')} onClick={openComposeFromMobileHeader} />
+        </MobileModuleHeader>
+      )}
+
+      {/* Native toolbar presentation shared with expanded conversation messages. */}
+      {message && (
+      <MessageToolbar
+        folderMappings={account?.folder_mappings}
+        isMobile={isMobile}
+        defaultReplyAll={defaultReplyAll}
+        isRead={Boolean(message.is_read)}
+        isStarred={Boolean(message.is_starred)}
+        currentFolder={message.folder}
+        folders={movePickerFolders}
+        foldersLoading={movePickerLoading}
+        onLoadFolders={handleLoadMoveFolders}
+        onReply={() => handleReply(false)}
+        onReplyAll={() => handleReply(true)}
+        onForward={handleForward}
+        onArchive={handleArchive}
+        onMove={handleMoveToFolder}
+        onSpam={hasSpamFolder && !inSpamFolder ? () => performSingleSpamLabel('spam') : undefined}
+        onHam={inSpamFolder ? () => performSingleSpamLabel('ham') : undefined}
+        onSetRead={nextRead => nextRead ? handlePaneContextAction('markRead') : handleMarkUnread()}
+        onViewHeaders={() => setShowHeaderModal(true)}
+        onPrint={handlePrint}
+        aiActions={aiStatus?.enabled && aiStatus?.features?.summarize && body
+          ? [{ ...BUILTIN_SUMMARIZE, label: t('message.summarize') }, ...(aiActions || [])]
+          : []}
+        onAiAction={runAiAction}
+        onManageAiActions={() => { setAdminTab('ai-actions'); setShowAdmin(true); }}
+        onStar={handleStarToggle}
+        onDelete={handleDelete}
+        shortcutLabel={shortcutLabel}
+        style={{ boxShadow: paneScrolled ? '0 1px 10px rgba(0,0,0,0.2)' : 'none', transition: 'box-shadow 0.2s ease' }}
+      />
+      )}
+
+      {/* Single scroll container — sender card + email body scroll together */}
+      <div
+        ref={scrollContainerRef}
+        onScroll={e => setPaneScrolled(e.currentTarget.scrollTop > 4)}
+        onContextMenu={handlePaneContextMenu}
+        style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', background: 'var(--bg-primary)' }}
+      >
+      <div style={{ padding: isMobile ? '12px 0 0' : '24px 28px 0' }}>
+
+        {/* Sender card — subject lives here as the card header */}
+        <div className="msg-card" style={{
+          marginBottom: isMobile ? 12 : 24,
+          marginLeft: isMobile ? 0 : undefined,
+          marginRight: isMobile ? 0 : undefined,
+          background: 'var(--bg-elevated)',
+          borderRadius: isMobile ? 0 : 10,
+          border: isMobile ? 'none' : '1px solid var(--border-subtle)',
+          borderBottom: '1px solid var(--border-subtle)',
+          borderLeft: message?.account_color ? `3px solid ${message.account_color}` : undefined,
+          overflow: 'hidden',
+          boxShadow: isMobile ? 'none' : 'var(--shadow-soft), inset 0 1px 0 rgba(255,255,255,0.04)',
+        }}>
+          {/* Subject */}
+          <div style={{
+            padding: '14px 16px 12px',
+            borderBottom: '1px solid var(--border-subtle)',
+            fontSize: 19, fontWeight: 600,
+            color: 'var(--text-primary)', lineHeight: 1.3,
+            fontFamily: 'var(--font-display)',
+          }}>
+            {(() => {
+              const paneSubject = resolvedSubject || message.subject;
+              return (paneSubject && paneSubject !== '(no subject)')
+                ? paneSubject
+                : t('message.noSubject');
+            })()}
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '12px 16px' }}>
+            {/* Avatar */}
+            <MessageAvatar
+              email={message.from_email}
+              name={message.from_name}
+              size={40}
+              hasContactPhoto={message.has_contact_photo}
+            />
+
+            {/* Sender info */}
+            <div style={{ flex: 1, minWidth: 0 }}>
+              {isMobile ? (
+                <>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {message.from_name || message.from_email}
+                  </div>
+                  {message.from_name && (
+                    <div style={{ fontSize: 12, color: 'var(--text-tertiary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {message.from_email}
+                    </div>
+                  )}
+                  {body?.senderEmail && (
+                    <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <span>{t('message.via')} </span>
+                      <span style={{ color: 'var(--text-secondary)' }}>{body.senderName ? `${body.senderName} <${body.senderEmail}>` : body.senderEmail}</span>
+                    </div>
+                  )}
+                  <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <span>{t('message.to')} </span>
+                    <span style={{ color: 'var(--text-secondary)' }}>
+                      {toList.length > 0
+                        ? toList.map((r: { name?: string | null; email?: string | null }, i: number) => (
+                            <span key={i}>{r.name || r.email}{i < toList.length - 1 ? ', ' : ''}</span>
+                          ))
+                        : (asText(message.account_email) || asText(message.account_name) || '')}
+                    </span>
+                  </div>
+                  {ccList.length > 0 && (
+                    <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <span>Cc </span>
+                      <span style={{ color: 'var(--text-secondary)' }}>
+                        {ccList.map((r: { name?: string | null; email?: string | null }, i: number) => (
+                          <span key={i}>{r.name || r.email}{i < ccList.length - 1 ? ', ' : ''}</span>
+                        ))}
+                      </span>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>
+                      {message.from_name || message.from_email}
+                    </span>
+                    {message.from_name && (
+                      <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>
+                        &lt;{message.from_email}&gt;
+                      </span>
+                    )}
+                  </div>
+                  {body?.senderEmail && (
+                    <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 3 }}>
+                      <span>{t('message.via')} </span>
+                      <span style={{ color: 'var(--text-secondary)' }}>{body.senderName ? `${body.senderName} <${body.senderEmail}>` : body.senderEmail}</span>
+                    </div>
+                  )}
+                  <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 3 }}>
+                    <span>{t('message.to')} </span>
+                    <span style={{ color: 'var(--text-secondary)' }}>
+                      {toList.length > 0
+                        ? toList.map((r, i) => (
+                            <span key={i}>
+                              {r.name ? `${r.name} <${r.email}>` : r.email}
+                              {i < toList.length - 1 ? ', ' : ''}
+                            </span>
+                          ))
+                        : (asText(message.account_email) || asText(message.account_name) || '')}
+                    </span>
+                  </div>
+                  {ccList.length > 0 && (
+                    <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2 }}>
+                      <span>Cc </span>
+                      <span style={{ color: 'var(--text-secondary)' }}>
+                        {ccList.map((r, i) => (
+                          <span key={i}>
+                            {r.name ? `${r.name} <${r.email}>` : r.email}
+                            {i < ccList.length - 1 ? ', ' : ''}
+                          </span>
+                        ))}
+                      </span>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+
+            {/* Date + account */}
+            <div style={{ flexShrink: 0, textAlign: 'right' }}>
+              <div style={{ fontSize: 12, color: 'var(--text-tertiary)', whiteSpace: 'nowrap' }}>
+                {message.date ? format(new Date(message.date), isMobile ? 'MMM d, h:mm a' : 'MMM d, yyyy h:mm a') : ''}
+              </div>
+              <div style={{
+                fontSize: 11, marginTop: 4,
+                display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'flex-end',
+              }}>
+                <div style={{
+                  width: 6, height: 6, borderRadius: '50%',
+                  background: message.account_color || 'var(--accent)',
+                }} />
+                <span style={{ color: 'var(--text-tertiary)' }}>{message.account_name}</span>
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+        {/* Shared physical-copy detail preserves the native attachment → notices → body order. */}
+        <div style={{ padding: isMobile ? '0 0 16px' : '0 28px 24px' }}>
+          {Object.entries(aiResults).map(([key, result]) => {
+            const action = key === BUILTIN_SUMMARIZE.id
+              ? BUILTIN_SUMMARIZE
+              : aiActions?.find(candidate => candidate.id === key);
+            return (
+              <AiResultBox
+                key={key}
+                result={result}
+                canRegen={action !== undefined}
+                onRegen={() => { if (action) void runAiAction(action, { force: true }); }}
+                onDismiss={() => _dismissAiResult(key)}
+              />
+            );
+          })}
+          <MessageDetailContent
+            physicalCopyId={message.id}
+            message={message}
+            body={body}
+            status={{ loading: loadingBody, error: bodyError }}
+            remoteImages={allowRemoteImages}
+            onLoadBody={() => { if (selectedMessageId) delete bodyCache.current[selectedMessageId]; setRetryKey(k => k + 1); }}
+            onRemoteImages={handleLoadImages}
+            onAllowSender={handleAllowSender}
+            onAllowDomain={handleAllowDomain}
+            onUnsubscribe={handleUnsubscribe}
+            onDownload={handleDownload}
+            onContextAction={handlePaneContextAction}
+            mobile={isMobile}
+          />
+        </div>
+      </div>
+      </div>{/* end single scroll container */}
+
+      {findDialogOpen && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 80,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 4100,
+            width: 456,
+            maxWidth: 'calc(100vw - 24px)',
+            background: 'var(--bg-elevated)',
+            border: '1px solid var(--border)',
+            borderRadius: 6,
+            boxShadow: 'var(--shadow-modal)',
+            color: 'var(--text-primary)',
+            padding: '10px 16px 14px',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', marginBottom: 16 }}>
+            <div style={{ flex: 1, textAlign: 'center', fontSize: 18, fontWeight: 500 }}>{t('message.find.title')}</div>
+            <button
+              onClick={() => setFindDialogOpen(false)}
+              aria-label={t('message.find.close')}
+              style={{
+                background: 'none', border: 'none', color: 'var(--text-secondary)',
+                cursor: 'pointer', padding: 2, fontSize: 28, lineHeight: 1,
+              }}
+            >
+              &times;
+            </button>
+          </div>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, fontSize: 14 }}>
+            <span>{t('message.find.label')}</span>
+            <input
+              ref={findInputRef}
+              value={findQuery}
+              onChange={e => { setFindQuery(e.target.value); setFindMatchIndex(-1); }}
+              onKeyDown={e => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  runMessageFind(e.shiftKey ? -1 : 1);
+                } else if (e.key === 'Escape') {
+                  setFindDialogOpen(false);
+                }
+              }}
+              style={{
+                flex: 1,
+                height: 34,
+                boxSizing: 'border-box',
+                border: '1px solid var(--accent)',
+                borderRadius: 4,
+                padding: '5px 8px',
+                outline: 'none',
+                background: 'var(--bg-primary)',
+                color: 'var(--text-primary)',
+                fontSize: 14,
+              }}
+            />
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 0 22px 4px', fontSize: 14 }}>
+            <input
+              type="checkbox"
+              checked={findMatchCase}
+              onChange={e => { setFindMatchCase(e.target.checked); setFindMatchIndex(-1); }}
+              style={{ width: 17, height: 17 }}
+            />
+            {t('message.find.matchCase')}
+          </label>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+            <button
+              onClick={() => runMessageFind(-1)}
+              disabled={!findQuery}
+              style={{
+                minWidth: 88, height: 38, border: 'none', borderRadius: 4,
+                background: 'var(--bg-tertiary)', color: 'var(--text-primary)',
+                cursor: findQuery ? 'pointer' : 'default', opacity: findQuery ? 1 : 0.55,
+                fontSize: 14,
+              }}
+            >
+              {t('message.find.previous')}
+            </button>
+            <button
+              onClick={() => runMessageFind(1)}
+              disabled={!findQuery}
+              style={{
+                minWidth: 88, height: 38, border: 'none', borderRadius: 4,
+                background: 'var(--accent)', color: 'var(--accent-text)',
+                cursor: findQuery ? 'pointer' : 'default', opacity: findQuery ? 1 : 0.55,
+                fontSize: 14,
+              }}
+            >
+              {t('message.find.next')}
+            </button>
+            <button
+              onClick={() => setFindDialogOpen(false)}
+              style={{
+                minWidth: 88, height: 38, border: 'none', borderRadius: 4,
+                background: 'var(--bg-tertiary)', color: 'var(--text-primary)',
+                cursor: 'pointer', fontSize: 14,
+              }}
+            >
+              {t('message.find.closeButton')}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {showHeaderModal && (
+        <MessageHeaderModal
+          messageId={message.id}
+          subject={resolvedSubject || message.subject}
+          onClose={() => setShowHeaderModal(false)}
+          onSubjectResolved={(s) => {
+            setResolvedSubject(s);
+            updateMessage(message.id, { subject: s });
+          }}
+        />
+      )}
+
+    </div>
+  );
+}
+
+
+// A pinned AI result box shown above the message (#204). Collapsible to keep
+// multiple results from crowding the view; offers regenerate and dismiss.
+
+// A mounted AI result box used by the message action lifecycle.
+function AiResultBox({ result, canRegen, onRegen, onDismiss }: {
+  result: { status?: string; text?: string; label?: string };
+  canRegen?: boolean;
+  onRegen?: () => void;
+  onDismiss?: () => void;
+}) {
+  const { t } = useTranslation();
+  const [expanded, setExpanded] = useState(false);
+  const loading = result.status === 'loading';
+  const error = result.status === 'error';
+  // Render the (markdown) AI output to sanitized HTML. Memoized on the text so toggling
+  // expand/collapse doesn't re-parse; re-runs as text streams in during generation (#215).
+  const html = useMemo(() => renderMarkdown(result.text || ''), [result.text]);
+  const [copied, setCopied] = useState(false);
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (copyTimerRef.current) clearTimeout(copyTimerRef.current); }, []);
+  // Copy the output to the clipboard as BOTH rich text (the rendered HTML) and source
+  // (the raw markdown), so pasting into a rich editor gives formatting and pasting into a
+  // plain field gives the markdown source (#215). Falls back to plain text where the async
+  // clipboard / ClipboardItem isn't available (e.g. non-secure context).
+  const handleCopy = async () => {
+    const source = result.text || '';
+    const flash = () => {
+      setCopied(true);
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+      copyTimerRef.current = setTimeout(() => setCopied(false), 1500);
+    };
+    try {
+      if (navigator.clipboard?.write && window.ClipboardItem) {
+        await navigator.clipboard.write([new window.ClipboardItem({
+          'text/html': new Blob([html], { type: 'text/html' }),
+          'text/plain': new Blob([source], { type: 'text/plain' }),
+        })]);
+      } else {
+        await navigator.clipboard.writeText(source);
+      }
+      flash();
+    } catch {
+      try { await navigator.clipboard.writeText(source); flash(); } catch { /* clipboard unavailable */ }
+    }
+  };
+  const iconBtn = {
+    background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)',
+    padding: '2px 4px', display: 'flex', alignItems: 'center', lineHeight: 1,
+  };
+  return (
+    <div style={{
+      padding: '12px 16px', background: 'var(--bg-secondary)',
+      border: '1px solid var(--border)', borderLeft: '3px solid var(--accent)',
+      borderRadius: 8, fontSize: 13, lineHeight: 1.55, color: 'var(--text-primary)',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
+        <span style={{
+          fontSize: 11, fontWeight: 600, color: 'var(--accent)', textTransform: 'uppercase',
+          letterSpacing: '0.04em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+        }}>
+          {result.label}
+        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0 }}>
+          {loading && (
+            <span style={{ fontSize: 11, color: 'var(--text-tertiary)', fontStyle: 'italic', marginRight: 4 }}>
+              {t('compose.toolbar.aiGenerating')}
+            </span>
+          )}
+          {canRegen && !loading && (
+            <button onClick={onRegen} title={t('message.aiRegenerate')} aria-label={t('message.aiRegenerate')} style={iconBtn}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
+                <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
+              </svg>
+            </button>
+          )}
+          {!error && !loading && result.text && (
+            <button onClick={handleCopy} title={copied ? t('message.aiCopied') : t('message.aiCopy')} aria-label={copied ? t('message.aiCopied') : t('message.aiCopy')} style={iconBtn}>
+              {copied ? (
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="20 6 9 17 4 12"/>
+                </svg>
+              ) : (
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                </svg>
+              )}
+            </button>
+          )}
+          {!error && !loading && (
+            <button onClick={() => setExpanded(v => !v)} title={expanded ? t('message.aiCollapse') : t('message.aiExpand')} aria-label={expanded ? t('message.aiCollapse') : t('message.aiExpand')} style={iconBtn}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                style={{ transform: expanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }}>
+                <polyline points="6 9 12 15 18 9"/>
+              </svg>
+            </button>
+          )}
+          <button onClick={onDismiss} aria-label={t('message.summaryDismiss')} style={{ ...iconBtn, fontSize: 14 }}>×</button>
+        </div>
+      </div>
+      {loading && !result.text ? (
+        <span style={{ color: 'var(--text-tertiary)', fontStyle: 'italic' }}>{t('compose.toolbar.aiGenerating')}</span>
+      ) : error ? (
+        <span style={{ color: 'var(--red)' }}>{t('compose.toolbar.aiError', { message: result.text })}</span>
+      ) : (
+        <div
+          className="ai-markdown"
+          style={{ maxHeight: expanded ? 'none' : 220, overflowY: expanded ? 'visible' : 'auto' }}
+          dangerouslySetInnerHTML={{ __html: html }}
+        />
+      )}
+    </div>
+  );
+}

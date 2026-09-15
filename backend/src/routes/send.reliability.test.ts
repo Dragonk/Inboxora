@@ -1,0 +1,103 @@
+import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vitest';
+import type { JsonBody } from '../test/json.js';
+vi.mock('../services/db.js', () => ({ query: vi.fn() }));
+vi.mock('../middleware/auth.js', () => ({ requireAuth: (req: { headers: Record<string, string>; session?: { userId?: string } }, _res: unknown, next: () => void) => { req.session = { userId: 'u1' }; next(); } }));
+vi.mock('../services/redis.js', () => ({ redisClient: { get: vi.fn(), set: vi.fn(), del: vi.fn(), eval: vi.fn() } }));
+vi.mock('../index.js', () => ({ imapManager: {} }));
+vi.mock('../services/smtpTransport.js', () => ({ createAccountSmtpTransport: vi.fn() }));
+vi.mock('../utils/mailUtils.js', () => ({ resolveSentFolder: vi.fn() }));
+import express from 'express';
+import routes from './send.js';
+import { query as __mock_query } from '../services/db.js';
+import { redisClient as __mock_redisClient } from '../services/redis.js';
+import { createAccountSmtpTransport as __mock_createAccountSmtpTransport } from '../services/smtpTransport.js';
+import { resolveSentFolder as __mock_resolveSentFolder } from '../utils/mailUtils.js';
+import type { Server } from 'node:http';
+import { listeningPort } from '../test/net.js';
+
+// Cast mocked module exports so their vitest mock helpers type-check.
+const query = vi.mocked(__mock_query);
+const redisClient = vi.mocked(__mock_redisClient);
+const createAccountSmtpTransport = vi.mocked(__mock_createAccountSmtpTransport);
+const resolveSentFolder = vi.mocked(__mock_resolveSentFolder);
+
+const account = { id: 'a1', email_address: 'me@example.com', name: 'Me', oauth_provider: 'google' };
+const sendMail = vi.fn();
+let server: Server, base: string;
+beforeAll(async () => {
+  const app = express();
+  app.use(express.json());
+  app.use('/api/mail', routes);
+  await new Promise(resolve => { server = app.listen(0, resolve); });
+  base = `http://127.0.0.1:${listeningPort(server)}`;
+});
+afterAll(async () => { await new Promise(resolve => server.close(resolve)); });
+beforeEach(() => {
+  vi.clearAllMocks();
+  query.mockImplementation(async sql => ({ rows: sql.includes('FROM email_accounts') ? [account] : [{ preferences: {}, id: 'book1' }] }));
+  redisClient.get.mockResolvedValue(null);
+  redisClient.set.mockResolvedValue('OK');
+  redisClient.del.mockResolvedValue(1);
+  redisClient.eval.mockResolvedValue(1);
+  createAccountSmtpTransport.mockResolvedValue({ account, transport: { sendMail, verify: vi.fn() } });
+  sendMail.mockResolvedValue({});
+  resolveSentFolder.mockResolvedValue(null);
+});
+const post = () => fetch(`${base}/api/mail/send`, {
+  method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'send1' },
+  body: JSON.stringify({ accountId: 'a1', to: ['you@example.com'], subject: 'Test', body: 'Hello' }),
+});
+describe('send failure semantics', () => {
+  it('does not deliver when idempotency lookup fails', async () => {
+    redisClient.get.mockRejectedValueOnce(new Error('Redis unavailable'));
+    expect((await post()).status).toBe(503);
+    expect(sendMail).not.toHaveBeenCalled();
+  });
+  it('does not deliver or remove another lock when reservation fails', async () => {
+    redisClient.set.mockRejectedValueOnce(new Error('Redis unavailable'));
+    expect((await post()).status).toBe(503);
+    expect(sendMail).not.toHaveBeenCalled();
+    expect(redisClient.del).not.toHaveBeenCalled();
+  });
+  it('does not clear a concurrent send lock after a pre-reservation failure', async () => {
+    createAccountSmtpTransport.mockRejectedValueOnce(new Error('SMTP setup failed'));
+    expect((await post()).status).toBe(500);
+    expect(redisClient.del).not.toHaveBeenCalled();
+  });
+  it('reports SMTP recipient rejection as a partial, non-retryable result', async () => {
+    sendMail.mockResolvedValueOnce({ accepted: ['you@example.com'], rejected: ['missing@example.com'] });
+    const res = await post();
+    expect(res.status).toBe(200);
+    expect((await res.json()) as JsonBody).toEqual({
+      ok: true, partialDelivery: true, accepted: ['you@example.com'], rejected: ['missing@example.com'],
+    });
+    expect(redisClient.eval).toHaveBeenCalledWith(expect.stringContaining("redis.call('SET'"), expect.objectContaining({
+      keys: ['send_idem:u1:send1'],
+    }));
+  });
+
+  it('reports delivery success with a Sent-copy warning after post-delivery failure', async () => {
+    resolveSentFolder.mockRejectedValueOnce(new Error('database unavailable'));
+    const res = await post();
+    expect(res.status).toBe(200);
+    expect((await res.json()) as JsonBody).toEqual({ ok: true, sentCopySaved: false });
+    expect(sendMail).toHaveBeenCalledOnce();
+    expect(redisClient.eval).toHaveBeenCalledWith(expect.stringContaining("redis.call('SET'"), expect.objectContaining({
+      keys: ['send_idem:u1:send1'],
+    }));
+    expect(redisClient.del).not.toHaveBeenCalled();
+  });
+  it('releases its own reservation after an SMTP rejection', async () => {
+    sendMail.mockRejectedValueOnce(new Error('550 rejected'));
+    expect((await post()).status).toBe(500);
+    expect(redisClient.eval).toHaveBeenCalledWith(expect.stringContaining("redis.call('DEL'"), expect.objectContaining({
+      keys: ['send_idem:u1:send1'],
+    }));
+  });
+  it('blocks a concurrent submission', async () => {
+    redisClient.set.mockResolvedValueOnce(null);
+    expect((await post()).status).toBe(409);
+    expect(sendMail).not.toHaveBeenCalled();
+    expect(redisClient.del).not.toHaveBeenCalled();
+  });
+});

@@ -1,7 +1,7 @@
 {
   "name": "inboxora-frontend",
   "productName": "Inboxora",
-  "version": "4.0.0",
+  "version": "4.0.1",
   "description": "A self-hosted inbox for email, contacts and calendars.",
   "homepage": "https://github.com/Dragonk/Inboxora",
   "author": {
@@ -29,7 +29,10 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node --test",
+    "test": "node --import tsx --test \"src/**/*.test.ts\" \"src/**/*.test.tsx\" \"*.test.ts\" \"packages/**/*.test.cjs\"",
+    "typecheck": "tsc --noEmit",
+    "typecheck:strict": "tsc -p tsconfig.strict.json --noEmit",
+    "typecheck:watch": "tsc --noEmit --watch",
     "lint": "eslint src --max-warnings 0",
     "electron:dev": "electron .",
     "preelectron:dist": "node packages/scripts/prepare-electron-icons.cjs && node packages/scripts/prepare-linux-metainfo.cjs",
@@ -39,7 +42,7 @@
     "android:sync": "npm run native:prepare && node packages/scripts/sync-android.cjs",
     "android:dist": "npm run android:sync && node packages/scripts/build-android.cjs && node packages/scripts/collect-android-artifacts.cjs",
     "test:e2e": "playwright test",
-    "docs:screenshots": "DOCS_SCREENSHOTS=1 playwright test e2e/docs-screenshots.spec.js --project=chromium-desktop --project=chromium-mobile-390"
+    "docs:screenshots": "DOCS_SCREENSHOTS=1 playwright test e2e/docs-screenshots.spec.ts --project=chromium-desktop --project=chromium-mobile-390"
   },
   "build": {
     "appId": "io.github.dragonk.inboxora",
@@ -153,6 +156,7 @@
     "dompurify": "^3.4.11",
     "i18next": "^26.0.8",
     "marked": "^18.0.6",
+    "mermaid": "^11.17.2",
     "postcss": "^8.4.35",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
@@ -164,6 +168,13 @@
     "@capacitor/cli": "^8.3.4",
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.62.1",
+    "@types/dompurify": "^3.0.5",
+    "@types/emoji-mart": "^3.0.14",
+    "@types/node": "^22.20.2",
+    "@types/react": "^18.3.31",
+    "@types/react-dom": "^18.3.7",
+    "@typescript-eslint/eslint-plugin": "^8.70.0",
+    "@typescript-eslint/parser": "^8.70.0",
     "@vitejs/plugin-react": "^6.0.2",
     "autoprefixer": "^10.4.18",
     "electron": "^42.1.0",
@@ -172,6 +183,9 @@
     "eslint-plugin-react-hooks": "^7.1.1",
     "globals": "^17.6.0",
     "tailwindcss": "^3.4.1",
+    "tsx": "^4.23.13",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.70.0",
     "vite": "^8.0.16"
   }
 }

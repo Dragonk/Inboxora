@@ -31,7 +31,7 @@ candidates for testing only and must not be used for a server people depend on.
    cp .env.example .env
    ```
 
-2. Set a pinned `INBOXORA_VERSION` in `.env` (for example `4.0.0`) instead of relying on a
+2. Set a pinned `INBOXORA_VERSION` in `.env` (for example `4.0.1`) instead of relying on a
    mutable tag.
 
 3. Generate unique secrets and write them into `.env`:
@@ -76,7 +76,28 @@ start with `docker-compose.external-ntfy.yml` (download it alongside the compose
 The first account you register becomes an administrator; additional users join through
 invitations or open registration, depending on your settings.
 
+## Development builds (the `dev` tag)
+
+Every push to the `dev` branch can be published as `ghcr.io/dragonk/inboxora-backend:dev` and
+`ghcr.io/dragonk/inboxora-frontend:dev` by the **Publish to GHCR** workflow. The `dev` tag always
+points at one immutable commit, and `/api/version` reports both the tag and the SHA the image was
+built from, so you can confirm exactly what you are running.
+
+To test a development build, set the tag in `.env` and recreate the stack:
+
+```bash
+INBOXORA_VERSION=dev
+docker compose pull
+docker compose up -d
+curl -sk https://localhost/api/version
+```
+
+Use a separate database volume for a `dev` deployment. Development builds run the same automatic
+migrations as a release, and rolling back to an older image is not supported.
+
 ## Environment reference
+
+
 
 | Variable | Required | Purpose |
 | --- | --- | --- |

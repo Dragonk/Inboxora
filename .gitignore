@@ -9,6 +9,7 @@ docker-compose.override.yml
 node_modules/
 
 # Build output
+backend/dist/
 frontend/dist/
 frontend/.vite/
 frontend/packages/release/
@@ -45,3 +46,7 @@ artifacts/
 
 # Local Android/JDK toolchain used for on-device build verification — never committed
 .toolchain/
+
+# Local git bundles/backups (not part of the project)
+# NOTE: tsconfig.strict.json is intentionally tracked - it is the strict reference config.
+.backup/

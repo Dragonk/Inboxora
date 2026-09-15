@@ -5,8 +5,123 @@ All notable changes to Inboxora are recorded here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 For the narrative version — what the release means, what to expect when upgrading, and the known
-limitations — read the matching page in the Wiki, for example
+limitations — read the matching page in the Wiki: [Release notes 4.0.1](wiki/Release-notes-4.0.1.md) and
 [Release notes 4.0.0](wiki/Release-notes-4.0.0.md).
+
+## [4.0.1] - 2026-09-13
+
+A patch release with **no new functionality**. The whole application — backend and frontend — was
+migrated from JavaScript to TypeScript, and every defect the migration surfaced was fixed in the
+code instead of being silenced with type-checking suppressions.
+
+### Why this release exists
+
+The codebase was plain JavaScript with no compiler in the loop, so a wrong property name, a missing
+import, a callback the caller never passes, or a comparison that can never be true only failed at
+runtime — usually only on the code path a user happened to hit, and often in a rare state.
+
+The migration was therefore done the strict way: **no `@ts-nocheck`, no blanket `as any`, no
+`@ts-ignore`**. The compiler had to be satisfied with real types and real fixes, which turned the
+migration itself into an audit: the same work removed latent defects rather than hiding them.
+
+### Changed
+
+- **Backend and frontend sources are 100% TypeScript** — `backend/src` 312 `.ts` files and
+  `frontend/src` 239 `.ts`/`.tsx` files, with **0 `.js`/`.jsx`** implementation files; Playwright
+  specs and configuration are `.ts` as well.
+- Both projects type-check cleanly in default strict mode (`tsc --noEmit` → 0 errors) and lint
+  cleanly with `--max-warnings 0`.
+- **No type-safety escape hatches remain**: 0 TypeScript suppression pragmas, 0 ESLint-disable
+  pragmas and 0 explicit unsafe `any` escapes. `DbRow` is `Record<string, unknown>`, so dynamic
+  SQL consumers declare or narrow every column they read.
+- The backend is built with `tsc -p tsconfig.build.json` into `dist/`; `npm start` runs
+  `node dist/index.js`, `npm run dev` runs `tsx watch src/index.ts`, and the Docker image
+  builds and runs from `dist/`. The frontend entry is `frontend/src/main.tsx`; the Vite build
+  is otherwise unchanged.
+- Shared type infrastructure added: Express and session augmentations, typed `req.query` helpers,
+  JSON response shapes for route tests, and the native-bridge globals.
+
+### Fixed
+
+Real defects found while typing the code — each is something JavaScript could not have caught:
+
+- **An AI result component referenced `renderMarkdown` without importing it.** Every AI summary
+  or custom action output would have thrown `ReferenceError: renderMarkdown is not defined`.
+- **`onContextMenu` read `e.pointerType`**, which does not exist on `MouseEvent`. The guard
+  meant to restrict the folder context menu to a desktop right-click was always true.
+- **A test double returned an array where the production code expects a `Set`**
+  (`resolveAllTrashPaths`); the caller uses `.has()`, so the wrong shape would have thrown.
+- **`providerConversationMetadata` read a `references` field that `parseProviderMetadata`
+  never returns** — a dead fallback that the type checker exposed.
+- **`intervalMilliseconds` and `normalizeHref` returned `null`** while their contracts said
+  `number`/`string`.
+- **`listMessages` accepted both a quoted true string and a boolean** for `unreadOnly`
+  and `threaded`; typing pinned the contract and fixed callers that passed the wrong one.
+- **`computeThreadId` was called with an extra `subject` argument** its four-parameter
+  signature ignored, hiding a mismatch.
+- **`Date` objects were subtracted directly** in sorting and range code (for example
+  `new Date(a) - new Date(b)`), which is only accidentally correct; replaced with `.getTime()`.
+- **The draft and send paths passed the stream-transport message straight to `.on(...)`**, where
+  the type is a union with `Buffer`; the message stream is now narrowed with a hard error.
+- **Outbound-mail responses returned an `ok: true`-only shape** while the client read
+  `sentCopySaved`/`sentFolder`.
+- **Frontend style objects were untyped**, so `boxSizing` widened to `string` and cascaded into
+  dozens of `CSSProperties` errors; the same pattern hid a missing `inert` attribute in the
+  React 18 type definitions.
+- Test doubles and fixtures that silently disagreed with the code they stand in for (a missing
+  `verify()` on the SMTP transport double, `parseMessage` results without their required
+  fields, mock return values without `rows`).
+- **HTTP query parameters were treated as strings without validation.** Express can provide a
+  string, an array or nested query data; shared `queryString`/`queryInt` guards now reject invalid
+  shapes before they reach mail, auth and calendar services.
+- **OAuth/OIDC, CardDAV, Todoist and AI provider payloads crossed the application boundary as
+  unchecked values.** Each now has an explicit response/request contract and narrows external
+  data before it is consumed.
+- **Calendar projection and IMAP timeout promises inferred `unknown` or mixed result shapes.**
+  The projection queue, provider profiles, mail append flow and sync planning now use declared
+  result and option types, preventing invalid field reads and wrong callback contracts.
+- **Conversation and message-action contracts disagreed across callers.** Optional copy/logical
+  message identifiers, body snippets, mail options and read-state action inputs now match the
+  behavior that production code implements.
+
+- **Tailwind and the PostgreSQL workflow now follow the TypeScript migration.** Tailwind scans
+  `.ts`/`.tsx` sources, while the PostgreSQL workflow invokes TypeScript scripts and test files
+  through the project loader instead of deleted JavaScript paths.
+- **SMTP and OAuth account handling is fail-safe.** Missing SMTP credentials return a controlled
+  error; STARTTLS requires encryption; connecting Microsoft OAuth converts an existing password
+  account to the correct OAuth provider.
+- **Mail and calendar isolation/reliability defects are fixed.** The IMAP pool reserves slots before
+  asynchronous connection work; custom-port IMAP accounts retain an explicit TLS choice; calendar
+  workers retain per-request budgets and never reuse a shorter in-flight projection for a wider
+  request.
+- **Session and account security are preserved.** A user switch clears private mail, drafts, search,
+  thread and notification state; active TOTP cannot be overwritten; directional control characters
+  are removed from attachment names; explicitly cleared Microsoft settings clear the live runtime.
+- **Delivery and AI policy behavior is explicit.** Partial SMTP recipient acceptance is returned to
+  the caller, long sends renew ownership-checked idempotency leases, and every API-key AI request
+  uses the current connection policy with a pinned, redirect-aware transport.
+- **Conversation AI output is safe and usable.** It collapses with its message and renders sanitized
+  Markdown, including sanitized Mermaid diagrams.
+
+These fixes are documented here as the release record; no standalone migration report is kept at
+repository root.
+
+### Notes
+
+- **No new features, no database migrations and no configuration changes.** Upgrading from 4.0.0 is
+  a drop-in image update; no data, settings or DAV contracts are touched.
+- **The dynamic SQL boundary is gone.** `backend/src/services/db.ts` no longer exports
+  `type DbRow = any`; it is `Record<string, unknown>`, and the ~350 call sites that read dynamic
+  rows now declare the columns they actually use. This was the single largest source of hidden
+  type errors, and removing it surfaced **79 real backend findings** that `any` had been hiding.
+- **Strict TypeScript is enforced by default.** The primary `tsconfig.json` in both projects
+  enables `strict` and `noImplicitAny`; `npm run typecheck` and the compatibility
+  `npm run typecheck:strict` command both report **0 errors** in backend and frontend. CI runs
+  the strict typecheck before lint, tests and builds.
+- **No type-safety escape hatches remain.** Source contains 0 TypeScript suppression pragmas,
+  0 ESLint-disable pragmas and 0 explicit `any`/`as any` boundary escapes. Dynamic data is
+  represented as `unknown` and narrowed at its boundary.
+
 
 ## [4.0.0] - 2026-09-11
 This is the first release of Inboxora as a suite rather than a mail client. Inboxora began as an

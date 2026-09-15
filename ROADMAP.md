@@ -3,6 +3,12 @@
 It follows a **Now / Next / Later** format — no dates, no commitments. Priorities shift as the
 community's needs become clear.
 
+## Shipped in 4.0.1
+
+- The whole codebase (backend and frontend) migrated from JavaScript to TypeScript, without
+  `@ts-nocheck`/`@ts-ignore` or blanket `as any` casts, plus the real defects that the migration
+  exposed. No new functionality — a patch release only.
+
 ## Shipped in 4.0.0
 
 - Dedicated, revocable DAV application passwords, so CardDAV and CalDAV sync through DAVx5 works
@@ -20,12 +26,21 @@ community's needs become clear.
 
 ## Next
 
+- **First-party provider APIs.** Add user-authorized Microsoft Graph and Google API support for
+  email, calendars and contacts, alongside the existing IMAP, DAV and CSV paths. The work includes
+  least-privilege OAuth scopes, incremental synchronization, provider-native identifiers and
+  conflict-safe two-way mutations through the same Inboxora data model.
 - Authoring recurrence rules (`RRULE`) from the event editor instead of reading them only.
 - Richer calendar sharing: per-user feed links with revocable scopes.
 - Faster rebuilds and threading diagnostics for very large mailboxes.
 
 ## Later
 
+- **MCP for collaborative AI assistance.** After the Microsoft Graph and Google API work has
+  established one consistent data and permission boundary, expose a Model Context Protocol server
+  with user-authorized, least-privilege tools. Agents will work on the same Inboxora email,
+  calendar and contact data as the user, with explicit actions and Inboxora's existing ownership
+  and audit boundaries.
 - Backup and restore tooling for a whole instance.
 - Scheduled send and an undo-send delay in the composer.
 - Optional automatic spam classification.

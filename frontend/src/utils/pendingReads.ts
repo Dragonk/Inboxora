@@ -1,0 +1,28 @@
+// pendingMarkReadMap: messageId → accountId for PATCHes that are still in-flight.
+// Used by useWebSocket to adjust unread counts before the server has committed.
+export const pendingMarkReadMap = new Map<string, string>();
+
+// completedMarkReadMap: messageId → accountId for PATCHes that returned successfully
+// but whose DB write may not yet be visible to a concurrent getMessages SELECT.
+// Entries expire after 10s — long enough to cover any in-flight getMessages response
+// that raced with the mark-read commit.
+export const completedMarkReadMap = new Map<string, string>();
+
+// Safety timeout handles keyed by messageId — cancels the previous timer if the
+// same messageId is re-used before the old one fires, preventing a stale timer
+// from deleting a newer in-flight entry for the same message.
+const _pendingTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+// Set a pending entry with a 30-second safety timeout.
+// Callers still call pendingMarkReadMap.delete() on success/error; the timeout
+// is a fallback so a hung or abandoned request never leaves a permanent entry.
+export function setPending(messageId: string, accountId: string): void {
+  const prev = _pendingTimers.get(messageId);
+  if (prev) clearTimeout(prev);
+  const timer = setTimeout(() => {
+    pendingMarkReadMap.delete(messageId);
+    _pendingTimers.delete(messageId);
+  }, 30000);
+  _pendingTimers.set(messageId, timer);
+  pendingMarkReadMap.set(messageId, accountId);
+}

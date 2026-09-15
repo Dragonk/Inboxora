@@ -2,13 +2,13 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
-    setupFiles: ['./vitest.setup.js'],
+    setupFiles: ['./vitest.setup.ts'],
     // Exclude files that use Node.js native test runner (node:test), not vitest.
     // These run via `node --test` with a real PostgreSQL connection.
     exclude: [
       '**/node_modules/**',
       '**/dist/**',
-      '**/*.itest.js',
+      '**/*.itest.*',
       '**/*PostgresIntegrationReal*',
       '**/*PerformanceReal*',
       '**/*RebuildIdempotencyReal*',

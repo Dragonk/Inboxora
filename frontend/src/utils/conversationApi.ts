@@ -1,0 +1,199 @@
+// Conversation Engine v2 API client
+import { CSRF_HEADER, CSRF_VALUE } from './api.ts';
+
+const API_BASE = '/api/mail';
+
+export interface ConversationQueryParams {
+  accountId?: string;
+  folder?: string;
+  search?: string;
+  unreadOnly?: boolean;
+  category?: string;
+  pageSize?: number;
+  limit?: number;
+  cursor?: string;
+  unifiedInbox?: boolean;
+  searchAllFolders?: boolean;
+}
+
+export interface ConversationTargetOptions {
+  scope?: string;
+  copyId?: string | null;
+  logicalMessageId?: string | null;
+  items?: unknown[] | null;
+}
+
+export interface BulkConversationOptions {
+  scope?: string;
+  items?: unknown[] | null;
+}
+
+export function buildConversationRequestHeaders(extraHeaders: HeadersInit = {}) {
+  const headers = new Headers({ 'Content-Type': 'application/json' });
+  for (const [name, value] of new Headers(extraHeaders)) {
+    if (name.toLowerCase() !== CSRF_HEADER.toLowerCase()) headers.set(name, value);
+  }
+  headers.set(CSRF_HEADER, CSRF_VALUE);
+  return headers;
+}
+
+async function apiFetch(path: string, options: RequestInit = {}) {
+  const res = await fetch(`${API_BASE}${path}`, {
+    ...options,
+    credentials: 'include',
+    headers: buildConversationRequestHeaders(options.headers),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    // Carry the status on the error so a caller can react to a specific one: the
+    // rebuild endpoint answers 429 when its per-user rate limit is hit, and that
+    // deserves a different message from a generic failure.
+    const error = new Error(body.error || `HTTP ${res.status}`);
+    error.status = res.status;
+    throw error;
+  }
+  return res.json();
+}
+
+export const conversationApi = {
+  list: (params: ConversationQueryParams = {}) => {
+    const qs = new URLSearchParams();
+    if (params.accountId) qs.set('accountId', params.accountId);
+    if (params.folder) qs.set('folder', params.folder);
+    if (params.search) qs.set('search', params.search);
+    if (params.unreadOnly) qs.set('unreadOnly', '1');
+    if (params.category && params.category !== 'all') qs.set('category', params.category);
+    if (params.pageSize || params.limit) qs.set('limit', String(params.pageSize || params.limit));
+    if (params.cursor) qs.set('cursor', params.cursor);
+    if (params.unifiedInbox) qs.set('unifiedInbox', '1');
+    if (params.searchAllFolders) qs.set('searchAllFolders', '1');
+    return apiFetch(`/conversations?${qs.toString()}`);
+  },
+
+  detail: (conversationId: string | string[]) =>apiFetch(`/conversations/${conversationId}`),
+
+  body: (conversationId: string | string[], logicalMessageId: string | null, signal: AbortSignal | undefined, copyId = null, remoteImages = false) =>{
+    const qs = new URLSearchParams();
+    if (copyId) qs.set('copyId', copyId);
+    if (remoteImages) qs.set('remoteImages', '1');
+    const query = qs.toString() ? `?${qs.toString()}` : '';
+    return apiFetch(`/conversations/${conversationId}/logical-messages/${logicalMessageId}/body${query}`, {
+      signal,
+      headers: remoteImages ? { 'X-MailFlow-Image-Opt-In': '1' } : undefined,
+    });
+  },
+
+  // `ref` may be a selected physical UUID or a durable RFC Message-ID.
+  resolveMessage: (ref: string, accountId: string | null = null) =>{
+    const qs = new URLSearchParams();
+    if (accountId) qs.set('accountId', accountId);
+    const query = qs.toString() ? `?${qs.toString()}` : '';
+    return apiFetch(`/messages/${encodeURIComponent(ref)}/conversation${query}`);
+  },
+
+  // Copy-aware destructive actions — `scope` is explicit (never defaults to whole conversation).
+  // Scopes: THIS_COPY | ALL_COPIES_OF_LOGICAL_MESSAGE | COPIES_ON_THIS_ACCOUNT | WHOLE_CONVERSATION
+  archive: (conversationId: string | string[], { scope = 'THIS_COPY', copyId = null, logicalMessageId = null }: ConversationTargetOptions = {}) =>
+    apiFetch(`/conversations/${conversationId}/archive`, {
+      method: 'POST',
+      body: JSON.stringify({ scope, copyId, logicalMessageId }),
+    }),
+
+  move: (conversationId: string | string[], targetFolder: string, { scope = 'THIS_COPY', copyId = null, logicalMessageId = null, items = null }: ConversationTargetOptions = {}) =>{
+    const ids = Array.isArray(conversationId) ? conversationId : null;
+    return apiFetch(ids ? '/conversations/bulk-move' : `/conversations/${conversationId}/move`, {
+      method: 'POST',
+      body: JSON.stringify(ids ? { conversationIds: ids, items, targetFolder, scope } : { targetFolder, scope, copyId, logicalMessageId }),
+    });
+  },
+
+  delete: (conversationId: string | string[], { scope = 'THIS_COPY', copyId = null, logicalMessageId = null }: ConversationTargetOptions = {}) =>
+    apiFetch(`/conversations/${conversationId}/delete`, {
+      method: 'POST',
+      body: JSON.stringify({ scope, copyId, logicalMessageId }),
+    }),
+
+  setRead: (conversationId: string | string[], isRead: boolean, { scope = 'THIS_COPY', copyId = null, logicalMessageId = null }: ConversationTargetOptions = {}) =>
+    apiFetch(`/conversations/${conversationId}/read`, {
+      method: 'POST',
+      body: JSON.stringify({ isRead, scope, copyId, logicalMessageId }),
+    }),
+
+  setStarred: (conversationId: string | string[], isStarred: boolean, { scope = 'THIS_COPY', copyId = null, logicalMessageId = null }: ConversationTargetOptions = {}) =>
+    apiFetch(`/conversations/${conversationId}/star`, {
+      method: 'POST',
+      body: JSON.stringify({ isStarred, scope, copyId, logicalMessageId }),
+    }),
+
+  // Bulk variants — operate on multiple conversations at once.
+  bulkArchive: (conversationIds: string[], { scope = 'THIS_COPY', items = null }: BulkConversationOptions = {}) =>
+    apiFetch(`/conversations/bulk-archive`, {
+      method: 'POST',
+      body: JSON.stringify({ conversationIds, items, scope }),
+    }),
+
+  bulkDelete: (conversationIds: string[], { scope = 'THIS_COPY', items = null }: BulkConversationOptions = {}) =>
+    apiFetch(`/conversations/bulk-delete`, {
+      method: 'POST',
+      body: JSON.stringify({ conversationIds, items, scope }),
+    }),
+
+  bulkSetRead: (conversationIds: string[], isRead: boolean, { scope = 'THIS_COPY', items = null }: BulkConversationOptions = {}) =>
+    apiFetch(`/conversations/bulk-read`, {
+      method: 'POST',
+      body: JSON.stringify({ conversationIds, items, isRead, scope }),
+    }),
+
+  // Manual operations
+  merge: (sourceId: string, targetId: string) =>
+    apiFetch(`/conversations/${sourceId}/merge`, {
+      method: 'POST',
+      body: JSON.stringify({ targetConversationId: targetId }),
+    }),
+
+  split: (conversationId: string | string[], logicalMessageId: string | null, { includeReplies = false }: { includeReplies?: boolean } = {}) =>
+    apiFetch(`/conversations/${conversationId}/logical-messages/${logicalMessageId}/split`, {
+      method: 'POST',
+      body: JSON.stringify({ includeReplies }),
+    }),
+
+  moveLogicalMessage: (conversationId: string | string[], logicalMessageId: string | null, targetConversationId: string) =>
+    apiFetch(`/conversations/${conversationId}/logical-messages/${logicalMessageId}/move`, {
+      method: 'POST',
+      body: JSON.stringify({ targetConversationId }),
+    }),
+
+  lock: (conversationId: string | string[]) =>
+    apiFetch(`/conversations/${conversationId}/lock`, { method: 'POST' }),
+
+  unlock: (conversationId: string | string[]) =>
+    apiFetch(`/conversations/${conversationId}/unlock`, { method: 'POST' }),
+
+  forceInclude: (conversationId: string | string[], logicalMessageId: string | null) =>
+    apiFetch(`/conversations/${conversationId}/logical-messages/${logicalMessageId}/force-include`, { method: 'POST' }),
+
+  forceExclude: (conversationId: string | string[], logicalMessageId: string | null) =>
+    apiFetch(`/conversations/${conversationId}/logical-messages/${logicalMessageId}/force-exclude`, { method: 'POST' }),
+
+  // Diagnostics
+  diagnostics: (conversationId: string | string[]) =>apiFetch(`/conversations/${conversationId}/diagnostics`),
+
+  // Rebuild
+  //
+  // `dryRun` defaults to true here as well as on the server, so a caller that
+  // forgets to decide gets a report rather than a write. Only the options the
+  // endpoint actually reads are sent; the request is always scoped to the signed-in
+  // user's own accounts.
+  rebuild: ({ dryRun = true, accountId = null, limit, force = false }: { dryRun?: boolean; accountId?: string | null; limit?: number; force?: boolean } = {}) =>
+    apiFetch(`/conversations/rebuild`, {
+      method: 'POST',
+      body: JSON.stringify({
+        dryRun,
+        ...(accountId ? { accountId } : {}),
+        ...(limit ? { limit } : {}),
+        ...(force ? { force } : {}),
+      }),
+    }),
+
+  rebuildStatus: (jobId: string) => apiFetch(`/conversations/rebuild/${jobId}`),
+};

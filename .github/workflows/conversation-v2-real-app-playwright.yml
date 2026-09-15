@@ -66,7 +66,7 @@ jobs:
           DB_USER: mailflow_test
           DB_PASSWORD: mailflow_test
           ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
-        run: node --input-type=module -e "import { runMigrations } from './src/services/migrations.js'; await runMigrations();"
+        run: npx tsx -e "import { runMigrations } from './src/services/migrations.ts'; await runMigrations();"
       - name: Seed real app fixture
         working-directory: backend
         env:
@@ -76,7 +76,7 @@ jobs:
           DB_USER: mailflow_test
           DB_PASSWORD: mailflow_test
           ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
-        run: node src/scripts/playwrightSeed.js
+        run: npx tsx src/scripts/playwrightSeed.ts
       - name: Start backend
         working-directory: backend
         env:
@@ -95,7 +95,7 @@ jobs:
           ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
         run: |
           mkdir -p ../e2e-artifacts
-          node src/index.js > ../e2e-artifacts/backend.log 2>&1 &
+          npx tsx src/index.ts > ../e2e-artifacts/backend.log 2>&1 &
           echo $! > ../e2e-artifacts/backend.pid
           for i in {1..60}; do curl --fail --silent http://127.0.0.1:3000/api/health && exit 0; sleep 1; done
           cat ../e2e-artifacts/backend.log
@@ -112,7 +112,7 @@ jobs:
           PLAYWRIGHT_PASSWORD: PlaywrightPassword123!
         run: |
           npx playwright test \
-            e2e/real-app.spec.js \
+            e2e/real-app.spec.ts \
             --project=chromium-desktop \
             --project=chromium-mobile-390 \
             --project=chromium-mobile
@@ -128,7 +128,7 @@ jobs:
           trap 'kill "$smoke_pid" 2>/dev/null || true' EXIT
           for i in {1..60}; do curl --fail --silent http://127.0.0.1:4173/ >/dev/null && break; sleep 1; done
           curl --fail --silent http://127.0.0.1:4173/ >/dev/null
-          node e2e/chromium-smoke.js
+          node --import tsx e2e/chromium-smoke.ts
       - name: Stop backend
         if: always()
         run: if [ -f e2e-artifacts/backend.pid ]; then kill "$(cat e2e-artifacts/backend.pid)" 2>/dev/null || true; fi

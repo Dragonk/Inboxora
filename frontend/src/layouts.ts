@@ -1,0 +1,99 @@
+import { clampPanelWidth, PANEL_WIDTH_DEFAULT } from './utils/panelWidth.ts';
+import type { TFunction } from 'i18next';
+
+// Each layout defines the structural arrangement of the three-pane mail UI.
+// direction: 'row' = list beside reading pane; 'column' = list above reading pane
+// listWidth: px width of the message list in row mode (null for column mode)
+// rowPy / rowPx: vertical / horizontal padding inside each message row
+
+export const LAYOUTS = {
+  focused: {
+    label: 'Focused',
+    description: 'Minimal list panel, maximum reading area',
+    direction: 'row',
+    listWidth: 210,
+    rowPy: 8,
+    rowPx: 10,
+  },
+
+  compact: {
+    label: 'Compact',
+    description: 'Dense rows — fit more messages at once',
+    direction: 'row',
+    listWidth: 300,
+    rowPy: 7,
+    rowPx: 12,
+  },
+
+  comfortable: {
+    label: 'Comfortable',
+    description: 'Spacious rows with generous padding for easy scanning',
+    direction: 'row',
+    listWidth: 360,
+    rowPy: 16,
+    rowPx: 16,
+  },
+
+  wide: {
+    label: 'Wide',
+    description: 'Broad list shows longer subjects and previews',
+    direction: 'row',
+    listWidth: 560,
+    rowPy: 13,
+    rowPx: 16,
+  },
+
+  vertical: {
+    label: 'Vertical Split',
+    description: 'Message list stacked above the reading pane',
+    direction: 'column',
+    listWidth: null,
+    rowPy: 9,
+    rowPx: 14,
+  },
+};
+
+export const DEFAULT_LAYOUT = 'comfortable';
+
+export type LayoutKey = keyof typeof LAYOUTS;
+
+/** True when a persisted or synced value names a currently-supported preset. */
+function isLayoutKey(value: unknown): value is LayoutKey {
+  return typeof value === 'string' && value in LAYOUTS;
+}
+
+// Coerce a layout key to a known preset, falling back to the default. Guards
+// against stale or removed presets persisted in localStorage or synced from the
+// server — an unknown key (e.g. an old "classic" preset) must never reach a
+// consumer, since it used to crash the message list (#207).
+export function normalizeLayout(layoutKey: unknown): LayoutKey {
+  return isLayoutKey(layoutKey) ? layoutKey : DEFAULT_LAYOUT;
+}
+
+// customListWidth: optional px override from drag-to-resize (persisted in localStorage).
+// When provided it is applied instead of the preset listWidth.
+// The width is shared by every list-style panel (mail, contacts, calendar), so the
+// same override also drives the contact list and the calendar rail/agenda.
+export function applyLayout(layoutKey: string, customListWidth: number | undefined = undefined): void {
+  const layout = LAYOUTS[normalizeLayout(layoutKey)];
+  const root = document.documentElement;
+  root.style.setProperty('--layout-row-py', layout.rowPy + 'px');
+  root.style.setProperty('--layout-row-px', layout.rowPx + 'px');
+  // The stacked (column) preset has no list width of its own, but Contacts and
+  // Calendar still read the shared column width, so it must always be defined.
+  const width = clampPanelWidth(customListWidth) ?? layout.listWidth ?? PANEL_WIDTH_DEFAULT;
+  root.style.setProperty('--list-width', width + 'px');
+}
+
+// Labels are resolved at render time so changing the language updates open menus.
+export function localizedLayout(key: string, t: TFunction): { label: string; description: string } {
+  const labels: Record<string, () => [string, string]> = {
+    focused: () => [t('layouts.focused.label'), t('layouts.focused.description')],
+    compact: () => [t('layouts.compact.label'), t('layouts.compact.description')],
+    comfortable: () => [t('layouts.comfortable.label'), t('layouts.comfortable.description')],
+    wide: () => [t('layouts.wide.label'), t('layouts.wide.description')],
+    vertical: () => [t('layouts.vertical.label'), t('layouts.vertical.description')],
+  };
+  const [label, description] = (labels[key] || labels.comfortable)();
+  return { label, description };
+}
