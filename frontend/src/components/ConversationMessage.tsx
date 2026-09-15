@@ -170,7 +170,7 @@ interface ConversationMessageProps {
   onSetRead: (copyId: string, read: boolean) => void;
   onInitialBodyLayout?: (copyId: string) => void;
 }
-export default function ConversationMessage({ conversationId, message, selectedCopyId, selectedAccountId, accounts, expanded, onToggle, body, status, onLoadBody, onRemoteImages, onReply, onActionComplete, onSetRead, onInitialBodyLayout = undefined }: ConversationMessageProps) {
+export default function ConversationMessage({ conversationId, message, selectedCopyId, selectedAccountId, accounts, expanded, onToggle, body, status, onLoadBody, onRemoteImages, onReply, onActionComplete, onSetRead, onInitialBodyLayout }: ConversationMessageProps) {
   const { t } = useTranslation();
   const isMobile = useMobile();
   const { replyDefault, aiActions, setShowAdmin, setAdminTab, blockRemoteImages, imageWhitelist } = useStore();
@@ -179,7 +179,11 @@ export default function ConversationMessage({ conversationId, message, selectedC
   const messageDate = timestamp(message.messageDate);
   const initialBodyLayoutRef = useRef(onInitialBodyLayout);
   initialBodyLayoutRef.current = onInitialBodyLayout;
-  const handleInitialBodyLayout = useCallback(() => initialBodyLayoutRef.current?.(copy.id), [copy.id]);
+  const handleInitialBodyLayout = useCallback(() => {
+    const onInitialLayout = initialBodyLayoutRef.current;
+    const copyId = copy.id;
+    if (onInitialLayout && copyId) onInitialLayout(copyId);
+  }, [copy.id]);
   const account = accounts.find(item => String(item.id) === String(selectedAccountId));
   const hasAccountCopy = Boolean(copy.id && account && selectedAccountId
     && String(copy.accountId ?? copy.account_id) === String(selectedAccountId));
@@ -196,6 +200,20 @@ export default function ConversationMessage({ conversationId, message, selectedC
   const sender = outgoing ? t('conversation.you') : (copy.fromName || copy.fromEmail || t('conversation.unknownSender'));
   const directionLabel = direction === 'outgoing' ? t('conversation.outgoingMessage') : direction === 'incoming' ? t('conversation.incomingMessage') : undefined;
   const subject = messageSubject || copy.subject || t('message.noSubject');
+  const detailMessage = (() => {
+    const copyId = copy.id;
+    if (!copyId || !selectedAccountId) return null;
+    return {
+      ...copy,
+      id: copyId,
+      account_id: selectedAccountId,
+      subject,
+      from_email: copy.fromEmail || copy.from_email,
+      from_name: copy.fromName || copy.from_name,
+      list_unsubscribe: copy.listUnsubscribe ?? copy.list_unsubscribe,
+      unsubscribed_at: copy.unsubscribedAt ?? copy.unsubscribed_at,
+    };
+  })();
   const recipient = address(copy.to);
   const summary = String(copy.snippet || '').trim();
   const accountColor = account?.color || 'var(--accent)';
@@ -211,17 +229,17 @@ export default function ConversationMessage({ conversationId, message, selectedC
     if (!expanded && !body && !status?.loading) onLoadBody(message.id);
   };
   const reply = (replyAll = false, forward = false) => {
-    if (!hasAccountCopy) return;
-    onReply?.({
-    ...copy,
-    logicalMessageId: message.id,
-    selectedCopyId: copy.id,
-    accountId: selectedAccountId,
-    conversationId,
-    replyAll,
-    forward,
-    attachments,
-  });
+    if (!hasAccountCopy || !copy.id || !selectedAccountId) return;
+    onReply({
+      ...copy,
+      logicalMessageId: message.id,
+      selectedCopyId: copy.id,
+      accountId: selectedAccountId,
+      conversationId,
+      replyAll,
+      forward,
+      attachments,
+    });
   };
   const handleUnsubscribe = async () => {
     if (!copy.id || unsubscribeStatus === 'loading') return;
@@ -246,7 +264,7 @@ export default function ConversationMessage({ conversationId, message, selectedC
     setActionError(null);
     try {
       await callback();
-      await onActionComplete?.({
+      await onActionComplete({
         action,
         copyId: copy.id,
         logicalMessageId: message.id,
@@ -327,9 +345,21 @@ export default function ConversationMessage({ conversationId, message, selectedC
         onForward={() => reply(false, true)}
         onArchive={() => runAction(() => conversationApi.archive(conversationId, actionOptions), 'archive')}
         onMove={folder => runAction(() => conversationApi.move(conversationId, folder, actionOptions), 'move')}
-        onSpam={!inSpamFolder ? () => runAction(() => api.markSpam(copy.id), 'spam') : undefined}
-        onHam={inSpamFolder ? () => runAction(() => api.markHam(copy.id), 'ham') : undefined}
-        onSetRead={isRead => runAction(() => onSetRead ? onSetRead(copy.id, isRead) : conversationApi.setRead(conversationId, isRead, actionOptions), 'read', { isRead })}
+        onSpam={!inSpamFolder ? () => {
+          const copyId = copy.id;
+          if (!copyId) return;
+          return runAction(() => api.markSpam(copyId), 'spam');
+        } : undefined}
+        onHam={inSpamFolder ? () => {
+          const copyId = copy.id;
+          if (!copyId) return;
+          return runAction(() => api.markHam(copyId), 'ham');
+        } : undefined}
+        onSetRead={isRead => {
+          const copyId = copy.id;
+          if (!copyId) return;
+          return runAction(() => onSetRead(copyId, isRead), 'read', { isRead });
+        }}
         onViewHeaders={() => setShowHeaders(true)}
         onPrint={body ? handlePrint : undefined}
         aiActions={availableAiActions}
@@ -417,9 +447,9 @@ export default function ConversationMessage({ conversationId, message, selectedC
 
     {actionError && <div role="alert" style={{ padding: '8px 12px', color: 'var(--red)' }}>{actionError}</div>}
     {expanded && <div data-conversation-message-expanded-content="true" style={{ padding: '0 0 12px' }}>
-      <MessageDetailContent
+      {copy.id && detailMessage && <MessageDetailContent
         physicalCopyId={copy.id}
-        message={{ ...copy, id: copy.id, account_id: selectedAccountId, subject, from_email: copy.fromEmail || copy.from_email, from_name: copy.fromName || copy.from_name, list_unsubscribe: copy.listUnsubscribe ?? copy.list_unsubscribe, unsubscribed_at: copy.unsubscribedAt ?? copy.unsubscribed_at }}
+        message={detailMessage}
         body={body}
         status={status === null ? undefined : status}
         remoteImages={remoteImages}
@@ -441,9 +471,9 @@ export default function ConversationMessage({ conversationId, message, selectedC
         onInitialBodyLayout={handleInitialBodyLayout}
         canAccessCopy={hasAccountCopy}
         mobile={isMobile}
-      />
+      />}
     </div>}
 
-    {showHeaders && <MessageHeaderModal messageId={copy.id} subject={subject} onClose={() => setShowHeaders(false)} />}
+    {showHeaders && copy.id && <MessageHeaderModal messageId={copy.id} subject={subject} onClose={() => setShowHeaders(false)} />}
   </article>;
 }

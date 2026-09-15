@@ -47,8 +47,11 @@ test('returning from another module retains the live list and closes the mobile 
   assert.equal(returned.mobileSidebarOpen, false);
   assert.equal(returned.showCalendar, false);
 });
+type AccountScope = Parameters<ReturnType<typeof useStore.getState>['setSelectedAccount']>;
+
 test('different accounts or folders discard the previous scope', () => {
-  for (const [account, folder] of [['a', 'INBOX'], [null, 'Sent']]) {
+  const scopes: AccountScope[] = [['a', 'INBOX'], [null, 'Sent']];
+  for (const [account, folder] of scopes) {
     seed();
     useStore.getState().setSelectedAccount(account, folder);
     assert.equal(useStore.getState().messages.length, 0);

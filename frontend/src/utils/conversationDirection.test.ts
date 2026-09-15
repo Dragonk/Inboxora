@@ -24,8 +24,13 @@ describe('account-local conversation direction', () => {
       { id: 'gmail-selected', accountId: 'gmail', date: '2025-01-01' },
       { id: 'outlook-new', accountId: 'outlook', date: '2027-01-01' },
     ] };
-    assert.equal(preferredAccountCopy(message, 'gmail', 'gmail-selected').id, 'gmail-selected');
-    assert.equal(preferredAccountCopy(message, 'gmail', 'outlook-new').id, 'gmail-old');
+    const resolverSelectedCopy = preferredAccountCopy(message, 'gmail', 'gmail-selected');
+    assert.ok(resolverSelectedCopy, 'the resolver-selected Gmail copy should be present');
+    assert.equal(resolverSelectedCopy.id, 'gmail-selected');
+
+    const fallbackGmailCopy = preferredAccountCopy(message, 'gmail', 'outlook-new');
+    assert.ok(fallbackGmailCopy, 'a Gmail fallback copy should be present');
+    assert.equal(fallbackGmailCopy.id, 'gmail-old');
     assert.equal(preferredAccountCopy(message, 'missing'), null);
   });
 });
