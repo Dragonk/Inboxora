@@ -9,24 +9,37 @@
 //   no_distributor    no UnifiedPush distributor app (e.g. ntfy) is installed
 //   pending           a distributor is installed but registration is not done yet
 //   connected         endpoint registered and a device token issued
-export function deriveInstantPushView(state) {
-  if (!state?.platformSupported) return { kind: 'unsupported' };
+type PushState = Record<string, unknown>;
 
-  const pushBaseUrl = state.pushBaseUrl || null;
-  const distributorName = state.distributorLabel || null;
+function isPushState(value: unknown): value is PushState {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function readNonEmptyString(value: unknown): string | null {
+  return typeof value === 'string' && value.length > 0 ? value : null;
+}
+
+function hasDistributorPackage(value: unknown): boolean {
+  return Array.isArray(value) && value.some((item) => typeof item === 'string');
+}
+
+export function deriveInstantPushView(state: unknown) {
+  if (!isPushState(state) || state.platformSupported !== true) return { kind: 'unsupported' };
+
+  const pushBaseUrl = readNonEmptyString(state.pushBaseUrl);
+  const distributorName = readNonEmptyString(state.distributorLabel);
 
   if (state.status === 'permission_denied') {
     return { kind: 'permission_denied', showSettings: true, showRetry: false };
   }
 
-  const distributorPackages = Array.isArray(state.distributors) ? state.distributors : [];
-  const hasDistributor = distributorPackages.length > 0 || !!state.distributor;
+  const hasDistributor = hasDistributorPackage(state.distributors) || readNonEmptyString(state.distributor) !== null;
 
   if (state.status === 'connected') {
     return {
       kind: 'connected',
       distributorName,
-      transport: state.transport || null,
+      transport: readNonEmptyString(state.transport),
       pushBaseUrl,
       showSettings: false,
       showRetry: false,

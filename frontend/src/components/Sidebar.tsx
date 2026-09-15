@@ -297,7 +297,7 @@ export default function Sidebar({ onEditProfile = null }: { onEditProfile?: (() 
   // Close the mobile drawer whenever the user navigates to a different folder/account
   useEffect(() => {
     if (isMobile) setMobileSidebarOpen(false);
-  }, [selectedAccountId, selectedFolder]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isMobile, selectedAccountId, selectedFolder, setMobileSidebarOpen]);
 
   const [msgDragTarget, setMsgDragTarget] = useState<string | null>(null);
   const [folderDrag, setFolderDrag] = useState<{ accountId: string; path?: string; rootPath?: string; [key: string]: unknown } | null>(null);
@@ -478,7 +478,7 @@ export default function Sidebar({ onEditProfile = null }: { onEditProfile?: (() 
         api.getFolders(account.id).then(f => setFolders(account.id, f)).catch(console.error);
       }
     });
-  }, [accountsReady]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [accounts, accountsReady, expandedAccounts, favoriteFolders, folders, setFolders]);
 
   // Update-available check (#261). Reads the cached server-side status; the browser
   // never contacts GitHub. Silent on any failure.

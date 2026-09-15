@@ -51,12 +51,18 @@ export function physicalCopyDirection(copy: ConversationCopyLike | null | undefi
   return directionFromAddress(copy.fromEmail ?? copy.from_email, accountOwnAddresses(account, copy));
 }
 
-// NOTE: the message payload stays structurally open on purpose: callers pass the
-// conversation logical message, whose copy projection is looser than ConversationCopyLike.
-export function preferredAccountCopy(message, selectedAccountId: string | null | undefined, selectedCopyId: string | null | undefined = null) {
-  if (selectedAccountId == null) return null;
-  const copies = (message?.copies || []).filter((copy: ConversationCopyLike) => String(copy.accountId ?? copy.account_id) === String(selectedAccountId));
-  return copies.find((copy: ConversationCopyLike) => String(copy.id) === String(selectedCopyId))
-    || [...copies].sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')))[0]
-    || null;
+/** A logical message with the copy fields needed by the account-copy selector. */
+export interface ConversationMessageLike<Copy extends ConversationCopyLike> {
+  copies?: Copy[] | null;
+}
+
+export function preferredAccountCopy<Copy extends ConversationCopyLike>(message: ConversationMessageLike<Copy>, selectedAccountId: string | null | undefined, selectedCopyId: string | null | undefined = null): Copy | null {
+  if (selectedAccountId == null || !Array.isArray(message.copies)) return null;
+
+  const copies = message.copies.filter(copy => String(copy.accountId ?? copy.account_id) === String(selectedAccountId));
+  const selectedCopy = copies.find(copy => String(copy.id) === String(selectedCopyId));
+  if (selectedCopy) return selectedCopy;
+
+  const newestCopy = [...copies].sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')))[0];
+  return newestCopy ?? null;
 }

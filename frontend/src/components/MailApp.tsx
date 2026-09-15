@@ -727,7 +727,7 @@ export default function MailApp() {
       shortcutBus.off('goInbox',   onGoInbox);
       shortcutBus.off('showHelp',  onShowHelp);
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isMobile, openCompose, setSelectedAccount]);
 
   // Whole right-sidebar collapse toggle (cmd+/). Re-subscribed when applicability
   // flips so the handler never toggles a sidebar that is not rendered.
@@ -785,7 +785,7 @@ export default function MailApp() {
       window.history.replaceState({}, '', '/');
       addNotification({ type: 'error', title: t('admin.ssoError.title'), body: oidcError });
     }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [addNotification, setAccounts, setAdminTab, setShowAdmin, t]);
 
   return (
     <div style={{
