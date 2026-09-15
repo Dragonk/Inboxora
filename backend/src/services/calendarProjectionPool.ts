@@ -121,6 +121,9 @@ type PendingProjectionJob = {
   row: ProjectionEvent | null;
   from: Date;
   to: Date;
+  // Resolved at request time so a queued worker cannot silently pick up a later
+  // process-wide configuration value.
+  maxIterations: number;
   resolve: (value: ProjectionJobResult) => void;
   done: boolean;
 };
@@ -261,7 +264,7 @@ function startJob(slot: ProjectionSlot, job: PendingProjectionJob, settings: Ret
       row: job.row,
       from: job.from,
       to: job.to,
-      maxIterations: settings.maxIterations,
+      maxIterations: job.maxIterations,
       deadlineMs: settings.timeoutMs,
     });
   } catch (caught) {
@@ -333,7 +336,12 @@ const PROJECTION_CACHE_ENTRIES_DEFAULT = 500;
 const PROJECTION_CACHE_MAX_EVENTS_DEFAULT = 50000;
 
 const projectionCache = new Map();
-const inflightProjections = new Map();
+type InflightProjection = {
+  horizonStartMs: number;
+  horizonEndMs: number;
+  promise: Promise<ProjectionStatus>;
+};
+const inflightProjections = new Map<string, InflightProjection>();
 let projectionCacheEvents = 0;
 // Counts expansions handed to the worker pool. Exposed so a caller that must not run
 // expansion on the event loop — the occurrence materialiser — can prove it is really using
@@ -488,7 +496,7 @@ async function dispatchProjection(rows: ProjectionRow[], from: Date, to: Date, o
 
   const jobs: Array<Promise<ProjectionJobResult>> = accepted.map(row => new Promise<ProjectionJobResult>((resolve) => {
     jobsDispatched += 1;
-    pending.push({ jobId: nextJobId++, row, from, to, resolve, done: false });
+    pending.push({ jobId: nextJobId++, row, from, to, maxIterations: settings.maxIterations, resolve, done: false });
   }));
   drain();
 
@@ -525,7 +533,12 @@ export async function projectCalendarResources(rows: unknown, from: Date, to: Da
   const list: ProjectionRow[] = Array.isArray(rows) ? rows : [];
   if (!list.length) return { events: [], failures: [], truncated: false, truncatedSeries: [], overloaded: false, degraded: false };
   const settings = config();
-  if (options.maxIterations) settings.maxIterations = options.maxIterations;
+  if (options.maxIterations !== undefined) {
+    if (!Number.isInteger(options.maxIterations) || options.maxIterations < 1) {
+      throw new RangeError('maxIterations must be a positive integer');
+    }
+    settings.maxIterations = options.maxIterations;
+  }
   const cacheEnabled = settings.cacheEnabled && options.cache !== false;
   const userId = options.userId ?? null;
   const fromMs = dateMs(from);
@@ -543,7 +556,12 @@ export async function projectCalendarResources(rows: unknown, from: Date, to: Da
       const cached = cacheGet(key, fromMs, toMs);
       if (cached) { statuses.set(row.id, filterStatus(cached, fromMs, toMs)); continue; }
       const inflight = inflightProjections.get(key);
-      if (inflight) { awaiting.push({ row, promise: inflight }); continue; }
+      // Unlike a ready cache entry, an in-flight computation has not yet had its
+      // coverage checked. Only await it when its horizon fully contains this window.
+      if (inflight && inflight.horizonStartMs <= fromMs && inflight.horizonEndMs >= toMs) {
+        awaiting.push({ row, promise: inflight.promise });
+        continue;
+      }
       missing.push({ row, key });
     }
   } else {
@@ -553,13 +571,17 @@ export async function projectCalendarResources(rows: unknown, from: Date, to: Da
   // Register in-flight markers before dispatching so a concurrent request with
   // the same (resource, version, horizon) waits for this result instead of
   // queueing a duplicate expansion.
-  const deferred = new Map();
+  const deferred = new Map<string, { promise: Promise<ProjectionStatus>; resolve: (status: ProjectionStatus) => void }>();
   for (const item of missing) {
     if (!item.key) continue;
-    let resolve;
-    const promise = new Promise(done => { resolve = done; });
-    inflightProjections.set(item.key, promise);
-    deferred.set(item.key, resolve);
+    let resolve!: (status: ProjectionStatus) => void;
+    const promise = new Promise<ProjectionStatus>(done => { resolve = done; });
+    inflightProjections.set(item.key, {
+      horizonStartMs: horizon?.startMs ?? fromMs,
+      horizonEndMs: horizon?.endMs ?? toMs,
+      promise,
+    });
+    deferred.set(item.key, { promise, resolve });
   }
 
   // dispatchProjection resolves with a structured result and only rejects on a
@@ -575,7 +597,11 @@ export async function projectCalendarResources(rows: unknown, from: Date, to: Da
       settings,
     );
   } finally {
-    for (const key of deferred.keys()) inflightProjections.delete(key);
+    for (const [key, marker] of deferred) {
+      // A wider request may have replaced this marker while this shorter job ran.
+      // Never erase that newer in-flight computation.
+      if (inflightProjections.get(key)?.promise === marker.promise) inflightProjections.delete(key);
+    }
   }
 
   if (cacheEnabled && missing.length) {
@@ -604,8 +630,8 @@ export async function projectCalendarResources(rows: unknown, from: Date, to: Da
           horizonEndMs: horizon ? horizon.endMs : toMs,
         });
       }
-      const resolve = item.key ? deferred.get(item.key) : null;
-      if (resolve) resolve(status);
+      const deferredMarker = item.key ? deferred.get(item.key) : null;
+      if (deferredMarker) deferredMarker.resolve(status);
     }
   } else {
     const failuresByRow = new Map(aggregate.failures.map(failure => [failure.id, failure]));
@@ -614,8 +640,9 @@ export async function projectCalendarResources(rows: unknown, from: Date, to: Da
       statuses.set(item.row.id, failure
         ? { events: [], truncated: true, reason: failure.reason || 'truncated', error: failure.error || null }
         : { events: aggregate.events.filter(event => (event.series_id ?? event.id) === item.row.id), truncated: false, reason: null, error: null });
-      const resolve = item.key ? deferred.get(item.key) : null;
-      if (resolve) resolve(statuses.get(item.row.id));
+      const deferredMarker = item.key ? deferred.get(item.key) : null;
+      const status = statuses.get(item.row.id);
+      if (deferredMarker && status) deferredMarker.resolve(status);
     }
   }
 
