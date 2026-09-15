@@ -37,8 +37,12 @@ function totpLimiter(req: Request, res: Response, next: NextFunction) {
 
 // GET /api/totp/setup — generate a new TOTP secret and QR code
 router.get('/setup', async (req: Request, res: Response) => {
-  const userResult = await query<{ username: string }>('SELECT username FROM users WHERE id = $1', [req.session.userId]);
-  const username = userResult.rows[0]?.username || 'user';
+  const userResult = await query<{ username: string; totp_enabled?: boolean }>('SELECT username, totp_enabled FROM users WHERE id = $1', [req.session.userId]);
+  const user = userResult.rows[0];
+  if (user?.totp_enabled) {
+    return res.status(409).json({ error: 'Two-factor authentication is already enabled. Disable it before setting it up again.' });
+  }
+  const username = user?.username || 'user';
 
   const secret = authenticator.generateSecret(20);
   const otpauthUrl = authenticator.keyuri(username, 'Inboxora', secret);
@@ -69,10 +73,15 @@ router.post('/enable', totpLimiter, async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Invalid code — check your device clock and try again.' });
   }
 
-  await query(
-    'UPDATE users SET totp_secret = $1, totp_enabled = true WHERE id = $2',
+  const update = await query(
+    'UPDATE users SET totp_secret = $1, totp_enabled = true WHERE id = $2 AND COALESCE(totp_enabled, false) = false RETURNING id',
     [encrypt(secret), req.session.userId]
   );
+  if (!update.rows.length) {
+    delete req.session.pendingTOTPSecret;
+    delete req.session.pendingTOTPExpiry;
+    return res.status(409).json({ error: 'Two-factor authentication was enabled in another session. Refresh and try again.' });
+  }
   delete req.session.pendingTOTPSecret;
   delete req.session.pendingTOTPExpiry;
 
