@@ -2,7 +2,7 @@ import { useSyncExternalStore } from 'react';
 
 const MOBILE_QUERY = '(max-width: 767px)';
 
-function subscribe(onChange) {
+function subscribe(onChange: () => void) {
   const media = window.matchMedia(MOBILE_QUERY);
   // Mobile browsers can apply the viewport meta tag after the first render
   // without emitting a MediaQueryList change event. ResizeObserver supplies

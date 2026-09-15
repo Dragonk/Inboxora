@@ -1,15 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+const providerMocks = vi.hoisted(() => ({
+  completeText: vi.fn<
+    (...args: Parameters<typeof import('./aiProvider.js').completeText>) => Promise<unknown>
+  >(),
+}));
+
 vi.mock('./db.js', () => ({ query: vi.fn() }));
-vi.mock('./aiProvider.js', () => ({ completeText: vi.fn() }));
+vi.mock('./aiProvider.js', () => providerMocks);
 
 import { query as __mock_query } from './db.js';
-import { completeText as __mock_completeText } from './aiProvider.js';
 import { aiClassifyMessage } from './categorizer.js';
 
-// Cast mocked module exports so their vitest mock helpers type-check.
 const query = vi.mocked(__mock_query);
-const completeText = vi.mocked(__mock_completeText);
+const { completeText } = providerMocks;
 
 beforeEach(() => {
   query.mockReset();

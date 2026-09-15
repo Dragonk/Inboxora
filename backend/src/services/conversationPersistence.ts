@@ -512,7 +512,7 @@ export async function _upsertConversationCopyWithClient(
       }
     }
     if (parent?.ambiguous) await client.query(`INSERT INTO conversation_evidence (user_id, account_id, conversation_id, logical_message_id, evidence_type, evidence_value_hash, weight, details) VALUES ($1,$2,$3,$4,'ambiguous-parent',$5,0,$6::jsonb) ON CONFLICT DO NOTHING`, [hydrated.userId, hydrated.accountId, conversationId, logical.id, createHash('sha256').update(String(parent.canonical_message_id)).digest('hex'), JSON.stringify({ canonical_message_id: parent.canonical_message_id, relation_type: parent.relationType })]);
-    const evidence: [string | undefined, number | undefined, Record<string, unknown>][] = [[decision.reason, decision.confidence, { relationType: parent?.relationType || null, provider: provider?.provider || null }]];
+    const evidence: [string | null | undefined, number | undefined, Record<string, unknown>][] = [[decision.reason, decision.confidence, { relationType: parent?.relationType || null, provider: provider?.provider || null }]];
     if (series) evidence.push([series.kind, series.confidence, { mode: seriesMode, previousLogicalMessageId: matchedPrevious?.id || null }]);
     if (parent) evidence.push(['rfc-parent', 0.99, { parentLogicalMessageId: parent.id }]);
     if ((provider?.isStrong || provider?.source === 'outlook-conversation-index-root') && provider?.providerThreadId) evidence.push(['provider-thread-id', 1, { provider: provider.provider }]);

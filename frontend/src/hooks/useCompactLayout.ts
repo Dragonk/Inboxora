@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from 'react';
 import { useUiScale } from './useUiScale.ts';
 
-const subscribe = callback => {
+const subscribe = (callback: () => void): (() => void) => {
   window.addEventListener('resize', callback);
   return () => window.removeEventListener('resize', callback);
 };
