@@ -8,7 +8,7 @@ const { isNativePlatform, getNativePushStatus, clearNativePush, ensureNativePush
   await import('./nativePush.ts');
 
 test('native push helpers are inert outside a Capacitor native platform', async () => {
-  delete globalThis.window;
+  assert.equal(Reflect.deleteProperty(globalThis, 'window'), true);
   assert.equal(isNativePlatform(), false);
 
   const status = await getNativePushStatus();
@@ -25,5 +25,5 @@ test('a browser window without Capacitor is still treated as non-native', async 
   Reflect.set(globalThis, 'window', {});
   assert.equal(isNativePlatform(), false);
   await clearNativePush();
-  delete globalThis.window;
+  assert.equal(Reflect.deleteProperty(globalThis, 'window'), true);
 });

@@ -17,9 +17,13 @@ import { routeParam, sessionUserId } from '../utils/query.js';
 import { toAppError } from '../utils/errors.js';
 import type { Request, Response } from 'express';
 
-type AuthenticatedDeviceRequest = Request & {
-  pushDevice: NonNullable<Request['pushDevice']>;
-};
+function deviceUserId(req: Request): string {
+  const device = req.pushDevice;
+  if (!device) {
+    throw Object.assign(new Error('Not authenticated'), { statusCode: 401 });
+  }
+  return device.userId;
+}
 
 interface MessageSummaryRow {
   id: string;
@@ -161,7 +165,8 @@ function messageSummary(row: MessageSummaryRow) {
 // Fetch the notification details for one specific event id (the message UUID
 // carried opaquely through the provider). Ownership is enforced in SQL, so a
 // leaked event id from another account cannot be read.
-router.get('/native/messages/:id', requireDeviceAuth, async (req: AuthenticatedDeviceRequest, res: Response) => {
+router.get('/native/messages/:id', requireDeviceAuth, async (req: Request, res: Response) => {
+  const userId = deviceUserId(req);
   const id = routeParam(req.params.id);
   if (!UUID_RE.test(id)) return res.status(400).json({ error: 'Invalid message id' });
 
@@ -170,11 +175,11 @@ router.get('/native/messages/:id', requireDeviceAuth, async (req: AuthenticatedD
        FROM messages m
        JOIN email_accounts a ON a.id = m.account_id
       WHERE m.id = $1 AND a.user_id = $2 AND m.is_deleted = false`,
-    [id, req.pushDevice.userId],
+    [id, userId],
   );
   if (!result.rows.length) return res.status(404).json({ error: 'Message not found' });
 
-  const counts = await query(unreadTotalSql(), [req.pushDevice.userId]);
+  const counts = await query(unreadTotalSql(), [userId]);
   res.json({
     eventId: id,
     message: messageSummary(result.rows[0]),
@@ -185,7 +190,8 @@ router.get('/native/messages/:id', requireDeviceAuth, async (req: AuthenticatedD
 // Reconciliation endpoint for the WorkManager fallback: latest unread INBOX
 // message (if any) plus the authoritative unread total. Returns the same
 // message id the push event would carry so the client can dedup either path.
-router.get('/native/inbox', requireDeviceAuth, async (req: AuthenticatedDeviceRequest, res: Response) => {
+router.get('/native/inbox', requireDeviceAuth, async (req: Request, res: Response) => {
+  const userId = deviceUserId(req);
   const latest = await query<MessageSummaryRow>(
     `SELECT m.id, m.subject, m.from_name, m.from_email, m.account_id, m.folder
        FROM messages m
@@ -194,9 +200,9 @@ router.get('/native/inbox', requireDeviceAuth, async (req: AuthenticatedDeviceRe
         AND m.is_read = false AND m.is_deleted = false
       ORDER BY m.date DESC NULLS LAST, m.id DESC
       LIMIT 1`,
-    [req.pushDevice.userId],
+    [userId],
   );
-  const counts = await query(unreadTotalSql(), [req.pushDevice.userId]);
+  const counts = await query(unreadTotalSql(), [userId]);
   res.json({
     message: latest.rows[0] ? messageSummary(latest.rows[0]) : null,
     eventId: latest.rows[0]?.id ?? null,

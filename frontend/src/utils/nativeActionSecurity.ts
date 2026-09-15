@@ -12,19 +12,21 @@ export function isTrustedNativeMessage(event: NativeMessageEvent, expectedWindow
 }
 
 export function createBoundedActionIdTracker(limit = 1000) {
-  const ids = new Set();
+  const ids = new Set<string>();
 
   return {
-    has(id) {
+    has(id: string) {
       return ids.has(id);
     },
 
-    remember(id) {
+    remember(id: string) {
       if (ids.has(id)) return false;
       ids.add(id);
 
       while (ids.size > limit) {
-        ids.delete(ids.values().next().value);
+        const oldestId = ids.values().next().value;
+        if (oldestId === undefined) break;
+        ids.delete(oldestId);
       }
 
       return true;

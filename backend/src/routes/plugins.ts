@@ -8,6 +8,7 @@
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth.js';
 import { pluginRegistry } from '../plugins/registry.js';
+import type { PluginManifest } from '../plugins/registry.js';
 import { getActivatedPlugins, setPluginActivated } from '../plugins/activation.js';
 import { sessionUserId } from '../utils/query.js';
 
@@ -15,7 +16,7 @@ const router = Router();
 router.use(requireAuth);
 
 // The user-facing view of a registered plugin. Deliberately minimal — no handlers/hooks/router.
-function publicManifest(plugin, activated) {
+function publicManifest(plugin: PluginManifest, activated: boolean) {
   return {
     id: plugin.id,
     name: plugin.name,
@@ -35,10 +36,11 @@ router.get('/', async (req, res) => {
 router.patch('/:id', async (req, res) => {
   const { id } = req.params;
   if (!pluginRegistry.has(id)) return res.status(404).json({ error: 'Unknown plugin' });
-  if (typeof req.body?.activated !== 'boolean') {
+  const body: unknown = req.body;
+  if (typeof body !== 'object' || body === null || !('activated' in body) || typeof body.activated !== 'boolean') {
     return res.status(400).json({ error: 'activated (boolean) is required' });
   }
-  const activated = req.body.activated;
+  const activated = body.activated;
   await setPluginActivated(sessionUserId(req), id, activated);
 
   // Let the plugin react to its activation change (e.g. GTD invalidates its per-account config

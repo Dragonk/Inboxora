@@ -146,10 +146,17 @@ describe.skipIf(!enabled)('push device registry with PostgreSQL', () => {
     sessions.userId = ownerId;
     const received: Array<{ url: string; method: string; body: string }> = [];
     const mock = createServer((req, res) => {
+      const { method, url } = req;
+      if (method === undefined || url === undefined) {
+        res.writeHead(400, { 'content-type': 'text/plain' });
+        res.end('Request method and URL are required');
+        return;
+      }
+
       let body = '';
       req.on('data', (chunk) => { body += chunk; });
       req.on('end', () => {
-        received.push({ url: req.url, method: req.method, body });
+        received.push({ url, method, body });
         res.writeHead(200, { 'content-type': 'text/plain' });
         res.end('ok');
       });
