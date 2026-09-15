@@ -75,11 +75,11 @@ jobs:
       - name: Fresh migration through final schema
         working-directory: backend
         run: |
-          node --input-type=module - <<'JS' | tee ../artifacts-migration-fresh.log
+          node --import tsx --input-type=module - <<'TS' | tee ../artifacts-migration-fresh.log
           import { runMigrations } from './src/services/migrations.js';
           await runMigrations();
           console.log('fresh migrations completed');
-          JS
+          TS
           PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -U "$DB_USER" -d "$DB_NAME" -Atqc \
             "SELECT count(*) FROM pg_constraint WHERE conname IN ('fk_message_logical_account','fk_message_conversation_account','fk_logical_conversation_account','fk_logical_parent_account','fk_provider_mapping_conversation_account')" | grep -qx 5
           PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -U "$DB_USER" -d "$DB_NAME" -Atqc \
@@ -94,29 +94,29 @@ jobs:
           PGUSER: mailflow_test
           PGPASSWORD: mailflow_test
         run: |
-          node src/scripts/conversationMigrationUpgrade.js | tee ../artifacts-migration-legacy-upgrade.log
-          node --input-type=module - <<'JS' | tee -a ../artifacts-migration-legacy-upgrade.log
+          node --import tsx src/scripts/conversationMigrationUpgrade.ts | tee ../artifacts-migration-legacy-upgrade.log
+          node --import tsx --input-type=module - <<'TS' | tee -a ../artifacts-migration-legacy-upgrade.log
           import { runMigrations } from './src/services/migrations.js';
           import { query, pool } from './src/services/db.js';
           await runMigrations();
           const result = await query(`SELECT COUNT(*)::int AS messages, COUNT(DISTINCT account_id)::int AS accounts FROM messages WHERE message_id LIKE '<legacy-test-%@fixture.test>'`);
           if (result.rows[0].messages !== 12 || result.rows[0].accounts !== 2) throw new Error(JSON.stringify(result.rows[0]));
           await pool.end();
-          JS
-          MIGRATION_GATE_SCHEMA=public node src/scripts/conversationMigration0062Upgrade.js | tee ../artifacts-migration-0062-upgrade.log
-          node --input-type=module -e "import { runMigrations } from './src/services/migrations.js'; await runMigrations();"
+          TS
+          MIGRATION_GATE_SCHEMA=public node --import tsx src/scripts/conversationMigration0062Upgrade.ts | tee ../artifacts-migration-0062-upgrade.log
+          node --import tsx --input-type=module -e "import { runMigrations } from './src/services/migrations.ts'; await runMigrations();"
 
       - name: PostgreSQL integration and required regression suites
         working-directory: backend
         env:
           REQUIRE_CE_POSTGRES: '1'
         run: |
-          node src/scripts/conversationPostgresIntegration.js | tee ../artifacts-postgres-rebuild.log
-          node --test src/services/conversationConcurrencyReal.integration.js | tee ../artifacts-concurrency-real.log
-          node --test src/services/conversationCopyScopesReal.integration.js | tee ../artifacts-copy-scopes-real.log
-          node --test src/services/conversationPostgresIntegrationReal.integration.js | tee ../artifacts-postgres-real.log
-          node --test src/services/conversationRebuildIdempotencyReal.integration.js | tee ../artifacts-rebuild-idempotency-real.log
-          npx vitest run src/services/conversationPgRegression.integration.test.js | tee ../artifacts-pg-regression.log
+          node --import tsx src/scripts/conversationPostgresIntegration.ts | tee ../artifacts-postgres-rebuild.log
+          node --import tsx --test src/services/conversationConcurrencyReal.integration.ts | tee ../artifacts-concurrency-real.log
+          node --import tsx --test src/services/conversationCopyScopesReal.integration.ts | tee ../artifacts-copy-scopes-real.log
+          node --import tsx --test src/services/conversationPostgresIntegrationReal.integration.ts | tee ../artifacts-postgres-real.log
+          node --import tsx --test src/services/conversationRebuildIdempotencyReal.integration.ts | tee ../artifacts-rebuild-idempotency-real.log
+          npx vitest run src/services/conversationPgRegression.integration.test.ts | tee ../artifacts-pg-regression.log
 
 
       - name: PostgreSQL EXPLAIN scale gate
@@ -124,7 +124,7 @@ jobs:
         env:
           REQUIRE_DB_PERF_GATE: '1'
         run: |
-          npm test -- --run src/services/conversationPerformance.test.js
+          npm test -- --run src/services/conversationPerformance.test.ts
           node mailflow-ce-perf.mjs "$DB_NAME" 10000 | tee ../artifacts-performance-10k.json
           node mailflow-ce-perf.mjs "$DB_NAME" 50000 | tee ../artifacts-performance-50k.json
           node mailflow-ce-perf.mjs "$DB_NAME" 100000 | tee ../artifacts-performance-100k.json
