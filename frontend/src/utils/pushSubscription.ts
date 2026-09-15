@@ -1,6 +1,6 @@
 import { api } from './api.ts';
 
-let pending = null;
+let pending: Promise<boolean> | null = null;
 let lastSuccess = 0;
 // Restore an already granted subscription on normal app launch, not only when
 // the settings page is visited. Never request notification permission here.
@@ -10,7 +10,7 @@ export function restorePushSubscription() {
   if (Date.now() - lastSuccess < 60000) return Promise.resolve(true);
   pending = (async () => {
     const reg = await navigator.serviceWorker.getRegistration();
-    if (!reg?.pushManager) return false;
+    if (!reg) return false;
     const sub = await reg.pushManager.getSubscription();
     if (!sub) return false;
     await api.pushSubscribe(sub.toJSON());

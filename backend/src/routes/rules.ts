@@ -83,9 +83,9 @@ export interface RuleActionInput {
   [key: string]: unknown;
 }
 
-export function validateConditions(conditions: ReadonlyArray<RuleConditionInput>): string | null {
+export function validateConditions(conditions: ReadonlyArray<unknown>): string | null {
   for (const cond of conditions) {
-    if (!cond || typeof cond.field !== 'string') {
+    if (!isRecord(cond) || typeof cond.field !== 'string') {
       return 'Each condition must have a valid field';
     }
     if (FIELDS_REQUIRING_VALUE.has(cond.field) && !String(cond.value || '').trim()) {
@@ -104,9 +104,9 @@ export function validateConditions(conditions: ReadonlyArray<RuleConditionInput>
   return null;
 }
 
-export function validateActions(actions: ReadonlyArray<RuleActionInput>): string | null {
+export function validateActions(actions: ReadonlyArray<unknown>): string | null {
   for (const action of actions) {
-    if (action.type !== 'forward') continue;
+    if (!isRecord(action) || action.type !== 'forward') continue;
     const value = typeof action.value === 'string' ? action.value.trim() : '';
     if (!FORWARD_EMAIL_RE.test(value) || /[\r\n\0]/.test(value)) {
       return 'Forward action requires one valid email address';
@@ -122,12 +122,12 @@ function isMoveActionWithDestination(action: RuleAction): action is RuleAction &
   return action.type === 'move' && typeof action.value === 'string' && action.value.trim().length > 0;
 }
 
-export function normalizeActions(actions: ReadonlyArray<RuleActionInput>): RuleAction[] {
+export function normalizeActions(actions: ReadonlyArray<unknown>): RuleAction[] {
   let destSeen = false;
   let forwardSeen = false;
   return actions
     .filter((a): a is RuleAction => {
-      if (!a || typeof a.type !== 'string') return false;
+      if (!isRecord(a) || typeof a.type !== 'string') return false;
       if (DESTINATION_ACTIONS.has(a.type)) {
         if (destSeen) return false;
         destSeen = true;

@@ -6,8 +6,20 @@ import { consume } from '../services/rateLimiter.js';
 import { getSenderFavicon, normalizeSenderDomain } from '../services/senderFavicon.js';
 import type { Request, Response, NextFunction } from 'express';
 
-function setPrivateNoStore(res: Response) {
+function setPrivateNoStore(res: SenderFaviconResponse) {
   res.set('Cache-Control', 'private, no-store');
+}
+
+interface SenderFaviconRequest {
+  params: { domain?: unknown };
+  session: { userId?: string | number };
+}
+
+interface SenderFaviconResponse {
+  set(name: string, value: string): void;
+  status(code: number): SenderFaviconResponse;
+  end(): void;
+  send(body: Buffer): void;
 }
 
 export function createSenderFaviconHandler({
@@ -21,7 +33,7 @@ export function createSenderFaviconHandler({
   getFavicon?: typeof getSenderFavicon;
   normalizeDomain?: typeof normalizeSenderDomain;
 } = {}) {
-  return async function senderFaviconHandler(req, res) {
+  return async function senderFaviconHandler(req: SenderFaviconRequest, res: SenderFaviconResponse) {
     setPrivateNoStore(res);
     const userId = req.session.userId;
     const result = await queryFn('SELECT preferences FROM users WHERE id = $1', [userId]);

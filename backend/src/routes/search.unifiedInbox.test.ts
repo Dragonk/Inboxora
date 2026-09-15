@@ -23,6 +23,25 @@ function buildApp() {
   return app;
 }
 
+function accountIdsFromSearchQuery(): unknown {
+  const searchQueryCall = query.mock.calls[1];
+  if (searchQueryCall === undefined) {
+    throw new Error('Expected the search query to be called after account lookup');
+  }
+
+  const searchQueryParams = searchQueryCall[1];
+  if (searchQueryParams === undefined) {
+    throw new Error('Expected the search query to receive parameters');
+  }
+
+  const accountIds = searchQueryParams[0];
+  if (!Array.isArray(accountIds)) {
+    throw new Error('Expected the search query to receive account IDs');
+  }
+
+  return accountIds;
+}
+
 describe('GET /api/search unified account scope', () => {
   let server: Server;
   let base = '';
@@ -55,7 +74,7 @@ describe('GET /api/search unified account scope', () => {
     const response = await fetch(`${base}/api/search?q=invoice`);
 
     expect(response.status).toBe(200);
-    expect(query.mock.calls[1][1][0]).toEqual(['included']);
+    expect(accountIdsFromSearchQuery()).toEqual(['included']);
   });
 
   it('keeps an opted-out account searchable when explicitly selected', async () => {
@@ -68,6 +87,6 @@ describe('GET /api/search unified account scope', () => {
     const response = await fetch(`${base}/api/search?q=invoice&accountId=excluded`);
 
     expect(response.status).toBe(200);
-    expect(query.mock.calls[1][1][0]).toEqual(['excluded']);
+    expect(accountIdsFromSearchQuery()).toEqual(['excluded']);
   });
 });
