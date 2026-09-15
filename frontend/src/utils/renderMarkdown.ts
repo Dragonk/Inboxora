@@ -21,15 +21,15 @@ const ALLOWED_TAGS = [
 // Force links to open in a new tab without leaking the opener. Registered per call and
 // removed immediately in finally so it never affects other DOMPurify sanitizes (e.g. the
 // email renderer, which uses inline options and no hooks).
-function hardenLinks(node) {
+function hardenLinks(node: Element): void {
   if (node.tagName === 'A') {
     node.setAttribute('target', '_blank');
     node.setAttribute('rel', 'noopener noreferrer');
   }
 }
 
-export function renderMarkdown(text) {
-  const html = marked.parse(text || '', { async: false });
+export function renderMarkdown(text: string): string {
+  const html = marked.parse(text, { async: false });
   DOMPurify.addHook('afterSanitizeAttributes', hardenLinks);
   try {
     // DOMPurify blocks javascript:/unsafe URLs in href by default; the tag allow-list
@@ -39,6 +39,6 @@ export function renderMarkdown(text) {
       ALLOWED_ATTR: ['href', 'title', 'target', 'rel'],
     });
   } finally {
-    DOMPurify.removeHook('afterSanitizeAttributes');
+    DOMPurify.removeHook('afterSanitizeAttributes', hardenLinks);
   }
 }

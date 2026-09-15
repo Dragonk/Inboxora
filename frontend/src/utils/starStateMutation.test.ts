@@ -10,9 +10,9 @@ describe('star-state mutation lane', () => {
   it('serializes opposite intents so the newest provider write is last', async () => {
     resetStarStateMutationsForTest();
     const calls: unknown[] = [];
-    let releaseFirst;
-    const firstGate = new Promise(resolve => { releaseFirst = resolve; });
-    const request = starred => {
+    let releaseFirst: (() => void) | undefined;
+    const firstGate = new Promise<void>(resolve => { releaseFirst = resolve; });
+    const request = (starred: boolean) => {
       calls.push(starred);
       if (calls.length === 1) return firstGate;
       return Promise.resolve();
@@ -23,6 +23,7 @@ describe('star-state mutation lane', () => {
     await Promise.resolve();
     await Promise.resolve();
     assert.deepEqual(calls, [true]);
+    if (releaseFirst === undefined) throw new Error('First request resolver was not initialized');
     releaseFirst();
     await Promise.all([first.promise, second.promise]);
 

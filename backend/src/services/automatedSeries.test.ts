@@ -11,6 +11,9 @@ const base = {
 describe('automated series', () => {
   it('uses a rolling seven-day strict window and no artificial parent', () => {
     const result = strictSeriesDecision({ message: { ...base, received_at: '2026-01-07T00:00:00Z' }, previous: { ...base, logical_message_count: 2 } });
+    if (result === null) {
+      throw new Error('Expected strict series decision for authenticated automated messages');
+    }
     expect(result.kind).toBe('automated_reference_series');
     expect(result.parentLogicalMessageId).toBeNull();
   });
@@ -18,7 +21,11 @@ describe('automated series', () => {
   it('does not let per-message DKIM signatures break stable sender matching', () => {
     const first = { ...base, headers: { ...base.headers, 'dkim-signature': 'v=1; b=first' } };
     const second = { ...base, received_at: '2026-01-02T00:00:00Z', headers: { ...base.headers, 'dkim-signature': 'v=1; b=second' } };
-    expect(strictSeriesDecision({ message: second, previous: first })?.kind).toBe('automated_reference_series');
+    const decision = strictSeriesDecision({ message: second, previous: first });
+    if (decision === null) {
+      throw new Error('Expected strict series decision for matching authenticated messages');
+    }
+    expect(decision.kind).toBe('automated_reference_series');
   });
 
   it('does not strict-merge generic subjects or different anchors', () => {
@@ -29,7 +36,11 @@ describe('automated series', () => {
   it('covers strict anchor negatives, smart OTP positives/negatives, and off mode', () => {
     expect(strictSeriesDecision({ message: { ...base, referencesAnchor: null }, previous: base })).toBeNull();
     expect(strictSeriesDecision({ message: { ...base, referencesAnchor: '<other>' }, previous: base })).toBeNull();
-    expect(smartSeriesDecision({ message: base, previous: base, enabled: true })?.kind).toBe('automated_smart_series');
+    const decision = smartSeriesDecision({ message: base, previous: base, enabled: true });
+    if (decision === null) {
+      throw new Error('Expected smart series decision when enabled');
+    }
+    expect(decision.kind).toBe('automated_smart_series');
     expect(smartSeriesDecision({ message: base, previous: base, enabled: false })).toBeNull();
     expect(bodyTemplateFingerprint('Your code is 123456')).toBe(bodyTemplateFingerprint('Your code is 654321'));
   });

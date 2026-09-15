@@ -25,7 +25,7 @@ after(async () => {
   if (pool) await pool.end();
 });
 
-async function seedScale(userId: string, accountId: string, conversationCount, messagesPerConv) {
+async function seedScale(userId: string, accountId: string, conversationCount: number, messagesPerConv: number) {
   // Clean
   await pool.query('TRUNCATE conversation_overrides, conversation_aliases, conversation_evidence, conversation_ingest_failures RESTART IDENTITY CASCADE');
   await pool.query(`
