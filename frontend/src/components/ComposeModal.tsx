@@ -201,6 +201,7 @@ export default function ComposeModal() {
 
   const isReply = !!(composeData?.isReply || composeData?.isReplyAll);
   const isForward = !!composeData?.isForward;
+  const initialComposeDataRef = useRef(composeData);
 
   const [toChips, setToChips] = useState(() => parseChips(composeData?.to));
   const [toInput, setToInput] = useState('');
@@ -211,7 +212,8 @@ export default function ComposeModal() {
   const [subject, setSubject] = useState(() => composeData?.subject || '');
   const [body, setBody] = useState(() => composeData?.body || '');
   const [quotedBody, setQuotedBody] = useState(() => composeData?.quotedBody || '');
-  const [quotedBodyHtml] = useState(() => composeData?.quotedBodyHtml || null);
+  const quotedBodyHtmlRef = useRef(composeData?.quotedBodyHtml || null);
+  const quotedBodyHtml = quotedBodyHtmlRef.current;
   const [showDiscardSheet, setShowDiscardSheet] = useState(false);
   const [showEmptySubjectWarn, setShowEmptySubjectWarn] = useState(false);
   const [showForgottenAttachWarn, setShowForgottenAttachWarn] = useState(false);
@@ -244,15 +246,17 @@ export default function ComposeModal() {
   const [showCc, setShowCc] = useState(() => !!(composeData?.cc?.length));
   const [showBcc, setShowBcc] = useState(() => !!(composeData?.bcc?.length));
 
-  // Re-apply on mount — guards against Zustand state not being ready during first render
+  // Re-apply the compose data captured at mount. Later store changes belong to other
+  // compose sessions and must not overwrite edits in this one.
   useEffect(() => {
-    if (composeData?.to?.length) setToChips(parseChips(composeData.to));
-    if (composeData?.cc?.length) { setCcChips(parseChips(composeData.cc)); setShowCc(true); }
-    if (composeData?.bcc?.length) { setBccChips(parseChips(composeData.bcc)); setShowBcc(true); }
-    if (composeData?.subject) setSubject(composeData.subject);
-    if (composeData?.body !== undefined) setBody(composeData.body);
-    if (composeData?.quotedBody !== undefined) setQuotedBody(composeData.quotedBody);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- form initialisation runs once on mount; re-running on composeData changes would reset user edits
+    const initialComposeData = initialComposeDataRef.current;
+    if (initialComposeData?.to?.length) setToChips(parseChips(initialComposeData.to));
+    if (initialComposeData?.cc?.length) { setCcChips(parseChips(initialComposeData.cc)); setShowCc(true); }
+    if (initialComposeData?.bcc?.length) { setBccChips(parseChips(initialComposeData.bcc)); setShowBcc(true); }
+    if (initialComposeData?.subject) setSubject(initialComposeData.subject);
+    if (initialComposeData?.body !== undefined) setBody(initialComposeData.body);
+    if (initialComposeData?.quotedBody !== undefined) setQuotedBody(initialComposeData.quotedBody);
+  }, []);
 
   const initialFromValue = () => {
     if (composeData?.aliasId && composeData?.accountId) {
@@ -323,6 +327,7 @@ export default function ComposeModal() {
   const idempotencyKeyRef = useRef<string | null>(null);
   const replyTypeRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const shouldPositionCursorRef = useRef(isReply || isForward);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const signatureRef = useRef<HTMLDivElement | null>(null);
@@ -469,13 +474,13 @@ export default function ComposeModal() {
     return () => { aiAbortRef.current?.abort(); };
   }, []);
 
-  // Position cursor at top for replies/forwards
+  // Position the initial reply/forward cursor once without stealing focus later.
   useEffect(() => {
-    if ((isReply || isForward) && textareaRef.current) {
+    if (shouldPositionCursorRef.current && textareaRef.current) {
       textareaRef.current.setSelectionRange(0, 0);
       textareaRef.current.focus();
     }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- cursor positioning runs once on mount; re-running on isReply/isForward changes is not desired
+  }, []);
 
   // Close reply type dropdown on outside click
   useEffect(() => {
@@ -634,14 +639,14 @@ export default function ComposeModal() {
     }
   }, [fromValue, fromSignature]);
 
-  // Initialise quoted HTML contentEditable once on mount (ref-based to avoid React cursor conflicts)
+  // Initialise quoted HTML from the compose snapshot without React managing its editable DOM.
   useEffect(() => {
     if (quotedHtmlRef.current && quotedBodyHtml) {
       // Strip <style> blocks — marketing emails use global rules like "div { margin: 0 !important }"
       // that leak out of contentEditable into the app UI. Inline style attributes are preserved.
       quotedHtmlRef.current.innerHTML = DOMPurify.sanitize(quotedBodyHtml, { FORBID_TAGS: ['style'] });
     }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [quotedBodyHtml]);
 
   // Chrome re-evaluates spell check state for all contentEditable elements whenever new ones
   // are added to the DOM (e.g. signature + quoted body divs in reply/forward). Setting the
@@ -1046,7 +1051,6 @@ export default function ComposeModal() {
     <div
       ref={signatureRef}
       contentEditable
-      suppressContentEditableWarning
       spellCheck={false}
       onInput={() => { signatureContentRef.current = signatureRef.current?.innerHTML || ''; }}
       style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6, outline: 'none' }}
@@ -1422,8 +1426,7 @@ export default function ComposeModal() {
               <div
                 ref={quotedHtmlRef}
                 contentEditable
-                suppressContentEditableWarning
-                spellCheck={false}
+                          spellCheck={false}
                 style={{
                   padding: '10px 16px', borderTop: '1px solid var(--border-subtle)',
                   color: 'var(--text-secondary)', fontSize: 13, lineHeight: 1.6,
@@ -2071,8 +2074,7 @@ export default function ComposeModal() {
             <div
               ref={quotedHtmlRef}
               contentEditable
-              suppressContentEditableWarning
-              spellCheck={false}
+                      spellCheck={false}
               style={{
                 width: '100%', minHeight: 120,
                 padding: '10px 14px',

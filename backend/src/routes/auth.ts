@@ -130,13 +130,18 @@ const authLimiter = rateLimit(authLimiterConfig);
 
 router.post('/register', authLimiter, async (req, res) => {
   const { username, password, inviteToken } = req.body;
-  if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
+  if (typeof username !== 'string' || typeof password !== 'string' || !username || !password) {
+    return res.status(400).json({ error: 'Username and password required' });
+  }
   const trimmedUsername = username.toLowerCase().trim();
   if (trimmedUsername.length < 1 || trimmedUsername.length > 120) {
     return res.status(400).json({ error: 'Username must be between 1 and 120 characters' });
   }
-  // eslint-disable-next-line no-control-regex -- intentionally rejecting control characters
-  if (/[\x00-\x1f\x7f]/.test(trimmedUsername)) {
+  const hasControlCharacter = Array.from(trimmedUsername).some(character => {
+    const codePoint = character.codePointAt(0);
+    return codePoint !== undefined && (codePoint <= 0x1f || codePoint === 0x7f);
+  });
+  if (hasControlCharacter) {
     return res.status(400).json({ error: 'Username contains invalid characters' });
   }
 

@@ -2641,7 +2641,9 @@ function IntegrationsTab() {
         .catch(console.error)
         .finally(() => setLoading(false));
     }
+  }, [isAdmin]);
 
+  useEffect(() => {
     api.todoist.status()
       .then(({ connected }) => {
         setTdConnected(connected);
@@ -2650,7 +2652,9 @@ function IntegrationsTab() {
       })
       .catch(console.error)
       .finally(() => setTdLoading(false));
+  }, [setTodoistConnected]);
 
+  useEffect(() => {
     // Listen for oauth_success / oauth_error messages from the OAuth popup tab.
     // URL-param detection has been moved to MailApp so it works regardless of
     // which tab/modal is currently open.
@@ -2669,11 +2673,12 @@ function IntegrationsTab() {
       }
     };
     window.addEventListener('message', handleMessage);
-    return () => {
-      window.removeEventListener('message', handleMessage);
-      if (devicePollRef.current) clearInterval(devicePollRef.current);
-    };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- mount-only; re-running on t/setAccounts change would clear an in-progress device-code poll
+    return () => window.removeEventListener('message', handleMessage);
+  }, [isAdmin, setAccounts, t]);
+
+  useEffect(() => () => {
+    if (devicePollRef.current) clearInterval(devicePollRef.current);
+  }, []);
 
   const handleSaveMs = async () => {
     if (!msForm.clientId || !msForm.tenantId) {
@@ -7295,7 +7300,7 @@ function ShortcutsTab() {
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [recording, effective, shortcuts]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [recording, effective, setShortcuts, shortcuts]);
 
   const clearShortcut = (action: string) => {
     const updated = { ...shortcuts, [action]: null };

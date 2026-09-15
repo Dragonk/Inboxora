@@ -130,11 +130,25 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
   // Auto-load folders when opened directly in move mode (e.g. from row folder icon)
   useEffect(() => {
     if (!defaultMoveView) return;
+
+    let cancelled = false;
+    setMoveView(true);
+    setMoveFolders(null);
+    setMoveFoldersLoading(true);
+
     api.getFolders(message.account_id)
-      .then(data => setMoveFolders(Array.isArray(data) ? data : (data.folders || [])))
-      .catch(() => setMoveFolders([]))
-      .finally(() => setMoveFoldersLoading(false));
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+      .then(data => {
+        if (!cancelled) setMoveFolders(Array.isArray(data) ? data : (data.folders || []));
+      })
+      .catch(() => {
+        if (!cancelled) setMoveFolders([]);
+      })
+      .finally(() => {
+        if (!cancelled) setMoveFoldersLoading(false);
+      });
+
+    return () => { cancelled = true; };
+  }, [defaultMoveView, message.account_id]);
 
   const handleMoveClick = async () => {
     setMoveView(true);

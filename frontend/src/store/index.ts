@@ -42,14 +42,7 @@ interface FavoriteFolderRow { accountId?: string; path: string; name?: string; l
 
 export interface StoreUserRow { id?: string; username?: string; email?: string; displayName?: string; avatar?: string | null; isAdmin?: boolean; [key: string]: unknown }
 
-/**
- * The store state. Written from the store itself (every member is declared here so the
- * store no longer needs create<any>).
- */
-/**
- * The store state. Written from the store itself (every member is declared here so the store
- * no longer needs create<any>).
- */
+/** The store state; every member is declared explicitly by the store implementation. */
 /** The draft the compose window opens with. */
 export interface ComposeDraft {
   accountId?: string;

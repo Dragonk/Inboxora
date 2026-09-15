@@ -513,6 +513,7 @@ function timeToMinutes(value: unknown) {
 
 function TimeGrid({ days, dayEventsFor, view, isMobile, locale, openCreate, openEdit, openContextMenu, onSelectDay, anchor, t, calendarWorkHoursStart, calendarWorkHoursEnd }: CalendarGridProps) {
   const scroller = useRef<HTMLDivElement | null>(null);
+  const centeredGridKey = useRef<string | null>(null);
   useEffect(() => {
     if (scroller.current) scroller.current.scrollTop = Math.max(0, Math.min(timeToMinutes(calendarWorkHoursStart), timeToMinutes(calendarWorkHoursEnd)) - 120);
   }, [calendarWorkHoursEnd, calendarWorkHoursStart, view]);
@@ -527,8 +528,10 @@ function TimeGrid({ days, dayEventsFor, view, isMobile, locale, openCreate, open
   // gesture locks to a single container and axis, so every sideways drag had to be handed
   // off between the two, which read as the grid "catching" mid-swipe. A single container
   // pans in both directions natively.
-  const daysKey = days.map(day => day.toDateString()).join('|');
+  const gridKey = `${days.map(day => day.toDateString()).join('|')}|${view}|${isMobile}`;
   useLayoutEffect(() => {
+    // Selecting a day inside the existing grid keeps its scroll position.
+    if (centeredGridKey.current === gridKey) return;
     const container = scroller.current;
     if (!container?.clientWidth) return;
     const index = weekFocusIndex(days, anchor);
@@ -545,10 +548,8 @@ function TimeGrid({ days, dayEventsFor, view, isMobile, locale, openCreate, open
       viewportWidth: container.clientWidth,
       contentWidth: container.scrollWidth,
     });
-    // `anchor` is intentionally not a dependency: selecting a day inside the visible week
-    // must not yank the grid sideways under the finger.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [daysKey, view, isMobile]);
+    centeredGridKey.current = gridKey;
+  }, [anchor, days, gridKey]);
   const showMenu = (event: CalendarViewEvent, target: React.MouseEvent<HTMLButtonElement>) => openContextMenu(event, target.clientX, target.clientY, target.currentTarget);
   const invokeMenu = (event: CalendarViewEvent, keyboardEvent: React.KeyboardEvent<HTMLButtonElement>) => {
     if (keyboardEvent.key !== 'ContextMenu' && !(keyboardEvent.shiftKey && keyboardEvent.key === 'F10')) return;
