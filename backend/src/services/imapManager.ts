@@ -447,14 +447,7 @@ const FLAG_PUSH_PER_CYCLE = 30;      // cap setFlag attempts per account per cyc
 // U+202A-U+202E: LRE, RLE, PDF, LRO, RLO
 // U+2066-U+2069: LRI, RLI, FSI, PDI
 // U+200F: RTL mark  U+061C: Arabic letter mark
-const BIDI_OVERRIDE_RE = new RegExp(
-  [...Array.from({ length: 5 }, (_, i) => String.fromCodePoint(0x202A + i)),
-   ...Array.from({ length: 4 }, (_, i) => String.fromCodePoint(0x2066 + i)),
-   String.fromCodePoint(0x200F),
-   String.fromCodePoint(0x061C),
-  ].join(''),
-  'g'
-);
+const BIDI_OVERRIDE_RE = /[\u202A-\u202E\u2066-\u2069\u200F\u061C]/g;
 
 // Extract html/text/attachments from an already-fetched msg (no extra IMAP round-trip)
 function extractBodyFromMsg(msg: RawMessageInput) {

@@ -1470,6 +1470,22 @@ describe('walkStructure attachment classification', () => {
     expect(results.attachments[0].filename).toBe('invoice.pdf');
   });
 
+  it.each([...Array.from({ length: 5 }, (_, i) => String.fromCodePoint(0x202A + i)), ...Array.from({ length: 4 }, (_, i) => String.fromCodePoint(0x2066 + i)), '\u200F', '\u061C'])('removes bidi control U+%s from attachment names', control => {
+    const results = walk({
+      part: '2', type: 'application/pdf', encoding: 'base64', disposition: 'attachment',
+      dispositionParameters: { filename: `invoice${control}.pdf` },
+    });
+    expect(results.attachments[0]?.filename).toBe('invoice.pdf');
+  });
+
+  it('uses a safe fallback when a filename contains only bidi controls', () => {
+    const results = walk({
+      part: '2', type: 'application/pdf', encoding: 'base64', disposition: 'attachment',
+      dispositionParameters: { filename: '\u202E\u2066\u200F\u061C' },
+    });
+    expect(results.attachments[0]?.filename).toBe('attachment');
+  });
+
   it('collects calendar MIME parts separately from body text and attachments', () => {
     const results = walk({
       type: 'multipart/mixed',
