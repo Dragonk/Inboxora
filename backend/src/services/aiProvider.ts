@@ -3,6 +3,7 @@ import { query } from './db.js';
 import type { DbRow } from './db.js';
 import { getConnectionPolicy } from './connectionPolicy.js';
 import { validateHost } from './hostValidation.js';
+import { safeFetch } from './safeFetch.js';
 import { createRequestSignal, parseJson, readLimited, readSseData, sanitizeText } from './aiHttp.js';
 import { completeCodexText, streamCodexResponses } from './openaiCodexResponses.js';
 import { getCodexAccess, getCodexStatus } from './openaiCodexAuth.js';
@@ -19,6 +20,7 @@ const JSON_BODY_LIMIT_BYTES = 2 * 1024 * 1024;
 const SSE_EVENT_LIMIT_BYTES = 256 * 1024;
 const OUTPUT_LIMIT_CHARS = 2 * 1024 * 1024;
 const DEFAULT_TIMEOUT_MS = 60_000;
+const defaultFetchFn = (...args: Parameters<typeof fetch>) => fetch(...args);
 
 export interface AiProviderErrorOptions {
   status?: number;
@@ -172,7 +174,7 @@ export function createAiProvider({
   decryptFn = decrypt,
   validateHostFn = validateHost,
   getConnectionPolicyFn = getConnectionPolicy,
-  fetchFn = (...args: Parameters<typeof fetch>) => fetch(...args),
+  fetchFn = defaultFetchFn,
   getCodexAccessFn = getCodexAccess,
   getCodexStatusFn = getCodexStatus,
   streamCodexResponsesFn = streamCodexResponses,
@@ -267,6 +269,16 @@ export function createAiProvider({
     return headers;
   }
 
+  async function openApiKeyRequest(url: string, init: RequestInit, options: ProviderRequestOptions = {}) {
+    const policy = await getConnectionPolicyFn();
+    // Production AI calls use the pinned, redirect-aware connector. Keep an explicitly
+    // injected fetch for isolated unit tests only.
+    const requestFetch = fetchFn === defaultFetchFn
+      ? (target: Parameters<typeof fetch>[0], requestInit?: RequestInit) => safeFetch(String(target), requestInit, { allowPrivate: policy.allowPrivateHosts })
+      : fetchFn;
+    return openProviderRequest(requestFetch, url, init, options);
+  }
+
   interface CompleteOptions { signal?: AbortSignal; maxTokens?: number; allowEmpty?: boolean }
 
   async function completeApiKey(config: NormalizedAiConfig, messages: AiMessage[], { signal, maxTokens, allowEmpty = false }: CompleteOptions = {}) {
@@ -278,7 +290,7 @@ export function createAiProvider({
       stream: false,
       think: false,
     };
-    const request = await openProviderRequest(fetchFn, `${config.apiKeyConfig.baseUrl}/chat/completions`, {
+    const request = await openApiKeyRequest(`${config.apiKeyConfig.baseUrl}/chat/completions`, {
       method: 'POST',
       headers: apiKeyHeaders(apiKey),
       body: JSON.stringify(body),
@@ -315,7 +327,7 @@ export function createAiProvider({
 
   async function* streamApiKey(config: NormalizedAiConfig, messages: AiMessage[], { signal }: { signal?: AbortSignal } = {}) {
     const apiKey = apiKeyCredential(config);
-    const request = await openProviderRequest(fetchFn, `${config.apiKeyConfig.baseUrl}/chat/completions`, {
+    const request = await openApiKeyRequest(`${config.apiKeyConfig.baseUrl}/chat/completions`, {
       method: 'POST',
       headers: apiKeyHeaders(apiKey),
       body: JSON.stringify({ model: config.apiKeyConfig.model, messages, stream: true }),
