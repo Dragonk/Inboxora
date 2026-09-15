@@ -6387,6 +6387,9 @@ function RulesTab() {
         const created = await api.createRule(payload);
         setRules(prev => [...prev, created]);
       } else {
+        if (formId === null) {
+          throw new Error('Cannot update a rule without an identifier');
+        }
         const updated = await api.updateRule(formId, payload);
         setRules(prev => prev.map(r => r.id === formId ? updated : r));
       }

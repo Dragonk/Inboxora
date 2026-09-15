@@ -228,6 +228,9 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
     setCalendarEdit({ calendar, name: calendar.name ?? '', color: calendar.color || '#35558a' });
   };
   const deleteCalendar = async (calendar: CalendarRow) => {
+    if (calendar.name === null || calendar.name === undefined) {
+      throw new Error('Cannot delete a calendar without a name');
+    }
     if (!window.confirm(t('calendar.confirmCalendarDelete', { name: calendar.name }))) return;
     setCalendarSaving(true); setSourceError(null);
     try { await api.calendar.deleteCalendar(calendar.id, calendar.name); setOpenCalendarMenu(null); await onCalendarsChanged?.(); }
