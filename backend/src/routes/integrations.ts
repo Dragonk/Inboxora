@@ -9,6 +9,29 @@ import type { Request, Response } from 'express';
 const router = Router();
 router.use(requireAuth);
 
+type MicrosoftConfig = { clientId?: unknown; clientSecret?: unknown; tenantId?: unknown; redirectUri?: unknown };
+
+// An absent field leaves the process-level fallback untouched; an explicit empty
+// string is a deliberate clear and must not leave a stale credential in memory.
+function applyMicrosoftConfig(config: MicrosoftConfig) {
+  const apply = (envKey: 'MS_CLIENT_ID' | 'MS_TENANT_ID' | 'MS_REDIRECT_URI', value: unknown) => {
+    if (value === undefined) return;
+    if (typeof value !== 'string' || !value) delete process.env[envKey];
+    else process.env[envKey] = value;
+  };
+  apply('MS_CLIENT_ID', config.clientId);
+  apply('MS_TENANT_ID', config.tenantId);
+  apply('MS_REDIRECT_URI', config.redirectUri);
+  if (config.clientSecret !== undefined) {
+    if (typeof config.clientSecret !== 'string' || !config.clientSecret) delete process.env.MS_CLIENT_SECRET;
+    else {
+      const secret = decrypt(config.clientSecret);
+      if (secret === null || !secret) delete process.env.MS_CLIENT_SECRET;
+      else process.env.MS_CLIENT_SECRET = secret;
+    }
+  }
+}
+
 // Get all integration configs (secrets redacted) — admin only (exposes OAuth client IDs)
 router.get('/', requireAdmin, async (req: Request, res: Response) => {
   const result = await query<{ provider: string; config: Record<string, unknown>; updated_at: string | Date | null }>(
@@ -72,20 +95,8 @@ router.post('/:provider', requireAdmin, async (req: Request, res: Response) => {
     SET config = EXCLUDED.config, updated_at = NOW()
   `, [provider, config]);
 
-  // Write plaintext values to process.env so oauth routes pick them up immediately
-  if (provider === 'microsoft') {
-    if (config.clientId) process.env.MS_CLIENT_ID = config.clientId;
-    if (config.clientSecret) {
-      const clientSecret = decrypt(config.clientSecret);
-      if (clientSecret === null) {
-        delete process.env.MS_CLIENT_SECRET;
-      } else {
-        process.env.MS_CLIENT_SECRET = clientSecret;
-      }
-    }
-    if (config.tenantId) process.env.MS_TENANT_ID = config.tenantId;
-    if (config.redirectUri) process.env.MS_REDIRECT_URI = config.redirectUri;
-  }
+  // Apply the exact saved configuration immediately, including explicit clears.
+  if (provider === 'microsoft') applyMicrosoftConfig(config);
 
   res.json({ ok: true });
 });
@@ -110,21 +121,7 @@ export async function loadIntegrationConfigs() {
   try {
     const result = await query<{ provider: string; config: { clientId?: string; clientSecret?: string; tenantId?: string; redirectUri?: string; [key: string]: unknown } }>('SELECT provider, config FROM integration_config');
     for (const row of result.rows) {
-      if (row.provider === 'microsoft') {
-        const c = row.config;
-        if (c.clientId) process.env.MS_CLIENT_ID = c.clientId;
-        // decrypt() returns value unchanged for plaintext (migration fallback)
-        if (c.clientSecret) {
-          const clientSecret = decrypt(c.clientSecret);
-          if (clientSecret === null) {
-            delete process.env.MS_CLIENT_SECRET;
-          } else {
-            process.env.MS_CLIENT_SECRET = clientSecret;
-          }
-        }
-        if (c.tenantId) process.env.MS_TENANT_ID = c.tenantId;
-        if (c.redirectUri) process.env.MS_REDIRECT_URI = c.redirectUri;
-      }
+      if (row.provider === 'microsoft') applyMicrosoftConfig(row.config);
     }
     console.log('Integration configs loaded');
   } catch (caught) {
