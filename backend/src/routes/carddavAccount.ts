@@ -18,12 +18,55 @@ import type { Request, Response } from 'express';
 const router = Router();
 router.use(requireAuth);
 
-const DUP_MODES = ['separate', 'merge', 'skip'];
-const clampInterval = (v) => Math.max(15, Math.min(1440, parseInt(v) || 60));
+type DuplicateMode = 'separate' | 'merge' | 'skip';
+
+type CarddavConfig = {
+  serverUrl?: string | null;
+  username?: string | null;
+  password?: string | null;
+  dupMode?: string | null;
+  intervalMin?: number | null;
+  lastSyncAt?: unknown;
+  lastError?: unknown;
+  bookCount?: unknown;
+  contactCount?: unknown;
+};
+
+type CarddavConnectedConfig = CarddavConfig & {
+  serverUrl: string;
+  username: string;
+  password: string;
+  dupMode: DuplicateMode;
+  intervalMin: number;
+};
+
+type CarddavConfigPatch = {
+  dupMode?: DuplicateMode;
+  intervalMin?: number;
+  password?: string;
+};
+
+function requestBody(req: Request): Record<string, unknown> | null {
+  if (typeof req.body !== 'object' || req.body === null || Array.isArray(req.body)) return null;
+  return req.body;
+}
+
+function duplicateMode(value: unknown): DuplicateMode | null {
+  if (value === 'separate' || value === 'merge' || value === 'skip') return value;
+  return null;
+}
+
+function clampInterval(value: unknown): number {
+  const parsed = typeof value === 'string' || typeof value === 'number'
+    ? Number.parseInt(String(value), 10)
+    : Number.NaN;
+  const normalized = Number.isNaN(parsed) || parsed === 0 ? 60 : parsed;
+  return Math.max(15, Math.min(1440, normalized));
+}
 
 // Public view of the connection — never leaks the stored password.
-function publicStatus(config) {
-  if (!config?.serverUrl) return { connected: false };
+function publicStatus(config: CarddavConfig | null) {
+  if (config === null || !config.serverUrl) return { connected: false };
   return {
     connected: true,
     serverUrl: config.serverUrl,
@@ -42,11 +85,13 @@ router.get('/', async (req: Request, res: Response) => {
 });
 
 router.post('/connect', async (req: Request, res: Response) => {
-  const { serverUrl, username, password, dupMode, intervalMin } = req.body || {};
-  if (!serverUrl || !username || !password) {
+  const body = requestBody(req);
+  if (body === null) return res.status(400).json({ error: 'Server URL, username, and password are required' });
+  const { serverUrl, username, password, dupMode, intervalMin } = body;
+  if (typeof serverUrl !== 'string' || !serverUrl || typeof username !== 'string' || !username || typeof password !== 'string' || !password) {
     return res.status(400).json({ error: 'Server URL, username, and password are required' });
   }
-  let parsed;
+  let parsed: URL;
   try { parsed = new URL(serverUrl); }
   catch { return res.status(400).json({ error: 'Invalid server URL' }); }
 
@@ -78,10 +123,12 @@ router.post('/connect', async (req: Request, res: Response) => {
     return res.status(400).json({ error: err.message });
   }
 
-  const config = {
-    serverUrl, username,
+  const selectedDupMode = duplicateMode(dupMode);
+  const config: CarddavConnectedConfig = {
+    serverUrl,
+    username,
     password: encrypt(password),
-    dupMode: DUP_MODES.includes(dupMode) ? dupMode : 'separate',
+    dupMode: selectedDupMode === null ? 'separate' : selectedDupMode,
     intervalMin: clampInterval(intervalMin),
     lastError: null,
   };
@@ -89,52 +136,57 @@ router.post('/connect', async (req: Request, res: Response) => {
     `INSERT INTO user_integrations (user_id, provider, config)
      VALUES ($1, 'carddav', $2::jsonb)
      ON CONFLICT (user_id, provider) DO UPDATE SET config = $2::jsonb, updated_at = NOW()`,
-    [req.session.userId, JSON.stringify(config)],
+    [sessionUserId(req), JSON.stringify(config)],
   );
 
-  scheduleCardavUser(sessionUserId(req), config.intervalMin);
+  const userId = sessionUserId(req);
+  scheduleCardavUser(userId, config.intervalMin);
   // Kick off the first sync in the background; the client polls GET / for status.
-  syncUser(sessionUserId(req)).catch(() => {});
+  syncUser(userId).catch(() => {});
   res.json(publicStatus(config));
 });
 
 // Update duplicate handling / interval (and optionally rotate the password).
 router.patch('/', async (req: Request, res: Response) => {
   const existing = await getCardavConfig(sessionUserId(req));
-  if (!existing?.serverUrl) return res.status(409).json({ error: 'CardDAV not connected' });
+  if (existing === null || !existing.serverUrl) return res.status(409).json({ error: 'CardDAV not connected' });
 
-  interface CardavConfigPatch { dupMode?: string; intervalMin?: number; password?: string }
-  const patch: CardavConfigPatch = {};
-  if (req.body.dupMode && DUP_MODES.includes(req.body.dupMode)) patch.dupMode = req.body.dupMode;
-  if (req.body.intervalMin != null) patch.intervalMin = clampInterval(req.body.intervalMin);
-  if (req.body.password) patch.password = encrypt(req.body.password);
+  const body = requestBody(req);
+  if (body === null) return res.status(400).json({ error: 'Invalid request body' });
+  const patch: CarddavConfigPatch = {};
+  const selectedDupMode = duplicateMode(body.dupMode);
+  if (selectedDupMode !== null) patch.dupMode = selectedDupMode;
+  if (body.intervalMin !== null && body.intervalMin !== undefined) patch.intervalMin = clampInterval(body.intervalMin);
+  if (typeof body.password === 'string' && body.password) patch.password = encrypt(body.password);
 
   await query(
     `UPDATE user_integrations SET config = config || $2::jsonb, updated_at = NOW()
      WHERE user_id = $1 AND provider = 'carddav'`,
-    [req.session.userId, JSON.stringify(patch)],
+    [sessionUserId(req), JSON.stringify(patch)],
   );
   if (patch.intervalMin) scheduleCardavUser(sessionUserId(req), patch.intervalMin);
   res.json(publicStatus({ ...existing, ...patch }));
 });
 
 router.post('/sync', async (req: Request, res: Response) => {
-  const config = await getCardavConfig(sessionUserId(req));
-  if (!config?.serverUrl) return res.status(409).json({ error: 'CardDAV not connected' });
-  const result = await syncUser(sessionUserId(req));
-  res.json({ ...result, status: publicStatus(await getCardavConfig(sessionUserId(req))) });
+  const userId = sessionUserId(req);
+  const config = await getCardavConfig(userId);
+  if (config === null || !config.serverUrl) return res.status(409).json({ error: 'CardDAV not connected' });
+  const result = await syncUser(userId);
+  res.json({ ...result, status: publicStatus(await getCardavConfig(userId)) });
 });
 
 router.delete('/', async (req: Request, res: Response) => {
-  stopCardavUser(sessionUserId(req));
+  const userId = sessionUserId(req);
+  stopCardavUser(userId);
   // Remove the synced (read-only) address books; contacts cascade with them.
   await query(
     "DELETE FROM address_books WHERE user_id = $1 AND source = 'carddav'",
-    [req.session.userId],
+    [userId],
   );
   await query(
     "DELETE FROM user_integrations WHERE user_id = $1 AND provider = 'carddav'",
-    [req.session.userId],
+    [userId],
   );
   res.json({ ok: true });
 });

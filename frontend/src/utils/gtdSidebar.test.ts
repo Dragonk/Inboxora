@@ -2,11 +2,31 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { GTD_SIDEBAR_PREVIEW_LIMITS, getGtdSidebarPreview } from './gtdSidebar.ts';
 
-const section = (key, count, total = count) => ({
-  key,
-  total,
-  threads: Array.from({ length: count }, (_, id) => ({ id })),
-});
+type SidebarTestThread = {
+  id: number;
+};
+
+type SidebarTestSection = {
+  key: string;
+  total: number;
+  threads: SidebarTestThread[];
+};
+
+function isNonNegativeSafeInteger(value: number): boolean {
+  return Number.isSafeInteger(value) && value >= 0;
+}
+
+function section(key: string, count: number, total: number = count): SidebarTestSection {
+  if (!isNonNegativeSafeInteger(count) || !isNonNegativeSafeInteger(total)) {
+    throw new RangeError('Section counts must be non-negative safe integers.');
+  }
+
+  return {
+    key,
+    total,
+    threads: Array.from({ length: count }, (_, id) => ({ id })),
+  };
+}
 
 test('uses larger previews for active sections and smaller previews for passive sections', () => {
   assert.deepEqual(GTD_SIDEBAR_PREVIEW_LIMITS, {
