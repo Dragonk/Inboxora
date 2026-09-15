@@ -25,8 +25,11 @@ describe('buildMailNotificationEvent', () => {
       alertCount: 1,
     });
 
-    const serialized = JSON.stringify(event.native);
-    expect(Object.keys(event.native).sort()).toEqual(['eventId', 'type']);
+    const native = event.native;
+    if (native === null) throw new Error('Expected native event for a message with an id');
+
+    const serialized = JSON.stringify(native);
+    expect(Object.keys(native).sort()).toEqual(['eventId', 'type']);
     expect(serialized).not.toContain('Ada');
     expect(serialized).not.toContain('ada@example.com');
     expect(serialized).not.toContain('Secret subject');

@@ -159,8 +159,8 @@ describe('providerProfile — skipFolderPatterns', () => {
 // ── providerProfile — robustness ──────────────────────────────────────────────
 
 describe('providerProfile — robustness', () => {
-  it('handles null imap_host gracefully', () => {
-    expect(() => providerProfile({ imap_host: null, oauth_provider: null })).not.toThrow();
+  it('handles an omitted imap_host gracefully', () => {
+    expect(() => providerProfile({ oauth_provider: null })).not.toThrow();
   });
 
   it('handles missing fields gracefully', () => {
@@ -653,7 +653,7 @@ describe('_startPluginSyncTimers / _stopPluginSyncTimers', () => {
   it('arms nothing for a plugin whose sync.isActive rejects the account', async () => {
     const tick = vi.fn();
     vi.spyOn(pluginRegistry, 'list').mockReturnValue([
-      { id: 'gated', name: 'Gated', version: '1.0.0', tier: 1, sync: { intervalMs: 1000, isActive: (ctx) => ctx.account.on === true, tick } },
+      { id: 'gated', name: 'Gated', version: '1.0.0', tier: 1, sync: { intervalMs: 1000, isActive: (ctx) => ctx.account !== undefined && ctx.account.on === true, tick } },
     ]);
     const mgr = makeMgr();
     await mgr._startPluginSyncTimers({ id: 'a2', on: false });
@@ -1432,7 +1432,9 @@ describe('walkStructure attachment classification', () => {
       ],
     });
     expect(results.inlineImages).toHaveLength(1);
-    const [inlineImage] = results.inlineImages;
+    const inlineImages = results.inlineImages;
+    if (!inlineImages) throw new Error('expected inline image collection');
+    const inlineImage = inlineImages[0];
     if (!inlineImage) throw new Error('expected inline image');
     expect(inlineImage.cid).toBe('logo@x');
     expect(results.attachments).toHaveLength(1);
