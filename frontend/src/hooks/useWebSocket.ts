@@ -75,6 +75,77 @@ type WsIncomingMessage =
   | { type: 'flags_synced'; accountId: string }
   | { type: 'message_flags'; accountId?: string; changes?: WsMessageFlagChange[] };
 
+type PluginWsMessage = { type: string; accountId?: string; [key: string]: unknown };
+type DecodedWsMessage = WsIncomingMessage | PluginWsMessage;
+type CoreMessageType = WsIncomingMessage['type'];
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isOptionalString(value: unknown): value is string | undefined {
+  return value === undefined || typeof value === 'string';
+}
+
+function isOptionalNumber(value: unknown): value is number | undefined {
+  return value === undefined || typeof value === 'number';
+}
+
+function isWsMessageRow(value: unknown): value is WsMessageRow {
+  return isRecord(value)
+    && typeof value.id === 'string'
+    && (value.fromName === undefined || value.fromName === null || typeof value.fromName === 'string')
+    && (value.fromEmail === undefined || value.fromEmail === null || typeof value.fromEmail === 'string')
+    && (value.subject === undefined || value.subject === null || typeof value.subject === 'string');
+}
+
+function isWsMessageFlagChange(value: unknown): value is WsMessageFlagChange {
+  return isRecord(value)
+    && isOptionalString(value.id)
+    && (value.is_read === undefined || typeof value.is_read === 'boolean')
+    && (value.is_starred === undefined || typeof value.is_starred === 'boolean');
+}
+
+function isCoreMessageType(value: string): value is CoreMessageType {
+  return value === 'new_messages' || value === 'exists_hint' || value === 'account_connected'
+    || value === 'folders_synced' || value === 'account_error' || value === 'backfill_all_start'
+    || value === 'backfill_progress' || value === 'backfill_complete' || value === 'backfill_all_complete'
+    || value === 'folder_updated' || value === 'sync_complete' || value === 'folder_emptied'
+    || value === 'snooze_wakeup' || value === 'flags_synced' || value === 'message_flags';
+}
+
+function isWsIncomingMessage(value: unknown): value is WsIncomingMessage {
+  if (!isRecord(value) || typeof value.type !== 'string') return false;
+  switch (value.type) {
+    case 'new_messages':
+      return typeof value.accountId === 'string' && typeof value.folder === 'string' && typeof value.count === 'number'
+        && (value.messages === undefined || (Array.isArray(value.messages) && value.messages.every(isWsMessageRow)))
+        && (value.alertMessages === undefined || (Array.isArray(value.alertMessages) && value.alertMessages.every(isWsMessageRow)))
+        && isOptionalNumber(value.alertCount);
+    case 'exists_hint': return typeof value.accountId === 'string' && typeof value.delta === 'number';
+    case 'account_connected': case 'folders_synced': case 'backfill_all_start': case 'backfill_complete':
+    case 'backfill_all_complete': case 'snooze_wakeup': case 'flags_synced': return typeof value.accountId === 'string';
+    case 'account_error': return typeof value.accountId === 'string' && isOptionalString(value.error);
+    case 'backfill_progress': return typeof value.accountId === 'string' && typeof value.synced === 'number' && (typeof value.total === 'number' || value.total === null);
+    case 'folder_updated': return typeof value.accountId === 'string' && typeof value.folder === 'string';
+    case 'sync_complete': return typeof value.accountId === 'string' || value.accountId === null;
+    case 'folder_emptied': return typeof value.accountId === 'string' && typeof value.folder === 'string' && typeof value.ok === 'boolean';
+    case 'message_flags': return isOptionalString(value.accountId) && (value.changes === undefined || (Array.isArray(value.changes) && value.changes.every(isWsMessageFlagChange)));
+    default: return false;
+  }
+}
+
+function isPluginWsMessage(value: unknown): value is PluginWsMessage {
+  return isRecord(value) && typeof value.type === 'string' && isOptionalString(value.accountId);
+}
+
+function parseWsMessage(raw: string): DecodedWsMessage | null {
+  const parsed: unknown = JSON.parse(raw);
+  if (!isPluginWsMessage(parsed)) return null;
+  if (isCoreMessageType(parsed.type)) return isWsIncomingMessage(parsed) ? parsed : null;
+  return parsed;
+}
+
 export function useWebSocket() {
   const { t } = useTranslation();
   const wsRef = useRef<HeartbeatWebSocket | null>(null);
@@ -90,7 +161,12 @@ export function useWebSocket() {
   const hasConnectedBefore = useRef(false);
   const { addNotification, updateAccount, setFolders, setBackfillProgress } = useStore();
 
-  const handleMessage = useCallback((data: WsIncomingMessage) => {
+  const handleMessage = useCallback((data: DecodedWsMessage) => {
+    if (!isWsIncomingMessage(data)) {
+      dispatchPluginWsMessage(data);
+      return;
+    }
+
     switch (data.type) {
       case 'new_messages': {
         // Blip the sync icon — a real change just synced in, so show background activity
@@ -315,10 +391,6 @@ export function useWebSocket() {
         break;
       }
 
-      default:
-        // A message type core doesn't handle — hand it to any activated plugin that registered for
-        // it (e.g. GTD's 'gtd_sections_updated'). No-op when nothing is registered.
-        dispatchPluginWsMessage(data);
     }
   }, [addNotification, updateAccount, setFolders, setBackfillProgress, t]);
 
@@ -365,8 +437,9 @@ export function useWebSocket() {
     ws.onmessage = (event) => {
       ws._lastActivity = Date.now(); // any inbound frame (incl. pong) proves the socket is alive
       try {
-        const data = JSON.parse(event.data);
-        handleMessage(data);
+        if (typeof event.data !== 'string') return;
+        const data = parseWsMessage(event.data);
+        if (data) handleMessage(data);
       } catch (err) { console.error('WS message error:', err); }
     };
 

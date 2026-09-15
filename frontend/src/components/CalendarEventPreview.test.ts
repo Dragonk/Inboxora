@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { describe, test } from 'node:test';
 
-const source = path => readFile(new URL(path, import.meta.url), 'utf8');
+const source = (path: string): Promise<string> => readFile(new URL(path, import.meta.url), 'utf8');
 
 describe('Calendar event preview contract', () => {
   test('opening an event always shows the mail-like preview first', async () => {
@@ -29,7 +29,7 @@ describe('Calendar event preview contract', () => {
     // The message may live in another account or folder and may not be in the loaded
     // list, so it is fetched and published as a one-message thread before selecting
     // it — selecting an unknown id would open a blank reader.
-    assert.match(calendar, /await openDeepLinkMessage\(messageId, \{ getMessage: api\.getMessage, setThreadMessages, setSelectedMessage \}\)/);
+    assert.match(calendar, /await openDeepLinkMessage\(messageId, \{[\s\S]*?getMessage: async \(id\) => \{[\s\S]*?api\.getMessage\(id\)[\s\S]*?isStoreMessageRow\(message\)[\s\S]*?setThreadMessages: \(key, messages\) => \{[\s\S]*?setThreadMessages\(key, storeMessages\)[\s\S]*?setSelectedMessage,[\s\S]*?\}\);/);
     assert.match(calendar, /setSelectedAccount\(preview\.source_account_id, preview\.source_folder \|\| 'INBOX'\)/);
     assert.match(calendar, /setShowCalendar\(false\)/);
   });
