@@ -14,6 +14,8 @@ router.param('jobId', uuidParam('jobId'));
 
 router.post('/conversations/rebuild', async (req: Request, res: Response) => {
   const userId = req.session.userId;
+  if (!userId) return res.status(401).json({ error: 'Not authenticated' });
+
   await consumeConversationRebuildRateLimit(userId);
   const accountId = req.body?.accountId || null;
   if (accountId) {

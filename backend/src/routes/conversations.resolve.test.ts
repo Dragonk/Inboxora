@@ -214,7 +214,15 @@ describe('GET /api/mail/messages/:ref/conversation', () => {
     const response = await resolve(MESSAGE_ID, 'user-a', ACCOUNT_A);
 
     expect(response.status).toBe(200);
-    expect(query.mock.calls[0][1][0]).toBe(MESSAGE_ID);
+    const firstQueryCall = query.mock.calls[0];
+    if (firstQueryCall === undefined) {
+      throw new Error('Expected the conversation lookup to query the database');
+    }
+    const queryParameters = firstQueryCall[1];
+    if (queryParameters === undefined) {
+      throw new Error('Expected the conversation lookup to receive query parameters');
+    }
+    expect(queryParameters[0]).toBe(MESSAGE_ID);
   });
 
   it('returns 404 when no tenant-scoped live candidate exists', async () => {

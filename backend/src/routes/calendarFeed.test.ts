@@ -102,6 +102,7 @@ describe('secret calendar feeds', () => {
     const rows = [{ calendar_name: 'Personal', id: 'event-1', uid: 'uid-1', summary: 'Planning', starts_at: '2026-09-01T09:00:00.000Z', ends_at: '2026-09-01T10:00:00.000Z', all_day: false }];
     query.mockResolvedValue({ rows });
     const url = `${base}/calendar/feeds/${'a'.repeat(43)}.ics`; const first = await fetch(url); const body = await first.text(); const etag = first.headers.get('etag');
+    if (etag === null) throw new Error('Calendar feed response must include an ETag');
     expect(etag).toBe(`"${createHash('sha256').update(body).digest('hex')}"`);
     expect((await fetch(url, { headers: { 'if-none-match': etag } })).status).toBe(304);
     expect((await fetch(url, { headers: { 'if-none-match': `W/${etag}` } })).status).toBe(304);
