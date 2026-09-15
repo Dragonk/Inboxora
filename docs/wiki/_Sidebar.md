@@ -1,4 +1,4 @@
-- [Home](Home.md)
+- [Home — documentation for 4.0.1](Home.md)
 - [Installation](Installation.md)
 - [Getting started](Getting-started.md)
 - **Email**
@@ -9,6 +9,7 @@
   - [Calendar](Calendar.md)
   - [Contacts and DAV](Contacts-and-DAV.md)
   - [External calendars](External-calendars.md)
+  - [Mobile navigation](Mobile-navigation.md)
 - **Operations**
   - [Security](Security.md)
   - [Upgrading](Upgrading.md)
@@ -17,5 +18,5 @@
   - [Development](Development.md)
 - **Reference**
   - [V3 interface](V3-interface.md)
-  - [Release notes 4.0.1](Release-notes-4.0.1.md)
-  - [Release notes 4.0.0](Release-notes-4.0.0.md)
+  - [4.0.1 changes and release status](Release-notes-4.0.1.md)
+  - [Release notes 4.0.0 — historical](Release-notes-4.0.0.md)
