@@ -2,6 +2,7 @@ import { safeHttpUrl } from '../utils/contactLinks.ts';
 import { calendarDescriptionBody } from '../utils/richText.ts';
 import { readStoredCalendarView, storeCalendarView } from '../utils/calendarPreferences.ts';
 import { openDeepLinkMessage } from '../utils/gtd.ts';
+import type { GtdThread } from '../utils/gtd.ts';
 import MobileFloatingAction from './MobileFloatingAction.tsx';
 import { localizeContactCalendar, localizeContactEvent } from '../utils/contactDateLabels.ts';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
@@ -25,7 +26,7 @@ import { MobileModuleHeader, HeaderAction } from './MobileModuleHeader.tsx';
 import { useCompactLayout } from '../hooks/useCompactLayout.ts';
 import { applyAgendaWidth, beginAgendaResize, beginPanelResize, readAgendaWidth } from '../utils/panelWidth.ts';
 import './calendar.css';
-import type { StoreState } from '../store/index.ts';
+import type { StoreMessageRow, StoreState } from '../store/index.ts';
 import { toAppError } from '../utils/errors.ts';
 
 /** The add/edit dialog's form state: the payload fields plus the dialog mode and event identity. */
@@ -75,6 +76,10 @@ function previewDate(value: string | number | Date | null | undefined): Date {
   if (value === undefined) return new Date(Number.NaN);
   if (value === null) return new Date(0);
   return new Date(value);
+}
+
+function isStoreMessageRow(message: GtdThread): message is GtdThread & StoreMessageRow {
+  return typeof message.id === 'string' && typeof message.account_id === 'string';
 }
 
 const DATE_LOCALE_OVERRIDES: Record<string, string> = { zhCN: 'zh-CN' };
@@ -346,7 +351,21 @@ export default function CalendarPage({ isActive = true }) {
     setShowCalendar(false);
     setShowContacts(false);
     if (preview.source_account_id) setSelectedAccount(preview.source_account_id, preview.source_folder || 'INBOX');
-    await openDeepLinkMessage(messageId, { getMessage: api.getMessage, setThreadMessages, setSelectedMessage });
+    await openDeepLinkMessage(messageId, {
+      getMessage: async (id) => {
+        const message = await api.getMessage(id);
+        return message && isStoreMessageRow(message) ? message : null;
+      },
+      setThreadMessages: (key, messages) => {
+        const storeMessages: StoreMessageRow[] = [];
+        for (const message of messages) {
+          if (!isStoreMessageRow(message)) throw new Error('Deep link returned a non-store message');
+          storeMessages.push(message);
+        }
+        setThreadMessages(key, storeMessages);
+      },
+      setSelectedMessage,
+    });
   };
   const selectDay = (day: Date) => { setAnchor(day); if (compact) setDayPanelOpen(true); };
   const sidebarProps = { anchor, calendars, visibleCalendarIds, weekStartsOn: calendarWeekStartsOn, locale,

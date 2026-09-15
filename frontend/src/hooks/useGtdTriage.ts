@@ -118,7 +118,7 @@ export function useGtdTriage() {
         y: menu.y,
         message: menu.message,
         doneStates: menu.doneStates,
-        defaultMoveView: menu.defaultMoveView,
+        ...(menu.defaultMoveView === undefined ? {} : { defaultMoveView: menu.defaultMoveView }),
       });
     }
   };
@@ -308,7 +308,10 @@ export function useGtdTriage() {
       }
       case 'createRuleFromMessage': {
         const store = useStore.getState();
-        store.setRulesPreFill({ fromEmail: thread.from_email, fromName: thread.from_name });
+        store.setRulesPreFill({
+          ...(thread.from_email === undefined ? {} : { fromEmail: thread.from_email }),
+          ...(thread.from_name === undefined ? {} : { fromName: thread.from_name }),
+        });
         store.setAdminTab('rules');
         store.setShowAdmin(true);
         break;

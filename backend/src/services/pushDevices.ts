@@ -25,6 +25,36 @@ const MAX_DEVICE_ID = 128;
 const MAX_ENDPOINT = 4096;
 const MAX_APP_VERSION = 64;
 
+type RegisteredPushDeviceRow = {
+  id: string;
+  device_id: string;
+  platform: string;
+  transport: string;
+  app_version: string | null;
+  created_at: Date;
+  updated_at: Date;
+  last_seen: Date;
+};
+
+type ListedPushDeviceRow = RegisteredPushDeviceRow & {
+  disabled_at: Date | null;
+};
+
+type RemovedPushDeviceRow = {
+  id: string;
+  device_id: string;
+  transport: string;
+};
+
+type ActivePushDeviceRow = {
+  id: string;
+  device_id: string;
+  platform: string;
+  transport: string;
+  endpoint: string;
+  failure_count: number;
+};
+
 export function parseDeviceToken(value: unknown) {
   if (typeof value !== 'string') return null;
   const match = value.match(TOKEN_RE);
@@ -95,7 +125,7 @@ export async function registerPushDevice(userId: string, input: DeviceRegistrati
   const secretHash = await bcrypt.hash(secret, BCRYPT_ROUNDS);
   const encryptedEndpoint = encrypt(device.endpoint);
 
-  const result = await query(
+  const result = await query<RegisteredPushDeviceRow>(
     `INSERT INTO push_devices
        (user_id, device_id, platform, transport, endpoint, token_prefix, token_hash, app_version, updated_at, last_seen)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
@@ -114,11 +144,13 @@ export async function registerPushDevice(userId: string, input: DeviceRegistrati
     [userId, device.deviceId, device.platform, device.transport, encryptedEndpoint, prefix, secretHash, device.appVersion],
   );
 
-  return { device: result.rows[0], deviceToken: token };
+  const registeredDevice = result.rows[0];
+  if (registeredDevice === undefined) throw new Error('Device registration did not return a row');
+  return { device: registeredDevice, deviceToken: token };
 }
 
 export async function listPushDevices(userId: string) {
-  const result = await query(
+  const result = await query<ListedPushDeviceRow>(
     `SELECT id, device_id, platform, transport, app_version, created_at, updated_at, last_seen, disabled_at
      FROM push_devices
      WHERE user_id = $1
@@ -132,18 +164,20 @@ export async function listPushDevices(userId: string) {
 // can never be used to unregister someone else's endpoint (IDOR).
 export async function removePushDevice(userId: string, deviceId: string) {
   if (!userId || !deviceId) return null;
-  const result = await query(
+  const result = await query<RemovedPushDeviceRow>(
     'DELETE FROM push_devices WHERE user_id = $1 AND device_id = $2 RETURNING id, device_id, transport',
     [userId, String(deviceId).slice(0, MAX_DEVICE_ID)],
   );
-  return result.rows[0] || null;
+  const removedDevice = result.rows[0];
+  return removedDevice === undefined ? null : removedDevice;
 }
 
 // Used on logout / host change when the app cannot know the server-side row id.
 export async function removeAllPushDevices(userId: string) {
   if (!userId) return 0;
   const result = await query('DELETE FROM push_devices WHERE user_id = $1 RETURNING id', [userId]);
-  return result.rowCount || 0;
+  if (result.rowCount === undefined) throw new Error('Device removal did not return a row count');
+  return result.rowCount;
 }
 
 // Authenticate a background request by its device token. Returns the owning
@@ -166,13 +200,16 @@ export async function authenticatePushDevice(tokenValue: string | null): Promise
 // Dispatch read: active devices for one user with decrypted endpoints. Rows whose
 // endpoint can no longer be decrypted (rotated ENCRYPTION_KEY) are skipped.
 export async function listActivePushDevices(userId: string) {
-  const result = await query(
+  const result = await query<ActivePushDeviceRow>(
     `SELECT id, device_id, platform, transport, endpoint, failure_count
      FROM push_devices
      WHERE user_id = $1 AND disabled_at IS NULL`,
     [userId],
   );
-  return result.rows.map((row) => ({ ...row, endpoint: decrypt(row.endpoint) })).filter((row) => !!row.endpoint);
+  return result.rows.flatMap((row) => {
+    const endpoint = decrypt(row.endpoint);
+    return endpoint === null ? [] : [{ ...row, endpoint }];
+  });
 }
 
 export async function markPushDeviceFailure(id: unknown) {
@@ -200,5 +237,6 @@ export async function pruneStalePushDevices() {
      WHERE (disabled_at IS NOT NULL AND disabled_at < NOW() - INTERVAL '30 days')
         OR (last_seen < NOW() - INTERVAL '180 days')`,
   );
-  return result.rowCount || 0;
+  if (result.rowCount === undefined) throw new Error('Stale device cleanup did not return a row count');
+  return result.rowCount;
 }

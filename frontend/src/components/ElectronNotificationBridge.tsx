@@ -3,7 +3,7 @@ import { useStore } from '../store/index.ts';
 import { api } from '../utils/api.ts';
 import { installCapacitorNativeBridge } from '../utils/capacitorNativeBridge.ts';
 import { createBoundedActionIdTracker, isTrustedNativeMessage } from '../utils/nativeActionSecurity.ts';
-import type { StoreState } from '../store/index.ts';
+import type { StoreMessageRow, StoreState } from '../store/index.ts';
 import { toAppError } from '../utils/errors.ts';
 
 function linuxInstructionPath(filePath: string | null | undefined) {
@@ -30,8 +30,84 @@ function isLinuxPackagePath(filePath: string | null | undefined) {
   return /\.(deb|rpm)$/i.test(String(filePath || ''));
 }
 
-// Native action payloads are untyped across the bridge; each field is read defensively.
-type NativeActionPayload = Record<string, any>;
+type NativeAction = 'new-mail' | 'open-message' | 'reply-message' | 'delete-message' | 'star-message' | 'sync';
+
+interface NativeComposeData {
+  to?: string | string[];
+  cc?: string | string[];
+  bcc?: string | string[];
+  subject?: string;
+  body?: string;
+  [key: string]: unknown;
+}
+
+interface NativeActionPayload {
+  action: NativeAction;
+  id?: string;
+  messageId?: string;
+  accountId?: string;
+  folder?: string;
+  message?: StoreMessageRow;
+  composeData?: NativeComposeData;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isStringList(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === 'string');
+}
+
+function isNativeComposeData(value: unknown): value is NativeComposeData {
+  if (!isRecord(value)) return false;
+  const recipientFields = ['to', 'cc', 'bcc'];
+  const textFields = ['subject', 'body'];
+  return recipientFields.every((field) => {
+    const recipient = value[field];
+    return recipient === undefined || typeof recipient === 'string' || isStringList(recipient);
+  }) && textFields.every((field) => value[field] === undefined || typeof value[field] === 'string');
+}
+
+function isStoreMessageRow(value: unknown): value is StoreMessageRow {
+  return isRecord(value) && typeof value.id === 'string' && typeof value.account_id === 'string';
+}
+
+function nativeActionFrom(value: unknown): NativeAction | null {
+  switch (value) {
+    case 'new-mail':
+    case 'open-message':
+    case 'reply-message':
+    case 'delete-message':
+    case 'star-message':
+    case 'sync':
+      return value;
+    default:
+      return null;
+  }
+}
+
+function parseNativeActionPayload(value: unknown): NativeActionPayload | null {
+  const action = nativeActionFrom(typeof value === 'string' ? value : isRecord(value) ? value.action : undefined);
+  if (!action || !isRecord(value)) return action ? { action } : null;
+  if (
+    (value.id !== undefined && typeof value.id !== 'string')
+    || (value.messageId !== undefined && typeof value.messageId !== 'string')
+    || (value.accountId !== undefined && typeof value.accountId !== 'string')
+    || (value.folder !== undefined && typeof value.folder !== 'string')
+    || (value.message !== undefined && !isStoreMessageRow(value.message))
+    || (value.composeData !== undefined && !isNativeComposeData(value.composeData))
+  ) return null;
+
+  const payload: NativeActionPayload = { action };
+  if (typeof value.id === 'string') payload.id = value.id;
+  if (typeof value.messageId === 'string') payload.messageId = value.messageId;
+  if (typeof value.accountId === 'string') payload.accountId = value.accountId;
+  if (typeof value.folder === 'string') payload.folder = value.folder;
+  if (isStoreMessageRow(value.message)) payload.message = value.message;
+  if (isNativeComposeData(value.composeData)) payload.composeData = value.composeData;
+  return payload;
+}
 
 export default function ElectronNotificationBridge() {
   const addNotification = useStore((state: StoreState) => state.addNotification);
@@ -166,12 +242,13 @@ export default function ElectronNotificationBridge() {
   useEffect(() => {
     if (!nativeBridgeReady) return undefined;
     const getPayloadMessage = (payload: NativeActionPayload) => {
-      const state = useStore.getState();
-      return payload?.message || state.messages.find((item: Record<string, unknown>) => item.id === payload?.messageId) || null;
+      if (payload.message) return payload.message;
+      if (!payload.messageId) return null;
+      return useStore.getState().messages.find((item) => item.id === payload.messageId) || null;
     };
 
     const openMessageFromPayload = (payload: NativeActionPayload) => {
-      const messageId = payload?.messageId;
+      const { messageId } = payload;
       if (!messageId) return null;
 
       const folder = payload.folder || 'INBOX';
@@ -185,7 +262,7 @@ export default function ElectronNotificationBridge() {
 
       if (message && !state.messages.some((item: Record<string, unknown>) => item.id === message.id)) {
         useStore.setState((current) => ({
-          messages: [{ ...message, account_id: message.account_id || payload.accountId }, ...current.messages],
+          messages: [message, ...current.messages],
         }));
       }
 
@@ -194,32 +271,35 @@ export default function ElectronNotificationBridge() {
       return message;
     };
 
-    const normalizeAddressList = (value: unknown) => {
-      if (Array.isArray(value)) return value;
-      try {
-        const parsed = JSON.parse(typeof value === 'string' ? value : '[]');
-        return Array.isArray(parsed) ? parsed : [];
-      } catch {
-        return [];
-      }
+    const isRecipient = (value: unknown): value is { email: string; name?: string | null } => {
+      return isRecord(value)
+        && typeof value.email === 'string'
+        && (value.name === undefined || value.name === null || typeof value.name === 'string');
+    };
+
+    const normalizeAddressList = (value: unknown): Array<{ email: string; name?: string | null }> => {
+      const parsed: unknown = typeof value === 'string' ? JSON.parse(value) : value;
+      return Array.isArray(parsed) ? parsed.filter(isRecipient) : [];
     };
 
     const openReplyFromPayload = (payload: NativeActionPayload) => {
       const message = getPayloadMessage(payload);
       if (!message) return;
 
-      const replyTo = normalizeAddressList(message.reply_to ?? message.replyTo);
-      const replyTarget = replyTo[0]?.email
-        ? replyTo[0]
-        : {
-            name: message.from_name || message.fromName || '',
-            email: message.from_email || message.fromEmail || '',
-          };
-      const sender = replyTarget.email ? [replyTarget] : [];
-      const rawSubject = (message.subject || '').trim();
+      let replyTarget: { email: string; name?: string | null } | null;
+      try {
+        const replyTo = normalizeAddressList(message.reply_to);
+        replyTarget = replyTo[0] || null;
+      } catch {
+        replyTarget = null;
+      }
+      if (!replyTarget && message.from_email) {
+        replyTarget = { name: message.from_name, email: message.from_email };
+      }
+      const sender = replyTarget ? [replyTarget] : [];
+      const rawSubject = message.subject?.trim() || '';
       const subject = rawSubject.startsWith('Re:') ? rawSubject : rawSubject ? `Re: ${rawSubject}` : 'Re:';
-      const originalMessageId = message.message_id || message.messageId;
-      const priorInReplyTo = message.in_reply_to || message.inReplyTo;
+      const originalMessageId = message.message_id || null;
 
       openCompose({
         to: sender,
@@ -227,19 +307,19 @@ export default function ElectronNotificationBridge() {
         subject,
         body: '',
         inReplyTo: originalMessageId,
-        references: [priorInReplyTo, originalMessageId].filter(Boolean).join(' ').trim() || null,
-        accountId: message.account_id || message.accountId || payload.accountId,
+        references: originalMessageId,
+        accountId: message.account_id,
         isReply: true,
         originalFrom: sender,
         allRecipients: [],
       });
     };
 
-    const runNativeAction = async (payload: NativeActionPayload) => {
-      const action = typeof payload === 'string' ? payload : payload?.action;
-      const id = typeof payload === 'object' ? payload?.id : null;
+    const runNativeAction = async (value: unknown) => {
+      const payload = parseNativeActionPayload(value);
+      if (!payload) return;
 
-      if (!action) return;
+      const { action, id } = payload;
       if (id && !processedActionIdsRef.current.remember(id)) return;
 
       const now = Date.now();
@@ -250,7 +330,7 @@ export default function ElectronNotificationBridge() {
 
       try {
         if (action === 'new-mail') {
-          openCompose(payload?.composeData || {});
+          openCompose(payload.composeData);
           return;
         }
 
@@ -265,7 +345,7 @@ export default function ElectronNotificationBridge() {
         }
 
         if (action === 'delete-message') {
-          const messageId = payload?.messageId;
+          const { messageId } = payload;
           if (!messageId) return;
 
           await api.deleteMessage(messageId);
@@ -275,7 +355,7 @@ export default function ElectronNotificationBridge() {
         }
 
         if (action === 'star-message') {
-          const messageId = payload?.messageId;
+          const { messageId } = payload;
           if (!messageId) return;
 
           await api.markStarred(messageId, true);
@@ -313,10 +393,10 @@ export default function ElectronNotificationBridge() {
 
     const handleNativeMessage = (event: Event) => {
       if (!(event instanceof MessageEvent)) return;
-      if (!isTrustedNativeMessage(event)) return;
-      if (event.data?.type === 'inboxora:native-action') {
+      if (!isTrustedNativeMessage(event) || !isRecord(event.data)) return;
+      if (event.data.type === 'inboxora:native-action') {
         runNativeAction(event.data.payload);
-      } else if (event.data?.type === 'inboxora:native-actions-ready') {
+      } else if (event.data.type === 'inboxora:native-actions-ready') {
         drainInjectedActions();
       }
     };
@@ -337,7 +417,7 @@ export default function ElectronNotificationBridge() {
     });
 
     window.inboxoraNative?.actions?.getPending?.()
-      .then((actions = []) => {
+      .then((actions) => {
         actions.forEach(runNativeAction);
       })
       .catch(() => {});

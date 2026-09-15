@@ -5,7 +5,9 @@ import { parseMessage } from './messageParser.js';
 // DIFFERENT mailbox than From. Servers default ENVELOPE sender to From when the Sender header is
 // absent, so parseMessage must return null unless the sender address genuinely differs — otherwise
 // every ordinary message would show a spurious "via".
-const msg = (envelope) => ({ uid: 1, envelope, flags: [] });
+type RawMessage = Parameters<typeof parseMessage>[0];
+
+const msg = (envelope: RawMessage['envelope']): RawMessage => ({ uid: 1, envelope, flags: [] });
 
 describe('parseMessage — sender ("via") extraction', () => {
   it('surfaces a distinct Sender (on-behalf-of / via)', async () => {

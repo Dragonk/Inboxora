@@ -205,6 +205,7 @@ describe('createAccountSmtpTransport', () => {
     });
 
     expect(refreshMicrosoftToken).toHaveBeenCalledTimes(1);
+    if (!result.account) throw new Error('expected a refreshed account');
     expect(result.account.oauth_access_token).toBe('fresh-token');
   });
 
