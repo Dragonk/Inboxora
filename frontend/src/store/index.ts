@@ -490,15 +490,33 @@ export const useStore = create<StoreState>()((set, get) => ({
   // Auth
   user: null,
   setUser: (user: StoreUserRow | null) =>{
-    // On a real identity change (login, logout, account switch) drop any queued preference
-    // flush so the previous user's debounce can't save into the new/absent session.
-    if (get().user?.id !== user?.id) cancelPendingPrefSave();
+    // A new identity must never inherit private UI data from the preceding SPA session.
+    // Device appearance/input preferences deliberately remain outside this reset.
+    const identityChanged = get().user?.id !== user?.id;
+    if (identityChanged) {
+      cancelPendingPrefSave();
+      localStorage.removeItem('mailflow_selected_account');
+      localStorage.removeItem('mailflow_selected_folder');
+      _gtdSectionsSeq += 1;
+      if (_gtdFetchTimer) clearTimeout(_gtdFetchTimer);
+      _gtdFetchTimer = null;
+    }
     set((state: StoreStateRead) => ({
       user,
       ...(state.user?.id !== user?.id ? {
         senderFaviconsLoaded: false,
         senderFavicons: false,
         senderFaviconsSaving: false,
+        accounts: [], accountsReady: false, folders: {},
+        selectedAccountId: null, selectedFolder: 'INBOX',
+        messages: [], messagesOffset: 0, messagesTotal: 0, hasMoreMessages: true,
+        selectedMessageId: null, lastViewedMessageId: null,
+        unreadCounts: { total: 0, byAccount: {} },
+        composing: false, composeData: null, messageWindows: [], _winSeq: 0,
+        searchQuery: '', searchResults: [], isSearching: false, loadingMessages: false,
+        notifications: [], expandedThreadId: null, threadMessages: {}, loadingThread: null,
+        backfillProgress: {}, categoryCounts: {}, activeGtdTab: null, gtdSections: null,
+        rulesPreFill: null, showAdmin: false,
       } : {}),
     }));
   },

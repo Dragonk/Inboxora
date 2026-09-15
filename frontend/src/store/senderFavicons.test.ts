@@ -77,6 +77,29 @@ describe('sender favicon preference state', () => {
     assert.deepEqual(faviconState(), { loaded: true, enabled: true, saving: false });
   });
 
+  it('clears private mail and compose state when the user identity changes', () => {
+    useStore.getState().setUser({ id: 'user-1' });
+    useStore.setState({
+      accounts: [{ id: 'account-1' }], accountsReady: true, folders: { 'account-1': [{ path: 'INBOX' }] },
+      messages: [{ id: 'message-1', account_id: 'account-1' }], selectedMessageId: 'message-1', lastViewedMessageId: 'message-1',
+      composing: true, composeData: { to: ['private@example.test'], body: 'private draft' },
+      searchQuery: 'private', searchResults: [{ id: 'message-1', account_id: 'account-1' }], notifications: [{ id: 'notice-1' }],
+      threadMessages: { thread: [{ id: 'message-1', account_id: 'account-1' }] }, messageWindows: [{ winId: 'window-1', messageId: 'message-1' }],
+    });
+
+    useStore.getState().setUser({ id: 'user-2' });
+    const state = useStore.getState();
+    assert.deepEqual(state.messages, []);
+    assert.equal(state.composeData, null);
+    assert.equal(state.composing, false);
+    assert.deepEqual(state.accounts, []);
+    assert.deepEqual(state.searchResults, []);
+    assert.equal(state.searchQuery, '');
+    assert.deepEqual(state.threadMessages, {});
+    assert.deepEqual(state.messageWindows, []);
+    assert.deepEqual(state.notifications, []);
+  });
+
   it('discards a delayed enable completion after the authenticated user changes', async () => {
     const save = deferred();
     useStore.getState().setUser({ id: 'user-1' });
