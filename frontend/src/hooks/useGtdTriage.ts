@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.ts';
+import type { StoreMessageRow } from '../store/index.ts';
 import { api } from '../utils/api.ts';
 import {
   openDeepLinkMessage, collectThreadReadIds, openGtdThreadWithAutoRead,
@@ -29,6 +30,15 @@ interface GtdTriageThread extends GtdThread {
 function isGtdTriageThread(thread: GtdThread): thread is GtdTriageThread {
   return typeof thread.id === 'string' && thread.id !== ''
     && typeof thread.account_id === 'string' && thread.account_id !== '';
+}
+
+function isStoreMessageRow(message: GtdThread): message is GtdThread & StoreMessageRow {
+  return typeof message.id === 'string' && typeof message.account_id === 'string';
+}
+
+function toGtdThread({ message_id, ...message }: StoreMessageRow): GtdThread & { id: string } {
+  if (message_id === null) return message;
+  return { ...message, message_id };
 }
 
 /** The right-click / move-picker menu state a GTD row opens. */
@@ -173,9 +183,22 @@ export function useGtdTriage() {
     const identity = thread.message_id || thread.id;
     return openGtdThreadWithAutoRead(thread, {
       openThread: () => openDeepLinkMessage(thread.id, {
-        getMessage: api.getMessage,
-        getThread: threadKey => api.getThread(threadKey, '', false, thread.account_id),
-        setThreadMessages,
+        getMessage: async messageId => {
+          const message = await api.getMessage(messageId);
+          return message && isStoreMessageRow(message) ? message : null;
+        },
+        getThread: async threadKey => {
+          const { messages } = await api.getThread(threadKey, '', false, thread.account_id);
+          return { messages: messages.map(toGtdThread) };
+        },
+        setThreadMessages: (key, messages) => {
+          const storeMessages: StoreMessageRow[] = [];
+          for (const message of messages) {
+            if (!isStoreMessageRow(message)) throw new Error('Deep link returned a non-store message');
+            storeMessages.push(message);
+          }
+          setThreadMessages(key, storeMessages);
+        },
         setSelectedMessage,
         thread,
         onMiss: scheduleGtdSectionsFetch,

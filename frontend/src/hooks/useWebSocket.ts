@@ -90,69 +90,6 @@ export function useWebSocket() {
   const hasConnectedBefore = useRef(false);
   const { addNotification, updateAccount, setFolders, setBackfillProgress } = useStore();
 
-  const connect = useCallback(() => {
-    // Clean up any existing socket before opening a new one — prevents duplicate
-    // connections if connect() is called while a previous socket is still open.
-    if (wsRef.current && wsRef.current.readyState !== WebSocket.CLOSED) {
-      wsRef.current.onclose = null;  // prevent old socket's close from scheduling another reconnect
-      clearInterval(wsRef.current._pingInterval);
-      wsRef.current.close();
-    }
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const ws: HeartbeatWebSocket = new WebSocket(`${protocol}//${window.location.host}/ws`);
-
-    ws.onopen = () => {
-      const wasReconnect = hasConnectedBefore.current;
-      hasConnectedBefore.current = true;
-      reconnectAttempt.current = 0;
-      ws._lastActivity = Date.now();
-      // Ping every 30s. If no message (including the server's pong) has arrived in ~2.5 intervals,
-      // the socket is half-open — common after sleep/network blips, where onclose never fires and
-      // the tab silently stops receiving updates. Force-close it so onclose schedules a reconnect.
-      const pingInterval = setInterval(() => {
-        if (ws.readyState !== WebSocket.OPEN) return;
-        if (Date.now() - (ws._lastActivity || 0) > 75000) {
-          try { ws.close(); } catch { /* onclose reconnects */ }
-          return;
-        }
-        ws.send(JSON.stringify({ type: 'ping' }));
-      }, 30000);
-      ws._pingInterval = pingInterval;
-      // On reconnect, catch up on any messages that arrived during the outage
-      if (wasReconnect) {
-        recordDiagEvent({ category: 'ws', type: 'reconnect' });
-        window.dispatchEvent(new CustomEvent('inboxora:refresh', { detail: { refreshThreads: true } }));
-        refreshUnreadCounts();
-        // A plugin's rail/derived data can drift during the outage — events fired while the socket
-        // was down are lost, not buffered. Let each activated plugin resync (GTD refetches its
-        // sections). Core stays plugin-agnostic.
-        dispatchPluginReconnect();
-      }
-    };
-
-    ws.onmessage = (event) => {
-      ws._lastActivity = Date.now(); // any inbound frame (incl. pong) proves the socket is alive
-      try {
-        const data = JSON.parse(event.data);
-        handleMessage(data);
-      } catch (err) { console.error('WS message error:', err); }
-    };
-
-    ws.onclose = (event) => {
-      clearInterval(ws._pingInterval);
-      if (!mountedRef.current || NO_RECONNECT_CODES.has(event.code)) return;
-      const attempt = reconnectAttempt.current;
-      const delay = Math.min(BACKOFF_BASE * 2 ** attempt, BACKOFF_MAX);
-      const jitter = Math.random() * 0.3 * delay;
-      reconnectAttempt.current = attempt + 1;
-      reconnectTimer.current = setTimeout(connect, delay + jitter);
-    };
-
-    ws.onerror = () => ws.close();
-    wsRef.current = ws;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   const handleMessage = useCallback((data: WsIncomingMessage) => {
     switch (data.type) {
       case 'new_messages': {
@@ -384,6 +321,68 @@ export function useWebSocket() {
         dispatchPluginWsMessage(data);
     }
   }, [addNotification, updateAccount, setFolders, setBackfillProgress, t]);
+
+  const connect = useCallback(() => {
+    // Clean up any existing socket before opening a new one — prevents duplicate
+    // connections if connect() is called while a previous socket is still open.
+    if (wsRef.current && wsRef.current.readyState !== WebSocket.CLOSED) {
+      wsRef.current.onclose = null;  // prevent old socket's close from scheduling another reconnect
+      clearInterval(wsRef.current._pingInterval);
+      wsRef.current.close();
+    }
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const ws: HeartbeatWebSocket = new WebSocket(`${protocol}//${window.location.host}/ws`);
+
+    ws.onopen = () => {
+      const wasReconnect = hasConnectedBefore.current;
+      hasConnectedBefore.current = true;
+      reconnectAttempt.current = 0;
+      ws._lastActivity = Date.now();
+      // Ping every 30s. If no message (including the server's pong) has arrived in ~2.5 intervals,
+      // the socket is half-open — common after sleep/network blips, where onclose never fires and
+      // the tab silently stops receiving updates. Force-close it so onclose schedules a reconnect.
+      const pingInterval = setInterval(() => {
+        if (ws.readyState !== WebSocket.OPEN) return;
+        if (Date.now() - (ws._lastActivity || 0) > 75000) {
+          try { ws.close(); } catch { /* onclose reconnects */ }
+          return;
+        }
+        ws.send(JSON.stringify({ type: 'ping' }));
+      }, 30000);
+      ws._pingInterval = pingInterval;
+      // On reconnect, catch up on any messages that arrived during the outage
+      if (wasReconnect) {
+        recordDiagEvent({ category: 'ws', type: 'reconnect' });
+        window.dispatchEvent(new CustomEvent('inboxora:refresh', { detail: { refreshThreads: true } }));
+        refreshUnreadCounts();
+        // A plugin's rail/derived data can drift during the outage — events fired while the socket
+        // was down are lost, not buffered. Let each activated plugin resync (GTD refetches its
+        // sections). Core stays plugin-agnostic.
+        dispatchPluginReconnect();
+      }
+    };
+
+    ws.onmessage = (event) => {
+      ws._lastActivity = Date.now(); // any inbound frame (incl. pong) proves the socket is alive
+      try {
+        const data = JSON.parse(event.data);
+        handleMessage(data);
+      } catch (err) { console.error('WS message error:', err); }
+    };
+
+    ws.onclose = (event) => {
+      clearInterval(ws._pingInterval);
+      if (!mountedRef.current || NO_RECONNECT_CODES.has(event.code)) return;
+      const attempt = reconnectAttempt.current;
+      const delay = Math.min(BACKOFF_BASE * 2 ** attempt, BACKOFF_MAX);
+      const jitter = Math.random() * 0.3 * delay;
+      reconnectAttempt.current = attempt + 1;
+      reconnectTimer.current = setTimeout(connect, delay + jitter);
+    };
+
+    ws.onerror = () => ws.close();
+    wsRef.current = ws;
+  }, [handleMessage]);
 
   useEffect(() => {
     mountedRef.current = true;

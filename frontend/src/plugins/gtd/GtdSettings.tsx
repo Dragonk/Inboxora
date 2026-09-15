@@ -152,7 +152,10 @@ function GtdAccountBlock({ account }: { account: GtdSettingsAccount }) {
   const { t } = useTranslation();
   const { updateAccount } = useStore();
   const enabled = !!account.gtd_enabled;
-  const [folders, setFolders] = useState(() => resolveAccountGtdFolders(account));
+  // Folder re-seeding intentionally follows only this persisted field, not unrelated
+  // account updates that must leave in-progress edits intact.
+  const storedGtdFolders = account.gtd_folders;
+  const [folders, setFolders] = useState(() => resolveAccountGtdFolders({ gtd_folders: storedGtdFolders }));
   const [toggling, setToggling] = useState(false);
   const [saving, setSaving] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -167,8 +170,8 @@ function GtdAccountBlock({ account }: { account: GtdSettingsAccount }) {
   // would clobber in-progress edits on unrelated account updates.
   useEffect(() => {
     if (skipReseedRef.current) { skipReseedRef.current = false; return; }
-    setFolders(resolveAccountGtdFolders(account));
-  }, [account.gtd_folders]); // eslint-disable-line react-hooks/exhaustive-deps
+    setFolders(resolveAccountGtdFolders({ gtd_folders: storedGtdFolders }));
+  }, [storedGtdFolders]);
 
   const handleToggle = async () => {
     if (toggling) return;

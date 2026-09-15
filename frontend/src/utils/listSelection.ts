@@ -8,12 +8,21 @@ import { useStore } from '../store/index.ts';
 // selectedWithinRemovedRow: when true, advance even if the selected id isn't exactly removedId —
 // used by threaded archive, where the open message may be a child of the removed thread head
 // (a different id) but still leaves the list, so selection must still advance.
-export function advanceSelectionAfterRemoval(removedId, selectedWithinRemovedRow = false) {
+export function advanceSelectionAfterRemoval(removedId: string): void;
+export function advanceSelectionAfterRemoval(removedId: string, selectedWithinRemovedRow: boolean): void;
+export function advanceSelectionAfterRemoval(
+  removedId: string,
+  ...args: [] | [selectedWithinRemovedRow: boolean]
+): void {
   const { messages, searchResults, searchQuery, selectedMessageId, setSelectedMessage } = useStore.getState();
+  const selectedWithinRemovedRow = args.length === 1 && args[0];
   if (!selectedWithinRemovedRow && selectedMessageId !== removedId) return;
+
   const displayMsgs = searchQuery.trim() ? searchResults : messages;
-  const idx = displayMsgs.findIndex(m => m.id === removedId);
+  const idx = displayMsgs.findIndex((message) => message.id === removedId);
   if (idx === -1) return;
-  const next = displayMsgs[idx + 1] || displayMsgs[idx - 1] || null;
-  setSelectedMessage(next?.id ?? null);
+
+  const nextIndex = idx + 1 < displayMsgs.length ? idx + 1 : idx - 1;
+  const next = nextIndex < 0 ? null : displayMsgs[nextIndex];
+  setSelectedMessage(next === null ? null : next.id);
 }

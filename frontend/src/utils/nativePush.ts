@@ -10,97 +10,221 @@ import { installCapacitorNativeBridge } from './capacitorNativeBridge.ts';
 // registration on logout, so the server never keeps a subscription for a session
 // the user has left.
 
-export function isNativePlatform() {
-  return typeof window !== 'undefined' && window.Capacitor?.isNativePlatform?.() === true;
+type NativeStatus = {
+  status?: string;
+  deviceId?: string;
+  [key: string]: unknown;
+};
+
+type NativeNotifications = {
+  getStatus?: () => Promise<NativeStatus>;
+  register?: () => Promise<NativeStatus>;
+  clear?: () => Promise<NativeStatus>;
+  openDistributor?: () => Promise<NativeStatus>;
+  openInstallPage?: () => Promise<NativeStatus>;
+  openHelp?: () => Promise<NativeStatus>;
+};
+
+type NativePushResult = {
+  status: string;
+  transport: string | null;
+  deviceId: string | null;
+  supported: boolean;
+  reason: string | null;
+};
+
+type InstantPushState = {
+  platformSupported: boolean;
+  status: string;
+  transport: string | null;
+  deviceId: string | null;
+  distributor: string | null;
+  distributorLabel: string | null;
+  distributors: string[];
+  hasEndpoint: boolean;
+  pushBaseUrl: string | null;
+  nativeTransports: string[] | null;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function unavailable(reason) {
+function readString(value: unknown): string | null {
+  return typeof value === 'string' ? value : null;
+}
+
+function readBoolean(value: unknown): boolean {
+  return value === true;
+}
+
+function readStringArray(value: unknown): string[] {
+  return Array.isArray(value) && value.every((item): item is string => typeof item === 'string') ? value : [];
+}
+
+function unavailable(reason: string): NativePushResult {
   return { status: 'unavailable', transport: null, deviceId: null, supported: false, reason };
 }
 
-export async function getNativePushStatus() {
-  if (!isNativePlatform()) return unavailable('not-native');
-  await installCapacitorNativeBridge();
-  const result = await window.inboxoraNative?.notifications?.getStatus?.().catch(() => null);
-  return { status: 'unavailable', transport: null, deviceId: null, ...(result || {}), supported: true };
+function normalizeNativeStatus(result: NativeStatus | null): NativePushResult {
+  if (result === null) return unavailable('native-bridge-unavailable');
+
+  const status = readString(result.status);
+  return {
+    status: status === null ? 'unavailable' : status,
+    transport: readString(result.transport),
+    deviceId: readString(result.deviceId),
+    supported: true,
+    reason: readString(result.reason),
+  };
 }
 
-export async function registerNativePush() {
+function getNotifications(): NativeNotifications | null {
+  const bridge = window.inboxoraNative;
+  if (bridge === undefined) return null;
+  const notifications = bridge.notifications;
+  return notifications === undefined ? null : notifications;
+}
+
+async function getNativeStatus(): Promise<NativeStatus | null> {
+  const notifications = getNotifications();
+  if (notifications === null || notifications.getStatus === undefined) return null;
+  try {
+    return await notifications.getStatus();
+  } catch {
+    return null;
+  }
+}
+
+async function registerNativeStatus(): Promise<NativeStatus | null> {
+  const notifications = getNotifications();
+  if (notifications === null || notifications.register === undefined) return null;
+  try {
+    return await notifications.register();
+  } catch {
+    return null;
+  }
+}
+
+export function isNativePlatform(): boolean {
+  if (typeof window === 'undefined') return false;
+  const capacitor = window.Capacitor;
+  return capacitor !== undefined && capacitor.isNativePlatform() === true;
+}
+
+export async function getNativePushStatus(): Promise<NativePushResult> {
   if (!isNativePlatform()) return unavailable('not-native');
   await installCapacitorNativeBridge();
-  const result = await window.inboxoraNative?.notifications?.register?.().catch(() => null);
-  return { status: 'unavailable', transport: null, deviceId: null, ...(result || {}), supported: true };
+  return normalizeNativeStatus(await getNativeStatus());
+}
+
+export async function registerNativePush(): Promise<NativePushResult> {
+  if (!isNativePlatform()) return unavailable('not-native');
+  await installCapacitorNativeBridge();
+  return normalizeNativeStatus(await registerNativeStatus());
 }
 
 // Idempotent launch-time check: only re-register when the native side does not
 // already hold a confirmed endpoint + device token.
-export async function ensureNativePushRegistered() {
+export async function ensureNativePushRegistered(): Promise<NativePushResult> {
   if (!isNativePlatform()) return unavailable('not-native');
   const status = await getNativePushStatus();
-  if (status.status === 'connected') return status;
-  return registerNativePush();
+  return status.status === 'connected' ? status : registerNativePush();
 }
 
 // Logout / host reset. Removes THIS device's server registration (scoped by the
 // server to the session user) and every local secret, so no notification can
 // arrive for the previous account. Other devices keep their own registrations.
-export async function clearNativePush() {
+export async function clearNativePush(): Promise<void> {
   if (!isNativePlatform()) return;
   try {
     await installCapacitorNativeBridge();
-    const status = await window.inboxoraNative?.notifications?.getStatus?.().catch(() => null);
-    if (status?.deviceId) await api.removePushDevice(status.deviceId).catch(() => {});
-    await window.inboxoraNative?.notifications?.clear?.().catch(() => {});
-  } catch { /* never block sign-out on push cleanup */ }
+    const status = await getNativeStatus();
+    if (status !== null && typeof status.deviceId === 'string') {
+      await api.removePushDevice(status.deviceId).catch(() => undefined);
+    }
+    const notifications = getNotifications();
+    if (notifications !== null && notifications.clear !== undefined) {
+      await notifications.clear().catch(() => undefined);
+    }
+  } catch {
+    // Never block sign-out on push cleanup.
+  }
 }
 
 // Combined state for the settings card: native distributor/permission info plus
 // the server's advertised UnifiedPush base URL (the value to type into ntfy).
 // The server value wins; when the server has no APP_URL configured, the current
 // origin is the best local guess for a single-domain install.
-export async function getInstantPushState() {
+export async function getInstantPushState(): Promise<InstantPushState> {
   if (!isNativePlatform()) {
-    return { platformSupported: false, status: 'unavailable', distributors: [], pushBaseUrl: null };
+    return {
+      platformSupported: false,
+      status: 'unavailable',
+      transport: null,
+      deviceId: null,
+      distributor: null,
+      distributorLabel: null,
+      distributors: [],
+      hasEndpoint: false,
+      pushBaseUrl: null,
+      nativeTransports: null,
+    };
   }
+
   await installCapacitorNativeBridge();
-  const [native, server] = await Promise.all([
-    window.inboxoraNative?.notifications?.getStatus?.().catch(() => null),
-    api.getPushStatus().catch(() => null),
+  const [native, serverResult] = await Promise.all([
+    getNativeStatus(),
+    api.getPushStatus().catch((): null => null),
   ]);
-  const current = native || {};
-  const origin = typeof window !== 'undefined' ? window.location?.origin : null;
+  const server: unknown = serverResult;
+  const serverStatus = isRecord(server) ? server : null;
+  const nativeResult = normalizeNativeStatus(native);
+  const nativeRecord: Record<string, unknown> | null = native;
+  const serverPushBaseUrl = serverStatus === null ? null : readString(serverStatus.pushBaseUrl);
+  const origin = window.location.origin;
+
   return {
     platformSupported: true,
-    status: current.status || 'unavailable',
-    transport: current.transport || null,
-    deviceId: current.deviceId || null,
-    distributor: current.distributor || null,
-    distributorLabel: current.distributorLabel || null,
-    distributors: Array.isArray(current.distributors) ? current.distributors : [],
-    hasEndpoint: current.hasEndpoint === true,
-    // The ntfy distributor needs a path-less base URL, so the origin is the
-    // right value to type into it (nginx routes the "up<12>" topics to ntfy).
-    pushBaseUrl: server?.pushBaseUrl || origin || null,
-    nativeTransports: server?.nativeTransports || null,
+    status: nativeResult.status,
+    transport: nativeResult.transport,
+    deviceId: nativeResult.deviceId,
+    distributor: nativeRecord === null ? null : readString(nativeRecord.distributor),
+    distributorLabel: nativeRecord === null ? null : readString(nativeRecord.distributorLabel),
+    distributors: nativeRecord === null ? [] : readStringArray(nativeRecord.distributors),
+    hasEndpoint: nativeRecord !== null && readBoolean(nativeRecord.hasEndpoint),
+    pushBaseUrl: serverPushBaseUrl === null ? origin : serverPushBaseUrl,
+    nativeTransports: serverStatus === null ? null : readStringArray(serverStatus.nativeTransports),
   };
 }
 
-export async function openPushDistributor() {
+export async function openPushDistributor(): Promise<boolean> {
   if (!isNativePlatform()) return false;
   await installCapacitorNativeBridge();
-  const result = await window.inboxoraNative?.notifications?.openDistributor?.().catch(() => null);
-  return result?.opened === true;
+  const notifications = getNotifications();
+  if (notifications === null || notifications.openDistributor === undefined) return false;
+  try {
+    const result = await notifications.openDistributor();
+    return readBoolean(result.opened);
+  } catch {
+    return false;
+  }
 }
 
-export async function openPushInstallPage() {
+async function openNativePushPage(action: 'install' | 'help'): Promise<void> {
   if (!isNativePlatform()) return;
   await installCapacitorNativeBridge();
-  await window.inboxoraNative?.notifications?.openInstallPage?.().catch(() => {});
+  const notifications = getNotifications();
+  if (notifications === null) return;
+  const open = action === 'install' ? notifications.openInstallPage : notifications.openHelp;
+  if (open === undefined) return;
+  await open().catch(() => undefined);
 }
 
-export async function openPushHelp() {
-  if (!isNativePlatform()) return;
-  await installCapacitorNativeBridge();
-  await window.inboxoraNative?.notifications?.openHelp?.().catch(() => {});
+export async function openPushInstallPage(): Promise<void> {
+  await openNativePushPage('install');
 }
 
+export async function openPushHelp(): Promise<void> {
+  await openNativePushPage('help');
+}

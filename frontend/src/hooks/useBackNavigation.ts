@@ -18,7 +18,7 @@ export function useBackLayer(active: unknown, onBack: () => void, priority = 0) 
   useLayoutEffect(() => {
     if (!active) return undefined;
     return navigation.register(Symbol(), () => close.current(), priority);
-  }, [Boolean(active), priority]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [active, priority]);
 }
 
 export function useBackNavigation(isMobile: boolean) {
