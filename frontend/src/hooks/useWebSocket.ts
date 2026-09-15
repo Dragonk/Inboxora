@@ -295,7 +295,10 @@ export function useWebSocket() {
       case 'backfill_all_complete': {
         clearTimeout(backfillRefreshTimer);
         window.dispatchEvent(new CustomEvent('inboxora:refresh', { detail: { refreshThreads: true } }));
-        setBackfillProgress(data.accountId, null);
+        const { backfillProgress } = useStore.getState();
+        const completedBackfillProgress = { ...backfillProgress };
+        delete completedBackfillProgress[data.accountId];
+        useStore.setState({ backfillProgress: completedBackfillProgress });
         break;
       }
 

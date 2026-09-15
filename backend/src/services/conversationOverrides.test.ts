@@ -1,7 +1,16 @@
 import { describe, expect, it, vi } from 'vitest';
 import { applyConversationOverride, validateOverrideType } from './conversationOverrides.js';
 
-const { withTransaction, query } = vi.hoisted<any>(() => ({ withTransaction: vi.fn(), query: vi.fn() }));
+type ConversationRow = { id: string; manually_locked: boolean };
+type TransactionClient = {
+  query: (text: string, params?: unknown[]) => Promise<{ rows: ConversationRow[] }>;
+};
+type TransactionCallback = (client: TransactionClient) => Promise<unknown>;
+
+const { withTransaction, query } = vi.hoisted(() => ({
+  withTransaction: vi.fn<(fn: TransactionCallback) => Promise<unknown>>(),
+  query: vi.fn(),
+}));
 vi.mock('./db.js', () => ({ withTransaction, query }));
 
 describe('conversation overrides', () => {

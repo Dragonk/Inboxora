@@ -120,7 +120,7 @@ function GtdPetBlock() {
     } finally { setImporting(false); }
   };
 
-  const handleClear = () => { setGtdPetSlug(null); setMsg(null); };
+  const handleClear = () => { setGtdPetSlug(''); setMsg(null); };
 
   const fileLabelStyle = { fontSize: 11, color: 'var(--text-tertiary)', display: 'block', marginBottom: 4 };
 

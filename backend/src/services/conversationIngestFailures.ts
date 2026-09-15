@@ -34,6 +34,6 @@ export async function claimConversationIngestFailures({ userId = null, limit = 5
   });
 }
 
-export async function resolveConversationIngestFailure(id) {
+export async function resolveConversationIngestFailure(id: string) {
   return withTransaction(async client => client.query('UPDATE conversation_ingest_failures SET resolved_at = NOW(), updated_at = NOW() WHERE id = $1', [id]));
 }

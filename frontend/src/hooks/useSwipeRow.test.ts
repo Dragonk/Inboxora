@@ -4,7 +4,7 @@ import { isInteractiveSwipeTarget } from './useSwipeRow.ts';
 
 describe('isInteractiveSwipeTarget', () => {
   it('suppresses row taps that start on an interactive descendant', () => {
-    const buttonChild = { closest: selector => selector.includes('button') ? {} : null };
+    const buttonChild = { closest: (selector: string) => selector.includes('button') ? {} : null };
     assert.equal(isInteractiveSwipeTarget(buttonChild), true);
   });
 
