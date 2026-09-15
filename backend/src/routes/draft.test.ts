@@ -1,14 +1,23 @@
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vitest';
-import type { JsonBody } from '../test/json.js';
+import type { Mock } from 'vitest';
+import type { ImapManager } from '../services/imapManager.js';
 
 vi.mock('../services/db.js', () => ({ query: vi.fn() }));
 vi.mock('../middleware/auth.js', () => ({
   requireAuth: (req: { headers: Record<string, string>; session?: { userId?: string } }, _res: unknown, next: () => void) => { req.session = { userId: 'user-1' }; next(); },
 }));
-const imapManager = vi.hoisted<any>(() => ({
-  appendToFolder: vi.fn(),
-  upsertDraftMessageRecord: vi.fn(),
-  permanentDeleteMessage: vi.fn(),
+type AppendDraftToFolder = (...args: Parameters<ImapManager['appendToFolder']>) => Promise<{ uid: number | null; folder: string }>;
+
+type ImapManagerMock = {
+  appendToFolder: Mock<AppendDraftToFolder>;
+  upsertDraftMessageRecord: Mock<ImapManager['upsertDraftMessageRecord']>;
+  permanentDeleteMessage: Mock<ImapManager['permanentDeleteMessage']>;
+};
+
+const imapManager = vi.hoisted<ImapManagerMock>(() => ({
+  appendToFolder: vi.fn<AppendDraftToFolder>(),
+  upsertDraftMessageRecord: vi.fn<ImapManager['upsertDraftMessageRecord']>(),
+  permanentDeleteMessage: vi.fn<ImapManager['permanentDeleteMessage']>(),
 }));
 vi.mock('../index.js', () => ({ imapManager }));
 
@@ -18,7 +27,7 @@ import { query as __mock_query } from '../services/db.js';
 import type { Server } from 'node:http';
 import { listeningPort } from '../test/net.js';
 
-// Cast mocked module exports so their vitest mock helpers type-check.
+// Access Vitest mock helpers with the query function's original signature.
 const query = vi.mocked(__mock_query);
 
 const ACCOUNT_ID = '11111111-1111-4111-8111-111111111111';
@@ -68,7 +77,7 @@ describe('POST /api/mail/draft — local row persistence', () => {
       }),
     });
     expect(res.status).toBe(200);
-    expect((await res.json()) as JsonBody).toEqual({ uid: 5, folder: 'Drafts' });
+    expect(await res.json()).toEqual({ uid: 5, folder: 'Drafts' });
 
     expect(imapManager.upsertDraftMessageRecord).toHaveBeenCalledTimes(1);
     const [acct, folder, uid, meta] = imapManager.upsertDraftMessageRecord.mock.calls[0];
@@ -91,7 +100,7 @@ describe('POST /api/mail/draft — local row persistence', () => {
       body: JSON.stringify({ accountId: ACCOUNT_ID, to: ['a@b.com'], subject: 'x', body: 'y' }),
     });
     expect(res.status).toBe(200);
-    expect((await res.json()) as JsonBody).toEqual({ uid: 5, folder: 'Drafts' });
+    expect(await res.json()).toEqual({ uid: 5, folder: 'Drafts' });
   });
 
   it('does not persist a row when the append returns no uid (no reliable key)', async () => {

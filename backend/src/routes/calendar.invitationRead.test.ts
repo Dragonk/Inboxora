@@ -6,10 +6,18 @@ import { listeningPort } from '../test/net.js';
 import type { Server } from 'node:http';
 import type { NextFunction, Request, Response } from 'express';
 import type { JsonBody } from '../test/json.js';
+import type { DbClient } from '../services/db.js';
+import type { ImapManager } from '../services/imapManager.js';
 import 'express-async-errors';
 
-const { query } = vi.hoisted<any>(() => ({ query: vi.fn() }));
-vi.mock('../services/db.js', () => ({ query, withTransaction: vi.fn(async (fn) => fn({ query })) }));
+type QueryMock = DbClient['query'];
+
+const { query, withTransaction } = vi.hoisted(() => {
+  const query = vi.fn<QueryMock>();
+  const withTransaction = vi.fn(async <T>(fn: (client: { query: typeof query }) => Promise<T>) => fn({ query }));
+  return { query, withTransaction };
+});
+vi.mock('../services/db.js', () => ({ query, withTransaction }));
 vi.mock('../services/encryption.js', () => ({ encrypt: (value: string) => `enc:${value}`, decrypt: (value: string) => value }));
 vi.mock('../services/calendarInvitation.js', () => ({ sendCalendarInvitation: vi.fn() }));
 vi.mock('../services/externalCalendarSync.js', () => ({ releaseCalendarSource: vi.fn(), scheduleCalendarSource: vi.fn(), stopCalendarSource: vi.fn(), syncCalendarSource: vi.fn() }));
@@ -19,7 +27,9 @@ vi.mock('../services/connectionPolicy.js', () => ({ getConnectionPolicy: vi.fn(a
 
 // The route reaches the mailbox through the running server module, which must never
 // be imported for real in a unit test.
-const { imapManager } = vi.hoisted<any>(() => ({ imapManager: { fetchAttachment: vi.fn() } }));
+const { imapManager } = vi.hoisted(() => ({
+  imapManager: { fetchAttachment: vi.fn<ImapManager['fetchAttachment']>() },
+}));
 vi.mock('../index.js', () => ({ imapManager }));
 
 import express from 'express';
@@ -49,6 +59,16 @@ const MESSAGE_ROW = {
 
 let server: Server;
 let base = '';
+
+function isJsonBody(value: unknown): value is JsonBody {
+  return typeof value === 'object' && value !== null;
+}
+
+async function readJsonBody(response: globalThis.Response): Promise<JsonBody> {
+  const body: unknown = await response.json();
+  if (!isJsonBody(body)) throw new Error('expected a JSON object response');
+  return body;
+}
 
 beforeAll(async () => {
   const app = express();
@@ -81,7 +101,7 @@ describe('GET /api/calendar/invitations/:messageId', () => {
 
     const response = await fetch(`${base}/api/calendar/invitations/${MESSAGE_ID}`);
     expect(response.status).toBe(200);
-    const { invitation } = (await response.json()) as JsonBody;
+    const { invitation } = await readJsonBody(response);
     if (!invitation) throw new Error('expected an invitation in the response');
     expect(invitation).toMatchObject({
       method: 'REQUEST',
@@ -106,7 +126,7 @@ describe('GET /api/calendar/invitations/:messageId', () => {
 
     const response = await fetch(`${base}/api/calendar/invitations/${MESSAGE_ID}`);
     expect(response.status).toBe(200);
-    const body = (await response.json()) as JsonBody;
+    const body = await readJsonBody(response);
     if (!body.invitation) throw new Error('expected an invitation in the response');
     expect(body.invitation.summary).toBe('Testowe wydarzenie');
   });
@@ -133,11 +153,11 @@ describe('GET /api/calendar/invitations/:messageId', () => {
 
     const response = await fetch(`${base}/api/calendar/invitations/${MESSAGE_ID}`);
     expect(response.status).toBe(404);
-    expect(((await response.json()) as JsonBody).error).toBe('Calendar invitation not found');
+    expect((await readJsonBody(response)).error).toBe('Calendar invitation not found');
   });
 
   it('imports the invitation into the chosen calendar', async () => {
-    query.mockImplementation(async (sql: string, params: unknown[]) => {
+    query.mockImplementation(async (sql: string, params?: unknown[]) => {
       if (sql.includes('FROM calendars')) return { rows: [{ id: 'calendar-1', source: 'local', read_only: false }] };
       if (sql.includes('FROM messages')) return { rows: [{ ...MESSAGE_ROW, raw_ical: INVITATION }] };
       if (sql.includes('INSERT INTO calendar_events')) return { rows: [{ id: 'event-1' }] };
@@ -151,11 +171,12 @@ describe('GET /api/calendar/invitations/:messageId', () => {
       body: JSON.stringify({ calendarId: 'calendar-1' }),
     });
     expect(response.status).toBe(200);
-    expect((await response.json()) as JsonBody).toMatchObject({ added: true, changed: true });
+    expect(await readJsonBody(response)).toMatchObject({ added: true, changed: true });
 
-    const insert = query.mock.calls.find(([sql]: [string]) => sql.includes('INSERT INTO calendar_events'));
+    const insert = query.mock.calls.find(([sql]) => sql.includes('INSERT INTO calendar_events'));
     if (!insert) throw new Error('expected an INSERT into calendar_events');
-    const insertParams = insert[1];
+    const [, insertParams] = insert;
+    if (!insertParams) throw new Error('expected INSERT parameters');
     // A local copy is namespaced and must not collide with the organizer's UID.
     expect(insertParams[2]).toMatch(/^mail-[0-9a-f]{64}$/);
     expect(insertParams[4]).toBe('Testowe wydarzenie');

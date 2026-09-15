@@ -1,12 +1,24 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { listeningPort } from '../test/net.js';
 import type { Server } from 'node:http';
-import type { JsonBody } from '../test/json.js';
+type ActiveDavAppPassword = {
+  id: string;
+  label: string;
+  created_at: string;
+  last_used_at: string | null;
+};
 
-const { createDavAppPassword, listDavAppPasswords, revokeDavAppPassword } = vi.hoisted<any>(() => ({
-  createDavAppPassword: vi.fn(),
-  listDavAppPasswords: vi.fn(),
-  revokeDavAppPassword: vi.fn(),
+type CreatedDavAppPassword = Omit<ActiveDavAppPassword, 'last_used_at'> & { secret: string };
+type RevokedDavAppPassword = { id: string; revoked_at: string };
+
+type CreateDavAppPassword = (userId: string, label: string) => Promise<CreatedDavAppPassword>;
+type ListDavAppPasswords = (userId: string) => Promise<ActiveDavAppPassword[]>;
+type RevokeDavAppPassword = (userId: string, passwordId: unknown) => Promise<RevokedDavAppPassword | null>;
+
+const { createDavAppPassword, listDavAppPasswords, revokeDavAppPassword } = vi.hoisted(() => ({
+  createDavAppPassword: vi.fn<CreateDavAppPassword>(),
+  listDavAppPasswords: vi.fn<ListDavAppPasswords>(),
+  revokeDavAppPassword: vi.fn<RevokeDavAppPassword>(),
 }));
 vi.mock('../middleware/auth.js', () => ({
   requireAuth: (req: { headers: Record<string, string>; session?: { userId?: string } }, _res: unknown, next: () => void) => { req.session = { userId: 'user-1' }; next(); },
@@ -48,7 +60,7 @@ describe('DAV application password API', () => {
     const response = await fetch(`${base}/api/dav-credentials`);
 
     expect(response.status).toBe(200);
-    expect((await response.json()) as JsonBody).toEqual({ credentials: [{ id: 'credential-1', label: 'DAVx5 phone', created_at: '2026-08-30T00:00:00.000Z', last_used_at: null }] });
+    expect(await response.json()).toEqual({ credentials: [{ id: 'credential-1', label: 'DAVx5 phone', created_at: '2026-08-30T00:00:00.000Z', last_used_at: null }] });
     expect(listDavAppPasswords).toHaveBeenCalledWith('user-1');
   });
 
@@ -62,7 +74,7 @@ describe('DAV application password API', () => {
     });
 
     expect(response.status).toBe(201);
-    expect((await response.json()) as JsonBody).toEqual({ credential: { id: 'credential-1', label: 'DAVx5 phone', created_at: '2026-08-30T00:00:00.000Z' }, secret: 'mf_dav_example.secret' });
+    expect(await response.json()).toEqual({ credential: { id: 'credential-1', label: 'DAVx5 phone', created_at: '2026-08-30T00:00:00.000Z' }, secret: 'mf_dav_example.secret' });
     expect(createDavAppPassword).toHaveBeenCalledWith('user-1', 'DAVx5 phone');
   });
 
@@ -72,7 +84,7 @@ describe('DAV application password API', () => {
     const response = await fetch(`${base}/api/dav-credentials/credential-1`, { method: 'DELETE' });
 
     expect(response.status).toBe(200);
-    expect((await response.json()) as JsonBody).toEqual({ credential: { id: 'credential-1', revoked_at: '2026-08-30T00:00:00.000Z' } });
+    expect(await response.json()).toEqual({ credential: { id: 'credential-1', revoked_at: '2026-08-30T00:00:00.000Z' } });
     expect(revokeDavAppPassword).toHaveBeenCalledWith('user-1', 'credential-1');
   });
 });

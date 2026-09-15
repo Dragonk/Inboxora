@@ -3,9 +3,14 @@ import { listeningPort } from '../test/net.js';
 import type { Server } from 'node:http';
 import { createBrowserCors } from '../middleware/browserCors.js';
 
-const { authenticateDavCredential, query } = vi.hoisted<any>(() => ({
-  authenticateDavCredential: vi.fn(),
-  query: vi.fn(async () => ({ rows: [] })),
+type CarddavAuthMocks = {
+  authenticateDavCredential: ReturnType<typeof vi.fn<typeof import('../services/davCredentials.js').authenticateDavCredential>>;
+  query: ReturnType<typeof vi.fn<typeof import('../services/db.js').query>>;
+};
+
+const { authenticateDavCredential, query } = vi.hoisted<CarddavAuthMocks>(() => ({
+  authenticateDavCredential: vi.fn<typeof import('../services/davCredentials.js').authenticateDavCredential>(),
+  query: vi.fn<typeof import('../services/db.js').query>(),
 }));
 vi.mock('../services/davCredentials.js', () => ({ authenticateDavCredential }));
 vi.mock('../services/db.js', () => ({ query }));
@@ -18,6 +23,20 @@ import carddavRouter from './carddav.js';
 
 function basic(username: string, password: string) {
   return `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`;
+}
+
+function contactInsertCall() {
+  const call = query.mock.calls.find(([statement]) => statement.includes('INSERT INTO contacts'));
+  if (call === undefined) {
+    throw new Error('Expected an INSERT INTO contacts query');
+  }
+
+  const [sql, params] = call;
+  if (params === undefined) {
+    throw new Error('Expected INSERT INTO contacts query parameters');
+  }
+
+  return { sql, params };
 }
 
 let server: Server;
@@ -126,7 +145,7 @@ describe('CardDAV authentication', () => {
     });
 
     expect(response.status).toBe(201);
-    const [sql, params] = query.mock.calls.find(([statement]: [string, ...unknown[]]) => statement.includes('INSERT INTO contacts'));
+    const { sql, params } = contactInsertCall();
     expect(sql.match(/VALUES ([^\n]+)/)?.[1]).toBe('($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::jsonb,$17,$18,$19,$20,$21::jsonb,$22::jsonb,$23::jsonb,$24::jsonb,$25, false)');
     expect(params).toEqual([
       'book-1', 'user-1', 'contact-1', expect.any(String), expect.any(String),
@@ -200,7 +219,7 @@ describe('CardDAV authentication', () => {
     });
 
     expect(response.status).toBe(201);
-    const [sql, params] = query.mock.calls.find(([statement]: [string, ...unknown[]]) => statement.includes('INSERT INTO contacts'));
+    const { sql, params } = contactInsertCall();
     expect(sql).toContain('contact_dates');
     expect(params).toContain(JSON.stringify([{ label: 'Rencontre', value: '2019-10-19' }]));
   });
@@ -222,7 +241,7 @@ describe('CardDAV authentication', () => {
     });
 
     expect(response.status).toBe(201);
-    const [sql, params] = query.mock.calls.find(([statement]: [string, ...unknown[]]) => statement.includes('INSERT INTO contacts'));
+    const { sql, params } = contactInsertCall();
     expect(sql).toContain('contact_dates');
     expect(params).toContain(JSON.stringify([{ label: 'Family;Other', value: '2020-09-14' }]));
   });
@@ -237,7 +256,7 @@ describe('CardDAV authentication', () => {
     });
 
     expect(response.status).toBe(409);
-    expect(query.mock.calls.some(([sql]: [string]) => /INSERT INTO contacts|UPDATE contacts/.test(sql))).toBe(false);
+    expect(query.mock.calls.some(([sql]) => /INSERT INTO contacts|UPDATE contacts/.test(sql))).toBe(false);
   });
 
   it('rejects an impossible BDAY before querying the address book', async () => {
@@ -273,7 +292,7 @@ describe('CardDAV authentication', () => {
     });
 
     expect(response.status).toBe(201);
-    const [sql, params] = query.mock.calls.find(([statement]: [string, ...unknown[]]) => statement.includes('INSERT INTO contacts'));
+    const { sql, params } = contactInsertCall();
     expect(sql).toContain('contact_dates');
     expect(params).toContain(JSON.stringify([{ label: 'Rencontre', value: '2019-10-19' }]));
   });
@@ -288,33 +307,37 @@ describe('CardDAV authentication', () => {
     });
 
     expect(response.status).toBe(409);
-    expect(query.mock.calls.some(([sql]: [string]) => /INSERT INTO contacts|UPDATE contacts/.test(sql))).toBe(false);
+    expect(query.mock.calls.some(([sql]) => /INSERT INTO contacts|UPDATE contacts/.test(sql))).toBe(false);
   });
 });
 
 it('accepts a client chosen filename and maps every rich field and preferred email', async () => {
- authenticateDavCredential.mockResolvedValue({ userId: 'user-1' });
+ authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
  query.mockResolvedValueOnce({ rows: [{ id: 'book-1', source: 'local' }] }).mockResolvedValueOnce({ rows: [] });
  const raw = ['BEGIN:VCARD', 'VERSION:3.0', 'UID:embedded-uid', 'FN:Ada', 'EMAIL;TYPE=HOME:home@example.test', 'EMAIL;TYPE=WORK,PREF:work@example.test', 'TITLE:Director', 'ROLE:Design', 'NICKNAME:A', 'URL:https://example.test', 'IMPP:matrix:ada@example.test', 'CATEGORIES:Team', 'ADR;TYPE=WORK:;;Main Street;Warsaw;;;Poland', 'END:VCARD'].join('\r\n');
  const response = await fetch(`${base}/carddav/user-1/book-1/client-generated.vcf`, { method: 'PUT', headers: { authorization: basic('sam@example.test','secret'), 'if-none-match': '*' }, body: raw });
  expect(response.status).toBe(201);
- const insert = query.mock.calls.find(([sql]: [string]) => sql.includes('INSERT INTO contacts'));
- expect(insert[1][2]).toBe('embedded-uid'); expect(insert[1][8]).toBe('work@example.test');
- expect(insert[1].slice(17,20)).toEqual(['Director','Design','A']);
- expect(insert[1].at(-1)).toBe('client-generated.vcf');
- expect(insert[0]).toContain('instant_messages, categories, addresses, dav_filename');
+ const { sql, params } = contactInsertCall();
+ expect(params[2]).toBe('embedded-uid'); expect(params[8]).toBe('work@example.test');
+ expect(params.slice(17,20)).toEqual(['Director','Design','A']);
+ expect(params.at(-1)).toBe('client-generated.vcf');
+ expect(sql).toContain('instant_messages, categories, addresses, dav_filename');
 });
 it('enforces create-only and update-only CardDAV preconditions before modifying a contact', async () => {
- authenticateDavCredential.mockResolvedValue({ userId: 'user-1' });
- for (const [headers, rows] of [[{ 'if-none-match': '*' }, [{ id: 'contact', uid: 'same', etag: 'old' }]], [{ 'if-match': '"missing"' }, []]]) {
-  query.mockReset(); query.mockResolvedValueOnce({ rows: [{ id: 'book-1', source: 'local' }] }).mockResolvedValueOnce({ rows });
-  const response = await fetch(`${base}/carddav/user-1/book-1/same.vcf`, { method: 'PUT', headers: { authorization: basic('sam@example.test','secret'), ...(headers as Record<string, string>) }, body: 'BEGIN:VCARD\r\nVERSION:3.0\r\nUID:same\r\nFN:Ada\r\nEND:VCARD' });
-  expect(response.status).toBe(412); expect(query.mock.calls).toHaveLength(2);
- }
+  authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
+  const preconditions: Array<{ headers: Record<string, string>; rows: Array<{ id: string; uid: string; etag: string }> }> = [
+    { headers: { 'if-none-match': '*' }, rows: [{ id: 'contact', uid: 'same', etag: 'old' }] },
+    { headers: { 'if-match': '"missing"' }, rows: [] },
+  ];
+  for (const { headers, rows } of preconditions) {
+    query.mockReset(); query.mockResolvedValueOnce({ rows: [{ id: 'book-1', source: 'local' }] }).mockResolvedValueOnce({ rows });
+    const response = await fetch(`${base}/carddav/user-1/book-1/same.vcf`, { method: 'PUT', headers: { authorization: basic('sam@example.test','secret'), ...headers }, body: 'BEGIN:VCARD\r\nVERSION:3.0\r\nUID:same\r\nFN:Ada\r\nEND:VCARD' });
+    expect(response.status).toBe(412); expect(query.mock.calls).toHaveLength(2);
+  }
 });
 
 it('returns CardDAV deltas with deletion tombstones and a collection-scoped token', async () => {
-  authenticateDavCredential.mockResolvedValue({ userId: 'user-1' });
+  authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
   query.mockResolvedValueOnce({ rows: [{ id: 'book-1', sync_version: '7' }] })
     .mockResolvedValueOnce({ rows: [{ dav_filename: 'removed.vcf', deleted: true }] });
   const result = await fetch(`${base}/carddav/user-1/book-1/`, {
@@ -329,7 +352,7 @@ it('returns CardDAV deltas with deletion tombstones and a collection-scoped toke
 });
 
 it('rejects an old or foreign CardDAV token instead of silently missing deletions', async () => {
-  authenticateDavCredential.mockResolvedValue({ userId: 'user-1' });
+  authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
   query.mockResolvedValueOnce({ rows: [{ id: 'book-1', sync_version: 7 }] });
   const result = await fetch(`${base}/carddav/user-1/book-1/`, {
     method: 'REPORT', headers: { authorization: basic('test', 'dav-password') },
@@ -341,7 +364,7 @@ it('rejects an old or foreign CardDAV token instead of silently missing deletion
 });
 
 it('limits CardDAV multiget to requested filenames and reports missing resources', async () => {
-  authenticateDavCredential.mockResolvedValue({ userId: 'user-1' });
+  authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
   query.mockResolvedValueOnce({ rows: [{ id: 'book-1' }] }).mockResolvedValueOnce({ rows: [{ uid: 'embedded-uid', dav_filename: 'ada lovelace.vcf', etag: 'a', vcard: 'FN:Ada' }] });
   const result = await fetch(`${base}/carddav/user-1/book-1/`, {
     method: 'REPORT', headers: { authorization: basic('test', 'dav-password') },

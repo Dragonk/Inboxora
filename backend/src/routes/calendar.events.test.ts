@@ -6,10 +6,12 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 import { listeningPort } from '../test/net.js';
 import type { Server } from 'node:http';
 import type { NextFunction, Request, Response } from 'express';
-import type { JsonBody } from '../test/json.js';
+import type { query as queryContract } from '../services/db.js';
 import 'express-async-errors';
 
-const { query } = vi.hoisted<any>(() => ({ query: vi.fn() }));
+type QueryCall = Parameters<typeof queryContract>;
+
+const { query } = vi.hoisted(() => ({ query: vi.fn<typeof queryContract>() }));
 vi.mock('../services/db.js', () => ({ query, withTransaction: vi.fn(async (fn) => fn({ query })) }));
 vi.mock('../services/encryption.js', () => ({ encrypt: (value: string) => `enc:${value}`, decrypt: (value: string) => value, }));
 vi.mock('../services/calendarInvitation.js', () => ({ sendCalendarInvitation: vi.fn() }));
@@ -45,64 +47,97 @@ beforeEach(() => {
 const RANGE = 'from=2026-09-01T00:00:00.000Z&to=2026-10-01T00:00:00.000Z';
 const calendarId = '11111111-1111-4111-8111-111111111111';
 
+type CalendarEventsResponse = {
+  events: unknown[];
+  truncated: boolean;
+  incompleteSeries?: unknown[];
+};
+
+function isCalendarEventsResponse(value: unknown): value is CalendarEventsResponse {
+  if (typeof value !== 'object' || value === null || !('events' in value) || !('truncated' in value)) return false;
+  const { events, truncated } = value;
+  const incompleteSeries = 'incompleteSeries' in value ? value.incompleteSeries : undefined;
+  return Array.isArray(events)
+    && typeof truncated === 'boolean'
+    && (incompleteSeries === undefined || Array.isArray(incompleteSeries));
+}
+
+async function calendarEventsResponse(response: globalThis.Response): Promise<CalendarEventsResponse> {
+  const payload: unknown = await response.json();
+  if (!isCalendarEventsResponse(payload)) throw new Error('Expected calendar events response');
+  return payload;
+}
+
+function eventQuery(): QueryCall {
+  const call = query.mock.calls.find(([sql]) => sql.includes('FROM calendar_events'));
+  if (!call) throw new Error('Expected calendar event query');
+  return call;
+}
+
+function queryParameters(call: QueryCall): unknown[] {
+  const [, parameters] = call;
+  if (!parameters) throw new Error('Expected query parameters');
+  return parameters;
+}
+
 describe('GET /api/calendar/events calendar selection', () => {
   it('keeps the owner scope on every query', async () => {
     await fetch(`${base}/api/calendar/events?${RANGE}`);
-    const eventQuery = query.mock.calls.find(([sql]: [string]) => sql.includes('FROM calendar_events'));
-    expect(eventQuery[0]).toContain('e.user_id = $1 AND c.user_id = $1 AND c.owner_user_id = $1');
-    expect(eventQuery[1][0]).toBe('user-1');
+    const call = eventQuery();
+    expect(call[0]).toContain('e.user_id = $1 AND c.user_id = $1 AND c.owner_user_id = $1');
+    expect(queryParameters(call)[0]).toBe('user-1');
   });
 
   it('adds a parameterised calendar filter only when a selection is supplied', async () => {
     await fetch(`${base}/api/calendar/events?${RANGE}`);
-    const unfiltered = query.mock.calls.find(([sql]: [string]) => sql.includes('FROM calendar_events'));
+    const unfiltered = eventQuery();
     expect(unfiltered[0]).not.toContain('ANY($4::uuid[])');
 
     query.mockClear();
     await fetch(`${base}/api/calendar/events?${RANGE}&calendarIds=${calendarId}`);
-    const filtered = query.mock.calls.find(([sql]: [string]) => sql.includes('FROM calendar_events'));
+    const filtered = eventQuery();
     expect(filtered[0]).toContain('c.id = ANY($4::uuid[])');
-    expect(filtered[1][3]).toEqual([calendarId]);
+    expect(queryParameters(filtered)[3]).toEqual([calendarId]);
   });
 
   it('treats an explicitly empty selection as no calendars at all', async () => {
     const response = await fetch(`${base}/api/calendar/events?${RANGE}&calendarIds=`);
     expect(response.status).toBe(200);
-    expect((await response.json()) as JsonBody).toEqual({ events: [], truncated: false });
+    expect(await calendarEventsResponse(response)).toEqual({ events: [], truncated: false });
     // No event query at all: an empty selection cannot match a calendar.
-    expect(query.mock.calls.some(([sql]: [string]) => sql.includes('FROM calendar_events'))).toBe(false);
+    expect(query.mock.calls.some(([sql]) => sql.includes('FROM calendar_events'))).toBe(false);
   });
 
   it('skips the event query when only the contact calendar is selected', async () => {
     const response = await fetch(`${base}/api/calendar/events?${RANGE}&calendarIds=contacts-birthdays`);
     expect(response.status).toBe(200);
-    expect(query.mock.calls.some(([sql]: [string]) => sql.includes('FROM calendar_events'))).toBe(false);
-    expect(query.mock.calls.some(([sql]: [string]) => sql.includes('FROM contacts'))).toBe(true);
+    expect(query.mock.calls.some(([sql]) => sql.includes('FROM calendar_events'))).toBe(false);
+    expect(query.mock.calls.some(([sql]) => sql.includes('FROM contacts'))).toBe(true);
   });
 
   it('rejects a malformed calendar id before touching the database', async () => {
     const response = await fetch(`${base}/api/calendar/events?${RANGE}&calendarIds=not-a-uuid`);
     expect(response.status).toBe(400);
-    expect((await response.json()) as JsonBody).toEqual({ error: 'Invalid calendar id' });
+    expect(await response.json()).toEqual({ error: 'Invalid calendar id' });
     expect(query).not.toHaveBeenCalled();
   });
 
   it('accepts a comma-separated selection and de-duplicates it', async () => {
     const other = '22222222-2222-4222-8222-222222222222';
     await fetch(`${base}/api/calendar/events?${RANGE}&calendarIds=${calendarId},${other},${calendarId}`);
-    const filtered = query.mock.calls.find(([sql]: [string]) => sql.includes('FROM calendar_events'));
-    expect(filtered[1][3]).toEqual([calendarId, other]);
+    const filtered = eventQuery();
+    expect(queryParameters(filtered)[3]).toEqual([calendarId, other]);
   });
 
   it('finds recurring series through the indexed column, never a regex over raw_ical', async () => {
     await fetch(`${base}/api/calendar/events?${RANGE}`);
-    const eventQuery = query.mock.calls.find(([sql]: [string]) => sql.includes('FROM calendar_events'));
+    const call = eventQuery();
     // The recurring half of "in this window, or a series" decides whether the planner can
     // use an index at all. As a regex over an unindexed TEXT column it could not, so every
     // event the user owned was scanned and its raw_ical detoasted — measured at 131 ms
     // against 3 ms on 20k events. `recurring` is maintained by a trigger (migration 0082).
-    expect(eventQuery[0]).toContain('OR e.recurring');
-    expect(eventQuery[0]).not.toMatch(/raw_ical\s*~\*/);
+    expect(call[0]).toContain('OR e.recurring');
+    expect(call[0]).not.toMatch(/raw_ical\s*~\*/);
   });
 
   it('resolves the source message of a mail invitation only for its own account', async () => {
@@ -110,7 +145,7 @@ describe('GET /api/calendar/events calendar selection', () => {
     // The read path has two queries now — materialised occurrences and the live fallback — and
     // both expose the mail link, so both must carry the tenant-safe join. Checking only the
     // first match would let a regression through in whichever one moved.
-    const eventQueries = query.mock.calls.filter(([sql]: [string]) => sql.includes('FROM calendar_events'));
+    const eventQueries = query.mock.calls.filter(([sql]) => sql.includes('FROM calendar_events'));
     expect(eventQueries.length).toBeGreaterThan(0);
     for (const [sql] of eventQueries) {
       // The link back to the original mail must not be able to cross tenants, and it
@@ -127,7 +162,7 @@ describe('GET /api/calendar/events calendar selection', () => {
   // appearing in the default colour while their neighbours kept the calendar's own.
   it('exposes the same calendar metadata from both read paths', async () => {
     await fetch(`${base}/api/calendar/events?${RANGE}`);
-    const eventQueries = query.mock.calls.filter(([sql]: [string]) => sql.includes('FROM calendar_events') || sql.includes('FROM calendar_occurrences o'));
+    const eventQueries = query.mock.calls.filter(([sql]) => sql.includes('FROM calendar_events') || sql.includes('FROM calendar_occurrences o'));
     expect(eventQueries.length).toBe(2);
     for (const [sql] of eventQueries) {
       // raw_ical is deliberately absent from the materialised path: stored occurrences do not
@@ -156,8 +191,8 @@ describe('GET /api/calendar/events calendar selection', () => {
     });
 
     const response = await fetch(`${base}/api/calendar/events?${RANGE}`);
-    const { events } = (await response.json()) as JsonBody;
-    if (events === undefined) throw new Error('Expected calendar events in response');
+    const { events } = await calendarEventsResponse(response);
+    if (events.length === 0) throw new Error('Expected calendar events in response');
     expect(events[0]).toMatchObject({
       summary: 'Z zaproszenia', source_message_id: 'copy-1', source_folder: 'INBOX', source_account_id: 'account-1',
     });
@@ -167,7 +202,7 @@ describe('GET /api/calendar/events calendar selection', () => {
 describe('GET /api/calendar/events projection outcome', () => {
   it('reports a complete result with an explicit truncated:false', async () => {
     const response = await fetch(`${base}/api/calendar/events?${RANGE}`);
-    expect((await response.json()) as JsonBody).toEqual({ events: [], truncated: false });
+    expect(await calendarEventsResponse(response)).toEqual({ events: [], truncated: false });
   });
 
   it('reports an incomplete series without leaking internal error text', async () => {
@@ -186,7 +221,7 @@ describe('GET /api/calendar/events projection outcome', () => {
     process.env.CALENDAR_PROJECTION_MAX_ITERATIONS = '500';
     try {
       const response = await fetch(`${base}/api/calendar/events?${RANGE}`);
-      const payload = (await response.json()) as JsonBody;
+      const payload = await calendarEventsResponse(response);
       expect(response.status).toBe(200);
       expect(payload.truncated).toBe(true);
       expect(payload.incompleteSeries).toEqual([{ series_id: 'row-dense', reason: 'iteration-limit' }]);
