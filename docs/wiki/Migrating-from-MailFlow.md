@@ -257,7 +257,7 @@ If you would rather return to the exact previous state, restore the dump from
   the outbound `X-MailFlow-Image-Opt-In` header. `docker-compose.yml` (the build-from-source
   variant) also still uses `mailflow-*` container names and `mailflow` database defaults.
   The full list and the reasoning are in
-  [`docs/technical-identifier-audit.md`](https://github.com/Dragonk/Inboxora/blob/dev/docs/technical-identifier-audit.md).
+  [`docs/technical-identifier-audit.md`](https://github.com/Dragonk/Inboxora/blob/main/docs/technical-identifier-audit.md).
 - **Environment variables.** No MailFlow 3.3.0 variable was removed; Inboxora only adds optional
   ones. The single rename is the image version pin, `MAILFLOW_VERSION` → `INBOXORA_VERSION`.
 - **Nothing to run by hand.** Schema migrations run automatically on backend start under an

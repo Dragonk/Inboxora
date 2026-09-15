@@ -137,11 +137,11 @@ The Wiki links images through absolute `raw.githubusercontent.com` URLs pointing
 
 This branch carries product documentation, not development archaeology. Dated investigation
 reports, audit notes and one-off regression scripts do not belong in the tree — their findings go
-into the relevant Wiki page, into [`docs/CHANGELOG.md`](https://github.com/Dragonk/Inboxora/blob/dev/docs/CHANGELOG.md),
+into the relevant Wiki page, into [`docs/CHANGELOG.md`](https://github.com/Dragonk/Inboxora/blob/main/docs/CHANGELOG.md),
 or into the commit message that fixed the issue. Git history keeps the full record.
 
 The 4.0.1 TypeScript migration is recorded in [Release notes 4.0.1](Release-notes-4.0.1.md) and
-[`docs/CHANGELOG.md`](https://github.com/Dragonk/Inboxora/blob/dev/docs/CHANGELOG.md); it has no
+[`docs/CHANGELOG.md`](https://github.com/Dragonk/Inboxora/blob/main/docs/CHANGELOG.md); it has no
 separate root-level audit reports.
 
 ## Documentation policy
@@ -178,4 +178,4 @@ separate root-level audit reports.
 - One concern per pull request; add or update automated tests for behaviour changes.
 - Use concise Conventional Commit subjects, for example `fix: handle calendar ETag conflicts`.
 - Contributions are accepted under AGPL-3.0-only; see
-  [CONTRIBUTING.md](https://github.com/Dragonk/Inboxora/blob/dev/CONTRIBUTING.md).
+  [CONTRIBUTING.md](https://github.com/Dragonk/Inboxora/blob/main/CONTRIBUTING.md).

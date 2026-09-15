@@ -84,7 +84,7 @@ upgrade path.
 - Threading is **off by default**; existing mail reads exactly as before until you enable it.
 - Legacy identifiers from the MailFlow fork are retained deliberately so in-place upgrades keep
   their data. See
-  [`docs/technical-identifier-audit.md`](https://github.com/Dragonk/Inboxora/blob/dev/docs/technical-identifier-audit.md).
+  [`docs/technical-identifier-audit.md`](https://github.com/Dragonk/Inboxora/blob/main/docs/technical-identifier-audit.md).
 - CardDAV and CalDAV clients authenticate with application passwords; primary login passwords are
   rejected on DAV endpoints.
 
@@ -102,4 +102,4 @@ upgrade path.
 
 The exhaustive, change-by-change list against the upstream MailFlow fork — including the
 migration inventory and the rationale for each new area — is published in
-[`docs/CHANGELOG.md`](https://github.com/Dragonk/Inboxora/blob/dev/docs/CHANGELOG.md) with this release.
+[`docs/CHANGELOG.md`](https://github.com/Dragonk/Inboxora/blob/main/docs/CHANGELOG.md) with this release.

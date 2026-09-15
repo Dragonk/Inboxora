@@ -46,7 +46,7 @@ straightforward — but note the following.
 
 - Back up the database and `.env` as above.
 - Note the current `INBOXORA_VERSION` so you can roll back the image if needed.
-- If you run a fork with local modifications, review [`docs/CHANGELOG.md`](https://github.com/Dragonk/Inboxora/blob/dev/docs/CHANGELOG.md) for the
+- If you run a fork with local modifications, review [`docs/CHANGELOG.md`](https://github.com/Dragonk/Inboxora/blob/main/docs/CHANGELOG.md) for the
   full change list.
 
 ### What to expect
@@ -112,11 +112,11 @@ Two things to know before you start, both covered there in detail:
 - The image version variable was renamed: **`MAILFLOW_VERSION` → `INBOXORA_VERSION`**.
 
 The retained legacy identifiers and the reasoning behind them are recorded in
-[`docs/technical-identifier-audit.md`](https://github.com/Dragonk/Inboxora/blob/dev/docs/technical-identifier-audit.md).
+[`docs/technical-identifier-audit.md`](https://github.com/Dragonk/Inboxora/blob/main/docs/technical-identifier-audit.md).
 
 ## Versioning
 
 Inboxora uses semantic versioning. Major versions signal new product areas or breaking
 configuration changes, minor versions add features, and patch versions fix defects. Every release
-is documented in [`docs/CHANGELOG.md`](https://github.com/Dragonk/Inboxora/blob/dev/docs/CHANGELOG.md) and on the
+is documented in [`docs/CHANGELOG.md`](https://github.com/Dragonk/Inboxora/blob/main/docs/CHANGELOG.md) and on the
 [releases page](https://github.com/Dragonk/Inboxora/releases).
