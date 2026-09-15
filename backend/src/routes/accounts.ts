@@ -125,7 +125,7 @@ router.get('/', async (req, res) => {
 router.post('/', async (req, res) => {
   const {
     name, sender_name = null, email_address, color = '#6366f1', protocol = 'imap',
-    imap_host, imap_port = 993, imap_skip_tls_verify = false,
+    imap_host, imap_port = 993, imap_tls, imap_skip_tls_verify = false,
     smtp_host, smtp_port = 587, smtp_tls = 'STARTTLS',
     auth_user, auth_pass, smtp_auth_user = null, smtp_auth_pass = null,
     oauth_provider, oauth_access_token, oauth_refresh_token,
@@ -141,6 +141,7 @@ router.post('/', async (req, res) => {
   }
 
   const policy = await getConnectionPolicy();
+  if (imap_tls !== undefined && typeof imap_tls !== 'boolean') return res.status(400).json({ error: 'IMAP TLS must be a boolean' });
 
   if (imap_host) {
     const err = (await validateHost(imap_host, { allowPrivate: policy.allowPrivateHosts }))
@@ -164,7 +165,7 @@ router.post('/', async (req, res) => {
       RETURNING *
     `, [
       req.session.userId, name, sender_name || null, email_address, color, protocol,
-      imap_host, imap_port, Number(imap_port) % 1000 === 993, !!imap_skip_tls_verify, smtp_host, smtp_port, smtp_tls,
+      imap_host, imap_port, imap_tls === undefined ? Number(imap_port) % 1000 === 993 : imap_tls, !!imap_skip_tls_verify, smtp_host, smtp_port, smtp_tls,
       auth_user, encrypt(auth_pass), smtp_auth_user || null, encrypt(smtp_auth_pass) || null,
       oauth_provider, encrypt(oauth_access_token), encrypt(oauth_refresh_token),
       sanitizeSignature(signature) || null
@@ -199,6 +200,7 @@ router.put('/:id', async (req, res) => {
     return res.status(400).json({ error: 'Sender name cannot contain control characters' });
   }
   const policy = await getConnectionPolicy();
+  if ('imap_tls' in updates && typeof updates.imap_tls !== 'boolean') return res.status(400).json({ error: 'IMAP TLS must be a boolean' });
 
   if ('imap_host' in updates && updates.imap_host) {
     const err = await validateHost(updates.imap_host, { allowPrivate: policy.allowPrivateHosts });
@@ -221,7 +223,6 @@ router.put('/:id', async (req, res) => {
     }
   }
 
-  if ('imap_port' in updates) updates.imap_tls = Number(updates.imap_port) % 1000 === 993;
 
   // Let plugins validate the settings fields they own (GTD owns gtd_enabled/gtd_folders) before we
   // touch anything. A plugin may hard-reject the change (return an error response), report per-field
