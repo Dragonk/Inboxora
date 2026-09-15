@@ -4,83 +4,90 @@
 const versions = new Map<string, number>();
 
 type MutationRequest<T> = () => T | Promise<T>;
+type MutationResolution<T> = { version: string; promise: Promise<T> };
 type VersionToken = string | number;
+type MutationArguments<T> = [request: MutationRequest<T>] | [lane: string, request: MutationRequest<T>];
+type VersionArguments = [version: VersionToken] | [lane: string, version: VersionToken];
 
-function normalizeArgs<T>(
-  laneOrRequest: string | MutationRequest<T>,
-  maybeRequest?: MutationRequest<T> | undefined,
-): [string, MutationRequest<T> | undefined] {
-  return typeof laneOrRequest === 'function'
-    ? ['default', laneOrRequest]
-    : [laneOrRequest, maybeRequest];
+function keyFor(id: string, lane: string): string {
+  return `${id}:${lane}`;
 }
 
-function keyFor(id: string, lane: string | number) {
-  return `${String(id)}:${String(lane)}`;
+function tokenFor(lane: string, version: number): string {
+  return `${lane}:${version}`;
 }
 
-// NOTE: `version` is intentionally left untyped. Its true return type is
-// `string | number` (the 'default' lane returns the numeric counter), which
-// cannot be assigned to queuePerCopyMutation's public `version: string`.
-// Widening that declaration requires MessageList.tsx's onResolution type to
-// accept `string | number` as well, which lives outside this file.
-function tokenFor(lane: string, version) {
-  return lane === 'default' ? version : `${String(lane)}:${version}`;
-}
-
-function versionFor(lane: string | number, version: VersionToken): VersionToken {
-  if (typeof version !== 'string') return version;
-  const prefix = `${String(lane)}:`;
-  return version.startsWith(prefix) ? Number(version.slice(prefix.length)) : version;
-}
-
-function laneAndVersion(
-  laneOrVersion: string | number,
-  maybeVersion: VersionToken | undefined = undefined,
-): [string | number, VersionToken] {
-  if (maybeVersion !== undefined) return [laneOrVersion, maybeVersion];
-  if (typeof laneOrVersion === 'string') {
-    const separator = laneOrVersion.lastIndexOf(':');
-    if (separator > 0) return [laneOrVersion.slice(0, separator), Number(laneOrVersion.slice(separator + 1))];
+function splitToken(token: string): [string, number] {
+  const separator = token.lastIndexOf(':');
+  if (separator < 1) {
+    throw new TypeError('Mutation version must include its action lane.');
   }
-  return ['default', laneOrVersion];
+
+  return [token.slice(0, separator), Number(token.slice(separator + 1))];
+}
+
+function normalizeRequest<T>(arguments_: MutationArguments<T>): [string, MutationRequest<T>] {
+  if (arguments_.length === 1) {
+    return ['default', arguments_[0]];
+  }
+
+  return arguments_;
+}
+
+function normalizeVersion(arguments_: VersionArguments): [string, number] {
+  if (arguments_.length === 1) {
+    const [token] = arguments_;
+    return typeof token === 'string' ? splitToken(token) : ['default', token];
+  }
+
+  const [lane, token] = arguments_;
+  if (typeof token === 'number') {
+    return [lane, token];
+  }
+
+  const prefix = `${lane}:`;
+  if (!token.startsWith(prefix)) {
+    return [lane, Number.NaN];
+  }
+
+  return [lane, Number(token.slice(prefix.length))];
 }
 
 export function queuePerCopyMutation<T>(
   id: string,
-  laneOrRequest: string | MutationRequest<T>,
-  maybeRequest?: MutationRequest<T> | undefined,
-): { version: string; promise: Promise<T> } {
-  const [lane, request] = normalizeArgs(laneOrRequest, maybeRequest);
+  ...arguments_: MutationArguments<T>
+): MutationResolution<T> {
+  const [lane, mutationRequest] = normalizeRequest(arguments_);
   const key = keyFor(id, lane);
-  const version = (versions.get(key) || 0) + 1;
+  const version = (versions.get(key) ?? 0) + 1;
   versions.set(key, version);
-  return { version: tokenFor(lane, version), promise: Promise.resolve().then(request) };
+
+  return {
+    version: tokenFor(lane, version),
+    promise: Promise.resolve().then(mutationRequest),
+  };
 }
 
 export function isLatestPerCopyMutation(
   id: string,
-  laneOrVersion: string | number,
-  maybeVersion: VersionToken | undefined = undefined,
+  ...arguments_: VersionArguments
 ): boolean {
-  const [lane, version] = laneAndVersion(laneOrVersion, maybeVersion);
-  return versions.get(keyFor(id, lane)) === versionFor(lane, version);
+  const [lane, version] = normalizeVersion(arguments_);
+  return versions.get(keyFor(id, lane)) === version;
 }
 
 // Invalidate a deferred continuation without creating a new request intent.
 export function invalidatePerCopyMutation(
   id: string,
-  laneOrVersion: string | number,
-  maybeVersion: VersionToken | undefined = undefined,
+  ...arguments_: VersionArguments
 ): void {
-  const [lane, version] = laneAndVersion(laneOrVersion, maybeVersion);
+  const [lane, version] = normalizeVersion(arguments_);
   const key = keyFor(id, lane);
-  const numericVersion = versionFor(lane, version);
-  if (versions.get(key) === numericVersion && typeof numericVersion === 'number') {
-    versions.set(key, numericVersion + 1);
+  if (versions.get(key) === version) {
+    versions.set(key, version + 1);
   }
 }
 
-export function resetPerCopyMutationsForTest() {
+export function resetPerCopyMutationsForTest(): void {
   versions.clear();
 }

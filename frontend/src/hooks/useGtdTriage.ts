@@ -19,18 +19,9 @@ import { toAppError } from '../utils/errors.ts';
 // read, or double-fire bulkRead when the same thread is opened from both. `owner`
 // remembers which hook instance scheduled the timer so an unmounting surface cancels
 // only its own pending read, never one the still-mounted surface legitimately owns.
-/** A GTD section row (thread) as the triage actions use it: every row is a message
- * row, so the triage engine can rely on its row id and account id; the rest is the
- * shared GtdThread shape. */
-function gtdAccountIdOf(thread: GtdThread): string | null {
-  const raw: unknown = thread.account_id || thread.accountId;
-  return typeof raw === 'string' && raw !== '' ? raw : null;
-}
-
 interface GtdTriageThread extends GtdThread {
   id: string;
   account_id: string;
-  accountId?: string;
   is_starred?: boolean;
 }
 
@@ -46,7 +37,7 @@ interface GtdTriageContextMenu {
   y: number;
   message: GtdTriageThread;
   doneStates: string[];
-  defaultMoveView?: boolean;
+  defaultMoveView: boolean;
 }
 
 interface GtdTriageContextMenuInput {
@@ -54,10 +45,10 @@ interface GtdTriageContextMenuInput {
   y: number;
   message: GtdThread;
   doneStates: string[];
-  defaultMoveView?: boolean;
+  defaultMoveView: boolean;
 }
 
-interface AutoMarkRead { timer: ReturnType<typeof setTimeout> | null; identity: string | null | undefined; owner: unknown }
+interface AutoMarkRead { timer: ReturnType<typeof setTimeout> | null; identity: string | null; owner: unknown }
 let autoMarkRead: AutoMarkRead = { timer: null, identity: null, owner: null };
 
 // Drop the pending delay-mode auto-read outright (handle + owner identity). openRow uses
@@ -118,7 +109,7 @@ export function useGtdTriage() {
         y: menu.y,
         message: menu.message,
         doneStates: menu.doneStates,
-        ...(menu.defaultMoveView === undefined ? {} : { defaultMoveView: menu.defaultMoveView }),
+        defaultMoveView: menu.defaultMoveView,
       });
     }
   };
@@ -155,15 +146,15 @@ export function useGtdTriage() {
   // the same-message_id fan-out alone can't reach an INBOX-only sibling reply), while
   // marking UNREAD needs only the head copy. On failure, flip back.
   const setRead = async (thread: GtdThread, read: boolean) => {
+    if (!isGtdTriageThread(thread)) return;
     // Explicit mark-unread wins over a pending auto-read: cancel the timer before the no-op
     // guard so it can't later flip this just-opened thread back to read.
     if (!read) cancelAutoMarkReadFor(thread);
     if (!!thread.is_read === read) return;
     const identity = thread.message_id || thread.id;
-    if (identity == null) return;
     markGtdThreadRead(identity, read);
     try {
-      const getAccountThread = (threadKey: string) => api.getThread(threadKey, '', false, gtdAccountIdOf(thread));
+      const getAccountThread = (threadKey: string) => api.getThread(threadKey, '', false, thread.account_id);
       const readIds = (await collectThreadReadIds(thread, read, getAccountThread))
         .filter((id): id is string => typeof id === 'string');
       await api.bulkRead(readIds, read);
@@ -177,12 +168,13 @@ export function useGtdTriage() {
   };
 
   const openRow = (thread: GtdThread) => {
+    if (!isGtdTriageThread(thread)) return;
     cancelAutoMarkRead();
     const identity = thread.message_id || thread.id;
     return openGtdThreadWithAutoRead(thread, {
       openThread: () => openDeepLinkMessage(thread.id, {
         getMessage: api.getMessage,
-        getThread: threadKey => api.getThread(threadKey, '', false, gtdAccountIdOf(thread)),
+        getThread: threadKey => api.getThread(threadKey, '', false, thread.account_id),
         setThreadMessages,
         setSelectedMessage,
         thread,

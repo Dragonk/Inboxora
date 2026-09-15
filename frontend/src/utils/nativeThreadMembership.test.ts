@@ -8,7 +8,9 @@ describe('normalized native thread membership', () => {
     const members = normalizedNativeThreadMembers([row, { id: 'copy-all-mail', message_id: '<same@example.test>' }]);
     assert.deepEqual(members.map(member => member.id), ['copy-inbox']);
     assert.equal(isExpandableNativeThread(members), false);
-    assert.equal(singletonNativeThreadTarget(row, members).id, 'copy-inbox');
+    const target = singletonNativeThreadTarget(row, members);
+    assert.ok(target);
+    assert.equal(target.id, 'copy-inbox');
   });
 
   it('keeps distinct normalized messages expandable', () => {
