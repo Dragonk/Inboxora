@@ -4,9 +4,12 @@ import { listeningPort } from '../test/net.js';
 import type { Server } from 'node:http';
 import { createBrowserCors } from '../middleware/browserCors.js';
 
-const { authenticateDavCredential, query } = vi.hoisted<any>(() => ({
-  authenticateDavCredential: vi.fn(),
-  query: vi.fn(async () => ({ rows: [] })),
+type AuthenticateDavCredential = typeof import('../services/davCredentials.js').authenticateDavCredential;
+type Query = typeof import('../services/db.js').query;
+
+const { authenticateDavCredential, query } = vi.hoisted(() => ({
+  authenticateDavCredential: vi.fn<AuthenticateDavCredential>(),
+  query: vi.fn<Query>(),
 }));
 vi.mock('../services/davCredentials.js', () => ({ authenticateDavCredential }));
 vi.mock('../services/db.js', () => ({ query }));
@@ -29,6 +32,20 @@ function parseEvent(raw: string): ParsedEvent {
   return event;
 }
 
+type QueryCall = [sql: string, parameters?: unknown[]];
+
+function queryCallAt(index: number): QueryCall {
+  const call = query.mock.calls[index];
+  if (call === undefined) throw new Error(`Expected query call at index ${index}`);
+  return call;
+}
+
+function queryParametersAt(index: number): unknown[] {
+  const [, parameters] = queryCallAt(index);
+  if (parameters === undefined) throw new Error(`Expected query parameters at index ${index}`);
+  return parameters;
+}
+
 let server: Server;
 let base = '';
 
@@ -47,7 +64,6 @@ afterAll(async () => {
 beforeEach(() => {
   authenticateDavCredential.mockReset();
   query.mockReset();
-  query.mockResolvedValue({ rows: [] });
 });
 
 describe('CalDAV discovery', () => {
@@ -397,18 +413,18 @@ describe('CalDAV calendar objects', () => {
   expect(event).toMatchObject({ description: 'First line\nSecond line', location: 'Room, A', url: 'https://example.test/meeting', organizer: 'team@example.test', attendees: ['jane@example.test'] });
   const response = await fetch(`${base}/caldav/user-1/calendar-1/synthetic-exchange-event.ics`, { method: 'PUT', headers: { authorization: basic('sam@example.test', 'test-dav-password') }, body: raw });
   expect(response.status).toBe(201);
-  expect(query.mock.calls[2][1].slice(9, 14)).toEqual([event.description, event.location, event.url, event.organizer, JSON.stringify(event.attendees)]);
+  expect(queryParametersAt(2).slice(9, 14)).toEqual([event.description, event.location, event.url, event.organizer, JSON.stringify(event.attendees)]);
  });
 
 it('keeps client resource filenames independent of the embedded calendar UID', async () => {
- authenticateDavCredential.mockResolvedValue({ userId: 'user-1' });
+ authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
  query.mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] }).mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [{ uid: 'synthetic-exchange-event', etag: 'etag' }] });
  const response = await fetch(`${base}/caldav/user-1/calendar-1/client-generated.ics`, { method: 'PUT', headers: { authorization: basic('sam@example.test','secret'), 'if-none-match': '*' }, body: outlookCalendar() });
  expect(response.status).toBe(201);
- expect(query.mock.calls[2][1][2]).toBe('synthetic-exchange-event');
- expect(query.mock.calls[2][1][14]).toBe('client-generated.ics');
+ expect(queryParametersAt(2)[2]).toBe('synthetic-exchange-event');
+ expect(queryParametersAt(2)[14]).toBe('client-generated.ics');
  query.mockReset(); query.mockResolvedValueOnce({ rows: [{ raw_ical: outlookCalendar(), etag: 'etag' }] });
  const get = await fetch(`${base}/caldav/user-1/calendar-1/client-generated.ics`, { headers: { authorization: basic('sam@example.test','secret') } });
- expect(get.status).toBe(200); expect(query.mock.calls[0][1][2]).toBe('client-generated.ics');
+ expect(get.status).toBe(200); expect(queryParametersAt(0)[2]).toBe('client-generated.ics');
  expect(query.mock.calls[0][0]).toContain('COALESCE(e.dav_filename');
 });

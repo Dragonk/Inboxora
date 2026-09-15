@@ -1,11 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { JsonBody } from '../test/json.js';
+import type { DbClient, DbQueryResult, DbRow } from '../services/db.js';
 import type { ParsedVCard } from '../utils/vcard.js';
 
-const { query, withTransaction } = vi.hoisted<any>(() => ({
-  query: vi.fn(),
-  withTransaction: vi.fn(async callback => callback({ query })),
-}));
+type WithTransaction = <T>(callback: (client: DbClient) => Promise<T>) => Promise<T>;
+type MockQuery = (text: string, params?: unknown[]) => Promise<DbQueryResult<DbRow>>;
+
+const { query, withTransaction } = vi.hoisted(() => {
+  const query = vi.fn<MockQuery>();
+  const transactionQuery: DbClient['query'] = async (text, params) => {
+    await query(text, params);
+    return { rows: [] };
+  };
+  const withTransaction = vi.fn<WithTransaction>(async callback => callback({ query: transactionQuery }));
+  return { query, withTransaction };
+});
 vi.mock('../services/db.js', () => ({ query, withTransaction }));
 
 import express from 'express';
@@ -44,7 +52,21 @@ function createApp() {
   return app;
 }
 
-function arrangeQuery(contact: ContactDateEntry[], result: typeof updatedContact = updatedContact) {
+function findQuery(sqlFragment: string): [string, unknown[]] {
+  const call = query.mock.calls.find(([sql]) => sql.includes(sqlFragment));
+  if (call === undefined || call[1] === undefined) {
+    throw new Error(`Expected query containing "${sqlFragment}" with parameters`);
+  }
+  return [call[0], call[1]];
+}
+
+function stringParameter(params: unknown[], index: number): string {
+  const value = params[index];
+  if (typeof value !== 'string') throw new Error(`Expected string query parameter at index ${index}`);
+  return value;
+}
+
+function arrangeQuery(contact: ContactDateEntry[], result: typeof updatedContact) {
   query
     .mockResolvedValueOnce({ rows: [{ id: 'user-1' }] })
     .mockResolvedValueOnce({ rows: [{
@@ -78,15 +100,15 @@ describe('Contact REST PATCH legacy date synchronization', () => {
     await new Promise(resolve => server.close(resolve));
 
     expect(response.status).toBe(200);
-    const update = query.mock.calls.find(([sql]: [string]) => sql.includes('UPDATE contacts SET'));
+    const update = findQuery('UPDATE contacts SET');
     expect(update[1][8]).toBeNull();
-    expect(JSON.parse(update[1][10])).toEqual([
+    expect(JSON.parse(stringParameter(update[1], 10))).toEqual([
       { label: 'Wedding', value: '2020-09-14' },
       { label: 'Anniversary', value: '2021-05-06' },
     ]);
-    expect(update[1][18]).not.toContain('BDAY');
-    expect(update[1][18]).toContain('ANNIVERSARY;TYPE=Anniversary:2021-05-06');
-    expect(update[1][18]).toContain('X-ABDATE;TYPE=Wedding:2020-09-14');
+    expect(stringParameter(update[1], 18)).not.toContain('BDAY');
+    expect(stringParameter(update[1], 18)).toContain('ANNIVERSARY;TYPE=Anniversary:2021-05-06');
+    expect(stringParameter(update[1], 18)).toContain('X-ABDATE;TYPE=Wedding:2020-09-14');
   });
 
   it('changing anniversary replaces its old legacy labelled date with exactly one new date', async () => {
@@ -104,15 +126,15 @@ describe('Contact REST PATCH legacy date synchronization', () => {
     await new Promise(resolve => server.close(resolve));
 
     expect(response.status).toBe(200);
-    const update = query.mock.calls.find(([sql]: [string]) => sql.includes('UPDATE contacts SET'));
-    const dates = JSON.parse(update[1][10]);
+    const update = findQuery('UPDATE contacts SET');
+    const dates = JSON.parse(stringParameter(update[1], 10));
     expect(dates).toEqual([
       { label: 'Birthday', value: '1990-01-02' },
       { label: 'Anniversary', value: '2022-06-07' },
     ]);
-    expect(update[1][18].match(/ANNIVERSARY/g)).toHaveLength(1);
-    expect(update[1][18]).toContain('ANNIVERSARY;TYPE=Anniversary:2022-06-07');
-    expect(update[1][18]).not.toContain('2021-05-06');
+    expect(stringParameter(update[1], 18).match(/ANNIVERSARY/g)).toHaveLength(1);
+    expect(stringParameter(update[1], 18)).toContain('ANNIVERSARY;TYPE=Anniversary:2022-06-07');
+    expect(stringParameter(update[1], 18)).not.toContain('2021-05-06');
   });
 
   it('keeps explicitly supplied contactDates authoritative when legacy fields are also supplied', async () => {
@@ -128,13 +150,13 @@ describe('Contact REST PATCH legacy date synchronization', () => {
     await new Promise(resolve => server.close(resolve));
 
     expect(response.status).toBe(200);
-    expect(((await response.json()) as JsonBody).birthday).toBe('1990-01-02');
-    const update = query.mock.calls.find(([sql]: [string]) => sql.includes('UPDATE contacts SET'));
+    expect(await response.json()).toMatchObject({ birthday: '1990-01-02' });
+    const update = findQuery('UPDATE contacts SET');
     expect(update[1][8]).toBe('1990-01-02');
-    expect(JSON.parse(update[1][10])).toEqual([{ label: 'Birthday', value: '1990-01-02' }]);
-    expect(update[1][18].match(/BDAY/g)).toHaveLength(1);
-    expect(update[1][18]).toContain('BDAY;TYPE=Birthday:1990-01-02');
-    expect(update[1][18]).not.toContain('1991-01-02');
+    expect(JSON.parse(stringParameter(update[1], 10))).toEqual([{ label: 'Birthday', value: '1990-01-02' }]);
+    expect(stringParameter(update[1], 18).match(/BDAY/g)).toHaveLength(1);
+    expect(stringParameter(update[1], 18)).toContain('BDAY;TYPE=Birthday:1990-01-02');
+    expect(stringParameter(update[1], 18)).not.toContain('1991-01-02');
   });
 
   it('preserves a yearless birthday through REST editing without writing a fake SQL date', async () => {
@@ -146,10 +168,10 @@ describe('Contact REST PATCH legacy date synchronization', () => {
     });
     await new Promise(resolve => server.close(resolve));
     expect(response.status).toBe(200);
-    const update = query.mock.calls.find(([sql]: [string]) => sql.includes('UPDATE contacts SET'));
+    const update = findQuery('UPDATE contacts SET');
     expect(update[1][8]).toBeNull();
-    expect(JSON.parse(update[1][10])).toEqual(dates);
-    expect(update[1][18]).toContain('BDAY;TYPE=Birthday:--02-29');
+    expect(JSON.parse(stringParameter(update[1], 10))).toEqual(dates);
+    expect(stringParameter(update[1], 18)).toContain('BDAY;TYPE=Birthday:--02-29');
   });
 
   it('clears the legacy anniversary when authoritative contactDates omits it', async () => {
@@ -166,10 +188,10 @@ describe('Contact REST PATCH legacy date synchronization', () => {
     await new Promise(resolve => server.close(resolve));
 
     expect(response.status).toBe(200);
-    const update = query.mock.calls.find(([sql]: [string]) => sql.includes('UPDATE contacts SET'));
+    const update = findQuery('UPDATE contacts SET');
     expect(update[1][9]).toBeNull();
-    expect(JSON.parse(update[1][10])).toEqual([{ label: 'Wedding', value: '2020-09-14' }]);
-    expect(update[1][18]).not.toContain('ANNIVERSARY');
+    expect(JSON.parse(stringParameter(update[1], 10))).toEqual([{ label: 'Wedding', value: '2020-09-14' }]);
+    expect(stringParameter(update[1], 18)).not.toContain('ANNIVERSARY');
   });
 });
 
@@ -187,7 +209,7 @@ describe('Contact REST labelled date validation', () => {
     await new Promise(resolve => server.close(resolve));
 
     expect(response.status).toBe(400);
-    expect((await response.json()) as JsonBody).toEqual({ error: 'contactDates must be an array of safe labelled YYYY-MM-DD or --MM-DD dates' });
+    expect(await response.json()).toEqual({ error: 'contactDates must be an array of safe labelled YYYY-MM-DD or --MM-DD dates' });
     expect(query).toHaveBeenCalledTimes(1);
     expect(query.mock.calls[0][0]).toContain('SELECT id FROM users');
   });
@@ -205,7 +227,7 @@ describe('Contact REST labelled date validation', () => {
     await new Promise(resolve => server.close(resolve));
 
     expect(response.status).toBe(400);
-    expect((await response.json()) as JsonBody).toEqual({ error: 'contactDates must be an array of safe labelled YYYY-MM-DD or --MM-DD dates' });
+    expect(await response.json()).toEqual({ error: 'contactDates must be an array of safe labelled YYYY-MM-DD or --MM-DD dates' });
     expect(query).toHaveBeenCalledTimes(1);
     expect(query.mock.calls[0][0]).toContain('SELECT id FROM users');
   });
@@ -231,13 +253,13 @@ describe('Contact REST labelled date validation', () => {
     await new Promise(resolve => server.close(resolve));
 
     expect(response.status).toBe(201);
-    const insert = query.mock.calls.find(([sql]: [string]) => sql.includes('INSERT INTO contacts'));
-    expect(JSON.parse(insert[1][15])).toEqual([
+    const insert = findQuery('INSERT INTO contacts');
+    expect(JSON.parse(stringParameter(insert[1], 15))).toEqual([
       { label: 'Family:Other', value: '2020-09-14' },
       { label: 'Family;Other', value: '2021-05-06' },
     ]);
-    expect(insert[1][3]).toContain('X-ABDATE;TYPE="Family:Other":2020-09-14');
-    expect(insert[1][3]).toContain('X-ABDATE;TYPE="Family;Other":2021-05-06');
+    expect(stringParameter(insert[1], 3)).toContain('X-ABDATE;TYPE="Family:Other":2020-09-14');
+    expect(stringParameter(insert[1], 3)).toContain('X-ABDATE;TYPE="Family;Other":2021-05-06');
   });
 });
 
@@ -258,15 +280,15 @@ describe('Google CSV import persistence', () => {
     await new Promise(resolve => server.close(resolve));
 
     expect(response.status).toBe(201);
-    expect((await response.json()) as JsonBody).toEqual({ imported: 1 });
-    const insert = query.mock.calls.find(([sql]: [string]) => sql.includes('INSERT INTO contacts'));
+    expect(await response.json()).toEqual({ imported: 1 });
+    const insert = findQuery('INSERT INTO contacts');
     expect(insert[0]).toContain('google_fields');
-    expect(JSON.parse(insert[1][15])).toEqual([
+    expect(JSON.parse(stringParameter(insert[1], 15))).toEqual([
       { label: 'Birthday', value: '1815-12-10' }, { label: 'Anniversary', value: '1835-01-01' },
     ]);
-    expect(JSON.parse(insert[1][19])).toEqual([{ value: 'https://example.test', type: 'portfolio' }]);
-    expect(JSON.parse(insert[1][20])).toEqual([]);
-    expect(JSON.parse(insert[1][22])).toEqual([{ type: 'home', pobox: '', extended: '', street: 'St James Square', locality: 'London', region: '', postalCode: '', country: '' }]);
-    expect(JSON.parse(insert[1][23])).toMatchObject({ 'Custom Field 1 - Label': 'Legacy ID', 'Custom Field 1 - Value': '42' });
+    expect(JSON.parse(stringParameter(insert[1], 19))).toEqual([{ value: 'https://example.test', type: 'portfolio' }]);
+    expect(JSON.parse(stringParameter(insert[1], 20))).toEqual([]);
+    expect(JSON.parse(stringParameter(insert[1], 22))).toEqual([{ type: 'home', pobox: '', extended: '', street: 'St James Square', locality: 'London', region: '', postalCode: '', country: '' }]);
+    expect(JSON.parse(stringParameter(insert[1], 23))).toMatchObject({ 'Custom Field 1 - Label': 'Legacy ID', 'Custom Field 1 - Value': '42' });
   });
 });

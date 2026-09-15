@@ -4,6 +4,16 @@ import { listeningPort } from '../test/net.js';
 import type { NextFunction, Request, Response } from 'express';
 import type { Server } from 'node:http';
 import type { JsonBody } from '../test/json.js';
+import type {
+  listPushDevices as ListPushDevices,
+  registerPushDevice as RegisterPushDevice,
+  removePushDevice as RemovePushDevice,
+  removeAllPushDevices as RemoveAllPushDevices,
+  pruneStalePushDevices as PruneStalePushDevices,
+} from '../services/pushDevices.js';
+import type { transportStatus as TransportStatus } from '../services/pushTransports.js';
+import type { query as Query } from '../services/db.js';
+import type { validateHost as ValidateHost } from '../services/hostValidation.js';
 
 // The mocked middleware only reads these fields off the augmented Request.
 type PushDeviceAttrs = Pick<NonNullable<Request['pushDevice']>, 'id' | 'userId' | 'deviceId'>;
@@ -11,15 +21,15 @@ type PushDeviceAttrs = Pick<NonNullable<Request['pushDevice']>, 'id' | 'userId' 
 const {
   listPushDevices, registerPushDevice, removePushDevice, removeAllPushDevices, pruneStalePushDevices,
   transportStatus, query, validateHost,
-} = vi.hoisted<any>(() => ({
-  listPushDevices: vi.fn(),
-  registerPushDevice: vi.fn(),
-  removePushDevice: vi.fn(),
-  removeAllPushDevices: vi.fn(),
-  pruneStalePushDevices: vi.fn(),
-  transportStatus: vi.fn(),
-  query: vi.fn(),
-  validateHost: vi.fn(),
+} = vi.hoisted(() => ({
+  listPushDevices: vi.fn<typeof ListPushDevices>(),
+  registerPushDevice: vi.fn<typeof RegisterPushDevice>(),
+  removePushDevice: vi.fn<typeof RemovePushDevice>(),
+  removeAllPushDevices: vi.fn<typeof RemoveAllPushDevices>(),
+  pruneStalePushDevices: vi.fn<typeof PruneStalePushDevices>(),
+  transportStatus: vi.fn<typeof TransportStatus>(),
+  query: vi.fn<typeof Query>(),
+  validateHost: vi.fn<typeof ValidateHost>(),
 }));
 
 vi.mock('../middleware/auth.js', () => ({
@@ -65,7 +75,7 @@ beforeEach(() => {
 describe('POST /api/push/devices', () => {
   it('registers for the session user and returns the device token exactly once', async () => {
     registerPushDevice.mockResolvedValue({
-      device: { id: 'row-1', device_id: 'device-1', platform: 'android', transport: 'unifiedpush', app_version: '4.0.0', created_at: 'now', updated_at: 'now', last_seen: 'now' },
+      device: { id: 'row-1', device_id: 'device-1', platform: 'android', transport: 'unifiedpush', app_version: '4.0.0', created_at: new Date('2024-01-01T00:00:00.000Z'), updated_at: new Date('2024-01-01T00:00:00.000Z'), last_seen: new Date('2024-01-01T00:00:00.000Z') },
       deviceToken: 'mf_push_11111111-2222-3333-4444-555555555555.secret',
     });
 
@@ -112,17 +122,17 @@ describe('POST /api/push/devices', () => {
 
 describe('device management', () => {
   it('lists only metadata for the caller devices', async () => {
-    listPushDevices.mockResolvedValue([{ id: 'row-1', device_id: 'device-1', platform: 'android', transport: 'fcm', app_version: '4.0.0', created_at: 'a', updated_at: 'b', last_seen: 'c', disabled_at: null }]);
+    listPushDevices.mockResolvedValue([{ id: 'row-1', device_id: 'device-1', platform: 'android', transport: 'fcm', app_version: '4.0.0', created_at: new Date('2024-01-01T00:00:00.000Z'), updated_at: new Date('2024-01-02T00:00:00.000Z'), last_seen: new Date('2024-01-03T00:00:00.000Z'), disabled_at: null }]);
     const response = await fetch(`${base}/api/push/devices`);
     const body = (await response.json()) as JsonBody;
     assert.ok(body.devices);
     expect(listPushDevices).toHaveBeenCalledWith('user-1');
-    expect(body.devices[0]).toEqual({ id: 'row-1', deviceId: 'device-1', platform: 'android', transport: 'fcm', appVersion: '4.0.0', createdAt: 'a', updatedAt: 'b', lastSeen: 'c', disabled: false });
+    expect(body.devices[0]).toEqual({ id: 'row-1', deviceId: 'device-1', platform: 'android', transport: 'fcm', appVersion: '4.0.0', createdAt: '2024-01-01T00:00:00.000Z', updatedAt: '2024-01-02T00:00:00.000Z', lastSeen: '2024-01-03T00:00:00.000Z', disabled: false });
     expect(JSON.stringify(body)).not.toMatch(/endpoint|token/i);
   });
 
   it('unregisters a device scoped to the caller and 404s another user device', async () => {
-    removePushDevice.mockResolvedValueOnce({ id: 'row-1', device_id: 'device-1' });
+    removePushDevice.mockResolvedValueOnce({ id: 'row-1', device_id: 'device-1', transport: 'fcm' });
     const ok = await fetch(`${base}/api/push/devices/device-1`, { method: 'DELETE' });
     expect(ok.status).toBe(200);
     expect(removePushDevice).toHaveBeenCalledWith('user-1', 'device-1');
