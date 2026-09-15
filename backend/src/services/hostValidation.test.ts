@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { connect, createServer } from 'net';
 import { createPinnedLookup, validateHostLiteral, validateHost, resolveForConnection } from './hostValidation.js';
-import type { AddressInfo, Socket } from 'node:net';
+import type { Socket } from 'node:net';
 
 // Mock the dns module so tests never make real network calls.
 vi.mock('dns', () => ({
@@ -230,10 +230,15 @@ describe('createPinnedLookup', () => {
     const server = createServer(socket => socket.end());
     await new Promise<void>(resolve => server.listen(0, '127.0.0.1', () => resolve()));
     try {
+      const address = server.address();
+      if (address === null || typeof address === 'string') {
+        throw new Error('Expected the test server to listen on a TCP port');
+      }
+
       const socket: Socket = await new Promise((resolve, reject) => {
         const options: import('node:net').TcpNetConnectOpts = {
           host: 'mail.example.com',
-          port: (server.address() as AddressInfo).port,
+          port: address.port,
           lookup: createPinnedLookup(['127.0.0.2', '127.0.0.1']),
           autoSelectFamily: true,
           autoSelectFamilyAttemptTimeout: 10,

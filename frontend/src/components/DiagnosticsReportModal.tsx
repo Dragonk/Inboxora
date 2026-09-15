@@ -29,12 +29,12 @@ export default function DiagnosticsReportModal({ onClose }: DiagnosticsReportMod
 
   useEffect(() => {
     let cancelled = false;
+    setState({ status: 'loading' });
     generateReport({ locale: i18n.language, theme, uiScale })
       .then(report => { if (!cancelled) setState({ status: 'done', ...report }); })
       .catch(error => { if (!cancelled) setState({ status: 'error', error: getErrorMessage(error) }); });
     return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [i18n.language, theme, uiScale]);
 
   const download = () => {
     if (state.status !== 'done') return;

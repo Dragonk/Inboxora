@@ -34,7 +34,14 @@ const mkMsg = (overrides = {}) => ({
   ...overrides,
 });
 
-const mkRule = (actions, overrides = {}) => ({
+type RuleAction = {
+  type?: string;
+  value?: string;
+  folder?: string;
+  [key: string]: unknown;
+};
+
+const mkRule = (actions: RuleAction[], overrides = {}) => ({
   id: 'rule-1', user_id: 'user-1', account_id: null, enabled: true,
   stop_processing: false, condition_logic: 'AND',
   conditions: [{ field: 'from', operator: 'contains', value: 'sender@' }],

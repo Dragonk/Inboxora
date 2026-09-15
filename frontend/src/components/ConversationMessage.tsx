@@ -57,6 +57,101 @@ function date(value: string | number | Date | null | undefined): string {
   }) : '';
 }
 
+function text(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined;
+}
+
+function boolean(value: unknown): boolean | undefined {
+  return typeof value === 'boolean' ? value : undefined;
+}
+
+function timestamp(value: unknown): string | number | Date | undefined {
+  return typeof value === 'string' || typeof value === 'number' || value instanceof Date ? value : undefined;
+}
+
+type DeliveryAddress = string | { email?: string | null; address?: string | null };
+
+function deliveryAddresses(value: unknown): DeliveryAddress[] | string | undefined {
+  if (typeof value === 'string') return value;
+  if (!Array.isArray(value)) return undefined;
+
+  const addresses: DeliveryAddress[] = [];
+  for (const entry of value) {
+    if (typeof entry === 'string') {
+      addresses.push(entry);
+      continue;
+    }
+    if (!isRecord(entry)) return undefined;
+
+    const email = entry.email === null ? null : text(entry.email);
+    const address = entry.address === null ? null : text(entry.address);
+    if (email === undefined && address === undefined) return undefined;
+    addresses.push({ email, address });
+  }
+  return addresses;
+}
+
+interface ConversationCopyView {
+  id?: string;
+  accountId?: string;
+  account_id?: string;
+  date?: string | number | Date;
+  folder?: string;
+  fromEmail?: string;
+  from_email?: string;
+  fromName?: string;
+  from_name?: string;
+  hasContactPhoto?: boolean;
+  isRead?: boolean;
+  is_read?: boolean;
+  isStarred?: boolean;
+  is_starred?: boolean;
+  subject?: string;
+  snippet?: string;
+  to?: unknown;
+  cc?: unknown;
+  attachments?: unknown[];
+  deliveryAddresses?: DeliveryAddress[] | string;
+  delivery_addresses?: unknown;
+  listUnsubscribe?: string;
+  list_unsubscribe?: string;
+  unsubscribedAt?: unknown;
+  unsubscribed_at?: unknown;
+  [key: string]: unknown;
+}
+
+function copyView(value: unknown): ConversationCopyView {
+  if (!isRecord(value)) return {};
+
+  return {
+    id: text(value.id),
+    accountId: text(value.accountId),
+    account_id: text(value.account_id),
+    date: timestamp(value.date),
+    folder: text(value.folder),
+    fromEmail: text(value.fromEmail),
+    from_email: text(value.from_email),
+    fromName: text(value.fromName),
+    from_name: text(value.from_name),
+    hasContactPhoto: boolean(value.hasContactPhoto),
+    isRead: boolean(value.isRead),
+    is_read: boolean(value.is_read),
+    isStarred: boolean(value.isStarred),
+    is_starred: boolean(value.is_starred),
+    subject: text(value.subject),
+    snippet: text(value.snippet),
+    to: value.to,
+    cc: value.cc,
+    attachments: Array.isArray(value.attachments) ? value.attachments : undefined,
+    deliveryAddresses: deliveryAddresses(value.deliveryAddresses),
+    delivery_addresses: value.delivery_addresses,
+    listUnsubscribe: text(value.listUnsubscribe),
+    list_unsubscribe: text(value.list_unsubscribe),
+    unsubscribedAt: value.unsubscribedAt,
+    unsubscribed_at: value.unsubscribed_at,
+  };
+}
+
 /** One logical message rendered inside the conversation. */
 interface ConversationMessageProps {
   conversationId: string;
@@ -79,7 +174,9 @@ export default function ConversationMessage({ conversationId, message, selectedC
   const { t } = useTranslation();
   const isMobile = useMobile();
   const { replyDefault, aiActions, setShowAdmin, setAdminTab, blockRemoteImages, imageWhitelist } = useStore();
-  const copy = preferredAccountCopy(message, selectedAccountId, selectedCopyId) || {};
+  const copy = copyView(preferredAccountCopy(message, selectedAccountId, selectedCopyId));
+  const messageSubject = text(message.subject);
+  const messageDate = timestamp(message.messageDate);
   const initialBodyLayoutRef = useRef(onInitialBodyLayout);
   initialBodyLayoutRef.current = onInitialBodyLayout;
   const handleInitialBodyLayout = useCallback(() => initialBodyLayoutRef.current?.(copy.id), [copy.id]);
@@ -98,7 +195,7 @@ export default function ConversationMessage({ conversationId, message, selectedC
   const remoteImages = Boolean(body?.remoteImages ?? body?.remote_images) || !blockRemoteImages || senderAllowsImages;
   const sender = outgoing ? t('conversation.you') : (copy.fromName || copy.fromEmail || t('conversation.unknownSender'));
   const directionLabel = direction === 'outgoing' ? t('conversation.outgoingMessage') : direction === 'incoming' ? t('conversation.incomingMessage') : undefined;
-  const subject = message.subject || copy.subject || t('message.noSubject');
+  const subject = messageSubject || copy.subject || t('message.noSubject');
   const recipient = address(copy.to);
   const summary = String(copy.snippet || '').trim();
   const accountColor = account?.color || 'var(--accent)';
@@ -177,7 +274,7 @@ export default function ConversationMessage({ conversationId, message, selectedC
     if (!win) return;
     const escaped = (value: unknown) => String(value || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const content = bodyHtml ? sanitizeMessageHtml(bodyHtml) : `<pre>${escaped(bodyText)}</pre>`;
-    win.document.write(`<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="script-src 'none'; object-src 'none'; base-uri 'none'"><title>${escaped(subject)}</title></head><body><h1>${escaped(subject)}</h1><p>${escaped(sender)} · ${escaped(date(message.messageDate || copy.date))}</p>${content}</body></html>`);
+    win.document.write(`<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="script-src 'none'; object-src 'none'; base-uri 'none'"><title>${escaped(subject)}</title></head><body><h1>${escaped(subject)}</h1><p>${escaped(sender)} · ${escaped(date(messageDate || copy.date))}</p>${content}</body></html>`);
     win.document.close();
     win.print();
   };
@@ -304,7 +401,7 @@ export default function ConversationMessage({ conversationId, message, selectedC
           </span>
           <span style={{ flexShrink: 0, textAlign: 'right' }}>
             <time style={{ display: 'block', fontSize: 12, color: 'var(--text-tertiary)', whiteSpace: 'nowrap' }}>
-              {date(message.messageDate || copy.date)}
+              {date(messageDate || copy.date)}
             </time>
             {accountLabel && <span style={{
               fontSize: 11, marginTop: 4, display: 'flex', alignItems: 'center',

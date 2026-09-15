@@ -4348,8 +4348,9 @@ function AiActionsTab() {
 
   // Populate once when prefs finish loading, without clobbering in-progress edits.
   useEffect(() => {
-    if (aiActions && items.length === 0) setItems(aiActions.map(a => ({ ...a })));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (aiActions) {
+      setItems(currentItems => currentItems.length === 0 ? aiActions.map(a => ({ ...a })) : currentItems);
+    }
   }, [aiActions]);
   useEffect(() => {
     api.ai.status().then(s => setAiEnabled(!!s?.enabled)).catch(() => setAiEnabled(false));
@@ -6210,6 +6211,22 @@ interface RuleFormData {
 }
 type RulePrefill = { name?: string; fromEmail?: string | null; fromName?: string | null; [key: string]: unknown };
 
+function blankRuleForm(prefill: RulePrefill = {}): RuleFormData {
+  return {
+    name: prefill.name || '',
+    accountId: '',
+    conditionLogic: 'AND',
+    conditions: [{
+      field: 'from',
+      operator: 'contains',
+      value: prefill.fromEmail || prefill.fromName || '',
+    }],
+    actions: [],
+    enabled: true,
+    stopProcessing: false,
+  };
+}
+
 function RulesTab() {
   const { t } = useTranslation();
   const { accounts, folders: storeFolders, setFolders, rulesPreFill, setRulesPreFill } = useStore();
@@ -6258,12 +6275,19 @@ function RulesTab() {
       .catch(() => setLoading(false));
   }, []);
 
+  const openAdd = useCallback((prefill: RulePrefill = {}) => {
+    setFormData(blankRuleForm(prefill));
+    setFormId(null);
+    setFormMode('add');
+    setFormError('');
+  }, []);
+
   useEffect(() => {
     if (rulesPreFill) {
       openAdd(rulesPreFill);
       setRulesPreFill(null);
     }
-  }, [rulesPreFill, setRulesPreFill]); // eslint-disable-line react-hooks/exhaustive-deps -- openAdd is a plain function; adding it would cause infinite re-runs
+  }, [openAdd, rulesPreFill, setRulesPreFill]);
 
   useEffect(() => {
     if (!formMode || !formData?.accountId) return;
@@ -6273,29 +6297,6 @@ function RulesTab() {
       .then(data => setFolders(accountId, data))
       .catch(() => {});
   }, [formMode, formData?.accountId, setFolders]);
-
-  function blankForm(prefill: RulePrefill = {}) {
-    return {
-      name: prefill.name || '',
-      accountId: '',
-      conditionLogic: 'AND',
-      conditions: [{
-        field: 'from',
-        operator: 'contains',
-        value: prefill.fromEmail || prefill.fromName || '',
-      }],
-      actions: [],
-      enabled: true,
-      stopProcessing: false,
-    };
-  }
-
-  function openAdd(prefill: RulePrefill) {
-    setFormData(blankForm(prefill));
-    setFormId(null);
-    setFormMode('add');
-    setFormError('');
-  }
 
   function openEdit(rule: MailRule) {
     const rawActions = Array.isArray(rule.actions) ? rule.actions : [];
