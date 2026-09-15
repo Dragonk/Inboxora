@@ -15,8 +15,12 @@ describe('resolveSelectedAccount: the pinned-to-a-deleted-account bug', () => {
   test('the favicon reads a real number again once the fallback applies', () => {
     // Reproduces the visible symptom. The badge is `byAccount[selected] ?? 0`, so a dead id
     // silently rendered zero while other accounts genuinely had unread mail.
-    const counts = { byAccount: { a: 3, b: 0 }, total: 3 };
-    const faviconFor = id => (id ? (counts.byAccount[id] ?? 0) : counts.total);
+    const counts: { byAccount: Record<string, number>; total: number } = { byAccount: { a: 3, b: 0 }, total: 3 };
+    const faviconFor = (id: string | null): number => {
+      if (id === null) return counts.total;
+      const count = counts.byAccount[id];
+      return typeof count === 'number' ? count : 0;
+    };
     assert.equal(faviconFor('deleted-id'), 0, 'the bug, stated as an assertion');
     assert.equal(faviconFor(resolveSelectedAccount(accounts, 'deleted-id')), 3);
   });

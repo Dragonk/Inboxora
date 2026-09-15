@@ -563,7 +563,7 @@ export const useStore = create<StoreState>()((set, get) => ({
   // Accounts
   accounts: [],
   accountsReady: false, // true once the initial getAccounts() call has resolved
-  setAccounts: (accounts: Array<{ id: string; enabled?: boolean; include_in_unified_inbox?: boolean; [key: string]: unknown }>) =>{
+  setAccounts: (accounts: Array<{ id: string; enabled?: boolean; include_in_unified_inbox?: boolean; [key: string]: unknown }> | undefined) =>{
     if (!Array.isArray(accounts)) return;
     const previous = get().selectedAccountId;
     const selected = resolveSelectedAccount(accounts, previous);
@@ -578,7 +578,8 @@ export const useStore = create<StoreState>()((set, get) => ({
   selectedAccountId: localStorage.getItem('mailflow_selected_account') || null, // '' stored as null
   selectedFolder: localStorage.getItem('mailflow_selected_folder') || 'INBOX',
   messagesRefreshToken: 0, // incremented on every nav click so the effect always re-fires
-  setSelectedAccount: (accountId: string | null, folder = 'INBOX') =>{
+  setSelectedAccount: (accountId: string | null | undefined, folder = 'INBOX') =>{
+    if (accountId === undefined) return;
     localStorage.setItem('mailflow_selected_account', accountId ?? '');
     localStorage.setItem('mailflow_selected_folder', folder);
     return set((state: StoreStateRead) => {

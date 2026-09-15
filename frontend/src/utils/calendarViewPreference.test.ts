@@ -5,19 +5,24 @@ import {
   normalizeCalendarView, readStoredCalendarView, storeCalendarView,
 } from './calendarPreferences.ts';
 
-function stubStorage({ throwOnUse = false } = {}) {
-  const store = new Map();
+type StorageStubOptions = {
+  throwOnUse?: boolean;
+};
+
+function stubStorage({ throwOnUse = false }: StorageStubOptions = {}) {
+  const store = new Map<string, string>();
   Reflect.set(globalThis, 'localStorage', {
-    getItem: key => {
+    getItem: (key: string): string | null => {
       if (throwOnUse) throw new Error('storage blocked');
-      return store.has(key) ? store.get(key) : null;
+      const value = store.get(key);
+      return typeof value === 'string' ? value : null;
     },
-    setItem: (key: string, value: unknown) => {
+    setItem: (key: string, value: string): void => {
       if (throwOnUse) throw new Error('storage blocked');
-      store.set(key, String(value));
+      store.set(key, value);
     },
-    removeItem: key => store.delete(key),
-    clear: () => store.clear(),
+    removeItem: (key: string): void => { store.delete(key); },
+    clear: (): void => { store.clear(); },
   });
   return store;
 }

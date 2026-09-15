@@ -18,7 +18,7 @@ import { query as __mock_query } from '../../services/db.js';
 import { getGtdConfig as __mock_getGtdConfig } from './gtdConfig.js';
 import { resolveAllDraftsPaths as __mock_resolveAllDraftsPaths } from '../../utils/mailUtils.js';
 
-// Cast mocked module exports so their vitest mock helpers type-check.
+// Use Vitest's typed mock views for the module exports.
 const query = vi.mocked(__mock_query);
 const getGtdConfig = vi.mocked(__mock_getGtdConfig);
 const resolveAllDraftsPaths = vi.mocked(__mock_resolveAllDraftsPaths);
@@ -32,13 +32,14 @@ const fakeManager = () => ({ removeMessageCopy: vi.fn().mockResolvedValue({}), b
 // (recognised by message_id = ANY), the owner-address UNION (account_aliases), and the
 // per-thread row load (thread_key = ANY).
 interface MockQueryOptions {
-  owner?: Array<{ addr: string }>;
+  // Query rows cross the database boundary as unknown values; normalization owns validation.
+  owner?: Array<{ addr: unknown }>;
   rows?: Array<Record<string, unknown>>;
   sent?: Array<Record<string, unknown>>;
 }
 
 function mockQuery({ owner = [{ addr: 'me@example.com' }], rows = [], sent = [] }: MockQueryOptions = {}) {
-  query.mockImplementation((sql) => {
+  query.mockImplementation((sql: string) => {
     if (sql.includes('message_id = ANY')) return Promise.resolve({ rows: sent });
     if (sql.includes('account_aliases')) return Promise.resolve({ rows: owner });
     if (sql.includes('thread_key = ANY')) return Promise.resolve({ rows });
@@ -288,9 +289,13 @@ describe('runTransitionsForSentMessage', () => {
     const mgr = fakeManager();
     await runTransitionsForSentMessage(mgr, { ...account, gtd_enabled: true }, '<abc@example.com>');
 
-    const midCall = query.mock.calls.find(([sql]: [string]) => sql.includes('message_id = ANY'));
-    if (!midCall) throw new Error('expected the Message-ID lookup');
-    expect(midCall[1]).toEqual(['acct-1', ['abc@example.com', '<abc@example.com>']]);
+    const midCallIndex = query.mock.calls.findIndex((call) => {
+      const sql = call[0];
+      return typeof sql === 'string' && sql.includes('message_id = ANY');
+    });
+    if (midCallIndex < 0) throw new Error('expected the Message-ID lookup');
+    const [, params] = queryCall(query, midCallIndex);
+    expect(params).toEqual(['acct-1', ['abc@example.com', '<abc@example.com>']]);
     expect(mgr.removeMessageCopy).toHaveBeenCalledWith('acct-1', 81, 'Todo');
     expect(mgr.broadcast).toHaveBeenCalledWith({ type: 'gtd_sections_updated', accountId: 'acct-1' }, 'user-1');
   });
@@ -300,7 +305,10 @@ describe('runTransitionsForSentMessage', () => {
     const mgr = fakeManager();
     await runTransitionsForSentMessage(mgr, { ...account, gtd_enabled: true }, '<notyet@example.com>');
     // Only the Message-ID lookup ran; the engine short-circuits on an empty thread set.
-    expect(query.mock.calls.every(([sql]: [string]) => sql.includes('message_id = ANY'))).toBe(true);
+    expect(query.mock.calls.every((call) => {
+      const sql = call[0];
+      return typeof sql === 'string' && sql.includes('message_id = ANY');
+    })).toBe(true);
     expect(mgr.removeMessageCopy).not.toHaveBeenCalled();
     expect(mgr.broadcast).not.toHaveBeenCalled();
   });

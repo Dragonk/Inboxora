@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import crypto from 'crypto';
 import { query } from '../services/db.js';
+import type { DbRow } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { consume } from '../services/rateLimiter.js';
 import { hashCalendarFeedToken, issueCalendarFeedToken, serializeCalendarFeed } from '../services/calendarFeed.js';
@@ -11,7 +12,7 @@ const PUBLIC_FAILURE_LIMIT = 30;
 const PUBLIC_FAILURE_WINDOW_MS = 60 * 1000;
 const invalidResponse = (res: Response) => res.status(404).type('text').send('Not found');
 
-function compareFeedRows(left, right) {
+function compareFeedRows(left: DbRow, right: DbRow) {
   for (const field of ['starts_at', 'calendar_id', 'id']) {
     const leftValue = String(left[field] ?? '');
     const rightValue = String(right[field] ?? '');

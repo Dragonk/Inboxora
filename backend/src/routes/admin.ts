@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import crypto from 'crypto';
+import type { ConnectionOptions } from 'tls';
 import { query } from '../services/db.js';
 import { requireAdmin } from '../middleware/auth.js';
 import { decrypt, encrypt } from '../services/encryption.js';
@@ -290,7 +291,7 @@ router.post('/invites', async (req, res) => {
         if (cfg.host && cfg.user && pass) {
           const policy = await getConnectionPolicy();
           const sysResolved = await resolveForConnection(cfg.host, { allowPrivate: policy.allowPrivateHosts });
-          const sysTls: Record<string, any> = { rejectUnauthorized: true };
+          const sysTls: ConnectionOptions = { rejectUnauthorized: true };
           if (sysResolved.servername) sysTls.servername = sysResolved.servername;
           transport = createSmtpTransport(sysResolved, {
             port: cfg.port || 587,
@@ -326,7 +327,7 @@ router.post('/invites', async (req, res) => {
         }
         const policy = await getConnectionPolicy();
         const acctResolved = await resolveForConnection(account.smtp_host, { allowPrivate: policy.allowPrivateHosts });
-        const acctTls: Record<string, any> = { rejectUnauthorized: policy.allowInsecureTls ? !account.imap_skip_tls_verify : true };
+        const acctTls: ConnectionOptions = { rejectUnauthorized: policy.allowInsecureTls ? !account.imap_skip_tls_verify : true };
         if (acctResolved.servername) acctTls.servername = acctResolved.servername;
         transport = createSmtpTransport(acctResolved, {
           port: account.smtp_port,
@@ -466,7 +467,7 @@ router.post('/system-email/test', async (req, res) => {
   try {
     const policy = await getConnectionPolicy();
     const testResolved = await resolveForConnection(cfg.host, { allowPrivate: policy.allowPrivateHosts });
-    const testTls: Record<string, any> = { rejectUnauthorized: true };
+    const testTls: ConnectionOptions = { rejectUnauthorized: true };
     if (testResolved.servername) testTls.servername = testResolved.servername;
     const transport = createSmtpTransport(testResolved, {
       port: cfg.port,
@@ -492,7 +493,7 @@ router.delete('/system-email', async (req, res) => {
 // login_match_claim is the OIDC claim name (from the verified id_token) used to match an SSO
 // login to an existing Inboxora account (matched against users.username). Restrict to a safe
 // claim-name charset. Returns the trimmed value, or null if it is not a valid claim name.
-function validateMatchClaim(v) {
+function validateMatchClaim(v: unknown) {
   const c = String(v).trim();
   if (!/^[a-zA-Z0-9_.:-]{1,64}$/.test(c)) return null;
   // Reject object-prototype key names: as a claim they can't name a real IdP claim, and
@@ -569,7 +570,7 @@ router.post('/oidc', async (req, res) => {
 
 // Guard against locking everyone out: if password login is disabled, refuse to
 // disable/delete the last enabled OIDC provider. Returns an error string or null.
-async function wouldLockOut(providerId) {
+async function wouldLockOut(providerId: string) {
   const s = await query("SELECT value FROM system_settings WHERE key = 'internal_auth_disabled'");
   if (s.rows[0]?.value !== 'true') return null; // password login still available
   const others = await query<{ count: string }>(
