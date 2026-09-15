@@ -32,7 +32,7 @@ const vcalendar = (body: string[], exceptions: string[] = []) =>
   ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//test//EN', 'BEGIN:VEVENT', 'UID:CASE', ...body, 'END:VEVENT', ...exceptions, 'END:VCALENDAR'].join(CRLF);
 
 // Every shape where a stored occurrence could plausibly drift from a live expansion.
-const CASES: Record<string, any> = {
+const CASES: Record<string, string[]> = {
   plain: ['DTSTART;TZID=Europe/Warsaw:20260105T090000', 'DTEND;TZID=Europe/Warsaw:20260105T100000', 'RRULE:FREQ=DAILY;COUNT=20', 'SUMMARY:Plain'],
   exdate: ['DTSTART;TZID=Europe/Warsaw:20260105T090000', 'DTEND;TZID=Europe/Warsaw:20260105T100000', 'RRULE:FREQ=DAILY;COUNT=20', 'EXDATE;TZID=Europe/Warsaw:20260107T090000', 'SUMMARY:Exdate'],
   allday: ['DTSTART;VALUE=DATE:20260105', 'DTEND;VALUE=DATE:20260106', 'RRULE:FREQ=WEEKLY;COUNT=6', 'SUMMARY:Allday'],
@@ -45,6 +45,13 @@ const CASES: Record<string, any> = {
 };
 
 const EXCEPTIONS: Record<string, string[]> = {
+  plain: [],
+  exdate: [],
+  allday: [],
+  monthly: [],
+  single: [],
+  singleAllDay: [],
+  inherited: [],
   moved: ['BEGIN:VEVENT', 'UID:CASE', 'RECURRENCE-ID;TZID=Europe/Warsaw:20260112T090000', 'DTSTART;TZID=Europe/Warsaw:20260113T140000', 'DTEND;TZID=Europe/Warsaw:20260113T150000', 'SUMMARY:MovedInstance', 'END:VEVENT'],
   cancelled: ['BEGIN:VEVENT', 'UID:CASE', 'RECURRENCE-ID;TZID=Europe/Warsaw:20260107T090000', 'DTSTART;TZID=Europe/Warsaw:20260107T090000', 'DTEND;TZID=Europe/Warsaw:20260107T100000', 'STATUS:CANCELLED', 'SUMMARY:CancelledInstance', 'END:VEVENT'],
 };
@@ -60,19 +67,26 @@ const BUILT = { from: new Date('2026-01-01T00:00:00Z'), to: new Date('2027-01-01
 // Only the fields the expansion consumes; the rest of the row is irrelevant to correctness.
 function eventRow(raw: string, overrides: Partial<ProjectedEvent> = {}): ProjectedEvent & { raw_ical: string } {
   return {
-    id: overrides.id, uid: 'CASE', raw_ical: raw, summary: overrides.summary ?? null,
+    id: overrides.id, uid: 'CASE', raw_ical: raw, summary: overrides.summary === undefined ? null : overrides.summary,
     description: null, location: null, url: null, organizer: null, attendees: null,
     starts_at: new Date('2026-01-05T08:00:00Z'), ends_at: new Date('2026-01-05T09:00:00Z'), ...overrides,
   };
 }
 
 async function insertEvent(uid: string, raw: string, summary: string, { description = null, location = null }: { description?: string | null; location?: string | null } = {}): Promise<string> {
-  const result = await query(
+  const result = await query<{ id: string }>(
     `INSERT INTO calendar_events (calendar_id, user_id, uid, raw_ical, etag, summary, description, location, starts_at, ends_at, all_day, timezone)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,false,'Europe/Warsaw') RETURNING id`,
     [CALENDAR_ID, USER_ID, uid, raw, `etag-${uid}`, summary, description, location, new Date('2026-01-05T08:00:00Z'), new Date('2026-01-05T09:00:00Z')],
   );
-  return result.rows[0].id as string;
+  const [row] = result.rows;
+  if (row === undefined) throw new Error('Calendar event insertion did not return an id');
+  return row.id;
+}
+
+function timestamp(value: string | Date | undefined): string {
+  if (value === undefined) throw new Error('Projected occurrence is missing a timestamp');
+  return (value instanceof Date ? value : new Date(value)).toISOString();
 }
 
 async function storedOccurrences(eventId: string) {
@@ -84,13 +98,13 @@ async function storedOccurrences(eventId: string) {
     [eventId, WINDOW.from, WINDOW.to],
   );
   return result.rows
-    .map(row => `${new Date(row.starts_at).toISOString()}|${new Date(row.ends_at).toISOString()}|${row.summary}|${row.all_day}|${row.description}|${row.location}`)
+    .map(row => `${timestamp(row.starts_at)}|${timestamp(row.ends_at)}|${row.summary}|${row.all_day}|${row.description}|${row.location}`)
     .sort();
 }
 
 function liveOccurrences(eventId: string, raw: string, summary: string) {
   return projectCalendarResource(eventRow(raw, { id: eventId, summary }), WINDOW.from, WINDOW.to)
-    .map(row => `${new Date(row.starts_at).toISOString()}|${new Date(row.ends_at).toISOString()}|${row.summary}|${row.all_day}|${row.description}|${row.location}`)
+    .map(row => `${timestamp(row.starts_at)}|${timestamp(row.ends_at)}|${row.summary}|${row.all_day}|${row.description}|${row.location}`)
     .sort();
 }
 
@@ -117,7 +131,7 @@ describeOrSkip('materialised calendar occurrences', () => {
   // The invariant the whole design rests on: what is stored is what the live path would have
   // produced. If this fails, materialisation is silently showing a different calendar.
   it.each(Object.keys(CASES))('stores exactly what a live expansion of %s would produce', async name => {
-    const raw = vcalendar(CASES[name], EXCEPTIONS[name] ?? []);
+    const raw = vcalendar(CASES[name], EXCEPTIONS[name]);
     const eventId = await insertEvent(`occ-${name}`, raw, name);
     await materializeEvent(eventId, BUILT);
 
