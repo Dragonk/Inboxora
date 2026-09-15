@@ -13,15 +13,15 @@
 // generated on the phone as "<base>/<up-topic>?up=1", so this value is what the
 // settings screen shows and what the user enters into ntfy.
 
-function trimTrailingSlashes(value) {
+function trimTrailingSlashes(value: unknown): string {
   return typeof value === 'string' ? value.trim().replace(/\/+$/, '') : '';
 }
 
-export function configuredAppUrl() {
+export function configuredAppUrl(): string {
   return trimTrailingSlashes(process.env.APP_URL);
 }
 
-export function pushBaseUrl() {
+export function pushBaseUrl(): string | null {
   const explicit = trimTrailingSlashes(process.env.PUSH_BASE_URL);
   if (explicit) return explicit;
   return configuredAppUrl() || null;
@@ -29,6 +29,6 @@ export function pushBaseUrl() {
 
 // Off by default: a logged-in user must not be able to aim the server at an
 // internal address (SSRF). Self-hosted LAN installs opt in.
-export function allowPrivatePushEndpoints() {
+export function allowPrivatePushEndpoints(): boolean {
   return process.env.PUSH_ALLOW_PRIVATE_ENDPOINTS === 'true';
 }

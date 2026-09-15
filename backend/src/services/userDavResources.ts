@@ -1,9 +1,10 @@
 // Provision the local DAV collections that belong to every Inboxora user.
 // The caller supplies a transaction client so a new account and its DAV resources
 // either commit together or roll back together.
-export async function ensureUserDavResources(client, userId: string) {
+import type { DbClient } from './db.js';
+
+export async function ensureUserDavResources(client: DbClient, userId: string): Promise<void> {
   if (!userId) throw new Error('User id is required');
-  if (!client?.query) throw new Error('A database client is required');
 
   await client.query(
     `INSERT INTO address_books (user_id, name, source)

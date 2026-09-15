@@ -4,7 +4,7 @@ import { createClient } from 'redis';
 // Unix socket connections require socket: { path } instead of a URL.
 // This helper routes socket URIs (redis+unix://, unix://, redis+socket://)
 // and bare absolute paths to socket.path; everything else passes through as-is.
-function redisOptions(rawUrl) {
+function redisOptions(rawUrl: string | undefined) {
   if (!rawUrl) return { url: 'redis://redis:6379' };
   const socketSchemes = ['redis+unix://', 'unix://', 'redis+socket://'];
   if (rawUrl.startsWith('/') || socketSchemes.some(s => rawUrl.startsWith(s))) {

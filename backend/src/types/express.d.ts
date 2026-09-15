@@ -2,8 +2,9 @@
 // (DAV credentials, push device). Declared here so routes stay typed.
 import 'express-serve-static-core';
 
-declare module 'express-serve-static-core' {
-  interface Request {
+declare global {
+  namespace Express {
+    interface Request {
     caldavCredentialId?: string;
     caldavUserId?: string;
     cardavCredentialId?: string;
@@ -17,5 +18,8 @@ declare module 'express-serve-static-core' {
       transport: string;
       [key: string]: unknown;
     };
+    }
   }
 }
+
+export {};
