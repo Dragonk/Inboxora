@@ -31,7 +31,7 @@ describe('inbound calendar invitations', () => {
   });
 
   it('rejects mixed time representations and ambiguous or nonexistent local wall times', () => {
-    const event = (start, end) => `BEGIN:VCALENDAR\r\nVERSION:2.0\r\nMETHOD:REQUEST\r\nBEGIN:VEVENT\r\nUID:meeting-123\r\nSEQUENCE:0\r\nDTSTAMP:20260901T070000Z\r\n${start}\r\n${end}\r\nORGANIZER:mailto:taylor@example.test\r\nATTENDEE:mailto:sam@example.test\r\nEND:VEVENT\r\nEND:VCALENDAR`;
+    const event = (start: string, end: string) => `BEGIN:VCALENDAR\r\nVERSION:2.0\r\nMETHOD:REQUEST\r\nBEGIN:VEVENT\r\nUID:meeting-123\r\nSEQUENCE:0\r\nDTSTAMP:20260901T070000Z\r\n${start}\r\n${end}\r\nORGANIZER:mailto:taylor@example.test\r\nATTENDEE:mailto:sam@example.test\r\nEND:VEVENT\r\nEND:VCALENDAR`;
 
     expect(parseInboundCalendarInvitation(event('DTSTART;TZID=Europe/Berlin:20261025T023000', 'DTEND:20261025T023000Z'))).toBeNull();
     expect(parseInboundCalendarInvitation(event('DTSTART;TZID=Europe/Berlin:20261025T023000', 'DTEND;TZID=Europe/Berlin:20261025T033000'))).toBeNull();

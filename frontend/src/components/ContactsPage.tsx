@@ -874,11 +874,13 @@ function ContactDetail({ contact: c, confirmDelete, saving, error, onEdit, onDel
         c.anniversary && { label: 'Anniversary', value: String(c.anniversary).slice(0, 10) },
       ].filter((date): date is { label: string; value: string } => Boolean(date));
   const primaryEmail = c.primary_email || c.emails?.[0]?.value || '';
+  const isReadOnly = c.read_only === true;
+  const isAuto = c.is_auto === true;
 
   return (
     <div style={{ width: '100%', maxWidth: 600, position: 'relative', animation: 'pane-fade-in var(--motion-normal) var(--ease-emphasized) both' }}>
       {/* Actions wrap above the contact heading so long names remain readable. */}
-      {!c.read_only && (
+      {!isReadOnly && (
         <div style={{ display: 'flex', justifyContent: 'flex-end', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
           <ActionBtn onClick={onEdit}>{t('common.edit')}</ActionBtn>
           <ActionBtn onClick={onDeleteRequest} danger>{t('common.delete')}</ActionBtn>
@@ -903,9 +905,9 @@ function ContactDetail({ contact: c, confirmDelete, saving, error, onEdit, onDel
           )}
           {/* Context chips (CardDAV provenance, last contact) sit in flow below the name
               so they can never overlap it, whatever their translated width. */}
-          {(c.read_only || c.last_sent) && (
+          {(isReadOnly || c.last_sent) && (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 7 }}>
-              {c.read_only && (
+              {isReadOnly && (
                 <span style={contactStatChip}>{t('contacts.carddavBadge')}</span>
               )}
               {c.last_sent && (
@@ -913,7 +915,7 @@ function ContactDetail({ contact: c, confirmDelete, saving, error, onEdit, onDel
               )}
             </div>
           )}
-          {c.is_auto && (
+          {isAuto && (
             <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 4 }}>{t('contacts.autoHint')}</div>
           )}
         </div>
@@ -944,11 +946,15 @@ function ContactDetail({ contact: c, confirmDelete, saving, error, onEdit, onDel
         <div>
           {(c.emails && c.emails.length > 0) && (
             <DetailSection label={t('contacts.fields.email')}>
-              {(c.emails || []).map((e, i) => (
-                <DetailRow key={i} icon={fieldIcon.mail} type={t(`contacts.emailTypes.${e.type || 'other'}`, { defaultValue: t('contacts.emailTypes.other') })}>
-                  <a href={`mailto:${e.value}`} onClick={event => { event.preventDefault(); openCompose({ to: [{ email: e.value }] }); }} style={{ color: 'var(--accent)', textDecoration: 'none' }}>{e.value}</a>
-                </DetailRow>
-              ))}
+              {(c.emails || []).map((e, i) => {
+                const email = e.value;
+                if (typeof email !== 'string') return null;
+                return (
+                  <DetailRow key={i} icon={fieldIcon.mail} type={t(`contacts.emailTypes.${e.type || 'other'}`, { defaultValue: t('contacts.emailTypes.other') })}>
+                    <a href={`mailto:${email}`} onClick={event => { event.preventDefault(); openCompose({ to: [{ email }] }); }} style={{ color: 'var(--accent)', textDecoration: 'none' }}>{email}</a>
+                  </DetailRow>
+                );
+              })}
             </DetailSection>
           )}
           {(c.phones && c.phones.length > 0) && (

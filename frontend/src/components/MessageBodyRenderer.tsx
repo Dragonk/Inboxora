@@ -155,22 +155,26 @@ export default function MessageBodyRenderer({ html = '', text = '', remoteImages
       }
       onQuoteDetected?.(quoteResult.count > 0);
       const images = [...doc.images];
-      const onDocumentClick = (event) => {
-        const anchor = event.target?.closest?.('a');
-        if (!anchor) return;
+      const onDocumentClick = (event: MouseEvent) => {
+        const target = event.target;
+        if (!(target instanceof Element)) return;
+        const anchor = target.closest('a');
+        if (!(anchor instanceof HTMLAnchorElement)) return;
         const raw = anchor.getAttribute('href') || '';
-        let url;
+        let url: URL;
         try { url = new URL(raw, window.location.href); } catch { event.preventDefault(); return; }
         if (url.protocol === 'https:' || url.protocol === 'mailto:') {
           event.preventDefault();
           window.open(url.href, '_blank', 'noopener,noreferrer');
         } else event.preventDefault();
       };
-      const onDocumentContextMenu = event => {
-        if (!onContextMenu) return;
+      const onDocumentContextMenu = (event: MouseEvent) => {
+        if (onContextMenu === null) return;
         const target = event.target;
-        const selection = doc.getSelection?.().toString() || '';
-        if (target?.closest?.('a[href], img, input, textarea, select, button, [role="button"], [contenteditable="true"], [contenteditable=""]')) return;
+        if (!(target instanceof Element)) return;
+        const selectionObject = doc.getSelection();
+        const selection = selectionObject === null ? '' : selectionObject.toString();
+        if (target.closest('a[href], img, input, textarea, select, button, [role="button"], [contenteditable="true"], [contenteditable=""]')) return;
         event.preventDefault();
         const rect = iframe.getBoundingClientRect();
         onContextMenu({ x: rect.left + event.clientX, y: rect.top + event.clientY, selectedText: selection });

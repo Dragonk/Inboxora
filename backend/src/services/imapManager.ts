@@ -1256,11 +1256,14 @@ export function makeClientCfg(account: EmailAccountRow, resolved: ResolvedConnec
     tlsOpts.autoSelectFamily = true;
     tlsOpts.autoSelectFamilyAttemptTimeout = 1000;
   }
+  const password = decrypt(account.auth_pass);
+  const passwordAuth: ImapClientCfg['auth'] = { user: account.auth_user || account.email_address || '' };
+  if (typeof password === 'string') passwordAuth.pass = password;
   const cfg: ImapClientCfg = {
     host: resolved.lookup && resolved.servername ? resolved.servername : resolved.host,
     port: account.imap_port ?? 993,
     secure: account.imap_tls ?? true,
-    auth: { user: account.auth_user || account.email_address || '', pass: decrypt(account.auth_pass) },
+    auth: passwordAuth,
     logger: false,
     tls: tlsOpts,
     // Prevent IMAP commands from hanging forever on half-open TCP connections.
@@ -1278,10 +1281,13 @@ export function makeClientCfg(account: EmailAccountRow, resolved: ResolvedConnec
   // OAuth2 XOAUTH2 for Gmail and Microsoft
   if ((account.oauth_provider === 'google' || account.oauth_provider === 'microsoft')
       && account.oauth_access_token) {
-    cfg.auth = {
-      user: account.auth_user || account.email_address || '',
-      accessToken: decrypt(account.oauth_access_token),
-    };
+    const accessToken = decrypt(account.oauth_access_token);
+    if (typeof accessToken === 'string') {
+      cfg.auth = {
+        user: account.auth_user || account.email_address || '',
+        accessToken,
+      };
+    }
   }
   return cfg;
 }

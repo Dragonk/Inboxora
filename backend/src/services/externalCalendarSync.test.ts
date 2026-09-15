@@ -180,7 +180,12 @@ it('persists the full visible metadata on external synchronization', async () =>
 
   it('aborts an in-flight fetch when the source is stopped without persisting removal as an error', async () => {
     query.mockResolvedValueOnce({ rows: [source] }).mockResolvedValue({ rows: [] });
-    safeFetch.mockImplementation((_url, { signal }) => new Promise((_resolve, reject) => {
+    safeFetch.mockImplementation((_url: string, options: { signal?: AbortSignal }) => new Promise<void>((_resolve, reject) => {
+      const { signal } = options;
+      if (!(signal instanceof AbortSignal)) {
+        reject(new Error('Expected an AbortSignal'));
+        return;
+      }
       signal.addEventListener('abort', () => reject(signal.reason), { once: true });
     }));
 
@@ -197,7 +202,8 @@ it('persists the full visible metadata on external synchronization', async () =>
 });
 
 it.each(['ical_url', 'caldav'])('removes the previous projection for a validated empty %s collection', async kind => {
-  query.mockReset(); query.mockResolvedValue({ rows: [] }).mockResolvedValueOnce({ rows: [{ ...source, id: `empty-${kind}`, kind }] }).mockResolvedValueOnce({ rows: [{ id: 'calendar-1' }] });
+  const credentials = kind === 'caldav' ? { username: 'calendar-user', password: 'enc:v1:calendar-password' } : {};
+  query.mockReset(); query.mockResolvedValue({ rows: [] }).mockResolvedValueOnce({ rows: [{ ...source, ...credentials, id: `empty-${kind}`, kind }] }).mockResolvedValueOnce({ rows: [{ id: 'calendar-1' }] });
   getConnectionPolicy.mockResolvedValue({ allowPrivateHosts: false });
   safeFetch.mockResolvedValue({ ok: true, text: async () => kind === 'caldav' ? '<D:multistatus xmlns:D="DAV:"/>' : 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nEND:VCALENDAR\r\n' });
   expect(await syncCalendarSource('user-1', `empty-${kind}`)).toEqual({ ok: true, eventCount: 0 });

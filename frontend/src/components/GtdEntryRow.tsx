@@ -19,6 +19,10 @@ import { formatDate } from '../utils/formatDate.ts';
 // read-weight, and the two treatments that differ by surface — the unread cue and
 // whether the subject brightens when unread). Nothing here is a restyle; the two
 // tables reproduce each surface's prior pixels exactly.
+function isGtdColorState(value: string): value is keyof typeof GTD_COLORS {
+  return Object.prototype.hasOwnProperty.call(GTD_COLORS, value);
+}
+
 const ROW_VARIANTS = {
   // GTD tab browse list: roomier rows, an unread dot, and an unread-aware subject.
   list: {
@@ -65,6 +69,8 @@ export default function GtdEntryRow({
   const v = ROW_VARIANTS[variant];
   const isWaiting = sectionKey === 'waiting';
   const { rowState, unread, days, stale, sender } = resolveRowDisplay(thread, sectionKey);
+  const rowColor = isGtdColorState(rowState) ? GTD_COLORS[rowState] : undefined;
+  const rowChipBackground = isGtdColorState(rowState) ? GTD_CHIP_BG[rowState] : undefined;
 
   // The hover cluster renders only when the caller passes renderHoverActions — both
   // surfaces do, except the list surface omits it when the hoverQuickActions preference
@@ -83,7 +89,7 @@ export default function GtdEntryRow({
         // (hoverQuickActions off, on the list surface) renders byte-identically static.
         ...(trackHover ? { position: 'relative' } : {}),
         padding: v.padding, borderBottom: v.borderBottom,
-        cursor: 'pointer', borderLeft: `2px solid ${GTD_COLORS[rowState] || 'transparent'}`,
+        cursor: 'pointer', borderLeft: `2px solid ${rowColor || 'transparent'}`,
         background: selected ? 'var(--bg-tertiary)' : 'transparent',
       }}
       onMouseEnter={ (e: React.MouseEvent<HTMLElement>) => { if (trackHover) setHovered(true); if (!selected) e.currentTarget.style.background = 'var(--bg-hover)'; }}
@@ -105,8 +111,8 @@ export default function GtdEntryRow({
         {isWaiting && days != null && (
           <span style={{
             fontSize: 10, fontWeight: 600, padding: '0 5px', borderRadius: 7, flexShrink: 0,
-            color: stale ? '#ff9b9b' : GTD_COLORS[rowState],
-            background: stale ? 'rgba(248,113,113,.16)' : GTD_CHIP_BG[rowState],
+            color: stale ? '#ff9b9b' : rowColor,
+            background: stale ? 'rgba(248,113,113,.16)' : rowChipBackground,
           }}>
             {agingLabel(days)}
           </span>
