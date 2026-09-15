@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 
-const source = (path) => readFile(new URL(path, import.meta.url), 'utf8');
+const source = (path: string) => readFile(new URL(path, import.meta.url), 'utf8');
 
 test('calendar preferences have their own tab and mobile navigation is global', async () => {
   const [adminPanel, calendar] = await Promise.all([

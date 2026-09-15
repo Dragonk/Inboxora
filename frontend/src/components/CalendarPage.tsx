@@ -318,7 +318,7 @@ export default function CalendarPage({ isActive = true }) {
   const [deleteTarget, setDeleteTarget] = useState<CalendarDeleteTarget | null>(null);
   const [contextMenu, setContextMenu] = useState<{ event: CalendarViewEvent; x: number; y: number; triggerRef: { current: unknown } } | null>(null);
   const days = view === 'month' ? calendarDays(anchor, calendarWeekStartsOn) : weekDays(anchor, view === 'workweek', calendarWeekStartsOn, calendarWorkDays);
-  const visibleEvents = visibleCalendarIds == null ? events : events.filter(event => visibleCalendarIds.includes(event.calendar_id));
+  const visibleEvents = visibleCalendarIds == null ? events : events.filter(event => typeof event.calendar_id === 'string' && visibleCalendarIds.includes(event.calendar_id));
   // One parse-and-bucket pass per event list, reused by every day cell and every
   // render, instead of re-filtering and re-sorting the whole array per day.
   const dayEventsFor = useMemo(() => createDayEventsResolver(visibleEvents), [visibleEvents]);

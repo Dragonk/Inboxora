@@ -116,7 +116,7 @@ export default function ElectronNotificationBridge() {
   const setSelectedMessage = useStore((state: StoreState) => state.setSelectedMessage);
   const setSearchQuery = useStore((state: StoreState) => state.setSearchQuery);
   const totalUnread = useStore((state: StoreState) => state.unreadCounts.total);
-  const lastActionRef = useRef({ action: null, time: 0 });
+  const lastActionRef = useRef<{ action: NativeAction | null; time: number }>({ action: null, time: 0 });
   const processedActionIdsRef = useRef(createBoundedActionIdTracker());
   const [nativeBridgeReady, setNativeBridgeReady] = useState(() => Boolean(window.inboxoraNative));
 

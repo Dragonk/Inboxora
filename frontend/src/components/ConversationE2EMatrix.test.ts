@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { readFileSync } from 'node:fs';
 
-const read = name => readFileSync(new URL(`./${name}`, import.meta.url), 'utf8');
+const read = (name: string) => readFileSync(new URL(`./${name}`, import.meta.url), 'utf8');
 describe('native conversation 2x2 contract', () => {
   it('keeps one native list and one native pane for every preference pair', () => {
     const app = read('MailApp.tsx'); const list = read('MessageList.tsx');

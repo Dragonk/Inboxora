@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { readFileSync } from 'node:fs';
 
-const read = name => readFileSync(new URL(`./${name}`, import.meta.url), 'utf8');
+const read = (name: string) => readFileSync(new URL(`./${name}`, import.meta.url), 'utf8');
 
 describe('conversation reader final UX contract', () => {
   it('renders no body for collapsed cards and keeps quote folding inside expanded content', () => {
