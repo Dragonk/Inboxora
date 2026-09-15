@@ -15,7 +15,7 @@
 //  - render   — (ctx) => ReactNode. ctx is the slot's documented data contract.
 
 /** A slot's context contract is plugin-defined, so it stays an open record. */
-type SlotContext = Record<string, any>;
+type SlotContext = Record<string, unknown>;
 
 /** A slot contribution as a plugin registers it. */
 interface SlotContribution {
@@ -49,8 +49,18 @@ export function getSlotContributions(slotName: string): RegisteredSlotContributi
 // Static per-plugin metadata a plugin declares about itself, so core never hardcodes plugin facts.
 // e.g. settingsLocation: { tab, subtab, labelKey } tells the Plugins tab where a plugin's own
 // settings live, replacing core's former hardcoded PLUGIN_SETTINGS_LOCATION map.
-/** Per-plugin metadata is plugin-defined, so it stays an open record. */
-type PluginMeta = Record<string, any>;
+/** A plugin-owned Settings location that core can present as a navigation link. */
+interface PluginSettingsLocation {
+  tab: string;
+  subtab?: string;
+  labelKey: string;
+}
+
+/** Per-plugin metadata is open, with the core-consumed navigation field declared. */
+interface PluginMeta {
+  settingsLocation?: PluginSettingsLocation;
+  [key: string]: unknown;
+}
 const pluginMeta = new Map<string, PluginMeta>(); // pluginId -> meta object
 
 export function registerPluginMeta(pluginId: string, meta: PluginMeta): void {
@@ -80,10 +90,21 @@ export function getRuntimes(): RegisteredRuntime[] {
 // items. Unlike slots (which render), a collector's `build(ctx)` returns plain descriptor arrays that
 // core renders with its OWN chrome (so placement/styling stay consistent). Gathered via
 // usePluginCollected, activation-gated.
+/** A context-menu action supplied by a plugin and rendered by the core menu chrome. */
+export interface PluginMenuAction {
+  label: React.ReactNode;
+  icon?: React.ReactNode;
+  danger?: boolean;
+  disabled?: boolean;
+  hasSubmenu?: boolean;
+  keepOpen?: boolean;
+  action: () => void;
+}
+
 /** A collector contribution: plugin id plus the builder core calls with the collector context. */
 interface CollectorContribution {
   pluginId: string;
-  build: (ctx: SlotContext) => any[] | null | undefined;
+  build: (ctx: SlotContext) => PluginMenuAction[] | null | undefined;
   [key: string]: unknown;
 }
 const collectors = new Map<string, CollectorContribution[]>(); // name -> [{ pluginId, build }]

@@ -16,7 +16,7 @@ export async function sendSystemEmail({ to, subject, text, html = undefined }: {
   // private IP can send verification/2FA codes and invites (#358); off by default.
   const policy = await getConnectionPolicy();
   const resolved = await resolveForConnection(cfg.host, { allowPrivate: policy.allowPrivateHosts });
-  const tls: Record<string, any> = { rejectUnauthorized: true };
+  const tls: Record<string, unknown> = { rejectUnauthorized: true };
   if (resolved.servername) tls.servername = resolved.servername;
   const transport = createSmtpTransport(resolved, {
     port: cfg.port || 587,

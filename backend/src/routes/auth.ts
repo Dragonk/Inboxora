@@ -1133,7 +1133,7 @@ router.post('/forgot-password', authLimiter, async (req, res) => {
           if (cfg.host && cfg.user && pass) {
             const policy = await getConnectionPolicy();
             const sysResolved = await resolveForConnection(cfg.host, { allowPrivate: policy.allowPrivateHosts });
-            const sysTls: Record<string, any> = { rejectUnauthorized: true };
+            const sysTls: Record<string, unknown> = { rejectUnauthorized: true };
             if (sysResolved.servername) sysTls.servername = sysResolved.servername;
             transport = createSmtpTransport(sysResolved, {
               port: cfg.port || 587,
@@ -1167,7 +1167,7 @@ router.post('/forgot-password', authLimiter, async (req, res) => {
           }
           const policy = await getConnectionPolicy();
           const acctResolved = await resolveForConnection(acct.smtp_host, { allowPrivate: policy.allowPrivateHosts });
-          const acctTls: Record<string, any> = { rejectUnauthorized: policy.allowInsecureTls ? !acct.imap_skip_tls_verify : true };
+          const acctTls: Record<string, unknown> = { rejectUnauthorized: policy.allowInsecureTls ? !acct.imap_skip_tls_verify : true };
           if (acctResolved.servername) acctTls.servername = acctResolved.servername;
           transport = createSmtpTransport(acctResolved, {
             port: acct.smtp_port,

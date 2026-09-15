@@ -20,7 +20,7 @@ export function sanitizeThemeMode(value: unknown): string | null {
   return typeof value === 'string' && THEME_MODES.includes(value) ? value : null;
 }
 
-export function sanitizeThemePrefs(body: Record<string, any> = {}) {
+export function sanitizeThemePrefs(body: Record<string, unknown> = {}) {
   return {
     themeMode: sanitizeThemeMode(body.themeMode),
     themeLight: sanitizeThemeName(body.themeLight),

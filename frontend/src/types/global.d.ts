@@ -143,10 +143,9 @@ declare module 'react' {
 
   // The installed React 18 type definitions predate the inert attribute, which the
   // mobile sidebar relies on to keep hidden content out of the a11y tree.
-  // The type parameter must be named exactly 'T' (and stay "unused"): interface
-  // merging requires identical type parameter lists.
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  // Declaration merging retains React's `T` parameter. The attribute applies to
+  // HTML elements, so constrain its availability to element-backed attributes.
   interface HTMLAttributes<T> {
-    inert?: boolean;
+    inert?: T extends HTMLElement ? boolean : never;
   }
 }

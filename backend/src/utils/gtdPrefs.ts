@@ -43,7 +43,7 @@ function sanitizePetSlug(value: unknown): string | null {
   return PET_SLUG_RE.test(s) ? s : null;
 }
 
-export function sanitizeGtdPrefs(body: Record<string, any> = {}) {
+export function sanitizeGtdPrefs(body: Record<string, unknown> = {}) {
   return {
     gtdCollapsedSections: sanitizeCollapsed(body.gtdCollapsedSections),
     gtdPetSlug: sanitizePetSlug(body.gtdPetSlug),

@@ -8,7 +8,7 @@ import { useEffect, useLayoutEffect, useRef, useCallback, useState } from 'react
 import { useTranslation } from 'react-i18next';
 import { useStore, selectSelectedMessageMid } from '../store/index.ts';
 import { api } from '../utils/api.ts';
-import { LAYOUTS, localizedLayout } from '../layouts.ts';
+import { LAYOUTS, localizedLayout, normalizeLayout } from '../layouts.ts';
 import { senderColor } from '../themes.ts';
 import { useMobile } from '../hooks/useMobile.ts';
 import { isAccountInUnifiedInbox } from '../utils/unifiedInbox.ts';
@@ -191,7 +191,7 @@ export default function MessageList() {
   const searchPageSize = Math.max(1, Math.min(Number(pageSize) || 50, 200));
   const undoableNotifications = notifications.filter(n => n.onUndo);
 
-  const currentLayout = LAYOUTS[layout as keyof typeof LAYOUTS] || LAYOUTS.comfortable;
+  const currentLayout = LAYOUTS[normalizeLayout(layout)];
   const isColumn = currentLayout.direction === 'column';
   const isNarrow = !isColumn && (currentLayout.listWidth === null || currentLayout.listWidth <= 260);
 
@@ -447,7 +447,7 @@ export default function MessageList() {
   // Collapse any open thread when the message list resets
   useEffect(() => {
     setExpandedThreadId(null);
-  }, [messagesRefreshToken]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [messagesRefreshToken, setExpandedThreadId]);
 
   // Reset and load fresh when account/folder/filter changes
   useEffect(() => {
@@ -4091,10 +4091,15 @@ function UndoBar({ notification, onDismiss, showTopBorder }: UndoBarProps) {
   const { t } = useTranslation();
   const [exiting, setExiting] = useState(false);
 
-  const dismiss = () => {
+  const onDismissRef = useRef(onDismiss);
+  useEffect(() => {
+    onDismissRef.current = onDismiss;
+  }, [onDismiss]);
+
+  const dismiss = useCallback(() => {
     setExiting(true);
-    setTimeout(onDismiss, 190);
-  };
+    setTimeout(() => onDismissRef.current(), 190);
+  }, []);
 
   const handleUndo = () => {
     notification.onUndo?.();
@@ -4102,9 +4107,9 @@ function UndoBar({ notification, onDismiss, showTopBorder }: UndoBarProps) {
   };
 
   useEffect(() => {
-    const timer = setTimeout(dismiss, notification.undoDurationMs || UNDO_WINDOW_MS);
+    const timer = setTimeout(dismiss, notification.undoDurationMs ?? UNDO_WINDOW_MS);
     return () => clearTimeout(timer);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [dismiss, notification.undoDurationMs]);
 
   return (
     <div

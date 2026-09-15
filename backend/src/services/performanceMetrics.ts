@@ -40,7 +40,9 @@ function percentile(h: Histogram, p: number): number {
   return Math.round(h.maxMs);
 }
 
-const httpRoutes: Record<string, any> = Object.create(null); // routeKey -> { h, errors }
+interface HttpRouteMetric { h: Histogram; errors: number }
+
+const httpRoutes: Record<string, HttpRouteMetric> = Object.create(null); // routeKey -> { h, errors }
 const db = newHisto();
 let dbSlow = 0;
 

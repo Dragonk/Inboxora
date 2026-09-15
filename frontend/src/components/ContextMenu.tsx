@@ -6,6 +6,7 @@ import { useStore } from '../store/index.ts';
 import { api } from '../utils/api.ts';
 import { getContextMenuPolicy, resolveContextMenuMessage } from '../utils/contextMenuPolicy.ts';
 import { usePluginCollected } from '../plugins/PluginSlot.tsx';
+import type { PluginMenuAction } from '../plugins/registry.ts';
 import MessageHeaderModal from './MessageHeaderModal.tsx';
 import { useUiScale, descale } from '../hooks/useUiScale.ts';
 import { useMobile } from '../hooks/useMobile.ts';
@@ -184,7 +185,7 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
     t,
   });
 
-  const items = [
+  const items: Array<{ group: string; actions: PluginMenuAction[] }> = [
     ...(isMessagePane ? [
       {
         group: 'Reading',

@@ -26,14 +26,14 @@ migration itself into an audit: the same work removed latent defects rather than
 
 ### Changed
 
-- **Backend and frontend sources are 100% TypeScript** — `backend/src` 311 `.ts` files,
-  `frontend/src` 239 `.ts`/`.tsx` files, **0 `.js`/`.jsx`**; Playwright specs and
-  configuration are `.ts` as well.
-- Both projects type-check cleanly (`tsc --noEmit` → 0 errors) and lint cleanly with
-  `--max-warnings 0`.
-- **No type-checking suppressions remain**: 0 files with `@ts-nocheck`, `@ts-ignore` or
-  `@ts-expect-error`, and 0 `any` occurrences outside one deliberately documented boundary alias
-  (`DbRow` in `backend/src/services/db.ts`, the dynamic-SQL row type).
+- **Backend and frontend sources are 100% TypeScript** — `backend/src` 312 `.ts` files and
+  `frontend/src` 239 `.ts`/`.tsx` files, with **0 `.js`/`.jsx`** implementation files; Playwright
+  specs and configuration are `.ts` as well.
+- Both projects type-check cleanly in default strict mode (`tsc --noEmit` → 0 errors) and lint
+  cleanly with `--max-warnings 0`.
+- **No type-safety escape hatches remain**: 0 TypeScript suppression pragmas, 0 ESLint-disable
+  pragmas and 0 explicit unsafe `any` escapes. `DbRow` is `Record<string, unknown>`, so dynamic
+  SQL consumers declare or narrow every column they read.
 - The backend is built with `tsc -p tsconfig.build.json` into `dist/`; `npm start` runs
   `node dist/index.js`, `npm run dev` runs `tsx watch src/index.ts`, and the Docker image
   builds and runs from `dist/`. The frontend entry is `frontend/src/main.tsx`; the Vite build
@@ -81,12 +81,13 @@ Real defects found while typing the code — each is something JavaScript could 
   `type DbRow = any`; it is `Record<string, unknown>`, and the ~350 call sites that read dynamic
   rows now declare the columns they actually use. This was the single largest source of hidden
   type errors, and removing it surfaced **79 real backend findings** that `any` had been hiding.
-- **`strict` and `noImplicitAny` are now enforced configurations** — `tsconfig.strict.json` in
-  both projects — and the code is type-checked against them. They are **not yet clean**:
-  `npx tsc -p tsconfig.strict.json --noEmit` reports **837** findings in `backend/src` and
-  **852** in `frontend/src` (**1689** total), dominated by untyped function parameters
-  (`noImplicitAny`). Every finding is a real one; none is suppressed. Finishing them is the
-  documented follow-up in `docs/wiki/Release-notes-4.0.1.md`.
+- **Strict TypeScript is enforced by default.** The primary `tsconfig.json` in both projects
+  enables `strict` and `noImplicitAny`; `npm run typecheck` and the compatibility
+  `npm run typecheck:strict` command both report **0 errors** in backend and frontend. CI runs
+  the strict typecheck before lint, tests and builds.
+- **No type-safety escape hatches remain.** Source contains 0 TypeScript suppression pragmas,
+  0 ESLint-disable pragmas and 0 explicit `any`/`as any` boundary escapes. Dynamic data is
+  represented as `unknown` and narrowed at its boundary.
 
 
 ## [4.0.0] - 2026-09-11

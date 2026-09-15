@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.ts';
 import { useMobile } from '../hooks/useMobile.ts';
@@ -8,8 +8,8 @@ export default function NotificationToasts() {
   const { notifications, removeNotification } = useStore();
   const isMobile = useMobile();
 
-  const undoable = notifications.filter(n => n.onUndo);
-  const regular  = notifications.filter(n => !n.onUndo);
+  const undoable = notifications.filter(notification => notification.onUndo);
+  const regular = notifications.filter(notification => !notification.onUndo);
 
   if (isMobile) {
     return (
@@ -49,7 +49,7 @@ export default function NotificationToasts() {
 
 /** A toast notification as the toasts render it. */
 interface ToastNotification {
-  id?: string;
+  id: string;
   title?: string | null;
   body?: string | null;
   type?: string | null;
@@ -64,11 +64,21 @@ interface ToastNotification {
 function ActionBar({ notification, onDismiss, isMobile }: { notification: ToastNotification; onDismiss: () => void; isMobile: boolean }) {
   const { t } = useTranslation();
   const [exiting, setExiting] = useState(false);
+  const hasDismissed = useRef(false);
+  const dismissalTimer = useRef<ReturnType<typeof setTimeout>>();
+  const undoDuration = notification.undoDurationMs ?? UNDO_WINDOW_MS;
 
-  const dismiss = () => {
+  const dismiss = useCallback(() => {
+    if (hasDismissed.current) return;
+
+    hasDismissed.current = true;
     setExiting(true);
-    setTimeout(onDismiss, 190);
-  };
+    dismissalTimer.current = setTimeout(onDismiss, 190);
+  }, [onDismiss]);
+
+  useEffect(() => () => {
+    if (dismissalTimer.current !== undefined) clearTimeout(dismissalTimer.current);
+  }, []);
 
   const handleUndo = () => {
     const onUndo = notification.onUndo;
@@ -77,9 +87,9 @@ function ActionBar({ notification, onDismiss, isMobile }: { notification: ToastN
   };
 
   useEffect(() => {
-    const timer = setTimeout(dismiss, notification.undoDurationMs || UNDO_WINDOW_MS);
+    const timer = setTimeout(dismiss, undoDuration);
     return () => clearTimeout(timer);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [dismiss, undoDuration]);
 
   return (
     <div
@@ -104,7 +114,7 @@ function ActionBar({ notification, onDismiss, isMobile }: { notification: ToastN
         bottom: 0, left: 0,
         height: 2,
         background: 'var(--accent)',
-        animation: `action-bar-progress ${notification.undoDurationMs || UNDO_WINDOW_MS}ms linear forwards`,
+        animation: `action-bar-progress ${undoDuration}ms linear forwards`,
       }} />
 
       <span style={{
@@ -158,11 +168,25 @@ function ActionBar({ notification, onDismiss, isMobile }: { notification: ToastN
 function Toast({ notification, onDismiss, isMobile }: { notification: ToastNotification; onDismiss: () => void; isMobile: boolean }) {
   const { t } = useTranslation();
   const [exiting, setExiting] = useState(false);
+  const onDismissRef = useRef(onDismiss);
+  const hasDismissed = useRef(false);
+  const dismissalTimer = useRef<ReturnType<typeof setTimeout>>();
 
-  const dismiss = () => {
+  useEffect(() => {
+    onDismissRef.current = onDismiss;
+  }, [onDismiss]);
+
+  const dismiss = useCallback(() => {
+    if (hasDismissed.current) return;
+
+    hasDismissed.current = true;
     setExiting(true);
-    setTimeout(onDismiss, 190);
-  };
+    dismissalTimer.current = setTimeout(() => onDismissRef.current(), 190);
+  }, []);
+
+  useEffect(() => () => {
+    if (dismissalTimer.current !== undefined) clearTimeout(dismissalTimer.current);
+  }, []);
 
   useEffect(() => {
     if (notification.persistent) return undefined;
@@ -170,7 +194,7 @@ function Toast({ notification, onDismiss, isMobile }: { notification: ToastNotif
     const duration = notification.onUndo ? (notification.undoDurationMs || UNDO_WINDOW_MS) : 5000;
     const timer = setTimeout(dismiss, duration);
     return () => clearTimeout(timer);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [dismiss, notification.onUndo, notification.persistent, notification.undoDurationMs]);
 
   const handleUndo = () => {
     const onUndo = notification.onUndo;

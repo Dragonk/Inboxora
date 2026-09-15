@@ -42,6 +42,20 @@ interface FavoriteFolderRow { accountId?: string; path: string; name?: string; l
 
 export interface StoreUserRow { id?: string; username?: string; email?: string; displayName?: string; avatar?: string | null; isAdmin?: boolean; [key: string]: unknown }
 
+export interface AppNotification {
+  id: string;
+  title?: string | null;
+  body?: string | null;
+  type?: string | null;
+  actionLabel?: string | null;
+  onAction?: () => void;
+  onUndo?: () => void;
+  undoDurationMs?: number;
+  persistent?: boolean;
+  allowWrap?: boolean;
+  [key: string]: unknown;
+}
+
 /** The store state; every member is declared explicitly by the store implementation. */
 /** The draft the compose window opens with. */
 export interface ComposeDraft {
@@ -171,11 +185,8 @@ export interface StoreState {
   setSearchResults: (r: StoreMessageRow[]) => void;
   loadingMessages: boolean;
   setLoadingMessages: (v: boolean) => void;
-  notifications: Array<{ id: string; [key: string]: unknown }>;
-  addNotification: (n: {
-      id?: string;
-      [key: string]: unknown;
-  }) => void;
+  notifications: AppNotification[];
+  addNotification: (n: Omit<AppNotification, 'id'> & { id?: string }) => void;
   removeNotification: (id: string) => void;
   showAdmin: boolean;
   adminTab: string;

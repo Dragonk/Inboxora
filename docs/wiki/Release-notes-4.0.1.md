@@ -19,7 +19,7 @@ a user happens to take, often in a rare state, often in production.
 TypeScript moves those checks into the build. The migration was deliberately done **without**
 `@ts-nocheck`, without blanket `as any` casts and without suppressions such as `@ts-ignore`:
 every file had to satisfy the compiler through real types and real fixes. That turned the migration
-itself into a systematic audit of 550 source files.
+itself into a systematic audit of 551 source files.
 
 ## What the audit found
 
@@ -55,30 +55,17 @@ root.
   part of the local loop, and `npm run lint`/`npm test` are unchanged. The backend still builds
   to `dist/` with `npm run build` and still starts with `npm start`.
 
-## Known follow-up work
+## Type-safety completion
 
-One item is deliberately left for later, and it does not affect runtime behaviour:
+Strict checking is now the default in both projects: their primary `tsconfig.json` files enable
+`strict` and `noImplicitAny`, and `tsconfig.strict.json` remains a compatibility entry point to
+the same configuration. Both `npm run typecheck` and `npm run typecheck:strict` complete with
+**0 errors** for backend and frontend.
 
-- **`strict` / `noImplicitAny` are enabled but not yet clean.** Both projects carry a
-  `tsconfig.strict.json` that turns them on, and it is the reference mode for this work:
-
-  ```bash
-  cd backend  && npx tsc -p tsconfig.strict.json --noEmit   # 837 findings
-  cd frontend && npx tsc -p tsconfig.strict.json --noEmit   # 852 findings
-  ```
-
-  That is **1689** findings in total, overwhelmingly `noImplicitAny` on function parameters and
-  destructured bindings. **None is suppressed** - there is no `@ts-ignore`, no `@ts-nocheck`,
-  no `as any` - so every one is visible in the build. Closing them is a per-site typing task:
-  the shared-declaration route works (typing one helper or state fixed 37 findings in a single
-  pass), while mechanical rules over parameter names were measured to make the total *worse*,
-  because most untyped parameters are not strings. Start from the largest files:
-  `backend/src/services/imapManager.ts` (58), `backend/src/routes/auth.ts` (39),
-  `frontend/src/components/AdminPanel.tsx` (170), `frontend/src/components/MessageList.tsx` (162).
-
-  The previous typed boundary - `type DbRow = any` - has been **removed** as part of 4.0.1: it
-  is `Record<string, unknown>` now, with the call sites that read dynamic rows declaring their
-  columns.
+The source tree has no TypeScript suppression pragmas, ESLint-disable pragmas, or explicit
+`any`/`as any` escapes. The former dynamic SQL row boundary is `Record<string, unknown>` and every
+consumer declares or narrows the shape it needs. CI enforces the strict typecheck before building
+or testing.
 
 See `docs/CHANGELOG.md` for the change-by-change entry and `TYPESCRIPT_MIGRATION_STATUS.md` for the
 verified state.

@@ -266,7 +266,7 @@ export async function validateAccountSettings({ updates, accountId }: { updates:
   // connectAccount, and the persistent-connection account object the transition hooks close over
   // must pick up the new flag.
   let requiresReconnect = 'gtd_enabled' in updates;
-  const out: Record<string, any> = {};
+  const out: Record<string, unknown> = {};
   if ('gtd_folders' in updates) {
     const { folders, rejected, reserved } = sanitizeGtdFoldersDetailed(updates.gtd_folders);
     // A state mapped onto a live system folder (INBOX, Sent, …) is a hard error: /done would

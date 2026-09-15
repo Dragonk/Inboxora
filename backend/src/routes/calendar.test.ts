@@ -132,26 +132,6 @@ function calendarEventsResponse(value: unknown): CalendarEventsResponse {
   return { events, truncated };
 }
 
-interface CalendarTestResponse {
-  error?: string;
-  calendars: Array<Record<string, unknown>>;
-  calendar: Record<string, unknown>;
-  events: Array<Record<string, unknown>>;
-  truncated?: boolean;
-  invitation: {
-    description?: string;
-    method?: string;
-    localEvent?: unknown;
-    raw?: unknown;
-    [key: string]: unknown;
-  };
-  source?: unknown;
-  sync?: unknown;
-  [key: string]: unknown;
-}
-
-
-
 let server: Server;
 let base = '';
 

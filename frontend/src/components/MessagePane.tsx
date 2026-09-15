@@ -136,7 +136,7 @@ interface MessagePaneProps {
   onReply?: ((message: ConversationReplyPayload, all?: boolean) => void) | null;
   nativeThreadId?: string | null;
   nativeFolder?: string | null;
-  onNativeThreadUnavailable?: (() => void) | null;
+  onNativeThreadUnavailable?: ((copyId: string | null) => void) | null;
   onMobileBack?: (() => void) | null;
 }
 
@@ -413,14 +413,12 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   // useMemo so prepared is available in the same render as body.html — no extra frame,
   // no flash of empty content between skeleton-gone and email-shown.
   const allowRemoteImages = !blockRemoteImages || imagesRequestedRef.current.has(selectedMessageId);
-  // retryKey is intentionally a dependency: ref mutations from Load images/whitelist
-  // must force this sanitizer projection to recompute even though the ref itself is
-  // not a reactive value.
+  // retryKey triggers a render after Load images/whitelist changes the ref, so
+  // allowRemoteImages is recalculated before this sanitizer projection runs.
   // The div renderer bypasses the iframe, so it has to apply the same canvas contract
   // itself: the tone drives the colour adaptation the sanitiser performs.
   const paneTheme = useStore((state: StoreState) => state.theme);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const renderableHtml = useMemo(() => body?.html ? sanitizeMessageHtml(body.html, { remoteImages: allowRemoteImages, tone: getEmailSurface(paneTheme)?.tone }) : '', [body?.html, allowRemoteImages, retryKey, paneTheme]);
+  const renderableHtml = useMemo(() => body?.html ? sanitizeMessageHtml(body.html, { remoteImages: allowRemoteImages, tone: getEmailSurface(paneTheme)?.tone }) : '', [body?.html, allowRemoteImages, paneTheme]);
   const prepared = useMemo(() => {
     if (!USE_DIV_RENDER || !renderableHtml || !prepareEmailHtml) return null;
     return prepareEmailHtml(renderableHtml, windowMode ? `w${message?.id ?? 'preview'}` : String(message?.id ?? 'preview'));
@@ -963,7 +961,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     el.style.animation = 'none';
     el.offsetHeight; // force reflow to restart animation
     el.style.animation = 'pane-fade-in 0.15s ease';
-  }, [selectedMessageId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isMobile, selectedMessageId]);
 
   // Swipe-back gesture: right-swipe from left edge returns to message list on mobile
   useEffect(() => {
@@ -2195,6 +2193,20 @@ ${bodyContent}
 
         {/* Shared physical-copy detail preserves the native attachment → notices → body order. */}
         <div style={{ padding: isMobile ? '0 0 16px' : '0 28px 24px' }}>
+          {Object.entries(aiResults).map(([key, result]) => {
+            const action = key === BUILTIN_SUMMARIZE.id
+              ? BUILTIN_SUMMARIZE
+              : aiActions?.find(candidate => candidate.id === key);
+            return (
+              <AiResultBox
+                key={key}
+                result={result}
+                canRegen={action !== undefined}
+                onRegen={() => { if (action) void runAiAction(action, { force: true }); }}
+                onDismiss={() => _dismissAiResult(key)}
+              />
+            );
+          })}
           <MessageDetailContent
             physicalCopyId={message.id}
             message={message}
@@ -2341,9 +2353,7 @@ ${bodyContent}
 // A pinned AI result box shown above the message (#204). Collapsible to keep
 // multiple results from crowding the view; offers regenerate and dismiss.
 
-// Retained for the upcoming AI-summary wiring; referenced by locale-key
-// coverage tests. Suppress the until-it-is-mounted unused warning.
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
+// A mounted AI result box used by the message action lifecycle.
 function AiResultBox({ result, canRegen, onRegen, onDismiss }: {
   result: { status?: string; text?: string; label?: string };
   canRegen?: boolean;

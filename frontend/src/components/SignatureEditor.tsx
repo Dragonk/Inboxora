@@ -45,14 +45,17 @@ export default function SignatureEditor({ value, onChange }: { value: string; on
   const [showSource, setShowSource] = useState(false);
   const [sourceVal, setSourceVal] = useState('');
 
-  // Seed the contenteditable on first mount only
   useEffect(() => {
-    if (editorRef.current) {
-      editorRef.current.innerHTML = value || '';
+    const editor = editorRef.current;
+    if (editor && editor.innerHTML !== value) {
+      editor.innerHTML = value;
     }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [showSource, value]);
 
-  const emit = () => onChange(editorRef.current?.innerHTML || '');
+  const emit = () => {
+    const editor = editorRef.current;
+    if (editor) onChange(editor.innerHTML);
+  };
 
   // onMouseDown + e.preventDefault() keeps focus in the contenteditable so
   // execCommand acts on the current selection rather than on nothing.
@@ -95,21 +98,14 @@ export default function SignatureEditor({ value, onChange }: { value: string; on
 
   const toggleSource = () => {
     if (!showSource) {
-      // Visual → Source: capture current HTML
-      const html = editorRef.current?.innerHTML || '';
-      setSourceVal(html);
+      const editor = editorRef.current;
+      if (!editor) return;
+      setSourceVal(editor.innerHTML);
       setShowSource(true);
-    } else {
-      // Source → Visual: push raw HTML back into editor
-      setShowSource(false);
-      // Use a microtask so the div is back in the DOM before we write to it
-      setTimeout(() => {
-        if (editorRef.current) {
-          editorRef.current.innerHTML = sourceVal;
-          onChange(sourceVal);
-        }
-      }, 0);
+      return;
     }
+
+    setShowSource(false);
   };
 
   const handleSourceChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {

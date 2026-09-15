@@ -447,6 +447,7 @@ export default function ConversationMessage({ conversationId, message, selectedC
 
     {actionError && <div role="alert" style={{ padding: '8px 12px', color: 'var(--red)' }}>{actionError}</div>}
     {expanded && <div data-conversation-message-expanded-content="true" style={{ padding: '0 0 12px' }}>
+      {expanded && !hasAccountCopy && <div role="status" style={{ padding: 16, color: 'var(--text-tertiary)' }}>{t('conversation.noBody')}</div>}
       {copy.id && detailMessage && <MessageDetailContent
         physicalCopyId={copy.id}
         message={detailMessage}

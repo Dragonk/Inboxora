@@ -64,13 +64,11 @@ cd frontend && npm run typecheck     # tsc --noEmit
 - **Dynamic SQL rows are typed.** `backend/src/services/db.ts` exports
   `type DbRow = Record<string, unknown>` — the old `any` boundary is gone. `query<{ ... }>(...)`
   declares the columns a call reads, and that is the expected form for new queries.
-- **`strict` is enabled and is the reference mode.** Both projects carry `tsconfig.strict.json`
-  (`strict: true`, `noImplicitAny: true`). It is **not yet clean**: the current counts are
-  `cd backend && npx tsc -p tsconfig.strict.json --noEmit` → 837 and the same in `frontend` →
-  852 (1689 together). New code must be written strict-clean; run that command and reduce the
-  count when you touch a file. Each finding is visible in the build — nothing is suppressed.
-- **`any` must not creep back in.** When you touch a file, leave it typed; a new `any` in a pull
-  request should be justified in the description or replaced with a declared shape.
+- **`strict` is mandatory.** Both primary `tsconfig.json` files enable `strict` and
+  `noImplicitAny`; `tsconfig.strict.json` is a compatibility entry point to that same strict
+  configuration. `npm run typecheck` and `npm run typecheck:strict` must both remain at 0 errors.
+- **No type-safety escape hatches.** Do not add explicit `any`, `as any`, suppression pragmas or
+  ESLint-disable pragmas. Model external data as `unknown`, then narrow it at the boundary.
 
 ## Browser tests
 

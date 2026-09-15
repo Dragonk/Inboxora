@@ -10,6 +10,7 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
+    "typecheck:strict": "tsc -p tsconfig.strict.json --noEmit",
     "typecheck:watch": "tsc --noEmit --watch",
     "test": "vitest run",
     "test:watch": "vitest",

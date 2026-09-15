@@ -387,8 +387,7 @@ export async function applyConversationAction({
       [resolved.canonicalConversationId, userId],
     );
 
-    const resolvedRowsById = new Map<string, any>(resolved.rows.map(row => [row.id, row]));
-    const mutatedRows = result.rows.map(row => ({ ...resolvedRowsById.get(row.id), ...row }));
+    const mutatedRows = result.rows.map(row => ({ ...resolvedRowFor(resolved.rows, row.id), ...row }));
     updateFolderCountsForAction(mutatedRows, action, imapManager, userId);
     broadcastMessageFlagsForAction(mutatedRows, action, imapManager, userId);
     return {

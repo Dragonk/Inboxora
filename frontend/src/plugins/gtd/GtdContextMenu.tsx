@@ -2,6 +2,7 @@ import { useTranslation } from 'react-i18next';
 import { GTD_STATES, GTD_COLORS, resolveAccountGtdFolders, gtdStatesInFolders, unclassifyThread } from '../../utils/gtd.ts';
 import type { GtdAccountLike } from '../../utils/gtd.ts';
 import { useStore } from '../../store/index.ts';
+import type { PluginMenuAction } from '../registry.ts';
 import { api } from '../../utils/api.ts';
 import { classifyWithUndo } from './classification.ts';
 import type { StoreState } from '../../store/index.ts';
@@ -114,7 +115,7 @@ function GtdContextSubmenu({ message, account, onClose, onBack }: {
 // the old menuPolicy.done gate (variant === 'gtdSidebar').
 export function buildGtdContextItems(ctx: GtdContextMenuContext) {
   const { message, account, variant, onAction, onClose, openSubmenu, t } = ctx;
-  const items: unknown[] = [];
+  const items: PluginMenuAction[] = [];
   if (account?.gtd_enabled) {
     items.push({
       label: t('gtd.title'),

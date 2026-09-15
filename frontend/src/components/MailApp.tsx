@@ -113,13 +113,14 @@ export default function MailApp() {
   // state never silently drops messages the native list shows.
   const [nativeThreadId, setNativeThreadId] = useState<string | null>(null);
   const [nativeFolder, setNativeFolder] = useState<string | null>(null);
-  const [nativeThreadUnavailableFor, setNativeThreadUnavailableFor] = useState<string | null>(null);
+  const [nativeThreadUnavailable, setNativeThreadUnavailable] = useState(false);
   const fallbackMarkReadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const selectedMessageIdRef = useRef(selectedMessageId);
   useEffect(() => { selectedMessageIdRef.current = selectedMessageId; }, [selectedMessageId]);
+  useEffect(() => { setNativeThreadUnavailable(false); }, [selectedMessageId]);
   const handleNativeThreadUnavailable = useCallback(() => {
     setNativeThreadId(null);
-    setNativeThreadUnavailableFor(selectedMessageIdRef.current);
+    setNativeThreadUnavailable(true);
   }, []);
 
   const replyFromConversation = useCallback((copy: ConversationReplyPayload) => {
@@ -167,7 +168,6 @@ export default function MailApp() {
     setTargetLogicalMessageId(null);
     setSelectedConversationCopy(null);
     setConversationResolutionError(null);
-    if (nativeThreadUnavailableFor !== selectedMessageId) setNativeThreadUnavailableFor(null);
     const selected = useStore.getState().messages.find(item => item.id === selectedMessageId)
       || Object.values(useStore.getState().threadMessages || {}).flat().find(item => item.id === selectedMessageId);
     // Preserve the exact physical selection before CE resolution. Expanded native
@@ -185,7 +185,7 @@ export default function MailApp() {
     // never reduces the reader below the native thread size.
     const threadKey = selected?.thread_key || selected?.thread_id || null;
     const threadAccount = selected?.account_id || null;
-    if (threadKey && threadAccount && nativeThreadUnavailableFor !== selectedMessageId) {
+    if (threadKey && threadAccount && !nativeThreadUnavailable) {
       setNativeThreadId(threadKey);
       setNativeFolder(selected?.folder || 'INBOX');
     }
@@ -207,11 +207,16 @@ export default function MailApp() {
           // diagnostic only: the single-message pane remains a safe fallback when
           // a message has not yet been ingested by the CE model.
           setConversationResolutionError(toAppError(error).message || 'Conversation resolution failed');
+          // A resolver failure makes the CE identity untrustworthy. Do not retain a
+          // concurrent native-reader attempt: the selected physical message remains
+          // available through the deterministic single-pane fallback.
+          setNativeThreadId(null);
+          setNativeFolder(null);
           console.warn('Conversation reader resolution failed', toAppError(error).message);
           // MessageList deliberately defers automatic read ownership to the reader
           // while CE resolution is pending. If neither CE nor a native thread can
           // supply that reader, preserve the normal single-pane read behavior.
-          if (threadKey && nativeThreadUnavailableFor !== selectedMessageId) return;
+          if (threadKey && !nativeThreadUnavailable) return;
           const markFallbackRead = () => {
             const state = useStore.getState();
             if (selectedMessageIdRef.current !== selectedMessageId || state.selectedMessageId !== selectedMessageId) return;
@@ -252,7 +257,7 @@ export default function MailApp() {
       if (fallbackMarkReadTimerRef.current !== null) clearTimeout(fallbackMarkReadTimerRef.current);
       fallbackMarkReadTimerRef.current = null;
     };
-  }, [conversationReaderViewEnabled, nativeThreadUnavailableFor, selectedMessageId]);
+  }, [conversationReaderViewEnabled, nativeThreadUnavailable, selectedMessageId]);
 
   // Auto-lock after inactivity (#235). MailApp only mounts while unlocked, so this
   // timer runs only when unlocked; hitting the timeout locks and unmounts this tree.

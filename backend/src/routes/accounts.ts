@@ -238,7 +238,7 @@ router.put('/:id', async (req, res) => {
   const settingsResults = await pluginRegistry.collectHook<ValidateAccountSettingsResult>('validateAccountSettings', {
     updates, accountId: id,
   });
-  const rejectedByField: Record<string, any> = {};
+  const rejectedByField: Record<string, string> = {};
   let pluginRequiresReconnect = false;
   for (const r of settingsResults) {
     if (r.error) return res.status(r.error.status).json(r.error.body);

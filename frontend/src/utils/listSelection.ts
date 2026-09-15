@@ -8,11 +8,9 @@ import { useStore } from '../store/index.ts';
 // selectedWithinRemovedRow: when true, advance even if the selected id isn't exactly removedId —
 // used by threaded archive, where the open message may be a child of the removed thread head
 // (a different id) but still leaves the list, so selection must still advance.
-export function advanceSelectionAfterRemoval(removedId: string): void;
-export function advanceSelectionAfterRemoval(removedId: string, selectedWithinRemovedRow: boolean): void;
-export function advanceSelectionAfterRemoval(
+export function advanceSelectionAfterRemoval<T extends [] | [selectedWithinRemovedRow: boolean]>(
   removedId: string,
-  ...args: [] | [selectedWithinRemovedRow: boolean]
+  ...args: T
 ): void {
   const { messages, searchResults, searchQuery, selectedMessageId, setSelectedMessage } = useStore.getState();
   const selectedWithinRemovedRow = args.length === 1 && args[0];

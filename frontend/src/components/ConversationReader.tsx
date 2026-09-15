@@ -81,7 +81,7 @@ interface ConversationReaderProps {
   onReply?: (message: ConversationReplyPayload, all?: boolean) => void;
   nativeThreadId?: string | null;
   nativeFolder?: string | null;
-  onNativeThreadUnavailable?: () => void;
+  onNativeThreadUnavailable?: (copyId: string | null) => void;
 }
 
 
@@ -133,7 +133,7 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
       const ceLogicalMessages = ceResult?.logicalMessages || [];
       const nativeReaderMessages = nativeThreadToReaderMessages(nativeResult.messages, selectedAccountId);
       if (!ceResult && nativeThreadId && !nativeReaderMessages.length) {
-        onNativeThreadUnavailable?.();
+        onNativeThreadUnavailable?.(selectedCopyId);
         return;
       }
       // Native children are primary; CE enriches. If native is empty (no thread_key or
@@ -154,6 +154,7 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
   }, [conversationId, targetLogicalMessageId, nativeThreadId, nativeFolder, selectedAccountId, selectedCopyId, t, onNativeThreadUnavailable]);
 
   const messages = useMemo(() => data?.logicalMessages || [], [data]);
+  const selectedAccountAvailable = accounts.some(account => String(account.id) === String(selectedAccountId));
   const refresh = useCallback(async () => {
     // Keep the reader, expansion and physical body cache mounted during live updates.
     if (!data) return;
@@ -424,7 +425,7 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
   return <section ref={readerRef} aria-label={t('conversation.label')} data-conversation-id={conversationId} data-reader-source={nativeThreadId ? 'native-thread' : 'conversation'} data-selected-copy-id={selectedCopyId || ''} data-selected-account-id={selectedAccountId || ''} style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: 0, minWidth: 0 }}>
     {messages.map(message => {
       const physicalCopyId = selectedCopyFor(message.id)?.id;
-      return <ConversationMessage key={message.id} conversationId={conversationId} message={message} selectedCopyId={selectedCopyId} selectedAccountId={selectedAccountId} accounts={accounts} expanded={expanded.has(message.id)} onToggle={toggle} body={physicalCopyId ? bodiesByCopy[physicalCopyId] : null} status={physicalCopyId ? bodyStatusByCopy[physicalCopyId] : { unavailable: true }} onLoadBody={loadBody} onRemoteImages={id => loadBody(id, true, true)} onReply={handleReply} onActionComplete={handleActionComplete} onSetRead={setCopyReadState} onInitialBodyLayout={handleInitialTargetBodyLayout} />;
+      return <ConversationMessage key={message.id} conversationId={conversationId} message={message} selectedCopyId={selectedCopyId} selectedAccountId={selectedAccountId} accounts={accounts} expanded={expanded.has(message.id)} onToggle={toggle} body={physicalCopyId ? bodiesByCopy[physicalCopyId] : null} status={selectedAccountAvailable && physicalCopyId ? bodyStatusByCopy[physicalCopyId] : { unavailable: true }} onLoadBody={loadBody} onRemoteImages={id => loadBody(id, true, true)} onReply={handleReply} onActionComplete={handleActionComplete} onSetRead={setCopyReadState} onInitialBodyLayout={handleInitialTargetBodyLayout} />;
     })}
   </section>;
 }

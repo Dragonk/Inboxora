@@ -10,7 +10,7 @@ function sanitizeWidth(value: unknown): number | null {
   return Number.isFinite(n) && n >= RIGHT_SIDEBAR_WIDTH_MIN && n <= RIGHT_SIDEBAR_WIDTH_MAX ? n : null;
 }
 
-export function sanitizeRightSidebarPrefs(body: Record<string, any> = {}) {
+export function sanitizeRightSidebarPrefs(body: Record<string, unknown> = {}) {
   return {
     rightSidebarWidth: sanitizeWidth(body.rightSidebarWidth),
     rightSidebarHidden: typeof body.rightSidebarHidden === 'boolean' ? body.rightSidebarHidden : null,
