@@ -63,6 +63,18 @@ describe('send failure semantics', () => {
     expect((await post()).status).toBe(500);
     expect(redisClient.del).not.toHaveBeenCalled();
   });
+  it('reports SMTP recipient rejection as a partial, non-retryable result', async () => {
+    sendMail.mockResolvedValueOnce({ accepted: ['you@example.com'], rejected: ['missing@example.com'] });
+    const res = await post();
+    expect(res.status).toBe(200);
+    expect((await res.json()) as JsonBody).toEqual({
+      ok: true, partialDelivery: true, accepted: ['you@example.com'], rejected: ['missing@example.com'],
+    });
+    expect(redisClient.set).toHaveBeenLastCalledWith('send_idem:u1:send1', JSON.stringify({
+      ok: true, partialDelivery: true, accepted: ['you@example.com'], rejected: ['missing@example.com'],
+    }), { EX: 86400 });
+  });
+
   it('reports delivery success with a Sent-copy warning after post-delivery failure', async () => {
     resolveSentFolder.mockRejectedValueOnce(new Error('database unavailable'));
     const res = await post();

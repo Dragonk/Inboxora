@@ -530,7 +530,7 @@ router.post('/send', async (req, res) => {
       reservationAcquired = true;
     }
 
-    await transport.sendMail(mailOptions);
+    const smtpInfo = await transport.sendMail(mailOptions);
     delivered = true;
 
     // Auto-learn sent recipients so they rank above inbound-only senders in autocomplete.
@@ -685,7 +685,16 @@ router.post('/send', async (req, res) => {
       }
     }
 
-    const sendResult: { ok: boolean; sentCopySaved?: boolean; sentFolder?: string } = { ok: true };
+    const acceptedRecipients = Array.isArray(smtpInfo.accepted) ? smtpInfo.accepted.map(String) : [];
+    const rejectedRecipients = Array.isArray(smtpInfo.rejected) ? smtpInfo.rejected.map(String) : [];
+    const sendResult: { ok: boolean; sentCopySaved?: boolean; sentFolder?: string; accepted?: string[]; rejected?: string[]; partialDelivery?: boolean } = { ok: true };
+    // A server can accept some RCPT commands and reject others without throwing. Preserve
+    // that non-retryable partial outcome so the client never assumes every recipient got it.
+    if (rejectedRecipients.length) {
+      sendResult.partialDelivery = true;
+      sendResult.accepted = acceptedRecipients;
+      sendResult.rejected = rejectedRecipients;
+    }
     // Surface only the problem case so existing success handling is unchanged; the UI warns
     // when a delivered message could not be saved to the account's Sent folder.
     if (sentCopySaved === false) sendResult.sentCopySaved = false;
