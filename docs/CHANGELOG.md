@@ -84,6 +84,25 @@ Real defects found while typing the code — each is something JavaScript could 
   message identifiers, body snippets, mail options and read-state action inputs now match the
   behavior that production code implements.
 
+- **Tailwind and the PostgreSQL workflow now follow the TypeScript migration.** Tailwind scans
+  `.ts`/`.tsx` sources, while the PostgreSQL workflow invokes TypeScript scripts and test files
+  through the project loader instead of deleted JavaScript paths.
+- **SMTP and OAuth account handling is fail-safe.** Missing SMTP credentials return a controlled
+  error; STARTTLS requires encryption; connecting Microsoft OAuth converts an existing password
+  account to the correct OAuth provider.
+- **Mail and calendar isolation/reliability defects are fixed.** The IMAP pool reserves slots before
+  asynchronous connection work; custom-port IMAP accounts retain an explicit TLS choice; calendar
+  workers retain per-request budgets and never reuse a shorter in-flight projection for a wider
+  request.
+- **Session and account security are preserved.** A user switch clears private mail, drafts, search,
+  thread and notification state; active TOTP cannot be overwritten; directional control characters
+  are removed from attachment names; explicitly cleared Microsoft settings clear the live runtime.
+- **Delivery and AI policy behavior is explicit.** Partial SMTP recipient acceptance is returned to
+  the caller, long sends renew ownership-checked idempotency leases, and every API-key AI request
+  uses the current connection policy with a pinned, redirect-aware transport.
+- **Conversation AI output is safe and usable.** It collapses with its message and renders sanitized
+  Markdown, including sanitized Mermaid diagrams.
+
 These fixes are documented here as the release record; no standalone migration report is kept at
 repository root.
 
