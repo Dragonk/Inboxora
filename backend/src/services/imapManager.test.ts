@@ -23,6 +23,7 @@ import { resolveForConnection as __mock_resolveForConnection } from './hostValid
 import { getConnectionPolicy as __mock_getConnectionPolicy } from './connectionPolicy.js';
 import { invalidateGtdConfigCache } from '../plugins/gtd/gtdConfig.js';
 import { parseMessage as __mock_parseMessage } from './messageParser.js';
+import { decrypt as __mock_decrypt } from './encryption.js';
 import { dispatchMailNotification as __mock_dispatchMailNotification } from './pushDispatcher.js';
 import { mockImapClient } from '../test/imapClient.js';
 const fakeImapClient = () => mockImapClient(new EventEmitter());
@@ -33,6 +34,7 @@ const query = vi.mocked(__mock_query);
 const resolveForConnection = vi.mocked(__mock_resolveForConnection);
 const getConnectionPolicy = vi.mocked(__mock_getConnectionPolicy);
 const parseMessage = vi.mocked(__mock_parseMessage);
+const decrypt = vi.mocked(__mock_decrypt);
 const dispatchMailNotification = vi.mocked(__mock_dispatchMailNotification);
 
 const account = (imap_host: string, oauth_provider: string | null = null) => ({ id: 'acct-1', user_id: 'user-1', email_address: 'a@example.com', imap_host, oauth_provider });
@@ -261,6 +263,22 @@ describe('makeClientCfg — TLS enforcement', () => {
     expect(() =>
       makeClientCfg({ ...baseAccount, imap_tls: true }, resolved, { policy: { allowInsecureTls: true } })
     ).not.toThrow();
+  });
+
+  it('uses Microsoft OAuth without decrypting its absent IMAP password', () => {
+    decrypt.mockReset();
+    decrypt.mockReturnValueOnce('oauth-access-token');
+
+    const cfg = makeClientCfg({
+      ...baseAccount,
+      auth_pass: undefined,
+      oauth_provider: 'microsoft',
+      oauth_access_token: 'enc:v1:token',
+    }, resolved);
+
+    expect(cfg.auth).toEqual({ user: 'user', accessToken: 'oauth-access-token' });
+    expect(decrypt).toHaveBeenCalledTimes(1);
+    expect(decrypt).toHaveBeenCalledWith('enc:v1:token');
   });
 });
 

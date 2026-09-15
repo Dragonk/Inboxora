@@ -1256,7 +1256,9 @@ export function makeClientCfg(account: EmailAccountRow, resolved: ResolvedConnec
     tlsOpts.autoSelectFamily = true;
     tlsOpts.autoSelectFamilyAttemptTimeout = 1000;
   }
-  const password = decrypt(account.auth_pass);
+  // OAuth accounts do not have an IMAP password. Never pass their NULL database
+  // value to decrypt(), which correctly rejects non-string encrypted credentials.
+  const password = account.auth_pass ? decrypt(account.auth_pass) : null;
   const passwordAuth: ImapClientCfg['auth'] = { user: account.auth_user || account.email_address || '' };
   if (typeof password === 'string') passwordAuth.pass = password;
   const cfg: ImapClientCfg = {
