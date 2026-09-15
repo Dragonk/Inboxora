@@ -3,7 +3,7 @@ import { query } from './db.js';
 export const CONVERSATION_LIST_VIEW = 'conversation_list_view_enabled';
 export const CONVERSATION_READER_VIEW = 'conversation_reader_view_enabled';
 
-export async function ensureConversationFeatureDefaults(userId: string) {
+export async function ensureConversationFeatureDefaults(userId: string): Promise<void> {
   await query(`
     UPDATE users
        SET preferences = COALESCE(preferences, '{}'::jsonb)
@@ -15,6 +15,11 @@ export async function ensureConversationFeatureDefaults(userId: string) {
   `, [userId, CONVERSATION_LIST_VIEW, CONVERSATION_READER_VIEW]);
 }
 
-export function conversationViewEnabled(preferences, key: string) {
-  return preferences?.[key] === true;
+export type ConversationPreferences = Readonly<Record<string, unknown>>;
+
+export function conversationViewEnabled(
+  preferences: ConversationPreferences,
+  key: string,
+): boolean {
+  return preferences[key] === true;
 }

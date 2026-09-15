@@ -4,7 +4,6 @@ import { conversationViewEnabled, ensureConversationFeatureDefaults } from './co
 vi.mock('./db.js', () => ({ query: vi.fn().mockResolvedValue({ rows: [] }) }));
 import { query as __mock_query } from './db.js';
 
-// Cast mocked module exports so their vitest mock helpers type-check.
 const query = vi.mocked(__mock_query);
 
 describe('conversation feature preferences', () => {
@@ -15,7 +14,13 @@ describe('conversation feature preferences', () => {
 
   it('initializes missing server-side defaults without overwriting existing values', async () => {
     await ensureConversationFeatureDefaults('user-1');
-    const [sql, params] = query.mock.calls.at(-1);
+    const call = query.mock.calls.at(-1);
+    expect(call).toBeDefined();
+    if (call === undefined) {
+      throw new Error('Expected ensureConversationFeatureDefaults to query the database');
+    }
+
+    const [sql, params] = call;
     expect(sql).toContain('$2');
     expect(params).toEqual(['user-1', 'conversation_list_view_enabled', 'conversation_reader_view_enabled']);
   });

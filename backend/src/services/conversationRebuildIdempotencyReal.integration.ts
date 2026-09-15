@@ -1,12 +1,12 @@
 // CE v2 Rebuild idempotency test — real PostgreSQL
 // Tests: dry-run zero writes, write pass #1, write pass #2 (changed=0, wouldChange=0)
 // Run: node --test src/services/conversationRebuildIdempotencyReal.integration.js
-import { describe, it, before, after, beforeEach } from 'node:test';
+import { describe, it, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import pg from 'pg';
 import { randomUUID } from 'crypto';
 
-const POOL_CONFIG = {
+const POOL_CONFIG: pg.PoolConfig = {
   host: process.env.DB_HOST || 'localhost',
   port: parseInt(process.env.DB_PORT || '5432', 10),
   database: process.env.DB_NAME || 'mailflow_test',
@@ -14,21 +14,34 @@ const POOL_CONFIG = {
   password: process.env.DB_PASSWORD || 'test',
 };
 
-let pool: pg.Pool;
+const pool = new pg.Pool({ ...POOL_CONFIG, max: 5 });
 
-before(async () => {
-  pool = new pg.Pool({ ...POOL_CONFIG, max: 5 });
-});
+interface ChecksumRow extends pg.QueryResultRow {
+  md5: string | null;
+}
+
+interface IdentifierRow extends pg.QueryResultRow {
+  id: string;
+}
+
+interface CountRow extends pg.QueryResultRow {
+  count: string;
+}
+
+function exactlyOneRow<Row extends pg.QueryResultRow>(result: pg.QueryResult<Row>, queryName: string): Row {
+  assert.equal(result.rows.length, 1, `${queryName} must return exactly one row`);
+  return result.rows[0];
+}
 
 after(async () => {
-  if (pool) await pool.end();
+  await pool.end();
 });
 
-async function ceChecksum(pool, userId: string) {
+async function ceChecksum(dbPool: pg.Pool, userId: string): Promise<string | null> {
   // Deterministic checksum of all CE state that a rebuild can mutate. Include
   // parent/evidence/provider/override/alias/checkpoint rows, not only the three
   // primary tables, so idempotency cannot hide reconciliation drift.
-  const r = await pool.query(`
+  const r = await dbPool.query<ChecksumRow>(`
     SELECT md5(string_agg(row_data, ',' ORDER BY row_data)) FROM (
       SELECT 'conv:' || c.id::text || ':' || COALESCE(c.canonical_subject,'') || ':' || c.kind || ':' || c.manually_locked::text || ':' || c.logical_message_count::text || ':' || c.copy_count::text || ':' || c.unread_count::text AS row_data
       FROM conversations c WHERE c.user_id = $1
@@ -52,7 +65,7 @@ async function ceChecksum(pool, userId: string) {
       FROM conversation_overrides WHERE user_id = $1
     ) t
   `, [userId]);
-  return r.rows[0].md5;
+  return exactlyOneRow(r, 'CE checksum').md5;
 }
 
 describe('CE v2 Rebuild idempotency — real PostgreSQL', () => {
@@ -73,8 +86,10 @@ describe('CE v2 Rebuild idempotency — real PostgreSQL', () => {
     await pool.query("DELETE FROM email_accounts WHERE email_address = 'rebuild@example.com'");
     await pool.query("DELETE FROM users WHERE username = 'rebuild-user'");
 
-    userId = (await pool.query("INSERT INTO users (username, password_hash, is_admin) VALUES ('rebuild-user', 'x', false) RETURNING id")).rows[0].id;
-    accountId = (await pool.query("INSERT INTO email_accounts (user_id, name, email_address, protocol, enabled) VALUES ($1, 'Rebuild', 'rebuild@example.com', 'imap', true) RETURNING id", [userId])).rows[0].id;
+    const userInsert = await pool.query<IdentifierRow>("INSERT INTO users (username, password_hash, is_admin) VALUES ('rebuild-user', 'x', false) RETURNING id");
+    userId = exactlyOneRow(userInsert, 'Test user insert').id;
+    const accountInsert = await pool.query<IdentifierRow>("INSERT INTO email_accounts (user_id, name, email_address, protocol, enabled) VALUES ($1, 'Rebuild', 'rebuild@example.com', 'imap', true) RETURNING id", [userId]);
+    accountId = exactlyOneRow(accountInsert, 'Test email account insert').id;
 
     // Seed 10 raw conversations with 3 physical messages each = 30 messages.
     // Deliberately do not create CE rows/links: pass #1 must exercise the production
@@ -130,10 +145,8 @@ describe('CE v2 Rebuild idempotency — real PostgreSQL', () => {
 
   it('legacy "Test" overmerge is repaired: 5 unrelated Test messages stay separate after rebuild', async () => {
     // Add 5 messages with Subject: Test but NO RFC evidence between them
-    const testConvIds = [];
     for (let i = 0; i < 5; i++) {
       const convId = randomUUID();
-      testConvIds.push(convId);
       await pool.query(
         "INSERT INTO conversations (id, user_id, account_id, canonical_subject, kind, manually_locked) VALUES ($1, $2, $3, 'test', 'human_reply_chain', false)",
         [convId, userId, accountId]
@@ -166,19 +179,19 @@ describe('CE v2 Rebuild idempotency — real PostgreSQL', () => {
     }
 
     // Verify: 5 separate conversations (no merge)
-    const testConvs = await pool.query(
+    const testConvs = await pool.query<CountRow>(
       "SELECT COUNT(*) FROM conversations WHERE user_id = $1 AND canonical_subject = 'test'",
       [userId]
     );
-    assert.equal(Number(testConvs.rows[0].count), 5, 'Should have 5 separate conversations for 5 unrelated Test messages');
+    assert.equal(Number(exactlyOneRow(testConvs, 'Pre-rebuild Test conversation count').count), 5, 'Should have 5 separate conversations for 5 unrelated Test messages');
 
     const { rebuildConversationCopies } = await import('./conversationRebuild.js');
     const rebuild = await rebuildConversationCopies({ userId, accountId, limit: 500, dryRun: false, force: true });
     assert.ok(rebuild.updated >= 5, 'Rebuild must process the adversarial Subject: Test rows');
-    const postRebuild = await pool.query(
+    const postRebuild = await pool.query<CountRow>(
       "SELECT COUNT(DISTINCT conversation_id) FROM messages WHERE subject = 'Test' AND account_id = $1",
       [accountId]
     );
-    assert.equal(Number(postRebuild.rows[0].count), 5, 'After rebuild: 5 separate conversations (no subject-only overmerge)');
+    assert.equal(Number(exactlyOneRow(postRebuild, 'Post-rebuild Test conversation count').count), 5, 'After rebuild: 5 separate conversations (no subject-only overmerge)');
   });
 });
