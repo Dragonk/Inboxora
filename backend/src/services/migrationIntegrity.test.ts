@@ -115,6 +115,14 @@ describe('migration integrity', () => {
     expect(sql).toContain('push_devices_last_seen_idx');
   });
 
+  it('adds owner-token invitation outbox claims for overlap-safe delivery', () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/0085_calendar_invitation_outbox_claim.sql'), 'utf8');
+    expect(sql).toContain("'processing'");
+    expect(sql).toContain('claim_token UUID');
+    expect(sql).toContain('claim_expires_at TIMESTAMPTZ');
+    expect(sql).toContain('calendar_invitation_outbox_claim_idx');
+  });
+
   it('adds a partial logical-message lookup index for non-deleted physical copies', () => {
     const sql = readFileSync(join(process.cwd(), 'migrations/0060_conversation_logical_message_lookup_index.sql'), 'utf8');
     expect(sql).toContain('ON messages(logical_message_id, date DESC NULLS LAST, id DESC)');

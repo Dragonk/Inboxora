@@ -5,8 +5,30 @@ All notable changes to Inboxora are recorded here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 For the narrative version — what the release means, what to expect when upgrading, and the known
-limitations — read the matching page in the Wiki: [Release notes 4.0.1](wiki/Release-notes-4.0.1.md) and
-[Release notes 4.0.0](wiki/Release-notes-4.0.0.md).
+limitations — read the matching page in the Wiki: [Release notes 4.0.2](wiki/Release-notes-4.0.2.md),
+[Release notes 4.0.1](wiki/Release-notes-4.0.1.md) and [Release notes 4.0.0](wiki/Release-notes-4.0.0.md).
+
+## [4.0.2] - 2026-09-15
+
+### Fixed
+
+- Preserve partial SMTP recipient results through post-send failures and keep a partial-send composer open
+  with only rejected recipients for a safe retry.
+- Prevent stale account and deep-link callbacks from writing into a later SPA session; preserve navigation only
+  for the user who stored it.
+- Release IMAP connection markers after every setup failure, including DNS resolution failures.
+- Retire failed, timed-out and terminating calendar projection workers before draining queued work.
+- Atomically claim calendar invitation outbox entries, persist partial recipient failures for targeted retry, and
+  prevent overlapping drains from issuing duplicate invitations.
+- Reject incomplete AI chat-completions SSE streams instead of converting upstream EOF into a synthetic success.
+- Apply Microsoft integration settings exactly as saved, including clearing omitted fields at runtime.
+- Detect lost idempotency-lease ownership and prevent same-process automatic duplicate sends while the SMTP
+  outcome is uncertain.
+
+### Notes
+
+- Includes database migration `0085_calendar_invitation_outbox_claim.sql`; apply migrations before running
+  workers that deliver calendar invitations. No new configuration is required.
 
 ## [4.0.1] - 2026-09-13
 

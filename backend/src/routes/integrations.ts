@@ -11,24 +11,22 @@ router.use(requireAuth);
 
 type MicrosoftConfig = { clientId?: unknown; clientSecret?: unknown; tenantId?: unknown; redirectUri?: unknown };
 
-// An absent field leaves the process-level fallback untouched; an explicit empty
-// string is a deliberate clear and must not leave a stale credential in memory.
+// A saved Microsoft row is an exact configuration snapshot, not a patch over
+// process.env. This makes a partial admin save behave the same immediately and
+// after restart, and prevents credentials from a previous DB row leaking through.
 function applyMicrosoftConfig(config: MicrosoftConfig) {
   const apply = (envKey: 'MS_CLIENT_ID' | 'MS_TENANT_ID' | 'MS_REDIRECT_URI', value: unknown) => {
-    if (value === undefined) return;
     if (typeof value !== 'string' || !value) delete process.env[envKey];
     else process.env[envKey] = value;
   };
   apply('MS_CLIENT_ID', config.clientId);
   apply('MS_TENANT_ID', config.tenantId);
   apply('MS_REDIRECT_URI', config.redirectUri);
-  if (config.clientSecret !== undefined) {
-    if (typeof config.clientSecret !== 'string' || !config.clientSecret) delete process.env.MS_CLIENT_SECRET;
-    else {
-      const secret = decrypt(config.clientSecret);
-      if (secret === null || !secret) delete process.env.MS_CLIENT_SECRET;
-      else process.env.MS_CLIENT_SECRET = secret;
-    }
+  if (typeof config.clientSecret !== 'string' || !config.clientSecret) delete process.env.MS_CLIENT_SECRET;
+  else {
+    const secret = decrypt(config.clientSecret);
+    if (secret === null || !secret) delete process.env.MS_CLIENT_SECRET;
+    else process.env.MS_CLIENT_SECRET = secret;
   }
 }
 

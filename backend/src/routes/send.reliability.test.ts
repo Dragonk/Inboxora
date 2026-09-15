@@ -76,11 +76,15 @@ describe('send failure semantics', () => {
     }));
   });
 
-  it('reports delivery success with a Sent-copy warning after post-delivery failure', async () => {
+  it('retains partial recipient details after a post-delivery failure', async () => {
+    sendMail.mockResolvedValueOnce({ accepted: ['you@example.com'], rejected: ['missing@example.com'] });
     resolveSentFolder.mockRejectedValueOnce(new Error('database unavailable'));
     const res = await post();
     expect(res.status).toBe(200);
-    expect((await res.json()) as JsonBody).toEqual({ ok: true, sentCopySaved: false });
+    expect((await res.json()) as JsonBody).toEqual({
+      ok: true, sentCopySaved: false, partialDelivery: true,
+      accepted: ['you@example.com'], rejected: ['missing@example.com'],
+    });
     expect(sendMail).toHaveBeenCalledOnce();
     expect(redisClient.eval).toHaveBeenCalledWith(expect.stringContaining("redis.call('SET'"), expect.objectContaining({
       keys: ['send_idem:u1:send1'],

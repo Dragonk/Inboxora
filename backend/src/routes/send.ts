@@ -268,6 +268,16 @@ const IDEMPOTENCY_LEASE_SECONDS = 300;
 const IDEMPOTENCY_RENEW_MS = 60_000;
 const INFLIGHT_PREFIX = '__inflight__:';
 
+// Redis is the cross-process fast path. This process-local uncertainty guard closes
+// the dangerous window after a lease is lost while SMTP may still be in progress: a
+// same-process retry must not create a second delivery just because Redis recovered.
+const UNCERTAIN_SEND_GRACE_MS = 15 * 60 * 1000;
+const uncertainIdempotencyKeys = new Map<string, number>();
+
+function retainedLease(result: unknown): boolean {
+  return result === 1 || result === 'OK';
+}
+
 async function renewIdempotencyLease(key: string, token: string) {
   return redisClient.eval(
     "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('EXPIRE', KEYS[1], ARGV[2]) end return 0",
@@ -311,7 +321,17 @@ router.post('/send', async (req, res) => {
     try { cached = await redisClient.get(idemKeyRedis); }
     catch { return res.status(503).json({ error: 'Sending is temporarily unavailable. Please try again shortly.' }); }
     if (cached?.startsWith(INFLIGHT_PREFIX)) return res.status(409).json({ error: 'This message is already being sent.' });
-    if (cached) return res.json(JSON.parse(cached));
+    // Redis remains the durable response cache. A completed value reconciles a
+    // previous ambiguous completion response instead of blocking this key forever.
+    if (cached) {
+      uncertainIdempotencyKeys.delete(idemKeyRedis);
+      return res.json(JSON.parse(cached));
+    }
+    const uncertainUntil = uncertainIdempotencyKeys.get(idemKeyRedis);
+    if (uncertainUntil && uncertainUntil > Date.now()) {
+      return res.status(409).json({ error: 'The result of this send is still being confirmed. It will not be sent again automatically.' });
+    }
+    if (uncertainUntil) uncertainIdempotencyKeys.delete(idemKeyRedis);
   }
 
   if (attachments !== undefined) {
@@ -459,6 +479,16 @@ router.post('/send', async (req, res) => {
     reservationRenewal = null;
   };
   let delivered = false; // true once transport.sendMail has actually handed off the message
+  let leaseLost = false;
+  let finalizationStarted = false;
+  let smtpRecipients: { accepted: string[]; rejected: string[] } | null = null;
+  const markLeaseUncertain = (fromRenewal = false) => {
+    // A renewal response can arrive after finalization has begun. It no longer
+    // owns the lease and must not overwrite a completed-result reconciliation.
+    if (fromRenewal && finalizationStarted) return;
+    leaseLost = true;
+    if (idemKeyRedis) uncertainIdempotencyKeys.set(idemKeyRedis, Date.now() + UNCERTAIN_SEND_GRACE_MS);
+  };
   try {
     const smtp = await createAccountSmtpTransport(account);
     if (smtp.error) return res.status(smtp.status).json({ error: smtp.error });
@@ -561,13 +591,21 @@ router.post('/send', async (req, res) => {
       if (reserved !== 'OK') return res.status(409).json({ error: 'This message is already being sent.' });
       reservationAcquired = true;
       reservationRenewal = setInterval(() => {
-        if (reservationToken) renewIdempotencyLease(idemKeyRedis, reservationToken).catch(() => {});
+        if (!reservationToken) return;
+        void renewIdempotencyLease(idemKeyRedis, reservationToken)
+          .then(result => { if (!retainedLease(result)) markLeaseUncertain(true); })
+          .catch(() => markLeaseUncertain(true));
       }, IDEMPOTENCY_RENEW_MS);
       reservationRenewal.unref?.();
     }
 
     const smtpInfo = await transport.sendMail(mailOptions);
     delivered = true;
+    // Capture recipient outcomes immediately. Any later Sent-folder/metadata failure
+    // must return the same SMTP result to both the client and idempotency replay.
+    const acceptedRecipients = Array.isArray(smtpInfo.accepted) ? smtpInfo.accepted.map(String) : [];
+    const rejectedRecipients = Array.isArray(smtpInfo.rejected) ? smtpInfo.rejected.map(String) : [];
+    smtpRecipients = { accepted: acceptedRecipients, rejected: rejectedRecipients };
 
     // Auto-learn sent recipients so they rank above inbound-only senders in autocomplete.
     // Fire-and-forget — a DB error here must never affect the send response.
@@ -721,8 +759,6 @@ router.post('/send', async (req, res) => {
       }
     }
 
-    const acceptedRecipients = Array.isArray(smtpInfo.accepted) ? smtpInfo.accepted.map(String) : [];
-    const rejectedRecipients = Array.isArray(smtpInfo.rejected) ? smtpInfo.rejected.map(String) : [];
     const sendResult: { ok: boolean; sentCopySaved?: boolean; sentFolder?: string; accepted?: string[]; rejected?: string[]; partialDelivery?: boolean } = { ok: true };
     // A server can accept some RCPT commands and reject others without throwing. Preserve
     // that non-retryable partial outcome so the client never assumes every recipient got it.
@@ -740,7 +776,15 @@ router.post('/send', async (req, res) => {
     // Overwrite the in-flight reservation with the final result so a retry after a lost
     // response returns this instead of re-sending.
     stopReservationRenewal();
-    if (idemKeyRedis && reservationToken) completeIdempotencyLease(idemKeyRedis, reservationToken, sendResult).catch(() => {});
+    if (idemKeyRedis && reservationToken) {
+      finalizationStarted = true;
+      void completeIdempotencyLease(idemKeyRedis, reservationToken, sendResult)
+        .then(result => {
+          if (retainedLease(result)) uncertainIdempotencyKeys.delete(idemKeyRedis);
+          else markLeaseUncertain();
+        })
+        .catch(() => markLeaseUncertain());
+    }
     res.json(sendResult);
   } catch (caught) {
     const err = toAppError(caught);
@@ -748,14 +792,31 @@ router.post('/send', async (req, res) => {
       // SMTP already accepted this message. A Sent-folder or metadata failure
       // must not invite the user to send it again.
       console.error('Post-send processing failed:', err.message);
-      const sendResult = { ok: true, sentCopySaved: false };
+      const sendResult = {
+        ok: true,
+        sentCopySaved: false,
+        ...(smtpRecipients?.rejected.length ? {
+          partialDelivery: true,
+          accepted: smtpRecipients.accepted,
+          rejected: smtpRecipients.rejected,
+        } : {}),
+      };
       stopReservationRenewal();
-      if (idemKeyRedis && reservationToken) completeIdempotencyLease(idemKeyRedis, reservationToken, sendResult).catch(() => {});
+      if (idemKeyRedis && reservationToken) {
+        finalizationStarted = true;
+        void completeIdempotencyLease(idemKeyRedis, reservationToken, sendResult)
+          .then(result => {
+            if (retainedLease(result)) uncertainIdempotencyKeys.delete(idemKeyRedis);
+            else markLeaseUncertain();
+          })
+          .catch(() => markLeaseUncertain());
+      }
       return res.json(sendResult);
     }
     console.error('Send failed:', err.message);
     // A failure before reservation must not delete a concurrent request's lock.
     stopReservationRenewal();
+    if (leaseLost && idemKeyRedis) uncertainIdempotencyKeys.delete(idemKeyRedis);
     if (idemKeyRedis && reservationAcquired && reservationToken) releaseIdempotencyLease(idemKeyRedis, reservationToken).catch(() => {});
     res.status(500).json({ error: sanitizeSmtpError(err) });
   }

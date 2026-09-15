@@ -2125,31 +2125,30 @@ export class ImapManager {
     this.connectingAccounts.add(account.id);
     console.log(`Connecting ${logAccount(account)} (${account.imap_host}:${account.imap_port})…`);
 
-    // Always clean up any existing connection and interval first.
-    // Previously this only ran when a connection existed, which left orphaned
-    // intervals running whenever the connection died between reconnect attempts.
-    await this.disconnectAccount(account.id);
-
-    // Per-host persistent-connection budget (#379 Phase 2). When an operator has set a finite cap
-    // for this (connection-limited) host and this account is beyond it, run poll-only instead of
-    // holding an always-on IDLE connection: no entry in this.connections, just a periodic fresh
-    // open→sync→close. Default cap is unlimited, so this whole branch is skipped and behavior is
-    // unchanged for everyone who hasn't opted in. A lookup error fails safe to the persistent path.
-    const persistentCap = this._effectivePersistentCap(account);
-    if (Number.isFinite(persistentCap)) {
-      const eligible = await this._isPersistentEligible(account, persistentCap).catch(() => true);
-      if (!eligible) {
-        try { this._startPollOnly(account); }
-        finally { this.connectingAccounts.delete(account.id); }
-        return true;
-      }
-    }
-
-    // Refresh OAuth token if needed before connecting
-    account = await ensureFreshToken(account);
-    const { resolved, policy } = await resolveAccountHost(account);
     let client: ImapFlow | undefined;
     try {
+      // Always clean up any existing connection and interval first.
+      // Previously this only ran when a connection existed, which left orphaned
+      // intervals running whenever the connection died between reconnect attempts.
+      await this.disconnectAccount(account.id);
+
+      // Per-host persistent-connection budget (#379 Phase 2). When an operator has set a finite cap
+      // for this (connection-limited) host and this account is beyond it, run poll-only instead of
+      // holding an always-on IDLE connection: no entry in this.connections, just a periodic fresh
+      // open→sync→close. Default cap is unlimited, so this whole branch is skipped and behavior is
+      // unchanged for everyone who hasn't opted in. A lookup error fails safe to the persistent path.
+      const persistentCap = this._effectivePersistentCap(account);
+      if (Number.isFinite(persistentCap)) {
+        const eligible = await this._isPersistentEligible(account, persistentCap).catch(() => true);
+        if (!eligible) {
+          this._startPollOnly(account);
+          return true;
+        }
+      }
+
+      // Refresh OAuth token if needed before connecting
+      account = await ensureFreshToken(account);
+      const { resolved, policy } = await resolveAccountHost(account);
       // Connect via the shared helper: it attaches the #360 handshake-error listener, races the
       // connect against a 30s timeout (client.connect() has none — a slow/unresponsive server like
       // purelymail on a cold start would otherwise hang forever, wedging retries while

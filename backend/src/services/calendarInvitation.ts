@@ -52,6 +52,19 @@ interface InvitationInput {
 /** The account slice the invitation is sent from. */
 interface InvitationAccount { id?: string; email_address?: string | null; name?: string | null; [key: string]: unknown }
 
+/** SMTP acceptance is per recipient even when Nodemailer resolves sendMail successfully. */
+export type CalendarInvitationDelivery = {
+  accepted: string[];
+  rejected: string[];
+};
+
+function smtpRecipients(info: unknown, field: 'accepted' | 'rejected') {
+  if (!info || typeof info !== 'object' || !(field in info)) return [];
+  const value = (info as Record<string, unknown>)[field];
+  return Array.isArray(value)
+    ? value.filter((address): address is string => typeof address === 'string' && Boolean(address.trim()))
+    : [];
+}
 
 function invitationIcal({ uid, summary, description, location, organizerEmail, attendees, startsAt, endsAt, allDay = false, method, sequence }: InvitationInput) {
   const lines = [
@@ -87,11 +100,15 @@ export async function sendCalendarInvitation({ account, attendees, summary, desc
   const fromEmail = sendingAccount.email_address;
   const fromName = sendingAccount.sender_name || sendingAccount.name || fromEmail;
   const content = invitationIcal({ uid, summary, description, location, organizerEmail: fromEmail, attendees, startsAt, endsAt, allDay, method, sequence });
-  await smtp.transport.sendMail({
+  const result = await smtp.transport.sendMail({
     from: `${fromName} <${fromEmail}>`,
     to: attendees.join(', '),
     subject: `Invitation: ${summary || 'Meeting'}`,
     text: `${fromName} invited you to ${summary || 'a meeting'}.`,
     attachments: [{ filename: 'invitation.ics', content, contentType: `text/calendar; charset=utf-8; method=${method}` }],
   });
+  return {
+    accepted: smtpRecipients(result, 'accepted'),
+    rejected: smtpRecipients(result, 'rejected'),
+  } satisfies CalendarInvitationDelivery;
 }

@@ -805,6 +805,28 @@ export default function ComposeModal() {
       }, { 'X-Idempotency-Key': idempotencyKeyRef.current });
       // Send confirmed — clear the key so a subsequent send from a reused modal gets a fresh one.
       idempotencyKeyRef.current = null;
+      const rejectedRecipients = Array.isArray(sendResult?.rejected) ? sendResult.rejected.map(String) : [];
+      if (sendResult?.partialDelivery || rejectedRecipients.length) {
+        // SMTP may accept some RCPT commands while rejecting others. Keep the editor
+        // and its draft open, and turn it into an explicit retry for only addresses
+        // that were definitely not accepted.
+        setToChips(rejectedRecipients);
+        setToInput('');
+        setCcChips([]);
+        setCcInput('');
+        setShowCc(false);
+        setBccChips([]);
+        setBccInput('');
+        setShowBcc(false);
+        setSending(false);
+        addNotification({
+          type: 'warning',
+          persistent: true,
+          title: 'Message partially accepted',
+          body: `Not accepted by the mail server: ${rejectedRecipients.join(', ') || 'one or more recipients'}. The composer now contains only those recipients for a safe retry.`,
+        });
+        return;
+      }
       const replyThreadId = isReply ? composeData?.threadId : null;
       const replyThreadCacheId = isReply ? (composeData?.threadCacheId || replyThreadId) : null;
       closeCompose();

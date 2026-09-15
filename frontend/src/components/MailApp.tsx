@@ -95,7 +95,7 @@ export default function MailApp() {
     showContacts, showCalendar, setShowContacts, setShowCalendar, setTodoistConnected,
     accounts, rightSidebarWidth, setRightSidebarWidth, isRightSidebarResizing, setIsRightSidebarResizing,
     rightSidebarHidden, toggleRightSidebarHidden,
-    conversationReaderViewEnabled,
+    conversationReaderViewEnabled, authEpoch,
   } = useStore();
 
   const syncInterval = useStore((s: StoreState) => s.syncInterval);
@@ -444,11 +444,14 @@ export default function MailApp() {
   // deep-link path and the service-worker notification-tap path so both behave
   // identically.
   const openDeepLinkMessage = useCallback((id: string) => {
+    const requestAuthEpoch = useStore.getState().authEpoch;
     // resolveMessage matches the stable Message-ID header first, then the UUID — so a link
     // still opens after the email was moved to another folder (#270). Legacy/notification
     // links carry the UUID and resolve via the fallback.
     return api.resolveMessage(id)
       .then(msg => {
+        // A message resolved for an old auth session must never populate a new one.
+        if (useStore.getState().authEpoch !== requestAuthEpoch) return;
         // threadMessages is not cleared by setMessages(), so storing the message
         // here keeps it available to MessagePane even after the message list loads
         // a different folder's page (which would evict it from the main array).
@@ -466,20 +469,24 @@ export default function MailApp() {
         setPending(msg.id, msg.account_id);
         api.bulkRead([msg.id], true)
           .then(() => {
+            // Always release the process-local guard; only UI updates are session-scoped.
             pendingMarkReadMap.delete(msg.id);
+            if (useStore.getState().authEpoch !== requestAuthEpoch) return;
             completedMarkReadMap.set(msg.id, msg.account_id);
             setTimeout(() => completedMarkReadMap.delete(msg.id), 10000);
           })
           .catch(e => {
+            // Always release the process-local guard; only UI updates are session-scoped.
+            pendingMarkReadMap.delete(msg.id);
+            if (useStore.getState().authEpoch !== requestAuthEpoch) return;
             console.error('Deep-link markRead failed:', toAppError(e).message);
             st.updateMessage(msg.id, { is_read: false });
             st.incrementUnread(msg.account_id);
             st.adjustCategoryCount(msg.category, 1);
-            pendingMarkReadMap.delete(msg.id);
           });
       })
       .catch(err => console.warn('Deep link message not found:', toAppError(err).message));
-  }, [setSelectedMessage]);
+  }, [setSelectedMessage, authEpoch]);
 
   // Consume the deep-link the SW persisted on a notification tap: read+clear it,
   // then open the message. IndexedDB is the reliable channel on iOS (postMessage can
@@ -560,19 +567,28 @@ export default function MailApp() {
   }, [openCompose]);
 
   useEffect(() => {
+    // Every completion checks the auth generation captured at start. React cleanup
+    // suppresses unmounted work; the generation also covers A → logout → B races.
+    const requestAuthEpoch = authEpoch;
+    let active = true;
+    const isCurrentSession = () => active && useStore.getState().authEpoch === requestAuthEpoch;
+
     // Load accounts
     api.getAccounts()
       .then(accounts => {
-        setAccounts(accounts); // also sets accountsReady:true in the store
+        if (isCurrentSession()) setAccounts(accounts); // also sets accountsReady:true in the store
       })
       .catch(err => {
+        if (!isCurrentSession()) return;
         console.error(err);
         // Even on error, mark accounts as ready so MessageList doesn't hang
         useStore.setState({ accountsReady: true });
       });
 
     // Sync Todoist connection state — localStorage alone isn't enough across devices/sessions
-    api.todoist.status().then(({ connected }) => setTodoistConnected(connected)).catch(() => {});
+    api.todoist.status().then(({ connected }) => {
+      if (isCurrentSession()) setTodoistConnected(connected);
+    }).catch(() => {});
 
     // Preload ComposeModal chunk so first open is instant
     import('./ComposeModal.tsx');
@@ -584,8 +600,8 @@ export default function MailApp() {
     refreshCounts();
     // Visible tabs converge even if an individual WebSocket event was lost.
     const interval = setInterval(() => { if (document.visibilityState === 'visible') refreshCounts(); }, 60000);
-    return () => clearInterval(interval);
-  }, [setAccounts, setUnreadCounts, setTodoistConnected]);
+    return () => { active = false; clearInterval(interval); };
+  }, [authEpoch, setAccounts, setUnreadCounts, setTodoistConnected]);
 
   // WebSocket-independent periodic refresh of the open message list, at the user's chosen sync
   // interval. Only fires when the tab is visible AND the socket is not OPEN — a true fallback so

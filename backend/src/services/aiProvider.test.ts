@@ -322,6 +322,25 @@ describe('API-key provider regression', () => {
     });
   });
 
+  it('rejects EOF after text when the provider omits a terminal completion', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(sseResponse([completionEvent('partial')]));
+    const { provider } = factory({ initial: legacy, fetchFn });
+
+    await expect(collect(provider.streamChat([{ role: 'user', content: 'Hi' }])))
+      .rejects.toMatchObject({ status: 502, message: expect.stringMatching(/completion marker/i) });
+  });
+
+  it('accepts an explicit finish_reason when an OpenAI-compatible provider omits [DONE]', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(sseResponse([
+      completionEvent('complete'),
+      `data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: 'stop' }] })}\n\n`,
+    ]));
+    const { provider } = factory({ initial: legacy, fetchFn });
+
+    await expect(collect(provider.streamChat([{ role: 'user', content: 'Hi' }])))
+      .resolves.toEqual(['complete']);
+  });
+
   it('cancels the upstream stream when the caller aborts', async () => {
     let cancelled = false;
     const fetchFn = vi.fn().mockResolvedValue(sseResponse(

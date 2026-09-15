@@ -7,6 +7,7 @@ import 'express-async-errors';
 
 interface CalendarQueryResult {
   rows: Array<Record<string, unknown>>;
+  rowCount?: number;
 }
 
 type CalendarQuery = (sql: string, parameters?: unknown[]) => Promise<CalendarQueryResult>;
@@ -23,7 +24,7 @@ type CalendarInvitation = (invitation: {
   location?: string | null;
   method?: string;
   sequence?: number;
-}) => Promise<void>;
+}) => Promise<{ accepted: string[]; rejected: string[] }>;
 type CalendarSource = Record<string, unknown>;
 type CalendarSyncResult =
   | { ok: true; eventCount?: number; skipped?: Array<{ uid: string; reason: string }> }
@@ -152,7 +153,7 @@ beforeEach(() => {
   query.mockReset();
   withTransaction.mockClear();
   withTransaction.mockImplementation(async (fn: (client: { query: typeof query }) => unknown) => fn({ query }));
-  sendCalendarInvitation.mockReset();
+  sendCalendarInvitation.mockReset().mockResolvedValue({ accepted: [], rejected: [] });
   releaseCalendarSource.mockReset();
   scheduleCalendarSource.mockReset();
   stopCalendarSource.mockReset();
@@ -1071,7 +1072,8 @@ describe('local calendar API', () => {
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [{ id: 'event-1', calendar_id: 'calendar-1', uid: 'uid-1', invitation_sequence: 0 }] })
       .mockResolvedValueOnce({ rows: [{ id: 'outbox-1' }] })
-      .mockResolvedValueOnce({ rows: [] });
+      .mockResolvedValueOnce({ rows: [{ id: 'outbox-1' }], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ id: 'outbox-1' }], rowCount: 1 });
     const response = await fetch(`${base}/api/calendar/events`, { method: 'POST', headers: { 'content-type': 'application/json', 'X-Idempotency-Key': 'invite-1' }, body: JSON.stringify({ calendarId: 'calendar-1', summary: 'Planning', sendInvites: true, inviteAccountId: 'account-1', attendees: ['guest@example.test'], startsAt: '2026-09-01T09:00:00.000Z', endsAt: '2026-09-01T10:00:00.000Z' }) });
     expect(response.status).toBe(201);
     expect(sendCalendarInvitation).toHaveBeenCalledTimes(1);
@@ -1099,7 +1101,8 @@ describe('local calendar API', () => {
       if (sql.includes('FROM calendar_events')) return { rows: [event] };
       if (sql.includes('UPDATE calendar_events')) return { rows: [event] };
       if (sql.includes('INSERT INTO calendar_invitation_outbox')) { outbox = { id: 'outbox-1', event_id: 'event-1', request_fingerprint: queryParameter(params, 3) }; return { rows: [{ id: 'outbox-1' }] }; }
-      if (sql.includes('UPDATE calendar_invitation_outbox')) return { rows: [] };
+      if (sql.includes("SET status = 'processing'")) return { rows: [{ id: 'outbox-1' }], rowCount: 1 };
+      if (sql.includes('UPDATE calendar_invitation_outbox')) return { rows: [{ id: 'outbox-1' }], rowCount: 1 };
       return { rows: [] };
     });
     const body = { calendarId: 'calendar-1', summary: 'Planning', sendInvites: true, inviteAccountId: 'account-1', attendees: ['kept@example.test'], startsAt: '2026-09-01T11:00:00.000Z', endsAt: '2026-09-01T12:00:00.000Z' };
@@ -1139,7 +1142,8 @@ describe('local calendar API', () => {
       }
       if (sql.includes('INSERT INTO calendar_events')) return { rows: [event] };
       if (sql.includes('INSERT INTO calendar_invitation_outbox')) { outbox = { id: 'outbox-1', event_id: event.id, request_fingerprint: queryParameter(params, 3) }; return { rows: [{ id: 'outbox-1' }] }; }
-      if (sql.includes('UPDATE calendar_invitation_outbox')) return { rows: [] };
+      if (sql.includes("SET status = 'processing'")) return { rows: [{ id: 'outbox-1' }], rowCount: 1 };
+      if (sql.includes('UPDATE calendar_invitation_outbox')) return { rows: [{ id: 'outbox-1' }], rowCount: 1 };
       if (sql.includes('FROM calendar_events')) return { rows: [event] };
       return { rows: [] };
     });
@@ -1169,7 +1173,8 @@ describe('local calendar API', () => {
       if (sql.includes('FROM calendar_invitation_outbox')) return { rows: outbox ? [{ ...outbox, status: 'sent', last_error: null, payload: { actions: [] } }] : [] };
       if (sql.includes('INSERT INTO calendar_events')) return { rows: [event] };
       if (sql.includes('INSERT INTO calendar_invitation_outbox')) { outbox = { id: 'outbox-1', event_id: event.id, request_fingerprint: queryParameter(params, 3) }; return { rows: [{ id: 'outbox-1' }] }; }
-      if (sql.includes('UPDATE calendar_invitation_outbox')) return { rows: [] };
+      if (sql.includes("SET status = 'processing'")) return { rows: [{ id: 'outbox-1' }], rowCount: 1 };
+      if (sql.includes('UPDATE calendar_invitation_outbox')) return { rows: [{ id: 'outbox-1' }], rowCount: 1 };
       if (sql.includes('FROM calendar_events')) return { rows: [event] };
       return { rows: [] };
     });
@@ -1201,7 +1206,8 @@ describe('local calendar API', () => {
       if (sql.includes('FOR UPDATE')) return { rows: [existing] };
       if (sql.includes('UPDATE calendar_events')) return { rows: [event] };
       if (sql.includes('INSERT INTO calendar_invitation_outbox')) { outbox = { id: 'outbox-1', event_id: event.id, request_fingerprint: queryParameter(params, 3) }; return { rows: [{ id: 'outbox-1' }] }; }
-      if (sql.includes('UPDATE calendar_invitation_outbox')) return { rows: [] };
+      if (sql.includes("SET status = 'processing'")) return { rows: [{ id: 'outbox-1' }], rowCount: 1 };
+      if (sql.includes('UPDATE calendar_invitation_outbox')) return { rows: [{ id: 'outbox-1' }], rowCount: 1 };
       if (sql.includes('FROM calendar_events')) return { rows: [event] };
       return { rows: [] };
     });

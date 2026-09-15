@@ -88,6 +88,8 @@ export interface ComposeDraft {
 
 export interface StoreState {
   user: StoreUserRow | null;
+  /** Monotonic generation for invalidating asynchronous work from prior auth sessions. */
+  authEpoch: number;
   setUser: (user: StoreUserRow | null) => void;
   updateUser: (updates: Record<string, unknown>) => void;
   enabledPlugins: string[];
@@ -379,6 +381,7 @@ export interface StoreMessageRow {
  */
 type StoreStateRead = Pick<StoreState,
   | '_winSeq'
+  | 'authEpoch'
   | 'accounts'
   | 'backfillProgress'
   | 'calendarWorkHoursEnd'
@@ -484,26 +487,38 @@ function readGtdCollapsedSections() {
 // is derived from them plus the OS colour scheme (mode 'system').
 const _initialThemePrefs = readThemePrefs();
 
+// Persisted account/folder selection is only trusted for the user who saved it.
+const NAVIGATION_OWNER_KEY = 'mailflow_selected_navigation_owner';
+
 // The store shape is intentionally typed as `any` for now: it is a large,
 // dynamically-composed slice object, and typing it in full is tracked as part of
 export const useStore = create<StoreState>()((set, get) => ({
   // Auth
   user: null,
+  authEpoch: 0,
   setUser: (user: StoreUserRow | null) =>{
     // A new identity must never inherit private UI data from the preceding SPA session.
-    // Device appearance/input preferences deliberately remain outside this reset.
-    const identityChanged = get().user?.id !== user?.id;
+    // A first authenticated bootstrap may retain navigation only when it names this user.
+    const previousUserId = get().user?.id;
+    const identityChanged = previousUserId !== user?.id;
+    const isOwnedBootstrap = !previousUserId && !!user?.id
+      && localStorage.getItem(NAVIGATION_OWNER_KEY) === user.id;
+    const resetPrivateState = identityChanged && !isOwnedBootstrap;
     if (identityChanged) {
       cancelPendingPrefSave();
-      localStorage.removeItem('mailflow_selected_account');
-      localStorage.removeItem('mailflow_selected_folder');
+      if (resetPrivateState) {
+        localStorage.removeItem('mailflow_selected_account');
+        localStorage.removeItem('mailflow_selected_folder');
+        localStorage.removeItem(NAVIGATION_OWNER_KEY);
+      }
       _gtdSectionsSeq += 1;
       if (_gtdFetchTimer) clearTimeout(_gtdFetchTimer);
       _gtdFetchTimer = null;
     }
     set((state: StoreStateRead) => ({
       user,
-      ...(state.user?.id !== user?.id ? {
+      ...(identityChanged ? { authEpoch: state.authEpoch + 1 } : {}),
+      ...(resetPrivateState ? {
         senderFaviconsLoaded: false,
         senderFavicons: false,
         senderFaviconsSaving: false,
@@ -604,6 +619,8 @@ export const useStore = create<StoreState>()((set, get) => ({
     if (accountId === undefined) return;
     localStorage.setItem('mailflow_selected_account', accountId ?? '');
     localStorage.setItem('mailflow_selected_folder', folder);
+    const ownerId = get().user?.id;
+    if (ownerId) localStorage.setItem(NAVIGATION_OWNER_KEY, ownerId);
     return set((state: StoreStateRead) => {
       // #221: auto-close a folder-scoped search when navigating to a different
       // folder/account. A scoped search (a specific account with "Search all folders"
