@@ -264,6 +264,31 @@ function bodyToHtml(body: unknown, isHtml: boolean): string {
   return sanitizeComposeBody(text);
 }
 
+const IDEMPOTENCY_LEASE_SECONDS = 300;
+const IDEMPOTENCY_RENEW_MS = 60_000;
+const INFLIGHT_PREFIX = '__inflight__:';
+
+async function renewIdempotencyLease(key: string, token: string) {
+  return redisClient.eval(
+    "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('EXPIRE', KEYS[1], ARGV[2]) end return 0",
+    { keys: [key], arguments: [token, String(IDEMPOTENCY_LEASE_SECONDS)] },
+  );
+}
+
+async function releaseIdempotencyLease(key: string, token: string) {
+  return redisClient.eval(
+    "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) end return 0",
+    { keys: [key], arguments: [token] },
+  );
+}
+
+async function completeIdempotencyLease(key: string, token: string, result: unknown) {
+  return redisClient.eval(
+    "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('SET', KEYS[1], ARGV[2], 'EX', ARGV[3]) end return 0",
+    { keys: [key], arguments: [token, JSON.stringify(result), '86400'] },
+  );
+}
+
 const router = Router();
 router.use(requireAuth);
 
@@ -285,7 +310,7 @@ router.post('/send', async (req, res) => {
     let cached;
     try { cached = await redisClient.get(idemKeyRedis); }
     catch { return res.status(503).json({ error: 'Sending is temporarily unavailable. Please try again shortly.' }); }
-    if (cached === '__inflight__') return res.status(409).json({ error: 'This message is already being sent.' });
+    if (cached?.startsWith(INFLIGHT_PREFIX)) return res.status(409).json({ error: 'This message is already being sent.' });
     if (cached) return res.json(JSON.parse(cached));
   }
 
@@ -427,6 +452,12 @@ router.post('/send', async (req, res) => {
   }
 
   let reservationAcquired = false;
+  let reservationToken: string | null = null;
+  let reservationRenewal: ReturnType<typeof setInterval> | null = null;
+  const stopReservationRenewal = () => {
+    if (reservationRenewal) clearInterval(reservationRenewal);
+    reservationRenewal = null;
+  };
   let delivered = false; // true once transport.sendMail has actually handed off the message
   try {
     const smtp = await createAccountSmtpTransport(account);
@@ -523,11 +554,16 @@ router.post('/send', async (req, res) => {
     if (idemKeyRedis) {
       // TTL comfortably above the worst-case send (large attachment over a slow SMTP
       // server) so the in-flight guard cannot lapse while this request is still running.
+      reservationToken = `${INFLIGHT_PREFIX}${randomUUID()}`;
       let reserved;
-      try { reserved = await redisClient.set(idemKeyRedis, '__inflight__', { NX: true, EX: 300 }); }
+      try { reserved = await redisClient.set(idemKeyRedis, reservationToken, { NX: true, EX: IDEMPOTENCY_LEASE_SECONDS }); }
       catch { return res.status(503).json({ error: 'Sending is temporarily unavailable. Please try again shortly.' }); }
       if (reserved !== 'OK') return res.status(409).json({ error: 'This message is already being sent.' });
       reservationAcquired = true;
+      reservationRenewal = setInterval(() => {
+        if (reservationToken) renewIdempotencyLease(idemKeyRedis, reservationToken).catch(() => {});
+      }, IDEMPOTENCY_RENEW_MS);
+      reservationRenewal.unref?.();
     }
 
     const smtpInfo = await transport.sendMail(mailOptions);
@@ -703,7 +739,8 @@ router.post('/send', async (req, res) => {
     if (sentFolder) sendResult.sentFolder = sentFolder;
     // Overwrite the in-flight reservation with the final result so a retry after a lost
     // response returns this instead of re-sending.
-    if (idemKeyRedis) redisClient.set(idemKeyRedis, JSON.stringify(sendResult), { EX: 86400 }).catch(() => {});
+    stopReservationRenewal();
+    if (idemKeyRedis && reservationToken) completeIdempotencyLease(idemKeyRedis, reservationToken, sendResult).catch(() => {});
     res.json(sendResult);
   } catch (caught) {
     const err = toAppError(caught);
@@ -712,12 +749,14 @@ router.post('/send', async (req, res) => {
       // must not invite the user to send it again.
       console.error('Post-send processing failed:', err.message);
       const sendResult = { ok: true, sentCopySaved: false };
-      if (idemKeyRedis) redisClient.set(idemKeyRedis, JSON.stringify(sendResult), { EX: 86400 }).catch(() => {});
+      stopReservationRenewal();
+      if (idemKeyRedis && reservationToken) completeIdempotencyLease(idemKeyRedis, reservationToken, sendResult).catch(() => {});
       return res.json(sendResult);
     }
     console.error('Send failed:', err.message);
     // A failure before reservation must not delete a concurrent request's lock.
-    if (idemKeyRedis && reservationAcquired) redisClient.del(idemKeyRedis).catch(() => {});
+    stopReservationRenewal();
+    if (idemKeyRedis && reservationAcquired && reservationToken) releaseIdempotencyLease(idemKeyRedis, reservationToken).catch(() => {});
     res.status(500).json({ error: sanitizeSmtpError(err) });
   }
 });

@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vites
 import type { JsonBody } from '../test/json.js';
 vi.mock('../services/db.js', () => ({ query: vi.fn() }));
 vi.mock('../middleware/auth.js', () => ({ requireAuth: (req: { headers: Record<string, string>; session?: { userId?: string } }, _res: unknown, next: () => void) => { req.session = { userId: 'u1' }; next(); } }));
-vi.mock('../services/redis.js', () => ({ redisClient: { get: vi.fn(), set: vi.fn(), del: vi.fn() } }));
+vi.mock('../services/redis.js', () => ({ redisClient: { get: vi.fn(), set: vi.fn(), del: vi.fn(), eval: vi.fn() } }));
 vi.mock('../index.js', () => ({ imapManager: {} }));
 vi.mock('../services/smtpTransport.js', () => ({ createAccountSmtpTransport: vi.fn() }));
 vi.mock('../utils/mailUtils.js', () => ({ resolveSentFolder: vi.fn() }));
@@ -38,6 +38,7 @@ beforeEach(() => {
   redisClient.get.mockResolvedValue(null);
   redisClient.set.mockResolvedValue('OK');
   redisClient.del.mockResolvedValue(1);
+  redisClient.eval.mockResolvedValue(1);
   createAccountSmtpTransport.mockResolvedValue({ account, transport: { sendMail, verify: vi.fn() } });
   sendMail.mockResolvedValue({});
   resolveSentFolder.mockResolvedValue(null);
@@ -70,9 +71,9 @@ describe('send failure semantics', () => {
     expect((await res.json()) as JsonBody).toEqual({
       ok: true, partialDelivery: true, accepted: ['you@example.com'], rejected: ['missing@example.com'],
     });
-    expect(redisClient.set).toHaveBeenLastCalledWith('send_idem:u1:send1', JSON.stringify({
-      ok: true, partialDelivery: true, accepted: ['you@example.com'], rejected: ['missing@example.com'],
-    }), { EX: 86400 });
+    expect(redisClient.eval).toHaveBeenCalledWith(expect.stringContaining("redis.call('SET'"), expect.objectContaining({
+      keys: ['send_idem:u1:send1'],
+    }));
   });
 
   it('reports delivery success with a Sent-copy warning after post-delivery failure', async () => {
@@ -81,13 +82,17 @@ describe('send failure semantics', () => {
     expect(res.status).toBe(200);
     expect((await res.json()) as JsonBody).toEqual({ ok: true, sentCopySaved: false });
     expect(sendMail).toHaveBeenCalledOnce();
-    expect(redisClient.set).toHaveBeenLastCalledWith('send_idem:u1:send1', JSON.stringify({ ok: true, sentCopySaved: false }), { EX: 86400 });
+    expect(redisClient.eval).toHaveBeenCalledWith(expect.stringContaining("redis.call('SET'"), expect.objectContaining({
+      keys: ['send_idem:u1:send1'],
+    }));
     expect(redisClient.del).not.toHaveBeenCalled();
   });
   it('releases its own reservation after an SMTP rejection', async () => {
     sendMail.mockRejectedValueOnce(new Error('550 rejected'));
     expect((await post()).status).toBe(500);
-    expect(redisClient.del).toHaveBeenCalledWith('send_idem:u1:send1');
+    expect(redisClient.eval).toHaveBeenCalledWith(expect.stringContaining("redis.call('DEL'"), expect.objectContaining({
+      keys: ['send_idem:u1:send1'],
+    }));
   });
   it('blocks a concurrent submission', async () => {
     redisClient.set.mockResolvedValueOnce(null);
