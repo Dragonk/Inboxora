@@ -7,7 +7,7 @@ import { describe, it, expect, vi } from 'vitest';
 // resolve to null (→ "no matching account") rather than matching something unintended.
 // oidc.js's module-load dependencies are stubbed to isolate the pure helper.
 vi.mock('../services/db.js', () => ({ query: vi.fn(), pool: {} }));
-vi.mock('../services/encryption.js', () => ({ decrypt: (v) => v, isEncrypted: () => false }));
+vi.mock('../services/encryption.js', () => ({ decrypt: (value: unknown) => typeof value === 'string' ? value : null, isEncrypted: () => false }));
 vi.mock('../index.js', () => ({ imapManager: {} }));
 vi.mock('../middleware/auth.js', () => ({ requireAuth: (_req: unknown, _res: unknown, next: () => void) => next() }));
 vi.mock('../services/authEvents.js', () => ({ logAuthEvent: vi.fn() }));

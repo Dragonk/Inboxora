@@ -1,7 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { listeningPort } from '../test/net.js';
 import type { Server } from 'node:http';
-import type { JsonBody } from '../test/json.js';
 
 vi.mock('../services/db.js', () => ({ query: vi.fn() }));
 vi.mock('../middleware/auth.js', () => ({
@@ -55,7 +54,7 @@ describe('GET /api/mail/unread-counts unified total', () => {
     const response = await fetch(`${base}/api/mail/unread-counts`);
 
     expect(response.status).toBe(200);
-    expect((await response.json()) as JsonBody).toEqual({
+    expect(await response.json()).toEqual({
       total: 2,
       byAccount: { included: 2, excluded: 5 },
     });
@@ -92,7 +91,16 @@ describe('GET /api/mail/unread-counts unified total', () => {
     const response = await fetch(`${base}/api/mail/thread/thread-1?unified=true`);
 
     expect(response.status).toBe(200);
-    expect(query.mock.calls[1][1][0]).toEqual(['included']);
+    expect(query).toHaveBeenCalledTimes(2);
+    const threadQueryCall = query.mock.calls[1];
+    if (threadQueryCall === undefined) {
+      throw new Error('Expected thread query call');
+    }
+    const threadQueryParameters = threadQueryCall[1];
+    if (threadQueryParameters === undefined) {
+      throw new Error('Expected thread query parameters');
+    }
+    expect(threadQueryParameters[0]).toEqual(['included']);
   });
 
   it('scopes a non-unified thread expansion to the requested owned account', async () => {

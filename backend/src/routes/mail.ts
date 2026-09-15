@@ -46,7 +46,7 @@ interface ReadMessageRow {
 }
 
 import { sanitizeEmail, stripEmailHead, hasRemoteImages, blockRemoteImages, rewriteEbayImageserUrls, rewriteAnchorHrefs, shouldBlockRemoteImages, type RemoteImagePreferences } from '../services/emailSanitizer.js';
-import { snippetFromBody, decodeMimeWords, parseRawHeaders, buildHeadersFromMessage } from '../services/messageParser.js';
+import { snippetFromBody, decodeMimeWords, parseRawHeaders, buildHeadersFromMessage, buildSnippetFromHtml } from '../services/messageParser.js';
 import { resolveTrashFolder, resolveAllTrashPaths, resolveAllDraftsPaths, resolveArchiveFolder, isAllMailFolder, resolveSpamFolder, resolveAllSpamPaths, getDeleteStrategy, adjustFolderCounts, fanOutReadToSiblings, fanOutStarToSiblings, fanOutBulkReadToSiblings } from '../utils/mailUtils.js';
 import { pluginRegistry } from '../plugins/registry.js';
 import { listMessages } from '../services/messageService.js';
@@ -463,7 +463,9 @@ router.get('/messages/:id/body', async (req, res) => {
     // Backfill snippet when absent, or regenerate if garbled (undecoded HTML entities
     // from before the entity-stripping fix — e.g. "&zwnj;" in preview text).
     if (!message.snippet || snippetIsGarbled(message.snippet)) {
-      const snip = snippetFromBody(message.body_text, html);
+      const snip = message.body_text === null || message.body_text === undefined
+        ? (html === null ? '' : buildSnippetFromHtml(html))
+        : snippetFromBody(message.body_text, html);
       if (snip) {
         query('UPDATE messages SET snippet = $1 WHERE id = $2', [sanitizeDbText(snip), id]).catch(() => {});
       }
