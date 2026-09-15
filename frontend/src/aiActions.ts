@@ -13,12 +13,14 @@ export const BUILTIN_SUMMARIZE = { id: 'summarize', prompt: SUMMARIZE_PROMPT, bu
 // authors can specify a language) it needs to follow the user's UI language
 // instead of defaulting to English (#255). Keyed by the i18n locale codes MailFlow
 // ships; English and any unknown locale keep the base prompt unchanged.
-const SUMMARIZE_LANGUAGE_NAMES = {
+const SUMMARIZE_LANGUAGE_NAMES: Readonly<Record<string, string>> = {
   es: 'Spanish', fr: 'French', de: 'German', it: 'Italian',
   pl: 'Polish', ru: 'Russian', zhCN: 'Simplified Chinese', cs: 'Czech',
 };
 
-export function summarizePromptForLocale(locale) {
+export function summarizePromptForLocale(locale: string | undefined) {
+  if (locale === undefined) return SUMMARIZE_PROMPT;
+
   const name = SUMMARIZE_LANGUAGE_NAMES[locale];
   return name ? `${SUMMARIZE_PROMPT} Respond in ${name}.` : SUMMARIZE_PROMPT;
 }

@@ -1,5 +1,21 @@
-const LEVELS: Record<string, number> = { debug: 0, info: 1, warn: 2, error: 3 };
-const current = LEVELS[process.env.LOG_LEVEL?.toLowerCase()] ?? LEVELS.info;
+type LogLevel = 'debug' | 'info' | 'warn' | 'error';
+
+const LEVELS: Record<LogLevel, number> = { debug: 0, info: 1, warn: 2, error: 3 };
+
+function isLogLevel(value: string): value is LogLevel {
+  return Object.hasOwn(LEVELS, value);
+}
+
+let current: number = LEVELS.info;
+const configuredLevel = process.env.LOG_LEVEL;
+
+if (configuredLevel !== undefined) {
+  const level = configuredLevel.toLowerCase();
+
+  if (isLogLevel(level)) {
+    current = LEVELS[level];
+  }
+}
 
 export const logger = {
   debug: (...a: unknown[]) => current <= 0 && console.log('[debug]', ...a),

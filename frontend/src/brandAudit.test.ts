@@ -3,10 +3,37 @@ import test from "node:test";
 import { access, readFile } from "node:fs/promises";
 
 const root = new URL("../../", import.meta.url);
-const source = (path) => readFile(new URL(path, root), "utf8");
+const source = (path: string): Promise<string> => readFile(new URL(path, root), "utf8");
+
+type ManifestIcon = {
+  src: string;
+  sizes: string;
+  purpose: string;
+};
+
+type Manifest = {
+  icons: ManifestIcon[];
+};
+
+const isManifestIcon = (value: unknown): value is ManifestIcon =>
+  typeof value === "object" &&
+  value !== null &&
+  "src" in value &&
+  typeof value.src === "string" &&
+  "sizes" in value &&
+  typeof value.sizes === "string" &&
+  "purpose" in value &&
+  typeof value.purpose === "string";
+
+const isManifest = (value: unknown): value is Manifest =>
+  typeof value === "object" &&
+  value !== null &&
+  "icons" in value &&
+  Array.isArray(value.icons) &&
+  value.icons.every(isManifestIcon);
 
 test("Inboxora branding is used by user-visible application surfaces", async () => {
-  const checks = [
+  const checks: readonly (readonly [file: string, expected: string])[] = [
     ["frontend/src/components/MailApp.tsx", "document.title = 'Inboxora'"],
     ["frontend/src/components/AdminPanel.tsx", "fromName: 'Inboxora'"],
     ["frontend/src/components/ElectronNotificationBridge.tsx", "Inboxora downloaded"],
@@ -53,8 +80,9 @@ test("Inboxora wordmark and versioned PWA assets replace legacy MailFlow brandin
   assert.match(logo, /BRAND_ENVELOPE/);
   assert.match(themes, /brandSvg/);
   assert.match(index, /inboxora-envelope-512\.png/);
-  const metadata = JSON.parse(manifest);
-  assert.deepEqual(metadata.icons.map(icon => [icon.sizes, icon.purpose]), [['192x192', 'any'], ['512x512', 'any'], ['512x512', 'maskable']]);
+  const metadata: unknown = JSON.parse(manifest);
+  assert.ok(isManifest(metadata), "manifest icons must have string src, sizes, and purpose fields");
+  assert.deepEqual(metadata.icons.map((icon) => [icon.sizes, icon.purpose]), [['192x192', 'any'], ['512x512', 'any'], ['512x512', 'maskable']]);
   for (const icon of metadata.icons) {
     const png = await readFile(new URL(`../public${icon.src}`, import.meta.url));
     const [width, height] = icon.sizes.split('x').map(Number);

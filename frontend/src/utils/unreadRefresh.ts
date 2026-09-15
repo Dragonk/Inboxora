@@ -16,7 +16,7 @@ import { recordDiagEvent } from './diagEvents.ts';
 // Guard: only subtract pending reads when the server count is still at least
 // (current optimistic + pending size). If the server count is already lower,
 // the DB has applied those reads and subtracting again would double-count.
-function _applyServerCounts(counts) {
+function _applyServerCounts(counts: ReturnType<typeof useStore.getState>['unreadCounts']) {
   const _before = useStore.getState().unreadCounts.total;
   if (pendingMarkReadMap.size > 0) {
     const state = useStore.getState();

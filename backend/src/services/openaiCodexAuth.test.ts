@@ -122,8 +122,8 @@ class MemoryStore implements CodexStore {
     const flow = this.flows.get(id);
     if (!flow || !['polling', 'authorized'].includes(flow.state)) return;
     flow.state = state;
-    if (intervalMs !== undefined) flow.intervalMs = intervalMs;
-    if (nextPollAt !== undefined) flow.nextPollAt = nextPollAt;
+    if (intervalMs !== null && intervalMs !== undefined) flow.intervalMs = intervalMs;
+    if (nextPollAt !== null && nextPollAt !== undefined) flow.nextPollAt = nextPollAt;
     if (failureCode !== undefined) flow.failureCode = failureCode;
     if (clearSecrets) {
       flow.deviceAuthIdEnc = null;
@@ -228,7 +228,11 @@ function seedCredential(store: MemoryStore, overrides: Partial<StoredCredential>
 }
 
 function readCredential(store: MemoryStore): Record<string, unknown> {
-  return JSON.parse(decrypt(store.credential));
+  const encryptedCredential = store.credential;
+  if (encryptedCredential === null) throw new Error('Expected a stored test credential');
+  const decryptedCredential = decrypt(encryptedCredential);
+  if (decryptedCredential === null) throw new Error('Expected test credential decryption to succeed');
+  return JSON.parse(decryptedCredential);
 }
 
 beforeEach(() => {
