@@ -15,11 +15,63 @@ import { toAppError } from '../../utils/errors.ts';
 // owns GTD's disclosure state machine; the per-account/pet blocks below are moved verbatim.
 const TOGGLE_OFF_BACKGROUND = 'var(--border)';
 
-/** One `/gtd/folders/ensure` outcome: `{ folder, path, created }` on success, `{ folder, error }` on failure. */
-type GtdEnsureResult = { folder?: string; path?: string; created?: boolean; error?: unknown };
+/** A complete user-facing status message. */
+type SettingsMessage = {
+  type: 'error' | 'ok';
+  text: string;
+};
+
+/** The response returned after a custom pet has been imported. */
+type GtdPetImportResponse = {
+  slug: string;
+  displayName: string;
+};
+
+/** One successful `/gtd/folders/ensure` outcome. */
+type GtdEnsureResult = {
+  path: string;
+  created: boolean;
+};
+
+type GtdEnsureResponse =
+  | { results: GtdEnsureResult[] }
+  | { results: GtdEnsureResult[]; folders: Record<string, string> };
 
 /** An account row as the store holds it, plus the GTD fields the folder helpers read. */
 type GtdSettingsAccount = StoreState['accounts'][number] & GtdAccountLike;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isStringMap(value: unknown): value is Record<string, string> {
+  return isRecord(value) && Object.values(value).every(entry => typeof entry === 'string');
+}
+
+function isGtdPetImportResponse(value: unknown): value is GtdPetImportResponse {
+  return isRecord(value) && typeof value.slug === 'string' && typeof value.displayName === 'string';
+}
+
+function isGtdEnsureResult(value: unknown): value is GtdEnsureResult {
+  return isRecord(value) && typeof value.path === 'string' && typeof value.created === 'boolean';
+}
+
+function isGtdEnsureResponse(value: unknown): value is GtdEnsureResponse {
+  if (!isRecord(value) || !Array.isArray(value.results) || !value.results.every(isGtdEnsureResult)) return false;
+  return !('folders' in value) || isStringMap(value.folders);
+}
+
+function rejectedGtdFolders(value: unknown): string[] | null {
+  if (!isRecord(value) || !Array.isArray(value.gtd_folders_rejected)) return null;
+  return value.gtd_folders_rejected.every(rejected => typeof rejected === 'string')
+    ? value.gtd_folders_rejected
+    : null;
+}
+
+function selectedFile(files: FileList | null): File | null {
+  if (files === null) return null;
+  return files.item(0);
+}
 
 // Read a File as a base64 data-URL (data:<mime>;base64,…), the transport the pet import expects.
 function readFileAsDataURL(file: File): Promise<string> {
@@ -43,7 +95,7 @@ function GtdPetBlock() {
   const { t } = useTranslation();
   const gtdPetSlug = useStore((s: StoreState) => s.gtdPetSlug);
   const setGtdPetSlug = useStore((s: StoreState) => s.setGtdPetSlug);
-  const [msg, setMsg] = useState<{ type?: string; text?: string; url?: string; [key: string]: unknown } | null>(null);
+  const [msg, setMsg] = useState<SettingsMessage | null>(null);
   const [petJsonFile, setPetJsonFile] = useState<File | null>(null);
   const [sheetFile, setSheetFile] = useState<File | null>(null);
   const [importing, setImporting] = useState(false);
@@ -57,12 +109,14 @@ function GtdPetBlock() {
     try {
       const petJson = await petJsonFile.text();
       const sheet = await readFileAsDataURL(sheetFile);
-      const pet = await api.importGtdPet({ petJson, sheet });
-      setGtdPetSlug(pet.slug);
+      const response = await api.importGtdPet({ petJson, sheet });
+      if (!isGtdPetImportResponse(response)) throw new Error('Invalid pet import response');
+      setGtdPetSlug(response.slug);
       setPetJsonFile(null); setSheetFile(null); setFileResetKey(k => k + 1);
-      setMsg({ type: 'ok', text: t('admin.gtd.pet.imported', { name: pet.displayName || pet.slug }) });
+      setMsg({ type: 'ok', text: t('admin.gtd.pet.imported', { name: response.displayName }) });
     } catch (err) {
-      setMsg({ type: 'error', text: toAppError(err).message || t('admin.gtd.pet.importFailed') });
+      const error = toAppError(err);
+      setMsg({ type: 'error', text: error.message === '' ? t('admin.gtd.pet.importFailed') : error.message });
     } finally { setImporting(false); }
   };
 
@@ -87,7 +141,7 @@ function GtdPetBlock() {
               type="file"
               accept=".json,application/json"
               aria-label={t('admin.gtd.pet.chooseJson')}
-              onChange={e => setPetJsonFile(e.target.files?.[0] || null)}
+              onChange={e => setPetJsonFile(selectedFile(e.target.files))}
               style={{ fontSize: 12, color: 'var(--text-secondary)' }}
             />
           </div>
@@ -98,7 +152,7 @@ function GtdPetBlock() {
               type="file"
               accept="image/png,image/webp,image/gif"
               aria-label={t('admin.gtd.pet.chooseSheet')}
-              onChange={e => setSheetFile(e.target.files?.[0] || null)}
+              onChange={e => setSheetFile(selectedFile(e.target.files))}
               style={{ fontSize: 12, color: 'var(--text-secondary)' }}
             />
           </div>
@@ -151,7 +205,7 @@ function GtdPetBlock() {
 function GtdAccountBlock({ account }: { account: GtdSettingsAccount }) {
   const { t } = useTranslation();
   const { updateAccount } = useStore();
-  const enabled = !!account.gtd_enabled;
+  const enabled = account.gtd_enabled === true;
   // Folder re-seeding intentionally follows only this persisted field, not unrelated
   // account updates that must leave in-progress edits intact.
   const storedGtdFolders = account.gtd_folders;
@@ -159,7 +213,7 @@ function GtdAccountBlock({ account }: { account: GtdSettingsAccount }) {
   const [toggling, setToggling] = useState(false);
   const [saving, setSaving] = useState(false);
   const [creating, setCreating] = useState(false);
-  const [msg, setMsg] = useState<{ type?: string; text?: string; url?: string; [key: string]: unknown } | null>(null);
+  const [msg, setMsg] = useState<SettingsMessage | null>(null);
   // Set right before handleCreate's own updateAccount so the re-seed effect below skips
   // that one self-inflicted gtd_folders change — which would otherwise stomp fields the
   // user is mid-editing. External gtd_folders changes still re-seed as normal.
@@ -203,8 +257,8 @@ function GtdAccountBlock({ account }: { account: GtdSettingsAccount }) {
       updateAccount(account.id, { gtd_folders });
       // Some submitted names may have been rejected (over-long / traversal) and reset
       // to defaults — surface which so the user knows their input didn't stick.
-      const rejected = res?.gtd_folders_rejected;
-      if (rejected?.length) {
+      const rejected = rejectedGtdFolders(res);
+      if (rejected !== null && rejected.length > 0) {
         setMsg({ type: 'error', text: t('admin.gtd.rejectedFolders', { states: stateNames(rejected) }) });
       } else {
         setMsg({ type: 'ok', text: t('admin.gtd.savedOk') });
@@ -217,25 +271,27 @@ function GtdAccountBlock({ account }: { account: GtdSettingsAccount }) {
   const handleCreate = async () => {
     setCreating(true); setMsg(null);
     try {
-      const { results, folders: persisted } = await api.gtdEnsureFolders(account.id, diffGtdFolders(folders));
-      const created = results.filter((r: GtdEnsureResult) => r.created).length;
-      const existing = results.filter((r: GtdEnsureResult) => !r.created && !r.error).length;
+      const response = await api.gtdEnsureFolders(account.id, diffGtdFolders(folders));
+      if (!isGtdEnsureResponse(response)) throw new Error('Invalid folder ensure response');
+      const created = response.results.filter(result => result.created).length;
+      const existing = response.results.filter(result => !result.created).length;
       // On a prefixed-namespace server the folders land under a real path (INBOX.Todo) and
       // the backend persists those effective paths; reflect them so the inputs show where
       // labels actually live. Merge the returned states directly onto the current form so a
       // field the user is mid-editing (that ensure didn't return) survives, and suppress the
       // re-seed effect for this self-inflicted account update so it can't stomp those edits.
-      if (persisted) {
+      if ('folders' in response) {
         skipReseedRef.current = true;
-        setFolders(prev => ({ ...prev, ...persisted }));
-        updateAccount(account.id, { gtd_folders: persisted });
+        setFolders(previous => ({ ...previous, ...response.folders }));
+        updateAccount(account.id, { gtd_folders: response.folders });
       }
       setMsg({ type: 'ok', text: t('admin.gtd.createResult', { created, existing }) });
     } catch (err) {
       // The 400 collision case carries a specific server message (e.g. which two states
       // clash); show it over the generic fallback. English-only — acceptable for this
       // admin-surface error detail, so no new i18n key.
-      setMsg({ type: 'error', text: toAppError(err).message || t('admin.gtd.createFailed') });
+      const error = toAppError(err);
+      setMsg({ type: 'error', text: error.message === '' ? t('admin.gtd.createFailed') : error.message });
     } finally { setCreating(false); }
   };
 
@@ -261,7 +317,7 @@ function GtdAccountBlock({ account }: { account: GtdSettingsAccount }) {
         </button>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {account.name || account.email_address}
+            {account.name === null || account.name === undefined || account.name === '' ? account.email_address : account.name}
           </div>
           <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>
             {enabled ? t('admin.gtd.enableDesc') : t('admin.gtd.enableHint')}
@@ -284,7 +340,7 @@ function GtdAccountBlock({ account }: { account: GtdSettingsAccount }) {
                   {t(`gtd.state.${state}`)}
                 </label>
                 <input
-                  value={folders[state] ?? ''}
+                  value={folders[state]}
                   onChange={e => setFolders(prev => ({ ...prev, [state]: e.target.value }))}
                   placeholder={DEFAULT_GTD_FOLDERS[state]}
                   style={{ ...inputStyle, flex: 1 }}
@@ -347,7 +403,7 @@ function GtdSection() {
 // reveal never writes to the backend — the per-account toggles inside are the real gates. Default
 // open if any account already has GTD on; a manual choice persists in localStorage so it sticks
 // across reopens. A settings-search deep-link (initialSubTab === 'gtd') forces it open.
-export default function GtdSettings({ initialSubTab }: { initialSubTab?: string | null }) {
+export default function GtdSettings({ initialSubTab }: { initialSubTab: string | null | undefined }) {
   const { t } = useTranslation();
   const accounts = useStore((s: StoreState) => s.accounts);
   const [gtdRevealed, setGtdRevealed] = useState(() => {

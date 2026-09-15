@@ -14,7 +14,7 @@ type WsHandlerEntry = { pluginId: string; handler: (payload: WsHandlerPayload) =
 /** A registered reconnect hook together with the plugin that owns it (hooks take no arguments). */
 type ReconnectEntry = { pluginId: string; handler: () => void };
 /** A decoded socket message: `type` selects the registered handler, the rest reaches it as payload. */
-type PluginWsMessage = { type?: string; accountId?: string; [key: string]: unknown };
+type PluginWsMessage = { type: string; accountId?: string; [key: string]: unknown };
 
 const wsHandlers = new Map<string, WsHandlerEntry[]>(); // messageType -> [{ pluginId, handler }]
 const reconnectHandlers: ReconnectEntry[] = []; // [{ pluginId, handler }]
@@ -22,9 +22,12 @@ const reconnectHandlers: ReconnectEntry[] = []; // [{ pluginId, handler }]
 const isActivated = (pluginId: string) => useStore.getState().enabledPlugins.includes(pluginId);
 
 export function registerWsHandler(messageType: string, { pluginId, handler }: WsHandlerEntry) {
-  const list = wsHandlers.get(messageType) || [];
-  list.push({ pluginId, handler });
-  wsHandlers.set(messageType, list);
+  const existingHandlers = wsHandlers.get(messageType);
+  if (existingHandlers) {
+    existingHandlers.push({ pluginId, handler });
+    return;
+  }
+  wsHandlers.set(messageType, [{ pluginId, handler }]);
 }
 
 export function registerReconnectHandler({ pluginId, handler }: ReconnectEntry) {
@@ -34,8 +37,11 @@ export function registerReconnectHandler({ pluginId, handler }: ReconnectEntry) 
 // Dispatch a WS message to any activated plugin registered for its type. Core calls this for
 // message types it does not handle itself (the switch default). Returns true if a handler ran.
 export function dispatchPluginWsMessage(data: PluginWsMessage) {
+  const handlers = wsHandlers.get(data.type);
+  if (!handlers) return false;
+
   let handled = false;
-  for (const { pluginId, handler } of wsHandlers.get(data?.type) || []) {
+  for (const { pluginId, handler } of handlers) {
     if (!isActivated(pluginId)) continue;
     try { handler(data); handled = true; } catch (err) { console.error(`plugin ws handler ${pluginId}/${data.type} failed:`, err); }
   }

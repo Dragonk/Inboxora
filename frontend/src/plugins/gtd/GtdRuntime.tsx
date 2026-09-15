@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../../store/index.ts';
 import { gtdActiveForContext } from '../../utils/gtd.ts';
+import type { GTD_STATES } from '../../utils/gtd.ts';
 import { api } from '../../utils/api.ts';
 import { shortcutBus } from '../../utils/shortcutBus.ts';
 import { classifyWithUndo, undoLatestGtdNotification } from './classification.ts';
@@ -11,6 +12,8 @@ import type { StoreState } from '../../store/index.ts';
 // (unified vs a single account) changes and GTD is active there; both the rail and the tab list read
 // the resulting store slice, and live updates arrive via the WS handler (plugins/events). Mounted by
 // <PluginRuntime/> only while GTD is activated, so activation is already gated — pass `true` here.
+type GtdState = (typeof GTD_STATES)[number];
+
 export default function GtdRuntime() {
   const { t } = useTranslation();
   const accounts = useStore((s: StoreState) => s.accounts);
@@ -29,13 +32,14 @@ export default function GtdRuntime() {
   // unless the selected message's account has GTD enabled. Only wired while GTD is activated (this
   // runtime mounts only then) — replaces the former inline handling in MessageList.
   useEffect(() => {
-    const classifySelected = (state) => () => {
+    const classifySelected = (state: GtdState) => () => {
       const { messages, searchResults, searchQuery, selectedMessageId, accounts: accts, scheduleGtdSectionsFetch, addNotification } = useStore.getState();
       if (!selectedMessageId) return;
       const pool = searchQuery.trim() ? searchResults : messages;
       const msg = pool.find(m => m.id === selectedMessageId);
       if (!msg) return;
-      if (!accts.find(a => a.id === msg.account_id)?.gtd_enabled) return;
+      const account = accts.find(a => a.id === msg.account_id);
+      if (!account || !account.gtd_enabled) return;
       void classifyWithUndo(msg.id, state, {
         api,
         store: { addNotification, scheduleGtdSectionsFetch },
