@@ -161,7 +161,15 @@ jobs:
           distribution: temurin
           java-version: "21"
 
-      - uses: android-actions/setup-android@v3
+      # The hosted image already includes the Android SDK. Do not use
+      # android-actions/setup-android: it invokes the retired `sdkmanager tools`
+      # package on current runners and fails before the release build starts.
+      - name: Prepare Android SDK
+        run: |
+          sdkmanager="$(find "$ANDROID_HOME/cmdline-tools" -path '*/bin/sdkmanager' -type f | sort -V | tail -1)"
+          test -n "$sdkmanager"
+          yes | "$sdkmanager" --licenses >/dev/null 2>&1 || true
+          "$sdkmanager" --install "platform-tools" "platforms;android-36" "build-tools;36.0.0"
 
       - name: Install dependencies
         working-directory: frontend
