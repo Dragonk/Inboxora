@@ -3,6 +3,18 @@ import type { TFunction } from 'i18next';
 import type { CalendarViewEvent } from './calendarView';
 import { EmptyState } from './ui.tsx';
 
+function formatEventTime(value: CalendarViewEvent['starts_at'], locale: string): string {
+  if (value instanceof Date) return value.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' });
+  if (typeof value === 'string' || typeof value === 'number') {
+    return new Date(value).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' });
+  }
+  return '';
+}
+
+function isReadOnly(value: unknown): boolean {
+  return value === true;
+}
+
 function AgendaEntries({ events, locale, onOpen, t }: {
   events: CalendarViewEvent[];
   locale: string;
@@ -11,8 +23,8 @@ function AgendaEntries({ events, locale, onOpen, t }: {
 }) {
   return events.map(event => <button key={event.id} type="button" className="calendar-agenda-entry" onClick={() => onOpen(event)}>
     <span className="calendar-agenda-color" style={{ background: event.calendar_color || 'var(--accent)' }} />
-    <span className="calendar-agenda-time">{event.all_day || event.allDay ? t('calendar.allDay') : <>{new Date(event.starts_at).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })}<br />{new Date(event.ends_at).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })}</>}</span>
-    <span className="calendar-agenda-text"><strong>{event.summary || t('calendar.untitled')}</strong>{event.location && <small>{event.location}</small>}{event.read_only && <small>{t('calendar.readOnly')}</small>}</span>
+    <span className="calendar-agenda-time">{event.all_day || event.allDay ? t('calendar.allDay') : <>{formatEventTime(event.starts_at, locale)}<br />{formatEventTime(event.ends_at, locale)}</>}</span>
+    <span className="calendar-agenda-text"><strong>{event.summary || t('calendar.untitled')}</strong>{event.location && <small>{event.location}</small>}{isReadOnly(event.read_only) && <small>{t('calendar.readOnly')}</small>}</span>
   </button>);
 }
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { CSSProperties } from 'react';
+import type { CSSProperties, FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api } from '../utils/api.ts';
 import { Button, inputStyle } from './ui.tsx';
@@ -22,11 +22,39 @@ function notifyCalendarChanged() {
   if (typeof window !== 'undefined') window.dispatchEvent(new Event('inboxora:calendar-changed'));
 }
 
+interface CalendarSource {
+  id: string;
+  displayName?: string;
+  kind?: string;
+  intervalMin?: number;
+  lastError?: string | null;
+  lastSyncAt?: string | null;
+  [key: string]: unknown;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function isCalendarSource(value: unknown): value is CalendarSource {
+  if (!isRecord(value) || typeof value.id !== 'string') return false;
+  return (value.displayName === undefined || typeof value.displayName === 'string')
+    && (value.kind === undefined || typeof value.kind === 'string')
+    && (value.intervalMin === undefined || typeof value.intervalMin === 'number')
+    && (value.lastError === undefined || value.lastError === null || typeof value.lastError === 'string')
+    && (value.lastSyncAt === undefined || value.lastSyncAt === null || typeof value.lastSyncAt === 'string');
+}
+
+function calendarSources(value: unknown): CalendarSource[] {
+  if (!isRecord(value) || !Array.isArray(value.sources)) return [];
+  return value.sources.filter(isCalendarSource);
+}
+
 export default function CalendarSubscriptionsSettings({ locale }: { locale?: string }) {
   const { t, i18n } = useTranslation();
   // The resource ids are not BCP 47 tags (zhCN), so spell them out before any Intl call.
   const language = intlLocale(locale || i18n.resolvedLanguage || i18n.language) || 'en';
-  const [sources, setSources] = useState<Array<{ id: string; displayName?: string; kind?: string; intervalMin?: number; lastError?: string | null; lastSyncAt?: string | null; [key: string]: unknown }>>([]);
+  const [sources, setSources] = useState<CalendarSource[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -37,7 +65,7 @@ export default function CalendarSubscriptionsSettings({ locale }: { locale?: str
   const load = useCallback(async () => {
     try {
       const result = await api.calendar.listSources();
-      setSources(result.sources || []);
+      setSources(calendarSources(result));
       setError(null);
     } catch (err) {
       setError(toAppError(err).message);
@@ -70,7 +98,7 @@ export default function CalendarSubscriptionsSettings({ locale }: { locale?: str
     }
   };
 
-  const submitUrl = async event => {
+  const submitUrl = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const url = normalizeSubscriptionUrl(form.url);
     if (!url) return;
@@ -88,7 +116,7 @@ export default function CalendarSubscriptionsSettings({ locale }: { locale?: str
     });
   };
 
-  const removeSource = async id => {
+  const removeSource = async (id: string) => {
     setBusy(true); setError(null); setNotice(null);
     try {
       await api.calendar.deleteSource(id);
@@ -101,7 +129,7 @@ export default function CalendarSubscriptionsSettings({ locale }: { locale?: str
     }
   };
 
-  const syncSource = async id => {
+  const syncSource = async (id: string) => {
     setBusy(true); setError(null); setNotice(null);
     try {
       await api.calendar.syncSource(id);

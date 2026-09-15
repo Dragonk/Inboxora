@@ -4,12 +4,12 @@ import assert from 'node:assert/strict';
 
 // Minimal localStorage stub (aiResults only touches it inside its functions).
 Reflect.set(globalThis, 'localStorage', (() => {
-  let store = {};
+  let store: Record<string, string> = {};
   return {
-    getItem: k => (k in store ? store[k] : null),
-    setItem: (k, v) => { store[k] = String(v); },
-    removeItem: k => { delete store[k]; },
-    clear: () => { store = {}; },
+    getItem: (key: string): string | null => (key in store ? store[key] : null),
+    setItem: (key: string, value: string): void => { store[key] = value; },
+    removeItem: (key: string): void => { delete store[key]; },
+    clear: (): void => { store = {}; },
   };
 })());
 

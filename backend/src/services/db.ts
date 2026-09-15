@@ -1,14 +1,20 @@
 import pg from 'pg';
-import type { PoolClient } from 'pg';
+import type { PoolClient, QueryResultRow } from 'pg';
 import { encrypt, isEncrypted } from './encryption.js';
 import { recordDb } from './performanceMetrics.js';
 import { toAppError } from '../utils/errors.js';
 
 const { Pool } = pg;
 
+function databasePort(value: string | undefined): number {
+  if (typeof value !== 'string') return 5432;
+  const port = Number.parseInt(value, 10);
+  return port || 5432;
+}
+
 export const pool = new Pool({
   host: process.env.DB_HOST || 'postgres',
-  port: parseInt(process.env.DB_PORT, 10) || 5432,
+  port: databasePort(process.env.DB_PORT),
   database: process.env.DB_NAME || 'mailflow',
   user: process.env.DB_USER || 'mailflow',
   password: process.env.DB_PASSWORD,
@@ -40,22 +46,29 @@ pool.on('error', err => {
  *
  * A call site that reads columns declares its own row type through the generic below
  * (`query<AccountRow>(...)`); until then the row stays untyped at this single boundary,
- * which is why the alias itself is still `any` and is the last thing to change.
+ * which is why the alias itself uses unknown values at this boundary.
  */
 export type DbRow = Record<string, unknown>;
 
 /** The slice of a pool/transaction client this codebase uses. */
-export interface DbClient {
-  query<T = DbRow>(text: string, params?: unknown[]): Promise<{ rows: T[]; rowCount?: number }>;
+export interface DbQueryResult<T> {
+  rows: T[];
+  rowCount?: number;
 }
 
-export async function query<T = DbRow>(text: string, params: unknown[] = []): Promise<{ rows: T[]; rowCount?: number }> {
+export interface DbClient {
+  query<T = DbRow>(text: string, params?: unknown[]): Promise<DbQueryResult<T>>;
+}
+
+export async function query<T = DbRow>(text: string, params: unknown[] = []): Promise<DbQueryResult<T>> {
   // Time the query for the performance baseline (behavior-neutral). This is the
   // single top-level DB chokepoint; transaction clients (withTransaction) are not
   // timed here. process.hrtime avoids clock-skew and is ~nanosecond overhead.
   const start = process.hrtime.bigint();
   try {
-    return await pool.query(text, params);
+    const result = await pool.query<T & QueryResultRow>(text, params);
+    if (result.rowCount === null) return { rows: result.rows };
+    return { rows: result.rows, rowCount: result.rowCount };
   } finally {
     recordDb(Number(process.hrtime.bigint() - start) / 1e6);
   }
@@ -98,13 +111,31 @@ export async function withTransaction<T>(
 
 // One-time startup migration: encrypt any plaintext credentials still in the DB.
 // Safe to run on every startup — already-encrypted values are skipped by isEncrypted().
+type EmailCredentialRow = {
+  id: string;
+  auth_pass: string | null;
+  oauth_access_token: string | null;
+  oauth_refresh_token: string | null;
+};
+
+type OidcProviderCredentialRow = {
+  id: string;
+  client_secret: string | null;
+};
+
+type CalendarImportSourceCredentialRow = {
+  id: string;
+  url: string | null;
+  last_error: string | null;
+};
+
 export async function encryptExistingCredentials() {
   if (!process.env.ENCRYPTION_KEY) {
     console.warn('ENCRYPTION_KEY not set — stored credentials are NOT encrypted. Set ENCRYPTION_KEY in .env to enable at-rest encryption.');
     return;
   }
 
-  const result = await pool.query(`
+  const result = await pool.query<EmailCredentialRow & QueryResultRow>(`
     SELECT id, auth_pass, oauth_access_token, oauth_refresh_token
     FROM email_accounts
     WHERE (auth_pass IS NOT NULL AND auth_pass NOT LIKE 'enc:v1:%')
@@ -114,20 +145,19 @@ export async function encryptExistingCredentials() {
 
   let count = 0;
   for (const row of result.rows) {
-    const updates: Record<string, any> = {};
+    const updates: Array<{ column: string; value: string }> = [];
     if (row.auth_pass && !isEncrypted(row.auth_pass))
-      updates.auth_pass = encrypt(row.auth_pass);
+      updates.push({ column: 'auth_pass', value: encrypt(row.auth_pass) });
     if (row.oauth_access_token && !isEncrypted(row.oauth_access_token))
-      updates.oauth_access_token = encrypt(row.oauth_access_token);
+      updates.push({ column: 'oauth_access_token', value: encrypt(row.oauth_access_token) });
     if (row.oauth_refresh_token && !isEncrypted(row.oauth_refresh_token))
-      updates.oauth_refresh_token = encrypt(row.oauth_refresh_token);
+      updates.push({ column: 'oauth_refresh_token', value: encrypt(row.oauth_refresh_token) });
 
-    if (Object.keys(updates).length) {
-      const keys = Object.keys(updates);
-      const sets = keys.map((k, i) => `${k} = $${i + 1}`);
+    if (updates.length > 0) {
+      const sets = updates.map(({ column }, index) => `${column} = $${index + 1}`);
       await pool.query(
-        `UPDATE email_accounts SET ${sets.join(', ')} WHERE id = $${keys.length + 1}`,
-        [...Object.values(updates), row.id]
+        `UPDATE email_accounts SET ${sets.join(', ')} WHERE id = $${updates.length + 1}`,
+        [...updates.map(({ value }) => value), row.id]
       );
       count++;
     }
@@ -135,7 +165,7 @@ export async function encryptExistingCredentials() {
   if (count > 0) console.log(`Encrypted credentials for ${count} account(s)`);
 
   // Also encrypt OIDC provider client secrets
-  const oidcResult = await pool.query(`
+  const oidcResult = await pool.query<OidcProviderCredentialRow & QueryResultRow>(`
     SELECT id, client_secret FROM oidc_providers
     WHERE client_secret IS NOT NULL AND client_secret NOT LIKE 'enc:v1:%'
   `);
@@ -155,7 +185,7 @@ export async function encryptExistingCredentials() {
   // Encrypt legacy calendar URLs after migrations have added their fingerprint.
   // The URL predicate makes this race-safe: a concurrent update is never
   // overwritten by a stale plaintext value read above.
-  const sourceResult = await pool.query(`
+  const sourceResult = await pool.query<CalendarImportSourceCredentialRow & QueryResultRow>(`
     SELECT id, url, last_error FROM calendar_import_sources
     WHERE url IS NOT NULL AND url NOT LIKE 'enc:v1:%'
   `);
