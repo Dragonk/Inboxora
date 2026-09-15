@@ -12,13 +12,17 @@ import type { StoreState } from '../store/index.ts';
 // Dividing an applied fixed coordinate by this scale converts the visual coordinate back
 // into the wrapper's layout space, so the popover lands on its anchor. It is an exact
 // no-op at 100% (value / 1 === value), so the default experience is unchanged.
-export function useUiScale() {
-  return (useStore((s: StoreState) => s.fontSize) || 100) / 100;
+export function useUiScale(): number {
+  return (useStore((s: StoreState): number => s.fontSize) || 100) / 100;
 }
 
 // Convert one visual-space CSS coordinate (top/left/right/bottom/width/height) into the
-// scaled wrapper's layout space. Non-numbers (e.g. an unset `bottom` on a popover that
-// only sets `top`) pass through untouched so they stay unset rather than becoming NaN.
-export function descale(value, scale) {
-  return typeof value === 'number' ? value / scale : value;
+// scaled wrapper's layout space. Runtime callers may supply an untyped value; CSS accepts
+// numeric and string coordinates, while every other value leaves the coordinate unset.
+type CssCoordinate = number | string | undefined;
+
+export function descale(value: unknown, scale: number): CssCoordinate {
+  if (typeof value === 'number') return value / scale;
+  if (typeof value === 'string') return value;
+  return undefined;
 }

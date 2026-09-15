@@ -34,11 +34,25 @@ interface GtdTriageThread extends GtdThread {
   is_starred?: boolean;
 }
 
+/** GTD section payloads are external data, so validate before actions require row identifiers. */
+function isGtdTriageThread(thread: GtdThread): thread is GtdTriageThread {
+  return typeof thread.id === 'string' && thread.id !== ''
+    && typeof thread.account_id === 'string' && thread.account_id !== '';
+}
+
 /** The right-click / move-picker menu state a GTD row opens. */
 interface GtdTriageContextMenu {
   x: number;
   y: number;
   message: GtdTriageThread;
+  doneStates: string[];
+  defaultMoveView?: boolean;
+}
+
+interface GtdTriageContextMenuInput {
+  x: number;
+  y: number;
+  message: GtdThread;
   doneStates: string[];
   defaultMoveView?: boolean;
 }
@@ -92,7 +106,22 @@ export function useGtdTriage() {
 
   // Right-click / move-picker menu for a GTD row. Carries the row's doneStates so the
   // menu's "done" and "move" stay section-scoped (the row knows which section it's in).
-  const [contextMenu, setContextMenu] = useState<GtdTriageContextMenu | null>(null);
+  const [contextMenu, setGtdTriageContextMenu] = useState<GtdTriageContextMenu | null>(null);
+  const setContextMenu = (menu: GtdTriageContextMenuInput | null) => {
+    if (menu === null) {
+      setGtdTriageContextMenu(null);
+      return;
+    }
+    if (isGtdTriageThread(menu.message)) {
+      setGtdTriageContextMenu({
+        x: menu.x,
+        y: menu.y,
+        message: menu.message,
+        doneStates: menu.doneStates,
+        defaultMoveView: menu.defaultMoveView,
+      });
+    }
+  };
   const mountedRef = useRef(true);
 
   useEffect(() => {
@@ -108,7 +137,8 @@ export function useGtdTriage() {
   // The GTD "done" action: strip this row's label(s) (`states`), mark read, archive.
   // Optimistically drop and guard the row so stale refetches cannot resurrect it. On
   // failure, restore its local snapshot and refetch for authoritative reconciliation.
-  const doneRow = (thread: GtdTriageThread, states: string[]) => {
+  const doneRow = (thread: GtdThread, states: string[]) => {
+    if (!isGtdTriageThread(thread)) return;
     cancelAutoMarkReadFor(thread);
     return doneGtdRow(thread, states, {
       gtdDone: api.gtdDone,
@@ -176,7 +206,8 @@ export function useGtdTriage() {
   // Star: flip is_starred on the section thread instantly (identity-wide, so a merged
   // Waiting row stays consistent across watch+delegated); the star fans out to sibling
   // copies server-side. On failure, flip back.
-  const toggleStar = async (thread: GtdTriageThread) => {
+  const toggleStar = async (thread: GtdThread) => {
+    if (!isGtdTriageThread(thread)) return;
     const identity = thread.message_id || thread.id;
     const next = !thread.is_starred;
     markGtdThreadStarred(identity, next);
@@ -190,7 +221,8 @@ export function useGtdTriage() {
 
   // Delete this row's copy (the label-folder message). Optimistically drop the row from
   // its section(s); the refetch reconciles (and, on failure, restores it) — no undo timer.
-  const deleteRow = (thread: GtdTriageThread, states: string[]) => {
+  const deleteRow = (thread: GtdThread, states: string[]) => {
+    if (!isGtdTriageThread(thread)) return;
     cancelAutoMarkReadFor(thread);
     removeGtdThread(thread.message_id || thread.id, states);
     api.deleteMessage(thread.id)
@@ -204,8 +236,8 @@ export function useGtdTriage() {
 
   // Move this row's copy to another folder — it leaves its GTD label folder, so drop it
   // from its section(s) optimistically; the refetch reconciles.
-  const moveRow = (thread: GtdTriageThread, states: string[], folder: string) => {
-    if (!folder) return;
+  const moveRow = (thread: GtdThread, states: string[], folder: string) => {
+    if (!folder || !isGtdTriageThread(thread)) return;
     cancelAutoMarkReadFor(thread);
     removeGtdThread(thread.message_id || thread.id, states);
     api.bulkMove([thread.id], folder)
@@ -222,13 +254,19 @@ export function useGtdTriage() {
 
   // Classify (add a state label) / remove (strip one). The message stays put, so just
   // poke the sidebar store to reconverge — mirrors MessageList's context-menu handlers.
-  const classifyRow = (thread: GtdTriageThread, state: string) => classifyThread(thread.id, state, {
-    gtdClassify: api.gtdClassify, addNotification, scheduleGtdSectionsFetch, t,
-  });
+  const classifyRow = (thread: GtdThread, state: string) => {
+    if (!isGtdTriageThread(thread)) return;
+    return classifyThread(thread.id, state, {
+      gtdClassify: api.gtdClassify, addNotification, scheduleGtdSectionsFetch, t,
+    });
+  };
 
-  const removeStateRow = (thread: GtdTriageThread, state: string) => unclassifyThread(thread.id, state, {
-    gtdUnclassify: api.gtdUnclassify, addNotification, scheduleGtdSectionsFetch, t,
-  });
+  const removeStateRow = (thread: GtdThread, state: string) => {
+    if (!isGtdTriageThread(thread)) return;
+    return unclassifyThread(thread.id, state, {
+      gtdUnclassify: api.gtdUnclassify, addNotification, scheduleGtdSectionsFetch, t,
+    });
+  };
 
   // ContextMenu's onAction, routed to the primitives above. GTD section heads are
   // intentionally compact, so compose actions hydrate the full message first.

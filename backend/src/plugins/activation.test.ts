@@ -5,8 +5,22 @@ vi.mock('../services/db.js', () => ({ query: vi.fn() }));
 import { query as __mock_query } from '../services/db.js';
 import { getActivatedPlugins, isPluginActivated, setPluginActivated, invalidateActivationCache } from './activation.js';
 
-// Cast mocked module exports so their vitest mock helpers type-check.
+// Expose Vitest mock helpers for the mocked query export.
 const query = vi.mocked(__mock_query);
+
+function usersUpdateCall(): [string, unknown[]] {
+  const call = query.mock.calls.find((candidate) => {
+    const sql = candidate[0];
+    return typeof sql === 'string' && /UPDATE users/.test(sql);
+  });
+  if (!call) throw new Error('expected the users UPDATE call');
+
+  const sql = call[0];
+  const params = call[1];
+  if (typeof sql !== 'string') throw new Error('expected UPDATE SQL text');
+  if (!Array.isArray(params)) throw new Error('expected UPDATE parameters');
+  return [sql, params];
+}
 
 describe('plugin activation', () => {
   beforeEach(() => {
@@ -65,7 +79,7 @@ describe('plugin activation', () => {
     query.mockResolvedValueOnce({ rows: [] });             // the UPDATE
     const set = await setPluginActivated('u6', 'gtd', true);
     expect(set).toEqual(new Set(['gtd']));
-    const updateCall = query.mock.calls.find(([sql]: [string]) => /UPDATE users/.test(sql));    if (!updateCall) throw new Error('expected the users UPDATE call');
+    const updateCall = usersUpdateCall();
     expect(updateCall[0]).toMatch(/jsonb_set\(COALESCE\(preferences/);
     expect(updateCall[1]).toEqual(['u6', JSON.stringify(['gtd'])]);
 
@@ -79,7 +93,7 @@ describe('plugin activation', () => {
     query.mockResolvedValueOnce({ rows: [] });
     const set = await setPluginActivated('u6', 'gtd', false);
     expect(set).toEqual(new Set(['other']));
-    const updateCall = query.mock.calls.find(([sql]: [string]) => /UPDATE users/.test(sql));    if (!updateCall) throw new Error('expected the users UPDATE call');
+    const updateCall = usersUpdateCall();
     expect(updateCall[1]).toEqual(['u6', JSON.stringify(['other'])]);
   });
 });
