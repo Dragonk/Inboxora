@@ -1,27 +1,84 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
-const { pool, query, upsertConversationCopy, _upsertConversationCopyWithClient } = vi.hoisted<any>(() => ({
-  pool: { connect: vi.fn() },
-  query: vi.fn(),
-  upsertConversationCopy: vi.fn(),
-  _upsertConversationCopyWithClient: vi.fn(),
+type RebuildMessageRow = {
+  id: string;
+  date: string;
+  account_id: string;
+  conversation_id: string;
+  logical_message_id: string;
+  canonical_message_id?: string;
+  threading_algorithm_version: string;
+};
+
+type RebuildSnapshotRow = {
+  conversation_id: string;
+  logical_message_id: string;
+  canonical_message_id: string;
+  provider_message_id: null;
+  provider_thread_id: null;
+  threading_reason: string;
+  threading_confidence: number;
+  threading_algorithm_version: string;
+};
+
+type RebuildCheckpointRow = { status: string };
+type RebuildQueryRow = RebuildMessageRow | RebuildSnapshotRow | RebuildCheckpointRow;
+type RebuildQuery = (text: string, params?: unknown[]) => Promise<{ rows: RebuildQueryRow[] }>;
+
+type RebuildClient = {
+  query: RebuildQuery;
+  release: () => void;
+};
+
+function queryAdapter(mock: ReturnType<typeof vi.fn<RebuildQuery>>): RebuildQuery {
+  return (text, params) => mock(text, params);
+}
+
+type RebuildMocks = {
+  pool: { connect: ReturnType<typeof vi.fn<() => Promise<RebuildClient>>> };
+  query: ReturnType<typeof vi.fn<typeof import('./db.js').query>>;
+  upsertConversationCopy: ReturnType<typeof vi.fn<typeof import('./conversationPersistence.js').upsertConversationCopy>>;
+  _upsertConversationCopyWithClient: ReturnType<typeof vi.fn<typeof import('./conversationPersistence.js')._upsertConversationCopyWithClient>>;
+  resolveOwnIdentityAddresses: ReturnType<typeof vi.fn<typeof import('./conversationIngestEnvelope.js').resolveOwnIdentityAddresses>>;
+  providerIdentityForCopy: ReturnType<typeof vi.fn<typeof import('./conversationProviderEnvelope.js').providerIdentityForCopy>>;
+};
+
+const { pool, query, upsertConversationCopy, _upsertConversationCopyWithClient, resolveOwnIdentityAddresses, providerIdentityForCopy } = vi.hoisted<RebuildMocks>(() => ({
+  pool: { connect: vi.fn<() => Promise<RebuildClient>>() },
+  query: vi.fn<typeof import('./db.js').query>(),
+  upsertConversationCopy: vi.fn<typeof import('./conversationPersistence.js').upsertConversationCopy>(),
+  _upsertConversationCopyWithClient: vi.fn<typeof import('./conversationPersistence.js')._upsertConversationCopyWithClient>(),
+  resolveOwnIdentityAddresses: vi.fn<typeof import('./conversationIngestEnvelope.js').resolveOwnIdentityAddresses>(),
+  providerIdentityForCopy: vi.fn<typeof import('./conversationProviderEnvelope.js').providerIdentityForCopy>(),
 }));
 vi.mock('./db.js', () => ({ pool, query }));
 vi.mock('./conversationPersistence.js', () => ({ upsertConversationCopy, _upsertConversationCopyWithClient }));
-vi.mock('./conversationIngestEnvelope.js', () => ({
-  resolveOwnIdentityAddresses: vi.fn().mockResolvedValue([]),
-}));
-vi.mock('./conversationProviderEnvelope.js', () => ({
-  providerIdentityForCopy: vi.fn(() => ({ provider: null })),
-}));
+vi.mock('./conversationIngestEnvelope.js', () => ({ resolveOwnIdentityAddresses }));
+vi.mock('./conversationProviderEnvelope.js', () => ({ providerIdentityForCopy }));
 
 import { rebuildConversationCopies } from './conversationRebuild.js';
 
 describe('conversation rebuild', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    resolveOwnIdentityAddresses.mockReset();
+    providerIdentityForCopy.mockReset();
   });
   it('uses a supplied cursor for the next dry-run batch and reports wouldChange when upsert changes CE state', async () => {
+    resolveOwnIdentityAddresses.mockResolvedValueOnce([]);
+    providerIdentityForCopy.mockReturnValueOnce({
+      provider: null,
+      providerMessageId: null,
+      providerThreadId: null,
+      namespace: null,
+      threadIndex: null,
+      threadTopic: null,
+      references: [],
+      inReplyTo: null,
+      diagnostics: { reconstructed: true },
+      isStrong: false,
+      source: null,
+    });
     // The faithful dry-run runs upsertConversationCopy inside a BEGIN/ROLLBACK.
     // The mock client simulates: advisory lock, checkpoint lookup, message query,
     // then the BEGIN, snapshot-before, upsert (mocked), snapshot-after (changed),
@@ -31,8 +88,8 @@ describe('conversation rebuild', () => {
       conversation_id: 'old-conv', logical_message_id: 'old-lm',
       canonical_message_id: '<m2@x>', threading_algorithm_version: 'conversation-v2',
     };
-    const client = {
-      query: vi.fn()
+    const client: RebuildClient = {
+      query: queryAdapter(vi.fn<RebuildQuery>()
         // advisory lock
         .mockResolvedValueOnce({ rows: [] })
         // checkpoint lookup (no checkpoint)
@@ -49,7 +106,7 @@ describe('conversation rebuild', () => {
         // ROLLBACK
         .mockResolvedValueOnce({ rows: [] })
         // advisory unlock (in finally)
-        .mockResolvedValue({ rows: [] }),
+        .mockResolvedValue({ rows: [] })),
       release: vi.fn(),
     };
     pool.connect.mockResolvedValueOnce(client);
@@ -65,14 +122,28 @@ describe('conversation rebuild', () => {
   });
 
   it('reports wouldChange=0 when the CE state does not change after upsert', async () => {
+    resolveOwnIdentityAddresses.mockResolvedValueOnce([]);
+    providerIdentityForCopy.mockReturnValueOnce({
+      provider: null,
+      providerMessageId: null,
+      providerThreadId: null,
+      namespace: null,
+      threadIndex: null,
+      threadTopic: null,
+      references: [],
+      inReplyTo: null,
+      diagnostics: { reconstructed: true },
+      isStrong: false,
+      source: null,
+    });
     const messageRow = {
       id: 'm3', date: '2026-01-03T00:00:00Z', account_id: 'a1',
       conversation_id: 'conv-1', logical_message_id: 'lm-1',
       threading_algorithm_version: 'conversation-v2',
     };
     const snapshot = { conversation_id: 'conv-1', logical_message_id: 'lm-1', canonical_message_id: '<m3@x>', provider_message_id: null, provider_thread_id: null, threading_reason: 'rfc-in-reply-to', threading_confidence: 0.99, threading_algorithm_version: 'conversation-v2' };
-    const client = {
-      query: vi.fn()
+    const client: RebuildClient = {
+      query: queryAdapter(vi.fn<RebuildQuery>()
         .mockResolvedValueOnce({ rows: [] }) // advisory lock
         .mockResolvedValueOnce({ rows: [] }) // checkpoint
         .mockResolvedValueOnce({ rows: [messageRow] }) // message query
@@ -80,7 +151,7 @@ describe('conversation rebuild', () => {
         .mockResolvedValueOnce({ rows: [snapshot] }) // snapshot before
         .mockResolvedValueOnce({ rows: [snapshot] }) // snapshot after (unchanged)
         .mockResolvedValueOnce({ rows: [] }) // ROLLBACK
-        .mockResolvedValue({ rows: [] }), // advisory unlock
+        .mockResolvedValue({ rows: [] })), // advisory unlock
       release: vi.fn(),
     };
     pool.connect.mockResolvedValueOnce(client);
@@ -89,12 +160,12 @@ describe('conversation rebuild', () => {
   });
 
   it('allows an explicit forced repair after a completed checkpoint', async () => {
-    const client = {
-      query: vi.fn()
+    const client: RebuildClient = {
+      query: queryAdapter(vi.fn<RebuildQuery>()
         .mockResolvedValueOnce({ rows: [] }) // advisory lock
         .mockResolvedValueOnce({ rows: [{ status: 'complete' }] }) // checkpoint
         .mockResolvedValueOnce({ rows: [] }) // message query (empty)
-        .mockResolvedValue({ rows: [] }), // checkpoint write, advisory unlock
+        .mockResolvedValue({ rows: [] })), // checkpoint write, advisory unlock
       release: vi.fn(),
     };
     pool.connect.mockResolvedValueOnce(client);

@@ -1,6 +1,39 @@
 import { describe, expect, it, vi } from 'vitest';
+import type {
+  createAccountSmtpTransport as createAccountSmtpTransportContract,
+  SmtpTransportLike,
+} from './smtpTransport.js';
 
-const { createAccountSmtpTransport } = vi.hoisted<any>(() => ({ createAccountSmtpTransport: vi.fn() }));
+type CreateAccountSmtpTransport = typeof createAccountSmtpTransportContract;
+type SmtpSendMailResult = Awaited<ReturnType<NonNullable<SmtpTransportLike['sendMail']>>>;
+
+interface CalendarInvitationMail {
+  from: string;
+  to: string;
+  subject: string;
+  text: string;
+  attachments: [{ filename: string; content: string; contentType: string }];
+}
+
+type SendInvitationMail = (mail: CalendarInvitationMail) => Promise<SmtpSendMailResult>;
+type VerifyTransport = () => Promise<unknown>;
+
+function createMailTransportMock() {
+  const sendMail = vi.fn<SendInvitationMail>().mockResolvedValue({
+    envelope: { from: 'organizer@example.test', to: ['guest@example.test'] },
+    messageId: 'test-message-id',
+    accepted: [],
+    rejected: [],
+    pending: [],
+    response: '250 OK',
+  });
+  const verify = vi.fn<VerifyTransport>().mockResolvedValue({});
+  return { sendMail, transport: { sendMail, verify } };
+}
+
+const { createAccountSmtpTransport } = vi.hoisted(() => ({
+  createAccountSmtpTransport: vi.fn<CreateAccountSmtpTransport>(),
+}));
 vi.mock('./smtpTransport.js', () => ({ createAccountSmtpTransport }));
 
 import { sendCalendarInvitation } from './calendarInvitation.js';
@@ -8,8 +41,8 @@ import { parseInboundCalendarInvitation } from './inboundCalendarInvitation.js';
 
 describe('sendCalendarInvitation', () => {
   it('sends a METHOD:REQUEST iCalendar attachment from the selected account', async () => {
-    const sendMail = vi.fn().mockResolvedValue({});
-    createAccountSmtpTransport.mockResolvedValue({ account: { email_address: 'organizer@example.test', sender_name: 'Organizer' }, transport: { sendMail } });
+    const { sendMail, transport } = createMailTransportMock();
+    createAccountSmtpTransport.mockResolvedValue({ account: { email_address: 'organizer@example.test', sender_name: 'Organizer' }, transport });
 
     await sendCalendarInvitation({
       account: { id: 'account-1', email_address: 'organizer@example.test' },
@@ -26,8 +59,8 @@ describe('sendCalendarInvitation', () => {
   });
 
   it('escapes lone carriage returns in invitation text to prevent iCalendar property injection', async () => {
-    const sendMail = vi.fn().mockResolvedValue({});
-    createAccountSmtpTransport.mockResolvedValue({ account: { email_address: 'organizer@example.test' }, transport: { sendMail } });
+    const { sendMail, transport } = createMailTransportMock();
+    createAccountSmtpTransport.mockResolvedValue({ account: { email_address: 'organizer@example.test' }, transport });
 
     await sendCalendarInvitation({
       account: { id: 'account-1' }, attendees: ['guest@example.test'], summary: 'Planning',
@@ -41,8 +74,8 @@ describe('sendCalendarInvitation', () => {
   });
 
   it('uses DATE values for all-day invitations', async () => {
-    const sendMail = vi.fn().mockResolvedValue({});
-    createAccountSmtpTransport.mockResolvedValue({ account: { email_address: 'organizer@example.test', sender_name: 'Organizer' }, transport: { sendMail } });
+    const { sendMail, transport } = createMailTransportMock();
+    createAccountSmtpTransport.mockResolvedValue({ account: { email_address: 'organizer@example.test', sender_name: 'Organizer' }, transport });
 
     await sendCalendarInvitation({ account: { id: 'account-1' }, attendees: ['guest@example.test'], summary: 'Holiday', uid: 'event-2', allDay: true, startsAt: new Date('2026-09-01T00:00:00.000Z'), endsAt: new Date('2026-09-02T00:00:00.000Z') });
 
@@ -51,8 +84,8 @@ describe('sendCalendarInvitation', () => {
   });
 
   it('folds long invitation properties without splitting UTF-8 characters', async () => {
-    const sendMail = vi.fn().mockResolvedValue({});
-    createAccountSmtpTransport.mockResolvedValue({ account: { email_address: 'organizer@example.test' }, transport: { sendMail } });
+    const { sendMail, transport } = createMailTransportMock();
+    createAccountSmtpTransport.mockResolvedValue({ account: { email_address: 'organizer@example.test' }, transport });
 
     await sendCalendarInvitation({
       account: { id: 'account-1' }, attendees: ['guest@example.test'], summary: 'Release ' + 'ż'.repeat(40),
@@ -66,8 +99,8 @@ describe('sendCalendarInvitation', () => {
   });
 
   it('marks invitation revisions and cancellations with their iCalendar method and sequence', async () => {
-    const sendMail = vi.fn().mockResolvedValue({});
-    createAccountSmtpTransport.mockResolvedValue({ account: { email_address: 'organizer@example.test', sender_name: 'Organizer' }, transport: { sendMail } });
+    const { sendMail, transport } = createMailTransportMock();
+    createAccountSmtpTransport.mockResolvedValue({ account: { email_address: 'organizer@example.test', sender_name: 'Organizer' }, transport });
 
     await sendCalendarInvitation({
       account: { id: 'account-1' }, attendees: ['guest@example.test'], summary: 'Cancelled planning', uid: 'event-3',
@@ -82,8 +115,8 @@ describe('sendCalendarInvitation', () => {
   });
 
   it('round-trips generated cancellations through the inbound parser', async () => {
-    const sendMail = vi.fn().mockResolvedValue({});
-    createAccountSmtpTransport.mockResolvedValue({ account: { email_address: 'organizer@example.test' }, transport: { sendMail } });
+    const { sendMail, transport } = createMailTransportMock();
+    createAccountSmtpTransport.mockResolvedValue({ account: { email_address: 'organizer@example.test' }, transport });
 
     await sendCalendarInvitation({
       account: { id: 'account-1' }, attendees: ['guest@example.test'], summary: 'Cancelled planning', uid: 'event-round-trip',

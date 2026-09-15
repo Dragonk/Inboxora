@@ -1,9 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
+import type { logAuthEvent as logAuthEventContract } from './authEvents.js';
+import type { authenticateDavCredential as authenticateDavCredentialContract } from './davCredentials.js';
+import type { consume as consumeContract } from './rateLimiter.js';
 
-const { authenticateDavCredential, consume, logAuthEvent } = vi.hoisted<any>(() => ({
-  authenticateDavCredential: vi.fn(),
-  consume: vi.fn(),
-  logAuthEvent: vi.fn(),
+const { authenticateDavCredential, consume, logAuthEvent } = vi.hoisted(() => ({
+  authenticateDavCredential: vi.fn<typeof authenticateDavCredentialContract>(),
+  consume: vi.fn<typeof consumeContract>(),
+  logAuthEvent: vi.fn<typeof logAuthEventContract>(),
 }));
 vi.mock('./davCredentials.js', () => ({ authenticateDavCredential }));
 vi.mock('./rateLimiter.js', () => ({ consume }));
@@ -11,11 +14,18 @@ vi.mock('./authEvents.js', () => ({ logAuthEvent }));
 
 import { createDavAuthMiddleware } from './davServerAuth.js';
 
-function response() {
+type DavResponse = {
+  end(): void;
+  setHeader(name: string, value: string): void;
+  status(code: number): Pick<DavResponse, 'end'>;
+};
+
+function response(): DavResponse {
+  const end = vi.fn<() => void>();
   return {
-    end: vi.fn(),
-    setHeader: vi.fn(),
-    status: vi.fn(function status() { return this; }),
+    end,
+    setHeader: vi.fn<(name: string, value: string) => void>(),
+    status: vi.fn<(code: number) => Pick<DavResponse, 'end'>>(() => ({ end })),
   };
 }
 

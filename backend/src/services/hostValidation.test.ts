@@ -239,7 +239,15 @@ describe('createPinnedLookup', () => {
         const options: import('node:net').TcpNetConnectOpts = {
           host: 'mail.example.com',
           port: address.port,
-          lookup: createPinnedLookup(['127.0.0.2', '127.0.0.1']),
+          lookup: (hostname, lookupOptions, callback) => {
+            const pinnedLookup = createPinnedLookup(['127.0.0.2', '127.0.0.1']);
+            pinnedLookup(hostname, lookupOptions, (error, resolvedAddress, family) => {
+              if (resolvedAddress === undefined) {
+                throw new Error('Pinned lookup returned no address');
+              }
+              callback(error, resolvedAddress, family);
+            });
+          },
           autoSelectFamily: true,
           autoSelectFamilyAttemptTimeout: 10,
         };

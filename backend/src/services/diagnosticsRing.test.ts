@@ -14,6 +14,7 @@ describe('diagnosticsRing', () => {
     recordWarning('staleness_error', null);
     const raw = getWarningsRaw();
     const imap = raw.find(w => w.code === 'imap_error');
+    if (imap === undefined) throw new Error('Expected imap_error warning aggregate');
     expect(imap.accountId).toBe('a1');
     expect(imap.count).toBe(2);
     expect(raw.some(w => w.code === 'staleness_error' && !w.accountId)).toBe(true);
@@ -49,11 +50,13 @@ describe('diagnosticsRing', () => {
     recordSyncSignal('badge_count_clamp', {}); // account-less
     const raw = getSyncSignalsRaw();
     const ghost = raw.find(s => s.sig === 'ghost_rows_served');
+    if (ghost === undefined) throw new Error('Expected ghost_rows_served sync aggregate');
     expect(ghost.accountId).toBe('a1');
     expect(ghost.count).toBe(2);
     expect(ghost.sumMag).toBe(5);
     expect(ghost.maxMag).toBe(3);
     const uv = raw.find(s => s.sig === 'uidvalidity_change');
+    if (uv === undefined) throw new Error('Expected uidvalidity_change sync aggregate');
     expect(uv.count).toBe(1);
     expect(uv.sumMag).toBe(0); // no magnitude recorded
     expect(raw.some(s => s.sig === 'badge_count_clamp' && !s.accountId)).toBe(true);
