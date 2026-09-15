@@ -486,7 +486,7 @@ export default function MailApp() {
           });
       })
       .catch(err => console.warn('Deep link message not found:', toAppError(err).message));
-  }, [setSelectedMessage, authEpoch]);
+  }, [setSelectedMessage]);
 
   // Consume the deep-link the SW persisted on a notification tap: read+clear it,
   // then open the message. IndexedDB is the reliable channel on iOS (postMessage can

@@ -43,10 +43,33 @@ beforeEach(() => {
   sendMail.mockResolvedValue({});
   resolveSentFolder.mockResolvedValue(null);
 });
-const post = () => fetch(`${base}/api/mail/send`, {
-  method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': 'send1' },
-  body: JSON.stringify({ accountId: 'a1', to: ['you@example.com'], subject: 'Test', body: 'Hello' }),
+const defaultBody = { accountId: 'a1', to: ['you@example.com'], subject: 'Test', body: 'Hello' };
+const post = (body: Record<string, unknown> = defaultBody, idempotencyKey = 'send1') => fetch(`${base}/api/mail/send`, {
+  method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': idempotencyKey },
+  body: JSON.stringify(body),
 });
+
+function mockExistingIntent(status: 'pending' | 'uncertain' | 'completed', result: unknown = null, fingerprint = 'same') {
+  let incomingFingerprint = '';
+  query.mockImplementation(async (sql, params: unknown[] = []) => {
+    if (sql.includes('FROM email_accounts')) return { rows: [account] };
+    if (sql.includes('SELECT preferences FROM users')) return { rows: [{ preferences: {} }] };
+    // A prior successful send may still be auto-learning contacts when the next
+    // duplicate-intent test replaces this mock. Keep that detached work harmless.
+    if (sql.includes('INSERT INTO address_books')) return { rows: [{ id: 'book1' }] };
+    if (sql.includes('INSERT INTO contacts')) return { rows: [{ address_book_id: 'book1' }] };
+    if (sql.includes('UPDATE address_books')) return { rows: [] };
+    if (sql.includes('INSERT INTO send_idempotency')) {
+      incomingFingerprint = String(params[2]);
+      return { rows: [] }; // conflict: this is a duplicate key
+    }
+    if (sql.includes('SELECT status, request_fingerprint, result')) {
+      return { rows: [{ status, request_fingerprint: fingerprint === 'same' ? incomingFingerprint : fingerprint, result }] };
+    }
+    throw new Error(`Unexpected SQL: ${sql}`);
+  });
+}
+
 describe('send failure semantics', () => {
   it('does not deliver when idempotency lookup fails', async () => {
     redisClient.get.mockRejectedValueOnce(new Error('Redis unavailable'));
@@ -103,5 +126,41 @@ describe('send failure semantics', () => {
     expect((await post()).status).toBe(409);
     expect(sendMail).not.toHaveBeenCalled();
     expect(redisClient.del).not.toHaveBeenCalled();
+  });
+
+  it('accepts BCC-only delivery without adding a visible To header', async () => {
+    const response = await post({
+      accountId: 'a1', bcc: ['blind@example.com'], subject: 'Private', body: 'Hello',
+    });
+
+    expect(response.status).toBe(200);
+    expect(sendMail).toHaveBeenCalledOnce();
+    const [mailOptions] = sendMail.mock.calls[0];
+    expect(mailOptions).toMatchObject({ bcc: 'blind@example.com' });
+    expect(mailOptions).not.toHaveProperty('to');
+  });
+
+  it.each([
+    ['pending', null, 409, { error: 'This message is already being sent.' }],
+    ['uncertain', null, 409, { error: 'The result of this send is still being confirmed. It will not be sent again automatically.' }],
+    ['completed', { ok: true, sentFolder: 'Sent' }, 200, { ok: true, sentFolder: 'Sent' }],
+  ] as const)('returns durable duplicate intent %s without a second SMTP dispatch', async (status, result, expectedStatus, expectedBody) => {
+    mockExistingIntent(status, result);
+
+    const response = await post();
+    expect(response.status).toBe(expectedStatus);
+    expect(await response.json()).toEqual(expectedBody);
+    expect(sendMail).not.toHaveBeenCalled();
+    expect(redisClient.set).not.toHaveBeenCalled();
+  });
+
+  it('rejects a duplicate key when its durable fingerprint belongs to another message', async () => {
+    mockExistingIntent('pending', null, 'different-request-fingerprint');
+
+    const response = await post({ ...defaultBody, subject: 'Changed message' });
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: 'This idempotency key belongs to a different message.' });
+    expect(sendMail).not.toHaveBeenCalled();
+    expect(redisClient.set).not.toHaveBeenCalled();
   });
 });

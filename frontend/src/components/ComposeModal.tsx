@@ -22,6 +22,7 @@ import { TableRow } from '@tiptap/extension-table-row';
 import { TableHeader } from '@tiptap/extension-table-header';
 import { TableCell } from '@tiptap/extension-table-cell';
 import { toAppError } from '../utils/errors.ts';
+import { partitionRejectedRecipients } from '../utils/retryRecipients.ts';
 
 // Resize an image blob/file to max maxW pixels wide, preserving aspect ratio.
 // Returns a Promise<string> of a base64 data URL.
@@ -195,7 +196,7 @@ function parseChips(val: unknown): string[] {
 
 export default function ComposeModal() {
   const { t } = useTranslation();
-  const { closeCompose, composeData, accounts, addNotification, setSelectedAccount, plaintextEmail, setThreadMessages } = useStore();
+  const { closeCompose, composeData, accounts, addNotification, setSelectedAccount, plaintextEmail, setThreadMessages, authEpoch } = useStore();
   const isMobile = useMobile();
   const uiScale = useUiScale();
 
@@ -325,6 +326,8 @@ export default function ComposeModal() {
   // attempt, reused across retries (so a retry after a lost response dedupes rather than
   // double-sending), and cleared on success. Fixes audit finding [1].
   const idempotencyKeyRef = useRef<string | null>(null);
+  // Delayed conversation refreshes are owned by the auth generation that scheduled them.
+  const refreshTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const replyTypeRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const shouldPositionCursorRef = useRef(isReply || isForward);
@@ -338,6 +341,13 @@ export default function ComposeModal() {
   const dragCleanupRef = useRef<((options?: { commit?: boolean }) => void) | null>(null);
   posRef.current = pos;
   customSizeRef.current = customSize;
+
+  useEffect(() => {
+    return () => {
+      refreshTimersRef.current.forEach(clearTimeout);
+      refreshTimersRef.current = [];
+    };
+  }, [authEpoch]);
 
   const [plainSig, setPlainSig] = useState(() => fromSignature ? stripHtml(fromSignature) : '');
   // Tracks the user's current (possibly edited) rich-text signature; kept current by onInput.
@@ -742,7 +752,9 @@ export default function ComposeModal() {
     if (sending) return; // guard against a rapid double-submit (e.g. double Ctrl/Cmd+Enter)
     const { accountId, aliasId } = resolveFrom(fromValue);
     const toFinal = [...toChips, ...(toInput.trim() ? [toInput.trim()] : [])];
-    if (!toFinal.length || !accountId) return;
+    const ccFinal = [...ccChips, ...(ccInput.trim() ? [ccInput.trim()] : [])];
+    const bccFinal = [...bccChips, ...(bccInput.trim() ? [bccInput.trim()] : [])];
+    if ((!toFinal.length && !ccFinal.length && !bccFinal.length) || !accountId) return;
 
     if (!skipSubjectWarn && subject.trim() === '') {
       setShowEmptySubjectWarn(true);
@@ -763,6 +775,8 @@ export default function ComposeModal() {
       }
     }
 
+    const requestAuthEpoch = useStore.getState().authEpoch;
+    const isCurrentSession = () => useStore.getState().authEpoch === requestAuthEpoch;
     localStorage.setItem('mailflow_last_from_account', accountId);
     setSending(true);
     setError('');
@@ -776,8 +790,8 @@ export default function ComposeModal() {
         accountId,
         ...(aliasId ? { aliasId } : {}),
         to: toFinal,
-        cc: [...ccChips, ...(ccInput.trim() ? [ccInput.trim()] : [])],
-        bcc: [...bccChips, ...(bccInput.trim() ? [bccInput.trim()] : [])],
+        cc: ccFinal,
+        bcc: bccFinal,
         subject,
         body: bodyToSend,
         bodyIsHtml: !plaintextEmail,
@@ -803,21 +817,23 @@ export default function ComposeModal() {
           forwardedAttachments: fwdAttachments.map(a => ({ messageId: a.messageId, part: a.part })),
         } : {}),
       }, { 'X-Idempotency-Key': idempotencyKeyRef.current });
+      if (!isCurrentSession()) return;
       // Send confirmed — clear the key so a subsequent send from a reused modal gets a fresh one.
       idempotencyKeyRef.current = null;
       const rejectedRecipients = Array.isArray(sendResult?.rejected) ? sendResult.rejected.map(String) : [];
       if (sendResult?.partialDelivery || rejectedRecipients.length) {
         // SMTP may accept some RCPT commands while rejecting others. Keep the editor
         // and its draft open, and turn it into an explicit retry for only addresses
-        // that were definitely not accepted.
-        setToChips(rejectedRecipients);
+        // that were definitely not accepted, retaining their To/CC/BCC roles.
+        const retryRecipients = partitionRejectedRecipients(rejectedRecipients, { to: toFinal, cc: ccFinal, bcc: bccFinal });
+        setToChips(retryRecipients.to);
         setToInput('');
-        setCcChips([]);
+        setCcChips(retryRecipients.cc);
         setCcInput('');
-        setShowCc(false);
-        setBccChips([]);
+        setShowCc(retryRecipients.cc.length > 0);
+        setBccChips(retryRecipients.bcc);
         setBccInput('');
-        setShowBcc(false);
+        setShowBcc(retryRecipients.bcc.length > 0);
         setSending(false);
         addNotification({
           type: 'warning',
@@ -848,11 +864,12 @@ export default function ComposeModal() {
         // When the Sent copy wasn't saved, omit the "View" action — it would navigate to a
         // Sent folder that doesn't contain the message.
         ...(sentCopyFailed ? {} : {
-          onAction: () => setSelectedAccount(accountId, sentFolder),
+          onAction: () => { if (isCurrentSession()) setSelectedAccount(accountId, sentFolder); },
           actionLabel: t('compose.sent.action'),
         }),
       });
       const refreshConversation = () => {
+        if (!isCurrentSession()) return;
         if (composeData?.conversationId) {
           window.dispatchEvent(new CustomEvent('inboxora:conversation-refresh', { detail: { conversationId: composeData.conversationId } }));
         }
@@ -860,22 +877,38 @@ export default function ComposeModal() {
       refreshConversation();
       if (replyThreadId) {
         const refreshThread = async () => {
+          if (!isCurrentSession()) return;
           try {
             const data = await api.getThread(replyThreadId, '', false, accountId);
+            if (!isCurrentSession()) return;
             const cacheId = replyThreadCacheId || replyThreadId;
             if (data.messages?.length) setThreadMessages(cacheId, data.messages);
           } catch { /* best-effort refresh */ }
         };
-        refreshThread();
-        setTimeout(() => { refreshThread(); refreshConversation(); }, 3000);
-        setTimeout(() => { refreshThread(); refreshConversation(); }, 10000);
-        setTimeout(() => { refreshThread(); refreshConversation(); }, 16000);
+        const scheduleRefresh = (delay: number) => {
+          const timer = setTimeout(() => {
+            refreshTimersRef.current = refreshTimersRef.current.filter(id => id !== timer);
+            if (!isCurrentSession()) return;
+            void refreshThread();
+            refreshConversation();
+          }, delay);
+          refreshTimersRef.current.push(timer);
+        };
+        void refreshThread();
+        scheduleRefresh(3000);
+        scheduleRefresh(10000);
+        scheduleRefresh(16000);
       }
     } catch (err) {
+      if (!isCurrentSession()) return;
       setError(toAppError(err).message);
       setSending(false);
     }
   };
+
+  const hasRecipients = toChips.length > 0 || !!toInput.trim()
+    || ccChips.length > 0 || !!ccInput.trim()
+    || bccChips.length > 0 || !!bccInput.trim();
 
   const isDirty = () => {
     const currentBody = plaintextEmail ? body : (htmlMode ? htmlSource : (editor?.isEmpty ? '' : (editor?.getHTML() ?? '')));
@@ -1192,12 +1225,12 @@ export default function ComposeModal() {
             </button>
             <button
               onClick={() => { void handleSend(); }}
-              disabled={sending || (toChips.length === 0 && !toInput.trim())}
+              disabled={sending || !hasRecipients}
               style={{
                 background: 'none', border: 'none',
-                color: sending || (toChips.length === 0 && !toInput.trim()) ? 'var(--text-tertiary)' : 'var(--accent)',
+                color: sending || !hasRecipients ? 'var(--text-tertiary)' : 'var(--accent)',
                 fontSize: 16, fontWeight: 600,
-                cursor: sending || (toChips.length === 0 && !toInput.trim()) ? 'default' : 'pointer',
+                cursor: sending || !hasRecipients ? 'default' : 'pointer',
                 padding: '4px 0',
                 WebkitTapHighlightColor: 'transparent',
                 transition: 'color 0.15s',
@@ -2133,14 +2166,14 @@ export default function ComposeModal() {
       }}>
         <button
           onClick={() => { void handleSend(); }}
-          disabled={sending || (toChips.length === 0 && !toInput.trim())}
+          disabled={sending || !hasRecipients}
           title={sending ? undefined : t('compose.sendTooltip')}
           style={{
             padding: '8px 20px', background: 'var(--accent)',
             border: 'none', borderRadius: 7, color: 'var(--accent-text)',
             fontSize: 13, fontWeight: 500,
-            cursor: sending || (toChips.length === 0 && !toInput.trim()) ? 'not-allowed' : 'pointer',
-            opacity: sending || (toChips.length === 0 && !toInput.trim()) ? 0.6 : 1,
+            cursor: sending || !hasRecipients ? 'not-allowed' : 'pointer',
+            opacity: sending || !hasRecipients ? 0.6 : 1,
             display: 'flex', alignItems: 'center', gap: 6,
             transition: 'opacity 0.15s',
           }}

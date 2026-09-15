@@ -123,6 +123,22 @@ describe('migration integrity', () => {
     expect(sql).toContain('calendar_invitation_outbox_claim_idx');
   });
 
+  it('preserves invitation retries when their event is deleted', () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/0086_calendar_invitation_outbox_deleted_event.sql'), 'utf8');
+    expect(sql).toContain('ALTER COLUMN event_id DROP NOT NULL');
+    expect(sql).toContain('DROP CONSTRAINT IF EXISTS calendar_invitation_outbox_event_id_fkey');
+    expect(sql).toContain('REFERENCES calendar_events(id) ON DELETE SET NULL');
+  });
+
+  it('creates durable tenant-scoped send idempotency intents', () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/0087_send_idempotency.sql'), 'utf8');
+    expect(sql).toContain('CREATE TABLE IF NOT EXISTS send_idempotency');
+    expect(sql).toContain('REFERENCES users(id) ON DELETE CASCADE');
+    expect(sql).toContain('PRIMARY KEY (user_id, idempotency_key)');
+    expect(sql).toContain("'pending', 'uncertain', 'completed'");
+    expect(sql).toContain('send_idempotency_reconciliation_idx');
+  });
+
   it('adds a partial logical-message lookup index for non-deleted physical copies', () => {
     const sql = readFileSync(join(process.cwd(), 'migrations/0060_conversation_logical_message_lookup_index.sql'), 'utf8');
     expect(sql).toContain('ON messages(logical_message_id, date DESC NULLS LAST, id DESC)');

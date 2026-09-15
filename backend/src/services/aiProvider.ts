@@ -157,10 +157,7 @@ async function* parseChatCompletionsSse(response: Response, { signal, secrets }:
     maxEventBytes: SSE_EVENT_LIMIT_BYTES,
     createError,
   })) {
-    if (data.trim() === '[DONE]') {
-      completed = true;
-      return;
-    }
+    if (data.trim() === '[DONE]') return;
     const event = parseJson(data);
     if (!event) throw new AiProviderError('AI provider returned a malformed stream event', { status: 502 });
     if (event.error) throw providerError(502, JSON.stringify({ error: event.error }), secrets);

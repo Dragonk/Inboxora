@@ -268,11 +268,70 @@ const IDEMPOTENCY_LEASE_SECONDS = 300;
 const IDEMPOTENCY_RENEW_MS = 60_000;
 const INFLIGHT_PREFIX = '__inflight__:';
 
-// Redis is the cross-process fast path. This process-local uncertainty guard closes
-// the dangerous window after a lease is lost while SMTP may still be in progress: a
-// same-process retry must not create a second delivery just because Redis recovered.
-const UNCERTAIN_SEND_GRACE_MS = 15 * 60 * 1000;
-const uncertainIdempotencyKeys = new Map<string, number>();
+// Redis is only a fast path for replaying completed responses and coordinating the
+// live lease. The database intent below is authoritative: it survives Redis loss,
+// process restarts, and requests that were still preparing their MIME message when a
+// different request lost its lease.
+type SendIntentRow = {
+  status: 'pending' | 'uncertain' | 'completed';
+  request_fingerprint: string;
+  result: unknown;
+};
+
+type SendIntentClaim =
+  | { state: 'claimed' }
+  | { state: 'inflight' | 'uncertain' }
+  | { state: 'completed'; result: unknown }
+  | { state: 'mismatch' };
+
+async function claimSendIntent(userId: string, idempotencyKey: string, fingerprint: string, token: string): Promise<SendIntentClaim> {
+  const inserted = await query<SendIntentRow>(
+    `INSERT INTO send_idempotency (user_id, idempotency_key, request_fingerprint, status, intent_token)
+     VALUES ($1, $2, $3, 'pending', $4::uuid)
+     ON CONFLICT (user_id, idempotency_key) DO NOTHING
+     RETURNING status`,
+    [userId, idempotencyKey, fingerprint, token],
+  );
+  if (inserted.rows.length) return { state: 'claimed' };
+
+  const existing = await query<SendIntentRow>(
+    `SELECT status, request_fingerprint, result
+     FROM send_idempotency WHERE user_id = $1 AND idempotency_key = $2`,
+    [userId, idempotencyKey],
+  );
+  const row = existing.rows[0];
+  // A pre-send failure may have released the row between the INSERT conflict and
+  // SELECT. Fail closed; the client can safely make a fresh request.
+  if (!row) return { state: 'inflight' };
+  if (row.request_fingerprint !== fingerprint) return { state: 'mismatch' };
+  if (row.status === 'completed') return { state: 'completed', result: row.result };
+  return { state: row.status === 'uncertain' ? 'uncertain' : 'inflight' };
+}
+
+async function markSendIntentUncertain(userId: string, idempotencyKey: string, token: string) {
+  return query(
+    `UPDATE send_idempotency SET status = 'uncertain', updated_at = NOW()
+     WHERE user_id = $1 AND idempotency_key = $2 AND intent_token = $3::uuid AND status = 'pending'`,
+    [userId, idempotencyKey, token],
+  );
+}
+
+async function completeSendIntent(userId: string, idempotencyKey: string, token: string, result: unknown) {
+  return query(
+    `UPDATE send_idempotency SET status = 'completed', result = $4::jsonb, updated_at = NOW()
+     WHERE user_id = $1 AND idempotency_key = $2 AND intent_token = $3::uuid
+       AND status IN ('pending', 'uncertain')`,
+    [userId, idempotencyKey, token, JSON.stringify(result)],
+  );
+}
+
+async function releaseSendIntent(userId: string, idempotencyKey: string, token: string) {
+  return query(
+    `DELETE FROM send_idempotency
+     WHERE user_id = $1 AND idempotency_key = $2 AND intent_token = $3::uuid`,
+    [userId, idempotencyKey, token],
+  );
+}
 
 function retainedLease(result: unknown): boolean {
   return result === 1 || result === 'OK';
@@ -306,7 +365,7 @@ router.use(requireAuth);
 router.post('/send', async (req, res) => {
   const { accountId, aliasId, to, cc = [], bcc = [], subject, body, bodyIsHtml = false, quotedBody, quotedBodyHtml, inReplyTo, references, attachments, editedSignature, forwardedAttachments, priority }: SendRequestBody = req.body;
   const emailPriority = isEmailPriority(priority) ? priority : 'normal';
-  if (!accountId || !to?.length) return res.status(400).json({ error: 'accountId and to required' });
+  if (!accountId) return res.status(400).json({ error: 'accountId required' });
 
   // Idempotency guard. The client sends a stable X-Idempotency-Key per logical send: a
   // sequential retry after a lost success response returns the cached result, and a
@@ -315,23 +374,15 @@ router.post('/send', async (req, res) => {
   const idempotencyKey = typeof req.headers['x-idempotency-key'] === 'string'
     ? req.headers['x-idempotency-key'].slice(0, 128)
     : null;
-  const idemKeyRedis = idempotencyKey ? `send_idem:${req.session.userId}:${idempotencyKey}` : null;
+  const idemKeyRedis = idempotencyKey ? `send_idem:${req.session.userId!}:${idempotencyKey}` : null;
   if (idemKeyRedis) {
     let cached;
     try { cached = await redisClient.get(idemKeyRedis); }
     catch { return res.status(503).json({ error: 'Sending is temporarily unavailable. Please try again shortly.' }); }
     if (cached?.startsWith(INFLIGHT_PREFIX)) return res.status(409).json({ error: 'This message is already being sent.' });
-    // Redis remains the durable response cache. A completed value reconciles a
-    // previous ambiguous completion response instead of blocking this key forever.
-    if (cached) {
-      uncertainIdempotencyKeys.delete(idemKeyRedis);
-      return res.json(JSON.parse(cached));
-    }
-    const uncertainUntil = uncertainIdempotencyKeys.get(idemKeyRedis);
-    if (uncertainUntil && uncertainUntil > Date.now()) {
-      return res.status(409).json({ error: 'The result of this send is still being confirmed. It will not be sent again automatically.' });
-    }
-    if (uncertainUntil) uncertainIdempotencyKeys.delete(idemKeyRedis);
+    // Redis is a response cache only; durable intent state is checked again at
+    // the final dispatch gate after all asynchronous message preparation.
+    if (cached) return res.json(JSON.parse(cached));
   }
 
   if (attachments !== undefined) {
@@ -356,18 +407,21 @@ router.post('/send', async (req, res) => {
 
   let normalizedTo, normalizedCc, normalizedBcc;
   try {
-    normalizedTo  = normalizeRecipients(to,  'to');
-    normalizedCc  = normalizeRecipients(cc,  'cc');
-    normalizedBcc = normalizeRecipients(bcc, 'bcc');
+    normalizedTo  = normalizeRecipients(to ?? [],  'to');
+    normalizedCc  = normalizeRecipients(cc ?? [],  'cc');
+    normalizedBcc = normalizeRecipients(bcc ?? [], 'bcc');
   } catch (caught) {
     const err = toAppError(caught);
     return res.status(err.status || 400).json({ error: err.message });
   }
+  if (!normalizedTo.length && !normalizedCc.length && !normalizedBcc.length) {
+    return res.status(400).json({ error: 'At least one recipient is required' });
+  }
   const normalizedSubject = sanitizeHeaderValue(subject || '');
 
   const [result, prefResult] = await Promise.all([
-    query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2', [accountId, req.session.userId]),
-    query<{ preferences?: { plaintextEmail?: boolean; [key: string]: unknown } | null }>('SELECT preferences FROM users WHERE id = $1', [req.session.userId]),
+    query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2', [accountId, req.session.userId!]),
+    query<{ preferences?: { plaintextEmail?: boolean; [key: string]: unknown } | null }>('SELECT preferences FROM users WHERE id = $1', [req.session.userId!]),
   ]);
   if (!result.rows.length) return res.status(404).json({ error: 'Account not found' });
   const plaintextEmail = prefResult.rows[0]?.preferences?.plaintextEmail === true;
@@ -412,7 +466,7 @@ router.post('/send', async (req, res) => {
         `SELECT m.id, m.uid, m.folder, m.attachments, m.account_id FROM messages m
          JOIN email_accounts a ON m.account_id = a.id
          WHERE m.id = ANY($1::uuid[]) AND a.user_id = $2`,
-        [distinctMsgIds, req.session.userId]
+        [distinctMsgIds, req.session.userId!]
       );
       const msgById = new Map<string, ForwardedMessageRow>(msgRows.rows.map(m => [m.id, m]));
 
@@ -473,21 +527,28 @@ router.post('/send', async (req, res) => {
 
   let reservationAcquired = false;
   let reservationToken: string | null = null;
+  let intentToken: string | null = null;
+  let intentClaimed = false;
+  const sendFingerprint = createHash('sha256').update(JSON.stringify({
+    accountId, aliasId: aliasId || null, to: normalizedTo, cc: normalizedCc, bcc: normalizedBcc,
+    subject: normalizedSubject, body, bodyIsHtml, quotedBody, quotedBodyHtml, inReplyTo, references,
+    attachments, forwardedAttachments, editedSignature, priority: emailPriority,
+  })).digest('hex');
   let reservationRenewal: ReturnType<typeof setInterval> | null = null;
   const stopReservationRenewal = () => {
     if (reservationRenewal) clearInterval(reservationRenewal);
     reservationRenewal = null;
   };
   let delivered = false; // true once transport.sendMail has actually handed off the message
-  let leaseLost = false;
   let finalizationStarted = false;
   let smtpRecipients: { accepted: string[]; rejected: string[] } | null = null;
   const markLeaseUncertain = (fromRenewal = false) => {
     // A renewal response can arrive after finalization has begun. It no longer
     // owns the lease and must not overwrite a completed-result reconciliation.
     if (fromRenewal && finalizationStarted) return;
-    leaseLost = true;
-    if (idemKeyRedis) uncertainIdempotencyKeys.set(idemKeyRedis, Date.now() + UNCERTAIN_SEND_GRACE_MS);
+    if (idempotencyKey && intentToken) {
+      void markSendIntentUncertain(req.session.userId!, idempotencyKey!, intentToken!).catch(() => {});
+    }
   };
   try {
     const smtp = await createAccountSmtpTransport(account);
@@ -503,9 +564,11 @@ router.post('/send', async (req, res) => {
       messageId,
       from: `${fromName} <${fromEmail}>`,
       ...(fromReplyTo ? { replyTo: fromReplyTo } : {}),
-      to: normalizedTo.join(', '),
-      cc: normalizedCc.join(', ') || undefined,
-      bcc: normalizedBcc.join(', ') || undefined,
+      // Nodemailer uses bcc for the SMTP envelope but omits it from generated MIME.
+      // Do not add a synthetic To header for BCC-only retries.
+      ...(normalizedTo.length ? { to: normalizedTo.join(', ') } : {}),
+      ...(normalizedCc.length ? { cc: normalizedCc.join(', ') } : {}),
+      ...(normalizedBcc.length ? { bcc: normalizedBcc.join(', ') } : {}),
       subject: normalizedSubject,
       ...(emailPriority !== 'normal' ? { priority: emailPriority } : {}),
       text: effectiveSignature
@@ -577,18 +640,33 @@ router.post('/send', async (req, res) => {
     });
     const rawMessage = Buffer.concat(chunks);
 
-    // Reserve the idempotency key atomically right before delivery so a concurrent
-    // same-key submit cannot also send (the post-send cache alone can't stop concurrent
-    // duplicates). Overwritten with the result on success; released in the catch only if
-    // delivery never happened, so a genuine retry after a pre-send failure can proceed.
+    // A database-backed intent is the final, cross-process gate immediately before SMTP.
+    // It remains authoritative if Redis is flushed while another request is still preparing.
+    if (idempotencyKey) {
+      intentToken = randomUUID();
+      let claim: SendIntentClaim;
+      try { claim = await claimSendIntent(req.session.userId!, idempotencyKey, sendFingerprint, intentToken!); }
+      catch { return res.status(503).json({ error: 'Sending is temporarily unavailable. Please try again shortly.' }); }
+      if (claim.state === 'completed') return res.json(claim.result);
+      if (claim.state === 'mismatch') return res.status(409).json({ error: 'This idempotency key belongs to a different message.' });
+      if (claim.state === 'uncertain') return res.status(409).json({ error: 'The result of this send is still being confirmed. It will not be sent again automatically.' });
+      if (claim.state === 'inflight') return res.status(409).json({ error: 'This message is already being sent.' });
+      intentClaimed = true;
+    }
     if (idemKeyRedis) {
       // TTL comfortably above the worst-case send (large attachment over a slow SMTP
       // server) so the in-flight guard cannot lapse while this request is still running.
-      reservationToken = `${INFLIGHT_PREFIX}${randomUUID()}`;
+      reservationToken = `${INFLIGHT_PREFIX}${intentToken || randomUUID()}`;
       let reserved;
       try { reserved = await redisClient.set(idemKeyRedis, reservationToken, { NX: true, EX: IDEMPOTENCY_LEASE_SECONDS }); }
-      catch { return res.status(503).json({ error: 'Sending is temporarily unavailable. Please try again shortly.' }); }
-      if (reserved !== 'OK') return res.status(409).json({ error: 'This message is already being sent.' });
+      catch {
+        if (idempotencyKey && intentToken) await releaseSendIntent(req.session.userId!, idempotencyKey, intentToken!).catch(() => {});
+        return res.status(503).json({ error: 'Sending is temporarily unavailable. Please try again shortly.' });
+      }
+      if (reserved !== 'OK') {
+        if (idempotencyKey && intentToken) await releaseSendIntent(req.session.userId!, idempotencyKey, intentToken!).catch(() => {});
+        return res.status(409).json({ error: 'This message is already being sent.' });
+      }
       reservationAcquired = true;
       reservationRenewal = setInterval(() => {
         if (!reservationToken) return;
@@ -611,7 +689,7 @@ router.post('/send', async (req, res) => {
     // Fire-and-forget — a DB error here must never affect the send response.
     const allRecipients = [...normalizedTo, ...normalizedCc, ...normalizedBcc];
     if (allRecipients.length) {
-      const userId = req.session.userId;
+      const userId = req.session.userId!;
       const now = new Date();
       setImmediate(async () => {
         try {
@@ -776,15 +854,13 @@ router.post('/send', async (req, res) => {
     // Overwrite the in-flight reservation with the final result so a retry after a lost
     // response returns this instead of re-sending.
     stopReservationRenewal();
-    if (idemKeyRedis && reservationToken) {
+    if (idempotencyKey && intentToken) {
       finalizationStarted = true;
-      void completeIdempotencyLease(idemKeyRedis, reservationToken, sendResult)
-        .then(result => {
-          if (retainedLease(result)) uncertainIdempotencyKeys.delete(idemKeyRedis);
-          else markLeaseUncertain();
-        })
-        .catch(() => markLeaseUncertain());
+      await completeSendIntent(req.session.userId!, idempotencyKey, intentToken!, sendResult)
+        .catch(() => markSendIntentUncertain(req.session.userId!, idempotencyKey!, intentToken!).catch(() => {}));
     }
+    if (idemKeyRedis && reservationToken) void completeIdempotencyLease(idemKeyRedis, reservationToken, sendResult)
+      .catch(() => markLeaseUncertain());
     res.json(sendResult);
   } catch (caught) {
     const err = toAppError(caught);
@@ -802,22 +878,21 @@ router.post('/send', async (req, res) => {
         } : {}),
       };
       stopReservationRenewal();
-      if (idemKeyRedis && reservationToken) {
+      if (idempotencyKey && intentToken) {
         finalizationStarted = true;
-        void completeIdempotencyLease(idemKeyRedis, reservationToken, sendResult)
-          .then(result => {
-            if (retainedLease(result)) uncertainIdempotencyKeys.delete(idemKeyRedis);
-            else markLeaseUncertain();
-          })
-          .catch(() => markLeaseUncertain());
+        await completeSendIntent(req.session.userId!, idempotencyKey, intentToken!, sendResult)
+          .catch(() => markSendIntentUncertain(req.session.userId!, idempotencyKey!, intentToken!).catch(() => {}));
       }
+      if (idemKeyRedis && reservationToken) void completeIdempotencyLease(idemKeyRedis, reservationToken, sendResult)
+        .catch(() => markLeaseUncertain());
       return res.json(sendResult);
     }
     console.error('Send failed:', err.message);
     // A failure before reservation must not delete a concurrent request's lock.
     stopReservationRenewal();
-    if (leaseLost && idemKeyRedis) uncertainIdempotencyKeys.delete(idemKeyRedis);
-    if (idemKeyRedis && reservationAcquired && reservationToken) releaseIdempotencyLease(idemKeyRedis, reservationToken).catch(() => {});
+    if (idempotencyKey && intentClaimed && intentToken) void releaseSendIntent(req.session.userId!, idempotencyKey, intentToken!)
+      .catch(() => markSendIntentUncertain(req.session.userId!, idempotencyKey!, intentToken!).catch(() => {}));
+    if (idemKeyRedis && reservationAcquired && reservationToken) void releaseIdempotencyLease(idemKeyRedis, reservationToken).catch(() => {});
     res.status(500).json({ error: sanitizeSmtpError(err) });
   }
 });
