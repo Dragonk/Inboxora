@@ -44,22 +44,68 @@ async function cleanMessages() {
   await query('DELETE FROM conversation_rebuild_checkpoints WHERE user_id = $1', [TEST_USER_ID]);
 }
 
-async function insertMessage(opts) {
-  const id = opts.id || randomUUID();
+type EmailAddress = { email: string };
+
+type InsertMessageOptions = {
+  id?: string;
+  accountId?: string;
+  uid: number;
+  folder: string;
+  messageId: string;
+  subject: string;
+  fromEmail: string;
+  toAddresses?: EmailAddress[];
+  inReplyTo?: string | null;
+  references?: string | null;
+  date?: Date;
+  bodyText?: string;
+  isRead?: boolean;
+};
+
+type CountRow = { c: number };
+type ConversationIdRow = { conversation_id: string | null };
+type ConversationAggregateRow = { logical_message_count: number; copy_count: number; unread_count: number };
+type AccountConversationRow = {
+  account_id: string;
+  logical_message_id: string;
+  conversation_id: string;
+  logical_account_id: string;
+  conversation_account_id: string;
+};
+type LogicalMessageRow = {
+  id: string;
+  conversation_id: string;
+  parent_logical_message_id: string | null;
+};
+type LocalLogicalMessageRow = LogicalMessageRow & { threading_reason: string | null };
+type ChecksumRow = { checksum: string | null };
+type CheckpointRow = { status: string };
+type QueryPlanRow = { 'QUERY PLAN': unknown };
+
+function firstRow<T>(rows: T[], description: string): T {
+  const [row] = rows;
+  if (row === undefined) {
+    throw new Error('Expected ' + description + ' query to return at least one row');
+  }
+  return row;
+}
+
+async function insertMessage(opts: InsertMessageOptions) {
+  const id = opts.id ?? randomUUID();
   await query(`
     INSERT INTO messages (id, account_id, uid, folder, message_id, subject, from_email, to_addresses, in_reply_to, thread_references, date, body_text, is_read)
     VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11, $12, $13)
   `, [
-    id, opts.accountId || TEST_ACCOUNT_ID, opts.uid, opts.folder, opts.messageId, opts.subject, opts.fromEmail,
-    JSON.stringify(opts.toAddresses || [{ email: 'me@example.test' }]),
-    opts.inReplyTo || null, opts.references || null,
-    opts.date || new Date(), opts.bodyText || 'body', opts.isRead ?? false
+    id, opts.accountId ?? TEST_ACCOUNT_ID, opts.uid, opts.folder, opts.messageId, opts.subject, opts.fromEmail,
+    JSON.stringify(opts.toAddresses ?? [{ email: 'me@example.test' }]),
+    opts.inReplyTo ?? null, opts.references ?? null,
+    opts.date ?? new Date(), opts.bodyText ?? 'body', opts.isRead ?? false
   ]);
   return id;
 }
 
 async function ceChecksum(accountId: string) {
-  const r = await query(`
+  const r = await query<ChecksumRow>(`
     SELECT md5(string_agg(payload, '|' ORDER BY payload)) AS checksum
     FROM (
       SELECT id::text || ':' || COALESCE(conversation_id::text, '') || ':' || COALESCE(logical_message_id::text, '') AS payload
@@ -72,7 +118,7 @@ async function ceChecksum(accountId: string) {
       FROM conversations WHERE user_id = $2
     ) v
   `, [accountId, TEST_USER_ID]);
-  return r.rows[0]?.checksum;
+  return firstRow(r.rows, 'CE checksum').checksum;
 }
 
 describeOrSkip('CE v2 PostgreSQL regression tests', () => {
@@ -96,8 +142,7 @@ describeOrSkip('CE v2 PostgreSQL regression tests', () => {
         { messageId: '<msg-005@example.test>', subject: 'Re: Golden thread', from: 'alice@example.test', to: 'me@example.test', folder: 'INBOX', irt: '<msg-004@example.test>', refs: '<msg-001@example.test> <msg-002@example.test> <msg-003@example.test> <msg-004@example.test>', date: new Date(baseTime.getTime() + 4 * 60000), read: false },
       ];
 
-      for (let i = 0; i < msgs.length; i++) {
-        const m = msgs[i];
+      for (const [i, m] of msgs.entries()) {
         await insertMessage({ messageId: m.messageId, subject: m.subject, fromEmail: m.from, toAddresses: [{ email: m.to }], folder: m.folder, inReplyTo: m.irt, references: m.refs, date: m.date, isRead: m.read, uid: 100 + i });
         if (m.folder === 'INBOX') {
           await insertMessage({ messageId: m.messageId, subject: m.subject, fromEmail: m.from, toAddresses: [{ email: m.to }], folder: 'Archive', inReplyTo: m.irt, references: m.refs, date: m.date, isRead: m.read, uid: 200 + i });
@@ -108,20 +153,23 @@ describeOrSkip('CE v2 PostgreSQL regression tests', () => {
       const result = await rebuildConversationCopies({ userId: TEST_USER_ID, accountId: TEST_ACCOUNT_ID, limit: 500, dryRun: false, force: true });
       expect(result.updated).toBeGreaterThan(0);
 
-      const lmCount = await query<{ c: number }>('SELECT COUNT(*)::int AS c FROM logical_messages WHERE user_id = $1', [TEST_USER_ID]);
-      expect(lmCount.rows[0].c).toBe(5);
+      const lmCount = await query<CountRow>('SELECT COUNT(*)::int AS c FROM logical_messages WHERE user_id = $1', [TEST_USER_ID]);
+      expect(firstRow(lmCount.rows, 'logical message count').c).toBe(5);
 
-      const convCount = await query('SELECT COUNT(*)::int AS c FROM conversations WHERE user_id = $1', [TEST_USER_ID]);
-      expect(convCount.rows[0].c).toBe(1);
+      const convCount = await query<CountRow>('SELECT COUNT(*)::int AS c FROM conversations WHERE user_id = $1', [TEST_USER_ID]);
+      expect(firstRow(convCount.rows, 'conversation count').c).toBe(1);
 
-      const convIds = await query('SELECT DISTINCT conversation_id FROM logical_messages WHERE user_id = $1', [TEST_USER_ID]);
-      expect(convIds.rows.length).toBe(1);
-      const convUuid = convIds.rows[0].conversation_id;
-      expect(convUuid).toBeTruthy();
+      const convIds = await query<ConversationIdRow>('SELECT DISTINCT conversation_id FROM logical_messages WHERE user_id = $1', [TEST_USER_ID]);
+      expect(convIds.rows).toHaveLength(1);
+      const convUuid = firstRow(convIds.rows, 'conversation id').conversation_id;
+      if (convUuid === null) {
+        throw new Error('Expected logical message to have a conversation ID');
+      }
 
-      const convRow = await query('SELECT logical_message_count, copy_count, unread_count FROM conversations WHERE id = $1', [convUuid]);
-      expect(convRow.rows[0].logical_message_count).toBe(5);
-      expect(convRow.rows[0].copy_count).toBeGreaterThanOrEqual(5);
+      const convRow = await query<ConversationAggregateRow>('SELECT logical_message_count, copy_count, unread_count FROM conversations WHERE id = $1', [convUuid]);
+      const conversation = firstRow(convRow.rows, 'conversation aggregate');
+      expect(conversation.logical_message_count).toBe(5);
+      expect(conversation.copy_count).toBeGreaterThanOrEqual(5);
     }, 30000);
   });
 
@@ -133,7 +181,7 @@ describeOrSkip('CE v2 PostgreSQL regression tests', () => {
       }
 
       await rebuildConversationCopies({ userId: TEST_USER_ID, accountId: null, limit: 500, dryRun: false, force: true });
-      const rows = await query(`
+      const rows = await query<AccountConversationRow>(`
         SELECT m.account_id, m.logical_message_id, m.conversation_id,
                lm.account_id AS logical_account_id, c.account_id AS conversation_account_id
           FROM messages m
@@ -157,15 +205,20 @@ describeOrSkip('CE v2 PostgreSQL regression tests', () => {
       await insertMessage({ accountId: TEST_ACCOUNT_ID, uid: 622, folder: 'Sent', messageId: '<child@test>', subject: 'Completely renamed topic', fromEmail: 'me@example.test', toAddresses: [{ email: 'outside@example.test' }], inReplyTo: '<root@test>', references: '<root@test>', date: new Date('2026-08-25T11:51:00Z'), isRead: true });
 
       await rebuildConversationCopies({ userId: TEST_USER_ID, accountId: null, limit: 500, dryRun: false, force: true });
-      const local = await query(`SELECT id, conversation_id, parent_logical_message_id, threading_reason FROM logical_messages WHERE user_id = $1 AND account_id = $2 ORDER BY message_date ASC`, [TEST_USER_ID, TEST_ACCOUNT_ID]);
-      const other = await query(`SELECT id, conversation_id, parent_logical_message_id FROM logical_messages WHERE user_id = $1 AND account_id = $2`, [TEST_USER_ID, ALT_ACCOUNT_ID]);
+      const local = await query<LocalLogicalMessageRow>(`SELECT id, conversation_id, parent_logical_message_id, threading_reason FROM logical_messages WHERE user_id = $1 AND account_id = $2 ORDER BY message_date ASC`, [TEST_USER_ID, TEST_ACCOUNT_ID]);
+      const other = await query<LogicalMessageRow>(`SELECT id, conversation_id, parent_logical_message_id FROM logical_messages WHERE user_id = $1 AND account_id = $2`, [TEST_USER_ID, ALT_ACCOUNT_ID]);
       expect(local.rows).toHaveLength(2);
+      const [localRoot, localChild] = local.rows;
+      if (localRoot === undefined || localChild === undefined) {
+        throw new Error('Expected local account RFC chain rows');
+      }
       expect(new Set(local.rows.map(row => row.conversation_id)).size).toBe(1);
-      expect(local.rows[1].parent_logical_message_id).toBe(local.rows[0].id);
-      expect(local.rows[1].threading_reason).toBe('rfc-in-reply-to');
+      expect(localChild.parent_logical_message_id).toBe(localRoot.id);
+      expect(localChild.threading_reason).toBe('rfc-in-reply-to');
       expect(other.rows).toHaveLength(1);
-      expect(other.rows[0].conversation_id).not.toBe(local.rows[0].conversation_id);
-      expect(other.rows[0].parent_logical_message_id).toBeNull();
+      const otherRoot = firstRow(other.rows, 'other account logical message');
+      expect(otherRoot.conversation_id).not.toBe(localRoot.conversation_id);
+      expect(otherRoot.parent_logical_message_id).toBeNull();
     }, 60000);
   });
 
@@ -192,11 +245,11 @@ describeOrSkip('CE v2 PostgreSQL regression tests', () => {
 
       await rebuildConversationCopies({ userId: TEST_USER_ID, accountId: null, limit: 500, dryRun: false, force: true });
 
-      const convCount = await query('SELECT COUNT(*)::int AS c FROM conversations WHERE user_id = $1', [TEST_USER_ID]);
-      expect(convCount.rows[0].c).toBe(100);
+      const convCount = await query<CountRow>('SELECT COUNT(*)::int AS c FROM conversations WHERE user_id = $1', [TEST_USER_ID]);
+      expect(firstRow(convCount.rows, 'conversation count').c).toBe(100);
 
-      const lmCount = await query<{ c: number }>('SELECT COUNT(*)::int AS c FROM logical_messages WHERE user_id = $1', [TEST_USER_ID]);
-      expect(lmCount.rows[0].c).toBe(100);
+      const lmCount = await query<CountRow>('SELECT COUNT(*)::int AS c FROM logical_messages WHERE user_id = $1', [TEST_USER_ID]);
+      expect(firstRow(lmCount.rows, 'logical message count').c).toBe(100);
     }, 60000);
   });
 
@@ -220,13 +273,13 @@ describeOrSkip('CE v2 PostgreSQL regression tests', () => {
 
       await rebuildConversationCopies({ userId: TEST_USER_ID, accountId: TEST_ACCOUNT_ID, limit: 500, dryRun: false, force: true });
 
-      const lmCount = await query<{ c: number }>('SELECT COUNT(*)::int AS c FROM logical_messages WHERE user_id = $1', [TEST_USER_ID]);
-      expect(lmCount.rows[0].c).toBe(4);
+      const lmCount = await query<CountRow>('SELECT COUNT(*)::int AS c FROM logical_messages WHERE user_id = $1', [TEST_USER_ID]);
+      expect(firstRow(lmCount.rows, 'logical message count').c).toBe(4);
 
       // Reingest
       await rebuildConversationCopies({ userId: TEST_USER_ID, accountId: TEST_ACCOUNT_ID, limit: 500, dryRun: false, force: true });
-      const lmCount2 = await query<{ c: number }>('SELECT COUNT(*)::int AS c FROM logical_messages WHERE user_id = $1', [TEST_USER_ID]);
-      expect(lmCount2.rows[0].c).toBe(4);
+      const lmCount2 = await query<CountRow>('SELECT COUNT(*)::int AS c FROM logical_messages WHERE user_id = $1', [TEST_USER_ID]);
+      expect(firstRow(lmCount2.rows, 'logical message count after reingest').c).toBe(4);
     }, 30000);
   });
 
@@ -239,10 +292,10 @@ describeOrSkip('CE v2 PostgreSQL regression tests', () => {
       expect(result.dryRun).toBe(true);
 
       // Verify no conversation/logical_message was created
-      const lmCount = await query<{ c: number }>('SELECT COUNT(*)::int AS c FROM logical_messages WHERE user_id = $1', [TEST_USER_ID]);
-      expect(lmCount.rows[0].c).toBe(0);
-      const convCount = await query('SELECT COUNT(*)::int AS c FROM conversations WHERE user_id = $1', [TEST_USER_ID]);
-      expect(convCount.rows[0].c).toBe(0);
+      const lmCount = await query<CountRow>('SELECT COUNT(*)::int AS c FROM logical_messages WHERE user_id = $1', [TEST_USER_ID]);
+      expect(firstRow(lmCount.rows, 'logical message count').c).toBe(0);
+      const convCount = await query<CountRow>('SELECT COUNT(*)::int AS c FROM conversations WHERE user_id = $1', [TEST_USER_ID]);
+      expect(firstRow(convCount.rows, 'conversation count').c).toBe(0);
     }, 30000);
   });
 
@@ -351,10 +404,11 @@ describeOrSkip('CE v2 PostgreSQL regression tests', () => {
       expect(ceRows.rows.length).toBe(0);
 
       // Checkpoint should NOT have been advanced (the batch was rolled back)
-      const cp = await query('SELECT status FROM conversation_rebuild_checkpoints WHERE user_id = $1 AND scope_account_id = $2', [TEST_USER_ID, TEST_ACCOUNT_ID]);
+      const cp = await query<CheckpointRow>('SELECT status FROM conversation_rebuild_checkpoints WHERE user_id = $1 AND scope_account_id = $2', [TEST_USER_ID, TEST_ACCOUNT_ID]);
       // Either no checkpoint exists, or it's not 'complete'
-      if (cp.rows.length > 0) {
-        expect(cp.rows[0].status).not.toBe('complete');
+      const [checkpoint] = cp.rows;
+      if (checkpoint !== undefined) {
+        expect(checkpoint.status).not.toBe('complete');
       }
 
       // Now fix the broken message and retry — should succeed
@@ -381,7 +435,7 @@ describeOrSkip('CE v2 PostgreSQL regression tests', () => {
       await rebuildConversationCopies({ userId: TEST_USER_ID, accountId: TEST_ACCOUNT_ID, limit: 500, dryRun: false, force: true });
 
       // EXPLAIN ANALYZE the conversation list query
-      const plan = await query(`
+      const plan = await query<QueryPlanRow>(`
         EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)
         SELECT c.id, c.subject_snapshot, c.logical_message_count, c.unread_count
           FROM conversations c
@@ -389,7 +443,7 @@ describeOrSkip('CE v2 PostgreSQL regression tests', () => {
          ORDER BY c.last_message_at DESC NULLS LAST
          LIMIT 50
       `, [TEST_USER_ID]);
-      const planData = plan.rows[0]['QUERY PLAN'];
+      const planData = firstRow(plan.rows, 'EXPLAIN plan')['QUERY PLAN'];
       const planStr = JSON.stringify(planData);
       // Must NOT use Seq Scan on conversations for this hot path
       expect(planStr).not.toContain('Seq Scan on conversations');
@@ -398,7 +452,7 @@ describeOrSkip('CE v2 PostgreSQL regression tests', () => {
     }, 120000);
 
     it('message lookup by logical_message_id uses index, not seq scan', async () => {
-      const plan = await query(`
+      const plan = await query<QueryPlanRow>(`
         EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)
         SELECT m.id, m.subject, m.is_read, m.is_starred
           FROM messages m
@@ -407,7 +461,7 @@ describeOrSkip('CE v2 PostgreSQL regression tests', () => {
          ORDER BY m.date DESC
          LIMIT 50
       `, [TEST_USER_ID]);
-      const planData = plan.rows[0]['QUERY PLAN'];
+      const planData = firstRow(plan.rows, 'EXPLAIN plan')['QUERY PLAN'];
       const planStr = JSON.stringify(planData);
       // Must NOT use Seq Scan on messages for this hot path
       expect(planStr).not.toContain('Seq Scan on messages');

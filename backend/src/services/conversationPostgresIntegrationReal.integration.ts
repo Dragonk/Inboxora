@@ -77,8 +77,8 @@ interface InsertMessageInput {
   subject: string;
   fromEmail: string;
   toEmails: string[];
-  inReplyTo?: string | null;
-  references?: string | null;
+  inReplyTo: string | null;
+  references: string | null;
   date: string | Date;
   conversationId: string | null;
   logicalMessageId: string | null;
@@ -86,7 +86,7 @@ interface InsertMessageInput {
   direction: string;
 }
 
-async function insertMessage({ accountId, userId, uid, folder, messageId, subject, fromEmail, toEmails, inReplyTo = null, references = null, date, conversationId, logicalMessageId, canonicalMessageId, direction }: InsertMessageInput) {
+async function insertMessage({ accountId, userId, uid, folder, messageId, subject, fromEmail, toEmails, inReplyTo, references, date, conversationId, logicalMessageId, canonicalMessageId, direction }: InsertMessageInput) {
   const id = _randomUUID();
   const result = await pool.query(
     `INSERT INTO messages (
@@ -109,7 +109,7 @@ async function insertMessage({ accountId, userId, uid, folder, messageId, subjec
     [
       id, accountId, uid, folder, messageId, subject,
       direction === 'outgoing' ? 'Me' : 'Alice', fromEmail, JSON.stringify(toEmails), JSON.stringify([]),
-      inReplyTo || null, references || null, date, 'snippet text',
+      inReplyTo, references, date, 'snippet text',
       logicalMessageId, conversationId, userId, canonicalMessageId,
       'rfc-references'
     ]
@@ -126,7 +126,7 @@ async function createConversation(userId: string, accountId: string, subject: st
   return convId;
 }
 
-async function createLogicalMessage(conversationId: string, userId: string, accountId: string, canonicalMessageId) {
+async function createLogicalMessage(conversationId: string, userId: string, accountId: string, canonicalMessageId: string) {
   const lmId = _randomUUID();
   await pool.query(
     "INSERT INTO logical_messages (id, conversation_id, user_id, account_id, canonical_message_id) VALUES ($1, $2, $3, $4, $5)",
@@ -154,6 +154,7 @@ describe('CE v2 PostgreSQL integration — ALL FOLDERS conversation', () => {
     await insertMessage({
       accountId, userId, uid: 1001, folder: 'INBOX', messageId: '<msg-1@example.com>',
       subject, fromEmail: 'alice@example.com', toEmails: ['me@example.com'],
+      inReplyTo: null, references: null,
       date: '2026-01-01T10:00:00Z', conversationId: convId, logicalMessageId: lm1,
       canonicalMessageId: '<msg-1@example.com>', direction: 'incoming'
     });
@@ -306,6 +307,7 @@ describe('CE v2 PostgreSQL integration — ALL FOLDERS conversation', () => {
         subject: 'Test',
         fromEmail: `sender-${i}@example.com`,
         toEmails: ['me@example.com'],
+        inReplyTo: null, references: null,
         date: `${year}-${String(month).padStart(2, '0')}-15T10:00:00Z`,
         conversationId: convId, logicalMessageId: lmId,
         canonicalMessageId: `<test-${i}@sender-${i}.com>`,
@@ -371,14 +373,10 @@ describe('CE v2 PostgreSQL integration — ALL FOLDERS conversation', () => {
     const { userId, accountId } = await setupTestUser();
     const collidingMsgId = '<collision@example.com>';
 
-    // Create 4 different conversations (different subjects, senders, dates)
-    const convIds = [];
-    const lmIds = [];
+    // Create and insert 4 distinct messages with the same Message-ID.
     for (let i = 0; i < 4; i++) {
       const convId = _randomUUID();
       const lmId = _randomUUID();
-      convIds.push(convId);
-      lmIds.push(lmId);
       await pool.query(
         "INSERT INTO conversations (id, user_id, account_id, canonical_subject, kind, manually_locked) VALUES ($1, $2, $3, $4, 'human_reply_chain', false)",
         [convId, userId, accountId, `collision-test-${i}`]
@@ -387,18 +385,15 @@ describe('CE v2 PostgreSQL integration — ALL FOLDERS conversation', () => {
         "INSERT INTO logical_messages (id, conversation_id, user_id, account_id, canonical_message_id) VALUES ($1, $2, $3, $4, $5)",
         [lmId, convId, userId, accountId, collidingMsgId]
       );
-    }
-
-    // Insert 4 messages with the SAME Message-ID but different content
-    for (let i = 0; i < 4; i++) {
       await insertMessage({
         accountId, userId, uid: 4000 + i, folder: 'INBOX',
         messageId: collidingMsgId,
         subject: `Collision test ${i}`,
         fromEmail: `sender-${i}@example.com`,
         toEmails: ['me@example.com'],
+        inReplyTo: null, references: null,
         date: `2026-08-0${i + 1}T10:00:00Z`,
-        conversationId: convIds[i], logicalMessageId: lmIds[i],
+        conversationId: convId, logicalMessageId: lmId,
         canonicalMessageId: collidingMsgId,
         direction: 'incoming'
       });
@@ -428,6 +423,7 @@ describe('CE v2 PostgreSQL integration — ALL FOLDERS conversation', () => {
     const msgId = await insertMessage({
       accountId, userId, uid: 5001, folder: 'INBOX', messageId: '<relocate-msg@example.com>',
       subject, fromEmail: 'alice@example.com', toEmails: ['me@example.com'],
+      inReplyTo: null, references: null,
       date: '2026-01-15T10:00:00Z', conversationId: convId, logicalMessageId: lmId,
       canonicalMessageId: '<relocate-msg@example.com>', direction: 'incoming'
     });
@@ -491,6 +487,7 @@ describe('CE v2 PostgreSQL integration — ALL FOLDERS conversation', () => {
       await insertMessage({
         accountId, userId, uid: 6000 + i, folder: 'INBOX', messageId: `<rebuild-${i}@example.com>`,
         subject: 'Rebuild test', fromEmail: `sender-${i}@example.com`, toEmails: ['me@example.com'],
+        inReplyTo: null, references: null,
         date: `2026-08-0${i + 1}T10:00:00Z`, conversationId: convId, logicalMessageId: lmId,
         canonicalMessageId: `<rebuild-${i}@example.com>`, direction: 'incoming'
       });

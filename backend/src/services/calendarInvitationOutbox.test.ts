@@ -63,7 +63,8 @@ describe('delivery', () => {
     expect(result).toEqual({ status: 'sent', lastError: null });
     expect(sendCalendarInvitation).toHaveBeenCalledTimes(1);
     expect(sendCalendarInvitation.mock.calls[0][0]).toMatchObject({ account: action.account, startsAt, endsAt });
-    const sentUpdate = query.mock.calls.find(([sql]: [string]) => sql.includes("status = 'sent'"));
+    const sentUpdate = query.mock.calls.find(([sql]) => sql.includes("status = 'sent'"));
+    if (!sentUpdate) throw new Error('expected the sent outbox update');
     expect(sentUpdate[0]).toContain('delivered_at = NOW()');
     expect(sentUpdate[0]).toContain('next_attempt_at = NULL');
   });
@@ -72,7 +73,8 @@ describe('delivery', () => {
     sendCalendarInvitation.mockRejectedValueOnce(Object.assign(new Error('connect ECONNREFUSED'), { code: 'ESOCKET' }));
     const result = await deliverInvitationOutbox({ outboxId: 'outbox-1', actions: [action] });
     expect(result).toEqual({ status: 'failed', lastError: 'connect ECONNREFUSED' });
-    const failureUpdate = query.mock.calls.find(([sql]: [string]) => sql.includes("status = 'failed'"));
+    const failureUpdate = query.mock.calls.find(([sql]) => sql.includes("status = 'failed'"));
+    if (!failureUpdate) throw new Error('expected the failed outbox update');
     expect(failureUpdate[0]).toContain('next_attempt_at = NOW()');
     expect(failureUpdate[1]).toEqual(['outbox-1', 'connect ECONNREFUSED']);
   });
