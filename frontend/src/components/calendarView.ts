@@ -183,16 +183,28 @@ export function fromDateTimeLocal(value: unknown): string | null {
 
 export function toggleAllDayTimes(form: CalendarEventForm, allDay: boolean): CalendarEventForm {
   const toDate = (value: unknown): string => String(value || '').slice(0, 10);
+  const nextDate = (date: string): string => {
+    const [year, month, day] = date.split('-').map(Number);
+    const next = new Date(Date.UTC(year, month - 1, day + 1));
+    return next.toISOString().slice(0, 10);
+  };
   const toDateTime = (value: unknown): string => {
     const date = toDate(value);
     return date ? `${date}T00:00` : '';
   };
-  return {
-    ...form,
-    allDay,
-    startsAt: allDay ? toDate(form.startsAt) : toDateTime(form.startsAt),
-    endsAt: allDay ? toDate(form.endsAt) : toDateTime(form.endsAt),
-  };
+  const startsDate = toDate(form.startsAt);
+  const endsDate = toDate(form.endsAt);
+  if (allDay) {
+    // All-day ends are exclusive. A one-hour timed event normally collapses to
+    // one date, so carry its end to the following day rather than making it invalid.
+    const endsAt = startsDate && (!endsDate || endsDate <= startsDate) ? nextDate(startsDate) : endsDate;
+    return { ...form, allDay: true, startsAt: startsDate, endsAt };
+  }
+  const startsAt = toDateTime(form.startsAt);
+  let endsAt = toDateTime(form.endsAt);
+  // Also recover events created by older clients that stored equal all-day dates.
+  if (startsAt && (!endsAt || endsAt <= startsAt)) endsAt = `${startsDate}T01:00`;
+  return { ...form, allDay: false, startsAt, endsAt };
 }
 
 export function eventPayload(form: CalendarEventForm): Record<string, unknown> | null {

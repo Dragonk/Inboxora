@@ -38,8 +38,9 @@ describe('calendar desktop helpers', () => {
   });
   it('converts date field values when toggling all-day mode', () => {
     const timed = { allDay: false, startsAt: '2026-09-10T09:30', endsAt: '2026-09-10T10:30' };
-    assert.deepEqual(toggleAllDayTimes(timed, true), { ...timed, allDay: true, startsAt: '2026-09-10', endsAt: '2026-09-10' });
+    assert.deepEqual(toggleAllDayTimes(timed, true), { ...timed, allDay: true, startsAt: '2026-09-10', endsAt: '2026-09-11' });
     assert.deepEqual(toggleAllDayTimes({ ...timed, allDay: true, startsAt: '2026-09-10', endsAt: '2026-09-11' }, false), { ...timed, allDay: false, startsAt: '2026-09-10T00:00', endsAt: '2026-09-11T00:00' });
+    assert.deepEqual(toggleAllDayTimes({ ...timed, allDay: true, startsAt: '2026-12-31', endsAt: '2026-12-31' }, true), { ...timed, allDay: true, startsAt: '2026-12-31', endsAt: '2027-01-01' });
   });
   it('preserves selected all-day dates as UTC date boundaries', () => {
     const payload = eventPayload({ calendarId: 'one', allDay: true, startsAt: '2026-09-10', endsAt: '2026-09-11', summary: '', description: '', location: '', url: '', organizer: '' });

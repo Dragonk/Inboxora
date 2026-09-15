@@ -40,10 +40,11 @@ interface MessageBodyRendererProps {
   hideQuotedTextLabel?: string;
   style?: React.CSSProperties | null;
   onContextMenu?: ((position: { x: number; y: number; selectedText: string }) => void) | null;
+  onOpenLink?: ((url: string) => void) | null;
 }
 
 
-export default function MessageBodyRenderer({ html = '', text = '', remoteImages = false, quoteFolding = true, onQuoteDetected = null, onHeightChange = null, onInitialLayoutReady = null, iframeRef: externalIframeRef = null, onLoad = null, title = 'Message body', showQuotedTextLabel = 'Show quoted text', hideQuotedTextLabel = 'Hide quoted text', style: frameStyle = null, onContextMenu = null }: MessageBodyRendererProps) {
+export default function MessageBodyRenderer({ html = '', text = '', remoteImages = false, quoteFolding = true, onQuoteDetected = null, onHeightChange = null, onInitialLayoutReady = null, iframeRef: externalIframeRef = null, onLoad = null, title = 'Message body', showQuotedTextLabel = 'Show quoted text', hideQuotedTextLabel = 'Hide quoted text', style: frameStyle = null, onContextMenu = null, onOpenLink = null }: MessageBodyRendererProps) {
   const internalIframeRef = useRef<HTMLIFrameElement | null>(null);
   const iframeRef = externalIframeRef || internalIframeRef;
 
@@ -156,25 +157,32 @@ export default function MessageBodyRenderer({ html = '', text = '', remoteImages
       onQuoteDetected?.(quoteResult.count > 0);
       const images = [...doc.images];
       const onDocumentClick = (event: MouseEvent) => {
-        const target = event.target;
-        if (!(target instanceof Element)) return;
-        const anchor = target.closest('a');
-        if (!(anchor instanceof HTMLAnchorElement)) return;
+        // Elements from an iframe belong to its realm, so they are not instances of
+        // the parent document's Element/HTMLAnchorElement constructors.
+        const FrameElement = doc.defaultView?.Element;
+        if (!FrameElement || !(event.target instanceof FrameElement)) return;
+        const anchor = event.target.closest('a[href]');
+        if (!anchor) return;
         const raw = anchor.getAttribute('href') || '';
         let url: URL;
         try { url = new URL(raw, window.location.href); } catch { event.preventDefault(); return; }
-        if (url.protocol === 'https:' || url.protocol === 'mailto:') {
+        if (url.protocol === 'http:' || url.protocol === 'https:' || url.protocol === 'mailto:') {
           event.preventDefault();
-          window.open(url.href, '_blank', 'noopener,noreferrer');
+          // The body is sandboxed, so opening from its own browsing context can be
+          // blocked. Hand the user gesture to the top-level Inboxora document instead.
+          if (onOpenLink) onOpenLink(url.href);
+          else window.open(url.href, '_blank', 'noopener,noreferrer');
         } else event.preventDefault();
       };
       const onDocumentContextMenu = (event: MouseEvent) => {
         if (onContextMenu === null) return;
-        const target = event.target;
-        if (!(target instanceof Element)) return;
+        // Long-press selection and the platform copy menu are more useful on touch
+        // devices than a desktop action menu. Keep the browser's native affordance.
+        if (doc.defaultView?.matchMedia('(pointer: coarse)').matches) return;
         const selectionObject = doc.getSelection();
         const selection = selectionObject === null ? '' : selectionObject.toString();
-        if (target.closest('a[href], img, input, textarea, select, button, [role="button"], [contenteditable="true"], [contenteditable=""]')) return;
+        // Always suppress the browser menu on desktop, including on links and images.
+        // The same Inboxora menu is then available wherever the user right-clicks.
         event.preventDefault();
         const rect = iframe.getBoundingClientRect();
         onContextMenu({ x: rect.left + event.clientX, y: rect.top + event.clientY, selectedText: selection });
@@ -212,7 +220,7 @@ export default function MessageBodyRenderer({ html = '', text = '', remoteImages
       cancelInitialLayout?.();
       iframe.removeEventListener('load', onLoaded);
     };
-  }, [srcDoc, remoteImages, quoteFolding, showQuotedTextLabel, hideQuotedTextLabel, onQuoteDetected, onHeightChange, onInitialLayoutReady, onLoad, onContextMenu, iframeRef]);
+  }, [srcDoc, remoteImages, quoteFolding, showQuotedTextLabel, hideQuotedTextLabel, onQuoteDetected, onHeightChange, onInitialLayoutReady, onLoad, onContextMenu, onOpenLink, iframeRef]);
 
 
   return (

@@ -86,6 +86,7 @@ describe('safe email CSS contract', () => {
     assert.match(doc, /@media \(max-width: 767px\) \{ table \{ width: 100% !important; max-width: 100% !important; \} \}/);
     assert.doesNotMatch(doc, /table \{[^}]*width: auto/);
     assert.doesNotMatch(doc, /a \{ color: inherit/);
+    assert.match(doc, /-webkit-user-select: text; user-select: text; -webkit-touch-callout: default;/);
   });
 
   it('rejects executable CSS but leaves safe remote backgrounds reversible under CSP', async () => {

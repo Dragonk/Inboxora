@@ -392,6 +392,7 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
       <div onClick={onClose} aria-hidden style={{ position: 'fixed', inset: 0, zIndex: 3999 }} />
       <div
         ref={menuRef}
+        data-testid="message-context-menu"
         onClick={ (e: React.MouseEvent<HTMLElement>) => e.stopPropagation()}
         style={{
           background: 'var(--bg-elevated)',
