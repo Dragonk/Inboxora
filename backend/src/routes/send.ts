@@ -565,7 +565,20 @@ router.post('/send', async (req, res) => {
     subject: normalizedSubject, body, bodyIsHtml: bodyIsHtml ?? false, quotedBody, quotedBodyHtml, inReplyTo, references,
     attachments, forwardedAttachments, editedSignature, priority: emailPriority,
   })).digest('hex');
-  const compatibleFingerprints = [sendFingerprint, legacyFingerprint];
+  // Only requests without the newer signature-format contract may match V1.
+  // Otherwise a changed signature interpretation must conflict, not replay.
+  const compatibleFingerprints = [sendFingerprint];
+  if (editedSignatureIsHtml === undefined) compatibleFingerprints.push(legacyFingerprint);
+  // 2b3d927e also used its profile-derived output flag as bodyIsHtml when the
+  // field was omitted. Recognise that precise historical form, never broadly.
+  if (bodyIsHtml === undefined && editedSignatureIsHtml === undefined) {
+    const historicalFingerprint = createHash('sha256').update(JSON.stringify({
+      accountId, aliasId: aliasId || null, to: normalizedTo, cc: normalizedCc, bcc: normalizedBcc,
+      subject: normalizedSubject, body, bodyIsHtml: outputBodyIsHtml, quotedBody, quotedBodyHtml, inReplyTo, references,
+      attachments, forwardedAttachments, editedSignature, priority: emailPriority,
+    })).digest('hex');
+    compatibleFingerprints.push(historicalFingerprint);
+  }
   if (idemKeyRedis) {
     let cached: string | null;
     try { cached = await redisClient.get(idemKeyRedis); }
