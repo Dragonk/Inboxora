@@ -14,7 +14,7 @@ import { validateHost } from '../services/hostValidation.js';
 import { getConnectionPolicy } from '../services/connectionPolicy.js';
 import { releaseCalendarSource, scheduleCalendarSource, stopCalendarSource, syncCalendarSource } from '../services/externalCalendarSync.js';
 import { sendCalendarInvitation } from '../services/calendarInvitation.js';
-import { deliverStoredInvitation, invitationActionsForStorage, invitationDeliveryError } from '../services/calendarInvitationOutbox.js';
+import { deliverStoredInvitation, invitationActionsForStorage, invitationDeliveryError, readInvitationDeliveryStatus } from '../services/calendarInvitationOutbox.js';
 import { projectCalendarResources } from '../services/calendarProjectionPool.js';
 import { EVENT_COLUMNS, coveragePredicate } from '../services/calendarOccurrences.js';
 import { queryString, sessionUserId } from '../utils/query.js';
@@ -770,9 +770,39 @@ router.all('/events/:eventId/occurrence', async (req, res) => {
   res.json({ updated: true, scope });
 });
 
+router.get('/events/:eventId/cancellation-delivery', async (req, res) => {
+  const operation = await query<{ id: string; calendar_id: string; cancellation_outbox_id: string }>(
+    `SELECT e.id, e.calendar_id, e.cancellation_outbox_id
+     FROM calendar_events e
+     JOIN calendar_invitation_outbox o ON o.id = e.cancellation_outbox_id AND o.user_id = e.user_id
+     WHERE e.id = $1 AND e.user_id = $2`,
+    [req.params.eventId, req.session.userId],
+  );
+  const event = operation.rows[0];
+  if (!event) return res.json({ operation: null, invitationStatus: null });
+  const delivery = await readInvitationDeliveryStatus(event.cancellation_outbox_id, req.session.userId || null);
+  return res.json({
+    operation: { kind: 'cancellation', outboxId: event.cancellation_outbox_id },
+    invitationStatus: delivery,
+  });
+});
+
+router.post('/events/:eventId/cancellation-delivery/retry', async (req, res) => {
+  const operation = await query<{ id: string; cancellation_outbox_id: string }>(
+    `SELECT e.id, e.cancellation_outbox_id
+     FROM calendar_events e
+     JOIN calendar_invitation_outbox o ON o.id = e.cancellation_outbox_id AND o.user_id = e.user_id
+     WHERE e.id = $1 AND e.user_id = $2`,
+    [req.params.eventId, req.session.userId],
+  );
+  const event = operation.rows[0];
+  if (!event) return res.status(404).json({ error: 'Invitation cancellation operation not found' });
+  const delivery = await deliverStoredInvitation({ outboxId: event.cancellation_outbox_id, userId: req.session.userId });
+  return res.json({ operation: { kind: 'cancellation', outboxId: event.cancellation_outbox_id }, invitationStatus: delivery });
+});
+
 router.patch('/events/:eventId', async (req, res) => {
   const { calendarId, summary, description: rawDescription = null, location = null, url = null, organizer = null, allDay = false, timezone = null, sendInvites = false, inviteAccountId, attendees } = req.body || {};
-  const cancellationOutboxId = typeof req.body?.cancellationOutboxId === 'string' && req.body.cancellationOutboxId ? req.body.cancellationOutboxId : null;
   const description = normalizeDescription(rawDescription);
   const times = parseEventTimes(req.body);
   if (!calendarId || !times) return res.status(400).json({ error: 'calendarId and a valid event range are required' });
@@ -783,21 +813,6 @@ router.patch('/events/:eventId', async (req, res) => {
   const access = await writableCalendar(sessionUserId(req), calendarId);
   if (access.error) return res.status(access.status).json({ error: access.error });
 
-  // A cancellation can remain uncertain after the event has already been updated.
-  // Recheck the same durable outbox row instead of creating another cancellation or
-  // reporting the event mutation as a successful SMTP delivery.
-  if (cancellationOutboxId && !sendInvites) {
-    const operation = await query<Record<string, unknown>>(
-      `SELECT e.* FROM calendar_events e
-       JOIN calendar_invitation_outbox o ON o.id = e.cancellation_outbox_id
-       WHERE e.id = $1 AND e.calendar_id = $2 AND e.user_id = $3 AND o.id = $4
-         AND o.user_id = $3 AND o.payload @> '{"actions":[{"method":"CANCEL"}]}'::jsonb`,
-      [req.params.eventId, calendarId, req.session.userId, cancellationOutboxId],
-    );
-    if (!operation.rows[0]) return res.status(404).json({ error: 'Invitation cancellation operation not found' });
-    const delivery = await deliverStoredInvitation({ outboxId: cancellationOutboxId, userId: req.session.userId });
-    return res.json(invitationDeliveryResponse(operation.rows[0], delivery, { kind: 'cancellation', outboxId: cancellationOutboxId }));
-  }
 
   let invitationAccount = null;
   if (sendInvites) {

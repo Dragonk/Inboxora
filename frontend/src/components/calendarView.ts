@@ -165,7 +165,6 @@ export interface CalendarEventForm {
   organizer?: string;
   recurrenceId?: string | null;
   sendInvites?: boolean;
-  cancellationOutboxId?: string | null;
   [key: string]: unknown;
 }
 
@@ -225,7 +224,6 @@ export function eventPayload(form: CalendarEventForm): Record<string, unknown> |
   if (sendInvites && (!form.inviteAccountId || !attendees.length)) return null;
   return {
     ...(form.recurrenceId ? { recurrenceId: form.recurrenceId } : {}),
-    ...(!sendInvites && form.cancellationOutboxId ? { cancellationOutboxId: form.cancellationOutboxId } : {}),
     calendarId: form.calendarId,
     summary: String(form.summary ?? '').trim(),
     description: richTextOrNull(form.description),

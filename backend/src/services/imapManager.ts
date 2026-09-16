@@ -4397,13 +4397,21 @@ export class ImapManager {
 
   async appendToFolder(account: EmailAccountRow, folder: string, rawMessage: Buffer, flags = ['\\Seen']) {
     let uid = null;
+    let uidValidity: number | null = null;
     await withFreshClient(account, async (client) => {
-      const result = await client.append(folder, rawMessage, flags);
-      if (result === false) throw new Error('IMAP append returned false — server did not confirm message was stored');
-      if (result && typeof result.uid === 'number') uid = result.uid;
+      const lock = await client.getMailboxLock(folder);
+      try {
+        const result = await client.append(folder, rawMessage, flags);
+        if (result === false) throw new Error('IMAP append returned false — server did not confirm message was stored');
+        if (result && typeof result.uid === 'number') uid = result.uid;
+        const currentUidValidity = client.mailbox && client.mailbox.uidValidity ? Number(client.mailbox.uidValidity) : null;
+        uidValidity = currentUidValidity != null && Number.isSafeInteger(currentUidValidity) && currentUidValidity > 0 ? currentUidValidity : null;
+      } finally {
+        lock.release();
+      }
     });
     console.log(`Appended to IMAP ${logAccount(account)}/${folder} uid=${uid}`);
-    return { uid, folder };
+    return { uid, folder, uidValidity };
   }
 
   async appendToSent(account: EmailAccountRow, folder: string, rawMessage: Buffer): Promise<{ uid?: number | null }> {
@@ -4507,6 +4515,7 @@ export class ImapManager {
     snippet = '',
     bodyHtml = null,
     bodyText = null,
+    uidValidity = null,
     date = new Date(),
   }: {
     messageId: string;
@@ -4519,6 +4528,7 @@ export class ImapManager {
     snippet?: string;
     bodyHtml?: string | null;
     bodyText?: string | null;
+    uidValidity?: number | null;
     date?: Date;
   }) {
     if (!uid || !folder) return;
@@ -4528,8 +4538,8 @@ export class ImapManager {
         account_id, uid, folder, message_id, subject,
         from_name, from_email, to_addresses, cc_addresses,
         in_reply_to, date, snippet, is_read, is_starred, has_attachments,
-        flags, body_html, body_text, thread_id
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10,$11,$12,true,false,false,$13::jsonb,$14,$15,$16)
+        flags, body_html, body_text, thread_id, draft_uid_validity
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10,$11,$12,true,false,false,$13::jsonb,$14,$15,$16,$17)
       ON CONFLICT (account_id, uid, folder) DO UPDATE SET
         message_id = COALESCE(EXCLUDED.message_id, messages.message_id),
         subject = CASE
@@ -4548,7 +4558,9 @@ export class ImapManager {
         snippet = CASE WHEN EXCLUDED.snippet <> '' THEN EXCLUDED.snippet ELSE messages.snippet END,
         flags = EXCLUDED.flags,
         body_html = COALESCE(EXCLUDED.body_html, messages.body_html),
-        body_text = COALESCE(EXCLUDED.body_text, messages.body_text)
+        body_text = COALESCE(EXCLUDED.body_text, messages.body_text),
+        draft_uid_validity = COALESCE(EXCLUDED.draft_uid_validity, messages.draft_uid_validity)
+      RETURNING id
     `, [
       account.id, uid, folder, msgId,
       sanitizeStr(subject || '(no subject)'),
@@ -4559,6 +4571,7 @@ export class ImapManager {
       bodyHtml != null ? sanitizeStr(bodyHtml) : null,
       bodyText != null ? sanitizeStr(bodyText) : null,
       msgId || null,
+      uidValidity != null && Number.isSafeInteger(uidValidity) && uidValidity > 0 ? uidValidity : null,
     ]);
     const row = await query<{ id: string }>('SELECT id FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3', [account.id, uid, folder]);
     if (row.rows[0]) await persistConversationCopyForRow(row.rows[0].id, account, { messageId, inReplyTo, references: null });

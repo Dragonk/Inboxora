@@ -249,6 +249,7 @@ export default function ComposeModal() {
   const [ccBccMenuPos, setCcBccMenuPos] = useState<{ top: number; right: number } | null>(null);
   const ccBccMenuBtnRef = useRef<HTMLButtonElement | null>(null);
   const [draftUid, setDraftUid] = useState(() => composeData?.draftUid ?? null);
+  const [draftUidValidity, setDraftUidValidity] = useState(() => composeData?.draftUidValidity ?? null);
   const [draftFolder, setDraftFolder] = useState(() => composeData?.draftFolder ?? null);
   const [draftAccountId, setDraftAccountId] = useState(() => composeData?.accountId ?? null);
   const [savingDraft, setSavingDraft] = useState(false);
@@ -780,6 +781,9 @@ export default function ComposeModal() {
 
   const handleSend = async ({ skipSubjectWarn = false, skipAttachWarn = false } = {}) => {
     if (sending) return; // guard against a rapid double-submit (e.g. double Ctrl/Cmd+Enter)
+    const sentDraftIdentity = draftUid != null && draftFolder != null && draftAccountId && draftUidValidity != null
+      ? { accountId: draftAccountId, uid: draftUid, folder: draftFolder, uidValidity: draftUidValidity }
+      : null;
     const { accountId, aliasId } = resolveFrom(fromValue);
     const toFinal = [...toChips, ...(toInput.trim() ? [toInput.trim()] : [])];
     const ccFinal = [...ccChips, ...(ccInput.trim() ? [ccInput.trim()] : [])];
@@ -876,8 +880,8 @@ export default function ComposeModal() {
       const replyThreadId = isReply ? composeData?.threadId : null;
       const replyThreadCacheId = isReply ? (composeData?.threadCacheId || replyThreadId) : null;
       closeCompose();
-      if (draftUid != null && draftFolder != null && draftAccountId) {
-        api.deleteDraft(draftAccountId, draftUid, draftFolder).catch(() => {});
+      if (sentDraftIdentity) {
+        api.deleteDraft(sentDraftIdentity.accountId, sentDraftIdentity.uid, sentDraftIdentity.folder, sentDraftIdentity.uidValidity).catch(() => {});
       }
       // Prefer the Sent folder the backend actually resolved to; fall back to the account's
       // mapping only if the response didn't carry one. Avoids navigating "View" to a stale
@@ -969,8 +973,8 @@ export default function ComposeModal() {
       quotedBodyHtml: quotedHtmlRef.current ? quotedHtmlRef.current.innerHTML : quotedBodyHtml,
       includeEditedSignature: Boolean(signatureContentRef.current || fromSignature != null),
       editedSignature: plaintextEmail ? plainSig : signatureContentRef.current,
-      existingDraft: draftUid != null && draftFolder != null && draftAccountId
-        ? { accountId: draftAccountId, uid: draftUid, folder: draftFolder }
+      existingDraft: draftUid != null && draftFolder != null && draftAccountId && draftUidValidity != null
+        ? { accountId: draftAccountId, uid: draftUid, folder: draftFolder, uidValidity: draftUidValidity }
         : null,
       attachmentCount: attachments.length + fwdAttachments.length,
     };
@@ -996,6 +1000,7 @@ export default function ComposeModal() {
       if (result.uid != null) {
         setDraftUid(result.uid);
         setDraftFolder(result.folder);
+        setDraftUidValidity(typeof result.uidValidity === 'number' && Number.isSafeInteger(result.uidValidity) && result.uidValidity > 0 ? result.uidValidity : null);
         setDraftAccountId(draftSnapshot.accountId);
       }
       const snapshotStillCurrent = isDraftSnapshotCurrent(draftSnapshot.editRevision, draftEditRevisionRef.current);
@@ -1643,8 +1648,8 @@ export default function ComposeModal() {
             <button
               onClick={() => {
                 setShowDiscardSheet(false);
-                if (draftUid != null && draftFolder != null && draftAccountId) {
-                  api.deleteDraft(draftAccountId, draftUid, draftFolder).catch(() => {});
+                if (draftUid != null && draftFolder != null && draftAccountId && draftUidValidity != null) {
+                  api.deleteDraft(draftAccountId, draftUid, draftFolder, draftUidValidity).catch(() => {});
                 }
                 closeCompose();
               }}
@@ -2397,8 +2402,8 @@ export default function ComposeModal() {
             <button
               onClick={() => {
                 setShowCloseDialog(false);
-                if (draftUid != null && draftFolder != null && draftAccountId) {
-                  api.deleteDraft(draftAccountId, draftUid, draftFolder).catch(() => {});
+                if (draftUid != null && draftFolder != null && draftAccountId && draftUidValidity != null) {
+                  api.deleteDraft(draftAccountId, draftUid, draftFolder, draftUidValidity).catch(() => {});
                 }
                 closeCompose();
               }}

@@ -47,14 +47,19 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.2](wiki/R
   collision from deleting an unrelated draft in the destination account.
 - Preserve durable invitation-cancellation statuses in calendar responses and retry the same cancellation outbox
   operation instead of falsely reporting uncertain or processing delivery as sent.
+- Keep calendar cancellation delivery checks separate from event edits, so reopening an event shows the durable
+  status without discarding a later title, time or description change.
+- Bind every destructively handled draft to its persisted UIDVALIDITY epoch, retaining the draft rather than
+  deleting a reused UID after a mailbox reset.
 
 ### Notes
 
 - Includes database migrations `0085_calendar_invitation_outbox_claim.sql`,
   `0086_calendar_invitation_outbox_deleted_event.sql`, `0087_send_idempotency.sql` and
   `0088_calendar_invitation_outbox_completion_checkpoint.sql`,
-  `0089_calendar_invitation_outbox_uncertain_dispatch.sql` and
-  `0090_calendar_cancellation_outbox_reference.sql`; apply migrations before running workers or
+  `0089_calendar_invitation_outbox_uncertain_dispatch.sql`,
+  `0090_calendar_cancellation_outbox_reference.sql` and
+  `0091_draft_uidvalidity_identity.sql`; apply migrations before running workers or
   accepting outbound mail. No new configuration is required.
 
 ## [4.0.1] - 2026-09-13

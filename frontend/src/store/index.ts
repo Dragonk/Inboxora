@@ -83,6 +83,8 @@ export interface ComposeDraft {
   conversationId?: string;
   draftFolder?: string;
   draftUid?: number;
+  draftUidValidity?: number;
+  draftRowId?: string;
   [key: string]: unknown;
 }
 
@@ -360,6 +362,7 @@ export interface StoreMessageRow {
   thread_id?: string;
   thread_key?: string;
   uid?: number;
+  draft_uid_validity?: number | null;
   message_count?: number | string | null;
   unread_count?: number | string | null;
   date?: string | number | Date | null;

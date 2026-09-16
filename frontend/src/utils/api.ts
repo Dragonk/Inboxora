@@ -416,6 +416,8 @@ export const api = {
     },
     createEvent: (data: CalendarEventPayload, idempotencyKey: string | undefined = undefined) => request('POST', '/calendar/events', data, idempotencyKey ? { 'X-Idempotency-Key': idempotencyKey } : undefined),
     updateEvent: (id: string, data: CalendarEventPayload, idempotencyKey: string | undefined = undefined) => request('PATCH', `/calendar/events/${id}${data.recurrenceId ? '/occurrence' : ''}`, data, idempotencyKey ? { 'X-Idempotency-Key': idempotencyKey } : undefined),
+    getCancellationDelivery: (id: string, { signal }: { signal?: AbortSignal } = {}) => request('GET', `/calendar/events/${encodeURIComponent(id)}/cancellation-delivery`, undefined, undefined, { signal }),
+    retryCancellationDelivery: (id: string) => request('POST', `/calendar/events/${encodeURIComponent(id)}/cancellation-delivery/retry`),
     // scope 'following' ends the series just before this occurrence; with no recurrenceId the
     // whole event is removed. Removing an entire series goes through the plain event DELETE,
     // which is also the path that notifies invited attendees.
@@ -453,8 +455,8 @@ export const api = {
 
   // Drafts
   saveDraft:   (data: unknown)              => request('POST',   '/mail/draft', data),
-  deleteDraft: (accountId: string, uid: number, folder: string) =>
-    request('DELETE', `/mail/draft/${uid}?accountId=${encodeURIComponent(accountId)}&folder=${encodeURIComponent(folder)}`),
+  deleteDraft: (accountId: string, uid: number, folder: string, uidValidity: number) =>
+    request('DELETE', `/mail/draft/${uid}?accountId=${encodeURIComponent(accountId)}&folder=${encodeURIComponent(folder)}&uidValidity=${encodeURIComponent(uidValidity)}`),
 
   // Block List
   getBlockList:          ()      => request('GET',    '/block-list'),

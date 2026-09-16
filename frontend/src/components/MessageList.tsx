@@ -2586,6 +2586,8 @@ export default function MessageList() {
         openCompose({
           accountId: message.account_id,
           draftUid: message.uid,
+          draftUidValidity: message.draft_uid_validity ?? undefined,
+          draftRowId: message.id,
           draftFolder: message.folder,
           to: formatAddressArray(message.to_addresses),
           cc: formatAddressArray(message.cc_addresses),

@@ -151,6 +151,12 @@ describe('migration integrity', () => {
     expect(sql).toContain('calendar_events_cancellation_outbox_idx');
   });
 
+  it('stores historical UIDVALIDITY for destructive draft identity checks', () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/0091_draft_uidvalidity_identity.sql'), 'utf8');
+    expect(sql).toContain('ADD COLUMN IF NOT EXISTS draft_uid_validity BIGINT');
+    expect(sql).toContain('messages_draft_identity_idx');
+  });
+
   it('creates durable tenant-scoped send idempotency intents', () => {
     const sql = readFileSync(join(process.cwd(), 'migrations/0087_send_idempotency.sql'), 'utf8');
     expect(sql).toContain('CREATE TABLE IF NOT EXISTS send_idempotency');

@@ -36,10 +36,10 @@ describe('calendar desktop helpers', () => {
     assert.ok(invited);
     assert.deepEqual(invited.attendees, ['guest@example.test']);
   });
-  it('preserves a cancellation outbox reference for a non-invitation status retry (V7-01)', () => {
+  it('does not mix a cancellation status operation into a normal event mutation (V8-04)', () => {
     const payload = eventPayload({ calendarId: 'one', startsAt: '2026-09-10T10:00', endsAt: '2026-09-10T11:00', summary: 'Planning', description: '', location: '', url: '', organizer: '', sendInvites: false, cancellationOutboxId: 'cancel-1' });
     assert.ok(payload);
-    assert.equal(payload.cancellationOutboxId, 'cancel-1');
+    assert.equal(payload.cancellationOutboxId, undefined);
   });
 
   it('converts date field values when toggling all-day mode', () => {

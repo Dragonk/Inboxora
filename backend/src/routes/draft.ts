@@ -37,6 +37,7 @@ type ExistingDraftIdentity = {
   accountId: string;
   uid: number;
   folder: string;
+  uidValidity: number;
 };
 
 function existingDraftIdentity(value: unknown): ExistingDraftIdentity | null {
@@ -45,7 +46,8 @@ function existingDraftIdentity(value: unknown): ExistingDraftIdentity | null {
   if (typeof candidate.accountId !== 'string' || !candidate.accountId) return null;
   if (typeof candidate.uid !== 'number' || !Number.isSafeInteger(candidate.uid) || candidate.uid <= 0) return null;
   if (typeof candidate.folder !== 'string' || !candidate.folder || candidate.folder.length > 1024 || /[\0\r\n]/.test(candidate.folder)) return null;
-  return { accountId: candidate.accountId, uid: candidate.uid, folder: candidate.folder };
+  if (typeof candidate.uidValidity !== 'number' || !Number.isSafeInteger(candidate.uidValidity) || candidate.uidValidity <= 0) return null;
+  return { accountId: candidate.accountId, uid: candidate.uid, folder: candidate.folder, uidValidity: candidate.uidValidity };
 }
 
 function sanitizeHeaderValue(value: unknown) {
@@ -186,7 +188,7 @@ router.post('/draft', async (req, res) => {
     if (!draftsFolder) return res.status(422).json({ error: 'No Drafts folder found for this account' });
 
     // APPEND the new draft first so we never lose the message
-    const { uid } = await imapManager.appendToFolder(account, draftsFolder, rawMessage, ['\\Draft', '\\Seen']);
+    const { uid, uidValidity } = await imapManager.appendToFolder(account, draftsFolder, rawMessage, ['\\Draft', '\\Seen']);
 
     // Persist a local Drafts row immediately so the composer can reopen this draft
     // (recipient/subject/body) even if the folder re-sync is delayed or fails on a
@@ -203,6 +205,7 @@ router.post('/draft', async (req, res) => {
           snippet: meta.snippet,
           bodyHtml: meta.bodyHtml,
           bodyText: meta.bodyText,
+          uidValidity,
         });
       } catch (caught) {
         const rowErr = toAppError(caught);
@@ -224,18 +227,18 @@ router.post('/draft', async (req, res) => {
           console.warn(`Draft: previous draft account is unavailable; retaining uid=${existingDraft.uid}`);
         } else {
           const previousDraftsFolder = await resolveDraftsFolder(previous);
-          const previousFolder = await query<{ uid_validity: number | string | null }>(
-            'SELECT uid_validity FROM folders WHERE account_id = $1 AND path = $2',
-            [previous.id, existingDraft.folder],
+          const storedIdentity = await query<{ draft_uid_validity: number | string | null }>(
+            'SELECT draft_uid_validity FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3',
+            [previous.id, existingDraft.uid, existingDraft.folder],
           );
-          const uidValidity = Number(previousFolder.rows[0]?.uid_validity);
-          if (previousDraftsFolder !== existingDraft.folder || !Number.isSafeInteger(uidValidity) || uidValidity <= 0) {
+          const storedUidValidity = Number(storedIdentity.rows[0]?.draft_uid_validity);
+          if (previousDraftsFolder !== existingDraft.folder || storedUidValidity !== existingDraft.uidValidity) {
             console.warn(`Draft: previous draft identity cannot be confirmed; retaining uid=${existingDraft.uid}`);
           } else {
-            await imapManager.permanentDeleteMessage(previous, existingDraft.uid, existingDraft.folder, uidValidity);
+            await imapManager.permanentDeleteMessage(previous, existingDraft.uid, existingDraft.folder, existingDraft.uidValidity);
             await query(
-              'DELETE FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3',
-              [previous.id, existingDraft.uid, existingDraft.folder],
+              'DELETE FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3 AND draft_uid_validity = $4',
+              [previous.id, existingDraft.uid, existingDraft.folder, existingDraft.uidValidity],
             );
           }
         }
@@ -245,7 +248,7 @@ router.post('/draft', async (req, res) => {
       }
     }
 
-    res.json({ uid, folder: draftsFolder });
+    res.json({ uid, folder: draftsFolder, uidValidity });
   } catch (caught) {
     const err = toAppError(caught);
     console.error('Save draft failed:', err.message);
@@ -259,7 +262,8 @@ router.delete('/draft/:uid', async (req, res) => {
 
   const accountId = queryString(req.query.accountId);
   const folder = queryString(req.query.folder);
-  if (!accountId || !folder) return res.status(400).json({ error: 'accountId and folder required' });
+  const uidValidity = Number(queryString(req.query.uidValidity));
+  if (!accountId || !folder || !Number.isSafeInteger(uidValidity) || uidValidity <= 0) return res.status(400).json({ error: 'accountId, folder and uidValidity required' });
 
   const ownerCheck = await query<EmailAccountRow>(
     'SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2',
@@ -269,10 +273,18 @@ router.delete('/draft/:uid', async (req, res) => {
 
   try {
     const account = ownerCheck.rows[0];
-    await imapManager.permanentDeleteMessage(account, uid, folder);
+    if (await resolveDraftsFolder(account) !== folder) return res.status(409).json({ error: 'Draft folder cannot be confirmed' });
+    const storedIdentity = await query<{ draft_uid_validity: number | string | null }>(
+      'SELECT draft_uid_validity FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3',
+      [account.id, uid, folder],
+    );
+    if (Number(storedIdentity.rows[0]?.draft_uid_validity) !== uidValidity) {
+      return res.status(409).json({ error: 'Draft identity cannot be confirmed' });
+    }
+    await imapManager.permanentDeleteMessage(account, uid, folder, uidValidity);
     await query(
-      'DELETE FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3',
-      [account.id, uid, folder]
+      'DELETE FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3 AND draft_uid_validity = $4',
+      [account.id, uid, folder, uidValidity]
     );
     res.json({ ok: true });
   } catch (caught) {

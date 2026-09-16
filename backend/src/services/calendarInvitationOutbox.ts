@@ -107,7 +107,7 @@ async function claimInvitation(outboxId: string, userId: string | null = null): 
 // A claim can fail because another worker owns the row, but it can also fail for a
 // terminal state. Read the durable result instead of presenting every miss as work
 // that is still processing.
-async function readInvitationDeliveryStatus(outboxId: string, userId: string | null): Promise<InvitationDeliveryStatus | null> {
+export async function readInvitationDeliveryStatus(outboxId: string, userId: string | null): Promise<InvitationDeliveryStatus | null> {
   const result = await query<InvitationDeliveryStatus>(
     'SELECT status, last_error AS "lastError" FROM calendar_invitation_outbox WHERE id = $1 AND ($2::uuid IS NULL OR user_id = $2::uuid)',
     [outboxId, userId],
