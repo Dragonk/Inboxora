@@ -23,7 +23,7 @@ import { TableRow } from '@tiptap/extension-table-row';
 import { TableHeader } from '@tiptap/extension-table-header';
 import { TableCell } from '@tiptap/extension-table-cell';
 import { toAppError } from '../utils/errors.ts';
-import { resolveComposeBodyIsHtml, shouldShowSignatureEditor } from '../utils/composeFormat.ts';
+import { resolveComposeBodyIsHtml, shouldIncludeSignatureOverride, shouldShowSignatureEditor } from '../utils/composeFormat.ts';
 import { partitionRejectedRecipients } from '../utils/retryRecipients.ts';
 import { postSendRefreshManager } from '../utils/postSendRefresh.ts';
 
@@ -825,6 +825,8 @@ export default function ComposeModal() {
     setSending(true);
     setError('');
     const bodyToSend = plaintextCompose ? body : (htmlMode ? htmlSource : (editor?.getHTML() ?? ''));
+    const signatureToSend = plaintextCompose ? plainSig : signatureContentRef.current;
+    const hasSignatureOverride = shouldIncludeSignatureOverride(signatureToSend, hasPersistedSignature, fromSignature);
     // crypto.randomUUID needs a secure context; fall back for plain-HTTP LAN deployments.
     if (!idempotencyKeyRef.current) {
       idempotencyKeyRef.current = crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -843,9 +845,7 @@ export default function ComposeModal() {
         ...(!plaintextCompose && (quotedBodyHtml != null || quotedHtmlRef.current)
           ? { quotedBodyHtml: quotedHtmlRef.current ? quotedHtmlRef.current.innerHTML : quotedBodyHtml }
           : {}),
-        ...(signatureContentRef.current || fromSignature != null
-          ? { editedSignature: plaintextCompose ? plainSig : signatureContentRef.current }
-          : {}),
+        ...(hasSignatureOverride ? { editedSignature: signatureToSend } : {}),
         inReplyTo: composeData?.inReplyTo,
         references: composeData?.references || undefined,
         ...(priority !== 'normal' ? { priority } : {}),

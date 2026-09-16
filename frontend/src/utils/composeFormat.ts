@@ -7,3 +7,8 @@ export function resolveComposeBodyIsHtml(persisted: boolean | undefined, preferr
 export function shouldShowSignatureEditor(fromSignature: string | null | undefined, hasPersistedSignature: boolean): boolean {
   return fromSignature != null || hasPersistedSignature;
 }
+
+/** Preserve a visible plaintext edit even when the rich signature ref is empty. */
+export function shouldIncludeSignatureOverride(signature: string, hasPersistedSignature: boolean, fromSignature: string | null | undefined): boolean {
+  return hasPersistedSignature || signature !== '' || fromSignature != null;
+}

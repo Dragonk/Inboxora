@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { resolveComposeBodyIsHtml, shouldShowSignatureEditor } from './composeFormat.ts';
+import { resolveComposeBodyIsHtml, shouldIncludeSignatureOverride, shouldShowSignatureEditor } from './composeFormat.ts';
 
 test('a persisted draft format wins over later plaintext preferences', () => {
   assert.equal(resolveComposeBodyIsHtml(true, true), true);
@@ -9,6 +9,12 @@ test('a persisted draft format wins over later plaintext preferences', () => {
   assert.equal(resolveComposeBodyIsHtml(false, false), false);
   assert.equal(resolveComposeBodyIsHtml(undefined, true), false);
   assert.equal(resolveComposeBodyIsHtml(undefined, false), true);
+});
+
+test('includes a newly typed plaintext signature without a default or rich ref', () => {
+  assert.equal(shouldIncludeSignatureOverride('DOPISANY_PODPIS', true, null), true);
+  assert.equal(shouldIncludeSignatureOverride('', true, null), true);
+  assert.equal(shouldIncludeSignatureOverride('', false, null), false);
 });
 
 test('a saved signature remains visible even after its account default is removed', () => {

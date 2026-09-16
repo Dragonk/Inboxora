@@ -18,7 +18,7 @@ import { imapManager } from '../index.js';
 import { pluginRegistry } from '../plugins/registry.js';
 import { toAppError } from '../utils/errors.js';
 import { resolveSenderIdentity } from '../services/senderIdentity.js';
-import { resolveOutgoingBodyIsHtml } from '../services/composeFormat.js';
+import { resolveIncomingBodyIsHtml, resolveOutgoingBodyIsHtml } from '../services/composeFormat.js';
 import type { InlineAttachment } from '../utils/inlineImages.js';
 
 /** One client-supplied attachment of an outgoing message (base64 payload). */
@@ -452,8 +452,10 @@ router.post('/send', async (req, res) => {
   ]);
   if (!result.rows.length) return res.status(404).json({ error: 'Account not found' });
   const plaintextEmail = prefResult.rows[0]?.preferences?.plaintextEmail === true;
-  // Explicit composition format wins; absent legacy clients retain the profile default.
-  const effectiveBodyIsHtml = resolveOutgoingBodyIsHtml(bodyIsHtml, plaintextEmail);
+  // Omitted legacy fields were always literal text input. The profile may select
+  // an additional HTML MIME representation, but must never reinterpret that input.
+  const inputBodyIsHtml = resolveIncomingBodyIsHtml(bodyIsHtml);
+  const outputBodyIsHtml = resolveOutgoingBodyIsHtml(bodyIsHtml, plaintextEmail);
   let account = result.rows[0];
   let sender;
   try {
@@ -547,7 +549,7 @@ router.post('/send', async (req, res) => {
   let intentClaimed = false;
   const sendFingerprint = createHash('sha256').update(JSON.stringify({
     accountId, aliasId: aliasId || null, to: normalizedTo, cc: normalizedCc, bcc: normalizedBcc,
-    subject: normalizedSubject, body, bodyIsHtml: effectiveBodyIsHtml, quotedBody, quotedBodyHtml, inReplyTo, references,
+    subject: normalizedSubject, body, inputBodyIsHtml, outputBodyIsHtml, quotedBody, quotedBodyHtml, inReplyTo, references,
     attachments, forwardedAttachments, editedSignature, priority: emailPriority,
   })).digest('hex');
   if (idemKeyRedis) {
@@ -606,13 +608,13 @@ router.post('/send', async (req, res) => {
       subject: normalizedSubject,
       ...(emailPriority !== 'normal' ? { priority: emailPriority } : {}),
       text: effectiveSignature
-        ? bodyToPlain(body, effectiveBodyIsHtml) + '\n\n-- \n' + sigToPlainText(effectiveSignature) + (quotedBody || '')
-        : bodyToPlain(body, effectiveBodyIsHtml) + (quotedBody || ''),
+        ? bodyToPlain(body, inputBodyIsHtml) + '\n\n-- \n' + sigToPlainText(effectiveSignature) + (quotedBody || '')
+        : bodyToPlain(body, inputBodyIsHtml) + (quotedBody || ''),
     };
 
     let inlineImageAttachments: InlineAttachment[] = [];
-    if (effectiveBodyIsHtml) {
-      const rawHtml = bodyToHtml(body, effectiveBodyIsHtml) +
+    if (outputBodyIsHtml) {
+      const rawHtml = bodyToHtml(body, inputBodyIsHtml) +
         (effectiveSignature
           ? '<div style="margin-top:16px;color:#555;font-size:13px">' + effectiveSignature + '</div>'
           : '') +
@@ -809,7 +811,7 @@ router.post('/send', async (req, res) => {
       fromEmail,
       to: mapRecipientList(normalizedTo),
       cc: mapRecipientList(normalizedCc),
-      snippet: buildSentSnippet(body, effectiveBodyIsHtml),
+      snippet: buildSentSnippet(body, inputBodyIsHtml),
       date: new Date(),
       // Carried so the Sent row threads into its conversation via the References chain
       // rather than orphaning at its own Message-ID (#378).

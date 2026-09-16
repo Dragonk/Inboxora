@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { resolveOutgoingBodyIsHtml } from './composeFormat.js';
+import { resolveIncomingBodyIsHtml, resolveOutgoingBodyIsHtml } from './composeFormat.js';
 
-describe('resolveOutgoingBodyIsHtml', () => {
+describe('compose format contract', () => {
+  it('keeps an omitted legacy body literal while allowing profile-selected HTML MIME', () => {
+    expect(resolveIncomingBodyIsHtml(undefined)).toBe(false);
+    expect(resolveOutgoingBodyIsHtml(undefined, false)).toBe(true);
+    expect(resolveOutgoingBodyIsHtml(undefined, true)).toBe(false);
+  });
   it('keeps an explicit HTML or plaintext composition independent of profile preference', () => {
     expect(resolveOutgoingBodyIsHtml(true, true)).toBe(true);
     expect(resolveOutgoingBodyIsHtml(true, false)).toBe(true);
