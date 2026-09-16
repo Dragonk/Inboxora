@@ -24,11 +24,22 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.2](wiki/R
 - Apply Microsoft integration settings exactly as saved, including clearing omitted fields at runtime.
 - Detect lost idempotency-lease ownership and prevent same-process automatic duplicate sends while the SMTP
   outcome is uncertain.
+- Preserve recipient header roles on partial-send retry, including BCC-only delivery; scope delayed compose and
+  API-auth callbacks to their originating session.
+- Store idempotent send intents durably with request fingerprints, retain ambiguous SMTP outcomes for manual
+  reconciliation, and reject changed requests that reuse a key.
+- Make calendar invitation delivery durable across deletes, partial failures and recovery: checkpoint accepted
+  actions, retain missing-sender work, and use an atomic completion marker. Invitation requests without a client
+  key now receive a server operation key and follow the outbox path.
+- Fail closed for edits or cancellations of invited recurring occurrences, where a correct attendee notification
+  cannot be generated.
 
 ### Notes
 
-- Includes database migration `0085_calendar_invitation_outbox_claim.sql`; apply migrations before running
-  workers that deliver calendar invitations. No new configuration is required.
+- Includes database migrations `0085_calendar_invitation_outbox_claim.sql`,
+  `0086_calendar_invitation_outbox_deleted_event.sql`, `0087_send_idempotency.sql` and
+  `0088_calendar_invitation_outbox_completion_checkpoint.sql`; apply migrations before running workers or
+  accepting outbound mail. No new configuration is required.
 
 ## [4.0.1] - 2026-09-13
 
