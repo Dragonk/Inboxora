@@ -329,14 +329,18 @@ export default function CalendarPage({ isActive = true }) {
     if (!form?.id || !form.cancellationDelivery?.outboxId) return;
     const eventId = form.id;
     const outboxId = form.cancellationDelivery.outboxId;
+    const operationError = form.invitationError || null;
     setSaving(true);
     try {
       const result = await api.calendar.retryCancellationDelivery(eventId);
       const status = result?.invitationStatus;
-      setForm(current => current?.id === eventId ? {
+      const deliveryStatus = typeof status?.status === 'string' ? status.status : null;
+      setForm(current => current?.id === eventId && current.cancellationDelivery?.outboxId === outboxId ? {
         ...current,
-        cancellationDelivery: { outboxId, status: typeof status?.status === 'string' ? status.status : null, lastError: typeof status?.lastError === 'string' ? status.lastError : null },
+        cancellationDelivery: { outboxId, status: deliveryStatus, lastError: typeof status?.lastError === 'string' ? status.lastError : null },
+        ...(deliveryStatus === 'sent' && current.invitationError === operationError ? { invitationError: null } : {}),
       } : current);
+      if (deliveryStatus === 'sent') setError(current => current === operationError ? null : current);
     } catch (err) { setError(toAppError(err).message || t('calendar.saveFailed')); }
     finally { setSaving(false); }
   };

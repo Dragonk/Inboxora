@@ -96,6 +96,19 @@ describe('POST /api/mail/draft — local row persistence', () => {
     expect(meta.messageId).toMatch(/^<[0-9a-f]+@mailflow\.sh>$/);
   });
 
+  it('persists BCC recipients with a reopened draft without exposing them as To or CC (V9-03)', async () => {
+    const res = await fetch(`${base}/api/mail/draft`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ accountId: ACCOUNT_ID, to: ['to@example.test'], cc: ['cc@example.test'], bcc: ['hidden@example.test'], subject: 'x', body: 'y' }),
+    });
+    expect(res.status).toBe(200);
+    expect(imapManager.upsertDraftMessageRecord).toHaveBeenCalledWith(expect.anything(), 'Drafts', 5, expect.objectContaining({
+      to: [{ name: '', email: 'to@example.test' }],
+      cc: [{ name: '', email: 'cc@example.test' }],
+      bcc: [{ name: '', email: 'hidden@example.test' }],
+    }));
+  });
+
   it('still returns success if the local row persistence throws (append already stored it)', async () => {
     imapManager.upsertDraftMessageRecord.mockRejectedValueOnce(new Error('db down'));
     const res = await fetch(`${base}/api/mail/draft`, {

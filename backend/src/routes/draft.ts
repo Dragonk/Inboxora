@@ -202,6 +202,7 @@ router.post('/draft', async (req, res) => {
           fromEmail: meta.fromEmail,
           to: mapRecipientList(to),
           cc: mapRecipientList(cc),
+          bcc: mapRecipientList(bcc),
           snippet: meta.snippet,
           bodyHtml: meta.bodyHtml,
           bodyText: meta.bodyText,

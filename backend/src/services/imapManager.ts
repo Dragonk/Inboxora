@@ -4511,6 +4511,7 @@ export class ImapManager {
     fromEmail,
     to = [],
     cc = [],
+    bcc = [],
     inReplyTo = null,
     snippet = '',
     bodyHtml = null,
@@ -4524,6 +4525,7 @@ export class ImapManager {
     fromEmail?: string | null;
     to?: Array<{ name?: string; email?: string }>;
     cc?: Array<{ name?: string; email?: string }>;
+    bcc?: Array<{ name?: string; email?: string }>;
     inReplyTo?: string | { address?: string } | null;
     snippet?: string;
     bodyHtml?: string | null;
@@ -4538,8 +4540,8 @@ export class ImapManager {
         account_id, uid, folder, message_id, subject,
         from_name, from_email, to_addresses, cc_addresses,
         in_reply_to, date, snippet, is_read, is_starred, has_attachments,
-        flags, body_html, body_text, thread_id, draft_uid_validity
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10,$11,$12,true,false,false,$13::jsonb,$14,$15,$16,$17)
+        flags, body_html, body_text, thread_id, draft_uid_validity, draft_bcc_addresses
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10,$11,$12,true,false,false,$13::jsonb,$14,$15,$16,$17,$18::jsonb)
       ON CONFLICT (account_id, uid, folder) DO UPDATE SET
         message_id = COALESCE(EXCLUDED.message_id, messages.message_id),
         subject = CASE
@@ -4559,7 +4561,10 @@ export class ImapManager {
         flags = EXCLUDED.flags,
         body_html = COALESCE(EXCLUDED.body_html, messages.body_html),
         body_text = COALESCE(EXCLUDED.body_text, messages.body_text),
-        draft_uid_validity = COALESCE(EXCLUDED.draft_uid_validity, messages.draft_uid_validity)
+        draft_uid_validity = COALESCE(EXCLUDED.draft_uid_validity, messages.draft_uid_validity),
+        draft_bcc_addresses = CASE
+          WHEN EXCLUDED.draft_bcc_addresses::text <> '[]' THEN EXCLUDED.draft_bcc_addresses
+          ELSE messages.draft_bcc_addresses END
       RETURNING id
     `, [
       account.id, uid, folder, msgId,
@@ -4572,6 +4577,7 @@ export class ImapManager {
       bodyText != null ? sanitizeStr(bodyText) : null,
       msgId || null,
       uidValidity != null && Number.isSafeInteger(uidValidity) && uidValidity > 0 ? uidValidity : null,
+      JSON.stringify(Array.isArray(bcc) ? bcc : []),
     ]);
     const row = await query<{ id: string }>('SELECT id FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3', [account.id, uid, folder]);
     if (row.rows[0]) await persistConversationCopyForRow(row.rows[0].id, account, { messageId, inReplyTo, references: null });

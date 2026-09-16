@@ -362,7 +362,6 @@ export interface StoreMessageRow {
   thread_id?: string;
   thread_key?: string;
   uid?: number;
-  draft_uid_validity?: number | null;
   message_count?: number | string | null;
   unread_count?: number | string | null;
   date?: string | number | Date | null;
@@ -372,6 +371,8 @@ export interface StoreMessageRow {
   from_email?: string | null;
   to_addresses?: string | null;
   cc_addresses?: string | null;
+  draft_bcc_addresses?: string | Array<{ email?: string; name?: string | null }> | null;
+  draft_uid_validity?: string | number | null;
   reply_to?: string | null;
   delivery_addresses?: string | Array<{ email?: string | null; address?: string | null } | string> | null;
   category?: string | null;

@@ -51,6 +51,9 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.2](wiki/R
   status without discarding a later title, time or description change.
 - Bind every destructively handled draft to its persisted UIDVALIDITY epoch, retaining the draft rather than
   deleting a reused UID after a mailbox reset.
+- Preserve BCC recipients and the historical draft identity when reopening a saved draft, while discarding late
+  draft-open responses after an authentication-session change.
+- Clear only the completed cancellation operation's prior failure message after a successful retry.
 
 ### Notes
 
@@ -58,8 +61,8 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.2](wiki/R
   `0086_calendar_invitation_outbox_deleted_event.sql`, `0087_send_idempotency.sql` and
   `0088_calendar_invitation_outbox_completion_checkpoint.sql`,
   `0089_calendar_invitation_outbox_uncertain_dispatch.sql`,
-  `0090_calendar_cancellation_outbox_reference.sql` and
-  `0091_draft_uidvalidity_identity.sql`; apply migrations before running workers or
+  `0090_calendar_cancellation_outbox_reference.sql`,
+  `0091_draft_uidvalidity_identity.sql` and `0092_draft_bcc_addresses.sql`; apply migrations before running workers or
   accepting outbound mail. No new configuration is required.
 
 ## [4.0.1] - 2026-09-13

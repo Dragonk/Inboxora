@@ -36,6 +36,7 @@ import { mergeThreadCacheField } from '../utils/threadCacheState.ts';
 import { queueStarStateMutation, isLatestStarStateMutation } from '../utils/starStateMutation.ts';
 import { applyDeleteGuard, clearDeleteGuard, clearPendingDelete, setCompletedDelete, setPendingDelete, threadDeleteGuardKey } from '../utils/pendingDeletes.ts';
 import { toAppError } from '../utils/errors.ts';
+import { createSessionOperationGuard } from '../utils/sessionOperationGuard.ts';
 import type { ArchiveMessage } from '../utils/threadedArchive.ts';
 import {
   archiveInChunks,
@@ -176,6 +177,9 @@ export default function MessageList() {
   // RFC message_id of the open message, so a row highlights when it is a different DB copy
   // of the selected message (multi-folder model) — e.g. the inbox copy of a GTD sidebar click.
   const selectedMid = useStore(selectSelectedMessageMid);
+  const draftOpenGuardRef = useRef<ReturnType<typeof createSessionOperationGuard> | null>(null);
+  if (!draftOpenGuardRef.current) draftOpenGuardRef.current = createSessionOperationGuard(() => useStore.getState().authEpoch);
+  useEffect(() => () => { draftOpenGuardRef.current?.invalidate(); }, []);
 
   const isMobile = useMobile();
   const isUnified = selectedAccountId === null;
@@ -2579,23 +2583,33 @@ export default function MessageList() {
     }).filter(Boolean);
   };
 
+  const draftUidValidity = (value: unknown): number | undefined => {
+    if (typeof value === 'string' && !/^[1-9]\d*$/.test(value)) return undefined;
+    const normalized = typeof value === 'string' ? Number(value) : value;
+    return typeof normalized === 'number' && Number.isSafeInteger(normalized) && normalized > 0 ? normalized : undefined;
+  };
+
   const handleSelect = async (message: StoreMessageRow) => {
+    const isCurrentDraftOpen = draftOpenGuardRef.current!.begin();
     if (isDraftsFolder) {
       try {
         const bodyData = await api.getMessageBody(message.id);
+        if (!isCurrentDraftOpen()) return;
         openCompose({
           accountId: message.account_id,
           draftUid: message.uid,
-          draftUidValidity: message.draft_uid_validity ?? undefined,
+          draftUidValidity: draftUidValidity(message.draft_uid_validity),
           draftRowId: message.id,
           draftFolder: message.folder,
           to: formatAddressArray(message.to_addresses),
           cc: formatAddressArray(message.cc_addresses),
+          bcc: formatAddressArray(message.draft_bcc_addresses),
           subject: message.subject || '',
           body: bodyData.html || bodyData.text || '',
           bodyIsHtml: !!bodyData.html,
         });
       } catch (err) {
+        if (!isCurrentDraftOpen()) return;
         console.error('Failed to open draft:', toAppError(err).message);
         setSelectedMessage(message.id);
       }

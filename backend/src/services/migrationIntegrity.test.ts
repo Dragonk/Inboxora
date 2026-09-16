@@ -157,6 +157,11 @@ describe('migration integrity', () => {
     expect(sql).toContain('messages_draft_identity_idx');
   });
 
+  it('retains private BCC recipients for persisted drafts', () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/0092_draft_bcc_addresses.sql'), 'utf8');
+    expect(sql).toContain('ADD COLUMN IF NOT EXISTS draft_bcc_addresses JSONB');
+  });
+
   it('creates durable tenant-scoped send idempotency intents', () => {
     const sql = readFileSync(join(process.cwd(), 'migrations/0087_send_idempotency.sql'), 'utf8');
     expect(sql).toContain('CREATE TABLE IF NOT EXISTS send_idempotency');
