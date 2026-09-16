@@ -333,6 +333,36 @@ async function releaseSendIntent(userId: string, idempotencyKey: string, token: 
   );
 }
 
+interface CachedSendResult {
+  version: 1;
+  fingerprint: string;
+  result: unknown;
+}
+
+function parseCachedSendResult(value: string): CachedSendResult | null {
+  try {
+    const parsed = JSON.parse(value) as Partial<CachedSendResult>;
+    if (parsed?.version === 1 && typeof parsed.fingerprint === 'string' && 'result' in parsed) {
+      return parsed as CachedSendResult;
+    }
+  } catch { /* A malformed or legacy cache value must fall back to PostgreSQL. */ }
+  return null;
+}
+
+function isExplicitSmtpRejection(error: unknown): boolean {
+  const candidate = error as { responseCode?: unknown; message?: unknown };
+  const responseCode = Number(candidate?.responseCode);
+  return Number.isInteger(responseCode) && responseCode >= 500 && responseCode < 600
+    || /(?:^|\D)5\d{2}(?:\D|$)/.test(String(candidate?.message || ''));
+}
+
+function isDefinitelyPreDeliveryFailure(error: unknown): boolean {
+  const candidate = error as { code?: unknown; message?: unknown };
+  const code = String(candidate?.code || '');
+  return ['ECONNREFUSED', 'ENOTFOUND', 'EHOSTUNREACH', 'EAUTH'].includes(code)
+    || /ECONNREFUSED|ENOTFOUND|EHOSTUNREACH|authentication failed/i.test(String(candidate?.message || ''));
+}
+
 function retainedLease(result: unknown): boolean {
   return result === 1 || result === 'OK';
 }
@@ -375,15 +405,6 @@ router.post('/send', async (req, res) => {
     ? req.headers['x-idempotency-key'].slice(0, 128)
     : null;
   const idemKeyRedis = idempotencyKey ? `send_idem:${req.session.userId!}:${idempotencyKey}` : null;
-  if (idemKeyRedis) {
-    let cached;
-    try { cached = await redisClient.get(idemKeyRedis); }
-    catch { return res.status(503).json({ error: 'Sending is temporarily unavailable. Please try again shortly.' }); }
-    if (cached?.startsWith(INFLIGHT_PREFIX)) return res.status(409).json({ error: 'This message is already being sent.' });
-    // Redis is a response cache only; durable intent state is checked again at
-    // the final dispatch gate after all asynchronous message preparation.
-    if (cached) return res.json(JSON.parse(cached));
-  }
 
   if (attachments !== undefined) {
     if (!Array.isArray(attachments)) return res.status(400).json({ error: 'attachments must be an array' });
@@ -534,12 +555,30 @@ router.post('/send', async (req, res) => {
     subject: normalizedSubject, body, bodyIsHtml, quotedBody, quotedBodyHtml, inReplyTo, references,
     attachments, forwardedAttachments, editedSignature, priority: emailPriority,
   })).digest('hex');
+  if (idemKeyRedis) {
+    let cached: string | null;
+    try { cached = await redisClient.get(idemKeyRedis); }
+    catch { return res.status(503).json({ error: 'Sending is temporarily unavailable. Please try again shortly.' }); }
+    if (cached?.startsWith(INFLIGHT_PREFIX)) return res.status(409).json({ error: 'This message is already being sent.' });
+    if (cached) {
+      const replay = parseCachedSendResult(cached);
+      if (replay) {
+        if (replay.fingerprint !== sendFingerprint) {
+          return res.status(409).json({ error: 'This idempotency key belongs to a different message.' });
+        }
+        return res.json(replay.result);
+      }
+      // Legacy cache entries have no canonical request identity. Ignore them and
+      // obtain the authoritative result (or mismatch) from the durable intent.
+    }
+  }
   let reservationRenewal: ReturnType<typeof setInterval> | null = null;
   const stopReservationRenewal = () => {
     if (reservationRenewal) clearInterval(reservationRenewal);
     reservationRenewal = null;
   };
   let delivered = false; // true once transport.sendMail has actually handed off the message
+  let smtpDispatchStarted = false;
   let finalizationStarted = false;
   let smtpRecipients: { accepted: string[]; rejected: string[] } | null = null;
   const markLeaseUncertain = (fromRenewal = false) => {
@@ -677,6 +716,12 @@ router.post('/send', async (req, res) => {
       reservationRenewal.unref?.();
     }
 
+    // Persist the uncertain state before invoking SMTP: a process crash or lost
+    // final DATA acknowledgement cannot then turn into an automatic re-dispatch.
+    if (idempotencyKey && intentToken) {
+      await markSendIntentUncertain(req.session.userId!, idempotencyKey, intentToken!);
+    }
+    smtpDispatchStarted = true;
     const smtpInfo = await transport.sendMail(mailOptions);
     delivered = true;
     // Capture recipient outcomes immediately. Any later Sent-folder/metadata failure
@@ -859,8 +904,9 @@ router.post('/send', async (req, res) => {
       await completeSendIntent(req.session.userId!, idempotencyKey, intentToken!, sendResult)
         .catch(() => markSendIntentUncertain(req.session.userId!, idempotencyKey!, intentToken!).catch(() => {}));
     }
-    if (idemKeyRedis && reservationToken) void completeIdempotencyLease(idemKeyRedis, reservationToken, sendResult)
-      .catch(() => markLeaseUncertain());
+    if (idemKeyRedis && reservationToken) void completeIdempotencyLease(idemKeyRedis, reservationToken, {
+      version: 1, fingerprint: sendFingerprint, result: sendResult,
+    }).catch(() => markLeaseUncertain());
     res.json(sendResult);
   } catch (caught) {
     const err = toAppError(caught);
@@ -883,17 +929,27 @@ router.post('/send', async (req, res) => {
         await completeSendIntent(req.session.userId!, idempotencyKey, intentToken!, sendResult)
           .catch(() => markSendIntentUncertain(req.session.userId!, idempotencyKey!, intentToken!).catch(() => {}));
       }
-      if (idemKeyRedis && reservationToken) void completeIdempotencyLease(idemKeyRedis, reservationToken, sendResult)
-        .catch(() => markLeaseUncertain());
+      if (idemKeyRedis && reservationToken) void completeIdempotencyLease(idemKeyRedis, reservationToken, {
+        version: 1, fingerprint: sendFingerprint, result: sendResult,
+      }).catch(() => markLeaseUncertain());
       return res.json(sendResult);
     }
     console.error('Send failed:', err.message);
-    // A failure before reservation must not delete a concurrent request's lock.
     stopReservationRenewal();
-    if (idempotencyKey && intentClaimed && intentToken) void releaseSendIntent(req.session.userId!, idempotencyKey, intentToken!)
-      .catch(() => markSendIntentUncertain(req.session.userId!, idempotencyKey!, intentToken!).catch(() => {}));
-    if (idemKeyRedis && reservationAcquired && reservationToken) void releaseIdempotencyLease(idemKeyRedis, reservationToken).catch(() => {});
-    res.status(500).json({ error: sanitizeSmtpError(err) });
+    const retryableFailure = !smtpDispatchStarted || isExplicitSmtpRejection(caught) || isDefinitelyPreDeliveryFailure(caught);
+    if (retryableFailure) {
+      // No SMTP acceptance is possible for these failures, so a retry may claim a
+      // fresh intent. Explicit 5xx rejections are also known not to have accepted DATA.
+      if (idempotencyKey && intentClaimed && intentToken) void releaseSendIntent(req.session.userId!, idempotencyKey, intentToken!)
+        .catch(() => markSendIntentUncertain(req.session.userId!, idempotencyKey!, intentToken!).catch(() => {}));
+      if (idemKeyRedis && reservationAcquired && reservationToken) void releaseIdempotencyLease(idemKeyRedis, reservationToken).catch(() => {});
+      return res.status(500).json({ error: sanitizeSmtpError(err) });
+    }
+    // sendMail rejected after dispatch began without an explicit SMTP rejection.
+    // DATA may have been accepted, so retain the durable uncertain intent and do
+    // not release the Redis lease; retries must reconcile rather than re-dispatch.
+    if (idempotencyKey && intentToken) void markSendIntentUncertain(req.session.userId!, idempotencyKey, intentToken!).catch(() => {});
+    return res.status(502).json({ error: 'The mail server response was interrupted after dispatch began. This message will not be sent again automatically.' });
   }
 });
 

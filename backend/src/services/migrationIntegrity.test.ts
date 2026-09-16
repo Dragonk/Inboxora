@@ -130,6 +130,12 @@ describe('migration integrity', () => {
     expect(sql).toContain('REFERENCES calendar_events(id) ON DELETE SET NULL');
   });
 
+  it('marks recoverable final invitation checkpoints in migration 0088', () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/0088_calendar_invitation_outbox_completion_checkpoint.sql'), 'utf8');
+    expect(sql).toContain('completion_checkpointed_at TIMESTAMPTZ');
+    expect(sql).toContain('calendar_invitation_outbox_completion_checkpoint_idx');
+  });
+
   it('creates durable tenant-scoped send idempotency intents', () => {
     const sql = readFileSync(join(process.cwd(), 'migrations/0087_send_idempotency.sql'), 'utf8');
     expect(sql).toContain('CREATE TABLE IF NOT EXISTS send_idempotency');

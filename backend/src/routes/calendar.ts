@@ -218,7 +218,8 @@ const READ_ATTENDEES = "CASE WHEN jsonb_typeof(attendees) = 'array' THEN attende
 function invitationOperationKey(req: Request): string {
   const supplied = req.headers['x-idempotency-key'];
   if (typeof supplied === 'string' && supplied.trim()) return supplied.trim().slice(0, 128);
-  return crypto.createHash('sha256').update(JSON.stringify(req.body || {})).digest('hex');
+  // Requests without a client retry key still use the durable outbox.
+  return `server:${crypto.randomUUID()}`;
 }
 
 function invitationRequestFingerprint(req: Request, fields: InvitationFields) {
@@ -655,7 +656,7 @@ router.post('/events', async (req, res) => {
     if (!invitationAccount) return res.status(400).json({ error: 'The selected sender account is unavailable' });
   }
 
-  if (sendInvites && invitationAccount && typeof req.headers['x-idempotency-key'] === 'string' && req.headers['x-idempotency-key'].trim()) {
+  if (sendInvites && invitationAccount) {
     const idempotencyKey = invitationOperationKey(req);
     const fingerprint = invitationRequestFingerprint(req, { calendarId, normalizedAttendees, times, summary, description, location, url, organizer, allDay, timezone, invitationAccount });
     let outcome;
@@ -787,7 +788,7 @@ router.patch('/events/:eventId', async (req, res) => {
     if (!invitationAccount) return res.status(400).json({ error: 'The selected sender account is unavailable' });
   }
 
-  if (sendInvites && invitationAccount && typeof req.headers['x-idempotency-key'] === 'string' && req.headers['x-idempotency-key'].trim()) {
+  if (sendInvites && invitationAccount) {
     let outcome;
     try {
       outcome = await updateInvitedEvent(req, { calendarId, invitationAccount, normalizedAttendees, times, summary, description, location, url, organizer, allDay, timezone });

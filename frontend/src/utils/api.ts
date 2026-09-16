@@ -1,5 +1,6 @@
 import type { StoreMessageRow } from '../store/index.ts';
 import type { GtdFolderMap } from './gtd.ts';
+import { getAuthEpoch, isCurrentAuthEpoch } from './authEpoch.ts';
 
 const BASE = '/api';
 
@@ -52,13 +53,15 @@ async function request(method: string, path: string, body: unknown = undefined, 
     ...extraOptions,
   };
   if (body) opts.body = JSON.stringify(body);
+  // Capture before fetch so a late response cannot emit an auth event into a newer SPA session.
+  const requestAuthEpoch = getAuthEpoch();
   const res = await fetch(BASE + path, opts);
   if (!res.ok) {
-    if (res.status === 423) {
-      // Server-enforced screen lock (#235) — surface the lock overlay from any call.
+    if (res.status === 423 && isCurrentAuthEpoch(requestAuthEpoch)) {
+      // Server-enforced screen lock (#235) — surface the lock overlay from current-session calls only.
       window.dispatchEvent(new CustomEvent('inboxora:locked'));
     }
-    if (res.status === 401 && !path.startsWith('/auth/')) {
+    if (res.status === 401 && !path.startsWith('/auth/') && isCurrentAuthEpoch(requestAuthEpoch)) {
       window.dispatchEvent(new CustomEvent('inboxora:session_expired'));
     }
     const err = await res.json().catch(() => ({ error: 'Request failed' }));

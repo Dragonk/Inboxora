@@ -23,6 +23,7 @@ import { TableHeader } from '@tiptap/extension-table-header';
 import { TableCell } from '@tiptap/extension-table-cell';
 import { toAppError } from '../utils/errors.ts';
 import { partitionRejectedRecipients } from '../utils/retryRecipients.ts';
+import { postSendRefreshManager } from '../utils/postSendRefresh.ts';
 
 // Resize an image blob/file to max maxW pixels wide, preserving aspect ratio.
 // Returns a Promise<string> of a base64 data URL.
@@ -196,7 +197,7 @@ function parseChips(val: unknown): string[] {
 
 export default function ComposeModal() {
   const { t } = useTranslation();
-  const { closeCompose, composeData, accounts, addNotification, setSelectedAccount, plaintextEmail, setThreadMessages, authEpoch } = useStore();
+  const { closeCompose, composeData, accounts, addNotification, setSelectedAccount, plaintextEmail } = useStore();
   const isMobile = useMobile();
   const uiScale = useUiScale();
 
@@ -326,8 +327,6 @@ export default function ComposeModal() {
   // attempt, reused across retries (so a retry after a lost response dedupes rather than
   // double-sending), and cleared on success. Fixes audit finding [1].
   const idempotencyKeyRef = useRef<string | null>(null);
-  // Delayed conversation refreshes are owned by the auth generation that scheduled them.
-  const refreshTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const replyTypeRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const shouldPositionCursorRef = useRef(isReply || isForward);
@@ -341,13 +340,6 @@ export default function ComposeModal() {
   const dragCleanupRef = useRef<((options?: { commit?: boolean }) => void) | null>(null);
   posRef.current = pos;
   customSizeRef.current = customSize;
-
-  useEffect(() => {
-    return () => {
-      refreshTimersRef.current.forEach(clearTimeout);
-      refreshTimersRef.current = [];
-    };
-  }, [authEpoch]);
 
   const [plainSig, setPlainSig] = useState(() => fromSignature ? stripHtml(fromSignature) : '');
   // Tracks the user's current (possibly edited) rich-text signature; kept current by onInput.
@@ -868,37 +860,12 @@ export default function ComposeModal() {
           actionLabel: t('compose.sent.action'),
         }),
       });
-      const refreshConversation = () => {
-        if (!isCurrentSession()) return;
-        if (composeData?.conversationId) {
-          window.dispatchEvent(new CustomEvent('inboxora:conversation-refresh', { detail: { conversationId: composeData.conversationId } }));
-        }
-      };
-      refreshConversation();
-      if (replyThreadId) {
-        const refreshThread = async () => {
-          if (!isCurrentSession()) return;
-          try {
-            const data = await api.getThread(replyThreadId, '', false, accountId);
-            if (!isCurrentSession()) return;
-            const cacheId = replyThreadCacheId || replyThreadId;
-            if (data.messages?.length) setThreadMessages(cacheId, data.messages);
-          } catch { /* best-effort refresh */ }
-        };
-        const scheduleRefresh = (delay: number) => {
-          const timer = setTimeout(() => {
-            refreshTimersRef.current = refreshTimersRef.current.filter(id => id !== timer);
-            if (!isCurrentSession()) return;
-            void refreshThread();
-            refreshConversation();
-          }, delay);
-          refreshTimersRef.current.push(timer);
-        };
-        void refreshThread();
-        scheduleRefresh(3000);
-        scheduleRefresh(10000);
-        scheduleRefresh(16000);
-      }
+      postSendRefreshManager.schedule({
+        accountId,
+        threadId: replyThreadId || null,
+        threadCacheId: replyThreadCacheId || null,
+        conversationId: composeData?.conversationId,
+      });
     } catch (err) {
       if (!isCurrentSession()) return;
       setError(toAppError(err).message);
@@ -928,6 +895,11 @@ export default function ComposeModal() {
   const doSaveDraft = async ({ closeAfter = false, silent = false } = {}) => {
     const { accountId, aliasId } = resolveFrom(fromValue);
     if (!accountId) return;
+    const requestAuthEpoch = useStore.getState().authEpoch;
+    const requestComposeData = initialComposeDataRef.current;
+    const isCurrentComposeSession = () => useStore.getState().authEpoch === requestAuthEpoch
+      && useStore.getState().composing
+      && useStore.getState().composeData === requestComposeData;
     setSavingDraft(true);
     try {
       const bodyToSend = plaintextEmail ? body : (htmlMode ? htmlSource : (editor?.isEmpty ? '' : (editor?.getHTML() ?? '')));
@@ -949,6 +921,7 @@ export default function ComposeModal() {
           : {}),
         ...(draftUid != null && draftFolder != null ? { existingUid: draftUid, existingFolder: draftFolder } : {}),
       });
+      if (!isCurrentComposeSession()) return;
       if (result.uid != null) {
         setDraftUid(result.uid);
         setDraftFolder(result.folder);
@@ -982,9 +955,9 @@ export default function ComposeModal() {
         if (!silent) addNotification({ title: t('compose.draftSaved'), body: subject || t('common.noSubject') });
       }
     } catch (err) {
-      console.error('Save draft failed:', toAppError(err).message);
+      if (isCurrentComposeSession()) console.error('Save draft failed:', toAppError(err).message);
     } finally {
-      setSavingDraft(false);
+      if (isCurrentComposeSession()) setSavingDraft(false);
     }
   };
 

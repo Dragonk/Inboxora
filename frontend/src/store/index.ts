@@ -34,6 +34,7 @@ import {
 import { removeThreadCacheEntry } from '../utils/threadedArchive.ts';
 import { DEFAULT_CALENDAR_PREFERENCES, normalizeCalendarWorkDays, normalizeCalendarWorkTime } from '../utils/calendarPreferences.ts';
 import i18n from '../i18n.ts';
+import { setAuthEpoch } from '../utils/authEpoch.ts';
 
 /** A message row as the store holds it. */
 /** The signed-in user as the store holds it. */
@@ -505,6 +506,7 @@ export const useStore = create<StoreState>()((set, get) => ({
       && localStorage.getItem(NAVIGATION_OWNER_KEY) === user.id;
     const resetPrivateState = identityChanged && !isOwnedBootstrap;
     if (identityChanged) {
+      setAuthEpoch(get().authEpoch + 1);
       cancelPendingPrefSave();
       if (resetPrivateState) {
         localStorage.removeItem('mailflow_selected_account');

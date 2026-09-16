@@ -102,6 +102,57 @@ describe('claimed invitation delivery', () => {
     expect(sendCalendarInvitation).not.toHaveBeenCalled();
     expect(failurePayload).toEqual([expect.objectContaining({ accountId: 'missing-account', method: 'CANCEL' }), expect.objectContaining({ method: 'REQUEST' })]);
   });
+
+  it('never requeues SMTP-accepted action after its checkpoint write fails (V4-04)', async () => {
+    let claims = 0;
+    let failedPayload: unknown;
+    query.mockImplementation(async (statement: string, params?: unknown[]) => {
+      const text = sql(statement);
+      if (text.includes("SET status = 'processing'")) {
+        claims += 1;
+        return { rows: [claims === 1 ? claimed([baseAction]) : { ...claimed([]), completion_checkpointed_at: '2026-09-11T12:01:00.000Z' }], rowCount: 1 };
+      }
+      if (text.includes('FROM email_accounts')) return { rows: [account], rowCount: 1 };
+      if (text.includes('SET claim_expires_at')) return { rows: [{ id: 'outbox-1' }], rowCount: 1 };
+      if (text.includes("SET status = 'failed'")) { failedPayload = JSON.parse(String(params?.[3])); return { rows: [{ attempts: 1 }], rowCount: 1 }; }
+      if (text.includes("SET payload = jsonb_set")) throw new Error('checkpoint database unavailable');
+      if (text.includes("SET status = 'sent'")) return { rows: [{ id: 'outbox-1' }], rowCount: 1 };
+      return { rows: [], rowCount: 0 };
+    });
+
+    expect(await deliverStoredInvitation({ outboxId: 'outbox-1' })).toMatchObject({ status: 'failed', lastError: expect.stringContaining('checkpoint could not be persisted') });
+    expect(failedPayload).toEqual([]);
+    expect(await deliverStoredInvitation({ outboxId: 'outbox-1' })).toEqual({ status: 'sent', lastError: null });
+    expect(sendCalendarInvitation).toHaveBeenCalledTimes(1);
+  });
+
+  it('atomically marks a final successful action sent (V4-05)', async () => {
+    let finalization = '';
+    query.mockImplementation(async (statement: string) => {
+      const text = sql(statement);
+      if (text.includes("SET status = 'processing'")) return { rows: [claimed([baseAction])], rowCount: 1 };
+      if (text.includes('FROM email_accounts')) return { rows: [account], rowCount: 1 };
+      if (text.includes('SET claim_expires_at')) return { rows: [{ id: 'outbox-1' }], rowCount: 1 };
+      if (text.includes("SET payload = jsonb_set")) { finalization = text; return { rows: [{ id: 'outbox-1' }], rowCount: 1 }; }
+      return { rows: [], rowCount: 0 };
+    });
+
+    expect(await deliverStoredInvitation({ outboxId: 'outbox-1' })).toEqual({ status: 'sent', lastError: null });
+    expect(finalization).toContain("status = 'sent'");
+    expect(finalization).toContain('completion_checkpointed_at = NOW()');
+  });
+
+  it('does not treat an initially empty malformed payload as delivered (V4-05)', async () => {
+    query.mockImplementation(async (statement: string) => {
+      const text = sql(statement);
+      if (text.includes("SET status = 'processing'")) return { rows: [claimed([])], rowCount: 1 };
+      if (text.includes("SET status = 'failed'")) return { rows: [{ attempts: 1 }], rowCount: 1 };
+      return { rows: [], rowCount: 0 };
+    });
+
+    expect(await deliverStoredInvitation({ outboxId: 'outbox-1' })).toMatchObject({ status: 'failed', lastError: 'no invitation actions are available for delivery' });
+    expect(sendCalendarInvitation).not.toHaveBeenCalled();
+  });
 });
 
 describe('atomic background drain', () => {

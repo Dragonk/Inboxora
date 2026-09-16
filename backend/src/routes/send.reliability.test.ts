@@ -115,11 +115,20 @@ describe('send failure semantics', () => {
     expect(redisClient.del).not.toHaveBeenCalled();
   });
   it('releases its own reservation after an SMTP rejection', async () => {
-    sendMail.mockRejectedValueOnce(new Error('550 rejected'));
+    sendMail.mockRejectedValueOnce(Object.assign(new Error('550 rejected'), { responseCode: 550 }));
     expect((await post()).status).toBe(500);
     expect(redisClient.eval).toHaveBeenCalledWith(expect.stringContaining("redis.call('DEL'"), expect.objectContaining({
       keys: ['send_idem:u1:send1'],
     }));
+  });
+
+  it('keeps the durable intent and lease after an ambiguous post-dispatch transport loss', async () => {
+    sendMail.mockRejectedValueOnce(Object.assign(new Error('connection lost after DATA'), { code: 'ECONNRESET' }));
+    const response = await post();
+    expect(response.status).toBe(502);
+    expect(await response.json()).toEqual({ error: 'The mail server response was interrupted after dispatch began. This message will not be sent again automatically.' });
+    expect(redisClient.eval).not.toHaveBeenCalledWith(expect.stringContaining("redis.call('DEL'"), expect.anything());
+    expect(query).toHaveBeenCalledWith(expect.stringContaining("status = 'uncertain'"), expect.any(Array));
   });
   it('blocks a concurrent submission', async () => {
     redisClient.set.mockResolvedValueOnce(null);
@@ -150,6 +159,17 @@ describe('send failure semantics', () => {
     const response = await post();
     expect(response.status).toBe(expectedStatus);
     expect(await response.json()).toEqual(expectedBody);
+    expect(sendMail).not.toHaveBeenCalled();
+    expect(redisClient.set).not.toHaveBeenCalled();
+  });
+
+  it('rejects a changed body from a warm fingerprinted Redis result', async () => {
+    redisClient.get.mockResolvedValueOnce(JSON.stringify({
+      version: 1, fingerprint: 'fingerprint-for-original-message', result: { ok: true },
+    }));
+    const response = await post({ ...defaultBody, body: 'Changed message' });
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: 'This idempotency key belongs to a different message.' });
     expect(sendMail).not.toHaveBeenCalled();
     expect(redisClient.set).not.toHaveBeenCalled();
   });
