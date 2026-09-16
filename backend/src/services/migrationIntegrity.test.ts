@@ -136,6 +136,14 @@ describe('migration integrity', () => {
     expect(sql).toContain('calendar_invitation_outbox_completion_checkpoint_idx');
   });
 
+  it('persists uncertain invitation dispatches before SMTP', () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/0089_calendar_invitation_outbox_uncertain_dispatch.sql'), 'utf8');
+    expect(sql).toContain("'uncertain'");
+    expect(sql).toContain('dispatch_action JSONB');
+    expect(sql).toContain('dispatch_started_at TIMESTAMPTZ');
+    expect(sql).toContain('calendar_invitation_outbox_uncertain_dispatch_idx');
+  });
+
   it('creates durable tenant-scoped send idempotency intents', () => {
     const sql = readFileSync(join(process.cwd(), 'migrations/0087_send_idempotency.sql'), 'utf8');
     expect(sql).toContain('CREATE TABLE IF NOT EXISTS send_idempotency');

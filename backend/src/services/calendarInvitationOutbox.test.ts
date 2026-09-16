@@ -51,7 +51,7 @@ describe('claimed invitation delivery', () => {
       if (text.includes("SET status = 'failed'")) { failurePayload = JSON.parse(String(params?.[3])); return { rows: [{ attempts: 1 }], rowCount: 1 }; }
       return { rows: [], rowCount: 0 };
     });
-    sendCalendarInvitation.mockResolvedValueOnce({ accepted: ['first@example.test'], rejected: [] }).mockRejectedValueOnce(new Error('second action unavailable'));
+    sendCalendarInvitation.mockResolvedValueOnce({ accepted: ['first@example.test'], rejected: [] }).mockRejectedValueOnce(Object.assign(new Error('second action unavailable'), { responseCode: 451 }));
 
     const result = await deliverStoredInvitation({ outboxId: 'outbox-1' });
     expect(result).toMatchObject({ status: 'failed', lastError: 'second action unavailable' });
@@ -69,6 +69,7 @@ describe('claimed invitation delivery', () => {
       return { rows: [], rowCount: 0 };
     });
 
+    sendCalendarInvitation.mockResolvedValueOnce({ accepted: ['remaining@example.test'], rejected: [] });
     await deliverStoredInvitation({ outboxId: 'outbox-1' });
     expect(sendCalendarInvitation.mock.calls[0][0].attendees).toEqual(['remaining@example.test']);
   });
@@ -103,26 +104,54 @@ describe('claimed invitation delivery', () => {
     expect(failurePayload).toEqual([expect.objectContaining({ accountId: 'missing-account', method: 'CANCEL' }), expect.objectContaining({ method: 'REQUEST' })]);
   });
 
-  it('never requeues SMTP-accepted action after its checkpoint write fails (V4-04)', async () => {
-    let claims = 0;
-    let failedPayload: unknown;
-    query.mockImplementation(async (statement: string, params?: unknown[]) => {
+  it('fails closed after SMTP acceptance when its completion checkpoint is lost (V5-01)', async () => {
+    query.mockImplementation(async (statement: string) => {
       const text = sql(statement);
-      if (text.includes("SET status = 'processing'")) {
-        claims += 1;
-        return { rows: [claims === 1 ? claimed([baseAction]) : { ...claimed([]), completion_checkpointed_at: '2026-09-11T12:01:00.000Z' }], rowCount: 1 };
-      }
+      if (text.includes("SET status = 'processing'")) return { rows: [claimed([baseAction])], rowCount: 1 };
       if (text.includes('FROM email_accounts')) return { rows: [account], rowCount: 1 };
       if (text.includes('SET claim_expires_at')) return { rows: [{ id: 'outbox-1' }], rowCount: 1 };
-      if (text.includes("SET status = 'failed'")) { failedPayload = JSON.parse(String(params?.[3])); return { rows: [{ attempts: 1 }], rowCount: 1 }; }
       if (text.includes("SET payload = jsonb_set")) throw new Error('checkpoint database unavailable');
-      if (text.includes("SET status = 'sent'")) return { rows: [{ id: 'outbox-1' }], rowCount: 1 };
       return { rows: [], rowCount: 0 };
     });
 
-    expect(await deliverStoredInvitation({ outboxId: 'outbox-1' })).toMatchObject({ status: 'failed', lastError: expect.stringContaining('checkpoint could not be persisted') });
-    expect(failedPayload).toEqual([]);
-    expect(await deliverStoredInvitation({ outboxId: 'outbox-1' })).toEqual({ status: 'sent', lastError: null });
+    expect(await deliverStoredInvitation({ outboxId: 'outbox-1' })).toMatchObject({ status: 'uncertain', lastError: expect.stringContaining('checkpoint could not be persisted') });
+    expect(sendCalendarInvitation).toHaveBeenCalledTimes(1);
+    const dispatch = query.mock.calls.find(([statement]) => sql(statement).includes("status = 'uncertain'"));
+    expect(sql(dispatch?.[0])).toContain('dispatch_action');
+    expect(query.mock.calls.some(([statement]) => sql(statement).includes("SET status = 'failed'"))).toBe(false);
+  });
+
+  it('fails closed for incomplete SMTP recipient acceptance (V5-01)', async () => {
+    query.mockImplementation(async (statement: string) => {
+      const text = sql(statement);
+      if (text.includes("SET status = 'processing'")) return { rows: [claimed([baseAction])], rowCount: 1 };
+      if (text.includes('FROM email_accounts')) return { rows: [account], rowCount: 1 };
+      if (text.includes('SET claim_expires_at')) return { rows: [{ id: 'outbox-1' }], rowCount: 1 };
+      return { rows: [], rowCount: 0 };
+    });
+    sendCalendarInvitation.mockResolvedValueOnce({ accepted: [], rejected: [] });
+
+    expect(await deliverStoredInvitation({ outboxId: 'outbox-1' })).toEqual({ status: 'uncertain', lastError: 'SMTP recipient outcome was incomplete or contradictory' });
+    expect(query.mock.calls.some(([statement]) => sql(statement).includes("SET status = 'failed'"))).toBe(false);
+  });
+
+  it('does not retry a DATA connection loss without an explicit SMTP rejection (V5-01)', async () => {
+    query.mockImplementation(async (statement: string) => {
+      const text = sql(statement);
+      if (text.includes('WITH candidates')) return { rows: [], rowCount: 0 };
+      if (text.includes("SET status = 'processing'")) return { rows: [claimed([baseAction])], rowCount: 1 };
+      if (text.includes('FROM email_accounts')) return { rows: [account], rowCount: 1 };
+      if (text.includes('SET claim_expires_at')) return { rows: [{ id: 'outbox-1' }], rowCount: 1 };
+      return { rows: [], rowCount: 0 };
+    });
+    sendCalendarInvitation.mockRejectedValueOnce(Object.assign(new Error('connection lost after DATA'), { code: 'ECONNECTION', command: 'DATA' }));
+
+    expect(await deliverStoredInvitation({ outboxId: 'outbox-1' })).toEqual({ status: 'uncertain', lastError: 'connection lost after DATA' });
+    expect(query.mock.calls.some(([statement]) => sql(statement).includes("SET status = 'failed'"))).toBe(false);
+    expect(sql(query.mock.calls.find(([statement]) => sql(statement).includes("status = 'uncertain'"))?.[0])).toContain('dispatch_started_at');
+    expect(await drainPendingInvitations()).toEqual([]);
+    const drainClaim = query.mock.calls.find(([statement]) => sql(statement).includes('WITH candidates'));
+    expect(sql(drainClaim?.[0])).not.toContain("'uncertain'");
     expect(sendCalendarInvitation).toHaveBeenCalledTimes(1);
   });
 

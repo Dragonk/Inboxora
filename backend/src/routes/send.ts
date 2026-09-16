@@ -350,10 +350,13 @@ function parseCachedSendResult(value: string): CachedSendResult | null {
 }
 
 function isExplicitSmtpRejection(error: unknown): boolean {
-  const candidate = error as { responseCode?: unknown; message?: unknown };
+  const candidate = error as { responseCode?: unknown };
   const responseCode = Number(candidate?.responseCode);
-  return Number.isInteger(responseCode) && responseCode >= 500 && responseCode < 600
-    || /(?:^|\D)5\d{2}(?:\D|$)/.test(String(candidate?.message || ''));
+  // responseCode is nodemailer's structured SMTP reply. A reply in either error
+  // class is a known rejection, including a temporary DATA/STARTTLS rejection.
+  // Do not infer this from message text: a connection loss can contain a stale
+  // 5xx-looking transcript after DATA was already accepted.
+  return Number.isInteger(responseCode) && responseCode >= 400 && responseCode < 600;
 }
 
 function isDefinitelyPreDeliveryFailure(error: unknown): boolean {
@@ -938,11 +941,16 @@ router.post('/send', async (req, res) => {
     stopReservationRenewal();
     const retryableFailure = !smtpDispatchStarted || isExplicitSmtpRejection(caught) || isDefinitelyPreDeliveryFailure(caught);
     if (retryableFailure) {
-      // No SMTP acceptance is possible for these failures, so a retry may claim a
-      // fresh intent. Explicit 5xx rejections are also known not to have accepted DATA.
-      if (idempotencyKey && intentClaimed && intentToken) void releaseSendIntent(req.session.userId!, idempotencyKey, intentToken!)
-        .catch(() => markSendIntentUncertain(req.session.userId!, idempotencyKey!, intentToken!).catch(() => {}));
-      if (idemKeyRedis && reservationAcquired && reservationToken) void releaseIdempotencyLease(idemKeyRedis, reservationToken).catch(() => {});
+      // A structured 4xx/5xx response is a known SMTP rejection, so DATA was not
+      // accepted. Complete both releases before responding: the same idempotency
+      // key can then make a sequential retry without racing a stale reservation.
+      if (idempotencyKey && intentClaimed && intentToken) {
+        await releaseSendIntent(req.session.userId!, idempotencyKey, intentToken!)
+          .catch(() => markSendIntentUncertain(req.session.userId!, idempotencyKey!, intentToken!).catch(() => {}));
+      }
+      if (idemKeyRedis && reservationAcquired && reservationToken) {
+        await releaseIdempotencyLease(idemKeyRedis, reservationToken).catch(() => {});
+      }
       return res.status(500).json({ error: sanitizeSmtpError(err) });
     }
     // sendMail rejected after dispatch began without an explicit SMTP rejection.

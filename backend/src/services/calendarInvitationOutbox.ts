@@ -34,6 +34,7 @@ type InvitationDeliveryStatus = { status?: string | null; lastError?: string | n
 type InvitationDeliveryResult =
   | { status: 'sent'; lastError: null }
   | { status: 'failed'; lastError: string }
+  | { status: 'uncertain'; lastError: string }
   | { status: 'processing'; lastError: null };
 type DrainedInvitation = { id: string } & InvitationDeliveryResult;
 
@@ -79,6 +80,7 @@ export async function resolveInvitationActions(
 export function invitationDeliveryError(status: InvitationDeliveryStatus | null | undefined) {
   if (!status || status.status === 'sent' || status.status === 'processing') return null;
   const detail = status.lastError ? ' (' + status.lastError + ')' : '';
+  if (status.status === 'uncertain') return 'The event was saved, but the invitation delivery outcome is uncertain' + detail + '. It will not be automatically resent.';
   return 'The event was saved, but the invitation could not be sent' + detail + '. Use "Retry save" to send it again.';
 }
 
@@ -134,12 +136,27 @@ async function renewClaim(outboxId: string, claimToken: string) {
   return result.rowCount !== 0;
 }
 
+// Once this commits, a process crash or a lost SMTP/DATA response cannot be
+// retried automatically. The durable action identity is for reconciliation.
+async function beginDispatch(outboxId: string, claimToken: string, action: ResolvedInvitationAction) {
+  const result = await query<{ id: string }>([
+    'UPDATE calendar_invitation_outbox',
+    "   SET claim_expires_at = NOW() + ($4 * INTERVAL '1 second'),",
+    "       status = 'uncertain', dispatch_action = $3::jsonb, dispatch_started_at = NOW(),",
+    "       last_error = 'SMTP dispatch outcome is not confirmed'",
+    " WHERE id = $1 AND claim_token = $2::uuid AND status = 'processing' AND claim_expires_at > NOW()",
+    ' RETURNING id',
+  ].join('\n'), [outboxId, claimToken, JSON.stringify(invitationActionsForStorage([action])[0]), CLAIM_LEASE_SECONDS]);
+  return result.rowCount !== 0;
+}
+
 async function checkpointActions(outboxId: string, claimToken: string, actions: unknown) {
   const result = await query<{ id: string }>([
     'UPDATE calendar_invitation_outbox',
     "   SET payload = jsonb_set(payload, '{actions}', $3::jsonb, true),",
-    '       completion_checkpointed_at = NULL',
-    " WHERE id = $1 AND claim_token = $2::uuid AND status = 'processing' AND claim_expires_at > NOW()",
+    "       status = 'processing', completion_checkpointed_at = NULL, last_error = NULL,",
+    '       dispatch_action = NULL, dispatch_started_at = NULL',
+    " WHERE id = $1 AND claim_token = $2::uuid AND status = 'uncertain' AND claim_expires_at > NOW()",
     ' RETURNING id',
   ].join('\n'), [outboxId, claimToken, JSON.stringify(invitationActionsForStorage(actions))]);
   return result.rowCount !== 0;
@@ -153,8 +170,9 @@ async function completeDelivery(outboxId: string, claimToken: string) {
     "   SET payload = jsonb_set(payload, '{actions}', '[]'::jsonb, true),",
     '       completion_checkpointed_at = NOW(),',
     "       status = 'sent', attempts = attempts + 1, delivered_at = NOW(), last_error = NULL,",
-    '       next_attempt_at = NULL, claim_token = NULL, claim_expires_at = NULL',
-    " WHERE id = $1 AND claim_token = $2::uuid AND status = 'processing' AND claim_expires_at > NOW()",
+    "       next_attempt_at = NULL, claim_token = NULL, claim_expires_at = NULL,",
+    '       dispatch_action = NULL, dispatch_started_at = NULL',
+    " WHERE id = $1 AND claim_token = $2::uuid AND status = 'uncertain' AND claim_expires_at > NOW()",
     ' RETURNING id',
   ].join('\n'), [outboxId, claimToken]);
   return result.rowCount !== 0;
@@ -180,11 +198,24 @@ async function markFailed(outboxId: string, claimToken: string, message: string,
     '       next_attempt_at = NOW() + make_interval(secs => LEAST(3600, 30 * power(2, attempts))::int),',
     "       payload = jsonb_set(payload, '{actions}', $4::jsonb, true),",
     '       completion_checkpointed_at = CASE WHEN $5 THEN NOW() ELSE NULL END,',
-    '       claim_token = NULL, claim_expires_at = NULL',
-    " WHERE id = $1 AND claim_token = $2::uuid AND status = 'processing' AND claim_expires_at > NOW()",
+    '       claim_token = NULL, claim_expires_at = NULL, dispatch_action = NULL, dispatch_started_at = NULL',
+    " WHERE id = $1 AND claim_token = $2::uuid AND status IN ('processing', 'uncertain') AND claim_expires_at > NOW()",
     ' RETURNING attempts',
   ].join('\n'), [outboxId, claimToken, String(message || 'delivery failed').slice(0, 2000), JSON.stringify(invitationActionsForStorage(retryActions)), completedCheckpoint]);
   return result.rowCount !== 0;
+}
+
+function isExplicitSmtpRejection(error: unknown) {
+  if (!error || typeof error !== 'object') return false;
+  const responseCode = (error as { responseCode?: unknown }).responseCode;
+  return typeof responseCode === 'number' && Number.isInteger(responseCode) && responseCode >= 400 && responseCode <= 599;
+}
+
+function hasCompleteRecipientOutcome(attendees: readonly string[], accepted: readonly string[], rejected: readonly string[]) {
+  const requested = new Set(attendees.map(address => address.trim().toLowerCase()).filter(Boolean));
+  const acceptedSet = new Set(accepted.map(address => address.trim().toLowerCase()).filter(address => requested.has(address)));
+  const rejectedSet = new Set(rejected.map(address => address.trim().toLowerCase()).filter(address => requested.has(address)));
+  return [...requested].every(address => acceptedSet.has(address) !== rejectedSet.has(address));
 }
 
 function rejectedAttendees(attendees: readonly string[], rejected: readonly string[]) {
@@ -209,15 +240,25 @@ async function deliverClaimedInvitation({ outboxId, actions, claimToken }: { out
     const remaining = actions.slice(index + 1);
     if (!current.account) return failDelivery(outboxId, claimToken, 'no sender account is available for this invitation action', actions.slice(index));
     if (!await renewClaim(outboxId, claimToken)) return { status: 'processing', lastError: null };
+    if (!await beginDispatch(outboxId, claimToken, current)) return { status: 'processing', lastError: null };
     const { account, accountId, ...invitation } = current;
     let delivery: Awaited<ReturnType<typeof sendCalendarInvitation>>;
     try {
       delivery = await sendCalendarInvitation({ account, ...invitation });
     } catch (caught) {
       const error = toAppError(caught);
-      const result = await failDelivery(outboxId, claimToken, error.message, [current, ...remaining]);
-      if (result.status === 'failed') console.error('Calendar invitation delivery failed:', error.message, error.code ? '(code ' + error.code + ')' : '');
-      return result;
+      if (isExplicitSmtpRejection(caught)) {
+        const result = await failDelivery(outboxId, claimToken, error.message, [current, ...remaining]);
+        if (result.status === 'failed') console.error('Calendar invitation delivery failed:', error.message, error.code ? '(code ' + error.code + ')' : '');
+        return result;
+      }
+      console.error('Calendar invitation delivery outcome is uncertain:', error.message, error.code ? '(code ' + error.code + ')' : '');
+      return { status: 'uncertain', lastError: error.message };
+    }
+    if (!hasCompleteRecipientOutcome(invitation.attendees, delivery.accepted, delivery.rejected)) {
+      const message = 'SMTP recipient outcome was incomplete or contradictory';
+      console.error('Calendar invitation delivery outcome is uncertain:', message);
+      return { status: 'uncertain', lastError: message };
     }
     const rejected = rejectedAttendees(invitation.attendees, delivery.rejected);
     if (rejected.length) {
@@ -231,14 +272,15 @@ async function deliverClaimedInvitation({ outboxId, actions, claimToken }: { out
       const finalized = remaining.length
         ? await checkpointActions(outboxId, claimToken, remaining)
         : await completeDelivery(outboxId, claimToken);
-      if (!finalized) return { status: 'processing', lastError: null };
+      if (!finalized) return { status: 'uncertain', lastError: 'SMTP dispatch outcome could not be finalized' };
       if (!remaining.length) return { status: 'sent', lastError: null };
       void accountId;
     } catch (caught) {
       const error = toAppError(caught);
-      // SMTP already accepted current. Reconciliation may retry only later actions;
-      // for a final action, an explicit marker lets recovery finalize without SMTP.
-      return failDelivery(outboxId, claimToken, 'delivery checkpoint could not be persisted: ' + error.message, remaining, remaining.length === 0);
+      // The dispatch marker remains uncertain if this final write was lost. Do not
+      // replace it with a retryable row: SMTP may already have accepted current.
+      console.error('Calendar invitation delivery checkpoint outcome is uncertain:', error.message);
+      return { status: 'uncertain', lastError: 'delivery checkpoint could not be persisted: ' + error.message };
     }
   }
   return { status: 'sent', lastError: null };

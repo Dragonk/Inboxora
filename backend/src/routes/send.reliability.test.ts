@@ -122,11 +122,40 @@ describe('send failure semantics', () => {
     }));
   });
 
-  it('keeps the durable intent and lease after an ambiguous post-dispatch transport loss', async () => {
-    sendMail.mockRejectedValueOnce(Object.assign(new Error('connection lost after DATA'), { code: 'ECONNRESET' }));
+  it.each([
+    [421, 'CONN'],
+    [450, 'RCPT TO'],
+    [451, 'DATA'],
+    [452, 'MAIL FROM'],
+    [454, 'STARTTLS'],
+    [550, 'DATA'],
+  ])('releases the idempotency key after explicit SMTP %i at %s so it can retry', async (responseCode, command) => {
+    sendMail.mockRejectedValueOnce(Object.assign(new Error(String(responseCode) + ' rejected'), { responseCode, command }));
+
+    expect((await post()).status).toBe(500);
+    expect(query).toHaveBeenCalledWith(expect.stringContaining('DELETE FROM send_idempotency'), expect.any(Array));
+    expect(redisClient.eval).toHaveBeenCalledWith(expect.stringContaining("redis.call('DEL'"), expect.objectContaining({
+      keys: ['send_idem:u1:send1'],
+    }));
+
+    const retry = await post();
+    expect(retry.status).toBe(200);
+    expect(sendMail).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(['ECONNECTION', 'ETIMEDOUT'])('keeps the durable intent after ambiguous %s loss following DATA', async (code) => {
+    sendMail.mockRejectedValueOnce(Object.assign(new Error('connection lost after DATA: ' + code), { code, command: 'DATA' }));
     const response = await post();
     expect(response.status).toBe(502);
     expect(await response.json()).toEqual({ error: 'The mail server response was interrupted after dispatch began. This message will not be sent again automatically.' });
+    expect(redisClient.eval).not.toHaveBeenCalledWith(expect.stringContaining("redis.call('DEL'"), expect.anything());
+    expect(query).toHaveBeenCalledWith(expect.stringContaining("status = 'uncertain'"), expect.any(Array));
+  });
+
+  it('does not treat a 5xx-looking error message as a known SMTP rejection', async () => {
+    sendMail.mockRejectedValueOnce(Object.assign(new Error('550 transcript fragment after DATA'), { command: 'DATA' }));
+    const response = await post();
+    expect(response.status).toBe(502);
     expect(redisClient.eval).not.toHaveBeenCalledWith(expect.stringContaining("redis.call('DEL'"), expect.anything());
     expect(query).toHaveBeenCalledWith(expect.stringContaining("status = 'uncertain'"), expect.any(Array));
   });

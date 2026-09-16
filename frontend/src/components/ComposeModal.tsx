@@ -230,6 +230,9 @@ export default function ComposeModal() {
   const [draftFolder, setDraftFolder] = useState(() => composeData?.draftFolder ?? null);
   const [draftAccountId, setDraftAccountId] = useState(() => composeData?.accountId ?? null);
   const [savingDraft, setSavingDraft] = useState(false);
+  // A response may arrive after another draft request has started. Only the
+  // latest invocation is allowed to advance the saved baseline.
+  const draftSaveVersionRef = useRef(0);
   const [attachments, setAttachments] = useState<Array<{ name?: string; size?: number; [key: string]: unknown }>>([]);
   const [fwdAttachments, setFwdAttachments] = useState(() => composeData?.forwardedAttachments || []);
 
@@ -901,58 +904,75 @@ export default function ComposeModal() {
       && useStore.getState().composing
       && useStore.getState().composeData === requestComposeData;
     setSavingDraft(true);
+    // Capture every persisted field before awaiting. The editor and controls remain
+    // interactive while a request is in flight, so reading them after the response
+    // would incorrectly claim later edits were saved.
+    const pendingTo = toInput.trim();
+    const pendingCc = ccInput.trim();
+    const pendingBcc = bccInput.trim();
+    const draftSnapshot = {
+      version: ++draftSaveVersionRef.current,
+      accountId,
+      aliasId,
+      to: [...toChips, ...(pendingTo ? [pendingTo] : [])],
+      cc: [...ccChips, ...(pendingCc ? [pendingCc] : [])],
+      bcc: [...bccChips, ...(pendingBcc ? [pendingBcc] : [])],
+      subject,
+      body: plaintextEmail ? body : (htmlMode ? htmlSource : (editor?.isEmpty ? '' : (editor?.getHTML() ?? ''))),
+      bodyIsHtml: !plaintextEmail,
+      quotedBody,
+      includeQuotedBodyHtml: !plaintextEmail && (quotedBodyHtml != null || quotedHtmlRef.current),
+      quotedBodyHtml: quotedHtmlRef.current ? quotedHtmlRef.current.innerHTML : quotedBodyHtml,
+      includeEditedSignature: Boolean(signatureContentRef.current || fromSignature != null),
+      editedSignature: plaintextEmail ? plainSig : signatureContentRef.current,
+      existingUid: draftUid,
+      existingFolder: draftFolder,
+      attachmentCount: attachments.length + fwdAttachments.length,
+    };
     try {
-      const bodyToSend = plaintextEmail ? body : (htmlMode ? htmlSource : (editor?.isEmpty ? '' : (editor?.getHTML() ?? '')));
       const result = await api.saveDraft({
-        accountId,
-        ...(aliasId ? { aliasId } : {}),
-        to: [...toChips, ...(toInput.trim() ? [toInput.trim()] : [])],
-        cc: [...ccChips, ...(ccInput.trim() ? [ccInput.trim()] : [])],
-        bcc: [...bccChips, ...(bccInput.trim() ? [bccInput.trim()] : [])],
-        subject,
-        body: bodyToSend,
-        bodyIsHtml: !plaintextEmail,
-        ...(quotedBody ? { quotedBody } : {}),
-        ...(!plaintextEmail && (quotedBodyHtml != null || quotedHtmlRef.current)
-          ? { quotedBodyHtml: quotedHtmlRef.current ? quotedHtmlRef.current.innerHTML : quotedBodyHtml }
+        accountId: draftSnapshot.accountId,
+        ...(draftSnapshot.aliasId ? { aliasId: draftSnapshot.aliasId } : {}),
+        to: draftSnapshot.to,
+        cc: draftSnapshot.cc,
+        bcc: draftSnapshot.bcc,
+        subject: draftSnapshot.subject,
+        body: draftSnapshot.body,
+        bodyIsHtml: draftSnapshot.bodyIsHtml,
+        ...(draftSnapshot.quotedBody ? { quotedBody: draftSnapshot.quotedBody } : {}),
+        ...(draftSnapshot.includeQuotedBodyHtml ? { quotedBodyHtml: draftSnapshot.quotedBodyHtml } : {}),
+        ...(draftSnapshot.includeEditedSignature ? { editedSignature: draftSnapshot.editedSignature } : {}),
+        ...(draftSnapshot.existingUid != null && draftSnapshot.existingFolder != null
+          ? { existingUid: draftSnapshot.existingUid, existingFolder: draftSnapshot.existingFolder }
           : {}),
-        ...(signatureContentRef.current || fromSignature != null
-          ? { editedSignature: plaintextEmail ? plainSig : signatureContentRef.current }
-          : {}),
-        ...(draftUid != null && draftFolder != null ? { existingUid: draftUid, existingFolder: draftFolder } : {}),
       });
       if (!isCurrentComposeSession()) return;
+      // A newer request owns the current draft baseline, even when an older
+      // response finishes later. Leaving the editor dirty is safer than losing it.
+      if (draftSnapshot.version !== draftSaveVersionRef.current) return;
       if (result.uid != null) {
         setDraftUid(result.uid);
         setDraftFolder(result.folder);
-        setDraftAccountId(accountId);
+        setDraftAccountId(draftSnapshot.accountId);
       }
       if (closeAfter) {
         closeCompose();
       } else {
-        // Commit any pending recipient inputs — they were included in the API call,
-        // so promote them to chips and clear the inputs to keep UI in sync.
-        const pendingTo = toInput.trim();
-        const pendingCc = ccInput.trim();
-        const pendingBcc = bccInput.trim();
-        if (pendingTo) { setToChips(prev => [...prev, pendingTo]); setToInput(''); }
-        if (pendingCc) { setCcChips(prev => [...prev, pendingCc]); setCcInput(''); }
-        if (pendingBcc) { setBccChips(prev => [...prev, pendingBcc]); setBccInput(''); }
+        // Promote only input text that is still exactly the captured value. Later
+        // typing remains in the input and therefore stays dirty for the next save.
+        if (pendingTo) { setToChips(prev => [...prev, pendingTo]); setToInput(value => value === pendingTo ? '' : value); }
+        if (pendingCc) { setCcChips(prev => [...prev, pendingCc]); setCcInput(value => value === pendingCc ? '' : value); }
+        if (pendingBcc) { setBccChips(prev => [...prev, pendingBcc]); setBccInput(value => value === pendingBcc ? '' : value); }
 
-        // Sync baselines so isDirty() returns false until the user makes new changes.
-        // Use the same body expression as isDirty() — not bodyToSend — so that an
-        // empty TipTap editor (getHTML() → '<p></p>', isEmpty → true → '') produces
-        // a consistent '' on both sides rather than a permanent dirty mismatch.
-        // Include pending inputs in the To/CC/BCC baselines since they're now saved.
-        initialBodyRef.current = plaintextEmail ? body
-          : (htmlMode ? htmlSource
-          : (editor?.isEmpty ? '' : (editor?.getHTML() ?? '')));
-        initialSubjectRef.current = subject;
-        initialToRef.current = normalizeTo([...toChips, ...(pendingTo ? [pendingTo] : [])]);
-        initialCcRef.current = normalizeTo([...ccChips, ...(pendingCc ? [pendingCc] : [])]);
-        initialBccRef.current = normalizeTo([...bccChips, ...(pendingBcc ? [pendingBcc] : [])]);
-        savedAttachmentCountRef.current = attachments.length + fwdAttachments.length;
-        if (!silent) addNotification({ title: t('compose.draftSaved'), body: subject || t('common.noSubject') });
+        // Advance baselines to the exact request snapshot, never current editor
+        // state. This preserves the empty-editor normalization used by isDirty().
+        initialBodyRef.current = draftSnapshot.body;
+        initialSubjectRef.current = draftSnapshot.subject;
+        initialToRef.current = normalizeTo(draftSnapshot.to);
+        initialCcRef.current = normalizeTo(draftSnapshot.cc);
+        initialBccRef.current = normalizeTo(draftSnapshot.bcc);
+        savedAttachmentCountRef.current = draftSnapshot.attachmentCount;
+        if (!silent) addNotification({ title: t('compose.draftSaved'), body: draftSnapshot.subject || t('common.noSubject') });
       }
     } catch (err) {
       if (isCurrentComposeSession()) console.error('Save draft failed:', toAppError(err).message);

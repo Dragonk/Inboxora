@@ -33,12 +33,17 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.2](wiki/R
   key now receive a server operation key and follow the outbox path.
 - Fail closed for edits or cancellations of invited recurring occurrences, where a correct attendee notification
   cannot be generated.
+- Keep an invitation outbox action uncertain after ambiguous SMTP or post-SMTP database loss; it is no longer
+  automatically resent. Explicit SMTP rejections, including temporary 4xx failures, remain retryable.
+- Snapshot autosave input so edits made while a draft request is in flight remain dirty and are saved by the next
+  autosave rather than being silently treated as persisted.
 
 ### Notes
 
 - Includes database migrations `0085_calendar_invitation_outbox_claim.sql`,
   `0086_calendar_invitation_outbox_deleted_event.sql`, `0087_send_idempotency.sql` and
-  `0088_calendar_invitation_outbox_completion_checkpoint.sql`; apply migrations before running workers or
+  `0088_calendar_invitation_outbox_completion_checkpoint.sql` and
+  `0089_calendar_invitation_outbox_uncertain_dispatch.sql`; apply migrations before running workers or
   accepting outbound mail. No new configuration is required.
 
 ## [4.0.1] - 2026-09-13
