@@ -32,3 +32,11 @@ test('an older draft response cannot mark a newer invocation as saved', () => {
   assert.ok(guard > version, 'responses verify their version before applying state');
   assert.ok(baseline > guard, 'a stale response cannot replace the saved baseline');
 });
+
+test('draft acknowledgement separates recipient and document edits from request order (V6-03/V6-04)', () => {
+  assert.match(draftSave, /recipientRevisions: \{ \.\.\.recipientRevisionRef\.current \}/);
+  assert.match(draftSave, /isDraftSnapshotCurrent\(draftSnapshot\.recipientRevisions\.to, recipientRevisionRef\.current\.to\)/);
+  assert.match(draftSave, /isDraftSnapshotCurrent\(draftSnapshot\.recipientRevisions\.cc, recipientRevisionRef\.current\.cc\)/);
+  assert.match(draftSave, /isDraftSnapshotCurrent\(draftSnapshot\.recipientRevisions\.bcc, recipientRevisionRef\.current\.bcc\)/);
+  assert.match(draftSave, /if \(closeAfter && snapshotStillCurrent\) \{/);
+});

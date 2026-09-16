@@ -37,6 +37,12 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.2](wiki/R
   automatically resent. Explicit SMTP rejections, including temporary 4xx failures, remain retryable.
 - Snapshot autosave input so edits made while a draft request is in flight remain dirty and are saved by the next
   autosave rather than being silently treated as persisted.
+- Mark calendar invitation delivery uncertain only after SMTP transport preparation succeeds; DNS, credential,
+  TLS-policy and MIME preparation failures remain retryable without issuing SMTP.
+- Return the persisted calendar invitation status when an idempotent retry cannot acquire its claim, preserving
+  uncertain delivery warnings instead of falsely reporting active processing.
+- Prevent draft-save acknowledgements from restoring newer To/CC/BCC edits or closing a composer with changes
+  made while a save-and-close request was in flight.
 
 ### Notes
 

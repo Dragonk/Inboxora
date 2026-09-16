@@ -694,10 +694,10 @@ router.post('/events', async (req, res) => {
       if (outcome.delivered) return res.status(201).json(invitationDeliveryResponse(outcome.event, outcome.delivered));
       // Same request, same key, invitation not delivered yet: resend it now rather
       // than replaying the stale error. The account is resolved from the payload.
-      const delivered = await deliverStoredInvitation({ outboxId: outcome.outboxId });
+      const delivered = await deliverStoredInvitation({ outboxId: outcome.outboxId, userId: req.session.userId });
       return res.status(201).json(invitationDeliveryResponse(outcome.event, delivered));
     }
-    const delivered = await deliverStoredInvitation({ outboxId: outcome.outboxId });
+    const delivered = await deliverStoredInvitation({ outboxId: outcome.outboxId, userId: req.session.userId });
     return res.status(201).json(invitationDeliveryResponse(outcome.event, delivered));
   }
 
@@ -803,10 +803,10 @@ router.patch('/events/:eventId', async (req, res) => {
     if (outcome.duplicate) {
       if (outcome.delivered) return res.json(invitationDeliveryResponse(outcome.event, outcome.delivered));
       // An identical retry must resend an undelivered invitation, not replay the error.
-      const delivered = await deliverStoredInvitation({ outboxId: outcome.outboxId });
+      const delivered = await deliverStoredInvitation({ outboxId: outcome.outboxId, userId: req.session.userId });
       return res.json(invitationDeliveryResponse(outcome.event, delivered));
     }
-    const delivered = await deliverStoredInvitation({ outboxId: outcome.outboxId });
+    const delivered = await deliverStoredInvitation({ outboxId: outcome.outboxId, userId: req.session.userId });
     return res.json(invitationDeliveryResponse(outcome.event, delivered));
   }
 
@@ -859,7 +859,7 @@ router.patch('/events/:eventId', async (req, res) => {
   if (outcome.notFound || !outcome.event) return res.status(404).json({ error: 'Event not found' });
 
   const cancellationDelivery = outcome.cancellationOutboxId
-    ? await deliverStoredInvitation({ outboxId: outcome.cancellationOutboxId })
+    ? await deliverStoredInvitation({ outboxId: outcome.cancellationOutboxId, userId: req.session.userId })
     : null;
   const delivery = cancellationDelivery?.status === 'failed' ? cancellationDelivery : outcome.delivered;
   res.json(invitationDeliveryResponse(outcome.event, delivery || { status: 'sent', lastError: null }));
@@ -897,7 +897,7 @@ router.delete('/events/:eventId', async (req, res) => {
 
   // The deletion is durable even if SMTP only accepts a subset: the outbox row
   // retains rejected recipients for the worker and a later retry.
-  if (outcome.cancellationOutboxId) await deliverStoredInvitation({ outboxId: outcome.cancellationOutboxId });
+  if (outcome.cancellationOutboxId) await deliverStoredInvitation({ outboxId: outcome.cancellationOutboxId, userId: req.session.userId });
   res.status(204).end();
 });
 

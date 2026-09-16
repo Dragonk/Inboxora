@@ -4,6 +4,7 @@ import type { Editor } from '@tiptap/react';
 import type { CSSProperties, MouseEventHandler, ReactNode } from 'react';
 import type { ChangeEvent } from 'react';
 import { shouldAutosave, isAutosaveDue } from '../utils/draftAutosave.ts';
+import { isDraftSnapshotCurrent } from '../utils/draftSaveAcknowledgement.ts';
 import { useTranslation } from 'react-i18next';
 import DOMPurify from 'dompurify';
 import { useStore } from '../store/index.ts';
@@ -205,15 +206,36 @@ export default function ComposeModal() {
   const isForward = !!composeData?.isForward;
   const initialComposeDataRef = useRef(composeData);
 
-  const [toChips, setToChips] = useState(() => parseChips(composeData?.to));
-  const [toInput, setToInput] = useState('');
-  const [ccChips, setCcChips] = useState(() => parseChips(composeData?.cc));
-  const [ccInput, setCcInput] = useState('');
-  const [bccChips, setBccChips] = useState(() => parseChips(composeData?.bcc));
-  const [bccInput, setBccInput] = useState('');
-  const [subject, setSubject] = useState(() => composeData?.subject || '');
-  const [body, setBody] = useState(() => composeData?.body || '');
-  const [quotedBody, setQuotedBody] = useState(() => composeData?.quotedBody || '');
+  // Request order, document edits and recipient edits are intentionally separate:
+  // a response may be newest while its snapshot is still older than the editor.
+  const draftEditRevisionRef = useRef(0);
+  const recipientRevisionRef = useRef({ to: 0, cc: 0, bcc: 0 });
+  const recordDraftEdit = () => {
+    draftEditRevisionRef.current += 1;
+    lastEditAtRef.current = Date.now();
+  };
+  const recordRecipientEdit = (field: 'to' | 'cc' | 'bcc') => {
+    recipientRevisionRef.current[field] += 1;
+    recordDraftEdit();
+  };
+  const [toChips, setToChipsState] = useState(() => parseChips(composeData?.to));
+  const [toInput, setToInputState] = useState('');
+  const [ccChips, setCcChipsState] = useState(() => parseChips(composeData?.cc));
+  const [ccInput, setCcInputState] = useState('');
+  const [bccChips, setBccChipsState] = useState(() => parseChips(composeData?.bcc));
+  const [bccInput, setBccInputState] = useState('');
+  const setToChips = (value: React.SetStateAction<string[]>) => { recordRecipientEdit('to'); setToChipsState(value); };
+  const setToInput = (value: React.SetStateAction<string>) => { recordRecipientEdit('to'); setToInputState(value); };
+  const setCcChips = (value: React.SetStateAction<string[]>) => { recordRecipientEdit('cc'); setCcChipsState(value); };
+  const setCcInput = (value: React.SetStateAction<string>) => { recordRecipientEdit('cc'); setCcInputState(value); };
+  const setBccChips = (value: React.SetStateAction<string[]>) => { recordRecipientEdit('bcc'); setBccChipsState(value); };
+  const setBccInput = (value: React.SetStateAction<string>) => { recordRecipientEdit('bcc'); setBccInputState(value); };
+  const [subject, setSubjectState] = useState(() => composeData?.subject || '');
+  const setSubject = (value: React.SetStateAction<string>) => { recordDraftEdit(); setSubjectState(value); };
+  const [body, setBodyState] = useState(() => composeData?.body || '');
+  const setBody = (value: React.SetStateAction<string>) => { recordDraftEdit(); setBodyState(value); };
+  const [quotedBody, setQuotedBodyState] = useState(() => composeData?.quotedBody || '');
+  const setQuotedBody = (value: React.SetStateAction<string>) => { recordDraftEdit(); setQuotedBodyState(value); };
   const quotedBodyHtmlRef = useRef(composeData?.quotedBodyHtml || null);
   const quotedBodyHtml = quotedBodyHtmlRef.current;
   const [showDiscardSheet, setShowDiscardSheet] = useState(false);
@@ -233,8 +255,10 @@ export default function ComposeModal() {
   // A response may arrive after another draft request has started. Only the
   // latest invocation is allowed to advance the saved baseline.
   const draftSaveVersionRef = useRef(0);
-  const [attachments, setAttachments] = useState<Array<{ name?: string; size?: number; [key: string]: unknown }>>([]);
-  const [fwdAttachments, setFwdAttachments] = useState(() => composeData?.forwardedAttachments || []);
+  const [attachments, setAttachmentsState] = useState<Array<{ name?: string; size?: number; [key: string]: unknown }>>([]);
+  const setAttachments = (value: React.SetStateAction<Array<{ name?: string; size?: number; [key: string]: unknown }>>) => { recordDraftEdit(); setAttachmentsState(value); };
+  const [fwdAttachments, setFwdAttachmentsState] = useState(() => composeData?.forwardedAttachments || []);
+  const setFwdAttachments = (value: React.SetStateAction<typeof fwdAttachments>) => { recordDraftEdit(); setFwdAttachmentsState(value); };
 
   // Baseline values captured at open time — updated after each successful keep-open save
   // so isDirty() reflects changes since the last save, not since the modal opened.
@@ -243,6 +267,10 @@ export default function ComposeModal() {
   const initialToRef = useRef(normalizeTo(composeData?.to || []));
   const initialCcRef = useRef(normalizeTo(composeData?.cc || []));
   const initialBccRef = useRef(normalizeTo(composeData?.bcc || []));
+  const initialFromRef = useRef<string | null>(null);
+  const initialQuotedBodyRef = useRef(composeData?.quotedBody || '');
+  const initialQuotedBodyHtmlRef = useRef<string | null>(composeData?.quotedBodyHtml || null);
+  const initialEditedSignatureRef = useRef<string | null>(null);
   // Start at fwdAttachments.length so pre-loaded forwarded attachments aren't dirty.
   const savedAttachmentCountRef = useRef((composeData?.forwardedAttachments || []).length);
   // True when the compose was opened by clicking an existing draft from the list.
@@ -255,12 +283,12 @@ export default function ComposeModal() {
   // compose sessions and must not overwrite edits in this one.
   useEffect(() => {
     const initialComposeData = initialComposeDataRef.current;
-    if (initialComposeData?.to?.length) setToChips(parseChips(initialComposeData.to));
-    if (initialComposeData?.cc?.length) { setCcChips(parseChips(initialComposeData.cc)); setShowCc(true); }
-    if (initialComposeData?.bcc?.length) { setBccChips(parseChips(initialComposeData.bcc)); setShowBcc(true); }
-    if (initialComposeData?.subject) setSubject(initialComposeData.subject);
-    if (initialComposeData?.body !== undefined) setBody(initialComposeData.body);
-    if (initialComposeData?.quotedBody !== undefined) setQuotedBody(initialComposeData.quotedBody);
+    if (initialComposeData?.to?.length) setToChipsState(parseChips(initialComposeData.to));
+    if (initialComposeData?.cc?.length) { setCcChipsState(parseChips(initialComposeData.cc)); setShowCc(true); }
+    if (initialComposeData?.bcc?.length) { setBccChipsState(parseChips(initialComposeData.bcc)); setShowBcc(true); }
+    if (initialComposeData?.subject) setSubjectState(initialComposeData.subject);
+    if (initialComposeData?.body !== undefined) setBodyState(initialComposeData.body);
+    if (initialComposeData?.quotedBody !== undefined) setQuotedBodyState(initialComposeData.quotedBody);
   }, []);
 
   const initialFromValue = () => {
@@ -275,7 +303,9 @@ export default function ComposeModal() {
       || '';
     return acctId ? `account:${acctId}` : '';
   };
-  const [fromValue, setFromValue] = useState(initialFromValue);
+  const [fromValue, setFromValueState] = useState(initialFromValue);
+  const setFromValue = (value: React.SetStateAction<string>) => { recordDraftEdit(); setFromValueState(value); };
+  if (initialFromRef.current === null) initialFromRef.current = fromValue;
 
   const resolveFrom = (val: string | null | undefined) => {
     if (!val) return { accountId: '', aliasId: null };
@@ -321,8 +351,10 @@ export default function ComposeModal() {
     } catch { return null; }
   });
   const [showReplyType, setShowReplyType] = useState(false);
-  const [htmlMode, setHtmlMode] = useState(false);
-  const [htmlSource, setHtmlSource] = useState('');
+  const [htmlMode, setHtmlModeState] = useState(false);
+  const setHtmlMode = (value: React.SetStateAction<boolean>) => { recordDraftEdit(); setHtmlModeState(value); };
+  const [htmlSource, setHtmlSourceState] = useState('');
+  const setHtmlSource = (value: React.SetStateAction<string>) => { recordDraftEdit(); setHtmlSourceState(value); };
   const [aiStatus, setAiStatus] = useState<{ enabled?: boolean; features?: { summarize?: boolean; compose?: boolean; [key: string]: unknown }; [key: string]: unknown } | null>(null);
   const [aiPanel, setAiPanel] = useState<{ text?: string; status?: string; [key: string]: unknown } | null>(null);
   const aiAbortRef = useRef<AbortController | null>(null);
@@ -344,7 +376,8 @@ export default function ComposeModal() {
   posRef.current = pos;
   customSizeRef.current = customSize;
 
-  const [plainSig, setPlainSig] = useState(() => fromSignature ? stripHtml(fromSignature) : '');
+  const [plainSig, setPlainSigState] = useState(() => fromSignature ? stripHtml(fromSignature) : '');
+  const setPlainSig = (value: React.SetStateAction<string>) => { recordDraftEdit(); setPlainSigState(value); };
   // Tracks the user's current (possibly edited) rich-text signature; kept current by onInput.
   const signatureContentRef = useRef('');
   // Prevents the signature from being reset by a store refresh (same fromValue, accounts updated).
@@ -373,7 +406,7 @@ export default function ComposeModal() {
       Placeholder.configure({ placeholder: t('compose.bodyPh') }),
     ],
     content: composeData?.body || '',
-    onUpdate: () => { lastEditAtRef.current = Date.now(); },
+    onUpdate: () => { lastEditAtRef.current = Date.now(); recordDraftEdit(); },
     autofocus: (isReply || isForward) && !plaintextEmail ? 'start' : false,
     immediatelyRender: false,
     editorProps: {
@@ -637,10 +670,11 @@ export default function ComposeModal() {
       const sanitized = DOMPurify.sanitize(fromSignature);
       if (signatureRef.current) signatureRef.current.innerHTML = sanitized;
       signatureContentRef.current = sanitized;
-      setPlainSig(stripHtml(fromSignature));
+      if (initialEditedSignatureRef.current === null) initialEditedSignatureRef.current = sanitized;
+      setPlainSigState(stripHtml(fromSignature));
     } else if (fromValueChanged && fromSignature == null) {
       signatureContentRef.current = '';
-      setPlainSig('');
+      setPlainSigState('');
     }
   }, [fromValue, fromSignature]);
 
@@ -650,6 +684,7 @@ export default function ComposeModal() {
       // Strip <style> blocks — marketing emails use global rules like "div { margin: 0 !important }"
       // that leak out of contentEditable into the app UI. Inline style attributes are preserved.
       quotedHtmlRef.current.innerHTML = DOMPurify.sanitize(quotedBodyHtml, { FORBID_TAGS: ['style'] });
+      initialQuotedBodyHtmlRef.current = quotedHtmlRef.current.innerHTML;
     }
   }, [quotedBodyHtml]);
 
@@ -882,15 +917,21 @@ export default function ComposeModal() {
 
   const isDirty = () => {
     const currentBody = plaintextEmail ? body : (htmlMode ? htmlSource : (editor?.isEmpty ? '' : (editor?.getHTML() ?? '')));
+    const currentQuotedBodyHtml = quotedHtmlRef.current ? quotedHtmlRef.current.innerHTML : quotedBodyHtml;
+    const currentSignature = plaintextEmail ? plainSig : signatureContentRef.current;
     return (
       currentBody !== initialBodyRef.current ||
       subject !== initialSubjectRef.current ||
+      fromValue !== initialFromRef.current ||
       normalizeTo(toChips) !== initialToRef.current ||
       toInput.trim() !== '' ||
       normalizeTo(ccChips) !== initialCcRef.current ||
       ccInput.trim() !== '' ||
       normalizeTo(bccChips) !== initialBccRef.current ||
       bccInput.trim() !== '' ||
+      quotedBody !== initialQuotedBodyRef.current ||
+      currentQuotedBodyHtml !== initialQuotedBodyHtmlRef.current ||
+      (initialEditedSignatureRef.current !== null && currentSignature !== initialEditedSignatureRef.current) ||
       attachments.length + fwdAttachments.length !== savedAttachmentCountRef.current
     );
   };
@@ -912,8 +953,11 @@ export default function ComposeModal() {
     const pendingBcc = bccInput.trim();
     const draftSnapshot = {
       version: ++draftSaveVersionRef.current,
+      editRevision: draftEditRevisionRef.current,
+      recipientRevisions: { ...recipientRevisionRef.current },
       accountId,
       aliasId,
+      fromValue,
       to: [...toChips, ...(pendingTo ? [pendingTo] : [])],
       cc: [...ccChips, ...(pendingCc ? [pendingCc] : [])],
       bcc: [...bccChips, ...(pendingBcc ? [pendingBcc] : [])],
@@ -955,24 +999,41 @@ export default function ComposeModal() {
         setDraftFolder(result.folder);
         setDraftAccountId(draftSnapshot.accountId);
       }
-      if (closeAfter) {
-        closeCompose();
-      } else {
-        // Promote only input text that is still exactly the captured value. Later
-        // typing remains in the input and therefore stays dirty for the next save.
-        if (pendingTo) { setToChips(prev => [...prev, pendingTo]); setToInput(value => value === pendingTo ? '' : value); }
-        if (pendingCc) { setCcChips(prev => [...prev, pendingCc]); setCcInput(value => value === pendingCc ? '' : value); }
-        if (pendingBcc) { setBccChips(prev => [...prev, pendingBcc]); setBccInput(value => value === pendingBcc ? '' : value); }
+      const snapshotStillCurrent = isDraftSnapshotCurrent(draftSnapshot.editRevision, draftEditRevisionRef.current);
+      if (!closeAfter) {
+        // Promote a pending address only when both parts of that recipient field
+        // remain unchanged. A removal, replacement, Enter or blur increments the
+        // revision and acknowledgement then leaves the newer state untouched.
+        if (pendingTo && isDraftSnapshotCurrent(draftSnapshot.recipientRevisions.to, recipientRevisionRef.current.to)) {
+          setToChipsState(prev => [...prev, pendingTo]);
+          setToInputState(value => value === pendingTo ? '' : value);
+        }
+        if (pendingCc && isDraftSnapshotCurrent(draftSnapshot.recipientRevisions.cc, recipientRevisionRef.current.cc)) {
+          setCcChipsState(prev => [...prev, pendingCc]);
+          setCcInputState(value => value === pendingCc ? '' : value);
+        }
+        if (pendingBcc && isDraftSnapshotCurrent(draftSnapshot.recipientRevisions.bcc, recipientRevisionRef.current.bcc)) {
+          setBccChipsState(prev => [...prev, pendingBcc]);
+          setBccInputState(value => value === pendingBcc ? '' : value);
+        }
+      }
 
-        // Advance baselines to the exact request snapshot, never current editor
-        // state. This preserves the empty-editor normalization used by isDirty().
-        initialBodyRef.current = draftSnapshot.body;
-        initialSubjectRef.current = draftSnapshot.subject;
-        initialToRef.current = normalizeTo(draftSnapshot.to);
-        initialCcRef.current = normalizeTo(draftSnapshot.cc);
-        initialBccRef.current = normalizeTo(draftSnapshot.bcc);
-        savedAttachmentCountRef.current = draftSnapshot.attachmentCount;
-        if (!silent) addNotification({ title: t('compose.draftSaved'), body: draftSnapshot.subject || t('common.noSubject') });
+      // Advance baselines to the exact request snapshot, never current editor
+      // state. Later edits remain dirty and are retained for the next save.
+      initialBodyRef.current = draftSnapshot.body;
+      initialSubjectRef.current = draftSnapshot.subject;
+      initialToRef.current = normalizeTo(draftSnapshot.to);
+      initialCcRef.current = normalizeTo(draftSnapshot.cc);
+      initialBccRef.current = normalizeTo(draftSnapshot.bcc);
+      initialFromRef.current = draftSnapshot.fromValue;
+      initialQuotedBodyRef.current = draftSnapshot.quotedBody;
+      initialQuotedBodyHtmlRef.current = draftSnapshot.quotedBodyHtml;
+      initialEditedSignatureRef.current = draftSnapshot.editedSignature || '';
+      savedAttachmentCountRef.current = draftSnapshot.attachmentCount;
+      if (closeAfter && snapshotStillCurrent) {
+        closeCompose();
+      } else if (!silent) {
+        addNotification({ title: t('compose.draftSaved'), body: draftSnapshot.subject || t('common.noSubject') });
       }
     } catch (err) {
       if (isCurrentComposeSession()) console.error('Save draft failed:', toAppError(err).message);
@@ -1100,7 +1161,7 @@ export default function ComposeModal() {
       ref={signatureRef}
       contentEditable
       spellCheck={false}
-      onInput={() => { signatureContentRef.current = signatureRef.current?.innerHTML || ''; }}
+      onInput={() => { signatureContentRef.current = signatureRef.current?.innerHTML || ''; recordDraftEdit(); }}
       style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6, outline: 'none' }}
     />
   );
@@ -1474,7 +1535,8 @@ export default function ComposeModal() {
               <div
                 ref={quotedHtmlRef}
                 contentEditable
-                          spellCheck={false}
+                onInput={recordDraftEdit}
+                spellCheck={false}
                 style={{
                   padding: '10px 16px', borderTop: '1px solid var(--border-subtle)',
                   color: 'var(--text-secondary)', fontSize: 13, lineHeight: 1.6,
@@ -2122,7 +2184,8 @@ export default function ComposeModal() {
             <div
               ref={quotedHtmlRef}
               contentEditable
-                      spellCheck={false}
+              onInput={recordDraftEdit}
+              spellCheck={false}
               style={{
                 width: '100%', minHeight: 120,
                 padding: '10px 14px',

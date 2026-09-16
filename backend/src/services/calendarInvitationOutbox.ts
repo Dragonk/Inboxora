@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 import { query } from './db.js';
-import { sendCalendarInvitation } from './calendarInvitation.js';
+import { prepareCalendarInvitation } from './calendarInvitation.js';
 import { toAppError } from '../utils/errors.js';
 
 // SMTP acceptance is checkpointed per action and per recipient. A retry therefore
@@ -10,7 +10,7 @@ const MAX_ATTEMPTS = 5;
 const DRAIN_INTERVAL_MS = 60 * 1000;
 const CLAIM_LEASE_SECONDS = 15 * 60;
 
-type InvitationSendInput = Parameters<typeof sendCalendarInvitation>[0];
+type InvitationSendInput = Parameters<typeof prepareCalendarInvitation>[0];
 type InvitationAccount = InvitationSendInput['account'];
 type InvitationActionSource = Omit<InvitationSendInput, 'account'> & {
   account?: InvitationAccount | null;
@@ -86,22 +86,33 @@ export function invitationDeliveryError(status: InvitationDeliveryStatus | null 
 
 // Claim and read the authoritative row in one UPDATE ... RETURNING. Callers must
 // never pass a pre-claim payload, because another worker may have checkpointed it.
-async function claimInvitation(outboxId: string): Promise<{ token: string; row: ClaimedInvitationRow } | null> {
+async function claimInvitation(outboxId: string, userId: string | null = null): Promise<{ token: string; row: ClaimedInvitationRow } | null> {
   const token = randomUUID();
   const result = await query<ClaimedInvitationRow>([
     'UPDATE calendar_invitation_outbox o',
     "   SET status = 'processing',",
-    '       claim_token = $2::uuid,',
-    "       claim_expires_at = NOW() + ($3 * INTERVAL '1 second')",
-    ' WHERE o.id = $1',
+    '       claim_token = $3::uuid,',
+    "       claim_expires_at = NOW() + ($4 * INTERVAL '1 second')",
+    ' WHERE o.id = $1 AND ($2::uuid IS NULL OR o.user_id = $2::uuid)',
     '   AND (',
     "     o.status IN ('sending', 'failed')",
     "     OR (o.status = 'processing' AND o.claim_expires_at <= NOW())",
     '   )',
     ' RETURNING o.id, o.user_id, o.payload, o.completion_checkpointed_at,',
     '   (SELECT e.invite_account_id FROM calendar_events e WHERE e.id = o.event_id) AS invite_account_id',
-  ].join('\n'), [outboxId, token, CLAIM_LEASE_SECONDS]);
+  ].join('\n'), [outboxId, userId, token, CLAIM_LEASE_SECONDS]);
   return result.rows[0] ? { token, row: result.rows[0] } : null;
+}
+
+// A claim can fail because another worker owns the row, but it can also fail for a
+// terminal state. Read the durable result instead of presenting every miss as work
+// that is still processing.
+async function readInvitationDeliveryStatus(outboxId: string, userId: string | null): Promise<InvitationDeliveryStatus | null> {
+  const result = await query<InvitationDeliveryStatus>(
+    'SELECT status, last_error AS "lastError" FROM calendar_invitation_outbox WHERE id = $1 AND ($2::uuid IS NULL OR user_id = $2::uuid)',
+    [outboxId, userId],
+  );
+  return result.rows[0] || null;
 }
 
 async function claimPendingInvitations(limit: number) {
@@ -234,17 +245,37 @@ async function failDelivery(outboxId: string, claimToken: string, message: strin
     : { status: 'processing', lastError: null };
 }
 
+function deliveryResultFromStoredStatus(status: InvitationDeliveryStatus | null): InvitationDeliveryResult {
+  if (status?.status === 'sent') return { status: 'sent', lastError: null };
+  if (status?.status === 'failed') return { status: 'failed', lastError: status.lastError || 'delivery failed' };
+  if (status?.status === 'uncertain') return { status: 'uncertain', lastError: status.lastError || 'SMTP dispatch outcome is not confirmed' };
+  // Missing rows are deliberately indistinguishable from an active claim to callers
+  // that do not own an outbox row. This avoids exposing another tenant's operation.
+  return { status: 'processing', lastError: null };
+}
+
 async function deliverClaimedInvitation({ outboxId, actions, claimToken }: { outboxId: string; actions: readonly ResolvedInvitationAction[]; claimToken: string }): Promise<InvitationDeliveryResult> {
   for (let index = 0; index < actions.length; index += 1) {
     const current = actions[index];
     const remaining = actions.slice(index + 1);
     if (!current.account) return failDelivery(outboxId, claimToken, 'no sender account is available for this invitation action', actions.slice(index));
     if (!await renewClaim(outboxId, claimToken)) return { status: 'processing', lastError: null };
-    if (!await beginDispatch(outboxId, claimToken, current)) return { status: 'processing', lastError: null };
     const { account, accountId, ...invitation } = current;
-    let delivery: Awaited<ReturnType<typeof sendCalendarInvitation>>;
+    let prepared: Awaited<ReturnType<typeof prepareCalendarInvitation>>;
     try {
-      delivery = await sendCalendarInvitation({ account, ...invitation });
+      // DNS, credentials, TLS policy and MIME construction complete before the
+      // durable marker. An error here proves sendMail was never called.
+      prepared = await prepareCalendarInvitation({ account, ...invitation });
+    } catch (caught) {
+      const error = toAppError(caught);
+      const result = await failDelivery(outboxId, claimToken, error.message, [current, ...remaining]);
+      if (result.status === 'failed') console.error('Calendar invitation preparation failed:', error.message, error.code ? '(code ' + error.code + ')' : '');
+      return result;
+    }
+    if (!await beginDispatch(outboxId, claimToken, current)) return { status: 'processing', lastError: null };
+    let delivery: Awaited<ReturnType<typeof prepared.dispatch>>;
+    try {
+      delivery = await prepared.dispatch();
     } catch (caught) {
       const error = toAppError(caught);
       if (isExplicitSmtpRejection(caught)) {
@@ -287,13 +318,14 @@ async function deliverClaimedInvitation({ outboxId, actions, claimToken }: { out
 }
 
 /** Claim, read current payload, resolve senders, and deliver one stored invitation. */
-export async function deliverStoredInvitation({ outboxId, claimToken = null, claimedRow = null }: {
+export async function deliverStoredInvitation({ outboxId, userId = null, claimToken = null, claimedRow = null }: {
   outboxId: string;
+  userId?: string | null;
   claimToken?: string | null;
   claimedRow?: ClaimedInvitationRow | null;
 }): Promise<InvitationDeliveryResult> {
-  const claimed = claimToken && claimedRow ? { token: claimToken, row: claimedRow } : await claimInvitation(outboxId);
-  if (!claimed) return { status: 'processing', lastError: null };
+  const claimed = claimToken && claimedRow ? { token: claimToken, row: claimedRow } : await claimInvitation(outboxId, userId);
+  if (!claimed) return deliveryResultFromStoredStatus(await readInvitationDeliveryStatus(outboxId, userId));
   const actions = await resolveInvitationActions(claimed.row.user_id, claimed.row.payload?.actions, claimed.row.invite_account_id);
   if (!actions.length) {
     if (claimed.row.completion_checkpointed_at) {
@@ -305,8 +337,8 @@ export async function deliverStoredInvitation({ outboxId, claimToken = null, cla
 }
 
 /** Compatibility entry point for callers with freshly-resolved actions. */
-export async function deliverInvitationOutbox({ outboxId }: { outboxId: string; actions?: readonly ResolvedInvitationAction[]; claimToken?: string | null }): Promise<InvitationDeliveryResult> {
-  return deliverStoredInvitation({ outboxId });
+export async function deliverInvitationOutbox({ outboxId, userId = null }: { outboxId: string; userId?: string | null; actions?: readonly ResolvedInvitationAction[]; claimToken?: string | null }): Promise<InvitationDeliveryResult> {
+  return deliverStoredInvitation({ outboxId, userId });
 }
 
 /** Retry every due invitation after atomically claiming it for this worker. */
@@ -315,7 +347,7 @@ export async function drainPendingInvitations({ limit = 1 }: { limit?: number } 
   const results: DrainedInvitation[] = [];
   for (const row of rows) {
     try {
-      results.push({ id: row.id, ...(await deliverStoredInvitation({ outboxId: row.id, claimToken: token, claimedRow: row })) });
+      results.push({ id: row.id, ...(await deliverStoredInvitation({ outboxId: row.id, userId: row.user_id, claimToken: token, claimedRow: row })) });
     } catch (caught) {
       const error = toAppError(caught);
       console.error('Calendar invitation outbox drain failed:', error.message);

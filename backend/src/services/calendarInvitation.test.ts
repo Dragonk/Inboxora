@@ -36,10 +36,24 @@ const { createAccountSmtpTransport } = vi.hoisted(() => ({
 }));
 vi.mock('./smtpTransport.js', () => ({ createAccountSmtpTransport }));
 
-import { sendCalendarInvitation } from './calendarInvitation.js';
+import { prepareCalendarInvitation, sendCalendarInvitation } from './calendarInvitation.js';
 import { parseInboundCalendarInvitation } from './inboundCalendarInvitation.js';
 
 describe('sendCalendarInvitation', () => {
+  it('prepares the transport and MIME without invoking SMTP dispatch (V6-01)', async () => {
+    const { sendMail, transport } = createMailTransportMock();
+    createAccountSmtpTransport.mockResolvedValue({ account: { email_address: 'organizer@example.test' }, transport });
+
+    const prepared = await prepareCalendarInvitation({
+      account: { id: 'account-1' }, attendees: ['guest@example.test'], summary: 'Planning', uid: 'event-prepared',
+      startsAt: new Date('2026-09-01T09:00:00.000Z'), endsAt: new Date('2026-09-01T10:00:00.000Z'),
+    });
+
+    expect(sendMail).not.toHaveBeenCalled();
+    await prepared.dispatch();
+    expect(sendMail).toHaveBeenCalledTimes(1);
+  });
+
   it('sends a METHOD:REQUEST iCalendar attachment from the selected account', async () => {
     const { sendMail, transport } = createMailTransportMock();
     createAccountSmtpTransport.mockResolvedValue({ account: { email_address: 'organizer@example.test', sender_name: 'Organizer' }, transport });

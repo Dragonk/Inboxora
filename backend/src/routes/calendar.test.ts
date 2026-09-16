@@ -51,7 +51,12 @@ vi.mock('../services/encryption.js', () => ({
   encrypt: (value: string) => `enc:v1:${value}`,
   decrypt: (value: string) => value?.startsWith('enc:v1:') ? value.slice('enc:v1:'.length) : value,
 }));
-vi.mock('../services/calendarInvitation.js', () => ({ sendCalendarInvitation }));
+vi.mock('../services/calendarInvitation.js', () => ({
+  sendCalendarInvitation,
+  prepareCalendarInvitation: async (input: Parameters<CalendarInvitation>[0]) => ({
+    dispatch: () => sendCalendarInvitation(input),
+  }),
+}));
 vi.mock('../services/externalCalendarSync.js', () => ({ releaseCalendarSource, scheduleCalendarSource, stopCalendarSource, syncCalendarSource }));
 vi.mock('../middleware/auth.js', () => ({
   requireAuth: (req: { headers: Record<string, string>; session?: { userId?: string } }, _res: unknown, next: () => void) => { req.session = { userId: 'user-1' }; next(); },
