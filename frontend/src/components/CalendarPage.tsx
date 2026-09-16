@@ -264,7 +264,15 @@ export default function CalendarPage({ isActive = true }) {
       });
       if (retryable) {
         const message = result?.invitationError || t('calendar.invitationPending', 'Invitation delivery is still pending; retry to check its status.');
-        setForm(current => (current ? { ...current, invitationError: message } : current));
+        const cancellationOutboxId = result?.invitationOperation?.kind === 'cancellation'
+          && typeof result.invitationOperation.outboxId === 'string'
+          ? result.invitationOperation.outboxId
+          : null;
+        setForm(current => (current ? {
+          ...current,
+          ...(cancellationOutboxId ? { cancellationOutboxId } : {}),
+          invitationError: message,
+        } : current));
         setError(message);
       } else {
         setForm(null); await load();

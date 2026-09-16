@@ -11,6 +11,7 @@ export interface CalendarViewEvent {
   ends_at?: string | number | Date | null;
   endsAt?: string | number | Date | null;
   attendees?: string[] | null;
+  cancellation_outbox_id?: string | null;
   recurring?: boolean;
   recurrence_id?: string | null;
   calendar_id?: string | null;
@@ -164,6 +165,7 @@ export interface CalendarEventForm {
   organizer?: string;
   recurrenceId?: string | null;
   sendInvites?: boolean;
+  cancellationOutboxId?: string | null;
   [key: string]: unknown;
 }
 
@@ -223,6 +225,7 @@ export function eventPayload(form: CalendarEventForm): Record<string, unknown> |
   if (sendInvites && (!form.inviteAccountId || !attendees.length)) return null;
   return {
     ...(form.recurrenceId ? { recurrenceId: form.recurrenceId } : {}),
+    ...(!sendInvites && form.cancellationOutboxId ? { cancellationOutboxId: form.cancellationOutboxId } : {}),
     calendarId: form.calendarId,
     summary: String(form.summary ?? '').trim(),
     description: richTextOrNull(form.description),

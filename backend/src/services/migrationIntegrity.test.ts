@@ -144,6 +144,13 @@ describe('migration integrity', () => {
     expect(sql).toContain('calendar_invitation_outbox_uncertain_dispatch_idx');
   });
 
+  it('keeps the current cancellation outbox reference with its calendar event', () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/0090_calendar_cancellation_outbox_reference.sql'), 'utf8');
+    expect(sql).toContain('cancellation_outbox_id UUID');
+    expect(sql).toContain('REFERENCES calendar_invitation_outbox(id) ON DELETE SET NULL');
+    expect(sql).toContain('calendar_events_cancellation_outbox_idx');
+  });
+
   it('creates durable tenant-scoped send idempotency intents', () => {
     const sql = readFileSync(join(process.cwd(), 'migrations/0087_send_idempotency.sql'), 'utf8');
     expect(sql).toContain('CREATE TABLE IF NOT EXISTS send_idempotency');

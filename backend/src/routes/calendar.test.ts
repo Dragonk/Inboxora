@@ -908,6 +908,63 @@ describe('local calendar API', () => {
     expect(queryCall(2)[0]).not.toContain('enabled = true');
   });
 
+  it('returns an uncertain cancellation result and durable operation reference (V7-01)', async () => {
+    const sender = { id: 'account-1', email_address: 'owner@example.test', smtp_host: 'smtp.example.test', enabled: true };
+    const existing = { uid: 'uid-1', attendees: ['guest@example.test'], invite_account_id: 'account-1', invitation_sequence: 2, summary: 'Planning', description: null, location: null, starts_at: '2026-09-01T09:00:00.000Z', ends_at: '2026-09-01T10:00:00.000Z', all_day: false };
+    const event = { id: 'event-1', calendar_id: 'calendar-1', uid: 'uid-1', attendees: [], invite_account_id: null, invitation_sequence: 3 };
+    query.mockImplementation(async (statement: string) => {
+      if (statement.includes('FROM calendars')) return { rows: [{ id: 'calendar-1', source: 'local', read_only: false }] };
+      if (statement.includes('FROM calendar_events') && statement.includes('FOR UPDATE')) return { rows: [existing] };
+      if (statement.includes('FROM email_accounts')) return { rows: [sender] };
+      if (statement.includes('UPDATE calendar_events SET raw_ical')) return { rows: [event] };
+      if (statement.includes('INSERT INTO calendar_invitation_outbox')) return { rows: [{ id: 'cancel-1' }] };
+      if (statement.includes('SET cancellation_outbox_id')) return { rows: [{ id: 'event-1' }] };
+      if (statement.includes("SET status = 'processing'")) return { rows: [], rowCount: 0 };
+      if (statement.includes('SELECT status, last_error')) return { rows: [{ status: 'uncertain', lastError: 'SMTP dispatch outcome is not confirmed' }] };
+      return { rows: [] };
+    });
+
+    const response = await fetch(`${base}/api/calendar/events/event-1`, {
+      method: 'PATCH', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ calendarId: 'calendar-1', summary: 'Planning', attendees: [], sendInvites: false, startsAt: '2026-09-01T11:00:00.000Z', endsAt: '2026-09-01T12:00:00.000Z' }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      invitationStatus: { status: 'uncertain', lastError: 'SMTP dispatch outcome is not confirmed' },
+      invitationOperation: { kind: 'cancellation', outboxId: 'cancel-1' },
+    });
+    expect(sendCalendarInvitation).not.toHaveBeenCalled();
+  });
+
+  it('rechecks every stored cancellation status without mutating the event (V7-01)', async () => {
+    const event = { id: 'event-1', calendar_id: 'calendar-1', uid: 'uid-1', attendees: [], invite_account_id: null };
+    for (const delivery of [
+      { status: 'processing', lastError: null },
+      { status: 'uncertain', lastError: 'SMTP dispatch outcome is not confirmed' },
+      { status: 'failed', lastError: 'temporary SMTP rejection' },
+      { status: 'sent', lastError: null },
+    ]) {
+      query.mockReset().mockImplementation(async (statement: string) => {
+        if (statement.includes('FROM calendars')) return { rows: [{ id: 'calendar-1', source: 'local', read_only: false }] };
+        if (statement.includes('JOIN calendar_invitation_outbox')) return { rows: [event] };
+        if (statement.includes("SET status = 'processing'")) return { rows: [], rowCount: 0 };
+        if (statement.includes('SELECT status, last_error')) return { rows: [delivery] };
+        return { rows: [] };
+      });
+      const response = await fetch(`${base}/api/calendar/events/event-1`, {
+        method: 'PATCH', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ calendarId: 'calendar-1', summary: 'Planning', attendees: [], sendInvites: false, cancellationOutboxId: 'cancel-1', startsAt: '2026-09-01T11:00:00.000Z', endsAt: '2026-09-01T12:00:00.000Z' }),
+      });
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ invitationStatus: delivery, invitationOperation: { kind: 'cancellation', outboxId: 'cancel-1' } });
+      expect(query.mock.calls.some(([statement]) => statement.includes('UPDATE calendar_events SET raw_ical'))).toBe(false);
+      expect(query.mock.calls.some(([statement]) => statement.includes('INSERT INTO calendar_invitation_outbox'))).toBe(false);
+    }
+    expect(sendCalendarInvitation).not.toHaveBeenCalled();
+  });
+
   it('cancels attendees removed from an updated invitation', async () => {
     const sender = { id: 'account-1', email_address: 'owner@example.test', smtp_host: 'smtp.example.test', enabled: true };
     query

@@ -35,6 +35,10 @@ const ACCOUNT_ROW = {
   id: ACCOUNT_ID, email_address: 'matthias@mailflow.sh', name: 'Matt',
   sender_name: null, signature: null, folder_mappings: {},
 };
+const SECOND_ACCOUNT_ID = '22222222-2222-4222-8222-222222222222';
+const SECOND_ACCOUNT_ROW = {
+  ...ACCOUNT_ROW, id: SECOND_ACCOUNT_ID, email_address: 'second@example.test', name: 'Second',
+};
 
 function buildApp() {
   const app = express();
@@ -112,5 +116,50 @@ describe('POST /api/mail/draft — local row persistence', () => {
     });
     expect(res.status).toBe(200);
     expect(imapManager.upsertDraftMessageRecord).not.toHaveBeenCalled();
+  });
+
+  it('deletes a replaced draft through its original account identity, never the selected sender (V7-02)', async () => {
+    query.mockReset().mockImplementation(async (statement: string, params?: unknown[]) => {
+      if (statement.includes('SELECT id FROM email_accounts')) return { rows: [{ id: SECOND_ACCOUNT_ID }] };
+      if (statement.includes('SELECT * FROM email_accounts WHERE id = $1')) {
+        return { rows: [params?.[0] === ACCOUNT_ID ? ACCOUNT_ROW : SECOND_ACCOUNT_ROW] };
+      }
+      if (statement.includes('SELECT uid_validity FROM folders')) return { rows: [{ uid_validity: 42 }] };
+      if (statement.includes('FROM folders')) return { rows: [{ path: 'Drafts' }] };
+      return { rows: [] };
+    });
+    imapManager.appendToFolder.mockResolvedValueOnce({ uid: 9, folder: 'Drafts' });
+    const res = await fetch(`${base}/api/mail/draft`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        accountId: SECOND_ACCOUNT_ID, to: ['a@b.com'], subject: 'replacement', body: 'body',
+        existingDraft: { accountId: ACCOUNT_ID, uid: 5, folder: 'Drafts' },
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(imapManager.permanentDeleteMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ id: ACCOUNT_ID }), 5, 'Drafts', 42,
+    );
+    expect(imapManager.permanentDeleteMessage).not.toHaveBeenCalledWith(
+      expect.objectContaining({ id: SECOND_ACCOUNT_ID }), 5, 'Drafts', 42,
+    );
+    const localDelete = query.mock.calls.find(([statement]) => statement.includes('DELETE FROM messages'));
+    expect(localDelete?.[1]).toEqual([ACCOUNT_ID, 5, 'Drafts']);
+  });
+
+  it('retains the previous draft when APPEND does not return a new UID (V7-02)', async () => {
+    imapManager.appendToFolder.mockResolvedValueOnce({ uid: null, folder: 'Drafts' });
+    const res = await fetch(`${base}/api/mail/draft`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        accountId: ACCOUNT_ID, to: ['a@b.com'], subject: 'x', body: 'y',
+        existingDraft: { accountId: ACCOUNT_ID, uid: 5, folder: 'Drafts' },
+      }),
+    });
+    expect(res.status).toBe(200);
+    expect(imapManager.permanentDeleteMessage).not.toHaveBeenCalled();
   });
 });

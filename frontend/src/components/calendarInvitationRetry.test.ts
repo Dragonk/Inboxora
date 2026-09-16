@@ -34,6 +34,27 @@ test('retries ambiguous invitation saves with the original key and payload', asy
   assert.equal(controller.currentKey(), null);
 });
 
+test('keeps an uncertain cancellation retryable without generating a new invitation key (V7-01)', async () => {
+  const calls: Array<{ payload: InvitationPayload; key?: string }> = [];
+  const api: InvitationCalendarApi = {
+    createEvent: async () => { throw new Error('not used by edit retry'); },
+    updateEvent: async (_id, payload, key) => {
+      calls.push({ payload, key });
+      return { invitationStatus: { status: 'uncertain' }, invitationOperation: { kind: 'cancellation', outboxId: 'cancel-1' } };
+    },
+  };
+  const controller = createInvitationOperationController({ randomUUID: () => 'unexpected-key' });
+  const payload = { summary: 'Planning', sendInvites: false, cancellationOutboxId: 'cancel-1' };
+
+  const first = await controller.save({ mode: 'edit', id: 'event-1' }, payload, api);
+  const second = await controller.save({ mode: 'edit', id: 'event-1' }, payload, api);
+
+  assert.equal(first.retryable, true);
+  assert.equal(second.retryable, true);
+  assert.deepEqual(calls, [{ payload, key: undefined }, { payload, key: undefined }]);
+  assert.equal(controller.currentKey(), null);
+});
+
 test('resetting an abandoned retry prevents cross-event key reuse', async () => {
   const calls: Array<{ payload: InvitationPayload; key?: string }> = [];
   const api: InvitationCalendarApi = {

@@ -36,6 +36,12 @@ describe('calendar desktop helpers', () => {
     assert.ok(invited);
     assert.deepEqual(invited.attendees, ['guest@example.test']);
   });
+  it('preserves a cancellation outbox reference for a non-invitation status retry (V7-01)', () => {
+    const payload = eventPayload({ calendarId: 'one', startsAt: '2026-09-10T10:00', endsAt: '2026-09-10T11:00', summary: 'Planning', description: '', location: '', url: '', organizer: '', sendInvites: false, cancellationOutboxId: 'cancel-1' });
+    assert.ok(payload);
+    assert.equal(payload.cancellationOutboxId, 'cancel-1');
+  });
+
   it('converts date field values when toggling all-day mode', () => {
     const timed = { allDay: false, startsAt: '2026-09-10T09:30', endsAt: '2026-09-10T10:30' };
     assert.deepEqual(toggleAllDayTimes(timed, true), { ...timed, allDay: true, startsAt: '2026-09-10', endsAt: '2026-09-11' });

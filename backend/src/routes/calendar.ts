@@ -232,11 +232,12 @@ function invitationRequestFingerprint(req: Request, fields: InvitationFields) {
 }
 
 // The single response shape for anything that may have to deliver an invitation.
-function invitationDeliveryResponse(event: unknown, delivery: InvitationDeliveryStatus | null | undefined) {
+function invitationDeliveryResponse(event: unknown, delivery: InvitationDeliveryStatus | null | undefined, operation: { kind: 'cancellation'; outboxId: string } | null = null) {
   return {
     event,
     invitationStatus: { status: delivery?.status || 'pending', lastError: delivery?.lastError || null },
     ...(invitationDeliveryError(delivery) ? { invitationError: invitationDeliveryError(delivery) } : {}),
+    ...(operation ? { invitationOperation: operation } : {}),
   };
 }
 
@@ -552,7 +553,7 @@ router.get('/events', async (req, res) => {
               COALESCE(o.url, e.url) AS url,
               COALESCE(o.organizer, e.organizer) AS organizer,
               COALESCE(o.attendees, e.attendees) AS attendees,
-              e.calendar_id, e.uid, e.etag, e.invite_account_id, e.invitation_sequence,
+              e.calendar_id, e.uid, e.etag, e.invite_account_id, e.invitation_sequence, e.cancellation_outbox_id,
               CASE WHEN sa.id IS NOT NULL THEN e.source_message_id END AS source_message_id,
               sm.folder AS source_folder,
               sa.id AS source_account_id,
@@ -771,6 +772,7 @@ router.all('/events/:eventId/occurrence', async (req, res) => {
 
 router.patch('/events/:eventId', async (req, res) => {
   const { calendarId, summary, description: rawDescription = null, location = null, url = null, organizer = null, allDay = false, timezone = null, sendInvites = false, inviteAccountId, attendees } = req.body || {};
+  const cancellationOutboxId = typeof req.body?.cancellationOutboxId === 'string' && req.body.cancellationOutboxId ? req.body.cancellationOutboxId : null;
   const description = normalizeDescription(rawDescription);
   const times = parseEventTimes(req.body);
   if (!calendarId || !times) return res.status(400).json({ error: 'calendarId and a valid event range are required' });
@@ -780,6 +782,22 @@ router.patch('/events/:eventId', async (req, res) => {
 
   const access = await writableCalendar(sessionUserId(req), calendarId);
   if (access.error) return res.status(access.status).json({ error: access.error });
+
+  // A cancellation can remain uncertain after the event has already been updated.
+  // Recheck the same durable outbox row instead of creating another cancellation or
+  // reporting the event mutation as a successful SMTP delivery.
+  if (cancellationOutboxId && !sendInvites) {
+    const operation = await query<Record<string, unknown>>(
+      `SELECT e.* FROM calendar_events e
+       JOIN calendar_invitation_outbox o ON o.id = e.cancellation_outbox_id
+       WHERE e.id = $1 AND e.calendar_id = $2 AND e.user_id = $3 AND o.id = $4
+         AND o.user_id = $3 AND o.payload @> '{"actions":[{"method":"CANCEL"}]}'::jsonb`,
+      [req.params.eventId, calendarId, req.session.userId, cancellationOutboxId],
+    );
+    if (!operation.rows[0]) return res.status(404).json({ error: 'Invitation cancellation operation not found' });
+    const delivery = await deliverStoredInvitation({ outboxId: cancellationOutboxId, userId: req.session.userId });
+    return res.json(invitationDeliveryResponse(operation.rows[0], delivery, { kind: 'cancellation', outboxId: cancellationOutboxId }));
+  }
 
   let invitationAccount = null;
   if (sendInvites) {
@@ -838,6 +856,9 @@ router.patch('/events/:eventId', async (req, res) => {
     if (cancellationAction) {
       const outbox = await client.query('INSERT INTO calendar_invitation_outbox (user_id, event_id, idempotency_key, request_fingerprint, payload) VALUES ($1,$2,$3,$4,$5::jsonb) RETURNING id', [req.session.userId, result.rows[0].id, `cancel:${crypto.randomUUID()}`, crypto.randomUUID(), JSON.stringify({ actions: invitationActionsForStorage([cancellationAction]) })]);
       cancellationOutboxId = outbox?.rows?.[0]?.id || null;
+      if (cancellationOutboxId) {
+        await client.query('UPDATE calendar_events SET cancellation_outbox_id = $1 WHERE id = $2 AND user_id = $3', [cancellationOutboxId, result.rows[0].id, req.session.userId]);
+      }
     }
 
     let delivered = null;
@@ -861,8 +882,12 @@ router.patch('/events/:eventId', async (req, res) => {
   const cancellationDelivery = outcome.cancellationOutboxId
     ? await deliverStoredInvitation({ outboxId: outcome.cancellationOutboxId, userId: req.session.userId })
     : null;
-  const delivery = cancellationDelivery?.status === 'failed' ? cancellationDelivery : outcome.delivered;
-  res.json(invitationDeliveryResponse(outcome.event, delivery || { status: 'sent', lastError: null }));
+  const delivery = cancellationDelivery || outcome.delivered || { status: 'sent', lastError: null };
+  res.json(invitationDeliveryResponse(
+    outcome.event,
+    delivery,
+    outcome.cancellationOutboxId ? { kind: 'cancellation', outboxId: outcome.cancellationOutboxId } : null,
+  ));
 });
 
 

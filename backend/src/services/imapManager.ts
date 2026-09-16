@@ -5262,10 +5262,17 @@ export class ImapManager {
     return newUid;
   }
 
-  async permanentDeleteMessage(account: EmailAccountRow, uid: number | string, folder: string) {
+  async permanentDeleteMessage(account: EmailAccountRow, uid: number | string, folder: string, expectedUidValidity?: number) {
     await withFreshClient(account, async (client) => {
       const lock = await client.getMailboxLock(folder);
       try {
+        if (expectedUidValidity !== undefined) {
+          const mailbox = client.mailbox;
+          const currentUidValidity = mailbox && mailbox.uidValidity ? Number(mailbox.uidValidity) : null;
+          if (currentUidValidity !== expectedUidValidity) {
+            throw new Error(`messageDelete refused: UIDVALIDITY changed or is unavailable for ${folder}`);
+          }
+        }
         const result = await client.messageDelete(String(uid), { uid: true });
         if (result === false) throw new Error('messageDelete returned false — server did not confirm deletion');
       } finally {

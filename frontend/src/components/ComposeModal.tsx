@@ -969,8 +969,9 @@ export default function ComposeModal() {
       quotedBodyHtml: quotedHtmlRef.current ? quotedHtmlRef.current.innerHTML : quotedBodyHtml,
       includeEditedSignature: Boolean(signatureContentRef.current || fromSignature != null),
       editedSignature: plaintextEmail ? plainSig : signatureContentRef.current,
-      existingUid: draftUid,
-      existingFolder: draftFolder,
+      existingDraft: draftUid != null && draftFolder != null && draftAccountId
+        ? { accountId: draftAccountId, uid: draftUid, folder: draftFolder }
+        : null,
       attachmentCount: attachments.length + fwdAttachments.length,
     };
     try {
@@ -986,9 +987,7 @@ export default function ComposeModal() {
         ...(draftSnapshot.quotedBody ? { quotedBody: draftSnapshot.quotedBody } : {}),
         ...(draftSnapshot.includeQuotedBodyHtml ? { quotedBodyHtml: draftSnapshot.quotedBodyHtml } : {}),
         ...(draftSnapshot.includeEditedSignature ? { editedSignature: draftSnapshot.editedSignature } : {}),
-        ...(draftSnapshot.existingUid != null && draftSnapshot.existingFolder != null
-          ? { existingUid: draftSnapshot.existingUid, existingFolder: draftSnapshot.existingFolder }
-          : {}),
+        ...(draftSnapshot.existingDraft ? { existingDraft: draftSnapshot.existingDraft } : {}),
       });
       if (!isCurrentComposeSession()) return;
       // A newer request owns the current draft baseline, even when an older

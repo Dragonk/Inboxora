@@ -40,3 +40,10 @@ test('draft acknowledgement separates recipient and document edits from request 
   assert.match(draftSave, /isDraftSnapshotCurrent\(draftSnapshot\.recipientRevisions\.bcc, recipientRevisionRef\.current\.bcc\)/);
   assert.match(draftSave, /if \(closeAfter && snapshotStillCurrent\) \{/);
 });
+
+test('draft replacement keeps the prior account, UID and folder as one request snapshot (V7-02)', () => {
+  assert.match(draftSave, /existingDraft: draftUid != null && draftFolder != null && draftAccountId/);
+  assert.match(draftSave, /\? \{ accountId: draftAccountId, uid: draftUid, folder: draftFolder \}/);
+  assert.match(draftSave, /draftSnapshot\.existingDraft \? \{ existingDraft: draftSnapshot\.existingDraft \}/);
+  assert.doesNotMatch(draftSave, /existingUid:/);
+});

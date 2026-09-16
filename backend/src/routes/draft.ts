@@ -33,6 +33,21 @@ type RawDraftInput = {
   editedSignature?: string | null;
 };
 
+type ExistingDraftIdentity = {
+  accountId: string;
+  uid: number;
+  folder: string;
+};
+
+function existingDraftIdentity(value: unknown): ExistingDraftIdentity | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const candidate = value as Record<string, unknown>;
+  if (typeof candidate.accountId !== 'string' || !candidate.accountId) return null;
+  if (typeof candidate.uid !== 'number' || !Number.isSafeInteger(candidate.uid) || candidate.uid <= 0) return null;
+  if (typeof candidate.folder !== 'string' || !candidate.folder || candidate.folder.length > 1024 || /[\0\r\n]/.test(candidate.folder)) return null;
+  return { accountId: candidate.accountId, uid: candidate.uid, folder: candidate.folder };
+}
+
 function sanitizeHeaderValue(value: unknown) {
   if (typeof value !== 'string') return '';
   return value.replace(/[\r\n\0]/g, '').trim();
@@ -154,7 +169,8 @@ async function resolveDraftsFolder(account: EmailAccountRow) {
 }
 
 router.post('/draft', async (req, res) => {
-  const { accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml = false, quotedBody, quotedBodyHtml, editedSignature, existingUid, existingFolder } = req.body;
+  const { accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml = false, quotedBody, quotedBodyHtml, editedSignature } = req.body;
+  const existingDraft = existingDraftIdentity(req.body?.existingDraft);
   if (!accountId) return res.status(400).json({ error: 'accountId required' });
 
   const ownerCheck = await query<{ id: string }>(
@@ -194,17 +210,38 @@ router.post('/draft', async (req, res) => {
       }
     }
 
-    // Delete the old draft only after the new one is safely stored
-    if (existingUid && existingFolder) {
+    // Delete a prior draft only after APPEND returned its new UID. Its identity is
+    // independent from the selected sender: IMAP UIDs are scoped to an account and
+    // folder, so using the destination account here could delete an unrelated draft.
+    if (uid != null && existingDraft) {
       try {
-        await imapManager.permanentDeleteMessage(account, existingUid, existingFolder);
-        await query(
-          'DELETE FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3',
-          [account.id, existingUid, existingFolder]
+        const previousAccount = await query<EmailAccountRow>(
+          'SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2',
+          [existingDraft.accountId, req.session.userId],
         );
+        const previous = previousAccount.rows[0];
+        if (!previous) {
+          console.warn(`Draft: previous draft account is unavailable; retaining uid=${existingDraft.uid}`);
+        } else {
+          const previousDraftsFolder = await resolveDraftsFolder(previous);
+          const previousFolder = await query<{ uid_validity: number | string | null }>(
+            'SELECT uid_validity FROM folders WHERE account_id = $1 AND path = $2',
+            [previous.id, existingDraft.folder],
+          );
+          const uidValidity = Number(previousFolder.rows[0]?.uid_validity);
+          if (previousDraftsFolder !== existingDraft.folder || !Number.isSafeInteger(uidValidity) || uidValidity <= 0) {
+            console.warn(`Draft: previous draft identity cannot be confirmed; retaining uid=${existingDraft.uid}`);
+          } else {
+            await imapManager.permanentDeleteMessage(previous, existingDraft.uid, existingDraft.folder, uidValidity);
+            await query(
+              'DELETE FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3',
+              [previous.id, existingDraft.uid, existingDraft.folder],
+            );
+          }
+        }
       } catch (caught) {
         const delErr = toAppError(caught);
-        console.error(`Draft: failed to delete old uid=${existingUid}: ${delErr.message}`);
+        console.error(`Draft: failed to delete old uid=${existingDraft.uid}: ${delErr.message}`);
       }
     }
 

@@ -9,6 +9,7 @@ interface InvitationCalendarApi {
 interface InvitationResult {
   invitationError?: string | null;
   invitationStatus?: { status?: string; [key: string]: unknown } | null;
+  invitationOperation?: { kind?: string; outboxId?: string } | null;
   [key: string]: unknown;
 }
 
