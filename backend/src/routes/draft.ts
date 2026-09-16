@@ -32,6 +32,7 @@ type RawDraftInput = {
   quotedBody?: string | null;
   quotedBodyHtml?: string | null;
   editedSignature?: string | null;
+  editedSignatureIsHtml?: boolean;
   hasEditedSignature?: boolean;
   inReplyTo?: string | null;
   references?: string | null;
@@ -79,7 +80,7 @@ function textToHtml(text: string) {
     .join('');
 }
 
-async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml, quotedBody, quotedBodyHtml, editedSignature, hasEditedSignature = false, inReplyTo, references }: RawDraftInput) {
+async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml, quotedBody, quotedBodyHtml, editedSignature, editedSignatureIsHtml = true, hasEditedSignature = false, inReplyTo, references }: RawDraftInput) {
   const acctResult = await query<EmailAccountRow & { email_address: string }>(
     'SELECT * FROM email_accounts WHERE id = $1',
     [accountId]
@@ -90,10 +91,11 @@ async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, b
   const { fromName, fromEmail, fromReplyTo, fromSignature, aliasId: resolvedAliasId } = await resolveSenderIdentity(account, aliasId);
 
   const rawSignature = hasEditedSignature ? (editedSignature || null) : fromSignature;
-  const effectiveSignature = rawSignature ? sanitizeSignature(rawSignature) : null;
+  const signatureIsHtml = hasEditedSignature ? editedSignatureIsHtml : true;
+  const effectiveSignature = rawSignature ? (signatureIsHtml ? sanitizeSignature(rawSignature) : textToHtml(rawSignature)) : null;
 
-  const sigText = effectiveSignature
-    ? sanitizeHtml(effectiveSignature, { allowedTags: [], allowedAttributes: {} }).trim()
+  const sigText = rawSignature
+    ? (signatureIsHtml ? sanitizeHtml(effectiveSignature || '', { allowedTags: [], allowedAttributes: {} }).trim() : rawSignature)
     : null;
 
   const bodyText = bodyIsHtml
@@ -169,7 +171,8 @@ async function resolveDraftsFolder(account: EmailAccountRow) {
 }
 
 router.post('/draft', async (req, res) => {
-  const { accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml = false, quotedBody, quotedBodyHtml, editedSignature, inReplyTo, references } = req.body;
+  const { accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml = false, quotedBody, quotedBodyHtml, editedSignature, editedSignatureIsHtml, inReplyTo, references } = req.body;
+  if (editedSignatureIsHtml !== undefined && typeof editedSignatureIsHtml !== 'boolean') return res.status(400).json({ error: 'editedSignatureIsHtml must be a boolean' });
   const hasEditedSignature = Object.prototype.hasOwnProperty.call(req.body || {}, 'editedSignature');
   const existingDraft = existingDraftIdentity(req.body?.existingDraft);
   if (!accountId) return res.status(400).json({ error: 'accountId required' });
@@ -181,7 +184,7 @@ router.post('/draft', async (req, res) => {
   if (!ownerCheck.rows.length) return res.status(404).json({ error: 'Account not found' });
 
   try {
-    const { rawMessage, account, meta } = await buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml, quotedBody, quotedBodyHtml, editedSignature, hasEditedSignature, inReplyTo, references });
+    const { rawMessage, account, meta } = await buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml, quotedBody, quotedBodyHtml, editedSignature, editedSignatureIsHtml, hasEditedSignature, inReplyTo, references });
 
     const draftsFolder = await resolveDraftsFolder(account);
     if (!draftsFolder) return res.status(422).json({ error: 'No Drafts folder found for this account' });

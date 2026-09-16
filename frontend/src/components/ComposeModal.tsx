@@ -1004,6 +1004,7 @@ export default function ComposeModal() {
         ...(draftSnapshot.includeQuotedBodyHtml ? { quotedBodyHtml: draftSnapshot.quotedBodyHtml } : {}),
         // Draft snapshots always carry the signature value, including an intentional removal.
         editedSignature: draftSnapshot.editedSignature,
+        editedSignatureIsHtml: !plaintextCompose,
         ...(draftSnapshot.inReplyTo ? { inReplyTo: draftSnapshot.inReplyTo } : {}),
         ...(draftSnapshot.references ? { references: draftSnapshot.references } : {}),
         ...(draftSnapshot.existingDraft ? { existingDraft: draftSnapshot.existingDraft } : {}),
