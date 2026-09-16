@@ -17,6 +17,7 @@ import { createAccountSmtpTransport } from '../services/smtpTransport.js';
 import { imapManager } from '../index.js';
 import { pluginRegistry } from '../plugins/registry.js';
 import { toAppError } from '../utils/errors.js';
+import { resolveSenderIdentity } from '../services/senderIdentity.js';
 import type { InlineAttachment } from '../utils/inlineImages.js';
 
 /** One client-supplied attachment of an outgoing message (base64 payload). */
@@ -450,27 +451,14 @@ router.post('/send', async (req, res) => {
   if (!result.rows.length) return res.status(404).json({ error: 'Account not found' });
   const plaintextEmail = prefResult.rows[0]?.preferences?.plaintextEmail === true;
   let account = result.rows[0];
-
-  // Resolve the From identity — account by default, alias if requested
-  let fromName: string | null | undefined = account.sender_name || account.name;
-  let fromEmail: string | null | undefined = account.email_address || '';
-  let fromSignature = account.signature;
-  let fromReplyTo = null;
-
-  if (aliasId) {
-    const aliasResult = await query<{ name?: string | null; email?: string | null; reply_to?: string | null; signature?: string | null; [key: string]: unknown }>(
-      'SELECT * FROM account_aliases WHERE id = $1 AND account_id = $2',
-      [aliasId, accountId]
-    );
-    if (aliasResult.rows.length) {
-      const alias = aliasResult.rows[0];
-      fromName = alias.name;
-      fromEmail = alias.email;
-      fromReplyTo = alias.reply_to || null;
-      // null (DB default) means inherit from account; only override when alias has an explicit signature set
-      if (alias.signature !== null) fromSignature = alias.signature;
-    }
+  let sender;
+  try {
+    sender = await resolveSenderIdentity(account, aliasId);
+  } catch (caught) {
+    const err = toAppError(caught);
+    return res.status(err.status || 400).json({ error: err.message });
   }
+  const { fromName, fromEmail, fromReplyTo, fromSignature } = sender;
 
   // Allow the client to override the signature per-send (editedSignature === undefined means use DB value).
   // Sanitize client-supplied HTML to prevent injecting scripts or tracking pixels into sent mail.

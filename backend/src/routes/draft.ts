@@ -6,6 +6,7 @@ import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import sanitizeHtml from 'sanitize-html';
 import { sanitizeSignature, sanitizeComposeBody } from '../services/emailSanitizer.js';
+import { resolveSenderIdentity } from '../services/senderIdentity.js';
 import { embedInlineDataImages } from '../utils/inlineImages.js';
 import { imapManager } from '../index.js';
 import { Readable } from 'node:stream';
@@ -86,23 +87,7 @@ async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, b
   if (!acctResult.rows.length) throw Object.assign(new Error('Account not found'), { status: 404 });
   const account = acctResult.rows[0];
 
-  let fromName = account.sender_name || account.name;
-  let fromEmail = account.email_address;
-  let fromSignature = account.signature;
-
-  if (aliasId) {
-    const aliasResult = await query<{ name: string; email: string; signature: string | null }>(
-      'SELECT * FROM account_aliases WHERE id = $1 AND account_id = $2',
-      [aliasId, accountId]
-    );
-    if (!aliasResult.rows.length) throw Object.assign(new Error('Selected sender alias is unavailable'), { status: 409 });
-    {
-      const alias = aliasResult.rows[0];
-      fromName = alias.name;
-      fromEmail = alias.email;
-      if (alias.signature !== null) fromSignature = alias.signature;
-    }
-  }
+  const { fromName, fromEmail, fromReplyTo, fromSignature, aliasId: resolvedAliasId } = await resolveSenderIdentity(account, aliasId);
 
   const rawSignature = hasEditedSignature ? (editedSignature || null) : fromSignature;
   const effectiveSignature = rawSignature ? sanitizeSignature(rawSignature) : null;
@@ -132,6 +117,7 @@ async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, b
   const mailOptions = {
     messageId,
     from: `${fromName} <${fromEmail}>`,
+    ...(fromReplyTo ? { replyTo: fromReplyTo } : {}),
     to: (Array.isArray(to) ? to : [to]).filter(Boolean).join(', ') || undefined,
     cc: (Array.isArray(cc) ? cc : []).filter(Boolean).join(', ') || undefined,
     bcc: (Array.isArray(bcc) ? bcc : []).filter(Boolean).join(', ') || undefined,
@@ -164,7 +150,7 @@ async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, b
     account,
     meta: {
       messageId, fromName, fromEmail, bodyHtml: rawHtml, bodyText: textBody, snippet,
-      aliasId: aliasId || null,
+      aliasId: resolvedAliasId,
       inReplyTo: inReplyTo ? sanitizeHeaderValue(inReplyTo) : null,
       references: references ? sanitizeHeaderValue(references) : null,
       draftComposition: { version: 1, authoredBody: body || '', bodyIsHtml: Boolean(bodyIsHtml), signatureHtml: effectiveSignature, quotedBody: quotedBody || null, quotedBodyHtml: quotedBodyHtml || null },

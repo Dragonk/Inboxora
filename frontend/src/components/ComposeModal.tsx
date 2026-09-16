@@ -23,6 +23,7 @@ import { TableRow } from '@tiptap/extension-table-row';
 import { TableHeader } from '@tiptap/extension-table-header';
 import { TableCell } from '@tiptap/extension-table-cell';
 import { toAppError } from '../utils/errors.ts';
+import { resolveComposeBodyIsHtml, shouldShowSignatureEditor } from '../utils/composeFormat.ts';
 import { partitionRejectedRecipients } from '../utils/retryRecipients.ts';
 import { postSendRefreshManager } from '../utils/postSendRefresh.ts';
 
@@ -198,13 +199,17 @@ function parseChips(val: unknown): string[] {
 
 export default function ComposeModal() {
   const { t } = useTranslation();
-  const { closeCompose, composeData, accounts, addNotification, setSelectedAccount, plaintextEmail } = useStore();
+  const { closeCompose, composeData, accounts, addNotification, setSelectedAccount, plaintextEmail: preferredPlaintext } = useStore();
+  // A persisted draft owns its editor format; profile preference only seeds new compose sessions.
+  const [bodyIsHtml] = useState(() => resolveComposeBodyIsHtml(composeData?.bodyIsHtml, preferredPlaintext));
+  const plaintextCompose = !bodyIsHtml;
   const isMobile = useMobile();
   const uiScale = useUiScale();
 
   const isReply = !!(composeData?.isReply || composeData?.isReplyAll);
   const isForward = !!composeData?.isForward;
   const initialComposeDataRef = useRef(composeData);
+  const hasPersistedSignature = Object.prototype.hasOwnProperty.call(initialComposeDataRef.current ?? {}, 'editedSignature');
 
   // Request order, document edits and recipient edits are intentionally separate:
   // a response may be newest while its snapshot is still older than the editor.
@@ -408,7 +413,7 @@ export default function ComposeModal() {
     ],
     content: composeData?.body || '',
     onUpdate: () => { lastEditAtRef.current = Date.now(); recordDraftEdit(); },
-    autofocus: (isReply || isForward) && !plaintextEmail ? 'start' : false,
+    autofocus: (isReply || isForward) && !plaintextCompose ? 'start' : false,
     immediatelyRender: false,
     editorProps: {
       attributes: { spellcheck: 'true' },
@@ -734,7 +739,7 @@ export default function ComposeModal() {
     const controller = new AbortController();
     aiAbortRef.current = controller;
 
-    const currentText = plaintextEmail ? body
+    const currentText = plaintextCompose ? body
       : (htmlMode ? htmlSource.replace(/<[^>]+>/g, ' ') : (editor?.getText() ?? ''));
 
     const toStr = [...toChips, ...(toInput.trim() ? [toInput.trim()] : [])].join(', ');
@@ -801,7 +806,7 @@ export default function ComposeModal() {
     }
 
     if (!skipAttachWarn) {
-      const composedText = plaintextEmail
+      const composedText = plaintextCompose
         ? body
         : (htmlMode ? htmlSource.replace(/<[^>]+>/g, ' ') : (editor?.getText() ?? ''));
       const keywords = t('compose.attachmentKeywords').split('|');
@@ -819,7 +824,7 @@ export default function ComposeModal() {
     localStorage.setItem('mailflow_last_from_account', accountId);
     setSending(true);
     setError('');
-    const bodyToSend = plaintextEmail ? body : (htmlMode ? htmlSource : (editor?.getHTML() ?? ''));
+    const bodyToSend = plaintextCompose ? body : (htmlMode ? htmlSource : (editor?.getHTML() ?? ''));
     // crypto.randomUUID needs a secure context; fall back for plain-HTTP LAN deployments.
     if (!idempotencyKeyRef.current) {
       idempotencyKeyRef.current = crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -833,13 +838,13 @@ export default function ComposeModal() {
         bcc: bccFinal,
         subject,
         body: bodyToSend,
-        bodyIsHtml: !plaintextEmail,
+        bodyIsHtml: !plaintextCompose,
         ...(quotedBody ? { quotedBody } : {}),
-        ...(!plaintextEmail && (quotedBodyHtml != null || quotedHtmlRef.current)
+        ...(!plaintextCompose && (quotedBodyHtml != null || quotedHtmlRef.current)
           ? { quotedBodyHtml: quotedHtmlRef.current ? quotedHtmlRef.current.innerHTML : quotedBodyHtml }
           : {}),
         ...(signatureContentRef.current || fromSignature != null
-          ? { editedSignature: plaintextEmail ? plainSig : signatureContentRef.current }
+          ? { editedSignature: plaintextCompose ? plainSig : signatureContentRef.current }
           : {}),
         inReplyTo: composeData?.inReplyTo,
         references: composeData?.references || undefined,
@@ -925,9 +930,9 @@ export default function ComposeModal() {
     || bccChips.length > 0 || !!bccInput.trim();
 
   const isDirty = () => {
-    const currentBody = plaintextEmail ? body : (htmlMode ? htmlSource : (editor?.isEmpty ? '' : (editor?.getHTML() ?? '')));
+    const currentBody = plaintextCompose ? body : (htmlMode ? htmlSource : (editor?.isEmpty ? '' : (editor?.getHTML() ?? '')));
     const currentQuotedBodyHtml = quotedHtmlRef.current ? quotedHtmlRef.current.innerHTML : quotedBodyHtml;
-    const currentSignature = plaintextEmail ? plainSig : signatureContentRef.current;
+    const currentSignature = plaintextCompose ? plainSig : signatureContentRef.current;
     return (
       currentBody !== initialBodyRef.current ||
       subject !== initialSubjectRef.current ||
@@ -971,13 +976,13 @@ export default function ComposeModal() {
       cc: [...ccChips, ...(pendingCc ? [pendingCc] : [])],
       bcc: [...bccChips, ...(pendingBcc ? [pendingBcc] : [])],
       subject,
-      body: plaintextEmail ? body : (htmlMode ? htmlSource : (editor?.isEmpty ? '' : (editor?.getHTML() ?? ''))),
-      bodyIsHtml: !plaintextEmail,
+      body: plaintextCompose ? body : (htmlMode ? htmlSource : (editor?.isEmpty ? '' : (editor?.getHTML() ?? ''))),
+      bodyIsHtml: !plaintextCompose,
       quotedBody,
-      includeQuotedBodyHtml: !plaintextEmail && (quotedBodyHtml != null || quotedHtmlRef.current),
+      includeQuotedBodyHtml: !plaintextCompose && (quotedBodyHtml != null || quotedHtmlRef.current),
       quotedBodyHtml: quotedHtmlRef.current ? quotedHtmlRef.current.innerHTML : quotedBodyHtml,
       includeEditedSignature: Boolean(signatureContentRef.current || fromSignature != null),
-      editedSignature: plaintextEmail ? plainSig : signatureContentRef.current,
+      editedSignature: plaintextCompose ? plainSig : signatureContentRef.current,
       inReplyTo: composeData?.inReplyTo || null,
       references: composeData?.references || null,
       existingDraft: draftUid != null && draftFolder != null && draftAccountId && draftUidValidity != null
@@ -1102,7 +1107,7 @@ export default function ComposeModal() {
     if (!mountedRef.current) { mountedRef.current = true; return; }
     lastEditAtRef.current = Date.now();
   }, [subject, toChips, ccChips, bccChips, toInput, ccInput, bccInput, body, htmlSource,
-      attachments, fwdAttachments, plaintextEmail, htmlMode]);
+      attachments, fwdAttachments, plaintextCompose, htmlMode]);
 
   useEffect(() => {
     const id = setInterval(() => {
@@ -1160,7 +1165,7 @@ export default function ComposeModal() {
     else { setShowCcBccMenu(false); setCcBccMenuPos(null); }
   }, 2101);
 
-  const renderSignatureEditor = () => plaintextEmail ? (
+  const renderSignatureEditor = () => plaintextCompose ? (
     <textarea
       value={plainSig}
       onChange={ (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => setPlainSig(e.target.value)}
@@ -1451,7 +1456,7 @@ export default function ComposeModal() {
           </div>
 
           {/* Body */}
-          {plaintextEmail ? (
+          {plaintextCompose ? (
             <textarea
               ref={textareaRef}
               value={body}
@@ -1534,7 +1539,7 @@ export default function ComposeModal() {
           )}
 
           {/* Signature */}
-          {fromSignature && (
+          {shouldShowSignatureEditor(fromSignature, hasPersistedSignature) && (
             <div style={{ padding: '0 16px 12px' }}>
               <div style={{ fontSize: 11, color: 'var(--text-tertiary)', margin: '8px 0 6px', userSelect: 'none' }}>
                 -- signature
@@ -1545,7 +1550,7 @@ export default function ComposeModal() {
 
           {/* Quoted body */}
           {(quotedBody || quotedBodyHtml) && (
-            !plaintextEmail && quotedBodyHtml ? (
+            !plaintextCompose && quotedBodyHtml ? (
               <div
                 ref={quotedHtmlRef}
                 contentEditable
@@ -2094,7 +2099,7 @@ export default function ComposeModal() {
       </div>
 
       {/* Toolbar — sits outside overflow container so dropdowns are never clipped */}
-      {!plaintextEmail && editor && <RichToolbar editor={editor} onAttach={() => fileInputRef.current?.click()} onInsertImage={() => imageInputRef.current?.click()}
+      {!plaintextCompose && editor && <RichToolbar editor={editor} onAttach={() => fileInputRef.current?.click()} onInsertImage={() => imageInputRef.current?.click()}
         htmlMode={htmlMode}
         onToggleHtml={() => {
           if (!htmlMode) { setHtmlSource(editor?.getHTML() ?? ''); setHtmlMode(true); }
@@ -2104,7 +2109,7 @@ export default function ComposeModal() {
         onAiAction={handleAiAction}
         aiPanelOpen={!!aiPanel}
       />}
-      {aiPanel && !plaintextEmail && !htmlMode && (
+      {aiPanel && !plaintextCompose && !htmlMode && (
         <div style={{ borderBottom: '1px solid var(--border-subtle)', background: 'var(--bg-secondary)', padding: '10px 14px' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
             <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--accent)' }}>{t('compose.toolbar.aiPanelTitle')}</span>
@@ -2147,7 +2152,7 @@ export default function ComposeModal() {
       {/* Scrollable body area */}
       <div style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
         {/* Body */}
-        {plaintextEmail ? (
+        {plaintextCompose ? (
           <textarea
             ref={textareaRef}
             value={body}
@@ -2194,7 +2199,7 @@ export default function ComposeModal() {
         ) : null}
 
         {(quotedBody || quotedBodyHtml) ? (
-          !plaintextEmail && quotedBodyHtml ? (
+          !plaintextCompose && quotedBodyHtml ? (
             <div
               ref={quotedHtmlRef}
               contentEditable
@@ -2252,7 +2257,7 @@ export default function ComposeModal() {
           {sending ? t('compose.sending') : t('compose.send')}
         </button>
 
-        {plaintextEmail && (
+        {plaintextCompose && (
           <button
             type="button"
             title={t('compose.toolbar.attachFile')}
