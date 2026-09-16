@@ -556,7 +556,9 @@ router.post('/send', async (req, res) => {
   const sendFingerprint = createHash('sha256').update(JSON.stringify({
     accountId, aliasId: aliasId || null, to: normalizedTo, cc: normalizedCc, bcc: normalizedBcc,
     subject: normalizedSubject, body, inputBodyIsHtml, outputBodyIsHtml, quotedBody, quotedBodyHtml, inReplyTo, references,
-    attachments, forwardedAttachments, editedSignature, priority: emailPriority,
+    attachments, forwardedAttachments, editedSignature,
+    editedSignatureIsHtml: editedSignature === undefined ? null : editedSignatureIsHtml !== false,
+    priority: emailPriority,
   })).digest('hex');
   // V1 used the raw API field (defaulting to false). Keep this recognisable
   // during upgrades so a lost response cannot turn into a new delivery.
