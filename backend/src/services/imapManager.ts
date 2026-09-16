@@ -4512,6 +4512,9 @@ export class ImapManager {
     to = [],
     cc = [],
     bcc = [],
+    aliasId = null,
+    references = null,
+    draftComposition = null,
     inReplyTo = null,
     snippet = '',
     bodyHtml = null,
@@ -4526,6 +4529,9 @@ export class ImapManager {
     to?: Array<{ name?: string; email?: string }>;
     cc?: Array<{ name?: string; email?: string }>;
     bcc?: Array<{ name?: string; email?: string }>;
+    aliasId?: string | null;
+    references?: string | null;
+    draftComposition?: Record<string, unknown> | null;
     inReplyTo?: string | { address?: string } | null;
     snippet?: string;
     bodyHtml?: string | null;
@@ -4540,31 +4546,31 @@ export class ImapManager {
         account_id, uid, folder, message_id, subject,
         from_name, from_email, to_addresses, cc_addresses,
         in_reply_to, date, snippet, is_read, is_starred, has_attachments,
-        flags, body_html, body_text, thread_id, draft_uid_validity, draft_bcc_addresses
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10,$11,$12,true,false,false,$13::jsonb,$14,$15,$16,$17,$18::jsonb)
+        flags, body_html, body_text, thread_id, draft_uid_validity, draft_bcc_addresses,
+        draft_alias_id, draft_in_reply_to, draft_references, draft_composition
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10,$11,$12,true,false,false,$13::jsonb,$14,$15,$16,$17,$18::jsonb,$19,$20,$21,$22::jsonb)
       ON CONFLICT (account_id, uid, folder) DO UPDATE SET
-        message_id = COALESCE(EXCLUDED.message_id, messages.message_id),
-        subject = CASE
-          WHEN EXCLUDED.subject IS NOT NULL AND EXCLUDED.subject <> '' AND EXCLUDED.subject <> '(no subject)'
-          THEN EXCLUDED.subject ELSE messages.subject END,
-        from_name = COALESCE(NULLIF(EXCLUDED.from_name, ''), messages.from_name),
-        from_email = COALESCE(NULLIF(EXCLUDED.from_email, ''), messages.from_email),
-        to_addresses = CASE
-          WHEN EXCLUDED.to_addresses::text IS NOT NULL AND EXCLUDED.to_addresses::text <> '[]'
-          THEN EXCLUDED.to_addresses ELSE messages.to_addresses END,
-        cc_addresses = CASE
-          WHEN EXCLUDED.cc_addresses::text IS NOT NULL AND EXCLUDED.cc_addresses::text <> '[]'
-          THEN EXCLUDED.cc_addresses ELSE messages.cc_addresses END,
-        in_reply_to = COALESCE(EXCLUDED.in_reply_to, messages.in_reply_to),
+        -- This is an authoritative APPEND snapshot, not a partial sync merge. In
+        -- particular an empty recipient list is meaningful and must erase data from
+        -- a stale UID that was reused after UIDVALIDITY changed.
+        message_id = EXCLUDED.message_id,
+        subject = EXCLUDED.subject,
+        from_name = EXCLUDED.from_name,
+        from_email = EXCLUDED.from_email,
+        to_addresses = EXCLUDED.to_addresses,
+        cc_addresses = EXCLUDED.cc_addresses,
+        in_reply_to = EXCLUDED.in_reply_to,
         date = EXCLUDED.date,
-        snippet = CASE WHEN EXCLUDED.snippet <> '' THEN EXCLUDED.snippet ELSE messages.snippet END,
+        snippet = EXCLUDED.snippet,
         flags = EXCLUDED.flags,
-        body_html = COALESCE(EXCLUDED.body_html, messages.body_html),
-        body_text = COALESCE(EXCLUDED.body_text, messages.body_text),
-        draft_uid_validity = COALESCE(EXCLUDED.draft_uid_validity, messages.draft_uid_validity),
-        draft_bcc_addresses = CASE
-          WHEN EXCLUDED.draft_bcc_addresses::text <> '[]' THEN EXCLUDED.draft_bcc_addresses
-          ELSE messages.draft_bcc_addresses END
+        body_html = EXCLUDED.body_html,
+        body_text = EXCLUDED.body_text,
+        draft_uid_validity = EXCLUDED.draft_uid_validity,
+        draft_bcc_addresses = EXCLUDED.draft_bcc_addresses,
+        draft_alias_id = EXCLUDED.draft_alias_id,
+        draft_in_reply_to = EXCLUDED.draft_in_reply_to,
+        draft_references = EXCLUDED.draft_references,
+        draft_composition = EXCLUDED.draft_composition
       RETURNING id
     `, [
       account.id, uid, folder, msgId,
@@ -4578,9 +4584,13 @@ export class ImapManager {
       msgId || null,
       uidValidity != null && Number.isSafeInteger(uidValidity) && uidValidity > 0 ? uidValidity : null,
       JSON.stringify(Array.isArray(bcc) ? bcc : []),
+      aliasId,
+      inReplyTo,
+      references,
+      draftComposition ? JSON.stringify(draftComposition) : null,
     ]);
     const row = await query<{ id: string }>('SELECT id FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3', [account.id, uid, folder]);
-    if (row.rows[0]) await persistConversationCopyForRow(row.rows[0].id, account, { messageId, inReplyTo, references: null });
+    if (row.rows[0]) await persistConversationCopyForRow(row.rows[0].id, account, { messageId, inReplyTo, references });
   }
 
   async findSentMessageByMessageId(account: EmailAccountRow, folder: string, messageId: string): Promise<{ state: 'found' | 'missing' | 'ambiguous'; uid?: number | null }> {

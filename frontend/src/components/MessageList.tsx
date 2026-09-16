@@ -178,8 +178,11 @@ export default function MessageList() {
   // of the selected message (multi-folder model) — e.g. the inbox copy of a GTD sidebar click.
   const selectedMid = useStore(selectSelectedMessageMid);
   const draftOpenGuardRef = useRef<ReturnType<typeof createSessionOperationGuard> | null>(null);
-  if (!draftOpenGuardRef.current) draftOpenGuardRef.current = createSessionOperationGuard(() => useStore.getState().authEpoch);
-  useEffect(() => () => { draftOpenGuardRef.current?.invalidate(); }, []);
+  useEffect(() => {
+    const guard = createSessionOperationGuard(() => useStore.getState().authEpoch);
+    draftOpenGuardRef.current = guard;
+    return () => { guard.invalidate(); };
+  }, []);
 
   const isMobile = useMobile();
   const isUnified = selectedAccountId === null;
@@ -2590,13 +2593,18 @@ export default function MessageList() {
   };
 
   const handleSelect = async (message: StoreMessageRow) => {
-    const isCurrentDraftOpen = draftOpenGuardRef.current!.begin();
+    const guard = draftOpenGuardRef.current;
+    if (!guard) return;
+    const isCurrentDraftOpen = guard.begin();
     if (isDraftsFolder) {
       try {
         const bodyData = await api.getMessageBody(message.id);
         if (!isCurrentDraftOpen()) return;
+        const composition = message.draft_composition;
+        const authoredBody = typeof composition?.authoredBody === 'string' ? composition.authoredBody : (bodyData.html || bodyData.text || '');
         openCompose({
           accountId: message.account_id,
+          aliasId: message.draft_alias_id || null,
           draftUid: message.uid,
           draftUidValidity: draftUidValidity(message.draft_uid_validity),
           draftRowId: message.id,
@@ -2605,8 +2613,14 @@ export default function MessageList() {
           cc: formatAddressArray(message.cc_addresses),
           bcc: formatAddressArray(message.draft_bcc_addresses),
           subject: message.subject || '',
-          body: bodyData.html || bodyData.text || '',
-          bodyIsHtml: !!bodyData.html,
+          body: authoredBody,
+          bodyIsHtml: composition?.bodyIsHtml === true ? true : composition?.bodyIsHtml === false ? false : !!bodyData.html,
+          quotedBody: composition?.quotedBody || '',
+          quotedBodyHtml: composition?.quotedBodyHtml || null,
+          editedSignature: composition?.signatureHtml ?? null,
+          inReplyTo: message.draft_in_reply_to || null,
+          references: message.draft_references || null,
+          isReply: Boolean(message.draft_in_reply_to),
         });
       } catch (err) {
         if (!isCurrentDraftOpen()) return;

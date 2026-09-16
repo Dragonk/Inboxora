@@ -94,6 +94,19 @@ describe('POST /api/mail/draft — local row persistence', () => {
     expect(meta.bodyHtml).toContain('hello mike');
     expect(meta.bodyText).toContain('hello mike');
     expect(meta.messageId).toMatch(/^<[0-9a-f]+@mailflow\.sh>$/);
+    expect(meta.draftComposition).toMatchObject({ version: 1, authoredBody: 'hello mike', bodyIsHtml: false, signatureHtml: null });
+  });
+
+  it('persists reply headers and separately editable draft composition (V10-04/V10-05)', async () => {
+    const res = await fetch(`${base}/api/mail/draft`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ accountId: ACCOUNT_ID, subject: 'Re: x', body: 'author text', bodyIsHtml: false, editedSignature: '', quotedBody: 'old quote', inReplyTo: '<parent@example.test>', references: '<root@example.test> <parent@example.test>' }),
+    });
+    expect(res.status).toBe(200);
+    expect(imapManager.upsertDraftMessageRecord).toHaveBeenCalledWith(expect.anything(), 'Drafts', 5, expect.objectContaining({
+      inReplyTo: '<parent@example.test>', references: '<root@example.test> <parent@example.test>',
+      draftComposition: { version: 1, authoredBody: 'author text', bodyIsHtml: false, signatureHtml: null, quotedBody: 'old quote', quotedBodyHtml: null },
+    }));
   });
 
   it('persists BCC recipients with a reopened draft without exposing them as To or CC (V9-03)', async () => {
@@ -107,6 +120,21 @@ describe('POST /api/mail/draft — local row persistence', () => {
       cc: [{ name: '', email: 'cc@example.test' }],
       bcc: [{ name: '', email: 'hidden@example.test' }],
     }));
+  });
+
+  it('rejects an unavailable selected alias instead of falling back to the primary sender (V10-03)', async () => {
+    query.mockReset().mockImplementation(async (statement: string) => {
+      if (statement.includes('SELECT id FROM email_accounts')) return { rows: [{ id: ACCOUNT_ID }] };
+      if (statement.includes('SELECT * FROM email_accounts WHERE id = $1')) return { rows: [ACCOUNT_ROW] };
+      if (statement.includes('SELECT * FROM account_aliases')) return { rows: [] };
+      return { rows: [] };
+    });
+    const res = await fetch(`${base}/api/mail/draft`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ accountId: ACCOUNT_ID, aliasId: '33333333-3333-4333-8333-333333333333', subject: 'x', body: 'y' }),
+    });
+    expect(res.status).toBe(409);
+    expect(imapManager.appendToFolder).not.toHaveBeenCalled();
   });
 
   it('still returns success if the local row persistence throws (append already stored it)', async () => {

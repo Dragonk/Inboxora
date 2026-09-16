@@ -54,6 +54,8 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.2](wiki/R
 - Preserve BCC recipients and the historical draft identity when reopening a saved draft, while discarding late
   draft-open responses after an authentication-session change.
 - Clear only the completed cancellation operation's prior failure message after a successful retry.
+- Preserve the selected alias, reply headers, editable body format, signature and quoted reply material when reopening drafts; reject an unavailable alias rather than silently falling back to the primary address.
+- Replace every cached draft field from an authoritative APPEND snapshot, preventing UID reuse after a mailbox epoch reset from inheriting prior recipients.
 
 ### Notes
 
@@ -62,7 +64,8 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.2](wiki/R
   `0088_calendar_invitation_outbox_completion_checkpoint.sql`,
   `0089_calendar_invitation_outbox_uncertain_dispatch.sql`,
   `0090_calendar_cancellation_outbox_reference.sql`,
-  `0091_draft_uidvalidity_identity.sql` and `0092_draft_bcc_addresses.sql`; apply migrations before running workers or
+  `0091_draft_uidvalidity_identity.sql`, `0092_draft_bcc_addresses.sql` and
+  `0093_draft_composition_metadata.sql`; apply migrations before running workers or
   accepting outbound mail. No new configuration is required.
 
 ## [4.0.1] - 2026-09-13

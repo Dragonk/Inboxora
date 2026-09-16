@@ -31,6 +31,9 @@ type RawDraftInput = {
   quotedBody?: string | null;
   quotedBodyHtml?: string | null;
   editedSignature?: string | null;
+  hasEditedSignature?: boolean;
+  inReplyTo?: string | null;
+  references?: string | null;
 };
 
 type ExistingDraftIdentity = {
@@ -75,7 +78,7 @@ function textToHtml(text: string) {
     .join('');
 }
 
-async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml, quotedBody, quotedBodyHtml, editedSignature }: RawDraftInput) {
+async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml, quotedBody, quotedBodyHtml, editedSignature, hasEditedSignature = false, inReplyTo, references }: RawDraftInput) {
   const acctResult = await query<EmailAccountRow & { email_address: string }>(
     'SELECT * FROM email_accounts WHERE id = $1',
     [accountId]
@@ -92,7 +95,8 @@ async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, b
       'SELECT * FROM account_aliases WHERE id = $1 AND account_id = $2',
       [aliasId, accountId]
     );
-    if (aliasResult.rows.length) {
+    if (!aliasResult.rows.length) throw Object.assign(new Error('Selected sender alias is unavailable'), { status: 409 });
+    {
       const alias = aliasResult.rows[0];
       fromName = alias.name;
       fromEmail = alias.email;
@@ -100,7 +104,7 @@ async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, b
     }
   }
 
-  const rawSignature = editedSignature !== undefined ? (editedSignature || null) : fromSignature;
+  const rawSignature = hasEditedSignature ? (editedSignature || null) : fromSignature;
   const effectiveSignature = rawSignature ? sanitizeSignature(rawSignature) : null;
 
   const sigText = effectiveSignature
@@ -132,6 +136,8 @@ async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, b
     cc: (Array.isArray(cc) ? cc : []).filter(Boolean).join(', ') || undefined,
     bcc: (Array.isArray(bcc) ? bcc : []).filter(Boolean).join(', ') || undefined,
     subject: sanitizeHeaderValue(subject || ''),
+    ...(inReplyTo ? { inReplyTo: sanitizeHeaderValue(inReplyTo) } : {}),
+    ...(references ? { references: sanitizeHeaderValue(references) } : {}),
     text: textBody,
     html: draftHtml,
     ...(inlineImageAttachments.length ? { attachments: inlineImageAttachments } : {}),
@@ -156,7 +162,13 @@ async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, b
   return {
     rawMessage: Buffer.concat(chunks),
     account,
-    meta: { messageId, fromName, fromEmail, bodyHtml: rawHtml, bodyText: textBody, snippet },
+    meta: {
+      messageId, fromName, fromEmail, bodyHtml: rawHtml, bodyText: textBody, snippet,
+      aliasId: aliasId || null,
+      inReplyTo: inReplyTo ? sanitizeHeaderValue(inReplyTo) : null,
+      references: references ? sanitizeHeaderValue(references) : null,
+      draftComposition: { version: 1, authoredBody: body || '', bodyIsHtml: Boolean(bodyIsHtml), signatureHtml: effectiveSignature, quotedBody: quotedBody || null, quotedBodyHtml: quotedBodyHtml || null },
+    },
   };
 }
 
@@ -171,7 +183,8 @@ async function resolveDraftsFolder(account: EmailAccountRow) {
 }
 
 router.post('/draft', async (req, res) => {
-  const { accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml = false, quotedBody, quotedBodyHtml, editedSignature } = req.body;
+  const { accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml = false, quotedBody, quotedBodyHtml, editedSignature, inReplyTo, references } = req.body;
+  const hasEditedSignature = Object.prototype.hasOwnProperty.call(req.body || {}, 'editedSignature');
   const existingDraft = existingDraftIdentity(req.body?.existingDraft);
   if (!accountId) return res.status(400).json({ error: 'accountId required' });
 
@@ -182,7 +195,7 @@ router.post('/draft', async (req, res) => {
   if (!ownerCheck.rows.length) return res.status(404).json({ error: 'Account not found' });
 
   try {
-    const { rawMessage, account, meta } = await buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml, quotedBody, quotedBodyHtml, editedSignature });
+    const { rawMessage, account, meta } = await buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml, quotedBody, quotedBodyHtml, editedSignature, hasEditedSignature, inReplyTo, references });
 
     const draftsFolder = await resolveDraftsFolder(account);
     if (!draftsFolder) return res.status(422).json({ error: 'No Drafts folder found for this account' });
@@ -203,6 +216,10 @@ router.post('/draft', async (req, res) => {
           to: mapRecipientList(to),
           cc: mapRecipientList(cc),
           bcc: mapRecipientList(bcc),
+          aliasId: meta.aliasId,
+          inReplyTo: meta.inReplyTo,
+          references: meta.references,
+          draftComposition: meta.draftComposition,
           snippet: meta.snippet,
           bodyHtml: meta.bodyHtml,
           bodyText: meta.bodyText,

@@ -21,6 +21,15 @@ test('rejects a late draft open after it is superseded or unmounted', () => {
   assert.equal(second(), false);
 });
 
+test('a StrictMode-style replacement keeps prior callbacks invalid but accepts new work', () => {
+  const firstGuard = createSessionOperationGuard(() => 1);
+  const stale = firstGuard.begin();
+  firstGuard.invalidate();
+  const secondGuard = createSessionOperationGuard(() => 1);
+  assert.equal(stale(), false);
+  assert.equal(secondGuard.begin()(), true);
+});
+
 test('accepts the current draft open in the same session', () => {
   const guard = createSessionOperationGuard(() => 1);
   assert.equal(guard.begin()(), true);

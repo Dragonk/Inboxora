@@ -157,6 +157,13 @@ describe('migration integrity', () => {
     expect(sql).toContain('messages_draft_identity_idx');
   });
 
+  it('preserves editable draft composition and reply metadata', () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/0093_draft_composition_metadata.sql'), 'utf8');
+    expect(sql).toContain('draft_alias_id UUID');
+    expect(sql).toContain('draft_in_reply_to TEXT');
+    expect(sql).toContain('draft_composition JSONB');
+  });
+
   it('retains private BCC recipients for persisted drafts', () => {
     const sql = readFileSync(join(process.cwd(), 'migrations/0092_draft_bcc_addresses.sql'), 'utf8');
     expect(sql).toContain('ADD COLUMN IF NOT EXISTS draft_bcc_addresses JSONB');

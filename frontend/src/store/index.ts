@@ -70,6 +70,7 @@ export interface ComposeDraft {
   bodyIsHtml?: boolean;
   quotedBody?: string;
   quotedBodyHtml?: string | null;
+  editedSignature?: string | null;
   isReply?: boolean;
   isReplyAll?: boolean;
   isForward?: boolean;
@@ -373,6 +374,10 @@ export interface StoreMessageRow {
   cc_addresses?: string | null;
   draft_bcc_addresses?: string | Array<{ email?: string; name?: string | null }> | null;
   draft_uid_validity?: string | number | null;
+  draft_alias_id?: string | null;
+  draft_in_reply_to?: string | null;
+  draft_references?: string | null;
+  draft_composition?: { version?: number; authoredBody?: string; bodyIsHtml?: boolean; signatureHtml?: string | null; quotedBody?: string | null; quotedBodyHtml?: string | null } | null;
   reply_to?: string | null;
   delivery_addresses?: string | Array<{ email?: string | null; address?: string | null } | string> | null;
   category?: string | null;

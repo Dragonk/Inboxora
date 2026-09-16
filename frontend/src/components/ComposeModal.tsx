@@ -271,7 +271,7 @@ export default function ComposeModal() {
   const initialFromRef = useRef<string | null>(null);
   const initialQuotedBodyRef = useRef(composeData?.quotedBody || '');
   const initialQuotedBodyHtmlRef = useRef<string | null>(composeData?.quotedBodyHtml || null);
-  const initialEditedSignatureRef = useRef<string | null>(null);
+  const initialEditedSignatureRef = useRef<string | null>(composeData?.editedSignature ?? null);
   // Start at fwdAttachments.length so pre-loaded forwarded attachments aren't dirty.
   const savedAttachmentCountRef = useRef((composeData?.forwardedAttachments || []).length);
   // True when the compose was opened by clicking an existing draft from the list.
@@ -377,12 +377,12 @@ export default function ComposeModal() {
   posRef.current = pos;
   customSizeRef.current = customSize;
 
-  const [plainSig, setPlainSigState] = useState(() => fromSignature ? stripHtml(fromSignature) : '');
+  const [plainSig, setPlainSigState] = useState(() => composeData?.editedSignature !== undefined ? stripHtml(composeData.editedSignature || '') : (fromSignature ? stripHtml(fromSignature) : ''));
   const setPlainSig = (value: React.SetStateAction<string>) => { recordDraftEdit(); setPlainSigState(value); };
   // Tracks the user's current (possibly edited) rich-text signature; kept current by onInput.
-  const signatureContentRef = useRef('');
+  const signatureContentRef = useRef(composeData?.editedSignature ?? '');
   // Prevents the signature from being reset by a store refresh (same fromValue, accounts updated).
-  const signatureInitializedRef = useRef(false);
+  const signatureInitializedRef = useRef(composeData?.editedSignature !== undefined);
   const prevFromValueRef = useRef(fromValue);
   // Refs avoid a component render on every editor transaction.
   const lastEditAtRef = useRef(Date.now());
@@ -655,6 +655,11 @@ export default function ComposeModal() {
   }, []);
 
   useEffect(() => { return () => { dragCleanupRef.current?.({ commit: false }); }; }, []);
+
+  useEffect(() => {
+    const initialSignature = initialComposeDataRef.current?.editedSignature;
+    if (initialSignature !== undefined && signatureRef.current) signatureRef.current.innerHTML = DOMPurify.sanitize(initialSignature || '');
+  }, []);
 
   // Initialise/reset the signature when the From identity changes, or when the
   // signature first becomes available (accounts loaded after component mount).
@@ -973,6 +978,8 @@ export default function ComposeModal() {
       quotedBodyHtml: quotedHtmlRef.current ? quotedHtmlRef.current.innerHTML : quotedBodyHtml,
       includeEditedSignature: Boolean(signatureContentRef.current || fromSignature != null),
       editedSignature: plaintextEmail ? plainSig : signatureContentRef.current,
+      inReplyTo: composeData?.inReplyTo || null,
+      references: composeData?.references || null,
       existingDraft: draftUid != null && draftFolder != null && draftAccountId && draftUidValidity != null
         ? { accountId: draftAccountId, uid: draftUid, folder: draftFolder, uidValidity: draftUidValidity }
         : null,
@@ -990,7 +997,10 @@ export default function ComposeModal() {
         bodyIsHtml: draftSnapshot.bodyIsHtml,
         ...(draftSnapshot.quotedBody ? { quotedBody: draftSnapshot.quotedBody } : {}),
         ...(draftSnapshot.includeQuotedBodyHtml ? { quotedBodyHtml: draftSnapshot.quotedBodyHtml } : {}),
-        ...(draftSnapshot.includeEditedSignature ? { editedSignature: draftSnapshot.editedSignature } : {}),
+        // Draft snapshots always carry the signature value, including an intentional removal.
+        editedSignature: draftSnapshot.editedSignature,
+        ...(draftSnapshot.inReplyTo ? { inReplyTo: draftSnapshot.inReplyTo } : {}),
+        ...(draftSnapshot.references ? { references: draftSnapshot.references } : {}),
         ...(draftSnapshot.existingDraft ? { existingDraft: draftSnapshot.existingDraft } : {}),
       });
       if (!isCurrentComposeSession()) return;
