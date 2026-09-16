@@ -74,6 +74,7 @@ interface SendRequestBody {
   references?: string;
   attachments?: ComposerAttachment[];
   editedSignature?: string;
+  editedSignatureIsHtml?: boolean;
   forwardedAttachments?: ForwardedAttachmentRef[];
   priority?: string;
 }
@@ -286,7 +287,7 @@ type SendIntentClaim =
   | { state: 'completed'; result: unknown }
   | { state: 'mismatch' };
 
-async function claimSendIntent(userId: string, idempotencyKey: string, fingerprint: string, token: string): Promise<SendIntentClaim> {
+async function claimSendIntent(userId: string, idempotencyKey: string, fingerprint: string, compatibleFingerprints: readonly string[], token: string): Promise<SendIntentClaim> {
   const inserted = await query<SendIntentRow>(
     `INSERT INTO send_idempotency (user_id, idempotency_key, request_fingerprint, status, intent_token)
      VALUES ($1, $2, $3, 'pending', $4::uuid)
@@ -305,7 +306,7 @@ async function claimSendIntent(userId: string, idempotencyKey: string, fingerpri
   // A pre-send failure may have released the row between the INSERT conflict and
   // SELECT. Fail closed; the client can safely make a fresh request.
   if (!row) return { state: 'inflight' };
-  if (row.request_fingerprint !== fingerprint) return { state: 'mismatch' };
+  if (!compatibleFingerprints.includes(row.request_fingerprint)) return { state: 'mismatch' };
   if (row.status === 'completed') return { state: 'completed', result: row.result };
   return { state: row.status === 'uncertain' ? 'uncertain' : 'inflight' };
 }
@@ -398,10 +399,11 @@ router.use(requireAuth);
 
 
 router.post('/send', async (req, res) => {
-  const { accountId, aliasId, to, cc = [], bcc = [], subject, body, bodyIsHtml, quotedBody, quotedBodyHtml, inReplyTo, references, attachments, editedSignature, forwardedAttachments, priority }: SendRequestBody = req.body;
+  const { accountId, aliasId, to, cc = [], bcc = [], subject, body, bodyIsHtml, quotedBody, quotedBodyHtml, inReplyTo, references, attachments, editedSignature, editedSignatureIsHtml, forwardedAttachments, priority }: SendRequestBody = req.body;
   const emailPriority = isEmailPriority(priority) ? priority : 'normal';
   if (!accountId) return res.status(400).json({ error: 'accountId required' });
   if (bodyIsHtml !== undefined && typeof bodyIsHtml !== 'boolean') return res.status(400).json({ error: 'bodyIsHtml must be a boolean' });
+  if (editedSignatureIsHtml !== undefined && typeof editedSignatureIsHtml !== 'boolean') return res.status(400).json({ error: 'editedSignatureIsHtml must be a boolean' });
 
   // Idempotency guard. The client sends a stable X-Idempotency-Key per logical send: a
   // sequential retry after a lost success response returns the cached result, and a
@@ -468,9 +470,13 @@ router.post('/send', async (req, res) => {
 
   // Allow the client to override the signature per-send (editedSignature === undefined means use DB value).
   // Sanitize client-supplied HTML to prevent injecting scripts or tracking pixels into sent mail.
+  const signatureIsHtml = editedSignatureIsHtml !== false;
   const effectiveSignature = editedSignature !== undefined
-    ? (editedSignature ? sanitizeSignature(editedSignature) : null)
+    ? (editedSignature ? (signatureIsHtml ? sanitizeSignature(editedSignature) : textToHtml(editedSignature)) : null)
     : fromSignature;  // fromSignature from DB is already sanitized on write
+  const effectiveSignatureText = editedSignature !== undefined && !signatureIsHtml
+    ? editedSignature
+    : (effectiveSignature ? sigToPlainText(effectiveSignature) : null);
 
   // Fetch forwarded attachment content from IMAP before entering the SMTP try-block so that
   // attachment errors return descriptive messages rather than being sanitized as SMTP errors.
@@ -552,6 +558,14 @@ router.post('/send', async (req, res) => {
     subject: normalizedSubject, body, inputBodyIsHtml, outputBodyIsHtml, quotedBody, quotedBodyHtml, inReplyTo, references,
     attachments, forwardedAttachments, editedSignature, priority: emailPriority,
   })).digest('hex');
+  // V1 used the raw API field (defaulting to false). Keep this recognisable
+  // during upgrades so a lost response cannot turn into a new delivery.
+  const legacyFingerprint = createHash('sha256').update(JSON.stringify({
+    accountId, aliasId: aliasId || null, to: normalizedTo, cc: normalizedCc, bcc: normalizedBcc,
+    subject: normalizedSubject, body, bodyIsHtml: bodyIsHtml ?? false, quotedBody, quotedBodyHtml, inReplyTo, references,
+    attachments, forwardedAttachments, editedSignature, priority: emailPriority,
+  })).digest('hex');
+  const compatibleFingerprints = [sendFingerprint, legacyFingerprint];
   if (idemKeyRedis) {
     let cached: string | null;
     try { cached = await redisClient.get(idemKeyRedis); }
@@ -560,7 +574,7 @@ router.post('/send', async (req, res) => {
     if (cached) {
       const replay = parseCachedSendResult(cached);
       if (replay) {
-        if (replay.fingerprint !== sendFingerprint) {
+        if (!compatibleFingerprints.includes(replay.fingerprint)) {
           return res.status(409).json({ error: 'This idempotency key belongs to a different message.' });
         }
         return res.json(replay.result);
@@ -608,7 +622,7 @@ router.post('/send', async (req, res) => {
       subject: normalizedSubject,
       ...(emailPriority !== 'normal' ? { priority: emailPriority } : {}),
       text: effectiveSignature
-        ? bodyToPlain(body, inputBodyIsHtml) + '\n\n-- \n' + sigToPlainText(effectiveSignature) + (quotedBody || '')
+        ? bodyToPlain(body, inputBodyIsHtml) + '\n\n-- \n' + effectiveSignatureText + (quotedBody || '')
         : bodyToPlain(body, inputBodyIsHtml) + (quotedBody || ''),
     };
 
@@ -681,7 +695,7 @@ router.post('/send', async (req, res) => {
     if (idempotencyKey) {
       intentToken = randomUUID();
       let claim: SendIntentClaim;
-      try { claim = await claimSendIntent(req.session.userId!, idempotencyKey, sendFingerprint, intentToken!); }
+      try { claim = await claimSendIntent(req.session.userId!, idempotencyKey, sendFingerprint, compatibleFingerprints, intentToken!); }
       catch { return res.status(503).json({ error: 'Sending is temporarily unavailable. Please try again shortly.' }); }
       if (claim.state === 'completed') return res.json(claim.result);
       if (claim.state === 'mismatch') return res.status(409).json({ error: 'This idempotency key belongs to a different message.' });

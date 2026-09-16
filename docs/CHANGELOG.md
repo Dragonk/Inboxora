@@ -58,7 +58,7 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.2](wiki/R
 - Replace every cached draft field from an authoritative APPEND snapshot, preventing UID reuse after a mailbox epoch reset from inheriting prior recipients.
 - Apply the same fail-closed selected-alias validation to sending and draft saving.
 - Keep each reopened draft in its saved text/HTML format through SMTP MIME generation, including HTML quotes and inline images, while preserving literal legacy API text when the format flag is absent.
-- Ensure restored signatures remain visible and editable in both layouts, and send newly typed plaintext signatures.
+- Ensure restored signatures remain visible and editable in both layouts, send newly typed plaintext signatures literally, and retain idempotency replay compatibility across the previous fingerprint schema.
 
 ### Notes
 

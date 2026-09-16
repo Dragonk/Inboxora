@@ -845,7 +845,7 @@ export default function ComposeModal() {
         ...(!plaintextCompose && (quotedBodyHtml != null || quotedHtmlRef.current)
           ? { quotedBodyHtml: quotedHtmlRef.current ? quotedHtmlRef.current.innerHTML : quotedBodyHtml }
           : {}),
-        ...(hasSignatureOverride ? { editedSignature: signatureToSend } : {}),
+        ...(hasSignatureOverride ? { editedSignature: signatureToSend, editedSignatureIsHtml: !plaintextCompose } : {}),
         inReplyTo: composeData?.inReplyTo,
         references: composeData?.references || undefined,
         ...(priority !== 'normal' ? { priority } : {}),
