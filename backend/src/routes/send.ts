@@ -18,6 +18,7 @@ import { imapManager } from '../index.js';
 import { pluginRegistry } from '../plugins/registry.js';
 import { toAppError } from '../utils/errors.js';
 import { resolveSenderIdentity } from '../services/senderIdentity.js';
+import { resolveOutgoingBodyIsHtml } from '../services/composeFormat.js';
 import type { InlineAttachment } from '../utils/inlineImages.js';
 
 /** One client-supplied attachment of an outgoing message (base64 payload). */
@@ -397,9 +398,10 @@ router.use(requireAuth);
 
 
 router.post('/send', async (req, res) => {
-  const { accountId, aliasId, to, cc = [], bcc = [], subject, body, bodyIsHtml = false, quotedBody, quotedBodyHtml, inReplyTo, references, attachments, editedSignature, forwardedAttachments, priority }: SendRequestBody = req.body;
+  const { accountId, aliasId, to, cc = [], bcc = [], subject, body, bodyIsHtml, quotedBody, quotedBodyHtml, inReplyTo, references, attachments, editedSignature, forwardedAttachments, priority }: SendRequestBody = req.body;
   const emailPriority = isEmailPriority(priority) ? priority : 'normal';
   if (!accountId) return res.status(400).json({ error: 'accountId required' });
+  if (bodyIsHtml !== undefined && typeof bodyIsHtml !== 'boolean') return res.status(400).json({ error: 'bodyIsHtml must be a boolean' });
 
   // Idempotency guard. The client sends a stable X-Idempotency-Key per logical send: a
   // sequential retry after a lost success response returns the cached result, and a
@@ -450,6 +452,8 @@ router.post('/send', async (req, res) => {
   ]);
   if (!result.rows.length) return res.status(404).json({ error: 'Account not found' });
   const plaintextEmail = prefResult.rows[0]?.preferences?.plaintextEmail === true;
+  // Explicit composition format wins; absent legacy clients retain the profile default.
+  const effectiveBodyIsHtml = resolveOutgoingBodyIsHtml(bodyIsHtml, plaintextEmail);
   let account = result.rows[0];
   let sender;
   try {
@@ -543,7 +547,7 @@ router.post('/send', async (req, res) => {
   let intentClaimed = false;
   const sendFingerprint = createHash('sha256').update(JSON.stringify({
     accountId, aliasId: aliasId || null, to: normalizedTo, cc: normalizedCc, bcc: normalizedBcc,
-    subject: normalizedSubject, body, bodyIsHtml, quotedBody, quotedBodyHtml, inReplyTo, references,
+    subject: normalizedSubject, body, bodyIsHtml: effectiveBodyIsHtml, quotedBody, quotedBodyHtml, inReplyTo, references,
     attachments, forwardedAttachments, editedSignature, priority: emailPriority,
   })).digest('hex');
   if (idemKeyRedis) {
@@ -602,13 +606,13 @@ router.post('/send', async (req, res) => {
       subject: normalizedSubject,
       ...(emailPriority !== 'normal' ? { priority: emailPriority } : {}),
       text: effectiveSignature
-        ? bodyToPlain(body, bodyIsHtml) + '\n\n-- \n' + sigToPlainText(effectiveSignature) + (quotedBody || '')
-        : bodyToPlain(body, bodyIsHtml) + (quotedBody || ''),
+        ? bodyToPlain(body, effectiveBodyIsHtml) + '\n\n-- \n' + sigToPlainText(effectiveSignature) + (quotedBody || '')
+        : bodyToPlain(body, effectiveBodyIsHtml) + (quotedBody || ''),
     };
 
     let inlineImageAttachments: InlineAttachment[] = [];
-    if (!plaintextEmail) {
-      const rawHtml = bodyToHtml(body, bodyIsHtml) +
+    if (effectiveBodyIsHtml) {
+      const rawHtml = bodyToHtml(body, effectiveBodyIsHtml) +
         (effectiveSignature
           ? '<div style="margin-top:16px;color:#555;font-size:13px">' + effectiveSignature + '</div>'
           : '') +
@@ -805,7 +809,7 @@ router.post('/send', async (req, res) => {
       fromEmail,
       to: mapRecipientList(normalizedTo),
       cc: mapRecipientList(normalizedCc),
-      snippet: buildSentSnippet(body, bodyIsHtml),
+      snippet: buildSentSnippet(body, effectiveBodyIsHtml),
       date: new Date(),
       // Carried so the Sent row threads into its conversation via the References chain
       // rather than orphaning at its own Message-ID (#378).

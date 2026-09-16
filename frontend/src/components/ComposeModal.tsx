@@ -2189,7 +2189,7 @@ export default function ComposeModal() {
           </div>
         )}
 
-        {fromSignature ? (
+        {shouldShowSignatureEditor(fromSignature, hasPersistedSignature) ? (
           <div style={{ padding: '0 14px 10px' }}>
             <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 6, userSelect: 'none' }}>
               -- signature
