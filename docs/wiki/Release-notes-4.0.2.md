@@ -8,6 +8,10 @@
 
 4.0.2 is a reliability and data-isolation patch. It fixes confirmed failure paths in sending, session changes, IMAP, calendar processing, AI streaming and Microsoft integration configuration. It adds no user-facing feature. Apply the included calendar-invitation outbox migration before deploying workers; no configuration change is required.
 
+## Public feed availability
+
+- Anonymous calendar-feed requests now consume their public request budget before a database lookup. Requests over the budget receive the existing non-enumerating `404 Not found` response with `Retry-After`, without querying PostgreSQL.
+
 ## Mail delivery and sessions
 
 - Partial SMTP acceptance is preserved even when later Sent-folder processing fails. The composer no longer presents a partial recipient failure as an ordinary full success: it keeps the draft open and prepares a retry only for recipients the server rejected.

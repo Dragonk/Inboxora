@@ -12,6 +12,7 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.2](wiki/R
 
 ### Fixed
 
+- Apply the public calendar-feed request budget before database lookup, preventing a flood of syntactically valid unknown tokens from exhausting PostgreSQL.
 - Preserve partial SMTP recipient results through post-send failures and keep a partial-send composer open
   with only rejected recipients for a safe retry.
 - Prevent stale account and deep-link callbacks from writing into a later SPA session; preserve navigation only
