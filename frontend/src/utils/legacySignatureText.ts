@@ -18,8 +18,11 @@ export function legacySignatureHtmlToText(html: string): string {
     const before = result.length;
     element.childNodes.forEach(visit);
     // Historical empty paragraphs commonly contain only NBSP; retain real spaces.
-    if (block && result.slice(before).replace(/\u00a0/g, '').trim() === '') result = result.slice(0, before);
-    if (block) appendBreak();
+    if (block && result.slice(before).replace(/\u00a0/g, '').trim() === '') {
+      result = result.slice(0, before);
+      // A legacy empty paragraph is a deliberate blank line, even after a block.
+      result += '\n';
+    } else if (block) appendBreak();
   };
   root.childNodes.forEach(visit);
   return result.endsWith('\n') ? result.slice(0, -1) : result;
