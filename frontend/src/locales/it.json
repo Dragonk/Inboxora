@@ -912,6 +912,11 @@
       "accountInbox": "{{name}} — Posta in arrivo"
     }
   },
+  "errorBoundary": {
+    "title": "Qualcosa è andato storto",
+    "body": "Inboxora non è riuscita a visualizzare questa schermata. Ricarica la pagina per riprovare.",
+    "reload": "Ricarica"
+  },
   "common": {
     "cancel": "Annulla",
     "save": "Salva",
@@ -1381,6 +1386,11 @@
     "allowDomain": "Consenti sempre da @{{domain}}",
     "downloading": "Download in corso…",
     "downloadAll": "Scarica tutto",
+    "dangerousAttachment": {
+      "title": "Questo allegato potrebbe non essere sicuro",
+      "body": "Questo allegato può eseguire software quando viene aperto. Scaricalo solo se ti fidi del mittente.",
+      "download": "Scarica comunque"
+    },
     "reply": "Rispondi",
     "replyAll": "Rispondi a tutti",
     "replyOptions": "Opzioni di risposta",

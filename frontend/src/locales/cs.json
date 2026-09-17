@@ -912,6 +912,11 @@
       "accountInbox": "{{name}} — Doručené"
     }
   },
+  "errorBoundary": {
+    "title": "Něco se pokazilo",
+    "body": "Inboxora nemohla tuto obrazovku zobrazit. Obnovte stránku a zkuste to znovu.",
+    "reload": "Obnovit"
+  },
   "common": {
     "cancel": "Zrušit",
     "save": "Uložit",
@@ -1383,6 +1388,11 @@
     "allowDomain": "Vždy povolit z @{{domain}}",
     "downloading": "Stahování…",
     "downloadAll": "Stáhnout vše",
+    "dangerousAttachment": {
+      "title": "Tato příloha může být nebezpečná",
+      "body": "Tato příloha může po otevření spustit software. Stahujte ji jen tehdy, pokud důvěřujete odesílateli.",
+      "download": "Přesto stáhnout"
+    },
     "reply": "Odpovědět",
     "replyAll": "Odpovědět všem",
     "replyOptions": "Možnosti odpovědi",

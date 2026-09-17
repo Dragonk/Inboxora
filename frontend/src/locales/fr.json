@@ -912,6 +912,11 @@
       "accountInbox": "{{name}} — Boîte de réception"
     }
   },
+  "errorBoundary": {
+    "title": "Un problème est survenu",
+    "body": "Inboxora n’a pas pu afficher cet écran. Rechargez la page pour réessayer.",
+    "reload": "Recharger"
+  },
   "common": {
     "cancel": "Annuler",
     "save": "Enregistrer",
@@ -1381,6 +1386,11 @@
     "allowDomain": "Toujours autoriser depuis @{{domain}}",
     "downloading": "Téléchargement…",
     "downloadAll": "Tout télécharger",
+    "dangerousAttachment": {
+      "title": "Cette pièce jointe peut être dangereuse",
+      "body": "Cette pièce jointe peut exécuter un logiciel à son ouverture. Ne la téléchargez que si vous faites confiance à l’expéditeur.",
+      "download": "Télécharger quand même"
+    },
     "reply": "Répondre",
     "replyAll": "Répondre à tous",
     "replyOptions": "Options de réponse",

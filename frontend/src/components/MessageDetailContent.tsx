@@ -1,8 +1,11 @@
 import CalendarInvitationCard from './CalendarInvitationCard.tsx';
 import { useCallback, useRef, useState } from 'react';
+import type { MouseEvent } from 'react';
 import { useTranslation } from 'react-i18next';
+import { isDangerousAttachment } from '../utils/dangerousAttachment.ts';
 import MessageBodyRenderer from './MessageBodyRenderer.tsx';
 import ContextMenu from './ContextMenu.tsx';
+import { Button, Dialog } from './ui.tsx';
 
 function formatBytes(bytes: number | undefined): string {
   if (!bytes) return '';
@@ -27,6 +30,10 @@ interface MessageDetailAttachment {
   size?: number;
   [key: string]: unknown;
 }
+
+type PendingDownload =
+  | { kind: 'attachment'; attachment: MessageDetailAttachment }
+  | { kind: 'all' };
 
 /** The message fields the detail pane reads (a store row or a reader copy). */
 interface MessageDetailMessage {
@@ -73,7 +80,7 @@ interface MessageDetailContentProps {
   onAllowSender?(physicalCopyId: string | undefined): void;
   onAllowDomain?(physicalCopyId: string | undefined): void;
   onUnsubscribe?(physicalCopyId: string): Promise<boolean | void> | boolean | void;
-  onDownload?(physicalCopyId: string, part: string | undefined, filename: string | undefined): void;
+  onDownload?(physicalCopyId: string, part: string | undefined, filename: string | undefined): Promise<void> | void;
   onContextAction?(action: string, data?: unknown, physicalCopyId?: string): void;
   onInitialBodyLayout?: () => void;
   canAccessCopy?: boolean;
@@ -108,10 +115,13 @@ export default function MessageDetailContent({
   // Keep existing catalogue entries live while native-only AI notices remain in the outer pane.
   const legacyAiLabels = [t('message.aiClassify.button'), t('message.aiClassify.info')];
   const [downloadingPart, setDownloadingPart] = useState<string | null | undefined>(null);
+  const [pendingDownload, setPendingDownload] = useState<PendingDownload | null>(null);
   const [unsubscribeStatus, setUnsubscribeStatus] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; selectedText: string } | null>(null);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const attachments: MessageDetailAttachment[] = Array.isArray(body?.attachments) ? body.attachments : [];
+  const downloadAllUrl = canAccessCopy && physicalCopyId ? `/api/mail/messages/${encodeURIComponent(physicalCopyId)}/attachments.zip` : undefined;
+  const downloadAllContainsDangerousAttachment = attachments.some(isDangerousAttachment);
   const html = body?.html ?? body?.body_html ?? '';
   const text = body?.text ?? body?.body_text ?? '';
   const blocked = Boolean(body?.hasBlockedRemoteImages ?? body?.has_blocked_remote_images);
@@ -126,11 +136,44 @@ export default function MessageDetailContent({
     const opened = window.open(url, '_blank', 'noopener,noreferrer');
     if (opened) opened.opener = null;
   }, []);
-  const download = async (attachment: { part?: string; filename?: string }) => {
+  const download = async (attachment: MessageDetailAttachment) => {
     if (!physicalCopyId || !canAccessCopy || downloadingPart !== null) return;
     setDownloadingPart(attachment.part);
     try { await onDownload?.(physicalCopyId, attachment.part, attachment.filename); }
     finally { setDownloadingPart(null); }
+  };
+  const downloadAll = () => {
+    if (!downloadAllUrl) return;
+    const anchor = document.createElement('a');
+    anchor.href = downloadAllUrl;
+    anchor.download = '';
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+  };
+  const requestDownload = (attachment: MessageDetailAttachment) => {
+    if (!physicalCopyId || !canAccessCopy || downloadingPart !== null) return;
+    if (isDangerousAttachment(attachment)) {
+      setPendingDownload({ kind: 'attachment', attachment });
+      return;
+    }
+    void download(attachment);
+  };
+  const requestDownloadAll = (event: MouseEvent<HTMLAnchorElement>) => {
+    if (!downloadAllContainsDangerousAttachment) return;
+    event.preventDefault();
+    if (!downloadAllUrl || downloadingPart !== null) return;
+    setPendingDownload({ kind: 'all' });
+  };
+  const confirmPendingDownload = () => {
+    const target = pendingDownload;
+    setPendingDownload(null);
+    if (!target) return;
+    if (target.kind === 'all') {
+      downloadAll();
+      return;
+    }
+    void download(target.attachment);
   };
   const unsubscribe = async () => {
     if (!physicalCopyId || unsubscribeStatus === 'loading') return;
@@ -146,12 +189,12 @@ export default function MessageDetailContent({
     {attachments.length > 0 && <div data-message-detail-attachments="true" style={{ marginBottom: 20 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
         <div style={{ fontSize: 12, color: 'var(--text-tertiary)', fontWeight: 500 }}>{t('message.attachment', { count: attachments.length })}</div>
-        {attachments.length > 1 && <a data-message-detail-download-all="true" href={canAccessCopy && physicalCopyId ? `/api/mail/messages/${encodeURIComponent(physicalCopyId)}/attachments.zip` : undefined} download={canAccessCopy || undefined} style={{ fontSize: 12, color: 'var(--accent)', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4 }}>
+        {attachments.length > 1 && <a data-message-detail-download-all="true" href={downloadAllUrl} download={canAccessCopy || undefined} onClick={requestDownloadAll} style={{ fontSize: 12, color: 'var(--accent)', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4 }}>
           {t('message.downloadAll')}
         </a>}
       </div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-        {attachments.map((att: { part?: string; type?: string; filename?: string; size?: number }, i: number) => <button key={att.part || i} data-message-detail-attachment={String(att.part || i)} onClick={() => download(att)} disabled={!canAccessCopy || downloadingPart === att.part} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 8, background: 'var(--bg-secondary)', border: '1px solid var(--border)', cursor: downloadingPart === att.part ? 'wait' : 'pointer', color: 'var(--text-primary)', maxWidth: 240 }}>
+        {attachments.map((att, i) => <button key={att.part || i} data-message-detail-attachment={String(att.part || i)} onClick={() => requestDownload(att)} disabled={!canAccessCopy || downloadingPart === att.part} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 8, background: 'var(--bg-secondary)', border: '1px solid var(--border)', cursor: downloadingPart === att.part ? 'wait' : 'pointer', color: 'var(--text-primary)', maxWidth: 240 }}>
           <span style={{ display: 'flex', flexShrink: 0, color: 'var(--text-secondary)' }}><FileIcon type={att.type} /></span>
           <span style={{ minWidth: 0, textAlign: 'left' }}><span style={{ display: 'block', fontSize: 12, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{att.filename}</span><span style={{ display: 'block', fontSize: 11, color: 'var(--text-tertiary)' }}>{downloadingPart === att.part ? t('message.downloading') : formatBytes(att.size)}</span></span>
         </button>)}
@@ -172,6 +215,18 @@ export default function MessageDetailContent({
       <MessageBodyRenderer html={html} text={text} remoteImages={remoteImages} iframeRef={iframeRef} title={t('message.emailFrameTitle')} showQuotedTextLabel={t('conversation.showQuotedText')} hideQuotedTextLabel={t('conversation.hideQuotedText')} onContextMenu={openContextMenu} onOpenLink={openExternalLink} onInitialLayoutReady={onInitialBodyLayout} style={{ width: '1px', minWidth: '100%', height: '300px' }} />
     </div>}
     {contextMenu && <ContextMenu x={contextMenu.x} y={contextMenu.y} message={message} variant="messagePane" selectedText={contextMenu.selectedText} onClose={() => setContextMenu(null)} onAction={(action, data) => { setContextMenu(null); onContextAction?.(action, data, physicalCopyId); }} />}
+    {pendingDownload && <Dialog
+      title={t('message.dangerousAttachment.title')}
+      closeLabel={t('common.close')}
+      onClose={() => setPendingDownload(null)}
+      testId="dangerous-attachment-download-dialog"
+      footer={<>
+        <Button onClick={() => setPendingDownload(null)}>{t('common.cancel')}</Button>
+        <Button variant="primary" data-testid="dangerous-attachment-download-confirm" onClick={confirmPendingDownload}>{t('message.dangerousAttachment.download')}</Button>
+      </>}
+    >
+      <p>{t('message.dangerousAttachment.body')}</p>
+    </Dialog>}
   </div>;
 }
 

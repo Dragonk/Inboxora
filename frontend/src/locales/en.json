@@ -912,6 +912,11 @@
       "accountInbox": "{{name}} — Inbox"
     }
   },
+  "errorBoundary": {
+    "title": "Something went wrong",
+    "body": "Inboxora could not display this screen. Reload the page to try again.",
+    "reload": "Reload"
+  },
   "common": {
     "cancel": "Cancel",
     "save": "Save",
@@ -1381,6 +1386,11 @@
     "allowDomain": "Always allow from @{{domain}}",
     "downloading": "Downloading…",
     "downloadAll": "Download all",
+    "dangerousAttachment": {
+      "title": "This attachment may be unsafe",
+      "body": "This attachment may run software when opened. Download it only if you trust the sender.",
+      "download": "Download anyway"
+    },
     "reply": "Reply",
     "replyAll": "Reply All",
     "replyOptions": "Reply options",

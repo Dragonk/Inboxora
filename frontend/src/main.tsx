@@ -2,6 +2,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import App from './App.tsx';
+import ErrorBoundary from './components/ErrorBoundary.tsx';
 import './index.css';
 import './ui.css';
 import './i18n.ts';
@@ -15,8 +16,10 @@ if (rootElement === null) {
 
 ReactDOM.createRoot(rootElement).render(
   <React.StrictMode>
-    <BrowserRouter>
-      <App />
-    </BrowserRouter>
+    <ErrorBoundary>
+      <BrowserRouter>
+        <App />
+      </BrowserRouter>
+    </ErrorBoundary>
   </React.StrictMode>
 );

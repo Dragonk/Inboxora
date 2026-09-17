@@ -13,7 +13,7 @@ vi.mock('./hostValidation.js', () => ({ resolveForConnection: vi.fn() }));
 vi.mock('./connectionPolicy.js', () => ({ getConnectionPolicy: vi.fn() }));
 
 import type { CollectedParts, EmailAccountRow } from './imapManager.js';
-import { ImapManager, providerProfile, makeClientCfg, attachmentTransferEncoding, relocateExemptGuard, insertCopiedSibling, deleteMessageCopyRow, emitSectionsChanged, ensureMailbox, createKeyedSemaphore, isConnectionRefusal, connectCooldownMs, effectiveSyncIntervalMs, folderSyncDue, planModseqSync, connectStaggerFor, walkStructure, shouldFallbackToTextPart, persistInboundCalendarInvitationFromMessage, looksLikeTextPayload, parsePersistentCap, resolvePersistentCap, persistentEligible, shouldRetryIPv4, classifyMoveBySearch } from './imapManager.js';
+import { ImapManager, providerProfile, makeClientCfg, attachmentTransferEncoding, insertCopiedSibling, deleteMessageCopyRow, emitSectionsChanged, ensureMailbox, createKeyedSemaphore, isConnectionRefusal, connectCooldownMs, effectiveSyncIntervalMs, folderSyncDue, planModseqSync, connectStaggerFor, walkStructure, shouldFallbackToTextPart, persistInboundCalendarInvitationFromMessage, looksLikeTextPayload, parsePersistentCap, resolvePersistentCap, persistentEligible, shouldRetryIPv4, classifyMoveBySearch, evaluateFolderStatusChange } from './imapManager.js';
 import { parseInboundCalendarInvitation } from './inboundCalendarInvitation.js';
 import { pluginRegistry } from '../plugins/registry.js';
 import { EventEmitter } from 'node:events';
@@ -206,35 +206,6 @@ describe('looksLikeTextPayload', () => {
   });
 });
 
-// ── relocateExemptGuard — move-detector exemption ────────────────────────────
-
-describe('relocateExemptGuard — label folder relocate exemption', () => {
-  it('is a no-op when no label plugin contributes folders', () => {
-    const guard = relocateExemptGuard([], 5);
-    expect(guard.clause).toBe('');
-    expect(guard.params).toEqual([]);
-  });
-
-  it('binds the exempt folders as a single array param', () => {
-    const guard = relocateExemptGuard(['Todo', 'Watch'], 5);
-    expect(guard.params).toEqual([['Todo', 'Watch']]);
-  });
-
-  it('exempts both the target folder ($1) and the row current folder', () => {
-    const { clause } = relocateExemptGuard(['Todo'], 5);
-    // Target folder being synced ($1) must not be relocated INTO an exempt label folder…
-    expect(clause).toContain('$1 <> ALL($5::text[])');
-    // …and a row already living in an exempt label folder must not be relocated OUT of it.
-    expect(clause).toContain('folder <> ALL($5::text[])');
-  });
-
-  it('uses the supplied positional bind index', () => {
-    const { clause } = relocateExemptGuard(['Todo'], 7);
-    expect(clause).toContain('$7::text[]');
-    expect(clause).not.toContain('$5');
-  });
-});
-
 // ── makeClientCfg — TLS enforcement ──────────────────────────────────────────
 
 describe('makeClientCfg — TLS enforcement', () => {
@@ -279,6 +250,41 @@ describe('makeClientCfg — TLS enforcement', () => {
     expect(cfg.auth).toEqual({ user: 'user', accessToken: 'oauth-access-token' });
     expect(decrypt).toHaveBeenCalledTimes(1);
     expect(decrypt).toHaveBeenCalledWith('enc:v1:token');
+  });
+});
+
+describe('explicit IDLE configuration', () => {
+  it('disables delayed auto-IDLE and keeps an explicit keepalive on persistent clients', () => {
+    const cfg = makeClientCfg(baseAccount, resolved, { enableIdle: true, idleKeepaliveMs: 240000 });
+    expect(cfg.disableAutoIdle).toBe(true);
+    expect(cfg.maxIdleTime).toBe(240000);
+  });
+
+  it('starts IDLE immediately for a connected, non-idling account', () => {
+    const client = mockImapClient({ idling: false, idle: vi.fn().mockResolvedValue(true) });
+    const mgr = {
+      connections: new Map([['acct-idle', client]]),
+      lastExplicitIdleAt: new Map<string, number>(),
+      idleHealthWarned: new Set<string>(['acct-idle']),
+    };
+    const idleAccount = { id: 'acct-idle', user_id: 'user-1', email_address: 'a@example.com', imap_host: 'imap.example.com' };
+
+    ImapManager.prototype._enterExplicitIdle.call(mgr, client, idleAccount);
+
+    expect(client.idle).toHaveBeenCalledTimes(1);
+    expect(mgr.lastExplicitIdleAt.has('acct-idle')).toBe(true);
+    expect(mgr.idleHealthWarned.has('acct-idle')).toBe(false);
+  });
+
+  it('does not issue a second IDLE command while the client is already idling', () => {
+    const client = mockImapClient({ idling: true, idle: vi.fn() });
+    const mgr = {
+      connections: new Map([['acct-idle', client]]),
+      lastExplicitIdleAt: new Map<string, number>(),
+      idleHealthWarned: new Set<string>(),
+    };
+    ImapManager.prototype._enterExplicitIdle.call(mgr, client, { id: 'acct-idle', user_id: 'user-1', imap_host: 'imap.example.com' });
+    expect(client.idle).not.toHaveBeenCalled();
   });
 });
 
@@ -1247,6 +1253,51 @@ describe('syncMessages — empty local cache vs nonempty server (wiring)', () =>
   });
 });
 
+describe('syncMessages — physical copy identity', () => {
+  it('inserts separate Sent and INBOX physical rows with the same Message-ID', async () => {
+    const active = vi.spyOn(pluginRegistry, 'hasActiveAsync').mockResolvedValue(false);
+    const account = {
+      id: 'acct-physical-copies', user_id: 'user-1', email_address: 'me@example.com',
+      gtd_enabled: false, categorization_enabled: false, imap_host: 'imap.example.com',
+    };
+    const makeClient = (uid: number) => mockImapClient({
+      getMailboxLock: vi.fn().mockResolvedValue({ release: vi.fn() }),
+      mailbox: { exists: 1, uidValidity: 100, highestModseq: 500n },
+      fetch: vi.fn(async function* () { yield { uid }; }),
+    });
+    try {
+      query.mockReset();
+      query.mockImplementation((sql) => {
+        if (sql.includes('SELECT uid_validity, highest_modseq FROM folders')) return Promise.resolve({ rows: [{ uid_validity: 100, highest_modseq: '500' }] });
+        if (sql.includes('COUNT(*) FILTER (WHERE is_read = false)')) return Promise.resolve({ rows: [{ n: 0 }] });
+        if (sql.includes('COALESCE(MAX(uid), 0)')) return Promise.resolve({ rows: [{ max_uid: 0 }] });
+        if (sql.includes('INSERT INTO messages')) return Promise.resolve({ rows: [{ id: `copy-${query.mock.calls.length}`, is_new: true }] });
+        return Promise.resolve({ rows: [] });
+      });
+      parseMessage.mockImplementation(async (message) => ({
+        deliveryAddresses: [], attributes: { emailId: null, threadId: null }, senderName: 'Me', senderEmail: 'me@example.com',
+        uid: Number(message.uid), messageId: '<self-sent@example.test>', subject: 'Self sent', fromName: 'Me', fromEmail: 'me@example.com',
+        to: [], cc: [], replyTo: [], inReplyTo: null, references: null, date: new Date('2026-09-01T10:00:00Z'),
+        snippet: 'copy', isRead: true, isStarred: false, hasAttachments: false, flags: ['\\Seen'], isBulk: false, parsedHeaders: {},
+      }));
+
+      await ImapManager.prototype.syncMessages.call({ pluginFacade: {} }, account, makeClient(123), 'Sent', 50, false, true);
+      await ImapManager.prototype.syncMessages.call({ pluginFacade: {} }, account, makeClient(874), 'INBOX', 50, false, true);
+
+      const inserts = query.mock.calls.filter(([sql]) => sql.includes('INSERT INTO messages'));
+      expect(inserts).toHaveLength(2);
+      const insertParams = inserts.map((call) => call[1] as unknown[]);
+      expect(insertParams.map((params) => [params[1], params[2], params[3]])).toEqual([
+        [123, 'Sent', '<self-sent@example.test>'],
+        [874, 'INBOX', '<self-sent@example.test>'],
+      ]);
+      expect(query.mock.calls.some(([sql]) => sql.includes('UPDATE messages SET\n    folder ='))).toBe(false);
+    } finally {
+      active.mockRestore();
+    }
+  });
+});
+
 describe('syncMessages — Web Push branding', () => {
   beforeEach(() => {
     query.mockReset();
@@ -2164,4 +2215,102 @@ it('drains a queued arrival after the active sync releases its account lock', as
   await vi.waitFor(() => expect(mgr.syncMessages).toHaveBeenCalledTimes(2));
   expect(mgr._pendingInboxSync.has(account.id)).toBe(false);
   clearInterval(mgr._healthCheckTimer); clearInterval(mgr._snippetSchedulerTimer);
+});
+
+// ── evaluateFolderStatusChange — STATUS vs cache decision ────────────────────
+describe('evaluateFolderStatusChange', () => {
+  it('flags a changed UIDNEXT', () => {
+    expect(evaluateFolderStatusChange({
+      cachedUidNext: 100, cachedTotal: 10, cachedUnseen: 2,
+      serverUidNext: 101, serverMessages: 10, serverUnseen: 2,
+    })).toEqual({ uidNextChanged: true, totalChanged: false, unseenChanged: false });
+  });
+
+  it('flags a changed message count', () => {
+    expect(evaluateFolderStatusChange({
+      cachedUidNext: 100, cachedTotal: 10, cachedUnseen: 2,
+      serverUidNext: 100, serverMessages: 11, serverUnseen: 2,
+    })).toEqual({ uidNextChanged: false, totalChanged: true, unseenChanged: false });
+  });
+
+  it('flags a changed unseen count', () => {
+    expect(evaluateFolderStatusChange({
+      cachedUidNext: 100, cachedTotal: 10, cachedUnseen: 2,
+      serverUidNext: 100, serverMessages: 10, serverUnseen: 3,
+    })).toEqual({ uidNextChanged: false, totalChanged: false, unseenChanged: true });
+  });
+
+  it('reports nothing when server values match the cache', () => {
+    expect(evaluateFolderStatusChange({
+      cachedUidNext: 100, cachedTotal: 10, cachedUnseen: 2,
+      serverUidNext: 100, serverMessages: 10, serverUnseen: 2,
+    })).toEqual({ uidNextChanged: false, totalChanged: false, unseenChanged: false });
+  });
+
+  it('treats null server fields as unknown (no false change)', () => {
+    expect(evaluateFolderStatusChange({
+      cachedUidNext: 100, cachedTotal: 10, cachedUnseen: 2,
+      serverUidNext: null, serverMessages: null, serverUnseen: null,
+    })).toEqual({ uidNextChanged: false, totalChanged: false, unseenChanged: false });
+  });
+});
+
+// ── syncFolderOnDemand — coalescing + STATUS gate ────────────────────────────
+describe('syncFolderOnDemand', () => {
+  const onDemandAccount = { id: 'acct-ondemand', user_id: 'user-1', email_address: 'a@example.com', imap_host: 'imap.example.com' };
+
+  it('skips the sync when STATUS shows the folder is unchanged', async () => {
+    query.mockReset();
+    query.mockImplementation((sql) => {
+      if (sql.includes('SELECT uid_next, total_count, unread_count')) return Promise.resolve({ rows: [{ uid_next: 100, total_count: 10, unread_count: 2 }] });
+      return Promise.resolve({ rows: [] });
+    });
+    const mgr = new ImapManager({ clients: new Set() });
+    clearInterval(mgr._healthCheckTimer); clearInterval(mgr._snippetSchedulerTimer);
+    mgr._fetchFolderStatus = vi.fn().mockResolvedValue({ uidNext: 100, messages: 10, unseen: 2 });
+
+    const ran = await mgr.syncFolderOnDemand(onDemandAccount, 'Archive');
+
+    expect(ran).toBe(false);
+    expect(mgr._fetchFolderStatus).toHaveBeenCalledWith(onDemandAccount, 'Archive');
+  });
+
+  it('runs the sync when STATUS detects new mail', async () => {
+    query.mockReset();
+    query.mockImplementation((sql) => {
+      if (sql.includes('SELECT uid_next, total_count, unread_count')) return Promise.resolve({ rows: [{ uid_next: 100, total_count: 10, unread_count: 2 }] });
+      return Promise.resolve({ rows: [] });
+    });
+    const mgr = new ImapManager({ clients: new Set() });
+    clearInterval(mgr._healthCheckTimer); clearInterval(mgr._snippetSchedulerTimer);
+    mgr._fetchFolderStatus = vi.fn().mockResolvedValue({ uidNext: 101, messages: 11, unseen: 3 });
+    mgr.syncMessages = vi.fn().mockResolvedValue({ insertedCount: 1, broadcastedNewMessages: true });
+
+    const ran = await mgr.syncFolderOnDemand(onDemandAccount, 'Archive');
+
+    expect(ran).toBe(true);
+    expect(mgr.syncMessages).toHaveBeenCalled();
+  });
+
+  it('coalesces concurrent demand calls into one sync', async () => {
+    const mgr = new ImapManager({ clients: new Set() });
+    clearInterval(mgr._healthCheckTimer); clearInterval(mgr._snippetSchedulerTimer);
+    let syncsStarted = 0;
+    mgr._runOnDemandFolderSync = async function (this: ImapManager, account: EmailAccountRow, folder: string, key: string) {
+      syncsStarted++;
+      this.onDemandSyncing.add(key);
+      await new Promise(r => setTimeout(r, 10));
+      this.onDemandSyncing.delete(key);
+      return true;
+    };
+
+    const [a, b] = await Promise.all([
+      mgr.syncFolderOnDemand(onDemandAccount, 'Archive'),
+      mgr.syncFolderOnDemand(onDemandAccount, 'Archive'),
+    ]);
+
+    expect(a).toBe(true);
+    expect(b).toBe(true);
+    expect(syncsStarted).toBe(1);
+  });
 });

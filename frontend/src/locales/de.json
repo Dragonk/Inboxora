@@ -912,6 +912,11 @@
       "accountInbox": "{{name}} — Posteingang"
     }
   },
+  "errorBoundary": {
+    "title": "Etwas ist schiefgelaufen",
+    "body": "Inboxora konnte diesen Bildschirm nicht anzeigen. Laden Sie die Seite neu und versuchen Sie es erneut.",
+    "reload": "Neu laden"
+  },
   "common": {
     "cancel": "Abbrechen",
     "save": "Speichern",
@@ -1381,6 +1386,11 @@
     "allowDomain": "Immer erlauben von @{{domain}}",
     "downloading": "Wird heruntergeladen…",
     "downloadAll": "Alle herunterladen",
+    "dangerousAttachment": {
+      "title": "Dieser Anhang könnte unsicher sein",
+      "body": "Dieser Anhang kann beim Öffnen Software ausführen. Laden Sie ihn nur herunter, wenn Sie dem Absender vertrauen.",
+      "download": "Trotzdem herunterladen"
+    },
     "reply": "Antworten",
     "replyAll": "Allen antworten",
     "replyOptions": "Antwortoptionen",

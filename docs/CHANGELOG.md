@@ -5,14 +5,37 @@ All notable changes to Inboxora are recorded here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 For the narrative version — what the release means, what to expect when upgrading, and the known
-limitations — read the matching page in the Wiki: [Release notes 4.0.2](wiki/Release-notes-4.0.2.md),
+limitations — read the matching page in the Wiki: [Release notes 4.0.3](wiki/Release-notes-4.0.3.md),
+[Release notes 4.0.2](wiki/Release-notes-4.0.2.md),
 [Release notes 4.0.1](wiki/Release-notes-4.0.1.md) and [Release notes 4.0.0](wiki/Release-notes-4.0.0.md).
 
-## [4.0.2] — in development
+## [4.0.3] — in development
 
 ### Fixed
 
-- Apply the public calendar-feed request budget before database lookup, preventing a flood of syntactically valid unknown tokens from exhausting PostgreSQL.
+- Remove automatic physical-message relocation based solely on Message-ID. Two distinct copies that
+  share an RFC Message-ID (self-sent Gmail, mailing-list mirrors) now persist as separate physical
+  rows keyed by `(account, uid, folder)`; Conversation Engine logical dedup handles the grouping.
+- Start IMAP IDLE explicitly on persistent sync connections instead of relying on ImapFlow's delayed
+  auto-IDLE, which never fired at the supported 15-second sync interval. Adds observability for
+  accounts that support IDLE but never entered it.
+- Refresh each non-INBOX folder's STATUS watermark after LIST and skip on-demand sync when the server
+  UIDNEXT, message count, and unseen count match the cache. New `folders.uid_next` column; folders
+  with advanced UIDNEXT are queued for a metadata sync even though only INBOX is IDLE-monitored.
+- Add a React Error Boundary at the entrypoint so a render-time exception shows a translated
+  recovery screen with a reload action instead of a blank page.
+- Add a `pageshow` persisted handler to the WebSocket wake effect so returning from BFCache reuses
+  the existing refresh-and-reconnect path instead of staying silent.
+- Warn before downloading attachments classified as potentially dangerous (executable, script, shortcut
+  extensions and matching media types); the download still proceeds after explicit confirmation and the
+  Download-all ZIP path cannot bypass the prompt.
+
+### Notes
+
+- Includes database migration `0094_folder_uidnext_status.sql`; apply before running workers or
+  accepting outbound mail. No new configuration is required.
+
+## [4.0.2] — in development
 - Preserve partial SMTP recipient results through post-send failures and keep a partial-send composer open
   with only rejected recipients for a safe retry.
 - Prevent stale account and deep-link callbacks from writing into a later SPA session; preserve navigation only

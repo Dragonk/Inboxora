@@ -912,6 +912,11 @@
       "accountInbox": "{{name}} — Skrzynka odbiorcza"
     }
   },
+  "errorBoundary": {
+    "title": "Coś poszło nie tak",
+    "body": "Inboxora nie mogła wyświetlić tego ekranu. Odśwież stronę, aby spróbować ponownie.",
+    "reload": "Odśwież"
+  },
   "common": {
     "cancel": "Anuluj",
     "save": "Zapisz",
@@ -1383,6 +1388,11 @@
     "allowDomain": "Zawsze zezwalaj domenie @{{domain}}",
     "downloading": "Pobieranie…",
     "downloadAll": "Pobierz wszystko",
+    "dangerousAttachment": {
+      "title": "Ten załącznik może być niebezpieczny",
+      "body": "Ten załącznik może uruchomić program po otwarciu. Pobierz go tylko, jeśli ufasz nadawcy.",
+      "download": "Pobierz mimo to"
+    },
     "reply": "Odpowiedz",
     "replyAll": "Odpowiedz wszystkim",
     "replyOptions": "Opcje odpowiedzi",

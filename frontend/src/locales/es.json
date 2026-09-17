@@ -912,6 +912,11 @@
       "accountInbox": "{{name}} — Bandeja de entrada"
     }
   },
+  "errorBoundary": {
+    "title": "Algo salió mal",
+    "body": "Inboxora no pudo mostrar esta pantalla. Recargue la página para intentarlo de nuevo.",
+    "reload": "Recargar"
+  },
   "common": {
     "cancel": "Cancelar",
     "save": "Guardar",
@@ -1381,6 +1386,11 @@
     "allowDomain": "Permitir siempre desde @{{domain}}",
     "downloading": "Descargando…",
     "downloadAll": "Descargar todo",
+    "dangerousAttachment": {
+      "title": "Este archivo adjunto puede no ser seguro",
+      "body": "Este archivo adjunto puede ejecutar software al abrirse. Descárguelo solo si confía en el remitente.",
+      "download": "Descargar de todos modos"
+    },
     "reply": "Responder",
     "replyAll": "Responder a todos",
     "replyOptions": "Opciones de respuesta",
