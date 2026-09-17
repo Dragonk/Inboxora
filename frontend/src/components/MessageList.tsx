@@ -2611,12 +2611,11 @@ export default function MessageList() {
         if (!isCurrentDraftOpen()) return;
         const composition = message.draft_composition;
         const authoredBody = typeof composition?.authoredBody === 'string' ? composition.authoredBody : (bodyData.html || bodyData.text || '');
-        const hasCanonicalSignatureText = typeof composition?.signatureText === 'string';
-        const reopenedSignature = hasCanonicalSignatureText
-          ? composition!.signatureText!
-          : composition?.bodyIsHtml === false && composition.signatureHtml
-            ? legacySignatureHtmlToText(composition.signatureHtml)
-            : composition?.signatureHtml ?? null;
+        const isPlaintextComposition = composition?.bodyIsHtml === false;
+        const hasCanonicalSignatureText = isPlaintextComposition && typeof composition?.signatureText === 'string';
+        const reopenedSignature = isPlaintextComposition
+          ? (hasCanonicalSignatureText ? composition!.signatureText! : composition?.signatureHtml ? legacySignatureHtmlToText(composition.signatureHtml) : null)
+          : composition?.signatureHtml ?? composition?.signatureText ?? null;
         openCompose({
           accountId: message.account_id,
           aliasId: message.draft_alias_id || null,
