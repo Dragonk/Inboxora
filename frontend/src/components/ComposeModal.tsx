@@ -382,7 +382,7 @@ export default function ComposeModal() {
   posRef.current = pos;
   customSizeRef.current = customSize;
 
-  const [plainSig, setPlainSigState] = useState(() => composeData?.editedSignature !== undefined ? stripHtml(composeData.editedSignature || '') : (fromSignature ? stripHtml(fromSignature) : ''));
+  const [plainSig, setPlainSigState] = useState(() => composeData?.editedSignature !== undefined ? (composeData.editedSignatureIsHtml === false ? (composeData.editedSignature || '') : stripHtml(composeData.editedSignature || '')) : (fromSignature ? stripHtml(fromSignature) : ''));
   const setPlainSig = (value: React.SetStateAction<string>) => { recordDraftEdit(); setPlainSigState(value); };
   // Tracks the user's current (possibly edited) rich-text signature; kept current by onInput.
   const signatureContentRef = useRef(composeData?.editedSignature ?? '');

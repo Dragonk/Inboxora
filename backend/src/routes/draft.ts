@@ -155,7 +155,7 @@ async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, b
       aliasId: resolvedAliasId,
       inReplyTo: inReplyTo ? sanitizeHeaderValue(inReplyTo) : null,
       references: references ? sanitizeHeaderValue(references) : null,
-      draftComposition: { version: 1, authoredBody: body || '', bodyIsHtml: Boolean(bodyIsHtml), signatureHtml: effectiveSignature, quotedBody: quotedBody || null, quotedBodyHtml: quotedBodyHtml || null },
+      draftComposition: { version: 2, authoredBody: body || '', bodyIsHtml: Boolean(bodyIsHtml), signatureHtml: effectiveSignature, signatureText: sigText, quotedBody: quotedBody || null, quotedBodyHtml: quotedBodyHtml || null },
     },
   };
 }

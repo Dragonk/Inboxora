@@ -570,6 +570,16 @@ router.post('/send', async (req, res) => {
   // Only requests without the newer signature-format contract may match V1.
   // Otherwise a changed signature interpretation must conflict, not replay.
   const compatibleFingerprints = [sendFingerprint];
+  // d7f514c3 used the two body-format flags but had no signature-format field.
+  // It is unambiguous only when no signature override was supplied.
+  if (editedSignature === undefined) {
+    const priorTwoFormatFingerprint = createHash('sha256').update(JSON.stringify({
+      accountId, aliasId: aliasId || null, to: normalizedTo, cc: normalizedCc, bcc: normalizedBcc,
+      subject: normalizedSubject, body, inputBodyIsHtml, outputBodyIsHtml, quotedBody, quotedBodyHtml, inReplyTo, references,
+      attachments, forwardedAttachments, editedSignature, priority: emailPriority,
+    })).digest('hex');
+    compatibleFingerprints.push(priorTwoFormatFingerprint);
+  }
   if (editedSignatureIsHtml === undefined) compatibleFingerprints.push(legacyFingerprint);
   // 2b3d927e also used its profile-derived output flag as bodyIsHtml when the
   // field was omitted. Recognise that precise historical form, never broadly.
