@@ -86,12 +86,12 @@ describe('secret calendar feeds', () => {
   it('returns a private RFC calendar with security headers for a valid token', async () => {
     const rows: CalendarFeedEventRow[] = [{ calendar_ids: ['cal-1'], calendar_name: 'Personal', id: 'event-1', uid: 'uid-1', summary: 'Planning', starts_at: '2026-09-01T09:00:00.000Z', ends_at: '2026-09-01T10:00:00.000Z', all_day: false }];
     query.mockResolvedValue(queryRows(rows));
-    const responses = await Promise.all(Array.from({ length: 31 }, () => fetch(`${base}/calendar/feeds/${'a'.repeat(43)}.ics`)));
+    const responses = await Promise.all(Array.from({ length: 30 }, () => fetch(`${base}/calendar/feeds/${'a'.repeat(43)}.ics`)));
     expect(responses.every(response => response.status === 200)).toBe(true);
-    const body = await responses[30].text();
-    expect(responses[30].headers.get('content-type')).toContain('text/calendar');
-    expect(responses[30].headers.get('cache-control')).toBe('private, no-cache, must-revalidate');
-    expect(responses[30].headers.get('x-content-type-options')).toBe('nosniff');
+    const body = await responses[29].text();
+    expect(responses[29].headers.get('content-type')).toContain('text/calendar');
+    expect(responses[29].headers.get('cache-control')).toBe('private, no-cache, must-revalidate');
+    expect(responses[29].headers.get('x-content-type-options')).toBe('nosniff');
     expect(body).toContain('BEGIN:VCALENDAR\r\n');
     expect(body).toMatch(/DTSTAMP:\d{8}T\d{6}Z\r\n/);
     expect(body).toContain('SUMMARY:Planning\r\n');
@@ -115,7 +115,16 @@ describe('secret calendar feeds', () => {
     expect(query).not.toHaveBeenCalled();
   });
 
-  it('throttles only failures, while revoked feeds fail immediately after revocation', async () => {
+  it('does not query PostgreSQL after a syntactically valid token exceeds the public budget (RC4.0.2-01)', async () => {
+    query.mockResolvedValue(queryRows([]));
+    const token = 'c'.repeat(43);
+    const responses = await Promise.all(Array.from({ length: 31 }, () => fetch(`${base}/calendar/feeds/${token}.ics`)));
+    expect(responses.every(response => response.status === 404)).toBe(true);
+    expect(responses[30].headers.get('retry-after')).toMatch(/^\d+$/);
+    expect(query).toHaveBeenCalledTimes(30);
+  });
+
+  it('returns the non-enumerating response when a feed is revoked', async () => {
     let revoked = false;
     query.mockImplementation(async (sql: string) => {
       if (sql.includes('SELECT f.calendar_ids')) {

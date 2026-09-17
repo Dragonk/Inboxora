@@ -6,6 +6,7 @@ import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import sanitizeHtml from 'sanitize-html';
 import { sanitizeSignature, sanitizeComposeBody } from '../services/emailSanitizer.js';
+import { resolveSenderIdentity } from '../services/senderIdentity.js';
 import { embedInlineDataImages } from '../utils/inlineImages.js';
 import { imapManager } from '../index.js';
 import { Readable } from 'node:stream';
@@ -31,7 +32,28 @@ type RawDraftInput = {
   quotedBody?: string | null;
   quotedBodyHtml?: string | null;
   editedSignature?: string | null;
+  editedSignatureIsHtml?: boolean;
+  hasEditedSignature?: boolean;
+  inReplyTo?: string | null;
+  references?: string | null;
 };
+
+type ExistingDraftIdentity = {
+  accountId: string;
+  uid: number;
+  folder: string;
+  uidValidity: number;
+};
+
+function existingDraftIdentity(value: unknown): ExistingDraftIdentity | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const candidate = value as Record<string, unknown>;
+  if (typeof candidate.accountId !== 'string' || !candidate.accountId) return null;
+  if (typeof candidate.uid !== 'number' || !Number.isSafeInteger(candidate.uid) || candidate.uid <= 0) return null;
+  if (typeof candidate.folder !== 'string' || !candidate.folder || candidate.folder.length > 1024 || /[\0\r\n]/.test(candidate.folder)) return null;
+  if (typeof candidate.uidValidity !== 'number' || !Number.isSafeInteger(candidate.uidValidity) || candidate.uidValidity <= 0) return null;
+  return { accountId: candidate.accountId, uid: candidate.uid, folder: candidate.folder, uidValidity: candidate.uidValidity };
+}
 
 function sanitizeHeaderValue(value: unknown) {
   if (typeof value !== 'string') return '';
@@ -58,7 +80,7 @@ function textToHtml(text: string) {
     .join('');
 }
 
-async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml, quotedBody, quotedBodyHtml, editedSignature }: RawDraftInput) {
+async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml, quotedBody, quotedBodyHtml, editedSignature, editedSignatureIsHtml = true, hasEditedSignature = false, inReplyTo, references }: RawDraftInput) {
   const acctResult = await query<EmailAccountRow & { email_address: string }>(
     'SELECT * FROM email_accounts WHERE id = $1',
     [accountId]
@@ -66,28 +88,14 @@ async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, b
   if (!acctResult.rows.length) throw Object.assign(new Error('Account not found'), { status: 404 });
   const account = acctResult.rows[0];
 
-  let fromName = account.sender_name || account.name;
-  let fromEmail = account.email_address;
-  let fromSignature = account.signature;
+  const { fromName, fromEmail, fromReplyTo, fromSignature, aliasId: resolvedAliasId } = await resolveSenderIdentity(account, aliasId);
 
-  if (aliasId) {
-    const aliasResult = await query<{ name: string; email: string; signature: string | null }>(
-      'SELECT * FROM account_aliases WHERE id = $1 AND account_id = $2',
-      [aliasId, accountId]
-    );
-    if (aliasResult.rows.length) {
-      const alias = aliasResult.rows[0];
-      fromName = alias.name;
-      fromEmail = alias.email;
-      if (alias.signature !== null) fromSignature = alias.signature;
-    }
-  }
+  const rawSignature = hasEditedSignature ? (editedSignature || null) : fromSignature;
+  const signatureIsHtml = hasEditedSignature ? editedSignatureIsHtml : true;
+  const effectiveSignature = rawSignature ? (signatureIsHtml ? sanitizeSignature(rawSignature) : textToHtml(rawSignature)) : null;
 
-  const rawSignature = editedSignature !== undefined ? (editedSignature || null) : fromSignature;
-  const effectiveSignature = rawSignature ? sanitizeSignature(rawSignature) : null;
-
-  const sigText = effectiveSignature
-    ? sanitizeHtml(effectiveSignature, { allowedTags: [], allowedAttributes: {} }).trim()
+  const sigText = rawSignature
+    ? (signatureIsHtml ? sanitizeHtml(effectiveSignature || '', { allowedTags: [], allowedAttributes: {} }).trim() : rawSignature)
     : null;
 
   const bodyText = bodyIsHtml
@@ -111,10 +119,13 @@ async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, b
   const mailOptions = {
     messageId,
     from: `${fromName} <${fromEmail}>`,
+    ...(fromReplyTo ? { replyTo: fromReplyTo } : {}),
     to: (Array.isArray(to) ? to : [to]).filter(Boolean).join(', ') || undefined,
     cc: (Array.isArray(cc) ? cc : []).filter(Boolean).join(', ') || undefined,
     bcc: (Array.isArray(bcc) ? bcc : []).filter(Boolean).join(', ') || undefined,
     subject: sanitizeHeaderValue(subject || ''),
+    ...(inReplyTo ? { inReplyTo: sanitizeHeaderValue(inReplyTo) } : {}),
+    ...(references ? { references: sanitizeHeaderValue(references) } : {}),
     text: textBody,
     html: draftHtml,
     ...(inlineImageAttachments.length ? { attachments: inlineImageAttachments } : {}),
@@ -139,7 +150,13 @@ async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, b
   return {
     rawMessage: Buffer.concat(chunks),
     account,
-    meta: { messageId, fromName, fromEmail, bodyHtml: rawHtml, bodyText: textBody, snippet },
+    meta: {
+      messageId, fromName, fromEmail, bodyHtml: rawHtml, bodyText: textBody, snippet,
+      aliasId: resolvedAliasId,
+      inReplyTo: inReplyTo ? sanitizeHeaderValue(inReplyTo) : null,
+      references: references ? sanitizeHeaderValue(references) : null,
+      draftComposition: { version: 2, authoredBody: body || '', bodyIsHtml: Boolean(bodyIsHtml), signatureHtml: effectiveSignature, signatureText: sigText, quotedBody: quotedBody || null, quotedBodyHtml: quotedBodyHtml || null },
+    },
   };
 }
 
@@ -154,7 +171,10 @@ async function resolveDraftsFolder(account: EmailAccountRow) {
 }
 
 router.post('/draft', async (req, res) => {
-  const { accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml = false, quotedBody, quotedBodyHtml, editedSignature, existingUid, existingFolder } = req.body;
+  const { accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml = false, quotedBody, quotedBodyHtml, editedSignature, editedSignatureIsHtml, inReplyTo, references } = req.body;
+  if (editedSignatureIsHtml !== undefined && typeof editedSignatureIsHtml !== 'boolean') return res.status(400).json({ error: 'editedSignatureIsHtml must be a boolean' });
+  const hasEditedSignature = Object.prototype.hasOwnProperty.call(req.body || {}, 'editedSignature');
+  const existingDraft = existingDraftIdentity(req.body?.existingDraft);
   if (!accountId) return res.status(400).json({ error: 'accountId required' });
 
   const ownerCheck = await query<{ id: string }>(
@@ -164,13 +184,13 @@ router.post('/draft', async (req, res) => {
   if (!ownerCheck.rows.length) return res.status(404).json({ error: 'Account not found' });
 
   try {
-    const { rawMessage, account, meta } = await buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml, quotedBody, quotedBodyHtml, editedSignature });
+    const { rawMessage, account, meta } = await buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml, quotedBody, quotedBodyHtml, editedSignature, editedSignatureIsHtml, hasEditedSignature, inReplyTo, references });
 
     const draftsFolder = await resolveDraftsFolder(account);
     if (!draftsFolder) return res.status(422).json({ error: 'No Drafts folder found for this account' });
 
     // APPEND the new draft first so we never lose the message
-    const { uid } = await imapManager.appendToFolder(account, draftsFolder, rawMessage, ['\\Draft', '\\Seen']);
+    const { uid, uidValidity } = await imapManager.appendToFolder(account, draftsFolder, rawMessage, ['\\Draft', '\\Seen']);
 
     // Persist a local Drafts row immediately so the composer can reopen this draft
     // (recipient/subject/body) even if the folder re-sync is delayed or fails on a
@@ -184,9 +204,15 @@ router.post('/draft', async (req, res) => {
           fromEmail: meta.fromEmail,
           to: mapRecipientList(to),
           cc: mapRecipientList(cc),
+          bcc: mapRecipientList(bcc),
+          aliasId: meta.aliasId,
+          inReplyTo: meta.inReplyTo,
+          references: meta.references,
+          draftComposition: meta.draftComposition,
           snippet: meta.snippet,
           bodyHtml: meta.bodyHtml,
           bodyText: meta.bodyText,
+          uidValidity,
         });
       } catch (caught) {
         const rowErr = toAppError(caught);
@@ -194,21 +220,42 @@ router.post('/draft', async (req, res) => {
       }
     }
 
-    // Delete the old draft only after the new one is safely stored
-    if (existingUid && existingFolder) {
+    // Delete a prior draft only after APPEND returned its new UID. Its identity is
+    // independent from the selected sender: IMAP UIDs are scoped to an account and
+    // folder, so using the destination account here could delete an unrelated draft.
+    if (uid != null && existingDraft) {
       try {
-        await imapManager.permanentDeleteMessage(account, existingUid, existingFolder);
-        await query(
-          'DELETE FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3',
-          [account.id, existingUid, existingFolder]
+        const previousAccount = await query<EmailAccountRow>(
+          'SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2',
+          [existingDraft.accountId, req.session.userId],
         );
+        const previous = previousAccount.rows[0];
+        if (!previous) {
+          console.warn(`Draft: previous draft account is unavailable; retaining uid=${existingDraft.uid}`);
+        } else {
+          const previousDraftsFolder = await resolveDraftsFolder(previous);
+          const storedIdentity = await query<{ draft_uid_validity: number | string | null }>(
+            'SELECT draft_uid_validity FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3',
+            [previous.id, existingDraft.uid, existingDraft.folder],
+          );
+          const storedUidValidity = Number(storedIdentity.rows[0]?.draft_uid_validity);
+          if (previousDraftsFolder !== existingDraft.folder || storedUidValidity !== existingDraft.uidValidity) {
+            console.warn(`Draft: previous draft identity cannot be confirmed; retaining uid=${existingDraft.uid}`);
+          } else {
+            await imapManager.permanentDeleteMessage(previous, existingDraft.uid, existingDraft.folder, existingDraft.uidValidity);
+            await query(
+              'DELETE FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3 AND draft_uid_validity = $4',
+              [previous.id, existingDraft.uid, existingDraft.folder, existingDraft.uidValidity],
+            );
+          }
+        }
       } catch (caught) {
         const delErr = toAppError(caught);
-        console.error(`Draft: failed to delete old uid=${existingUid}: ${delErr.message}`);
+        console.error(`Draft: failed to delete old uid=${existingDraft.uid}: ${delErr.message}`);
       }
     }
 
-    res.json({ uid, folder: draftsFolder });
+    res.json({ uid, folder: draftsFolder, uidValidity });
   } catch (caught) {
     const err = toAppError(caught);
     console.error('Save draft failed:', err.message);
@@ -222,7 +269,8 @@ router.delete('/draft/:uid', async (req, res) => {
 
   const accountId = queryString(req.query.accountId);
   const folder = queryString(req.query.folder);
-  if (!accountId || !folder) return res.status(400).json({ error: 'accountId and folder required' });
+  const uidValidity = Number(queryString(req.query.uidValidity));
+  if (!accountId || !folder || !Number.isSafeInteger(uidValidity) || uidValidity <= 0) return res.status(400).json({ error: 'accountId, folder and uidValidity required' });
 
   const ownerCheck = await query<EmailAccountRow>(
     'SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2',
@@ -232,10 +280,18 @@ router.delete('/draft/:uid', async (req, res) => {
 
   try {
     const account = ownerCheck.rows[0];
-    await imapManager.permanentDeleteMessage(account, uid, folder);
+    if (await resolveDraftsFolder(account) !== folder) return res.status(409).json({ error: 'Draft folder cannot be confirmed' });
+    const storedIdentity = await query<{ draft_uid_validity: number | string | null }>(
+      'SELECT draft_uid_validity FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3',
+      [account.id, uid, folder],
+    );
+    if (Number(storedIdentity.rows[0]?.draft_uid_validity) !== uidValidity) {
+      return res.status(409).json({ error: 'Draft identity cannot be confirmed' });
+    }
+    await imapManager.permanentDeleteMessage(account, uid, folder, uidValidity);
     await query(
-      'DELETE FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3',
-      [account.id, uid, folder]
+      'DELETE FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3 AND draft_uid_validity = $4',
+      [account.id, uid, folder, uidValidity]
     );
     res.json({ ok: true });
   } catch (caught) {

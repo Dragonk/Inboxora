@@ -11,6 +11,7 @@ export interface CalendarViewEvent {
   ends_at?: string | number | Date | null;
   endsAt?: string | number | Date | null;
   attendees?: string[] | null;
+  cancellation_outbox_id?: string | null;
   recurring?: boolean;
   recurrence_id?: string | null;
   calendar_id?: string | null;

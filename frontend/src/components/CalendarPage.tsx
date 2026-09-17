@@ -35,6 +35,7 @@ type CalendarEventFormState = CalendarEventForm & {
   id?: string;
   calendarId: string;
   attendees: string[];
+  cancellationDelivery?: { outboxId: string; status: string | null; lastError?: string | null } | null;
 };
 
 /** A calendar event as the read-only preview dialog reads it. */
@@ -249,7 +250,22 @@ export default function CalendarPage({ isActive = true }) {
     const defaultInviteAccountId = senderAccounts.some(account => account.id === calendarInviteAccountId) ? calendarInviteAccountId : '';
     setForm({ ...emptyForm(writable[0]?.id || '', date, defaultInviteAccountId), mode: 'create' });
   };
-  const openEdit = (event: CalendarFormEvent) => { invitation.reset(); setForm({ mode: 'edit', ...event, id: event.series_id || event.id, recurrenceId: event.recurring ? event.recurrence_id : undefined, calendarId: event.calendar_id || '', summary: event.summary || '', description: event.description || '', location: event.location || '', url: event.url || '', organizer: event.organizer || '', attendees: Array.isArray(event.attendees) ? event.attendees : [], sendInvites: Boolean(event.invite_account_id && event.attendees?.length), inviteAccountId: event.invite_account_id || '', allDay: Boolean(event.all_day), startsAt: event.all_day ? String(event.starts_at).slice(0, 10) : toDateTimeLocal(event.starts_at), endsAt: event.all_day ? String(event.ends_at).slice(0, 10) : toDateTimeLocal(event.ends_at) }); };
+  const openEdit = (event: CalendarFormEvent) => {
+    invitation.reset();
+    const id = String(event.series_id || event.id);
+    const outboxId = typeof event.cancellation_outbox_id === 'string' ? event.cancellation_outbox_id : null;
+    setForm({ mode: 'edit', ...event, id, recurrenceId: event.recurring ? event.recurrence_id : undefined, calendarId: event.calendar_id || '', summary: event.summary || '', description: event.description || '', location: event.location || '', url: event.url || '', organizer: event.organizer || '', attendees: Array.isArray(event.attendees) ? event.attendees : [], sendInvites: Boolean(event.invite_account_id && event.attendees?.length), inviteAccountId: event.invite_account_id || '', cancellationDelivery: outboxId ? { outboxId, status: null } : null, allDay: Boolean(event.all_day), startsAt: event.all_day ? String(event.starts_at).slice(0, 10) : toDateTimeLocal(event.starts_at), endsAt: event.all_day ? String(event.ends_at).slice(0, 10) : toDateTimeLocal(event.ends_at) });
+    if (outboxId) {
+      api.calendar.getCancellationDelivery(id).then(result => {
+        const operation = result?.operation;
+        const status = result?.invitationStatus;
+        if (operation?.kind !== 'cancellation' || operation.outboxId !== outboxId) return;
+        setForm(current => current?.id === id && current.cancellationDelivery?.outboxId === outboxId
+          ? { ...current, cancellationDelivery: { outboxId, status: typeof status?.status === 'string' ? status.status : null, lastError: typeof status?.lastError === 'string' ? status.lastError : null } }
+          : current);
+      }).catch(() => {});
+    }
+  };
   const save = async () => {
     if (!form) return;
     const payload = eventPayload(form);
@@ -264,7 +280,12 @@ export default function CalendarPage({ isActive = true }) {
       });
       if (retryable) {
         const message = result?.invitationError || t('calendar.invitationPending', 'Invitation delivery is still pending; retry to check its status.');
-        setForm(current => (current ? { ...current, invitationError: message } : current));
+        const operation = result?.invitationOperation?.kind === 'cancellation' ? result.invitationOperation : null;
+        setForm(current => (current ? {
+          ...current,
+          ...(typeof operation?.outboxId === 'string' ? { cancellationDelivery: { outboxId: operation.outboxId, status: typeof result?.invitationStatus?.status === 'string' ? result.invitationStatus.status : null, lastError: typeof result?.invitationStatus?.lastError === 'string' ? result.invitationStatus.lastError : null } } : {}),
+          invitationError: message,
+        } : current));
         setError(message);
       } else {
         setForm(null); await load();
@@ -303,6 +324,25 @@ export default function CalendarPage({ isActive = true }) {
     if (!window.confirm(t('calendar.confirmDelete'))) return;
     setSaving(true);
     try { await performDelete(target, 'all'); } finally { setSaving(false); }
+  };
+  const retryCancellation = async () => {
+    if (!form?.id || !form.cancellationDelivery?.outboxId) return;
+    const eventId = form.id;
+    const outboxId = form.cancellationDelivery.outboxId;
+    const operationError = form.invitationError || null;
+    setSaving(true);
+    try {
+      const result = await api.calendar.retryCancellationDelivery(eventId);
+      const status = result?.invitationStatus;
+      const deliveryStatus = typeof status?.status === 'string' ? status.status : null;
+      setForm(current => current?.id === eventId && current.cancellationDelivery?.outboxId === outboxId ? {
+        ...current,
+        cancellationDelivery: { outboxId, status: deliveryStatus, lastError: typeof status?.lastError === 'string' ? status.lastError : null },
+        ...(deliveryStatus === 'sent' && current.invitationError === operationError ? { invitationError: null } : {}),
+      } : current);
+      if (deliveryStatus === 'sent') setError(current => current === operationError ? null : current);
+    } catch (err) { setError(toAppError(err).message || t('calendar.saveFailed')); }
+    finally { setSaving(false); }
   };
   const changeForm = (key: string, value: unknown) => { invitation.reset(); setForm(current => (current ? { ...current, [key]: value, invitationError: null } : current)); };
   const deleteEvent = async (event: CalendarViewEvent) => {
@@ -414,7 +454,7 @@ export default function CalendarPage({ isActive = true }) {
     {isMobile && mobilePanelOpen && <Dialog title={t('calendar.panel')} closeLabel={t('calendar.close')} onClose={() => setMobilePanelOpen(false)} testId="calendar-mobile-dock" className="calendar-panel-dialog ui-sheet">
       <CalendarSidebar {...sidebarProps} onSelectDate={day => { setAnchor(day); setMobilePanelOpen(false); }} />
     </Dialog>}
-    {form && <EventDialog form={form} error={error} calendars={writable} accounts={senderAccounts} saving={saving} fullScreen={isMobile} onChange={changeForm} onAllDayChange={allDay => { invitation.reset(); setForm(current => current && { ...toggleAllDayTimes(current, allDay), mode: current.mode, calendarId: current.calendarId, attendees: current.attendees }); }} onSave={save} onDelete={remove} onClose={() => { invitation.reset(); setForm(null); setError(null); }} t={t} />}
+    {form && <EventDialog form={form} error={error} calendars={writable} accounts={senderAccounts} saving={saving} fullScreen={isMobile} onChange={changeForm} onAllDayChange={allDay => { invitation.reset(); setForm(current => current && { ...toggleAllDayTimes(current, allDay), mode: current.mode, calendarId: current.calendarId, attendees: current.attendees }); }} onSave={save} onRetryCancellation={retryCancellation} onDelete={remove} onClose={() => { invitation.reset(); setForm(null); setError(null); }} t={t} />}
     {preview && <Dialog
       title={localizeContactEvent(preview, t).summary || t('calendar.untitled')}
       closeLabel={t('calendar.close')}
@@ -474,6 +514,7 @@ interface EventDialogProps {
   onChange: (field: string, value: unknown) => void;
   onAllDayChange: (allDay: boolean) => void;
   onSave: () => void;
+  onRetryCancellation: () => void;
   onDelete: () => void;
   onClose: () => void;
   t: TFunction;
@@ -581,14 +622,18 @@ function TimeGrid({ days, dayEventsFor, view, isMobile, locale, openCreate, open
   </div>;
 }
 
-function EventDialog({ form, error, calendars, accounts, saving, onChange, onAllDayChange, onSave, onDelete, onClose, t, fullScreen = false }: EventDialogProps) {
+function EventDialog({ form, error, calendars, accounts, saving, onChange, onAllDayChange, onSave, onRetryCancellation, onDelete, onClose, t, fullScreen = false }: EventDialogProps) {
   const attendeeValue = form.attendees.join(', ');
   return <Dialog title={form.mode === 'edit' ? t('calendar.editEvent') : t('calendar.newEvent')} closeLabel={t('calendar.close')} onClose={onClose} busy={saving} testId="calendar-event-dialog" className={fullScreen ? 'calendar-event-dialog-full ui-fullscreen' : ''} footer={<>
     <div>{form.mode === 'edit' && <Button variant="danger" disabled={saving} onClick={onDelete}>{t('calendar.delete')}</Button>}</div>
-    <div style={{ display: 'flex', gap: 8 }}><Button disabled={saving} onClick={onClose}>{t('calendar.cancel')}</Button><Button variant="primary" disabled={saving} onClick={onSave}>{saving ? t('calendar.saving') : form.invitationError ? t('calendar.retrySave') : t('calendar.save')}</Button></div>
+    <div style={{ display: 'flex', gap: 8 }}>
+      {form.cancellationDelivery && form.cancellationDelivery.status !== 'sent' && <Button disabled={saving} onClick={onRetryCancellation}>{t('calendar.retrySave')}</Button>}
+      <Button disabled={saving} onClick={onClose}>{t('calendar.cancel')}</Button><Button variant="primary" disabled={saving} onClick={onSave}>{saving ? t('calendar.saving') : t('calendar.save')}</Button>
+    </div>
   </>}>
     <div className="ui-form">
       {error && <div role="alert" className="ui-alert">{error}</div>}
+      {form.cancellationDelivery?.status && <div role="status" className="ui-alert">{form.cancellationDelivery.status === 'sent' ? 'Invitation cancellation was sent.' : `Invitation cancellation status: ${form.cancellationDelivery.status}${form.cancellationDelivery.lastError ? ` (${form.cancellationDelivery.lastError})` : ''}`}</div>}
       {form.recurrenceId && <p>{t('calendar.editOccurrence')}</p>}
       <label>{t('calendar.titleField')}<input autoFocus value={form.summary} onChange={e => onChange('summary', e.target.value)} /></label>
       <label className="ui-check"><input type="checkbox" checked={form.allDay} onChange={e => onAllDayChange(e.target.checked)} />{t('calendar.allDay')}</label>

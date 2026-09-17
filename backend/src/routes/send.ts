@@ -17,6 +17,8 @@ import { createAccountSmtpTransport } from '../services/smtpTransport.js';
 import { imapManager } from '../index.js';
 import { pluginRegistry } from '../plugins/registry.js';
 import { toAppError } from '../utils/errors.js';
+import { resolveSenderIdentity } from '../services/senderIdentity.js';
+import { resolveIncomingBodyIsHtml, resolveOutgoingBodyIsHtml } from '../services/composeFormat.js';
 import type { InlineAttachment } from '../utils/inlineImages.js';
 
 /** One client-supplied attachment of an outgoing message (base64 payload). */
@@ -72,6 +74,7 @@ interface SendRequestBody {
   references?: string;
   attachments?: ComposerAttachment[];
   editedSignature?: string;
+  editedSignatureIsHtml?: boolean;
   forwardedAttachments?: ForwardedAttachmentRef[];
   priority?: string;
 }
@@ -268,6 +271,108 @@ const IDEMPOTENCY_LEASE_SECONDS = 300;
 const IDEMPOTENCY_RENEW_MS = 60_000;
 const INFLIGHT_PREFIX = '__inflight__:';
 
+// Redis is only a fast path for replaying completed responses and coordinating the
+// live lease. The database intent below is authoritative: it survives Redis loss,
+// process restarts, and requests that were still preparing their MIME message when a
+// different request lost its lease.
+type SendIntentRow = {
+  status: 'pending' | 'uncertain' | 'completed';
+  request_fingerprint: string;
+  result: unknown;
+};
+
+type SendIntentClaim =
+  | { state: 'claimed' }
+  | { state: 'inflight' | 'uncertain' }
+  | { state: 'completed'; result: unknown }
+  | { state: 'mismatch' };
+
+async function claimSendIntent(userId: string, idempotencyKey: string, fingerprint: string, compatibleFingerprints: readonly string[], token: string): Promise<SendIntentClaim> {
+  const inserted = await query<SendIntentRow>(
+    `INSERT INTO send_idempotency (user_id, idempotency_key, request_fingerprint, status, intent_token)
+     VALUES ($1, $2, $3, 'pending', $4::uuid)
+     ON CONFLICT (user_id, idempotency_key) DO NOTHING
+     RETURNING status`,
+    [userId, idempotencyKey, fingerprint, token],
+  );
+  if (inserted.rows.length) return { state: 'claimed' };
+
+  const existing = await query<SendIntentRow>(
+    `SELECT status, request_fingerprint, result
+     FROM send_idempotency WHERE user_id = $1 AND idempotency_key = $2`,
+    [userId, idempotencyKey],
+  );
+  const row = existing.rows[0];
+  // A pre-send failure may have released the row between the INSERT conflict and
+  // SELECT. Fail closed; the client can safely make a fresh request.
+  if (!row) return { state: 'inflight' };
+  if (!compatibleFingerprints.includes(row.request_fingerprint)) return { state: 'mismatch' };
+  if (row.status === 'completed') return { state: 'completed', result: row.result };
+  return { state: row.status === 'uncertain' ? 'uncertain' : 'inflight' };
+}
+
+async function markSendIntentUncertain(userId: string, idempotencyKey: string, token: string) {
+  return query(
+    `UPDATE send_idempotency SET status = 'uncertain', updated_at = NOW()
+     WHERE user_id = $1 AND idempotency_key = $2 AND intent_token = $3::uuid AND status = 'pending'`,
+    [userId, idempotencyKey, token],
+  );
+}
+
+async function completeSendIntent(userId: string, idempotencyKey: string, token: string, result: unknown) {
+  return query(
+    `UPDATE send_idempotency SET status = 'completed', result = $4::jsonb, updated_at = NOW()
+     WHERE user_id = $1 AND idempotency_key = $2 AND intent_token = $3::uuid
+       AND status IN ('pending', 'uncertain')`,
+    [userId, idempotencyKey, token, JSON.stringify(result)],
+  );
+}
+
+async function releaseSendIntent(userId: string, idempotencyKey: string, token: string) {
+  return query(
+    `DELETE FROM send_idempotency
+     WHERE user_id = $1 AND idempotency_key = $2 AND intent_token = $3::uuid`,
+    [userId, idempotencyKey, token],
+  );
+}
+
+interface CachedSendResult {
+  version: 1;
+  fingerprint: string;
+  result: unknown;
+}
+
+function parseCachedSendResult(value: string): CachedSendResult | null {
+  try {
+    const parsed = JSON.parse(value) as Partial<CachedSendResult>;
+    if (parsed?.version === 1 && typeof parsed.fingerprint === 'string' && 'result' in parsed) {
+      return parsed as CachedSendResult;
+    }
+  } catch { /* A malformed or legacy cache value must fall back to PostgreSQL. */ }
+  return null;
+}
+
+function isExplicitSmtpRejection(error: unknown): boolean {
+  const candidate = error as { responseCode?: unknown };
+  const responseCode = Number(candidate?.responseCode);
+  // responseCode is nodemailer's structured SMTP reply. A reply in either error
+  // class is a known rejection, including a temporary DATA/STARTTLS rejection.
+  // Do not infer this from message text: a connection loss can contain a stale
+  // 5xx-looking transcript after DATA was already accepted.
+  return Number.isInteger(responseCode) && responseCode >= 400 && responseCode < 600;
+}
+
+function isDefinitelyPreDeliveryFailure(error: unknown): boolean {
+  const candidate = error as { code?: unknown; message?: unknown };
+  const code = String(candidate?.code || '');
+  return ['ECONNREFUSED', 'ENOTFOUND', 'EHOSTUNREACH', 'EAUTH'].includes(code)
+    || /ECONNREFUSED|ENOTFOUND|EHOSTUNREACH|authentication failed/i.test(String(candidate?.message || ''));
+}
+
+function retainedLease(result: unknown): boolean {
+  return result === 1 || result === 'OK';
+}
+
 async function renewIdempotencyLease(key: string, token: string) {
   return redisClient.eval(
     "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('EXPIRE', KEYS[1], ARGV[2]) end return 0",
@@ -294,9 +399,11 @@ router.use(requireAuth);
 
 
 router.post('/send', async (req, res) => {
-  const { accountId, aliasId, to, cc = [], bcc = [], subject, body, bodyIsHtml = false, quotedBody, quotedBodyHtml, inReplyTo, references, attachments, editedSignature, forwardedAttachments, priority }: SendRequestBody = req.body;
+  const { accountId, aliasId, to, cc = [], bcc = [], subject, body, bodyIsHtml, quotedBody, quotedBodyHtml, inReplyTo, references, attachments, editedSignature, editedSignatureIsHtml, forwardedAttachments, priority }: SendRequestBody = req.body;
   const emailPriority = isEmailPriority(priority) ? priority : 'normal';
-  if (!accountId || !to?.length) return res.status(400).json({ error: 'accountId and to required' });
+  if (!accountId) return res.status(400).json({ error: 'accountId required' });
+  if (bodyIsHtml !== undefined && typeof bodyIsHtml !== 'boolean') return res.status(400).json({ error: 'bodyIsHtml must be a boolean' });
+  if (editedSignatureIsHtml !== undefined && typeof editedSignatureIsHtml !== 'boolean') return res.status(400).json({ error: 'editedSignatureIsHtml must be a boolean' });
 
   // Idempotency guard. The client sends a stable X-Idempotency-Key per logical send: a
   // sequential retry after a lost success response returns the cached result, and a
@@ -305,14 +412,7 @@ router.post('/send', async (req, res) => {
   const idempotencyKey = typeof req.headers['x-idempotency-key'] === 'string'
     ? req.headers['x-idempotency-key'].slice(0, 128)
     : null;
-  const idemKeyRedis = idempotencyKey ? `send_idem:${req.session.userId}:${idempotencyKey}` : null;
-  if (idemKeyRedis) {
-    let cached;
-    try { cached = await redisClient.get(idemKeyRedis); }
-    catch { return res.status(503).json({ error: 'Sending is temporarily unavailable. Please try again shortly.' }); }
-    if (cached?.startsWith(INFLIGHT_PREFIX)) return res.status(409).json({ error: 'This message is already being sent.' });
-    if (cached) return res.json(JSON.parse(cached));
-  }
+  const idemKeyRedis = idempotencyKey ? `send_idem:${req.session.userId!}:${idempotencyKey}` : null;
 
   if (attachments !== undefined) {
     if (!Array.isArray(attachments)) return res.status(400).json({ error: 'attachments must be an array' });
@@ -336,49 +436,47 @@ router.post('/send', async (req, res) => {
 
   let normalizedTo, normalizedCc, normalizedBcc;
   try {
-    normalizedTo  = normalizeRecipients(to,  'to');
-    normalizedCc  = normalizeRecipients(cc,  'cc');
-    normalizedBcc = normalizeRecipients(bcc, 'bcc');
+    normalizedTo  = normalizeRecipients(to ?? [],  'to');
+    normalizedCc  = normalizeRecipients(cc ?? [],  'cc');
+    normalizedBcc = normalizeRecipients(bcc ?? [], 'bcc');
   } catch (caught) {
     const err = toAppError(caught);
     return res.status(err.status || 400).json({ error: err.message });
   }
+  if (!normalizedTo.length && !normalizedCc.length && !normalizedBcc.length) {
+    return res.status(400).json({ error: 'At least one recipient is required' });
+  }
   const normalizedSubject = sanitizeHeaderValue(subject || '');
 
   const [result, prefResult] = await Promise.all([
-    query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2', [accountId, req.session.userId]),
-    query<{ preferences?: { plaintextEmail?: boolean; [key: string]: unknown } | null }>('SELECT preferences FROM users WHERE id = $1', [req.session.userId]),
+    query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2', [accountId, req.session.userId!]),
+    query<{ preferences?: { plaintextEmail?: boolean; [key: string]: unknown } | null }>('SELECT preferences FROM users WHERE id = $1', [req.session.userId!]),
   ]);
   if (!result.rows.length) return res.status(404).json({ error: 'Account not found' });
   const plaintextEmail = prefResult.rows[0]?.preferences?.plaintextEmail === true;
+  // Omitted legacy fields were always literal text input. The profile may select
+  // an additional HTML MIME representation, but must never reinterpret that input.
+  const inputBodyIsHtml = resolveIncomingBodyIsHtml(bodyIsHtml);
+  const outputBodyIsHtml = resolveOutgoingBodyIsHtml(bodyIsHtml, plaintextEmail);
   let account = result.rows[0];
-
-  // Resolve the From identity — account by default, alias if requested
-  let fromName: string | null | undefined = account.sender_name || account.name;
-  let fromEmail: string | null | undefined = account.email_address || '';
-  let fromSignature = account.signature;
-  let fromReplyTo = null;
-
-  if (aliasId) {
-    const aliasResult = await query<{ name?: string | null; email?: string | null; reply_to?: string | null; signature?: string | null; [key: string]: unknown }>(
-      'SELECT * FROM account_aliases WHERE id = $1 AND account_id = $2',
-      [aliasId, accountId]
-    );
-    if (aliasResult.rows.length) {
-      const alias = aliasResult.rows[0];
-      fromName = alias.name;
-      fromEmail = alias.email;
-      fromReplyTo = alias.reply_to || null;
-      // null (DB default) means inherit from account; only override when alias has an explicit signature set
-      if (alias.signature !== null) fromSignature = alias.signature;
-    }
+  let sender;
+  try {
+    sender = await resolveSenderIdentity(account, aliasId);
+  } catch (caught) {
+    const err = toAppError(caught);
+    return res.status(err.status || 400).json({ error: err.message });
   }
+  const { fromName, fromEmail, fromReplyTo, fromSignature } = sender;
 
   // Allow the client to override the signature per-send (editedSignature === undefined means use DB value).
   // Sanitize client-supplied HTML to prevent injecting scripts or tracking pixels into sent mail.
+  const signatureIsHtml = editedSignatureIsHtml !== false;
   const effectiveSignature = editedSignature !== undefined
-    ? (editedSignature ? sanitizeSignature(editedSignature) : null)
+    ? (editedSignature ? (signatureIsHtml ? sanitizeSignature(editedSignature) : textToHtml(editedSignature)) : null)
     : fromSignature;  // fromSignature from DB is already sanitized on write
+  const effectiveSignatureText = editedSignature !== undefined && !signatureIsHtml
+    ? editedSignature
+    : (effectiveSignature ? sigToPlainText(effectiveSignature) : null);
 
   // Fetch forwarded attachment content from IMAP before entering the SMTP try-block so that
   // attachment errors return descriptive messages rather than being sanitized as SMTP errors.
@@ -392,7 +490,7 @@ router.post('/send', async (req, res) => {
         `SELECT m.id, m.uid, m.folder, m.attachments, m.account_id FROM messages m
          JOIN email_accounts a ON m.account_id = a.id
          WHERE m.id = ANY($1::uuid[]) AND a.user_id = $2`,
-        [distinctMsgIds, req.session.userId]
+        [distinctMsgIds, req.session.userId!]
       );
       const msgById = new Map<string, ForwardedMessageRow>(msgRows.rows.map(m => [m.id, m]));
 
@@ -453,12 +551,80 @@ router.post('/send', async (req, res) => {
 
   let reservationAcquired = false;
   let reservationToken: string | null = null;
+  let intentToken: string | null = null;
+  let intentClaimed = false;
+  const sendFingerprint = createHash('sha256').update(JSON.stringify({
+    accountId, aliasId: aliasId || null, to: normalizedTo, cc: normalizedCc, bcc: normalizedBcc,
+    subject: normalizedSubject, body, inputBodyIsHtml, outputBodyIsHtml, quotedBody, quotedBodyHtml, inReplyTo, references,
+    attachments, forwardedAttachments, editedSignature,
+    editedSignatureIsHtml: editedSignature === undefined ? null : editedSignatureIsHtml !== false,
+    priority: emailPriority,
+  })).digest('hex');
+  // V1 used the raw API field (defaulting to false). Keep this recognisable
+  // during upgrades so a lost response cannot turn into a new delivery.
+  const legacyFingerprint = createHash('sha256').update(JSON.stringify({
+    accountId, aliasId: aliasId || null, to: normalizedTo, cc: normalizedCc, bcc: normalizedBcc,
+    subject: normalizedSubject, body, bodyIsHtml: bodyIsHtml ?? false, quotedBody, quotedBodyHtml, inReplyTo, references,
+    attachments, forwardedAttachments, editedSignature, priority: emailPriority,
+  })).digest('hex');
+  // Only requests without the newer signature-format contract may match V1.
+  // Otherwise a changed signature interpretation must conflict, not replay.
+  const compatibleFingerprints = [sendFingerprint];
+  // d7f514c3 used the two body-format flags but had no signature-format field.
+  // It is unambiguous only when no signature override was supplied.
+  if (editedSignature === undefined) {
+    const priorTwoFormatFingerprint = createHash('sha256').update(JSON.stringify({
+      accountId, aliasId: aliasId || null, to: normalizedTo, cc: normalizedCc, bcc: normalizedBcc,
+      subject: normalizedSubject, body, inputBodyIsHtml, outputBodyIsHtml, quotedBody, quotedBodyHtml, inReplyTo, references,
+      attachments, forwardedAttachments, editedSignature, priority: emailPriority,
+    })).digest('hex');
+    compatibleFingerprints.push(priorTwoFormatFingerprint);
+  }
+  if (editedSignatureIsHtml === undefined) compatibleFingerprints.push(legacyFingerprint);
+  // 2b3d927e also used its profile-derived output flag as bodyIsHtml when the
+  // field was omitted. Recognise that precise historical form, never broadly.
+  if (bodyIsHtml === undefined && editedSignatureIsHtml === undefined) {
+    const historicalFingerprint = createHash('sha256').update(JSON.stringify({
+      accountId, aliasId: aliasId || null, to: normalizedTo, cc: normalizedCc, bcc: normalizedBcc,
+      subject: normalizedSubject, body, bodyIsHtml: outputBodyIsHtml, quotedBody, quotedBodyHtml, inReplyTo, references,
+      attachments, forwardedAttachments, editedSignature, priority: emailPriority,
+    })).digest('hex');
+    compatibleFingerprints.push(historicalFingerprint);
+  }
+  if (idemKeyRedis) {
+    let cached: string | null;
+    try { cached = await redisClient.get(idemKeyRedis); }
+    catch { return res.status(503).json({ error: 'Sending is temporarily unavailable. Please try again shortly.' }); }
+    if (cached?.startsWith(INFLIGHT_PREFIX)) return res.status(409).json({ error: 'This message is already being sent.' });
+    if (cached) {
+      const replay = parseCachedSendResult(cached);
+      if (replay) {
+        if (!compatibleFingerprints.includes(replay.fingerprint)) {
+          return res.status(409).json({ error: 'This idempotency key belongs to a different message.' });
+        }
+        return res.json(replay.result);
+      }
+      // Legacy cache entries have no canonical request identity. Ignore them and
+      // obtain the authoritative result (or mismatch) from the durable intent.
+    }
+  }
   let reservationRenewal: ReturnType<typeof setInterval> | null = null;
   const stopReservationRenewal = () => {
     if (reservationRenewal) clearInterval(reservationRenewal);
     reservationRenewal = null;
   };
   let delivered = false; // true once transport.sendMail has actually handed off the message
+  let smtpDispatchStarted = false;
+  let finalizationStarted = false;
+  let smtpRecipients: { accepted: string[]; rejected: string[] } | null = null;
+  const markLeaseUncertain = (fromRenewal = false) => {
+    // A renewal response can arrive after finalization has begun. It no longer
+    // owns the lease and must not overwrite a completed-result reconciliation.
+    if (fromRenewal && finalizationStarted) return;
+    if (idempotencyKey && intentToken) {
+      void markSendIntentUncertain(req.session.userId!, idempotencyKey!, intentToken!).catch(() => {});
+    }
+  };
   try {
     const smtp = await createAccountSmtpTransport(account);
     if (smtp.error) return res.status(smtp.status).json({ error: smtp.error });
@@ -473,19 +639,21 @@ router.post('/send', async (req, res) => {
       messageId,
       from: `${fromName} <${fromEmail}>`,
       ...(fromReplyTo ? { replyTo: fromReplyTo } : {}),
-      to: normalizedTo.join(', '),
-      cc: normalizedCc.join(', ') || undefined,
-      bcc: normalizedBcc.join(', ') || undefined,
+      // Nodemailer uses bcc for the SMTP envelope but omits it from generated MIME.
+      // Do not add a synthetic To header for BCC-only retries.
+      ...(normalizedTo.length ? { to: normalizedTo.join(', ') } : {}),
+      ...(normalizedCc.length ? { cc: normalizedCc.join(', ') } : {}),
+      ...(normalizedBcc.length ? { bcc: normalizedBcc.join(', ') } : {}),
       subject: normalizedSubject,
       ...(emailPriority !== 'normal' ? { priority: emailPriority } : {}),
       text: effectiveSignature
-        ? bodyToPlain(body, bodyIsHtml) + '\n\n-- \n' + sigToPlainText(effectiveSignature) + (quotedBody || '')
-        : bodyToPlain(body, bodyIsHtml) + (quotedBody || ''),
+        ? bodyToPlain(body, inputBodyIsHtml) + '\n\n-- \n' + effectiveSignatureText + (quotedBody || '')
+        : bodyToPlain(body, inputBodyIsHtml) + (quotedBody || ''),
     };
 
     let inlineImageAttachments: InlineAttachment[] = [];
-    if (!plaintextEmail) {
-      const rawHtml = bodyToHtml(body, bodyIsHtml) +
+    if (outputBodyIsHtml) {
+      const rawHtml = bodyToHtml(body, inputBodyIsHtml) +
         (effectiveSignature
           ? '<div style="margin-top:16px;color:#555;font-size:13px">' + effectiveSignature + '</div>'
           : '') +
@@ -547,33 +715,62 @@ router.post('/send', async (req, res) => {
     });
     const rawMessage = Buffer.concat(chunks);
 
-    // Reserve the idempotency key atomically right before delivery so a concurrent
-    // same-key submit cannot also send (the post-send cache alone can't stop concurrent
-    // duplicates). Overwritten with the result on success; released in the catch only if
-    // delivery never happened, so a genuine retry after a pre-send failure can proceed.
+    // A database-backed intent is the final, cross-process gate immediately before SMTP.
+    // It remains authoritative if Redis is flushed while another request is still preparing.
+    if (idempotencyKey) {
+      intentToken = randomUUID();
+      let claim: SendIntentClaim;
+      try { claim = await claimSendIntent(req.session.userId!, idempotencyKey, sendFingerprint, compatibleFingerprints, intentToken!); }
+      catch { return res.status(503).json({ error: 'Sending is temporarily unavailable. Please try again shortly.' }); }
+      if (claim.state === 'completed') return res.json(claim.result);
+      if (claim.state === 'mismatch') return res.status(409).json({ error: 'This idempotency key belongs to a different message.' });
+      if (claim.state === 'uncertain') return res.status(409).json({ error: 'The result of this send is still being confirmed. It will not be sent again automatically.' });
+      if (claim.state === 'inflight') return res.status(409).json({ error: 'This message is already being sent.' });
+      intentClaimed = true;
+    }
     if (idemKeyRedis) {
       // TTL comfortably above the worst-case send (large attachment over a slow SMTP
       // server) so the in-flight guard cannot lapse while this request is still running.
-      reservationToken = `${INFLIGHT_PREFIX}${randomUUID()}`;
+      reservationToken = `${INFLIGHT_PREFIX}${intentToken || randomUUID()}`;
       let reserved;
       try { reserved = await redisClient.set(idemKeyRedis, reservationToken, { NX: true, EX: IDEMPOTENCY_LEASE_SECONDS }); }
-      catch { return res.status(503).json({ error: 'Sending is temporarily unavailable. Please try again shortly.' }); }
-      if (reserved !== 'OK') return res.status(409).json({ error: 'This message is already being sent.' });
+      catch {
+        if (idempotencyKey && intentToken) await releaseSendIntent(req.session.userId!, idempotencyKey, intentToken!).catch(() => {});
+        return res.status(503).json({ error: 'Sending is temporarily unavailable. Please try again shortly.' });
+      }
+      if (reserved !== 'OK') {
+        if (idempotencyKey && intentToken) await releaseSendIntent(req.session.userId!, idempotencyKey, intentToken!).catch(() => {});
+        return res.status(409).json({ error: 'This message is already being sent.' });
+      }
       reservationAcquired = true;
       reservationRenewal = setInterval(() => {
-        if (reservationToken) renewIdempotencyLease(idemKeyRedis, reservationToken).catch(() => {});
+        if (!reservationToken) return;
+        void renewIdempotencyLease(idemKeyRedis, reservationToken)
+          .then(result => { if (!retainedLease(result)) markLeaseUncertain(true); })
+          .catch(() => markLeaseUncertain(true));
       }, IDEMPOTENCY_RENEW_MS);
       reservationRenewal.unref?.();
     }
 
+    // Persist the uncertain state before invoking SMTP: a process crash or lost
+    // final DATA acknowledgement cannot then turn into an automatic re-dispatch.
+    if (idempotencyKey && intentToken) {
+      await markSendIntentUncertain(req.session.userId!, idempotencyKey, intentToken!);
+    }
+    smtpDispatchStarted = true;
     const smtpInfo = await transport.sendMail(mailOptions);
     delivered = true;
+    // Capture recipient outcomes immediately. Any later Sent-folder/metadata failure
+    // must return the same SMTP result to both the client and idempotency replay.
+    const acceptedRecipients = Array.isArray(smtpInfo.accepted) ? smtpInfo.accepted.map(String) : [];
+    const rejectedRecipients = Array.isArray(smtpInfo.rejected) ? smtpInfo.rejected.map(String) : [];
+    smtpRecipients = { accepted: acceptedRecipients, rejected: rejectedRecipients };
 
     // Auto-learn sent recipients so they rank above inbound-only senders in autocomplete.
     // Fire-and-forget — a DB error here must never affect the send response.
     const allRecipients = [...normalizedTo, ...normalizedCc, ...normalizedBcc];
     if (allRecipients.length) {
-      const userId = req.session.userId;
+      const userId = req.session.userId!;
       const now = new Date();
       setImmediate(async () => {
         try {
@@ -653,7 +850,7 @@ router.post('/send', async (req, res) => {
       fromEmail,
       to: mapRecipientList(normalizedTo),
       cc: mapRecipientList(normalizedCc),
-      snippet: buildSentSnippet(body, bodyIsHtml),
+      snippet: buildSentSnippet(body, inputBodyIsHtml),
       date: new Date(),
       // Carried so the Sent row threads into its conversation via the References chain
       // rather than orphaning at its own Message-ID (#378).
@@ -721,8 +918,6 @@ router.post('/send', async (req, res) => {
       }
     }
 
-    const acceptedRecipients = Array.isArray(smtpInfo.accepted) ? smtpInfo.accepted.map(String) : [];
-    const rejectedRecipients = Array.isArray(smtpInfo.rejected) ? smtpInfo.rejected.map(String) : [];
     const sendResult: { ok: boolean; sentCopySaved?: boolean; sentFolder?: string; accepted?: string[]; rejected?: string[]; partialDelivery?: boolean } = { ok: true };
     // A server can accept some RCPT commands and reject others without throwing. Preserve
     // that non-retryable partial outcome so the client never assumes every recipient got it.
@@ -740,7 +935,14 @@ router.post('/send', async (req, res) => {
     // Overwrite the in-flight reservation with the final result so a retry after a lost
     // response returns this instead of re-sending.
     stopReservationRenewal();
-    if (idemKeyRedis && reservationToken) completeIdempotencyLease(idemKeyRedis, reservationToken, sendResult).catch(() => {});
+    if (idempotencyKey && intentToken) {
+      finalizationStarted = true;
+      await completeSendIntent(req.session.userId!, idempotencyKey, intentToken!, sendResult)
+        .catch(() => markSendIntentUncertain(req.session.userId!, idempotencyKey!, intentToken!).catch(() => {}));
+    }
+    if (idemKeyRedis && reservationToken) void completeIdempotencyLease(idemKeyRedis, reservationToken, {
+      version: 1, fingerprint: sendFingerprint, result: sendResult,
+    }).catch(() => markLeaseUncertain());
     res.json(sendResult);
   } catch (caught) {
     const err = toAppError(caught);
@@ -748,16 +950,47 @@ router.post('/send', async (req, res) => {
       // SMTP already accepted this message. A Sent-folder or metadata failure
       // must not invite the user to send it again.
       console.error('Post-send processing failed:', err.message);
-      const sendResult = { ok: true, sentCopySaved: false };
+      const sendResult = {
+        ok: true,
+        sentCopySaved: false,
+        ...(smtpRecipients?.rejected.length ? {
+          partialDelivery: true,
+          accepted: smtpRecipients.accepted,
+          rejected: smtpRecipients.rejected,
+        } : {}),
+      };
       stopReservationRenewal();
-      if (idemKeyRedis && reservationToken) completeIdempotencyLease(idemKeyRedis, reservationToken, sendResult).catch(() => {});
+      if (idempotencyKey && intentToken) {
+        finalizationStarted = true;
+        await completeSendIntent(req.session.userId!, idempotencyKey, intentToken!, sendResult)
+          .catch(() => markSendIntentUncertain(req.session.userId!, idempotencyKey!, intentToken!).catch(() => {}));
+      }
+      if (idemKeyRedis && reservationToken) void completeIdempotencyLease(idemKeyRedis, reservationToken, {
+        version: 1, fingerprint: sendFingerprint, result: sendResult,
+      }).catch(() => markLeaseUncertain());
       return res.json(sendResult);
     }
     console.error('Send failed:', err.message);
-    // A failure before reservation must not delete a concurrent request's lock.
     stopReservationRenewal();
-    if (idemKeyRedis && reservationAcquired && reservationToken) releaseIdempotencyLease(idemKeyRedis, reservationToken).catch(() => {});
-    res.status(500).json({ error: sanitizeSmtpError(err) });
+    const retryableFailure = !smtpDispatchStarted || isExplicitSmtpRejection(caught) || isDefinitelyPreDeliveryFailure(caught);
+    if (retryableFailure) {
+      // A structured 4xx/5xx response is a known SMTP rejection, so DATA was not
+      // accepted. Complete both releases before responding: the same idempotency
+      // key can then make a sequential retry without racing a stale reservation.
+      if (idempotencyKey && intentClaimed && intentToken) {
+        await releaseSendIntent(req.session.userId!, idempotencyKey, intentToken!)
+          .catch(() => markSendIntentUncertain(req.session.userId!, idempotencyKey!, intentToken!).catch(() => {}));
+      }
+      if (idemKeyRedis && reservationAcquired && reservationToken) {
+        await releaseIdempotencyLease(idemKeyRedis, reservationToken).catch(() => {});
+      }
+      return res.status(500).json({ error: sanitizeSmtpError(err) });
+    }
+    // sendMail rejected after dispatch began without an explicit SMTP rejection.
+    // DATA may have been accepted, so retain the durable uncertain intent and do
+    // not release the Redis lease; retries must reconcile rather than re-dispatch.
+    if (idempotencyKey && intentToken) void markSendIntentUncertain(req.session.userId!, idempotencyKey, intentToken!).catch(() => {});
+    return res.status(502).json({ error: 'The mail server response was interrupted after dispatch began. This message will not be sent again automatically.' });
   }
 });
 

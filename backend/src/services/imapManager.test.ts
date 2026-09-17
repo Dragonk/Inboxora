@@ -1720,6 +1720,54 @@ describe("connectAccount attaches 'error' before connect (#360)", () => {
   });
 });
 
+// The connection lock is installed before disconnect/credential/DNS setup so concurrent
+// callers still coalesce. Every failure before the IMAP handshake must nevertheless
+// pass through connectAccount's outer finally and release that lock.
+describe('connectAccount preamble lock cleanup', () => {
+  const acct = { id: 'acct-preamble', user_id: 'user-1', email_address: 'a@example.com', imap_host: 'imap.example.com', imap_port: 993, imap_tls: true, auth_user: 'u', auth_pass: 'enc' };
+
+  function manager() {
+    const mgr = new ImapManager({ clients: new Set() });
+    clearInterval(mgr._healthCheckTimer);
+    clearInterval(mgr._snippetSchedulerTimer);
+    mgr._recordAccountError = vi.fn().mockResolvedValue(undefined);
+    return mgr;
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+  });
+
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  it('keeps duplicate callers coalesced while disconnect fails, then releases the lock', async () => {
+    const mgr = manager();
+    let rejectDisconnect: (error: Error) => void = () => undefined;
+    mgr.disconnectAccount = vi.fn(() => new Promise<void>((_resolve, reject) => { rejectDisconnect = reject; }));
+
+    const first = mgr.connectAccount(acct);
+    expect(mgr.connectingAccounts.has(acct.id)).toBe(true);
+    await expect(mgr.connectAccount(acct)).resolves.toBe(false);
+    expect(mgr.disconnectAccount).toHaveBeenCalledTimes(1);
+
+    rejectDisconnect(new Error('disconnect preamble failed'));
+    await expect(first).resolves.toBe(false);
+    expect(mgr.connectingAccounts.has(acct.id)).toBe(false);
+  });
+
+  it('releases the lock when asynchronous host resolution fails before connect', async () => {
+    const mgr = manager();
+    mgr.disconnectAccount = vi.fn().mockResolvedValue(undefined);
+    getConnectionPolicy.mockRejectedValueOnce(new Error('policy lookup failed'));
+
+    await expect(mgr.connectAccount(acct)).resolves.toBe(false);
+    expect(mgr.connectingAccounts.has(acct.id)).toBe(false);
+  });
+});
+
+
 describe('reconcileDeletes folder source', () => {
   it('considers only folders the server still advertises', async () => {
     // Second line of defence for the same loop: a stranded message row must not be able to

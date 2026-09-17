@@ -9,6 +9,30 @@ beforeEach(() => {
   query.mockClear();
 });
 
+describe('listMessages — draft identity projections', () => {
+  it('returns canonical UIDVALIDITY text and private draft BCC in flat and threaded rows', async () => {
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'acc-1' }] })
+      .mockResolvedValueOnce({ rows: [{ n: 1 }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'draft-1', draft_uid_validity: '42', draft_bcc_addresses: [{ email: 'hidden@example.test' }] }] });
+    const flat = await listMessages({ userId: 'user-1', threaded: false });
+    expect(flat.messages[0]).toMatchObject({ draft_uid_validity: '42', draft_bcc_addresses: [{ email: 'hidden@example.test' }] });
+    expect(String(query.mock.calls[2][0])).toContain('m.draft_uid_validity::text AS draft_uid_validity');
+    expect(String(query.mock.calls[2][0])).toContain('m.draft_bcc_addresses');
+    expect(String(query.mock.calls[2][0])).toContain('m.draft_alias_id, m.draft_in_reply_to, m.draft_references, m.draft_composition');
+
+    query.mockReset()
+      .mockResolvedValueOnce({ rows: [{ id: 'acc-1' }] })
+      .mockResolvedValueOnce({ rows: [{ n: 1 }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'draft-1', draft_uid_validity: '42', draft_bcc_addresses: [{ email: 'hidden@example.test' }] }] })
+      .mockResolvedValueOnce({ rows: [{ total: 1 }] });
+    await listMessages({ userId: 'user-1', threaded: true });
+    const threadedSql = String(query.mock.calls[2][0]);
+    expect(threadedSql).toContain('m.draft_uid_validity::text AS draft_uid_validity');
+    expect(threadedSql).toContain('draft_bcc_addresses, draft_uid_validity, draft_alias_id, draft_in_reply_to');
+  });
+});
+
 describe('listMessages — account scope', () => {
   it('returns empty result immediately when user has no enabled accounts', async () => {
     query.mockResolvedValueOnce({ rows: [] });

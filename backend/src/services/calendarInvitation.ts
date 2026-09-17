@@ -52,6 +52,19 @@ interface InvitationInput {
 /** The account slice the invitation is sent from. */
 interface InvitationAccount { id?: string; email_address?: string | null; name?: string | null; [key: string]: unknown }
 
+/** SMTP acceptance is per recipient even when Nodemailer resolves sendMail successfully. */
+export type CalendarInvitationDelivery = {
+  accepted: string[];
+  rejected: string[];
+};
+
+function smtpRecipients(info: unknown, field: 'accepted' | 'rejected') {
+  if (!info || typeof info !== 'object' || !(field in info)) return [];
+  const value = (info as Record<string, unknown>)[field];
+  return Array.isArray(value)
+    ? value.filter((address): address is string => typeof address === 'string' && Boolean(address.trim()))
+    : [];
+}
 
 function invitationIcal({ uid, summary, description, location, organizerEmail, attendees, startsAt, endsAt, allDay = false, method, sequence }: InvitationInput) {
   const lines = [
@@ -76,7 +89,16 @@ function invitationIcal({ uid, summary, description, location, organizerEmail, a
   return lines.map(foldICalendarLine).join('\r\n');
 }
 
-export async function sendCalendarInvitation({ account, attendees, summary, description = null, location = null, uid, startsAt, endsAt, allDay = false, method = 'REQUEST', sequence = 0 }: InvitationInput & { account: InvitationAccount }) {
+export type PreparedCalendarInvitation = {
+  // This is the only operation that invokes transport.sendMail. Callers can record
+  // a durable dispatch marker immediately before it, after preparation completed.
+  dispatch: () => Promise<CalendarInvitationDelivery>;
+};
+
+export async function prepareCalendarInvitation({ account, attendees, summary, description = null, location = null, uid, startsAt, endsAt, allDay = false, method = 'REQUEST', sequence = 0 }: InvitationInput & { account: InvitationAccount }): Promise<PreparedCalendarInvitation> {
+  // Transport creation can refresh credentials, validate the TLS policy and resolve
+  // DNS. None of those operations hands a message to SMTP, so an outbox can safely
+  // retry an error raised before this function returns.
   const { createAccountSmtpTransport } = await import('./smtpTransport.js');
   const smtp = await createAccountSmtpTransport(account);
   if (smtp.error) throw Object.assign(new Error(smtp.error), { status: smtp.status });
@@ -87,11 +109,23 @@ export async function sendCalendarInvitation({ account, attendees, summary, desc
   const fromEmail = sendingAccount.email_address;
   const fromName = sendingAccount.sender_name || sendingAccount.name || fromEmail;
   const content = invitationIcal({ uid, summary, description, location, organizerEmail: fromEmail, attendees, startsAt, endsAt, allDay, method, sequence });
-  await smtp.transport.sendMail({
-    from: `${fromName} <${fromEmail}>`,
-    to: attendees.join(', '),
-    subject: `Invitation: ${summary || 'Meeting'}`,
-    text: `${fromName} invited you to ${summary || 'a meeting'}.`,
-    attachments: [{ filename: 'invitation.ics', content, contentType: `text/calendar; charset=utf-8; method=${method}` }],
-  });
+  return {
+    dispatch: async () => {
+      const result = await smtp.transport.sendMail({
+        from: `${fromName} <${fromEmail}>`,
+        to: attendees.join(', '),
+        subject: `Invitation: ${summary || 'Meeting'}`,
+        text: `${fromName} invited you to ${summary || 'a meeting'}.`,
+        attachments: [{ filename: 'invitation.ics', content, contentType: `text/calendar; charset=utf-8; method=${method}` }],
+      });
+      return {
+        accepted: smtpRecipients(result, 'accepted'),
+        rejected: smtpRecipients(result, 'rejected'),
+      } satisfies CalendarInvitationDelivery;
+    },
+  };
+}
+
+export async function sendCalendarInvitation(input: InvitationInput & { account: InvitationAccount }) {
+  return (await prepareCalendarInvitation(input)).dispatch();
 }

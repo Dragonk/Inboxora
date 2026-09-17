@@ -5,8 +5,72 @@ All notable changes to Inboxora are recorded here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 For the narrative version — what the release means, what to expect when upgrading, and the known
-limitations — read the matching page in the Wiki: [Release notes 4.0.1](wiki/Release-notes-4.0.1.md) and
-[Release notes 4.0.0](wiki/Release-notes-4.0.0.md).
+limitations — read the matching page in the Wiki: [Release notes 4.0.2](wiki/Release-notes-4.0.2.md),
+[Release notes 4.0.1](wiki/Release-notes-4.0.1.md) and [Release notes 4.0.0](wiki/Release-notes-4.0.0.md).
+
+## [4.0.2] - 2026-09-17
+
+### Fixed
+
+- Apply the public calendar-feed request budget before database lookup, preventing a flood of syntactically valid unknown tokens from exhausting PostgreSQL.
+- Preserve partial SMTP recipient results through post-send failures and keep a partial-send composer open
+  with only rejected recipients for a safe retry.
+- Prevent stale account and deep-link callbacks from writing into a later SPA session; preserve navigation only
+  for the user who stored it.
+- Release IMAP connection markers after every setup failure, including DNS resolution failures.
+- Retire failed, timed-out and terminating calendar projection workers before draining queued work.
+- Atomically claim calendar invitation outbox entries, persist partial recipient failures for targeted retry, and
+  prevent overlapping drains from issuing duplicate invitations.
+- Reject incomplete AI chat-completions SSE streams instead of converting upstream EOF into a synthetic success.
+- Apply Microsoft integration settings exactly as saved, including clearing omitted fields at runtime.
+- Detect lost idempotency-lease ownership and prevent same-process automatic duplicate sends while the SMTP
+  outcome is uncertain.
+- Preserve recipient header roles on partial-send retry, including BCC-only delivery; scope delayed compose and
+  API-auth callbacks to their originating session.
+- Store idempotent send intents durably with request fingerprints, retain ambiguous SMTP outcomes for manual
+  reconciliation, and reject changed requests that reuse a key.
+- Make calendar invitation delivery durable across deletes, partial failures and recovery: checkpoint accepted
+  actions, retain missing-sender work, and use an atomic completion marker. Invitation requests without a client
+  key now receive a server operation key and follow the outbox path.
+- Fail closed for edits or cancellations of invited recurring occurrences, where a correct attendee notification
+  cannot be generated.
+- Keep an invitation outbox action uncertain after ambiguous SMTP or post-SMTP database loss; it is no longer
+  automatically resent. Explicit SMTP rejections, including temporary 4xx failures, remain retryable.
+- Snapshot autosave input so edits made while a draft request is in flight remain dirty and are saved by the next
+  autosave rather than being silently treated as persisted.
+- Mark calendar invitation delivery uncertain only after SMTP transport preparation succeeds; DNS, credential,
+  TLS-policy and MIME preparation failures remain retryable without issuing SMTP.
+- Return the persisted calendar invitation status when an idempotent retry cannot acquire its claim, preserving
+  uncertain delivery warnings instead of falsely reporting active processing.
+- Prevent draft-save acknowledgements from restoring newer To/CC/BCC edits or closing a composer with changes
+  made while a save-and-close request was in flight.
+- Keep the previous draft's account and mailbox identity through a sender-account change, preventing a UID
+  collision from deleting an unrelated draft in the destination account.
+- Preserve durable invitation-cancellation statuses in calendar responses and retry the same cancellation outbox
+  operation instead of falsely reporting uncertain or processing delivery as sent.
+- Keep calendar cancellation delivery checks separate from event edits, so reopening an event shows the durable
+  status without discarding a later title, time or description change.
+- Bind every destructively handled draft to its persisted UIDVALIDITY epoch, retaining the draft rather than
+  deleting a reused UID after a mailbox reset.
+- Preserve BCC recipients and the historical draft identity when reopening a saved draft, while discarding late
+  draft-open responses after an authentication-session change.
+- Clear only the completed cancellation operation's prior failure message after a successful retry.
+- Preserve the selected alias, reply headers, editable body format, signature and quoted reply material when reopening drafts; reject an unavailable alias rather than silently falling back to the primary address.
+- Replace every cached draft field from an authoritative APPEND snapshot, preventing UID reuse after a mailbox epoch reset from inheriting prior recipients.
+- Apply the same fail-closed selected-alias validation to sending and draft saving.
+- Keep each reopened draft in its saved text/HTML format through SMTP MIME generation, including HTML quotes and inline images, while preserving literal legacy API text when the format flag is absent.
+- Preserve canonical plaintext signature text through draft reopen and send, including line breaks, and structurally convert legacy HTML-only signatures with block and line-break boundaries during upgrade.
+
+### Notes
+
+- Includes database migrations `0085_calendar_invitation_outbox_claim.sql`,
+  `0086_calendar_invitation_outbox_deleted_event.sql`, `0087_send_idempotency.sql` and
+  `0088_calendar_invitation_outbox_completion_checkpoint.sql`,
+  `0089_calendar_invitation_outbox_uncertain_dispatch.sql`,
+  `0090_calendar_cancellation_outbox_reference.sql`,
+  `0091_draft_uidvalidity_identity.sql`, `0092_draft_bcc_addresses.sql` and
+  `0093_draft_composition_metadata.sql`; apply migrations before running workers or
+  accepting outbound mail. No new configuration is required.
 
 ## [4.0.1] - 2026-09-13
 

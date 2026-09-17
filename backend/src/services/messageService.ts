@@ -110,7 +110,7 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
                ${threadIdentityExpr} AS thread_id,
                m.thread_key,
                m.subject, m.from_name, m.from_email,
-               m.to_addresses, m.cc_addresses, m.reply_to, m.in_reply_to,
+               m.to_addresses, m.cc_addresses, m.draft_bcc_addresses, m.draft_uid_validity::text AS draft_uid_validity, m.draft_alias_id, m.draft_in_reply_to, m.draft_references, m.draft_composition, m.reply_to, m.in_reply_to,
                m.date, m.snippet, m.is_read, m.is_starred,
                m.has_attachments, m.account_id, m.category,
                m.list_unsubscribe, m.list_unsubscribe_post, m.delivery_addresses,
@@ -163,7 +163,7 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
       )
       SELECT id, uid, folder, message_id, thread_id, thread_key, thread_subject AS subject,
              thread_from_name AS from_name, thread_from_email AS from_email,
-             to_addresses, cc_addresses, reply_to, in_reply_to,
+             to_addresses, cc_addresses, draft_bcc_addresses, draft_uid_validity, draft_alias_id, draft_in_reply_to, draft_references, draft_composition, reply_to, in_reply_to,
              date, snippet, is_starred, is_read, has_attachments, account_id,
              account_name, account_email, account_color,
              category, list_unsubscribe, list_unsubscribe_post, delivery_addresses,
@@ -199,7 +199,7 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
 
   const result = await query(`
     SELECT m.id, m.uid, m.folder, m.message_id, m.thread_id, m.thread_key, m.subject, m.from_name, m.from_email,
-           m.to_addresses, m.cc_addresses, m.reply_to, m.in_reply_to,
+           m.to_addresses, m.cc_addresses, m.draft_bcc_addresses, m.draft_uid_validity::text AS draft_uid_validity, m.draft_alias_id, m.draft_in_reply_to, m.draft_references, m.draft_composition, m.reply_to, m.in_reply_to,
            m.date, m.snippet, m.is_read, m.is_starred,
            m.has_attachments, m.account_id, m.category,
            m.list_unsubscribe, m.list_unsubscribe_post, m.delivery_addresses,

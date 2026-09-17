@@ -2125,31 +2125,30 @@ export class ImapManager {
     this.connectingAccounts.add(account.id);
     console.log(`Connecting ${logAccount(account)} (${account.imap_host}:${account.imap_port})…`);
 
-    // Always clean up any existing connection and interval first.
-    // Previously this only ran when a connection existed, which left orphaned
-    // intervals running whenever the connection died between reconnect attempts.
-    await this.disconnectAccount(account.id);
-
-    // Per-host persistent-connection budget (#379 Phase 2). When an operator has set a finite cap
-    // for this (connection-limited) host and this account is beyond it, run poll-only instead of
-    // holding an always-on IDLE connection: no entry in this.connections, just a periodic fresh
-    // open→sync→close. Default cap is unlimited, so this whole branch is skipped and behavior is
-    // unchanged for everyone who hasn't opted in. A lookup error fails safe to the persistent path.
-    const persistentCap = this._effectivePersistentCap(account);
-    if (Number.isFinite(persistentCap)) {
-      const eligible = await this._isPersistentEligible(account, persistentCap).catch(() => true);
-      if (!eligible) {
-        try { this._startPollOnly(account); }
-        finally { this.connectingAccounts.delete(account.id); }
-        return true;
-      }
-    }
-
-    // Refresh OAuth token if needed before connecting
-    account = await ensureFreshToken(account);
-    const { resolved, policy } = await resolveAccountHost(account);
     let client: ImapFlow | undefined;
     try {
+      // Always clean up any existing connection and interval first.
+      // Previously this only ran when a connection existed, which left orphaned
+      // intervals running whenever the connection died between reconnect attempts.
+      await this.disconnectAccount(account.id);
+
+      // Per-host persistent-connection budget (#379 Phase 2). When an operator has set a finite cap
+      // for this (connection-limited) host and this account is beyond it, run poll-only instead of
+      // holding an always-on IDLE connection: no entry in this.connections, just a periodic fresh
+      // open→sync→close. Default cap is unlimited, so this whole branch is skipped and behavior is
+      // unchanged for everyone who hasn't opted in. A lookup error fails safe to the persistent path.
+      const persistentCap = this._effectivePersistentCap(account);
+      if (Number.isFinite(persistentCap)) {
+        const eligible = await this._isPersistentEligible(account, persistentCap).catch(() => true);
+        if (!eligible) {
+          this._startPollOnly(account);
+          return true;
+        }
+      }
+
+      // Refresh OAuth token if needed before connecting
+      account = await ensureFreshToken(account);
+      const { resolved, policy } = await resolveAccountHost(account);
       // Connect via the shared helper: it attaches the #360 handshake-error listener, races the
       // connect against a 30s timeout (client.connect() has none — a slow/unresponsive server like
       // purelymail on a cold start would otherwise hang forever, wedging retries while
@@ -4398,13 +4397,21 @@ export class ImapManager {
 
   async appendToFolder(account: EmailAccountRow, folder: string, rawMessage: Buffer, flags = ['\\Seen']) {
     let uid = null;
+    let uidValidity: number | null = null;
     await withFreshClient(account, async (client) => {
-      const result = await client.append(folder, rawMessage, flags);
-      if (result === false) throw new Error('IMAP append returned false — server did not confirm message was stored');
-      if (result && typeof result.uid === 'number') uid = result.uid;
+      const lock = await client.getMailboxLock(folder);
+      try {
+        const result = await client.append(folder, rawMessage, flags);
+        if (result === false) throw new Error('IMAP append returned false — server did not confirm message was stored');
+        if (result && typeof result.uid === 'number') uid = result.uid;
+        const currentUidValidity = client.mailbox && client.mailbox.uidValidity ? Number(client.mailbox.uidValidity) : null;
+        uidValidity = currentUidValidity != null && Number.isSafeInteger(currentUidValidity) && currentUidValidity > 0 ? currentUidValidity : null;
+      } finally {
+        lock.release();
+      }
     });
     console.log(`Appended to IMAP ${logAccount(account)}/${folder} uid=${uid}`);
-    return { uid, folder };
+    return { uid, folder, uidValidity };
   }
 
   async appendToSent(account: EmailAccountRow, folder: string, rawMessage: Buffer): Promise<{ uid?: number | null }> {
@@ -4504,10 +4511,15 @@ export class ImapManager {
     fromEmail,
     to = [],
     cc = [],
+    bcc = [],
+    aliasId = null,
+    references = null,
+    draftComposition = null,
     inReplyTo = null,
     snippet = '',
     bodyHtml = null,
     bodyText = null,
+    uidValidity = null,
     date = new Date(),
   }: {
     messageId: string;
@@ -4516,10 +4528,15 @@ export class ImapManager {
     fromEmail?: string | null;
     to?: Array<{ name?: string; email?: string }>;
     cc?: Array<{ name?: string; email?: string }>;
+    bcc?: Array<{ name?: string; email?: string }>;
+    aliasId?: string | null;
+    references?: string | null;
+    draftComposition?: Record<string, unknown> | null;
     inReplyTo?: string | { address?: string } | null;
     snippet?: string;
     bodyHtml?: string | null;
     bodyText?: string | null;
+    uidValidity?: number | null;
     date?: Date;
   }) {
     if (!uid || !folder) return;
@@ -4529,27 +4546,32 @@ export class ImapManager {
         account_id, uid, folder, message_id, subject,
         from_name, from_email, to_addresses, cc_addresses,
         in_reply_to, date, snippet, is_read, is_starred, has_attachments,
-        flags, body_html, body_text, thread_id
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10,$11,$12,true,false,false,$13::jsonb,$14,$15,$16)
+        flags, body_html, body_text, thread_id, draft_uid_validity, draft_bcc_addresses,
+        draft_alias_id, draft_in_reply_to, draft_references, draft_composition
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10,$11,$12,true,false,false,$13::jsonb,$14,$15,$16,$17,$18::jsonb,$19,$20,$21,$22::jsonb)
       ON CONFLICT (account_id, uid, folder) DO UPDATE SET
-        message_id = COALESCE(EXCLUDED.message_id, messages.message_id),
-        subject = CASE
-          WHEN EXCLUDED.subject IS NOT NULL AND EXCLUDED.subject <> '' AND EXCLUDED.subject <> '(no subject)'
-          THEN EXCLUDED.subject ELSE messages.subject END,
-        from_name = COALESCE(NULLIF(EXCLUDED.from_name, ''), messages.from_name),
-        from_email = COALESCE(NULLIF(EXCLUDED.from_email, ''), messages.from_email),
-        to_addresses = CASE
-          WHEN EXCLUDED.to_addresses::text IS NOT NULL AND EXCLUDED.to_addresses::text <> '[]'
-          THEN EXCLUDED.to_addresses ELSE messages.to_addresses END,
-        cc_addresses = CASE
-          WHEN EXCLUDED.cc_addresses::text IS NOT NULL AND EXCLUDED.cc_addresses::text <> '[]'
-          THEN EXCLUDED.cc_addresses ELSE messages.cc_addresses END,
-        in_reply_to = COALESCE(EXCLUDED.in_reply_to, messages.in_reply_to),
+        -- This is an authoritative APPEND snapshot, not a partial sync merge. In
+        -- particular an empty recipient list is meaningful and must erase data from
+        -- a stale UID that was reused after UIDVALIDITY changed.
+        message_id = EXCLUDED.message_id,
+        subject = EXCLUDED.subject,
+        from_name = EXCLUDED.from_name,
+        from_email = EXCLUDED.from_email,
+        to_addresses = EXCLUDED.to_addresses,
+        cc_addresses = EXCLUDED.cc_addresses,
+        in_reply_to = EXCLUDED.in_reply_to,
         date = EXCLUDED.date,
-        snippet = CASE WHEN EXCLUDED.snippet <> '' THEN EXCLUDED.snippet ELSE messages.snippet END,
+        snippet = EXCLUDED.snippet,
         flags = EXCLUDED.flags,
-        body_html = COALESCE(EXCLUDED.body_html, messages.body_html),
-        body_text = COALESCE(EXCLUDED.body_text, messages.body_text)
+        body_html = EXCLUDED.body_html,
+        body_text = EXCLUDED.body_text,
+        draft_uid_validity = EXCLUDED.draft_uid_validity,
+        draft_bcc_addresses = EXCLUDED.draft_bcc_addresses,
+        draft_alias_id = EXCLUDED.draft_alias_id,
+        draft_in_reply_to = EXCLUDED.draft_in_reply_to,
+        draft_references = EXCLUDED.draft_references,
+        draft_composition = EXCLUDED.draft_composition
+      RETURNING id
     `, [
       account.id, uid, folder, msgId,
       sanitizeStr(subject || '(no subject)'),
@@ -4560,9 +4582,15 @@ export class ImapManager {
       bodyHtml != null ? sanitizeStr(bodyHtml) : null,
       bodyText != null ? sanitizeStr(bodyText) : null,
       msgId || null,
+      uidValidity != null && Number.isSafeInteger(uidValidity) && uidValidity > 0 ? uidValidity : null,
+      JSON.stringify(Array.isArray(bcc) ? bcc : []),
+      aliasId,
+      inReplyTo,
+      references,
+      draftComposition ? JSON.stringify(draftComposition) : null,
     ]);
     const row = await query<{ id: string }>('SELECT id FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3', [account.id, uid, folder]);
-    if (row.rows[0]) await persistConversationCopyForRow(row.rows[0].id, account, { messageId, inReplyTo, references: null });
+    if (row.rows[0]) await persistConversationCopyForRow(row.rows[0].id, account, { messageId, inReplyTo, references });
   }
 
   async findSentMessageByMessageId(account: EmailAccountRow, folder: string, messageId: string): Promise<{ state: 'found' | 'missing' | 'ambiguous'; uid?: number | null }> {
@@ -5263,10 +5291,17 @@ export class ImapManager {
     return newUid;
   }
 
-  async permanentDeleteMessage(account: EmailAccountRow, uid: number | string, folder: string) {
+  async permanentDeleteMessage(account: EmailAccountRow, uid: number | string, folder: string, expectedUidValidity?: number) {
     await withFreshClient(account, async (client) => {
       const lock = await client.getMailboxLock(folder);
       try {
+        if (expectedUidValidity !== undefined) {
+          const mailbox = client.mailbox;
+          const currentUidValidity = mailbox && mailbox.uidValidity ? Number(mailbox.uidValidity) : null;
+          if (currentUidValidity !== expectedUidValidity) {
+            throw new Error(`messageDelete refused: UIDVALIDITY changed or is unavailable for ${folder}`);
+          }
+        }
         const result = await client.messageDelete(String(uid), { uid: true });
         if (result === false) throw new Error('messageDelete returned false — server did not confirm deletion');
       } finally {

@@ -132,6 +132,9 @@ type ProjectionSlot = {
   worker: Worker;
   job: PendingProjectionJob | null;
   timer: NodeJS.Timeout | null;
+  // A worker that emitted error or is being terminated must never receive another job
+  // while Node is still waiting to emit its final exit event.
+  retiring: boolean;
 };
 let pending: PendingProjectionJob[] = [];
 let nextJobId = 1;
@@ -161,7 +164,7 @@ function workerExecArgv() {
 
 function spawnSlot(settings: ReturnType<typeof config>) {
   const worker = new Worker(WORKER_URL, { name: 'calendar-projection', execArgv: workerExecArgv() });
-  const slot: ProjectionSlot = { worker, job: null, timer: null };
+  const slot: ProjectionSlot = { worker, job: null, timer: null, retiring: false };
   worker.unref?.();
   worker.on('message', (message) => {
     if (!slot.job || message?.jobId !== slot.job.jobId) return;
@@ -175,6 +178,9 @@ function spawnSlot(settings: ReturnType<typeof config>) {
     drain();
   });
   worker.on('error', (error) => {
+    // Node emits exit after error. Retire before settling/draining so a queued job
+    // cannot be posted to this already-dying worker in that gap.
+    if (!retireSlot(slot, settings)) return;
     settleJob(slot, job => job.resolve({
       id: job.row?.id ?? null,
       events: [],
@@ -186,19 +192,16 @@ function spawnSlot(settings: ReturnType<typeof config>) {
   });
   worker.on('exit', () => {
     // A worker that stops mid-job (crash, OOM, terminate) fails only its own job.
-    settleJob(slot, job => job.resolve({
-      id: job.row?.id ?? null,
-      events: [],
-      truncated: true,
-      reason: 'worker-exit',
-      error: 'The calendar projection worker stopped unexpectedly',
-    }));
-    if (slots) {
-      const index = slots.indexOf(slot);
-      if (index >= 0) slots.splice(index, 1);
-      if (!closing && slots.length < settings.workers) {
-        try { slots.push(spawnSlot(settings)); } catch { /* keep the remaining workers */ }
-      }
+    // If error/timeout already retired it, its job was settled with that more useful reason.
+    const retiredNow = retireSlot(slot, settings);
+    if (retiredNow) {
+      settleJob(slot, job => job.resolve({
+        id: job.row?.id ?? null,
+        events: [],
+        truncated: true,
+        reason: 'worker-exit',
+        error: 'The calendar projection worker stopped unexpectedly',
+      }));
     }
     drain();
   });
@@ -222,6 +225,21 @@ function ensureSlots(settings: ReturnType<typeof config>) {
   return slots;
 }
 
+// Remove a dying slot from dispatch before any callback resolves a job or drains
+// the queue. error and exit are both possible for one Worker, so this is idempotent.
+function retireSlot(slot: ProjectionSlot, settings: ReturnType<typeof config>) {
+  if (slot.retiring) return false;
+  slot.retiring = true;
+  if (slots) {
+    const index = slots.indexOf(slot);
+    if (index >= 0) slots.splice(index, 1);
+    if (!closing && slots.length < settings.workers) {
+      try { slots.push(spawnSlot(settings)); } catch { /* keep the remaining workers */ }
+    }
+  }
+  return true;
+}
+
 function settleJob(slot: ProjectionSlot, build: (job: PendingProjectionJob) => void) {
   const job = slot.job;
   if (!job || job.done) return false;
@@ -236,7 +254,7 @@ function drain() {
   if (!slots || closing) return;
   const settings = config();
   for (const slot of [...slots]) {
-    if (slot.job) continue;
+    if (slot.job || slot.retiring) continue;
     const next = pending.shift();
     if (!next) return;
     startJob(slot, next, settings);
@@ -249,6 +267,9 @@ function startJob(slot: ProjectionSlot, job: PendingProjectionJob, settings: Ret
   // terminates this worker. Only this job is lost, and it is reported as such.
   slot.timer = setTimeout(() => {
     slot.timer = null;
+    // terminate() is asynchronous; remove this slot before settling or draining so
+    // no later queue turn can assign work while the worker is still exiting.
+    if (!retireSlot(slot, settings)) return;
     settleJob(slot, current => current.resolve({
       id: current.row?.id ?? null,
       events: [],
@@ -257,6 +278,7 @@ function startJob(slot: ProjectionSlot, job: PendingProjectionJob, settings: Ret
       error: `Calendar projection exceeded the ${settings.timeoutMs} ms budget`,
     }));
     slot.worker.terminate().catch(() => {});
+    drain();
   }, settings.timeoutMs);
   try {
     slot.worker.postMessage({
@@ -269,6 +291,7 @@ function startJob(slot: ProjectionSlot, job: PendingProjectionJob, settings: Ret
     });
   } catch (caught) {
     const error = toAppError(caught);
+    if (!retireSlot(slot, settings)) return;
     settleJob(slot, current => current.resolve({
       id: current.row?.id ?? null,
       events: [],
@@ -276,7 +299,8 @@ function startJob(slot: ProjectionSlot, job: PendingProjectionJob, settings: Ret
       reason: 'post-failed',
       error: error instanceof Error ? error.message : String(error),
     }));
-    queueMicrotask(() => drain());
+    slot.worker.terminate().catch(() => {});
+    drain();
   }
 }
 

@@ -381,7 +381,7 @@ describe('authenticated AI status and streaming', () => {
     expect(providerSignal.aborted).toBe(true);
   });
 
-  it('emits a generic SSE error after headers without exposing upstream credentials', async () => {
+  it('emits a generic SSE error after headers without synthetic success or upstream credentials', async () => {
     mocks.streamChat.mockImplementation(async function* stream() {
       yield 'first';
       throw new Error('access-token-secret');
@@ -390,7 +390,7 @@ describe('authenticated AI status and streaming', () => {
     expect(response.status).toBe(200);
     const text = await response.text();
     expect(text).toContain('data: {"error":"AI request failed"}\n\n');
-    expect(text).toContain('data: [DONE]\n\n');
+    expect(text).not.toContain('data: [DONE]\n\n');
     expect(text).not.toContain('access-token-secret');
   });
 });

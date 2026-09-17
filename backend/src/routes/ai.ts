@@ -231,7 +231,6 @@ router.post('/ai/chat', requireAuth, async (req: Request, res: Response) => {
   } catch {
     if (!controller.signal.aborted && !res.destroyed) {
       res.write(`data: ${JSON.stringify({ error: 'AI request failed' })}\n\n`);
-      res.write('data: [DONE]\n\n');
       res.end();
     }
   } finally {

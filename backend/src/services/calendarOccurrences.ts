@@ -45,7 +45,8 @@ export function occurrenceHorizon(now = new Date()) {
 // Columns the projection needs from the event row. Shared with the events route's fallback
 // query so the two can never disagree about what an expansion is given.
 export const EVENT_COLUMNS = `e.id, e.user_id, e.calendar_id, e.uid, e.etag, e.raw_ical, e.summary, e.description,
-  e.location, e.url, e.organizer, e.attendees, e.starts_at, e.ends_at, e.all_day, e.timezone`;
+  e.location, e.url, e.organizer, e.attendees, e.starts_at, e.ends_at, e.all_day, e.timezone,
+  e.cancellation_outbox_id`;
 
 // The value the parent event carries, used to decide whether an occurrence overrides it.
 // Storing only genuine overrides keeps a description from being duplicated across hundreds

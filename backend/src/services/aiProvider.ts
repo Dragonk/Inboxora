@@ -145,6 +145,7 @@ interface ParseSseOptions { signal?: AbortSignal; secrets?: unknown[] }
 
 async function* parseChatCompletionsSse(response: Response, { signal, secrets }: ParseSseOptions = {}) {
   let outputChars = 0;
+  let completed = false;
   const createError = (reason: string): AiProviderError => {
     if (reason === 'empty_body') return new AiProviderError('AI provider returned an empty stream', { status: 502 });
     if (reason === 'aborted') return new AiProviderError('AI provider request was aborted', { status: 499 });
@@ -160,12 +161,17 @@ async function* parseChatCompletionsSse(response: Response, { signal, secrets }:
     const event = parseJson(data);
     if (!event) throw new AiProviderError('AI provider returned a malformed stream event', { status: 502 });
     if (event.error) throw providerError(502, JSON.stringify({ error: event.error }), secrets);
-    const delta = event.choices?.[0]?.delta?.content;
+    const choice = event.choices?.[0];
+    // OpenAI-compatible providers normally send [DONE], but finish_reason is also
+    // an explicit terminal event. Do not mistake a bare transport EOF for either.
+    if (typeof choice?.finish_reason === 'string' && choice.finish_reason) completed = true;
+    const delta = choice?.delta?.content;
     if (typeof delta !== 'string' || !delta) continue;
     outputChars += delta.length;
     if (outputChars > OUTPUT_LIMIT_CHARS) throw new AiProviderError('AI provider output was too large', { status: 502 });
     yield delta;
   }
+  if (!completed) throw new AiProviderError('AI provider stream ended without a completion marker', { status: 502, expose: true });
 }
 
 export function createAiProvider({

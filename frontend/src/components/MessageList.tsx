@@ -36,6 +36,8 @@ import { mergeThreadCacheField } from '../utils/threadCacheState.ts';
 import { queueStarStateMutation, isLatestStarStateMutation } from '../utils/starStateMutation.ts';
 import { applyDeleteGuard, clearDeleteGuard, clearPendingDelete, setCompletedDelete, setPendingDelete, threadDeleteGuardKey } from '../utils/pendingDeletes.ts';
 import { toAppError } from '../utils/errors.ts';
+import { createSessionOperationGuard } from '../utils/sessionOperationGuard.ts';
+import { legacySignatureHtmlToText } from '../utils/legacySignatureText.ts';
 import type { ArchiveMessage } from '../utils/threadedArchive.ts';
 import {
   archiveInChunks,
@@ -176,6 +178,12 @@ export default function MessageList() {
   // RFC message_id of the open message, so a row highlights when it is a different DB copy
   // of the selected message (multi-folder model) — e.g. the inbox copy of a GTD sidebar click.
   const selectedMid = useStore(selectSelectedMessageMid);
+  const draftOpenGuardRef = useRef<ReturnType<typeof createSessionOperationGuard> | null>(null);
+  useEffect(() => {
+    const guard = createSessionOperationGuard(() => useStore.getState().authEpoch);
+    draftOpenGuardRef.current = guard;
+    return () => { guard.invalidate(); };
+  }, []);
 
   const isMobile = useMobile();
   const isUnified = selectedAccountId === null;
@@ -2579,21 +2587,50 @@ export default function MessageList() {
     }).filter(Boolean);
   };
 
+  const draftUidValidity = (value: unknown): number | undefined => {
+    if (typeof value === 'string' && !/^[1-9]\d*$/.test(value)) return undefined;
+    const normalized = typeof value === 'string' ? Number(value) : value;
+    return typeof normalized === 'number' && Number.isSafeInteger(normalized) && normalized > 0 ? normalized : undefined;
+  };
+
   const handleSelect = async (message: StoreMessageRow) => {
+    const guard = draftOpenGuardRef.current;
+    if (!guard) return;
+    const isCurrentDraftOpen = guard.begin();
     if (isDraftsFolder) {
       try {
         const bodyData = await api.getMessageBody(message.id);
+        if (!isCurrentDraftOpen()) return;
+        const composition = message.draft_composition;
+        const authoredBody = typeof composition?.authoredBody === 'string' ? composition.authoredBody : (bodyData.html || bodyData.text || '');
+        const isPlaintextComposition = composition?.bodyIsHtml === false;
+        const hasCanonicalSignatureText = isPlaintextComposition && typeof composition?.signatureText === 'string';
+        const reopenedSignature = isPlaintextComposition
+          ? (hasCanonicalSignatureText ? composition!.signatureText! : composition?.signatureHtml ? legacySignatureHtmlToText(composition.signatureHtml) : null)
+          : composition?.signatureHtml ?? composition?.signatureText ?? null;
         openCompose({
           accountId: message.account_id,
+          aliasId: message.draft_alias_id || null,
           draftUid: message.uid,
+          draftUidValidity: draftUidValidity(message.draft_uid_validity),
+          draftRowId: message.id,
           draftFolder: message.folder,
           to: formatAddressArray(message.to_addresses),
           cc: formatAddressArray(message.cc_addresses),
+          bcc: formatAddressArray(message.draft_bcc_addresses),
           subject: message.subject || '',
-          body: bodyData.html || bodyData.text || '',
-          bodyIsHtml: !!bodyData.html,
+          body: authoredBody,
+          bodyIsHtml: composition?.bodyIsHtml === true ? true : composition?.bodyIsHtml === false ? false : !!bodyData.html,
+          quotedBody: composition?.quotedBody || '',
+          quotedBodyHtml: composition?.quotedBodyHtml || null,
+          editedSignature: reopenedSignature,
+          editedSignatureIsHtml: hasCanonicalSignatureText ? false : composition?.bodyIsHtml !== false,
+          inReplyTo: message.draft_in_reply_to || null,
+          references: message.draft_references || null,
+          isReply: Boolean(message.draft_in_reply_to),
         });
       } catch (err) {
+        if (!isCurrentDraftOpen()) return;
         console.error('Failed to open draft:', toAppError(err).message);
         setSelectedMessage(message.id);
       }

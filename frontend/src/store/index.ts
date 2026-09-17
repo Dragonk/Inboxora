@@ -34,6 +34,7 @@ import {
 import { removeThreadCacheEntry } from '../utils/threadedArchive.ts';
 import { DEFAULT_CALENDAR_PREFERENCES, normalizeCalendarWorkDays, normalizeCalendarWorkTime } from '../utils/calendarPreferences.ts';
 import i18n from '../i18n.ts';
+import { setAuthEpoch } from '../utils/authEpoch.ts';
 
 /** A message row as the store holds it. */
 /** The signed-in user as the store holds it. */
@@ -69,6 +70,8 @@ export interface ComposeDraft {
   bodyIsHtml?: boolean;
   quotedBody?: string;
   quotedBodyHtml?: string | null;
+  editedSignature?: string | null;
+  editedSignatureIsHtml?: boolean;
   isReply?: boolean;
   isReplyAll?: boolean;
   isForward?: boolean;
@@ -82,12 +85,16 @@ export interface ComposeDraft {
   conversationId?: string;
   draftFolder?: string;
   draftUid?: number;
+  draftUidValidity?: number;
+  draftRowId?: string;
   [key: string]: unknown;
 }
 
 
 export interface StoreState {
   user: StoreUserRow | null;
+  /** Monotonic generation for invalidating asynchronous work from prior auth sessions. */
+  authEpoch: number;
   setUser: (user: StoreUserRow | null) => void;
   updateUser: (updates: Record<string, unknown>) => void;
   enabledPlugins: string[];
@@ -366,6 +373,12 @@ export interface StoreMessageRow {
   from_email?: string | null;
   to_addresses?: string | null;
   cc_addresses?: string | null;
+  draft_bcc_addresses?: string | Array<{ email?: string; name?: string | null }> | null;
+  draft_uid_validity?: string | number | null;
+  draft_alias_id?: string | null;
+  draft_in_reply_to?: string | null;
+  draft_references?: string | null;
+  draft_composition?: { version?: number; authoredBody?: string; bodyIsHtml?: boolean; signatureHtml?: string | null; signatureText?: string | null; quotedBody?: string | null; quotedBodyHtml?: string | null } | null;
   reply_to?: string | null;
   delivery_addresses?: string | Array<{ email?: string | null; address?: string | null } | string> | null;
   category?: string | null;
@@ -379,6 +392,7 @@ export interface StoreMessageRow {
  */
 type StoreStateRead = Pick<StoreState,
   | '_winSeq'
+  | 'authEpoch'
   | 'accounts'
   | 'backfillProgress'
   | 'calendarWorkHoursEnd'
@@ -484,26 +498,39 @@ function readGtdCollapsedSections() {
 // is derived from them plus the OS colour scheme (mode 'system').
 const _initialThemePrefs = readThemePrefs();
 
+// Persisted account/folder selection is only trusted for the user who saved it.
+const NAVIGATION_OWNER_KEY = 'mailflow_selected_navigation_owner';
+
 // The store shape is intentionally typed as `any` for now: it is a large,
 // dynamically-composed slice object, and typing it in full is tracked as part of
 export const useStore = create<StoreState>()((set, get) => ({
   // Auth
   user: null,
+  authEpoch: 0,
   setUser: (user: StoreUserRow | null) =>{
     // A new identity must never inherit private UI data from the preceding SPA session.
-    // Device appearance/input preferences deliberately remain outside this reset.
-    const identityChanged = get().user?.id !== user?.id;
+    // A first authenticated bootstrap may retain navigation only when it names this user.
+    const previousUserId = get().user?.id;
+    const identityChanged = previousUserId !== user?.id;
+    const isOwnedBootstrap = !previousUserId && !!user?.id
+      && localStorage.getItem(NAVIGATION_OWNER_KEY) === user.id;
+    const resetPrivateState = identityChanged && !isOwnedBootstrap;
     if (identityChanged) {
+      setAuthEpoch(get().authEpoch + 1);
       cancelPendingPrefSave();
-      localStorage.removeItem('mailflow_selected_account');
-      localStorage.removeItem('mailflow_selected_folder');
+      if (resetPrivateState) {
+        localStorage.removeItem('mailflow_selected_account');
+        localStorage.removeItem('mailflow_selected_folder');
+        localStorage.removeItem(NAVIGATION_OWNER_KEY);
+      }
       _gtdSectionsSeq += 1;
       if (_gtdFetchTimer) clearTimeout(_gtdFetchTimer);
       _gtdFetchTimer = null;
     }
     set((state: StoreStateRead) => ({
       user,
-      ...(state.user?.id !== user?.id ? {
+      ...(identityChanged ? { authEpoch: state.authEpoch + 1 } : {}),
+      ...(resetPrivateState ? {
         senderFaviconsLoaded: false,
         senderFavicons: false,
         senderFaviconsSaving: false,
@@ -604,6 +631,8 @@ export const useStore = create<StoreState>()((set, get) => ({
     if (accountId === undefined) return;
     localStorage.setItem('mailflow_selected_account', accountId ?? '');
     localStorage.setItem('mailflow_selected_folder', folder);
+    const ownerId = get().user?.id;
+    if (ownerId) localStorage.setItem(NAVIGATION_OWNER_KEY, ownerId);
     return set((state: StoreStateRead) => {
       // #221: auto-close a folder-scoped search when navigating to a different
       // folder/account. A scoped search (a specific account with "Search all folders"

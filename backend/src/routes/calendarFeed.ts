@@ -22,18 +22,23 @@ function compareFeedRows(left: DbRow, right: DbRow) {
   return 0;
 }
 
-async function failureResponse(req: Request, res: Response) {
+async function publicFailureOrLimited(req: Request, res: Response) {
   const limited = await consume(`calendar-feed:${req.ip}`, PUBLIC_FAILURE_LIMIT, PUBLIC_FAILURE_WINDOW_MS);
-  if (limited.limited) res.setHeader('Retry-After', Math.ceil(limited.resetMs / 1000));
-  return invalidResponse(res);
+  if (!limited.limited) return false;
+  res.setHeader('Retry-After', Math.ceil(limited.resetMs / 1000));
+  invalidResponse(res);
+  return true;
 }
 
 // Anonymous route: token shape is checked before hashing, and all failures share
 // one response so a feed cannot be enumerated.
 router.get(['/calendar/feeds/:token.ics', '/calendar/feeds/:token'], async (req: Request, res: Response) => {
   const feedToken = Array.isArray(req.params.token) ? req.params.token[0] : req.params.token;
+  // Check the anonymous request budget before hashing/querying. All denied and
+  // invalid requests retain the same 404 response to avoid token enumeration.
+  if (await publicFailureOrLimited(req, res)) return;
   const hash = hashCalendarFeedToken(feedToken);
-  if (!hash) return failureResponse(req, res);
+  if (!hash) return invalidResponse(res);
   const result = await query(
     `SELECT f.calendar_ids, c.id AS calendar_id, c.name AS calendar_name, e.id, e.uid, e.summary, e.description,
             e.location, e.url, e.starts_at, e.ends_at, e.all_day, e.created_at, e.updated_at
@@ -44,7 +49,7 @@ router.get(['/calendar/feeds/:token.ics', '/calendar/feeds/:token'], async (req:
       ORDER BY e.starts_at ASC NULLS LAST, c.id ASC, e.id ASC`,
     [hash],
   );
-  if (!result.rows.length) return failureResponse(req, res);
+  if (!result.rows.length) return invalidResponse(res);
   const events = result.rows.filter(row => row.id).sort(compareFeedRows);
   const names = [...new Set(result.rows.map(row => row.calendar_name).filter(Boolean))].sort();
   const body = serializeCalendarFeed(events, names.join(', ') || 'Inboxora');

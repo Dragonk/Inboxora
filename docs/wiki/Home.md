@@ -4,8 +4,8 @@
 SMTP, CardDAV and CalDAV, so your data stays on your server and your existing devices keep
 working. This Wiki is the canonical documentation for installing, configuring and using it.
 
-Current release: **4.0.1** — see [Release notes 4.0.1](Release-notes-4.0.1.md) for the
-TypeScript migration and the reliability/security fixes included in this patch release.
+Current release: **4.0.2** — see [Release notes 4.0.2](Release-notes-4.0.2.md) for the current
+reliability and data-isolation fixes.
 
 ![Inboxora mail list](https://raw.githubusercontent.com/Dragonk/Inboxora/main/media/screenshots/mail-inbox-desktop.png)
 

@@ -14,7 +14,7 @@ import { validateHost } from '../services/hostValidation.js';
 import { getConnectionPolicy } from '../services/connectionPolicy.js';
 import { releaseCalendarSource, scheduleCalendarSource, stopCalendarSource, syncCalendarSource } from '../services/externalCalendarSync.js';
 import { sendCalendarInvitation } from '../services/calendarInvitation.js';
-import { deliverInvitationOutbox, deliverStoredInvitation, invitationActionsForStorage, invitationDeliveryError, resolveInvitationActions } from '../services/calendarInvitationOutbox.js';
+import { deliverStoredInvitation, invitationActionsForStorage, invitationDeliveryError, readInvitationDeliveryStatus } from '../services/calendarInvitationOutbox.js';
 import { projectCalendarResources } from '../services/calendarProjectionPool.js';
 import { EVENT_COLUMNS, coveragePredicate } from '../services/calendarOccurrences.js';
 import { queryString, sessionUserId } from '../utils/query.js';
@@ -218,7 +218,8 @@ const READ_ATTENDEES = "CASE WHEN jsonb_typeof(attendees) = 'array' THEN attende
 function invitationOperationKey(req: Request): string {
   const supplied = req.headers['x-idempotency-key'];
   if (typeof supplied === 'string' && supplied.trim()) return supplied.trim().slice(0, 128);
-  return crypto.createHash('sha256').update(JSON.stringify(req.body || {})).digest('hex');
+  // Requests without a client retry key still use the durable outbox.
+  return `server:${crypto.randomUUID()}`;
 }
 
 function invitationRequestFingerprint(req: Request, fields: InvitationFields) {
@@ -231,11 +232,12 @@ function invitationRequestFingerprint(req: Request, fields: InvitationFields) {
 }
 
 // The single response shape for anything that may have to deliver an invitation.
-function invitationDeliveryResponse(event: unknown, delivery: InvitationDeliveryStatus | null | undefined) {
+function invitationDeliveryResponse(event: unknown, delivery: InvitationDeliveryStatus | null | undefined, operation: { kind: 'cancellation'; outboxId: string } | null = null) {
   return {
     event,
     invitationStatus: { status: delivery?.status || 'pending', lastError: delivery?.lastError || null },
     ...(invitationDeliveryError(delivery) ? { invitationError: invitationDeliveryError(delivery) } : {}),
+    ...(operation ? { invitationOperation: operation } : {}),
   };
 }
 
@@ -551,7 +553,7 @@ router.get('/events', async (req, res) => {
               COALESCE(o.url, e.url) AS url,
               COALESCE(o.organizer, e.organizer) AS organizer,
               COALESCE(o.attendees, e.attendees) AS attendees,
-              e.calendar_id, e.uid, e.etag, e.invite_account_id, e.invitation_sequence,
+              e.calendar_id, e.uid, e.etag, e.invite_account_id, e.invitation_sequence, e.cancellation_outbox_id,
               CASE WHEN sa.id IS NOT NULL THEN e.source_message_id END AS source_message_id,
               sm.folder AS source_folder,
               sa.id AS source_account_id,
@@ -655,7 +657,7 @@ router.post('/events', async (req, res) => {
     if (!invitationAccount) return res.status(400).json({ error: 'The selected sender account is unavailable' });
   }
 
-  if (sendInvites && invitationAccount && typeof req.headers['x-idempotency-key'] === 'string' && req.headers['x-idempotency-key'].trim()) {
+  if (sendInvites && invitationAccount) {
     const idempotencyKey = invitationOperationKey(req);
     const fingerprint = invitationRequestFingerprint(req, { calendarId, normalizedAttendees, times, summary, description, location, url, organizer, allDay, timezone, invitationAccount });
     let outcome;
@@ -693,11 +695,10 @@ router.post('/events', async (req, res) => {
       if (outcome.delivered) return res.status(201).json(invitationDeliveryResponse(outcome.event, outcome.delivered));
       // Same request, same key, invitation not delivered yet: resend it now rather
       // than replaying the stale error. The account is resolved from the payload.
-      const delivered = await deliverStoredInvitation({ userId: req.session.userId, outboxId: outcome.outboxId, payload: outcome.payload, fallbackAccountId: outcome.event?.invite_account_id });
+      const delivered = await deliverStoredInvitation({ outboxId: outcome.outboxId, userId: req.session.userId });
       return res.status(201).json(invitationDeliveryResponse(outcome.event, delivered));
     }
-    const actions = await resolveInvitationActions(sessionUserId(req), [{ account: invitationAccount, attendees: normalizedAttendees, summary, description, location, uid: outcome.event.uid, allDay: Boolean(allDay), method: 'REQUEST', sequence: outcome.event.invitation_sequence ?? 0, startsAt: times.startsAt.toISOString(), endsAt: times.endsAt.toISOString() }]);
-    const delivered = await deliverInvitationOutbox({ outboxId: outcome.outboxId, actions });
+    const delivered = await deliverStoredInvitation({ outboxId: outcome.outboxId, userId: req.session.userId });
     return res.status(201).json(invitationDeliveryResponse(outcome.event, delivered));
   }
 
@@ -743,6 +744,9 @@ router.all('/events/:eventId/occurrence', async (req, res) => {
   const outcome = await withTransaction(async client => {
     const row = (await client.query('SELECT uid, raw_ical, invite_account_id FROM calendar_events WHERE id = $1 AND calendar_id = $2 AND user_id = $3 FOR UPDATE', [req.params.eventId, calendarId, req.session.userId])).rows[0];
     if (!row) return { status: 404 };
+    // A recurrence exception needs an RFC-compliant REQUEST/CANCEL sequence.
+    // Until durable per-occurrence delivery exists, do not mutate invited series.
+    if (row.invite_account_id) return { status: 409, invitedSeries: true };
     if (scope === 'following') {
       const truncated = truncateSeriesBefore(row.raw_ical, recurrenceId);
       if (!truncated) return { status: 409 };
@@ -762,8 +766,39 @@ router.all('/events/:eventId/occurrence', async (req, res) => {
     await client.query('UPDATE calendar_events SET raw_ical = $1, etag = gen_random_uuid()::text, updated_at = NOW() WHERE id = $2 AND calendar_id = $3 AND user_id = $4', [raw, req.params.eventId, calendarId, req.session.userId]);
     return { status: 200 };
   });
-  if (outcome.status !== 200) return res.status(outcome.status).json({ error: 'Calendar occurrence unavailable' });
+  if (outcome.status !== 200) return res.status(outcome.status).json({ error: outcome.invitedSeries ? 'Invited recurring occurrence mutations are not supported' : 'Calendar occurrence unavailable' });
   res.json({ updated: true, scope });
+});
+
+router.get('/events/:eventId/cancellation-delivery', async (req, res) => {
+  const operation = await query<{ id: string; calendar_id: string; cancellation_outbox_id: string }>(
+    `SELECT e.id, e.calendar_id, e.cancellation_outbox_id
+     FROM calendar_events e
+     JOIN calendar_invitation_outbox o ON o.id = e.cancellation_outbox_id AND o.user_id = e.user_id
+     WHERE e.id = $1 AND e.user_id = $2`,
+    [req.params.eventId, req.session.userId],
+  );
+  const event = operation.rows[0];
+  if (!event) return res.json({ operation: null, invitationStatus: null });
+  const delivery = await readInvitationDeliveryStatus(event.cancellation_outbox_id, req.session.userId || null);
+  return res.json({
+    operation: { kind: 'cancellation', outboxId: event.cancellation_outbox_id },
+    invitationStatus: delivery,
+  });
+});
+
+router.post('/events/:eventId/cancellation-delivery/retry', async (req, res) => {
+  const operation = await query<{ id: string; cancellation_outbox_id: string }>(
+    `SELECT e.id, e.cancellation_outbox_id
+     FROM calendar_events e
+     JOIN calendar_invitation_outbox o ON o.id = e.cancellation_outbox_id AND o.user_id = e.user_id
+     WHERE e.id = $1 AND e.user_id = $2`,
+    [req.params.eventId, req.session.userId],
+  );
+  const event = operation.rows[0];
+  if (!event) return res.status(404).json({ error: 'Invitation cancellation operation not found' });
+  const delivery = await deliverStoredInvitation({ outboxId: event.cancellation_outbox_id, userId: req.session.userId });
+  return res.json({ operation: { kind: 'cancellation', outboxId: event.cancellation_outbox_id }, invitationStatus: delivery });
 });
 
 router.patch('/events/:eventId', async (req, res) => {
@@ -778,6 +813,7 @@ router.patch('/events/:eventId', async (req, res) => {
   const access = await writableCalendar(sessionUserId(req), calendarId);
   if (access.error) return res.status(access.status).json({ error: access.error });
 
+
   let invitationAccount = null;
   if (sendInvites) {
     const sender = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2 AND enabled = true AND smtp_host IS NOT NULL', [inviteAccountId, req.session.userId]);
@@ -785,7 +821,7 @@ router.patch('/events/:eventId', async (req, res) => {
     if (!invitationAccount) return res.status(400).json({ error: 'The selected sender account is unavailable' });
   }
 
-  if (sendInvites && invitationAccount && typeof req.headers['x-idempotency-key'] === 'string' && req.headers['x-idempotency-key'].trim()) {
+  if (sendInvites && invitationAccount) {
     let outcome;
     try {
       outcome = await updateInvitedEvent(req, { calendarId, invitationAccount, normalizedAttendees, times, summary, description, location, url, organizer, allDay, timezone });
@@ -800,11 +836,10 @@ router.patch('/events/:eventId', async (req, res) => {
     if (outcome.duplicate) {
       if (outcome.delivered) return res.json(invitationDeliveryResponse(outcome.event, outcome.delivered));
       // An identical retry must resend an undelivered invitation, not replay the error.
-      const delivered = await deliverStoredInvitation({ userId: req.session.userId, outboxId: outcome.outboxId, payload: outcome.payload, fallbackAccountId: outcome.event?.invite_account_id });
+      const delivered = await deliverStoredInvitation({ outboxId: outcome.outboxId, userId: req.session.userId });
       return res.json(invitationDeliveryResponse(outcome.event, delivered));
     }
-    const actions = await resolveInvitationActions(sessionUserId(req), outcome.actions);
-    const delivered = await deliverInvitationOutbox({ outboxId: outcome.outboxId, actions });
+    const delivered = await deliverStoredInvitation({ outboxId: outcome.outboxId, userId: req.session.userId });
     return res.json(invitationDeliveryResponse(outcome.event, delivered));
   }
 
@@ -823,20 +858,23 @@ router.patch('/events/:eventId', async (req, res) => {
         // sender accounts cannot be deleted because the FK is ON DELETE RESTRICT.
         ? (await client.query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2 AND smtp_host IS NOT NULL', [existingEvent.invite_account_id, req.session.userId])).rows[0] || null
         : null;
-    if (cancelledAttendees.length) {
-      if (!cancellationAccount) return { cancelFailed: true };
-      try {
-        await sendCalendarInvitation({ account: cancellationAccount, attendees: cancelledAttendees, summary: existingEvent.summary, description: existingEvent.description, location: existingEvent.location, uid: existingEvent.uid, allDay: Boolean(existingEvent.all_day), method: 'CANCEL', sequence: Number(existingEvent.invitation_sequence || 0) + 1, startsAt: new Date(existingEvent.starts_at), endsAt: new Date(existingEvent.ends_at) });
-      } catch (caught) {
-        const error = toAppError(caught);
-        console.error('Calendar invitation cancellation before update failed:', error.message);
-        return { cancelFailed: true };
-      }
-    }
+    if (cancelledAttendees.length && !cancellationAccount) return { cancelFailed: true };
+    const cancellationAction = cancelledAttendees.length && cancellationAccount
+      ? { account: cancellationAccount, attendees: cancelledAttendees, summary: existingEvent.summary, description: existingEvent.description, location: existingEvent.location, uid: existingEvent.uid, allDay: Boolean(existingEvent.all_day), method: 'CANCEL', sequence: Number(existingEvent.invitation_sequence || 0) + 1, startsAt: new Date(existingEvent.starts_at).toISOString(), endsAt: new Date(existingEvent.ends_at).toISOString() }
+      : null;
 
     const rawIcal = mergeCalendarResource(existingEvent.raw_ical, localEventIcal({ uid: existingEvent.uid, summary, description, location, url, organizer, attendees: normalizedAttendees, allDay: Boolean(allDay), ...times }));
     const result = await client.query(`UPDATE calendar_events SET raw_ical = $1, summary = $2, description = $3, location = $4, url = $5, organizer = $6, starts_at = $7, ends_at = $8, all_day = $9, timezone = $10, attendees = $11, invite_account_id = $12, invitation_sequence = CASE WHEN (invite_account_id IS NOT NULL AND ${ATTENDEES_IS_ARRAY} AND jsonb_array_length(attendees) > 0) OR invitation_sequence > 0 THEN invitation_sequence + 1 ELSE 0 END, etag = gen_random_uuid()::text, updated_at = NOW() WHERE id = $13 AND calendar_id = $14 AND user_id = $15 RETURNING id, calendar_id, uid, etag, summary, description, location, url, organizer, starts_at, ends_at, all_day, timezone, attendees, invite_account_id, invitation_sequence, created_at, updated_at`, [rawIcal, summary || null, description, location, url, organizer, times.startsAt, times.endsAt, Boolean(allDay), timezone, jsonbAttendees(normalizedAttendees), invitationAccount?.id || null, req.params.eventId, calendarId, req.session.userId]);
     if (!result.rows[0]) return { notFound: true };
+
+    let cancellationOutboxId: string | null = null;
+    if (cancellationAction) {
+      const outbox = await client.query('INSERT INTO calendar_invitation_outbox (user_id, event_id, idempotency_key, request_fingerprint, payload) VALUES ($1,$2,$3,$4,$5::jsonb) RETURNING id', [req.session.userId, result.rows[0].id, `cancel:${crypto.randomUUID()}`, crypto.randomUUID(), JSON.stringify({ actions: invitationActionsForStorage([cancellationAction]) })]);
+      cancellationOutboxId = outbox?.rows?.[0]?.id || null;
+      if (cancellationOutboxId) {
+        await client.query('UPDATE calendar_events SET cancellation_outbox_id = $1 WHERE id = $2 AND user_id = $3', [cancellationOutboxId, result.rows[0].id, req.session.userId]);
+      }
+    }
 
     let delivered = null;
     if (invitationAccount) {
@@ -851,12 +889,20 @@ router.patch('/events/:eventId', async (req, res) => {
         console.error('Calendar invitation delivery failed:', error.message, error.code ? `(code ${error.code})` : '');
       }
     }
-    return { event: result.rows[0], delivered };
+    return { event: result.rows[0], delivered, cancellationOutboxId };
   });
   if (outcome.cancelFailed) return res.status(502).json({ error: 'The previous invitation could not be cancelled, so the event was not changed.' });
   if (outcome.notFound || !outcome.event) return res.status(404).json({ error: 'Event not found' });
 
-  res.json(invitationDeliveryResponse(outcome.event, outcome.delivered || { status: 'sent', lastError: null }));
+  const cancellationDelivery = outcome.cancellationOutboxId
+    ? await deliverStoredInvitation({ outboxId: outcome.cancellationOutboxId, userId: req.session.userId })
+    : null;
+  const delivery = cancellationDelivery || outcome.delivered || { status: 'sent', lastError: null };
+  res.json(invitationDeliveryResponse(
+    outcome.event,
+    delivery,
+    outcome.cancellationOutboxId ? { kind: 'cancellation', outboxId: outcome.cancellationOutboxId } : null,
+  ));
 });
 
 
@@ -872,26 +918,26 @@ router.delete('/events/:eventId', async (req, res) => {
     const event = existing.rows[0];
     if (!event) return { notFound: true };
 
+    let cancellationOutboxId: string | null = null;
     if (event.invite_account_id && Array.isArray(event.attendees) && event.attendees.length) {
-      try {
-        // A disabled account retains SMTP settings for cancellation; referenced
-        // sender accounts cannot be deleted because the FK is ON DELETE RESTRICT.
-        const sender = await client.query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2 AND smtp_host IS NOT NULL', [event.invite_account_id, req.session.userId]);
-        if (!sender.rows[0]) return { cancelFailed: true };
-        await sendCalendarInvitation({ account: sender.rows[0], attendees: event.attendees, summary: event.summary, description: event.description, location: event.location, uid: event.uid, allDay: Boolean(event.all_day), method: 'CANCEL', sequence: Number(event.invitation_sequence || 0) + 1, startsAt: new Date(event.starts_at), endsAt: new Date(event.ends_at) });
-      } catch (caught) {
-        const error = toAppError(caught);
-        console.error('Calendar invitation cancellation before deletion failed:', error.message);
-        return { cancelFailed: true };
-      }
+      // A disabled account retains SMTP settings for cancellation. Persist the
+      // action before deleting the event; migration 0086 keeps this outbox row.
+      const sender = await client.query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2 AND smtp_host IS NOT NULL', [event.invite_account_id, req.session.userId]);
+      if (!sender.rows[0]) return { cancelFailed: true };
+      const action = { account: sender.rows[0], attendees: event.attendees, summary: event.summary, description: event.description, location: event.location, uid: event.uid, allDay: Boolean(event.all_day), method: 'CANCEL', sequence: Number(event.invitation_sequence || 0) + 1, startsAt: new Date(event.starts_at).toISOString(), endsAt: new Date(event.ends_at).toISOString() };
+      const outbox = await client.query('INSERT INTO calendar_invitation_outbox (user_id, event_id, idempotency_key, request_fingerprint, payload) VALUES ($1,$2,$3,$4,$5::jsonb) RETURNING id', [req.session.userId, req.params.eventId, `cancel:${crypto.randomUUID()}`, crypto.randomUUID(), JSON.stringify({ actions: invitationActionsForStorage([action]) })]);
+      cancellationOutboxId = outbox?.rows?.[0]?.id || null;
     }
 
     const result = await client.query('DELETE FROM calendar_events WHERE id = $1 AND calendar_id = $2 AND user_id = $3 RETURNING id', [req.params.eventId, calendarId, req.session.userId]);
-    return { deleted: Boolean(result.rows[0]) };
+    return { deleted: Boolean(result.rows[0]), cancellationOutboxId };
   });
   if (outcome.cancelFailed) return res.status(502).json({ error: 'The invitation could not be cancelled, so the event was not deleted.' });
   if (outcome.notFound || !outcome.deleted) return res.status(404).json({ error: 'Event not found' });
 
+  // The deletion is durable even if SMTP only accepts a subset: the outbox row
+  // retains rejected recipients for the worker and a later retry.
+  if (outcome.cancellationOutboxId) await deliverStoredInvitation({ outboxId: outcome.cancellationOutboxId, userId: req.session.userId });
   res.status(204).end();
 });
 

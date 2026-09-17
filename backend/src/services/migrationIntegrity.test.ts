@@ -115,6 +115,69 @@ describe('migration integrity', () => {
     expect(sql).toContain('push_devices_last_seen_idx');
   });
 
+  it('adds owner-token invitation outbox claims for overlap-safe delivery', () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/0085_calendar_invitation_outbox_claim.sql'), 'utf8');
+    expect(sql).toContain("'processing'");
+    expect(sql).toContain('claim_token UUID');
+    expect(sql).toContain('claim_expires_at TIMESTAMPTZ');
+    expect(sql).toContain('calendar_invitation_outbox_claim_idx');
+  });
+
+  it('preserves invitation retries when their event is deleted', () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/0086_calendar_invitation_outbox_deleted_event.sql'), 'utf8');
+    expect(sql).toContain('ALTER COLUMN event_id DROP NOT NULL');
+    expect(sql).toContain('DROP CONSTRAINT IF EXISTS calendar_invitation_outbox_event_id_fkey');
+    expect(sql).toContain('REFERENCES calendar_events(id) ON DELETE SET NULL');
+  });
+
+  it('marks recoverable final invitation checkpoints in migration 0088', () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/0088_calendar_invitation_outbox_completion_checkpoint.sql'), 'utf8');
+    expect(sql).toContain('completion_checkpointed_at TIMESTAMPTZ');
+    expect(sql).toContain('calendar_invitation_outbox_completion_checkpoint_idx');
+  });
+
+  it('persists uncertain invitation dispatches before SMTP', () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/0089_calendar_invitation_outbox_uncertain_dispatch.sql'), 'utf8');
+    expect(sql).toContain("'uncertain'");
+    expect(sql).toContain('dispatch_action JSONB');
+    expect(sql).toContain('dispatch_started_at TIMESTAMPTZ');
+    expect(sql).toContain('calendar_invitation_outbox_uncertain_dispatch_idx');
+  });
+
+  it('keeps the current cancellation outbox reference with its calendar event', () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/0090_calendar_cancellation_outbox_reference.sql'), 'utf8');
+    expect(sql).toContain('cancellation_outbox_id UUID');
+    expect(sql).toContain('REFERENCES calendar_invitation_outbox(id) ON DELETE SET NULL');
+    expect(sql).toContain('calendar_events_cancellation_outbox_idx');
+  });
+
+  it('stores historical UIDVALIDITY for destructive draft identity checks', () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/0091_draft_uidvalidity_identity.sql'), 'utf8');
+    expect(sql).toContain('ADD COLUMN IF NOT EXISTS draft_uid_validity BIGINT');
+    expect(sql).toContain('messages_draft_identity_idx');
+  });
+
+  it('preserves editable draft composition and reply metadata', () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/0093_draft_composition_metadata.sql'), 'utf8');
+    expect(sql).toContain('draft_alias_id UUID');
+    expect(sql).toContain('draft_in_reply_to TEXT');
+    expect(sql).toContain('draft_composition JSONB');
+  });
+
+  it('retains private BCC recipients for persisted drafts', () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/0092_draft_bcc_addresses.sql'), 'utf8');
+    expect(sql).toContain('ADD COLUMN IF NOT EXISTS draft_bcc_addresses JSONB');
+  });
+
+  it('creates durable tenant-scoped send idempotency intents', () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/0087_send_idempotency.sql'), 'utf8');
+    expect(sql).toContain('CREATE TABLE IF NOT EXISTS send_idempotency');
+    expect(sql).toContain('REFERENCES users(id) ON DELETE CASCADE');
+    expect(sql).toContain('PRIMARY KEY (user_id, idempotency_key)');
+    expect(sql).toContain("'pending', 'uncertain', 'completed'");
+    expect(sql).toContain('send_idempotency_reconciliation_idx');
+  });
+
   it('adds a partial logical-message lookup index for non-deleted physical copies', () => {
     const sql = readFileSync(join(process.cwd(), 'migrations/0060_conversation_logical_message_lookup_index.sql'), 'utf8');
     expect(sql).toContain('ON messages(logical_message_id, date DESC NULLS LAST, id DESC)');
