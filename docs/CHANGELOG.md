@@ -8,7 +8,7 @@ For the narrative version — what the release means, what to expect when upgrad
 limitations — read the matching page in the Wiki: [Release notes 4.0.2](wiki/Release-notes-4.0.2.md),
 [Release notes 4.0.1](wiki/Release-notes-4.0.1.md) and [Release notes 4.0.0](wiki/Release-notes-4.0.0.md).
 
-## [4.0.2] - 2026-09-15
+## [4.0.2] — in development
 
 ### Fixed
 

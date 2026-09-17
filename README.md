@@ -7,7 +7,7 @@
 <p align="center">
   <a href="https://github.com/Dragonk/Inboxora/actions/workflows/ci.yml"><img src="https://github.com/Dragonk/Inboxora/actions/workflows/ci.yml/badge.svg?branch=dev" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0--only-blue" alt="License: AGPL-3.0-only"></a>
-  <img src="https://img.shields.io/badge/version-4.0.1-informational" alt="Version 4.0.1">
+  <img src="https://img.shields.io/badge/version-4.0.2--dev-informational" alt="Version 4.0.2 development">
 </p>
 
 Inboxora brings mail, contacts and calendars into one self-hosted application. It speaks
@@ -17,9 +17,10 @@ your existing devices keep working.
 This release is a large step beyond the upstream MailFlow fork it started from: Inboxora
 adds a real conversation engine for email threading, a full calendar with invitations,
 first-party contacts with CardDAV/CalDAV access, and a rebuilt interface. See
-[What's new in 4.0](#whats-new-in-40) for the full picture. The 4.0.1 patch rewrote the
-whole codebase in TypeScript and fixed the defects that surfaced; it adds no features — see
-[Release notes 4.0.1](docs/wiki/Release-notes-4.0.1.md).
+[What's new in 4.0](#whats-new-in-40) for the full picture. Version 4.0.2 is currently
+being prepared on `dev`; it is a reliability and data-isolation patch with no new user-facing
+features. See the [4.0.2 release notes](docs/wiki/Release-notes-4.0.2.md) and use a released,
+pinned image for production until 4.0.2 is published.
 
 <p align="center">
   <img src="media/screenshots/mail-inbox-desktop.png" width="820" alt="Inboxora: the unified inbox with an expanded conversation and an open message">
@@ -95,13 +96,11 @@ The same mailbox on a phone (390×844):
 
 ## What's new in 4.0
 
-**4.0.1 is a patch with no new functionality.** It migrates the entire codebase — backend and
-frontend — from JavaScript to TypeScript, without type-checking suppressions, and fixes the real
-defects that the migration exposed (a missing import that would have thrown at render time, an
-always-true context-menu guard, a test double with the wrong shape, dead fallback code and more).
-No database migration, no configuration change and no interface change: upgrading from 4.0.0 is a
-drop-in image update. The reasoning and the findings are in
-[Release notes 4.0.1](docs/wiki/Release-notes-4.0.1.md).
+**4.0.2 is the current development version and has not been released yet.** It is a reliability
+and data-isolation patch; it adds no user-facing feature. Before production rollout, apply the
+listed database migrations in order and pin the published 4.0.2 image tag after release. Until
+then, production deployments should remain on an existing released, pinned image. See the
+[4.0.2 release notes](docs/wiki/Release-notes-4.0.2.md).
 
 4.0.0 is a major version because Inboxora is no longer only a mail client. Everything below
 is new or rebuilt relative to the upstream MailFlow fork; the area-by-area changelog is in
@@ -305,7 +304,7 @@ release.
 | [Migrating from MailFlow](docs/wiki/Migrating-from-MailFlow.md) | Moving a MailFlow 3.3.0 deployment to Inboxora. |
 | [Troubleshooting](docs/wiki/Troubleshooting.md) | Diagnostic paths and common failures. |
 | [Development](docs/wiki/Development.md) | Local verification, browser tests, documentation policy. |
-| [Release notes 4.0.1](docs/wiki/Release-notes-4.0.1.md) | The TypeScript rewrite, why it happened and what it fixed. |
+| [Release notes 4.0.2](docs/wiki/Release-notes-4.0.2.md) | Development release notes, rollout requirements and known status. |
 | [Release notes 4.0.0](docs/wiki/Release-notes-4.0.0.md) | Why this is a major release and what changed. |
 
 ## Development
