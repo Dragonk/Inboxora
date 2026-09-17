@@ -37,6 +37,7 @@ import { queueStarStateMutation, isLatestStarStateMutation } from '../utils/star
 import { applyDeleteGuard, clearDeleteGuard, clearPendingDelete, setCompletedDelete, setPendingDelete, threadDeleteGuardKey } from '../utils/pendingDeletes.ts';
 import { toAppError } from '../utils/errors.ts';
 import { createSessionOperationGuard } from '../utils/sessionOperationGuard.ts';
+import { legacySignatureHtmlToText } from '../utils/legacySignatureText.ts';
 import type { ArchiveMessage } from '../utils/threadedArchive.ts';
 import {
   archiveInChunks,
@@ -2590,15 +2591,6 @@ export default function MessageList() {
     if (typeof value === 'string' && !/^[1-9]\d*$/.test(value)) return undefined;
     const normalized = typeof value === 'string' ? Number(value) : value;
     return typeof normalized === 'number' && Number.isSafeInteger(normalized) && normalized > 0 ? normalized : undefined;
-  };
-
-  const legacySignatureHtmlToText = (html: string): string => {
-    const div = document.createElement('div');
-    div.innerHTML = html
-      .replace(/<br\s*\/?>(\r?\n)?/gi, '\n')
-      .replace(/<\/p>\s*<p\b[^>]*>/gi, '\n')
-      .replace(/<\/div>\s*<div\b[^>]*>/gi, '\n');
-    return div.textContent || '';
   };
 
   const handleSelect = async (message: StoreMessageRow) => {
