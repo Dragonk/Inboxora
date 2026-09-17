@@ -94,7 +94,7 @@ describe('POST /api/mail/draft — local row persistence', () => {
     expect(meta.bodyHtml).toContain('hello mike');
     expect(meta.bodyText).toContain('hello mike');
     expect(meta.messageId).toMatch(/^<[0-9a-f]+@mailflow\.sh>$/);
-    expect(meta.draftComposition).toMatchObject({ version: 1, authoredBody: 'hello mike', bodyIsHtml: false, signatureHtml: null });
+    expect(meta.draftComposition).toMatchObject({ version: 2, authoredBody: 'hello mike', bodyIsHtml: false, signatureHtml: null, signatureText: null });
   });
 
   it('persists reply headers and separately editable draft composition (V10-04/V10-05)', async () => {
@@ -105,7 +105,7 @@ describe('POST /api/mail/draft — local row persistence', () => {
     expect(res.status).toBe(200);
     expect(imapManager.upsertDraftMessageRecord).toHaveBeenCalledWith(expect.anything(), 'Drafts', 5, expect.objectContaining({
       inReplyTo: '<parent@example.test>', references: '<root@example.test> <parent@example.test>',
-      draftComposition: { version: 1, authoredBody: 'author text', bodyIsHtml: false, signatureHtml: null, quotedBody: 'old quote', quotedBodyHtml: null },
+      draftComposition: { version: 2, authoredBody: 'author text', bodyIsHtml: false, signatureHtml: null, signatureText: null, quotedBody: 'old quote', quotedBodyHtml: null },
     }));
   });
 

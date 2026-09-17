@@ -2592,6 +2592,15 @@ export default function MessageList() {
     return typeof normalized === 'number' && Number.isSafeInteger(normalized) && normalized > 0 ? normalized : undefined;
   };
 
+  const legacySignatureHtmlToText = (html: string): string => {
+    const div = document.createElement('div');
+    div.innerHTML = html
+      .replace(/<br\s*\/?>(\r?\n)?/gi, '\n')
+      .replace(/<\/p>\s*<p\b[^>]*>/gi, '\n')
+      .replace(/<\/div>\s*<div\b[^>]*>/gi, '\n');
+    return div.textContent || '';
+  };
+
   const handleSelect = async (message: StoreMessageRow) => {
     const guard = draftOpenGuardRef.current;
     if (!guard) return;
@@ -2602,6 +2611,12 @@ export default function MessageList() {
         if (!isCurrentDraftOpen()) return;
         const composition = message.draft_composition;
         const authoredBody = typeof composition?.authoredBody === 'string' ? composition.authoredBody : (bodyData.html || bodyData.text || '');
+        const hasCanonicalSignatureText = typeof composition?.signatureText === 'string';
+        const reopenedSignature = hasCanonicalSignatureText
+          ? composition!.signatureText!
+          : composition?.bodyIsHtml === false && composition.signatureHtml
+            ? legacySignatureHtmlToText(composition.signatureHtml)
+            : composition?.signatureHtml ?? null;
         openCompose({
           accountId: message.account_id,
           aliasId: message.draft_alias_id || null,
@@ -2617,8 +2632,8 @@ export default function MessageList() {
           bodyIsHtml: composition?.bodyIsHtml === true ? true : composition?.bodyIsHtml === false ? false : !!bodyData.html,
           quotedBody: composition?.quotedBody || '',
           quotedBodyHtml: composition?.quotedBodyHtml || null,
-          editedSignature: composition?.bodyIsHtml === false ? (composition.signatureText ?? composition.signatureHtml ?? null) : (composition?.signatureHtml ?? null),
-          editedSignatureIsHtml: composition?.bodyIsHtml !== false,
+          editedSignature: reopenedSignature,
+          editedSignatureIsHtml: hasCanonicalSignatureText ? false : composition?.bodyIsHtml !== false,
           inReplyTo: message.draft_in_reply_to || null,
           references: message.draft_references || null,
           isReply: Boolean(message.draft_in_reply_to),
