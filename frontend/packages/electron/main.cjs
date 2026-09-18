@@ -14,9 +14,15 @@ const {
   normalizeHost,
 } = require('./security.cjs');
 const {
+  MAILTO_PROG_ID,
   TITLEBAR_HEIGHT,
+  WINDOWS_MAIL_CLIENT_KEY,
+  WINDOWS_MAILTO_USER_CHOICE_KEY,
+  isDefaultMailtoHandler,
   keepsApplicationMenuBar,
+  mailtoRegistrationState,
   normalizeTestNotification,
+  parseMailtoUserChoice,
   parseWindowsNotificationsEnabled,
   readDesktopNotificationSettings,
   readTitlebarTheme,
@@ -121,20 +127,74 @@ function registerWindowsMailtoCapabilities() {
     const exePath = process.execPath;
     const command = `"${exePath}" "%1"`;
 
+    // The Capabilities key is what makes Inboxora appear as an email client under
+    // Windows Settings -> Default apps; the ProgID is what mailto: resolves to. Both
+    // are needed for the user to be able to pick Inboxora for mail and email links.
     writeCurrentUserRegValue('HKCU\\Software\\RegisteredApplications', 'Inboxora', 'Software\\Clients\\Mail\\Inboxora\\Capabilities');
-    writeCurrentUserRegValue('HKCU\\Software\\Clients\\Mail\\Inboxora', '', 'Inboxora');
-    writeCurrentUserRegValue('HKCU\\Software\\Clients\\Mail\\Inboxora\\Capabilities', 'ApplicationName', 'Inboxora');
-    writeCurrentUserRegValue('HKCU\\Software\\Clients\\Mail\\Inboxora\\Capabilities', 'ApplicationDescription', 'A self-hosted, unified webmail client.');
-    writeCurrentUserRegValue('HKCU\\Software\\Clients\\Mail\\Inboxora\\Capabilities\\URLAssociations', 'mailto', 'Inboxora.mailto');
-    writeCurrentUserRegValue('HKCU\\Software\\Classes\\Inboxora.mailto', '', 'URL:Inboxora MailTo Protocol');
-    writeCurrentUserRegValue('HKCU\\Software\\Classes\\Inboxora.mailto', 'URL Protocol', '');
-    writeCurrentUserRegValue('HKCU\\Software\\Classes\\Inboxora.mailto\\DefaultIcon', '', `${exePath},0`);
-    writeCurrentUserRegValue('HKCU\\Software\\Classes\\Inboxora.mailto\\shell\\open\\command', '', command);
+    writeCurrentUserRegValue(WINDOWS_MAIL_CLIENT_KEY, '', 'Inboxora');
+    writeCurrentUserRegValue(`${WINDOWS_MAIL_CLIENT_KEY}\\Capabilities`, 'ApplicationName', 'Inboxora');
+    writeCurrentUserRegValue(`${WINDOWS_MAIL_CLIENT_KEY}\\Capabilities`, 'ApplicationDescription', 'A self-hosted, unified webmail client.');
+    writeCurrentUserRegValue(`${WINDOWS_MAIL_CLIENT_KEY}\\Capabilities`, 'ApplicationIcon', `${exePath},0`);
+    writeCurrentUserRegValue(`${WINDOWS_MAIL_CLIENT_KEY}\\Capabilities\\URLAssociations`, MAILTO_PROTOCOL, MAILTO_PROG_ID);
+    writeCurrentUserRegValue(`HKCU\\Software\\Classes\\${MAILTO_PROG_ID}`, '', 'URL:Inboxora MailTo Protocol');
+    writeCurrentUserRegValue(`HKCU\\Software\\Classes\\${MAILTO_PROG_ID}`, 'URL Protocol', '');
+    writeCurrentUserRegValue(`HKCU\\Software\\Classes\\${MAILTO_PROG_ID}\\DefaultIcon`, '', `${exePath},0`);
+    writeCurrentUserRegValue(`HKCU\\Software\\Classes\\${MAILTO_PROG_ID}\\shell\\open\\command`, '', command);
 
     return true;
   } catch (error) {
     console.error('Could not register Windows mailto capabilities:', error);
     return false;
+  }
+}
+
+// Windows 10/11 keep the user's choice in UserChoice\ProgId and refuse to let an
+// app make itself the default, so the settings card can only report the state,
+// (re-)register Inboxora as an available handler and send the user to Settings.
+function readMailtoSettings() {
+  if (process.platform !== 'win32') {
+    return {
+      supported: false,
+      state: mailtoRegistrationState(process.platform, null, false),
+      isDefault: false,
+      currentHandler: null,
+      canOpenSettings: false,
+      requiresUserConfirmation: false,
+    };
+  }
+
+  const userChoice = parseMailtoUserChoice(
+    queryWindowsRegistry(WINDOWS_MAILTO_USER_CHOICE_KEY, 'ProgId'),
+  );
+  const appRegistered = Boolean(queryWindowsRegistry(WINDOWS_MAIL_CLIENT_KEY));
+
+  return {
+    supported: true,
+    state: mailtoRegistrationState('win32', userChoice, appRegistered),
+    isDefault: isDefaultMailtoHandler(userChoice),
+    currentHandler: userChoice,
+    canOpenSettings: true,
+    // An app cannot set itself as the default handler on Windows 10/11.
+    requiresUserConfirmation: true,
+  };
+}
+
+function registerAsMailtoHandler() {
+  if (process.platform !== 'win32') return readMailtoSettings();
+
+  registerMailtoProtocol();
+  return readMailtoSettings();
+}
+
+async function openDefaultAppsSettings() {
+  if (process.platform !== 'win32') return { opened: false };
+
+  try {
+    await shell.openExternal('ms-settings:defaultapps');
+    return { opened: true };
+  } catch (error) {
+    console.error('Could not open the Windows default apps settings:', error);
+    return { opened: false };
   }
 }
 
@@ -211,9 +271,11 @@ function readOsNotificationState() {
 
 // A missing key or value is normal (the user never changed the default), so an
 // unreadable query is "no data" rather than an error.
-function queryWindowsRegistry(key) {
+function queryWindowsRegistry(key, valueName) {
   try {
-    return execFileSync('reg', ['query', key], { encoding: 'utf8', windowsHide: true });
+    const args = ['query', key];
+    if (valueName) args.push('/v', valueName);
+    return execFileSync('reg', args, { encoding: 'utf8', windowsHide: true });
   } catch {
     return '';
   }
@@ -2062,6 +2124,21 @@ ipcMain.handle('inboxora:notifications:test', (event, payload) => {
 ipcMain.handle('inboxora:notifications:open-settings', (event) => {
   assertTrustedAppSender(event);
   return openSystemNotificationSettings();
+});
+
+ipcMain.handle('inboxora:mailto:get-settings', (event) => {
+  assertTrustedAppSender(event);
+  return readMailtoSettings();
+});
+
+ipcMain.handle('inboxora:mailto:register', (event) => {
+  assertTrustedAppSender(event);
+  return registerAsMailtoHandler();
+});
+
+ipcMain.handle('inboxora:mailto:open-settings', (event) => {
+  assertTrustedAppSender(event);
+  return openDefaultAppsSettings();
 });
 
 ipcMain.handle('inboxora:titlebar:set-theme', (event, theme) => {

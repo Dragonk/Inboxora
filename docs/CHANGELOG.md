@@ -65,11 +65,18 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.3](wiki/R
   the failure reason otherwise — so a silently blocked Windows toast is visible instead of
   reported as success. A shortcut to the operating system's notification settings is always
   available where the platform provides one (Windows and macOS), not only after a failure.
-- Scoped Electron IPC for the desktop features — notification settings/test and title-bar
-  theming — exposed through the sandboxed preload, with sender *and* sender-frame-origin
-  validation in the main process (the same webContents also hosts the setup page and, during
-  an OIDC login, the identity provider's document) plus strict validation of every accepted
-  value.
+- The Windows desktop build can now be chosen as the default email app and `mailto:` handler
+  from Inboxora itself. Settings → Notifications → *Default email app* reports whether Inboxora
+  is the current handler, offers *Set as default*, and opens the Windows default-apps page where
+  the user confirms the choice — Windows 10/11 do not let an application make itself the default,
+  and the card says so instead of implying otherwise. The installer and the app both register the
+  email-client capabilities (now including `ApplicationIcon`) and the `Inboxora.mailto` ProgID,
+  so Inboxora is listed for both mail and email links.
+- Scoped Electron IPC for the desktop features — notification settings/test, mail-handler
+  settings/registration and title-bar theming — exposed through the sandboxed preload, with
+  sender *and* sender-frame-origin validation in the main process (the same webContents also
+  hosts the setup page and, during an OIDC login, the identity provider's document) plus strict
+  validation of every accepted value.
 - Regression tests: `frontend/packages/electron/desktop-settings.test.cjs` (notification
   preference, overlay-theme validation, menu/overlay platform policy, Windows registry state
   parsing), `frontend/src/utils/desktopShell.test.ts` (shell detection, title-bar height

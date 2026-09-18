@@ -67,6 +67,26 @@ interface InboxoraNativeNotifications {
   onPush?(callback: (notification: InboxoraNativePushNotification) => void): () => void;
 }
 
+interface InboxoraNativeMailtoSettings {
+  /** Whether the shell can register itself as a mail handler (Windows only). */
+  supported?: boolean;
+  state?: 'default' | 'registered' | 'not-registered' | 'unsupported';
+  isDefault?: boolean;
+  /** The app Windows currently opens mailto: links with, or null. */
+  currentHandler?: string | null;
+  canOpenSettings?: boolean;
+  /** Windows 10/11 require the user to confirm the default app in Settings. */
+  requiresUserConfirmation?: boolean;
+  [key: string]: unknown;
+}
+
+interface InboxoraNativeMailto {
+  getSettings?(): Promise<InboxoraNativeMailtoSettings>;
+  /** Re-assert the registration so Inboxora is listed as an email app. */
+  register?(): Promise<InboxoraNativeMailtoSettings>;
+  openSettings?(): Promise<{ opened?: boolean }>;
+}
+
 interface InboxoraNativeTitlebar {
   height?: number;
   setTheme?(theme: { color: string; symbolColor: string }): Promise<{ applied?: boolean; height?: number }>;
@@ -114,6 +134,7 @@ interface InboxoraNativeBridge {
   notifications?: InboxoraNativeNotifications;
   badges?: InboxoraNativeBadges;
   updates?: InboxoraNativeUpdates;
+  mailto?: InboxoraNativeMailto;
   titlebar?: InboxoraNativeTitlebar;
   actions?: InboxoraNativeActions;
 }

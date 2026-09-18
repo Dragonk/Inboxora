@@ -2002,6 +2002,17 @@
       "permissionHint": "Powiadomienia dla Inboxory mogą być wyłączone w systemie operacyjnym.",
       "openSystemSettings": "Otwórz ustawienia powiadomień systemowych",
       "testSentUnconfirmed": "Wysłano powiadomienie testowe, ale system operacyjny go nie potwierdził."
+    },
+    "mailto": {
+      "title": "Domyślna aplikacja pocztowa",
+      "description": "Ustaw Inboxorę jako aplikację, którą Windows otwiera linki e-mail (mailto:), i wpisz ją na listę klientów poczty.",
+      "statusDefault": "Inboxora jest domyślną aplikacją pocztową",
+      "statusRegistered": "Inboxora jest zarejestrowana jako aplikacja pocztowa, ale domyślna jest obecnie inna",
+      "statusNotRegistered": "Inboxora nie jest jeszcze zarejestrowana jako aplikacja pocztowa",
+      "statusUnsupported": "Wybór domyślnej aplikacji pocztowej jest dostępny tylko w aplikacji desktopowej dla Windows",
+      "setDefault": "Ustaw jako domyślną",
+      "openSystemSettings": "Otwórz domyślne aplikacje w Windows",
+      "confirmHint": "Windows sam poprosi Cię o potwierdzenie domyślnej aplikacji — aplikacja nie może zrobić tego za Ciebie. Inboxora pojawi się na tej stronie na liście klientów poczty."
     }
   }
 }

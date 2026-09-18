@@ -122,6 +122,44 @@ function readRegDword(output, name) {
   return Number.parseInt(match[1], 16) !== 0;
 }
 
+// The ProgID the app registers for `mailto:` links, and the mail-client key
+// Windows lists under Settings -> Default apps -> Email.
+const MAILTO_PROG_ID = 'Inboxora.mailto';
+const WINDOWS_MAIL_CLIENT_KEY = 'HKCU\\Software\\Clients\\Mail\\Inboxora';
+const WINDOWS_MAILTO_USER_CHOICE_KEY = 'HKCU\\Software\\Microsoft\\Windows\\Shell\\Associations\\UrlAssociations\\mailto\\UserChoice';
+
+/**
+ * Read the ProgID Windows currently uses for `mailto:` out of a `reg query` of the
+ * UserChoice key. Returns null when Windows holds no explicit choice (or the key is
+ * unreadable), which means "not us" rather than "unknown".
+ */
+function parseMailtoUserChoice(output) {
+  const match = String(output || '').match(/^\s*ProgId\s+REG_SZ\s+(.+?)\s*$/m);
+  if (!match) return null;
+  const value = match[1].trim().replace(/^"(.*)"$/, '$1');
+  return value || null;
+}
+
+/** Whether Windows is configured to open `mailto:` links with this app. */
+function isDefaultMailtoHandler(userChoiceProgId) {
+  return typeof userChoiceProgId === 'string'
+    && userChoiceProgId.toLowerCase() === MAILTO_PROG_ID.toLowerCase();
+}
+
+/**
+ * What the user can expect to see in the desktop settings card.
+ *
+ * - `unsupported`     — not Windows; there is nothing to configure.
+ * - `default`         — Windows opens `mailto:` links with Inboxora.
+ * - `registered`      — Inboxora is listed as an email app, but another app is default.
+ * - `not-registered`  — the shell has no Inboxora mail handler yet.
+ */
+function mailtoRegistrationState(platform, userChoiceProgId, appRegistered) {
+  if (platform !== 'win32') return 'unsupported';
+  if (isDefaultMailtoHandler(userChoiceProgId)) return 'default';
+  return appRegistered ? 'registered' : 'not-registered';
+}
+
 /**
  * Whether Windows itself will show Inboxora's toasts.
  *
@@ -146,10 +184,16 @@ function parseWindowsNotificationsEnabled(perAppOutput, globalOutput) {
 module.exports = {
   DEFAULT_DESKTOP_NOTIFICATIONS,
   DEFAULT_TITLEBAR_THEME,
+  MAILTO_PROG_ID,
   TITLEBAR_HEIGHT,
+  WINDOWS_MAILTO_USER_CHOICE_KEY,
+  WINDOWS_MAIL_CLIENT_KEY,
+  isDefaultMailtoHandler,
   keepsApplicationMenuBar,
+  mailtoRegistrationState,
   normalizeTestNotification,
   normalizeTitlebarTheme,
+  parseMailtoUserChoice,
   parseWindowsNotificationsEnabled,
   readDesktopNotificationSettings,
   readTitlebarTheme,

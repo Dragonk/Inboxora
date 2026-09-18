@@ -58,6 +58,11 @@ contextBridge.exposeInMainWorld('inboxoraNative', {
     showTest: (payload) => ipcRenderer.invoke('inboxora:notifications:test', payload),
     openSettings: () => ipcRenderer.invoke('inboxora:notifications:open-settings'),
   },
+  mailto: {
+    getSettings: () => ipcRenderer.invoke('inboxora:mailto:get-settings'),
+    register: () => ipcRenderer.invoke('inboxora:mailto:register'),
+    openSettings: () => ipcRenderer.invoke('inboxora:mailto:open-settings'),
+  },
   titlebar: {
     height: TITLEBAR_HEIGHT,
     setTheme: (theme) => ipcRenderer.invoke('inboxora:titlebar:set-theme', theme),

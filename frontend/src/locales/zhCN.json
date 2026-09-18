@@ -2002,6 +2002,17 @@
       "permissionHint": "操作系统可能已关闭 Inboxora 的通知。",
       "openSystemSettings": "打开系统通知设置",
       "testSentUnconfirmed": "测试通知已发送，但操作系统未确认。"
+    },
+    "mailto": {
+      "title": "默认电子邮件应用",
+      "description": "让 Inboxora 成为 Windows 打开电子邮件链接（mailto:）时使用的应用，并将其列为你的电子邮件客户端。",
+      "statusDefault": "Inboxora 是你的默认电子邮件应用",
+      "statusRegistered": "Inboxora 已注册为电子邮件应用，但当前的默认应用是其他应用",
+      "statusNotRegistered": "Inboxora 尚未注册为电子邮件应用",
+      "statusUnsupported": "只有 Windows 桌面应用才能选择默认电子邮件应用",
+      "setDefault": "设为默认",
+      "openSystemSettings": "打开 Windows 默认应用设置",
+      "confirmHint": "Windows 需要你亲自确认默认应用——应用无法自行设为默认。Inboxora 会在该页面中显示为电子邮件客户端。"
     }
   }
 }

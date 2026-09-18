@@ -2002,6 +2002,17 @@
       "permissionHint": "Es posible que las notificaciones de Inboxora estén desactivadas en tu sistema operativo.",
       "openSystemSettings": "Abrir la configuración de notificaciones del sistema",
       "testSentUnconfirmed": "Notificación de prueba enviada, pero el sistema operativo no la confirmó."
+    },
+    "mailto": {
+      "title": "Aplicación de correo predeterminada",
+      "description": "Hacer que Inboxora sea la aplicación que Windows abre para los enlaces de correo (mailto:) y aparezca como tu cliente de correo.",
+      "statusDefault": "Inboxora es tu aplicación de correo predeterminada",
+      "statusRegistered": "Inboxora está registrada como aplicación de correo, pero ahora mismo la predeterminada es otra",
+      "statusNotRegistered": "Inboxora aún no está registrada como aplicación de correo",
+      "statusUnsupported": "Elegir la aplicación de correo predeterminada solo está disponible en la aplicación de escritorio para Windows",
+      "setDefault": "Establecer como predeterminada",
+      "openSystemSettings": "Abrir las aplicaciones predeterminadas de Windows",
+      "confirmHint": "Windows te pide que confirmes tú mismo la aplicación predeterminada: una aplicación no puede establecerse sola. Inboxora aparecerá como cliente de correo en esa página."
     }
   }
 }

@@ -2002,6 +2002,17 @@
       "permissionHint": "Les notifications pour Inboxora sont peut-être désactivées dans votre système d'exploitation.",
       "openSystemSettings": "Ouvrir les paramètres de notification du système",
       "testSentUnconfirmed": "Notification de test envoyée, mais le système d'exploitation ne l'a pas confirmée."
+    },
+    "mailto": {
+      "title": "Application de messagerie par défaut",
+      "description": "Faire d'Inboxora l'application que Windows ouvre pour les liens e-mail (mailto:) et l'inscrire comme client de messagerie.",
+      "statusDefault": "Inboxora est votre application de messagerie par défaut",
+      "statusRegistered": "Inboxora est enregistrée comme application de messagerie, mais une autre application est actuellement par défaut",
+      "statusNotRegistered": "Inboxora n'est pas encore enregistrée comme application de messagerie",
+      "statusUnsupported": "Le choix de l'application de messagerie par défaut n'est disponible que dans l'application de bureau Windows",
+      "setDefault": "Définir par défaut",
+      "openSystemSettings": "Ouvrir les applications par défaut de Windows",
+      "confirmHint": "Windows vous demande de confirmer vous-même l'application par défaut — une application ne peut pas s'imposer. Inboxora apparaîtra comme client de messagerie sur cette page."
     }
   }
 }

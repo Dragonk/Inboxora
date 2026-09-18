@@ -2,6 +2,49 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 const settings = require('./desktop-settings.cjs');
 
+test('reads the ProgId Windows uses for mailto out of the UserChoice key', () => {
+  const key = 'HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\Shell\\Associations\\UrlAssociations\\mailto\\UserChoice\r\n    Hash    REG_SZ    abc\r\n    ProgId    REG_SZ    Inboxora.mailto\r\n';
+  assert.equal(settings.parseMailtoUserChoice(key), 'Inboxora.mailto');
+  assert.equal(
+    settings.parseMailtoUserChoice('    ProgId    REG_SZ    "Outlook.URL.mailto.15"\r\n'),
+    'Outlook.URL.mailto.15',
+  );
+  // No UserChoice (the user never picked one) or an unreadable key is "not us",
+  // never a crash.
+  assert.equal(settings.parseMailtoUserChoice(''), null);
+  assert.equal(settings.parseMailtoUserChoice('ERROR: The system was unable to find the specified registry key'), null);
+  assert.equal(settings.parseMailtoUserChoice('    ProgId    REG_SZ    \r\n'), null);
+  assert.equal(settings.parseMailtoUserChoice(undefined), null);
+});
+
+test('only Inboxora counts as the default mailto handler', () => {
+  assert.equal(settings.isDefaultMailtoHandler('Inboxora.mailto'), true);
+  assert.equal(settings.isDefaultMailtoHandler('inboxora.MAILTO'), true);
+  assert.equal(settings.isDefaultMailtoHandler('Outlook.URL.mailto.15'), false);
+  assert.equal(settings.isDefaultMailtoHandler('Inboxora'), false);
+  assert.equal(settings.isDefaultMailtoHandler(null), false);
+  assert.equal(settings.isDefaultMailtoHandler(undefined), false);
+});
+
+test('describes what the user can expect in the default-app card', () => {
+  assert.equal(settings.mailtoRegistrationState('win32', 'Inboxora.mailto', true), 'default');
+  assert.equal(settings.mailtoRegistrationState('win32', 'Outlook.URL.mailto.15', true), 'registered');
+  assert.equal(settings.mailtoRegistrationState('win32', 'Outlook.URL.mailto.15', false), 'not-registered');
+  assert.equal(settings.mailtoRegistrationState('win32', null, false), 'not-registered');
+  // Not Windows: nothing to configure, and no misleading "not registered".
+  assert.equal(settings.mailtoRegistrationState('linux', null, false), 'unsupported');
+  assert.equal(settings.mailtoRegistrationState('darwin', 'Inboxora.mailto', true), 'unsupported');
+});
+
+test('the registered ProgID and mail-client key are the ones the shell expects', () => {
+  assert.equal(settings.MAILTO_PROG_ID, 'Inboxora.mailto');
+  assert.equal(settings.WINDOWS_MAIL_CLIENT_KEY, 'HKCU\\Software\\Clients\\Mail\\Inboxora');
+  assert.equal(
+    settings.WINDOWS_MAILTO_USER_CHOICE_KEY,
+    'HKCU\\Software\\Microsoft\\Windows\\Shell\\Associations\\UrlAssociations\\mailto\\UserChoice',
+  );
+});
+
 test('the titlebar height is the shared layout contract (preload duplicates it)', () => {
   // preload.cjs exposes the same number as window.inboxoraNative.titlebar.height
   // and the renderer reserves that strip; a silent change here would misalign the

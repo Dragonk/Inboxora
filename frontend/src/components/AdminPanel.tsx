@@ -36,6 +36,7 @@ import { LAYOUTS, localizedLayout, applyLayout } from '../layouts.ts';
 import { NOTIFICATION_SOUNDS, playNotificationSound, playCustomSound, warmUpAudioContext } from '../utils/notificationSounds.ts';
 import { usePushNotifications } from '../hooks/usePushNotifications.ts';
 import DesktopNotificationsSection from './desktop/DesktopNotificationsSection.tsx';
+import DesktopDefaultMailSection from './desktop/DesktopDefaultMailSection.tsx';
 import { isElectronShell } from '../utils/desktopShell.ts';
 import SignatureEditor from './SignatureEditor.tsx';
 import SpamSettings from './SpamSettings.tsx';
@@ -5958,7 +5959,10 @@ function NotificationsTab() {
           the Inboxora WebSocket, not Web Push, so the browser/VAPID section would
           both mislead and risk double notifications. */}
       {isElectronShell() ? (
-        <DesktopNotificationsSection />
+        <>
+          <DesktopNotificationsSection />
+          <DesktopDefaultMailSection />
+        </>
       ) : (
         <>
           <PushNotificationsSection />

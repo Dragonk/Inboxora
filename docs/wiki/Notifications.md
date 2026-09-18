@@ -137,6 +137,29 @@ Forward survives. The Settings overlay starts below the title bar, so Back / For
 / Search / Settings stay clickable while Settings is open; that matters because Back
 out of Settings requires Forward to be reachable to return.
 
+## Desktop app (Electron) — default email app (Windows)
+
+Windows does not let an application make itself the default handler, so Inboxora
+registers itself as an *available* one and hands the choice to the user:
+
+- the installer (and every app start) writes the email-client capabilities under
+  `HKCU\Software\Clients\Mail\Inboxora` (name, description, icon, and the `mailto`
+  URL association) plus the `Inboxora.mailto` ProgID with its
+  `shell\open\command`, and lists the app in `RegisteredApplications`. That is what
+  makes Inboxora appear under **Settings → Default apps** for both *Email* and the
+  `mailto:` link type;
+- **Settings → Notifications → Default email app** reports whether Inboxora is the
+  current handler (read from the `mailto` `UserChoice\ProgId` Windows keeps),
+  re-asserts the registration with *Set as default*, and opens the Windows
+  default-apps page where the user confirms it. The card states plainly that
+  Windows asks for that confirmation, instead of implying the button does it alone;
+- the state is re-read when the window regains focus, so returning from Windows
+  Settings shows the result.
+
+Outside Windows there is nothing to configure, and the card says so rather than
+offering a button that cannot work. `mailto:` links that Windows hands to Inboxora
+open the composer through the existing deep-link/second-instance path.
+
 ## Android — instant notifications
 
 ### How it works, in one paragraph
@@ -446,6 +469,17 @@ Windows notifications blocked by the OS
   - the test button must report a failure rather than success
   - turn them back on in Windows, return to Inboxora *without* reopening Settings:
     the status must update on focus
+
+Windows default email app
+  - Settings -> Notifications -> "Default email app" is present (Windows only)
+  - with Outlook as the default: the card says Inboxora is registered but not the
+    default, and offers "Set as default"
+  - "Set as default" writes the registration and opens Windows Default apps, where
+    Inboxora is listed for Email and for the mailto: link type
+  - after picking Inboxora there and returning, the card reads "Inboxora is your
+    default email app" without reopening Settings
+  - clicking a mailto: link in another app opens the Inboxora composer
+  - on Linux/macOS the card says the choice is Windows-only and offers no button
 
 Title bar
   - drag the window; double-click the empty part of the bar
