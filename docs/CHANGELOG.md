@@ -275,7 +275,11 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   account (`email_accounts.antispam_enabled`, default off) behind the per-user master switch
   (`users.preferences.spamEnabled`, default on). No other configuration is required.
 
-## [4.0.2] — in development
+## [4.0.2] - 2026-09-17
+
+### Fixed
+
+- Apply the public calendar-feed request budget before database lookup, preventing a flood of syntactically valid unknown tokens from exhausting PostgreSQL.
 - Preserve partial SMTP recipient results through post-send failures and keep a partial-send composer open
   with only rejected recipients for a safe retry.
 - Prevent stale account and deep-link callbacks from writing into a later SPA session; preserve navigation only

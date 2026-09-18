@@ -167,7 +167,6 @@ jobs:
           # SDK package, which Google removed from the SDK repository, so the
           # default install fails with "Failed to find package 'tools'".
           packages: 'platform-tools'
-
       - name: Install dependencies
         working-directory: frontend
         run: npm ci

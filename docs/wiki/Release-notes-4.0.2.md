@@ -1,8 +1,6 @@
 # Release notes 4.0.2
 
-**Status:** in development on `dev` — not released · **Previous version:** 4.0.1 · **Type:** patch
-
-> **Release status:** These notes describe the planned 4.0.2 release. Do not treat `dev` images as a production release or pin `4.0.2` until the release tag and published images are announced.
+**Status:** released 2026-09-17 · **Previous version:** 4.0.1 · **Type:** patch
 
 ## What this release fixes
 

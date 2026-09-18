@@ -306,6 +306,8 @@ release.
 | [Troubleshooting](docs/wiki/Troubleshooting.md) | Diagnostic paths and common failures. |
 | [Development](docs/wiki/Development.md) | Local verification, browser tests, documentation policy. |
 | [Release notes 4.0.4](docs/wiki/Release-notes-4.0.4.md) | Current release: desktop changes, rollout requirements and known limitations. |
+| [Release notes 4.0.3](docs/wiki/Release-notes-4.0.3.md) | Previous release: sync, IDLE, antispam and migration requirements. |
+| [Release notes 4.0.2](docs/wiki/Release-notes-4.0.2.md) | Earlier release: reliability and data-isolation patch. |
 | [Release notes 4.0.0](docs/wiki/Release-notes-4.0.0.md) | Why this is a major release and what changed. |
 
 ## Development

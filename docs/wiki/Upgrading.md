@@ -10,6 +10,17 @@ therefore: back up, change the version, pull, recreate.
 Coming from MailFlow rather than an earlier Inboxora? Use
 [**Migrating from MailFlow**](Migrating-from-MailFlow.md) instead.
 
+> **Upgrading 4.0.3 to 4.0.4 needs nothing beyond the standard steps.** 4.0.4 is a desktop-app
+> release: no migration, no new environment variable, no API or configuration change, and the
+> web/PWA and Android builds behave exactly as in 4.0.3. Only the Electron build gains the new
+> title bar, notification settings and Windows default-app support. See
+> [Release notes 4.0.4](Release-notes-4.0.4.md).
+
+> **Upgrading 4.0.2 to 4.0.3 needs nothing beyond the standard steps.** 4.0.3 is a reliability
+> release: database migrations `0094`–`0100` are applied automatically when the backend starts, no
+> new environment variable is required, and antispam auto-move stays opt-in per account. See
+> [Release notes 4.0.3](Release-notes-4.0.3.md).
+
 > **Upgrading 4.0.0 to 4.0.1 needs nothing beyond the standard steps.** 4.0.1 is the TypeScript
 > rewrite of the codebase: no schema migration, no new environment variable and no interface
 > change. See [Release notes 4.0.1](Release-notes-4.0.1.md).
@@ -46,7 +57,7 @@ straightforward — but note the following.
 
 - Back up the database and `.env` as above.
 - Note the current `INBOXORA_VERSION` so you can roll back the image if needed.
-- If you run a fork with local modifications, review [`docs/CHANGELOG.md`](https://github.com/Dragonk/Inboxora/blob/dev/docs/CHANGELOG.md) for the
+- If you run a fork with local modifications, review [`docs/CHANGELOG.md`](https://github.com/Dragonk/Inboxora/blob/main/docs/CHANGELOG.md) for the
   full change list.
 
 ### What to expect
@@ -112,11 +123,11 @@ Two things to know before you start, both covered there in detail:
 - The image version variable was renamed: **`MAILFLOW_VERSION` → `INBOXORA_VERSION`**.
 
 The retained legacy identifiers and the reasoning behind them are recorded in
-[`docs/technical-identifier-audit.md`](https://github.com/Dragonk/Inboxora/blob/dev/docs/technical-identifier-audit.md).
+[`docs/technical-identifier-audit.md`](https://github.com/Dragonk/Inboxora/blob/main/docs/technical-identifier-audit.md).
 
 ## Versioning
 
 Inboxora uses semantic versioning. Major versions signal new product areas or breaking
 configuration changes, minor versions add features, and patch versions fix defects. Every release
-is documented in [`docs/CHANGELOG.md`](https://github.com/Dragonk/Inboxora/blob/dev/docs/CHANGELOG.md) and on the
+is documented in [`docs/CHANGELOG.md`](https://github.com/Dragonk/Inboxora/blob/main/docs/CHANGELOG.md) and on the
 [releases page](https://github.com/Dragonk/Inboxora/releases).
