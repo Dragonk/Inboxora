@@ -49,6 +49,13 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.3](wiki/R
   input) to (re-)publish the versioned container images (`vX.Y.Z`, `X.Y.Z`, `latest`) from this
   repository without moving or re-pushing the tag. The run asserts that the tag exists and that the
   checked-out revision is exactly the tagged commit before building.
+- Pull requests are reviewed by CodeRabbit before merging. `.coderabbit.yaml` turns on automatic
+  reviews for PRs targeting `dev`, keeps the legacy `CodeRabbit` commit status as the required-check
+  surface, and adds path filters plus project-specific review instructions (migration discipline,
+  privacy/idempotency boundaries, no swallowed errors). The `Inboxora PR gate` ruleset on `dev` and
+  `main` requires that status, the core CI checks, one approving review and resolved review
+  conversations. The ruleset starts in `evaluate` mode and is switched to `active` once the
+  CodeRabbit GitHub App is installed, so the gate cannot block merges in the meantime.
 
 ### Fixed
 

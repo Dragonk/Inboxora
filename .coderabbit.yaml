@@ -1,0 +1,89 @@
+# CodeRabbit configuration — https://docs.coderabbit.ai/reference/configuration
+#
+# CodeRabbit reviews every pull request against dev (main is the default branch and is covered
+# automatically) and is part of the merge gate: the "Inboxora PR gate" ruleset requires the
+# `CodeRabbit` commit status, the CI checks and resolved review conversations before merging.
+language: en-US
+
+reviews:
+  profile: chill
+  # CodeRabbit requests changes and only approves once every comment is resolved, the latest
+  # commit has been reviewed and no pre-merge check is failing.
+  request_changes_workflow: true
+  high_level_summary: true
+  review_status: true
+  review_details: false
+  # The PR gate requires the legacy `CodeRabbit` commit status as its context, so review progress
+  # must not replace it with a differently named check surface.
+  review_progress: false
+  commit_status: true
+  collapse_walkthrough: true
+  sequence_diagrams: false
+  poem: false
+  auto_review:
+    enabled: true
+    auto_incremental_review: true
+    drafts: false
+    base_branches:
+      - dev
+  pre_merge_checks:
+    title:
+      mode: warning
+      requirements: "Use Conventional Commits, for example 'fix(android): …' or 'docs(readme): …'."
+    description:
+      mode: warning
+  path_filters:
+    - "!**/node_modules/**"
+    - "!**/dist/**"
+    - "!**/build/**"
+    - "!frontend/packages/android/app/build/**"
+    - "!**/*.lock"
+    - "!frontend/package-lock.json"
+    - "!**/*.keystore"
+    - "!**/*.jks"
+    - "!**/*.pfx"
+    - "!**/*.p12"
+    - "!.toolchain/**"
+    - "!media/**"
+    - "!docs/screenshots/**"
+  path_instructions:
+    - path: "backend/src/**"
+      instructions: >
+        Preserve authentication and session generations, authorization, recipient privacy (BCC must
+        never leak), idempotency, durable delivery state and database transaction/lease ownership.
+        Treat ambiguous external side effects (SMTP, IMAP) as uncertain: never retry them as if they
+        were definitely safe. Flag swallowed errors instead of narrowed types or explicit guards.
+    - path: "backend/migrations/**"
+      instructions: >
+        Migrations must be additive and must never rewrite a migration that may already have been
+        applied. Flag any change that reorders or edits existing migrations, and require the
+        required application order and upgrade implications to be documented.
+    - path: "frontend/src/**"
+      instructions: >
+        Keep async effects scoped to the session, component or operation that started them: late
+        responses, timers and callbacks must not mutate a later session. Flag `@ts-ignore`,
+        `@ts-nocheck`, blanket `any`/`as any` and weakened assertions.
+    - path: ".github/workflows/**"
+      instructions: >
+        Flag secrets written to logs or artifacts, unpinned third-party actions, missing
+        `permissions:` blocks, and jobs that could run untrusted code with a write token.
+    - path: "docs/**"
+      instructions: >
+        User-visible, reliability, security, migration and operational changes must be recorded in
+        docs/CHANGELOG.md and the matching docs/wiki release notes. Do not infer a new release
+        version; ask when one is needed.
+    - path: "**/*.{test,spec}.{ts,tsx,cjs,js}"
+      instructions: >
+        Tests must assert the intended behaviour instead of merely exercising a code path. Flag
+        skipped tests, weakened assertions and expectations that would still pass on broken code.
+
+chat:
+  auto_reply: true
+
+knowledge_base:
+  code_guidelines:
+    enabled: true
+    filePatterns:
+      - "AGENTS.md"
+      - "CONTRIBUTING.md"
+      - "docs/wiki/Development.md"
