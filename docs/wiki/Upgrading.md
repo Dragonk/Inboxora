@@ -10,6 +10,11 @@ therefore: back up, change the version, pull, recreate.
 Coming from MailFlow rather than an earlier Inboxora? Use
 [**Migrating from MailFlow**](Migrating-from-MailFlow.md) instead.
 
+> **Upgrading 4.0.2 to 4.0.3 needs nothing beyond the standard steps.** 4.0.3 is a reliability
+> release: database migrations `0094`–`0100` are applied automatically when the backend starts, no
+> new environment variable is required, and antispam auto-move stays opt-in per account. See
+> [Release notes 4.0.3](Release-notes-4.0.3.md).
+
 > **Upgrading 4.0.0 to 4.0.1 needs nothing beyond the standard steps.** 4.0.1 is the TypeScript
 > rewrite of the codebase: no schema migration, no new environment variable and no interface
 > change. See [Release notes 4.0.1](Release-notes-4.0.1.md).
