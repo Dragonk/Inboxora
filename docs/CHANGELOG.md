@@ -45,6 +45,10 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.3](wiki/R
   public trust.
 - Linux package integrity: the `.deb`/`.rpm` files are covered by the signed `SHA256SUMS` manifest;
   they carry no embedded `debsigs`/`rpmsign` signature yet.
+- The `Release` workflow can now be dispatched for an existing tag (`workflow_dispatch` with a `tag`
+  input) to (re-)publish the versioned container images (`vX.Y.Z`, `X.Y.Z`, `latest`) from this
+  repository without moving or re-pushing the tag. The run asserts that the tag exists and that the
+  checked-out revision is exactly the tagged commit before building.
 
 ### Fixed
 

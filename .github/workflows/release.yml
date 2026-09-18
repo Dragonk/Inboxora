@@ -7,6 +7,12 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag to (re-)publish, e.g. v4.0.3"
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -21,13 +27,37 @@ jobs:
       - name: Checkout the tagged revision
         uses: actions/checkout@v6
         with:
+          ref: ${{ inputs.tag || github.ref }}
           fetch-depth: 0
 
-      - name: Assert the tag points at an immutable SHA
+      - name: Resolve and assert the release tag
+        env:
+          REQUESTED_TAG: ${{ inputs.tag }}
         run: |
-          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          echo "RELEASE_SHA=$GITHUB_SHA" >> "$GITHUB_ENV"
-          echo "Building release images for $GITHUB_REF_NAME from $GITHUB_SHA"
+          set -euo pipefail
+
+          tag="${REQUESTED_TAG:-$GITHUB_REF_NAME}"
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$ ]]; then
+            printf 'Not a release tag: %s\n' "$tag" >&2
+            exit 1
+          fi
+
+          if ! git rev-parse --verify --quiet "refs/tags/${tag}^{commit}" >/dev/null; then
+            printf 'Tag does not exist in this repository: %s\n' "$tag" >&2
+            exit 1
+          fi
+
+          tag_sha="$(git rev-parse "refs/tags/${tag}^{commit}")"
+          head_sha="$(git rev-parse HEAD)"
+          if [ "$head_sha" != "$tag_sha" ]; then
+            printf 'Checked out %s, but %s points at %s\n' "$head_sha" "$tag" "$tag_sha" >&2
+            exit 1
+          fi
+
+          echo "RELEASE_TAG=$tag" >> "$GITHUB_ENV"
+          echo "RELEASE_VERSION=${tag#v}" >> "$GITHUB_ENV"
+          echo "RELEASE_SHA=$tag_sha" >> "$GITHUB_ENV"
+          printf 'Publishing release images for %s from %s\n' "$tag" "$tag_sha"
 
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
@@ -45,8 +75,8 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository_owner }}/inboxora-backend
           tags: |
-            type=semver,pattern=v{{version}}
-            type=semver,pattern={{version}}
+            type=raw,value=${{ env.RELEASE_TAG }}
+            type=raw,value=${{ env.RELEASE_VERSION }}
             type=raw,value=latest
 
       - name: Build and push backend
@@ -61,7 +91,7 @@ jobs:
           provenance: false
           build-args: |
             BUILD_SHA=${{ env.RELEASE_SHA }}
-            APP_VERSION=${{ github.ref_name }}
+            APP_VERSION=${{ env.RELEASE_TAG }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -71,8 +101,8 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository_owner }}/inboxora-frontend
           tags: |
-            type=semver,pattern=v{{version}}
-            type=semver,pattern={{version}}
+            type=raw,value=${{ env.RELEASE_TAG }}
+            type=raw,value=${{ env.RELEASE_VERSION }}
             type=raw,value=latest
 
       - name: Build and push frontend
