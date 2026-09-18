@@ -5,9 +5,157 @@ All notable changes to Inboxora are recorded here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 For the narrative version — what the release means, what to expect when upgrading, and the known
-limitations — read the matching page in the Wiki: [Release notes 4.0.3](wiki/Release-notes-4.0.3.md),
+limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/Release-notes-4.0.4.md),
+[Release notes 4.0.3](wiki/Release-notes-4.0.3.md),
 [Release notes 4.0.2](wiki/Release-notes-4.0.2.md),
 [Release notes 4.0.1](wiki/Release-notes-4.0.1.md) and [Release notes 4.0.0](wiki/Release-notes-4.0.0.md).
+
+## [Unreleased]
+
+## [4.0.4] - 2026-09-18
+
+### Changed
+
+- The desktop (Electron) build now draws an integrated title bar instead of the OS window
+  frame, so Inboxora's own bar reaches the top edge: Back, Forward, Search (the existing
+  Inboxora search, also on `Ctrl+E` / `Cmd+E`) and Settings. Window controls stay native
+  through Electron's Window Controls Overlay, so minimize / maximize / close and
+  close-to-tray are unchanged, and the bar's colours follow the active Inboxora theme
+  (light or dark) without a restart. The web/PWA build and the Android build render no
+  desktop title bar.
+- Back / Forward in the desktop title bar walk Inboxora's own view history (mail → message →
+  Calendar → Contacts → Settings, including the selected account, folder and open message)
+  instead of the browser's navigation history, which only ever contained login/OIDC pages
+  because Inboxora swaps application state rather than loading documents. A restored message is
+  re-resolved by its exact row id first and, only when that row is gone, by its durable reference
+  — the RFC `Message-ID` header when it is known, scoped to its account, else the row id — then
+  parked where the reading pane can find it. So "Back" returns to the exact copy the user was
+  reading (the same Message-ID can exist in INBOX and Archive, and the durable lookup prefers the
+  INBOX one), and still finds the message after a move or re-sync gave it a new physical row id.
+  Settings opens as an overlay *below* the bar, so the arrows and search stay usable while it is
+  open.
+- The visible `File / Edit / View / Window / Help` menu bar is removed on Windows and Linux.
+  Its accelerators are re-registered on the window — `Ctrl+R` reload, `F11` full screen,
+  `Ctrl+W` close (still hide-to-tray), `Ctrl+M` minimize and `Ctrl+,` Change Inboxora Host —
+  and native clipboard shortcuts are unaffected; Change Host and Quit remain in the tray, and
+  macOS keeps its system application menu.
+- Desktop native notifications are now controlled by Inboxora instead of being unconditional.
+  The preference lives in Settings → Notifications → *System notifications* and is stored
+  locally per installation (`desktopNotifications.enabled`, default on) in the Electron config
+  under `app.getPath('userData')` — never synced as an account setting and independent of
+  VAPID. The Electron main process reads it before showing anything, so turning notifications
+  off blocks them on every path, not just in the React layer.
+- Inside the desktop shell the Web Push / VAPID settings section is replaced by the
+  system-notification settings, the app no longer registers its service worker there (it
+  existed only for Web Push), and an existing Web Push subscription left by an earlier desktop
+  build is unsubscribed and unregistered on first run. Electron shows native notifications only
+  from the Inboxora WebSocket, so a single message can no longer produce two operating-system
+  notifications. Browser and PWA Web Push are unchanged.
+- The desktop notification status line no longer claims more than it knows. `Notification`
+  support, the Inboxora switch and the operating-system state are reported separately; on
+  Windows the OS state is read from the notification registry instead of being assumed from
+  support alone, and the wording is "enabled in Inboxora" until a test notification is actually
+  confirmed. The state is re-read whenever the window regains focus — which is exactly what
+  happens after using the "open system notification settings" shortcut — and a confirmed test
+  outranks a stale reading, so the card cannot keep reporting a state the user already fixed.
+
+### Added
+
+- Desktop notifications settings section (Electron only): enable/disable, an honest status line,
+  and a *Send test notification* button that goes renderer → preload → IPC → Electron
+  `Notification`. The result is what the operating system reported — `confirmed` only after
+  Electron's `show` event, a distinct "sent but not confirmed" state when no event arrives, and
+  the failure reason otherwise — so a silently blocked Windows toast is visible instead of
+  reported as success. A shortcut to the operating system's notification settings is always
+  available where the platform provides one (Windows and macOS), not only after a failure.
+- The Windows desktop build can now be chosen as the default email app and `mailto:` handler
+  from Inboxora itself. Settings → Notifications → *Default email app* reports whether Inboxora
+  is the current handler, offers *Set as default*, and opens the Windows default-apps page —
+  the per-app page on Windows 11, the general list on Windows 10 — where the user confirms the
+  choice. Windows 10/11 do not let an application make itself the default, and the card says so
+  instead of implying otherwise. The status requires a *complete* registration (the `mailto`
+  association, the `RegisteredApplications` entry and the launch command), so a partially
+  written one is not reported as registered — not even when Windows still points at Inboxora,
+  which would otherwise claim a default that cannot work and hide the repair. On Windows the app
+  no longer writes Electron's legacy `HKCU\Software\Classes\mailto` handler: it registers only
+  its own ProgID, so launching Inboxora offers it as a *choice* instead of claiming the generic
+  key, and the installer removes a legacy handler left by an earlier build (only while it is
+  still Inboxora's own command). The installer and the app both register the
+  email-client capabilities (now including `ApplicationIcon`) and the `Inboxora.mailto` ProgID,
+  and the shell is told the associations changed (`SHChangeNotify(SHCNE_ASSOCCHANGED)` with
+  `SHCNF_FLUSH`) after installing and after re-registering; the in-app re-registration waits for
+  that notification (bounded, best-effort) so the Default apps page opened right after it
+  already shows the new state.
+- Scoped Electron IPC for the desktop features — notification settings/test, mail-handler
+  settings/registration and title-bar theming — exposed through the sandboxed preload, with
+  sender *and* sender-frame-origin validation in the main process (the same webContents also
+  hosts the setup page and, during an OIDC login, the identity provider's document) plus strict
+  validation of every accepted value.
+- Regression tests: `frontend/packages/electron/desktop-settings.test.cjs` (notification
+  preference, overlay-theme validation, menu/overlay platform policy, Windows registry state
+  parsing), `frontend/src/utils/desktopShell.test.ts` (shell detection, title-bar height
+  contract, theme-colour parsing), `frontend/src/utils/viewHistory.test.ts` (the Back/Forward
+  history rules), `frontend/src/components/desktop/useAppViewHistory.test.ts` (Back/Forward
+  restore driven through the real store actions, including a message whose folder page was
+  replaced and the session/navigation guards around an in-flight lookup) and
+  `frontend/src/utils/desktopWebPushCleanup.test.ts` (the Web Push migration).
+- The canonical repository is now a standalone GitHub repository,
+  [`Dragonk/Inboxora`](https://github.com/Dragonk/Inboxora), which is no longer a fork of MailFlow
+  and is no longer part of its fork network. Git history, branches, tags, release assets, labels
+  and repository settings were carried over 1:1; the previous repository is archived read-only as
+  [`Dragonk/Inboxora-archive`](https://github.com/Dragonk/Inboxora-archive). No application code,
+  database schema, migration or deployment configuration changed.
+- Operator action after the move: the repository Actions secrets were re-created in the new
+  repository — `MAILFLOW_ANDROID_KEYSTORE_BASE64`, `MAILFLOW_ANDROID_KEY_ALIAS`,
+  `MAILFLOW_ANDROID_KEY_PASSWORD`, `MAILFLOW_ANDROID_STORE_PASSWORD`, `ANDROID_DEV_KEYSTORE_BASE64`,
+  `MAILFLOW_WINDOWS_CSC_LINK`, `MAILFLOW_WINDOWS_CSC_KEY_PASSWORD`, `INBOXORA_GPG_PRIVATE_KEY` and
+  `INBOXORA_GPG_PASSPHRASE`. Secret values are not readable through the GitHub API, so the Android
+  and Windows material was re-created from the local signing archive in `.toolchain/release-signing/`
+  (gitignored) and the GPG key was generated for this purpose.
+
+### Added
+
+- Signed release artifacts: every publish run attaches a GPG-signed `SHA256SUMS` manifest covering
+  the Linux `.deb`/`.rpm`, Windows `.exe` and Android `.apk`/`.aab` files, together with the public
+  key as `inboxora-signing-key.asc`. Verify a download with
+  `gpg --verify SHA256SUMS.asc SHA256SUMS && sha256sum --check --strict SHA256SUMS`. The signing key
+  is committed at [`docs/keys/inboxora-release-signing.asc`](keys/inboxora-release-signing.asc)
+  (RSA 4096, `Kamil Maciąg (Inboxora) <kamil.maciag@outlook.com>`, fingerprint
+  `B26C 6D74 C04C E0B8 3648 16D9 2C96 71F8 1ED3 2471`, expires 2029-09-17).
+  The step fails the release if the manifest is empty or does not match the artifacts.
+- Windows installers are Authenticode-signed using `MAILFLOW_WINDOWS_CSC_LINK` (base64 PKCS#12) and
+  `MAILFLOW_WINDOWS_CSC_KEY_PASSWORD`; the certificate subject is
+  `O=Inboxora, CN=Kamil Maciąg, emailAddress=kamil.maciag@outlook.com`. Known safe limitation: that
+  certificate is currently self-signed, so SmartScreen still reports an unknown publisher — replace
+  it with a CA-issued code-signing certificate (or Azure Trusted Signing) before relying on it for
+  public trust.
+- Linux package integrity: the `.deb`/`.rpm` files are covered by the signed `SHA256SUMS` manifest;
+  they carry no embedded `debsigs`/`rpmsign` signature yet.
+- The `Release` workflow can now be dispatched for an existing tag (`workflow_dispatch` with a `tag`
+  input) to (re-)publish the versioned container images (`vX.Y.Z`, `X.Y.Z`, `latest`) from this
+  repository without moving or re-pushing the tag. The run asserts that the tag exists and that the
+  checked-out revision is exactly the tagged commit before building.
+- Pull requests are reviewed by CodeRabbit before merging. `.coderabbit.yaml` turns on automatic
+  reviews for PRs targeting `dev`, keeps the legacy `CodeRabbit` commit status as the required-check
+  surface, and adds path filters plus project-specific review instructions (migration discipline,
+  privacy/idempotency boundaries, no swallowed errors). The `Inboxora PR gate` ruleset on `dev` and
+  `main` requires that status, the core CI checks, one approving review and resolved review
+  conversations. The ruleset starts in `evaluate` mode and is switched to `active` once the
+  CodeRabbit GitHub App is installed, so the gate cannot block merges in the meantime.
+
+### Fixed
+
+- Android workflows no longer fail on `android-actions/setup-android@v3`: the action's default
+  package list still contains the legacy `tools` SDK package, which Google removed from the SDK
+  repository, so `sdkmanager` aborted with `Failed to find package 'tools'`. Both
+  `publish-apps.yml` and `android-dev-build.yml` now request only `platform-tools`.
+- Android release builds no longer ship a lower `versionCode` than the previously published APKs.
+  The code came from `github.run_number`, which restarts whenever a repository is re-created: after
+  the move to the standalone repository, 4.0.3 was built with `versionCode 2` and Android rejected
+  the package as a downgrade over the installed 4.0.2 (`versionCode 9`). The code is now derived
+  from the version itself (`major * 1e6 + minor * 1e4 + patch * 1e2`, minus 50 for pre-releases),
+  so it is stable across repositories and strictly increasing along the release line; 4.0.3 is
+  rebuilt with `versionCode 4000300`. Covered by `set-app-version.test.cjs`.
 
 ## [4.0.3] - 2026-09-18
 

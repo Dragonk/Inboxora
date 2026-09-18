@@ -2,6 +2,11 @@ const { contextBridge, ipcRenderer } = require('electron');
 const pendingNativeActions = [];
 const nativeActionSubscribers = new Set();
 
+// Must match TITLEBAR_HEIGHT in desktop-settings.cjs, which sizes the native
+// Window Controls Overlay. It is duplicated here because a sandboxed preload
+// cannot require project files; desktop-settings.test.cjs pins the main value.
+const TITLEBAR_HEIGHT = 48;
+
 function subscribe(channel, callback) {
   const listener = (_event, payload) => callback(payload);
   ipcRenderer.on(channel, listener);
@@ -28,6 +33,7 @@ function subscribeNativeAction(callback) {
 }
 
 contextBridge.exposeInMainWorld('inboxoraNative', {
+  shell: 'electron',
   platform: process.platform,
   getHost: () => ipcRenderer.invoke('inboxora:getHost'),
   saveHost: (host) => ipcRenderer.invoke('inboxora:saveHost', host),
@@ -46,6 +52,20 @@ contextBridge.exposeInMainWorld('inboxoraNative', {
   notifications: {
     onPush: (callback) => subscribe('inboxora:notifications:push', callback),
     showNewMail: (notification) => ipcRenderer.invoke('inboxora:notification:new-mail', notification),
+    getSettings: () => ipcRenderer.invoke('inboxora:notifications:get-settings'),
+    setEnabled: (enabled) => ipcRenderer.invoke('inboxora:notifications:set-enabled', enabled),
+    isSupported: () => ipcRenderer.invoke('inboxora:notifications:is-supported'),
+    showTest: (payload) => ipcRenderer.invoke('inboxora:notifications:test', payload),
+    openSettings: () => ipcRenderer.invoke('inboxora:notifications:open-settings'),
+  },
+  mailto: {
+    getSettings: () => ipcRenderer.invoke('inboxora:mailto:get-settings'),
+    register: () => ipcRenderer.invoke('inboxora:mailto:register'),
+    openSettings: () => ipcRenderer.invoke('inboxora:mailto:open-settings'),
+  },
+  titlebar: {
+    height: TITLEBAR_HEIGHT,
+    setTheme: (theme) => ipcRenderer.invoke('inboxora:titlebar:set-theme', theme),
   },
   actions: {
     getPending: () => ipcRenderer.invoke('inboxora:native-actions:pending'),

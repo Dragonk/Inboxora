@@ -1,5 +1,6 @@
 const { app, BrowserWindow, Menu, Tray, nativeImage, ipcMain, shell, dialog, Notification, session, clipboard } = require('electron');
 const { execFileSync, spawn, spawnSync } = require('child_process');
+const os = require('os');
 const { createHash } = require('crypto');
 const fs = require('fs');
 const http = require('http');
@@ -13,6 +14,27 @@ const {
   isSameOrigin,
   normalizeHost,
 } = require('./security.cjs');
+const {
+  MAILTO_PROG_ID,
+  TITLEBAR_HEIGHT,
+  WINDOWS_ASSOCIATION_CHANGE_NOTIFICATION,
+  WINDOWS_MAIL_CLIENT_KEY,
+  WINDOWS_MAILTO_USER_CHOICE_KEY,
+  WINDOWS_REGISTERED_APPLICATIONS_KEY,
+  defaultAppsSettingsUri,
+  isDefaultMailtoHandler,
+  keepsApplicationMenuBar,
+  mailtoRegistrationHealth,
+  mailtoRegistrationState,
+  normalizeTestNotification,
+  parseMailtoUserChoice,
+  parseWindowsNotificationsEnabled,
+  readDesktopNotificationSettings,
+  readTitlebarTheme,
+  usesTitleBarOverlay,
+  withDesktopNotificationEnabled,
+  withTitlebarTheme,
+} = require('./desktop-settings.cjs');
 
 const CONFIG_FILE = 'inboxora-host.json';
 const UPDATE_STATUS_CHANNEL = 'inboxora:updates:status';
@@ -23,6 +45,19 @@ const UPDATE_ERROR_MESSAGE = 'Could not check for Inboxora updates. Please visit
 const NATIVE_ACTION_CHANNEL = 'inboxora:native-action';
 const NATIVE_ACTION_ARG = '--inboxora-action=';
 const NEW_MAIL_NOTIFICATION_MAX_LENGTH = 240;
+// The Windows AppUserModelID. It is both what the app registers with and the
+// registry key Windows stores per-app notification settings under, so the two
+// must never drift apart.
+const APP_USER_MODEL_ID = 'io.github.dragonk.inboxora';
+// How long a registration waits for the shell notification before giving up on it.
+const SHELL_NOTIFY_TIMEOUT_MS = 2000;
+// How long to wait for Electron's 'show' / 'failed' after calling show() on a test
+// notification. Some desktops raise neither, which is reported as unconfirmed.
+const TEST_NOTIFICATION_TIMEOUT_MS = 4000;
+// What the Windows Settings app writes. `Notification.isSupported()` only reports
+// that the process *can* notify, not that Windows will actually display it.
+const WINDOWS_NOTIFICATION_APP_KEY = `HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Notifications\\Settings\\${APP_USER_MODEL_ID}`;
+const WINDOWS_NOTIFICATION_GLOBAL_KEY = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\PushNotifications';
 const MAILTO_PROTOCOL = 'mailto';
 const EXTERNAL_LINK_PROTOCOLS = new Set(['http:', 'https:', `${MAILTO_PROTOCOL}:`]);
 const REWRITE_ERROR_PATTERNS = [
@@ -58,7 +93,7 @@ const pendingProtocolUrls = [];
 
 app.setName('Inboxora');
 if (process.platform === 'win32') {
-  app.setAppUserModelId('io.github.dragonk.inboxora');
+  app.setAppUserModelId(APP_USER_MODEL_ID);
 }
 if (process.platform === 'linux' && typeof app.setDesktopName === 'function') {
   app.setDesktopName('Inboxora.desktop');
@@ -68,17 +103,31 @@ if (process.platform === 'linux' && process.env.APPIMAGE) {
   app.commandLine.appendSwitch('no-sandbox');
 }
 
+// The command Windows should run for a mailto: link. In development the handler has
+// to launch Electron with the app path, not just the Electron binary.
+function mailtoLaunchCommand() {
+  if (process.defaultApp && process.argv.length >= 2) {
+    return `"${process.execPath}" "${path.resolve(process.argv[1])}" "%1"`;
+  }
+  return `"${process.execPath}" "%1"`;
+}
+
 function registerMailtoProtocol() {
+  // Windows is handled entirely by our own ProgID plus the RegisteredApplications
+  // entry: Electron's setAsDefaultProtocolClient() would write a second, legacy
+  // HKCU\Software\Classes\mailto command that the uninstaller cannot recognise, and
+  // simply launching the app would claim the generic key instead of only offering
+  // Inboxora as a choice.
+  if (process.platform === 'win32') {
+    return registerWindowsMailtoCapabilities();
+  }
+
   try {
     if (process.defaultApp && process.argv.length >= 2) {
-      const registered = app.setAsDefaultProtocolClient(MAILTO_PROTOCOL, process.execPath, [path.resolve(process.argv[1])]);
-      registerWindowsMailtoCapabilities();
-      return registered;
+      return app.setAsDefaultProtocolClient(MAILTO_PROTOCOL, process.execPath, [path.resolve(process.argv[1])]);
     }
 
-    const registered = app.setAsDefaultProtocolClient(MAILTO_PROTOCOL);
-    registerWindowsMailtoCapabilities();
-    return registered;
+    return app.setAsDefaultProtocolClient(MAILTO_PROTOCOL);
   } catch (error) {
     console.error('Could not register mailto protocol handler:', error);
     return false;
@@ -97,22 +146,146 @@ function registerWindowsMailtoCapabilities() {
 
   try {
     const exePath = process.execPath;
-    const command = `"${exePath}" "%1"`;
+    const command = mailtoLaunchCommand();
 
-    writeCurrentUserRegValue('HKCU\\Software\\RegisteredApplications', 'Inboxora', 'Software\\Clients\\Mail\\Inboxora\\Capabilities');
-    writeCurrentUserRegValue('HKCU\\Software\\Clients\\Mail\\Inboxora', '', 'Inboxora');
-    writeCurrentUserRegValue('HKCU\\Software\\Clients\\Mail\\Inboxora\\Capabilities', 'ApplicationName', 'Inboxora');
-    writeCurrentUserRegValue('HKCU\\Software\\Clients\\Mail\\Inboxora\\Capabilities', 'ApplicationDescription', 'A self-hosted, unified webmail client.');
-    writeCurrentUserRegValue('HKCU\\Software\\Clients\\Mail\\Inboxora\\Capabilities\\URLAssociations', 'mailto', 'Inboxora.mailto');
-    writeCurrentUserRegValue('HKCU\\Software\\Classes\\Inboxora.mailto', '', 'URL:Inboxora MailTo Protocol');
-    writeCurrentUserRegValue('HKCU\\Software\\Classes\\Inboxora.mailto', 'URL Protocol', '');
-    writeCurrentUserRegValue('HKCU\\Software\\Classes\\Inboxora.mailto\\DefaultIcon', '', `${exePath},0`);
-    writeCurrentUserRegValue('HKCU\\Software\\Classes\\Inboxora.mailto\\shell\\open\\command', '', command);
+    // The Capabilities key is what makes Inboxora appear as an email client under
+    // Windows Settings -> Default apps; the ProgID is what mailto: resolves to. Both
+    // are needed for the user to be able to pick Inboxora for mail and email links.
+    writeCurrentUserRegValue(WINDOWS_REGISTERED_APPLICATIONS_KEY, 'Inboxora', 'Software\\Clients\\Mail\\Inboxora\\Capabilities');
+    writeCurrentUserRegValue(WINDOWS_MAIL_CLIENT_KEY, '', 'Inboxora');
+    writeCurrentUserRegValue(`${WINDOWS_MAIL_CLIENT_KEY}\\Capabilities`, 'ApplicationName', 'Inboxora');
+    writeCurrentUserRegValue(`${WINDOWS_MAIL_CLIENT_KEY}\\Capabilities`, 'ApplicationDescription', 'A self-hosted, unified webmail client.');
+    writeCurrentUserRegValue(`${WINDOWS_MAIL_CLIENT_KEY}\\Capabilities`, 'ApplicationIcon', `${exePath},0`);
+    writeCurrentUserRegValue(`${WINDOWS_MAIL_CLIENT_KEY}\\Capabilities\\URLAssociations`, MAILTO_PROTOCOL, MAILTO_PROG_ID);
+    writeCurrentUserRegValue(`HKCU\\Software\\Classes\\${MAILTO_PROG_ID}`, '', 'URL:Inboxora MailTo Protocol');
+    writeCurrentUserRegValue(`HKCU\\Software\\Classes\\${MAILTO_PROG_ID}`, 'URL Protocol', '');
+    writeCurrentUserRegValue(`HKCU\\Software\\Classes\\${MAILTO_PROG_ID}\\DefaultIcon`, '', `${exePath},0`);
+    writeCurrentUserRegValue(`HKCU\\Software\\Classes\\${MAILTO_PROG_ID}\\shell\\open\\command`, '', command);
 
     return true;
   } catch (error) {
     console.error('Could not register Windows mailto capabilities:', error);
     return false;
+  }
+}
+
+// Windows 10/11 keep the user's choice in UserChoice\ProgId and refuse to let an
+// app make itself the default, so the settings card can only report the state,
+// (re-)register Inboxora as an available handler and send the user to Settings.
+function readMailtoSettings() {
+  if (process.platform !== 'win32') {
+    return {
+      supported: false,
+      state: mailtoRegistrationState(process.platform, null, false),
+      isDefault: false,
+      currentHandler: null,
+      settingsUri: null,
+      canOpenSettings: false,
+      requiresUserConfirmation: false,
+    };
+  }
+
+  const userChoice = parseMailtoUserChoice(
+    queryWindowsRegistry(WINDOWS_MAILTO_USER_CHOICE_KEY, { valueName: 'ProgId' }),
+  );
+  // Complete, not merely present: a half-written registration must not be reported
+  // as "registered".
+  const registered = mailtoRegistrationHealth({
+    clientTree: queryWindowsRegistry(WINDOWS_MAIL_CLIENT_KEY, { recursive: true }),
+    registeredApplications: queryWindowsRegistry(WINDOWS_REGISTERED_APPLICATIONS_KEY),
+    progIdCommand: queryWindowsRegistry(`HKCU\\Software\\Classes\\${MAILTO_PROG_ID}\\shell\\open\\command`, { defaultValue: true }),
+  });
+
+  return {
+    supported: true,
+    state: mailtoRegistrationState('win32', userChoice, registered),
+    isDefault: registered && isDefaultMailtoHandler(userChoice),
+    currentHandler: userChoice,
+    settingsUri: defaultAppsSettingsUri(os.release()),
+    canOpenSettings: true,
+    // An app cannot set itself as the default handler on Windows 10/11.
+    requiresUserConfirmation: true,
+  };
+}
+
+// Windows caches shell associations. Without SHChangeNotify(SHCNE_ASSOCCHANGED) the
+// Default apps page can keep showing the state from before the registration. There is
+// no Node binding for shell32, so this is a PowerShell P/Invoke with SHCNF_FLUSH —
+// which does not return until the shell has delivered the notification.
+//
+// It resolves when the helper exits, or after SHELL_NOTIFY_TIMEOUT_MS, so a
+// registration can wait for it without ever hanging on a broken PowerShell (blocked
+// by policy, machine under load). Failure is reported, never fatal.
+function notifyWindowsShellOfAssociationChange() {
+  if (process.platform !== 'win32') return Promise.resolve(false);
+
+  const { eventId, flags } = WINDOWS_ASSOCIATION_CHANGE_NOTIFICATION;
+  const script = [
+    "$sig = '[DllImport(\"shell32.dll\")] public static extern void SHChangeNotify(int eventId, uint flags, IntPtr item1, IntPtr item2);'",
+    "Add-Type -Namespace Inboxora -Name Shell32 -MemberDefinition $sig",
+    `[Inboxora.Shell32]::SHChangeNotify(${eventId}, ${flags}, [IntPtr]::Zero, [IntPtr]::Zero)`,
+  ].join('; ');
+
+  return new Promise((resolve) => {
+    let settled = false;
+    let timer = null;
+    const finish = (notified) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      resolve(notified);
+    };
+
+    let child;
+    try {
+      child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script], {
+        stdio: 'ignore',
+        windowsHide: true,
+      });
+    } catch (error) {
+      console.error('Could not notify the Windows shell about the mail handler change:', error);
+      finish(false);
+      return;
+    }
+
+    // Deliberately not unref()'d: the caller waits for this, bounded by the timeout.
+    timer = setTimeout(() => {
+      try {
+        child.kill();
+      } catch {
+        // Already gone.
+      }
+      finish(false);
+    }, SHELL_NOTIFY_TIMEOUT_MS);
+
+    child.on('error', () => finish(false));
+    child.on('exit', (code) => finish(code === 0));
+  });
+}
+
+// Async so the caller's "register, then open Default apps" cannot race the shell
+// notification: by the time the renderer opens the page, the shell has been told.
+async function registerAsMailtoHandler() {
+  if (process.platform !== 'win32') return readMailtoSettings();
+
+  registerMailtoProtocol();
+  const notified = await notifyWindowsShellOfAssociationChange();
+  if (!notified) {
+    console.warn('The Windows shell was not notified about the mail handler change.');
+  }
+  return readMailtoSettings();
+}
+
+async function openDefaultAppsSettings() {
+  if (process.platform !== 'win32') return { opened: false, uri: null };
+
+  const uri = defaultAppsSettingsUri(os.release());
+  try {
+    await shell.openExternal(uri);
+    return { opened: true, uri };
+  } catch (error) {
+    console.error('Could not open the Windows default apps settings:', error);
+    return { opened: false, uri };
   }
 }
 
@@ -162,6 +335,79 @@ function clearHost() {
   const config = readConfig();
   delete config.host;
   writeConfig(config);
+}
+
+// The main process is the source of truth for the desktop notification
+// preference: the renderer only asks, and every notification path re-reads it.
+// This is the cheap config-only read used on the notification hot path.
+function readNotificationPreference() {
+  return readDesktopNotificationSettings(readConfig());
+}
+
+// What the operating system itself thinks. Only Windows exposes this without an
+// extra dependency; elsewhere the honest answer is "unknown", which the settings
+// card words differently from "active".
+function readOsNotificationState() {
+  if (!Notification.isSupported()) return 'unsupported';
+  if (process.platform !== 'win32') return 'unknown';
+
+  const enabled = parseWindowsNotificationsEnabled(
+    queryWindowsRegistry(WINDOWS_NOTIFICATION_APP_KEY),
+    queryWindowsRegistry(WINDOWS_NOTIFICATION_GLOBAL_KEY),
+  );
+  if (enabled === false) return 'disabled';
+  if (enabled === true) return 'enabled';
+  return 'unknown';
+}
+
+// A missing key or value is normal (the user never changed the default), so an
+// unreadable query is "no data" rather than an error. `defaultValue` asks for the
+// empty-named value with `/ve`, so the result never depends on the localised label
+// reg.exe prints for it ("(Default)", "(Domyślna)", ...).
+function queryWindowsRegistry(key, { valueName, defaultValue = false, recursive = false } = {}) {
+  try {
+    const args = ['query', key];
+    if (defaultValue) args.push('/ve');
+    else if (valueName) args.push('/v', valueName);
+    if (recursive) args.push('/s');
+    // A hung `reg.exe` must not block the main process forever; these reads serve
+    // the settings IPC, so a timeout degrades to "unknown" instead.
+    return execFileSync('reg', args, { encoding: 'utf8', windowsHide: true, timeout: 2000 });
+  } catch {
+    return '';
+  }
+}
+
+function canOpenSystemNotificationSettings() {
+  return process.platform === 'win32' || process.platform === 'darwin';
+}
+
+// The full view the settings screen needs. It probes the registry, so it is not
+// used on the new-mail path.
+function getDesktopNotificationSettings() {
+  return {
+    ...readNotificationPreference(),
+    supported: Notification.isSupported(),
+    osState: readOsNotificationState(),
+    canOpenSystemSettings: canOpenSystemNotificationSettings(),
+  };
+}
+
+function setDesktopNotificationEnabled(enabled) {
+  const config = withDesktopNotificationEnabled(readConfig(), enabled);
+  writeConfig(config);
+  return getDesktopNotificationSettings();
+}
+
+function getTitlebarTheme() {
+  return readTitlebarTheme(readConfig());
+}
+
+function persistTitlebarTheme(theme) {
+  const config = withTitlebarTheme(readConfig(), theme);
+  if (!config) return null;
+  writeConfig(config);
+  return readTitlebarTheme(config);
 }
 
 function requestJson(url) {
@@ -606,6 +852,10 @@ function runBackgroundMailAction(action, messageId) {
 }
 
 function showNewMailNotification({ title, body, count, messageId, accountId, folder, message } = {}) {
+  if (!readNotificationPreference().enabled) {
+    return { shown: false, reason: 'disabled' };
+  }
+
   if (!Notification.isSupported()) {
     return { shown: false, reason: 'unsupported' };
   }
@@ -663,6 +913,82 @@ function showNewMailNotification({ title, body, count, messageId, accountId, fol
   notification.show();
 
   return { shown: true };
+}
+
+// Renders exactly the same native `Notification` type as a new-mail alert so the
+// settings button proves the real OS integration instead of a renderer toast.
+// It resolves on Electron's own 'show' / 'failed' events: reporting `{shown:true}`
+// right after show() would claim success even when Windows silently drops the
+// toast because notifications are turned off for Inboxora.
+function showTestNotification(payload) {
+  if (!readNotificationPreference().enabled) {
+    return { shown: false, reason: 'disabled' };
+  }
+
+  if (!Notification.isSupported()) {
+    return { shown: false, reason: 'unsupported' };
+  }
+
+  const normalized = normalizeTestNotification(payload, {
+    title: 'Inboxora',
+    body: 'System notifications are working correctly.',
+  });
+  if (!normalized) {
+    return { shown: false, reason: 'invalid' };
+  }
+
+  return new Promise((resolve) => {
+    let settled = false;
+    let timer = null;
+
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      resolve(result);
+    };
+
+    const notification = new Notification({
+      title: normalized.title,
+      body: normalized.body,
+      icon: getIconPath(),
+      silent: true,
+    });
+
+    notification.on('show', () => finish({ shown: true, confirmed: true }));
+    notification.on('failed', (_event, error) => {
+      const message = String((error && error.message) || error || '').slice(0, NEW_MAIL_NOTIFICATION_MAX_LENGTH);
+      finish({ shown: false, reason: 'failed', error: message });
+    });
+    notification.on('click', () => {
+      showMainWindow();
+    });
+
+    // Several desktops raise neither event (a Linux session without a notification
+    // daemon, for example). "Handed to the system but unconfirmed" is the honest
+    // answer there, and the settings card words it that way.
+    timer = setTimeout(() => finish({ shown: true, confirmed: false }), TEST_NOTIFICATION_TIMEOUT_MS);
+    notification.show();
+  });
+}
+
+// Deep-links into the OS notification settings so a user whose system blocks
+// Inboxora toasts has a one-click way to re-enable them. Linux has no portable
+// settings URI, so the caller is told nothing was opened instead of guessing.
+async function openSystemNotificationSettings() {
+  if (!canOpenSystemNotificationSettings()) return { opened: false };
+
+  const target = process.platform === 'win32'
+    ? 'ms-settings:notifications'
+    : 'x-apple.systempreferences:com.apple.preference.notifications';
+
+  try {
+    await shell.openExternal(target);
+    return { opened: true };
+  } catch (error) {
+    console.error('Could not open the system notification settings:', error);
+    return { opened: false };
+  }
 }
 
 function notifyCheckingUpdate(verbose) {
@@ -1356,44 +1682,74 @@ function buildDarwinMenuTemplate() {
   ];
 }
 
-function buildDefaultMenuTemplate() {
-  return [
-    {
-      label: 'File',
-      id: 'file',
-      submenu: [
-        ...fileMenuItems(),
-        { type: 'separator' },
-        { label: 'Exit', role: 'quit' },
-      ],
-    },
-    {
-      label: 'Edit',
-      submenu: editMenuItems(),
-    },
-    {
-      label: 'View',
-      submenu: viewMenuItems(),
-    },
-    {
-      label: 'Window',
-      role: 'window',
-      submenu: windowMenuItems(),
-    },
-    {
-      label: 'Help',
-      role: 'help',
-      submenu: helpMenuItems(),
-    },
-  ];
+function setupMenu() {
+  // macOS hosts the application menu in the system menu bar, so it stays as-is.
+  // Windows and Linux must not show an in-window File / Edit / View / Window /
+  // Help bar at all: the custom title bar replaces it. Removing the menu also
+  // removes its accelerators, so the few that still matter are re-registered
+  // directly on the window below.
+  if (keepsApplicationMenuBar(process.platform)) {
+    Menu.setApplicationMenu(Menu.buildFromTemplate(buildDarwinMenuTemplate()));
+    return;
+  }
+
+  Menu.setApplicationMenu(null);
 }
 
-function setupMenu() {
-  const template = process.platform === 'darwin'
-    ? buildDarwinMenuTemplate()
-    : buildDefaultMenuTemplate();
+// Native clipboard shortcuts keep working without a menu on Windows/Linux, but
+// accelerators otherwise live on application-menu items — so removing the menu
+// also removes them. Everything the old File/View/Window menus offered is
+// re-registered here instead of being silently dropped.
+function registerWindowAccelerators(webContents) {
+  if (keepsApplicationMenuBar(process.platform)) return;
 
-  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+  const getTarget = () => {
+    const target = BrowserWindow.fromWebContents(webContents);
+    return target && !target.isDestroyed() ? target : null;
+  };
+
+  webContents.on('before-input-event', (event, input) => {
+    if (input.type !== 'keyDown' || input.isAutoRepeat) return;
+
+    if (input.control && !input.alt && !input.meta) {
+      const key = String(input.key || '').toLowerCase();
+
+      if (key === 'r') {
+        event.preventDefault();
+        webContents.reload();
+        return;
+      }
+
+      // Close funnels through the existing 'close' handler, so Ctrl+W keeps
+      // meaning "hide to the tray" (and quits for real once the app is quitting).
+      if (key === 'w') {
+        event.preventDefault();
+        getTarget()?.close();
+        return;
+      }
+
+      if (key === 'm') {
+        event.preventDefault();
+        getTarget()?.minimize();
+        return;
+      }
+
+      // Preserved from the old File menu (and still Command+, on macOS): Change
+      // Inboxora Host, not Preferences.
+      if (key === ',') {
+        event.preventDefault();
+        changeInboxoraHost();
+        return;
+      }
+    }
+
+    if (input.key === 'F11') {
+      const target = getTarget();
+      if (!target) return;
+      event.preventDefault();
+      target.setFullScreen(!target.isFullScreen());
+    }
+  });
 }
 
 function showContextMenu(webContents, params) {
@@ -1586,12 +1942,30 @@ function setupTaskbarTasks() {
 }
 
 function createWindow() {
+  // The custom title bar (DesktopTitleBar) draws the app's own bar. `titleBarStyle:
+  // 'hidden'` removes the OS chrome but keeps the native minimize / maximize /
+  // close controls on Windows and Linux through the Window Controls Overlay, so
+  // there is no custom `frame: false` button row to maintain. `titleBarOverlay: true`
+  // is not enough here: the colour has to follow the user's Inboxora theme, so the
+  // last resolved theme is restored from the config to avoid a flash on start-up.
+  const titlebarTheme = getTitlebarTheme();
+
   mainWindow = new BrowserWindow({
     ...getDefaultWindowBounds(),
     ...getSavedWindowBounds(),
     show: false,
     title: 'Inboxora',
     icon: getWindowIconPath(),
+    titleBarStyle: 'hidden',
+    ...(usesTitleBarOverlay(process.platform)
+      ? {
+          titleBarOverlay: {
+            height: TITLEBAR_HEIGHT,
+            color: titlebarTheme.color,
+            symbolColor: titlebarTheme.symbolColor,
+          },
+        }
+      : { trafficLightPosition: { x: 14, y: 16 } }),
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       backgroundThrottling: false,
@@ -1617,6 +1991,8 @@ function createWindow() {
   mainWindow.webContents.on('context-menu', (_event, params) => {
     showContextMenu(mainWindow.webContents, params);
   });
+
+  registerWindowAccelerators(mainWindow.webContents);
 
   const navigationPolicy = createNavigationPolicy(readHost);
   const internalPages = new Set([
@@ -1735,6 +2111,54 @@ function scheduleStartupUpdateCheck() {
   check();
 }
 
+// Every privileged IPC channel must come from the Inboxora window itself. The
+// window can load an operator-configured host, so the reply is never trusted on
+// its own.
+function isTrustedIpcSender(event) {
+  if (!mainWindow || mainWindow.isDestroyed()) return false;
+  if (!mainWindow.webContents || mainWindow.webContents.isDestroyed()) return false;
+  return event.sender === mainWindow.webContents;
+}
+
+/**
+ * Stricter check for the channels the Inboxora UI owns.
+ *
+ * `event.sender === mainWindow.webContents` is not enough: the same webContents
+ * also hosts the local setup page and, while the navigation policy is in its
+ * OIDC window, an identity-provider document. Those documents share the sender,
+ * so the frame origin has to match the configured Inboxora host as well.
+ */
+function assertTrustedAppSender(event) {
+  if (!isTrustedIpcSender(event)) {
+    throw new Error('Untrusted IPC sender');
+  }
+
+  let frame = null;
+  try {
+    frame = event.senderFrame;
+  } catch {
+    frame = null;
+  }
+  if (!frame) throw new Error('Untrusted IPC sender');
+
+  const host = readHost();
+  if (!host) throw new Error('Untrusted IPC sender');
+
+  const origin = typeof frame.origin === 'string' && frame.origin && frame.origin !== 'null'
+    ? frame.origin
+    : (typeof frame.url === 'string' ? frame.url : '');
+
+  if (!origin || !isSameOrigin(host, origin)) {
+    throw new Error('Untrusted IPC sender');
+  }
+}
+
+function assertTrustedIpcSender(event) {
+  if (!isTrustedIpcSender(event)) {
+    throw new Error('Untrusted IPC sender');
+  }
+}
+
 ipcMain.handle('inboxora:getHost', () => readHost());
 
 ipcMain.handle('inboxora:saveHost', async (_event, host) => {
@@ -1769,8 +2193,71 @@ ipcMain.handle('inboxora:badge:set-unread-count', (_event, count) => {
   return setUnreadBadgeCount(unreadCount);
 });
 
-ipcMain.handle('inboxora:notification:new-mail', (_event, notification) => {
+ipcMain.handle('inboxora:notification:new-mail', (event, notification) => {
+  assertTrustedAppSender(event);
   return showNewMailNotification(notification);
+});
+
+ipcMain.handle('inboxora:notifications:get-settings', (event) => {
+  assertTrustedAppSender(event);
+  return getDesktopNotificationSettings();
+});
+
+ipcMain.handle('inboxora:notifications:set-enabled', (event, enabled) => {
+  assertTrustedAppSender(event);
+  return setDesktopNotificationEnabled(enabled);
+});
+
+ipcMain.handle('inboxora:notifications:is-supported', (event) => {
+  assertTrustedAppSender(event);
+  return Notification.isSupported();
+});
+
+ipcMain.handle('inboxora:notifications:test', (event, payload) => {
+  assertTrustedAppSender(event);
+  return showTestNotification(payload);
+});
+
+ipcMain.handle('inboxora:notifications:open-settings', (event) => {
+  assertTrustedAppSender(event);
+  return openSystemNotificationSettings();
+});
+
+ipcMain.handle('inboxora:mailto:get-settings', (event) => {
+  assertTrustedAppSender(event);
+  return readMailtoSettings();
+});
+
+ipcMain.handle('inboxora:mailto:register', (event) => {
+  assertTrustedAppSender(event);
+  return registerAsMailtoHandler();
+});
+
+ipcMain.handle('inboxora:mailto:open-settings', (event) => {
+  assertTrustedAppSender(event);
+  return openDefaultAppsSettings();
+});
+
+ipcMain.handle('inboxora:titlebar:set-theme', (event, theme) => {
+  assertTrustedAppSender(event);
+  const persisted = persistTitlebarTheme(theme);
+  if (!persisted) return { applied: false };
+
+  if (mainWindow && !mainWindow.isDestroyed() && typeof mainWindow.setTitleBarOverlay === 'function'
+      && usesTitleBarOverlay(process.platform)) {
+    try {
+      mainWindow.setTitleBarOverlay({
+        height: TITLEBAR_HEIGHT,
+        color: persisted.color,
+        symbolColor: persisted.symbolColor,
+      });
+    } catch (error) {
+      console.error('Could not update the title bar overlay:', error);
+      return { applied: false };
+    }
+  }
+
+  return { applied: true, theme: persisted, height: TITLEBAR_HEIGHT };
 });
 
 ipcMain.handle('inboxora:updates:check', async (_event, { verbose } = {}) => {

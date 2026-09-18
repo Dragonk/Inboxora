@@ -76,8 +76,13 @@ jobs:
           distribution: temurin
           java-version: "21"
 
-      # The hosted image already includes the SDK. Using setup-android here would
-      # invoke the retired `sdkmanager tools` package on current runners.
+      # Pinned to the v3 commit: a mutable tag can be repointed at other code.
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
+        with:
+          # The action's default package list still contains the legacy `tools`
+          # SDK package, which Google removed from the SDK repository, so the
+          # default install fails with "Failed to find package 'tools'".
+          packages: 'platform-tools'
       - name: Install Android SDK packages
         run: |
           sdkmanager="$(find "$ANDROID_HOME/cmdline-tools" -path '*/bin/sdkmanager' -type f | sort -V | tail -1)"
@@ -101,7 +106,7 @@ jobs:
         working-directory: frontend
         env:
           DEV_VERSION: 4.0.0-dev.${{ github.run_number }}
-        run: npm run app:version -- "$DEV_VERSION" "${{ github.run_number }}"
+        run: npm run app:version -- "$DEV_VERSION"
 
       - name: Build web assets and sync the Android shell
         working-directory: frontend

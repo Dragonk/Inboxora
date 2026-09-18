@@ -1978,5 +1978,43 @@
     "bulletList": "Elenco puntato",
     "orderedList": "Elenco numerato",
     "clearFormat": "Rimuovi formattazione"
+  },
+  "desktop": {
+    "titlebar": {
+      "search": "Cerca in Inboxora",
+      "forward": "Avanti"
+    },
+    "notifications": {
+      "title": "Notifiche di sistema",
+      "description": "Mostra le notifiche di sistema per la nuova posta, anche mentre Inboxora è nascosta nella barra delle applicazioni.",
+      "enable": "Notifiche per nuova posta",
+      "enableDesc": "Mostra una notifica di sistema all'arrivo di nuova posta.",
+      "statusOn": "Notifiche attivate in Inboxora",
+      "statusOff": "Le notifiche di sistema sono disattivate",
+      "statusVerified": "Le notifiche di sistema funzionano",
+      "statusBlockedOs": "Le notifiche sono disattivate nel sistema operativo",
+      "statusUnsupported": "Questo sistema non supporta le notifiche",
+      "statusUnknown": "Impossibile leggere le impostazioni delle notifiche",
+      "test": "Invia una notifica di prova",
+      "testBody": "Le notifiche di sistema funzionano correttamente.",
+      "testSent": "Il sistema operativo ha confermato la notifica di prova.",
+      "testBlocked": "Le notifiche sono disattivate, quindi non è stato mostrato nulla.",
+      "testFailed": "Impossibile mostrare la notifica di prova.",
+      "permissionHint": "Le notifiche per Inboxora potrebbero essere disattivate nel sistema operativo.",
+      "openSystemSettings": "Apri le impostazioni delle notifiche di sistema",
+      "testSentUnconfirmed": "Notifica di prova inviata, ma il sistema operativo non l'ha confermata."
+    },
+    "mailto": {
+      "title": "App di posta predefinita",
+      "description": "Rendi Inboxora l'app che Windows apre per i link e-mail (mailto:) e la elenca come client di posta.",
+      "statusDefault": "Inboxora è la tua app di posta predefinita",
+      "statusRegistered": "Inboxora è registrata come app di posta, ma al momento l'app predefinita è un'altra",
+      "statusNotRegistered": "Inboxora non è registrata come app di posta",
+      "statusUnsupported": "La scelta dell'app di posta predefinita è disponibile solo nell'app desktop per Windows",
+      "statusUnknown": "Impossibile leggere le impostazioni dell'app di posta predefinita",
+      "setDefault": "Imposta come predefinita",
+      "openSystemSettings": "Apri le app predefinite di Windows",
+      "confirmHint": "Windows ti chiede di confermare tu stesso l'app predefinita: un'app non può imporsi da sola. Inboxora comparirà come client di posta in quella pagina."
+    }
   }
 }

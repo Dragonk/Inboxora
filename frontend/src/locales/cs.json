@@ -1978,5 +1978,43 @@
     "bulletList": "Odrážkový seznam",
     "orderedList": "Číslovaný seznam",
     "clearFormat": "Vymazat formátování"
+  },
+  "desktop": {
+    "titlebar": {
+      "search": "Hledat v Inboxora",
+      "forward": "Vpřed"
+    },
+    "notifications": {
+      "title": "Systémová oznámení",
+      "description": "Zobrazovat systémová oznámení o nové poště, i když je Inboxora skrytá v oznamovací oblasti.",
+      "enable": "Oznámení o nové poště",
+      "enableDesc": "Při příchodu nové pošty zobrazit systémové oznámení.",
+      "statusOn": "Oznámení zapnuta v Inboxoře",
+      "statusOff": "Systémová oznámení jsou vypnutá",
+      "statusVerified": "Systémová oznámení fungují",
+      "statusBlockedOs": "Oznámení jsou v operačním systému vypnutá",
+      "statusUnsupported": "Tento systém oznámení nepodporuje",
+      "statusUnknown": "Nastavení oznámení se nepodařilo načíst",
+      "test": "Odeslat testovací oznámení",
+      "testBody": "Systémová oznámení fungují správně.",
+      "testSent": "Operační systém potvrdil testovací oznámení.",
+      "testBlocked": "Oznámení jsou vypnutá, takže se nic nezobrazilo.",
+      "testFailed": "Testovací oznámení se nepodařilo zobrazit.",
+      "permissionHint": "Oznámení pro Inboxoru mohou být v operačním systému vypnutá.",
+      "openSystemSettings": "Otevřít nastavení systémových oznámení",
+      "testSentUnconfirmed": "Testovací oznámení odesláno, ale operační systém je nepotvrdil."
+    },
+    "mailto": {
+      "title": "Výchozí e-mailová aplikace",
+      "description": "Nastavit Inboxoru jako aplikaci, kterou Windows otevírá e-mailové odkazy (mailto:), a uvést ji mezi e-mailové klienty.",
+      "statusDefault": "Inboxora je vaše výchozí e-mailová aplikace",
+      "statusRegistered": "Inboxora je zaregistrována jako e-mailová aplikace, ale výchozí je nyní jiná",
+      "statusNotRegistered": "Inboxora není zaregistrována jako e-mailová aplikace",
+      "statusUnsupported": "Volba výchozí e-mailové aplikace je dostupná jen v desktopové aplikaci pro Windows",
+      "statusUnknown": "Nastavení výchozí e-mailové aplikace se nepodařilo načíst",
+      "setDefault": "Nastavit jako výchozí",
+      "openSystemSettings": "Otevřít výchozí aplikace Windows",
+      "confirmHint": "Windows vás požádá, abyste výchozí aplikaci potvrdili sami — aplikace se nemůže nastavit sama. Inboxora se na této stránce objeví mezi e-mailovými klienty."
+    }
   }
 }

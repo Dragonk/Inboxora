@@ -30,10 +30,33 @@ interface InboxoraNativeUpdateStatus {
   [key: string]: unknown;
 }
 
+interface InboxoraNativeNotificationSettings {
+  enabled?: boolean;
+  /** Notification.isSupported() — the process can raise notifications. */
+  supported?: boolean;
+  /** Whether the OS itself will display them (Windows; 'unknown' elsewhere). */
+  osState?: 'enabled' | 'disabled' | 'unknown' | 'unsupported';
+  canOpenSystemSettings?: boolean;
+  [key: string]: unknown;
+}
+
+interface InboxoraNativeNotificationResult {
+  shown?: boolean;
+  /** True only when Electron reported the native 'show' event. */
+  confirmed?: boolean;
+  reason?: string;
+  error?: string;
+  [key: string]: unknown;
+}
+
 interface InboxoraNativeNotifications {
   checkPermission?(): Promise<string>;
   requestPermission?(): Promise<NotificationPermission>;
   showNewMail?(payload: unknown): Promise<unknown>;
+  getSettings?(): Promise<InboxoraNativeNotificationSettings>;
+  setEnabled?(enabled: boolean): Promise<InboxoraNativeNotificationSettings>;
+  isSupported?(): Promise<boolean>;
+  showTest?(payload?: { title?: string; body?: string }): Promise<InboxoraNativeNotificationResult>;
   getStatus?(): Promise<InboxoraNativeStatus>;
   register?(): Promise<InboxoraNativeStatus>;
   clear?(): Promise<InboxoraNativeStatus>;
@@ -42,6 +65,33 @@ interface InboxoraNativeNotifications {
   openHelp?(): Promise<InboxoraNativeStatus>;
   openSettings?(): Promise<InboxoraNativeStatus>;
   onPush?(callback: (notification: InboxoraNativePushNotification) => void): () => void;
+}
+
+interface InboxoraNativeMailtoSettings {
+  /** Whether the shell can register itself as a mail handler (Windows only). */
+  supported?: boolean;
+  state?: 'default' | 'registered' | 'not-registered' | 'unsupported';
+  isDefault?: boolean;
+  /** The app Windows currently opens mailto: links with, or null. */
+  currentHandler?: string | null;
+  /** Deep link used by openSettings(): per-app page on Windows 11, general list on 10. */
+  settingsUri?: string | null;
+  canOpenSettings?: boolean;
+  /** Windows 10/11 require the user to confirm the default app in Settings. */
+  requiresUserConfirmation?: boolean;
+  [key: string]: unknown;
+}
+
+interface InboxoraNativeMailto {
+  getSettings?(): Promise<InboxoraNativeMailtoSettings>;
+  /** Re-assert the registration so Inboxora is listed as an email app. */
+  register?(): Promise<InboxoraNativeMailtoSettings>;
+  openSettings?(): Promise<{ opened?: boolean }>;
+}
+
+interface InboxoraNativeTitlebar {
+  height?: number;
+  setTheme?(theme: { color: string; symbolColor: string }): Promise<{ applied?: boolean; height?: number }>;
 }
 
 interface InboxoraNativeBadges {
@@ -77,6 +127,8 @@ interface InboxoraNativeActions {
 }
 
 interface InboxoraNativeBridge {
+  // 'electron' only in the Inboxora Electron shell; Capacitor Android omits it.
+  shell?: string;
   platform?: string;
   getHost?(): Promise<unknown>;
   saveHost?(host: string): Promise<unknown>;
@@ -84,6 +136,8 @@ interface InboxoraNativeBridge {
   notifications?: InboxoraNativeNotifications;
   badges?: InboxoraNativeBadges;
   updates?: InboxoraNativeUpdates;
+  mailto?: InboxoraNativeMailto;
+  titlebar?: InboxoraNativeTitlebar;
   actions?: InboxoraNativeActions;
 }
 

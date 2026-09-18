@@ -67,7 +67,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          ref: ${{ inputs.branch || github.ref_name }}
+          # `github.ref_name` is "1/merge" on a pull_request — not a branch — so it can
+          # never be fetched. `github.ref` is always a real ref ("refs/pull/N/merge",
+          # "refs/heads/dev"); a dispatch may override the branch explicitly.
+          ref: ${{ inputs.branch || github.ref }}
 
       - uses: actions/setup-node@v6
         with:

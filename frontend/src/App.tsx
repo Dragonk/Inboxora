@@ -9,6 +9,9 @@ import { savedPanelWidth } from './utils/panelWidth.ts';
 import LoginPage from './components/LoginPage.tsx';
 import MailApp from './components/MailApp.tsx';
 import LockScreen from './components/LockScreen.tsx';
+import DesktopTitleBar from './components/desktop/DesktopTitleBar.tsx';
+import { isElectronShell } from './utils/desktopShell.ts';
+import { cleanupDesktopWebPush } from './utils/desktopWebPushCleanup.ts';
 
 export default function App() {
   const { user, setUser, loadPreferences, isLocked, setLocked } = useStore();
@@ -16,13 +19,23 @@ export default function App() {
 
   // Register service worker on first mount — independent of auth state.
   // The SW itself does nothing until the user explicitly grants push permission.
+  // The Electron shell never registers it: its service worker existed only for
+  // Web Push, and the desktop notifications come from the app's WebSocket.
   useEffect(() => {
+    if (isElectronShell()) return;
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js?v=inboxora-3').catch((err) =>
         console.warn('Service worker registration failed:', err)
       );
     }
   }, []);
+
+  // One-time migration for desktop installs that already had a Web Push
+  // subscription from an earlier build (see cleanupDesktopWebPush). Re-run after
+  // sign-in so a server-side unsubscribe that needed a session can complete.
+  useEffect(() => {
+    if (isElectronShell()) void cleanupDesktopWebPush();
+  }, [user]);
 
   useEffect(() => {
     const onExpired = () => { setUser(null); setLocked(false); };
@@ -104,10 +117,14 @@ export default function App() {
 
   if (checking) {
     return (
-      <div style={{
-        height: 'var(--app-height, 100svh)', display: 'flex', alignItems: 'center',
-        justifyContent: 'center', background: 'var(--bg-primary)'
-      }}>
+      <>
+        {/* No in-app toolbar exists yet, but the hidden-title-bar Electron window
+            still needs a draggable strip while the session is checked. */}
+        {isElectronShell() && <DesktopTitleBar variant="drag" />}
+        <div style={{
+          height: 'var(--app-height, 100svh)', display: 'flex', alignItems: 'center',
+          justifyContent: 'center', background: 'var(--bg-primary)'
+        }}>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16 }}>
           <div style={{
             width: 40, height: 40, borderRadius: '50%',
@@ -118,14 +135,20 @@ export default function App() {
           <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
         </div>
       </div>
+      </>
     );
   }
 
   return (
-    <Routes>
-      <Route path="/login" element={user ? <Navigate to="/" replace /> : <LoginPage />} />
-      <Route path="/register" element={user ? <Navigate to="/" replace /> : <LoginPage />} />
-      <Route path="/*" element={user ? (isLocked ? <LockScreen /> : <MailApp />) : <Navigate to="/login" replace />} />
-    </Routes>
+    <>
+      {/* Login and lock screens have no app toolbar, but the Electron window still
+          needs a draggable strip because its native title bar is hidden. */}
+      {isElectronShell() && (!user || isLocked) && <DesktopTitleBar variant="drag" />}
+      <Routes>
+        <Route path="/login" element={user ? <Navigate to="/" replace /> : <LoginPage />} />
+        <Route path="/register" element={user ? <Navigate to="/" replace /> : <LoginPage />} />
+        <Route path="/*" element={user ? (isLocked ? <LockScreen /> : <MailApp />) : <Navigate to="/login" replace />} />
+      </Routes>
+    </>
   );
 }

@@ -1978,5 +1978,43 @@
     "bulletList": "Lista con viñetas",
     "orderedList": "Lista numerada",
     "clearFormat": "Borrar formato"
+  },
+  "desktop": {
+    "titlebar": {
+      "search": "Buscar en Inboxora",
+      "forward": "Adelante"
+    },
+    "notifications": {
+      "title": "Notificaciones del sistema",
+      "description": "Mostrar notificaciones del sistema para el correo nuevo, incluso mientras Inboxora permanece oculta en la bandeja del sistema.",
+      "enable": "Notificaciones de correo nuevo",
+      "enableDesc": "Mostrar una notificación del sistema cada vez que llegue correo nuevo.",
+      "statusOn": "Notificaciones activadas en Inboxora",
+      "statusOff": "Las notificaciones del sistema están desactivadas",
+      "statusVerified": "Las notificaciones del sistema funcionan",
+      "statusBlockedOs": "Las notificaciones están desactivadas en tu sistema operativo",
+      "statusUnsupported": "Este sistema no admite notificaciones",
+      "statusUnknown": "No se pudo leer la configuración de notificaciones",
+      "test": "Enviar notificación de prueba",
+      "testBody": "Las notificaciones del sistema funcionan correctamente.",
+      "testSent": "El sistema operativo confirmó la notificación de prueba.",
+      "testBlocked": "Las notificaciones están desactivadas, así que no se mostró nada.",
+      "testFailed": "No se pudo mostrar la notificación de prueba.",
+      "permissionHint": "Es posible que las notificaciones de Inboxora estén desactivadas en tu sistema operativo.",
+      "openSystemSettings": "Abrir la configuración de notificaciones del sistema",
+      "testSentUnconfirmed": "Notificación de prueba enviada, pero el sistema operativo no la confirmó."
+    },
+    "mailto": {
+      "title": "Aplicación de correo predeterminada",
+      "description": "Hacer que Inboxora sea la aplicación que Windows abre para los enlaces de correo (mailto:) y aparezca como tu cliente de correo.",
+      "statusDefault": "Inboxora es tu aplicación de correo predeterminada",
+      "statusRegistered": "Inboxora está registrada como aplicación de correo, pero ahora mismo la predeterminada es otra",
+      "statusNotRegistered": "Inboxora no está registrada como aplicación de correo",
+      "statusUnsupported": "Elegir la aplicación de correo predeterminada solo está disponible en la aplicación de escritorio para Windows",
+      "statusUnknown": "No se pudo leer la configuración de la aplicación de correo predeterminada",
+      "setDefault": "Establecer como predeterminada",
+      "openSystemSettings": "Abrir las aplicaciones predeterminadas de Windows",
+      "confirmHint": "Windows te pide que confirmes tú mismo la aplicación predeterminada: una aplicación no puede establecerse sola. Inboxora aparecerá como cliente de correo en esa página."
+    }
   }
 }

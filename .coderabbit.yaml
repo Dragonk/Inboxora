@@ -23,6 +23,10 @@ reviews:
   auto_review:
     enabled: true
     auto_incremental_review: true
+    # CodeRabbit otherwise pauses automatic review after five reviewed commits on a
+    # busy pull request. Every fix here goes push → CI/review → next fix, so the
+    # limit would silently stop reviews mid-PR; 0 disables the pause.
+    auto_pause_after_reviewed_commits: 0
     drafts: false
     base_branches:
       - dev

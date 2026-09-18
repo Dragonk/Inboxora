@@ -34,6 +34,151 @@ the service worker (`frontend/public/sw.js`) shows the rich notification
 (sender, subject, deep link, unread badge) and the browser subscription is stored
 in `push_subscriptions`. Adding native push does not change this path.
 
+## Desktop app (Electron) — native notifications
+
+The Electron build does **not** use Web Push, VAPID or the server push dispatcher.
+It reuses the WebSocket the app already has:
+
+```text
+WebSocket new_messages
+        ▼
+renderer (useWebSocket)  ──▶  preload (contextBridge)
+                                  ▼
+                          Electron main process
+                                  ▼
+                     Electron `Notification`  ──▶  OS notification
+```
+
+Consequences worth knowing:
+
+- **No VAPID is required** for desktop notifications. They work on any install.
+- Notifications arrive while the window is visible, minimized or hidden in the
+  tray. After **Quit** the process is gone and nothing can arrive — that would
+  need a WNS/APNs/background-service architecture, which is out of scope.
+- **No duplicates.** Inside the desktop shell the app does not register its
+  service worker at all (`public/sw.js` only ever handled Web Push) and Settings
+  replaces the Web Push card with the system notification card. On the first run
+  after upgrading from a build that *did* expose the browser card, an existing
+  push subscription is unsubscribed and its registration removed, so a stale
+  subscription cannot keep raising OS notifications next to the Electron ones.
+  Web Push remains the browser/PWA path, unchanged.
+- **The status is honest.** `Notification.isSupported()` only says the process
+  *can* raise a notification; Windows silently drops toasts when the user turned
+  them off for Inboxora. The card therefore shows the Inboxora switch and the
+  operating-system state separately (read from the Windows notification
+  registry; reported as unknown on Linux/macOS, where no equivalent is exposed),
+  and words the plain enabled state as "enabled in Inboxora" rather than
+  "system notifications are active". The state is re-read whenever the window
+  regains focus — including right after using the shortcut below — so the card
+  reflects a change the user just made in the operating system. A test that the
+  OS confirmed also outranks a stale "turned off" reading.
+
+### Settings
+
+**Settings → Notifications → *System notifications***:
+
+- a switch for new-mail notifications;
+- a status line that distinguishes "enabled in Inboxora", "system notifications
+  are working" (only after a confirmed test), "turned off in your operating
+  system" and "unsupported";
+- **Send test notification**, which shows a real OS notification through the full
+  renderer → preload → IPC → Electron `Notification` path and reports what the
+  operating system actually did: confirmed (Electron's `show` event), sent but
+  *not* confirmed (no event arrived, e.g. a Linux session without a notification
+  daemon), or the failure the OS reported. A silently blocked Windows toast is
+  therefore visible as a failure instead of being reported as success;
+- a shortcut that opens the operating system's notification settings (Windows:
+  *ms-settings:notifications*, macOS: Notifications preference pane). It is
+  always available where the platform supports it, not only after a failure.
+  Linux has no portable settings URI, so the button is not offered there.
+
+The preference is stored locally, per installation, in the Electron config file
+under `app.getPath('userData')` (`desktopNotifications.enabled`, default `true`) —
+deliberately not an account setting, so a home computer can notify while another
+device stays quiet. It is independent of the notification-sound setting, which is
+unchanged.
+
+Notifications are suppressed in the **main process** when the switch is off, so no
+other code path can show them by accident. Clicking a notification restores,
+shows and focuses the existing window and opens the specific message; it never
+creates a second Inboxora window.
+
+### Window title bar
+
+The desktop window uses Electron's `titleBarStyle: 'hidden'` with the Window
+Controls Overlay instead of `frame: false`. The Inboxora bar carries Back,
+Forward, Search (the existing Inboxora search engine, also `Ctrl+E` / `Cmd+E`) and
+Settings, while minimize / maximize / close and close-to-tray stay native OS
+behaviour. On Windows and Linux the `File / Edit / View / Window / Help` menu bar
+is removed; its accelerators are re-registered on the window (`Ctrl+R` reload,
+`F11` full screen, `Ctrl+W` close → tray, `Ctrl+M` minimize, `Ctrl+,` Change
+Inboxora Host), and the tray keeps New Mail, Sync, Show/Hide, Change Host and Quit.
+
+Back and Forward walk **Inboxora's own view history** (a bounded list of
+surface + account + folder + open message + Settings tab), not
+`webContents.navigationHistory`. Inboxora navigates by swapping Zustand state, so
+the browser history never contained "the message I had open" or "the Calendar
+view" — only real document loads such as login and OIDC. The application history
+also keeps the existing origin/OIDC navigation policy as the only thing that can
+put a document into the browser history.
+
+Restoring a message works even when its folder page has been replaced in the
+meantime (the normal case after visiting another folder or account). The exact row
+id is tried first, so Back returns the copy the user was actually reading; only when
+that row is gone does it fall back to the durable reference — the RFC `Message-ID`
+header when the row exposed one, scoped to the message's account, else the row id —
+through the same lookup the deep-link path uses. Both halves matter: the physical
+row id is not stable (a move or re-sync can give the message a new one, and a lookup
+by the old id would then find nothing), while a lookup by Message-ID alone would
+prefer the INBOX copy of a message that also exists in Archive. The resolved row is
+parked where the reading pane can render it, and a row that came back under a new id
+replaces the history entry in place instead of counting as a new navigation, so
+Forward survives. The Settings overlay starts below the title bar, so Back / Forward
+/ Search / Settings stay clickable while Settings is open; that matters because Back
+out of Settings requires Forward to be reachable to return.
+
+## Desktop app (Electron) — default email app (Windows)
+
+Windows does not let an application make itself the default handler, so Inboxora
+registers itself as an *available* one and hands the choice to the user:
+
+- the installer (and every app start) writes the email-client capabilities under
+  `HKCU\Software\Clients\Mail\Inboxora` (name, description, icon, and the `mailto`
+  URL association) plus the `Inboxora.mailto` ProgID with its
+  `shell\open\command`, and lists the app in `RegisteredApplications`. That is what
+  makes Inboxora appear under **Settings → Default apps** for both *Email* and the
+  `mailto:` link type. On Windows the app deliberately does **not** call Electron's
+  `setAsDefaultProtocolClient()`, which would write a second, legacy
+  `HKCU\Software\Classes\mailto` handler and claim the generic key just by being
+  launched; the installer also removes such a legacy handler when an earlier build
+  left one (only while it is still Inboxora's own command). After the registry
+  writes, the shell is told the associations changed
+  (`SHChangeNotify(SHCNE_ASSOCCHANGED)` with `SHCNF_FLUSH`) — from the installer
+  natively and from the app on re-registration, where the wait for it is bounded
+  (2 s) and best-effort. Without that notification Windows keeps serving a cached
+  association list, so the Default apps page opened immediately afterwards would
+  still show the old state;
+- **Settings → Notifications → Default email app** reports whether Inboxora is the
+  current handler (read from the `mailto` `UserChoice\ProgId` Windows keeps),
+  re-asserts the registration with *Set as default*, and opens the Windows
+  default-apps page where the user confirms it: the per-app page
+  (`ms-settings:defaultapps?registeredAppUser=Inboxora`) on Windows 11, the general
+  list on Windows 10, which only has that. The card states plainly that Windows asks
+  for that confirmation, instead of implying the button does it alone;
+- "registered" means the registration is *complete* — the `mailto` URL association
+  points at Inboxora's ProgID, the `RegisteredApplications` entry points at its
+  capabilities, and the ProgID still has a launch command. A half-written
+  registration (an interrupted upgrade, a cleaned-up key) reports
+  "not registered" and the button repairs it, **even when Windows still points at
+  Inboxora**: a handler that cannot launch is not a working default, and showing it
+  as the default would also hide the repair;
+- the state is re-read when the window regains focus, so returning from Windows
+  Settings shows the result.
+
+Outside Windows there is nothing to configure, and the card says so rather than
+offering a button that cannot work. `mailto:` links that Windows hands to Inboxora
+open the composer through the existing deep-link/second-instance path.
+
 ## Android — instant notifications
 
 ### How it works, in one paragraph
@@ -309,5 +454,85 @@ without opening the app.
 If a state fails, see the Android section in
 [Troubleshooting](Troubleshooting.md) — most failures are battery optimization
 suspending ntfy, or a reverse proxy closing the UnifiedPush (/up…) WebSocket.
+```
+
+## Manual desktop test (not automated in CI)
+
+CI exercises the main-process logic with unit tests and a stubbed Electron
+(`desktop-settings.test.cjs`), and the renderer helpers with `desktopShell.test.ts`.
+It cannot boot a signed build, so run this once on the built installer of each
+released desktop target — **Windows and Linux**, the two platforms the packaging
+workflow builds — before declaring a desktop release ready. macOS packaging is not
+part of `publish-apps.yml` yet (it needs Apple Developer ID signing and
+notarisation secrets), so there is no `.dmg` to test.
+
+```text
+Notifications (built installer, not electron:dev)
+  1. Inboxora open                -> new mail shows an OS notification
+  2. Inboxora minimized           -> notification still appears
+  3. Inboxora hidden in the tray  -> notification still appears
+  4. Switch off                   -> no notification at all
+  5. Switch back on               -> notifications work again
+  6. "Send test notification"     -> a real OS notification appears
+  7. Click the test notification  -> the window is restored and focused
+  8. Click a new-mail notification-> the correct message opens
+  9. Send one mail                -> exactly one notification (no Web Push duplicate)
+ 10. Restart Inboxora             -> the on/off choice survived
+
+Upgrade from a build with browser Web Push enabled
+  - Settings must show "System notifications" (not the Web Push card)
+  - send one mail: exactly one notification, never two
+  - the old subscription is gone (Application -> Service Workers is empty)
+
+Windows notifications blocked by the OS
+  - turn Inboxora notifications off in Windows Settings
+  - the card must say the OS has them turned off (not "working") and offer
+    "Open system notification settings"
+  - the test button must report a failure rather than success
+  - turn them back on in Windows, return to Inboxora *without* reopening Settings:
+    the status must update on focus
+
+Windows default email app
+  - Settings -> Notifications -> "Default email app" is present (Windows only)
+  - with Outlook as the default: the card says Inboxora is registered but not the
+    default, and offers "Set as default"
+  - "Set as default" writes the registration and opens Windows Default apps — the
+    per-app page for Inboxora on Windows 11, the general list on Windows 10 — where
+    Inboxora is listed for Email and for the mailto: link type, already reflecting the
+    registration (not the state from before it)
+  - merely launching Inboxora must not create HKCU\Software\Classes\mailto; only the
+    Inboxora.mailto ProgID and the RegisteredApplications entry appear
+  - upgrading over a build that did write that legacy key must remove it on install
+    (and leave a foreign handler in place if the command is not Inboxora's)
+  - with a deliberately damaged registration (delete
+    HKCU\Software\Clients\Mail\Inboxora\Capabilities\URLAssociations\mailto), the card
+    must report "not registered" rather than "registered", and "Set as default" must
+    repair it
+  - after picking Inboxora there and returning, the card reads "Inboxora is your
+    default email app" without reopening Settings
+  - clicking a mailto: link in another app opens the Inboxora composer
+  - on Linux/macOS the card says the choice is Windows-only and offers no button
+
+Title bar
+  - drag the window; double-click the empty part of the bar
+  - minimize / maximize / restore / close-to-tray from the native controls
+  - Back and Forward across: mail list -> message -> Calendar -> Contacts ->
+    Settings, then all the way back and forward again; disabled states at both ends
+  - Back from Settings returns to the surface Settings was opened from
+  - with Settings open, Back / Forward / Search / Settings are still clickable
+  - Back to a message that lives in another folder or account: the message opens
+    (it is re-fetched), not just the mailbox
+  - if the message was moved or re-synced in the meantime (new row id), Back still
+    opens it and Forward still returns to where you were
+  - if the same mail exists in two folders (INBOX + Archive), Back returns the copy
+    you were reading, not the INBOX twin
+  - search uses the Inboxora search engine; Ctrl+E / Cmd+E focuses it
+  - Settings opens the existing Settings screen at Notifications
+  - Ctrl+R reload, F11 full screen, Ctrl+W close-to-tray, Ctrl+M minimize,
+    Ctrl+, Change Inboxora Host
+  - dark mode and light mode (the native control symbols follow the theme)
+  - Windows scaling at 100% / 125% / 150% and the minimum window size
+  - no File / Edit / View / Window / Help bar is visible (Windows/Linux)
+  - the browser build shows none of the above (no desktop title bar)
 ```
 

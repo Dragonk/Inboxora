@@ -7,7 +7,7 @@
 <p align="center">
   <a href="https://github.com/Dragonk/Inboxora/actions/workflows/ci.yml"><img src="https://github.com/Dragonk/Inboxora/actions/workflows/ci.yml/badge.svg?branch=dev" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue" alt="License: AGPL-3.0"></a>
-  <img src="https://img.shields.io/badge/version-4.0.3-informational" alt="Version 4.0.3">
+  <img src="https://img.shields.io/badge/version-4.0.4-informational" alt="Version 4.0.4">
 </p>
 
 Inboxora brings mail, contacts and calendars into one self-hosted application. It speaks
@@ -17,11 +17,11 @@ your existing devices keep working.
 This release is a large step beyond the upstream MailFlow fork it started from: Inboxora
 adds a real conversation engine for email threading, a full calendar with invitations,
 first-party contacts with CardDAV/CalDAV access, and a rebuilt interface. See
-[What's new in 4.0](#whats-new-in-40) for the full picture. Version 4.0.3 is a reliability
-release: it fixes physical-copy identity after the Message-ID relocation era, hardens explicit
-IMAP IDLE and folder-freshness handling, and ships the antispam v0.2 layer (deterministic rules
-plus a per-user Naive Bayes model with opt-in auto-move). See the
-[4.0.3 release notes](docs/wiki/Release-notes-4.0.3.md) for upgrade requirements.
+[What's new in 4.0](#whats-new-in-40) for the full picture. Version 4.0.4 is the current
+release: a desktop-app release that adds the integrated title bar, Back / Forward over Inboxora's
+own views, in-app control of the native notifications, and the Windows default email app. The
+server, database, API and configuration are unchanged from 4.0.3. See the
+[4.0.4 release notes](docs/wiki/Release-notes-4.0.4.md).
 
 <p align="center">
   <img src="media/screenshots/mail-inbox-desktop.png" width="820" alt="Inboxora: the unified inbox with an expanded conversation and an open message">
@@ -97,11 +97,11 @@ The same mailbox on a phone (390×844):
 
 ## What's new in 4.0
 
-**4.0.3 is the current release.** It is a reliability release: physical-copy identity, explicit
-IMAP IDLE and folder-freshness handling, the antispam v0.2 layer and frontend hardening. Before
-production rollout, apply the listed database migrations (`0094`–`0100`) in order and pin the
-published `4.0.3` image tag. See the
-[4.0.3 release notes](docs/wiki/Release-notes-4.0.3.md).
+**4.0.4 is the current release.** It is a desktop-app release: the web/PWA and Android builds
+behave exactly as in 4.0.3, and there is no migration, configuration or API change to apply — pin
+the published 4.0.4 image tag (or install the 4.0.4 desktop build) as usual. See the
+[4.0.4 release notes](docs/wiki/Release-notes-4.0.4.md) for the desktop details and the known
+manual-validation limitations.
 
 4.0.0 is a major version because Inboxora is no longer only a mail client. Everything below
 is new or rebuilt relative to the upstream MailFlow fork; the area-by-area changelog is in
@@ -305,8 +305,9 @@ release.
 | [Migrating from MailFlow](docs/wiki/Migrating-from-MailFlow.md) | Moving a MailFlow 3.3.0 deployment to Inboxora. |
 | [Troubleshooting](docs/wiki/Troubleshooting.md) | Diagnostic paths and common failures. |
 | [Development](docs/wiki/Development.md) | Local verification, browser tests, documentation policy. |
-| [Release notes 4.0.3](docs/wiki/Release-notes-4.0.3.md) | Current release: sync, IDLE, antispam and migration requirements. |
-| [Release notes 4.0.2](docs/wiki/Release-notes-4.0.2.md) | Previous release: reliability and data-isolation patch. |
+| [Release notes 4.0.4](docs/wiki/Release-notes-4.0.4.md) | Current release: desktop changes, rollout requirements and known limitations. |
+| [Release notes 4.0.3](docs/wiki/Release-notes-4.0.3.md) | Previous release: sync, IDLE, antispam and migration requirements. |
+| [Release notes 4.0.2](docs/wiki/Release-notes-4.0.2.md) | Earlier release: reliability and data-isolation patch. |
 | [Release notes 4.0.0](docs/wiki/Release-notes-4.0.0.md) | Why this is a major release and what changed. |
 
 ## Development

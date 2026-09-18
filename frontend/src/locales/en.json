@@ -1978,5 +1978,43 @@
     "bulletList": "Bullet list",
     "orderedList": "Numbered list",
     "clearFormat": "Clear formatting"
+  },
+  "desktop": {
+    "titlebar": {
+      "search": "Search Inboxora",
+      "forward": "Forward"
+    },
+    "notifications": {
+      "title": "System notifications",
+      "description": "Show desktop notifications for new mail, including while Inboxora is hidden in the tray.",
+      "enable": "New mail notifications",
+      "enableDesc": "Show a system notification whenever new mail arrives.",
+      "statusOn": "Notifications enabled in Inboxora",
+      "statusOff": "System notifications are turned off",
+      "statusVerified": "System notifications are working",
+      "statusBlockedOs": "Notifications are turned off in your operating system",
+      "statusUnsupported": "This system does not support notifications",
+      "statusUnknown": "Could not read the notification settings",
+      "test": "Send test notification",
+      "testBody": "System notifications are working correctly.",
+      "testSent": "The operating system confirmed the test notification.",
+      "testBlocked": "Notifications are turned off, so nothing was shown.",
+      "testFailed": "The test notification could not be shown.",
+      "permissionHint": "Notifications for Inboxora may be turned off in your operating system.",
+      "openSystemSettings": "Open system notification settings",
+      "testSentUnconfirmed": "Test notification sent, but the operating system did not confirm it."
+    },
+    "mailto": {
+      "title": "Default email app",
+      "description": "Make Inboxora the app Windows opens for email links (mailto:) and lists as your email client.",
+      "statusDefault": "Inboxora is your default email app",
+      "statusRegistered": "Inboxora is registered as an email app, but another app is currently the default",
+      "statusNotRegistered": "Inboxora is not registered as an email app",
+      "statusUnsupported": "Choosing the default email app is only available in the Windows desktop app",
+      "statusUnknown": "Could not read the default email app settings",
+      "setDefault": "Set as default",
+      "openSystemSettings": "Open Windows default apps",
+      "confirmHint": "Windows asks you to confirm the default app yourself — an app cannot make itself the default. Inboxora will be listed as an email app on that page."
+    }
   }
 }

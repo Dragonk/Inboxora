@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { api } from '../utils/api.ts';
 import { toAppError } from '../utils/errors.ts';
+import { isElectronShell } from '../utils/desktopShell.ts';
 
 // Convert a URL-safe base64 VAPID public key (as returned by the server)
 // into the Uint8Array that PushManager.subscribe() expects.
@@ -35,7 +36,10 @@ export function usePushNotifications() {
   const regRef = useRef<ServiceWorkerRegistration | null>(null);
 
   useEffect(() => {
+    // Electron delivers new mail through its own native notifications, so Web Push
+    // is reported as unsupported there and never subscribes (avoids duplicates).
     const ok =
+      !isElectronShell() &&
       'serviceWorker' in navigator &&
       'PushManager'   in window    &&
       'Notification'  in window;

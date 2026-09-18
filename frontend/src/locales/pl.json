@@ -1978,5 +1978,43 @@
     "bulletList": "Lista punktowana",
     "orderedList": "Lista numerowana",
     "clearFormat": "Wyczyść formatowanie"
+  },
+  "desktop": {
+    "titlebar": {
+      "search": "Szukaj w Inboxora",
+      "forward": "Dalej"
+    },
+    "notifications": {
+      "title": "Powiadomienia systemowe",
+      "description": "Wyświetlaj powiadomienia systemowe o nowych wiadomościach, również gdy Inboxora jest ukryta w zasobniku systemowym.",
+      "enable": "Powiadomienia o nowych wiadomościach",
+      "enableDesc": "Pokazuj powiadomienie systemowe przy każdym nowym mailu.",
+      "statusOn": "Powiadomienia włączone w Inboxorze",
+      "statusOff": "Powiadomienia systemowe są wyłączone",
+      "statusVerified": "Powiadomienia systemowe działają",
+      "statusBlockedOs": "Powiadomienia są wyłączone w systemie operacyjnym",
+      "statusUnsupported": "Ten system nie obsługuje powiadomień",
+      "statusUnknown": "Nie udało się odczytać ustawień powiadomień",
+      "test": "Wyślij powiadomienie testowe",
+      "testBody": "Powiadomienia systemowe działają poprawnie.",
+      "testSent": "System operacyjny potwierdził powiadomienie testowe.",
+      "testBlocked": "Powiadomienia są wyłączone, więc nic nie zostało wyświetlone.",
+      "testFailed": "Nie udało się wyświetlić powiadomienia testowego.",
+      "permissionHint": "Powiadomienia dla Inboxory mogą być wyłączone w systemie operacyjnym.",
+      "openSystemSettings": "Otwórz ustawienia powiadomień systemowych",
+      "testSentUnconfirmed": "Wysłano powiadomienie testowe, ale system operacyjny go nie potwierdził."
+    },
+    "mailto": {
+      "title": "Domyślna aplikacja pocztowa",
+      "description": "Ustaw Inboxorę jako aplikację, którą Windows otwiera linki e-mail (mailto:), i wpisz ją na listę klientów poczty.",
+      "statusDefault": "Inboxora jest domyślną aplikacją pocztową",
+      "statusRegistered": "Inboxora jest zarejestrowana jako aplikacja pocztowa, ale domyślna jest obecnie inna",
+      "statusNotRegistered": "Inboxora nie jest zarejestrowana jako aplikacja pocztowa",
+      "statusUnsupported": "Wybór domyślnej aplikacji pocztowej jest dostępny tylko w aplikacji desktopowej dla Windows",
+      "statusUnknown": "Nie udało się odczytać ustawień domyślnej aplikacji pocztowej",
+      "setDefault": "Ustaw jako domyślną",
+      "openSystemSettings": "Otwórz domyślne aplikacje w Windows",
+      "confirmHint": "Windows sam poprosi Cię o potwierdzenie domyślnej aplikacji — aplikacja nie może zrobić tego za Ciebie. Inboxora pojawi się na tej stronie na liście klientów poczty."
+    }
   }
 }

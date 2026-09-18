@@ -64,7 +64,7 @@ jobs:
 
       - name: Set app version
         working-directory: frontend
-        run: npm run app:version -- "${{ steps.app-version.outputs.version }}" "${{ github.run_number }}"
+        run: npm run app:version -- "${{ steps.app-version.outputs.version }}"
 
       - name: Validate desktop release signing
         if: (matrix.os == 'windows-latest' || matrix.os == 'macos-latest') && inputs.windows_signing != false
@@ -161,16 +161,13 @@ jobs:
           distribution: temurin
           java-version: "21"
 
-      # The hosted image already includes the Android SDK. Do not use
-      # android-actions/setup-android: it invokes the retired `sdkmanager tools`
-      # package on current runners and fails before the release build starts.
-      - name: Prepare Android SDK
-        run: |
-          sdkmanager="$(find "$ANDROID_HOME/cmdline-tools" -path '*/bin/sdkmanager' -type f | sort -V | tail -1)"
-          test -n "$sdkmanager"
-          yes | "$sdkmanager" --licenses >/dev/null 2>&1 || true
-          "$sdkmanager" --install "platform-tools" "platforms;android-36" "build-tools;36.0.0"
-
+      # Pinned to the v3 commit: a mutable tag can be repointed at other code.
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
+        with:
+          # The action's default package list still contains the legacy `tools`
+          # SDK package, which Google removed from the SDK repository, so the
+          # default install fails with "Failed to find package 'tools'".
+          packages: 'platform-tools'
       - name: Install dependencies
         working-directory: frontend
         run: npm ci
@@ -188,7 +185,7 @@ jobs:
 
       - name: Set app version
         working-directory: frontend
-        run: npm run app:version -- "${{ steps.app-version.outputs.version }}" "${{ github.run_number }}"
+        run: npm run app:version -- "${{ steps.app-version.outputs.version }}"
 
       - name: Prepare Android release signing
         shell: bash
@@ -262,6 +259,58 @@ jobs:
         with:
           path: artifacts
 
+      - name: Sign release artifacts
+        env:
+          INBOXORA_GPG_PRIVATE_KEY: ${{ secrets.INBOXORA_GPG_PRIVATE_KEY }}
+          INBOXORA_GPG_PASSPHRASE: ${{ secrets.INBOXORA_GPG_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+
+          missing=()
+          [ -n "$INBOXORA_GPG_PRIVATE_KEY" ] || missing+=("INBOXORA_GPG_PRIVATE_KEY")
+          [ -n "$INBOXORA_GPG_PASSPHRASE" ] || missing+=("INBOXORA_GPG_PASSPHRASE")
+
+          if [ "${#missing[@]}" -gt 0 ]; then
+            printf 'Release signing secrets are required. Missing: %s\n' "${missing[*]}" >&2
+            exit 1
+          fi
+
+          printf '%s' "$INBOXORA_GPG_PRIVATE_KEY" | gpg --batch --import
+          key_id="$(gpg --batch --list-secret-keys --with-colons | awk -F: '$1 == "sec" { print $5; exit }')"
+          test -n "$key_id"
+
+          # The signing identity is documented in docs/keys/ and attached to every
+          # release, so a manifest signed by any other key would make those published
+          # verification instructions wrong. Bind the imported key to the documented
+          # fingerprint instead of trusting whatever the secret happens to contain.
+          documented="$(gpg --batch --show-keys --with-colons docs/keys/inboxora-release-signing.asc | awk -F: '$1 == "fpr" { print $10; exit }')"
+          imported="$(gpg --batch --list-secret-keys --with-colons "$key_id" | awk -F: '$1 == "fpr" { print $10; exit }')"
+          test -n "$documented"
+          if [ "$imported" != "$documented" ]; then
+            printf 'The imported signing key (%s) does not match the documented release key (%s)\n' "$imported" "$documented" >&2
+            exit 1
+          fi
+          printf 'Signing with the documented release key %s.\n' "$documented"
+
+          mkdir -p signed
+          (
+            cd artifacts
+            find . -type f \( -name '*.aab' -o -name '*.apk' -o -name '*.deb' -o -name '*.dmg' -o -name '*.exe' -o -name '*.rpm' \) -print0 |
+              sort -z | xargs -0 -r sha256sum
+          ) > signed/SHA256SUMS
+
+          # An empty manifest means the build produced nothing we can vouch for.
+          test -s signed/SHA256SUMS
+
+          gpg --batch --yes --pinentry-mode loopback --passphrase "$INBOXORA_GPG_PASSPHRASE" \
+            --local-user "$key_id" --armor --detach-sign --output signed/SHA256SUMS.asc signed/SHA256SUMS
+          gpg --batch --armor --export "$key_id" > signed/inboxora-signing-key.asc
+
+          # Fail loudly if the manifest does not describe what we are about to publish.
+          ( cd artifacts && sha256sum --check --strict ../signed/SHA256SUMS )
+          gpg --batch --verify signed/SHA256SUMS.asc signed/SHA256SUMS
+          printf 'Signed %s artifact checksum(s).\n' "$(wc -l < signed/SHA256SUMS)"
+
       - name: Publish release files
         uses: softprops/action-gh-release@v2
         with:
@@ -273,3 +322,6 @@ jobs:
             artifacts/**/*.dmg
             artifacts/**/*.exe
             artifacts/**/*.rpm
+            signed/SHA256SUMS
+            signed/SHA256SUMS.asc
+            signed/inboxora-signing-key.asc

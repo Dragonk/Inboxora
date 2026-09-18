@@ -10,6 +10,12 @@ therefore: back up, change the version, pull, recreate.
 Coming from MailFlow rather than an earlier Inboxora? Use
 [**Migrating from MailFlow**](Migrating-from-MailFlow.md) instead.
 
+> **Upgrading 4.0.3 to 4.0.4 needs nothing beyond the standard steps.** 4.0.4 is a desktop-app
+> release: no migration, no new environment variable, no API or configuration change, and the
+> web/PWA and Android builds behave exactly as in 4.0.3. Only the Electron build gains the new
+> title bar, notification settings and Windows default-app support. See
+> [Release notes 4.0.4](Release-notes-4.0.4.md).
+
 > **Upgrading 4.0.2 to 4.0.3 needs nothing beyond the standard steps.** 4.0.3 is a reliability
 > release: database migrations `0094`–`0100` are applied automatically when the backend starts, no
 > new environment variable is required, and antispam auto-move stays opt-in per account. See

@@ -1978,5 +1978,43 @@
     "bulletList": "Aufzählungsliste",
     "orderedList": "Nummerierte Liste",
     "clearFormat": "Formatierung entfernen"
+  },
+  "desktop": {
+    "titlebar": {
+      "search": "Inboxora durchsuchen",
+      "forward": "Vorwärts"
+    },
+    "notifications": {
+      "title": "Systembenachrichtigungen",
+      "description": "Desktop-Benachrichtigungen für neue E-Mails anzeigen, auch wenn Inboxora im Infobereich ausgeblendet ist.",
+      "enable": "Benachrichtigungen bei neuen E-Mails",
+      "enableDesc": "Bei jeder neuen E-Mail eine Systembenachrichtigung anzeigen.",
+      "statusOn": "Benachrichtigungen in Inboxora aktiviert",
+      "statusOff": "Systembenachrichtigungen sind ausgeschaltet",
+      "statusVerified": "Systembenachrichtigungen funktionieren",
+      "statusBlockedOs": "Benachrichtigungen sind im Betriebssystem ausgeschaltet",
+      "statusUnsupported": "Dieses System unterstützt keine Benachrichtigungen",
+      "statusUnknown": "Die Benachrichtigungseinstellungen konnten nicht gelesen werden",
+      "test": "Testbenachrichtigung senden",
+      "testBody": "Systembenachrichtigungen funktionieren ordnungsgemäß.",
+      "testSent": "Das Betriebssystem hat die Testbenachrichtigung bestätigt.",
+      "testBlocked": "Benachrichtigungen sind ausgeschaltet, deshalb wurde nichts angezeigt.",
+      "testFailed": "Die Testbenachrichtigung konnte nicht angezeigt werden.",
+      "permissionHint": "Benachrichtigungen für Inboxora sind möglicherweise im Betriebssystem ausgeschaltet.",
+      "openSystemSettings": "Einstellungen für Systembenachrichtigungen öffnen",
+      "testSentUnconfirmed": "Testbenachrichtigung gesendet, aber das Betriebssystem hat sie nicht bestätigt."
+    },
+    "mailto": {
+      "title": "Standard-E-Mail-App",
+      "description": "Inboxora als App festlegen, die Windows für E-Mail-Links (mailto:) öffnet und als E-Mail-Client aufführt.",
+      "statusDefault": "Inboxora ist deine Standard-E-Mail-App",
+      "statusRegistered": "Inboxora ist als E-Mail-App registriert, aktuell ist aber eine andere App Standard",
+      "statusNotRegistered": "Inboxora ist nicht als E-Mail-App registriert",
+      "statusUnsupported": "Die Standard-E-Mail-App lässt sich nur in der Windows-Desktop-App wählen",
+      "statusUnknown": "Die Einstellungen der Standard-E-Mail-App konnten nicht gelesen werden",
+      "setDefault": "Als Standard festlegen",
+      "openSystemSettings": "Windows-Standardapps öffnen",
+      "confirmHint": "Windows bittet dich, die Standard-App selbst zu bestätigen — eine App kann sich nicht selbst als Standard festlegen. Inboxora wird auf dieser Seite als E-Mail-App aufgeführt."
+    }
   }
 }

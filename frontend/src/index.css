@@ -898,3 +898,17 @@ body, #root {
 [data-mailflow-theme="winxp"] .mailflow-window-titlebar .mailflow-window-btn {
   color: #ffffff !important;
 }
+
+/* ── Electron desktop title bar ──────────────────────────────────────────────
+   Draggable strip drawn by DesktopTitleBar inside the hidden-title-bar window
+   (Window Controls Overlay). Interactive children opt out again. The web build
+   never renders these classes. */
+.desktop-titlebar {
+  -webkit-app-region: drag;
+  app-region: drag;
+  user-select: none;
+}
+.desktop-titlebar__control {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
