@@ -1758,7 +1758,16 @@
     "failHamTitle": "Не удалось пометить как не спам",
     "failBody": "Почтовый сервер отклонил перемещение.",
     "failHamBody": "Почтовый сервер отклонил перемещение.",
-    "failBodyBulk": "Не удалось переместить {{count}} сообщений."
+    "failBodyBulk": "Не удалось переместить {{count}} сообщений.",
+    "badgeSpam": "Спам",
+    "badgeUnsure": "Возможно спам",
+    "explainTitle": "Почему помечено?",
+    "explainMethod": "Метод: {{method}}",
+    "settingsTitle": "Антиспам",
+    "maturity": "Модель {{level}} · сообщений: {{count}}",
+    "enable": "Включить антиспам",
+    "disable": "Выключить антиспам",
+    "retrainNow": "Переобучить"
   },
   "todoist": {
     "title": "Создать задачу Todoist",

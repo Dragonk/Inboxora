@@ -1758,7 +1758,16 @@
     "failHamTitle": "Impossibile segnalare come non spam",
     "failBody": "Il server di posta ha rifiutato lo spostamento.",
     "failHamBody": "Il server di posta ha rifiutato lo spostamento.",
-    "failBodyBulk": "{{count}} messaggi non possono essere spostati."
+    "failBodyBulk": "{{count}} messaggi non possono essere spostati.",
+    "badgeSpam": "Spam",
+    "badgeUnsure": "Possibile spam",
+    "explainTitle": "Perché è stato segnalato?",
+    "explainMethod": "Metodo: {{method}}",
+    "settingsTitle": "Antispam",
+    "maturity": "Modello {{level}} · {{count}} messaggi",
+    "enable": "Attiva antispam",
+    "disable": "Disattiva antispam",
+    "retrainNow": "Riallena ora"
   },
   "todoist": {
     "title": "Crea attività Todoist",

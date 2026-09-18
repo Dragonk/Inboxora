@@ -482,6 +482,11 @@ const SAME_VALUE_ALLOWED: Record<string, SameValueRule> = {
   'layouts.compact.label': [['en', 'fr']],
   'mailFolders.archive': [['cs', 'de']],
   'mailFolders.spam': [['cs', 'de', 'en', 'it', 'pl']],
+  // "Spam"/"Antispam" are universal loanwords (same rule as mailFolders.spam).
+  'spam.badgeSpam': [['cs', 'de', 'en', 'es', 'fr', 'it', 'pl']],
+  'spam.settingsTitle': [['cs', 'de', 'en', 'es', 'fr', 'it']],
+  // cs/pl share the "Metoda:" grammar for the explain template.
+  'spam.explainMethod': [['cs', 'pl']],
   'calendar.agenda': 'any', // Common calendar term in these languages.
   'calendar.caldav': 'any',
   'calendar.day6': [['cs', 'pl']],

@@ -24,6 +24,18 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.3](wiki/R
   with advanced UIDNEXT are queued for a metadata sync even though only INBOX is IDLE-monitored.
 - Fix STATUS gate self-cancellation: `uid_next` is now the watermark of the last completed sync, not
   the last observed STATUS, so detecting a change no longer writes the new value before the fetch runs.
+- Harden explicit IDLE: track `idleAttemptedAt` separately from `idleEnteredAt` (health check uses the
+  latter), and guard concurrent `_enterExplicitIdle` calls with a per-account single-flight promise.
+- Add a one-time post-relocate repair: the first sync tick after the Message-ID relocation removal runs
+  a forced metadata pass over every selectable folder (ignoring `uid_next`), restoring rows the old
+  code collapsed across folders without wiping the local database.
+- Add a hybrid antispam classifier (deterministic 14-rule engine + per-user multinomial Naive Bayes):
+  rules always on, ML joins at >= 50 training records, verdict spam >= 0.85, auto-move at >= 0.95 with
+  ML backing only; manual /spam and /ham persist mark-time features and train incrementally; a staggered
+  hourly single-flight scheduler rebuilds models with exponential time decay; ingest tagging is
+  fire-and-forget and backfill defers auto-move to avoid IMAP connection storms; `GET /api/spam/explain`
+  powers the "Why?" dialog; `users.preferences.spamEnabled` (default on) plus per-account
+  `antispam_enabled` (default off, opt-in) gate automatic classification.
 - Add a React Error Boundary at the entrypoint so a render-time exception shows a translated
   recovery screen with a reload action instead of a blank page.
 - Add a `pageshow` persisted handler to the WebSocket wake effect so returning from BFCache reuses
@@ -34,8 +46,10 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.3](wiki/R
 
 ### Notes
 
-- Includes database migration `0094_folder_uidnext_status.sql`; apply before running workers or
-  accepting outbound mail. No new configuration is required.
+- Includes database migrations `0094_folder_uidnext_status.sql` and `0095_spam_classifier_v2.sql`;
+  apply before running workers or accepting outbound mail. The antispam auto-move is opt-in per
+  account (`email_accounts.antispam_enabled`, default off) behind the per-user master switch
+  (`users.preferences.spamEnabled`, default on). No other configuration is required.
 
 ## [4.0.2] — in development
 - Preserve partial SMTP recipient results through post-send failures and keep a partial-send composer open

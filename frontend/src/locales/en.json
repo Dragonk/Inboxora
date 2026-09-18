@@ -1758,7 +1758,16 @@
     "failHamTitle": "Could not mark as not spam",
     "failBody": "The mail server rejected the move.",
     "failHamBody": "The mail server rejected the move.",
-    "failBodyBulk": "{{count}} messages could not be moved."
+    "failBodyBulk": "{{count}} messages could not be moved.",
+    "badgeSpam": "Spam",
+    "badgeUnsure": "Possibly spam",
+    "explainTitle": "Why was this flagged?",
+    "explainMethod": "Method: {{method}}",
+    "settingsTitle": "Antispam",
+    "maturity": "Model {{level}} · {{count}} training messages",
+    "enable": "Enable antispam",
+    "disable": "Disable antispam",
+    "retrainNow": "Retrain now"
   },
   "todoist": {
     "title": "Create Todoist Task",

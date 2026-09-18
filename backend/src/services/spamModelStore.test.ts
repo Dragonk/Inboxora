@@ -1,0 +1,80 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('./db.js', () => ({ query: vi.fn() }));
+
+import { query as __mock_query } from './db.js';
+import { getModelForUser, saveModel, updateIncrementalForUser, retrainUser, invalidateModelCache } from './spamModelStore.js';
+
+const query = vi.mocked(__mock_query);
+
+beforeEach(() => {
+  query.mockReset();
+  invalidateModelCache('user-1');
+  invalidateModelCache('user-2');
+});
+
+describe('spam model store', () => {
+  it('returns null on cold start and caches the miss', async () => {
+    query.mockResolvedValue({ rows: [] });
+    expect(await getModelForUser('user-1')).toBeNull();
+    expect(await getModelForUser('user-1')).toBeNull();
+    expect(query).toHaveBeenCalledTimes(1);
+  });
+
+  it('upserts and invalidates the cache on save', async () => {
+    query.mockResolvedValue({ rows: [] });
+    await getModelForUser('user-1');
+    expect(query).toHaveBeenCalledTimes(1);
+    query.mockResolvedValue({ rows: [] });
+    await saveModel('user-1', {
+      vocabulary: { viagra: { spam: 2, ham: 0 } },
+      totalSpam: 2, totalHam: 0, priorSpam: 1, priorHam: 0,
+      trainingRecords: 1, modelVersion: 1, lastTrainedAt: null,
+    });
+    const upsert = query.mock.calls.find(([sql]) => String(sql).includes('INSERT INTO spam_models'));
+    expect(upsert).toBeTruthy();
+    query.mockResolvedValueOnce({ rows: [{
+      vocabulary: { viagra: { spam: 2, ham: 0 } },
+      total_spam: 2, total_ham: 0, prior_spam: 1, prior_ham: 0,
+      training_records: 1, model_version: 1, last_trained_at: null, decay_threshold_days: 90,
+    }] });
+    const model = await getModelForUser('user-1');
+    expect(model?.trainingRecords).toBe(1);
+  });
+
+  it('trains incrementally from feedback', async () => {
+    query.mockImplementation(async (sql: string) => {
+      if (sql.startsWith('SELECT * FROM spam_models')) return { rows: [] };
+      return { rows: [] };
+    });
+    const updated = await updateIncrementalForUser('user-2', { subject: 'Free prize', body: 'claim now' }, 'spam');
+    expect(updated?.trainingRecords).toBe(1);
+    // Subject is weighted x2 in the token stream, so 'prize' counts twice.
+    expect(updated?.vocabulary['prize']?.spam).toBe(2);
+    expect(updated?.vocabulary['claim']?.spam).toBe(1);
+  });
+
+  it('reports no_training_data on an empty log', async () => {
+    query.mockResolvedValue({ rows: [] });
+    const outcome = await retrainUser('user-1');
+    expect(outcome).toMatchObject({ ok: false, recordsUsed: 0, reason: 'no_training_data' });
+  });
+
+  it('rebuilds decay-weighted models from the log only', async () => {
+    query.mockImplementation(async (sql: string) => {
+      if (sql.startsWith('SELECT label')) {
+        return { rows: [
+          { label: 'spam', created_at: new Date().toISOString(), token_counts: { viagra: 2 }, subject: null, body_text: null, flag_features: null },
+          { label: 'ham', created_at: new Date().toISOString(), token_counts: { meeting: 1 }, subject: null, body_text: null, flag_features: null },
+        ] };
+      }
+      if (sql.startsWith('SELECT * FROM spam_models')) return { rows: [] };
+      return { rows: [] };
+    });
+    const outcome = await retrainUser('user-1');
+    expect(outcome.ok).toBe(true);
+    expect(outcome.recordsUsed).toBe(2);
+    const saved = query.mock.calls.find(([sql]) => String(sql).includes('INSERT INTO spam_models'));
+    expect(saved?.[1]?.[1]).toContain('viagra');
+  });
+});

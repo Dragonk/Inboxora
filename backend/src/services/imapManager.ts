@@ -27,6 +27,8 @@ import { conversationPersistedFields, resolveOwnIdentityAddresses } from './conv
 import { providerFetchQuery, providerCapabilitiesFromClient } from './providerThreadAdapter.js';
 import { parseInboundCalendarInvitation } from './inboundCalendarInvitation.js';
 import { persistInboundCalendarInvitation } from './inboundCalendarInvitationPersistence.js';
+import { classifyAndTagMessage } from './spamPipeline.js';
+import type { SpamClassifyInput } from './spamPipeline.js';
 import { toAppError } from '../utils/errors.js';
 
 
@@ -1539,6 +1541,7 @@ export class ImapManager {
   declare lastFolderSyncAt: Map<string, number>;
   declare folderSyncInflights: Map<string, Promise<boolean>>;
   declare _pendingFolderSyncs: Set<string>;
+  declare _postRelocateRepairDone: boolean;
   declare lastUserActivity: Map<string, number>;
   declare syncStartedAt: Map<string, number>;
   declare syncTickCount: Map<string, number>;
@@ -1584,6 +1587,7 @@ export class ImapManager {
     this.idleInflights = new Map(); // accountId -> in-flight idle() promise (single-flight guard)
     this.folderSyncInflights = new Map(); // `${accountId}:${folder}` -> running sync promise (coalesces concurrent demand)
     this._pendingFolderSyncs = new Set(); // `${accountId}:${folder}` folders detected as changed, awaiting a sync tick
+    this._postRelocateRepairDone = false;
     this._flagDebounceTimers   = new Map(); // accountId -> debounce timer for flag-change syncs
     this._expungeDebounceTimers = new Map(); // accountId -> debounce timer for expunge reconciles
     this._pendingFlagSync = new Set(); // accountId — flag sync was skipped because a full sync was running; drain after sync
@@ -2003,8 +2007,9 @@ export class ImapManager {
     if (existing) return;
     this.idleAttemptedAt.set(account.id, Date.now());
     this.idleHealthWarned.delete(account.id);
-    const promise = Promise.resolve()
+    const promise: Promise<void> = Promise.resolve()
       .then(() => idle.call(client))
+      .then(() => undefined)
       .catch((caught: unknown) => {
         if (this.connections.get(account.id) !== client) return;
         const err = toAppError(caught);
@@ -2647,6 +2652,20 @@ export class ImapManager {
         setImmediate(() => {
           this.reconcileDeletes(syncAccount).catch(err =>
             console.error(`Reconcile error for ${logAccount(syncAccount)}:`, err.message)
+          );
+        });
+      }
+
+      // One-time repair for databases that ran the old Message-ID relocation:
+      // rows the old code moved/collapsed across folders are restored by a
+      // forced metadata pass over every selectable folder (ignoring uid_next).
+      // Runs once per process, fire-and-forget, never blocks the tick.
+      if (!this._postRelocateRepairDone) {
+        this._postRelocateRepairDone = true;
+        const repairAccount = syncAccount;
+        setImmediate(() => {
+          this.runPostRelocateRepair(repairAccount).catch(err =>
+            console.warn(`Post-relocate repair failed for ${logAccount(repairAccount)}:`, toAppError(err).message)
           );
         });
       }
@@ -3392,6 +3411,14 @@ export class ImapManager {
               if (!parsed.isRead) {
                 newMessages.push({ ...parsed, id: result.rows[0].id, accountId: account.id, folder });
               }
+              // Antispam auto-classification (hybrid rules + per-user Naive Bayes).
+              // Fire-and-forget: never blocks the sync loop; failures only log.
+              // Backfill defers the auto-move (deferAutoMove) so a reindex of a
+              // whole mailbox cannot fan out dozens of concurrent IMAP moves.
+              void manager.classifySpamForIngest(result.rows[0].id, {
+                deferAutoMove: false,
+                headers: parsed.parsedHeaders ?? null,
+              });
             }
             // Propagate resolved thread_id to any earlier messages that used this
             // message as a provisional thread root (out-of-order delivery / sync).
@@ -3710,6 +3737,7 @@ export class ImapManager {
   //   4. For non-Gmail providers also store body_html/body_text during backfill so
   //      clicking an old email never needs a live IMAP round-trip.
   async backfillMessages(account: EmailAccountRow, folder = 'INBOX') {
+    const manager = this;
     const backfillKey = `${account.id}:${folder}`;
     if (this.backfillRunning.has(backfillKey)) return;
     this.backfillRunning.add(backfillKey);
@@ -4060,6 +4088,13 @@ export class ImapManager {
                   await persistConversationCopyForRow(inserted.rows[0].id, account, msg);
                   await persistInboundCalendarInvitationFromMessage({ client: bfClient, message: msg, messageId: inserted.rows[0].id })
                     .catch(error => console.warn('Inbound calendar invitation persistence failed: ' + error.message));
+                  // Tag only: backfill classifies a whole mailbox at once, so the
+                  // auto-move is deferred (no per-message IMAP storm); a deliberate
+                  // catch-up pass or live ingest performs the actual move.
+                  void manager.classifySpamForIngest(inserted.rows[0].id, {
+                    deferAutoMove: true,
+                    headers: parsed.parsedHeaders ?? null,
+                  });
                 }
                 if (bfThreadId && bfThreadId !== bfMsgId) {
                   await query(
@@ -5921,6 +5956,65 @@ export class ImapManager {
 
   _isMoveUidGuarded(accountId: string, folder: string, uid: number | string) {
     return this._pendingMoveUids.has(`${accountId}:${folder}:${uid}`);
+  }
+
+  // Fire-and-forget antispam hook for newly inserted rows. The sync and
+  // backfill loops must never await classification: failures only log. The
+  // `imap` object passed here is intentionally narrow (move + guards +
+  // broadcast) so the pipeline never imports the manager itself.
+  classifySpamForIngest(messageRowId: string, opts: { deferAutoMove: boolean; headers: SpamClassifyInput['headers'] }): void {
+    const manager = this;
+    void (async () => {
+      try {
+        await classifyAndTagMessage(messageRowId, {
+          deferAutoMove: opts.deferAutoMove,
+          headers: opts.headers ?? null,
+          imap: {
+            moveMessage: (account, uid, fromFolder, toFolder) =>
+              manager.moveMessage(
+                { ...account, id: account.id } as Parameters<typeof manager.moveMessage>[0],
+                uid, fromFolder, toFolder,
+              ),
+            broadcast: (payload, userId) => manager.broadcast(payload, userId),
+            _guardMoveUid: (accountId, folder, uid) => manager._guardMoveUid(accountId, folder, uid),
+            _unguardMoveUid: (accountId, folder, uid) => manager._unguardMoveUid(accountId, folder, uid),
+          },
+        });
+      } catch (caught) {
+        console.warn(`spam classify hook failed for ${messageRowId}:`, toAppError(caught).message);
+      }
+    })();
+  }
+
+  // One-time repair for the Message-ID relocation era: before the fix, two
+  // physical copies sharing a Message-ID (self-sent Gmail, mailing-list
+  // mirrors) were collapsed into one row by an UPDATE keyed on message_id.
+  // The local copy in the other folder is then simply missing. Running a
+  // forced metadata pass over every selectable folder (ignoring uid_next)
+  // re-fetches those rows from IMAP without wiping the local database.
+  // Once per process, called from _syncTick; safe to re-run (idempotent),
+  // bounded (metadata only, no bodies), non-fatal.
+  async runPostRelocateRepair(account: EmailAccountRow): Promise<{ foldersRefreshed: number }> {
+    const foldersResult = await query<{ path: string; no_select?: boolean | null }>(
+      `SELECT path, no_select FROM folders WHERE account_id = $1 ORDER BY path`,
+      [account.id],
+    );
+    const selectable = foldersResult.rows.filter(r => !r.no_select).map(r => r.path);
+    let foldersRefreshed = 0;
+    for (const folder of selectable) {
+      try {
+        await withFreshClient(account, async (client) => {
+          await this.syncMessages(account, client, folder, 100, false, true);
+        });
+        foldersRefreshed += 1;
+      } catch (caught) {
+        console.warn(`Post-relocate repair skipped ${logAccount(account)}/${folder}:`, toAppError(caught).message);
+      }
+    }
+    if (foldersRefreshed > 0) {
+      this.broadcast({ type: 'sync_complete', accountId: account.id }, account.user_id);
+    }
+    return { foldersRefreshed };
   }
 
   // Compare the server's UID set for every folder that has local messages against our DB

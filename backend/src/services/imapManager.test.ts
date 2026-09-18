@@ -2402,3 +2402,69 @@ describe('_refreshFolderStatuses', () => {
     expect(countUpdates).toHaveLength(1);
   });
 });
+
+// ── runPostRelocateRepair — one-time forced metadata pass ───────────────────
+describe('runPostRelocateRepair', () => {
+  const repairAccount = { id: 'acct-repair', user_id: 'user-1', email_address: 'a@example.com', imap_host: 'imap.example.com' };
+
+  it('refreshes every selectable folder and skips no_select', async () => {
+    query.mockReset();
+    query.mockImplementation((sql) => {
+      if (sql.includes('SELECT path, no_select FROM folders')) {
+        return Promise.resolve({ rows: [
+          { path: 'INBOX', no_select: false },
+          { path: 'Archive', no_select: false },
+          { path: '[Gmail]', no_select: true },
+        ] });
+      }
+      return Promise.resolve({ rows: [] });
+    });
+    const mgr = new ImapManager({ clients: new Set() });
+    clearInterval(mgr._healthCheckTimer); clearInterval(mgr._snippetSchedulerTimer);
+    const synced: string[] = [];
+    mgr.syncMessages = vi.fn().mockImplementation(async (_account: unknown, _client: unknown, folder: string) => {
+      synced.push(folder);
+      return { insertedCount: 0, broadcastedNewMessages: false };
+    });
+    const broadcast = vi.fn();
+    mgr.broadcast = broadcast;
+
+    const result = await ImapManager.prototype.runPostRelocateRepair.call(
+      { ...mgr, syncMessages: mgr.syncMessages, broadcast },
+      repairAccount,
+    );
+
+    expect(synced.sort()).toEqual(['Archive', 'INBOX']);
+    expect(result).toEqual({ foldersRefreshed: 2 });
+    expect(broadcast).toHaveBeenCalledWith(
+      { type: 'sync_complete', accountId: 'acct-repair' }, 'user-1',
+    );
+  });
+
+  it('tolerates a failing folder and still reports the rest', async () => {
+    query.mockReset();
+    query.mockImplementation((sql) => {
+      if (sql.includes('SELECT path, no_select FROM folders')) {
+        return Promise.resolve({ rows: [
+          { path: 'INBOX', no_select: false },
+          { path: 'Broken', no_select: false },
+        ] });
+      }
+      return Promise.resolve({ rows: [] });
+    });
+    const mgr = new ImapManager({ clients: new Set() });
+    clearInterval(mgr._healthCheckTimer); clearInterval(mgr._snippetSchedulerTimer);
+    mgr.syncMessages = vi.fn().mockImplementation(async (_account: unknown, _client: unknown, folder: string) => {
+      if (folder === 'Broken') throw new Error('mailbox gone');
+      return { insertedCount: 0, broadcastedNewMessages: false };
+    });
+    mgr.broadcast = vi.fn();
+
+    const result = await ImapManager.prototype.runPostRelocateRepair.call(
+      { ...mgr, syncMessages: mgr.syncMessages, broadcast: mgr.broadcast },
+      repairAccount,
+    );
+
+    expect(result).toEqual({ foldersRefreshed: 1 });
+  });
+});

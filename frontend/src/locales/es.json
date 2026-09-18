@@ -1758,7 +1758,16 @@
     "failHamTitle": "No se pudo marcar como no spam",
     "failBody": "El servidor de correo rechazó el movimiento.",
     "failHamBody": "El servidor de correo rechazó el movimiento.",
-    "failBodyBulk": "{{count}} mensajes no se pudieron mover."
+    "failBodyBulk": "{{count}} mensajes no se pudieron mover.",
+    "badgeSpam": "Spam",
+    "badgeUnsure": "Posible spam",
+    "explainTitle": "¿Por qué se marcó?",
+    "explainMethod": "Método: {{method}}",
+    "settingsTitle": "Antispam",
+    "maturity": "Modelo {{level}} · {{count}} mensajes",
+    "enable": "Activar antispam",
+    "disable": "Desactivar antispam",
+    "retrainNow": "Reentrenar ahora"
   },
   "todoist": {
     "title": "Crear tarea en Todoist",

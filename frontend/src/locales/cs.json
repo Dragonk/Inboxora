@@ -1758,7 +1758,16 @@
     "failHamTitle": "Nepodařilo se označit, že nejde o spam",
     "failBody": "Poštovní server přesunutí odmítl.",
     "failHamBody": "Poštovní server přesunutí odmítl.",
-    "failBodyBulk": "Nepodařilo se přesunout {{count}} zpráv."
+    "failBodyBulk": "Nepodařilo se přesunout {{count}} zpráv.",
+    "badgeSpam": "Spam",
+    "badgeUnsure": "Možný spam",
+    "explainTitle": "Proč označeno?",
+    "explainMethod": "Metoda: {{method}}",
+    "settingsTitle": "Antispam",
+    "maturity": "Model {{level}} · {{count}} trénovacích zpráv",
+    "enable": "Zapnout antispam",
+    "disable": "Vypnout antispam",
+    "retrainNow": "Přeučit"
   },
   "todoist": {
     "title": "Vytvořit úkol v Todoistu",

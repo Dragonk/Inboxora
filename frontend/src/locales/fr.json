@@ -1758,7 +1758,16 @@
     "failHamTitle": "Impossible de marquer comme non spam",
     "failBody": "Le serveur de messagerie a refusé le déplacement.",
     "failHamBody": "Le serveur de messagerie a refusé le déplacement.",
-    "failBodyBulk": "{{count}} messages n'ont pas pu être déplacés."
+    "failBodyBulk": "{{count}} messages n'ont pas pu être déplacés.",
+    "badgeSpam": "Spam",
+    "badgeUnsure": "Éventuel spam",
+    "explainTitle": "Pourquoi signalé ?",
+    "explainMethod": "Méthode : {{method}}",
+    "settingsTitle": "Antispam",
+    "maturity": "Modèle {{level}} · {{count}} messages",
+    "enable": "Activer l'antispam",
+    "disable": "Désactiver l'antispam",
+    "retrainNow": "Réentraîner"
   },
   "todoist": {
     "title": "Créer une tâche Todoist",

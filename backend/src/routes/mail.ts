@@ -56,6 +56,8 @@ import { validateHost } from '../services/hostValidation.js';
 import { safeFetch } from '../services/safeFetch.js';
 import { safeFilename, attachmentDisposition } from '../utils/contentDisposition.js';
 import { toAppError } from '../utils/errors.js';
+import { tokenize, extractFlagFeatures } from '../services/spamTokenizer.js';
+import { updateIncrementalForUser } from '../services/spamModelStore.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -2081,6 +2083,77 @@ router.delete('/messages/:id', async (req, res) => {
 
 // Helper: move a single message to a destination folder, update DB, log to
 // training_log, and broadcast folder_updated. Shared between /spam and /ham.
+function senderDomainOf(fromEmail: unknown): string | null {
+  if (typeof fromEmail !== 'string') return null;
+  const at = fromEmail.lastIndexOf('@');
+  if (at < 0) return null;
+  const domain = fromEmail.slice(at + 1).toLowerCase();
+  return domain || null;
+}
+
+// Persist mark-time training features (Solution C): the retrain path reads
+// spam_training_log only and never JOINs back to messages, so emptying Junk
+// cannot silently drop training records. Fire-and-forget: a failure here must
+// never break the HTTP mark-spam/ham path.
+async function persistSpamTrainingFeatures(args: {
+  userId: string;
+  messageId: string;
+  label: 'spam' | 'ham';
+}): Promise<void> {
+  try {
+    const data = await query<{
+      subject: string | null; body_text: string | null; body_html: string | null;
+      from_email: string | null; reply_to: unknown; attachments: unknown;
+    }>(`SELECT subject, body_text, body_html, from_email, reply_to, attachments
+        FROM messages WHERE id = $1`, [args.messageId]);
+    const row = data.rows[0];
+    if (!row) return;
+    const attachments = Array.isArray(row.attachments) ? row.attachments : [];
+    const msg = {
+      subject: row.subject ?? '',
+      body: row.body_text ?? '',
+      bodyHtml: row.body_html ?? '',
+      from: typeof row.from_email === 'string' && row.from_email ? `<${row.from_email}>` : null,
+      replyTo: typeof row.reply_to === 'string' ? row.reply_to : null,
+      attachments: attachments.filter((a): a is { filename?: string | null; name?: string | null; contentType?: string | null; type?: string | null } =>
+        a !== null && typeof a === 'object'),
+      headers: [],
+    };
+    const tokens = tokenize(msg);
+    const tokenCounts: Record<string, number> = {};
+    for (const token of tokens) tokenCounts[token] = (tokenCounts[token] ?? 0) + 1;
+    const flagFeatures = extractFlagFeatures(msg);
+    const attachmentTypes = msg.attachments.map(a => {
+      const filename = a.filename ?? a.name;
+      if (typeof filename === 'string' && filename.includes('.')) {
+        return filename.slice(filename.lastIndexOf('.') + 1).toLowerCase();
+      }
+      return null;
+    }).filter((ext): ext is string => ext !== null);
+    await query(
+      `UPDATE spam_training_log
+       SET subject = $1, body_text = $2, body_html = $3, token_counts = $4,
+           flag_features = $5, sender_domain = $6, attachment_types = $7
+       WHERE user_id = $8 AND message_id_header = (
+         SELECT message_id FROM messages WHERE id = $9
+       ) AND label = $10
+       ORDER BY created_at DESC LIMIT 1`,
+      [
+        row.subject ?? null, row.body_text ?? null, row.body_html ?? null,
+        JSON.stringify(tokenCounts), JSON.stringify(flagFeatures),
+        senderDomainOf(row.from_email), attachmentTypes.length ? attachmentTypes : null,
+        args.userId, args.messageId, args.label,
+      ],
+    ).catch(() => undefined);
+    // Feed the per-user Naive Bayes model incrementally so feedback is
+    // reflected in <1s. Non-blocking on failure.
+    await updateIncrementalForUser(args.userId, msg, args.label)
+      .catch(err => console.warn('Spam incremental training failed:', err.message));
+  } catch (caught) {
+    console.warn('Spam feature persistence failed:', caught instanceof Error ? caught.message : String(caught));
+  }
+}
+
 async function moveForSpamLabel(messageId: string, userId: string, destinationFolder: string, label: string) {
   const result = await query<ReadMessageRow>(`
     SELECT m.*, a.user_id, a.folder_mappings FROM messages m
@@ -2181,6 +2254,11 @@ async function moveForSpamLabel(messageId: string, userId: string, destinationFo
   // /spam and /ham, which share this mover. The already-in-folder no-op path above returns
   // early without a move, so GTD section data is untouched there.
   notifyMailMutation([message], userId);
+
+  // Persist mark-time features + incremental training in the background: the
+  // HTTP response must not wait for the tokenizer/model write.
+  const trainingLabel = label === 'spam' ? 'spam' : 'ham';
+  void persistSpamTrainingFeatures({ userId, messageId, label: trainingLabel });
 
   return { ok: true, status: 200, body: { ok: true, folder: destinationFolder, newUid: newUid || null } };
 }

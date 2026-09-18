@@ -1758,7 +1758,16 @@
     "failHamTitle": "标记为非垃圾邮件失败",
     "failBody": "邮件服务器拒绝了移动操作。",
     "failHamBody": "邮件服务器拒绝了移动操作。",
-    "failBodyBulk": "{{count}} 封邮件无法移动。"
+    "failBodyBulk": "{{count}} 封邮件无法移动。",
+    "badgeSpam": "垃圾邮件",
+    "badgeUnsure": "疑似垃圾邮件",
+    "explainTitle": "为什么被标记？",
+    "explainMethod": "方法：{{method}}",
+    "settingsTitle": "反垃圾邮件",
+    "maturity": "模型{{level}} · {{count}} 条训练邮件",
+    "enable": "启用反垃圾邮件",
+    "disable": "停用反垃圾邮件",
+    "retrainNow": "立即重新训练"
   },
   "todoist": {
     "title": "创建 Todoist 任务",

@@ -183,4 +183,18 @@ describe('migration integrity', () => {
     expect(sql).toContain('ON messages(logical_message_id, date DESC NULLS LAST, id DESC)');
     expect(sql).toContain('WHERE is_deleted = false AND logical_message_id IS NOT NULL');
   });
+
+  it('stores the STATUS UIDNEXT watermark for folder freshness', () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/0094_folder_uidnext_status.sql'), 'utf8');
+    expect(sql).toContain('ADD COLUMN IF NOT EXISTS uid_next BIGINT');
+  });
+
+  it('creates the per-user antispam classifier schema', () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/0095_spam_classifier_v2.sql'), 'utf8');
+    expect(sql).toContain('CREATE TABLE IF NOT EXISTS spam_models');
+    expect(sql).toContain('ADD COLUMN IF NOT EXISTS token_counts');
+    expect(sql).toContain('ADD COLUMN IF NOT EXISTS antispam_enabled BOOLEAN NOT NULL DEFAULT false');
+    expect(sql).toContain('ADD COLUMN IF NOT EXISTS trusted_authserv_id VARCHAR(255)');
+    expect(sql).toContain('CREATE TABLE IF NOT EXISTS spam_training_deletions');
+  });
 });

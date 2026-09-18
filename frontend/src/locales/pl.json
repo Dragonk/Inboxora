@@ -1758,7 +1758,16 @@
     "failHamTitle": "Nie udało się oznaczyć wiadomości jako niebędącej spamem",
     "failBody": "Serwer pocztowy odrzucił przeniesienie.",
     "failHamBody": "Serwer pocztowy odrzucił przeniesienie.",
-    "failBodyBulk": "Nie udało się przenieść {{count}} wiadomości."
+    "failBodyBulk": "Nie udało się przenieść {{count}} wiadomości.",
+    "badgeSpam": "Spam",
+    "badgeUnsure": "Podejrzany spam",
+    "explainTitle": "Dlaczego oznaczono?",
+    "explainMethod": "Metoda: {{method}}",
+    "settingsTitle": "Antyspam",
+    "maturity": "Model {{level}} · {{count}} wiadomości treningowych",
+    "enable": "Włącz antyspam",
+    "disable": "Wyłącz antyspam",
+    "retrainNow": "Przeucz teraz"
   },
   "todoist": {
     "title": "Utwórz zadanie Todoist",

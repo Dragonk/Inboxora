@@ -6,7 +6,7 @@
 
 ## What this release fixes
 
-4.0.3 adapts the upstream MailFlow 3.4-3.5 reliability fixes that still applied to Inboxora's `dev`: physical-copy identity, explicit IMAP IDLE, STATUS-gated folder refresh, plus frontend hardening (Error Boundary, BFCache wake reuse, dangerous-attachment download warning). Apply the included migration before deploying; no configuration change is required.
+4.0.3 adapts the upstream MailFlow 3.4-3.5 reliability fixes that still applied to Inboxora's `dev`: physical-copy identity, explicit IMAP IDLE, STATUS-gated folder refresh, plus frontend hardening (Error Boundary, BFCache wake reuse, dangerous-attachment download warning). It also ships the missing antispam v0.2 layer (hybrid rules + per-user Naive Bayes, hardened against connection storms) and a one-time repair pass for databases that ran the old Message-ID relocation. Apply the included migrations before deploying; antispam auto-move is opt-in per account.
 
 ## Physical-copy identity
 
@@ -14,7 +14,19 @@
 
 ## IMAP IDLE
 
-- Persistent sync connections enter IDLE explicitly after each sync tick instead of relying on ImapFlow's delayed auto-IDLE, which never started at the supported 15-second interval. A connected account that supports IDLE but never started it is now logged as a health signal.
+- Persistent sync connections enter IDLE explicitly after each sync tick instead of relying on ImapFlow's delayed auto-IDLE, which never started at the supported 15-second interval. Health now distinguishes `idleAttemptedAt` (we called `idle()`) from `idleEnteredAt` (the server acknowledged IDLE), and concurrent `_enterExplicitIdle` calls share one in-flight promise per account instead of issuing duplicate IDLE commands.
+
+## Post-relocate repair
+
+- The old Message-ID relocation is gone, but rows it already collapsed across folders stay missing. The first successful sync tick now runs a one-time forced metadata pass over every selectable folder (ignoring `uid_next`), restoring those copies from IMAP without wiping the local database. Idempotent, bounded, non-fatal.
+
+## Antispam v0.2 (hybrid rules + per-user Naive Bayes)
+
+- Deterministic 14-rule engine always on (pharma/money keywords, CTA phrases, URL shorteners, reply-to mismatch, executable/double-extension attachments, DKIM/SPF/DMARC fail only from a trusted authserv-id, mailing-list and known-contact ham signals). Multinomial Naive Bayes joins at >= 50 training records with Laplace smoothing; blending is rules-only below 50, 60/40 up to 500, 20/80 above.
+- Training is DB-only: `/spam` and `/ham` persist token counts, flag features, sender domain and attachment types at mark time (retrain never JOINs back to messages); feedback updates the model incrementally in <1s. A staggered hourly single-flight scheduler rebuilds models with exponential time decay; overlapping runs are refused, each user is time-boxed.
+- Live ingest tagging is fire-and-forget with `deferAutoMove` on the backfill path (no per-message IMAP storm); auto-move requires verdict spam, score >= 0.95, ML backing and a configured spam folder. User override always wins; auto-verdicts never train the model. `GET /api/spam/explain` powers the "Why?" dialog; thresholds live in `users.preferences.spam_thresholds`.
+- Defaults are safe: master switch on, per-account `antispam_enabled` off (opt-in). Migration `0095_spam_classifier_v2.sql` must be applied before rollout.
+- Frontend: `SpamBadge` verdict chip + explain dialog, `SpamSettings` status/master-switch/retrain panel, locale keys in all 9 locales.
 
 ## Folder freshness and STATUS
 
@@ -29,7 +41,7 @@
 
 ## Verification
 
-- Backend: 1866 tests passing, `tsc --noEmit` clean, `eslint src --max-warnings 0` clean, migration integrity suite clean. Focused regression suites cover physical-copy identity, explicit IDLE (with single-flight guard), STATUS gate, and coalesced on-demand sync.
-- Frontend: production build passes, 1712 tests passing including i18n parity, Error Boundary contract, BFCache wake contract, and dangerous-attachment classifier.
+- Backend: 1911 tests passing, `tsc --noEmit` clean, `eslint src --max-warnings 0` clean, migration integrity suite clean. Focused regression suites cover physical-copy identity, explicit IDLE (attempted vs entered + single-flight), STATUS no-self-cancel, one-time post-relocate repair, and the full spam stack (tokenizer/rules/Bayes/store/pipeline/scheduler).
+- Frontend: production build passes, spam contract + i18n parity green, plus Error Boundary contract, BFCache wake contract, and dangerous-attachment classifier.
 
 See [`docs/CHANGELOG.md`](../CHANGELOG.md) for the concise release record.

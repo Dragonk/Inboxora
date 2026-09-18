@@ -1758,7 +1758,16 @@
     "failHamTitle": "Als kein Spam markieren fehlgeschlagen",
     "failBody": "Der Mailserver hat die Verschiebung abgelehnt.",
     "failHamBody": "Der Mailserver hat die Verschiebung abgelehnt.",
-    "failBodyBulk": "{{count}} Nachrichten konnten nicht verschoben werden."
+    "failBodyBulk": "{{count}} Nachrichten konnten nicht verschoben werden.",
+    "badgeSpam": "Spam",
+    "badgeUnsure": "Möglicherweise Spam",
+    "explainTitle": "Warum wurde das markiert?",
+    "explainMethod": "Methode: {{method}}",
+    "settingsTitle": "Antispam",
+    "maturity": "Modell {{level}} · {{count}} Trainingsnachrichten",
+    "enable": "Antispam aktivieren",
+    "disable": "Antispam deaktivieren",
+    "retrainNow": "Jetzt neu trainieren"
   },
   "todoist": {
     "title": "Todoist-Aufgabe erstellen",
