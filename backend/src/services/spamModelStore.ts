@@ -16,6 +16,7 @@ import {
   updateIncremental,
   retrainFromRecords,
   pruneVocabulary,
+  trainingIdentityFor,
   MODEL_VERSION,
 } from './spamModel.js';
 import type { SpamLabel, SpamModelState } from './spamModel.js';
@@ -132,6 +133,7 @@ export async function updateIncrementalForUser(
   userId: string,
   message: SpamMessageInput,
   label: SpamLabel,
+  opts: { trainingIdentity?: string | null } = {},
 ): Promise<SpamModelState | null> {
   if (label !== 'spam' && label !== 'ham') return null;
   return runUserExclusive(userId, async () => {
@@ -141,12 +143,92 @@ export async function updateIncrementalForUser(
     // Repeat feedback on the SAME message (already-in-folder re-confirm)
     // still trains the vocabulary below (reinforcement), but must NOT mint a
     // new distinct usable sample: 50x confirming one mail must not mature
-    // the model before the next retrain reconciles the true split.
-    const seen = await hasFeedbackForFingerprint(userId, message, label).catch(() => false);
+    // the model before the next retrain reconciles the true split. The
+    // identity is the stable training_identity when the caller computed it
+    // (mark-spam/ham path), else the legacy content fingerprint. A failed
+    // check reads as "seen": never mint maturity on uncertain evidence.
+    const seen = opts.trainingIdentity
+      ? await countFeedbackForIdentity(userId, opts.trainingIdentity, label).catch(() => 1) > 0
+      : await hasFeedbackForFingerprint(userId, message, label).catch(() => false);
     const updated = updateIncremental(model, tokens, flagFeatures, label, { countUsable: !seen });
     await saveModel(userId, updated);
     return updated;
   });
+}
+
+export interface ManualFeedbackInput {
+  userId: string;
+  accountId: string | null;
+  messageIdHeader: string | null;
+  messageUid: number | string | null;
+  folder: string | null;
+  label: SpamLabel;
+  subject: string | null;
+  bodyText: string | null;
+  bodyHtml: string | null;
+  tokenCounts: Record<string, number>;
+  flagFeatures: FlagFeatures;
+  senderDomain: string | null;
+  attachmentTypes: string[] | null;
+  trainMessage: SpamMessageInput;
+}
+
+// Atomic manual feedback: training_log INSERT + incremental model update run
+// inside ONE per-user serializer hold. The dedup check ("seen this identity
+// with this label?") therefore cannot race a concurrent mark-spam click on
+// the same mail — the second caller blocks until the first INSERTed, then
+// correctly observes it as seen. Callers must await this (no fire-and-forget)
+// so the HTTP response reflects the persisted decision.
+export async function recordManualFeedback(input: ManualFeedbackInput): Promise<SpamModelState | null> {
+  const identity = trainingIdentityFor({
+    messageIdHeader: input.messageIdHeader,
+    accountId: input.accountId,
+    uid: input.messageUid,
+    folder: input.folder,
+    senderDomain: input.senderDomain,
+    subject: input.subject,
+    bodyText: input.bodyText,
+  });
+  return runUserExclusive(input.userId, async () => {
+    await query(
+      `INSERT INTO spam_training_log
+         (user_id, account_id, message_id_header, message_uid, folder, label, source,
+          subject, body_text, body_html, token_counts, flag_features, sender_domain, attachment_types,
+          training_identity)
+       VALUES ($1, $2, $3, $4, $5, $6, 'manual', $7, $8, $9, $10, $11, $12, $13, $14)`,
+      [input.userId, input.accountId, input.messageIdHeader, input.messageUid, input.folder, input.label,
+       input.subject, input.bodyText, input.bodyHtml,
+       JSON.stringify(input.tokenCounts), JSON.stringify(input.flagFeatures),
+       input.senderDomain, input.attachmentTypes, identity],
+    );
+    const model = (await getModelForUser(input.userId)) ?? createEmptyModel();
+    const tokens = tokenize(input.trainMessage);
+    const flagFeatures: FlagFeatures = extractFlagFeatures(input.trainMessage);
+    // The INSERT above is already visible in this serialized sequence, so a
+    // same-identity row with this label means THIS mail was confirmed before
+    // (first feedback: exactly one row — the one just inserted — still counts
+    // as a new distinct sample). A failed count reads as "seen": never mint
+    // maturity on uncertain evidence (the next retrain reconciles the truth).
+    const priorCount = identity
+      ? await countFeedbackForIdentity(input.userId, identity, input.label).catch(() => 2)
+      : 0;
+    const updated = updateIncremental(model, tokens, flagFeatures, input.label, { countUsable: priorCount <= 1 });
+    await saveModel(input.userId, updated);
+    return updated;
+  });
+}
+
+async function countFeedbackForIdentity(
+  userId: string,
+  trainingIdentity: string,
+  label: SpamLabel,
+): Promise<number> {
+  const result = await query<{ n: string }>(
+    `SELECT COUNT(*) AS n FROM spam_training_log
+      WHERE user_id = $1 AND label = $2 AND training_identity = $3`,
+    [userId, label, trainingIdentity],
+  );
+  return Number(result.rows[0]?.n ?? 0);
 }
 
 // True when this user already gave the same label for the same message
@@ -230,14 +312,16 @@ export async function retrainUser(userId: string): Promise<RetrainOutcome> {
   return runUserExclusive(userId, async () => {
     const started = Date.now();
     const data = await query<{
-      label: string; created_at: string | Date; account_id: string | null;
+      id: string; label: string; created_at: string | Date; account_id: string | null;
       message_id_header: string | null; message_uid: number | string | null; folder: string | null;
+      training_identity: string | null;
       token_counts: Record<string, number> | null; subject: string | null;
       body_text: string | null; flag_features: FlagFeatures | null;
     }>(
-      `SELECT label, created_at, account_id, message_id_header, message_uid, folder,
-              token_counts, flag_features, subject, body_text
-       FROM spam_training_log WHERE user_id = $1`,
+      `SELECT id, label, created_at, account_id, message_id_header, message_uid, folder,
+              training_identity, token_counts, flag_features, subject, body_text
+       FROM spam_training_log WHERE user_id = $1
+       ORDER BY created_at ASC, id ASC`,
       [userId],
     );
     const records = data.rows;

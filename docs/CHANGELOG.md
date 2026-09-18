@@ -46,15 +46,24 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.3](wiki/R
   under races.
 - Project `m.spam_verdict` / `m.spam_score_ml` in the flat and threaded list queries,
   `GET /mail/thread/:threadId`, `GET /mail/messages/:id` and `GET /mail/resolve-message` so the
-  mounted `SpamBadge` actually receives data end-to-end.
+  mounted `SpamBadge` actually receives data end-to-end (including the threaded final projection
+  from `ranked`, not just the `deduped` CTE).
+- `POST /api/spam/retrain-now` retrains only the caller (available to every user, matching the
+  per-user SpamSettings UI); fleet-wide rebuilds move to admin-only `POST /api/spam/retrain-all`.
+- Concurrent auto-move callers share the first caller's outcome verbatim instead of reporting
+  `moved=true` for a revalidation-skipped move; the post-relocate repair no longer marks an empty
+  local folder list as complete and runs under the per-host background-connection budget.
 - Gate ML maturity on distinct usable samples: `retrainFromRecords` counts unique messages (by
   Message-ID, else account/uid/folder) with real features per class into new `spam_models`
   `usable_spam` / `usable_ham` columns (migration `0097`); ML activates only at `>= minRecords`
   usable samples with a minimum of each class (default 10), so one mail confirmed 50x or 50 spams
   with zero hams stays rules-only, and legacy featureless rows no longer mature the model.
-  Repeat feedback on the same mail still reinforces the vocabulary but no longer mints a new
-  distinct usable sample (fingerprint on sender domain + subject + body lead), so confirming
-  one mail 50x cannot mature the model even before the next full retrain.
+  Manual feedback is persisted through `recordManualFeedback`, which runs the training_log INSERT
+  (now carrying a stable `training_identity`, migration `0098`) and the incremental model update
+  inside one per-user serializer hold — concurrent mark-spam clicks on the same mail cannot both
+  mint a distinct sample, and repeat feedback reinforces the vocabulary without growing maturity.
+  Full retrain groups rows by `training_identity` with latest-decision-wins: a Spam→Ham correction
+  moves the sample and retrains the vocabulary on the newest label only, independent of row order.
   `GET /api/spam/status` derives maturity from the configured thresholds and the usable split;
   `PATCH /api/spam/thresholds` validates `minRecords`/`softRecords`, enforces
   `softRecords >= minRecords`, and drops the dead `hardRecords` key; `spamModelStore` per-user
@@ -86,7 +95,8 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.3](wiki/R
 ### Notes
 
 - Includes database migrations `0094_folder_uidnext_status.sql`, `0095_spam_classifier_v2.sql`,
-  `0096_account_maintenance_state.sql` and `0097_spam_model_usable_counts.sql`, applied in order;
+  `0096_account_maintenance_state.sql`, `0097_spam_model_usable_counts.sql` and
+  `0098_spam_training_identity.sql`, applied in order;
   apply before running workers or accepting outbound mail. The antispam auto-move is opt-in per
   account (`email_accounts.antispam_enabled`, default off) behind the per-user master switch
   (`users.preferences.spamEnabled`, default on). No other configuration is required.

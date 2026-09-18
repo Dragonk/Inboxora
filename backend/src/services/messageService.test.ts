@@ -319,8 +319,15 @@ describe('listMessages — message shape', () => {
 
     await listMessages({ userId: 'user-1', accountId: 'acc-1', threaded: true });
 
-    expect(query.mock.calls[2][0]).toContain('m.spam_verdict');
-    expect(query.mock.calls[2][0]).toContain('m.spam_score_ml');
+    const threadedSql = String(query.mock.calls[2][0]);
+    // The verdict must survive to the FINAL projection from `ranked` — a
+    // field present only inside the `deduped` CTE never reaches the parent
+    // row the reader renders.
+    const finalSelect = threadedSql.slice(threadedSql.lastIndexOf('FROM ranked'));
+    const projection = threadedSql.slice(threadedSql.indexOf('SELECT id, uid, folder'), threadedSql.indexOf('FROM ranked'));
+    expect(projection).toContain('spam_verdict');
+    expect(projection).toContain('spam_score_ml');
+    expect(finalSelect).toContain('rn = 1');
   });
 });
 

@@ -13,7 +13,7 @@ import { tokenize, extractFlagFeatures } from '../services/spamTokenizer.js';
 import { scoreRules } from '../services/spamRules.js';
 import { classifyMessage, extractTopTokens, isModelMature, usableTrainingTotal } from '../services/spamModel.js';
 import { MIN_TRAINING_RECORDS, SOFT_TRAINING_RECORDS } from '../services/spamModel.js';
-import { getModelForUser, invalidateModelCache } from '../services/spamModelStore.js';
+import { getModelForUser, invalidateModelCache, retrainUser } from '../services/spamModelStore.js';
 import { runFullRetrain } from '../services/spamScheduler.js';
 import { detectAuthservIds } from '../services/spamAuthservIds.js';
 
@@ -193,13 +193,28 @@ router.patch('/decay-threshold', async (req: Request, res: Response, next: NextF
   } catch (err) { next(err); }
 });
 
-router.post('/retrain-now', requireAdmin, async (req: Request, res: Response, next: NextFunction) => {
+router.post('/retrain-now', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    // Per-user retrain for the CALLER only: SpamSettings is visible to every
+    // user, and rebuilding everyone else's models from one user's button
+    // would be both a privilege and a scope bug. Admins needing a fleet-wide
+    // rebuild use POST /api/spam/retrain-all below.
+    const userId = (req.session as { userId?: string }).userId ?? '';
+    const outcome = await retrainUser(userId);
+    if (!outcome.ok && outcome.reason === 'no_training_data') {
+      return res.status(409).json({ error: 'no_training_data' });
+    }
+    res.json({ scope: 'user', ...outcome });
+  } catch (err) { next(err); }
+});
+
+router.post('/retrain-all', requireAdmin, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const result = await runFullRetrain();
     if (result.accepted === false) {
       return res.status(409).json({ error: 'retrain_in_progress' });
     }
-    res.json({ ok: true, ...result });
+    res.json({ ok: true, scope: 'all', ...result });
   } catch (err) { next(err); }
 });
 

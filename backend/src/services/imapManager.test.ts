@@ -2580,6 +2580,21 @@ describe('runPostRelocateRepair', () => {
       String(sql).includes('INSERT INTO account_maintenance_state'));
     expect(markerWrites).toHaveLength(0);
   });
+
+  it('does not mark an empty folder list as repaired', async () => {
+    query.mockReset();
+    markerMock([]);
+    const recovered: string[] = [];
+    const mgr = repairMgr([1, 2, 3], [1], recovered);
+
+    const result = await ImapManager.prototype.runPostRelocateRepair.call(mgr, repairAccount);
+
+    expect(recovered).toEqual([]);
+    expect(result).toEqual({ foldersRefreshed: 0, uidsRecovered: 0 });
+    const markerWrites = query.mock.calls.filter(([sql]) =>
+      String(sql).includes('INSERT INTO account_maintenance_state'));
+    expect(markerWrites).toHaveLength(0);
+  });
 });
 
 // ── moveSpamCopy — exactly one IMAP MOVE per physical copy ──────────────────

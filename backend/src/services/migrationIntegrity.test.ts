@@ -210,4 +210,12 @@ describe('migration integrity', () => {
     expect(sql).toContain('ADD COLUMN IF NOT EXISTS usable_spam BIGINT NOT NULL DEFAULT 0');
     expect(sql).toContain('ADD COLUMN IF NOT EXISTS usable_ham BIGINT NOT NULL DEFAULT 0');
   });
+
+  it('adds a stable training identity to the spam training log', () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/0098_spam_training_identity.sql'), 'utf8');
+    expect(sql).toContain('ADD COLUMN IF NOT EXISTS training_identity TEXT');
+    expect(sql).toContain('idx_spam_training_log_user_identity');
+    expect(sql).toContain("'mid:'");
+    expect(sql).toContain("'copy:'");
+  });
 });

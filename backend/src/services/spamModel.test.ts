@@ -115,4 +115,43 @@ describe('spam Naive Bayes model', () => {
     expect(top[0]?.contribution).not.toBe(0);
     expect(top[1]?.token).toBe('meeting');
   });
+
+  it('applies latest-decision-wins for a corrected Spam→Ham message', () => {
+    const earlier = new Date('2026-09-18T09:00:00Z');
+    const later = new Date('2026-09-18T09:05:00Z');
+    const spamRow = {
+      id: 'row-1', label: 'spam', created_at: earlier,
+      message_id_header: '<same@mail.example>', training_identity: 'mid:<same@mail.example>',
+      token_counts: { viagra: 2 }, flag_features: null,
+    };
+    const hamRow = {
+      id: 'row-2', label: 'ham', created_at: later,
+      message_id_header: '<same@mail.example>', training_identity: 'mid:<same@mail.example>',
+      token_counts: { viagra: 1 }, flag_features: null,
+    };
+    // Order-independent: newest decision wins regardless of input order.
+    for (const rows of [[spamRow, hamRow], [hamRow, spamRow]]) {
+      const model = retrainFromRecords(rows, 90, later);
+      expect(model.trainingRecords).toBe(2);
+      expect(model.usableSpam).toBe(0);
+      expect(model.usableHam).toBe(1);
+      // The earlier spam row must not teach the vocabulary: only the latest
+      // (ham) row trains.
+      expect(model.vocabulary['viagra']).toEqual({ spam: 0, ham: 1 });
+    }
+  });
+
+  it('counts a re-confirmed same-label mail once under stored training_identity', () => {
+    const now = new Date('2026-09-18T00:00:00Z');
+    const rows = Array.from({ length: 50 }, (_, i) => ({
+      id: `row-${i}`, label: 'spam', created_at: now,
+      message_id_header: '<same@mail.example>', training_identity: 'mid:<same@mail.example>',
+      token_counts: { viagra: 2 }, flag_features: null,
+    }));
+    const model = retrainFromRecords(rows, 90, now);
+    expect(model.trainingRecords).toBe(50);
+    expect(model.usableSpam).toBe(1);
+    expect(model.usableHam).toBe(0);
+    expect(isModelMature(model, { minRecords: 50 })).toBe(false);
+  });
 });

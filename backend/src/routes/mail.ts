@@ -57,7 +57,7 @@ import { safeFetch } from '../services/safeFetch.js';
 import { safeFilename, attachmentDisposition } from '../utils/contentDisposition.js';
 import { toAppError } from '../utils/errors.js';
 import { tokenize, extractFlagFeatures } from '../services/spamTokenizer.js';
-import { updateIncrementalForUser } from '../services/spamModelStore.js';
+import { recordManualFeedback } from '../services/spamModelStore.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -2106,7 +2106,7 @@ function extractSpamTrainingFeatures(row: {
   flagFeatures: ReturnType<typeof extractFlagFeatures>;
   senderDomain: string | null;
   attachmentTypes: string[] | null;
-  trainMessage: Parameters<typeof updateIncrementalForUser>[1];
+  trainMessage: Parameters<typeof recordManualFeedback>[0]['trainMessage'];
 } {
   const attachments = Array.isArray(row.attachments) ? row.attachments : [];
   const msg = {
@@ -2138,12 +2138,14 @@ function extractSpamTrainingFeatures(row: {
   };
 }
 
-// Feed the per-user Naive Bayes model incrementally so feedback is reflected
-// in <1s. Fire-and-forget: a failure here must never break the HTTP
-// mark-spam/ham path.
-function trainSpamModelAsync(userId: string, trainMessage: Parameters<typeof updateIncrementalForUser>[1], label: 'spam' | 'ham'): void {
-  void updateIncrementalForUser(userId, trainMessage, label)
-    .catch(err => console.warn('Spam incremental training failed:', err.message));
+// Manual feedback persistence: the training_log INSERT and the incremental
+// model update run atomically inside one per-user serializer hold (see
+// recordManualFeedback), so two concurrent mark-spam clicks on the same mail
+// cannot both mint a distinct usable sample. Awaited — not fire-and-forget —
+// so the HTTP response reflects the persisted decision; a failure here fails
+// the request loudly instead of silently dropping training data.
+async function recordSpamFeedback(input: Parameters<typeof recordManualFeedback>[0]): Promise<void> {
+  await recordManualFeedback(input);
 }
 
 async function moveForSpamLabel(messageId: string, userId: string, destinationFolder: string, label: string) {
@@ -2161,17 +2163,14 @@ async function moveForSpamLabel(messageId: string, userId: string, destinationFo
     // Still record the full training row (features included) and train the
     // model, so re-confirming a verdict actually reinforces it.
     const features = extractSpamTrainingFeatures(message);
-    await query(
-      `INSERT INTO spam_training_log
-         (user_id, account_id, message_id_header, message_uid, folder, label, source,
-          subject, body_text, body_html, token_counts, flag_features, sender_domain, attachment_types)
-       VALUES ($1, $2, $3, $4, $5, $6, 'manual', $7, $8, $9, $10, $11, $12, $13)`,
-      [userId, message.account_id, message.message_id, message.uid, message.folder, label,
-       message.subject ?? null, message.body_text ?? null, message.body_html ?? null,
-       JSON.stringify(features.tokenCounts), JSON.stringify(features.flagFeatures),
-       features.senderDomain, features.attachmentTypes]
-    );
-    trainSpamModelAsync(userId, features.trainMessage, label === 'spam' ? 'spam' : 'ham');
+    await recordSpamFeedback({
+      userId, accountId: message.account_id, messageIdHeader: message.message_id,
+      messageUid: message.uid, folder: message.folder, label: label as 'spam' | 'ham',
+      subject: message.subject ?? null, bodyText: message.body_text ?? null, bodyHtml: message.body_html ?? null,
+      tokenCounts: features.tokenCounts, flagFeatures: features.flagFeatures,
+      senderDomain: features.senderDomain, attachmentTypes: features.attachmentTypes,
+      trainMessage: features.trainMessage,
+    });
     await query(
       `UPDATE messages SET spam_user_override = $1, spam_verdict = $1, spam_analyzed_at = NOW() WHERE id = $2`,
       [label, messageId]
@@ -2223,25 +2222,23 @@ async function moveForSpamLabel(messageId: string, userId: string, destinationFo
   adjustFolderCounts(account.id, message.folder, -1, -wasUnread);
   adjustFolderCounts(account.id, destinationFolder, 1, wasUnread);
 
-  // Training log: capture the decision with mark-time features in ONE atomic
-  // INSERT — the retrain path reads this row only and never JOINs back to
-  // messages. Features are computed from the already-loaded message row.
-  // Record the UID that now lives in the destination folder: on a UIDPLUS
-  // move the row was re-keyed to newUid above, so message.uid (the pre-move
-  // source UID) would no longer match the messages row. Non-UIDPLUS servers
-  // keep the source UID at the destination, so newUid is null there and we
-  // fall back to it.
+  // Training log + incremental model update in ONE serialized step (see
+  // recordSpamFeedback): the retrain path reads this row only and never JOINs
+  // back to messages. Record the UID that now lives in the destination folder:
+  // on a UIDPLUS move the row was re-keyed to newUid above, so message.uid
+  // (the pre-move source UID) would no longer match the messages row.
+  // Non-UIDPLUS servers keep the source UID at the destination, so newUid is
+  // null there and we fall back to it.
   const trainingFeatures = extractSpamTrainingFeatures(message);
-  await query(
-    `INSERT INTO spam_training_log
-       (user_id, account_id, message_id_header, message_uid, folder, label, source,
-        subject, body_text, body_html, token_counts, flag_features, sender_domain, attachment_types)
-     VALUES ($1, $2, $3, $4, $5, $6, 'manual', $7, $8, $9, $10, $11, $12, $13)`,
-    [userId, account.id, message.message_id, newUid ?? message.uid, destinationFolder, label,
-     message.subject ?? null, message.body_text ?? null, message.body_html ?? null,
-     JSON.stringify(trainingFeatures.tokenCounts), JSON.stringify(trainingFeatures.flagFeatures),
-     trainingFeatures.senderDomain, trainingFeatures.attachmentTypes]
-  );
+  const trainingLabel = label === 'spam' ? 'spam' : 'ham';
+  await recordSpamFeedback({
+    userId, accountId: account.id, messageIdHeader: message.message_id,
+    messageUid: newUid ?? message.uid, folder: destinationFolder, label: trainingLabel,
+    subject: message.subject ?? null, bodyText: message.body_text ?? null, bodyHtml: message.body_html ?? null,
+    tokenCounts: trainingFeatures.tokenCounts, flagFeatures: trainingFeatures.flagFeatures,
+    senderDomain: trainingFeatures.senderDomain, attachmentTypes: trainingFeatures.attachmentTypes,
+    trainMessage: trainingFeatures.trainMessage,
+  });
 
   // If folder_mappings.spam is not yet configured, learn from the discovered folder.
   if (label === 'spam' && !account.folder_mappings?.spam) {
@@ -2261,11 +2258,6 @@ async function moveForSpamLabel(messageId: string, userId: string, destinationFo
   // /spam and /ham, which share this mover. The already-in-folder no-op path above returns
   // early without a move, so GTD section data is untouched there.
   notifyMailMutation([message], userId);
-
-  // Incremental training runs in the background: the HTTP response must not
-  // wait for the model write.
-  const trainingLabel = label === 'spam' ? 'spam' : 'ham';
-  trainSpamModelAsync(userId, trainingFeatures.trainMessage, trainingLabel);
 
   return { ok: true, status: 200, body: { ok: true, folder: destinationFolder, newUid: newUid || null } };
 }

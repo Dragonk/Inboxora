@@ -6008,29 +6008,44 @@ export class ImapManager {
       [account.id],
     );
     const selectable = foldersResult.rows.filter(r => !r.no_select).map(r => r.path);
+    // An empty local folder list proves nothing (e.g. a LIST that has not
+    // succeeded yet): it must retry later, never record "repaired forever".
+    if (selectable.length === 0) {
+      console.warn(`Post-relocate repair deferred for ${logAccount(account)}: no selectable folders known yet`);
+      return { foldersRefreshed: 0, uidsRecovered: 0 };
+    }
+    // One-time repairs across many accounts on one provider share the
+    // background-connection budget: an upgrade must not fire N concurrent
+    // SEARCH ALL passes and trip the provider's per-IP connection limit.
+    const host = (account.imap_host || '').toLowerCase();
+    await this._bgConnSem.acquire(host);
     let foldersRefreshed = 0;
     let uidsRecovered = 0;
     let allVerified = true;
-    for (const folder of selectable) {
-      try {
-        const recovered = await this.repairFolderMissingUids(account, folder);
-        uidsRecovered += recovered;
-        // A folder counts as refreshed only when its post-repair UID diff is
-        // empty: ingest failures (parse errors) return normally but leave the
-        // UID missing, and must NOT mark the repair complete.
-        const remaining = await this.remainingRepairUids(account, folder);
-        if (remaining.length === 0) {
-          foldersRefreshed += 1;
-        } else {
+    try {
+      for (const folder of selectable) {
+        try {
+          const recovered = await this.repairFolderMissingUids(account, folder);
+          uidsRecovered += recovered;
+          // A folder counts as refreshed only when its post-repair UID diff is
+          // empty: ingest failures (parse errors) return normally but leave the
+          // UID missing, and must NOT mark the repair complete.
+          const remaining = await this.remainingRepairUids(account, folder);
+          if (remaining.length === 0) {
+            foldersRefreshed += 1;
+          } else {
+            allVerified = false;
+            console.warn(
+              `Post-relocate repair incomplete for ${logAccount(account)}/${folder}: ${remaining.length} UID(s) still missing after repair`,
+            );
+          }
+        } catch (caught) {
           allVerified = false;
-          console.warn(
-            `Post-relocate repair incomplete for ${logAccount(account)}/${folder}: ${remaining.length} UID(s) still missing after repair`,
-          );
+          console.warn(`Post-relocate repair skipped ${logAccount(account)}/${folder}:`, toAppError(caught).message);
         }
-      } catch (caught) {
-        allVerified = false;
-        console.warn(`Post-relocate repair skipped ${logAccount(account)}/${folder}:`, toAppError(caught).message);
       }
+    } finally {
+      this._bgConnSem.release(host);
     }
     if (allVerified) {
       await query(

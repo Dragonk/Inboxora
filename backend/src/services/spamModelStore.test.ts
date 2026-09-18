@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('./db.js', () => ({ query: vi.fn() }));
 
 import { query as __mock_query } from './db.js';
-import { getModelForUser, saveModel, updateIncrementalForUser, retrainUser, invalidateModelCache } from './spamModelStore.js';
+import { getModelForUser, saveModel, updateIncrementalForUser, recordManualFeedback, retrainUser, invalidateModelCache } from './spamModelStore.js';
 
 const query = vi.mocked(__mock_query);
 
@@ -62,7 +62,7 @@ describe('spam model store', () => {
 
   it('rebuilds decay-weighted models from the log only', async () => {
     query.mockImplementation(async (sql: string) => {
-      if (sql.startsWith('SELECT label')) {
+      if (sql.includes('FROM spam_training_log')) {
         return { rows: [
           { label: 'spam', created_at: new Date().toISOString(), account_id: 'a1', message_id_header: '<s1@x>', message_uid: 1, folder: 'INBOX', token_counts: { viagra: 2 }, subject: null, body_text: null, flag_features: null },
           { label: 'ham', created_at: new Date().toISOString(), account_id: 'a1', message_id_header: '<h1@x>', message_uid: 2, folder: 'INBOX', token_counts: { meeting: 1 }, subject: null, body_text: null, flag_features: null },
@@ -90,8 +90,7 @@ describe('spam model store', () => {
     expect(second?.trainingRecords).toBe(1);
   });
 
-  it('does not mint a new usable sample for repeat feedback on the same mail', async () => {
-    let logCount = 0;
+  it('does not mint a new usable sample for repeat feedback on the same mail', async () => {    let logCount = 0;
     query.mockImplementation(async (sql: string) => {
       if (sql.startsWith('SELECT * FROM spam_models')) {
         return { rows: [{
@@ -120,5 +119,61 @@ describe('spam model store', () => {
     // though no new distinct sample is minted.
     expect(repeat?.vocabulary['prize']?.spam).toBeGreaterThan(0);
     expect(repeat?.vocabulary['prize']?.spam).toBe(first?.vocabulary['prize']?.spam);
+  });
+
+  it('recordManualFeedback writes training_identity and dedups under one serializer', async () => {
+    const inserts: unknown[][] = [];
+    let logRows = 0;
+    const persisted = { training_records: 0, usable_spam: 0 };
+    query.mockImplementation(async (sql: string, params?: unknown[]) => {
+      if (sql.startsWith('SELECT * FROM spam_models')) {
+        return { rows: [{
+          vocabulary: {}, total_spam: 0, total_ham: 0, prior_spam: 0.5, prior_ham: 0.5,
+          training_records: persisted.training_records, usable_spam: persisted.usable_spam, usable_ham: 0,
+          model_version: 1, last_trained_at: null, decay_threshold_days: 90,
+        }] };
+      }
+      if (sql.includes('INSERT INTO spam_models')) {
+        // modelToParams layout: [userId, vocab, totalSpam, totalHam,
+        // priorSpam, priorHam, trainingRecords, usableSpam, usableHam, ...]
+        persisted.training_records = Number(params?.[6] ?? 0);
+        persisted.usable_spam = Number(params?.[7] ?? 0);
+        return { rows: [] };
+      }
+      if (sql.includes('INSERT INTO spam_training_log')) {
+        inserts.push(params ?? []);
+        logRows += 1;
+        return { rows: [] };
+      }
+      if (sql.includes('FROM spam_training_log')) return { rows: [{ n: String(logRows) }] };
+      return { rows: [] };
+    });
+    const feedback = {
+      userId: 'user-2', accountId: 'acct-1', messageIdHeader: '<m1@mail.example>',
+      messageUid: 42, folder: 'INBOX', label: 'spam' as const,
+      subject: 'Free prize', bodyText: 'claim now', bodyHtml: null,
+      tokenCounts: { viagra: 2 },
+      flagFeatures: {
+        dkim_pass: null, spf_pass: null, dmarc_pass: null, has_attachment: 0 as const,
+        attachment_is_executable: 0 as const, all_caps_subject_ratio: 0, from_equals_reply_to_mismatch: 0 as const,
+      },
+      senderDomain: 'mail.example', attachmentTypes: null,
+      trainMessage: { subject: 'Free prize', body: 'claim now', from: '<promo@mail.example>' },
+    };
+    // Two concurrent mark-spam clicks on the same mail: the serializer orders
+    // them, so the second observes the first INSERT and mints no sample.
+    const [first, second] = await Promise.all([
+      recordManualFeedback(feedback),
+      recordManualFeedback(feedback),
+    ]);
+    expect(inserts).toHaveLength(2);
+    // Both rows carry the same stable identity derived from Message-ID
+    // ($14 → params index 13).
+    expect(inserts[0][13]).toBe('mid:<m1@mail.example>');
+    expect(inserts[1][13]).toBe('mid:<m1@mail.example>');
+    // First feedback minted the sample; the concurrent repeat did not.
+    expect(first?.usableSpam).toBe(1);
+    expect(second?.usableSpam).toBe(1);
+    expect(second?.trainingRecords).toBe(2);
   });
 });

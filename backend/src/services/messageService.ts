@@ -167,7 +167,7 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
              to_addresses, cc_addresses, draft_bcc_addresses, draft_uid_validity, draft_alias_id, draft_in_reply_to, draft_references, draft_composition, reply_to, in_reply_to,
              date, snippet, is_starred, is_read, has_attachments, account_id,
              account_name, account_email, account_color,
-             category, list_unsubscribe, list_unsubscribe_post, delivery_addresses,
+             category, spam_verdict, spam_score_ml, list_unsubscribe, list_unsubscribe_post, delivery_addresses,
              message_count, unread_count,
              thread_has_contact_photo AS has_contact_photo,
              latest_from_email, latest_from_name

@@ -34,13 +34,14 @@ vi.mock('../services/spamModel.js', () => ({
 import express from 'express';
 import spamRoutes from './spam.js';
 import { query as __mock_query } from '../services/db.js';
-import { getModelForUser as __mock_getModel } from '../services/spamModelStore.js';
+import { getModelForUser as __mock_getModel, retrainUser as __mock_retrainUser } from '../services/spamModelStore.js';
 import { isModelMature as __mock_isMature, usableTrainingTotal as __mock_usableTotal } from '../services/spamModel.js';
 import { runFullRetrain as __mock_retrain } from '../services/spamScheduler.js';
 import { listeningPort } from '../test/net.js';
 
 const query = vi.mocked(__mock_query);
 const getModelForUser = vi.mocked(__mock_getModel);
+const retrainUser = vi.mocked(__mock_retrainUser);
 const isModelMature = vi.mocked(__mock_isMature);
 const usableTrainingTotal = vi.mocked(__mock_usableTotal);
 const runFullRetrain = vi.mocked(__mock_retrain);
@@ -72,6 +73,7 @@ describe('/api/spam routes', () => {
   beforeEach(() => {
     query.mockReset();
     getModelForUser.mockReset();
+    retrainUser.mockReset();
     runFullRetrain.mockReset();
     isModelMature.mockReset();
     usableTrainingTotal.mockReset();
@@ -118,9 +120,25 @@ describe('/api/spam routes', () => {
     expect(getModelForUser).not.toHaveBeenCalled();
   });
 
-  it('POST /retrain-now surfaces 409 while a run is in flight', async () => {
-    runFullRetrain.mockResolvedValue({ accepted: false });
+  it('POST /retrain-now retrains only the caller (per-user scope)', async () => {
+    retrainUser.mockResolvedValue({ ok: true, recordsUsed: 12, duration_ms: 5 });
     const res = await fetch(`${base}/api/spam/retrain-now`, { method: 'POST' });
+    expect(res.status).toBe(200);
+    expect(retrainUser).toHaveBeenCalledWith('user-1');
+    expect(runFullRetrain).not.toHaveBeenCalled();
+    expect(await res.json()).toMatchObject({ ok: true, scope: 'user', recordsUsed: 12 });
+  });
+
+  it('POST /retrain-now reports 409 with no training data', async () => {
+    retrainUser.mockResolvedValue({ ok: false, recordsUsed: 0, duration_ms: 1, reason: 'no_training_data' });
+    const res = await fetch(`${base}/api/spam/retrain-now`, { method: 'POST' });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: 'no_training_data' });
+  });
+
+  it('POST /retrain-all surfaces 409 while a run is in flight', async () => {
+    runFullRetrain.mockResolvedValue({ accepted: false });
+    const res = await fetch(`${base}/api/spam/retrain-all`, { method: 'POST' });
     expect(res.status).toBe(409);
     expect(await res.json()).toMatchObject({ error: 'retrain_in_progress' });
   });

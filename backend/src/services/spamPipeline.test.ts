@@ -5,7 +5,7 @@ vi.mock('./spamModelStore.js', () => ({ getModelForUser: vi.fn() }));
 
 import { query as __mock_query } from './db.js';
 import { getModelForUser as __mock_getModel } from './spamModelStore.js';
-import { classifyAndTagMessage, SPAM_THRESHOLD, AUTO_MOVE_THRESHOLD } from './spamPipeline.js';
+import { classifyAndTagMessage, autoMove, SPAM_THRESHOLD, AUTO_MOVE_THRESHOLD } from './spamPipeline.js';
 import { createEmptyModel, updateIncremental } from './spamModel.js';
 
 const query = vi.mocked(__mock_query);
@@ -204,6 +204,33 @@ describe('spam pipeline gates', () => {
     const summary = await classifyAndTagMessage('msg-1', { imap });
     expect(summary?.shouldMove).toBe(true);
     expect(summary?.moved).toBe(false);
+    expect(imap.moveMessage).not.toHaveBeenCalled();
+  });
+
+  it('shares the first caller outcome with concurrent callers (no phantom moved=true)', async () => {
+    // First caller is revalidation-skipped (false); the second caller sharing
+    // the inflight must observe false too — not moved=true for a move that
+    // never happened.
+    query.mockImplementation(async (sql: string) => {
+      if (sql.includes('SELECT folder, uid, is_deleted, spam_user_override FROM messages')) {
+        return { rows: [{ folder: 'Work', uid: 42, is_deleted: false, spam_user_override: null }] };
+      }
+      if (sql.startsWith('SELECT is_read FROM messages')) return { rows: [{ is_read: false }] };
+      return { rows: [] };
+    });
+    const imap = {
+      moveMessage: vi.fn(),
+      _guardMoveUid: vi.fn(),
+      _unguardMoveUid: vi.fn(),
+    };
+    const row = { account_id: 'acct-1', account_email: 'me@example.com', owner_id: 'user-1', folder: 'INBOX', uid: 42 };
+    const [first, second] = await Promise.all([
+      autoMove(row, 'Spam', imap, 'msg-1'),
+      autoMove(row, 'Spam', imap, 'msg-1'),
+    ]);
+    // Both share one outcome; the revalidation skip (Work ≠ INBOX) yields false.
+    expect(first).toBe(false);
+    expect(second).toBe(false);
     expect(imap.moveMessage).not.toHaveBeenCalled();
   });
 });

@@ -319,8 +319,11 @@ export async function autoMove(
   const moveKey = `${row.account_id}:${row.folder}:${row.uid}`;
   const existing = spamMoveInflights.get(moveKey);
   if (existing) {
-    await existing.catch(() => undefined);
-    return true;
+    // Share the first caller's outcome verbatim: if it was revalidation-
+    // skipped (false) or threw, the second caller must observe the same —
+    // reporting moved=true for a move that never happened would lie to the
+    // caller and desync folder badges.
+    return existing;
   }
   const promise = (async (): Promise<boolean> => {
     // Re-validate the physical row immediately before the MOVE: the

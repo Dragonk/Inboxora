@@ -8,6 +8,7 @@
 //
 // Adapted from upstream MailFlow v0.2 for Inboxora (strict TypeScript).
 
+import { createHash } from 'node:crypto';
 import { tokenize } from './spamTokenizer.js';
 import type { FlagFeatures } from './spamTokenizer.js';
 
@@ -76,7 +77,10 @@ export interface TrainingRecordInput {
   label: string;
   created_at: string | Date;
   message_id_header?: string | null;
+  account_id?: string | null;
   message_uid?: number | string | null;
+  folder?: string | null;
+  training_identity?: string | null;
   token_counts?: TokenCounts | null;
   subject?: string | null;
   body_text?: string | null;
@@ -306,15 +310,47 @@ export function retrainFromRecords(
   const nowMs = now instanceof Date ? now.getTime() : now;
   const decayMs = decayThresholdDays * 24 * 60 * 60 * 1000;
 
+  // Latest decision wins per training identity. A user correcting Spam→Ham
+  // must actually move the sample: group rows by identity, keep the newest
+  // row's label for BOTH maturity and vocabulary. Earlier opposite-label rows
+  // for the same identity are dropped entirely (they would otherwise keep
+  // teaching the mistake the user just corrected). Callers must feed rows
+  // oldest-first (retrainUser orders by created_at, id); the grouping below
+  // re-sorts defensively so array order never decides the label.
+  const byIdentity = new Map<string, TrainingRecordInput[]>();
+  const unidentified: TrainingRecordInput[] = [];
+  records.forEach((record, index) => {
+    const stored = typeof record.training_identity === 'string' && record.training_identity
+      ? record.training_identity
+      : messageIdentityFor(record, index);
+    if (stored.startsWith('row:')) unidentified.push(record);
+    else {
+      const group = byIdentity.get(stored);
+      if (group) group.push(record);
+      else byIdentity.set(stored, [record]);
+    }
+  });
+  const effective: TrainingRecordInput[] = [...unidentified];
+  for (const group of byIdentity.values()) {
+    group.sort((a, b) => {
+      const time = new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+      if (time !== 0) return time;
+      return String((a as { id?: unknown }).id ?? '').localeCompare(String((b as { id?: unknown }).id ?? ''));
+    });
+    // Maturity counts the identity once, under its latest label. Vocabulary
+    // trains on the latest row only — the corrected label replaces the
+    // earlier mistake instead of averaging with it.
+    effective.push(group[group.length - 1]);
+  }
+
   // Distinct-message maturity: the same physical mail re-confirmed N times is
-  // ONE sample, not N. Identity = Message-ID header when present, else
-  // (account, uid, folder) when available, else the record index (unique).
+  // ONE sample, not N.
   const seenMessages = new Set<string>();
   let usableSpam = 0;
   let usableHam = 0;
 
-  for (let index = 0; index < records.length; index++) {
-    const record = records[index];
+  for (let index = 0; index < effective.length; index++) {
+    const record = effective[index];
     const label: SpamLabel = record.label === 'spam' ? 'spam' : 'ham';
     const ageMs = Math.max(0, nowMs - new Date(record.created_at).getTime());
     const weight = decayMs > 0 ? 2 ** (-ageMs / decayMs) : 1;
@@ -332,7 +368,9 @@ export function retrainFromRecords(
     // Legacy 0021 rows (no token_counts, no subject/body) yield zero tokens:
     // they teach the model nothing and must not count toward maturity.
     const usable = tokens.length > 0;
-    const identity = messageIdentityFor(record, index);
+    const identity = typeof record.training_identity === 'string' && record.training_identity
+      ? record.training_identity
+      : messageIdentityFor(record, index);
     const firstSeen = !seenMessages.has(identity);
     if (firstSeen) seenMessages.add(identity);
     if (usable && firstSeen) {
@@ -359,13 +397,52 @@ export function retrainFromRecords(
 }
 
 function messageIdentityFor(record: TrainingRecordInput, index: number): string {
-  const header = typeof record.message_id_header === 'string' ? record.message_id_header.trim() : '';
+  const identity = trainingIdentityFor({
+    messageIdHeader: typeof record.message_id_header === 'string' ? record.message_id_header : null,
+    accountId: typeof record.account_id === 'string' ? record.account_id : null,
+    uid: record.message_uid ?? null,
+    folder: typeof record.folder === 'string' ? record.folder : null,
+    senderDomain: null,
+    subject: null,
+    bodyText: null,
+  });
+  return identity ?? `row:${index}`;
+}
+
+// Canonical stable training identity shared by the mark-time INSERT
+// (mail.ts), the incremental dedup check (spamModelStore) and the full
+// retrain grouping below — plus the 0098 backfill, which applies the same
+// rule in SQL. Message-ID wins; else the physical copy triple; else a
+// content hash fallback for rows without any stable reference. Pure function
+// over already-loaded values: no normalization happens in SQL, so an exact
+// equality check on this value is deterministic.
+export interface TrainingIdentityInput {
+  messageIdHeader?: string | null;
+  accountId?: string | null;
+  uid?: number | string | null;
+  folder?: string | null;
+  senderDomain?: string | null;
+  subject?: string | null;
+  bodyText?: string | null;
+}
+
+export function trainingIdentityFor(input: TrainingIdentityInput): string | null {
+  const header = (input.messageIdHeader ?? '').trim();
   if (header) return `mid:${header}`;
-  const account = typeof record.account_id === 'string' ? record.account_id : '';
-  const folder = typeof record.folder === 'string' ? record.folder : '';
-  const uid = record.message_uid !== null && record.message_uid !== undefined ? String(record.message_uid) : '';
-  if (account || folder || uid) return `copy:${account}:${folder}:${uid}`;
-  return `row:${index}`;
+  const accountId = input.accountId ?? '';
+  const folder = input.folder ?? '';
+  const uid = input.uid !== null && input.uid !== undefined ? String(input.uid) : '';
+  if (accountId && folder && uid) return `copy:${accountId}:${folder}:${uid}`;
+  const domain = (input.senderDomain ?? '').toLowerCase().trim();
+  const subject = (input.subject ?? '').toLowerCase().replace(/\s+/g, ' ').trim();
+  const bodyLead = (input.bodyText ?? '').toLowerCase().replace(/\s+/g, ' ').trim().slice(0, 4000);
+  if (!domain && !subject && !bodyLead) return null;
+  return `sub:${domain}:${simpleHash(subject)}:${simpleHash(bodyLead)}`;
+}
+
+// md5 is a non-security dedup key here (matches the 0098 backfill SQL).
+function simpleHash(value: string): string {
+  return createHash('md5').update(value, 'utf8').digest('hex');
 }
 
 export function extractTopTokens(
