@@ -46,8 +46,10 @@ async function ensureCardavBook(userId: string, book: { url: string; displayName
     const name = attempt === 0 ? book.displayName : `${book.displayName} (${attempt + 1})`;
     try {
       const r = await query<{ id: string }>(
-        `INSERT INTO address_books (user_id, name, source, external_url)
-         VALUES ($1, $2, 'carddav', $3) RETURNING id`,
+        // A newly connected external address book is not published to DAV devices
+        // until the user explicitly enables it (plan §17.1).
+        `INSERT INTO address_books (user_id, name, source, external_url, dav_mode)
+         VALUES ($1, $2, 'carddav', $3, 'off') RETURNING id`,
         [userId, name, book.url],
       );
       return r.rows[0].id;

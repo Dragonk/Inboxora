@@ -1124,7 +1124,8 @@
       "show": "Show",
       "importGoogle": "Import Google CSV",
       "exportGoogle": "Google CSV",
-      "exportOutlook": "Outlook CSV"
+      "exportOutlook": "Outlook CSV",
+      "davAccessHint": "Controls whether this address book is published to connected devices (CardDAV). It never grants more than the book itself allows."
     }
   },
   "contextMenu": {
@@ -1973,7 +1974,12 @@
     "recurrenceCustomHint": "This series uses a custom rule this editor cannot change: {{rule}}",
     "recurrenceReplace": "Replace the rule",
     "recurrenceScope": "Apply changes to",
-    "recurrenceWeekdays": "Repeat on"
+    "recurrenceWeekdays": "Repeat on",
+    "davAccess": "DAV access",
+    "davAccessOff": "Disabled",
+    "davAccessReadOnly": "Read only",
+    "davAccessReadWrite": "Read and write",
+    "davAccessHint": "Controls whether this calendar is published to connected devices (CalDAV). It never grants more than the calendar itself allows."
   },
   "mailFolders": {
     "inbox": "Inbox",

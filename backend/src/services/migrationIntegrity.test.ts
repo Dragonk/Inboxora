@@ -303,4 +303,18 @@ describe('migration integrity', () => {
     // Expand-only: no token is rewritten by the migration.
     expect(sql).not.toMatch(/UPDATE\s+oauth_grants/i);
   });
+
+  it('adds per-collection DAV visibility with a behaviour-preserving default', () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/0105_collection_dav_mode.sql'), 'utf8');
+    // Defaulting to read_write keeps existing local collections exactly as they were.
+    expect(sql).toContain("ADD COLUMN IF NOT EXISTS dav_mode VARCHAR(16) NOT NULL DEFAULT 'read_write'");
+    expect(sql).toContain('calendars_dav_mode_check');
+    expect(sql).toContain('address_books_dav_mode_check');
+    expect(sql).toContain("CHECK (dav_mode IN ('off', 'read_only', 'read_write'))");
+    expect(sql).toContain('calendars_user_dav_idx');
+    expect(sql).toContain('address_books_user_dav_idx');
+    // Expand-only: no collection is rewritten by the migration.
+    expect(sql).not.toMatch(/UPDATE\s+calendars/i);
+    expect(sql).not.toMatch(/UPDATE\s+address_books/i);
+  });
 });

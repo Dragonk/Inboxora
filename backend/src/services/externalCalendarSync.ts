@@ -111,8 +111,10 @@ async function calendarFor(source: ExternalCalendarSource, state: CalendarSyncSt
     const name = attempt ? `${source.display_name} (${attempt + 1})` : source.display_name;
     try {
       const inserted = await query(
-        `INSERT INTO calendars (user_id, owner_user_id, name, color, source, external_url, read_only)
-         VALUES ($1, $1, $2, $3, $4, $5, true) RETURNING id`,
+        // A newly connected external calendar is not published to DAV devices
+        // until the user explicitly enables it (plan §17.1).
+        `INSERT INTO calendars (user_id, owner_user_id, name, color, source, external_url, read_only, dav_mode)
+         VALUES ($1, $1, $2, $3, $4, $5, true, 'off') RETURNING id`,
         [source.user_id, name, source.color, source.kind, externalUrl],
       );
       return inserted.rows[0].id;

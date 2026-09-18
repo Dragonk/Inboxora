@@ -97,6 +97,13 @@ function response(href: string, properties: string[], status = '200 OK') {
 const READ_PRIVILEGES = ['<D:read/>'];
 const WRITE_PRIVILEGES = ['<D:read/>', '<D:write/>', '<D:write-content/>', '<D:bind/>', '<D:unbind/>'];
 
+type DavMode = 'off' | 'read_only' | 'read_write';
+
+/** An unknown/absent mode is treated as fully enabled, matching pre-0105 rows. */
+function davModeOf(value: unknown): DavMode {
+  return value === 'off' || value === 'read_only' || value === 'read_write' ? value : 'read_write';
+}
+
 function privilegeSet(writable: boolean) {
   const privileges = writable ? WRITE_PRIVILEGES : READ_PRIVILEGES;
   return `<D:current-user-privilege-set>${privileges.map(privilege => `<D:privilege>${privilege}</D:privilege>`).join('')}</D:current-user-privilege-set>`;
@@ -109,10 +116,12 @@ function supportedReportSet() {
 }
 
 /** The `Depth: 1` member listing of a calendar collection (RFC 4791 §5.2). */
-function calendarCollectionProperties(calendar: { id: string; name?: string | null; sync_token?: string | null; read_only?: boolean | null; source?: string | null }): string[] {
-  // Only a local, non-read-only calendar accepts a DAV write today, so that is
-  // exactly the privilege set advertised.
-  const writable = !calendar.read_only && (calendar.source ?? 'local') === 'local';
+function calendarCollectionProperties(calendar: { id: string; name?: string | null; sync_token?: string | null; read_only?: boolean | null; source?: string | null; dav_mode?: string | null }): string[] {
+  // The DAV mode can only narrow what the source already allows, and a local,
+  // non-read-only calendar is the only thing a DAV write is accepted for today.
+  const writable = davModeOf(calendar.dav_mode) === 'read_write'
+    && !calendar.read_only
+    && (calendar.source ?? 'local') === 'local';
   return [
     '<D:resourcetype><D:collection/><C:calendar/></D:resourcetype>',
     `<D:displayname>${xmlEscape(calendar.name)}</D:displayname>`,
@@ -168,8 +177,9 @@ router.propfind('/', (req: Request, res: Response) => {
 router.propfind('/:userId/', async (req: Request, res: Response) => {
   if (req.params.userId !== req.caldavUserId) return res.status(403).end();
 
-  const calendars = await query<{ id: string; name?: string | null; sync_token?: string | null; read_only?: boolean | null; source?: string | null }>(
-    'SELECT id, name, sync_token, read_only, source FROM calendars WHERE user_id = $1 ORDER BY created_at ASC',
+  const calendars = await query<{ id: string; name?: string | null; sync_token?: string | null; read_only?: boolean | null; source?: string | null; dav_mode?: string | null }>(
+    // A collection turned off is not discoverable at all.
+    "SELECT id, name, sync_token, read_only, source, dav_mode FROM calendars WHERE user_id = $1 AND dav_mode <> 'off' ORDER BY created_at ASC",
     [req.caldavUserId],
   );
   const principalPath = `/caldav/${req.caldavUserId}/`;
@@ -199,12 +209,13 @@ router.propfind('/:userId/', async (req: Request, res: Response) => {
 router.propfind('/:userId/:calendarId/', async (req: Request, res: Response) => {
   if (req.params.userId !== req.caldavUserId) return res.status(403).end();
 
-  const result = await query<{ id: string; name?: string | null; sync_token?: string | null; read_only?: boolean | null; source?: string | null }>(
-    'SELECT id, name, sync_token, read_only, source FROM calendars WHERE id = $1 AND user_id = $2',
+  const result = await query<{ id: string; name?: string | null; sync_token?: string | null; read_only?: boolean | null; source?: string | null; dav_mode?: string | null }>(
+    'SELECT id, name, sync_token, read_only, source, dav_mode FROM calendars WHERE id = $1 AND user_id = $2',
     [req.params.calendarId, req.caldavUserId],
   );
   const calendar = result.rows[0];
-  if (!calendar) return res.status(404).end();
+  // An off collection is reported as missing, so its existence is not leaked.
+  if (!calendar || davModeOf(calendar.dav_mode) === 'off') return res.status(404).end();
 
   sendXml(res, 207, multistatus([
     response(`/caldav/${req.caldavUserId}/${calendar.id}/`, calendarCollectionProperties(calendar)),
@@ -213,12 +224,12 @@ router.propfind('/:userId/:calendarId/', async (req: Request, res: Response) => 
 
 router.report('/:userId/:calendarId/', async (req: Request, res: Response) => {
   if (req.params.userId !== req.caldavUserId) return res.status(403).end();
-  const calendarResult = await query<{ sync_version: number; [key: string]: unknown }>(
-    'SELECT id, sync_token, sync_version FROM calendars WHERE id = $1 AND user_id = $2',
+  const calendarResult = await query<{ sync_version: number; dav_mode?: string | null; [key: string]: unknown }>(
+    'SELECT id, sync_token, sync_version, dav_mode FROM calendars WHERE id = $1 AND user_id = $2',
     [req.params.calendarId, req.caldavUserId],
   );
   const calendar = calendarResult.rows[0];
-  if (!calendar) return res.status(404).end();
+  if (!calendar || davModeOf(calendar.dav_mode) === 'off') return res.status(404).end();
 
   const body = await rawBody(req);
   const isSyncCollection = body.includes('sync-collection');
@@ -298,7 +309,7 @@ router.get('/:userId/:calendarId/:filename', async (req: Request, res: Response)
   const result = await query(
     `SELECT e.raw_ical, e.etag FROM calendar_events e
      JOIN calendars c ON c.id = e.calendar_id
-     WHERE c.id = $1 AND c.user_id = $2 AND COALESCE(e.dav_filename, e.uid || '.ics') = $3`,
+     WHERE c.id = $1 AND c.user_id = $2 AND c.dav_mode <> 'off' AND COALESCE(e.dav_filename, e.uid || '.ics') = $3`,
     [req.params.calendarId, req.caldavUserId, uid],
   );
   if (!result.rows[0]) return res.status(404).end();
@@ -308,13 +319,14 @@ router.get('/:userId/:calendarId/:filename', async (req: Request, res: Response)
 
 router.put('/:userId/:calendarId/:filename', async (req: Request, res: Response) => {
   if (req.params.userId !== req.caldavUserId) return res.status(403).end();
-  const calendarResult = await query(
-    'SELECT id, source, read_only FROM calendars WHERE id = $1 AND user_id = $2',
+  const calendarResult = await query<{ id: string; source?: string | null; read_only?: boolean | null; dav_mode?: string | null }>(
+    'SELECT id, source, read_only, dav_mode FROM calendars WHERE id = $1 AND user_id = $2',
     [req.params.calendarId, req.caldavUserId],
   );
   const calendar = calendarResult.rows[0];
-  if (!calendar) return res.status(404).end();
-  if (calendar.source !== 'local' || calendar.read_only) return res.status(403).end();
+  if (!calendar || davModeOf(calendar.dav_mode) === 'off') return res.status(404).end();
+  // A read_only DAV mode blocks writes the same way a read-only source does.
+  if (calendar.source !== 'local' || calendar.read_only || davModeOf(calendar.dav_mode) === 'read_only') return res.status(403).end();
   const event = parseCalendarEvent(await rawBody(req));
   const filename = req.params.filename;
   if (!event) return res.status(400).end();
@@ -352,10 +364,10 @@ router.put('/:userId/:calendarId/:filename', async (req: Request, res: Response)
 
 router.delete('/:userId/:calendarId/:filename', async (req: Request, res: Response) => {
   if (req.params.userId !== req.caldavUserId) return res.status(403).end();
-  const calendarResult = await query('SELECT id, source, read_only FROM calendars WHERE id = $1 AND user_id = $2', [req.params.calendarId, req.caldavUserId]);
+  const calendarResult = await query<{ id: string; source?: string | null; read_only?: boolean | null; dav_mode?: string | null }>('SELECT id, source, read_only, dav_mode FROM calendars WHERE id = $1 AND user_id = $2', [req.params.calendarId, req.caldavUserId]);
   const calendar = calendarResult.rows[0];
-  if (!calendar) return res.status(404).end();
-  if (calendar.source !== 'local' || calendar.read_only) return res.status(403).end();
+  if (!calendar || davModeOf(calendar.dav_mode) === 'off') return res.status(404).end();
+  if (calendar.source !== 'local' || calendar.read_only || davModeOf(calendar.dav_mode) === 'read_only') return res.status(403).end();
   const uid = req.params.filename;
   const currentResult = await query<{ etag: string; invite_account_id?: string | null }>("SELECT etag, invite_account_id FROM calendar_events WHERE calendar_id = $1 AND COALESCE(dav_filename, uid || '.ics') = $2 AND recurrence_id = $3", [calendar.id, uid, '']);
   const current = currentResult.rows[0];

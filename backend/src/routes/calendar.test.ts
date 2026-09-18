@@ -368,8 +368,38 @@ describe('local calendar API', () => {
 
     expect(response.status).toBe(200);
     expect(responseObject(await response.json(), 'calendar')).toMatchObject({ name: 'Updated', display_visible: false });
-    expect(queryCall(0)[0]).toContain('owner_user_id = $5');
-    expect(queryCall(0)[1]).toEqual(['Updated', '#abcdef', false, 'calendar-2', 'user-1']);
+    expect(queryCall(0)[0]).toContain('owner_user_id = $6 AND user_id = $6');
+    // davMode is omitted here, which keeps the stored mode (COALESCE) unchanged.
+    expect(queryCall(0)[0]).toContain('dav_mode = COALESCE($4, dav_mode)');
+    expect(queryCall(0)[1]).toEqual(['Updated', '#abcdef', false, null, 'calendar-2', 'user-1']);
+  });
+
+  it('stores a DAV sharing mode on an owned calendar and rejects an unknown one', async () => {
+    query.mockResolvedValueOnce({ rows: [{ id: 'calendar-2', name: 'Work', color: '#123456', display_visible: true, source: 'local', read_only: false, dav_mode: 'read_only' }] });
+    const response = await fetch(`${base}/api/calendar/calendars/calendar-2`, {
+      method: 'PATCH', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'Work', color: '#123456', displayVisible: true, davMode: 'read_only' }),
+    });
+    expect(response.status).toBe(200);
+    expect(responseObject(await response.json(), 'calendar').dav_mode).toBe('read_only');
+    expect(queryCall(0)[1][3]).toBe('read_only');
+
+    query.mockClear();
+    const invalid = await fetch(`${base}/api/calendar/calendars/calendar-2`, {
+      method: 'PATCH', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'Work', color: '#123456', displayVisible: true, davMode: 'shared' }),
+    });
+    expect(invalid.status).toBe(400);
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  it('refuses DAV sharing for the synthetic contact-dates calendar', async () => {
+    const response = await fetch(`${base}/api/calendar/calendars/contacts-birthdays`, {
+      method: 'PATCH', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'Contact dates', color: '#e879f9', displayVisible: true, davMode: 'read_write' }),
+    });
+    expect(response.status).toBe(400);
+    expect(query).not.toHaveBeenCalled();
   });
 
   it('allows display edits on an owned imported calendar without allowing event writes', async () => {
@@ -379,7 +409,7 @@ describe('local calendar API', () => {
       body: JSON.stringify({ name: 'Work', color: '#123456', displayVisible: true }),
     });
     expect(response.status).toBe(200);
-    expect(queryCall(0)[0]).toContain('owner_user_id = $5 AND user_id = $5');
+    expect(queryCall(0)[0]).toContain('owner_user_id = $6 AND user_id = $6');
     expect(queryCall(0)[0]).not.toContain("source = 'local'");
     expect(responseObject(await response.json(), 'calendar').read_only).toBe(true);
   });

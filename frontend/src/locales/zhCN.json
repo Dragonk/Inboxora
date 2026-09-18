@@ -1124,7 +1124,8 @@
       "show": "显示",
       "importGoogle": "导入 Google CSV 文件",
       "exportGoogle": "导出 Google CSV 文件",
-      "exportOutlook": "导出 Outlook CSV 文件"
+      "exportOutlook": "导出 Outlook CSV 文件",
+      "davAccessHint": "控制此通讯录是否发布到已连接的设备（CardDAV）。它绝不会授予超过通讯录本身允许的权限。"
     }
   },
   "contextMenu": {
@@ -1973,7 +1974,12 @@
     "recurrenceCustomHint": "此系列使用自定义重复规则，本编辑器无法修改：{{rule}}",
     "recurrenceReplace": "替换规则",
     "recurrenceScope": "应用更改到",
-    "recurrenceWeekdays": "重复于"
+    "recurrenceWeekdays": "重复于",
+    "davAccess": "DAV 访问",
+    "davAccessOff": "已禁用",
+    "davAccessReadOnly": "只读",
+    "davAccessReadWrite": "读写",
+    "davAccessHint": "控制此日历是否发布到已连接的设备（CalDAV）。它绝不会授予超过日历本身允许的权限。"
   },
   "mailFolders": {
     "inbox": "收件箱",

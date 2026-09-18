@@ -1124,7 +1124,8 @@
       "show": "Показать",
       "importGoogle": "Импорт файла CSV из Google",
       "exportGoogle": "Экспорт CSV для Google",
-      "exportOutlook": "Экспорт CSV для Outlook"
+      "exportOutlook": "Экспорт CSV для Outlook",
+      "davAccessHint": "Определяет, публикуется ли эта адресная книга на подключённых устройствах (CardDAV). Она никогда не даёт больше прав, чем сама книга."
     }
   },
   "contextMenu": {
@@ -1973,7 +1974,12 @@
     "recurrenceCustomHint": "Эта серия использует настраиваемое правило, которое этот редактор не может изменить: {{rule}}",
     "recurrenceReplace": "Заменить правило",
     "recurrenceScope": "Применить изменения к",
-    "recurrenceWeekdays": "Повторять в"
+    "recurrenceWeekdays": "Повторять в",
+    "davAccess": "Доступ по DAV",
+    "davAccessOff": "Отключён",
+    "davAccessReadOnly": "Только чтение",
+    "davAccessReadWrite": "Чтение и запись",
+    "davAccessHint": "Определяет, публикуется ли этот календарь на подключённых устройствах (CalDAV). Он никогда не даёт больше прав, чем сам календарь."
   },
   "mailFolders": {
     "inbox": "Входящие",

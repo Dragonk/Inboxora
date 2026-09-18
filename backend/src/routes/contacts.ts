@@ -123,7 +123,7 @@ async function requireLocalAddressBook(userId: string, addressBookId: string): P
 
 router.get('/address-books', async (req, res) => {
   try {
-    const result = await query(`SELECT ab.id, ab.name, ab.source, ab.visible, COUNT(c.id)::int AS contact_count FROM address_books ab LEFT JOIN contacts c ON c.address_book_id = ab.id WHERE ab.user_id = $1 GROUP BY ab.id ORDER BY ab.created_at ASC`, [req.session.userId]);
+    const result = await query(`SELECT ab.id, ab.name, ab.source, ab.visible, ab.dav_mode, COUNT(c.id)::int AS contact_count FROM address_books ab LEFT JOIN contacts c ON c.address_book_id = ab.id WHERE ab.user_id = $1 GROUP BY ab.id ORDER BY ab.created_at ASC`, [req.session.userId]);
     res.json({ addressBooks: result.rows });
   } catch (err) { console.error('Address book list error:', err); res.status(500).json({ error: 'Failed to fetch address books' }); }
 });
@@ -132,7 +132,7 @@ router.post('/address-books', async (req, res) => {
   const name = localBookName(req.body?.name);
   if (!name) return res.status(400).json({ error: 'Address book name must be 1 to 120 characters' });
   try {
-    const result = await query(`INSERT INTO address_books (user_id, name, source, visible) VALUES ($1, $2, 'local', true) RETURNING id, name, source, visible`, [req.session.userId, name]);
+    const result = await query(`INSERT INTO address_books (user_id, name, source, visible) VALUES ($1, $2, 'local', true) RETURNING id, name, source, visible, dav_mode`, [req.session.userId, name]);
     res.status(201).json(result.rows[0]);
   } catch (caught) {
     const err = toAppError(caught);
@@ -142,14 +142,17 @@ router.post('/address-books', async (req, res) => {
 });
 
 router.patch('/address-books/:id', async (req, res) => {
-  const { name: rawName, visible } = req.body || {};
+  const { name: rawName, visible, davMode } = req.body || {};
   if (rawName !== undefined && !localBookName(rawName)) return res.status(400).json({ error: 'Address book name must be 1 to 120 characters' });
   if (visible !== undefined && typeof visible !== 'boolean') return res.status(400).json({ error: 'visible must be a boolean' });
-  if (rawName === undefined && visible === undefined) return res.status(400).json({ error: 'No address book changes supplied' });
+  if (davMode !== undefined && davMode !== null && davMode !== 'off' && davMode !== 'read_only' && davMode !== 'read_write') {
+    return res.status(400).json({ error: 'davMode must be off, read_only or read_write' });
+  }
+  if (rawName === undefined && visible === undefined && (davMode === undefined || davMode === null)) return res.status(400).json({ error: 'No address book changes supplied' });
   try {
     const local = await requireLocalAddressBook(sessionUserId(req), req.params.id);
     if ('error' in local) return res.status(local.status).json({ error: local.error });
-    const result = await query(`UPDATE address_books SET name = COALESCE($1, name), visible = COALESCE($2, visible), updated_at = NOW() WHERE id = $3 AND user_id = $4 RETURNING id, name, source, visible`, [rawName === undefined ? null : localBookName(rawName), visible === undefined ? null : visible, req.params.id, req.session.userId]);
+    const result = await query(`UPDATE address_books SET name = COALESCE($1, name), visible = COALESCE($2, visible), dav_mode = COALESCE($3, dav_mode), updated_at = NOW() WHERE id = $4 AND user_id = $5 RETURNING id, name, source, visible, dav_mode`, [rawName === undefined ? null : localBookName(rawName), visible === undefined ? null : visible, davMode ?? null, req.params.id, req.session.userId]);
     res.json(result.rows[0]);
   } catch (caught) {
     const err = toAppError(caught);

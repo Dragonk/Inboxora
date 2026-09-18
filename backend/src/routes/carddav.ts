@@ -27,6 +27,7 @@ interface AddressBookRow {
   sync_token?: string | null;
   sync_version?: number | null;
   source?: string | null;
+  dav_mode?: string | null;
 }
 
 interface CarddavContactRow {
@@ -139,9 +140,16 @@ function addressBookPrivilegeSet(writable: boolean) {
   return `<D:current-user-privilege-set>${privileges.map(privilege => `<D:privilege>${privilege}</D:privilege>`).join('')}</D:current-user-privilege-set>`;
 }
 
-/** Whether this server would accept a write to the book (local books only). */
+type DavMode = 'off' | 'read_only' | 'read_write';
+
+/** An unknown/absent mode is treated as fully enabled, matching pre-0105 rows. */
+function davModeOf(value: unknown): DavMode {
+  return value === 'off' || value === 'read_only' || value === 'read_write' ? value : 'read_write';
+}
+
+/** Whether this server would accept a write to the book (local, read-write books only). */
 function addressBookWritable(book: AddressBookRow): boolean {
-  return (book.source ?? 'local') === 'local';
+  return (book.source ?? 'local') === 'local' && davModeOf(book.dav_mode) === 'read_write';
 }
 
 function addressBookSupportedReportSet() {
@@ -205,7 +213,7 @@ router.propfind('/:userId/', async (req, res) => {
   if (req.params.userId !== userId) return res.status(403).end();
 
   const principalPath  = `/carddav/${userId}/`;
-  const r = await query<AddressBookRow>('SELECT id, name, sync_token, sync_version, source FROM address_books WHERE user_id = $1 ORDER BY created_at', [userId]);
+  const r = await query<AddressBookRow>("SELECT id, name, sync_token, sync_version, source, dav_mode FROM address_books WHERE user_id = $1 AND dav_mode <> 'off' ORDER BY created_at", [userId]);
   const principal = response(principalPath, [
     propstat([
       '<D:resourcetype><D:principal/><D:collection/></D:resourcetype>',
@@ -245,6 +253,7 @@ router.propfind('/:userId/:bookId/', async (req, res) => {
   );
   if (!bookResult.rows.length) return res.status(404).end();
   const book = bookResult.rows[0];
+  if (davModeOf(book.dav_mode) === 'off') return res.status(404).end();
 
   const bookPath = `/carddav/${userId}/${book.id}/`;
 
@@ -294,6 +303,7 @@ router.report('/:userId/:bookId/', async (req, res) => {
   );
   if (!bookResult.rows.length) return res.status(404).end();
   const book = bookResult.rows[0];
+  if (davModeOf(book.dav_mode) === 'off') return res.status(404).end();
   const bookPath = `/carddav/${userId}/${book.id}/`;
 
   const body = await rawBody(req);
@@ -368,7 +378,7 @@ router.get('/:userId/:bookId/:filename', async (req, res) => {
   const result = await query(
     `SELECT c.vcard, c.etag FROM contacts c
      JOIN address_books ab ON ab.id = c.address_book_id
-     WHERE ab.id = $1 AND ab.user_id = $2 AND COALESCE(c.dav_filename, c.uid || '.vcf') = $3`,
+     WHERE ab.id = $1 AND ab.user_id = $2 AND ab.dav_mode <> 'off' AND COALESCE(c.dav_filename, c.uid || '.vcf') = $3`,
     [req.params.bookId, userId, uid]
   );
   if (!result.rows.length) return res.status(404).end();
@@ -400,12 +410,13 @@ router.put('/:userId/:bookId/:filename', async (req, res) => {
 
   try {
     const bookResult = await query<AddressBookRow>(
-      'SELECT id, source FROM address_books WHERE id = $1 AND user_id = $2',
+      'SELECT id, source, dav_mode FROM address_books WHERE id = $1 AND user_id = $2',
       [req.params.bookId, userId]
     );
     if (!bookResult.rows.length) return res.status(404).end();
     const book = bookResult.rows[0];
-    if (book.source !== 'local') return res.status(403).end();
+    if (davModeOf(book.dav_mode) === 'off') return res.status(404).end();
+    if (book.source !== 'local' || davModeOf(book.dav_mode) === 'read_only') return res.status(403).end();
     const bookId = book.id;
 
     const existing = await query(
@@ -485,11 +496,12 @@ router.delete('/:userId/:bookId/:filename', async (req, res) => {
 
   try {
     const bookResult = await query<AddressBookRow>(
-      'SELECT id, source FROM address_books WHERE id = $1 AND user_id = $2',
+      'SELECT id, source, dav_mode FROM address_books WHERE id = $1 AND user_id = $2',
       [req.params.bookId, userId]
     );
     if (!bookResult.rows.length) return res.status(404).end();
-    if (bookResult.rows[0].source !== 'local') return res.status(403).end();
+    if (davModeOf(bookResult.rows[0].dav_mode) === 'off') return res.status(404).end();
+    if (bookResult.rows[0].source !== 'local' || davModeOf(bookResult.rows[0].dav_mode) === 'read_only') return res.status(403).end();
 
     const result = await query(
       `DELETE FROM contacts

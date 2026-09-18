@@ -53,4 +53,17 @@ describe('CalendarSidebar contract', () => {
     const component = await source();
     assert.match(component, /deleteSource\(id\); clearSourcePoll\(id\);/);
   });
+
+  it('lets the owner choose the per-collection DAV access mode', async () => {
+    const component = await source();
+    assert.match(component, /data-testid="calendar-dav-mode"/);
+    for (const mode of ['off', 'read_only', 'read_write']) {
+      assert.match(component, new RegExp(`value="${mode}"`));
+    }
+    // The dialog sends the chosen mode (and defaults to the stored one), so an
+    // unrelated rename never silently resets the sharing policy.
+    assert.match(component, /davMode: changes\.davMode \?\? davModeOf\(calendar\.dav_mode\)/);
+    assert.match(component, /davMode: davModeOf\(calendar\.dav_mode\) \}/);
+    assert.match(component, /calendar\.davAccess/);
+  });
 });

@@ -1124,7 +1124,8 @@
       "show": "Afficher",
       "importGoogle": "Importer un fichier CSV Google",
       "exportGoogle": "Exporter au format CSV Google",
-      "exportOutlook": "Exporter au format CSV Outlook"
+      "exportOutlook": "Exporter au format CSV Outlook",
+      "davAccessHint": "Indique si ce carnet d'adresses est publié vers les appareils connectés (CardDAV). Cela n'accorde jamais plus que ce que le carnet autorise."
     }
   },
   "contextMenu": {
@@ -1973,7 +1974,12 @@
     "recurrenceCustomHint": "Cette série utilise une règle personnalisée que cet éditeur ne peut pas modifier : {{rule}}",
     "recurrenceReplace": "Remplacer la règle",
     "recurrenceScope": "Appliquer les modifications à",
-    "recurrenceWeekdays": "Répéter le"
+    "recurrenceWeekdays": "Répéter le",
+    "davAccess": "Accès DAV",
+    "davAccessOff": "Désactivé",
+    "davAccessReadOnly": "Lecture seule",
+    "davAccessReadWrite": "Lecture et écriture",
+    "davAccessHint": "Indique si ce calendrier est publié vers les appareils connectés (CalDAV). Cela n'accorde jamais plus que ce que le calendrier autorise."
   },
   "mailFolders": {
     "inbox": "Boîte de réception",

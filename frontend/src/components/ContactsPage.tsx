@@ -152,9 +152,16 @@ interface AddressBookRow { id: string; name?: string | null; [key: string]: unkn
 /** The address-book name dialog: null when closed, otherwise the mode and the value
  * being edited. A real dialog rather than window.prompt, so naming a book looks like
  * the rest of the app and can show the server's validation error in place. */
+/** The per-address-book DAV sharing mode. */
+type AddressBookDavMode = 'off' | 'read_only' | 'read_write';
+
 type BookDialogState =
   | { mode: 'create'; id: null; name: string }
-  | { mode: 'rename'; id: string; name: string };
+  | { mode: 'rename'; id: string; name: string; davMode: AddressBookDavMode; davEditable: boolean };
+
+function addressBookDavModeOf(value: unknown): AddressBookDavMode {
+  return value === 'off' || value === 'read_only' || value === 'read_write' ? value : 'read_write';
+}
 
 
 export default function ContactsPage({ isActive = true }) {
@@ -290,7 +297,7 @@ export default function ContactsPage({ isActive = true }) {
   // Both naming flows go through one dialog. Creating and renaming differ only in which
   // request is sent, so they share the field, the validation message and the keyboard flow.
   const openCreateBook = () => { setBookError(null); setBookDialog({ mode: 'create', id: null, name: '' }); };
-  const openRenameBook = (book: { id: string; name?: string | null }) => { setBookError(null); setBookDialog({ mode: 'rename', id: book.id, name: book.name ?? '' }); };
+  const openRenameBook = (book: { id: string; name?: string | null; source?: string | null; dav_mode?: unknown }) => { setBookError(null); setBookDialog({ mode: 'rename', id: book.id, name: book.name ?? '', davMode: addressBookDavModeOf(book.dav_mode), davEditable: (book.source ?? 'local') === 'local' }); };
   const submitBookDialog = async () => {
     if (!bookDialog || bookSaving) return;
     const name = bookDialog.name.trim();
@@ -303,7 +310,8 @@ export default function ContactsPage({ isActive = true }) {
         setSelectedAddressBookId(book.id);
       } else {
         // The renamed book stays selected, so the list does not jump to another book.
-        await api.addressBooks.update(bookDialog.id, { name });
+        // The DAV mode only accompanies a local book; an imported one keeps its policy.
+        await api.addressBooks.update(bookDialog.id, bookDialog.davEditable ? { name, davMode: bookDialog.davMode } : { name });
         await loadAddressBooks();
       }
       setBookDialog(null);
@@ -599,6 +607,23 @@ export default function ContactsPage({ isActive = true }) {
           onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); submitBookDialog(); } }}
         />
       </label>
+      {/* DAV sharing is per address book, so a device password can never widen it. */}
+      {bookDialog.mode === 'rename' && bookDialog.davEditable && (
+        <>
+          <label>{t('calendar.davAccess')}
+            <select
+              data-testid="contacts-book-dav-mode"
+              value={bookDialog.davMode}
+              onChange={event => setBookDialog(current => current && current.mode === 'rename' ? { ...current, davMode: addressBookDavModeOf(event.target.value) } : current)}
+            >
+              <option value="off">{t('calendar.davAccessOff')}</option>
+              <option value="read_only">{t('calendar.davAccessReadOnly')}</option>
+              <option value="read_write">{t('calendar.davAccessReadWrite')}</option>
+            </select>
+          </label>
+          <p style={{ margin: 0, fontSize: 11, color: 'var(--text-tertiary)' }}>{t('contacts.addressBooks.davAccessHint')}</p>
+        </>
+      )}
     </div>
   </Dialog>;
   const searchControl = <div className="contacts-search">

@@ -33,7 +33,15 @@ interface CalendarRow {
   owner_user_id?: string | null;
   display_visible?: boolean | null;
   custom_name?: boolean | null;
+  dav_mode?: string | null;
   [key: string]: unknown;
+}
+
+/** The DAV modes the collection editor can choose. */
+type DavMode = 'off' | 'read_only' | 'read_write';
+
+function davModeOf(value: unknown): DavMode {
+  return value === 'off' || value === 'read_only' || value === 'read_write' ? value : 'read_write';
 }
 
 /** The appearance dialog's draft: the calendar plus its editable field values. */
@@ -41,6 +49,7 @@ interface CalendarEditDraft {
   calendar: CalendarRow;
   name: string;
   color: string;
+  davMode: DavMode;
 }
 
 /** Whether a value carries the id an external calendar source always has. */
@@ -216,16 +225,16 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
     }
   };
   const ownedCalendar = (calendar: CalendarRow) => Boolean(calendar.source === 'local' && !calendar.read_only && calendar.owner_user_id);
-  const updateCalendarAppearance = async (calendar: CalendarRow, changes: { name?: string; color?: string }) => {
+  const updateCalendarAppearance = async (calendar: CalendarRow, changes: { name?: string; color?: string; davMode?: DavMode }) => {
     setCalendarSaving(true); setEditError(null);
     try {
-      await api.calendar.updateCalendar(calendar.id, { name: changes.name || calendar.name, color: changes.color || calendar.color, displayVisible: calendar.display_visible !== false, customName: Boolean(calendar.custom_name || changes.name !== calendar.name) });
+      await api.calendar.updateCalendar(calendar.id, { name: changes.name || calendar.name, color: changes.color || calendar.color, displayVisible: calendar.display_visible !== false, customName: Boolean(calendar.custom_name || changes.name !== calendar.name), davMode: changes.davMode ?? davModeOf(calendar.dav_mode) });
       setOpenCalendarMenu(null); setCalendarEdit(null); await onCalendarsChanged?.();
     } catch (error) { setEditError(toAppError(error).message); } finally { setCalendarSaving(false); }
   };
   const editCalendar = (calendar: CalendarRow) => {
     setOpenCalendarMenu(null); setEditError(null);
-    setCalendarEdit({ calendar, name: calendar.name ?? '', color: calendar.color || '#35558a' });
+    setCalendarEdit({ calendar, name: calendar.name ?? '', color: calendar.color || '#35558a', davMode: davModeOf(calendar.dav_mode) });
   };
   const deleteCalendar = async (calendar: CalendarRow) => {
     if (calendar.name === null || calendar.name === undefined) {
@@ -256,7 +265,7 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
     </section>
     {calendarEdit && <Dialog testId="calendar-appearance-dialog" title={t('calendar.calendarActions', { name: calendarEdit.calendar.name })} closeLabel={t('calendar.close')} busy={calendarSaving} onClose={() => setCalendarEdit(null)} footer={<>
       <Button onClick={() => setCalendarEdit(null)} disabled={calendarSaving}>{t('calendar.cancel')}</Button>
-      <Button variant="primary" disabled={calendarSaving || !calendarEdit.name.trim() || !/^#[0-9a-f]{6}$/i.test(calendarEdit.color)} onClick={() => updateCalendarAppearance(calendarEdit.calendar, { name: calendarEdit.name.trim(), color: calendarEdit.color })}>{t(calendarSaving ? 'calendar.saving' : 'calendar.save')}</Button>
+      <Button variant="primary" disabled={calendarSaving || !calendarEdit.name.trim() || !/^#[0-9a-f]{6}$/i.test(calendarEdit.color)} onClick={() => updateCalendarAppearance(calendarEdit.calendar, { name: calendarEdit.name.trim(), color: calendarEdit.color, davMode: calendarEdit.davMode })}>{t(calendarSaving ? 'calendar.saving' : 'calendar.save')}</Button>
     </>}>
       <div className="ui-form">
         {editError && <p role="alert" className="ui-alert">{editError}</p>}
@@ -265,6 +274,15 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
           {['#35558a', '#35793a', '#e879f9', '#e05252', '#d79a28', '#7c6af7'].map(color => <button key={color} type="button" aria-label={`${t('calendar.changeColor')} ${color}`} aria-pressed={calendarEdit.color === color} onClick={() => setCalendarEdit(current => current ? { ...current, color } : current)} style={{ width: 44, height: 44, borderRadius: 8, border: calendarEdit.color === color ? '3px solid var(--text-primary)' : '3px solid transparent', background: color }} />)}
         </div>
+        {/* DAV sharing is per collection so a device password can never widen it. */}
+        <label>{t('calendar.davAccess')}
+          <select data-testid="calendar-dav-mode" value={calendarEdit.davMode} onChange={event => setCalendarEdit(current => current ? { ...current, davMode: davModeOf(event.target.value) } : current)}>
+            <option value="off">{t('calendar.davAccessOff')}</option>
+            <option value="read_only">{t('calendar.davAccessReadOnly')}</option>
+            <option value="read_write">{t('calendar.davAccessReadWrite')}</option>
+          </select>
+        </label>
+        <p style={{ margin: 0, fontSize: 11, color: 'var(--text-tertiary)' }}>{t('calendar.davAccessHint')}</p>
       </div>
     </Dialog>}
     {showSources && <Dialog title={t('calendar.manageSources')} closeLabel={t('calendar.close')} onClose={() => setShowSources(false)}>

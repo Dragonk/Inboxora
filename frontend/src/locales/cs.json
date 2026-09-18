@@ -1124,7 +1124,8 @@
       "show": "Zobrazit",
       "importGoogle": "Importovat CSV z Google",
       "exportGoogle": "Export CSV pro Google",
-      "exportOutlook": "Export CSV pro Outlook"
+      "exportOutlook": "Export CSV pro Outlook",
+      "davAccessHint": "Určuje, zda je tento adresář zpřístupněn připojeným zařízením (CardDAV). Nikdy neuděluje více, než dovoluje samotný adresář."
     }
   },
   "contextMenu": {
@@ -1973,7 +1974,12 @@
     "recurrenceCustomHint": "Tato série používá vlastní pravidlo, které tento editor neumí změnit: {{rule}}",
     "recurrenceReplace": "Nahradit pravidlo",
     "recurrenceScope": "Použít změny na",
-    "recurrenceWeekdays": "Opakovat v"
+    "recurrenceWeekdays": "Opakovat v",
+    "davAccess": "Přístup DAV",
+    "davAccessOff": "Vypnuto",
+    "davAccessReadOnly": "Pouze pro čtení",
+    "davAccessReadWrite": "Čtení i zápis",
+    "davAccessHint": "Určuje, zda je tento kalendář zpřístupněn připojeným zařízením (CalDAV). Nikdy neuděluje více, než dovoluje samotný kalendář."
   },
   "mailFolders": {
     "inbox": "Doručená pošta",

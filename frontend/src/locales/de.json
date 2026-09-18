@@ -1124,7 +1124,8 @@
       "show": "Anzeigen",
       "importGoogle": "Google-CSV importieren",
       "exportGoogle": "CSV für Google exportieren",
-      "exportOutlook": "CSV für Outlook exportieren"
+      "exportOutlook": "CSV für Outlook exportieren",
+      "davAccessHint": "Legt fest, ob dieses Adressbuch für verbundene Geräte (CardDAV) bereitgestellt wird. Es gewährt nie mehr, als das Adressbuch selbst erlaubt."
     }
   },
   "contextMenu": {
@@ -1973,7 +1974,12 @@
     "recurrenceCustomHint": "Diese Serie verwendet eine benutzerdefinierte Regel, die dieser Editor nicht ändern kann: {{rule}}",
     "recurrenceReplace": "Regel ersetzen",
     "recurrenceScope": "Änderung anwenden auf",
-    "recurrenceWeekdays": "Wiederholen am"
+    "recurrenceWeekdays": "Wiederholen am",
+    "davAccess": "DAV-Zugriff",
+    "davAccessOff": "Deaktiviert",
+    "davAccessReadOnly": "Nur Lesen",
+    "davAccessReadWrite": "Lesen und Schreiben",
+    "davAccessHint": "Legt fest, ob dieser Kalender für verbundene Geräte (CalDAV) bereitgestellt wird. Er gewährt nie mehr, als der Kalender selbst erlaubt."
   },
   "mailFolders": {
     "inbox": "Posteingang",

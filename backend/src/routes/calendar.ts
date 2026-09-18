@@ -442,14 +442,14 @@ router.post('/invitations/:messageId', async (req, res) => {
 
 router.get('/calendars', async (req, res) => {
   const result = await query(
-    `SELECT id, name, description, color, source, external_url, read_only, display_visible, owner_user_id, sync_token, created_at, updated_at
+    `SELECT id, name, description, color, source, external_url, read_only, display_visible, owner_user_id, sync_token, created_at, updated_at, dav_mode
      FROM calendars WHERE user_id = $1 AND owner_user_id = $1 ORDER BY created_at ASC`,
     [req.session.userId],
   );
   const appearance = await contactCalendarAppearance(sessionUserId(req));
   res.json({ calendars: [...result.rows, {
     id: 'contacts-birthdays', name: appearance.name || 'Contact dates', custom_name: Boolean(appearance.name), description: 'Birthdays and anniversaries from contacts',
-    color: appearance.color || '#e879f9', source: 'contacts', external_url: null, read_only: true, display_visible: appearance.displayVisible !== false,
+    color: appearance.color || '#e879f9', source: 'contacts', external_url: null, read_only: true, display_visible: appearance.displayVisible !== false, dav_mode: 'off',
   }] });
 });
 
@@ -474,7 +474,7 @@ router.post('/calendars', async (req, res) => {
     const result = await query(
       `INSERT INTO calendars (user_id, owner_user_id, name, color, display_visible, source, read_only)
        VALUES ($1, $1, $2, $3, $4, 'local', false)
-       RETURNING id, user_id, owner_user_id, name, description, color, source, external_url, read_only, display_visible, sync_token, created_at, updated_at`,
+       RETURNING id, user_id, owner_user_id, name, description, color, source, external_url, read_only, display_visible, sync_token, created_at, updated_at, dav_mode`,
       [req.session.userId, name, color, displayVisible],
     );
     return res.status(201).json({ calendar: result.rows[0] });
@@ -489,24 +489,32 @@ router.patch('/calendars/:calendarId', async (req, res) => {
   const name = calendarName(req.body?.name);
   const color = calendarColor(req.body?.color);
   const displayVisible = req.body?.displayVisible;
+  const davMode = req.body?.davMode;
   if (!name || color === undefined || typeof displayVisible !== 'boolean') {
     return res.status(400).json({ error: 'name, a hex color, and displayVisible are required' });
   }
+  if (davMode !== undefined && davMode !== null && davMode !== 'off' && davMode !== 'read_only' && davMode !== 'read_write') {
+    return res.status(400).json({ error: 'davMode must be off, read_only or read_write' });
+  }
   if (req.params.calendarId === 'contacts-birthdays') {
+    if (davMode !== undefined && davMode !== null) {
+      // The synthetic contact-date calendar is read-only and never DAV-exported.
+      return res.status(400).json({ error: 'The contact dates calendar cannot be shared over DAV' });
+    }
     const customName = req.body.customName === false ? null : name;
     await query(
       "UPDATE users SET preferences = COALESCE(preferences, '{}'::jsonb) || jsonb_build_object('calendarContactAppearance', $2::jsonb) WHERE id = $1",
       [req.session.userId, JSON.stringify({ name: customName, color, displayVisible })],
     );
-    return res.json({ calendar: { id: 'contacts-birthdays', name: customName || 'Contact dates', custom_name: Boolean(customName), color, display_visible: displayVisible, source: 'contacts', read_only: true } });
+    return res.json({ calendar: { id: 'contacts-birthdays', name: customName || 'Contact dates', custom_name: Boolean(customName), color, display_visible: displayVisible, source: 'contacts', read_only: true, dav_mode: 'off' } });
   }
   try {
     const result = await query(
       `UPDATE calendars
-       SET name = $1, color = $2, display_visible = $3, updated_at = NOW()
-       WHERE id = $4 AND owner_user_id = $5 AND user_id = $5
-       RETURNING id, user_id, owner_user_id, name, description, color, source, external_url, read_only, display_visible, sync_token, created_at, updated_at`,
-      [name, color, displayVisible, req.params.calendarId, req.session.userId],
+       SET name = $1, color = $2, display_visible = $3, dav_mode = COALESCE($4, dav_mode), updated_at = NOW()
+       WHERE id = $5 AND owner_user_id = $6 AND user_id = $6
+       RETURNING id, user_id, owner_user_id, name, description, color, source, external_url, read_only, display_visible, sync_token, created_at, updated_at, dav_mode`,
+      [name, color, displayVisible, davMode ?? null, req.params.calendarId, req.session.userId],
     );
     if (!result.rows[0]) return res.status(404).json({ error: 'Calendar not found' });
     return res.json({ calendar: result.rows[0] });

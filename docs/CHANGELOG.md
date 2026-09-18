@@ -96,6 +96,16 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   A revoked or expired consent (`invalid_grant`) parks the grant as `reauth_required` and stops
   automatic refresh instead of looping. The provider call is never made inside a database
   transaction.
+- Add per-collection DAV visibility and mode (migration `0105_collection_dav_mode.sql`, applied
+  after `0104`). Each calendar and address book now has a **DAV access** setting — *Disabled*,
+  *Read only* or *Read and write* — editable in the calendar's name/colour dialog and the
+  address-book dialog. A disabled collection is absent from discovery and answers `404` on every
+  direct URL, so knowing an old link does not bypass it; a read-only collection serves reads but
+  refuses DAV writes with `403`. The mode is a ceiling: it can only narrow the collection's own
+  rights, never widen them, and the advertised `current-user-privilege-set` matches what the
+  handlers enforce. Existing collections default to *Read and write*, so an upgrade changes
+  nothing, while a collection created by connecting an external CalDAV/CardDAV source starts
+  *Disabled* so it is not published implicitly.
 
 ## [4.0.4] - 2026-09-18
 

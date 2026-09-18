@@ -91,6 +91,24 @@ presents an unknown sync token is told to resynchronise from scratch.
 Events that Inboxora owns because invitations were sent for them are protected from being
 silently modified by a DAV client.
 
+## Choosing what is shared with DAV
+
+Sharing is decided **per calendar and per address book**, not globally. Open a calendar's actions
+menu in the calendar sidebar (name/colour dialog) and set **DAV access**:
+
+| Mode | Effect |
+| --- | --- |
+| **Disabled** | The collection is not listed in discovery and every direct URL for it answers `404`. Knowing an old link does not bypass this. |
+| **Read only** | Devices can read and synchronise it; every write from DAV is refused with `403`. |
+| **Read and write** | Devices may create, change and delete — but never more than the collection itself allows. A calendar read-only at its source stays read-only, and a collection synced from another server is only written through its own adapter. |
+
+The same choice is available for address books through the address-book API/UI, and a collection
+created by connecting an external CalDAV/CardDAV source starts **disabled**, so adding a remote
+source never publishes it to your devices implicitly.
+
+The mode is a ceiling, not a grant: a device application password can only narrow it further, and
+the server advertises exactly the privileges it will enforce in `current-user-privilege-set`.
+
 ## Application passwords
 
 **DAV clients never use your Inboxora login password.** Inboxora primary-login credentials are

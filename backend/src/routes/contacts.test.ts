@@ -292,3 +292,36 @@ describe('Google CSV import persistence', () => {
     expect(JSON.parse(stringParameter(insert[1], 23))).toMatchObject({ 'Custom Field 1 - Label': 'Legacy ID', 'Custom Field 1 - Value': '42' });
   });
 });
+
+describe('Address book DAV sharing (dav_mode)', () => {
+  it('stores a DAV mode on a local address book', async () => {
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'user-1' }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'book-1', name: 'Personal', source: 'local', visible: true }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'book-1', name: 'Personal', source: 'local', visible: true, dav_mode: 'read_only' }] });
+
+    const server = createApp().listen(0);
+    const response = await fetch(`http://127.0.0.1:${listeningPort(server)}/api/contacts/address-books/book-1`, {
+      method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ davMode: 'read_only' }),
+    });
+    await new Promise(resolve => server.close(resolve));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ dav_mode: 'read_only' });
+    const update = findQuery('UPDATE address_books SET');
+    expect(update[0]).toContain('dav_mode = COALESCE($3, dav_mode)');
+    expect(stringParameter(update[1], 2)).toBe('read_only');
+  });
+
+  it('rejects an unknown DAV mode before touching the book', async () => {
+    query.mockResolvedValueOnce({ rows: [{ id: 'user-1' }] });
+    const server = createApp().listen(0);
+    const response = await fetch(`http://127.0.0.1:${listeningPort(server)}/api/contacts/address-books/book-1`, {
+      method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ davMode: 'shared' }),
+    });
+    await new Promise(resolve => server.close(resolve));
+
+    expect(response.status).toBe(400);
+    expect(query.mock.calls.some(([sql]) => sql.includes('UPDATE address_books'))).toBe(false);
+  });
+});

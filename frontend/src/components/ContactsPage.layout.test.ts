@@ -26,3 +26,15 @@ test('contact detail renders imported events as contact dates without exposing r
   assert.match(source, /\{contactDates\.map\(\(date, i\)/);
   assert.doesNotMatch(source, /Object\.entries\(c\.googleFields \|\| \{\}\)\.map/);
 });
+
+test('the address-book dialog offers the per-book DAV access mode for local books', () => {
+  assert.match(source, /data-testid="contacts-book-dav-mode"/);
+  for (const mode of ['off', 'read_only', 'read_write']) {
+    assert.match(source, new RegExp(`value="${mode}"`));
+  }
+  // The mode is stored with the book, defaulted from the stored value, and an
+  // imported (non-local) book keeps its policy untouched.
+  assert.match(source, /bookDialog\.davEditable \? \{ name, davMode: bookDialog\.davMode \} : \{ name \}/);
+  assert.match(source, /davMode: addressBookDavModeOf\(book\.dav_mode\)/);
+  assert.match(source, /contacts\.addressBooks\.davAccessHint/);
+});
