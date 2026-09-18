@@ -34,14 +34,24 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.3](wiki/R
   key as `inboxora-signing-key.asc`. Verify a download with
   `gpg --verify SHA256SUMS.asc SHA256SUMS && sha256sum --check --strict SHA256SUMS`. The signing key
   is committed at [`docs/keys/inboxora-release-signing.asc`](keys/inboxora-release-signing.asc)
-  (RSA 4096, fingerprint `C37F F9B3 94FC 574B 267B 4AD5 B3AE 9D82 D044 841B`, expires 2029-09-17).
+  (RSA 4096, `Kamil Maciąg (Inboxora) <kamil.maciag@outlook.com>`, fingerprint
+  `B26C 6D74 C04C E0B8 3648 16D9 2C96 71F8 1ED3 2471`, expires 2029-09-17).
   The step fails the release if the manifest is empty or does not match the artifacts.
 - Windows installers are Authenticode-signed using `MAILFLOW_WINDOWS_CSC_LINK` (base64 PKCS#12) and
-  `MAILFLOW_WINDOWS_CSC_KEY_PASSWORD`. Known safe limitation: that certificate is currently
-  self-signed, so SmartScreen still reports an unknown publisher — replace it with a CA-issued
-  code-signing certificate (or Azure Trusted Signing) before relying on it for public trust.
+  `MAILFLOW_WINDOWS_CSC_KEY_PASSWORD`; the certificate subject is
+  `O=Inboxora, CN=Kamil Maciąg, emailAddress=kamil.maciag@outlook.com`. Known safe limitation: that
+  certificate is currently self-signed, so SmartScreen still reports an unknown publisher — replace
+  it with a CA-issued code-signing certificate (or Azure Trusted Signing) before relying on it for
+  public trust.
 - Linux package integrity: the `.deb`/`.rpm` files are covered by the signed `SHA256SUMS` manifest;
   they carry no embedded `debsigs`/`rpmsign` signature yet.
+
+### Fixed
+
+- Android workflows no longer fail on `android-actions/setup-android@v3`: the action's default
+  package list still contains the legacy `tools` SDK package, which Google removed from the SDK
+  repository, so `sdkmanager` aborted with `Failed to find package 'tools'`. Both
+  `publish-apps.yml` and `android-dev-build.yml` now request only `platform-tools`.
 
 ## [4.0.3] - 2026-09-18
 
