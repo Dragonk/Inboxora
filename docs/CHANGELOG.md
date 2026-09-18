@@ -56,8 +56,10 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   calendar, so a client (for example DAVx⁵) discovers every calendar instead of only one, and a
   `Depth: 1` PROPFIND on the home lists the member calendars while `Depth: 0` returns only the
   home. Calendar and address-book collections now advertise `current-user-privilege-set` (write
-  privileges only when the collection is writable) and `supported-report-set` for exactly the
-  reports implemented. An unrecognised or expired sync token now answers `403` with
+  privileges only for a local, non-read-only collection — a collection synced from an external
+  source is advertised read-only, matching what the DAV write handlers accept) and
+  `supported-report-set` for exactly the reports implemented. An unrecognised or expired sync token
+  now answers `403` with
   `DAV:valid-sync-token` (RFC 6578) instead of `409`, and the `DAV` header no longer advertises
   class 2/3 (LOCK, extended MKCOL), which were never implemented. CalDAV and CardDAV `If-Match`
   now use strong entity-tag comparison (RFC 9110): a weak `W/"…"` validator is rejected with

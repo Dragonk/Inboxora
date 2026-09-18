@@ -109,12 +109,15 @@ function supportedReportSet() {
 }
 
 /** The `Depth: 1` member listing of a calendar collection (RFC 4791 §5.2). */
-function calendarCollectionProperties(calendar: { id: string; name?: string | null; sync_token?: string | null; read_only?: boolean | null }): string[] {
+function calendarCollectionProperties(calendar: { id: string; name?: string | null; sync_token?: string | null; read_only?: boolean | null; source?: string | null }): string[] {
+  // Only a local, non-read-only calendar accepts a DAV write today, so that is
+  // exactly the privilege set advertised.
+  const writable = !calendar.read_only && (calendar.source ?? 'local') === 'local';
   return [
     '<D:resourcetype><D:collection/><C:calendar/></D:resourcetype>',
     `<D:displayname>${xmlEscape(calendar.name)}</D:displayname>`,
     `<D:sync-token>${xmlEscape(calendar.sync_token)}</D:sync-token>`,
-    privilegeSet(!calendar.read_only),
+    privilegeSet(writable),
     supportedReportSet(),
   ];
 }
@@ -165,8 +168,8 @@ router.propfind('/', (req: Request, res: Response) => {
 router.propfind('/:userId/', async (req: Request, res: Response) => {
   if (req.params.userId !== req.caldavUserId) return res.status(403).end();
 
-  const calendars = await query<{ id: string; name?: string | null; sync_token?: string | null; read_only?: boolean | null }>(
-    'SELECT id, name, sync_token, read_only FROM calendars WHERE user_id = $1 ORDER BY created_at ASC',
+  const calendars = await query<{ id: string; name?: string | null; sync_token?: string | null; read_only?: boolean | null; source?: string | null }>(
+    'SELECT id, name, sync_token, read_only, source FROM calendars WHERE user_id = $1 ORDER BY created_at ASC',
     [req.caldavUserId],
   );
   const principalPath = `/caldav/${req.caldavUserId}/`;
@@ -196,8 +199,8 @@ router.propfind('/:userId/', async (req: Request, res: Response) => {
 router.propfind('/:userId/:calendarId/', async (req: Request, res: Response) => {
   if (req.params.userId !== req.caldavUserId) return res.status(403).end();
 
-  const result = await query<{ id: string; name?: string | null; sync_token?: string | null; read_only?: boolean | null }>(
-    'SELECT id, name, sync_token, read_only FROM calendars WHERE id = $1 AND user_id = $2',
+  const result = await query<{ id: string; name?: string | null; sync_token?: string | null; read_only?: boolean | null; source?: string | null }>(
+    'SELECT id, name, sync_token, read_only, source FROM calendars WHERE id = $1 AND user_id = $2',
     [req.params.calendarId, req.caldavUserId],
   );
   const calendar = result.rows[0];

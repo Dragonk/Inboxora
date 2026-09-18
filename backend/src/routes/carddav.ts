@@ -127,13 +127,21 @@ function xmlEscape(s: unknown) {
     .replace(/"/g, '&quot;');
 }
 
-// Advertise only what this server enforces (RFC 3744 / RFC 3253). An address book
-// accepts PUT/DELETE for local books, so it reports the write privileges; the
-// reports listed are exactly the ones the REPORT route implements.
-const ADDRESSBOOK_PRIVILEGES = ['<D:read/>', '<D:write/>', '<D:write-content/>', '<D:bind/>', '<D:unbind/>'];
+// Advertise only what this server enforces (RFC 3744 / RFC 3253). A local address
+// book accepts PUT/DELETE, so it reports the write privileges; a book backed by an
+// external source is read-only here. The reports listed are exactly the ones the
+// REPORT route implements.
+const ADDRESSBOOK_READ_PRIVILEGES = ['<D:read/>'];
+const ADDRESSBOOK_WRITE_PRIVILEGES = ['<D:read/>', '<D:write/>', '<D:write-content/>', '<D:bind/>', '<D:unbind/>'];
 
-function addressBookPrivilegeSet() {
-  return `<D:current-user-privilege-set>${ADDRESSBOOK_PRIVILEGES.map(privilege => `<D:privilege>${privilege}</D:privilege>`).join('')}</D:current-user-privilege-set>`;
+function addressBookPrivilegeSet(writable: boolean) {
+  const privileges = writable ? ADDRESSBOOK_WRITE_PRIVILEGES : ADDRESSBOOK_READ_PRIVILEGES;
+  return `<D:current-user-privilege-set>${privileges.map(privilege => `<D:privilege>${privilege}</D:privilege>`).join('')}</D:current-user-privilege-set>`;
+}
+
+/** Whether this server would accept a write to the book (local books only). */
+function addressBookWritable(book: AddressBookRow): boolean {
+  return (book.source ?? 'local') === 'local';
 }
 
 function addressBookSupportedReportSet() {
@@ -197,7 +205,7 @@ router.propfind('/:userId/', async (req, res) => {
   if (req.params.userId !== userId) return res.status(403).end();
 
   const principalPath  = `/carddav/${userId}/`;
-  const r = await query<AddressBookRow>('SELECT id, name, sync_token, sync_version FROM address_books WHERE user_id = $1 ORDER BY created_at', [userId]);
+  const r = await query<AddressBookRow>('SELECT id, name, sync_token, sync_version, source FROM address_books WHERE user_id = $1 ORDER BY created_at', [userId]);
   const principal = response(principalPath, [
     propstat([
       '<D:resourcetype><D:principal/><D:collection/></D:resourcetype>',
@@ -213,7 +221,7 @@ router.propfind('/:userId/', async (req, res) => {
       `<D:displayname>${xmlEscape(book.name)}</D:displayname>`,
       `<D:sync-token>${xmlEscape(syncToken(book))}</D:sync-token>`,
       `<CS:getctag>${xmlEscape(book.sync_token)}</CS:getctag>`,
-      addressBookPrivilegeSet(),
+      addressBookPrivilegeSet(addressBookWritable(book)),
       addressBookSupportedReportSet(),
     ], '200 OK'),
   ]));
@@ -246,7 +254,7 @@ router.propfind('/:userId/:bookId/', async (req, res) => {
       `<D:displayname>${xmlEscape(book.name)}</D:displayname>`,
       `<D:sync-token>${xmlEscape(syncToken(book))}</D:sync-token>`,
       `<CS:getctag>${xmlEscape(book.sync_token)}</CS:getctag>`,
-      addressBookPrivilegeSet(),
+      addressBookPrivilegeSet(addressBookWritable(book)),
       addressBookSupportedReportSet(),
     ], '200 OK'),
   ]);

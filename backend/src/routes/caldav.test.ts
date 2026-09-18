@@ -186,6 +186,18 @@ describe('CalDAV discovery', () => {
     const readOnlyBody = await readOnly.text();
     expect(readOnlyBody).toContain('<D:privilege><D:read/></D:privilege>');
     expect(readOnlyBody).not.toContain('<D:write');
+
+    // A calendar synced from an external source is writable only through its own
+    // adapter, so CalDAV must not advertise write privileges for it.
+    query.mockReset();
+    query.mockResolvedValueOnce({ rows: [{ id: 'calendar-3', name: 'Remote', sync_token: 'sync-3', read_only: false, source: 'caldav' }] });
+    const synced = await fetch(`${base}/caldav/user-1/calendar-3/`, {
+      method: 'PROPFIND',
+      headers: { authorization: basic('sam@example.test', 'test-dav-password'), depth: '0' },
+    });
+    const syncedBody = await synced.text();
+    expect(syncedBody).toContain('<D:privilege><D:read/></D:privilege>');
+    expect(syncedBody).not.toContain('<D:write');
   });
 });
 

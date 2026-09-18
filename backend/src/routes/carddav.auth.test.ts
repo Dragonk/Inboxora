@@ -106,9 +106,32 @@ describe('CardDAV authentication', () => {
     expect(xml).toContain('/carddav/user-1/personal-contacts/');
     expect(xml).toContain('/carddav/user-1/work-contacts/');
     expect(query).toHaveBeenCalledWith(
-      'SELECT id, name, sync_token, sync_version FROM address_books WHERE user_id = $1 ORDER BY created_at',
+      'SELECT id, name, sync_token, sync_version, source FROM address_books WHERE user_id = $1 ORDER BY created_at',
       ['user-1'],
     );
+  });
+
+  it('advertises CardDAV write privileges only for a local address book', async () => {
+    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
+
+    query.mockResolvedValueOnce({ rows: [{ id: 'book-local', name: 'Personal', sync_token: 'sync-1', source: 'local' }] });
+    const local = await fetch(`${base}/carddav/user-1/book-local/`, {
+      method: 'PROPFIND',
+      headers: { authorization: basic('sam@example.test', 'secret'), depth: '0' },
+    });
+    const localBody = await local.text();
+    expect(localBody).toContain('<D:current-user-privilege-set>');
+    expect(localBody).toContain('<D:privilege><D:write/></D:privilege>');
+
+    query.mockReset();
+    query.mockResolvedValueOnce({ rows: [{ id: 'book-remote', name: 'Remote', sync_token: 'sync-2', source: 'carddav' }] });
+    const remote = await fetch(`${base}/carddav/user-1/book-remote/`, {
+      method: 'PROPFIND',
+      headers: { authorization: basic('sam@example.test', 'secret'), depth: '0' },
+    });
+    const remoteBody = await remote.text();
+    expect(remoteBody).toContain('<D:privilege><D:read/></D:privilege>');
+    expect(remoteBody).not.toContain('<D:write');
   });
 
   it('rejects writes to an imported address book', async () => {
