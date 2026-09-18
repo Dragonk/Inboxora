@@ -62,6 +62,17 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   class 2/3 (LOCK, extended MKCOL), which were never implemented. CalDAV and CardDAV `If-Match`
   now use strong entity-tag comparison (RFC 9110): a weak `W/"…"` validator is rejected with
   `412` even when its value matches, instead of being stripped to a strong comparison.
+- Add the v4 sync/operation foundation (migration `0102_operation_journal_and_outbox.sql`, applied
+  after `0101`): provider-operation claims with a monotonic generation and lease, sync-run leases
+  and ownership columns on `sync_states`, and a `domain_outbox` for idempotent delivery after a
+  local commit. New services `providerOperations`, `syncCoordinator` and `domainOutbox` implement
+  the journal, lease/fencing and outbox contracts. A restarted or superseded worker can no longer
+  complete an operation it no longer owns; an identical retry replays the stored result instead of
+  calling the provider again; the same key with different content is a conflict; and an
+  unconfirmed outcome is parked for reconciliation rather than retried automatically. Outbox
+  delivery is at-least-once with a per-event identity and a bounded retry budget, so a delivery
+  retry cannot duplicate a local effect. The migration is expand-only and must be applied before a
+  build that reads the new columns.
 
 ## [4.0.4] - 2026-09-18
 

@@ -265,4 +265,22 @@ describe('migration integrity', () => {
     // Widening the calendar/address-book source check stays backward compatible.
     expect(sql).toContain("CHECK (source IN ('local', 'caldav', 'ical_url', 'microsoft', 'google'))");
   });
+
+  it('adds operation claims, sync leases and the domain outbox without rewriting rows', () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/0102_operation_journal_and_outbox.sql'), 'utf8');
+    // Claim ownership and the monotonic fencing token the journal relies on.
+    expect(sql).toContain('ADD COLUMN IF NOT EXISTS claim_token UUID');
+    expect(sql).toContain('ADD COLUMN IF NOT EXISTS generation BIGINT NOT NULL DEFAULT 1');
+    expect(sql).toContain('ADD COLUMN IF NOT EXISTS result JSONB');
+    // Sync-run ownership and failure timestamps.
+    expect(sql).toContain('ADD COLUMN IF NOT EXISTS running_owner TEXT');
+    expect(sql).toContain('ADD COLUMN IF NOT EXISTS last_error_at TIMESTAMPTZ');
+    // Outbox idempotency is enforced by the database, not by the caller.
+    expect(sql).toContain('CREATE TABLE IF NOT EXISTS domain_outbox');
+    expect(sql).toContain('UNIQUE (user_id, topic, dedupe_key)');
+    expect(sql).toContain("CHECK (status IN ('pending', 'processing', 'done', 'failed'))");
+    // Expand-only: the migration defines no data rewrite.
+    expect(sql).not.toMatch(/UPDATE\s+provider_operations/i);
+    expect(sql).not.toMatch(/UPDATE\s+sync_states/i);
+  });
 });
