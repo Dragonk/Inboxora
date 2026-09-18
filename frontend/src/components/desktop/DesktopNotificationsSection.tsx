@@ -68,7 +68,11 @@ export default function DesktopNotificationsSection() {
     } catch {
       value = undefined;
     }
+    // A superseded read must not touch any state: a newer refresh is in flight and
+    // will report the real answer.
     if (token !== refreshToken.current) return;
+    // Whichever refresh applies the answer is the one that makes the card usable.
+    setLoaded(true);
     if (!value) {
       // Leaving DEFAULTS on screen would claim notifications are enabled and
       // supported; an unreadable state is reported instead, with a retry.
@@ -84,11 +88,9 @@ export default function DesktopNotificationsSection() {
   }, [notifications]);
 
   useEffect(() => {
-    let cancelled = false;
-    void refresh().finally(() => {
-      if (!cancelled) setLoaded(true);
-    });
-    return () => { cancelled = true; };
+    // `refresh` owns the staleness guard and marks the card loaded when it applies
+    // an answer, so a superseded read can never make the defaults look loaded.
+    void refresh();
   }, [refresh]);
 
   // The OS state can change while Inboxora is in the background — most obviously

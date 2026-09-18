@@ -59,7 +59,9 @@ export default function DesktopDefaultMailSection() {
     } catch {
       value = undefined;
     }
+    // A superseded read must not touch any state; the newer refresh reports the answer.
     if (token !== refreshToken.current) return;
+    setLoaded(true);
     if (!value) {
       setLoadFailed(true);
       return;
@@ -69,11 +71,7 @@ export default function DesktopDefaultMailSection() {
   }, [mailto]);
 
   useEffect(() => {
-    let cancelled = false;
-    void refresh().finally(() => {
-      if (!cancelled) setLoaded(true);
-    });
-    return () => { cancelled = true; };
+    void refresh();
   }, [refresh]);
 
   // The user changes this in Windows Settings, so re-read it when the window comes
