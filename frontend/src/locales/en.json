@@ -189,6 +189,8 @@
       "navigationTop": "Top",
       "navigationBottom": "Bottom",
       "mobileNavigationDescription": "Position of the menu and actions in mail, contacts and calendar.",
+      "mobileSidebarSwipe": "Open the menu with a swipe from the left",
+      "mobileSidebarSwipeDescription": "Swipe right, starting in the left quarter of the screen.",
       "navigationTopDesc": "The panel switcher sits above the message list.",
       "navigationBottomDesc": "The panel switcher sits below, within thumb reach."
     },

@@ -12,6 +12,15 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
 
 ## [Unreleased]
 
+### Added
+
+- Mobile: open the navigation drawer by dragging right from the left quarter of the visible
+  surface. A single gesture owner arbitrates between the drawer, a message-row swipe and
+  scrolling, so a partly opened drawer cannot also archive a message. A new
+  **Settings → Appearance → "Open the menu with a swipe from the left"** switch (on by default)
+  sits directly next to the top/bottom navigation choice and is saved per user; when it is off
+  the gesture reserves no start zone. The message reader keeps native text selection.
+
 ## [4.0.4] - 2026-09-18
 
 ### Changed

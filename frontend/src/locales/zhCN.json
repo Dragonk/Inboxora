@@ -189,6 +189,8 @@
       "navigationTop": "顶部",
       "navigationBottom": "底部",
       "mobileNavigationDescription": "邮件、联系人和日历中菜单与操作按钮的位置。",
+      "mobileSidebarSwipe": "从左侧滑动打开菜单",
+      "mobileSidebarSwipeDescription": "从屏幕左侧四分之一处开始向右滑动。",
       "navigationTopDesc": "面板切换器位于邮件列表上方。",
       "navigationBottomDesc": "面板切换器位于下方，便于拇指操作。"
     },

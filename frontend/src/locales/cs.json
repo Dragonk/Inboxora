@@ -121,6 +121,8 @@
       "navigationTop": "Nahoře",
       "navigationBottom": "Dole",
       "mobileNavigationDescription": "Umístění nabídky a akcí v poště, kontaktech a kalendáři.",
+      "mobileSidebarSwipe": "Otevírat nabídku tažením zleva",
+      "mobileSidebarSwipeDescription": "Přejeďte doprava, začněte v levé čtvrtině obrazovky.",
       "navigationTopDesc": "Přepínač panelů je nad seznamem zpráv.",
       "navigationBottomDesc": "Přepínač panelů je dole, na dosah palce."
     },

@@ -1,4 +1,5 @@
 import { useRef, useEffect, useCallback } from 'react';
+import { isRowGestureSuppressed, setRowGestureSuppressed } from './mobileGestureArbiter.ts';
 
 const SWIPE_THRESHOLD = 72;
 
@@ -118,6 +119,11 @@ export function useSwipeRow<M extends SwipeRowMessage>({ isMobile, message, onSw
     const onMove = (e: TouchEvent) => {
       const s = swipeRef.current;
       if (s.interactive) return;
+      // Another mechanism (the drawer) owns this sequence: leave the row alone.
+      if (isRowGestureSuppressed()) {
+        cancelLongPress();
+        return;
+      }
       const t = e.touches[0];
       const dx = t.clientX - s.startX;
       const dy = t.clientY - s.startY;
@@ -150,6 +156,16 @@ export function useSwipeRow<M extends SwipeRowMessage>({ isMobile, message, onSw
     const onEnd = () => {
       cancelLongPress();
       const s = swipeRef.current;
+      // The drawer owned the sequence: discard row state without tap/swipe
+      // actions, and release the arbitration flag for the next sequence.
+      if (isRowGestureSuppressed()) {
+        resetSwipeState();
+        hideBgs();
+        longPressActivatedRef.current = false;
+        springBack();
+        setRowGestureSuppressed(false);
+        return;
+      }
       if (!s.active) {
         const wasTap = !s.dir && !s.interactive;
         resetSwipeState();

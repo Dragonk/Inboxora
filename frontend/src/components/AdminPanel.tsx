@@ -1838,7 +1838,7 @@ function LayoutsTab() {
   const { t, i18n } = useTranslation();
   const isMobile = useMobile();
   const { layout, setLayout, pageSize, setPageSize, scrollMode, setScrollMode, swipeActions, setSwipeAction, syncInterval, setSyncInterval, folderSyncInterval, setFolderSyncInterval, threadedView, setThreadedView, plaintextEmail, setPlaintextEmail, hoverQuickActions, setHoverQuickActions, showMobileAvatars, setShowMobileAvatars, gravatarAvatars, setGravatarAvatars, replyDefault, setReplyDefault, markReadBehavior, setMarkReadBehavior, markReadDelay, setMarkReadDelay, senderFavicons, senderFaviconsSaving, setSenderFavicons, showMessagePreviews, setShowMessagePreviews, conversationReaderViewEnabled, setConversationReaderViewEnabled, fontSize, setFontSize } = useStore();
-  const { mobileNavigationPosition, setMobileNavigationPosition } = useStore();
+  const { mobileNavigationPosition, setMobileNavigationPosition, mobileSidebarSwipeEnabled, setMobileSidebarSwipeEnabled } = useStore();
   const [senderFaviconsError, setSenderFaviconsError] = useState('');
 
   // "Set Inboxora as your default email app": registerProtocolHandler is the
@@ -2007,6 +2007,15 @@ function LayoutsTab() {
           onChange={setMobileNavigationPosition}
           options={[["top", t('admin.appearance.navigationTop'), t('admin.appearance.navigationTopDesc')], ["bottom", t('admin.appearance.navigationBottom'), t('admin.appearance.navigationBottomDesc')]]}
         />
+        <div style={{ marginTop: 18 }}>
+          <SettingsSwitchRow
+            label={t('admin.appearance.mobileSidebarSwipe')}
+            description={t('admin.appearance.mobileSidebarSwipeDescription')}
+            checked={mobileSidebarSwipeEnabled}
+            onChange={setMobileSidebarSwipeEnabled}
+            testId="mobile-sidebar-swipe-setting"
+          />
+        </div>
       </div>
 
       {/* Message list behaviour */}

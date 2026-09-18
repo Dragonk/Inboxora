@@ -34,6 +34,21 @@ taken into account when deciding whether a compact presentation is needed.
   **Contacts**, and gives access to accounts, settings and sign-out.
 - Swiping left on the drawer closes it.
 
+## Opening the drawer with a gesture
+
+- Drag right, **starting in the left quarter of the visible surface**, to open the drawer. The
+  quarter describes where the gesture starts, not how far it travels: on a 400 px-wide surface the
+  zone is 0–100 px from the left edge.
+- A rightward drag that starts outside that zone keeps its message-row action, and a leftward drag
+  that starts inside the zone still performs the row action.
+- Vertical movement scrolls, and a tap or long-press without a drag keeps its current behaviour.
+  Only one owner handles a sequence, so a partly opened drawer cannot also archive a message.
+- The message reader keeps native text selection: the drawer does not claim a gesture that starts
+  there. The top bar's menu button always opens the drawer.
+- **Settings → Appearance → "Open the menu with a swipe from the left"**, directly next to the
+  top/bottom navigation choice, turns the gesture off. When it is off no start zone is reserved
+  and the message-row actions are unchanged. The preference is stored per user and defaults to on.
+
 ## Creating things
 
 On phones the primary create action is a **floating action button**: compose a message, create a

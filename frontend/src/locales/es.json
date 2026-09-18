@@ -189,6 +189,8 @@
       "navigationTop": "Arriba",
       "navigationBottom": "Abajo",
       "mobileNavigationDescription": "Posición del menú y las acciones en correo, contactos y calendario.",
+      "mobileSidebarSwipe": "Abrir el menú deslizando desde la izquierda",
+      "mobileSidebarSwipeDescription": "Desliza hacia la derecha empezando en el cuarto izquierdo de la pantalla.",
       "navigationTopDesc": "El selector de paneles está encima de la lista de mensajes.",
       "navigationBottomDesc": "El selector de paneles está abajo, al alcance del pulgar."
     },

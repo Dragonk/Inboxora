@@ -209,6 +209,8 @@ export interface StoreState {
   setVisibleCalendarIds: (visibleCalendarIds: string[]) => void;
   mobileNavigationPosition: string;
   setMobileNavigationPosition: (mobileNavigationPosition: string) => void;
+  mobileSidebarSwipeEnabled: boolean;
+  setMobileSidebarSwipeEnabled: (mobileSidebarSwipeEnabled: boolean) => void;
   calendarInviteAccountId: string;
   setCalendarInviteAccountId: (calendarInviteAccountId: string | null) => void;
   calendarWorkDays: number[];
@@ -981,6 +983,15 @@ export const useStore = create<StoreState>()((set, get) => ({
     set({ mobileNavigationPosition: value });
     schedulePrefSave({ mobileNavigationPosition: value });
   },
+  // Open the sidebar by dragging right from the left quarter of the surface.
+  // Defaults to on; an explicit stored `false` (not a missing value) disables it,
+  // so an upgrade never silently turns an existing user's gesture off or on.
+  mobileSidebarSwipeEnabled: true,
+  setMobileSidebarSwipeEnabled: (mobileSidebarSwipeEnabled: boolean) =>{
+    const value = typeof mobileSidebarSwipeEnabled === 'boolean' ? mobileSidebarSwipeEnabled : true;
+    set({ mobileSidebarSwipeEnabled: value });
+    schedulePrefSave({ mobileSidebarSwipeEnabled: value });
+  },
   // The SMTP account the new-event dialog preselects for calendar invitations.
   // Empty means "no default": the dialog leaves the sender picker unselected.
   calendarInviteAccountId: '',
@@ -1689,6 +1700,10 @@ export const useStore = create<StoreState>()((set, get) => ({
       }
       if (prefs.mobileNavigationPosition === 'top' || prefs.mobileNavigationPosition === 'bottom') {
         set({ mobileNavigationPosition: prefs.mobileNavigationPosition });
+      }
+      // Missing value keeps the default; only an explicit boolean opts the user out.
+      if (typeof prefs.mobileSidebarSwipeEnabled === 'boolean') {
+        set({ mobileSidebarSwipeEnabled: prefs.mobileSidebarSwipeEnabled });
       }
       if (typeof prefs.calendarInviteAccountId === 'string') {
         set({ calendarInviteAccountId: prefs.calendarInviteAccountId });

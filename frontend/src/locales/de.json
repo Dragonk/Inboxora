@@ -189,6 +189,8 @@
       "navigationTop": "Oben",
       "navigationBottom": "Unten",
       "mobileNavigationDescription": "Position des Menüs und der Aktionen in E-Mail, Kontakten und Kalender.",
+      "mobileSidebarSwipe": "Menü per Wisch von links öffnen",
+      "mobileSidebarSwipeDescription": "Wischen Sie nach rechts und beginnen Sie im linken Viertel des Bildschirms.",
       "navigationTopDesc": "Der Panel-Umschalter liegt über der Nachrichtenliste.",
       "navigationBottomDesc": "Der Panel-Umschalter liegt unten, in Daumenreichweite."
     },

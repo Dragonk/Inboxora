@@ -189,6 +189,8 @@
       "navigationTop": "En haut",
       "navigationBottom": "En bas",
       "mobileNavigationDescription": "Position du menu et des actions dans les e-mails, les contacts et le calendrier.",
+      "mobileSidebarSwipe": "Ouvrir le menu par un balayage depuis la gauche",
+      "mobileSidebarSwipeDescription": "Balayez vers la droite en partant du quart gauche de l'écran.",
       "navigationTopDesc": "Le sélecteur de panneaux se trouve au-dessus de la liste des messages.",
       "navigationBottomDesc": "Le sélecteur de panneaux est en bas, à portée de pouce."
     },

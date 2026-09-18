@@ -255,6 +255,8 @@
       "navigationTop": "U góry",
       "navigationBottom": "Na dole",
       "mobileNavigationDescription": "Położenie menu i działań w poczcie, kontaktach i kalendarzu.",
+      "mobileSidebarSwipe": "Otwieraj menu gestem od lewej strony",
+      "mobileSidebarSwipeDescription": "Przesuń w prawo, zaczynając w lewej ćwiartce ekranu.",
       "navigationTopDesc": "Przełącznik paneli znajduje się nad listą wiadomości.",
       "navigationBottomDesc": "Przełącznik paneli jest na dole, w zasięgu kciuka."
     },

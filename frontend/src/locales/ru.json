@@ -189,6 +189,8 @@
       "navigationTop": "Сверху",
       "navigationBottom": "Снизу",
       "mobileNavigationDescription": "Расположение меню и действий в почте, контактах и календаре.",
+      "mobileSidebarSwipe": "Открывать меню свайпом слева",
+      "mobileSidebarSwipeDescription": "Свайпните вправо, начиная с левой четверти экрана.",
       "navigationTopDesc": "Переключатель панелей находится над списком сообщений.",
       "navigationBottomDesc": "Переключатель панелей находится снизу, под большим пальцем."
     },

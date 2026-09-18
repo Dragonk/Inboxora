@@ -189,6 +189,8 @@
       "navigationTop": "In alto",
       "navigationBottom": "In basso",
       "mobileNavigationDescription": "Posizione del menu e delle azioni in posta, contatti e calendario.",
+      "mobileSidebarSwipe": "Apri il menu con uno scorrimento da sinistra",
+      "mobileSidebarSwipeDescription": "Scorri verso destra partendo dal quarto sinistro dello schermo.",
       "navigationTopDesc": "Il selettore dei pannelli è sopra l'elenco dei messaggi.",
       "navigationBottomDesc": "Il selettore dei pannelli è in basso, a portata di pollice."
     },
