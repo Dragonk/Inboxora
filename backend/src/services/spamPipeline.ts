@@ -283,9 +283,10 @@ export async function classifyAndTagMessage(
 
   await query(
     `UPDATE messages SET
-       spam_verdict = $1, spam_score_ml = $2, spam_analyzed_at = NOW(), spam_details = $3
+       spam_verdict = $1, spam_score_ml = $2, spam_score_blended = $5,
+       spam_analyzed_at = NOW(), spam_details = $3
      WHERE id = $4`,
-    [verdict, mlProbability ?? rules.score, JSON.stringify(details), messageId],
+    [verdict, mlProbability ?? rules.score, JSON.stringify(details), messageId, round(blended)],
   );
 
   let moved = false;

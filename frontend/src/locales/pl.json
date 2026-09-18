@@ -1766,6 +1766,7 @@
     "explainMethod": "Metoda: {{method}}",
     "settingsTitle": "Antyspam",
     "maturity": "Model {{level}} · {{count}} wiadomości treningowych",
+    "maturityDetail": "{{spam}} spam / {{ham}} ham użytecznych próbek ({{events}} zdarzeń opinii)",
     "enable": "Włącz antyspam",
     "disable": "Wyłącz antyspam",
     "retrainNow": "Przeucz teraz",

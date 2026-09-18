@@ -1766,6 +1766,7 @@
     "explainMethod": "Method: {{method}}",
     "settingsTitle": "Antispam",
     "maturity": "Model {{level}} · {{count}} training messages",
+    "maturityDetail": "{{spam}} spam / {{ham}} ham usable samples ({{events}} feedback events)",
     "enable": "Enable antispam",
     "disable": "Disable antispam",
     "retrainNow": "Retrain now",

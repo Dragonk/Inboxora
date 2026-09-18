@@ -192,7 +192,13 @@ export default function MessageDetailContent({
         <SpamBadge
           messageId={physicalCopyId}
           verdict={typeof message.spam_verdict === 'string' ? message.spam_verdict : null}
-          score={typeof message.spam_score_ml === 'number' ? message.spam_score_ml : null}
+          // The chip must show the score the verdict was actually decided on.
+          // spam_score_ml is only the ML probability (or the rules score when
+          // ML is inactive), so pairing it with a blended verdict could render
+          // "Spam · 70%" for a decision made at 90%. Legacy rows classified
+          // before spam_score_blended existed show the chip without a number
+          // rather than a misleading one.
+          score={typeof message.spam_score_blended === 'number' ? message.spam_score_blended : null}
         />
       </div>
     )}

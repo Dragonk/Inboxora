@@ -17,6 +17,9 @@ describe('spam UI contract', () => {
     mustContain(settings, 'data-testid="spam-master-toggle"', 'SpamSettings');
     mustContain(settings, 'data-testid="spam-retrain-now"', 'SpamSettings');
     mustContain(settings, 'data-testid="spam-maturity"', 'SpamSettings');
+    // Maturity must be reported from distinct usable samples, not raw rows.
+    mustContain(settings, 'status.usableTrainingRecords', 'SpamSettings usable count');
+    mustContain(settings, 'data-testid="spam-usable-detail"', 'SpamSettings usable detail');
   });
 
   it('mounts SpamSettings under Settings → Rules → Antispam', () => {
@@ -30,7 +33,7 @@ describe('spam UI contract', () => {
   it('registers every new locale key in all locales', () => {
     const keys = [
       'badgeSpam', 'badgeUnsure', 'explainTitle', 'explainMethod',
-      'settingsTitle', 'maturity', 'enable', 'disable', 'retrainNow',
+      'settingsTitle', 'maturity', 'maturityDetail', 'enable', 'disable', 'retrainNow',
       'enableAccount', 'enableAccountDesc', 'trustedAuthservId', 'trustedAuthservIdDesc',
     ];
     for (const locale of ['en', 'de', 'fr', 'es', 'it', 'ru', 'zhCN', 'pl', 'cs']) {

@@ -410,12 +410,21 @@ function messageIdentityFor(record: TrainingRecordInput, index: number): string 
 }
 
 // Canonical stable training identity shared by the mark-time INSERT
-// (mail.ts), the incremental dedup check (spamModelStore) and the full
-// retrain grouping below — plus the 0098 backfill, which applies the same
-// rule in SQL. Message-ID wins; else the physical copy triple; else a
-// content hash fallback for rows without any stable reference. Pure function
-// over already-loaded values: no normalization happens in SQL, so an exact
-// equality check on this value is deterministic.
+// (mail.ts), the incremental feedback path (spamModelStore) and the full
+// retrain grouping below — plus the 0098 backfill and 0099 re-derivation,
+// which apply the same rule in SQL. Priority:
+//
+//   1. Message-ID header — the strongest stable reference.
+//   2. Normalized content hash — stable across a MOVE (folder/UID change),
+//      which is exactly the case a `copy:` identity cannot survive: mark
+//      Spam then Not Spam and the server hands out a new folder+UID for the
+//      SAME mail. Content is unchanged by a move.
+//   3. Physical copy triple — last resort, only for rows with no header and
+//      no content at all (legacy/empty rows).
+//
+// Pure function over already-loaded values: the caller precomputes this once
+// and both the INSERT and every dedup check compare it exactly, so no
+// normalization ever happens in SQL at comparison time.
 export interface TrainingIdentityInput {
   messageIdHeader?: string | null;
   accountId?: string | null;
@@ -429,18 +438,30 @@ export interface TrainingIdentityInput {
 export function trainingIdentityFor(input: TrainingIdentityInput): string | null {
   const header = (input.messageIdHeader ?? '').trim();
   if (header) return `mid:${header}`;
+
+  const domain = normalizedIdentityPart(input.senderDomain, 255);
+  const subject = normalizedIdentityPart(input.subject, 500);
+  const bodyLead = normalizedIdentityPart(input.bodyText, 4000);
+  if (domain || subject || bodyLead) {
+    return `sub:${domain}:${simpleHash(subject)}:${simpleHash(bodyLead)}`;
+  }
+
   const accountId = input.accountId ?? '';
   const folder = input.folder ?? '';
   const uid = input.uid !== null && input.uid !== undefined ? String(input.uid) : '';
   if (accountId && folder && uid) return `copy:${accountId}:${folder}:${uid}`;
-  const domain = (input.senderDomain ?? '').toLowerCase().trim();
-  const subject = (input.subject ?? '').toLowerCase().replace(/\s+/g, ' ').trim();
-  const bodyLead = (input.bodyText ?? '').toLowerCase().replace(/\s+/g, ' ').trim().slice(0, 4000);
-  if (!domain && !subject && !bodyLead) return null;
-  return `sub:${domain}:${simpleHash(subject)}:${simpleHash(bodyLead)}`;
+  return null;
 }
 
-// md5 is a non-security dedup key here (matches the 0098 backfill SQL).
+// The single normalization both the TS identity and the SQL backfill use:
+// lowercase, collapse runs of whitespace, trim, cap length. Mirroring it in
+// SQL (migration 0098/0099) is what makes an already-applied database agree
+// with rows written from here.
+function normalizedIdentityPart(value: unknown, max: number): string {
+  return String(value ?? '').toLowerCase().replace(/\s+/g, ' ').trim().slice(0, max);
+}
+
+// md5 is a non-security dedup key here (matches the 0098/0099 SQL).
 function simpleHash(value: string): string {
   return createHash('md5').update(value, 'utf8').digest('hex');
 }

@@ -39,7 +39,22 @@ export default function SpamSettings() {
       {status && (
         <>
           <p data-testid="spam-maturity">
-            {t('spam.maturity', { level: status.maturity, count: status.trainingRecords })}
+            {t('spam.maturity', {
+              level: status.maturity,
+              // Maturity is gated on distinct USABLE samples (unique messages
+              // per class), not on raw feedback rows: one mail confirmed 50x
+              // is one sample. Showing trainingRecords here would claim a
+              // readiness the classifier does not have. The raw event count
+              // is appended for context.
+              count: status.usableTrainingRecords ?? status.trainingRecords,
+            })}
+          </p>
+          <p data-testid="spam-usable-detail" style={{ fontSize: 12, color: 'var(--text-tertiary)', margin: 0 }}>
+            {t('spam.maturityDetail', {
+              spam: status.usableSpam ?? 0,
+              ham: status.usableHam ?? 0,
+              events: status.trainingRecords,
+            })}
           </p>
           <button type="button" data-testid="spam-master-toggle" onClick={toggle} disabled={busy}>
             {status.masterEnabled ? t('spam.disable') : t('spam.enable')}

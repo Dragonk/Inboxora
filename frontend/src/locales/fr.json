@@ -1766,6 +1766,7 @@
     "explainMethod": "Méthode : {{method}}",
     "settingsTitle": "Antispam",
     "maturity": "Modèle {{level}} · {{count}} messages",
+    "maturityDetail": "{{spam}} spam / {{ham}} ham échantillons utilisables ({{events}} événements de retour)",
     "enable": "Activer l'antispam",
     "disable": "Désactiver l'antispam",
     "retrainNow": "Réentraîner",

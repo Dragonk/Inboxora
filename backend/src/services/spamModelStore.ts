@@ -7,8 +7,15 @@
 // Retrains rebuild the row from spam_training_log via retrainFromRecords and
 // invalidate the cache. The retrain path reads the log only — it never JOINs
 // back to messages, so emptying Junk cannot silently drop training records.
+//
+// One rule holds across every path (manual feedback, incremental update, full
+// retrain): ONE training identity = exactly one effective sample = the user's
+// LATEST decision. A Spam→Ham correction therefore moves the sample instead
+// of adding a second one, and the incrementally maintained model is
+// semantically identical to the model a full retrain would produce.
 
-import { query } from './db.js';
+import { query, withTransaction } from './db.js';
+import type { DbRow } from './db.js';
 import { tokenize, extractFlagFeatures } from './spamTokenizer.js';
 import type { SpamMessageInput, FlagFeatures } from './spamTokenizer.js';
 import {
@@ -34,6 +41,13 @@ const modelCache = new Map<string, ModelCacheEntry>();
 export function invalidateModelCache(userId: string): void {
   modelCache.delete(userId);
 }
+
+// A statement runner. The store's internals take one so the same logic can run
+// either at top level or inside a withTransaction() client, without the model
+// cache ever serving a stale read mid-transaction.
+type QueryExecutor = (text: string, params?: unknown[]) => Promise<{ rows: DbRow[] }>;
+
+const topLevel: QueryExecutor = (text, params) => query<DbRow>(text, params);
 
 interface SpamModelRow {
   vocabulary?: unknown;
@@ -78,13 +92,19 @@ function rowToModel(row: SpamModelRow): SpamModelState {
   };
 }
 
+// Cache-bypassing read: used inside transactions and by the rebuild path,
+// where the 5-minute cache could otherwise serve a pre-transaction snapshot.
+async function loadModel(exec: QueryExecutor, userId: string): Promise<SpamModelState | null> {
+  const result = await exec('SELECT * FROM spam_models WHERE user_id = $1', [userId]);
+  const row = result.rows[0] as SpamModelRow | undefined;
+  return row ? rowToModel(row) : null;
+}
+
 export async function getModelForUser(userId: string): Promise<SpamModelState | null> {
   const cached = modelCache.get(userId);
   if (cached && cached.expiry > Date.now()) return cached.model;
 
-  const result = await query<SpamModelRow>('SELECT * FROM spam_models WHERE user_id = $1', [userId]);
-  const row = result.rows[0];
-  const model = row ? rowToModel(row) : null;
+  const model = await loadModel(topLevel, userId);
   modelCache.set(userId, { model, expiry: Date.now() + CACHE_TTL_MS });
   return model;
 }
@@ -106,8 +126,8 @@ function modelToParams(userId: string, model: SpamModelState): unknown[] {
   ];
 }
 
-export async function saveModel(userId: string, model: SpamModelState): Promise<void> {
-  await query(
+async function saveModelWith(exec: QueryExecutor, userId: string, model: SpamModelState): Promise<void> {
+  await exec(
     `INSERT INTO spam_models
        (user_id, vocabulary, total_spam, total_ham, prior_spam, prior_ham,
         training_records, usable_spam, usable_ham, decay_threshold_days, model_version, last_trained_at)
@@ -126,34 +146,11 @@ export async function saveModel(userId: string, model: SpamModelState): Promise<
        updated_at = NOW()`,
     modelToParams(userId, model),
   );
-  invalidateModelCache(userId);
 }
 
-export async function updateIncrementalForUser(
-  userId: string,
-  message: SpamMessageInput,
-  label: SpamLabel,
-  opts: { trainingIdentity?: string | null } = {},
-): Promise<SpamModelState | null> {
-  if (label !== 'spam' && label !== 'ham') return null;
-  return runUserExclusive(userId, async () => {
-    const model = (await getModelForUser(userId)) ?? createEmptyModel();
-    const tokens = tokenize(message);
-    const flagFeatures: FlagFeatures = extractFlagFeatures(message);
-    // Repeat feedback on the SAME message (already-in-folder re-confirm)
-    // still trains the vocabulary below (reinforcement), but must NOT mint a
-    // new distinct usable sample: 50x confirming one mail must not mature
-    // the model before the next retrain reconciles the true split. The
-    // identity is the stable training_identity when the caller computed it
-    // (mark-spam/ham path), else the legacy content fingerprint. A failed
-    // check reads as "seen": never mint maturity on uncertain evidence.
-    const seen = opts.trainingIdentity
-      ? await countFeedbackForIdentity(userId, opts.trainingIdentity, label).catch(() => 1) > 0
-      : await hasFeedbackForFingerprint(userId, message, label).catch(() => false);
-    const updated = updateIncremental(model, tokens, flagFeatures, label, { countUsable: !seen });
-    await saveModel(userId, updated);
-    return updated;
-  });
+export async function saveModel(userId: string, model: SpamModelState): Promise<void> {
+  await saveModelWith(topLevel, userId, model);
+  invalidateModelCache(userId);
 }
 
 export interface ManualFeedbackInput {
@@ -173,12 +170,25 @@ export interface ManualFeedbackInput {
   trainMessage: SpamMessageInput;
 }
 
-// Atomic manual feedback: training_log INSERT + incremental model update run
-// inside ONE per-user serializer hold. The dedup check ("seen this identity
-// with this label?") therefore cannot race a concurrent mark-spam click on
-// the same mail — the second caller blocks until the first INSERTed, then
-// correctly observes it as seen. Callers must await this (no fire-and-forget)
-// so the HTTP response reflects the persisted decision.
+// Persist one manual spam/ham decision and keep the model consistent with it.
+//
+// Runs under the per-user serializer AND inside one database transaction, so
+// the training row and the model row commit together — the earlier comment
+// claiming atomicity is now literally true. Semantics, in order:
+//
+//   * no previous decision for this identity → incremental add (one new
+//     distinct usable sample);
+//   * previous decision has the SAME label → the row is logged for audit and
+//     the raw counter advances, but neither the vocabulary nor the usable
+//     counters move: clicking "Spam" 100 times must not outweigh the model,
+//     which a later full retrain would collapse to a single sample anyway;
+//   * previous decision had the OPPOSITE label → immediate rebuild from the
+//     log with latest-decision-wins, so the corrected sample is counted once
+//     under its new label and the earlier wrong-label training is dropped.
+//
+// The flip path deliberately rebuilds instead of trying to subtract
+// decay-weighted token counts: corrections are rare, and a rebuild is exactly
+// what the next full retrain would compute.
 export async function recordManualFeedback(input: ManualFeedbackInput): Promise<SpamModelState | null> {
   const identity = trainingIdentityFor({
     messageIdHeader: input.messageIdHeader,
@@ -190,85 +200,76 @@ export async function recordManualFeedback(input: ManualFeedbackInput): Promise<
     bodyText: input.bodyText,
   });
   return runUserExclusive(input.userId, async () => {
-    await query(
-      `INSERT INTO spam_training_log
-         (user_id, account_id, message_id_header, message_uid, folder, label, source,
-          subject, body_text, body_html, token_counts, flag_features, sender_domain, attachment_types,
-          training_identity)
-       VALUES ($1, $2, $3, $4, $5, $6, 'manual', $7, $8, $9, $10, $11, $12, $13, $14)`,
-      [input.userId, input.accountId, input.messageIdHeader, input.messageUid, input.folder, input.label,
-       input.subject, input.bodyText, input.bodyHtml,
-       JSON.stringify(input.tokenCounts), JSON.stringify(input.flagFeatures),
-       input.senderDomain, input.attachmentTypes, identity],
-    );
-    const model = (await getModelForUser(input.userId)) ?? createEmptyModel();
-    const tokens = tokenize(input.trainMessage);
-    const flagFeatures: FlagFeatures = extractFlagFeatures(input.trainMessage);
-    // The INSERT above is already visible in this serialized sequence, so a
-    // same-identity row with this label means THIS mail was confirmed before
-    // (first feedback: exactly one row — the one just inserted — still counts
-    // as a new distinct sample). A failed count reads as "seen": never mint
-    // maturity on uncertain evidence (the next retrain reconciles the truth).
-    const priorCount = identity
-      ? await countFeedbackForIdentity(input.userId, identity, input.label).catch(() => 2)
-      : 0;
-    const updated = updateIncremental(model, tokens, flagFeatures, input.label, { countUsable: priorCount <= 1 });
-    await saveModel(input.userId, updated);
-    return updated;
+    try {
+      return await withTransaction(async (client) => {
+        const exec: QueryExecutor = (text, params) => client.query<DbRow>(text, params);
+
+        // Read the LATEST prior decision for this identity, deliberately
+        // without filtering on label: a flip must be visible as a flip.
+        let priorLabel: SpamLabel | null = null;
+        if (identity) {
+          const prior = await exec(
+            `SELECT label FROM spam_training_log
+              WHERE user_id = $1 AND training_identity = $2
+              ORDER BY created_at DESC, id DESC
+              LIMIT 1`,
+            [input.userId, identity],
+          );
+          priorLabel = asSpamLabel(prior.rows[0]?.label);
+        }
+
+        await exec(
+          `INSERT INTO spam_training_log
+             (user_id, account_id, message_id_header, message_uid, folder, label, source,
+              subject, body_text, body_html, token_counts, flag_features, sender_domain, attachment_types,
+              training_identity)
+           VALUES ($1, $2, $3, $4, $5, $6, 'manual', $7, $8, $9, $10, $11, $12, $13, $14)`,
+          [input.userId, input.accountId, input.messageIdHeader, input.messageUid, input.folder, input.label,
+           input.subject, input.bodyText, input.bodyHtml,
+           JSON.stringify(input.tokenCounts), JSON.stringify(input.flagFeatures),
+           input.senderDomain, input.attachmentTypes, identity],
+        );
+
+        if (priorLabel !== null && priorLabel === input.label) {
+          // Repeat confirmation: log only. Advance the raw feedback counter so
+          // it still reflects the log length, but leave the vocabulary and the
+          // usable split untouched.
+          const model = (await loadModel(exec, input.userId)) ?? createEmptyModel();
+          const next: SpamModelState = { ...model, trainingRecords: model.trainingRecords + 1 };
+          await saveModelWith(exec, input.userId, next);
+          return next;
+        }
+
+        if (priorLabel === null) {
+          const model = (await loadModel(exec, input.userId)) ?? createEmptyModel();
+          const tokens = tokenize(input.trainMessage);
+          const flagFeatures: FlagFeatures = extractFlagFeatures(input.trainMessage);
+          const next = updateIncremental(model, tokens, flagFeatures, input.label, { countUsable: true });
+          await saveModelWith(exec, input.userId, next);
+          return next;
+        }
+
+        // Label flipped: rebuild so incremental and full retrain agree.
+        const rebuilt = await rebuildModelFromLog(exec, input.userId);
+        return rebuilt.model;
+      });
+    } finally {
+      // Runs on commit, rollback and throw alike: never serve a snapshot that
+      // the transaction may have changed or discarded.
+      invalidateModelCache(input.userId);
+    }
   });
 }
 
-async function countFeedbackForIdentity(
-  userId: string,
-  trainingIdentity: string,
-  label: SpamLabel,
-): Promise<number> {
-  const result = await query<{ n: string }>(
-    `SELECT COUNT(*) AS n FROM spam_training_log
-      WHERE user_id = $1 AND label = $2 AND training_identity = $3`,
-    [userId, label, trainingIdentity],
-  );
-  return Number(result.rows[0]?.n ?? 0);
+function asSpamLabel(value: unknown): SpamLabel | null {
+  return value === 'spam' || value === 'ham' ? value : null;
 }
 
-// True when this user already gave the same label for the same message
-// content. The training log carries no full From header at mark time — only
-// sender_domain — so the fingerprint is (sender domain, subject, body lead):
-// rows for the same physical mail share all three, while distinct mails
-// differ in at least one.
-async function hasFeedbackForFingerprint(
-  userId: string,
-  message: SpamMessageInput,
-  label: SpamLabel,
-): Promise<boolean> {
-  const fingerprint = feedbackFingerprint(message);
-  const result = await query<{ n: string }>(
-    `SELECT COUNT(*) AS n FROM spam_training_log
-      WHERE user_id = $1 AND label = $2
-        AND COALESCE(sender_domain, '') = $3
-        AND COALESCE(subject, '') = $4
-        AND COALESCE(LEFT(body_text, 4000), '') = $5`,
-    [userId, label, fingerprint.senderDomain, fingerprint.subject, fingerprint.body],
-  );
-  return Number(result.rows[0]?.n ?? 0) > 0;
-}
-
-function feedbackFingerprint(message: SpamMessageInput): { senderDomain: string; subject: string; body: string } {
-  const norm = (value: unknown, max: number): string => String(value ?? '').toLowerCase().replace(/\s+/g, ' ').trim().slice(0, max);
-  const from = String(message.from ?? '');
-  const at = from.lastIndexOf('@');
-  const domain = at >= 0 ? from.slice(at + 1).replace(/[^a-z0-9.-]/g, '') : '';
-  return {
-    senderDomain: domain.slice(0, 255),
-    subject: norm(message.subject, 500),
-    body: norm(message.body, 4000),
-  };
-}
-
-// Per-user serializer: incremental feedback and full retrains for the same
-// user never interleave (lost-update race). Concurrent callers share the
-// in-flight promise — the second feedback waits for the first instead of
-// overwriting it with a stale read.
+// Per-user serializer: feedback and full retrains for the same user never
+// interleave (lost-update race). Concurrent callers share the in-flight
+// promise — the second feedback waits for the first instead of overwriting it
+// with a stale read. This is application-level (single process); the database
+// transaction above is what makes the write itself all-or-nothing.
 const userLocks = new Map<string, Promise<unknown>>();
 
 async function runUserExclusive<T>(userId: string, fn: () => Promise<T>): Promise<T> {
@@ -308,36 +309,55 @@ export interface RetrainOutcome {
   reason?: string;
 }
 
+interface TrainingLogRow {
+  id: string; label: string; created_at: string | Date; account_id: string | null;
+  message_id_header: string | null; message_uid: number | string | null; folder: string | null;
+  training_identity: string | null;
+  token_counts: Record<string, number> | null; subject: string | null;
+  body_text: string | null; flag_features: FlagFeatures | null;
+  // Mirrors TrainingRecordInput's index signature so a row can be handed to
+  // retrainFromRecords directly.
+  [key: string]: unknown;
+}
+
+// Rebuild a user's model from the training log with latest-decision-wins.
+// Cache-bypassing and executor-scoped so callers can run it inside their own
+// transaction (label flip) or at top level (scheduled/manual retrain).
+async function rebuildModelFromLog(
+  exec: QueryExecutor,
+  userId: string,
+): Promise<{ model: SpamModelState | null; recordsUsed: number; reason?: string }> {
+  const data = await exec(
+    `SELECT id, label, created_at, account_id, message_id_header, message_uid, folder,
+            training_identity, token_counts, flag_features, subject, body_text
+     FROM spam_training_log WHERE user_id = $1
+     ORDER BY created_at ASC, id ASC`,
+    [userId],
+  );
+  const records = data.rows as unknown as TrainingLogRow[];
+  if (records.length === 0) return { model: null, recordsUsed: 0, reason: 'no_training_data' };
+
+  const existing = await loadModel(exec, userId);
+  const decayThresholdDays = existing?.decayThresholdDays ?? 90;
+
+  const model = retrainFromRecords(records, decayThresholdDays);
+  const pruned = Object.keys(model.vocabulary).length > MODEL_VOCAB_CAP
+    ? pruneVocabulary(model, MODEL_VOCAB_CAP)
+    : model;
+  pruned.decayThresholdDays = decayThresholdDays;
+  await saveModelWith(exec, userId, pruned);
+  return { model: pruned, recordsUsed: records.length };
+}
+
 export async function retrainUser(userId: string): Promise<RetrainOutcome> {
-  return runUserExclusive(userId, async () => {
-    const started = Date.now();
-    const data = await query<{
-      id: string; label: string; created_at: string | Date; account_id: string | null;
-      message_id_header: string | null; message_uid: number | string | null; folder: string | null;
-      training_identity: string | null;
-      token_counts: Record<string, number> | null; subject: string | null;
-      body_text: string | null; flag_features: FlagFeatures | null;
-    }>(
-      `SELECT id, label, created_at, account_id, message_id_header, message_uid, folder,
-              training_identity, token_counts, flag_features, subject, body_text
-       FROM spam_training_log WHERE user_id = $1
-       ORDER BY created_at ASC, id ASC`,
-      [userId],
-    );
-    const records = data.rows;
-    if (records.length === 0) {
-      return { ok: false, recordsUsed: 0, duration_ms: Date.now() - started, reason: 'no_training_data' };
+  const started = Date.now();
+  const outcome = await runUserExclusive(userId, async () => {
+    const rebuilt = await rebuildModelFromLog(topLevel, userId);
+    if (!rebuilt.model) {
+      return { ok: false, recordsUsed: 0, duration_ms: Date.now() - started, reason: rebuilt.reason ?? 'no_training_data' };
     }
-
-    const existing = await getModelForUser(userId);
-    const decayThresholdDays = existing?.decayThresholdDays ?? 90;
-
-    const model = retrainFromRecords(records, decayThresholdDays);
-    const pruned = Object.keys(model.vocabulary).length > MODEL_VOCAB_CAP
-      ? pruneVocabulary(model, MODEL_VOCAB_CAP)
-      : model;
-    pruned.decayThresholdDays = decayThresholdDays;
-    await saveModel(userId, pruned);
-    return { ok: true, recordsUsed: records.length, duration_ms: Date.now() - started };
+    return { ok: true, recordsUsed: rebuilt.recordsUsed, duration_ms: Date.now() - started };
   });
+  invalidateModelCache(userId);
+  return outcome;
 }

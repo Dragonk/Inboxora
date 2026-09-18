@@ -64,6 +64,25 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.3](wiki/R
   mint a distinct sample, and repeat feedback reinforces the vocabulary without growing maturity.
   Full retrain groups rows by `training_identity` with latest-decision-wins: a Spam→Ham correction
   moves the sample and retrains the vocabulary on the newest label only, independent of row order.
+- Make the training identity stable for messages without a Message-ID: the normalized content hash
+  now takes precedence over the `(account, folder, uid)` triple, so a Spam→Ham correction keeps ONE
+  identity instead of splitting the same mail into two samples after the server re-keys folder+UID.
+  SQL normalization is unified with the TypeScript rule (migration `0099` re-derives identities on
+  databases that applied the first `0098` revision; the replaced unreleased `0098` checksum is
+  accepted so those databases keep booting).
+- Give manual feedback latest-decision-wins semantics in the incremental model too, not only after a
+  full retrain: `recordManualFeedback` reads the latest prior decision for the identity (regardless
+  of label), then either adds a new sample, logs a repeat confirmation without touching the
+  vocabulary or usable counters, or rebuilds the model from the log when the label flips. The whole
+  sequence now runs in one database transaction (`withTransaction`), so the training row and the
+  model row commit together — the incrementally maintained model equals the post-retrain model, and
+  ML can no longer mature prematurely between a correction and the next retrain.
+- Add `messages.spam_score_blended` (migration `0100`), written by the classifier and projected
+  through the flat/threaded list, thread, message and resolve-message queries. `SpamBadge` now shows
+  the score the verdict was actually decided on; rows classified before the column existed show the
+  chip without a percentage instead of the misleading ML-only number.
+- Report antispam maturity in `SpamSettings` from distinct usable samples (with a per-class
+  breakdown and the raw feedback-event count as context) instead of the raw row count.
   `GET /api/spam/status` derives maturity from the configured thresholds and the usable split;
   `PATCH /api/spam/thresholds` validates `minRecords`/`softRecords`, enforces
   `softRecords >= minRecords`, and drops the dead `hardRecords` key; `spamModelStore` per-user
@@ -95,8 +114,9 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.3](wiki/R
 ### Notes
 
 - Includes database migrations `0094_folder_uidnext_status.sql`, `0095_spam_classifier_v2.sql`,
-  `0096_account_maintenance_state.sql`, `0097_spam_model_usable_counts.sql` and
-  `0098_spam_training_identity.sql`, applied in order;
+  `0096_account_maintenance_state.sql`, `0097_spam_model_usable_counts.sql`,
+  `0098_spam_training_identity.sql`, `0099_spam_identity_rederivation.sql` and
+  `0100_message_spam_score_blended.sql`, applied in order;
   apply before running workers or accepting outbound mail. The antispam auto-move is opt-in per
   account (`email_accounts.antispam_enabled`, default off) behind the per-user master switch
   (`users.preferences.spamEnabled`, default on). No other configuration is required.

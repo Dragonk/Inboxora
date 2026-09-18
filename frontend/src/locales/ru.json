@@ -1766,6 +1766,7 @@
     "explainMethod": "Метод: {{method}}",
     "settingsTitle": "Антиспам",
     "maturity": "Модель {{level}} · сообщений: {{count}}",
+    "maturityDetail": "{{spam}} спам / {{ham}} ham пригодных образцов ({{events}} событий отзывов)",
     "enable": "Включить антиспам",
     "disable": "Выключить антиспам",
     "retrainNow": "Переобучить",

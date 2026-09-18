@@ -1766,6 +1766,7 @@
     "explainMethod": "方法：{{method}}",
     "settingsTitle": "反垃圾邮件",
     "maturity": "模型{{level}} · {{count}} 条训练邮件",
+    "maturityDetail": "{{spam}} 封垃圾邮件 / {{ham}} 封正常邮件可用样本（{{events}} 条反馈事件）",
     "enable": "启用反垃圾邮件",
     "disable": "停用反垃圾邮件",
     "retrainNow": "立即重新训练",

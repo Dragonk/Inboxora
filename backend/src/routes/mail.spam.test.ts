@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vitest';
 
-vi.mock('../services/db.js', () => ({ query: vi.fn() }));
+vi.mock('../services/db.js', () => ({ query: vi.fn(), withTransaction: vi.fn() }));
 vi.mock('../middleware/auth.js', () => ({
   requireAuth: (req: { headers: Record<string, string>; session?: { userId?: string } }, _res: unknown, next: () => void) => { req.session = { userId: 'user-1' }; next(); },
 }));
@@ -15,13 +15,20 @@ vi.mock('../index.js', () => ({
 
 import express from 'express';
 import mailRoutes from './mail.js';
-import { query as __mock_query } from '../services/db.js';
+import { query as __mock_query, withTransaction as __mock_withTransaction } from '../services/db.js';
 import { imapManager as __mock_imapManager } from '../index.js';
 import type { Server } from 'node:http';
 import { listeningPort } from '../test/net.js';
 
 const query = vi.mocked(__mock_query);
+const withTransaction = vi.mocked(__mock_withTransaction);
 const imapManager = vi.mocked(__mock_imapManager);
+
+// The training write is committed through withTransaction; drive the callback
+// with a client backed by the same query mock so the INSERT is observable
+// here and the transaction boundary is real for the request under test.
+withTransaction.mockImplementation((async (fn: (client: unknown) => Promise<unknown>) =>
+  fn({ query: (text: string, params?: unknown[]) => query(text, params) })) as never);
 
 const MESSAGE_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const ACCOUNT_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -80,6 +87,8 @@ describe('POST /api/mail/messages/:id/spam — atomic training write', () => {
 
     const inserts = query.mock.calls.filter(([sql]) => String(sql).includes('INSERT INTO spam_training_log'));
     expect(inserts).toHaveLength(1);
+    // The row and the model write commit as one unit, not two top-level writes.
+    expect(withTransaction).toHaveBeenCalled();
     const [sql, params] = inserts[0] as [string, unknown[]];
     // Atomic: features travel in the same INSERT, not a later UPDATE.
     for (const col of ['token_counts', 'flag_features', 'sender_domain', 'attachment_types', 'subject', 'body_text']) {

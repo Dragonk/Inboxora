@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   createEmptyModel, updateIncremental, classifyMessage, blendScores,
   pruneVocabulary, retrainFromRecords, extractTopTokens, isModelMature,
+  trainingIdentityFor,
 } from './spamModel.js';
 
 describe('spam Naive Bayes model', () => {
@@ -153,5 +154,39 @@ describe('spam Naive Bayes model', () => {
     expect(model.usableSpam).toBe(1);
     expect(model.usableHam).toBe(0);
     expect(isModelMature(model, { minRecords: 50 })).toBe(false);
+  });
+});
+
+describe('trainingIdentityFor — MOVE stability', () => {
+  it('prefers Message-ID over everything else', () => {
+    expect(trainingIdentityFor({
+      messageIdHeader: '<a@b>', accountId: 'acct', folder: 'INBOX', uid: 42,
+      senderDomain: 'b', subject: 's', bodyText: 't',
+    })).toBe('mid:<a@b>');
+  });
+
+  it('uses content (not folder+UID) for a message without Message-ID', () => {
+    const base = { accountId: 'acct', senderDomain: 'mail.example', subject: 'Free prize', bodyText: 'claim now' };
+    const inInbox = trainingIdentityFor({ ...base, folder: 'INBOX', uid: 42 });
+    // Same mail after a MOVE: new folder, new UID, identical content.
+    const inSpam = trainingIdentityFor({ ...base, folder: 'Spam', uid: 100 });
+    expect(inInbox).not.toBeNull();
+    expect(inInbox?.startsWith('sub:')).toBe(true);
+    // The reported blocker: a Spam→Ham correction must stay ONE identity.
+    expect(inSpam).toBe(inInbox);
+  });
+
+  it('normalizes case and whitespace before hashing', () => {
+    const a = trainingIdentityFor({ subject: '  Free   Prize ', bodyText: 'CLAIM now', senderDomain: 'Mail.Example' });
+    const b = trainingIdentityFor({ subject: 'free prize', bodyText: 'claim\nnow', senderDomain: 'mail.example' });
+    expect(a).toBe(b);
+  });
+
+  it('falls back to the copy triple only when there is no header and no content', () => {
+    expect(trainingIdentityFor({ folder: 'INBOX', uid: 42, accountId: 'acct' }))
+      .toBe('copy:acct:INBOX:42');
+    expect(trainingIdentityFor({ folder: 'INBOX', uid: 42, accountId: 'acct', subject: 'x' }))
+      .toMatch(/^sub:/);
+    expect(trainingIdentityFor({})).toBeNull();
   });
 });
