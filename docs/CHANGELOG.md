@@ -9,7 +9,7 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.3](wiki/R
 [Release notes 4.0.2](wiki/Release-notes-4.0.2.md),
 [Release notes 4.0.1](wiki/Release-notes-4.0.1.md) and [Release notes 4.0.0](wiki/Release-notes-4.0.0.md).
 
-## [4.0.3] — in development
+## [4.0.3] - 2026-09-18
 
 ### Fixed
 
