@@ -3,6 +3,7 @@
 ## Scope and Git workflow
 
 - Canonical repository: `https://github.com/Dragonk/Inboxora.git`; canonical integration branch: `dev`. Work only in this checkout and target `dev` unless the user explicitly says otherwise.
+- `main` is release-only and must never receive a direct push: every change reaches it through a pull request (release PRs from `dev`, hotfix PRs from a dedicated branch). Do not push, force-push or delete `main` directly, and do not bypass the pull request even when the change looks trivial or CI is green locally — the PR and its required checks are the gate.
 - Before editing and immediately before committing, verify the remote, branch, working tree, diff scope and that `origin/dev` has not advanced. Never commit review archives, extracted findings, temporary package-manager files, build output, secrets or unrelated changes.
 - Keep changes focused and add regression tests for every corrected defect. Run `git diff --check` before each commit.
 - Every code-producing agent must add a commit trailer naming itself: `Assisted-by: <agent name>`. Use the actual agent name or stable task-agent name, never invent a human attribution.
