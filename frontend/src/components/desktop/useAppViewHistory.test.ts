@@ -176,47 +176,56 @@ test('an already loaded message is restored without a request', async () => {
 
 test('a message resolved for a previous session is never injected', async () => {
   resetStore();
+  // The exact row is really gone (404), so the durable lookup is the one left in
+  // flight — and both seams are stubbed, so nothing reaches the real API and the
+  // assertions below cannot pass because a request failed early.
   const lookup = deferred<StoreMessageRow | null>();
-  const history = createAppViewHistory({ resolveMessage: () => lookup.promise });
+  const { options, exactCalls, durableCalls } = lookups({ exact: () => null, durable: () => lookup.promise });
+  const history = createAppViewHistory(options);
   const record = recorder(history);
 
   history.reset();
-  useStore.setState({ messages: [row('m1')], selectedMessageId: 'm1' });
+  useStore.setState({ messages: [row('old-uuid', 'INBOX', '<stable@message.id>')], selectedMessageId: 'old-uuid' });
   record();
   useStore.getState().setSelectedAccount(null, 'Sent');
   record();
 
   history.navigate('back');
   record(); // the recorder echo, which consumes the restore marker
-  // The session ends while the lookup is in flight.
+  // The session ends while the durable lookup is in flight.
   useStore.setState({ authEpoch: useStore.getState().authEpoch + 1 });
-  lookup.resolve(row('m1'));
+  lookup.resolve(row('new-uuid', 'INBOX', '<stable@message.id>'));
   await tick();
 
+  assert.deepEqual(exactCalls, ['old-uuid']);
+  assert.deepEqual(durableCalls, [{ ref: '<stable@message.id>', accountId: 'a1' }]);
   const state = useStore.getState();
-  assert.equal(state.selectedMessageId, 'm1');
+  assert.equal(state.selectedMessageId, 'old-uuid');
   assert.deepEqual(Object.values(state.threadMessages).flat(), []);
 });
 
 test('a lookup that finishes after the user navigated on is dropped', async () => {
   resetStore();
   const lookup = deferred<StoreMessageRow | null>();
-  const history = createAppViewHistory({ resolveMessage: () => lookup.promise });
+  const { options, exactCalls, durableCalls } = lookups({ exact: () => null, durable: () => lookup.promise });
+  const history = createAppViewHistory(options);
   const record = recorder(history);
 
   history.reset();
-  useStore.setState({ messages: [row('m1')], selectedMessageId: 'm1' });
+  useStore.setState({ messages: [row('old-uuid', 'INBOX', '<stable@message.id>')], selectedMessageId: 'old-uuid' });
   record();
   useStore.getState().setSelectedAccount(null, 'Sent');
   record();
 
   history.navigate('back');
   record(); // the recorder echo, which consumes the restore marker
-  // The user opens something else before the lookup lands.
+  // The user opens something else before the durable lookup lands.
   useStore.getState().setSelectedMessage(null);
-  lookup.resolve(row('m1'));
+  lookup.resolve(row('new-uuid', 'INBOX', '<stable@message.id>'));
   await tick();
 
+  assert.deepEqual(exactCalls, ['old-uuid']);
+  assert.deepEqual(durableCalls, [{ ref: '<stable@message.id>', accountId: 'a1' }]);
   assert.deepEqual(Object.values(useStore.getState().threadMessages).flat(), []);
 });
 
