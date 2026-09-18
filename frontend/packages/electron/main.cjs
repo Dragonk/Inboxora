@@ -1,5 +1,6 @@
 const { app, BrowserWindow, Menu, Tray, nativeImage, ipcMain, shell, dialog, Notification, session, clipboard } = require('electron');
 const { execFileSync, spawn, spawnSync } = require('child_process');
+const os = require('os');
 const { createHash } = require('crypto');
 const fs = require('fs');
 const http = require('http');
@@ -18,8 +19,11 @@ const {
   TITLEBAR_HEIGHT,
   WINDOWS_MAIL_CLIENT_KEY,
   WINDOWS_MAILTO_USER_CHOICE_KEY,
+  WINDOWS_REGISTERED_APPLICATIONS_KEY,
+  defaultAppsSettingsUri,
   isDefaultMailtoHandler,
   keepsApplicationMenuBar,
+  mailtoRegistrationHealth,
   mailtoRegistrationState,
   normalizeTestNotification,
   parseMailtoUserChoice,
@@ -44,6 +48,8 @@ const NEW_MAIL_NOTIFICATION_MAX_LENGTH = 240;
 // registry key Windows stores per-app notification settings under, so the two
 // must never drift apart.
 const APP_USER_MODEL_ID = 'io.github.dragonk.inboxora';
+// SHCNE_ASSOCCHANGED: tells the shell that file/URL associations changed.
+const SHCNE_ASSOCCHANGED = 0x08000000;
 // How long to wait for Electron's 'show' / 'failed' after calling show() on a test
 // notification. Some desktops raise neither, which is reported as unconfirmed.
 const TEST_NOTIFICATION_TIMEOUT_MS = 4000;
@@ -130,7 +136,7 @@ function registerWindowsMailtoCapabilities() {
     // The Capabilities key is what makes Inboxora appear as an email client under
     // Windows Settings -> Default apps; the ProgID is what mailto: resolves to. Both
     // are needed for the user to be able to pick Inboxora for mail and email links.
-    writeCurrentUserRegValue('HKCU\\Software\\RegisteredApplications', 'Inboxora', 'Software\\Clients\\Mail\\Inboxora\\Capabilities');
+    writeCurrentUserRegValue(WINDOWS_REGISTERED_APPLICATIONS_KEY, 'Inboxora', 'Software\\Clients\\Mail\\Inboxora\\Capabilities');
     writeCurrentUserRegValue(WINDOWS_MAIL_CLIENT_KEY, '', 'Inboxora');
     writeCurrentUserRegValue(`${WINDOWS_MAIL_CLIENT_KEY}\\Capabilities`, 'ApplicationName', 'Inboxora');
     writeCurrentUserRegValue(`${WINDOWS_MAIL_CLIENT_KEY}\\Capabilities`, 'ApplicationDescription', 'A self-hosted, unified webmail client.');
@@ -158,6 +164,7 @@ function readMailtoSettings() {
       state: mailtoRegistrationState(process.platform, null, false),
       isDefault: false,
       currentHandler: null,
+      settingsUri: null,
       canOpenSettings: false,
       requiresUserConfirmation: false,
     };
@@ -166,35 +173,69 @@ function readMailtoSettings() {
   const userChoice = parseMailtoUserChoice(
     queryWindowsRegistry(WINDOWS_MAILTO_USER_CHOICE_KEY, 'ProgId'),
   );
-  const appRegistered = Boolean(queryWindowsRegistry(WINDOWS_MAIL_CLIENT_KEY));
+  // Complete, not merely present: a half-written registration must not be reported
+  // as "registered".
+  const registered = mailtoRegistrationHealth({
+    clientTree: queryWindowsRegistry(WINDOWS_MAIL_CLIENT_KEY, undefined, true),
+    registeredApplications: queryWindowsRegistry(WINDOWS_REGISTERED_APPLICATIONS_KEY),
+    progIdCommand: queryWindowsRegistry(`HKCU\\Software\\Classes\\${MAILTO_PROG_ID}\\shell\\open\\command`),
+  });
 
   return {
     supported: true,
-    state: mailtoRegistrationState('win32', userChoice, appRegistered),
+    state: mailtoRegistrationState('win32', userChoice, registered),
     isDefault: isDefaultMailtoHandler(userChoice),
     currentHandler: userChoice,
+    settingsUri: defaultAppsSettingsUri(os.release()),
     canOpenSettings: true,
     // An app cannot set itself as the default handler on Windows 10/11.
     requiresUserConfirmation: true,
   };
 }
 
+// Windows caches shell associations. Without SHChangeNotify(SHCNE_ASSOCCHANGED) the
+// Default apps page can keep showing the state from before the registration. There
+// is no Node binding for shell32, so this is a best-effort PowerShell P/Invoke: it
+// must never block, and never fail, the registration itself.
+function notifyWindowsShellOfAssociationChange() {
+  if (process.platform !== 'win32') return;
+
+  const script = [
+    "$sig = '[DllImport(\"shell32.dll\")] public static extern void SHChangeNotify(int eventId, uint flags, IntPtr item1, IntPtr item2);'",
+    "Add-Type -Namespace Inboxora -Name Shell32 -MemberDefinition $sig",
+    `[Inboxora.Shell32]::SHChangeNotify(${SHCNE_ASSOCCHANGED}, 0, [IntPtr]::Zero, [IntPtr]::Zero)`,
+  ].join('; ');
+
+  try {
+    const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script], {
+      stdio: 'ignore',
+      windowsHide: true,
+    });
+    child.on('error', () => {});
+    if (typeof child.unref === 'function') child.unref();
+  } catch (error) {
+    console.error('Could not notify the Windows shell about the mail handler change:', error);
+  }
+}
+
 function registerAsMailtoHandler() {
   if (process.platform !== 'win32') return readMailtoSettings();
 
   registerMailtoProtocol();
+  notifyWindowsShellOfAssociationChange();
   return readMailtoSettings();
 }
 
 async function openDefaultAppsSettings() {
-  if (process.platform !== 'win32') return { opened: false };
+  if (process.platform !== 'win32') return { opened: false, uri: null };
 
+  const uri = defaultAppsSettingsUri(os.release());
   try {
-    await shell.openExternal('ms-settings:defaultapps');
-    return { opened: true };
+    await shell.openExternal(uri);
+    return { opened: true, uri };
   } catch (error) {
     console.error('Could not open the Windows default apps settings:', error);
-    return { opened: false };
+    return { opened: false, uri };
   }
 }
 
@@ -271,10 +312,11 @@ function readOsNotificationState() {
 
 // A missing key or value is normal (the user never changed the default), so an
 // unreadable query is "no data" rather than an error.
-function queryWindowsRegistry(key, valueName) {
+function queryWindowsRegistry(key, valueName, recursive = false) {
   try {
     const args = ['query', key];
     if (valueName) args.push('/v', valueName);
+    if (recursive) args.push('/s');
     return execFileSync('reg', args, { encoding: 'utf8', windowsHide: true });
   } catch {
     return '';

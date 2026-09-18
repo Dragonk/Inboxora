@@ -74,6 +74,8 @@ interface InboxoraNativeMailtoSettings {
   isDefault?: boolean;
   /** The app Windows currently opens mailto: links with, or null. */
   currentHandler?: string | null;
+  /** Deep link used by openSettings(): per-app page on Windows 11, general list on 10. */
+  settingsUri?: string | null;
   canOpenSettings?: boolean;
   /** Windows 10/11 require the user to confirm the default app in Settings. */
   requiresUserConfirmation?: boolean;

@@ -147,12 +147,22 @@ registers itself as an *available* one and hands the choice to the user:
   URL association) plus the `Inboxora.mailto` ProgID with its
   `shell\open\command`, and lists the app in `RegisteredApplications`. That is what
   makes Inboxora appear under **Settings → Default apps** for both *Email* and the
-  `mailto:` link type;
+  `mailto:` link type. After the registry writes, the shell is told the associations
+  changed (`SHChangeNotify(SHCNE_ASSOCCHANGED)`) — from the installer natively and
+  from the app on re-registration — because Windows otherwise keeps serving a cached
+  view of its association list;
 - **Settings → Notifications → Default email app** reports whether Inboxora is the
   current handler (read from the `mailto` `UserChoice\ProgId` Windows keeps),
   re-asserts the registration with *Set as default*, and opens the Windows
-  default-apps page where the user confirms it. The card states plainly that
-  Windows asks for that confirmation, instead of implying the button does it alone;
+  default-apps page where the user confirms it: the per-app page
+  (`ms-settings:defaultapps?registeredAppUser=Inboxora`) on Windows 11, the general
+  list on Windows 10, which only has that. The card states plainly that Windows asks
+  for that confirmation, instead of implying the button does it alone;
+- "registered" means the registration is *complete* — the `mailto` URL association
+  points at Inboxora's ProgID, the `RegisteredApplications` entry points at its
+  capabilities, and the ProgID still has a launch command. A half-written
+  registration (an interrupted upgrade, a cleaned-up key) reports
+  "not registered" and the button repairs it;
 - the state is re-read when the window regains focus, so returning from Windows
   Settings shows the result.
 
@@ -474,8 +484,13 @@ Windows default email app
   - Settings -> Notifications -> "Default email app" is present (Windows only)
   - with Outlook as the default: the card says Inboxora is registered but not the
     default, and offers "Set as default"
-  - "Set as default" writes the registration and opens Windows Default apps, where
+  - "Set as default" writes the registration and opens Windows Default apps — the
+    per-app page for Inboxora on Windows 11, the general list on Windows 10 — where
     Inboxora is listed for Email and for the mailto: link type
+  - with a deliberately damaged registration (delete
+    HKCU\Software\Clients\Mail\Inboxora\Capabilities\URLAssociations\mailto), the card
+    must report "not registered" rather than "registered", and "Set as default" must
+    repair it
   - after picking Inboxora there and returning, the card reads "Inboxora is your
     default email app" without reopening Settings
   - clicking a mailto: link in another app opens the Inboxora composer

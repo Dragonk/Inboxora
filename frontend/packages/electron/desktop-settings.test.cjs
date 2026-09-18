@@ -36,9 +36,72 @@ test('describes what the user can expect in the default-app card', () => {
   assert.equal(settings.mailtoRegistrationState('darwin', 'Inboxora.mailto', true), 'unsupported');
 });
 
+const HEALTHY_CLIENT_TREE = 'HKEY_CURRENT_USER\\Software\\Clients\\Mail\\Inboxora\r\n'
+  + '    (Default)    REG_SZ    Inboxora\r\n\r\n'
+  + 'HKEY_CURRENT_USER\\Software\\Clients\\Mail\\Inboxora\\Capabilities\r\n'
+  + '    ApplicationName    REG_SZ    Inboxora\r\n'
+  + '    ApplicationIcon    REG_SZ    C:\\Inboxora\\Inboxora.exe,0\r\n\r\n'
+  + 'HKEY_CURRENT_USER\\Software\\Clients\\Mail\\Inboxora\\Capabilities\\URLAssociations\r\n'
+  + '    mailto    REG_SZ    Inboxora.mailto\r\n';
+const HEALTHY_REGISTERED_APPS = '    Inboxora    REG_SZ    Software\\Clients\\Mail\\Inboxora\\Capabilities\r\n';
+const HEALTHY_PROGID_COMMAND = '    (Default)    REG_SZ    "C:\\Inboxora\\Inboxora.exe" "%1"\r\n';
+
+test('a complete registration is healthy', () => {
+  assert.equal(settings.mailtoRegistrationHealth({
+    clientTree: HEALTHY_CLIENT_TREE,
+    registeredApplications: HEALTHY_REGISTERED_APPS,
+    progIdCommand: HEALTHY_PROGID_COMMAND,
+  }), true);
+  // Registry paths and value names are case-insensitive.
+  assert.equal(settings.mailtoRegistrationHealth({
+    clientTree: HEALTHY_CLIENT_TREE.toLowerCase(),
+    registeredApplications: HEALTHY_REGISTERED_APPS.toLowerCase(),
+    progIdCommand: HEALTHY_PROGID_COMMAND,
+  }), true);
+});
+
+test('a half-written registration is not reported as healthy', () => {
+  const full = {
+    clientTree: HEALTHY_CLIENT_TREE,
+    registeredApplications: HEALTHY_REGISTERED_APPS,
+    progIdCommand: HEALTHY_PROGID_COMMAND,
+  };
+  // The client key exists, but each piece is missing in turn.
+  assert.equal(settings.mailtoRegistrationHealth({ ...full, registeredApplications: '' }), false);
+  assert.equal(settings.mailtoRegistrationHealth({ ...full, progIdCommand: '' }), false);
+  assert.equal(settings.mailtoRegistrationHealth({ ...full, clientTree: '    ApplicationName    REG_SZ    Inboxora\r\n' }), false);
+  assert.equal(
+    settings.mailtoRegistrationHealth({ ...full, clientTree: HEALTHY_CLIENT_TREE.replace('Inboxora.mailto', 'Other.mailto') }),
+    false,
+  );
+  assert.equal(
+    settings.mailtoRegistrationHealth({ ...full, registeredApplications: '    Inboxora    REG_SZ    Software\\Clients\\Mail\\Other\\Capabilities\r\n' }),
+    false,
+  );
+  assert.equal(settings.mailtoRegistrationHealth(), false);
+  assert.equal(settings.mailtoRegistrationHealth({}), false);
+});
+
+test('picks the per-app Default apps page on Windows 11 and the list on Windows 10', () => {
+  assert.equal(settings.isWindows11('10.0.22621'), true);   // Windows 11 22H2
+  assert.equal(settings.isWindows11('10.0.22000'), true);   // first Windows 11
+  assert.equal(settings.isWindows11('10.0.19045'), false);  // Windows 10 22H2
+  assert.equal(settings.isWindows11('11.0.1'), true);
+  assert.equal(settings.isWindows11(''), false);
+  assert.equal(settings.isWindows11(undefined), false);
+  assert.equal(settings.isWindows11('not-a-version'), false);
+
+  assert.equal(settings.defaultAppsSettingsUri('10.0.22621'), 'ms-settings:defaultapps?registeredAppUser=Inboxora');
+  assert.equal(settings.defaultAppsSettingsUri('10.0.19045'), 'ms-settings:defaultapps');
+  // The name is the RegisteredApplications value, URL-encoded.
+  assert.equal(settings.defaultAppsSettingsUri('10.0.22621', 'In box'), 'ms-settings:defaultapps?registeredAppUser=In%20box');
+});
+
 test('the registered ProgID and mail-client key are the ones the shell expects', () => {
   assert.equal(settings.MAILTO_PROG_ID, 'Inboxora.mailto');
   assert.equal(settings.WINDOWS_MAIL_CLIENT_KEY, 'HKCU\\Software\\Clients\\Mail\\Inboxora');
+  assert.equal(settings.WINDOWS_REGISTERED_APPLICATIONS_KEY, 'HKCU\\Software\\RegisteredApplications');
+  assert.equal(settings.MAIL_CLIENT_CAPABILITIES_PATH, 'Software\\Clients\\Mail\\Inboxora\\Capabilities');
   assert.equal(
     settings.WINDOWS_MAILTO_USER_CHOICE_KEY,
     'HKCU\\Software\\Microsoft\\Windows\\Shell\\Associations\\UrlAssociations\\mailto\\UserChoice',

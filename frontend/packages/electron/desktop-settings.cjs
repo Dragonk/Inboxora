@@ -112,9 +112,11 @@ function sanitizeNotificationText(value, fallback = '') {
 
 // `reg query` prints one `NAME    TYPE    VALUE` row per line. Both keys below are
 // DWORDs; a missing value/key means "never configured", which is not the same as
-// "disabled", so it must not be reported as blocked.
+// "disabled", so it must not be reported as blocked. Registry value names are
+// case-insensitive, hence the `i` flag.
 function readRegDword(output, name) {
-  const pattern = new RegExp(`^\\s*${name}\\s+REG_DWORD\\s+0x([0-9a-fA-F]+)\\s*$`, 'm');
+  const escaped = String(name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = new RegExp(`^\\s*${escaped}\\s+REG_DWORD\\s+0x([0-9a-fA-F]+)\\s*$`, 'mi');
   const match = String(output || '').match(pattern);
   if (!match) return null;
   // Parse the hex value: `0x00000000` is a legitimate way to write zero and must
@@ -125,8 +127,21 @@ function readRegDword(output, name) {
 // The ProgID the app registers for `mailto:` links, and the mail-client key
 // Windows lists under Settings -> Default apps -> Email.
 const MAILTO_PROG_ID = 'Inboxora.mailto';
+const MAIL_CLIENT_NAME = 'Inboxora';
+const MAIL_CLIENT_CAPABILITIES_PATH = 'Software\\Clients\\Mail\\Inboxora\\Capabilities';
+const MAILTO_SCHEME = 'mailto';
 const WINDOWS_MAIL_CLIENT_KEY = 'HKCU\\Software\\Clients\\Mail\\Inboxora';
+const WINDOWS_REGISTERED_APPLICATIONS_KEY = 'HKCU\\Software\\RegisteredApplications';
 const WINDOWS_MAILTO_USER_CHOICE_KEY = 'HKCU\\Software\\Microsoft\\Windows\\Shell\\Associations\\UrlAssociations\\mailto\\UserChoice';
+
+/** Read a REG_SZ value out of a `reg query` dump, or null when it is absent. */
+function readRegString(output, name) {
+  const escaped = String(name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = String(output || '').match(new RegExp(`^\\s*${escaped}\\s+REG_SZ\\s+(.*?)\\s*$`, 'mi'));
+  if (!match) return null;
+  const value = match[1].trim().replace(/^"(.*)"$/, '$1');
+  return value || null;
+}
 
 /**
  * Read the ProgID Windows currently uses for `mailto:` out of a `reg query` of the
@@ -134,10 +149,7 @@ const WINDOWS_MAILTO_USER_CHOICE_KEY = 'HKCU\\Software\\Microsoft\\Windows\\Shel
  * unreadable), which means "not us" rather than "unknown".
  */
 function parseMailtoUserChoice(output) {
-  const match = String(output || '').match(/^\s*ProgId\s+REG_SZ\s+(.+?)\s*$/m);
-  if (!match) return null;
-  const value = match[1].trim().replace(/^"(.*)"$/, '$1');
-  return value || null;
+  return readRegString(output, 'ProgId');
 }
 
 /** Whether Windows is configured to open `mailto:` links with this app. */
@@ -147,12 +159,55 @@ function isDefaultMailtoHandler(userChoiceProgId) {
 }
 
 /**
+ * Whether the registration is actually complete, not merely present: the client
+ * capabilities exist with the right `mailto` association, the app is listed in
+ * `RegisteredApplications`, and the ProgID still has a launch command. A half-written
+ * registration must not be reported as "registered".
+ */
+function mailtoRegistrationHealth({ clientTree, registeredApplications, progIdCommand } = {}, progId = MAILTO_PROG_ID) {
+  const applicationName = readRegString(clientTree, 'ApplicationName');
+  const urlAssociation = readRegString(clientTree, MAILTO_SCHEME);
+  const registeredPath = readRegString(registeredApplications, MAIL_CLIENT_NAME);
+  const command = readRegString(progIdCommand, '(Default)');
+
+  return Boolean(
+    applicationName
+    && urlAssociation
+    && urlAssociation.toLowerCase() === String(progId).toLowerCase()
+    && registeredPath
+    && registeredPath.toLowerCase() === MAIL_CLIENT_CAPABILITIES_PATH.toLowerCase()
+    && command,
+  );
+}
+
+/** Windows 11 is still reported as version 10; the build number is what separates them. */
+function isWindows11(release) {
+  const [major, , build] = String(release || '')
+    .split('.')
+    .map((part) => Number.parseInt(part, 10));
+  if (!Number.isFinite(major) || !Number.isFinite(build)) return false;
+  return major > 10 || (major === 10 && build >= 22000);
+}
+
+/**
+ * Deep link to the Default apps page. Windows 11 (21H2/22H2 with the April 2023
+ * update and later) supports jumping straight to the per-app page for an app
+ * registered under HKCU\Software\RegisteredApplications; Windows 10 only has the
+ * general list, so that stays the fallback.
+ */
+function defaultAppsSettingsUri(release, appName = MAIL_CLIENT_NAME) {
+  return isWindows11(release)
+    ? `ms-settings:defaultapps?registeredAppUser=${encodeURIComponent(appName)}`
+    : 'ms-settings:defaultapps';
+}
+
+/**
  * What the user can expect to see in the desktop settings card.
  *
  * - `unsupported`     — not Windows; there is nothing to configure.
  * - `default`         — Windows opens `mailto:` links with Inboxora.
  * - `registered`      — Inboxora is listed as an email app, but another app is default.
- * - `not-registered`  — the shell has no Inboxora mail handler yet.
+ * - `not-registered`  — the shell has no (complete) Inboxora mail handler yet.
  */
 function mailtoRegistrationState(platform, userChoiceProgId, appRegistered) {
   if (platform !== 'win32') return 'unsupported';
@@ -185,17 +240,25 @@ module.exports = {
   DEFAULT_DESKTOP_NOTIFICATIONS,
   DEFAULT_TITLEBAR_THEME,
   MAILTO_PROG_ID,
+  MAIL_CLIENT_CAPABILITIES_PATH,
+  MAIL_CLIENT_NAME,
+  MAILTO_SCHEME,
   TITLEBAR_HEIGHT,
   WINDOWS_MAILTO_USER_CHOICE_KEY,
   WINDOWS_MAIL_CLIENT_KEY,
+  WINDOWS_REGISTERED_APPLICATIONS_KEY,
+  defaultAppsSettingsUri,
   isDefaultMailtoHandler,
+  isWindows11,
   keepsApplicationMenuBar,
+  mailtoRegistrationHealth,
   mailtoRegistrationState,
   normalizeTestNotification,
   normalizeTitlebarTheme,
   parseMailtoUserChoice,
   parseWindowsNotificationsEnabled,
   readDesktopNotificationSettings,
+  readRegString,
   readTitlebarTheme,
   usesTitleBarOverlay,
   withDesktopNotificationEnabled,

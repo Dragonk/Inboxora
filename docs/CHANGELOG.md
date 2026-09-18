@@ -67,11 +67,16 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.3](wiki/R
   available where the platform provides one (Windows and macOS), not only after a failure.
 - The Windows desktop build can now be chosen as the default email app and `mailto:` handler
   from Inboxora itself. Settings → Notifications → *Default email app* reports whether Inboxora
-  is the current handler, offers *Set as default*, and opens the Windows default-apps page where
-  the user confirms the choice — Windows 10/11 do not let an application make itself the default,
-  and the card says so instead of implying otherwise. The installer and the app both register the
+  is the current handler, offers *Set as default*, and opens the Windows default-apps page —
+  the per-app page on Windows 11, the general list on Windows 10 — where the user confirms the
+  choice. Windows 10/11 do not let an application make itself the default, and the card says so
+  instead of implying otherwise. The status requires a *complete* registration (the `mailto`
+  association, the `RegisteredApplications` entry and the launch command), so a partially
+  written one is not reported as registered. The installer and the app both register the
   email-client capabilities (now including `ApplicationIcon`) and the `Inboxora.mailto` ProgID,
-  so Inboxora is listed for both mail and email links.
+  and the shell is told the associations changed (`SHChangeNotify(SHCNE_ASSOCCHANGED)`) after
+  installing and after re-registering, so the Default apps page does not keep showing a stale
+  list.
 - Scoped Electron IPC for the desktop features — notification settings/test, mail-handler
   settings/registration and title-bar theming — exposed through the sandboxed preload, with
   sender *and* sender-frame-origin validation in the main process (the same webContents also
