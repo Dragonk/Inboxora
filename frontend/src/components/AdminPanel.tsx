@@ -9045,7 +9045,12 @@ export default function AdminPanel() {
     <div
       onClick={e => e.target === e.currentTarget && setShowAdmin(false)}
       style={{
-        position: 'fixed', inset: 0, background: 'var(--overlay-scrim)',
+        position: 'fixed', left: 0, right: 0, bottom: 0,
+        // Starts below the Electron title bar (0 everywhere else) so the desktop
+        // Back / Forward / Search / Settings buttons stay usable while Settings is
+        // open, instead of being covered by the scrim.
+        top: 'var(--desktop-titlebar-offset, 0px)',
+        background: 'var(--overlay-scrim)',
         backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         zIndex: 2000, padding: 24,

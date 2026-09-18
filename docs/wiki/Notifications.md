@@ -68,7 +68,10 @@ Consequences worth knowing:
   operating-system state separately (read from the Windows notification
   registry; reported as unknown on Linux/macOS, where no equivalent is exposed),
   and words the plain enabled state as "enabled in Inboxora" rather than
-  "system notifications are active".
+  "system notifications are active". The state is re-read whenever the window
+  regains focus — including right after using the shortcut below — so the card
+  reflects a change the user just made in the operating system. A test that the
+  OS confirmed also outranks a stale "turned off" reading.
 
 ### Settings
 
@@ -118,6 +121,14 @@ the browser history never contained "the message I had open" or "the Calendar
 view" — only real document loads such as login and OIDC. The application history
 also keeps the existing origin/OIDC navigation policy as the only thing that can
 put a document into the browser history.
+
+Restoring a message works even when its folder page has been replaced in the
+meantime (the normal case after visiting another folder or account): the message
+is re-resolved by id — the same durable lookup the deep-link path uses, so a moved
+message is still found — and parked where the reading pane can render it. The
+Settings overlay starts below the title bar, so Back / Forward / Search / Settings
+stay clickable while Settings is open; that matters because Back out of Settings
+requires Forward to be reachable to return.
 
 ## Android — instant notifications
 
@@ -426,6 +437,8 @@ Windows notifications blocked by the OS
   - the card must say the OS has them turned off (not "working") and offer
     "Open system notification settings"
   - the test button must report a failure rather than success
+  - turn them back on in Windows, return to Inboxora *without* reopening Settings:
+    the status must update on focus
 
 Title bar
   - drag the window; double-click the empty part of the bar
@@ -433,6 +446,9 @@ Title bar
   - Back and Forward across: mail list -> message -> Calendar -> Contacts ->
     Settings, then all the way back and forward again; disabled states at both ends
   - Back from Settings returns to the surface Settings was opened from
+  - with Settings open, Back / Forward / Search / Settings are still clickable
+  - Back to a message that lives in another folder or account: the message opens
+    (it is re-fetched), not just the mailbox
   - search uses the Inboxora search engine; Ctrl+E / Cmd+E focuses it
   - Settings opens the existing Settings screen at Notifications
   - Ctrl+R reload, F11 full screen, Ctrl+W close-to-tray, Ctrl+M minimize,

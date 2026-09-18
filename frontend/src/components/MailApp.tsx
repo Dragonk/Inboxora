@@ -825,7 +825,14 @@ export default function MailApp() {
     <div style={{
       width: '100vw', height: 'var(--app-height, 100svh)',
       overflow: 'hidden', background: 'var(--bg-primary)',
-      ...(desktopShell ? { display: 'flex', flexDirection: 'column' } : {}),
+      ...(desktopShell ? {
+        display: 'flex',
+        flexDirection: 'column',
+        // Overlays that render as `position: fixed` (Settings) are viewport-relative
+        // even though they live in this tree, so they read this to start below the
+        // title bar instead of covering it.
+        '--desktop-titlebar-offset': `${titlebarHeight}px`,
+      } : {}),
     }}>
     {desktopShell && <DesktopTitleBar />}
     <div style={{

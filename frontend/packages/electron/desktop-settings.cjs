@@ -117,7 +117,9 @@ function readRegDword(output, name) {
   const pattern = new RegExp(`^\\s*${name}\\s+REG_DWORD\\s+0x([0-9a-fA-F]+)\\s*$`, 'm');
   const match = String(output || '').match(pattern);
   if (!match) return null;
-  return match[1] !== '0';
+  // Parse the hex value: `0x00000000` is a legitimate way to write zero and must
+  // not be mistaken for "non-zero".
+  return Number.parseInt(match[1], 16) !== 0;
 }
 
 /**

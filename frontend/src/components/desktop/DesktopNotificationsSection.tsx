@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 /**
@@ -53,19 +53,44 @@ export default function DesktopNotificationsSection() {
   const [busy, setBusy] = useState(false);
   const [testOutcome, setTestOutcome] = useState<TestOutcome | null>(null);
   const notifications = typeof window === 'undefined' ? undefined : window.inboxoraNative?.notifications;
+  // The last OS state we showed, so a change (the user flipping the Windows switch
+  // and coming back) invalidates whatever the previous test reported.
+  const lastOsState = useRef<OsState | null>(null);
+
+  const refresh = useCallback(async (options: { clearOutcome?: boolean } = {}) => {
+    const value = await notifications?.getSettings?.().catch(() => undefined);
+    if (!value) return;
+    const next = readSettings(value);
+    const osStateChanged = lastOsState.current !== null && lastOsState.current !== next.osState;
+    lastOsState.current = next.osState;
+    setSettings(next);
+    if (options.clearOutcome || osStateChanged) setTestOutcome(null);
+  }, [notifications]);
 
   useEffect(() => {
     let cancelled = false;
-    notifications?.getSettings?.()
-      .then((value) => {
-        if (!cancelled) setSettings(readSettings(value));
-      })
-      .catch(() => {})
-      .finally(() => {
-        if (!cancelled) setLoaded(true);
-      });
+    void refresh().finally(() => {
+      if (!cancelled) setLoaded(true);
+    });
     return () => { cancelled = true; };
-  }, [notifications]);
+  }, [refresh]);
+
+  // The OS state can change while Inboxora is in the background — most obviously
+  // while the user is in the system notification settings we just opened. Re-read
+  // it whenever the window comes back, so the card cannot keep claiming
+  // "turned off in your operating system" after it was fixed (or the reverse).
+  useEffect(() => {
+    const onWake = () => {
+      if (document.visibilityState === 'hidden') return;
+      void refresh();
+    };
+    window.addEventListener('focus', onWake);
+    document.addEventListener('visibilitychange', onWake);
+    return () => {
+      window.removeEventListener('focus', onWake);
+      document.removeEventListener('visibilitychange', onWake);
+    };
+  }, [refresh]);
 
   const toggle = useCallback(async () => {
     if (busy || !settings.supported) return;
@@ -74,7 +99,13 @@ export default function DesktopNotificationsSection() {
     setTestOutcome(null);
     try {
       const value = await notifications?.setEnabled?.(next);
-      setSettings(readSettings(value ?? { ...settings, enabled: next }));
+      if (value) {
+        const applied = readSettings(value);
+        lastOsState.current = applied.osState;
+        setSettings(applied);
+      } else {
+        setSettings({ ...settings, enabled: next });
+      }
     } finally {
       setBusy(false);
     }
@@ -107,29 +138,33 @@ export default function DesktopNotificationsSection() {
   }, [busy, notifications, settings.enabled, settings.supported, t]);
 
   const openSystemSettings = useCallback(() => {
-    notifications?.openSettings?.().catch(() => {});
-  }, [notifications]);
+    notifications?.openSettings?.()
+      .then(() => refresh())
+      .catch(() => {});
+  }, [notifications, refresh]);
 
   const { enabled, supported, osState, canOpenSystemSettings } = settings;
-  const verified = osState === 'enabled' || testOutcome === 'confirmed';
-  const blockedBySystem = supported && osState === 'disabled';
+  // A test that the operating system actually confirmed outranks a stale reading:
+  // it demonstrably delivered a notification, so the OS cannot be blocking them.
+  const verified = testOutcome === 'confirmed' || osState === 'enabled';
+  const blockedBySystem = osState === 'disabled' && !verified;
 
   const statusLabel = !supported
     ? t('desktop.notifications.statusUnsupported')
-    : blockedBySystem
-      ? t('desktop.notifications.statusBlockedOs')
-      : !enabled
-        ? t('desktop.notifications.statusOff')
-        : verified
-          ? t('desktop.notifications.statusVerified')
+    : !enabled
+      ? t('desktop.notifications.statusOff')
+      : verified
+        ? t('desktop.notifications.statusVerified')
+        : blockedBySystem
+          ? t('desktop.notifications.statusBlockedOs')
           : t('desktop.notifications.statusOn');
 
   const statusColor = !supported || !enabled
     ? 'var(--text-tertiary)'
-    : blockedBySystem
-      ? 'var(--amber, #f59e0b)'
-      : verified
-        ? 'var(--green, #22c55e)'
+    : verified
+      ? 'var(--green, #22c55e)'
+      : blockedBySystem
+        ? 'var(--amber, #f59e0b)'
         : 'var(--accent)';
 
   const testMessage = testOutcome === 'confirmed'

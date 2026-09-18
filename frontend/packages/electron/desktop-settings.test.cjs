@@ -127,3 +127,13 @@ test('Windows registry parsing ignores a stray value that only looks similar', (
   assert.equal(settings.parseWindowsNotificationsEnabled('    Disabled    REG_DWORD    0x0', ''), null);
   assert.equal(settings.parseWindowsNotificationsEnabled('    Enabled    REG_SZ    0', ''), null);
 });
+
+test('a zero DWORD written with leading zeros is still zero', () => {
+  // `reg query` prints DWORDs zero-padded, so 0x00000000 must not read as non-zero
+  // (and 0x00000001 must read as enabled).
+  assert.equal(settings.parseWindowsNotificationsEnabled('    Enabled    REG_DWORD    0x00000000', ''), false);
+  assert.equal(settings.parseWindowsNotificationsEnabled('    Enabled    REG_DWORD    0x00000001', ''), true);
+  assert.equal(settings.parseWindowsNotificationsEnabled('', '    ToastEnabled    REG_DWORD    0x00000000'), false);
+  assert.equal(settings.parseWindowsNotificationsEnabled('', '    ToastEnabled    REG_DWORD    0x00000001'), true);
+  assert.equal(settings.parseWindowsNotificationsEnabled('    Enabled    REG_DWORD    0x0000000A', ''), true);
+});
