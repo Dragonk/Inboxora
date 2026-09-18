@@ -30,10 +30,25 @@ interface InboxoraNativeUpdateStatus {
   [key: string]: unknown;
 }
 
+interface InboxoraNativeNotificationSettings {
+  enabled?: boolean;
+  [key: string]: unknown;
+}
+
+interface InboxoraNativeNotificationResult {
+  shown?: boolean;
+  reason?: string;
+  [key: string]: unknown;
+}
+
 interface InboxoraNativeNotifications {
   checkPermission?(): Promise<string>;
   requestPermission?(): Promise<NotificationPermission>;
   showNewMail?(payload: unknown): Promise<unknown>;
+  getSettings?(): Promise<InboxoraNativeNotificationSettings>;
+  setEnabled?(enabled: boolean): Promise<InboxoraNativeNotificationSettings>;
+  isSupported?(): Promise<boolean>;
+  showTest?(payload?: { title?: string; body?: string }): Promise<InboxoraNativeNotificationResult>;
   getStatus?(): Promise<InboxoraNativeStatus>;
   register?(): Promise<InboxoraNativeStatus>;
   clear?(): Promise<InboxoraNativeStatus>;
@@ -42,6 +57,24 @@ interface InboxoraNativeNotifications {
   openHelp?(): Promise<InboxoraNativeStatus>;
   openSettings?(): Promise<InboxoraNativeStatus>;
   onPush?(callback: (notification: InboxoraNativePushNotification) => void): () => void;
+}
+
+interface InboxoraNativeNavigationState {
+  canGoBack?: boolean;
+  canGoForward?: boolean;
+  [key: string]: unknown;
+}
+
+interface InboxoraNativeNavigation {
+  back?(): Promise<InboxoraNativeNavigationState>;
+  forward?(): Promise<InboxoraNativeNavigationState>;
+  getState?(): Promise<InboxoraNativeNavigationState>;
+  onStateChanged?(callback: (state: InboxoraNativeNavigationState) => void): () => void;
+}
+
+interface InboxoraNativeTitlebar {
+  height?: number;
+  setTheme?(theme: { color: string; symbolColor: string }): Promise<{ applied?: boolean; height?: number }>;
 }
 
 interface InboxoraNativeBadges {
@@ -77,6 +110,8 @@ interface InboxoraNativeActions {
 }
 
 interface InboxoraNativeBridge {
+  // 'electron' only in the Inboxora Electron shell; Capacitor Android omits it.
+  shell?: string;
   platform?: string;
   getHost?(): Promise<unknown>;
   saveHost?(host: string): Promise<unknown>;
@@ -84,6 +119,8 @@ interface InboxoraNativeBridge {
   notifications?: InboxoraNativeNotifications;
   badges?: InboxoraNativeBadges;
   updates?: InboxoraNativeUpdates;
+  navigation?: InboxoraNativeNavigation;
+  titlebar?: InboxoraNativeTitlebar;
   actions?: InboxoraNativeActions;
 }
 

@@ -35,6 +35,8 @@ import { FONT_SETS, loadFontSet, isRetroFont } from '../fonts.ts';
 import { LAYOUTS, localizedLayout, applyLayout } from '../layouts.ts';
 import { NOTIFICATION_SOUNDS, playNotificationSound, playCustomSound, warmUpAudioContext } from '../utils/notificationSounds.ts';
 import { usePushNotifications } from '../hooks/usePushNotifications.ts';
+import DesktopNotificationsSection from './desktop/DesktopNotificationsSection.tsx';
+import { isElectronShell } from '../utils/desktopShell.ts';
 import SignatureEditor from './SignatureEditor.tsx';
 import SpamSettings from './SpamSettings.tsx';
 import DiagnosticsReportModal from './DiagnosticsReportModal.tsx';
@@ -5952,9 +5954,17 @@ function NotificationsTab() {
         </div>
       </div>
 
-      {/* Push Notifications */}
-      <PushNotificationsSection />
-      <NativePushSection />
+      {/* Push Notifications. Inside Electron the native OS notifications come from
+          the Inboxora WebSocket, not Web Push, so the browser/VAPID section would
+          both mislead and risk double notifications. */}
+      {isElectronShell() ? (
+        <DesktopNotificationsSection />
+      ) : (
+        <>
+          <PushNotificationsSection />
+          <NativePushSection />
+        </>
+      )}
     </div>
   );
 }

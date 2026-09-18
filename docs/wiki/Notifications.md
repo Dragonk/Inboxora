@@ -34,6 +34,67 @@ the service worker (`frontend/public/sw.js`) shows the rich notification
 (sender, subject, deep link, unread badge) and the browser subscription is stored
 in `push_subscriptions`. Adding native push does not change this path.
 
+## Desktop app (Electron) — native notifications
+
+The Electron build does **not** use Web Push, VAPID, the service worker or the
+server push dispatcher. It reuses the WebSocket the app already has:
+
+```text
+WebSocket new_messages
+        ▼
+renderer (useWebSocket)  ──▶  preload (contextBridge)
+                                  ▼
+                          Electron main process
+                                  ▼
+                     Electron `Notification`  ──▶  OS notification
+```
+
+Consequences worth knowing:
+
+- **No VAPID is required** for desktop notifications. They work on any install.
+- Notifications arrive while the window is visible, minimized or hidden in the
+  tray. After **Quit** the process is gone and nothing can arrive — that would
+  need a WNS/APNs/background-service architecture, which is out of scope.
+- **No duplicates:** inside the desktop shell the app neither restores nor creates
+  a Web Push subscription, and Settings replaces the Web Push card with the system
+  notification card. Web Push remains the browser/PWA path.
+
+### Settings
+
+**Settings → Notifications → *System notifications***:
+
+- a switch for new-mail notifications;
+- a live status line (active / off / unsupported);
+- **Send test notification**, which shows a real OS notification through the full
+  renderer → preload → IPC → Electron `Notification` path;
+- if the test fails, a button that opens the operating system's notification
+  settings (Windows: *ms-settings:notifications*, macOS: Notifications preference
+  pane). Linux has no portable settings URI, so the button reports that instead of
+  opening the wrong page.
+
+The preference is stored locally, per installation, in the Electron config file
+under `app.getPath('userData')` (`desktopNotifications.enabled`, default `true`) —
+deliberately not an account setting, so a home computer can notify while another
+device stays quiet. It is independent of the notification-sound setting, which is
+unchanged.
+
+Notifications are suppressed in the **main process** when the switch is off, so no
+other code path can show them by accident. Clicking a notification restores,
+shows and focuses the existing window and opens the specific message; it never
+creates a second Inboxora window.
+
+### Window title bar
+
+The desktop window uses Electron's `titleBarStyle: 'hidden'` with the Window
+Controls Overlay instead of `frame: false`. The Inboxora bar carries Back,
+Forward, Search (the existing Inboxora search engine, also `Ctrl+E` / `Cmd+E`) and
+Settings, while minimize / maximize / close and close-to-tray stay native OS
+behaviour. Back/Forward use `webContents.navigationHistory` and follow in-page
+(SPA) history; the existing origin/navigation guards still decide what may ever
+enter that history. On Windows and Linux the `File / Edit / View / Window / Help`
+menu bar is removed; `Ctrl+R` (reload) and `F11` (full screen) keep working, and
+the tray keeps New Mail, Sync, Show/Hide, Change Host and Quit.
+
 ## Android — instant notifications
 
 ### How it works, in one paragraph
@@ -309,5 +370,37 @@ without opening the app.
 If a state fails, see the Android section in
 [Troubleshooting](Troubleshooting.md) — most failures are battery optimization
 suspending ntfy, or a reverse proxy closing the UnifiedPush (/up…) WebSocket.
+```
+
+## Manual desktop test (not automated in CI)
+
+CI exercises the main-process logic with unit tests and a stubbed Electron
+(`desktop-settings.test.cjs`), and the renderer helpers with `desktopShell.test.ts`.
+It cannot boot a signed Windows/macOS/Linux build, so run this once on the built
+installer of each target platform before declaring a desktop release ready.
+
+```text
+Notifications (built installer, not electron:dev)
+  1. Inboxora open                -> new mail shows an OS notification
+  2. Inboxora minimized           -> notification still appears
+  3. Inboxora hidden in the tray  -> notification still appears
+  4. Switch off                   -> no notification at all
+  5. Switch back on               -> notifications work again
+  6. "Send test notification"     -> a real OS notification appears
+  7. Click the test notification  -> the window is restored and focused
+  8. Click a new-mail notification-> the correct message opens
+  9. Send one mail                -> exactly one notification (no Web Push duplicate)
+ 10. Restart Inboxora             -> the on/off choice survived
+
+Title bar
+  - drag the window; double-click the empty part of the bar
+  - minimize / maximize / restore / close-to-tray from the native controls
+  - Back and Forward, including their disabled states and SPA navigation
+  - search uses the Inboxora search engine; Ctrl+E / Cmd+E focuses it
+  - Settings opens the existing Settings screen at Notifications
+  - dark mode and light mode (the native control symbols follow the theme)
+  - Windows scaling at 100% / 125% / 150% and the minimum window size
+  - no File / Edit / View / Window / Help bar is visible (Windows/Linux)
+  - the browser build shows none of the above (no desktop title bar)
 ```
 

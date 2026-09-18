@@ -13,6 +13,18 @@ const {
   isSameOrigin,
   normalizeHost,
 } = require('./security.cjs');
+const {
+  TITLEBAR_HEIGHT,
+  invokeNavigation,
+  keepsApplicationMenuBar,
+  normalizeTestNotification,
+  readDesktopNotificationSettings,
+  readNavigationState,
+  readTitlebarTheme,
+  usesTitleBarOverlay,
+  withDesktopNotificationEnabled,
+  withTitlebarTheme,
+} = require('./desktop-settings.cjs');
 
 const CONFIG_FILE = 'inboxora-host.json';
 const UPDATE_STATUS_CHANNEL = 'inboxora:updates:status';
@@ -162,6 +174,29 @@ function clearHost() {
   const config = readConfig();
   delete config.host;
   writeConfig(config);
+}
+
+// The main process is the source of truth for the desktop notification
+// preference: the renderer only asks, and every notification path re-reads it.
+function getDesktopNotificationSettings() {
+  return readDesktopNotificationSettings(readConfig());
+}
+
+function setDesktopNotificationEnabled(enabled) {
+  const config = withDesktopNotificationEnabled(readConfig(), enabled);
+  writeConfig(config);
+  return readDesktopNotificationSettings(config);
+}
+
+function getTitlebarTheme() {
+  return readTitlebarTheme(readConfig());
+}
+
+function persistTitlebarTheme(theme) {
+  const config = withTitlebarTheme(readConfig(), theme);
+  if (!config) return null;
+  writeConfig(config);
+  return readTitlebarTheme(config);
 }
 
 function requestJson(url) {
@@ -606,6 +641,10 @@ function runBackgroundMailAction(action, messageId) {
 }
 
 function showNewMailNotification({ title, body, count, messageId, accountId, folder, message } = {}) {
+  if (!getDesktopNotificationSettings().enabled) {
+    return { shown: false, reason: 'disabled' };
+  }
+
   if (!Notification.isSupported()) {
     return { shown: false, reason: 'unsupported' };
   }
@@ -663,6 +702,61 @@ function showNewMailNotification({ title, body, count, messageId, accountId, fol
   notification.show();
 
   return { shown: true };
+}
+
+// Renders exactly the same native `Notification` type as a new-mail alert so the
+// settings button proves the real OS integration instead of a renderer toast.
+function showTestNotification(payload) {
+  if (!getDesktopNotificationSettings().enabled) {
+    return { shown: false, reason: 'disabled' };
+  }
+
+  if (!Notification.isSupported()) {
+    return { shown: false, reason: 'unsupported' };
+  }
+
+  const normalized = normalizeTestNotification(payload, {
+    title: 'Inboxora',
+    body: 'System notifications are working correctly.',
+  });
+  if (!normalized) {
+    return { shown: false, reason: 'invalid' };
+  }
+
+  const notification = new Notification({
+    title: normalized.title,
+    body: normalized.body,
+    icon: getIconPath(),
+    silent: true,
+  });
+
+  notification.on('click', () => {
+    showMainWindow();
+  });
+  notification.show();
+
+  return { shown: true };
+}
+
+// Deep-links into the OS notification settings so a user whose system blocks
+// Inboxora toasts has a one-click way to re-enable them. Linux has no portable
+// settings URI, so the caller is told nothing was opened instead of guessing.
+async function openSystemNotificationSettings() {
+  const target = process.platform === 'win32'
+    ? 'ms-settings:notifications'
+    : process.platform === 'darwin'
+      ? 'x-apple.systempreferences:com.apple.preference.notifications'
+      : null;
+
+  if (!target) return { opened: false };
+
+  try {
+    await shell.openExternal(target);
+    return { opened: true };
+  } catch (error) {
+    console.error('Could not open the system notification settings:', error);
+    return { opened: false };
+  }
 }
 
 function notifyCheckingUpdate(verbose) {
@@ -1356,44 +1450,41 @@ function buildDarwinMenuTemplate() {
   ];
 }
 
-function buildDefaultMenuTemplate() {
-  return [
-    {
-      label: 'File',
-      id: 'file',
-      submenu: [
-        ...fileMenuItems(),
-        { type: 'separator' },
-        { label: 'Exit', role: 'quit' },
-      ],
-    },
-    {
-      label: 'Edit',
-      submenu: editMenuItems(),
-    },
-    {
-      label: 'View',
-      submenu: viewMenuItems(),
-    },
-    {
-      label: 'Window',
-      role: 'window',
-      submenu: windowMenuItems(),
-    },
-    {
-      label: 'Help',
-      role: 'help',
-      submenu: helpMenuItems(),
-    },
-  ];
+function setupMenu() {
+  // macOS hosts the application menu in the system menu bar, so it stays as-is.
+  // Windows and Linux must not show an in-window File / Edit / View / Window /
+  // Help bar at all: the custom title bar replaces it. Removing the menu also
+  // removes its accelerators, so the few that still matter are re-registered
+  // directly on the window below.
+  if (keepsApplicationMenuBar(process.platform)) {
+    Menu.setApplicationMenu(Menu.buildFromTemplate(buildDarwinMenuTemplate()));
+    return;
+  }
+
+  Menu.setApplicationMenu(null);
 }
 
-function setupMenu() {
-  const template = process.platform === 'darwin'
-    ? buildDarwinMenuTemplate()
-    : buildDefaultMenuTemplate();
+// Native clipboard shortcuts keep working without a menu on Windows/Linux; only
+// Reload and Full Screen came from the menu's accelerators.
+function registerWindowAccelerators(webContents) {
+  if (keepsApplicationMenuBar(process.platform)) return;
 
-  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+  webContents.on('before-input-event', (event, input) => {
+    if (input.type !== 'keyDown' || input.isAutoRepeat) return;
+
+    if (input.control && !input.alt && !input.meta && (input.key === 'r' || input.key === 'R')) {
+      event.preventDefault();
+      webContents.reload();
+      return;
+    }
+
+    if (input.key === 'F11') {
+      const target = BrowserWindow.fromWebContents(webContents);
+      if (!target || target.isDestroyed()) return;
+      event.preventDefault();
+      target.setFullScreen(!target.isFullScreen());
+    }
+  });
 }
 
 function showContextMenu(webContents, params) {
@@ -1497,6 +1588,17 @@ function showMainWindow({ reload = false } = {}) {
   }
 }
 
+// The live navigation history of the main window. Electron deprecated
+// `webContents.goBack()` / `goForward()` in favour of `navigationHistory`.
+function getNavigationHistory() {
+  if (!mainWindow || mainWindow.isDestroyed()) return null;
+  return mainWindow.webContents.navigationHistory || null;
+}
+
+function getNavigationState() {
+  return readNavigationState(getNavigationHistory());
+}
+
 function getTrayIcon() {
   const trayIconPath = process.platform === 'win32'
     ? path.join(__dirname, 'icons', 'icon.ico')
@@ -1586,12 +1688,30 @@ function setupTaskbarTasks() {
 }
 
 function createWindow() {
+  // The custom title bar (DesktopTitleBar) draws the app's own bar. `titleBarStyle:
+  // 'hidden'` removes the OS chrome but keeps the native minimize / maximize /
+  // close controls on Windows and Linux through the Window Controls Overlay, so
+  // there is no custom `frame: false` button row to maintain. `titleBarOverlay: true`
+  // is not enough here: the colour has to follow the user's Inboxora theme, so the
+  // last resolved theme is restored from the config to avoid a flash on start-up.
+  const titlebarTheme = getTitlebarTheme();
+
   mainWindow = new BrowserWindow({
     ...getDefaultWindowBounds(),
     ...getSavedWindowBounds(),
     show: false,
     title: 'Inboxora',
     icon: getWindowIconPath(),
+    titleBarStyle: 'hidden',
+    ...(usesTitleBarOverlay(process.platform)
+      ? {
+          titleBarOverlay: {
+            height: TITLEBAR_HEIGHT,
+            color: titlebarTheme.color,
+            symbolColor: titlebarTheme.symbolColor,
+          },
+        }
+      : { trafficLightPosition: { x: 14, y: 16 } }),
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       backgroundThrottling: false,
@@ -1617,6 +1737,20 @@ function createWindow() {
   mainWindow.webContents.on('context-menu', (_event, params) => {
     showContextMenu(mainWindow.webContents, params);
   });
+
+  registerWindowAccelerators(mainWindow.webContents);
+
+  // Back / forward availability for the custom title bar. `did-navigate-in-page`
+  // makes the arrows correct for the SPA history (pushState) too; the renderer
+  // never gets to supply a URL, so a blocked external navigation can never be
+  // reached through this path.
+  const publishNavigationState = () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    if (!mainWindow.webContents || mainWindow.webContents.isDestroyed()) return;
+    mainWindow.webContents.send('inboxora:navigation:state', getNavigationState());
+  };
+  mainWindow.webContents.on('did-navigate', publishNavigationState);
+  mainWindow.webContents.on('did-navigate-in-page', publishNavigationState);
 
   const navigationPolicy = createNavigationPolicy(readHost);
   const internalPages = new Set([
@@ -1735,6 +1869,21 @@ function scheduleStartupUpdateCheck() {
   check();
 }
 
+// Every privileged IPC channel must come from the Inboxora window itself. The
+// window can load an operator-configured host, so the reply is never trusted on
+// its own.
+function isTrustedIpcSender(event) {
+  if (!mainWindow || mainWindow.isDestroyed()) return false;
+  if (!mainWindow.webContents || mainWindow.webContents.isDestroyed()) return false;
+  return event.sender === mainWindow.webContents;
+}
+
+function assertTrustedIpcSender(event) {
+  if (!isTrustedIpcSender(event)) {
+    throw new Error('Untrusted IPC sender');
+  }
+}
+
 ipcMain.handle('inboxora:getHost', () => readHost());
 
 ipcMain.handle('inboxora:saveHost', async (_event, host) => {
@@ -1769,8 +1918,73 @@ ipcMain.handle('inboxora:badge:set-unread-count', (_event, count) => {
   return setUnreadBadgeCount(unreadCount);
 });
 
-ipcMain.handle('inboxora:notification:new-mail', (_event, notification) => {
+ipcMain.handle('inboxora:notification:new-mail', (event, notification) => {
+  assertTrustedIpcSender(event);
   return showNewMailNotification(notification);
+});
+
+ipcMain.handle('inboxora:notifications:get-settings', (event) => {
+  assertTrustedIpcSender(event);
+  return getDesktopNotificationSettings();
+});
+
+ipcMain.handle('inboxora:notifications:set-enabled', (event, enabled) => {
+  assertTrustedIpcSender(event);
+  return setDesktopNotificationEnabled(enabled);
+});
+
+ipcMain.handle('inboxora:notifications:is-supported', (event) => {
+  assertTrustedIpcSender(event);
+  return Notification.isSupported();
+});
+
+ipcMain.handle('inboxora:notifications:test', (event, payload) => {
+  assertTrustedIpcSender(event);
+  return showTestNotification(payload);
+});
+
+ipcMain.handle('inboxora:notifications:open-settings', (event) => {
+  assertTrustedIpcSender(event);
+  return openSystemNotificationSettings();
+});
+
+ipcMain.handle('inboxora:navigation:get-state', (event) => {
+  assertTrustedIpcSender(event);
+  return getNavigationState();
+});
+
+ipcMain.handle('inboxora:navigation:back', (event) => {
+  assertTrustedIpcSender(event);
+  invokeNavigation(getNavigationHistory(), 'goBack');
+  return getNavigationState();
+});
+
+ipcMain.handle('inboxora:navigation:forward', (event) => {
+  assertTrustedIpcSender(event);
+  invokeNavigation(getNavigationHistory(), 'goForward');
+  return getNavigationState();
+});
+
+ipcMain.handle('inboxora:titlebar:set-theme', (event, theme) => {
+  assertTrustedIpcSender(event);
+  const persisted = persistTitlebarTheme(theme);
+  if (!persisted) return { applied: false };
+
+  if (mainWindow && !mainWindow.isDestroyed() && typeof mainWindow.setTitleBarOverlay === 'function'
+      && usesTitleBarOverlay(process.platform)) {
+    try {
+      mainWindow.setTitleBarOverlay({
+        height: TITLEBAR_HEIGHT,
+        color: persisted.color,
+        symbolColor: persisted.symbolColor,
+      });
+    } catch (error) {
+      console.error('Could not update the title bar overlay:', error);
+      return { applied: false };
+    }
+  }
+
+  return { applied: true, theme: persisted, height: TITLEBAR_HEIGHT };
 });
 
 ipcMain.handle('inboxora:updates:check', async (_event, { verbose } = {}) => {

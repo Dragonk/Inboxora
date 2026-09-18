@@ -1978,5 +1978,27 @@
     "bulletList": "Bullet list",
     "orderedList": "Numbered list",
     "clearFormat": "Clear formatting"
+  },
+  "desktop": {
+    "titlebar": {
+      "search": "Search Inboxora",
+      "forward": "Forward"
+    },
+    "notifications": {
+      "title": "System notifications",
+      "description": "Show desktop notifications for new mail, including while Inboxora is hidden in the tray.",
+      "enable": "New mail notifications",
+      "enableDesc": "Show a system notification whenever new mail arrives.",
+      "statusOn": "System notifications are active",
+      "statusOff": "System notifications are turned off",
+      "statusUnsupported": "This system does not support notifications",
+      "test": "Send test notification",
+      "testBody": "System notifications are working correctly.",
+      "testSent": "Test notification sent.",
+      "testBlocked": "Notifications are turned off, so nothing was shown.",
+      "testFailed": "The test notification could not be shown.",
+      "permissionHint": "Notifications for Inboxora may be turned off in your operating system.",
+      "openSystemSettings": "Open system notification settings"
+    }
   }
 }

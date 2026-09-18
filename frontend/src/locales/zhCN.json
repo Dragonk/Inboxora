@@ -1978,5 +1978,27 @@
     "bulletList": "项目符号列表",
     "orderedList": "编号列表",
     "clearFormat": "清除格式"
+  },
+  "desktop": {
+    "titlebar": {
+      "search": "搜索 Inboxora",
+      "forward": "前进"
+    },
+    "notifications": {
+      "title": "系统通知",
+      "description": "为新邮件显示系统通知，即使 Inboxora 隐藏在托盘中。",
+      "enable": "新邮件通知",
+      "enableDesc": "每封新邮件到达时显示系统通知。",
+      "statusOn": "系统通知已启用",
+      "statusOff": "系统通知已关闭",
+      "statusUnsupported": "此系统不支持通知",
+      "test": "发送测试通知",
+      "testBody": "系统通知工作正常。",
+      "testSent": "测试通知已发送。",
+      "testBlocked": "通知已关闭，因此没有显示任何内容。",
+      "testFailed": "无法显示测试通知。",
+      "permissionHint": "操作系统可能已关闭 Inboxora 的通知。",
+      "openSystemSettings": "打开系统通知设置"
+    }
   }
 }

@@ -26,6 +26,8 @@ import ProfileModal from './ProfileModal.tsx';
 // CE v2 uses the native MessageList/MessagePane shells with grouped/conversation modes.
 // on the native MessageList/MessagePane — no separate import needed.
 import CommandPalette from './CommandPalette.tsx';
+import DesktopTitleBar from './desktop/DesktopTitleBar.tsx';
+import { desktopTitlebarHeight, isElectronShell } from '../utils/desktopShell.ts';
 import { usePluginSlot, PluginRuntime } from '../plugins/PluginSlot.tsx';
 import type { StoreState } from '../store/index.ts';
 import { toAppError } from '../utils/errors.ts';
@@ -284,12 +286,22 @@ export default function MailApp() {
 
   const scale = fontSize / 100;
   const hasNativeBridge = Boolean(window.inboxoraNative || window.Capacitor?.isNativePlatform?.());
-  const [vpSize, setVpSize] = useState({ w: window.innerWidth, h: window.innerHeight });
+  // Electron draws its own title bar above the app; the strip it occupies comes
+  // out of the content viewport so scaled layouts and fixed drawers still align.
+  const desktopShell = isElectronShell();
+  const titlebarHeight = desktopShell ? desktopTitlebarHeight() : 0;
+  const [vpSize, setVpSize] = useState(() => ({
+    w: window.innerWidth,
+    h: Math.max(0, window.innerHeight - titlebarHeight),
+  }));
   useEffect(() => {
-    const update = () => setVpSize({ w: window.innerWidth, h: window.innerHeight });
+    const update = () => setVpSize({
+      w: window.innerWidth,
+      h: Math.max(0, window.innerHeight - titlebarHeight),
+    });
     window.addEventListener('resize', update);
     return () => window.removeEventListener('resize', update);
-  }, []);
+  }, [titlebarHeight]);
 
   useEffect(() => {
     const onVisible = () => {
@@ -812,9 +824,15 @@ export default function MailApp() {
     <div style={{
       width: '100vw', height: 'var(--app-height, 100svh)',
       overflow: 'hidden', background: 'var(--bg-primary)',
+      ...(desktopShell ? { display: 'flex', flexDirection: 'column' } : {}),
     }}>
+    {desktopShell && <DesktopTitleBar />}
     <div style={{
       display: 'flex',
+      // Without the Electron title bar the page keeps its original block layout,
+      // so the web and Capacitor shells are untouched. With it, the strip takes
+      // its height and the content fills the rest (or keeps its own scaled size).
+      ...(desktopShell ? { flex: scale !== 1 ? '0 0 auto' : 1, minHeight: 0 } : {}),
       width: scale !== 1 ? `${(vpSize.w / scale).toFixed(2)}px` : '100%',
       height: scale !== 1 ? `${(vpSize.h / scale).toFixed(2)}px` : '100%',
       '--mobile-nav-height': '0px',

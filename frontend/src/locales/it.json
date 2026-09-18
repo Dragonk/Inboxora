@@ -1978,5 +1978,27 @@
     "bulletList": "Elenco puntato",
     "orderedList": "Elenco numerato",
     "clearFormat": "Rimuovi formattazione"
+  },
+  "desktop": {
+    "titlebar": {
+      "search": "Cerca in Inboxora",
+      "forward": "Avanti"
+    },
+    "notifications": {
+      "title": "Notifiche di sistema",
+      "description": "Mostra le notifiche di sistema per la nuova posta, anche mentre Inboxora è nascosta nella barra delle applicazioni.",
+      "enable": "Notifiche per nuova posta",
+      "enableDesc": "Mostra una notifica di sistema all'arrivo di nuova posta.",
+      "statusOn": "Le notifiche di sistema sono attive",
+      "statusOff": "Le notifiche di sistema sono disattivate",
+      "statusUnsupported": "Questo sistema non supporta le notifiche",
+      "test": "Invia una notifica di prova",
+      "testBody": "Le notifiche di sistema funzionano correttamente.",
+      "testSent": "Notifica di prova inviata.",
+      "testBlocked": "Le notifiche sono disattivate, quindi non è stato mostrato nulla.",
+      "testFailed": "Impossibile mostrare la notifica di prova.",
+      "permissionHint": "Le notifiche per Inboxora potrebbero essere disattivate nel sistema operativo.",
+      "openSystemSettings": "Apri le impostazioni delle notifiche di sistema"
+    }
   }
 }

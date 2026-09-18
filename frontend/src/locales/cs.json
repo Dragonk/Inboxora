@@ -1978,5 +1978,27 @@
     "bulletList": "Odrážkový seznam",
     "orderedList": "Číslovaný seznam",
     "clearFormat": "Vymazat formátování"
+  },
+  "desktop": {
+    "titlebar": {
+      "search": "Hledat v Inboxora",
+      "forward": "Vpřed"
+    },
+    "notifications": {
+      "title": "Systémová oznámení",
+      "description": "Zobrazovat systémová oznámení o nové poště, i když je Inboxora skrytá v oznamovací oblasti.",
+      "enable": "Oznámení o nové poště",
+      "enableDesc": "Při příchodu nové pošty zobrazit systémové oznámení.",
+      "statusOn": "Systémová oznámení jsou aktivní",
+      "statusOff": "Systémová oznámení jsou vypnutá",
+      "statusUnsupported": "Tento systém oznámení nepodporuje",
+      "test": "Odeslat testovací oznámení",
+      "testBody": "Systémová oznámení fungují správně.",
+      "testSent": "Testovací oznámení odesláno.",
+      "testBlocked": "Oznámení jsou vypnutá, takže se nic nezobrazilo.",
+      "testFailed": "Testovací oznámení se nepodařilo zobrazit.",
+      "permissionHint": "Oznámení pro Inboxoru mohou být v operačním systému vypnutá.",
+      "openSystemSettings": "Otevřít nastavení systémových oznámení"
+    }
   }
 }

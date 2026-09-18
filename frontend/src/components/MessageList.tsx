@@ -55,6 +55,12 @@ import { bulkUnreadDelta, failedBulkRow, failedBulkTargets } from '../utils/thre
 import type { StoreState } from '../store/index.ts';
 import type { StoreMessageRow } from '../store/index.ts';
 import type { QueryParams } from '../utils/api.ts';
+import { isElectronShell } from '../utils/desktopShell.ts';
+
+// The Electron shell renders the search field in DesktopTitleBar instead, so the
+// in-list field would be a duplicate. Fixed for the page load (the preload runs
+// before the bundle), which keeps the render condition stable.
+const DESKTOP_TITLEBAR_SEARCH = isElectronShell();
 
 // Folder icon for move picker
 interface FolderIconProps { specialUse?: string | null; size?: number }
@@ -3136,8 +3142,9 @@ export default function MessageList() {
           </div>
         )}
 
-        {/* Search */}
-        <div style={{ position: 'relative' }}>
+        {/* Search. The Electron shell moves this field into DesktopTitleBar, so it
+            is not rendered twice; the browser layout keeps it here. */}
+        {!DESKTOP_TITLEBAR_SEARCH && <div style={{ position: 'relative' }}>
           <div style={{
             position: 'absolute', left: 10, top: '50%',
             transform: 'translateY(-50%)', color: 'var(--text-tertiary)',
@@ -3219,11 +3226,13 @@ export default function MessageList() {
               </div>
             </div>
           )}
-        </div>
+        </div>}
       </div>}
 
-      {/* Mobile search bar (rendered outside the scrollable list so it stays pinned) */}
-      {isMobile && (
+      {/* Mobile search bar (rendered outside the scrollable list so it stays pinned).
+          Still suppressed inside the Electron shell, where DesktopTitleBar owns the
+          only search field even for a narrow window. */}
+      {isMobile && !DESKTOP_TITLEBAR_SEARCH && (
         <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--border-subtle)', flexShrink: 0 }}>
           <div style={{ position: 'relative' }}>
             <div style={{
