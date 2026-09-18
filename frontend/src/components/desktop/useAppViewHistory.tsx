@@ -2,6 +2,7 @@ import { useEffect, useSyncExternalStore } from 'react';
 import { useStore } from '../../store/index.ts';
 import type { StoreState, StoreMessageRow } from '../../store/index.ts';
 import { api } from '../../utils/api.ts';
+import { toAppError } from '../../utils/errors.ts';
 import {
   createViewHistory,
   viewSnapshotFromState,
@@ -37,16 +38,29 @@ type StoreApi = typeof useStore;
 
 export interface AppViewHistoryOptions {
   /**
-   * Resolve a message reference to the current row. Called with the exact physical
-   * row id first, then — only when that row is gone — with the durable reference
-   * (the RFC Message-ID when known, else the row id) scoped to its account.
-   * Defaults to api.resolveMessage().
+   * Raw exact-row lookup by primary key (`GET /mail/messages/:id`, a direct
+   * `WHERE m.id = $1`). Rejects like the API when the row is missing; the factory
+   * turns a 404 into "gone" itself, so the seam stays the raw call.
+   */
+  lookupMessage?: (id: string) => Promise<StoreMessageRow | null>;
+  /**
+   * Durable reference lookup (the RFC Message-ID when known, else the row id),
+   * scoped to its account. Defaults to api.resolveMessage().
    */
   resolveMessage?: (ref: string, accountId?: string) => Promise<StoreMessageRow | null>;
 }
 
 export function accountScope(accountId: string | null | undefined): string | undefined {
   return typeof accountId === 'string' && UUID_PATTERN.test(accountId) ? accountId : undefined;
+}
+
+/** A missing row is an expected outcome here, not a failure. */
+function isNotFound(error: unknown): boolean {
+  return toAppError(error).status === 404;
+}
+
+function defaultLookupMessage(id: string): Promise<StoreMessageRow | null> {
+  return api.getMessage(id);
 }
 
 async function defaultResolveMessage(ref: string, accountId?: string): Promise<StoreMessageRow | null> {
@@ -56,13 +70,15 @@ async function defaultResolveMessage(ref: string, accountId?: string): Promise<S
 
 /**
  * A message restored by Back may live in a folder page that `setSelectedAccount()`
- * just cleared, so "not in the loaded arrays" does not mean "gone". Resolve it by
- * its durable reference — the same lookup the deep-link path uses, so a message
- * that was moved and re-created (new row id) is still found — and park it in
+ * just cleared, so "not in the loaded arrays" does not mean "gone". Ask for the
+ * exact row first and fall back to the durable reference only when it is really
+ * gone — the same durable lookup the deep-link path uses, so a message that was
+ * moved and re-created (new row id) is still found — then park it in
  * `threadMessages`, which `setMessages()` does not evict.
  */
 export function createAppViewHistory(options: AppViewHistoryOptions = {}) {
   const store: StoreApi = useStore;
+  const lookupMessage = options.lookupMessage ?? defaultLookupMessage;
   const resolveMessage = options.resolveMessage ?? defaultResolveMessage;
   const history = createViewHistory(viewSnapshotFromState(store.getState()));
   const listeners = new Set<() => void>();
@@ -148,6 +164,21 @@ export function createAppViewHistory(options: AppViewHistoryOptions = {}) {
     return findOpenRow(store.getState(), messageId) !== null;
   }
 
+  /**
+   * The exact row, or null when it is really gone. The API rejects a missing row
+   * with 404; that is the one failure that means "fall back", so it is normalized
+   * here and every other error keeps propagating.
+   */
+  async function getExactMessage(messageId: string): Promise<StoreMessageRow | null> {
+    try {
+      const message = await lookupMessage(messageId);
+      return message && typeof message.id === 'string' ? message : null;
+    } catch (error) {
+      if (isNotFound(error)) return null;
+      throw error;
+    }
+  }
+
   async function hydrateRestoredMessage(target: ViewSnapshot, authEpoch: number): Promise<void> {
     const token = ++restoreToken;
     const physicalId = target.messageId;
@@ -158,14 +189,16 @@ export function createAppViewHistory(options: AppViewHistoryOptions = {}) {
       // 1) The exact physical row wins. The same Message-ID can exist in more than
       //    one folder of an account (INBOX + Archive), and the durable lookup
       //    prefers the INBOX copy — which would silently swap the copy the user was
-      //    reading. Unscoped by account: the id is already unambiguous.
-      let message = await resolveMessage(physicalId);
+      //    reading. A row that is gone reports null (404), never a throw, so the
+      //    fallback below is reachable.
+      let message = await getExactMessage(physicalId);
       if (token !== restoreToken) return;
 
       if (!message && reference !== physicalId) {
         // 2) The row is gone (moved or re-synced): fall back to the durable
         //    reference, scoped to the account because the same Message-ID can exist
-        //    on two connected accounts.
+        //    on two connected accounts. Only a genuine 404 gets here; any other
+        //    failure propagates to the catch below and the copy is left alone.
         message = await resolveMessage(reference, target.messageAccountId ?? undefined);
         if (token !== restoreToken) return;
       }
@@ -189,8 +222,13 @@ export function createAppViewHistory(options: AppViewHistoryOptions = {}) {
         accountId: message.account_id ?? null,
       }));
       state.setSelectedMessage(message.id);
-    } catch {
-      // Leave the reader as it is; the history entry already points at the message.
+    } catch (error) {
+      // Navigation must not break because a lookup failed, and a message that is
+      // simply gone (404) is an expected outcome. Anything else is a real failure
+      // worth surfacing instead of hiding.
+      if (!isNotFound(error)) {
+        console.error('Could not restore the message from the desktop history:', toAppError(error).message);
+      }
     }
   }
 
