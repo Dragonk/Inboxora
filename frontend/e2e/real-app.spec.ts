@@ -71,7 +71,13 @@ test('V3 calendar creates, reloads and deletes an event against the live API', a
   };
   try {
   await navigate();
-  await page.getByRole('button', { name: /New event|Nowe wydarzenie/ }).click();
+  // The mobile header action and the floating action share the accessible name
+  // "New event", so pick the affordance by its explicit test id per viewport rather
+  // than matching by name (which resolved to two elements).
+  const newEvent = page.viewportSize().width < 768
+    ? page.getByTestId('calendar-header-new')
+    : page.getByTestId('calendar-rail-new-event');
+  await newEvent.click();
   const editor = page.getByTestId('calendar-event-dialog');
   await editor.getByRole('textbox').first().fill(name);
   const savedResponse = page.waitForResponse(response => response.request().method() === 'POST' && new URL(response.url()).pathname === '/api/calendar/events');
@@ -84,6 +90,11 @@ test('V3 calendar creates, reloads and deletes an event against the live API', a
     await page.reload(); await navigate();
     await selectCalendarView(page, 'agenda');
     await page.getByTestId('calendar-agenda-view').getByRole('button', { name: new RegExp(name) }).click();
+    // Every event opens the read-only preview first (its description renders like a
+    // message body); the editor is one step further, behind Edit.
+    const preview = page.getByTestId('calendar-event-preview');
+    await expect(preview).toContainText(name);
+    await preview.getByTestId('calendar-preview-edit').click();
     await expect(editor.getByRole('textbox').first()).toHaveValue(name);
     page.once('dialog', dialog => dialog.accept());
     await editor.getByRole('button', { name: /^(Delete|Usuń)$/ }).click();

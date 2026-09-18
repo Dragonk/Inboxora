@@ -238,7 +238,7 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
   };
   return <aside data-testid="calendar-sidebar" className="calendar-rail" style={panel} aria-label={t('calendar.panel')}>
     <h1 className="calendar-rail-heading">{t('calendar.title')}</h1>
-    {onCreate && <Button variant="primary" className="calendar-rail-create" disabled={!canCreate} onClick={onCreate}>+ {t('calendar.newEvent')}</Button>}
+    {onCreate && <Button variant="primary" className="calendar-rail-create" data-testid="calendar-rail-new-event" disabled={!canCreate} onClick={onCreate}>+ {t('calendar.newEvent')}</Button>}
     <div data-testid="calendar-mini-month" style={miniMonth}>
       <div style={miniMonthHeading}>
         <strong>{anchor.toLocaleDateString(locale, { month: 'long', year: 'numeric' })}</strong>
