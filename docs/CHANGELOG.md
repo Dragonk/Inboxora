@@ -19,11 +19,29 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.3](wiki/R
   and repository settings were carried over 1:1; the previous repository is archived read-only as
   [`Dragonk/Inboxora-archive`](https://github.com/Dragonk/Inboxora-archive). No application code,
   database schema, migration or deployment configuration changed.
-- Operator action after the move: re-add these repository Actions secrets in the new repository —
-  `MAILFLOW_ANDROID_KEYSTORE_BASE64`, `MAILFLOW_ANDROID_KEY_ALIAS`,
-  `MAILFLOW_ANDROID_KEY_PASSWORD`, `MAILFLOW_ANDROID_STORE_PASSWORD`, `MAILFLOW_WINDOWS_CSC_LINK`,
-  `MAILFLOW_WINDOWS_CSC_KEY_PASSWORD`, `ANDROID_DEV_KEYSTORE_BASE64`. Secret values are not
-  readable through the GitHub API, so they could not be copied automatically.
+- Operator action after the move: the repository Actions secrets were re-created in the new
+  repository — `MAILFLOW_ANDROID_KEYSTORE_BASE64`, `MAILFLOW_ANDROID_KEY_ALIAS`,
+  `MAILFLOW_ANDROID_KEY_PASSWORD`, `MAILFLOW_ANDROID_STORE_PASSWORD`, `ANDROID_DEV_KEYSTORE_BASE64`,
+  `MAILFLOW_WINDOWS_CSC_LINK`, `MAILFLOW_WINDOWS_CSC_KEY_PASSWORD`, `INBOXORA_GPG_PRIVATE_KEY` and
+  `INBOXORA_GPG_PASSPHRASE`. Secret values are not readable through the GitHub API, so the Android
+  and Windows material was re-created from the local signing archive in `.toolchain/release-signing/`
+  (gitignored) and the GPG key was generated for this purpose.
+
+### Added
+
+- Signed release artifacts: every publish run attaches a GPG-signed `SHA256SUMS` manifest covering
+  the Linux `.deb`/`.rpm`, Windows `.exe` and Android `.apk`/`.aab` files, together with the public
+  key as `inboxora-signing-key.asc`. Verify a download with
+  `gpg --verify SHA256SUMS.asc SHA256SUMS && sha256sum --check --strict SHA256SUMS`. The signing key
+  is committed at [`docs/keys/inboxora-release-signing.asc`](keys/inboxora-release-signing.asc)
+  (RSA 4096, fingerprint `C37F F9B3 94FC 574B 267B 4AD5 B3AE 9D82 D044 841B`, expires 2029-09-17).
+  The step fails the release if the manifest is empty or does not match the artifacts.
+- Windows installers are Authenticode-signed using `MAILFLOW_WINDOWS_CSC_LINK` (base64 PKCS#12) and
+  `MAILFLOW_WINDOWS_CSC_KEY_PASSWORD`. Known safe limitation: that certificate is currently
+  self-signed, so SmartScreen still reports an unknown publisher — replace it with a CA-issued
+  code-signing certificate (or Azure Trusted Signing) before relying on it for public trust.
+- Linux package integrity: the `.deb`/`.rpm` files are covered by the signed `SHA256SUMS` manifest;
+  they carry no embedded `debsigs`/`rpmsign` signature yet.
 
 ## [4.0.3] - 2026-09-18
 

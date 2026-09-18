@@ -254,6 +254,45 @@ jobs:
         with:
           path: artifacts
 
+      - name: Sign release artifacts
+        env:
+          INBOXORA_GPG_PRIVATE_KEY: ${{ secrets.INBOXORA_GPG_PRIVATE_KEY }}
+          INBOXORA_GPG_PASSPHRASE: ${{ secrets.INBOXORA_GPG_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+
+          missing=()
+          [ -n "$INBOXORA_GPG_PRIVATE_KEY" ] || missing+=("INBOXORA_GPG_PRIVATE_KEY")
+          [ -n "$INBOXORA_GPG_PASSPHRASE" ] || missing+=("INBOXORA_GPG_PASSPHRASE")
+
+          if [ "${#missing[@]}" -gt 0 ]; then
+            printf 'Release signing secrets are required. Missing: %s\n' "${missing[*]}" >&2
+            exit 1
+          fi
+
+          printf '%s' "$INBOXORA_GPG_PRIVATE_KEY" | gpg --batch --import
+          key_id="$(gpg --batch --list-secret-keys --with-colons | awk -F: '$1 == "sec" { print $5; exit }')"
+          test -n "$key_id"
+
+          mkdir -p signed
+          (
+            cd artifacts
+            find . -type f \( -name '*.aab' -o -name '*.apk' -o -name '*.deb' -o -name '*.dmg' -o -name '*.exe' -o -name '*.rpm' \) -print0 |
+              sort -z | xargs -0 -r sha256sum
+          ) > signed/SHA256SUMS
+
+          # An empty manifest means the build produced nothing we can vouch for.
+          test -s signed/SHA256SUMS
+
+          gpg --batch --yes --pinentry-mode loopback --passphrase "$INBOXORA_GPG_PASSPHRASE" \
+            --local-user "$key_id" --armor --detach-sign --output signed/SHA256SUMS.asc signed/SHA256SUMS
+          gpg --batch --armor --export "$key_id" > signed/inboxora-signing-key.asc
+
+          # Fail loudly if the manifest does not describe what we are about to publish.
+          ( cd artifacts && sha256sum --check --strict ../signed/SHA256SUMS )
+          gpg --batch --verify signed/SHA256SUMS.asc signed/SHA256SUMS
+          printf 'Signed %s artifact checksum(s).\n' "$(wc -l < signed/SHA256SUMS)"
+
       - name: Publish release files
         uses: softprops/action-gh-release@v2
         with:
@@ -265,3 +304,6 @@ jobs:
             artifacts/**/*.dmg
             artifacts/**/*.exe
             artifacts/**/*.rpm
+            signed/SHA256SUMS
+            signed/SHA256SUMS.asc
+            signed/inboxora-signing-key.asc
