@@ -1767,7 +1767,11 @@
     "maturity": "Modell {{level}} · {{count}} Trainingsnachrichten",
     "enable": "Antispam aktivieren",
     "disable": "Antispam deaktivieren",
-    "retrainNow": "Jetzt neu trainieren"
+    "retrainNow": "Jetzt neu trainieren",
+    "enableAccount": "Auf diesem Konto automatisch klassifizieren",
+    "enableAccountDesc": "Standardmäßig aus. Manuelle Spam/Ham-Markierungen trainieren immer.",
+    "trustedAuthservId": "Vertrauenswürdige Authserv-ID",
+    "trustedAuthservIdDesc": "Nur Authentication-Results dieses Mailsystems zählen. Leer = alle ignorieren."
   },
   "todoist": {
     "title": "Todoist-Aufgabe erstellen",

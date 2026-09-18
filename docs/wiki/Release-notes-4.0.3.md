@@ -18,15 +18,16 @@
 
 ## Post-relocate repair
 
-- The old Message-ID relocation is gone, but rows it already collapsed across folders stay missing. The first successful sync tick now runs a one-time forced metadata pass over every selectable folder (ignoring `uid_next`), restoring those copies from IMAP without wiping the local database. Idempotent, bounded, non-fatal.
+- The old Message-ID relocation is gone, but rows it already collapsed across folders stay missing — including old UIDs far below the recent sync window. Repair is now a backfill-style SEARCH ALL → UID diff → fetch-only-missing pass per selectable folder (metadata-only), per account, with a durable per-account marker written only after all folders succeed so failed runs retry. The first successful sync tick per account triggers it once, fire-and-forget.
 
 ## Antispam v0.2 (hybrid rules + per-user Naive Bayes)
 
-- Deterministic 14-rule engine always on (pharma/money keywords, CTA phrases, URL shorteners, reply-to mismatch, executable/double-extension attachments, DKIM/SPF/DMARC fail only from a trusted authserv-id, mailing-list and known-contact ham signals). Multinomial Naive Bayes joins at >= 50 training records with Laplace smoothing; blending is rules-only below 50, 60/40 up to 500, 20/80 above.
-- Training is DB-only: `/spam` and `/ham` persist token counts, flag features, sender domain and attachment types at mark time (retrain never JOINs back to messages); feedback updates the model incrementally in <1s. A staggered hourly single-flight scheduler rebuilds models with exponential time decay; overlapping runs are refused, each user is time-boxed.
-- Live ingest tagging is fire-and-forget with `deferAutoMove` on the backfill path (no per-message IMAP storm); auto-move requires verdict spam, score >= 0.95, ML backing and a configured spam folder. User override always wins; auto-verdicts never train the model. `GET /api/spam/explain` powers the "Why?" dialog; thresholds live in `users.preferences.spam_thresholds`.
-- Defaults are safe: master switch on, per-account `antispam_enabled` off (opt-in). Migration `0095_spam_classifier_v2.sql` must be applied before rollout.
-- Frontend: `SpamBadge` verdict chip + explain dialog, `SpamSettings` status/master-switch/retrain panel, locale keys in all 9 locales.
+- Deterministic 14-rule engine always on (pharma/money keywords, CTA phrases, URL shorteners, reply-to mismatch, executable/double-extension attachments, DKIM/SPF/DMARC fail only from a trusted authserv-id, mailing-list and known-contact ham signals — contacts limited to `is_auto = false` plus own addresses so inbound spam cannot whitelist itself). Multinomial Naive Bayes joins at the configured `minRecords`, blending 60/40 to `softRecords` then 20/80; verdict/auto-move use the configured `spamThreshold`/`autoMoveThreshold`.
+- Training is DB-only and atomic: `/spam` and `/ham` compute features from the already-loaded row and INSERT one complete training row (no `UPDATE...ORDER BY...LIMIT`, which PostgreSQL rejects); the already-in-folder path trains too. Incremental updates and full retrains serialize per user; the hourly scheduler staggers by `hash(user_id) % 24`, refuses overlap (409), and awaits slow users instead of interleaving.
+- Live ingest tagging is fire-and-forget with `deferAutoMove` on the backfill path (no per-message IMAP storm); auto-move resolves the full account row, shares one in-flight MOVE per physical copy, keeps folder badges in step, and broadcasts `folder_updated`. User override always wins; auto-verdicts never train the model.
+- `GET /api/spam/explain` answers from stored `spam_details` (recompute only for legacy rows); thresholds live in `users.preferences.spam_thresholds` and actually drive the pipeline.
+- Defaults are safe: master switch on, per-account `antispam_enabled` off (opt-in via `PUT /api/accounts/:id` and the account form, alongside `trusted_authserv_id`). Migration `0095_spam_classifier_v2.sql` must be applied before rollout.
+- Frontend: `SpamBadge` verdict chip + explain dialog (mounted in `MessageDetailContent`), `SpamSettings` status/master-switch/retrain panel, per-account antispam toggle in the account form, locale keys in all 9 locales.
 
 ## Folder freshness and STATUS
 
@@ -41,7 +42,7 @@
 
 ## Verification
 
-- Backend: 1911 tests passing, `tsc --noEmit` clean, `eslint src --max-warnings 0` clean, migration integrity suite clean. Focused regression suites cover physical-copy identity, explicit IDLE (attempted vs entered + single-flight), STATUS no-self-cancel, one-time post-relocate repair, and the full spam stack (tokenizer/rules/Bayes/store/pipeline/scheduler).
-- Frontend: production build passes, spam contract + i18n parity green, plus Error Boundary contract, BFCache wake contract, and dangerous-attachment classifier.
+- Backend: 1925 tests passing, `tsc --noEmit` clean, `eslint src --max-warnings 0` clean, migration integrity suite clean (0094 + 0095). Focused regression suites cover physical-copy identity, explicit IDLE (attempted vs entered + single-flight + reject path), STATUS no-self-cancel, SEARCH-ALL-diff repair with durable marker, and the full spam stack (tokenizer/rules/Bayes/store/pipeline/scheduler plus HTTP route tests for atomic training, per-account enable and explain-from-stored).
+- Frontend: production build passes, spam contract + i18n parity green (1717), plus Error Boundary contract, BFCache wake contract, and dangerous-attachment classifier.
 
 See [`docs/CHANGELOG.md`](../CHANGELOG.md) for the concise release record.

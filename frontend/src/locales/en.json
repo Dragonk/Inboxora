@@ -1767,7 +1767,11 @@
     "maturity": "Model {{level}} · {{count}} training messages",
     "enable": "Enable antispam",
     "disable": "Disable antispam",
-    "retrainNow": "Retrain now"
+    "retrainNow": "Retrain now",
+    "enableAccount": "Auto-classify on this account",
+    "enableAccountDesc": "Off by default. Manual Spam/Ham marks always train the model.",
+    "trustedAuthservId": "Trusted authserv-id",
+    "trustedAuthservIdDesc": "Only Authentication-Results from this mail system count (e.g. mx.google.com). Empty = ignore all."
   },
   "todoist": {
     "title": "Create Todoist Task",

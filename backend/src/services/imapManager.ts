@@ -444,6 +444,13 @@ const FLAG_PUSH_RECONCILE_MS = 15 * 1000;
 const FLAG_PUSH_MAX_ATTEMPTS = 40;   // ~10 min of connected retries before honest revert
 const FLAG_PUSH_PER_CYCLE = 30;      // cap setFlag attempts per account per cycle (bounds cycle time)
 
+// One-time post-relocate repair bookkeeping. The marker is a no_select folder
+// row (invisible to role resolvers and the folder-mapping UI) so completion is
+// durable per account across restarts; it is written only after every folder
+// succeeds, so a failed run retries on the next tick instead of being skipped.
+const REPAIR_MARKER_PATH = '__inboxora_repair_physical_copy_v1__';
+const REPAIR_BATCH_SIZE = 50;
+
 // Unicode bidi override/embedding characters that can visually reverse a filename,
 // making "malware.exe" display as "malware.pdf" to the user.
 // U+202A-U+202E: LRE, RLE, PDF, LRO, RLO
@@ -1118,6 +1125,8 @@ export type EmailAccountRow = {
   sender_name?: string;
   folder_mappings?: FolderMappings | null;
   categorization_enabled?: boolean;
+  antispam_enabled?: boolean | null;
+  trusted_authserv_id?: string | null;
   enabled?: boolean;
   signature?: string | null;
   smtp_host?: string | null;
@@ -1541,7 +1550,7 @@ export class ImapManager {
   declare lastFolderSyncAt: Map<string, number>;
   declare folderSyncInflights: Map<string, Promise<boolean>>;
   declare _pendingFolderSyncs: Set<string>;
-  declare _postRelocateRepairDone: boolean;
+  declare _postRelocateRepairAccounts: Set<string>;
   declare lastUserActivity: Map<string, number>;
   declare syncStartedAt: Map<string, number>;
   declare syncTickCount: Map<string, number>;
@@ -1587,7 +1596,7 @@ export class ImapManager {
     this.idleInflights = new Map(); // accountId -> in-flight idle() promise (single-flight guard)
     this.folderSyncInflights = new Map(); // `${accountId}:${folder}` -> running sync promise (coalesces concurrent demand)
     this._pendingFolderSyncs = new Set(); // `${accountId}:${folder}` folders detected as changed, awaiting a sync tick
-    this._postRelocateRepairDone = false;
+    this._postRelocateRepairAccounts = new Set(); // accountIds already queued for the one-time repair this process
     this._flagDebounceTimers   = new Map(); // accountId -> debounce timer for flag-change syncs
     this._expungeDebounceTimers = new Map(); // accountId -> debounce timer for expunge reconciles
     this._pendingFlagSync = new Set(); // accountId — flag sync was skipped because a full sync was running; drain after sync
@@ -1992,8 +2001,10 @@ export class ImapManager {
   // the completed sync re-enters it below, while ImapFlow itself restarts maxIdleTime sessions.
   //
   // Single-flight: concurrent callers share one in-flight promise so we never issue two
-  // idle() calls for the same account. idleAttemptedAt records the attempt; idleEnteredAt is
-  // set by the 'exists' listener (first proof the server acknowledged IDLE).
+  // idle() calls for the same account. idleAttemptedAt records the attempt; idleEnteredAt
+  // is set once we observe client.idling (bounded post-start check below) or on the first
+  // unsolicited server event — whichever comes first. Waiting only for EXISTS would
+  // false-positive on quiet-but-healthy connections (no new mail ⇒ no event).
   _enterExplicitIdle(client: ImapClient, account: EmailAccountRow): void {
     if (providerProfile(account).usesIdle === false) return;
     if (this.connections.get(account.id) !== client) return;
@@ -2020,6 +2031,23 @@ export class ImapManager {
         if (this.idleInflights.get(account.id) === promise) this.idleInflights.delete(account.id);
       });
     this.idleInflights.set(account.id, promise);
+    // Bounded confirmation: ImapFlow flips client.idling synchronously when the
+    // IDLE session starts; a short post-start poll records idleEnteredAt even
+    // when no EXISTS/flags/expunge event ever arrives. Retries a few times to
+    // tolerate an IDLE command still in flight; gives up silently (the health
+    // check then reports never-entered, which is the honest signal).
+    void (async () => {
+      for (let attempt = 0; attempt < 10; attempt++) {
+        await new Promise(r => setTimeout(r, 100));
+        if (this.connections.get(account.id) !== client) return;
+        if (client.idling) {
+          this.idleEnteredAt.set(account.id, Date.now());
+          this.idleHealthWarned.delete(account.id);
+          return;
+        }
+        if (!this.idleInflights.has(account.id)) return;
+      }
+    })();
   }
 
   // Attach the three IDLE event listeners shared by both the initial connect path
@@ -2658,10 +2686,12 @@ export class ImapManager {
 
       // One-time repair for databases that ran the old Message-ID relocation:
       // rows the old code moved/collapsed across folders are restored by a
-      // forced metadata pass over every selectable folder (ignoring uid_next).
-      // Runs once per process, fire-and-forget, never blocks the tick.
-      if (!this._postRelocateRepairDone) {
-        this._postRelocateRepairDone = true;
+      // SEARCH-ALL/UID-diff pass over every selectable folder. Per-account
+      // (multi-account setups repair every mailbox), guarded in-process, with
+      // a durable per-account marker set only after success. Fire-and-forget,
+      // never blocks the tick.
+      if (!this._postRelocateRepairAccounts.has(syncAccount.id)) {
+        this._postRelocateRepairAccounts.add(syncAccount.id);
         const repairAccount = syncAccount;
         setImmediate(() => {
           this.runPostRelocateRepair(repairAccount).catch(err =>
@@ -3310,92 +3340,12 @@ export class ImapManager {
               } catch { /* non-fatal — leave category NULL */ }
             }
 
-            const result = await query<{ id: string; is_new?: boolean }>(`
-              INSERT INTO messages (
-                account_id, uid, folder, message_id, subject,
-                from_name, from_email, to_addresses, cc_addresses,
-                reply_to, in_reply_to,
-                date, snippet, is_read, is_starred, has_attachments, flags,
-                body_html, body_text, attachments,
-                thread_references, thread_id, is_bulk, category,
-                list_unsubscribe, list_unsubscribe_post, delivery_addresses,
-                sender_name, sender_email
-              ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29)
-              ON CONFLICT (account_id, uid, folder) DO UPDATE
-              SET subject = CASE
-                    WHEN EXCLUDED.subject IS NOT NULL
-                         AND EXCLUDED.subject != ''
-                         AND EXCLUDED.subject != '(no subject)'
-                    THEN EXCLUDED.subject
-                    ELSE messages.subject
-                  END,
-                  from_name = COALESCE(NULLIF(EXCLUDED.from_name, ''), messages.from_name),
-                  from_email = COALESCE(NULLIF(EXCLUDED.from_email, ''), messages.from_email),
-                  to_addresses = CASE
-                    WHEN EXCLUDED.to_addresses::text IS NOT NULL AND EXCLUDED.to_addresses::text <> '[]'
-                    THEN EXCLUDED.to_addresses
-                    ELSE messages.to_addresses
-                  END,
-                  cc_addresses = CASE
-                    WHEN EXCLUDED.cc_addresses::text IS NOT NULL AND EXCLUDED.cc_addresses::text <> '[]'
-                    THEN EXCLUDED.cc_addresses
-                    ELSE messages.cc_addresses
-                  END,
-                  reply_to = COALESCE(NULLIF(messages.reply_to::text, '[]'), EXCLUDED.reply_to::text)::jsonb,
-                  in_reply_to = COALESCE(messages.in_reply_to, EXCLUDED.in_reply_to),
-                  snippet = CASE WHEN EXCLUDED.snippet != '' THEN EXCLUDED.snippet
-                                 ELSE messages.snippet END,
-                  is_read = CASE
-                    WHEN messages.read_changed_at IS NOT NULL
-                         AND NOW() - messages.read_changed_at < interval '30 seconds'
-                    THEN messages.is_read
-                    ELSE EXCLUDED.is_read
-                  END,
-                  is_starred = CASE
-                    WHEN messages.star_changed_at IS NOT NULL
-                         AND NOW() - messages.star_changed_at < interval '30 seconds'
-                    THEN messages.is_starred
-                    ELSE EXCLUDED.is_starred
-                  END,
-                  flags = $17,
-                  body_html = COALESCE(messages.body_html, EXCLUDED.body_html),
-                  body_text = COALESCE(messages.body_text, EXCLUDED.body_text),
-                  attachments = COALESCE(messages.attachments::text, EXCLUDED.attachments::text)::jsonb,
-                  thread_references = COALESCE(messages.thread_references, EXCLUDED.thread_references),
-                  -- #378: heal a row that was self-rooted (thread_id = its own Message-ID, e.g. a
-                  -- sent copy orphaned by an older upsert) by adopting the real conversation root
-                  -- the sync just computed. Genuine thread roots keep their value (EXCLUDED equals it).
-                  thread_id = CASE
-                    WHEN messages.thread_id = messages.message_id
-                         AND EXCLUDED.thread_id IS NOT NULL
-                         AND EXCLUDED.thread_id <> messages.message_id
-                    THEN EXCLUDED.thread_id
-                    ELSE COALESCE(messages.thread_id, EXCLUDED.thread_id)
-                  END,
-                  is_bulk = COALESCE(messages.is_bulk, EXCLUDED.is_bulk),
-                  category = COALESCE(messages.category, EXCLUDED.category),
-                  list_unsubscribe = COALESCE(messages.list_unsubscribe, EXCLUDED.list_unsubscribe),
-                  list_unsubscribe_post = COALESCE(messages.list_unsubscribe_post, EXCLUDED.list_unsubscribe_post),
-                  delivery_addresses = COALESCE(messages.delivery_addresses, EXCLUDED.delivery_addresses),
-                  sender_name = COALESCE(EXCLUDED.sender_name, messages.sender_name),
-                  sender_email = COALESCE(EXCLUDED.sender_email, messages.sender_email)
-              RETURNING id, (xmax = 0) as is_new
-            `, [
-              account.id, parsed.uid, folder,
-              msgId, sanitizeStr(parsed.subject),
-              sanitizeStr(parsed.fromName), sanitizeStr(parsed.fromEmail),
-              JSON.stringify(parsed.to), JSON.stringify(parsed.cc),
-              JSON.stringify(parsed.replyTo || []), inReplyTo,
-              safeDate(parsed.date), sanitizeStr(parsed.snippet),
-              parsed.isRead, parsed.isStarred,
-              parsed.hasAttachments, JSON.stringify(parsed.flags),
-              sanitizeStr(safeHtml), sanitizeStr(text), JSON.stringify(atts || []),
-              refs, threadId, parsed.isBulk ?? null, msgCategory,
-              sanitizeStr(decodeMimeWords(parsed.parsedHeaders?.['list-unsubscribe'] ?? null)),
-              sanitizeStr(decodeMimeWords(parsed.parsedHeaders?.['list-unsubscribe-post'] ?? null)),
-              JSON.stringify(parsed.deliveryAddresses || []),
-              sanitizeStr(parsed.senderName), sanitizeStr(parsed.senderEmail),
-            ]);
+            const upserter = typeof this.upsertIngestedMessage === 'function'
+              ? this.upsertIngestedMessage.bind(this)
+              : upsertIngestedMessageRow;
+            const result = await upserter(account, folder, parsed, {
+              sanitizeHtml: safeHtml, textBody: text, attachments: atts,
+            });
             await persistConversationCopyForRow(result.rows[0].id, account, msg);
             await persistInboundCalendarInvitationFromMessage({ client, message: msg, messageId: result.rows[0].id })
               .catch(error => console.warn('Inbound calendar invitation persistence failed: ' + error.message));
@@ -5970,6 +5920,12 @@ export class ImapManager {
           deferAutoMove: opts.deferAutoMove,
           headers: opts.headers ?? null,
           imap: {
+            // Preferred path: the manager resolves the FULL EmailAccountRow
+            // (host, port, TLS, auth, OAuth) by id, so auto-move works even
+            // when no pooled client is free. The legacy partial-account shape
+            // stays available for tests.
+            moveSpamCopy: (accountId, uid, fromFolder, toFolder) =>
+              manager.moveSpamCopy(accountId, uid, fromFolder, toFolder),
             moveMessage: (account, uid, fromFolder, toFolder) =>
               manager.moveMessage(
                 { ...account, id: account.id } as Parameters<typeof manager.moveMessage>[0],
@@ -5986,35 +5942,172 @@ export class ImapManager {
     })();
   }
 
+  // Serialized, account-scoped auto-move for the spam pipeline: resolves the
+  // full account row (never a partial object), reuses the coalesced
+  // folder-sync inflight guard shape via onDemandSyncing, and delegates to
+  // moveMessage (UIDPLUS-aware with non-UIDPLUS fallback).
+  async moveSpamCopy(accountId: string, uid: number | string, fromFolder: string, toFolder: string): Promise<number | null> {
+    const accountResult = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
+    const account = accountResult.rows[0];
+    if (!account) throw new Error(`spam auto-move: account ${accountId} not found`);
+    const key = `spam-move:${accountId}:${fromFolder}:${uid}`;
+    const existing = this.folderSyncInflights.get(key);
+    if (existing) {
+      await existing.catch(() => undefined);
+      return null;
+    }
+    const promise = (async (): Promise<boolean> => {
+      await this.moveMessage(account, uid, fromFolder, toFolder);
+      return true;
+    })();
+    this.folderSyncInflights.set(key, promise);
+    try {
+      const newUid = await this.moveMessage(account, uid, fromFolder, toFolder);
+      return newUid;
+    } finally {
+      if (this.folderSyncInflights.get(key) === promise) this.folderSyncInflights.delete(key);
+    }
+  }
+
   // One-time repair for the Message-ID relocation era: before the fix, two
   // physical copies sharing a Message-ID (self-sent Gmail, mailing-list
   // mirrors) were collapsed into one row by an UPDATE keyed on message_id.
-  // The local copy in the other folder is then simply missing. Running a
-  // forced metadata pass over every selectable folder (ignoring uid_next)
-  // re-fetches those rows from IMAP without wiping the local database.
-  // Once per process, called from _syncTick; safe to re-run (idempotent),
-  // bounded (metadata only, no bodies), non-fatal.
-  async runPostRelocateRepair(account: EmailAccountRow): Promise<{ foldersRefreshed: number }> {
+  // The local copy in the other folder is then simply missing — including
+  // old UIDs far below the recent window, which a bounded syncMessages scan
+  // would never revisit.
+  //
+  // Repair = backfill-style SEARCH ALL → UID diff → fetch only the missing
+  // UIDs, metadata-only, per folder. A folder whose server UID set is fully
+  // present locally is untouched. Completion is recorded durably per account
+  // (`folders` marker row) only after all folders succeed; a failed run
+  // leaves the marker unset so the next tick retries.
+  async runPostRelocateRepair(account: EmailAccountRow): Promise<{ foldersRefreshed: number; uidsRecovered: number }> {
+    const marker = await query<{ path: string }>(
+      `SELECT path FROM folders WHERE account_id = $1 AND path = $2`,
+      [account.id, REPAIR_MARKER_PATH],
+    );
+    if (marker.rows.length > 0) return { foldersRefreshed: 0, uidsRecovered: 0 };
     const foldersResult = await query<{ path: string; no_select?: boolean | null }>(
-      `SELECT path, no_select FROM folders WHERE account_id = $1 ORDER BY path`,
-      [account.id],
+      `SELECT path, no_select FROM folders WHERE account_id = $1 AND path != $2 ORDER BY path`,
+      [account.id, REPAIR_MARKER_PATH],
     );
     const selectable = foldersResult.rows.filter(r => !r.no_select).map(r => r.path);
     let foldersRefreshed = 0;
+    let uidsRecovered = 0;
     for (const folder of selectable) {
       try {
-        await withFreshClient(account, async (client) => {
-          await this.syncMessages(account, client, folder, 100, false, true);
-        });
+        const recovered = await this.repairFolderMissingUids(account, folder);
+        uidsRecovered += recovered;
         foldersRefreshed += 1;
       } catch (caught) {
         console.warn(`Post-relocate repair skipped ${logAccount(account)}/${folder}:`, toAppError(caught).message);
       }
     }
-    if (foldersRefreshed > 0) {
+    if (foldersRefreshed === selectable.length) {
+      await query(
+        `INSERT INTO folders (account_id, path, name, delimiter, no_select)
+         VALUES ($1, $2, $2, '/', true)
+         ON CONFLICT (account_id, path) DO NOTHING`,
+        [account.id, REPAIR_MARKER_PATH],
+      );
       this.broadcast({ type: 'sync_complete', accountId: account.id }, account.user_id);
     }
-    return { foldersRefreshed };
+    return { foldersRefreshed, uidsRecovered };
+  }
+
+  // Repair one folder: diff the server UID set against local rows and fetch
+  // only the missing UIDs (metadata-only). Returns the recovered UID count.
+  async repairFolderMissingUids(account: EmailAccountRow, folder: string): Promise<number> {
+    return withFreshClient(account, async (client) => {
+      const lock = await client.getMailboxLock(folder);
+      let serverUids: number[];
+      try {
+        serverUids = await searchUids(client, { all: true });
+      } finally {
+        lock.release();
+      }
+      if (!serverUids.length) return 0;
+      const existing = await query<{ uid: number | string }>(
+        'SELECT uid FROM messages WHERE account_id = $1 AND folder = $2',
+        [account.id, folder],
+      );
+      const have = new Set(existing.rows.map(r => Number(r.uid)));
+      const missing = serverUids.filter(uid => !have.has(Number(uid)));
+      if (!missing.length) return 0;
+      // Reuse the normal ingest path in small UID batches so parsing,
+      // threading, conversation persistence and spam tagging all apply.
+      // Metadata-only (no bodies): repair must not stall on slow servers.
+      let recovered = 0;
+      for (let i = 0; i < missing.length; i += REPAIR_BATCH_SIZE) {
+        const batch = missing.slice(i, i + REPAIR_BATCH_SIZE);
+        const lock2 = await client.getMailboxLock(folder);
+        try {
+          for await (const msg of client.fetch(batch.join(','), {
+            uid: true, flags: true, envelope: true, bodyStructure: true,
+            size: true, internalDate: true, headers: true,
+          }, { uid: true })) {
+            const inserted = await this.ingestRepairMessage(account, folder, msg);
+            if (inserted) recovered += 1;
+          }
+        } finally {
+          lock2.release();
+        }
+      }
+      return recovered;
+    });
+  }
+
+  // Shared INSERT/UPSERT for one fetched message. Extracted so the normal
+  // sync path, backfill, and the post-relocate repair all persist through
+  // the same statement (ON CONFLICT on the physical triple, healing merge
+  // semantics, #378 self-root fix). Returns the row id + is_new flag.
+  // Thin method wrapper: the module-level function holds the SQL so unit
+  // tests calling syncMessages with a bare `{}` context keep working.
+  async upsertIngestedMessage(
+    account: EmailAccountRow,
+    folder: string,
+    parsed: IngestedParsedMessage,
+    opts: { sanitizeHtml: string | null; textBody: string | null; attachments: unknown[] },
+  ): Promise<{ rows: Array<{ id: string; is_new?: boolean }> }> {
+    return upsertIngestedMessageRow(account, folder, parsed, opts);
+  }
+
+  // Repair-path ingest for one fetched UID: parse, upsert through the shared
+  // statement, persist conversation/calendar rows, tag spam (deferred move).
+  // Returns true when the row was newly inserted.
+  async ingestRepairMessage(account: EmailAccountRow, folder: string, msg: RawMessageInput): Promise<boolean> {
+    try {
+      const parsed = await parseMessage(msg);
+      const folderMappings = account.folder_mappings;
+      let sentFolderPath: string | undefined;
+      if (folderMappings && folderMappings.sent !== null) {
+        sentFolderPath = folderMappings.sent;
+      }
+      enrichParsedMetadata(parsed, {
+        accountEmail: account.email_address,
+        accountName: account.name,
+        senderName: account.sender_name,
+        folderPath: folder,
+        sentFolderPath,
+      });
+      if (!parsed.uid) return false;
+      const result = await this.upsertIngestedMessage(account, folder, parsed, {
+        sanitizeHtml: null, textBody: null, attachments: [],
+      });
+      const rowId = result.rows[0]?.id;
+      if (!rowId) return false;
+      await persistConversationCopyForRow(rowId, account, msg);
+      await persistInboundCalendarInvitationFromMessage({ client: null, message: msg, messageId: rowId })
+        .catch(error => console.warn('Inbound calendar invitation persistence failed: ' + error.message));
+      if (result.rows[0]?.is_new) {
+        void this.classifySpamForIngest(rowId, { deferAutoMove: true, headers: parsed.parsedHeaders ?? null });
+        return true;
+      }
+      return false;
+    } catch (caught) {
+      console.error('Repair ingest parse error:', toAppError(caught).message);
+      return false;
+    }
   }
 
   // Compare the server's UID set for every folder that has local messages against our DB
@@ -6178,4 +6271,134 @@ export function evaluateFolderStatusChange({
     totalChanged: serverMessages != null && serverMessages !== cachedTotal,
     unseenChanged: serverUnseen != null && serverUnseen !== cachedUnseen,
   };
+}
+
+/** Parsed message shape the ingest upsert consumes (subset of parseMessage output). */
+export interface IngestedParsedMessage {
+  uid: unknown; messageId: unknown; subject: unknown; fromName: unknown; fromEmail: unknown;
+  to: unknown; cc: unknown; replyTo: unknown; inReplyTo: unknown; references: unknown;
+  date: unknown; snippet: unknown; isRead: boolean; isStarred: boolean;
+  hasAttachments: unknown; flags: unknown; parsedHeaders?: Record<string, string> | undefined;
+  deliveryAddresses: unknown; senderName: unknown; senderEmail: unknown; isBulk?: boolean | null;
+}
+
+/** Shared INSERT/UPSERT for one fetched message (module-level so bare-`{}` test
+ * contexts keep working; the class method delegates to it). */
+export async function upsertIngestedMessageRow(
+  account: EmailAccountRow,
+  folder: string,
+  parsed: IngestedParsedMessage,
+  opts: { sanitizeHtml: string | null; textBody: string | null; attachments: unknown[] },
+): Promise<{ rows: Array<{ id: string; is_new?: boolean }> }> {
+  const msgId = sanitizeStr(parsed.messageId);
+  const inReplyTo = sanitizeStr(parsed.inReplyTo);
+  const refs = sanitizeStr(parsed.references);
+  const threadId = await computeThreadId(account.id, msgId, inReplyTo, refs);
+
+  let msgCategory: string | null = null;
+  if (account.categorization_enabled || await getGlobalCategorizationEnabled(account.user_id)) {
+    try {
+      const socialDomains = await loadSocialDomains(account.user_id);
+      msgCategory = classifyMessage(parsed.parsedHeaders, parsed.fromEmail as string | null ?? null, socialDomains);
+      if (msgCategory === 'primary') msgCategory = null;
+    } catch { /* non-fatal — leave category NULL */ }
+  }
+
+  const result = await query<{ id: string; is_new?: boolean }>(`
+    INSERT INTO messages (
+      account_id, uid, folder, message_id, subject,
+      from_name, from_email, to_addresses, cc_addresses,
+      reply_to, in_reply_to,
+      date, snippet, is_read, is_starred, has_attachments, flags,
+      body_html, body_text, attachments,
+      thread_references, thread_id, is_bulk, category,
+      list_unsubscribe, list_unsubscribe_post, delivery_addresses,
+      sender_name, sender_email
+    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29)
+    ON CONFLICT (account_id, uid, folder) DO UPDATE
+    SET subject = CASE
+          WHEN EXCLUDED.subject IS NOT NULL
+               AND EXCLUDED.subject != ''
+               AND EXCLUDED.subject != '(no subject)'
+          THEN EXCLUDED.subject
+          ELSE messages.subject
+        END,
+        from_name = COALESCE(NULLIF(EXCLUDED.from_name, ''), messages.from_name),
+        from_email = COALESCE(NULLIF(EXCLUDED.from_email, ''), messages.from_email),
+        to_addresses = CASE
+          WHEN EXCLUDED.to_addresses::text IS NOT NULL AND EXCLUDED.to_addresses::text <> '[]'
+          THEN EXCLUDED.to_addresses
+          ELSE messages.to_addresses
+        END,
+        cc_addresses = CASE
+          WHEN EXCLUDED.cc_addresses::text IS NOT NULL AND EXCLUDED.cc_addresses::text <> '[]'
+          THEN EXCLUDED.cc_addresses
+          ELSE messages.cc_addresses
+        END,
+        reply_to = COALESCE(NULLIF(messages.reply_to::text, '[]'), EXCLUDED.reply_to::text)::jsonb,
+        in_reply_to = COALESCE(messages.in_reply_to, EXCLUDED.in_reply_to),
+        snippet = CASE WHEN EXCLUDED.snippet != '' THEN EXCLUDED.snippet
+                       ELSE messages.snippet END,
+        is_read = CASE
+          WHEN messages.read_changed_at IS NOT NULL
+               AND NOW() - messages.read_changed_at < interval '30 seconds'
+          THEN messages.is_read
+          ELSE EXCLUDED.is_read
+        END,
+        is_starred = CASE
+          WHEN messages.star_changed_at IS NOT NULL
+               AND NOW() - messages.star_changed_at < interval '30 seconds'
+          THEN messages.is_starred
+          ELSE EXCLUDED.is_starred
+        END,
+        flags = $17,
+        body_html = COALESCE(messages.body_html, EXCLUDED.body_html),
+        body_text = COALESCE(messages.body_text, EXCLUDED.body_text),
+        attachments = COALESCE(messages.attachments::text, EXCLUDED.attachments::text)::jsonb,
+        thread_references = COALESCE(messages.thread_references, EXCLUDED.thread_references),
+        -- #378: heal a row that was self-rooted (thread_id = its own Message-ID, e.g. a
+        -- sent copy orphaned by an older upsert) by adopting the real conversation root
+        -- the sync just computed. Genuine thread roots keep their value (EXCLUDED equals it).
+        thread_id = CASE
+          WHEN messages.thread_id = messages.message_id
+               AND EXCLUDED.thread_id IS NOT NULL
+               AND EXCLUDED.thread_id <> messages.message_id
+          THEN EXCLUDED.thread_id
+          ELSE COALESCE(messages.thread_id, EXCLUDED.thread_id)
+        END,
+        is_bulk = COALESCE(messages.is_bulk, EXCLUDED.is_bulk),
+        category = COALESCE(messages.category, EXCLUDED.category),
+        list_unsubscribe = COALESCE(messages.list_unsubscribe, EXCLUDED.list_unsubscribe),
+        list_unsubscribe_post = COALESCE(messages.list_unsubscribe_post, EXCLUDED.list_unsubscribe_post),
+        delivery_addresses = COALESCE(messages.delivery_addresses, EXCLUDED.delivery_addresses),
+        sender_name = COALESCE(EXCLUDED.sender_name, messages.sender_name),
+        sender_email = COALESCE(EXCLUDED.sender_email, messages.sender_email)
+    RETURNING id, (xmax = 0) as is_new
+  `, [
+    account.id, parsed.uid, folder,
+    msgId, sanitizeStr(parsed.subject),
+    sanitizeStr(parsed.fromName), sanitizeStr(parsed.fromEmail),
+    JSON.stringify(parsed.to), JSON.stringify(parsed.cc),
+    JSON.stringify(parsed.replyTo || []), inReplyTo,
+    safeDate(parsed.date), sanitizeStr(parsed.snippet),
+    parsed.isRead, parsed.isStarred,
+    parsed.hasAttachments, JSON.stringify(parsed.flags),
+    sanitizeStr(opts.sanitizeHtml ?? ''), sanitizeStr(opts.textBody ?? ''), JSON.stringify(opts.attachments || []),
+    refs, threadId, parsed.isBulk ?? null, msgCategory,
+    sanitizeStr(decodeMimeWords(parsed.parsedHeaders?.['list-unsubscribe'] ?? '') ?? ''),
+    sanitizeStr(decodeMimeWords(parsed.parsedHeaders?.['list-unsubscribe-post'] ?? '') ?? ''),
+    JSON.stringify(parsed.deliveryAddresses || []),
+    sanitizeStr(parsed.senderName), sanitizeStr(parsed.senderEmail),
+  ]);
+
+  // Propagate resolved thread_id to any earlier messages that used this
+  // message as a provisional thread root (out-of-order delivery / sync).
+  if (threadId && threadId !== msgId) {
+    await query<{ total: number }>(
+      `UPDATE messages SET thread_id = $1
+       WHERE account_id = $2 AND thread_id = $3 AND message_id != $3`,
+      [threadId, account.id, msgId]
+    );
+  }
+  return result;
 }

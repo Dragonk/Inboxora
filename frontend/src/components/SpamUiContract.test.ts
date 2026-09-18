@@ -23,6 +23,7 @@ describe('spam UI contract', () => {
     const keys = [
       'badgeSpam', 'badgeUnsure', 'explainTitle', 'explainMethod',
       'settingsTitle', 'maturity', 'enable', 'disable', 'retrainNow',
+      'enableAccount', 'enableAccountDesc', 'trustedAuthservId', 'trustedAuthservIdDesc',
     ];
     for (const locale of ['en', 'de', 'fr', 'es', 'it', 'ru', 'zhCN', 'pl', 'cs']) {
       const data = JSON.parse(readFileSync(new URL(`../locales/${locale}.json`, import.meta.url), 'utf8')) as {

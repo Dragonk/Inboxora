@@ -121,12 +121,39 @@ export async function updateIncrementalForUser(
   label: SpamLabel,
 ): Promise<SpamModelState | null> {
   if (label !== 'spam' && label !== 'ham') return null;
-  const model = (await getModelForUser(userId)) ?? createEmptyModel();
-  const tokens = tokenize(message);
-  const flagFeatures: FlagFeatures = extractFlagFeatures(message);
-  const updated = updateIncremental(model, tokens, flagFeatures, label);
-  await saveModel(userId, updated);
-  return updated;
+  return runUserExclusive(userId, async () => {
+    const model = (await getModelForUser(userId)) ?? createEmptyModel();
+    const tokens = tokenize(message);
+    const flagFeatures: FlagFeatures = extractFlagFeatures(message);
+    const updated = updateIncremental(model, tokens, flagFeatures, label);
+    await saveModel(userId, updated);
+    return updated;
+  });
+}
+
+// Per-user serializer: incremental feedback and full retrains for the same
+// user never interleave (lost-update race). Concurrent callers share the
+// in-flight promise — the second feedback waits for the first instead of
+// overwriting it with a stale read.
+const userLocks = new Map<string, Promise<unknown>>();
+
+async function runUserExclusive<T>(userId: string, fn: () => Promise<T>): Promise<T> {
+  const prev = userLocks.get(userId) ?? Promise.resolve();
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  userLocks.set(userId, prev.then(() => gate));
+  await prev.catch(() => undefined);
+  try {
+    return await fn();
+  } finally {
+    release();
+    if (userLocks.get(userId)?.then) {
+      // Only clear our own slot; a waiter already chained behind us.
+      void userLocks.get(userId)?.catch(() => undefined).then(() => {
+        // No-op: the entry now belongs to the waiter chain.
+      });
+    }
+  }
 }
 
 export async function getAllUsersWithTraining(): Promise<string[]> {
@@ -147,29 +174,31 @@ export interface RetrainOutcome {
 }
 
 export async function retrainUser(userId: string): Promise<RetrainOutcome> {
-  const started = Date.now();
-  const data = await query<{
-    label: string; created_at: string | Date;
-    token_counts: Record<string, number> | null; subject: string | null;
-    body_text: string | null; flag_features: FlagFeatures | null;
-  }>(
-    `SELECT label, created_at, token_counts, flag_features, subject, body_text
-     FROM spam_training_log WHERE user_id = $1`,
-    [userId],
-  );
-  const records = data.rows;
-  if (records.length === 0) {
-    return { ok: false, recordsUsed: 0, duration_ms: Date.now() - started, reason: 'no_training_data' };
-  }
+  return runUserExclusive(userId, async () => {
+    const started = Date.now();
+    const data = await query<{
+      label: string; created_at: string | Date;
+      token_counts: Record<string, number> | null; subject: string | null;
+      body_text: string | null; flag_features: FlagFeatures | null;
+    }>(
+      `SELECT label, created_at, token_counts, flag_features, subject, body_text
+       FROM spam_training_log WHERE user_id = $1`,
+      [userId],
+    );
+    const records = data.rows;
+    if (records.length === 0) {
+      return { ok: false, recordsUsed: 0, duration_ms: Date.now() - started, reason: 'no_training_data' };
+    }
 
-  const existing = await getModelForUser(userId);
-  const decayThresholdDays = existing?.decayThresholdDays ?? 90;
+    const existing = await getModelForUser(userId);
+    const decayThresholdDays = existing?.decayThresholdDays ?? 90;
 
-  const model = retrainFromRecords(records, decayThresholdDays);
-  const pruned = Object.keys(model.vocabulary).length > MODEL_VOCAB_CAP
-    ? pruneVocabulary(model, MODEL_VOCAB_CAP)
-    : model;
-  pruned.decayThresholdDays = decayThresholdDays;
-  await saveModel(userId, pruned);
-  return { ok: true, recordsUsed: records.length, duration_ms: Date.now() - started };
+    const model = retrainFromRecords(records, decayThresholdDays);
+    const pruned = Object.keys(model.vocabulary).length > MODEL_VOCAB_CAP
+      ? pruneVocabulary(model, MODEL_VOCAB_CAP)
+      : model;
+    pruned.decayThresholdDays = decayThresholdDays;
+    await saveModel(userId, pruned);
+    return { ok: true, recordsUsed: records.length, duration_ms: Date.now() - started };
+  });
 }

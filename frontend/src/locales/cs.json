@@ -1767,7 +1767,11 @@
     "maturity": "Model {{level}} · {{count}} trénovacích zpráv",
     "enable": "Zapnout antispam",
     "disable": "Vypnout antispam",
-    "retrainNow": "Přeučit"
+    "retrainNow": "Přeučit",
+    "enableAccount": "Automaticky klasifikovat na tomto účtu",
+    "enableAccountDesc": "Ve výchozím stavu vypnuto. Ruční označení vždy trénují.",
+    "trustedAuthservId": "Důvěryhodné authserv-id",
+    "trustedAuthservIdDesc": "Počítají se pouze Authentication-Results tohoto systému. Prázdné = ignorovat vše."
   },
   "todoist": {
     "title": "Vytvořit úkol v Todoistu",

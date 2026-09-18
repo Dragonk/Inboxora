@@ -335,6 +335,7 @@ describe('explicit IDLE configuration', () => {
       connections: new Map([['acct-idle', client]]),
       idleAttemptedAt: new Map<string, number>(),
       idleEnteredAt: new Map<string, number>(),
+      idleInflights: new Map<string, Promise<void>>(),
       idleHealthWarned: new Set<string>(['acct-idle']),
       broadcast: vi.fn(),
       syncingAccounts: new Set<string>(),
@@ -346,6 +347,49 @@ describe('explicit IDLE configuration', () => {
     client.emit('exists', { count: 12, prevCount: 11 });
     expect(mgr.idleEnteredAt.has('acct-idle')).toBe(true);
     expect(mgr.idleHealthWarned.has('acct-idle')).toBe(false);
+  });
+
+  it('records idleEnteredAt from the bounded post-start check without any event', async () => {
+    const client = mockImapClient({ idling: false, idle: vi.fn().mockImplementation(async function (this: { idling: boolean }) {
+      this.idling = true;
+    }) });
+    const mgr = {
+      connections: new Map([['acct-idle', client]]),
+      idleAttemptedAt: new Map<string, number>(),
+      idleEnteredAt: new Map<string, number>(),
+      idleInflights: new Map<string, Promise<void>>(),
+      idleHealthWarned: new Set<string>(['acct-idle']),
+    };
+    ImapManager.prototype._enterExplicitIdle.call(
+      mgr, client, { id: 'acct-idle', user_id: 'user-1', imap_host: 'imap.example.com' },
+    );
+    await vi.waitFor(() => expect(mgr.idleEnteredAt.has('acct-idle')).toBe(true), { timeout: 3000 });
+    expect(mgr.idleHealthWarned.has('acct-idle')).toBe(false);
+  });
+
+  it('does not mark entered when idle() rejects', async () => {
+    const client = mockImapClient({ idling: false, idle: vi.fn().mockRejectedValue(new Error('IDLE refused')) });
+    const mgr = {
+      connections: new Map([['acct-idle', client]]),
+      idleAttemptedAt: new Map<string, number>(),
+      idleEnteredAt: new Map<string, number>(),
+      idleInflights: new Map<string, Promise<void>>(),
+      idleHealthWarned: new Set<string>(),
+    };
+    const events: string[] = [];
+    const origWarn = console.warn;
+    console.warn = (...args: unknown[]) => { events.push(String(args[0])); };
+    try {
+      ImapManager.prototype._enterExplicitIdle.call(
+        mgr, client, { id: 'acct-idle', user_id: 'user-1', imap_host: 'imap.example.com' },
+      );
+      expect(mgr.idleAttemptedAt.has('acct-idle')).toBe(true);
+      await vi.waitFor(() => expect(mgr.idleInflights.has('acct-idle')).toBe(false), { timeout: 3000 });
+      await new Promise(r => setTimeout(r, 1200));
+      expect(mgr.idleEnteredAt.has('acct-idle')).toBe(false);
+    } finally {
+      console.warn = origWarn;
+    }
   });
 });
 
@@ -2403,47 +2447,70 @@ describe('_refreshFolderStatuses', () => {
   });
 });
 
-// ── runPostRelocateRepair — one-time forced metadata pass ───────────────────
+// ── runPostRelocateRepair — SEARCH-ALL UID diff + durable marker ────────────
 describe('runPostRelocateRepair', () => {
   const repairAccount = { id: 'acct-repair', user_id: 'user-1', email_address: 'a@example.com', imap_host: 'imap.example.com' };
 
-  it('refreshes every selectable folder and skips no_select', async () => {
+  function repairMgr(serverUids: number[], localUids: number[], recovered: string[]) {
+    const mgr = new ImapManager({ clients: new Set() });
+    clearInterval(mgr._healthCheckTimer); clearInterval(mgr._snippetSchedulerTimer);
+    (mgr as unknown as { repairFolderMissingUids: (account: unknown, folder: string) => Promise<number> }).repairFolderMissingUids =
+      async (_account: unknown, folder: string) => {
+        const have = new Set(localUids);
+        const missing = serverUids.filter(uid => !have.has(uid));
+        for (const uid of missing) recovered.push(`${folder}:${uid}`);
+        return missing.length;
+      };
+    mgr.broadcast = vi.fn();
+    return mgr;
+  }
+
+  it('recovers a missing UID the bounded sync window would never revisit', async () => {
     query.mockReset();
     query.mockImplementation((sql) => {
+      if (sql.includes('SELECT path FROM folders WHERE account_id = $1 AND path = $2')) {
+        return Promise.resolve({ rows: [] }); // marker absent → repair runs
+      }
       if (sql.includes('SELECT path, no_select FROM folders')) {
-        return Promise.resolve({ rows: [
-          { path: 'INBOX', no_select: false },
-          { path: 'Archive', no_select: false },
-          { path: '[Gmail]', no_select: true },
-        ] });
+        return Promise.resolve({ rows: [{ path: 'Archive', no_select: false }] });
       }
       return Promise.resolve({ rows: [] });
     });
-    const mgr = new ImapManager({ clients: new Set() });
-    clearInterval(mgr._healthCheckTimer); clearInterval(mgr._snippetSchedulerTimer);
-    const synced: string[] = [];
-    mgr.syncMessages = vi.fn().mockImplementation(async (_account: unknown, _client: unknown, folder: string) => {
-      synced.push(folder);
-      return { insertedCount: 0, broadcastedNewMessages: false };
+    const recovered: string[] = [];
+    const mgr = repairMgr([1, 2, 3, 4, 5, 500, 501], [1, 2, 4, 5, 500, 501], recovered);
+
+    const result = await ImapManager.prototype.runPostRelocateRepair.call(mgr, repairAccount);
+
+    expect(recovered).toEqual(['Archive:3']);
+    expect(result).toEqual({ foldersRefreshed: 1, uidsRecovered: 1 });
+    const markerWrites = query.mock.calls.filter(([sql]) =>
+      String(sql).includes('INSERT INTO folders'));
+    expect(markerWrites.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('skips entirely when the durable marker is already present', async () => {
+    query.mockReset();
+    query.mockImplementation((sql) => {
+      if (sql.includes('SELECT path FROM folders WHERE account_id = $1 AND path = $2')) {
+        return Promise.resolve({ rows: [{ path: '__inboxora_repair_physical_copy_v1__' }] });
+      }
+      return Promise.resolve({ rows: [] });
     });
-    const broadcast = vi.fn();
-    mgr.broadcast = broadcast;
+    const recovered: string[] = [];
+    const mgr = repairMgr([1, 2, 3], [1], recovered);
 
-    const result = await ImapManager.prototype.runPostRelocateRepair.call(
-      { ...mgr, syncMessages: mgr.syncMessages, broadcast },
-      repairAccount,
-    );
+    const result = await ImapManager.prototype.runPostRelocateRepair.call(mgr, repairAccount);
 
-    expect(synced.sort()).toEqual(['Archive', 'INBOX']);
-    expect(result).toEqual({ foldersRefreshed: 2 });
-    expect(broadcast).toHaveBeenCalledWith(
-      { type: 'sync_complete', accountId: 'acct-repair' }, 'user-1',
-    );
+    expect(recovered).toEqual([]);
+    expect(result).toEqual({ foldersRefreshed: 0, uidsRecovered: 0 });
   });
 
   it('tolerates a failing folder and still reports the rest', async () => {
     query.mockReset();
     query.mockImplementation((sql) => {
+      if (sql.includes('SELECT path FROM folders WHERE account_id = $1 AND path = $2')) {
+        return Promise.resolve({ rows: [] });
+      }
       if (sql.includes('SELECT path, no_select FROM folders')) {
         return Promise.resolve({ rows: [
           { path: 'INBOX', no_select: false },
@@ -2454,17 +2521,17 @@ describe('runPostRelocateRepair', () => {
     });
     const mgr = new ImapManager({ clients: new Set() });
     clearInterval(mgr._healthCheckTimer); clearInterval(mgr._snippetSchedulerTimer);
-    mgr.syncMessages = vi.fn().mockImplementation(async (_account: unknown, _client: unknown, folder: string) => {
-      if (folder === 'Broken') throw new Error('mailbox gone');
-      return { insertedCount: 0, broadcastedNewMessages: false };
-    });
+    (mgr as unknown as { repairFolderMissingUids: (account: unknown, folder: string) => Promise<number> }).repairFolderMissingUids =
+      async (_account: unknown, folder: string) => {
+        if (folder === 'Broken') throw new Error('mailbox gone');
+        return 0;
+      };
     mgr.broadcast = vi.fn();
 
-    const result = await ImapManager.prototype.runPostRelocateRepair.call(
-      { ...mgr, syncMessages: mgr.syncMessages, broadcast: mgr.broadcast },
-      repairAccount,
-    );
+    const result = await ImapManager.prototype.runPostRelocateRepair.call(mgr, repairAccount);
 
-    expect(result).toEqual({ foldersRefreshed: 1 });
+    // Broken failed → marker must NOT be written (repair retries next tick).
+    expect(result.foldersRefreshed).toBe(1);
+    expect(result.uidsRecovered).toBe(0);
   });
 });

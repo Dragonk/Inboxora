@@ -26,16 +26,23 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.3](wiki/R
   the last observed STATUS, so detecting a change no longer writes the new value before the fetch runs.
 - Harden explicit IDLE: track `idleAttemptedAt` separately from `idleEnteredAt` (health check uses the
   latter), and guard concurrent `_enterExplicitIdle` calls with a per-account single-flight promise.
-- Add a one-time post-relocate repair: the first sync tick after the Message-ID relocation removal runs
-  a forced metadata pass over every selectable folder (ignoring `uid_next`), restoring rows the old
-  code collapsed across folders without wiping the local database.
+- Add a one-time post-relocate repair: per account, a SEARCH-ALL/UID-diff pass over every
+  selectable folder re-fetches only the missing UIDs (including old holes a bounded recent-window
+  scan would never revisit), with a durable per-account marker written only after all folders
+  succeed so failed runs retry instead of being skipped.
 - Add a hybrid antispam classifier (deterministic 14-rule engine + per-user multinomial Naive Bayes):
-  rules always on, ML joins at >= 50 training records, verdict spam >= 0.85, auto-move at >= 0.95 with
-  ML backing only; manual /spam and /ham persist mark-time features and train incrementally; a staggered
-  hourly single-flight scheduler rebuilds models with exponential time decay; ingest tagging is
-  fire-and-forget and backfill defers auto-move to avoid IMAP connection storms; `GET /api/spam/explain`
-  powers the "Why?" dialog; `users.preferences.spamEnabled` (default on) plus per-account
-  `antispam_enabled` (default off, opt-in) gate automatic classification.
+  rules always on, ML joins at the configured `minRecords` (>= 50 default), verdict at the configured
+  `spamThreshold` (>= 0.85 default), auto-move at the configured `autoMoveThreshold` (>= 0.95 default)
+  with ML backing only; manual /spam and /ham write one atomic training row with mark-time features
+  (also on the already-in-folder path) and train incrementally through a per-user serializer; a
+  staggered hourly single-flight scheduler rebuilds models with exponential time decay and awaits slow
+  users instead of overlapping; ingest tagging is fire-and-forget and backfill defers auto-move to
+  avoid IMAP connection storms; auto-moves resolve the full account row, share one in-flight MOVE per
+  physical copy, and keep folder badges in step; `GET /api/spam/explain` answers from stored
+  `spam_details`; `users.preferences.spamEnabled` (default on) plus per-account `antispam_enabled`
+  (default off, opt-in, settable via `PUT /api/accounts/:id` and the account form alongside
+  `trusted_authserv_id`) gate automatic classification; only `contacts.is_auto = false` plus own
+  addresses feed the contacts ham signal.
 - Add a React Error Boundary at the entrypoint so a render-time exception shows a translated
   recovery screen with a reload action instead of a blank page.
 - Add a `pageshow` persisted handler to the WebSocket wake effect so returning from BFCache reuses

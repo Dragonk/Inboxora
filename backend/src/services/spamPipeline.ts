@@ -22,6 +22,8 @@
 // and that many concurrent moves would fight over the pooled connections.
 
 import { query } from './db.js';
+import { normalizeContactAddress } from './spamRules.js';
+import { adjustFolderCounts } from '../utils/mailUtils.js';
 import { tokenize, extractFlagFeatures } from './spamTokenizer.js';
 import type { FlagFeatures, SpamMessageInput } from './spamTokenizer.js';
 import { scoreRules } from './spamRules.js';
@@ -33,18 +35,77 @@ import { toAppError } from '../utils/errors.js';
 export const SPAM_THRESHOLD = 0.85;
 export const AUTO_MOVE_THRESHOLD = 0.95;
 export const MIN_TRAINING_RECORDS = 50;
+export const SOFT_TRAINING_RECORDS = 500;
+
+function clampThreshold(value: unknown, fallback: number, min: number, max: number): number {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, n));
+}
+
+export interface ResolvedSpamThresholds {
+  spamThreshold: number;
+  autoMoveThreshold: number;
+  minRecords: number;
+  softRecords: number;
+}
+
+export async function resolveSpamThresholds(ownerId: string): Promise<ResolvedSpamThresholds> {
+  try {
+    const result = await query<{ spam_thresholds?: unknown }>(
+      `SELECT preferences->'spam_thresholds' AS spam_thresholds FROM users WHERE id = $1`,
+      [ownerId],
+    );
+    const stored = result.rows[0]?.spam_thresholds;
+    const obj = (stored !== null && typeof stored === 'object' && !Array.isArray(stored))
+      ? (stored as Record<string, unknown>)
+      : {};
+    return {
+      spamThreshold: clampThreshold(obj.spamThreshold, SPAM_THRESHOLD, 0.5, 0.99),
+      autoMoveThreshold: clampThreshold(obj.autoMoveThreshold, AUTO_MOVE_THRESHOLD, 0.7, 0.99),
+      minRecords: Math.max(1, Math.round(clampThreshold(obj.minRecords, MIN_TRAINING_RECORDS, 1, 10000))),
+      softRecords: Math.max(1, Math.round(clampThreshold(obj.softRecords, SOFT_TRAINING_RECORDS, 1, 100000))),
+    };
+  } catch {
+    return { spamThreshold: SPAM_THRESHOLD, autoMoveThreshold: AUTO_MOVE_THRESHOLD, minRecords: MIN_TRAINING_RECORDS, softRecords: SOFT_TRAINING_RECORDS };
+  }
+}
+
+function resolveThresholdsSync(input: SpamThresholdsInput | null | undefined): ResolvedSpamThresholds {
+  return {
+    spamThreshold: clampThreshold(input?.spamThreshold, SPAM_THRESHOLD, 0.5, 0.99),
+    autoMoveThreshold: clampThreshold(input?.autoMoveThreshold, AUTO_MOVE_THRESHOLD, 0.7, 0.99),
+    minRecords: Math.max(1, Math.round(clampThreshold(input?.minRecords, MIN_TRAINING_RECORDS, 1, 10000))),
+    softRecords: Math.max(1, Math.round(clampThreshold(input?.softRecords, SOFT_TRAINING_RECORDS, 1, 100000))),
+  };
+}
 
 export interface SpamClassifyInput {
   headers?: SpamMessageInput['headers'];
   deferAutoMove?: boolean;
   imap?: SpamImapFacade | null;
+  thresholds?: SpamThresholdsInput | null;
+}
+
+export interface SpamThresholdsInput {
+  spamThreshold?: number;
+  autoMoveThreshold?: number;
+  minRecords?: number;
+  softRecords?: number;
 }
 
 export interface SpamImapFacade {
+  // Narrowed to accountId: the manager resolves the FULL EmailAccountRow
+  // (host, port, TLS, auth, OAuth) itself. Passing a partial account object
+  // made auto-move work only when a pooled client happened to be free.
+  moveMessageByAccount?: (accountId: string, uid: number | string, fromFolder: string, toFolder: string) => Promise<number | null | undefined>;
   moveMessage?: (account: { id: string; email_address?: string | null }, uid: number | string, fromFolder: string, toFolder: string) => Promise<number | null | undefined>;
   broadcast?: (payload: Record<string, unknown>, userId: string) => void;
   _guardMoveUid?: (accountId: string, folder: string, uid: number | string) => void;
   _unguardMoveUid?: (accountId: string, folder: string, uid: number | string) => void;
+  // Serialized/deduped auto-move path (preferred when present): the manager
+  // coalesces concurrent moves of the same physical copy into one IMAP MOVE.
+  moveSpamCopy?: (accountId: string, uid: number | string, fromFolder: string, toFolder: string) => Promise<number | null | undefined>;
 }
 
 export interface SpamClassificationSummary {
@@ -148,14 +209,21 @@ export async function classifyAndTagMessage(
   const tokens = tokenize(msg);
   const flagFeatures: FlagFeatures = extractFlagFeatures(msg, { trustedAuthservIds: trustedAuthservId });
 
+  // Per-user thresholds (PATCH /api/spam/thresholds) actually drive the
+  // verdict here; an explicit per-call override wins for tests/previews.
+  const thresholds = opts.thresholds
+    ? resolveThresholdsSync(opts.thresholds)
+    : await resolveSpamThresholds(row.owner_id);
+  const userContacts = await loadHamContacts(row.owner_id);
+
   const rules = scoreRules(msg, {
-    userContacts: new Set<string>(),
+    userContacts,
     trustedAuthservIds: trustedAuthservId,
   });
 
   const model = await getModelForUser(row.owner_id);
   const trainingRecords = model?.trainingRecords ?? 0;
-  const mlActive = trainingRecords >= MIN_TRAINING_RECORDS;
+  const mlActive = trainingRecords >= thresholds.minRecords;
 
   let mlProbability: number | null = null;
   let mlConfidence: number | null = null;
@@ -165,16 +233,19 @@ export async function classifyAndTagMessage(
     const ml = classifyMessage(model, tokens, flagFeatures);
     mlProbability = ml.probability;
     mlConfidence = ml.confidence;
-    blended = blendScores(ml.probability, rules.score, trainingRecords);
+    blended = blendScores(ml.probability, rules.score, trainingRecords, {
+      minRecords: thresholds.minRecords,
+      softRecords: thresholds.softRecords,
+    });
     method = 'blended';
   }
 
-  const verdict: 'spam' | 'ham' | 'unsure' = blended >= SPAM_THRESHOLD ? 'spam' : blended < 0.3 ? 'ham' : 'unsure';
+  const verdict: 'spam' | 'ham' | 'unsure' = blended >= thresholds.spamThreshold ? 'spam' : blended < 0.3 ? 'ham' : 'unsure';
 
   const spamFolder = row.folder_mappings?.spam ?? null;
 
   const wouldAutoMove = verdict === 'spam'
-    && blended >= AUTO_MOVE_THRESHOLD
+    && blended >= thresholds.autoMoveThreshold
     && mlActive
     && Boolean(spamFolder)
     && row.folder !== spamFolder;
@@ -234,36 +305,113 @@ export async function autoMove(
   imap: SpamImapFacade,
   messageId: string,
 ): Promise<boolean> {
-  imap._guardMoveUid?.(row.account_id, row.folder, row.uid);
-  try {
-    const account = { id: row.account_id, email_address: row.account_email ?? undefined };
-    const newUid = await imap.moveMessage?.(account, row.uid, row.folder, spamFolder);
-    if (newUid !== null && newUid !== undefined) {
-      await query(
-        'DELETE FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3 AND id != $4',
-        [row.account_id, newUid, spamFolder, messageId],
-      );
-      await query(
-        'UPDATE messages SET folder = $1, uid = $2 WHERE id = $3',
-        [spamFolder, newUid, messageId],
-      );
-    } else {
-      imap._guardMoveUid?.(row.account_id, spamFolder, row.uid);
-      await query(
-        'UPDATE messages SET folder = $1 WHERE id = $2',
-        [spamFolder, messageId],
-      );
-      setTimeout(
-        () => imap._unguardMoveUid?.(row.account_id, spamFolder, row.uid),
-        10_000,
-      );
-    }
-    imap.broadcast?.(
-      { type: 'folder_updated', folder: spamFolder, accountId: row.account_id },
-      row.owner_id,
-    );
+  const moveKey = `${row.account_id}:${row.folder}:${row.uid}`;
+  const existing = spamMoveInflights.get(moveKey);
+  if (existing) {
+    await existing.catch(() => undefined);
     return true;
+  }
+  const promise = (async (): Promise<boolean> => {
+    imap._guardMoveUid?.(row.account_id, row.folder, row.uid);
+    try {
+      const mover = imap.moveSpamCopy ?? (async (accountId, uid, fromFolder, toFolder) => {
+        if (!imap.moveMessage) throw new Error('no IMAP move available');
+        // Legacy shape for tests: a partial account object still works when
+        // the caller cannot resolve the full row.
+        return imap.moveMessage({ id: accountId }, uid, fromFolder, toFolder);
+      });
+      const newUid = await mover(row.account_id, row.uid, row.folder, spamFolder);
+      const wasUnread = await readWasUnread(messageId);
+      if (newUid !== null && newUid !== undefined) {
+        await query(
+          'DELETE FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3 AND id != $4',
+          [row.account_id, newUid, spamFolder, messageId],
+        );
+        await query(
+          'UPDATE messages SET folder = $1, uid = $2 WHERE id = $3',
+          [spamFolder, newUid, messageId],
+        );
+      } else {
+        imap._guardMoveUid?.(row.account_id, spamFolder, row.uid);
+        await query(
+          'UPDATE messages SET folder = $1 WHERE id = $2',
+          [spamFolder, messageId],
+        );
+        setTimeout(
+          () => imap._unguardMoveUid?.(row.account_id, spamFolder, row.uid),
+          10_000,
+        );
+      }
+      // Keep the cached folder badges in step with the move (mirrors the
+      // manual /spam path); the next sync reconciles any residual drift.
+      if (wasUnread === true) {
+        adjustFolderCounts(row.account_id, row.folder, -1, -1);
+        adjustFolderCounts(row.account_id, spamFolder, 1, 1);
+      } else if (wasUnread === false) {
+        adjustFolderCounts(row.account_id, row.folder, -1, 0);
+        adjustFolderCounts(row.account_id, spamFolder, 1, 0);
+      }
+      imap.broadcast?.(
+        { type: 'folder_updated', folder: spamFolder, accountId: row.account_id },
+        row.owner_id,
+      );
+      return true;
+    } finally {
+      imap._unguardMoveUid?.(row.account_id, row.folder, row.uid);
+    }
+  })();
+  spamMoveInflights.set(moveKey, promise);
+  try {
+    return await promise;
   } finally {
-    imap._unguardMoveUid?.(row.account_id, row.folder, row.uid);
+    if (spamMoveInflights.get(moveKey) === promise) spamMoveInflights.delete(moveKey);
+  }
+}
+
+// In-flight auto-moves keyed by physical copy: concurrent verdicts for the
+// same (account, folder, uid) share one IMAP MOVE instead of issuing two.
+const spamMoveInflights = new Map<string, Promise<boolean>>();
+
+async function readWasUnread(messageId: string): Promise<boolean | null> {
+  try {
+    const result = await query<{ is_read: boolean | null }>(
+      'SELECT is_read FROM messages WHERE id = $1', [messageId],
+    );
+    const value = result.rows[0]?.is_read;
+    return typeof value === 'boolean' ? !value : null;
+  } catch {
+    return null;
+  }
+}
+
+async function loadHamContacts(ownerId: string): Promise<Set<string>> {
+  try {
+    // Only manually curated contacts count — auto-created sender rows would
+    // otherwise let the first spam whitelist itself.
+    const result = await query<{ primary_email: string | null; emails: unknown }>(
+      `SELECT c.primary_email, c.emails FROM contacts c
+       JOIN address_books ab ON ab.id = c.address_book_id
+       WHERE ab.user_id = $1 AND COALESCE(c.is_auto, false) = false
+       LIMIT 2000`,
+      [ownerId],
+    );
+    const out = new Set<string>();
+    for (const row of result.rows) {
+      if (typeof row.primary_email === 'string' && row.primary_email) {
+        const normalized = normalizeContactAddress(row.primary_email);
+        if (normalized) out.add(normalized);
+      }
+      if (Array.isArray(row.emails)) {
+        for (const entry of row.emails as Array<{ value?: unknown }>) {
+          if (entry !== null && typeof entry === 'object' && typeof entry.value === 'string') {
+            const normalized = normalizeContactAddress(entry.value);
+            if (normalized) out.add(normalized);
+          }
+        }
+      }
+    }
+    return out;
+  } catch {
+    return new Set<string>();
   }
 }

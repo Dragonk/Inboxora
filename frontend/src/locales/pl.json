@@ -1767,7 +1767,11 @@
     "maturity": "Model {{level}} · {{count}} wiadomości treningowych",
     "enable": "Włącz antyspam",
     "disable": "Wyłącz antyspam",
-    "retrainNow": "Przeucz teraz"
+    "retrainNow": "Przeucz teraz",
+    "enableAccount": "Automatycznie klasyfikuj na tym koncie",
+    "enableAccountDesc": "Domyślnie wyłączone. Ręczne oznaczenia zawsze uczą model.",
+    "trustedAuthservId": "Zaufane authserv-id",
+    "trustedAuthservIdDesc": "Liczą się tylko Authentication-Results z tego systemu. Puste = ignoruj wszystkie."
   },
   "todoist": {
     "title": "Utwórz zadanie Todoist",

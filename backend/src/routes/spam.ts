@@ -253,6 +253,32 @@ router.get('/explain', async (req: Request, res: Response, next: NextFunction) =
     const row = data.rows[0];
     if (!row) return res.status(404).json({ error: 'Message not found' });
 
+    // Stored spam_details is the source of truth for "Why?": it captures the
+    // exact rules/ML state at decision time (including trusted-auth and
+    // contacts context the live recompute below cannot reproduce). Recompute
+    // only as a fallback for rows classified before details were persisted.
+    const storedDetails = typeof row.spam_details === 'string'
+      ? safeParseDetails(row.spam_details)
+      : (row.spam_details ?? null);
+    if (isStoredSpamDetails(storedDetails)) {
+      res.json({
+        verdict: row.spam_verdict,
+        storedScore: row.spam_score_ml ?? null,
+        method: storedDetails.method,
+        confidence: storedDetails.mlConfidence ?? storedDetails.rulesScore,
+        rulesFired: storedDetails.rulesFired,
+        rulesScore: storedDetails.rulesScore,
+        mlProbability: storedDetails.mlProbability,
+        mlTopTokens: storedDetails.topTokens,
+        authservIds: storedDetails.authservIds ?? [],
+        trustedAuthservId: storedDetails.trustedAuthservId ?? null,
+        authTrusted: storedDetails.authTrusted ?? null,
+        storedDetails,
+        recomputed: false,
+      });
+      return;
+    }
+
     const msg = {
       subject: row.subject ?? '',
       body: row.body_text ?? '',
@@ -282,9 +308,8 @@ router.get('/explain', async (req: Request, res: Response, next: NextFunction) =
       mlTopTokens: extractTopTokens(model, tokens, 5).map(t => ({
         token: t.token, contribution: Math.round(t.contribution * 1000) / 1000,
       })),
-      storedDetails: typeof row.spam_details === 'string'
-        ? JSON.parse(row.spam_details)
-        : (row.spam_details ?? null),
+      storedDetails: null,
+      recomputed: true,
     });
   } catch (err) { next(err); }
 });
@@ -326,6 +351,38 @@ accountSpamRouter.post('/:id/spam/reset-training', async (req: Request, res: Res
     });
   } catch (err) { next(err); }
 });
+
+interface StoredSpamDetails {
+  method: string;
+  blendedScore: number;
+  rulesScore: number;
+  rulesFired: Array<{ name: string; weight: number }>;
+  mlProbability: number | null;
+  mlConfidence?: number | null;
+  topTokens: Array<{ token: string; contribution: number }>;
+  authservIds?: string[];
+  trustedAuthservId?: string | null;
+  authTrusted?: boolean | null;
+  [key: string]: unknown;
+}
+
+function safeParseDetails(raw: string): unknown {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function isStoredSpamDetails(value: unknown): value is StoredSpamDetails {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
+  const v = value as Record<string, unknown>;
+  return typeof v.method === 'string'
+    && typeof v.blendedScore === 'number'
+    && typeof v.rulesScore === 'number'
+    && Array.isArray(v.rulesFired)
+    && Array.isArray(v.topTokens);
+}
 
 function ipOf(req: Request): string | null {
   const ip = req.ip ?? req.socket?.remoteAddress;

@@ -1767,7 +1767,11 @@
     "maturity": "Модель {{level}} · сообщений: {{count}}",
     "enable": "Включить антиспам",
     "disable": "Выключить антиспам",
-    "retrainNow": "Переобучить"
+    "retrainNow": "Переобучить",
+    "enableAccount": "Автоклассификация для этого ящика",
+    "enableAccountDesc": "По умолчанию выключено. Ручные метки всегда обучают.",
+    "trustedAuthservId": "Доверенный authserv-id",
+    "trustedAuthservIdDesc": "Учитываются только Authentication-Results этой системы. Пусто = игнорировать всё."
   },
   "todoist": {
     "title": "Создать задачу Todoist",

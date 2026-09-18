@@ -1,4 +1,5 @@
 import CalendarInvitationCard from './CalendarInvitationCard.tsx';
+import SpamBadge from './SpamBadge.tsx';
 import { useCallback, useRef, useState } from 'react';
 import type { MouseEvent } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -186,6 +187,15 @@ export default function MessageDetailContent({
   const retry = () => onLoadBody?.(physicalCopyId, true);
 
   return <div aria-label={legacyAiLabels.join(' ')} className={className} data-message-detail-content="true" data-physical-copy-id={physicalCopyId || undefined}>
+    {physicalCopyId && (message?.spam_verdict === 'spam' || message?.spam_verdict === 'unsure') && (
+      <div style={{ marginBottom: 10 }}>
+        <SpamBadge
+          messageId={physicalCopyId}
+          verdict={typeof message.spam_verdict === 'string' ? message.spam_verdict : null}
+          score={typeof message.spam_score_ml === 'number' ? message.spam_score_ml : null}
+        />
+      </div>
+    )}
     {attachments.length > 0 && <div data-message-detail-attachments="true" style={{ marginBottom: 20 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
         <div style={{ fontSize: 12, color: 'var(--text-tertiary)', fontWeight: 500 }}>{t('message.attachment', { count: attachments.length })}</div>

@@ -223,9 +223,16 @@ function chiSquare(a: number, b: number, totalSpam: number, totalHam: number, to
   return denominator === 0 ? 0 : numerator / denominator;
 }
 
-export function blendScores(mlScore: number, rulesScore: number, trainingRecords: number): number {
-  if (trainingRecords < 50) return rulesScore;
-  if (trainingRecords <= 500) return 0.6 * rulesScore + 0.4 * mlScore;
+export function blendScores(
+  mlScore: number,
+  rulesScore: number,
+  trainingRecords: number,
+  bands: { minRecords?: number; softRecords?: number } = {},
+): number {
+  const minRecords = Math.max(1, Math.round(bands.minRecords ?? 50));
+  const softRecords = Math.max(minRecords, Math.round(bands.softRecords ?? 500));
+  if (trainingRecords < minRecords) return rulesScore;
+  if (trainingRecords <= softRecords) return 0.6 * rulesScore + 0.4 * mlScore;
   return 0.2 * rulesScore + 0.8 * mlScore;
 }
 

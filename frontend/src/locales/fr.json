@@ -1767,7 +1767,11 @@
     "maturity": "Modèle {{level}} · {{count}} messages",
     "enable": "Activer l'antispam",
     "disable": "Désactiver l'antispam",
-    "retrainNow": "Réentraîner"
+    "retrainNow": "Réentraîner",
+    "enableAccount": "Classifier automatiquement sur ce compte",
+    "enableAccountDesc": "Désactivé par défaut. Les marquages manuels entraînent toujours.",
+    "trustedAuthservId": "Authserv-id de confiance",
+    "trustedAuthservIdDesc": "Seuls les Authentication-Results de ce système comptent. Vide = tout ignorer."
   },
   "todoist": {
     "title": "Créer une tâche Todoist",

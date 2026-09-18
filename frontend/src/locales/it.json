@@ -1767,7 +1767,11 @@
     "maturity": "Modello {{level}} · {{count}} messaggi",
     "enable": "Attiva antispam",
     "disable": "Disattiva antispam",
-    "retrainNow": "Riallena ora"
+    "retrainNow": "Riallena ora",
+    "enableAccount": "Classifica automaticamente su questo account",
+    "enableAccountDesc": "Disattivato per impostazione predefinita. Le marcature manuali addestrano sempre.",
+    "trustedAuthservId": "Authserv-id attendibile",
+    "trustedAuthservIdDesc": "Contano solo gli Authentication-Results di questo sistema. Vuoto = ignora tutto."
   },
   "todoist": {
     "title": "Crea attività Todoist",

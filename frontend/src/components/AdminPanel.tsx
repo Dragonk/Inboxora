@@ -131,6 +131,8 @@ interface AccountFormState {
   auth_user?: string;
   auth_pass?: string;
   categorization_enabled?: boolean;
+  antispam_enabled?: boolean;
+  trusted_authserv_id?: string | null;
   sender_name?: string | null;
   [key: string]: unknown;
 }
@@ -481,6 +483,48 @@ function AccountForm({ initial = undefined, onSave, onCancel }: AccountFormProps
               </div>
             </div>
           </div>
+
+          <div style={{ height: 1, background: 'var(--border-subtle)', margin: '16px 0' }} />
+          <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 10, fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
+            {t('spam.settingsTitle')}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+            <button
+              type="button"
+              onClick={() => set('antispam_enabled', !form.antispam_enabled)}
+              style={{
+                width: 36, height: 20, borderRadius: 10, border: 'none',
+                cursor: 'pointer', padding: 0,
+                background: form.antispam_enabled ? 'var(--accent)' : TOGGLE_OFF_BACKGROUND,
+                position: 'relative', transition: 'background 0.2s', flexShrink: 0, marginTop: 1,
+              }}
+            >
+              <span style={{
+                position: 'absolute', top: 2,
+                left: form.antispam_enabled ? 18 : 2,
+                width: 16, height: 16,
+                borderRadius: '50%', background: 'white', transition: 'left 0.2s',
+              }} />
+            </button>
+            <div>
+              <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{t('spam.enableAccount')}</div>
+              <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>
+                {t('spam.enableAccountDesc')}
+              </div>
+            </div>
+          </div>
+          <label style={{ display: 'block', marginTop: 10, fontSize: 12, color: 'var(--text-secondary)' }}>
+            {t('spam.trustedAuthservId')}
+            <input
+              value={form.trusted_authserv_id ?? ''}
+              onChange={e => set('trusted_authserv_id', e.target.value.trim() === '' ? null : e.target.value.trim())}
+              placeholder="mx.google.com"
+              style={{ display: 'block', width: '100%', marginTop: 4 }}
+            />
+          </label>
+          <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>
+            {t('spam.trustedAuthservIdDesc')}
+          </div>
         </>
       )}
 
@@ -545,7 +589,7 @@ function AccountsTab() {
 
   const handleEdit = async (form: AccountFormState) => {
     if (!editTarget) return;
-    const updates: Record<string, unknown> = { name: form.name, sender_name: form.sender_name || null, color: form.color, imap_host: form.imap_host, imap_port: form.imap_port, imap_skip_tls_verify: !!form.imap_skip_tls_verify, smtp_host: form.smtp_host, smtp_port: form.smtp_port, smtp_tls: form.smtp_tls, signature: form.signature || null, categorization_enabled: !!form.categorization_enabled, include_in_unified_inbox: form.include_in_unified_inbox !== false };
+    const updates: Record<string, unknown> = { name: form.name, sender_name: form.sender_name || null, color: form.color, imap_host: form.imap_host, imap_port: form.imap_port, imap_skip_tls_verify: !!form.imap_skip_tls_verify, smtp_host: form.smtp_host, smtp_port: form.smtp_port, smtp_tls: form.smtp_tls, signature: form.signature || null, categorization_enabled: !!form.categorization_enabled, antispam_enabled: !!form.antispam_enabled, trusted_authserv_id: form.trusted_authserv_id ?? null, include_in_unified_inbox: form.include_in_unified_inbox !== false };
     if (form.auth_pass) updates.auth_pass = form.auth_pass;
     if (form.auth_user) updates.auth_user = form.auth_user;
     // Separate SMTP credentials (optional). A username sends both (a blank password on

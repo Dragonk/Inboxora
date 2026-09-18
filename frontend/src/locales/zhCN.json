@@ -1767,7 +1767,11 @@
     "maturity": "模型{{level}} · {{count}} 条训练邮件",
     "enable": "启用反垃圾邮件",
     "disable": "停用反垃圾邮件",
-    "retrainNow": "立即重新训练"
+    "retrainNow": "立即重新训练",
+    "enableAccount": "对此帐户自动分类",
+    "enableAccountDesc": "默认关闭。手动标记始终参与训练。",
+    "trustedAuthservId": "受信任的 authserv-id",
+    "trustedAuthservIdDesc": "仅统计该系统的 Authentication-Results。留空 = 全部忽略。"
   },
   "todoist": {
     "title": "创建 Todoist 任务",

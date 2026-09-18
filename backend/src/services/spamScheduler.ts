@@ -10,7 +10,10 @@
 //     self-scheduling timeout, not setInterval), so a slow run delays the
 //     next tick instead of overlapping it;
 //   - each user gets a bounded slice of the run;
-//   - an overlapping run is REFUSED, not queued (admin endpoint surfaces 409).
+//   - an overlapping run is REFUSED, not queued (admin endpoint surfaces 409);
+//   - a timed-out user does NOT release the run early: the scheduler awaits
+//     the actual retrain to completion (Promise.race cannot cancel it, and
+//     releasing early would let a second run interleave on the same rows).
 
 import { retrainUser, getAllUsersWithTrainingLog } from './spamModelStore.js';
 
@@ -35,19 +38,38 @@ export function offsetHoursForUser(userId: string): number {
 
 async function retrainWithTimeout(userId: string): Promise<'ok' | 'timeout' | 'error'> {
   let timeout: ReturnType<typeof setTimeout> | null = null;
+  const retrain = retrainUser(userId);
+  // Attach an early rejection so an abandoned promise never becomes an
+  // unhandled rejection while we keep awaiting the real retrain below.
+  retrain.catch(() => undefined);
   try {
     await Promise.race([
-      retrainUser(userId),
+      retrain,
       new Promise<never>((_, reject) => {
-        timeout = setTimeout(() => reject(new Error(RUN_TIMEOUT_MARKER)), RETRAIN_USER_TIMEOUT_MS);
+        timeout = setTimeout(() => {
+          reject(new Error(RUN_TIMEOUT_MARKER));
+        }, RETRAIN_USER_TIMEOUT_MS);
       }),
     ]);
     return 'ok';
   } catch (caught) {
-    const timedOut = caught instanceof Error && caught.message === RUN_TIMEOUT_MARKER;
-    console.warn(`spam retrain ${timedOut ? 'timed out' : 'failed'} for ${userId}:`,
-      timedOut ? `no result within ${RETRAIN_USER_TIMEOUT_MS}ms` : (caught instanceof Error ? caught.message : String(caught)));
-    return timedOut ? 'timeout' : 'error';
+    const timeoutMarker = caught instanceof Error && caught.message === RUN_TIMEOUT_MARKER;
+    if (timeoutMarker) {
+      // Promise.race cannot cancel the retrain: it is still running and will
+      // still persist its model. Await it to completion so the "one run at a
+      // time" guarantee holds instead of interleaving the next user on the
+      // same rows. The outcome stays 'timeout' so the run summary is honest.
+      console.warn(`spam retrain timed out for ${userId}: no result within ${RETRAIN_USER_TIMEOUT_MS}ms — awaiting completion`);
+      try {
+        await retrain;
+      } catch (late) {
+        console.warn(`spam retrain failed for ${userId} after timeout:`, late instanceof Error ? late.message : String(late));
+        return 'error';
+      }
+      return 'timeout';
+    }
+    console.warn(`spam retrain failed for ${userId}:`, caught instanceof Error ? caught.message : String(caught));
+    return 'error';
   } finally {
     if (timeout) clearTimeout(timeout);
   }

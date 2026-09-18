@@ -1767,7 +1767,11 @@
     "maturity": "Modelo {{level}} · {{count}} mensajes",
     "enable": "Activar antispam",
     "disable": "Desactivar antispam",
-    "retrainNow": "Reentrenar ahora"
+    "retrainNow": "Reentrenar ahora",
+    "enableAccount": "Clasificar automáticamente en esta cuenta",
+    "enableAccountDesc": "Desactivado por defecto. Las marcas manuales siempre entrenan.",
+    "trustedAuthservId": "Authserv-id de confianza",
+    "trustedAuthservIdDesc": "Solo cuentan los Authentication-Results de este sistema. Vacío = ignorar todo."
   },
   "todoist": {
     "title": "Crear tarea en Todoist",
