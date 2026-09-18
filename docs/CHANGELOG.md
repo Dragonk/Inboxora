@@ -73,12 +73,16 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.3](wiki/R
   instead of implying otherwise. The status requires a *complete* registration (the `mailto`
   association, the `RegisteredApplications` entry and the launch command), so a partially
   written one is not reported as registered — not even when Windows still points at Inboxora,
-  which would otherwise claim a default that cannot work and hide the repair. The installer and
-  the app both register the
+  which would otherwise claim a default that cannot work and hide the repair. On Windows the app
+  no longer writes Electron's legacy `HKCU\Software\Classes\mailto` handler: it registers only
+  its own ProgID, so launching Inboxora offers it as a *choice* instead of claiming the generic
+  key, and the installer removes a legacy handler left by an earlier build (only while it is
+  still Inboxora's own command). The installer and the app both register the
   email-client capabilities (now including `ApplicationIcon`) and the `Inboxora.mailto` ProgID,
-  and the shell is told the associations changed (`SHChangeNotify(SHCNE_ASSOCCHANGED)`) after
-  installing and after re-registering, so the Default apps page does not keep showing a stale
-  list.
+  and the shell is told the associations changed (`SHChangeNotify(SHCNE_ASSOCCHANGED)` with
+  `SHCNF_FLUSH`) after installing and after re-registering; the in-app re-registration waits for
+  that notification (bounded, best-effort) so the Default apps page opened right after it
+  already shows the new state.
 - Scoped Electron IPC for the desktop features — notification settings/test, mail-handler
   settings/registration and title-bar theming — exposed through the sandboxed preload, with
   sender *and* sender-frame-origin validation in the main process (the same webContents also

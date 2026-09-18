@@ -147,10 +147,17 @@ registers itself as an *available* one and hands the choice to the user:
   URL association) plus the `Inboxora.mailto` ProgID with its
   `shell\open\command`, and lists the app in `RegisteredApplications`. That is what
   makes Inboxora appear under **Settings → Default apps** for both *Email* and the
-  `mailto:` link type. After the registry writes, the shell is told the associations
-  changed (`SHChangeNotify(SHCNE_ASSOCCHANGED)`) — from the installer natively and
-  from the app on re-registration — because Windows otherwise keeps serving a cached
-  view of its association list;
+  `mailto:` link type. On Windows the app deliberately does **not** call Electron's
+  `setAsDefaultProtocolClient()`, which would write a second, legacy
+  `HKCU\Software\Classes\mailto` handler and claim the generic key just by being
+  launched; the installer also removes such a legacy handler when an earlier build
+  left one (only while it is still Inboxora's own command). After the registry
+  writes, the shell is told the associations changed
+  (`SHChangeNotify(SHCNE_ASSOCCHANGED)` with `SHCNF_FLUSH`) — from the installer
+  natively and from the app on re-registration, where the wait for it is bounded
+  (2 s) and best-effort. Without that notification Windows keeps serving a cached
+  association list, so the Default apps page opened immediately afterwards would
+  still show the old state;
 - **Settings → Notifications → Default email app** reports whether Inboxora is the
   current handler (read from the `mailto` `UserChoice\ProgId` Windows keeps),
   re-asserts the registration with *Set as default*, and opens the Windows
@@ -488,7 +495,12 @@ Windows default email app
     default, and offers "Set as default"
   - "Set as default" writes the registration and opens Windows Default apps — the
     per-app page for Inboxora on Windows 11, the general list on Windows 10 — where
-    Inboxora is listed for Email and for the mailto: link type
+    Inboxora is listed for Email and for the mailto: link type, already reflecting the
+    registration (not the state from before it)
+  - merely launching Inboxora must not create HKCU\Software\Classes\mailto; only the
+    Inboxora.mailto ProgID and the RegisteredApplications entry appear
+  - upgrading over a build that did write that legacy key must remove it on install
+    (and leave a foreign handler in place if the command is not Inboxora's)
   - with a deliberately damaged registration (delete
     HKCU\Software\Clients\Mail\Inboxora\Capabilities\URLAssociations\mailto), the card
     must report "not registered" rather than "registered", and "Set as default" must

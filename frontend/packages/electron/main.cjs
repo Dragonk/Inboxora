@@ -17,6 +17,7 @@ const {
 const {
   MAILTO_PROG_ID,
   TITLEBAR_HEIGHT,
+  WINDOWS_ASSOCIATION_CHANGE_NOTIFICATION,
   WINDOWS_MAIL_CLIENT_KEY,
   WINDOWS_MAILTO_USER_CHOICE_KEY,
   WINDOWS_REGISTERED_APPLICATIONS_KEY,
@@ -48,8 +49,8 @@ const NEW_MAIL_NOTIFICATION_MAX_LENGTH = 240;
 // registry key Windows stores per-app notification settings under, so the two
 // must never drift apart.
 const APP_USER_MODEL_ID = 'io.github.dragonk.inboxora';
-// SHCNE_ASSOCCHANGED: tells the shell that file/URL associations changed.
-const SHCNE_ASSOCCHANGED = 0x08000000;
+// How long a registration waits for the shell notification before giving up on it.
+const SHELL_NOTIFY_TIMEOUT_MS = 2000;
 // How long to wait for Electron's 'show' / 'failed' after calling show() on a test
 // notification. Some desktops raise neither, which is reported as unconfirmed.
 const TEST_NOTIFICATION_TIMEOUT_MS = 4000;
@@ -102,17 +103,31 @@ if (process.platform === 'linux' && process.env.APPIMAGE) {
   app.commandLine.appendSwitch('no-sandbox');
 }
 
+// The command Windows should run for a mailto: link. In development the handler has
+// to launch Electron with the app path, not just the Electron binary.
+function mailtoLaunchCommand() {
+  if (process.defaultApp && process.argv.length >= 2) {
+    return `"${process.execPath}" "${path.resolve(process.argv[1])}" "%1"`;
+  }
+  return `"${process.execPath}" "%1"`;
+}
+
 function registerMailtoProtocol() {
+  // Windows is handled entirely by our own ProgID plus the RegisteredApplications
+  // entry: Electron's setAsDefaultProtocolClient() would write a second, legacy
+  // HKCU\Software\Classes\mailto command that the uninstaller cannot recognise, and
+  // simply launching the app would claim the generic key instead of only offering
+  // Inboxora as a choice.
+  if (process.platform === 'win32') {
+    return registerWindowsMailtoCapabilities();
+  }
+
   try {
     if (process.defaultApp && process.argv.length >= 2) {
-      const registered = app.setAsDefaultProtocolClient(MAILTO_PROTOCOL, process.execPath, [path.resolve(process.argv[1])]);
-      registerWindowsMailtoCapabilities();
-      return registered;
+      return app.setAsDefaultProtocolClient(MAILTO_PROTOCOL, process.execPath, [path.resolve(process.argv[1])]);
     }
 
-    const registered = app.setAsDefaultProtocolClient(MAILTO_PROTOCOL);
-    registerWindowsMailtoCapabilities();
-    return registered;
+    return app.setAsDefaultProtocolClient(MAILTO_PROTOCOL);
   } catch (error) {
     console.error('Could not register mailto protocol handler:', error);
     return false;
@@ -131,7 +146,7 @@ function registerWindowsMailtoCapabilities() {
 
   try {
     const exePath = process.execPath;
-    const command = `"${exePath}" "%1"`;
+    const command = mailtoLaunchCommand();
 
     // The Capabilities key is what makes Inboxora appear as an email client under
     // Windows Settings -> Default apps; the ProgID is what mailto: resolves to. Both
@@ -194,35 +209,70 @@ function readMailtoSettings() {
 }
 
 // Windows caches shell associations. Without SHChangeNotify(SHCNE_ASSOCCHANGED) the
-// Default apps page can keep showing the state from before the registration. There
-// is no Node binding for shell32, so this is a best-effort PowerShell P/Invoke: it
-// must never block, and never fail, the registration itself.
+// Default apps page can keep showing the state from before the registration. There is
+// no Node binding for shell32, so this is a PowerShell P/Invoke with SHCNF_FLUSH —
+// which does not return until the shell has delivered the notification.
+//
+// It resolves when the helper exits, or after SHELL_NOTIFY_TIMEOUT_MS, so a
+// registration can wait for it without ever hanging on a broken PowerShell (blocked
+// by policy, machine under load). Failure is reported, never fatal.
 function notifyWindowsShellOfAssociationChange() {
-  if (process.platform !== 'win32') return;
+  if (process.platform !== 'win32') return Promise.resolve(false);
 
+  const { eventId, flags } = WINDOWS_ASSOCIATION_CHANGE_NOTIFICATION;
   const script = [
     "$sig = '[DllImport(\"shell32.dll\")] public static extern void SHChangeNotify(int eventId, uint flags, IntPtr item1, IntPtr item2);'",
     "Add-Type -Namespace Inboxora -Name Shell32 -MemberDefinition $sig",
-    `[Inboxora.Shell32]::SHChangeNotify(${SHCNE_ASSOCCHANGED}, 0, [IntPtr]::Zero, [IntPtr]::Zero)`,
+    `[Inboxora.Shell32]::SHChangeNotify(${eventId}, ${flags}, [IntPtr]::Zero, [IntPtr]::Zero)`,
   ].join('; ');
 
-  try {
-    const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script], {
-      stdio: 'ignore',
-      windowsHide: true,
-    });
-    child.on('error', () => {});
-    if (typeof child.unref === 'function') child.unref();
-  } catch (error) {
-    console.error('Could not notify the Windows shell about the mail handler change:', error);
-  }
+  return new Promise((resolve) => {
+    let settled = false;
+    let timer = null;
+    const finish = (notified) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      resolve(notified);
+    };
+
+    let child;
+    try {
+      child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script], {
+        stdio: 'ignore',
+        windowsHide: true,
+      });
+    } catch (error) {
+      console.error('Could not notify the Windows shell about the mail handler change:', error);
+      finish(false);
+      return;
+    }
+
+    // Deliberately not unref()'d: the caller waits for this, bounded by the timeout.
+    timer = setTimeout(() => {
+      try {
+        child.kill();
+      } catch {
+        // Already gone.
+      }
+      finish(false);
+    }, SHELL_NOTIFY_TIMEOUT_MS);
+
+    child.on('error', () => finish(false));
+    child.on('exit', (code) => finish(code === 0));
+  });
 }
 
-function registerAsMailtoHandler() {
+// Async so the caller's "register, then open Default apps" cannot race the shell
+// notification: by the time the renderer opens the page, the shell has been told.
+async function registerAsMailtoHandler() {
   if (process.platform !== 'win32') return readMailtoSettings();
 
   registerMailtoProtocol();
-  notifyWindowsShellOfAssociationChange();
+  const notified = await notifyWindowsShellOfAssociationChange();
+  if (!notified) {
+    console.warn('The Windows shell was not notified about the mail handler change.');
+  }
   return readMailtoSettings();
 }
 

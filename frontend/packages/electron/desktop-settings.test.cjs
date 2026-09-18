@@ -118,6 +118,16 @@ test('picks the per-app Default apps page on Windows 11 and the list on Windows 
   assert.equal(settings.defaultAppsSettingsUri('10.0.22621', 'In box'), 'ms-settings:defaultapps?registeredAppUser=In%20box');
 });
 
+test('the shell notification uses SHCNE_ASSOCCHANGED with SHCNF_IDLIST | SHCNF_FLUSH', () => {
+  assert.deepEqual(settings.WINDOWS_ASSOCIATION_CHANGE_NOTIFICATION, { eventId: 0x08000000, flags: 0x1000 });
+  // SHCNF_IDLIST is required for SHCNE_ASSOCCHANGED and its value is 0, so the flag
+  // word is exactly SHCNF_FLUSH: the call must not return before the shell has
+  // delivered the notification, or opening Default apps right after a registration
+  // can still show the old list.
+  assert.equal(settings.WINDOWS_ASSOCIATION_CHANGE_NOTIFICATION.flags, 0x1000);
+  assert.equal(Object.isFrozen(settings.WINDOWS_ASSOCIATION_CHANGE_NOTIFICATION), true);
+});
+
 test('the registered ProgID and mail-client key are the ones the shell expects', () => {
   assert.equal(settings.MAILTO_PROG_ID, 'Inboxora.mailto');
   assert.equal(settings.WINDOWS_MAIL_CLIENT_KEY, 'HKCU\\Software\\Clients\\Mail\\Inboxora');

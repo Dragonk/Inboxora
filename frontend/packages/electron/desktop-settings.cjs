@@ -196,6 +196,14 @@ function mailtoRegistrationHealth({ clientTree, registeredApplications, progIdCo
   );
 }
 
+// SHCNE_ASSOCCHANGED with SHCNF_IDLIST (required for this event; its value is 0) plus
+// SHCNF_FLUSH, so the call does not return until the shell has delivered the
+// notification. SHCNF_FLUSH is only meaningful together with SHCNF_IDLIST.
+const WINDOWS_ASSOCIATION_CHANGE_NOTIFICATION = Object.freeze({
+  eventId: 0x08000000,
+  flags: 0x1000,
+});
+
 /** Windows 11 is still reported as version 10; the build number is what separates them. */
 function isWindows11(release) {
   const [major, , build] = String(release || '')
@@ -270,6 +278,7 @@ module.exports = {
   TITLEBAR_HEIGHT,
   WINDOWS_MAILTO_USER_CHOICE_KEY,
   WINDOWS_MAIL_CLIENT_KEY,
+  WINDOWS_ASSOCIATION_CHANGE_NOTIFICATION,
   WINDOWS_REGISTERED_APPLICATIONS_KEY,
   defaultAppsSettingsUri,
   isDefaultMailtoHandler,
