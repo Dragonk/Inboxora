@@ -96,3 +96,59 @@ test('every locale explains the three delete scopes', async () => {
     }
   }
 });
+
+// A recurring event can be created, and a series edit must be able to change the rule.
+test('the event dialog offers a recurrence rule for new events and series edits', async () => {
+  const source = await readFile(calendarPath, 'utf8');
+  assert.match(source, /data-testid="calendar-recurrence"/);
+  assert.match(source, /const recurrenceMode = form\.mode === 'create' \|\| form\.editScope === 'series'/);
+  for (const frequency of ['recurrenceNone', 'recurrenceDaily', 'recurrenceWeekly', 'recurrenceMonthly', 'recurrenceYearly']) {
+    assert.match(source, new RegExp(`calendar\\.${frequency}`));
+  }
+  // Weekly rules pick the days; the chips use the active locale's day names.
+  assert.match(source, /calendar-recurrence-weekday-options/);
+  assert.match(source, /weekdayFormatter\.format/);
+});
+
+test('editing a recurring event chooses between one occurrence and the whole series', async () => {
+  const source = await readFile(calendarPath, 'utf8');
+  assert.match(source, /data-testid="calendar-edit-scope"/);
+  // The master (with its rule) is fetched because a list row only carries an occurrence.
+  assert.match(source, /api\.calendar\.getEvent\(String\(event\.series_id\)\)/);
+  assert.match(source, /recurrenceFormFromStored\(/);
+  assert.match(source, /const changeEditScope = \(scope: 'single' \| 'series'\)/);
+  assert.match(source, /onEditScopeChange=\{changeEditScope\}/);
+  // Both answers come from the existing localized delete-scope strings.
+  assert.match(source, /role="radio" aria-checked=\{form\.editScope !== 'series'\}/);
+  assert.match(source, /role="radio" aria-checked=\{form\.editScope === 'series'\}/);
+});
+
+test('a series edit states the rule while an occurrence edit never touches it', async () => {
+  const view = await readFile(new URL('./calendarView.ts', import.meta.url), 'utf8');
+  // The payload keeps recurrenceId only for the occurrence scope, and lets the series
+  // edit carry `recurrence` (including null to clear it).
+  assert.match(view, /form\.recurrenceId && form\.editScope !== 'series'/);
+  assert.match(view, /form\.editScope === 'series' && !form\.recurrencePreserve/);
+  assert.match(view, /form\.mode === 'create'/);
+});
+
+test('the calendar API exposes the single-event read used to open a series', async () => {
+  const api = await readFile(new URL('../utils/api.ts', import.meta.url), 'utf8');
+  assert.match(api, /getEvent: \(id: string/);
+  assert.match(api, /`\/calendar\/events\/\$\{encodeURIComponent\(id\)\}`/);
+});
+
+test('every locale translates the recurrence editor', async () => {
+  const locales = (await readdir(localesPath)).filter(name => name.endsWith('.json'));
+  assert.equal(locales.length, 9);
+  const keys = ['recurrence', 'recurrenceNone', 'recurrenceDaily', 'recurrenceWeekly', 'recurrenceMonthly', 'recurrenceYearly', 'recurrenceIntervalLabel', 'recurrenceEndsLabel', 'recurrenceEndNever', 'recurrenceEndUntil', 'recurrenceEndCount', 'recurrenceCountLabel', 'recurrenceCustomHint', 'recurrenceReplace', 'recurrenceScope', 'recurrenceWeekdays'];
+  for (const name of locales) {
+    const strings = JSON.parse(await readFile(new URL(name, localesPath), 'utf8'));
+    for (const key of keys) {
+      assert.equal(typeof strings.calendar[key], 'string', `${name} is missing calendar.${key}`);
+      assert.ok(strings.calendar[key].length > 0, `${name} has an empty calendar.${key}`);
+    }
+    // The custom-rule hint must interpolate with i18next syntax.
+    assert.match(strings.calendar.recurrenceCustomHint, /\{\{rule\}\}/, `${name} recurrenceCustomHint has no {{rule}} placeholder`);
+  }
+});

@@ -40,6 +40,17 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   working OAuth client. Config writes are validated against a closed schema, a blank or omitted
   secret preserves the stored one, an explicit clear removes it, and deleting a provider writes a
   tombstone so a restart can no longer resurrect the previous environment values.
+- Add recurring events to the calendar. The event dialog can create a daily, weekly, monthly or
+  yearly series (interval, selected weekdays, and an end of never / on a date / after a number of
+  occurrences); the rule is stored as a standard `RRULE` and included in invitations sent to
+  attendees. Editing a recurring event now asks whether the change applies to the occurrence you
+  opened or the whole series: the series editor is populated from the series' own start, end and
+  rule, and saving applies to every occurrence without disturbing existing exceptions. A foreign
+  rule the editor cannot represent is shown as custom and kept untouched unless you explicitly
+  replace it. Cancelling already offered *this occurrence / this and following / the whole series*
+  and is unchanged. New `GET /api/calendar/events/:id` returns one event's stored representation
+  (including its rule) for the series editor, and the `recurrence` field is validated and rendered
+  into iCalendar by the server, so a client cannot inject arbitrary iCalendar properties.
 
 ## [4.0.4] - 2026-09-18
 

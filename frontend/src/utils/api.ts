@@ -415,6 +415,9 @@ export const api = {
       return request('GET', `/calendar/events?${params}`, undefined, undefined, { signal });
     },
     createEvent: (data: CalendarEventPayload, idempotencyKey: string | undefined = undefined) => request('POST', '/calendar/events', data, idempotencyKey ? { 'X-Idempotency-Key': idempotencyKey } : undefined),
+    // One event's full stored representation, including the master recurrence rule
+    // the list rows do not carry. Used by the editor to open the whole series.
+    getEvent: (id: string, { signal }: { signal?: AbortSignal } = {}) => request('GET', `/calendar/events/${encodeURIComponent(id)}`, undefined, undefined, { signal }),
     updateEvent: (id: string, data: CalendarEventPayload, idempotencyKey: string | undefined = undefined) => request('PATCH', `/calendar/events/${id}${data.recurrenceId ? '/occurrence' : ''}`, data, idempotencyKey ? { 'X-Idempotency-Key': idempotencyKey } : undefined),
     getCancellationDelivery: (id: string, { signal }: { signal?: AbortSignal } = {}) => request('GET', `/calendar/events/${encodeURIComponent(id)}/cancellation-delivery`, undefined, undefined, { signal }),
     retryCancellationDelivery: (id: string) => request('POST', `/calendar/events/${encodeURIComponent(id)}/cancellation-delivery/retry`),

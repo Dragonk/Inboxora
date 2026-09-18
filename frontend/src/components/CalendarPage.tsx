@@ -13,7 +13,7 @@ import type { CalendarViewEvent, CalendarEventForm } from './calendarView.ts';
 import { api, isAbortError } from '../utils/api.ts';
 import { useStore } from '../store/index.ts';
 import { useMobile } from '../hooks/useMobile.ts';
-import { calendarVisibleRange, centeredScrollLeft, createDayEventsResolver, eventPayload, layoutAllDayEvents, layoutTimedEvents, monthRange, shiftCalendarAnchor, toDateTimeLocal, toggleAllDayTimes, weekFocusIndex, weekRange, workHoursGeometry } from './calendarView.ts';
+import { calendarVisibleRange, centeredScrollLeft, createDayEventsResolver, eventPayload, layoutAllDayEvents, layoutTimedEvents, monthRange, recurrenceFormFromStored, shiftCalendarAnchor, toDateTimeLocal, toggleAllDayTimes, weekFocusIndex, weekRange, workHoursGeometry } from './calendarView.ts';
 import CalendarSidebar from './CalendarSidebar.tsx';
 import CalendarDeleteScopeDialog from './CalendarDeleteScopeDialog.tsx';
 import { createInvitationOperationController } from './calendarInvitationRetry.ts';
@@ -91,7 +91,7 @@ function resolveDateLocale(language: string): string {
   return DATE_LOCALE_OVERRIDES[language] || language.replace('_', '-');
 }
 
-const emptyForm = (calendarId = '', date = new Date(), inviteAccountId = '') => ({ calendarId, summary: '', description: '', location: '', url: '', organizer: '', attendees: [], sendInvites: false, inviteAccountId, allDay: false, startsAt: toDateTimeLocal(date), endsAt: toDateTimeLocal(new Date(date.getTime() + 3600000)) });
+const emptyForm = (calendarId = '', date = new Date(), inviteAccountId = '') => ({ calendarId, summary: '', description: '', location: '', url: '', organizer: '', attendees: [], sendInvites: false, inviteAccountId, allDay: false, startsAt: toDateTimeLocal(date), endsAt: toDateTimeLocal(new Date(date.getTime() + 3600000)), recurrence: { frequency: 'none' as const, interval: 1, byWeekday: [] as number[], end: 'never' as const, until: '', count: 1 } });
 function iso(date: Date) { return date.toISOString(); }
 function calendarDays(anchor: Date, weekStartsOn = 1) {
   const { start } = monthRange(anchor); const first = new Date(start); first.setDate(first.getDate() - ((first.getDay() - weekStartsOn + 7) % 7));
@@ -187,6 +187,12 @@ export default function CalendarPage({ isActive = true }) {
   // One operation controller for the page's lifetime; the lazy state initializer
   // builds it once and keeps it across renders (the same object the ref held before).
   const [invitation] = useState(createInvitationOperationController);
+  // Editing a recurring event asks which occurrence the change applies to. The list
+  // only carries occurrences, so the master fields (including its rule) are fetched
+  // when the dialog opens; both snapshots let a scope switch swap the form values
+  // without losing the user's editing.
+  const [seriesSnapshot, setSeriesSnapshot] = useState<Partial<CalendarEventFormState> | null>(null);
+  const [occurrenceSnapshot, setOccurrenceSnapshot] = useState<Partial<CalendarEventFormState> | null>(null);
   const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
   const range = useMemo(() => calendarVisibleRange(anchor, view, calendarWeekStartsOn), [anchor, calendarWeekStartsOn, view]);
   const rangeStart = iso(range.start); const rangeEnd = iso(range.end);
@@ -248,13 +254,50 @@ export default function CalendarPage({ isActive = true }) {
     // The sender chosen in Settings → Calendar is preselected. A default whose
     // account can no longer send is ignored rather than carried as a dead value.
     const defaultInviteAccountId = senderAccounts.some(account => account.id === calendarInviteAccountId) ? calendarInviteAccountId : '';
+    setSeriesSnapshot(null);
+    setOccurrenceSnapshot(null);
     setForm({ ...emptyForm(writable[0]?.id || '', date, defaultInviteAccountId), mode: 'create' });
   };
   const openEdit = (event: CalendarFormEvent) => {
     invitation.reset();
     const id = String(event.series_id || event.id);
+    const recurring = Boolean(event.recurring && event.recurrence_id);
     const outboxId = typeof event.cancellation_outbox_id === 'string' ? event.cancellation_outbox_id : null;
-    setForm({ mode: 'edit', ...event, id, recurrenceId: event.recurring ? event.recurrence_id : undefined, calendarId: event.calendar_id || '', summary: event.summary || '', description: event.description || '', location: event.location || '', url: event.url || '', organizer: event.organizer || '', attendees: Array.isArray(event.attendees) ? event.attendees : [], sendInvites: Boolean(event.invite_account_id && event.attendees?.length), inviteAccountId: event.invite_account_id || '', cancellationDelivery: outboxId ? { outboxId, status: null } : null, allDay: Boolean(event.all_day), startsAt: event.all_day ? String(event.starts_at).slice(0, 10) : toDateTimeLocal(event.starts_at), endsAt: event.all_day ? String(event.ends_at).slice(0, 10) : toDateTimeLocal(event.ends_at) });
+    const opened: CalendarEventFormState = { mode: 'edit', ...event, id, seriesId: event.series_id ? String(event.series_id) : undefined, editScope: recurring ? 'single' : undefined, recurrenceId: recurring ? event.recurrence_id : undefined, calendarId: event.calendar_id || '', summary: event.summary || '', description: event.description || '', location: event.location || '', url: event.url || '', organizer: event.organizer || '', attendees: Array.isArray(event.attendees) ? event.attendees : [], sendInvites: Boolean(event.invite_account_id && event.attendees?.length), inviteAccountId: event.invite_account_id || '', cancellationDelivery: outboxId ? { outboxId, status: null } : null, allDay: Boolean(event.all_day), startsAt: event.all_day ? String(event.starts_at).slice(0, 10) : toDateTimeLocal(event.starts_at), endsAt: event.all_day ? String(event.ends_at).slice(0, 10) : toDateTimeLocal(event.ends_at) };
+    setForm(opened);
+    setSeriesSnapshot(null);
+    setOccurrenceSnapshot(recurring ? editableSnapshot(opened) : null);
+    if (recurring && event.series_id) {
+      // The master carries the rule and the series' own start/end; the row we were
+      // clicked on is only one occurrence of it.
+      api.calendar.getEvent(String(event.series_id)).then(result => {
+        const master = result?.event;
+        if (!master || typeof master !== 'object') return;
+        const masterRecord = master as Record<string, unknown>;
+        const allDay = Boolean(masterRecord.all_day);
+        const stored = recurrenceFormFromStored(masterRecord.recurrence as Parameters<typeof recurrenceFormFromStored>[0], allDay);
+        const snapshot: Partial<CalendarEventFormState> = {
+          summary: String(masterRecord.summary ?? ''),
+          description: String(masterRecord.description ?? ''),
+          location: String(masterRecord.location ?? ''),
+          url: String(masterRecord.url ?? ''),
+          organizer: String(masterRecord.organizer ?? ''),
+          attendees: Array.isArray(masterRecord.attendees) ? masterRecord.attendees as string[] : [],
+          sendInvites: Boolean(masterRecord.invite_account_id && Array.isArray(masterRecord.attendees) && masterRecord.attendees.length),
+          inviteAccountId: String(masterRecord.invite_account_id ?? ''),
+          allDay,
+          startsAt: allDay ? String(masterRecord.starts_at ?? '').slice(0, 10) : toDateTimeLocal(masterRecord.starts_at),
+          endsAt: allDay ? String(masterRecord.ends_at ?? '').slice(0, 10) : toDateTimeLocal(masterRecord.ends_at),
+          ...stored,
+        };
+        setSeriesSnapshot(snapshot);
+        // A user who switched to "whole series" before the fetch resolved gets the
+        // master values now instead of keeping the occurrence's.
+        setForm(current => current?.id === id && current.editScope === 'series'
+          ? { ...current, ...snapshot, editScope: 'series', seriesId: String(event.series_id), id }
+          : current);
+      }).catch(() => {});
+    }
     if (outboxId) {
       api.calendar.getCancellationDelivery(id).then(result => {
         const operation = result?.operation;
@@ -265,6 +308,21 @@ export default function CalendarPage({ isActive = true }) {
           : current);
       }).catch(() => {});
     }
+  };
+  // The fields a scope switch restores; identity (id/calendar/recurrence) is kept.
+  const editableSnapshot = (source: Partial<CalendarEventFormState>) => ({
+    summary: source.summary ?? '', description: source.description ?? '', location: source.location ?? '',
+    url: source.url ?? '', organizer: source.organizer ?? '',
+    attendees: Array.isArray(source.attendees) ? source.attendees : [],
+    sendInvites: Boolean(source.sendInvites), inviteAccountId: source.inviteAccountId ?? '',
+    allDay: Boolean(source.allDay), startsAt: source.startsAt ?? '', endsAt: source.endsAt ?? '',
+  });
+  const changeEditScope = (scope: 'single' | 'series') => {
+    if (!form) return;
+    const snapshot = scope === 'series' ? seriesSnapshot : occurrenceSnapshot;
+    if (!snapshot) return;
+    invitation.reset();
+    setForm(current => current ? { ...current, ...snapshot, editScope: scope } : current);
   };
   const save = async () => {
     if (!form) return;
@@ -454,7 +512,7 @@ export default function CalendarPage({ isActive = true }) {
     {isMobile && mobilePanelOpen && <Dialog title={t('calendar.panel')} closeLabel={t('calendar.close')} onClose={() => setMobilePanelOpen(false)} testId="calendar-mobile-dock" className="calendar-panel-dialog ui-sheet">
       <CalendarSidebar {...sidebarProps} onSelectDate={day => { setAnchor(day); setMobilePanelOpen(false); }} />
     </Dialog>}
-    {form && <EventDialog form={form} error={error} calendars={writable} accounts={senderAccounts} saving={saving} fullScreen={isMobile} onChange={changeForm} onAllDayChange={allDay => { invitation.reset(); setForm(current => current && { ...toggleAllDayTimes(current, allDay), mode: current.mode, calendarId: current.calendarId, attendees: current.attendees }); }} onSave={save} onRetryCancellation={retryCancellation} onDelete={remove} onClose={() => { invitation.reset(); setForm(null); setError(null); }} t={t} />}
+    {form && <EventDialog form={form} error={error} calendars={writable} accounts={senderAccounts} saving={saving} fullScreen={isMobile} seriesReady={seriesSnapshot !== null} onChange={changeForm} onEditScopeChange={changeEditScope} onAllDayChange={allDay => { invitation.reset(); setForm(current => current && { ...toggleAllDayTimes(current, allDay), mode: current.mode, calendarId: current.calendarId, attendees: current.attendees }); }} onSave={save} onRetryCancellation={retryCancellation} onDelete={remove} onClose={() => { invitation.reset(); setForm(null); setError(null); }} t={t} />}
     {preview && <Dialog
       title={localizeContactEvent(preview, t).summary || t('calendar.untitled')}
       closeLabel={t('calendar.close')}
@@ -512,6 +570,9 @@ interface EventDialogProps {
   accounts: Array<{ id: string; email_address?: string | null; name?: string | null; [key: string]: unknown }>;
   saving: boolean;
   onChange: (field: string, value: unknown) => void;
+  onEditScopeChange: (scope: 'single' | 'series') => void;
+  /** The series master (including its rule) has been fetched for this edit. */
+  seriesReady: boolean;
   onAllDayChange: (allDay: boolean) => void;
   onSave: () => void;
   onRetryCancellation: () => void;
@@ -622,8 +683,16 @@ function TimeGrid({ days, dayEventsFor, view, isMobile, locale, openCreate, open
   </div>;
 }
 
-function EventDialog({ form, error, calendars, accounts, saving, onChange, onAllDayChange, onSave, onRetryCancellation, onDelete, onClose, t, fullScreen = false }: EventDialogProps) {
+function EventDialog({ form, error, calendars, accounts, saving, seriesReady, onChange, onEditScopeChange, onAllDayChange, onSave, onRetryCancellation, onDelete, onClose, t, fullScreen = false }: EventDialogProps) {
+  const { i18n } = useTranslation();
   const attendeeValue = form.attendees.join(', ');
+  // A new event may be recurring, and a series edit must be able to change the
+  // rule. Editing one occurrence never touches the series rule.
+  const recurrenceMode = form.mode === 'create' || form.editScope === 'series';
+  const recurrence = form.recurrence ?? { frequency: 'none' as const, interval: 1, byWeekday: [] as number[], end: 'never' as const, until: '', count: 1 };
+  const setRecurrence = (patch: Partial<typeof recurrence>) => onChange('recurrence', { ...recurrence, ...patch });
+  const weekdayOrder = [1, 2, 3, 4, 5, 6, 0];
+  const weekdayFormatter = new Intl.DateTimeFormat(i18n.language, { weekday: 'short' });
   return <Dialog title={form.mode === 'edit' ? t('calendar.editEvent') : t('calendar.newEvent')} closeLabel={t('calendar.close')} onClose={onClose} busy={saving} testId="calendar-event-dialog" className={fullScreen ? 'calendar-event-dialog-full ui-fullscreen' : ''} footer={<>
     <div>{form.mode === 'edit' && <Button variant="danger" disabled={saving} onClick={onDelete}>{t('calendar.delete')}</Button>}</div>
     <div style={{ display: 'flex', gap: 8 }}>
@@ -634,12 +703,65 @@ function EventDialog({ form, error, calendars, accounts, saving, onChange, onAll
     <div className="ui-form">
       {error && <div role="alert" className="ui-alert">{error}</div>}
       {form.cancellationDelivery?.status && <div role="status" className="ui-alert">{form.cancellationDelivery.status === 'sent' ? 'Invitation cancellation was sent.' : `Invitation cancellation status: ${form.cancellationDelivery.status}${form.cancellationDelivery.lastError ? ` (${form.cancellationDelivery.lastError})` : ''}`}</div>}
-      {form.recurrenceId && <p>{t('calendar.editOccurrence')}</p>}
+      {form.mode === 'edit' && form.seriesId && (
+        <div className="calendar-edit-scope" data-testid="calendar-edit-scope">
+          <span className="calendar-edit-scope-label">{t('calendar.recurrenceScope')}</span>
+          <div role="radiogroup" aria-label={t('calendar.recurrenceScope')} className="calendar-edit-scope-options">
+            <button type="button" role="radio" aria-checked={form.editScope !== 'series'} disabled={!form.editScope} onClick={() => onEditScopeChange('single')}>{t('calendar.deleteScopeSingle')}</button>
+            <button type="button" role="radio" aria-checked={form.editScope === 'series'} disabled={!seriesReady} onClick={() => onEditScopeChange('series')}>{t('calendar.deleteScopeAll')}</button>
+          </div>
+          {form.editScope !== 'series' && <p className="calendar-edit-scope-hint">{t('calendar.editOccurrence')}</p>}
+        </div>
+      )}
       <label>{t('calendar.titleField')}<input autoFocus value={form.summary} onChange={e => onChange('summary', e.target.value)} /></label>
       <label className="ui-check"><input type="checkbox" checked={form.allDay} onChange={e => onAllDayChange(e.target.checked)} />{t('calendar.allDay')}</label>
       <div className="ui-form-columns"><label>{t('calendar.starts')}<input type={form.allDay ? 'date' : 'datetime-local'} value={form.startsAt} onChange={e => onChange('startsAt', e.target.value)} /></label><label>{t('calendar.ends')}<input type={form.allDay ? 'date' : 'datetime-local'} value={form.endsAt} onChange={e => onChange('endsAt', e.target.value)} /></label></div>
       <label>{t('calendar.calendar')}<select value={form.calendarId} onChange={e => onChange('calendarId', e.target.value)}>{calendars.map(calendar => <option key={calendar.id} value={calendar.id}>{calendar.name}</option>)}</select></label>
       <label>{t('calendar.location')}<input value={form.location} onChange={e => onChange('location', e.target.value)} /></label>
+      {recurrenceMode && (
+        <div className="calendar-recurrence" data-testid="calendar-recurrence">
+          <label>{t('calendar.recurrence')}
+            <select value={recurrence.frequency} onChange={e => setRecurrence({ frequency: e.target.value as typeof recurrence.frequency })} disabled={form.recurrencePreserve}>
+              <option value="none">{t('calendar.recurrenceNone')}</option>
+              <option value="daily">{t('calendar.recurrenceDaily')}</option>
+              <option value="weekly">{t('calendar.recurrenceWeekly')}</option>
+              <option value="monthly">{t('calendar.recurrenceMonthly')}</option>
+              <option value="yearly">{t('calendar.recurrenceYearly')}</option>
+            </select>
+          </label>
+          {form.recurrencePreserve && (
+            <div role="status" className="ui-alert calendar-recurrence-custom" data-testid="calendar-recurrence-custom">
+              <span>{t('calendar.recurrenceCustomHint', { rule: form.recurrenceRaw || '' })}</span>
+              <Button onClick={() => onChange('recurrencePreserve', false)}>{t('calendar.recurrenceReplace')}</Button>
+            </div>
+          )}
+          {recurrence.frequency !== 'none' && (
+            <div className="calendar-recurrence-options" aria-disabled={form.recurrencePreserve || undefined}>
+              <div className="ui-form-columns">
+                <label>{t('calendar.recurrenceIntervalLabel')}<input type="number" min={1} max={999} value={recurrence.interval ?? 1} disabled={form.recurrencePreserve} onChange={e => setRecurrence({ interval: Number(e.target.value) })} /></label>
+                <label>{t('calendar.recurrenceEndsLabel')}<select value={recurrence.end ?? 'never'} disabled={form.recurrencePreserve} onChange={e => setRecurrence({ end: e.target.value as typeof recurrence.end })}>
+                  <option value="never">{t('calendar.recurrenceEndNever')}</option>
+                  <option value="until">{t('calendar.recurrenceEndUntil')}</option>
+                  <option value="count">{t('calendar.recurrenceEndCount')}</option>
+                </select></label>
+              </div>
+              {recurrence.end === 'until' && <label>{t('calendar.recurrenceEndsLabel')}<input type={form.allDay ? 'date' : 'datetime-local'} value={recurrence.until || ''} disabled={form.recurrencePreserve} onChange={e => setRecurrence({ until: e.target.value })} /></label>}
+              {recurrence.end === 'count' && <label>{t('calendar.recurrenceCountLabel')}<input type="number" min={1} max={1000} value={recurrence.count ?? 1} disabled={form.recurrencePreserve} onChange={e => setRecurrence({ count: Number(e.target.value) })} /></label>}
+              {recurrence.frequency === 'weekly' && (
+                <div className="calendar-recurrence-weekdays" role="group" aria-label={t('calendar.recurrenceWeekdays')}>
+                  <span>{t('calendar.recurrenceWeekdays')}</span>
+                  <div className="calendar-recurrence-weekday-options">
+                    {weekdayOrder.map(day => {
+                      const active = (recurrence.byWeekday ?? []).includes(day);
+                      return <button key={day} type="button" aria-pressed={active} disabled={form.recurrencePreserve} onClick={() => setRecurrence({ byWeekday: active ? (recurrence.byWeekday ?? []).filter(value => value !== day) : [...(recurrence.byWeekday ?? []), day].sort((left, right) => left - right) })}>{weekdayFormatter.format(new Date(Date.UTC(2024, 0, 7 + day)))}</button>;
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
       <div className="calendar-description"><span className="calendar-description-label">{t('calendar.description')}</span><RichTextEditor value={form.description} onChange={(html: string) => onChange('description', html)} placeholder={t('calendar.descriptionPlaceholder')} label={t('calendar.description')} testId="calendar-event-description" /></div>
       <div className="calendar-invites ui-form"><label className="ui-check"><input type="checkbox" checked={form.sendInvites} onChange={e => onChange('sendInvites', e.target.checked)} />{t('calendar.sendInvites')}</label>
         {form.sendInvites && <><label>{t('calendar.attendees')}<input value={attendeeValue} onChange={e => onChange('attendees', e.target.value.split(',').map(email => email.trim()).filter(Boolean))} placeholder={t('calendar.attendeesPlaceholder')} /></label>

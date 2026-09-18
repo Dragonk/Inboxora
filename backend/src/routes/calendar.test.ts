@@ -1444,3 +1444,121 @@ it('updates one occurrence without replacing the base-event range or description
   expect(updatedRaw).toContain('RECURRENCE-ID;TZID=Central European Standard Time:20260917T090000');
   expect(queryCall(2)[0]).not.toContain('starts_at =');
 });
+
+describe('recurring event creation and series editing', () => {
+  const baseEvent = (extra = '') => ['BEGIN:VCALENDAR', 'VERSION:2.0', 'BEGIN:VEVENT', 'UID:uid-1',
+    'DTSTART:20260901T090000Z', 'DTEND:20260901T100000Z', 'SUMMARY:Old', extra,
+    'END:VEVENT', 'END:VCALENDAR'].filter(Boolean).join('\r\n');
+  const exception = ['BEGIN:VEVENT', 'UID:uid-1', 'RECURRENCE-ID:20260903T090000Z',
+    'DTSTART:20260903T110000Z', 'DTEND:20260903T120000Z', 'SUMMARY:Moved', 'END:VEVENT'].join('\r\n');
+  const timeFields = { startsAt: '2026-09-01T09:00:00.000Z', endsAt: '2026-09-01T10:00:00.000Z' };
+  const create = (recurrence: unknown) => fetch(`${base}/api/calendar/events`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ calendarId: 'calendar-1', summary: 'Standup', ...timeFields, recurrence }),
+  });
+  const patchSeries = (calendarId: string, body: Record<string, unknown>) => fetch(`${base}/api/calendar/events/event-1`, {
+    method: 'PATCH', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ calendarId, ...timeFields, attendees: [], ...body }),
+  });
+  const storedSeriesEvent = (raw: string) => ({
+    uid: 'uid-1', raw_ical: raw, attendees: [], invite_account_id: null, invitation_sequence: 0,
+    summary: 'Old', description: null, location: null, all_day: false,
+    starts_at: timeFields.startsAt, ends_at: timeFields.endsAt,
+  });
+  const updatedRaw = (): string => {
+    const raw = queryCallContaining('UPDATE calendar_events SET raw_ical')[1][0];
+    if (typeof raw !== 'string') throw new Error('Updated calendar resource is not a string');
+    return raw;
+  };
+
+  it('creates a recurring event by rendering the rule into the stored resource', async () => {
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'event-1', calendar_id: 'calendar-1', uid: 'uid-1', summary: 'Standup' }] });
+
+    const response = await create({ frequency: 'weekly', interval: 2, byWeekday: [1, 3] });
+    expect(response.status).toBe(201);
+    expect(queryStringParameter(1, 3)).toContain('RRULE:FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,WE');
+  });
+
+  it('renders an all-day rule with a date-valued UNTIL', async () => {
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'event-1' }] });
+
+    const response = await fetch(`${base}/api/calendar/events`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        calendarId: 'calendar-1', summary: 'All day', allDay: true,
+        startsAt: '2026-09-01T00:00:00.000Z', endsAt: '2026-09-02T00:00:00.000Z',
+        recurrence: { frequency: 'daily', until: '2026-12-31' },
+      }),
+    });
+    expect(response.status).toBe(201);
+    expect(queryStringParameter(1, 3)).toContain('RRULE:FREQ=DAILY;UNTIL=20261231');
+  });
+
+  it('rejects an invalid recurrence before writing anything', async () => {
+    query.mockResolvedValue({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] });
+
+    const response = await create({ frequency: 'hourly' });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: 'recurrence.frequency must be none, daily, weekly, monthly or yearly' });
+    expect(query.mock.calls.some(([statement]) => String(statement).includes('INSERT INTO calendar_events'))).toBe(false);
+  });
+
+  it('updates the whole series rule while keeping the editor-owned fields', async () => {
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })
+      .mockResolvedValueOnce({ rows: [storedSeriesEvent(baseEvent('RRULE:FREQ=DAILY;COUNT=5\r\n'))] })
+      .mockResolvedValueOnce({ rows: [{ id: 'event-1', calendar_id: 'calendar-1', uid: 'uid-1', summary: 'Renamed' }] });
+
+    const response = await patchSeries('calendar-1', { summary: 'Renamed', recurrence: { frequency: 'weekly', byWeekday: [2] } });
+    expect(response.status).toBe(200);
+    const raw = updatedRaw();
+    expect(raw).toContain('RRULE:FREQ=WEEKLY;BYDAY=TU');
+    expect(raw).not.toContain('FREQ=DAILY');
+    expect(raw).toContain('SUMMARY:Renamed');
+  });
+
+  it('clears the rule and the orphaned overrides when the series becomes a single event', async () => {
+    const withException = baseEvent('RRULE:FREQ=DAILY;COUNT=5\r\n').replace('END:VCALENDAR', `${exception}\r\nEND:VCALENDAR`);
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })
+      .mockResolvedValueOnce({ rows: [storedSeriesEvent(withException)] })
+      .mockResolvedValueOnce({ rows: [{ id: 'event-1' }] });
+
+    const response = await patchSeries('calendar-1', { recurrence: null });
+    expect(response.status).toBe(200);
+    const raw = updatedRaw();
+    expect(raw).not.toContain('RRULE');
+    expect(raw).not.toContain('RECURRENCE-ID');
+  });
+
+  it('keeps the stored rule when a series edit does not mention recurrence', async () => {
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })
+      .mockResolvedValueOnce({ rows: [storedSeriesEvent(baseEvent('RRULE:FREQ=DAILY;COUNT=5\r\n'))] })
+      .mockResolvedValueOnce({ rows: [{ id: 'event-1' }] });
+
+    const response = await patchSeries('calendar-1', { summary: 'Renamed only' });
+    expect(response.status).toBe(200);
+    expect(updatedRaw()).toContain('RRULE:FREQ=DAILY;COUNT=5');
+  });
+
+  it('returns the parsed rule from the single-event read the series editor opens', async () => {
+    query.mockResolvedValueOnce({ rows: [{ id: 'event-1', calendar_id: 'calendar-1', uid: 'uid-1', summary: 'Standup', attendees: [], recurring: true, raw_ical: baseEvent('RRULE:FREQ=WEEKLY;BYDAY=MO') }] });
+
+    const response = await fetch(`${base}/api/calendar/events/event-1`);
+    expect(response.status).toBe(200);
+    const event = responseObject(await response.json(), 'event');
+    expect(event.recurrence).toMatchObject({ frequency: 'weekly', byWeekday: [1], interval: 1, custom: false });
+    // The raw iCalendar body is never part of the response.
+    expect(event.raw_ical).toBeUndefined();
+  });
+
+  it('404s the series read for an event the user does not own', async () => {
+    query.mockResolvedValueOnce({ rows: [] });
+    expect((await fetch(`${base}/api/calendar/events/someone-elses`)).status).toBe(404);
+  });
+});

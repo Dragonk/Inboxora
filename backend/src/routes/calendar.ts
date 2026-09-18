@@ -1,4 +1,5 @@
-import { mergeCalendarResource, truncateSeriesBefore } from '../utils/calendarRecurrence.js';
+import { mergeCalendarResource, rruleFromCalendarResource, setSeriesRecurrence, truncateSeriesBefore } from '../utils/calendarRecurrence.js';
+import { parseRecurrenceInput, recurrenceViewFromRRule } from '../utils/calendarRecurrenceRule.js';
 import type { AttachmentRef, EmailAccountRow } from '../services/imapManager.js';
 import ICAL from 'ical.js';
 import { parseInboundCalendarInvitation } from '../services/inboundCalendarInvitation.js';
@@ -151,6 +152,8 @@ type LocalEventIcalInput = {
   startsAt: Date;
   endsAt: Date;
   allDay: boolean;
+  /** Server-rendered RRULE; never an unvalidated client string. */
+  rrule?: string | null;
 };
 
 /** The values an invitation request carries, shared by the create and update paths. */
@@ -166,6 +169,8 @@ type InvitationFields = {
   organizer?: string | null;
   allDay?: boolean | null;
   timezone?: string | null;
+  /** Present only when the request asked to change the series rule; null clears it. */
+  rrule?: string | null;
 };
 
 /** The outbox delivery result an invitation response reports. */
@@ -180,7 +185,7 @@ type InvitationMessageRow = {
   raw_ical?: string | null;
 };
 
-function localEventIcal({ uid, summary, description, location, url, organizer, attendees = [], startsAt, endsAt, allDay }: LocalEventIcalInput) {
+function localEventIcal({ uid, summary, description, location, url, organizer, attendees = [], startsAt, endsAt, allDay, rrule = null }: LocalEventIcalInput) {
   const dateParameter = allDay ? ';VALUE=DATE' : '';
   const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Inboxora//DAV Hub//EN', 'BEGIN:VEVENT', `UID:${uid}`, `DTSTAMP:${formatICalendarDate(new Date(), false)}`, `DTSTART${dateParameter}:${formatICalendarDate(startsAt, allDay)}`, `DTEND${dateParameter}:${formatICalendarDate(endsAt, allDay)}`];
   if (summary) lines.push(`SUMMARY:${escapeICalendarText(summary)}`);
@@ -189,6 +194,9 @@ function localEventIcal({ uid, summary, description, location, url, organizer, a
   if (url) lines.push(`URL:${String(url).replace(/[\r\n]/g, '')}`);
   if (organizer) lines.push(`ORGANIZER:mailto:${escapeICalendarText(organizer.replace(/^mailto:/i, ''))}`);
   for (const email of attendees) lines.push(`ATTENDEE:mailto:${email}`);
+  // The rule is built server-side from a validated structured input, so it never
+  // carries client text; the CR/LF strip is a defensive last line.
+  if (rrule) lines.push(`RRULE:${String(rrule).replace(/[\r\n]/g, '')}`);
   lines.push('END:VEVENT', 'END:VCALENDAR', '');
   return lines.map(foldICalendarLine).join('\r\n');
 }
@@ -223,11 +231,14 @@ function invitationOperationKey(req: Request): string {
 }
 
 function invitationRequestFingerprint(req: Request, fields: InvitationFields) {
-  const { calendarId, normalizedAttendees, times, summary, description, location, url, organizer, allDay, timezone, invitationAccount } = fields;
+  const { calendarId, normalizedAttendees, times, summary, description, location, url, organizer, allDay, timezone, invitationAccount, rrule } = fields;
   return crypto.createHash('sha256').update(JSON.stringify({
     eventId: req.params.eventId || null, calendarId, summary: summary || null, description, location, url, organizer,
     allDay: Boolean(allDay), timezone, attendees: normalizedAttendees, inviteAccountId: invitationAccount?.id || null,
     startsAt: times.startsAt.toISOString(), endsAt: times.endsAt.toISOString(),
+    // `undefined` means "keep the stored rule" and `null` means "clear it"; the
+    // two must not share an idempotency fingerprint.
+    rrule: rrule === undefined ? '<keep>' : rrule,
   })).digest('hex');
 }
 
@@ -242,7 +253,7 @@ function invitationDeliveryResponse(event: unknown, delivery: InvitationDelivery
 }
 
 async function updateInvitedEvent(req: Request, fields: InvitationFields) {
-  const { calendarId, invitationAccount, normalizedAttendees, times, summary, description, location, url, organizer, allDay, timezone } = fields;
+  const { calendarId, invitationAccount, normalizedAttendees, times, summary, description, location, url, organizer, allDay, timezone, rrule } = fields;
   const key = invitationOperationKey(req);
   const fingerprint = invitationRequestFingerprint(req, fields);
   return withTransaction(async client => {
@@ -270,12 +281,15 @@ async function updateInvitedEvent(req: Request, fields: InvitationFields) {
         : (await client.query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2 AND smtp_host IS NOT NULL', [existing.invite_account_id, req.session.userId])).rows[0] || null;
       if (!cancellationAccount) return { cancelFailed: true };
     }
-    const rawIcal = mergeCalendarResource(existing.raw_ical, localEventIcal({ uid: existing.uid, summary, description, location, url, organizer, attendees: normalizedAttendees, allDay: Boolean(allDay), ...times }));
+    const mergedIcal = mergeCalendarResource(existing.raw_ical, localEventIcal({ uid: existing.uid, summary, description, location, url, organizer, attendees: normalizedAttendees, allDay: Boolean(allDay), ...times }));
+    // `mergeCalendarResource` deliberately leaves RRULE alone (the DAV resource may
+    // carry exceptions); a series-level edit applies the validated rule explicitly.
+    const rawIcal = rrule === undefined ? mergedIcal : (setSeriesRecurrence(mergedIcal, rrule) ?? mergedIcal);
     const result = await client.query(`UPDATE calendar_events SET raw_ical = $1, summary = $2, description = $3, location = $4, url = $5, organizer = $6, starts_at = $7, ends_at = $8, all_day = $9, timezone = $10, attendees = $11, invite_account_id = $12, invitation_sequence = CASE WHEN (invite_account_id IS NOT NULL AND ${ATTENDEES_IS_ARRAY} AND jsonb_array_length(attendees) > 0) OR invitation_sequence > 0 THEN invitation_sequence + 1 ELSE 0 END, etag = gen_random_uuid()::text, updated_at = NOW() WHERE id = $13 AND calendar_id = $14 AND user_id = $15 RETURNING id, calendar_id, uid, etag, summary, description, location, url, organizer, starts_at, ends_at, all_day, timezone, attendees, invite_account_id, invitation_sequence, created_at, updated_at`, [rawIcal, summary || null, description, location, url, organizer, times.startsAt, times.endsAt, Boolean(allDay), timezone, jsonbAttendees(normalizedAttendees), invitationAccount.id, req.params.eventId, calendarId, req.session.userId]);
     const event = result.rows[0];
     const actions = [];
     if (cancelledAttendees.length) actions.push({ account: cancellationAccount, attendees: cancelledAttendees, summary: existing.summary, description: existing.description, location: existing.location, uid: existing.uid, allDay: Boolean(existing.all_day), method: 'CANCEL', sequence: Number(existing.invitation_sequence || 0) + 1, startsAt: new Date(existing.starts_at).toISOString(), endsAt: new Date(existing.ends_at).toISOString() });
-    actions.push({ account: invitationAccount, attendees: normalizedAttendees, summary, description, location, uid: event.uid, allDay: Boolean(allDay), method: 'REQUEST', sequence: event.invitation_sequence, startsAt: times.startsAt.toISOString(), endsAt: times.endsAt.toISOString() });
+    actions.push({ account: invitationAccount, attendees: normalizedAttendees, summary, description, location, uid: event.uid, allDay: Boolean(allDay), method: 'REQUEST', sequence: event.invitation_sequence, startsAt: times.startsAt.toISOString(), endsAt: times.endsAt.toISOString(), rrule });
     const outbox = await client.query('INSERT INTO calendar_invitation_outbox (user_id, event_id, idempotency_key, request_fingerprint, payload) VALUES ($1,$2,$3,$4,$5::jsonb) RETURNING id', [req.session.userId, event.id, key, fingerprint, JSON.stringify({ actions: invitationActionsForStorage(actions) })]);
     return { event, outboxId: outbox.rows[0].id, actions };
   });
@@ -643,6 +657,11 @@ router.post('/events', async (req, res) => {
   if (sendInvites && (!inviteAccountId || !normalizedAttendees.length)) {
     return res.status(400).json({ error: 'A sender account and at least one attendee are required for invitations' });
   }
+  // The rule is rendered server-side from a validated structure; a bad rule is a
+  // validation error, never a half-created series.
+  const recurrenceParse = parseRecurrenceInput((req.body || {}).recurrence, { allDay: Boolean(allDay) });
+  if (!recurrenceParse.ok) return res.status(400).json({ error: recurrenceParse.error });
+  const rrule = recurrenceParse.rrule;
 
   const access = await writableCalendar(sessionUserId(req), calendarId);
   if (access.error) return res.status(access.status).json({ error: access.error });
@@ -671,7 +690,7 @@ router.post('/events', async (req, res) => {
         return { event, duplicate: true, outboxId: prior.rows[0].id, payload: prior.rows[0].payload };
       }
       const uid = crypto.randomUUID();
-      const rawIcal = localEventIcal({ uid, summary, description, location, url, organizer, attendees: normalizedAttendees, allDay: Boolean(allDay), ...times });
+      const rawIcal = localEventIcal({ uid, summary, description, location, url, organizer, attendees: normalizedAttendees, allDay: Boolean(allDay), ...times, rrule });
       const result = await client.query(
         `INSERT INTO calendar_events (calendar_id, user_id, uid, raw_ical, summary, description, location, url, organizer, starts_at, ends_at, all_day, timezone, attendees, invite_account_id)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
@@ -681,7 +700,7 @@ router.post('/events', async (req, res) => {
       const event = result.rows[0];
       const outbox = await client.query(
         `INSERT INTO calendar_invitation_outbox (user_id, event_id, idempotency_key, request_fingerprint, payload) VALUES ($1,$2,$3,$4,$5::jsonb) RETURNING id`,
-        [req.session.userId, event.id, idempotencyKey, fingerprint, JSON.stringify({ actions: invitationActionsForStorage([{ account: invitationAccount, attendees: normalizedAttendees, summary, description, location, uid, allDay: Boolean(allDay), method: 'REQUEST', sequence: event.invitation_sequence ?? 0, startsAt: times.startsAt.toISOString(), endsAt: times.endsAt.toISOString() }]) })],
+        [req.session.userId, event.id, idempotencyKey, fingerprint, JSON.stringify({ actions: invitationActionsForStorage([{ account: invitationAccount, attendees: normalizedAttendees, summary, description, location, uid, allDay: Boolean(allDay), method: 'REQUEST', sequence: event.invitation_sequence ?? 0, startsAt: times.startsAt.toISOString(), endsAt: times.endsAt.toISOString(), rrule }]) })],
       );
         return { event, outboxId: outbox.rows[0].id };
       });
@@ -703,7 +722,7 @@ router.post('/events', async (req, res) => {
   }
 
   const uid = crypto.randomUUID();
-  const rawIcal = localEventIcal({ uid, summary, description, location, url, organizer, attendees: normalizedAttendees, allDay: Boolean(allDay), ...times });
+  const rawIcal = localEventIcal({ uid, summary, description, location, url, organizer, attendees: normalizedAttendees, allDay: Boolean(allDay), ...times, rrule });
   const result = await query<{ id: string; calendar_id: string; uid: string; etag?: string | null; summary?: string | null; description?: string | null; location?: string | null; url?: string | null; organizer?: string | null; starts_at?: string | Date | null; ends_at?: string | Date | null; all_day?: boolean | null; timezone?: string | null; attendees?: unknown; invite_account_id?: string | null; invitation_sequence?: number | null; created_at?: string | Date | null }>(
     `INSERT INTO calendar_events (
        calendar_id, user_id, uid, raw_ical, summary, description, location, url, organizer,
@@ -716,7 +735,7 @@ router.post('/events', async (req, res) => {
   let invitationError = null;
   if (invitationAccount) {
     try {
-      await sendCalendarInvitation({ account: invitationAccount, attendees: normalizedAttendees, summary, description, location, uid, allDay: Boolean(allDay), method: 'REQUEST', sequence: result.rows[0].invitation_sequence ?? 0, ...times });
+      await sendCalendarInvitation({ account: invitationAccount, attendees: normalizedAttendees, summary, description, location, uid, allDay: Boolean(allDay), method: 'REQUEST', sequence: result.rows[0].invitation_sequence ?? 0, ...times, rrule });
     } catch (caught) {
       const error = toAppError(caught);
       invitationError = 'The event was saved, but the invitation could not be sent.';
@@ -801,6 +820,30 @@ router.post('/events/:eventId/cancellation-delivery/retry', async (req, res) => 
   return res.json({ operation: { kind: 'cancellation', outboxId: event.cancellation_outbox_id }, invitationStatus: delivery });
 });
 
+// One event's full stored representation, used by the editor to open the whole
+// series (the list only carries materialised occurrences, not the master rule).
+router.get('/events/:eventId', async (req, res) => {
+  const result = await query<{
+    id: string; calendar_id: string; uid: string; summary?: string | null; description?: string | null;
+    location?: string | null; url?: string | null; organizer?: string | null; starts_at?: string | Date | null;
+    ends_at?: string | Date | null; all_day?: boolean | null; timezone?: string | null; attendees?: unknown;
+    invite_account_id?: string | null; recurring?: boolean | null; raw_ical?: string | null;
+    read_only?: boolean | null; source?: string | null;
+  }>(
+    `SELECT e.id, e.calendar_id, e.uid, e.summary, e.description, e.location, e.url, e.organizer,
+            e.starts_at, e.ends_at, e.all_day, e.timezone, ${READ_ATTENDEES}, e.invite_account_id,
+            e.recurring, e.raw_ical, c.read_only, c.source
+       FROM calendar_events e
+       JOIN calendars c ON c.id = e.calendar_id
+      WHERE e.id = $1 AND e.user_id = $2 AND c.user_id = $2 AND c.owner_user_id = $2`,
+    [req.params.eventId, req.session.userId],
+  );
+  const event = result.rows[0];
+  if (!event) return res.status(404).json({ error: 'Event not found' });
+  const { raw_ical: _raw, ...safe } = event;
+  res.json({ event: { ...safe, recurrence: recurrenceViewFromRRule(rruleFromCalendarResource(event.raw_ical)) } });
+});
+
 router.patch('/events/:eventId', async (req, res) => {
   const { calendarId, summary, description: rawDescription = null, location = null, url = null, organizer = null, allDay = false, timezone = null, sendInvites = false, inviteAccountId, attendees } = req.body || {};
   const description = normalizeDescription(rawDescription);
@@ -809,6 +852,13 @@ router.patch('/events/:eventId', async (req, res) => {
   const normalizedAttendees = normalizeAttendees(attendees || []);
   if (!normalizedAttendees) return res.status(400).json({ error: 'Attendees must be valid email addresses' });
   if (sendInvites && (!inviteAccountId || !normalizedAttendees.length)) return res.status(400).json({ error: 'A sender account and at least one attendee are required for invitations' });
+  // A series-level edit carries `recurrence`; an occurrence edit never does. An
+  // absent field keeps the stored rule, an explicit null clears it.
+  const recurrenceProvided = Object.prototype.hasOwnProperty.call(req.body || {}, 'recurrence');
+  const recurrenceParse = parseRecurrenceInput((req.body || {}).recurrence, { allDay: Boolean(allDay) });
+  if (!recurrenceParse.ok) return res.status(400).json({ error: recurrenceParse.error });
+  const rrule = recurrenceParse.rrule;
+  const seriesRecurrence = recurrenceProvided ? { rrule } : undefined;
 
   const access = await writableCalendar(sessionUserId(req), calendarId);
   if (access.error) return res.status(access.status).json({ error: access.error });
@@ -824,7 +874,7 @@ router.patch('/events/:eventId', async (req, res) => {
   if (sendInvites && invitationAccount) {
     let outcome;
     try {
-      outcome = await updateInvitedEvent(req, { calendarId, invitationAccount, normalizedAttendees, times, summary, description, location, url, organizer, allDay, timezone });
+      outcome = await updateInvitedEvent(req, { calendarId, invitationAccount, normalizedAttendees, times, summary, description, location, url, organizer, allDay, timezone, rrule: seriesRecurrence ? rrule : undefined });
     } catch (caught) {
       const error = toAppError(caught);
       console.error('Calendar invitation transaction failed:', error.message, error.code ? `(code ${error.code})` : '');
@@ -863,7 +913,10 @@ router.patch('/events/:eventId', async (req, res) => {
       ? { account: cancellationAccount, attendees: cancelledAttendees, summary: existingEvent.summary, description: existingEvent.description, location: existingEvent.location, uid: existingEvent.uid, allDay: Boolean(existingEvent.all_day), method: 'CANCEL', sequence: Number(existingEvent.invitation_sequence || 0) + 1, startsAt: new Date(existingEvent.starts_at).toISOString(), endsAt: new Date(existingEvent.ends_at).toISOString() }
       : null;
 
-    const rawIcal = mergeCalendarResource(existingEvent.raw_ical, localEventIcal({ uid: existingEvent.uid, summary, description, location, url, organizer, attendees: normalizedAttendees, allDay: Boolean(allDay), ...times }));
+    const mergedIcal = mergeCalendarResource(existingEvent.raw_ical, localEventIcal({ uid: existingEvent.uid, summary, description, location, url, organizer, attendees: normalizedAttendees, allDay: Boolean(allDay), ...times }));
+    // A series-level edit applies the validated rule; an occurrence edit or a plain
+    // single-event edit leaves the stored rule (there is none) untouched.
+    const rawIcal = seriesRecurrence ? (setSeriesRecurrence(mergedIcal, rrule) ?? mergedIcal) : mergedIcal;
     const result = await client.query(`UPDATE calendar_events SET raw_ical = $1, summary = $2, description = $3, location = $4, url = $5, organizer = $6, starts_at = $7, ends_at = $8, all_day = $9, timezone = $10, attendees = $11, invite_account_id = $12, invitation_sequence = CASE WHEN (invite_account_id IS NOT NULL AND ${ATTENDEES_IS_ARRAY} AND jsonb_array_length(attendees) > 0) OR invitation_sequence > 0 THEN invitation_sequence + 1 ELSE 0 END, etag = gen_random_uuid()::text, updated_at = NOW() WHERE id = $13 AND calendar_id = $14 AND user_id = $15 RETURNING id, calendar_id, uid, etag, summary, description, location, url, organizer, starts_at, ends_at, all_day, timezone, attendees, invite_account_id, invitation_sequence, created_at, updated_at`, [rawIcal, summary || null, description, location, url, organizer, times.startsAt, times.endsAt, Boolean(allDay), timezone, jsonbAttendees(normalizedAttendees), invitationAccount?.id || null, req.params.eventId, calendarId, req.session.userId]);
     if (!result.rows[0]) return { notFound: true };
 

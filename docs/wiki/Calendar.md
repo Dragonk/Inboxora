@@ -63,9 +63,17 @@ edited and deleted, and are published to DAV clients through CalDAV.
 - If you navigate **outside** the materialised range (more than eighteen months ahead, or further
   back than three months), events still appear correctly — they are expanded as you browse, which
   is slower for series that started long ago.
-- **Editing a recurring event changes only the occurrence you opened**; the series, its rule and
-  the other occurrences are preserved. Creating new recurrence rules from scratch is not
-  currently offered in the interface.
+- **Creating a recurring event** is done in the event dialog: choose *Repeat* (daily, weekly,
+  monthly or yearly), how often it repeats, and when it ends — never, on a date, or after a
+  number of occurrences. A weekly series can repeat on several days. The rule is stored as a
+  standard `RRULE`, so other calendar applications and DAV devices understand it. A series you
+  edited outside Inboxora that uses a rule the editor cannot represent (for example
+  *second Monday of the month*) is shown as a custom rule and left untouched unless you press
+  **Replace the rule**.
+- **Editing a recurring event asks which part of the series to change**: the occurrence you
+  opened, or the whole series. Choosing the whole series opens its own start, end and rule, and
+  saving applies to every occurrence; choosing one occurrence records an exception and leaves the
+  rule, the other occurrences and the series' own dates untouched.
 - **Deleting one of these events asks what you mean**, because there are three different answers:
   *only this occurrence*, *this and every following occurrence*, or *the whole series*. Ending a
   series this way shortens its rule, so the result is understood by other calendar apps too.

@@ -107,3 +107,24 @@
    in a row so each reads as a distinct action, and they stay full-width on a phone. */
 .calendar-delete-scope-when { font-family: var(--font-mono, ui-monospace, monospace); font-size: 12px; color: var(--text-tertiary); margin: -4px 0 0; }
 .calendar-delete-scope-actions { display: grid; gap: 8px; margin-top: 4px; }
+
+/* Recurrence editor: which occurrence a series edit applies to, and the rule itself.
+   The scope answers sit side by side because they are a mutually exclusive choice,
+   while the rule fields follow the dialog's normal stacked form layout. */
+.calendar-edit-scope { margin-bottom: 14px; }
+.calendar-edit-scope-label { display: block; font-size: 12px; color: var(--text-secondary); margin-bottom: 6px; }
+.calendar-edit-scope-options { display: flex; gap: 8px; flex-wrap: wrap; }
+.calendar-edit-scope-options button { padding: 6px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-primary); color: var(--text-secondary); font: inherit; font-size: 12px; cursor: pointer; }
+.calendar-edit-scope-options button[aria-checked="true"] { border-color: var(--accent); color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); font-weight: 600; }
+.calendar-edit-scope-options button:disabled { opacity: .5; cursor: not-allowed; }
+.calendar-edit-scope-hint { margin: 8px 0 0; font-size: 12px; color: var(--text-tertiary); }
+
+.calendar-recurrence { display: grid; gap: 10px; }
+.calendar-recurrence-options { display: grid; gap: 10px; }
+.calendar-recurrence-options[aria-disabled="true"] { opacity: .6; }
+.calendar-recurrence-custom { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.calendar-recurrence-weekdays > span { display: block; font-size: 12px; color: var(--text-secondary); margin-bottom: 6px; }
+.calendar-recurrence-weekday-options { display: flex; gap: 6px; flex-wrap: wrap; }
+.calendar-recurrence-weekday-options button { min-width: 40px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-primary); color: var(--text-secondary); font: inherit; font-size: 12px; cursor: pointer; text-transform: capitalize; }
+.calendar-recurrence-weekday-options button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent-text, #fff); background: var(--accent); font-weight: 600; }
+.calendar-recurrence-weekday-options button:disabled { opacity: .5; cursor: not-allowed; }

@@ -290,3 +290,44 @@ export function calendarProjection(raw: string): ReturnType<typeof parseCalendar
   if (!event) throw new Error('Invalid calendar event');
   return event;
 }
+
+/** The master RRULE of a stored resource, or null when it is not a recurring series. */
+export function rruleFromCalendarResource(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  let root: ICAL.Component;
+  try { root = new ICAL.Component(ICAL.parse(raw)); } catch { return null; }
+  const master = root.getAllSubcomponents('vevent').find(event => !event.hasProperty('recurrence-id'));
+  const rule = master?.getFirstPropertyValue('rrule') as ICAL.Recur | null;
+  if (!rule) return null;
+  try { return rule.toString(); } catch { return null; }
+}
+
+/**
+ * Replace or clear the recurrence rule of a series resource while keeping all
+ * editor-owned fields and any remaining exceptions.
+ *
+ * Clearing the rule turns the series into a single event; the RECURRENCE-ID
+ * overrides then describe occurrences that no longer exist, so they are removed
+ * rather than left behind as orphaned instances.
+ *
+ * Returns the new resource, or null when it cannot be parsed (the caller then
+ * leaves the stored resource untouched instead of writing a broken one).
+ */
+export function setSeriesRecurrence(raw: string | null | undefined, rrule: string | null): string | null {
+  if (!raw) return null;
+  let root: ICAL.Component;
+  try { root = new ICAL.Component(ICAL.parse(raw)); } catch { return null; }
+  const master = root.getAllSubcomponents('vevent').find(event => !event.hasProperty('recurrence-id'));
+  if (!master) return null;
+  master.removeAllProperties('rrule');
+  if (rrule) {
+    let rule: ICAL.Recur;
+    try { rule = ICAL.Recur.fromString(rrule); } catch { return null; }
+    master.updatePropertyWithValue('rrule', rule);
+  } else {
+    for (const event of root.getAllSubcomponents('vevent')) {
+      if (event.hasProperty('recurrence-id')) root.removeSubcomponent(event);
+    }
+  }
+  return root.toString();
+}
