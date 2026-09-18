@@ -9,6 +9,22 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.3](wiki/R
 [Release notes 4.0.2](wiki/Release-notes-4.0.2.md),
 [Release notes 4.0.1](wiki/Release-notes-4.0.1.md) and [Release notes 4.0.0](wiki/Release-notes-4.0.0.md).
 
+## [Unreleased]
+
+### Changed
+
+- The canonical repository is now a standalone GitHub repository,
+  [`Dragonk/Inboxora`](https://github.com/Dragonk/Inboxora), which is no longer a fork of MailFlow
+  and is no longer part of its fork network. Git history, branches, tags, release assets, labels
+  and repository settings were carried over 1:1; the previous repository is archived read-only as
+  [`Dragonk/Inboxora-archive`](https://github.com/Dragonk/Inboxora-archive). No application code,
+  database schema, migration or deployment configuration changed.
+- Operator action after the move: re-add these repository Actions secrets in the new repository —
+  `MAILFLOW_ANDROID_KEYSTORE_BASE64`, `MAILFLOW_ANDROID_KEY_ALIAS`,
+  `MAILFLOW_ANDROID_KEY_PASSWORD`, `MAILFLOW_ANDROID_STORE_PASSWORD`, `MAILFLOW_WINDOWS_CSC_LINK`,
+  `MAILFLOW_WINDOWS_CSC_KEY_PASSWORD`, `ANDROID_DEV_KEYSTORE_BASE64`. Secret values are not
+  readable through the GitHub API, so they could not be copied automatically.
+
 ## [4.0.3] - 2026-09-18
 
 ### Fixed
