@@ -4,8 +4,9 @@
 SMTP, CardDAV and CalDAV, so your data stays on your server and your existing devices keep
 working. This Wiki is the canonical documentation for installing, configuring and using it.
 
-Current release: **4.0.2** — see [Release notes 4.0.2](Release-notes-4.0.2.md) for the current
-reliability and data-isolation fixes.
+Current release: **4.0.4** — see [Release notes 4.0.4](Release-notes-4.0.4.md). It is a
+desktop-app release (integrated title bar, Back / Forward, native notification settings and the
+Windows default email app); the server, database, API and configuration are unchanged from 4.0.3.
 
 ![Inboxora mail list](https://raw.githubusercontent.com/Dragonk/Inboxora/main/media/screenshots/mail-inbox-desktop.png)
 

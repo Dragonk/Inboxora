@@ -1,6 +1,6 @@
 {
   "name": "inboxora-backend",
-  "version": "4.0.3",
+  "version": "4.0.4",
   "type": "module",
   "engines": {
     "node": ">=22 <23"
