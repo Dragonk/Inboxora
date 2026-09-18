@@ -907,7 +907,11 @@
       "loadError": "Nie udało się wczytać haseł aplikacji DAV.",
       "createError": "Nie udało się utworzyć hasła aplikacji.",
       "copyError": "Nie udało się skopiować hasła aplikacji.",
-      "revokeError": "Nie udało się unieważnić hasła aplikacji."
+      "revokeError": "Nie udało się unieważnić hasła aplikacji.",
+      "maxMode": "Dostęp",
+      "maxModeReadWrite": "Odczyt i zapis",
+      "maxModeReadOnly": "Tylko odczyt",
+      "mode": "Dostęp: {{mode}}"
     }
   },
   "blockList": {

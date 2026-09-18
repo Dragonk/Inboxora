@@ -907,7 +907,11 @@
       "loadError": "Hesla aplikací DAV se nepodařilo načíst.",
       "createError": "Heslo aplikace se nepodařilo vytvořit.",
       "copyError": "Heslo aplikace se nepodařilo zkopírovat.",
-      "revokeError": "Heslo aplikace se nepodařilo odvolat."
+      "revokeError": "Heslo aplikace se nepodařilo odvolat.",
+      "maxMode": "Přístup",
+      "maxModeReadWrite": "Čtení i zápis",
+      "maxModeReadOnly": "Pouze pro čtení",
+      "mode": "Přístup: {{mode}}"
     }
   },
   "blockList": {

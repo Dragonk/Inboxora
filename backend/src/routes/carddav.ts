@@ -152,6 +152,11 @@ function addressBookWritable(book: AddressBookRow): boolean {
   return (book.source ?? 'local') === 'local' && davModeOf(book.dav_mode) === 'read_write';
 }
 
+/** Whether the authenticating device password may write at all. */
+function credentialCanWrite(req: { davMaxMode?: 'read_only' | 'read_write' }): boolean {
+  return req.davMaxMode !== 'read_only';
+}
+
 function addressBookSupportedReportSet() {
   const reports = ['<C:addressbook-query/>', '<C:addressbook-multiget/>', '<D:sync-collection/>'];
   return `<D:supported-report-set>${reports.map(report => `<D:supported-report>${report}</D:supported-report>`).join('')}</D:supported-report-set>`;
@@ -229,7 +234,7 @@ router.propfind('/:userId/', async (req, res) => {
       `<D:displayname>${xmlEscape(book.name)}</D:displayname>`,
       `<D:sync-token>${xmlEscape(syncToken(book))}</D:sync-token>`,
       `<CS:getctag>${xmlEscape(book.sync_token)}</CS:getctag>`,
-      addressBookPrivilegeSet(addressBookWritable(book)),
+      addressBookPrivilegeSet(addressBookWritable(book) && credentialCanWrite(req)),
       addressBookSupportedReportSet(),
     ], '200 OK'),
   ]));
@@ -263,7 +268,7 @@ router.propfind('/:userId/:bookId/', async (req, res) => {
       `<D:displayname>${xmlEscape(book.name)}</D:displayname>`,
       `<D:sync-token>${xmlEscape(syncToken(book))}</D:sync-token>`,
       `<CS:getctag>${xmlEscape(book.sync_token)}</CS:getctag>`,
-      addressBookPrivilegeSet(addressBookWritable(book)),
+      addressBookPrivilegeSet(addressBookWritable(book) && credentialCanWrite(req)),
       addressBookSupportedReportSet(),
     ], '200 OK'),
   ]);
@@ -416,7 +421,7 @@ router.put('/:userId/:bookId/:filename', async (req, res) => {
     if (!bookResult.rows.length) return res.status(404).end();
     const book = bookResult.rows[0];
     if (davModeOf(book.dav_mode) === 'off') return res.status(404).end();
-    if (book.source !== 'local' || davModeOf(book.dav_mode) === 'read_only') return res.status(403).end();
+    if (book.source !== 'local' || davModeOf(book.dav_mode) === 'read_only' || !credentialCanWrite(req)) return res.status(403).end();
     const bookId = book.id;
 
     const existing = await query(
@@ -501,7 +506,7 @@ router.delete('/:userId/:bookId/:filename', async (req, res) => {
     );
     if (!bookResult.rows.length) return res.status(404).end();
     if (davModeOf(bookResult.rows[0].dav_mode) === 'off') return res.status(404).end();
-    if (bookResult.rows[0].source !== 'local' || davModeOf(bookResult.rows[0].dav_mode) === 'read_only') return res.status(403).end();
+    if (bookResult.rows[0].source !== 'local' || davModeOf(bookResult.rows[0].dav_mode) === 'read_only' || !credentialCanWrite(req)) return res.status(403).end();
 
     const result = await query(
       `DELETE FROM contacts

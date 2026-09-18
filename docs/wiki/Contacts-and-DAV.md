@@ -118,12 +118,20 @@ CardDAV and CalDAV work on accounts protected by TOTP or SSO.
 Create one under **Settings → DAV access**:
 
 1. Give the credential a name you will recognise later (for example *Pixel 7 · DAVx5*).
-2. Choose **Create password**.
-3. **Copy the password immediately** — it is displayed exactly once and only its hash is stored.
-4. Use it with your normal Inboxora **username** in the DAV client.
+2. Choose its **Access** ceiling: **Read and write** for a device that should be able to change
+   data, or **Read only** for a viewer (a tablet showing the calendar, a dashboard).
+3. Choose **Create password**.
+4. **Copy the password immediately** — it is displayed exactly once and only its hash is stored.
+5. Use it with your normal Inboxora **username** in the DAV client.
 
-The list shows when each password was created and last used. **Revoke** disables one device
-without affecting the others, your login, or any other application password.
+The list shows when each password was created, when it was last used, and its access ceiling.
+**Revoke** disables one device without affecting the others, your login, or any other application
+password.
+
+The per-password ceiling is intersected with each collection's own DAV access: a **Read only**
+password cannot write even to a calendar set to *Read and write*, and a credential never widens a
+collection. Giving a device less access than your own is the point — a shared tablet should not be
+able to delete your events.
 
 ![DAV access settings](https://raw.githubusercontent.com/Dragonk/Inboxora/main/media/screenshots/settings-dav-access-desktop.png)
 

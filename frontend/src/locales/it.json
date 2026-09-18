@@ -907,7 +907,11 @@
       "loadError": "Impossibile caricare le password dell’app DAV.",
       "createError": "Impossibile creare la password dell’app.",
       "copyError": "Impossibile copiare la password dell’app.",
-      "revokeError": "Impossibile revocare la password dell’app."
+      "revokeError": "Impossibile revocare la password dell’app.",
+      "maxMode": "Accesso",
+      "maxModeReadWrite": "Lettura e scrittura",
+      "maxModeReadOnly": "Solo lettura",
+      "mode": "Accesso: {{mode}}"
     }
   },
   "blockList": {

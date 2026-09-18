@@ -22,15 +22,19 @@ describe('DAV Hub API client', () => {
 
     await api.davCredentials.list();
     await api.davCredentials.create('DAVx5 phone');
+    await api.davCredentials.create('Tablet', 'read_only');
     await api.davCredentials.revoke('credential-1');
 
     assert.deepEqual(calls.map(([url, init]) => [url, init.method]), [
       ['/api/dav-credentials', 'GET'],
       ['/api/dav-credentials', 'POST'],
+      ['/api/dav-credentials', 'POST'],
       ['/api/dav-credentials/credential-1', 'DELETE'],
     ]);
     for (const [, init] of calls) assert.equal(init.headers[CSRF_HEADER], CSRF_VALUE);
-    assert.equal(calls[1][1].body, JSON.stringify({ label: 'DAVx5 phone' }));
+    // Omitting the mode asks the server for the fully capable default.
+    assert.equal(calls[1][1].body, JSON.stringify({ label: 'DAVx5 phone', maxDavMode: 'read_write' }));
+    assert.equal(calls[2][1].body, JSON.stringify({ label: 'Tablet', maxDavMode: 'read_only' }));
   });
 
   it('uses the calendar API contract for local event CRUD and range reads', async () => {

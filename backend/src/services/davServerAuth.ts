@@ -4,7 +4,7 @@ import { logAuthEvent } from './authEvents.js';
 import { authenticateDavCredential } from './davCredentials.js';
 import { consume as rlConsume } from './rateLimiter.js';
 
-type DavRequest = Pick<Request, 'headers' | 'davCredentialId' | 'davUserId'> & {
+type DavRequest = Pick<Request, 'headers' | 'davCredentialId' | 'davUserId' | 'davMaxMode'> & {
   ip?: Request['ip'];
 };
 type DavResponse = {
@@ -38,6 +38,7 @@ export function createDavAuthMiddleware({ realm, eventType }: {
       if (!credential) return reject(username || null);
       req.davUserId = credential.userId;
       req.davCredentialId = credential.credentialId;
+      req.davMaxMode = credential.maxDavMode;
       next();
     } catch (error) {
       console.error('DAV authentication error:', error);

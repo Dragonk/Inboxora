@@ -907,7 +907,11 @@
       "loadError": "Could not load DAV application passwords.",
       "createError": "Could not create the application password.",
       "copyError": "Could not copy the application password.",
-      "revokeError": "Could not revoke the application password."
+      "revokeError": "Could not revoke the application password.",
+      "maxMode": "Access",
+      "maxModeReadWrite": "Read and write",
+      "maxModeReadOnly": "Read only",
+      "mode": "Access: {{mode}}"
     }
   },
   "blockList": {

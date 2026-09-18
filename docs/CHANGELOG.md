@@ -106,6 +106,13 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   handlers enforce. Existing collections default to *Read and write*, so an upgrade changes
   nothing, while a collection created by connecting an external CalDAV/CardDAV source starts
   *Disabled* so it is not published implicitly.
+- Add a per-application-password DAV ceiling (migration `0106_dav_credential_max_mode.sql`, applied
+  after `0105`). When creating a DAV application password under **Settings → DAV access** you now
+  choose **Read and write** or **Read only**, and the active list shows each credential's ceiling.
+  The credential's mode travels with the request and is intersected with the collection's own
+  mode: a read-only password cannot write even to a read-write calendar or address book, it never
+  widens one, and the advertised `current-user-privilege-set` reflects the intersection. Existing
+  passwords default to *Read and write*, so an upgrade changes nothing.
 
 ## [4.0.4] - 2026-09-18
 

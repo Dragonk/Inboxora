@@ -5,6 +5,22 @@ import { query } from './db.js';
 const PREFIX_RE = /^(mf_dav_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.([A-Za-z0-9_-]{16,})$/;
 const BCRYPT_ROUNDS = 12;
 
+/**
+ * The most a device password may do, regardless of what the collections allow.
+ * It is a ceiling, never a grant: a `read_only` credential cannot write even to a
+ * read-write calendar, and no credential can widen a collection's own mode.
+ */
+export type DavMaxMode = 'read_only' | 'read_write';
+
+/** An unknown/absent value keeps the pre-0106 behaviour (fully capable). */
+export function davMaxModeOf(value: unknown): DavMaxMode {
+  return value === 'read_only' ? 'read_only' : 'read_write';
+}
+
+export function isDavMaxMode(value: unknown): value is DavMaxMode {
+  return value === 'read_only' || value === 'read_write';
+}
+
 export function parseDavAppPassword(value: unknown) {
   if (typeof value !== 'string') return null;
   const match = value.match(PREFIX_RE);
@@ -17,17 +33,18 @@ function normalizedLabel(label: string) {
   return value;
 }
 
-export async function createDavAppPassword(userId: string, label: string) {
+export async function createDavAppPassword(userId: string, label: string, maxDavMode: unknown = 'read_write') {
   if (!userId) throw new Error('User id is required');
+  if (!isDavMaxMode(maxDavMode)) throw new Error('DAV access mode must be read_only or read_write');
   const prefix = `mf_dav_${crypto.randomUUID()}`;
   const secretPart = crypto.randomBytes(32).toString('base64url');
   const secret = `${prefix}.${secretPart}`;
   const secretHash = await bcrypt.hash(secretPart, BCRYPT_ROUNDS);
   const result = await query(
-    `INSERT INTO dav_app_passwords (user_id, label, token_prefix, secret_hash)
-     VALUES ($1, $2, $3, $4)
-     RETURNING id, label, created_at`,
-    [userId, normalizedLabel(label), prefix, secretHash],
+    `INSERT INTO dav_app_passwords (user_id, label, token_prefix, secret_hash, max_dav_mode)
+     VALUES ($1, $2, $3, $4, $5)
+     RETURNING id, label, created_at, max_dav_mode`,
+    [userId, normalizedLabel(label), prefix, secretHash, maxDavMode],
   );
   return { ...result.rows[0], secret };
 }
@@ -35,7 +52,7 @@ export async function createDavAppPassword(userId: string, label: string) {
 export async function listDavAppPasswords(userId: string) {
   if (!userId) throw new Error('User id is required');
   const result = await query(
-    `SELECT id, label, created_at, last_used_at
+    `SELECT id, label, created_at, last_used_at, max_dav_mode
      FROM dav_app_passwords
      WHERE user_id = $1 AND revoked_at IS NULL
      ORDER BY created_at DESC`,
@@ -59,15 +76,15 @@ export async function revokeDavAppPassword(userId: string, passwordId: unknown) 
 export async function findActiveDavAppPassword(userId: string, value: unknown) {
   const parsed = parseDavAppPassword(value);
   if (!userId || !parsed) return null;
-  const result = await query<{ id: string; secret_hash: string }>(
-    `SELECT id, secret_hash FROM dav_app_passwords
+  const result = await query<{ id: string; secret_hash: string; max_dav_mode?: string | null }>(
+    `SELECT id, secret_hash, max_dav_mode FROM dav_app_passwords
      WHERE user_id = $1 AND token_prefix = $2 AND revoked_at IS NULL`,
     [userId, parsed.prefix],
   );
   const password = result.rows[0];
   if (!password || !(await bcrypt.compare(parsed.secret, password.secret_hash))) return null;
   await query('UPDATE dav_app_passwords SET last_used_at = NOW() WHERE id = $1', [password.id]);
-  return { id: password.id };
+  return { id: password.id, maxDavMode: davMaxModeOf(password.max_dav_mode) };
 }
 
 export async function verifyDavAppPassword(userId: string, value: unknown) {

@@ -907,7 +907,11 @@
       "loadError": "Impossible de charger les mots de passe d’application DAV.",
       "createError": "Impossible de créer le mot de passe d’application.",
       "copyError": "Impossible de copier le mot de passe d’application.",
-      "revokeError": "Impossible de révoquer le mot de passe d’application."
+      "revokeError": "Impossible de révoquer le mot de passe d’application.",
+      "maxMode": "Accès",
+      "maxModeReadWrite": "Lecture et écriture",
+      "maxModeReadOnly": "Lecture seule",
+      "mode": "Accès : {{mode}}"
     }
   },
   "blockList": {

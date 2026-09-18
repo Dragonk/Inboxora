@@ -907,7 +907,11 @@
       "loadError": "No se pudieron cargar las contraseñas de aplicación DAV.",
       "createError": "No se pudo crear la contraseña de aplicación.",
       "copyError": "No se pudo copiar la contraseña de aplicación.",
-      "revokeError": "No se pudo revocar la contraseña de aplicación."
+      "revokeError": "No se pudo revocar la contraseña de aplicación.",
+      "maxMode": "Acceso",
+      "maxModeReadWrite": "Lectura y escritura",
+      "maxModeReadOnly": "Solo lectura",
+      "mode": "Acceso: {{mode}}"
     }
   },
   "blockList": {

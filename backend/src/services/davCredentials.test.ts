@@ -15,12 +15,13 @@ describe('DAV credential authentication', () => {
     const secretHash = await bcrypt.hash('exampleSecret-123456', 4);
     query
       .mockResolvedValueOnce({ rows: [{ id: 'user-1' }] })
-      .mockResolvedValueOnce({ rows: [{ id: 'credential-1', secret_hash: secretHash }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'credential-1', secret_hash: secretHash, max_dav_mode: 'read_only' }] })
       .mockResolvedValueOnce({ rows: [] });
 
     await expect(authenticateDavCredential('sam@example.test', token)).resolves.toEqual({
       userId: 'user-1',
       credentialId: 'credential-1',
+      maxDavMode: 'read_only',
     });
     expect(query.mock.calls[0][0]).toContain('FROM users');
     expect(query.mock.calls[1][0]).toContain('FROM dav_app_passwords');

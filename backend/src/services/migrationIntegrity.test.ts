@@ -317,4 +317,14 @@ describe('migration integrity', () => {
     expect(sql).not.toMatch(/UPDATE\s+calendars/i);
     expect(sql).not.toMatch(/UPDATE\s+address_books/i);
   });
+
+  it('adds a per-credential DAV ceiling with a preserving default', () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/0106_dav_credential_max_mode.sql'), 'utf8');
+    // Defaulting to read_write keeps every existing device password as capable as before.
+    expect(sql).toContain("ADD COLUMN IF NOT EXISTS max_dav_mode VARCHAR(16) NOT NULL DEFAULT 'read_write'");
+    expect(sql).toContain('dav_app_passwords_max_dav_mode_check');
+    expect(sql).toContain("CHECK (max_dav_mode IN ('read_only', 'read_write'))");
+    // Expand-only: no credential is rewritten by the migration.
+    expect(sql).not.toMatch(/UPDATE\s+dav_app_passwords/i);
+  });
 });

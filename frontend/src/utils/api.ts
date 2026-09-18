@@ -394,7 +394,8 @@ export const api = {
   // DAV Hub — dedicated, revocable app passwords for CardDAV/CalDAV clients.
   davCredentials: {
     list:   () => request('GET', '/dav-credentials'),
-    create: (label: string) => request('POST', '/dav-credentials', { label }),
+    // The mode is this device password's ceiling; it can only narrow a collection.
+    create: (label: string, maxDavMode: 'read_only' | 'read_write' = 'read_write') => request('POST', '/dav-credentials', { label, maxDavMode }),
     revoke: (id: string) => request('DELETE', `/dav-credentials/${id}`),
   },
 

@@ -907,7 +907,11 @@
       "loadError": "DAV-App-Passwörter konnten nicht geladen werden.",
       "createError": "Das App-Passwort konnte nicht erstellt werden.",
       "copyError": "Das App-Passwort konnte nicht kopiert werden.",
-      "revokeError": "Das App-Passwort konnte nicht widerrufen werden."
+      "revokeError": "Das App-Passwort konnte nicht widerrufen werden.",
+      "maxMode": "Zugriff",
+      "maxModeReadWrite": "Lesen und Schreiben",
+      "maxModeReadOnly": "Nur Lesen",
+      "mode": "Zugriff: {{mode}}"
     }
   },
   "blockList": {

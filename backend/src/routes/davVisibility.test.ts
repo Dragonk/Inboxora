@@ -5,14 +5,18 @@ import { listeningPort } from '../test/net.js';
 
 const { query } = vi.hoisted(() => ({ query: vi.fn() }));
 
+// The ceiling the authenticating device password imposes; read_write by default.
+const credential = { maxDavMode: 'read_write' as 'read_only' | 'read_write' };
+
 vi.mock('../services/db.js', () => ({ query }));
 vi.mock('../services/authLimiter.js', () => ({ authLimiterConfig: { maxRequests: 500, windowMs: 60_000 } }));
 vi.mock('../services/rateLimiter.js', () => ({ consume: vi.fn(async () => ({ limited: false })) }));
 vi.mock('../services/authEvents.js', () => ({ logAuthEvent: vi.fn() }));
 vi.mock('../services/davServerAuth.js', () => ({
-  createDavAuthMiddleware: () => (req: { davUserId?: string; davCredentialId?: string }, _res: unknown, next: () => void) => {
+  createDavAuthMiddleware: () => (req: { davUserId?: string; davCredentialId?: string; davMaxMode?: 'read_only' | 'read_write' }, _res: unknown, next: () => void) => {
     req.davUserId = 'user-1';
     req.davCredentialId = 'credential-1';
+    req.davMaxMode = credential.maxDavMode;
     next();
   },
 }));
@@ -42,6 +46,7 @@ afterAll(async () => {
 });
 
 beforeEach(() => {
+  credential.maxDavMode = 'read_write';
   query.mockReset();
   query.mockResolvedValue({ rows: [], rowCount: 0 });
 });
@@ -157,5 +162,63 @@ describe('CardDAV collection visibility (dav_mode)', () => {
     });
     expect(response.status).toBe(404);
     expect(queryCallsMatching('INSERT INTO contacts')).toHaveLength(0);
+  });
+});
+
+describe('application-password ceiling (max_dav_mode)', () => {
+  const eventBody = 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:e1\r\nDTSTART:20260901T090000Z\r\nDTEND:20260901T100000Z\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n';
+  const cardBody = 'BEGIN:VCARD\r\nVERSION:3.0\r\nUID:c1\r\nFN:Ada\r\nEND:VCARD';
+
+  it('lets a read-only credential read a writable calendar but not write to it', async () => {
+    credential.maxDavMode = 'read_only';
+    query.mockResolvedValue({ rows: [{ id: 'cal-rw', name: 'Work', sync_token: 'sync-1', read_only: false, source: 'local', dav_mode: 'read_write' }] });
+
+    const propfind = await fetch(`${base}/caldav/user-1/cal-rw/`, { method: 'PROPFIND', headers: { ...AUTH, depth: '0' } });
+    expect(propfind.status).toBe(207);
+    // The advertised privileges match what the server will enforce for THIS credential.
+    const body = await propfind.text();
+    expect(body).toContain('<D:privilege><D:read/></D:privilege>');
+    expect(body).not.toContain('<D:write');
+
+    expect((await fetch(`${base}/caldav/user-1/cal-rw/event.ics`, {
+      method: 'PUT', headers: { ...AUTH, 'content-type': 'text/calendar' }, body: eventBody,
+    })).status).toBe(403);
+    expect((await fetch(`${base}/caldav/user-1/cal-rw/event.ics`, { method: 'DELETE', headers: AUTH })).status).toBe(403);
+    expect(queryCallsMatching('INSERT INTO calendar_events')).toHaveLength(0);
+  });
+
+  it('keeps discovery intact for a read-only credential', async () => {
+    credential.maxDavMode = 'read_only';
+    query.mockResolvedValueOnce({ rows: [{ id: 'cal-rw', name: 'Work', sync_token: 'sync-1', read_only: false, source: 'local', dav_mode: 'read_write' }] });
+    const response = await fetch(`${base}/caldav/user-1/`, { method: 'PROPFIND', headers: { ...AUTH, depth: '1' } });
+    expect(response.status).toBe(207);
+    // A read-only credential may still read; only writes are narrowed.
+    expect(await response.text()).toContain('/caldav/user-1/cal-rw/');
+  });
+
+  it('refuses CardDAV writes for a read-only credential and advertises read only', async () => {
+    credential.maxDavMode = 'read_only';
+    query.mockResolvedValue({ rows: [{ id: 'book-rw', name: 'Personal', sync_token: 'sync-1', sync_version: 1, source: 'local', dav_mode: 'read_write' }] });
+
+    const propfind = await fetch(`${base}/carddav/user-1/book-rw/`, { method: 'PROPFIND', headers: { ...AUTH, depth: '0' } });
+    expect(propfind.status).toBe(207);
+    expect(await propfind.text()).not.toContain('<D:write');
+
+    const put = await fetch(`${base}/carddav/user-1/book-rw/contact.vcf`, { method: 'PUT', headers: { ...AUTH, 'content-type': 'text/vcard' }, body: cardBody });
+    expect(put.status).toBe(403);
+    const del = await fetch(`${base}/carddav/user-1/book-rw/contact.vcf`, { method: 'DELETE', headers: AUTH });
+    expect(del.status).toBe(403);
+    expect(queryCallsMatching('INSERT INTO contacts')).toHaveLength(0);
+  });
+
+  it('keeps the read-write default credential able to write', async () => {
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'cal-rw', source: 'local', read_only: false, dav_mode: 'read_write' }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ uid: 'e1', etag: 'etag-1' }] });
+    const response = await fetch(`${base}/caldav/user-1/cal-rw/event.ics`, {
+      method: 'PUT', headers: { ...AUTH, 'content-type': 'text/calendar' }, body: eventBody,
+    });
+    expect(response.status).toBe(201);
   });
 });

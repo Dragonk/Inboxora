@@ -907,7 +907,11 @@
       "loadError": "无法加载 DAV 应用密码。",
       "createError": "无法创建应用密码。",
       "copyError": "无法复制应用密码。",
-      "revokeError": "无法撤销应用密码。"
+      "revokeError": "无法撤销应用密码。",
+      "maxMode": "访问权限",
+      "maxModeReadWrite": "读写",
+      "maxModeReadOnly": "只读",
+      "mode": "访问权限：{{mode}}"
     }
   },
   "blockList": {
