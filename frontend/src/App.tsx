@@ -11,6 +11,7 @@ import MailApp from './components/MailApp.tsx';
 import LockScreen from './components/LockScreen.tsx';
 import DesktopTitleBar from './components/desktop/DesktopTitleBar.tsx';
 import { isElectronShell } from './utils/desktopShell.ts';
+import { cleanupDesktopWebPush } from './utils/desktopWebPushCleanup.ts';
 
 export default function App() {
   const { user, setUser, loadPreferences, isLocked, setLocked } = useStore();
@@ -18,13 +19,23 @@ export default function App() {
 
   // Register service worker on first mount — independent of auth state.
   // The SW itself does nothing until the user explicitly grants push permission.
+  // The Electron shell never registers it: its service worker existed only for
+  // Web Push, and the desktop notifications come from the app's WebSocket.
   useEffect(() => {
+    if (isElectronShell()) return;
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js?v=inboxora-3').catch((err) =>
         console.warn('Service worker registration failed:', err)
       );
     }
   }, []);
+
+  // One-time migration for desktop installs that already had a Web Push
+  // subscription from an earlier build (see cleanupDesktopWebPush). Re-run after
+  // sign-in so a server-side unsubscribe that needed a session can complete.
+  useEffect(() => {
+    if (isElectronShell()) void cleanupDesktopWebPush();
+  }, [user]);
 
   useEffect(() => {
     const onExpired = () => { setUser(null); setLocked(false); };

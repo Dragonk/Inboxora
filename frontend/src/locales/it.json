@@ -1989,16 +1989,19 @@
       "description": "Mostra le notifiche di sistema per la nuova posta, anche mentre Inboxora è nascosta nella barra delle applicazioni.",
       "enable": "Notifiche per nuova posta",
       "enableDesc": "Mostra una notifica di sistema all'arrivo di nuova posta.",
-      "statusOn": "Le notifiche di sistema sono attive",
+      "statusOn": "Notifiche attivate in Inboxora",
       "statusOff": "Le notifiche di sistema sono disattivate",
+      "statusVerified": "Le notifiche di sistema funzionano",
+      "statusBlockedOs": "Le notifiche sono disattivate nel sistema operativo",
       "statusUnsupported": "Questo sistema non supporta le notifiche",
       "test": "Invia una notifica di prova",
       "testBody": "Le notifiche di sistema funzionano correttamente.",
-      "testSent": "Notifica di prova inviata.",
+      "testSent": "Il sistema operativo ha confermato la notifica di prova.",
       "testBlocked": "Le notifiche sono disattivate, quindi non è stato mostrato nulla.",
       "testFailed": "Impossibile mostrare la notifica di prova.",
       "permissionHint": "Le notifiche per Inboxora potrebbero essere disattivate nel sistema operativo.",
-      "openSystemSettings": "Apri le impostazioni delle notifiche di sistema"
+      "openSystemSettings": "Apri le impostazioni delle notifiche di sistema",
+      "testSentUnconfirmed": "Notifica di prova inviata, ma il sistema operativo non l'ha confermata."
     }
   }
 }

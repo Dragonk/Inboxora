@@ -36,8 +36,8 @@ in `push_subscriptions`. Adding native push does not change this path.
 
 ## Desktop app (Electron) — native notifications
 
-The Electron build does **not** use Web Push, VAPID, the service worker or the
-server push dispatcher. It reuses the WebSocket the app already has:
+The Electron build does **not** use Web Push, VAPID or the server push dispatcher.
+It reuses the WebSocket the app already has:
 
 ```text
 WebSocket new_messages
@@ -55,22 +55,39 @@ Consequences worth knowing:
 - Notifications arrive while the window is visible, minimized or hidden in the
   tray. After **Quit** the process is gone and nothing can arrive — that would
   need a WNS/APNs/background-service architecture, which is out of scope.
-- **No duplicates:** inside the desktop shell the app neither restores nor creates
-  a Web Push subscription, and Settings replaces the Web Push card with the system
-  notification card. Web Push remains the browser/PWA path.
+- **No duplicates.** Inside the desktop shell the app does not register its
+  service worker at all (`public/sw.js` only ever handled Web Push) and Settings
+  replaces the Web Push card with the system notification card. On the first run
+  after upgrading from a build that *did* expose the browser card, an existing
+  push subscription is unsubscribed and its registration removed, so a stale
+  subscription cannot keep raising OS notifications next to the Electron ones.
+  Web Push remains the browser/PWA path, unchanged.
+- **The status is honest.** `Notification.isSupported()` only says the process
+  *can* raise a notification; Windows silently drops toasts when the user turned
+  them off for Inboxora. The card therefore shows the Inboxora switch and the
+  operating-system state separately (read from the Windows notification
+  registry; reported as unknown on Linux/macOS, where no equivalent is exposed),
+  and words the plain enabled state as "enabled in Inboxora" rather than
+  "system notifications are active".
 
 ### Settings
 
 **Settings → Notifications → *System notifications***:
 
 - a switch for new-mail notifications;
-- a live status line (active / off / unsupported);
+- a status line that distinguishes "enabled in Inboxora", "system notifications
+  are working" (only after a confirmed test), "turned off in your operating
+  system" and "unsupported";
 - **Send test notification**, which shows a real OS notification through the full
-  renderer → preload → IPC → Electron `Notification` path;
-- if the test fails, a button that opens the operating system's notification
-  settings (Windows: *ms-settings:notifications*, macOS: Notifications preference
-  pane). Linux has no portable settings URI, so the button reports that instead of
-  opening the wrong page.
+  renderer → preload → IPC → Electron `Notification` path and reports what the
+  operating system actually did: confirmed (Electron's `show` event), sent but
+  *not* confirmed (no event arrived, e.g. a Linux session without a notification
+  daemon), or the failure the OS reported. A silently blocked Windows toast is
+  therefore visible as a failure instead of being reported as success;
+- a shortcut that opens the operating system's notification settings (Windows:
+  *ms-settings:notifications*, macOS: Notifications preference pane). It is
+  always available where the platform supports it, not only after a failure.
+  Linux has no portable settings URI, so the button is not offered there.
 
 The preference is stored locally, per installation, in the Electron config file
 under `app.getPath('userData')` (`desktopNotifications.enabled`, default `true`) —
@@ -89,11 +106,18 @@ The desktop window uses Electron's `titleBarStyle: 'hidden'` with the Window
 Controls Overlay instead of `frame: false`. The Inboxora bar carries Back,
 Forward, Search (the existing Inboxora search engine, also `Ctrl+E` / `Cmd+E`) and
 Settings, while minimize / maximize / close and close-to-tray stay native OS
-behaviour. Back/Forward use `webContents.navigationHistory` and follow in-page
-(SPA) history; the existing origin/navigation guards still decide what may ever
-enter that history. On Windows and Linux the `File / Edit / View / Window / Help`
-menu bar is removed; `Ctrl+R` (reload) and `F11` (full screen) keep working, and
-the tray keeps New Mail, Sync, Show/Hide, Change Host and Quit.
+behaviour. On Windows and Linux the `File / Edit / View / Window / Help` menu bar
+is removed; its accelerators are re-registered on the window (`Ctrl+R` reload,
+`F11` full screen, `Ctrl+W` close → tray, `Ctrl+M` minimize, `Ctrl+,` Change
+Inboxora Host), and the tray keeps New Mail, Sync, Show/Hide, Change Host and Quit.
+
+Back and Forward walk **Inboxora's own view history** (a bounded list of
+surface + account + folder + open message + Settings tab), not
+`webContents.navigationHistory`. Inboxora navigates by swapping Zustand state, so
+the browser history never contained "the message I had open" or "the Calendar
+view" — only real document loads such as login and OIDC. The application history
+also keeps the existing origin/OIDC navigation policy as the only thing that can
+put a document into the browser history.
 
 ## Android — instant notifications
 
@@ -392,12 +416,27 @@ Notifications (built installer, not electron:dev)
   9. Send one mail                -> exactly one notification (no Web Push duplicate)
  10. Restart Inboxora             -> the on/off choice survived
 
+Upgrade from a build with browser Web Push enabled
+  - Settings must show "System notifications" (not the Web Push card)
+  - send one mail: exactly one notification, never two
+  - the old subscription is gone (Application -> Service Workers is empty)
+
+Windows notifications blocked by the OS
+  - turn Inboxora notifications off in Windows Settings
+  - the card must say the OS has them turned off (not "working") and offer
+    "Open system notification settings"
+  - the test button must report a failure rather than success
+
 Title bar
   - drag the window; double-click the empty part of the bar
   - minimize / maximize / restore / close-to-tray from the native controls
-  - Back and Forward, including their disabled states and SPA navigation
+  - Back and Forward across: mail list -> message -> Calendar -> Contacts ->
+    Settings, then all the way back and forward again; disabled states at both ends
+  - Back from Settings returns to the surface Settings was opened from
   - search uses the Inboxora search engine; Ctrl+E / Cmd+E focuses it
   - Settings opens the existing Settings screen at Notifications
+  - Ctrl+R reload, F11 full screen, Ctrl+W close-to-tray, Ctrl+M minimize,
+    Ctrl+, Change Inboxora Host
   - dark mode and light mode (the native control symbols follow the theme)
   - Windows scaling at 100% / 125% / 150% and the minimum window size
   - no File / Edit / View / Window / Help bar is visible (Windows/Linux)

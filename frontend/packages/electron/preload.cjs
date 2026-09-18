@@ -58,12 +58,6 @@ contextBridge.exposeInMainWorld('inboxoraNative', {
     showTest: (payload) => ipcRenderer.invoke('inboxora:notifications:test', payload),
     openSettings: () => ipcRenderer.invoke('inboxora:notifications:open-settings'),
   },
-  navigation: {
-    back: () => ipcRenderer.invoke('inboxora:navigation:back'),
-    forward: () => ipcRenderer.invoke('inboxora:navigation:forward'),
-    getState: () => ipcRenderer.invoke('inboxora:navigation:get-state'),
-    onStateChanged: (callback) => subscribe('inboxora:navigation:state', callback),
-  },
   titlebar: {
     height: TITLEBAR_HEIGHT,
     setTheme: (theme) => ipcRenderer.invoke('inboxora:titlebar:set-theme', theme),

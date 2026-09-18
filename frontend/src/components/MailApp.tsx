@@ -27,6 +27,7 @@ import ProfileModal from './ProfileModal.tsx';
 // on the native MessageList/MessagePane — no separate import needed.
 import CommandPalette from './CommandPalette.tsx';
 import DesktopTitleBar from './desktop/DesktopTitleBar.tsx';
+import { AppViewHistoryRecorder } from './desktop/useAppViewHistory.tsx';
 import { desktopTitlebarHeight, isElectronShell } from '../utils/desktopShell.ts';
 import { usePluginSlot, PluginRuntime } from '../plugins/PluginSlot.tsx';
 import type { StoreState } from '../store/index.ts';
@@ -1015,6 +1016,9 @@ export default function MailApp() {
       {/* Detached message windows (#219) — desktop only. */}
       {!isMobile && <Suspense fallback={null}><WindowLayer /></Suspense>}
       <Suspense fallback={null}>{hasNativeBridge && <ElectronNotificationBridge />}</Suspense>
+      {/* Records every Inboxora view change so the desktop title bar's Back and
+          Forward walk app views instead of browser documents. */}
+      {desktopShell && <AppViewHistoryRecorder />}
       <NotificationToasts />
       <PluginRuntime />
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />

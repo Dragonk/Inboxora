@@ -1989,16 +1989,19 @@
       "description": "Zobrazovat systémová oznámení o nové poště, i když je Inboxora skrytá v oznamovací oblasti.",
       "enable": "Oznámení o nové poště",
       "enableDesc": "Při příchodu nové pošty zobrazit systémové oznámení.",
-      "statusOn": "Systémová oznámení jsou aktivní",
+      "statusOn": "Oznámení zapnuta v Inboxoře",
       "statusOff": "Systémová oznámení jsou vypnutá",
+      "statusVerified": "Systémová oznámení fungují",
+      "statusBlockedOs": "Oznámení jsou v operačním systému vypnutá",
       "statusUnsupported": "Tento systém oznámení nepodporuje",
       "test": "Odeslat testovací oznámení",
       "testBody": "Systémová oznámení fungují správně.",
-      "testSent": "Testovací oznámení odesláno.",
+      "testSent": "Operační systém potvrdil testovací oznámení.",
       "testBlocked": "Oznámení jsou vypnutá, takže se nic nezobrazilo.",
       "testFailed": "Testovací oznámení se nepodařilo zobrazit.",
       "permissionHint": "Oznámení pro Inboxoru mohou být v operačním systému vypnutá.",
-      "openSystemSettings": "Otevřít nastavení systémových oznámení"
+      "openSystemSettings": "Otevřít nastavení systémových oznámení",
+      "testSentUnconfirmed": "Testovací oznámení odesláno, ale operační systém je nepotvrdil."
     }
   }
 }

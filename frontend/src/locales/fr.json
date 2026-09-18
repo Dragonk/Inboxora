@@ -1989,16 +1989,19 @@
       "description": "Afficher des notifications système pour les nouveaux messages, même lorsque Inboxora est masquée dans la zone de notification.",
       "enable": "Notifications de nouveaux messages",
       "enableDesc": "Afficher une notification système à chaque nouveau message.",
-      "statusOn": "Les notifications système sont actives",
+      "statusOn": "Notifications activées dans Inboxora",
       "statusOff": "Les notifications système sont désactivées",
+      "statusVerified": "Les notifications système fonctionnent",
+      "statusBlockedOs": "Les notifications sont désactivées dans votre système d'exploitation",
       "statusUnsupported": "Ce système ne prend pas en charge les notifications",
       "test": "Envoyer une notification de test",
       "testBody": "Les notifications système fonctionnent correctement.",
-      "testSent": "Notification de test envoyée.",
+      "testSent": "Le système d'exploitation a confirmé la notification de test.",
       "testBlocked": "Les notifications sont désactivées, rien n'a donc été affiché.",
       "testFailed": "La notification de test n'a pas pu être affichée.",
       "permissionHint": "Les notifications pour Inboxora sont peut-être désactivées dans votre système d'exploitation.",
-      "openSystemSettings": "Ouvrir les paramètres de notification du système"
+      "openSystemSettings": "Ouvrir les paramètres de notification du système",
+      "testSentUnconfirmed": "Notification de test envoyée, mais le système d'exploitation ne l'a pas confirmée."
     }
   }
 }

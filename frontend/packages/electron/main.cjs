@@ -15,11 +15,10 @@ const {
 } = require('./security.cjs');
 const {
   TITLEBAR_HEIGHT,
-  invokeNavigation,
   keepsApplicationMenuBar,
   normalizeTestNotification,
+  parseWindowsNotificationsEnabled,
   readDesktopNotificationSettings,
-  readNavigationState,
   readTitlebarTheme,
   usesTitleBarOverlay,
   withDesktopNotificationEnabled,
@@ -35,6 +34,17 @@ const UPDATE_ERROR_MESSAGE = 'Could not check for Inboxora updates. Please visit
 const NATIVE_ACTION_CHANNEL = 'inboxora:native-action';
 const NATIVE_ACTION_ARG = '--inboxora-action=';
 const NEW_MAIL_NOTIFICATION_MAX_LENGTH = 240;
+// The Windows AppUserModelID. It is both what the app registers with and the
+// registry key Windows stores per-app notification settings under, so the two
+// must never drift apart.
+const APP_USER_MODEL_ID = 'io.github.dragonk.inboxora';
+// How long to wait for Electron's 'show' / 'failed' after calling show() on a test
+// notification. Some desktops raise neither, which is reported as unconfirmed.
+const TEST_NOTIFICATION_TIMEOUT_MS = 4000;
+// What the Windows Settings app writes. `Notification.isSupported()` only reports
+// that the process *can* notify, not that Windows will actually display it.
+const WINDOWS_NOTIFICATION_APP_KEY = `HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Notifications\\Settings\\${APP_USER_MODEL_ID}`;
+const WINDOWS_NOTIFICATION_GLOBAL_KEY = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\PushNotifications';
 const MAILTO_PROTOCOL = 'mailto';
 const EXTERNAL_LINK_PROTOCOLS = new Set(['http:', 'https:', `${MAILTO_PROTOCOL}:`]);
 const REWRITE_ERROR_PATTERNS = [
@@ -70,7 +80,7 @@ const pendingProtocolUrls = [];
 
 app.setName('Inboxora');
 if (process.platform === 'win32') {
-  app.setAppUserModelId('io.github.dragonk.inboxora');
+  app.setAppUserModelId(APP_USER_MODEL_ID);
 }
 if (process.platform === 'linux' && typeof app.setDesktopName === 'function') {
   app.setDesktopName('Inboxora.desktop');
@@ -178,14 +188,56 @@ function clearHost() {
 
 // The main process is the source of truth for the desktop notification
 // preference: the renderer only asks, and every notification path re-reads it.
-function getDesktopNotificationSettings() {
+// This is the cheap config-only read used on the notification hot path.
+function readNotificationPreference() {
   return readDesktopNotificationSettings(readConfig());
+}
+
+// What the operating system itself thinks. Only Windows exposes this without an
+// extra dependency; elsewhere the honest answer is "unknown", which the settings
+// card words differently from "active".
+function readOsNotificationState() {
+  if (!Notification.isSupported()) return 'unsupported';
+  if (process.platform !== 'win32') return 'unknown';
+
+  const enabled = parseWindowsNotificationsEnabled(
+    queryWindowsRegistry(WINDOWS_NOTIFICATION_APP_KEY),
+    queryWindowsRegistry(WINDOWS_NOTIFICATION_GLOBAL_KEY),
+  );
+  if (enabled === false) return 'disabled';
+  if (enabled === true) return 'enabled';
+  return 'unknown';
+}
+
+// A missing key or value is normal (the user never changed the default), so an
+// unreadable query is "no data" rather than an error.
+function queryWindowsRegistry(key) {
+  try {
+    return execFileSync('reg', ['query', key], { encoding: 'utf8', windowsHide: true });
+  } catch {
+    return '';
+  }
+}
+
+function canOpenSystemNotificationSettings() {
+  return process.platform === 'win32' || process.platform === 'darwin';
+}
+
+// The full view the settings screen needs. It probes the registry, so it is not
+// used on the new-mail path.
+function getDesktopNotificationSettings() {
+  return {
+    ...readNotificationPreference(),
+    supported: Notification.isSupported(),
+    osState: readOsNotificationState(),
+    canOpenSystemSettings: canOpenSystemNotificationSettings(),
+  };
 }
 
 function setDesktopNotificationEnabled(enabled) {
   const config = withDesktopNotificationEnabled(readConfig(), enabled);
   writeConfig(config);
-  return readDesktopNotificationSettings(config);
+  return getDesktopNotificationSettings();
 }
 
 function getTitlebarTheme() {
@@ -641,7 +693,7 @@ function runBackgroundMailAction(action, messageId) {
 }
 
 function showNewMailNotification({ title, body, count, messageId, accountId, folder, message } = {}) {
-  if (!getDesktopNotificationSettings().enabled) {
+  if (!readNotificationPreference().enabled) {
     return { shown: false, reason: 'disabled' };
   }
 
@@ -706,8 +758,11 @@ function showNewMailNotification({ title, body, count, messageId, accountId, fol
 
 // Renders exactly the same native `Notification` type as a new-mail alert so the
 // settings button proves the real OS integration instead of a renderer toast.
+// It resolves on Electron's own 'show' / 'failed' events: reporting `{shown:true}`
+// right after show() would claim success even when Windows silently drops the
+// toast because notifications are turned off for Inboxora.
 function showTestNotification(payload) {
-  if (!getDesktopNotificationSettings().enabled) {
+  if (!readNotificationPreference().enabled) {
     return { shown: false, reason: 'disabled' };
   }
 
@@ -723,32 +778,50 @@ function showTestNotification(payload) {
     return { shown: false, reason: 'invalid' };
   }
 
-  const notification = new Notification({
-    title: normalized.title,
-    body: normalized.body,
-    icon: getIconPath(),
-    silent: true,
-  });
+  return new Promise((resolve) => {
+    let settled = false;
+    let timer = null;
 
-  notification.on('click', () => {
-    showMainWindow();
-  });
-  notification.show();
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      resolve(result);
+    };
 
-  return { shown: true };
+    const notification = new Notification({
+      title: normalized.title,
+      body: normalized.body,
+      icon: getIconPath(),
+      silent: true,
+    });
+
+    notification.on('show', () => finish({ shown: true, confirmed: true }));
+    notification.on('failed', (_event, error) => {
+      const message = String((error && error.message) || error || '').slice(0, NEW_MAIL_NOTIFICATION_MAX_LENGTH);
+      finish({ shown: false, reason: 'failed', error: message });
+    });
+    notification.on('click', () => {
+      showMainWindow();
+    });
+
+    // Several desktops raise neither event (a Linux session without a notification
+    // daemon, for example). "Handed to the system but unconfirmed" is the honest
+    // answer there, and the settings card words it that way.
+    timer = setTimeout(() => finish({ shown: true, confirmed: false }), TEST_NOTIFICATION_TIMEOUT_MS);
+    notification.show();
+  });
 }
 
 // Deep-links into the OS notification settings so a user whose system blocks
 // Inboxora toasts has a one-click way to re-enable them. Linux has no portable
 // settings URI, so the caller is told nothing was opened instead of guessing.
 async function openSystemNotificationSettings() {
+  if (!canOpenSystemNotificationSettings()) return { opened: false };
+
   const target = process.platform === 'win32'
     ? 'ms-settings:notifications'
-    : process.platform === 'darwin'
-      ? 'x-apple.systempreferences:com.apple.preference.notifications'
-      : null;
-
-  if (!target) return { opened: false };
+    : 'x-apple.systempreferences:com.apple.preference.notifications';
 
   try {
     await shell.openExternal(target);
@@ -1464,23 +1537,56 @@ function setupMenu() {
   Menu.setApplicationMenu(null);
 }
 
-// Native clipboard shortcuts keep working without a menu on Windows/Linux; only
-// Reload and Full Screen came from the menu's accelerators.
+// Native clipboard shortcuts keep working without a menu on Windows/Linux, but
+// accelerators otherwise live on application-menu items — so removing the menu
+// also removes them. Everything the old File/View/Window menus offered is
+// re-registered here instead of being silently dropped.
 function registerWindowAccelerators(webContents) {
   if (keepsApplicationMenuBar(process.platform)) return;
+
+  const getTarget = () => {
+    const target = BrowserWindow.fromWebContents(webContents);
+    return target && !target.isDestroyed() ? target : null;
+  };
 
   webContents.on('before-input-event', (event, input) => {
     if (input.type !== 'keyDown' || input.isAutoRepeat) return;
 
-    if (input.control && !input.alt && !input.meta && (input.key === 'r' || input.key === 'R')) {
-      event.preventDefault();
-      webContents.reload();
-      return;
+    if (input.control && !input.alt && !input.meta) {
+      const key = String(input.key || '').toLowerCase();
+
+      if (key === 'r') {
+        event.preventDefault();
+        webContents.reload();
+        return;
+      }
+
+      // Close funnels through the existing 'close' handler, so Ctrl+W keeps
+      // meaning "hide to the tray" (and quits for real once the app is quitting).
+      if (key === 'w') {
+        event.preventDefault();
+        getTarget()?.close();
+        return;
+      }
+
+      if (key === 'm') {
+        event.preventDefault();
+        getTarget()?.minimize();
+        return;
+      }
+
+      // Preserved from the old File menu (and still Command+, on macOS): Change
+      // Inboxora Host, not Preferences.
+      if (key === ',') {
+        event.preventDefault();
+        changeInboxoraHost();
+        return;
+      }
     }
 
     if (input.key === 'F11') {
-      const target = BrowserWindow.fromWebContents(webContents);
-      if (!target || target.isDestroyed()) return;
+      const target = getTarget();
+      if (!target) return;
       event.preventDefault();
       target.setFullScreen(!target.isFullScreen());
     }
@@ -1586,17 +1692,6 @@ function showMainWindow({ reload = false } = {}) {
   if (reload && wasHidden) {
     mainWindow.webContents.reload();
   }
-}
-
-// The live navigation history of the main window. Electron deprecated
-// `webContents.goBack()` / `goForward()` in favour of `navigationHistory`.
-function getNavigationHistory() {
-  if (!mainWindow || mainWindow.isDestroyed()) return null;
-  return mainWindow.webContents.navigationHistory || null;
-}
-
-function getNavigationState() {
-  return readNavigationState(getNavigationHistory());
 }
 
 function getTrayIcon() {
@@ -1740,18 +1835,6 @@ function createWindow() {
 
   registerWindowAccelerators(mainWindow.webContents);
 
-  // Back / forward availability for the custom title bar. `did-navigate-in-page`
-  // makes the arrows correct for the SPA history (pushState) too; the renderer
-  // never gets to supply a URL, so a blocked external navigation can never be
-  // reached through this path.
-  const publishNavigationState = () => {
-    if (!mainWindow || mainWindow.isDestroyed()) return;
-    if (!mainWindow.webContents || mainWindow.webContents.isDestroyed()) return;
-    mainWindow.webContents.send('inboxora:navigation:state', getNavigationState());
-  };
-  mainWindow.webContents.on('did-navigate', publishNavigationState);
-  mainWindow.webContents.on('did-navigate-in-page', publishNavigationState);
-
   const navigationPolicy = createNavigationPolicy(readHost);
   const internalPages = new Set([
     pathToFileURL(path.join(__dirname, '..', 'native-shell', 'index.html')).toString(),
@@ -1878,6 +1961,39 @@ function isTrustedIpcSender(event) {
   return event.sender === mainWindow.webContents;
 }
 
+/**
+ * Stricter check for the channels the Inboxora UI owns.
+ *
+ * `event.sender === mainWindow.webContents` is not enough: the same webContents
+ * also hosts the local setup page and, while the navigation policy is in its
+ * OIDC window, an identity-provider document. Those documents share the sender,
+ * so the frame origin has to match the configured Inboxora host as well.
+ */
+function assertTrustedAppSender(event) {
+  if (!isTrustedIpcSender(event)) {
+    throw new Error('Untrusted IPC sender');
+  }
+
+  let frame = null;
+  try {
+    frame = event.senderFrame;
+  } catch {
+    frame = null;
+  }
+  if (!frame) throw new Error('Untrusted IPC sender');
+
+  const host = readHost();
+  if (!host) throw new Error('Untrusted IPC sender');
+
+  const origin = typeof frame.origin === 'string' && frame.origin && frame.origin !== 'null'
+    ? frame.origin
+    : (typeof frame.url === 'string' ? frame.url : '');
+
+  if (!origin || !isSameOrigin(host, origin)) {
+    throw new Error('Untrusted IPC sender');
+  }
+}
+
 function assertTrustedIpcSender(event) {
   if (!isTrustedIpcSender(event)) {
     throw new Error('Untrusted IPC sender');
@@ -1919,54 +2035,37 @@ ipcMain.handle('inboxora:badge:set-unread-count', (_event, count) => {
 });
 
 ipcMain.handle('inboxora:notification:new-mail', (event, notification) => {
-  assertTrustedIpcSender(event);
+  assertTrustedAppSender(event);
   return showNewMailNotification(notification);
 });
 
 ipcMain.handle('inboxora:notifications:get-settings', (event) => {
-  assertTrustedIpcSender(event);
+  assertTrustedAppSender(event);
   return getDesktopNotificationSettings();
 });
 
 ipcMain.handle('inboxora:notifications:set-enabled', (event, enabled) => {
-  assertTrustedIpcSender(event);
+  assertTrustedAppSender(event);
   return setDesktopNotificationEnabled(enabled);
 });
 
 ipcMain.handle('inboxora:notifications:is-supported', (event) => {
-  assertTrustedIpcSender(event);
+  assertTrustedAppSender(event);
   return Notification.isSupported();
 });
 
 ipcMain.handle('inboxora:notifications:test', (event, payload) => {
-  assertTrustedIpcSender(event);
+  assertTrustedAppSender(event);
   return showTestNotification(payload);
 });
 
 ipcMain.handle('inboxora:notifications:open-settings', (event) => {
-  assertTrustedIpcSender(event);
+  assertTrustedAppSender(event);
   return openSystemNotificationSettings();
 });
 
-ipcMain.handle('inboxora:navigation:get-state', (event) => {
-  assertTrustedIpcSender(event);
-  return getNavigationState();
-});
-
-ipcMain.handle('inboxora:navigation:back', (event) => {
-  assertTrustedIpcSender(event);
-  invokeNavigation(getNavigationHistory(), 'goBack');
-  return getNavigationState();
-});
-
-ipcMain.handle('inboxora:navigation:forward', (event) => {
-  assertTrustedIpcSender(event);
-  invokeNavigation(getNavigationHistory(), 'goForward');
-  return getNavigationState();
-});
-
 ipcMain.handle('inboxora:titlebar:set-theme', (event, theme) => {
-  assertTrustedIpcSender(event);
+  assertTrustedAppSender(event);
   const persisted = persistTitlebarTheme(theme);
   if (!persisted) return { applied: false };
 

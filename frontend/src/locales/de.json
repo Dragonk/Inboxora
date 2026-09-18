@@ -1989,16 +1989,19 @@
       "description": "Desktop-Benachrichtigungen für neue E-Mails anzeigen, auch wenn Inboxora im Infobereich ausgeblendet ist.",
       "enable": "Benachrichtigungen bei neuen E-Mails",
       "enableDesc": "Bei jeder neuen E-Mail eine Systembenachrichtigung anzeigen.",
-      "statusOn": "Systembenachrichtigungen sind aktiv",
+      "statusOn": "Benachrichtigungen in Inboxora aktiviert",
       "statusOff": "Systembenachrichtigungen sind ausgeschaltet",
+      "statusVerified": "Systembenachrichtigungen funktionieren",
+      "statusBlockedOs": "Benachrichtigungen sind im Betriebssystem ausgeschaltet",
       "statusUnsupported": "Dieses System unterstützt keine Benachrichtigungen",
       "test": "Testbenachrichtigung senden",
       "testBody": "Systembenachrichtigungen funktionieren ordnungsgemäß.",
-      "testSent": "Testbenachrichtigung gesendet.",
+      "testSent": "Das Betriebssystem hat die Testbenachrichtigung bestätigt.",
       "testBlocked": "Benachrichtigungen sind ausgeschaltet, deshalb wurde nichts angezeigt.",
       "testFailed": "Die Testbenachrichtigung konnte nicht angezeigt werden.",
       "permissionHint": "Benachrichtigungen für Inboxora sind möglicherweise im Betriebssystem ausgeschaltet.",
-      "openSystemSettings": "Einstellungen für Systembenachrichtigungen öffnen"
+      "openSystemSettings": "Einstellungen für Systembenachrichtigungen öffnen",
+      "testSentUnconfirmed": "Testbenachrichtigung gesendet, aber das Betriebssystem hat sie nicht bestätigt."
     }
   }
 }

@@ -20,10 +20,15 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.3](wiki/R
   close-to-tray are unchanged, and the bar's colours follow the active Inboxora theme
   (light or dark) without a restart. The web/PWA build and the Android build render no
   desktop title bar.
+- Back / Forward in the desktop title bar walk Inboxora's own view history (mail → message →
+  Calendar → Contacts → Settings, including the selected account, folder and open message)
+  instead of the browser's navigation history, which only ever contained login/OIDC pages
+  because Inboxora swaps application state rather than loading documents.
 - The visible `File / Edit / View / Window / Help` menu bar is removed on Windows and Linux.
-  Its still-useful accelerators are re-registered on the window (`Ctrl+R` reload, `F11` full
-  screen) and native clipboard shortcuts are unaffected; Change Host and Quit remain in the
-  tray, and macOS keeps its system application menu.
+  Its accelerators are re-registered on the window — `Ctrl+R` reload, `F11` full screen,
+  `Ctrl+W` close (still hide-to-tray), `Ctrl+M` minimize and `Ctrl+,` Change Inboxora Host —
+  and native clipboard shortcuts are unaffected; Change Host and Quit remain in the tray, and
+  macOS keeps its system application menu.
 - Desktop native notifications are now controlled by Inboxora instead of being unconditional.
   The preference lives in Settings → Notifications → *System notifications* and is stored
   locally per installation (`desktopNotifications.enabled`, default on) in the Electron config
@@ -31,25 +36,37 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.3](wiki/R
   VAPID. The Electron main process reads it before showing anything, so turning notifications
   off blocks them on every path, not just in the React layer.
 - Inside the desktop shell the Web Push / VAPID settings section is replaced by the
-  system-notification settings, and the app no longer restores or creates a Web Push
-  subscription there. Electron shows native notifications only from the Inboxora WebSocket, so
-  a single message can no longer produce two operating-system notifications. Browser and PWA
-  Web Push are unchanged.
+  system-notification settings, the app no longer registers its service worker there (it
+  existed only for Web Push), and an existing Web Push subscription left by an earlier desktop
+  build is unsubscribed and unregistered on first run. Electron shows native notifications only
+  from the Inboxora WebSocket, so a single message can no longer produce two operating-system
+  notifications. Browser and PWA Web Push are unchanged.
+- The desktop notification status line no longer claims more than it knows. `Notification`
+  support, the Inboxora switch and the operating-system state are reported separately; on
+  Windows the OS state is read from the notification registry instead of being assumed from
+  support alone, and the wording is "enabled in Inboxora" until a test notification is actually
+  confirmed.
 
 ### Added
 
-- Desktop notifications settings section (Electron only): enable/disable, live support status,
+- Desktop notifications settings section (Electron only): enable/disable, an honest status line,
   and a *Send test notification* button that goes renderer → preload → IPC → Electron
-  `Notification` and therefore proves the real OS integration rather than a renderer toast. If
-  the test fails, a shortcut opens the operating system's notification settings (Windows and
-  macOS).
-- Scoped Electron IPC for the desktop features — notification settings/test, navigation
-  state/back/forward and title-bar theming — exposed through the sandboxed preload, with
-  sender validation in the main process and strict validation of every value it accepts.
-- Regression tests: `frontend/packages/electron/desktop-settings.test.cjs` for the notification
-  preference, overlay-theme validation, menu/overlay platform policy and navigation helpers,
-  and `frontend/src/utils/desktopShell.test.ts` for shell detection, the title-bar height
-  contract and theme-colour parsing.
+  `Notification`. The result is what the operating system reported — `confirmed` only after
+  Electron's `show` event, a distinct "sent but not confirmed" state when no event arrives, and
+  the failure reason otherwise — so a silently blocked Windows toast is visible instead of
+  reported as success. A shortcut to the operating system's notification settings is always
+  available where the platform provides one (Windows and macOS), not only after a failure.
+- Scoped Electron IPC for the desktop features — notification settings/test and title-bar
+  theming — exposed through the sandboxed preload, with sender *and* sender-frame-origin
+  validation in the main process (the same webContents also hosts the setup page and, during
+  an OIDC login, the identity provider's document) plus strict validation of every accepted
+  value.
+- Regression tests: `frontend/packages/electron/desktop-settings.test.cjs` (notification
+  preference, overlay-theme validation, menu/overlay platform policy, Windows registry state
+  parsing), `frontend/src/utils/desktopShell.test.ts` (shell detection, title-bar height
+  contract, theme-colour parsing), `frontend/src/utils/viewHistory.test.ts` (the Back/Forward
+  history rules) and `frontend/src/utils/desktopWebPushCleanup.test.ts` (the Web Push
+  migration).
 - The canonical repository is now a standalone GitHub repository,
   [`Dragonk/Inboxora`](https://github.com/Dragonk/Inboxora), which is no longer a fork of MailFlow
   and is no longer part of its fork network. Git history, branches, tags, release assets, labels

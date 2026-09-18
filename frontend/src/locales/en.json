@@ -1989,16 +1989,19 @@
       "description": "Show desktop notifications for new mail, including while Inboxora is hidden in the tray.",
       "enable": "New mail notifications",
       "enableDesc": "Show a system notification whenever new mail arrives.",
-      "statusOn": "System notifications are active",
+      "statusOn": "Notifications enabled in Inboxora",
       "statusOff": "System notifications are turned off",
+      "statusVerified": "System notifications are working",
+      "statusBlockedOs": "Notifications are turned off in your operating system",
       "statusUnsupported": "This system does not support notifications",
       "test": "Send test notification",
       "testBody": "System notifications are working correctly.",
-      "testSent": "Test notification sent.",
+      "testSent": "The operating system confirmed the test notification.",
       "testBlocked": "Notifications are turned off, so nothing was shown.",
       "testFailed": "The test notification could not be shown.",
       "permissionHint": "Notifications for Inboxora may be turned off in your operating system.",
-      "openSystemSettings": "Open system notification settings"
+      "openSystemSettings": "Open system notification settings",
+      "testSentUnconfirmed": "Test notification sent, but the operating system did not confirm it."
     }
   }
 }

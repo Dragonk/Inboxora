@@ -110,46 +110,46 @@ function sanitizeNotificationText(value, fallback = '') {
   return text.slice(0, NOTIFICATION_TEXT_MAX_LENGTH - 1) + '…';
 }
 
-/**
- * Read back / forward availability from a `webContents.navigationHistory`-like
- * object. Any failure (missing API on an old Electron, destroyed contents)
- * reports "not available" rather than throwing into an IPC reply.
- */
-function readNavigationState(history) {
-  try {
-    return {
-      canGoBack: Boolean(history && typeof history.canGoBack === 'function' && history.canGoBack()),
-      canGoForward: Boolean(history && typeof history.canGoForward === 'function' && history.canGoForward()),
-    };
-  } catch {
-    return { canGoBack: false, canGoForward: false };
-  }
+// `reg query` prints one `NAME    TYPE    VALUE` row per line. Both keys below are
+// DWORDs; a missing value/key means "never configured", which is not the same as
+// "disabled", so it must not be reported as blocked.
+function readRegDword(output, name) {
+  const pattern = new RegExp(`^\\s*${name}\\s+REG_DWORD\\s+0x([0-9a-fA-F]+)\\s*$`, 'm');
+  const match = String(output || '').match(pattern);
+  if (!match) return null;
+  return match[1] !== '0';
 }
 
 /**
- * Invoke a `navigationHistory` method (`goBack` / `goForward`) when it exists.
- * Returns whether the call was actually attempted.
+ * Whether Windows itself will show Inboxora's toasts.
+ *
+ * `Notification.isSupported()` only says the process *can* raise notifications —
+ * Windows silently drops them when the user turned them off. The two registry
+ * values below are what the Settings app writes, so reading them turns "we sent
+ * it" into "the OS will actually show it".
+ *
+ * @returns true (enabled) | false (disabled) | null (not configured / unknown)
  */
-function invokeNavigation(history, method) {
-  try {
-    if (!history || typeof history[method] !== 'function') return false;
-    history[method]();
-    return true;
-  } catch {
-    return false;
-  }
+function parseWindowsNotificationsEnabled(perAppOutput, globalOutput) {
+  const perApp = readRegDword(perAppOutput, 'Enabled');
+  const global = readRegDword(globalOutput, 'ToastEnabled');
+
+  if (global === false) return false;
+  if (perApp === false) return false;
+  if (perApp === true) return true;
+  if (global === true) return true;
+  return null;
 }
 
 module.exports = {
   DEFAULT_DESKTOP_NOTIFICATIONS,
   DEFAULT_TITLEBAR_THEME,
   TITLEBAR_HEIGHT,
-  invokeNavigation,
   keepsApplicationMenuBar,
   normalizeTestNotification,
   normalizeTitlebarTheme,
+  parseWindowsNotificationsEnabled,
   readDesktopNotificationSettings,
-  readNavigationState,
   readTitlebarTheme,
   usesTitleBarOverlay,
   withDesktopNotificationEnabled,

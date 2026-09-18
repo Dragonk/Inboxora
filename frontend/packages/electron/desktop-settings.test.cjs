@@ -97,29 +97,33 @@ test('test notification payloads are trimmed, collapsed and length-bounded', () 
   assert.equal(settings.normalizeTestNotification(null), null);
 });
 
-test('navigation state tolerates a missing or throwing navigation history', () => {
-  assert.deepEqual(settings.readNavigationState(undefined), { canGoBack: false, canGoForward: false });
-  assert.deepEqual(
-    settings.readNavigationState({ canGoBack: () => true, canGoForward: () => false }),
-    { canGoBack: true, canGoForward: false },
-  );
-  assert.deepEqual(
-    settings.readNavigationState({ canGoBack() { throw new Error('destroyed'); }, canGoForward: () => true }),
-    { canGoBack: false, canGoForward: false },
+test('reads the Windows notification state that Notification.isSupported() cannot report', () => {
+  const enabled = 'HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Notifications\\Settings\\io.github.dragonk.inboxora\r\n    Enabled    REG_DWORD    0x1\r\n';
+  const disabled = '    Enabled    REG_DWORD    0x0\r\n';
+  const globalOn = '    ToastEnabled    REG_DWORD    0x1\r\n';
+  const globalOff = '    ToastEnabled    REG_DWORD    0x0\r\n';
+
+  // Per-app setting wins, and a globally disabled toast surface blocks everything.
+  assert.equal(settings.parseWindowsNotificationsEnabled(enabled, globalOn), true);
+  assert.equal(settings.parseWindowsNotificationsEnabled(disabled, globalOn), false);
+  assert.equal(settings.parseWindowsNotificationsEnabled(enabled, globalOff), false);
+  assert.equal(settings.parseWindowsNotificationsEnabled(disabled, globalOff), false);
+
+  // Inboxora has no per-app value yet: inherit the global one.
+  assert.equal(settings.parseWindowsNotificationsEnabled('', globalOn), true);
+  assert.equal(settings.parseWindowsNotificationsEnabled('', globalOff), false);
+
+  // Neither key present (or unreadable output) is "unknown", never "blocked".
+  assert.equal(settings.parseWindowsNotificationsEnabled('', ''), null);
+  assert.equal(settings.parseWindowsNotificationsEnabled(undefined, undefined), null);
+  assert.equal(
+    settings.parseWindowsNotificationsEnabled('ERROR: The system was unable to find the specified registry key', ''),
+    null,
   );
 });
 
-test('navigation invocation only calls an existing method and reports the attempt', () => {
-  const calls = [];
-  const history = {
-    goBack: () => calls.push('back'),
-    goForward: () => calls.push('forward'),
-  };
-
-  assert.equal(settings.invokeNavigation(history, 'goBack'), true);
-  assert.equal(settings.invokeNavigation(history, 'goForward'), true);
-  assert.deepEqual(calls, ['back', 'forward']);
-
-  assert.equal(settings.invokeNavigation(undefined, 'goBack'), false);
-  assert.equal(settings.invokeNavigation({ goBack() { throw new Error('no entry'); } }, 'goBack'), false);
+test('Windows registry parsing ignores a stray value that only looks similar', () => {
+  // "Disabled" must not satisfy the "Enabled" match, and a REG_SZ is not a DWORD.
+  assert.equal(settings.parseWindowsNotificationsEnabled('    Disabled    REG_DWORD    0x0', ''), null);
+  assert.equal(settings.parseWindowsNotificationsEnabled('    Enabled    REG_SZ    0', ''), null);
 });

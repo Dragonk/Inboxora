@@ -1989,16 +1989,19 @@
       "description": "为新邮件显示系统通知，即使 Inboxora 隐藏在托盘中。",
       "enable": "新邮件通知",
       "enableDesc": "每封新邮件到达时显示系统通知。",
-      "statusOn": "系统通知已启用",
+      "statusOn": "已在 Inboxora 中启用通知",
       "statusOff": "系统通知已关闭",
+      "statusVerified": "系统通知正常工作",
+      "statusBlockedOs": "操作系统中的通知已关闭",
       "statusUnsupported": "此系统不支持通知",
       "test": "发送测试通知",
       "testBody": "系统通知工作正常。",
-      "testSent": "测试通知已发送。",
+      "testSent": "操作系统已确认测试通知。",
       "testBlocked": "通知已关闭，因此没有显示任何内容。",
       "testFailed": "无法显示测试通知。",
       "permissionHint": "操作系统可能已关闭 Inboxora 的通知。",
-      "openSystemSettings": "打开系统通知设置"
+      "openSystemSettings": "打开系统通知设置",
+      "testSentUnconfirmed": "测试通知已发送，但操作系统未确认。"
     }
   }
 }

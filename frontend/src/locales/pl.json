@@ -1989,16 +1989,19 @@
       "description": "Wyświetlaj powiadomienia systemowe o nowych wiadomościach, również gdy Inboxora jest ukryta w zasobniku systemowym.",
       "enable": "Powiadomienia o nowych wiadomościach",
       "enableDesc": "Pokazuj powiadomienie systemowe przy każdym nowym mailu.",
-      "statusOn": "Powiadomienia systemowe są aktywne",
+      "statusOn": "Powiadomienia włączone w Inboxorze",
       "statusOff": "Powiadomienia systemowe są wyłączone",
+      "statusVerified": "Powiadomienia systemowe działają",
+      "statusBlockedOs": "Powiadomienia są wyłączone w systemie operacyjnym",
       "statusUnsupported": "Ten system nie obsługuje powiadomień",
       "test": "Wyślij powiadomienie testowe",
       "testBody": "Powiadomienia systemowe działają poprawnie.",
-      "testSent": "Wysłano powiadomienie testowe.",
+      "testSent": "System operacyjny potwierdził powiadomienie testowe.",
       "testBlocked": "Powiadomienia są wyłączone, więc nic nie zostało wyświetlone.",
       "testFailed": "Nie udało się wyświetlić powiadomienia testowego.",
       "permissionHint": "Powiadomienia dla Inboxory mogą być wyłączone w systemie operacyjnym.",
-      "openSystemSettings": "Otwórz ustawienia powiadomień systemowych"
+      "openSystemSettings": "Otwórz ustawienia powiadomień systemowych",
+      "testSentUnconfirmed": "Wysłano powiadomienie testowe, ale system operacyjny go nie potwierdził."
     }
   }
 }

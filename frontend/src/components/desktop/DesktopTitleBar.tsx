@@ -5,6 +5,7 @@ import { useStore } from '../../store/index.ts';
 import type { StoreState } from '../../store/index.ts';
 import { shortcutBus } from '../../utils/shortcutBus.ts';
 import { desktopTitlebarHeight, isElectronShell, isMacDesktopShell, syncDesktopTitlebarTheme } from '../../utils/desktopShell.ts';
+import { navigateAppHistory, useAppViewHistoryState } from './useAppViewHistory.tsx';
 
 /**
  * Integrated title bar for the Electron shell.
@@ -15,29 +16,76 @@ import { desktopTitlebarHeight, isElectronShell, isMacDesktopShell, syncDesktopT
  * It renders nothing in the browser and in the Capacitor shell: the web build
  * must not gain desktop-only chrome.
  *
- * Resolution is fixed for the page load (the Electron preload runs before the
- * bundle), so computing it once at module scope is safe and keeps the render free
- * of a conditional hook.
+ * Back / Forward walk Inboxora's own view history (see useAppViewHistory), not
+ * `webContents.navigationHistory`: the app swaps Zustand state rather than
+ * loading documents, so the browser history only ever held login/OAuth pages.
+ *
+ * Shell detection is fixed for the page load (the Electron preload runs before
+ * the bundle), so the outer component needs no hooks and can decide up front.
  */
 const ELECTRON_SHELL = isElectronShell();
 
 interface DesktopTitleBarProps {
   /**
-   * 'full'   — the complete bar with navigation, search and settings (main app).
-   * 'drag'   — a drag-only strip for screens without an app toolbar (login/lock),
-   *            so a hidden-title-bar window can still be moved.
+   * 'full' — the complete bar with navigation, search and settings (main app).
+   * 'drag' — a drag-only strip for screens without an app toolbar (login/lock),
+   *          so a hidden-title-bar window can still be moved.
    */
   variant?: 'full' | 'drag';
 }
 
-interface NavigationState {
-  canGoBack: boolean;
-  canGoForward: boolean;
+/** Keep the native overlay colours in step with the resolved Inboxora theme. */
+function useTitlebarThemeSync() {
+  useEffect(() => {
+    if (!ELECTRON_SHELL) return undefined;
+
+    let scheduled = false;
+    const schedule = () => {
+      if (scheduled) return;
+      scheduled = true;
+      window.requestAnimationFrame(() => {
+        scheduled = false;
+        syncDesktopTitlebarTheme();
+      });
+    };
+
+    syncDesktopTitlebarTheme();
+    const observer = new MutationObserver(schedule);
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-mailflow-theme'] });
+    observer.observe(document.head, { childList: true, subtree: true, characterData: true });
+
+    const media = window.matchMedia?.('(prefers-color-scheme: dark)');
+    media?.addEventListener?.('change', schedule);
+
+    return () => {
+      observer.disconnect();
+      media?.removeEventListener?.('change', schedule);
+    };
+  }, []);
 }
 
-function readNavigationState(value: unknown): NavigationState {
-  const state = (value ?? {}) as { canGoBack?: unknown; canGoForward?: unknown };
-  return { canGoBack: state.canGoBack === true, canGoForward: state.canGoForward === true };
+function titlebarLayout(): CSSProperties {
+  const height = desktopTitlebarHeight();
+  // The overlay reports where the native window controls live, so content never
+  // slides under them (RTL or a left-hand controls layout included). On macOS the
+  // traffic lights sit in the top-left, hence the extra inset.
+  const paddingLeft = isMacDesktopShell()
+    ? 'calc(env(titlebar-area-x, 0px) + 74px)'
+    : 'calc(env(titlebar-area-x, 0px) + 10px)';
+  const paddingRight = 'calc(100% - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100%))';
+
+  return {
+    height,
+    flexShrink: 0,
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+    paddingLeft,
+    paddingRight,
+    boxSizing: 'border-box',
+    background: 'var(--bg-primary)',
+    borderBottom: '1px solid var(--border-subtle)',
+  };
 }
 
 function TitlebarButton({ label, disabled = false, onClick, children }: {
@@ -75,8 +123,21 @@ function TitlebarButton({ label, disabled = false, onClick, children }: {
   );
 }
 
-export default function DesktopTitleBar({ variant = 'full' }: DesktopTitleBarProps) {
+/** Drag-only strip: no app toolbar exists yet, but the window must be movable. */
+function DesktopDragStrip() {
+  useTitlebarThemeSync();
+  return (
+    <div
+      data-testid="desktop-titlebar-drag"
+      className="desktop-titlebar"
+      style={{ ...titlebarLayout(), position: 'fixed', top: 0, left: 0, right: 0, zIndex: 9000 }}
+    />
+  );
+}
+
+function DesktopTitleBarContent() {
   const { t } = useTranslation();
+  const navigation = useAppViewHistoryState();
   const searchQuery = useStore((state: StoreState) => state.searchQuery);
   const setSearchQuery = useStore((state: StoreState) => state.setSearchQuery);
   const setShowAdmin = useStore((state: StoreState) => state.setShowAdmin);
@@ -84,79 +145,19 @@ export default function DesktopTitleBar({ variant = 'full' }: DesktopTitleBarPro
   const setShowContacts = useStore((state: StoreState) => state.setShowContacts);
   const setShowCalendar = useStore((state: StoreState) => state.setShowCalendar);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
-  const [navigation, setNavigation] = useState<NavigationState>({ canGoBack: false, canGoForward: false });
+
+  useTitlebarThemeSync();
 
   const focusSearch = useCallback(() => {
     searchInputRef.current?.focus();
     searchInputRef.current?.select();
   }, []);
 
-  const goBack = useCallback(() => {
-    window.inboxoraNative?.navigation?.back?.()
-      .then((state) => setNavigation(readNavigationState(state)))
-      .catch(() => {});
-  }, []);
-
-  const goForward = useCallback(() => {
-    window.inboxoraNative?.navigation?.forward?.()
-      .then((state) => setNavigation(readNavigationState(state)))
-      .catch(() => {});
-  }, []);
-
-  // Keep the native overlay colours in step with the resolved Inboxora theme.
-  // `--bg-primary` is written by applyTheme() into a <style> element, so the
-  // observer watches both the head (style text) and the root theme attribute.
-  useEffect(() => {
-    if (!ELECTRON_SHELL) return undefined;
-
-    let scheduled = false;
-    const schedule = () => {
-      if (scheduled) return;
-      scheduled = true;
-      window.requestAnimationFrame(() => {
-        scheduled = false;
-        syncDesktopTitlebarTheme();
-      });
-    };
-
-    syncDesktopTitlebarTheme();
-    const observer = new MutationObserver(schedule);
-    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-mailflow-theme'] });
-    observer.observe(document.head, { childList: true, subtree: true, characterData: true });
-
-    const media = window.matchMedia?.('(prefers-color-scheme: dark)');
-    media?.addEventListener?.('change', schedule);
-
-    return () => {
-      observer.disconnect();
-      media?.removeEventListener?.('change', schedule);
-    };
-  }, []);
-
-  // Back / forward availability, including in-page (SPA) history entries.
-  useEffect(() => {
-    if (!ELECTRON_SHELL || variant !== 'full') return undefined;
-
-    const unsubscribe = window.inboxoraNative?.navigation?.onStateChanged?.((state) => {
-      setNavigation(readNavigationState(state));
-    });
-    window.inboxoraNative?.navigation?.getState?.()
-      .then((state) => setNavigation(readNavigationState(state)))
-      .catch(() => {});
-
-    return () => {
-      if (typeof unsubscribe === 'function') unsubscribe();
-    };
-  }, [variant]);
-
   // The message list owns the '/' shortcut; Ctrl/Cmd+E is the desktop titlebar
   // equivalent and must not steal Ctrl+K from the command palette.
   useEffect(() => {
-    if (!ELECTRON_SHELL || variant !== 'full') return undefined;
-
     shortcutBus.on('focusSearch', focusSearch);
-    // Cmd+E on macOS, Ctrl+E elsewhere. Deliberately not Ctrl+K: the command
-    // palette still owns that.
+    // Cmd+E on macOS, Ctrl+E elsewhere.
     const onKeyDown = (event: KeyboardEvent) => {
       const primaryModifier = isMacDesktopShell() ? event.metaKey : event.ctrlKey;
       if (primaryModifier && !event.altKey && !event.shiftKey && (event.key === 'e' || event.key === 'E')) {
@@ -170,41 +171,7 @@ export default function DesktopTitleBar({ variant = 'full' }: DesktopTitleBarPro
       shortcutBus.off('focusSearch', focusSearch);
       document.removeEventListener('keydown', onKeyDown);
     };
-  }, [focusSearch, variant]);
-
-  if (!ELECTRON_SHELL) return null;
-
-  const height = desktopTitlebarHeight();
-  // The overlay reports where the native window controls live, so content never
-  // slides under them (RTL or a left-hand controls layout included). On macOS the
-  // traffic lights sit in the top-left, hence the extra inset.
-  const paddingLeft = isMacDesktopShell()
-    ? 'calc(env(titlebar-area-x, 0px) + 74px)'
-    : 'calc(env(titlebar-area-x, 0px) + 10px)';
-  const paddingRight = 'calc(100% - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100%))';
-
-  const barStyle: CSSProperties = {
-    height,
-    flexShrink: 0,
-    display: 'flex',
-    alignItems: 'center',
-    gap: 6,
-    paddingLeft,
-    paddingRight,
-    boxSizing: 'border-box',
-    background: 'var(--bg-primary)',
-    borderBottom: '1px solid var(--border-subtle)',
-  };
-
-  if (variant === 'drag') {
-    return (
-      <div
-        data-testid="desktop-titlebar-drag"
-        className="desktop-titlebar"
-        style={{ ...barStyle, position: 'fixed', top: 0, left: 0, right: 0, zIndex: 9000 }}
-      />
-    );
-  }
+  }, [focusSearch]);
 
   const switchToMail = () => {
     setShowContacts(false);
@@ -212,13 +179,13 @@ export default function DesktopTitleBar({ variant = 'full' }: DesktopTitleBarPro
   };
 
   return (
-    <div data-testid="desktop-titlebar" className="desktop-titlebar" style={barStyle}>
-      <TitlebarButton label={t('common.back')} disabled={!navigation.canGoBack} onClick={goBack}>
+    <div data-testid="desktop-titlebar" className="desktop-titlebar" style={titlebarLayout()}>
+      <TitlebarButton label={t('common.back')} disabled={!navigation.canGoBack} onClick={() => navigateAppHistory('back')}>
         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
           <path d="m15 18-6-6 6-6" />
         </svg>
       </TitlebarButton>
-      <TitlebarButton label={t('desktop.titlebar.forward')} disabled={!navigation.canGoForward} onClick={goForward}>
+      <TitlebarButton label={t('desktop.titlebar.forward')} disabled={!navigation.canGoForward} onClick={() => navigateAppHistory('forward')}>
         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
           <path d="m9 18 6-6-6-6" />
         </svg>
@@ -282,4 +249,9 @@ export default function DesktopTitleBar({ variant = 'full' }: DesktopTitleBarPro
       </TitlebarButton>
     </div>
   );
+}
+
+export default function DesktopTitleBar({ variant = 'full' }: DesktopTitleBarProps) {
+  if (!ELECTRON_SHELL) return null;
+  return variant === 'drag' ? <DesktopDragStrip /> : <DesktopTitleBarContent />;
 }

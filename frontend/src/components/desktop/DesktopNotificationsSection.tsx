@@ -8,15 +8,47 @@ import { useTranslation } from 'react-i18next';
  * preference is stored locally by the Electron main process (never synced as an
  * account setting) and never depends on Web Push / VAPID. It replaces the Web
  * Push section in Settings when running inside the desktop shell.
+ *
+ * The status deliberately distinguishes three things that used to be conflated by
+ * `Notification.isSupported()`:
+ *   - the Inboxora switch (what this card controls),
+ *   - the operating system state (unreadable on Linux/macOS, read from the
+ *     registry on Windows),
+ *   - what a real test notification actually did ('show' / 'failed' / no event).
  */
-type TestOutcome = 'sent' | 'blocked' | 'failed';
+type TestOutcome = 'confirmed' | 'unconfirmed' | 'blocked' | 'failed';
+type OsState = 'enabled' | 'disabled' | 'unknown' | 'unsupported';
+
+interface DesktopNotificationSettings {
+  enabled: boolean;
+  supported: boolean;
+  osState: OsState;
+  canOpenSystemSettings: boolean;
+}
+
+const DEFAULTS: DesktopNotificationSettings = {
+  enabled: true,
+  supported: true,
+  osState: 'unknown',
+  canOpenSystemSettings: false,
+};
 
 const mutedStyle = { fontSize: 12, color: 'var(--text-tertiary)', maxWidth: 420, lineHeight: 1.5 } as const;
 
+function readSettings(value: unknown): DesktopNotificationSettings {
+  const settings = (value ?? {}) as Partial<DesktopNotificationSettings>;
+  const osState = settings.osState;
+  return {
+    enabled: typeof settings.enabled === 'boolean' ? settings.enabled : DEFAULTS.enabled,
+    supported: typeof settings.supported === 'boolean' ? settings.supported : DEFAULTS.supported,
+    osState: osState === 'enabled' || osState === 'disabled' || osState === 'unsupported' ? osState : 'unknown',
+    canOpenSystemSettings: settings.canOpenSystemSettings === true,
+  };
+}
+
 export default function DesktopNotificationsSection() {
   const { t } = useTranslation();
-  const [enabled, setEnabled] = useState(true);
-  const [supported, setSupported] = useState(true);
+  const [settings, setSettings] = useState<DesktopNotificationSettings>(DEFAULTS);
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
   const [testOutcome, setTestOutcome] = useState<TestOutcome | null>(null);
@@ -24,33 +56,32 @@ export default function DesktopNotificationsSection() {
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([
-      notifications?.getSettings?.().catch(() => undefined),
-      notifications?.isSupported?.().catch(() => undefined),
-    ]).then(([settings, isSupported]) => {
-      if (cancelled) return;
-      if (settings && typeof settings.enabled === 'boolean') setEnabled(settings.enabled);
-      if (typeof isSupported === 'boolean') setSupported(isSupported);
-      setLoaded(true);
-    });
+    notifications?.getSettings?.()
+      .then((value) => {
+        if (!cancelled) setSettings(readSettings(value));
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setLoaded(true);
+      });
     return () => { cancelled = true; };
   }, [notifications]);
 
   const toggle = useCallback(async () => {
-    if (busy) return;
-    const next = !enabled;
+    if (busy || !settings.supported) return;
+    const next = !settings.enabled;
     setBusy(true);
     setTestOutcome(null);
     try {
-      const settings = await notifications?.setEnabled?.(next);
-      setEnabled(settings && typeof settings.enabled === 'boolean' ? settings.enabled : next);
+      const value = await notifications?.setEnabled?.(next);
+      setSettings(readSettings(value ?? { ...settings, enabled: next }));
     } finally {
       setBusy(false);
     }
-  }, [busy, enabled, notifications]);
+  }, [busy, notifications, settings]);
 
   const sendTest = useCallback(async () => {
-    if (busy) return;
+    if (busy || !settings.supported || !settings.enabled) return;
     setBusy(true);
     setTestOutcome(null);
     try {
@@ -58,8 +89,11 @@ export default function DesktopNotificationsSection() {
         title: 'Inboxora',
         body: t('desktop.notifications.testBody'),
       });
-      if (result?.shown) {
-        setTestOutcome('sent');
+      if (result?.shown && result.confirmed) {
+        setTestOutcome('confirmed');
+      } else if (result?.shown) {
+        // Handed to the OS, but Electron reported neither 'show' nor 'failed'.
+        setTestOutcome('unconfirmed');
       } else if (result?.reason === 'disabled') {
         setTestOutcome('blocked');
       } else {
@@ -70,24 +104,61 @@ export default function DesktopNotificationsSection() {
     } finally {
       setBusy(false);
     }
-  }, [busy, notifications, t]);
+  }, [busy, notifications, settings.enabled, settings.supported, t]);
 
-  const statusColor = !supported || !enabled ? 'var(--text-tertiary)' : 'var(--green, #22c55e)';
+  const openSystemSettings = useCallback(() => {
+    notifications?.openSettings?.().catch(() => {});
+  }, [notifications]);
+
+  const { enabled, supported, osState, canOpenSystemSettings } = settings;
+  const verified = osState === 'enabled' || testOutcome === 'confirmed';
+  const blockedBySystem = supported && osState === 'disabled';
+
   const statusLabel = !supported
     ? t('desktop.notifications.statusUnsupported')
-    : enabled
-      ? t('desktop.notifications.statusOn')
-      : t('desktop.notifications.statusOff');
+    : blockedBySystem
+      ? t('desktop.notifications.statusBlockedOs')
+      : !enabled
+        ? t('desktop.notifications.statusOff')
+        : verified
+          ? t('desktop.notifications.statusVerified')
+          : t('desktop.notifications.statusOn');
+
+  const statusColor = !supported || !enabled
+    ? 'var(--text-tertiary)'
+    : blockedBySystem
+      ? 'var(--amber, #f59e0b)'
+      : verified
+        ? 'var(--green, #22c55e)'
+        : 'var(--accent)';
+
+  const testMessage = testOutcome === 'confirmed'
+    ? t('desktop.notifications.testSent')
+    : testOutcome === 'unconfirmed'
+      ? t('desktop.notifications.testSentUnconfirmed')
+      : testOutcome === 'blocked'
+        ? t('desktop.notifications.testBlocked')
+        : testOutcome === 'failed'
+          ? t('desktop.notifications.testFailed')
+          : null;
+
+  const testMessageColor = testOutcome === 'confirmed'
+    ? 'var(--green, #22c55e)'
+    : testOutcome === 'unconfirmed'
+      ? 'var(--text-tertiary)'
+      : 'var(--red, #ef4444)';
 
   const buttonStyle = (primary: boolean) => ({
     padding: '7px 14px', borderRadius: 7, fontSize: 13, fontWeight: 500,
-    cursor: busy || (primary && !supported) ? 'not-allowed' : 'pointer',
+    cursor: busy ? 'not-allowed' : 'pointer',
     background: primary ? 'var(--accent)' : 'transparent',
     color: primary ? 'white' : 'var(--text-secondary)',
     border: primary ? '1px solid transparent' : '1px solid var(--border)',
-    opacity: busy || (primary && !supported) ? 0.6 : 1,
+    opacity: busy ? 0.6 : 1,
     transition: 'all 0.15s',
   }) as const;
+
+  const showWarning = blockedBySystem || testOutcome === 'failed';
 
   return (
     <div style={{ marginTop: 32 }}>
@@ -141,7 +212,7 @@ export default function DesktopNotificationsSection() {
         </button>
       </div>
 
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 16 }}>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginTop: 16 }}>
         <button
           type="button"
           style={buttonStyle(true)}
@@ -150,35 +221,34 @@ export default function DesktopNotificationsSection() {
         >
           {t('desktop.notifications.test')}
         </button>
-        {testOutcome !== null && (
-          <span style={{
-            alignSelf: 'center', fontSize: 12,
-            color: testOutcome === 'sent' ? 'var(--green, #22c55e)' : 'var(--red, #ef4444)',
-          }}>
-            {testOutcome === 'sent'
-              ? t('desktop.notifications.testSent')
-              : testOutcome === 'blocked'
-                ? t('desktop.notifications.testBlocked')
-                : t('desktop.notifications.testFailed')}
-          </span>
+        {testMessage && testOutcome !== 'failed' && (
+          <span style={{ alignSelf: 'center', fontSize: 12, color: testMessageColor }}>{testMessage}</span>
         )}
       </div>
 
-      {testOutcome === 'failed' && (
+      {showWarning && (
         <div style={{
           marginTop: 16, padding: '12px 16px', borderRadius: 8,
           background: 'var(--bg-secondary)', border: '1px solid var(--border-subtle)',
           borderLeft: '3px solid var(--amber, #f59e0b)',
         }}>
           <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 10 }}>
+            {testMessage && testOutcome === 'failed' ? `${testMessage} ` : ''}
             {t('desktop.notifications.permissionHint')}
           </div>
-          <button
-            type="button"
-            style={buttonStyle(false)}
-            disabled={busy}
-            onClick={() => { notifications?.openSettings?.().catch(() => {}); }}
-          >
+          {canOpenSystemSettings && (
+            <button type="button" style={buttonStyle(false)} disabled={busy} onClick={openSystemSettings}>
+              {t('desktop.notifications.openSystemSettings')}
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Keep the shortcut reachable even when nothing looks wrong yet: the state
+          of a blocked OS is not always readable (Linux/macOS). */}
+      {!showWarning && canOpenSystemSettings && (
+        <div style={{ marginTop: 12 }}>
+          <button type="button" style={buttonStyle(false)} disabled={busy} onClick={openSystemSettings}>
             {t('desktop.notifications.openSystemSettings')}
           </button>
         </div>

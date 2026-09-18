@@ -32,12 +32,20 @@ interface InboxoraNativeUpdateStatus {
 
 interface InboxoraNativeNotificationSettings {
   enabled?: boolean;
+  /** Notification.isSupported() — the process can raise notifications. */
+  supported?: boolean;
+  /** Whether the OS itself will display them (Windows; 'unknown' elsewhere). */
+  osState?: 'enabled' | 'disabled' | 'unknown' | 'unsupported';
+  canOpenSystemSettings?: boolean;
   [key: string]: unknown;
 }
 
 interface InboxoraNativeNotificationResult {
   shown?: boolean;
+  /** True only when Electron reported the native 'show' event. */
+  confirmed?: boolean;
   reason?: string;
+  error?: string;
   [key: string]: unknown;
 }
 
@@ -57,19 +65,6 @@ interface InboxoraNativeNotifications {
   openHelp?(): Promise<InboxoraNativeStatus>;
   openSettings?(): Promise<InboxoraNativeStatus>;
   onPush?(callback: (notification: InboxoraNativePushNotification) => void): () => void;
-}
-
-interface InboxoraNativeNavigationState {
-  canGoBack?: boolean;
-  canGoForward?: boolean;
-  [key: string]: unknown;
-}
-
-interface InboxoraNativeNavigation {
-  back?(): Promise<InboxoraNativeNavigationState>;
-  forward?(): Promise<InboxoraNativeNavigationState>;
-  getState?(): Promise<InboxoraNativeNavigationState>;
-  onStateChanged?(callback: (state: InboxoraNativeNavigationState) => void): () => void;
 }
 
 interface InboxoraNativeTitlebar {
@@ -119,7 +114,6 @@ interface InboxoraNativeBridge {
   notifications?: InboxoraNativeNotifications;
   badges?: InboxoraNativeBadges;
   updates?: InboxoraNativeUpdates;
-  navigation?: InboxoraNativeNavigation;
   titlebar?: InboxoraNativeTitlebar;
   actions?: InboxoraNativeActions;
 }
