@@ -171,20 +171,20 @@ function readMailtoSettings() {
   }
 
   const userChoice = parseMailtoUserChoice(
-    queryWindowsRegistry(WINDOWS_MAILTO_USER_CHOICE_KEY, 'ProgId'),
+    queryWindowsRegistry(WINDOWS_MAILTO_USER_CHOICE_KEY, { valueName: 'ProgId' }),
   );
   // Complete, not merely present: a half-written registration must not be reported
   // as "registered".
   const registered = mailtoRegistrationHealth({
-    clientTree: queryWindowsRegistry(WINDOWS_MAIL_CLIENT_KEY, undefined, true),
+    clientTree: queryWindowsRegistry(WINDOWS_MAIL_CLIENT_KEY, { recursive: true }),
     registeredApplications: queryWindowsRegistry(WINDOWS_REGISTERED_APPLICATIONS_KEY),
-    progIdCommand: queryWindowsRegistry(`HKCU\\Software\\Classes\\${MAILTO_PROG_ID}\\shell\\open\\command`),
+    progIdCommand: queryWindowsRegistry(`HKCU\\Software\\Classes\\${MAILTO_PROG_ID}\\shell\\open\\command`, { defaultValue: true }),
   });
 
   return {
     supported: true,
     state: mailtoRegistrationState('win32', userChoice, registered),
-    isDefault: isDefaultMailtoHandler(userChoice),
+    isDefault: registered && isDefaultMailtoHandler(userChoice),
     currentHandler: userChoice,
     settingsUri: defaultAppsSettingsUri(os.release()),
     canOpenSettings: true,
@@ -311,11 +311,14 @@ function readOsNotificationState() {
 }
 
 // A missing key or value is normal (the user never changed the default), so an
-// unreadable query is "no data" rather than an error.
-function queryWindowsRegistry(key, valueName, recursive = false) {
+// unreadable query is "no data" rather than an error. `defaultValue` asks for the
+// empty-named value with `/ve`, so the result never depends on the localised label
+// reg.exe prints for it ("(Default)", "(Domyślna)", ...).
+function queryWindowsRegistry(key, { valueName, defaultValue = false, recursive = false } = {}) {
   try {
     const args = ['query', key];
-    if (valueName) args.push('/v', valueName);
+    if (defaultValue) args.push('/ve');
+    else if (valueName) args.push('/v', valueName);
     if (recursive) args.push('/s');
     return execFileSync('reg', args, { encoding: 'utf8', windowsHide: true });
   } catch {

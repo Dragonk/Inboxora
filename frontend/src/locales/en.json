@@ -2008,7 +2008,7 @@
       "description": "Make Inboxora the app Windows opens for email links (mailto:) and lists as your email client.",
       "statusDefault": "Inboxora is your default email app",
       "statusRegistered": "Inboxora is registered as an email app, but another app is currently the default",
-      "statusNotRegistered": "Inboxora is not registered as an email app yet",
+      "statusNotRegistered": "Inboxora is not registered as an email app",
       "statusUnsupported": "Choosing the default email app is only available in the Windows desktop app",
       "setDefault": "Set as default",
       "openSystemSettings": "Open Windows default apps",

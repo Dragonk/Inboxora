@@ -72,7 +72,9 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.3](wiki/R
   choice. Windows 10/11 do not let an application make itself the default, and the card says so
   instead of implying otherwise. The status requires a *complete* registration (the `mailto`
   association, the `RegisteredApplications` entry and the launch command), so a partially
-  written one is not reported as registered. The installer and the app both register the
+  written one is not reported as registered — not even when Windows still points at Inboxora,
+  which would otherwise claim a default that cannot work and hide the repair. The installer and
+  the app both register the
   email-client capabilities (now including `ApplicationIcon`) and the `Inboxora.mailto` ProgID,
   and the shell is told the associations changed (`SHChangeNotify(SHCNE_ASSOCCHANGED)`) after
   installing and after re-registering, so the Default apps page does not keep showing a stale

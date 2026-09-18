@@ -162,7 +162,9 @@ registers itself as an *available* one and hands the choice to the user:
   points at Inboxora's ProgID, the `RegisteredApplications` entry points at its
   capabilities, and the ProgID still has a launch command. A half-written
   registration (an interrupted upgrade, a cleaned-up key) reports
-  "not registered" and the button repairs it;
+  "not registered" and the button repairs it, **even when Windows still points at
+  Inboxora**: a handler that cannot launch is not a working default, and showing it
+  as the default would also hide the repair;
 - the state is re-read when the window regains focus, so returning from Windows
   Settings shows the result.
 

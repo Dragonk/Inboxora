@@ -2008,7 +2008,7 @@
       "description": "Rendi Inboxora l'app che Windows apre per i link e-mail (mailto:) e la elenca come client di posta.",
       "statusDefault": "Inboxora è la tua app di posta predefinita",
       "statusRegistered": "Inboxora è registrata come app di posta, ma al momento l'app predefinita è un'altra",
-      "statusNotRegistered": "Inboxora non è ancora registrata come app di posta",
+      "statusNotRegistered": "Inboxora non è registrata come app di posta",
       "statusUnsupported": "La scelta dell'app di posta predefinita è disponibile solo nell'app desktop per Windows",
       "setDefault": "Imposta come predefinita",
       "openSystemSettings": "Apri le app predefinite di Windows",

@@ -134,13 +134,27 @@ const WINDOWS_MAIL_CLIENT_KEY = 'HKCU\\Software\\Clients\\Mail\\Inboxora';
 const WINDOWS_REGISTERED_APPLICATIONS_KEY = 'HKCU\\Software\\RegisteredApplications';
 const WINDOWS_MAILTO_USER_CHOICE_KEY = 'HKCU\\Software\\Microsoft\\Windows\\Shell\\Associations\\UrlAssociations\\mailto\\UserChoice';
 
+/**
+ * Read the default (empty-named) REG_SZ value out of a `reg query <key> /ve` dump.
+ *
+ * The row's name is a *localised* label (`(Default)`, `(Domyślna)`, …), so it is
+ * deliberately ignored: `/ve` returns exactly one value, and requiring REG_SZ skips
+ * the key header line.
+ */
+function readRegDefaultString(output) {
+  const match = String(output || '').match(/^\s*\S.*?\s+REG_SZ\s+(.*?)\s*$/mi);
+  if (!match) return null;
+  // No quote stripping: reg.exe prints the value verbatim, and a launch command
+  // legitimately contains quotes of its own.
+  return match[1].trim() || null;
+}
+
 /** Read a REG_SZ value out of a `reg query` dump, or null when it is absent. */
 function readRegString(output, name) {
   const escaped = String(name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const match = String(output || '').match(new RegExp(`^\\s*${escaped}\\s+REG_SZ\\s+(.*?)\\s*$`, 'mi'));
   if (!match) return null;
-  const value = match[1].trim().replace(/^"(.*)"$/, '$1');
-  return value || null;
+  return match[1].trim() || null;
 }
 
 /**
@@ -163,12 +177,14 @@ function isDefaultMailtoHandler(userChoiceProgId) {
  * capabilities exist with the right `mailto` association, the app is listed in
  * `RegisteredApplications`, and the ProgID still has a launch command. A half-written
  * registration must not be reported as "registered".
+ *
+ * `progIdCommand` is expected to come from `reg query <progid>\shell\open\command /ve`.
  */
 function mailtoRegistrationHealth({ clientTree, registeredApplications, progIdCommand } = {}, progId = MAILTO_PROG_ID) {
   const applicationName = readRegString(clientTree, 'ApplicationName');
   const urlAssociation = readRegString(clientTree, MAILTO_SCHEME);
   const registeredPath = readRegString(registeredApplications, MAIL_CLIENT_NAME);
-  const command = readRegString(progIdCommand, '(Default)');
+  const command = readRegDefaultString(progIdCommand);
 
   return Boolean(
     applicationName
@@ -191,9 +207,13 @@ function isWindows11(release) {
 
 /**
  * Deep link to the Default apps page. Windows 11 (21H2/22H2 with the April 2023
- * update and later) supports jumping straight to the per-app page for an app
- * registered under HKCU\Software\RegisteredApplications; Windows 10 only has the
- * general list, so that stays the fallback.
+ * cumulative update and later, i.e. builds 22000.1817 / 22621.1555 and up) supports
+ * jumping straight to the per-app page for an app registered under
+ * HKCU\Software\RegisteredApplications; Windows 10 only has the general list.
+ *
+ * The build alone cannot prove the update is installed (`os.release()` has no UBR),
+ * so 22000 is used as the practical threshold. The fallback is graceful: an OS that
+ * does not know the parameter ignores it and opens the general Default apps page.
  */
 function defaultAppsSettingsUri(release, appName = MAIL_CLIENT_NAME) {
   return isWindows11(release)
@@ -205,14 +225,18 @@ function defaultAppsSettingsUri(release, appName = MAIL_CLIENT_NAME) {
  * What the user can expect to see in the desktop settings card.
  *
  * - `unsupported`     — not Windows; there is nothing to configure.
+ * - `not-registered`  — the shell has no *complete* Inboxora mail handler (never
+ *                       registered, or an interrupted upgrade / cleaned-up key). This
+ *                       wins over the user's choice: a broken handler Windows still
+ *                       points at is not a working default, and the card has to offer
+ *                       the repair.
  * - `default`         — Windows opens `mailto:` links with Inboxora.
  * - `registered`      — Inboxora is listed as an email app, but another app is default.
- * - `not-registered`  — the shell has no (complete) Inboxora mail handler yet.
  */
 function mailtoRegistrationState(platform, userChoiceProgId, appRegistered) {
   if (platform !== 'win32') return 'unsupported';
-  if (isDefaultMailtoHandler(userChoiceProgId)) return 'default';
-  return appRegistered ? 'registered' : 'not-registered';
+  if (!appRegistered) return 'not-registered';
+  return isDefaultMailtoHandler(userChoiceProgId) ? 'default' : 'registered';
 }
 
 /**
@@ -258,6 +282,7 @@ module.exports = {
   parseMailtoUserChoice,
   parseWindowsNotificationsEnabled,
   readDesktopNotificationSettings,
+  readRegDefaultString,
   readRegString,
   readTitlebarTheme,
   usesTitleBarOverlay,

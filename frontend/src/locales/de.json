@@ -2008,7 +2008,7 @@
       "description": "Inboxora als App festlegen, die Windows für E-Mail-Links (mailto:) öffnet und als E-Mail-Client aufführt.",
       "statusDefault": "Inboxora ist deine Standard-E-Mail-App",
       "statusRegistered": "Inboxora ist als E-Mail-App registriert, aktuell ist aber eine andere App Standard",
-      "statusNotRegistered": "Inboxora ist noch nicht als E-Mail-App registriert",
+      "statusNotRegistered": "Inboxora ist nicht als E-Mail-App registriert",
       "statusUnsupported": "Die Standard-E-Mail-App lässt sich nur in der Windows-Desktop-App wählen",
       "setDefault": "Als Standard festlegen",
       "openSystemSettings": "Windows-Standardapps öffnen",

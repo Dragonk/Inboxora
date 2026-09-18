@@ -2008,7 +2008,7 @@
       "description": "Nastavit Inboxoru jako aplikaci, kterou Windows otevírá e-mailové odkazy (mailto:), a uvést ji mezi e-mailové klienty.",
       "statusDefault": "Inboxora je vaše výchozí e-mailová aplikace",
       "statusRegistered": "Inboxora je zaregistrována jako e-mailová aplikace, ale výchozí je nyní jiná",
-      "statusNotRegistered": "Inboxora zatím není zaregistrována jako e-mailová aplikace",
+      "statusNotRegistered": "Inboxora není zaregistrována jako e-mailová aplikace",
       "statusUnsupported": "Volba výchozí e-mailové aplikace je dostupná jen v desktopové aplikaci pro Windows",
       "setDefault": "Nastavit jako výchozí",
       "openSystemSettings": "Otevřít výchozí aplikace Windows",

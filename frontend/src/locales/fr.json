@@ -2008,7 +2008,7 @@
       "description": "Faire d'Inboxora l'application que Windows ouvre pour les liens e-mail (mailto:) et l'inscrire comme client de messagerie.",
       "statusDefault": "Inboxora est votre application de messagerie par défaut",
       "statusRegistered": "Inboxora est enregistrée comme application de messagerie, mais une autre application est actuellement par défaut",
-      "statusNotRegistered": "Inboxora n'est pas encore enregistrée comme application de messagerie",
+      "statusNotRegistered": "Inboxora n'est pas enregistrée comme application de messagerie",
       "statusUnsupported": "Le choix de l'application de messagerie par défaut n'est disponible que dans l'application de bureau Windows",
       "setDefault": "Définir par défaut",
       "openSystemSettings": "Ouvrir les applications par défaut de Windows",

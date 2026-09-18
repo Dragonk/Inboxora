@@ -6,8 +6,8 @@ test('reads the ProgId Windows uses for mailto out of the UserChoice key', () =>
   const key = 'HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\Shell\\Associations\\UrlAssociations\\mailto\\UserChoice\r\n    Hash    REG_SZ    abc\r\n    ProgId    REG_SZ    Inboxora.mailto\r\n';
   assert.equal(settings.parseMailtoUserChoice(key), 'Inboxora.mailto');
   assert.equal(
-    settings.parseMailtoUserChoice('    ProgId    REG_SZ    "Outlook.URL.mailto.15"\r\n'),
-    'Outlook.URL.mailto.15',
+    settings.parseMailtoUserChoice('    ProgId    REG_SZ    ChromeHTML\r\n'),
+    'ChromeHTML',
   );
   // No UserChoice (the user never picked one) or an unreadable key is "not us",
   // never a crash.
@@ -36,6 +36,12 @@ test('describes what the user can expect in the default-app card', () => {
   assert.equal(settings.mailtoRegistrationState('darwin', 'Inboxora.mailto', true), 'unsupported');
 });
 
+test('a broken registration is not reported as the working default', () => {
+  // Windows still points at Inboxora, but the handler is half-written: claiming
+  // "default" would also hide the repair button.
+  assert.equal(settings.mailtoRegistrationState('win32', 'Inboxora.mailto', false), 'not-registered');
+});
+
 const HEALTHY_CLIENT_TREE = 'HKEY_CURRENT_USER\\Software\\Clients\\Mail\\Inboxora\r\n'
   + '    (Default)    REG_SZ    Inboxora\r\n\r\n'
   + 'HKEY_CURRENT_USER\\Software\\Clients\\Mail\\Inboxora\\Capabilities\r\n'
@@ -44,7 +50,22 @@ const HEALTHY_CLIENT_TREE = 'HKEY_CURRENT_USER\\Software\\Clients\\Mail\\Inboxor
   + 'HKEY_CURRENT_USER\\Software\\Clients\\Mail\\Inboxora\\Capabilities\\URLAssociations\r\n'
   + '    mailto    REG_SZ    Inboxora.mailto\r\n';
 const HEALTHY_REGISTERED_APPS = '    Inboxora    REG_SZ    Software\\Clients\\Mail\\Inboxora\\Capabilities\r\n';
-const HEALTHY_PROGID_COMMAND = '    (Default)    REG_SZ    "C:\\Inboxora\\Inboxora.exe" "%1"\r\n';
+// Deliberately Polish: the default value carries a localised label.
+const HEALTHY_PROGID_COMMAND = '    (Domyślna)    REG_SZ    "C:\\Inboxora\\Inboxora.exe" "%1"\r\n';
+
+test('the launch command is read through /ve, not through a localised label', () => {
+  // reg.exe prints a translated label for the empty-named value, so the parser must
+  // not depend on the literal "(Default)".
+  assert.equal(settings.readRegDefaultString('    (Default)    REG_SZ    "C:\\Inboxora\\Inboxora.exe" "%1"\r\n'), '"C:\\Inboxora\\Inboxora.exe" "%1"');
+  assert.equal(settings.readRegDefaultString('    (Domyślna)    REG_SZ    "C:\\Inboxora\\Inboxora.exe" "%1"\r\n'), '"C:\\Inboxora\\Inboxora.exe" "%1"');
+  // Values are printed verbatim, so a command that quotes itself survives intact.
+  assert.equal(settings.readRegString('    ApplicationIcon    REG_SZ    C:\\App\\a.exe,0\r\n', 'ApplicationIcon'), 'C:\\App\\a.exe,0');
+  assert.equal(settings.readRegDefaultString('    (Standard)    REG_SZ    value\r\n'), 'value');
+  // The key header line carries no REG_SZ and must be skipped.
+  assert.equal(settings.readRegDefaultString('HKEY_CURRENT_USER\\Software\\Classes\\Inboxora.mailto\\shell\\open\\command\r\n'), null);
+  assert.equal(settings.readRegDefaultString(''), null);
+  assert.equal(settings.readRegDefaultString(undefined), null);
+});
 
 test('a complete registration is healthy', () => {
   assert.equal(settings.mailtoRegistrationHealth({
