@@ -20,6 +20,15 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   **Settings → Appearance → "Open the menu with a swipe from the left"** switch (on by default)
   sits directly next to the top/bottom navigation choice and is saved per user; when it is off
   the gesture reserves no start zone. The message reader keeps native text selection.
+- Add the v4 provider-layer schema (migration `0101_provider_layer.sql`): provider connections,
+  OAuth grants, the per-account calendars/contacts integration switches, the per-account Google
+  API recommendation preference, standalone CalDAV/CardDAV/ICS source connections, collection
+  metadata, remote object links, a durable provider-operation journal and sync checkpoints. The
+  change is expand-only — it creates tables and nullable/defaulted columns and widens the calendar
+  and address-book `source` checks without rewriting any existing value, and it never switches a
+  transport — so it must be applied before a build that reads the new columns is rolled out; the
+  current build continues to work and ignore the new tables. Existing accounts and sources are
+  unaffected.
 
 ## [4.0.4] - 2026-09-18
 

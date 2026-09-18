@@ -242,4 +242,27 @@ describe('migration integrity', () => {
     expect(source).toContain('0098_spam_training_identity');
     expect(source).toContain('82716d8414acd5f2a26fad940165827df0e48cc676a38ac20fd1a96ccb5b0ded');
   });
+
+  it('adds the provider layer additively without forcing a transport', () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/0101_provider_layer.sql'), 'utf8');
+    // Every new object is created conditionally, so a fresh install and an
+    // upgrade from 0100 both converge on the same schema.
+    for (const table of [
+      'provider_connections', 'oauth_grants', 'account_notice_preferences',
+      'account_integrations', 'source_connections', 'integration_collections',
+      'remote_object_links', 'provider_operations', 'sync_states',
+    ]) {
+      expect(sql).toContain(`CREATE TABLE IF NOT EXISTS ${table}`);
+    }
+    // New account columns are nullable or defaulted; nothing rewrites protocol.
+    expect(sql).toContain('ADD COLUMN IF NOT EXISTS mail_transport VARCHAR(32)');
+    expect(sql).toContain('ADD COLUMN IF NOT EXISTS migration_required BOOLEAN NOT NULL DEFAULT false');
+    expect(sql).not.toMatch(/UPDATE\s+email_accounts\s+SET\s+mail_transport/i);
+    expect(sql).not.toMatch(/UPDATE\s+email_accounts\s+SET\s+migration_required/i);
+    // The owner composite keys are what stop a child row from mixing users.
+    expect(sql).toContain('account_notice_preferences_account_owner_fk');
+    expect(sql).toContain('REFERENCES email_accounts(id, user_id)');
+    // Widening the calendar/address-book source check stays backward compatible.
+    expect(sql).toContain("CHECK (source IN ('local', 'caldav', 'ical_url', 'microsoft', 'google'))");
+  });
 });
