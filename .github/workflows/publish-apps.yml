@@ -243,6 +243,14 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # The signing step binds the imported secret key to the public key that documents
+      # the release identity, and that key lives in the repository. This must run before
+      # the artifacts are downloaded: checkout cleans the workspace.
+      - name: Checkout the documented release key
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: docs/keys
+
       - name: Resolve app version
         id: app-version
         shell: bash
