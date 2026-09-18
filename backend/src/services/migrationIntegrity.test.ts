@@ -294,4 +294,13 @@ describe('migration integrity', () => {
     expect(sql).toContain("CHECK (status IN ('pending', 'exchanging', 'completed', 'failed', 'expired', 'cancelled'))");
     expect(sql).toContain("CHECK (auth_flow IN ('browser', 'device_code'))");
   });
+
+  it('adds a single-flight refresh lease to OAuth grants', () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/0104_oauth_grant_refresh_lease.sql'), 'utf8');
+    expect(sql).toContain('ADD COLUMN IF NOT EXISTS refresh_lease_owner TEXT');
+    expect(sql).toContain('ADD COLUMN IF NOT EXISTS refresh_lease_expires_at TIMESTAMPTZ');
+    expect(sql).toContain('oauth_grants_refresh_lease_idx');
+    // Expand-only: no token is rewritten by the migration.
+    expect(sql).not.toMatch(/UPDATE\s+oauth_grants/i);
+  });
 });

@@ -88,6 +88,14 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   refresh token keeps the stored one, and each grant write bumps its generation. Google device
   authorization is deliberately not offered because Google does not allow these scopes in that
   flow. Selecting the Gmail API as the mail transport remains a separate, explicit migration step.
+- Add single-flight OAuth grant refresh (migration `0104_oauth_grant_refresh_lease.sql`, applied
+  after `0103`). A short refresh lease names the one worker allowed to call the provider for a
+  grant, and every stored token bumps the grant generation, so the write is a compare-and-swap:
+  two workers cannot rotate the same refresh token, a worker that lost the race re-reads the newer
+  token instead of overwriting it, and a response without a refresh token keeps the stored one.
+  A revoked or expired consent (`invalid_grant`) parks the grant as `reauth_required` and stops
+  automatic refresh instead of looping. The provider call is never made inside a database
+  transaction.
 
 ## [4.0.4] - 2026-09-18
 
