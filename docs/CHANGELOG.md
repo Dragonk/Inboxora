@@ -29,6 +29,17 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   transport — so it must be applied before a build that reads the new columns is rolled out; the
   current build continues to work and ignore the new tables. Existing accounts and sources are
   unaffected.
+- Add a Google card to the existing **Settings → Integrations → Email providers** screen, next to
+  Microsoft and with the same layout (description and setup steps above the fields). It stores the
+  Google Cloud Web-application Client ID, client secret and redirect URI, and states explicitly
+  that IMAP/SMTP with an app password does not depend on it. There is no Google device-code
+  option: Google does not allow a device flow for the Gmail, Calendar and People scopes this
+  integration needs. `GET /api/integrations/status` now reports per-method readiness
+  (`browser.ready` with the missing field names, and `deviceCode` support) for both providers
+  without exposing any credential, so the UI no longer treats a saved Client ID alone as a
+  working OAuth client. Config writes are validated against a closed schema, a blank or omitted
+  secret preserves the stored one, an explicit clear removes it, and deleting a provider writes a
+  tombstone so a restart can no longer resurrect the previous environment values.
 
 ## [4.0.4] - 2026-09-18
 

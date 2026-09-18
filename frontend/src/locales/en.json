@@ -381,6 +381,22 @@
         "summary": "{{contacts}} contacts in {{books}} address books",
         "syncFailed": "Last sync failed: {{error}}",
         "help": "Use a Nextcloud app password, not your login password — SSO users must create one under Settings → Security. Contacts are synced one-way and are read-only in Inboxora."
+      },
+      "google": {
+        "title": "Google (Gmail, Calendar, Contacts)",
+        "description": "Recommended API connection for Google accounts. IMAP/SMTP with an app password remains available when your Google account allows it. The configuration below is only needed for the API integration.",
+        "savedNote": "Configuration saved. Verifying account access requires the user to authorize the connection.",
+        "appPasswordNote": "IMAP/SMTP with an app password does not depend on this configuration and keeps working without a Google Cloud project.",
+        "deviceNotSupported": "Google does not offer a device code for the mail, calendar and contact permissions this integration needs. API access uses browser sign-in; mail alone can keep using an allowed IMAP/SMTP app password.",
+        "clientIdPh": "1234567890-abc.apps.googleusercontent.com",
+        "redirectUriNote": "Add exactly this URI as an Authorized redirect URI in the Google Cloud OAuth client: {uri}",
+        "setupTitle": "Google Cloud setup",
+        "step1": "Create or select a project in the Google Cloud Console.",
+        "step2": "Enable the Gmail API, Google Calendar API and People API for the services you need.",
+        "step3": "Configure the Google Auth Platform consent screen and add the required scopes (Gmail API access is a restricted scope).",
+        "step4": "Create an OAuth client of type \"Web application\", add the redirect URI below and copy its Client ID and Client Secret here.",
+        "userNoteConfigured": "Google API is configured. Connect an account from its settings to authorize the selected services.",
+        "userNoteNotConfigured": "The administrator has not configured the Google API integration yet. Mail over the existing IMAP/SMTP connection keeps working."
       }
     },
     "lock": {

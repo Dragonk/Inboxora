@@ -2649,6 +2649,14 @@ function IntegrationsTab() {
   const [loading, setLoading] = useState(true);
   const [msForm, setMsForm] = useState({ clientId: '', clientSecret: '', tenantId: '', redirectUri: '' });
   const [msExpanded, setMsExpanded] = useState(false);
+  // Google provider card. It shares the Microsoft card's layout but not its
+  // fields or methods: no tenant, no device flow, and IMAP/SMTP app-password
+  // mail never depends on this configuration.
+  const [googleForm, setGoogleForm] = useState({ clientId: '', clientSecret: '', redirectUri: '' });
+  const [googleExpanded, setGoogleExpanded] = useState(false);
+  const [googleStatus, setGoogleStatus] = useState<{ configured?: boolean; browser?: { ready?: boolean; missing?: string[] }; [key: string]: unknown } | null>(null);
+  const [googleSaving, setGoogleSaving] = useState(false);
+  const [googleSaveMsg, setGoogleSaveMsg] = useState('');
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState('');
   const [connectingMs, setConnectingMs] = useState(false);
@@ -2679,21 +2687,34 @@ function IntegrationsTab() {
             });
             setMsExpanded(true);
           }
+          if (data.google) {
+            setGoogleForm({
+              clientId: data.google.clientId || '',
+              clientSecret: data.google.clientSecret || '',
+              redirectUri: data.google.redirectUri || '',
+            });
+            setGoogleExpanded(true);
+          }
         })
         .catch(console.error)
         .finally(() => setLoading(false));
-      // Admins configure Microsoft OAuth via the DB form OR via env vars; the env-only case has no
+      // Admins configure OAuth via the DB form OR via env vars; the env-only case has no
       // DB row, so also read the env-aware capability status (#359), otherwise the connect button
       // stays wrongly disabled for admins while non-admins on the same instance can connect.
       api.getIntegrationsStatus()
-        .then(data => setMsStatus(data.microsoft || null))
+        .then(data => {
+          setMsStatus(data.microsoft || null);
+          setGoogleStatus(data.google || null);
+        })
         .catch(console.error);
     } else {
       // Non-admins can only read the capability status, not the config itself.
       api.getIntegrationsStatus()
         .then(data => {
           setMsStatus(data.microsoft || null);
+          setGoogleStatus(data.google || null);
           if (data.microsoft?.configured) setMsExpanded(true);
+          if (data.google?.configured) setGoogleExpanded(true);
         })
         .catch(console.error)
         .finally(() => setLoading(false));
@@ -2757,6 +2778,40 @@ function IntegrationsTab() {
       setSaveMsg('Error: ' + toAppError(err).message);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleSaveGoogle = async () => {
+    if (!googleForm.clientId || !googleForm.clientSecret || !googleForm.redirectUri) {
+      setGoogleSaveMsg('Client ID, Client Secret and Redirect URI are required');
+      return;
+    }
+    setGoogleSaving(true);
+    setGoogleSaveMsg('');
+    try {
+      await api.saveIntegration('google', googleForm);
+      // Keep the masked secret in local state so reopening the card does not
+      // resubmit an empty value, which the API would treat as "keep existing".
+      setConfigs(prev => ({
+        ...prev,
+        google: { clientId: googleForm.clientId, redirectUri: googleForm.redirectUri, clientSecret: '••••••••' },
+      }));
+      setGoogleSaveMsg(t('admin.integrations.google.savedNote'));
+    } catch (err) {
+      setGoogleSaveMsg('Error: ' + toAppError(err).message);
+    } finally {
+      setGoogleSaving(false);
+    }
+  };
+
+  const handleRemoveGoogle = async () => {
+    try {
+      await api.deleteIntegration('google');
+      setConfigs(c => { const n = { ...c }; delete n.google; return n; });
+      setGoogleForm({ clientId: '', clientSecret: '', redirectUri: '' });
+      setGoogleSaveMsg('');
+    } catch (err) {
+      setGoogleSaveMsg('Error: ' + toAppError(err).message);
     }
   };
 
@@ -2845,6 +2900,10 @@ function IntegrationsTab() {
   // Configured if the admin has a saved DB config OR the server has env-var config (#359);
   // non-admins only ever have the env-aware capability status.
   const msConfigured = (isAdmin ? configs.microsoft?.clientId : null) || msStatus?.configured;
+  // Google browser readiness comes from the backend so the UI never treats a
+  // saved Client ID alone as a working OAuth client.
+  const googleConfigured = (isAdmin ? configs.google?.clientId : null) || googleStatus?.configured;
+  const googleWebReady = !!googleStatus?.browser?.ready;
 
   const subTabStyle = (key: string) => ({
     padding: '7px 14px',
@@ -3180,6 +3239,182 @@ function IntegrationsTab() {
               </div>
             )}
           </div>
+
+              {/* Google — same card layout as Microsoft, different methods. */}
+              <div style={{
+                border: '1px solid var(--border-subtle)', borderRadius: 12,
+                overflow: 'hidden', marginBottom: 12,
+              }}>
+                <div
+                  onClick={() => setGoogleExpanded(!googleExpanded)}
+                  style={{
+                    padding: '14px 16px', display: 'flex', alignItems: 'center',
+                    gap: 12, cursor: 'pointer', background: 'var(--bg-tertiary)',
+                    transition: 'background 0.1s',
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
+                  onMouseLeave={e => e.currentTarget.style.background = 'var(--bg-tertiary)'}
+                >
+                  <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
+                    <path fill="#4285F4" d="M23.5 12.3c0-.8-.1-1.6-.2-2.3H12v4.5h6.5c-.3 1.5-1.1 2.7-2.4 3.6v3h3.9c2.3-2.1 3.5-5.2 3.5-8.8z"/>
+                    <path fill="#34A853" d="M12 24c3.2 0 5.9-1.1 7.9-2.9l-3.9-3c-1.1.7-2.4 1.1-4 1.1-3.1 0-5.7-2.1-6.6-4.9H1.4v3.1C3.4 21.3 7.4 24 12 24z"/>
+                    <path fill="#FBBC05" d="M5.4 14.3c-.2-.7-.4-1.5-.4-2.3s.2-1.6.4-2.3V6.6H1.4C.5 8.2 0 10 0 12s.5 3.8 1.4 5.4l4-3.1z"/>
+                    <path fill="#EA4335" d="M12 4.8c1.8 0 3.3.6 4.6 1.8l3.4-3.4C17.9 1.2 15.2 0 12 0 7.4 0 3.4 2.7 1.4 6.6l4 3.1C6.3 6.9 8.9 4.8 12 4.8z"/>
+                  </svg>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-primary)' }}>
+                      {t('admin.integrations.google.title')}
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 1 }}>
+                      {t('admin.integrations.google.description')}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    {googleConfigured ? (
+                      <span style={{
+                        fontSize: 11, padding: '3px 8px', borderRadius: 20,
+                        background: googleWebReady ? 'rgba(74,222,128,0.1)' : 'rgba(251,191,36,0.12)',
+                        color: googleWebReady ? 'var(--green)' : 'var(--yellow, #fbbf24)',
+                        border: `1px solid ${googleWebReady ? 'rgba(74,222,128,0.2)' : 'rgba(251,191,36,0.3)'}`,
+                        fontWeight: 500,
+                      }}>
+                        {t('admin.integrations.microsoft.configured')}
+                      </span>
+                    ) : (
+                      <span style={{
+                        fontSize: 11, padding: '3px 8px', borderRadius: 20,
+                        background: 'var(--bg-elevated)', color: 'var(--text-tertiary)',
+                        border: '1px solid var(--border)',
+                      }}>
+                        {t('admin.integrations.microsoft.notConfigured')}
+                      </span>
+                    )}
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                      stroke="var(--text-tertiary)" strokeWidth="2"
+                      style={{ transform: googleExpanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }}>
+                      <polyline points="6 9 12 15 18 9"/>
+                    </svg>
+                  </div>
+                </div>
+
+                {googleExpanded && (
+                  <div style={{ padding: '16px', borderTop: '1px solid var(--border-subtle)' }}>
+                    {isAdmin && (<>
+                      <div style={{
+                        padding: '12px 14px', borderRadius: 8, marginBottom: 16,
+                        background: 'rgba(124,106,247,0.06)',
+                        border: '1px solid rgba(124,106,247,0.15)',
+                        fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.7,
+                      }}>
+                        <div style={{ fontWeight: 600, color: 'var(--accent)', marginBottom: 6 }}>
+                          {t('admin.integrations.google.setupTitle')}
+                        </div>
+                        <ol style={{ margin: 0, paddingLeft: 18 }}>
+                          <li>{t('admin.integrations.google.step1')}</li>
+                          <li>{t('admin.integrations.google.step2')}</li>
+                          <li>{t('admin.integrations.google.step3')}</li>
+                          <li>{t('admin.integrations.google.step4')}</li>
+                        </ol>
+                      </div>
+
+                      <Field label={t('admin.integrations.microsoft.clientId')} required>
+                        <input value={googleForm.clientId} onChange={e => setGoogleForm(f => ({ ...f, clientId: e.target.value }))}
+                          placeholder={t('admin.integrations.google.clientIdPh')}
+                          style={{ ...inputStyle, fontFamily: 'JetBrains Mono, monospace', fontSize: 12 }}
+                          onFocus={e => e.target.style.borderColor = 'var(--accent)'}
+                          onBlur={e => e.target.style.borderColor = 'var(--border)'} />
+                      </Field>
+
+                      <Field label={t('admin.integrations.microsoft.clientSecret')} required>
+                        <input type="password" autoComplete="new-password" value={googleForm.clientSecret}
+                          onChange={e => setGoogleForm(f => ({ ...f, clientSecret: e.target.value }))}
+                          placeholder={t('admin.integrations.microsoft.clientSecretPh')}
+                          style={inputStyle}
+                          onFocus={e => e.target.style.borderColor = 'var(--accent)'}
+                          onBlur={e => e.target.style.borderColor = 'var(--border)'} />
+                      </Field>
+
+                      <Field label={t('admin.integrations.microsoft.redirectUri')} required>
+                        <input value={googleForm.redirectUri}
+                          onChange={e => setGoogleForm(f => ({ ...f, redirectUri: e.target.value }))}
+                          placeholder={`${window.location.protocol}//${window.location.hostname}${window.location.port ? ':' + window.location.port : ''}/oauth/google/callback`}
+                          style={inputStyle}
+                          onFocus={e => e.target.style.borderColor = 'var(--accent)'}
+                          onBlur={e => e.target.style.borderColor = 'var(--border)'} />
+                        <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 5 }}>
+                          {t('admin.integrations.google.redirectUriNote', { uri: `${window.location.protocol}//${window.location.hostname}${window.location.port ? ':' + window.location.port : ''}/oauth/google/callback` })}
+                        </div>
+                      </Field>
+                    </>)}
+
+                    {!isAdmin && (
+                      <div style={{
+                        padding: '12px 14px', borderRadius: 8, marginBottom: 16,
+                        background: 'rgba(124,106,247,0.06)',
+                        border: '1px solid rgba(124,106,247,0.15)',
+                        fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6,
+                      }}>
+                        {googleConfigured
+                          ? t('admin.integrations.google.userNoteConfigured')
+                          : t('admin.integrations.google.userNoteNotConfigured')}
+                      </div>
+                    )}
+
+                    <div style={{
+                      padding: '10px 12px', borderRadius: 8, marginBottom: 10,
+                      background: 'var(--bg-elevated)', border: '1px solid var(--border)',
+                      fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6,
+                    }}>
+                      {t('admin.integrations.google.appPasswordNote')}
+                    </div>
+
+                    <div style={{
+                      padding: '10px 12px', borderRadius: 8, marginBottom: 14,
+                      background: 'var(--bg-elevated)', border: '1px solid var(--border)',
+                      fontSize: 12, color: 'var(--text-tertiary)', lineHeight: 1.6,
+                    }}>
+                      {t('admin.integrations.google.deviceNotSupported')}
+                    </div>
+
+                    {googleSaveMsg && (
+                      <div style={{
+                        padding: '10px 14px', borderRadius: 8, marginBottom: 12, fontSize: 13,
+                        background: googleSaveMsg.startsWith('Error') ? 'rgba(248,113,113,0.1)' : 'rgba(74,222,128,0.1)',
+                        border: `1px solid ${googleSaveMsg.startsWith('Error') ? 'rgba(248,113,113,0.3)' : 'rgba(74,222,128,0.2)'}`,
+                        color: googleSaveMsg.startsWith('Error') ? 'var(--red)' : 'var(--green)',
+                      }}>
+                        {googleSaveMsg}
+                      </div>
+                    )}
+
+                    {isAdmin && (
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <button onClick={handleSaveGoogle} disabled={googleSaving} style={{
+                          padding: '9px 16px', background: 'var(--bg-elevated)',
+                          border: '1px solid var(--border)', borderRadius: 8,
+                          color: 'var(--text-primary)', cursor: googleSaving ? 'not-allowed' : 'pointer',
+                          fontSize: 13, fontWeight: 500, opacity: googleSaving ? 0.7 : 1,
+                        }}>
+                          {googleSaving ? t('common.saving') : t('admin.integrations.microsoft.save')}
+                        </button>
+                        {googleConfigured && (
+                          <button onClick={handleRemoveGoogle} style={{
+                            padding: '9px 12px', background: 'transparent',
+                            border: '1px solid transparent', borderRadius: 8,
+                            color: 'var(--text-tertiary)', cursor: 'pointer', fontSize: 13,
+                            marginLeft: 'auto',
+                          }}
+                          onMouseEnter={e => { e.currentTarget.style.color = 'var(--red)'; e.currentTarget.style.borderColor = 'rgba(248,113,113,0.3)'; }}
+                          onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-tertiary)'; e.currentTarget.style.borderColor = 'transparent'; }}
+                          >
+                            {t('admin.integrations.microsoft.remove')}
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
         </div>
       )}
         </div>

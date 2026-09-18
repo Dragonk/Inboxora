@@ -9,117 +9,301 @@ import type { Request, Response } from 'express';
 const router = Router();
 router.use(requireAuth);
 
-type MicrosoftConfig = { clientId?: unknown; clientSecret?: unknown; tenantId?: unknown; redirectUri?: unknown };
+/** Mask returned in place of a stored secret. Never persisted as a value. */
+const SECRET_SENTINEL = '••••••••';
 
-// A saved Microsoft row is an exact configuration snapshot, not a patch over
-// process.env. This makes a partial admin save behave the same immediately and
-// after restart, and prevents credentials from a previous DB row leaking through.
-function applyMicrosoftConfig(config: MicrosoftConfig) {
-  const apply = (envKey: 'MS_CLIENT_ID' | 'MS_TENANT_ID' | 'MS_REDIRECT_URI', value: unknown) => {
-    if (typeof value !== 'string' || !value) delete process.env[envKey];
-    else process.env[envKey] = value;
+type ProviderName = 'microsoft' | 'google';
+
+function isProviderName(value: unknown): value is ProviderName {
+  return value === 'microsoft' || value === 'google';
+}
+
+/**
+ * The stored configuration is an exact snapshot of what the admin saved (plus a
+ * possible `disabled` tombstone). It is not a patch: a field that is absent
+ * clears the matching env var so a removed value cannot leak in from `.env`
+ * after a restart.
+ */
+type ProviderConfig = {
+  clientId?: string;
+  clientSecret?: string;
+  redirectUri?: string;
+  tenantId?: string;
+  webEnabled?: boolean;
+  deviceEnabled?: boolean;
+  apiEnabled?: boolean;
+  disabled?: boolean;
+  disabledAt?: string;
+};
+
+const ENV_KEYS: Record<ProviderName, readonly string[]> = {
+  microsoft: ['MS_CLIENT_ID', 'MS_CLIENT_SECRET', 'MS_TENANT_ID', 'MS_REDIRECT_URI'],
+  google: ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_REDIRECT_URI'],
+};
+
+const FIELD_ENV: Record<ProviderName, Partial<Record<keyof ProviderConfig, string>>> = {
+  microsoft: {
+    clientId: 'MS_CLIENT_ID',
+    clientSecret: 'MS_CLIENT_SECRET',
+    tenantId: 'MS_TENANT_ID',
+    redirectUri: 'MS_REDIRECT_URI',
+  },
+  google: {
+    clientId: 'GOOGLE_CLIENT_ID',
+    clientSecret: 'GOOGLE_CLIENT_SECRET',
+    redirectUri: 'GOOGLE_REDIRECT_URI',
+  },
+};
+
+const ALLOWED_FIELDS: Record<ProviderName, readonly string[]> = {
+  microsoft: ['clientId', 'clientSecret', 'clientSecretClear', 'redirectUri', 'tenantId', 'webEnabled', 'deviceEnabled', 'enabled'],
+  google: ['clientId', 'clientSecret', 'clientSecretClear', 'redirectUri', 'apiEnabled', 'enabled'],
+};
+
+const STRING_FIELDS = ['clientId', 'clientSecret', 'redirectUri', 'tenantId'] as const;
+const BOOLEAN_FIELDS = ['webEnabled', 'deviceEnabled', 'apiEnabled', 'clientSecretClear', 'enabled'] as const;
+const MAX_STRING = 4096;
+const MAX_SECRET = 8192;
+
+/** Clear every env var belonging to a provider (used for disable and exact snapshots). */
+function clearProviderEnv(provider: ProviderName): void {
+  for (const key of ENV_KEYS[provider]) delete process.env[key];
+}
+
+/**
+ * Apply a saved config to `process.env`, which is what the OAuth routes read
+ * today. A disabled tombstone clears the provider instead of resurrecting the
+ * previous `.env` values.
+ */
+function applyProviderConfig(provider: ProviderName, config: ProviderConfig): void {
+  clearProviderEnv(provider);
+  if (config.disabled) return;
+  const env = FIELD_ENV[provider];
+  const setString = (field: keyof ProviderConfig): void => {
+    const key = env[field];
+    const value = config[field];
+    if (!key) return;
+    if (typeof value === 'string' && value) process.env[key] = value;
   };
-  apply('MS_CLIENT_ID', config.clientId);
-  apply('MS_TENANT_ID', config.tenantId);
-  apply('MS_REDIRECT_URI', config.redirectUri);
-  if (typeof config.clientSecret !== 'string' || !config.clientSecret) delete process.env.MS_CLIENT_SECRET;
-  else {
-    const secret = decrypt(config.clientSecret);
-    if (secret === null || !secret) delete process.env.MS_CLIENT_SECRET;
-    else process.env.MS_CLIENT_SECRET = secret;
+  setString('clientId');
+  setString('tenantId');
+  setString('redirectUri');
+  const secretKey = env.clientSecret;
+  if (secretKey && typeof config.clientSecret === 'string' && config.clientSecret) {
+    const secret = isEncrypted(config.clientSecret) ? decrypt(config.clientSecret) : config.clientSecret;
+    if (secret) process.env[secretKey] = secret;
   }
 }
 
+export interface ProviderReadiness {
+  enabled: boolean;
+  browser: { ready: boolean; missing: string[] };
+  deviceCode: { supported: boolean; ready: boolean; reason?: string };
+}
+
+export interface IntegrationStatus {
+  microsoft: ProviderReadiness & { mailPolicy: 'required'; configured: boolean };
+  google: ProviderReadiness & {
+    mailPolicy: 'recommended';
+    configured: boolean;
+    traditionalImapAvailableInInboxora: true;
+  };
+}
+
+function microsoftReadiness(stored: ProviderConfig): IntegrationStatus['microsoft'] {
+  const clientId = process.env.MS_CLIENT_ID;
+  const missing: string[] = [];
+  if (!clientId) missing.push('clientId');
+  if (!process.env.MS_CLIENT_SECRET) missing.push('clientSecret');
+  if (!process.env.MS_REDIRECT_URI) missing.push('redirectUri');
+  // Device authorization needs only a registered client: no redirect URI and no
+  // client secret. The saved row's explicit device disable is honoured.
+  const deviceReady = !!clientId && stored.deviceEnabled !== false;
+  return {
+    configured: !!clientId,
+    enabled: !!clientId,
+    browser: { ready: missing.length === 0, missing },
+    deviceCode: {
+      supported: true,
+      ready: deviceReady,
+      ...(deviceReady ? {} : { reason: clientId ? 'device_disabled' : 'missing_client_id' }),
+    },
+    mailPolicy: 'required',
+  };
+}
+
+function googleReadiness(): IntegrationStatus['google'] {
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  const missing: string[] = [];
+  if (!clientId) missing.push('clientId');
+  if (!process.env.GOOGLE_CLIENT_SECRET) missing.push('clientSecret');
+  if (!process.env.GOOGLE_REDIRECT_URI) missing.push('redirectUri');
+  return {
+    configured: !!clientId,
+    enabled: !!clientId,
+    browser: { ready: missing.length === 0, missing },
+    // Google's limited-input device flow does not allow the Gmail, Calendar or
+    // People scopes this integration needs, so it is never offered.
+    deviceCode: { supported: false, ready: false, reason: 'not_supported' },
+    mailPolicy: 'recommended',
+    traditionalImapAvailableInInboxora: true,
+  };
+}
+
+/**
+ * Validate an untrusted payload against the provider's closed schema. Unknown
+ * providers, unknown fields, wrong types and oversized values are rejected
+ * before anything is written — the body never becomes an arbitrary env entry.
+ */
+export function validateProviderConfig(provider: ProviderName, body: unknown):
+  | { ok: true; config: ProviderConfig; clearSecret: boolean }
+  | { ok: false; error: string } {
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+    return { ok: false, error: 'Configuration must be a JSON object' };
+  }
+  const record = body as Record<string, unknown>;
+  for (const key of Object.keys(record)) {
+    if (!ALLOWED_FIELDS[provider].includes(key)) {
+      return { ok: false, error: `Unknown field for ${provider}: ${key}` };
+    }
+  }
+  for (const field of STRING_FIELDS) {
+    const value = record[field];
+    if (value === undefined) continue;
+    if (typeof value !== 'string') return { ok: false, error: `${field} must be a string` };
+    const limit = field === 'clientSecret' ? MAX_SECRET : MAX_STRING;
+    if (value.length > limit) return { ok: false, error: `${field} is too long` };
+  }
+  for (const field of BOOLEAN_FIELDS) {
+    const value = record[field];
+    if (value === undefined) continue;
+    if (typeof value !== 'boolean') return { ok: false, error: `${field} must be a boolean` };
+  }
+
+  const config: ProviderConfig = {};
+  const setString = (field: 'clientId' | 'redirectUri' | 'tenantId'): void => {
+    const value = record[field];
+    if (typeof value === 'string' && value.length > 0) config[field] = value;
+  };
+  setString('clientId');
+  setString('redirectUri');
+  if (provider === 'microsoft') {
+    setString('tenantId');
+    if (typeof record.webEnabled === 'boolean') config.webEnabled = record.webEnabled;
+    if (typeof record.deviceEnabled === 'boolean') config.deviceEnabled = record.deviceEnabled;
+  } else if (typeof record.apiEnabled === 'boolean') {
+    config.apiEnabled = record.apiEnabled;
+  }
+  // Saving a configuration enables the provider unless the caller explicitly
+  // disables it; a previous tombstone must not survive a normal save.
+  config.disabled = record.enabled === false;
+
+  return { ok: true, config: { ...config }, clearSecret: record.clientSecretClear === true };
+}
+
+/** Merge a validated payload over the stored row, preserving an untouched secret. */
+function mergeConfig(existing: ProviderConfig, incoming: ProviderConfig, rawSecret: unknown, clearSecret: boolean): ProviderConfig {
+  const merged: ProviderConfig = { ...incoming };
+  if (clearSecret) {
+    // Explicit clear: no secret is stored.
+  } else if (typeof rawSecret === 'string' && rawSecret && rawSecret !== SECRET_SENTINEL) {
+    merged.clientSecret = isEncrypted(rawSecret) ? rawSecret : encrypt(rawSecret);
+  } else if (typeof existing.clientSecret === 'string' && existing.clientSecret) {
+    merged.clientSecret = existing.clientSecret;
+  }
+  if (incoming.disabled) merged.disabledAt = new Date().toISOString();
+  return merged;
+}
+
+async function readStoredConfig(provider: ProviderName): Promise<ProviderConfig> {
+  const result = await query<{ config: ProviderConfig }>('SELECT config FROM integration_config WHERE provider = $1', [provider]);
+  return result.rows[0]?.config ?? {};
+}
+
+function publicConfig(config: ProviderConfig): ProviderConfig {
+  const masked: ProviderConfig = { ...config };
+  if (masked.clientSecret) masked.clientSecret = SECRET_SENTINEL;
+  delete masked.disabledAt;
+  return masked;
+}
+
 // Get all integration configs (secrets redacted) — admin only (exposes OAuth client IDs)
-router.get('/', requireAdmin, async (req: Request, res: Response) => {
-  const result = await query<{ provider: string; config: Record<string, unknown>; updated_at: string | Date | null }>(
+router.get('/', requireAdmin, async (_req: Request, res: Response) => {
+  const result = await query<{ provider: string; config: ProviderConfig; updated_at: string | Date | null }>(
     'SELECT provider, config, updated_at FROM integration_config'
   );
 
-  // Redact secrets from response
   const configs: Record<string, Record<string, unknown>> = {};
   for (const row of result.rows) {
-    const cfg = { ...row.config };
-    if (cfg.clientSecret) cfg.clientSecret = '••••••••';
-    configs[row.provider] = { ...cfg, updated_at: row.updated_at };
+    if (!isProviderName(row.provider)) continue;
+    configs[row.provider] = { ...publicConfig(row.config), updated_at: row.updated_at };
   }
   res.json(configs);
 });
 
 // Capability check for any authenticated user (non-admins included). Reports only
-// whether each provider is configured — never the client ID, secret, or any other
-// credential. This lets a non-admin see that Microsoft OAuth is available and enable
-// the connect buttons, while the config read/write/delete endpoints stay admin-only.
-// The OAuth connect routes already require only an authenticated session and bind the
-// resulting mailbox to that user, so no privilege is granted here. (#315)
-router.get('/status', async (req: Request, res: Response) => {
-  res.json({
-    microsoft: {
-      configured: !!process.env.MS_CLIENT_ID,
-    },
-  });
+// readiness per method — never a client ID, a secret or another account's data.
+router.get('/status', async (_req: Request, res: Response) => {
+  const microsoftStored = await readStoredConfig('microsoft');
+  const status: IntegrationStatus = {
+    microsoft: microsoftReadiness(microsoftStored),
+    google: googleReadiness(),
+  };
+  res.json(status);
 });
 
 // Save/update integration config — admin only (writes affect global OAuth env vars)
 router.post('/:provider', requireAdmin, async (req: Request, res: Response) => {
   const provider = routeParam(req.params.provider);
-  const allowed = ['microsoft'];
-  if (!allowed.includes(provider)) return res.status(400).json({ error: 'Unknown provider' });
+  if (!isProviderName(provider)) return res.status(400).json({ error: 'Unknown provider' });
 
-  const config = req.body;
+  const validation = validateProviderConfig(provider, req.body);
+  if (!validation.ok) return res.status(400).json({ error: validation.error });
+  const { config: incoming, clearSecret } = validation;
 
-  // If clientSecret is redacted, keep the existing stored value (already encrypted or legacy plaintext)
-  if (config.clientSecret === '••••••••') {
-    const existing = await query<{ config: { clientId?: string; clientSecret?: string; tenantId?: string; redirectUri?: string; [key: string]: unknown } }>(
-      'SELECT config FROM integration_config WHERE provider = $1',
-      [provider]
-    );
-    if (existing.rows.length) {
-      config.clientSecret = existing.rows[0].config.clientSecret;
-    } else {
-      delete config.clientSecret;
-    }
-  }
-
-  // Encrypt clientSecret at rest — handles both new writes and migration of legacy plaintext values
-  if (config.clientSecret && !isEncrypted(config.clientSecret)) {
-    config.clientSecret = encrypt(config.clientSecret);
-  }
+  const existing = await readStoredConfig(provider);
+  const merged = mergeConfig(existing, incoming, (req.body as Record<string, unknown>).clientSecret, clearSecret);
 
   await query(`
     INSERT INTO integration_config (provider, config)
     VALUES ($1, $2)
     ON CONFLICT (provider) DO UPDATE
     SET config = EXCLUDED.config, updated_at = NOW()
-  `, [provider, config]);
+  `, [provider, merged]);
 
-  // Apply the exact saved configuration immediately, including explicit clears.
-  if (provider === 'microsoft') applyMicrosoftConfig(config);
+  applyProviderConfig(provider, merged);
 
   res.json({ ok: true });
 });
 
-// Delete integration config — admin only
+// Delete integration config — admin only. Deleting writes a tombstone so a
+// restart cannot silently restore the previous `.env` configuration.
 router.delete('/:provider', requireAdmin, async (req: Request, res: Response) => {
-  await query(
-    'DELETE FROM integration_config WHERE provider = $1',
-    [req.params.provider]
-  );
-  if (req.params.provider === 'microsoft') {
-    delete process.env.MS_CLIENT_ID;
-    delete process.env.MS_CLIENT_SECRET;
-    delete process.env.MS_TENANT_ID;
-    delete process.env.MS_REDIRECT_URI;
-  }
+  const provider = routeParam(req.params.provider);
+  if (!isProviderName(provider)) return res.status(400).json({ error: 'Unknown provider' });
+
+  const tombstone: ProviderConfig = { disabled: true, disabledAt: new Date().toISOString() };
+  await query(`
+    INSERT INTO integration_config (provider, config)
+    VALUES ($1, $2)
+    ON CONFLICT (provider) DO UPDATE
+    SET config = EXCLUDED.config, updated_at = NOW()
+  `, [provider, tombstone]);
+
+  clearProviderEnv(provider);
   res.json({ ok: true });
 });
-
 // Load saved configs into process.env on startup
 export async function loadIntegrationConfigs() {
   try {
-    const result = await query<{ provider: string; config: { clientId?: string; clientSecret?: string; tenantId?: string; redirectUri?: string; [key: string]: unknown } }>('SELECT provider, config FROM integration_config');
+    const result = await query<{ provider: string; config: ProviderConfig }>('SELECT provider, config FROM integration_config');
     for (const row of result.rows) {
-      if (row.provider === 'microsoft') applyMicrosoftConfig(row.config);
+      if (!isProviderName(row.provider)) continue;
+      if (row.config?.disabled) {
+        clearProviderEnv(row.provider);
+        continue;
+      }
+      applyProviderConfig(row.provider, row.config);
     }
     console.log('Integration configs loaded');
   } catch (caught) {

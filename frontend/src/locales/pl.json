@@ -820,6 +820,22 @@
         "summary": "{{contacts}} kontaktów w {{books}} książkach adresowych",
         "syncFailed": "Ostatnia synchronizacja nie powiodła się: {{error}}",
         "help": "Użyj hasła aplikacji Nextcloud, nie hasła logowania — użytkownicy SSO muszą utworzyć je w Ustawienia → Bezpieczeństwo. Kontakty są synchronizowane jednokierunkowo i są tylko do odczytu w Inboxora."
+      },
+      "google": {
+        "title": "Google (Gmail, Kalendarz, Kontakty)",
+        "description": "Zalecane połączenie przez API dla kont Google. IMAP/SMTP z hasłem aplikacji pozostaje dostępne, jeśli konto Google na to pozwala. Konfiguracja poniżej jest potrzebna tylko do integracji API.",
+        "savedNote": "Konfiguracja zapisana. Sprawdzenie dostępu konta wymaga autoryzacji użytkownika.",
+        "appPasswordNote": "IMAP/SMTP z hasłem aplikacji nie zależy od tej konfiguracji i działa bez projektu w Google Cloud.",
+        "deviceNotSupported": "Google nie udostępnia kodu urządzenia dla uprawnień do poczty, kalendarza i kontaktów, których wymaga ta integracja. Dostęp API korzysta z logowania w przeglądarce; sama poczta może nadal używać dozwolonego hasła aplikacji IMAP/SMTP.",
+        "clientIdPh": "1234567890-abc.apps.googleusercontent.com",
+        "redirectUriNote": "Dodaj dokładnie ten adres jako autoryzowany URI przekierowania w kliencie OAuth Google Cloud: {uri}",
+        "setupTitle": "Konfiguracja Google Cloud",
+        "step1": "Utwórz lub wybierz projekt w Google Cloud Console.",
+        "step2": "Włącz Gmail API, Google Calendar API i People API dla potrzebnych usług.",
+        "step3": "Skonfiguruj ekran zgody Google Auth Platform i dodaj wymagane zakresy (dostęp do Gmail API to zakres restricted).",
+        "step4": "Utwórz klienta OAuth typu „Aplikacja internetowa”, dodaj poniższy URI przekierowania i skopiuj tutaj Client ID oraz Client Secret.",
+        "userNoteConfigured": "Google API jest skonfigurowane. Połącz konto w jego ustawieniach, aby autoryzować wybrane usługi.",
+        "userNoteNotConfigured": "Administrator nie skonfigurował jeszcze integracji Google API. Poczta przez istniejące połączenie IMAP/SMTP działa dalej."
       }
     },
     "ssoLinked": {

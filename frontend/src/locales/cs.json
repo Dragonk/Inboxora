@@ -812,6 +812,22 @@
         "summary": "{{contacts}} kontaktů v {{books}} adresářích",
         "syncFailed": "Poslední synchronizace selhala: {{error}}",
         "help": "Použijte heslo pro aplikaci Nextcloud, nikoli přihlašovací heslo — uživatelé SSO si je musí vytvořit v Nastavení → Zabezpečení. Kontakty se synchronizují jednosměrně a v Inboxora jsou jen pro čtení."
+      },
+      "google": {
+        "title": "Google (Gmail, Kalendář, Kontakty)",
+        "description": "Doporučené připojení přes API pro účty Google. IMAP/SMTP s heslem aplikace zůstává dostupné, pokud to účet Google umožňuje. Konfigurace níže je potřeba jen pro integraci API.",
+        "savedNote": "Konfigurace uložena. Ověření přístupu k účtu vyžaduje autorizaci uživatele.",
+        "appPasswordNote": "IMAP/SMTP s heslem aplikace na této konfiguraci nezávisí a funguje bez projektu Google Cloud.",
+        "deviceNotSupported": "Google neposkytuje kód zařízení pro oprávnění k poště, kalendáři a kontaktům, která tato integrace vyžaduje. Přístup k API používá přihlášení v prohlížeči; pouze pošta může nadále používat povolené heslo aplikace IMAP/SMTP.",
+        "clientIdPh": "1234567890-abc.apps.googleusercontent.com",
+        "redirectUriNote": "Přidejte přesně toto URI jako autorizované URI přesměrování v klientu OAuth Google Cloud: {uri}",
+        "setupTitle": "Nastavení Google Cloud",
+        "step1": "Vytvořte nebo vyberte projekt v Google Cloud Console.",
+        "step2": "Zapněte Gmail API, Google Calendar API a People API pro potřebné služby.",
+        "step3": "Nastavte obrazovku souhlasu Google Auth Platform a přidejte požadované rozsahy (přístup k Gmail API je omezený rozsah).",
+        "step4": "Vytvořte klienta OAuth typu „Webová aplikace“, přidejte níže uvedené URI přesměrování a zkopírujte sem Client ID a Client Secret.",
+        "userNoteConfigured": "Google API je nakonfigurováno. Připojte účet v jeho nastavení a autorizujte vybrané služby.",
+        "userNoteNotConfigured": "Správce ještě nenakonfiguroval integraci Google API. Pošta přes stávající připojení IMAP/SMTP funguje dál."
       }
     },
     "ai": {

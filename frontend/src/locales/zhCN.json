@@ -381,6 +381,22 @@
         "summary": "{{books}} 个通讯簿中的 {{contacts}} 个联系人",
         "syncFailed": "上次同步失败：{{error}}",
         "help": "请使用 Nextcloud 应用专用密码，而非登录密码——SSO 用户需在“设置 → 安全”中创建。联系人为单向同步，在 Inboxora 中为只读。"
+      },
+      "google": {
+        "title": "Google（Gmail、日历、联系人）",
+        "description": "推荐的 Google 账户 API 连接方式。如果您的 Google 账户允许，仍可使用带应用专用密码的 IMAP/SMTP。下方配置仅用于 API 集成。",
+        "savedNote": "配置已保存。验证账户访问需要用户授权。",
+        "appPasswordNote": "使用应用专用密码的 IMAP/SMTP 不依赖此配置，无需 Google Cloud 项目即可使用。",
+        "deviceNotSupported": "Google 不为本集成所需的邮件、日历和联系人权限提供设备代码。API 访问使用浏览器登录；仅邮件仍可使用允许的 IMAP/SMTP 应用专用密码。",
+        "clientIdPh": "1234567890-abc.apps.googleusercontent.com",
+        "redirectUriNote": "请将此 URI 原样添加为 Google Cloud OAuth 客户端的授权重定向 URI：{uri}",
+        "setupTitle": "Google Cloud 配置",
+        "step1": "在 Google Cloud Console 中创建或选择项目。",
+        "step2": "为所需服务启用 Gmail API、Google Calendar API 和 People API。",
+        "step3": "配置 Google Auth Platform 同意屏幕并添加所需范围（Gmail API 访问属于受限范围）。",
+        "step4": "创建类型为“Web 应用”的 OAuth 客户端，添加下方的重定向 URI，并将其 Client ID 和 Client Secret 复制到此处。",
+        "userNoteConfigured": "Google API 已配置。请在账户设置中连接账户以授权所选服务。",
+        "userNoteNotConfigured": "管理员尚未配置 Google API 集成。通过现有 IMAP/SMTP 连接的邮件仍可正常使用。"
       }
     },
     "lock": {

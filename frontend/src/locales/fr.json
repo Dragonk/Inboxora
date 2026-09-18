@@ -381,6 +381,22 @@
         "summary": "{{contacts}} contacts dans {{books}} carnets",
         "syncFailed": "Échec de la dernière synchro : {{error}}",
         "help": "Utilisez un mot de passe d'application Nextcloud, pas votre mot de passe de connexion — les utilisateurs SSO doivent en créer un dans Paramètres → Sécurité. Les contacts sont synchronisés à sens unique et en lecture seule dans Inboxora."
+      },
+      "google": {
+        "title": "Google (Gmail, Agenda, Contacts)",
+        "description": "Connexion API recommandée pour les comptes Google. IMAP/SMTP avec un mot de passe d'application reste disponible si votre compte Google le permet. La configuration ci-dessous n'est nécessaire que pour l'intégration API.",
+        "savedNote": "Configuration enregistrée. La vérification de l'accès au compte nécessite l'autorisation de l'utilisateur.",
+        "appPasswordNote": "IMAP/SMTP avec un mot de passe d'application ne dépend pas de cette configuration et fonctionne sans projet Google Cloud.",
+        "deviceNotSupported": "Google ne propose pas de code d'appareil pour les autorisations de messagerie, d'agenda et de contacts requises par cette intégration. L'accès API utilise la connexion dans le navigateur ; seul le courrier peut continuer à utiliser un mot de passe d'application IMAP/SMTP autorisé.",
+        "clientIdPh": "1234567890-abc.apps.googleusercontent.com",
+        "redirectUriNote": "Ajoutez exactement cette URI comme URI de redirection autorisée dans le client OAuth Google Cloud : {uri}",
+        "setupTitle": "Configuration de Google Cloud",
+        "step1": "Créez ou sélectionnez un projet dans la Google Cloud Console.",
+        "step2": "Activez l'API Gmail, l'API Google Calendar et l'API People pour les services nécessaires.",
+        "step3": "Configurez l'écran de consentement Google Auth Platform et ajoutez les portées requises (l'accès à l'API Gmail est une portée restreinte).",
+        "step4": "Créez un client OAuth de type « Application Web », ajoutez l’URI de redirection ci-dessous et copiez ici son Client ID et son Client Secret.",
+        "userNoteConfigured": "L'API Google est configurée. Connectez un compte depuis ses paramètres pour autoriser les services choisis.",
+        "userNoteNotConfigured": "L'administrateur n'a pas encore configuré l'intégration API Google. Le courrier via la connexion IMAP/SMTP existante continue de fonctionner."
       }
     },
     "lock": {

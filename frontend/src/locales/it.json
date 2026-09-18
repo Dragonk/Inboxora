@@ -381,6 +381,22 @@
         "summary": "{{contacts}} contatti in {{books}} rubriche",
         "syncFailed": "Ultima sincronizzazione non riuscita: {{error}}",
         "help": "Usa una password app di Nextcloud, non quella di accesso: gli utenti SSO devono crearne una in Impostazioni → Sicurezza. I contatti sono sincronizzati a senso unico e di sola lettura in Inboxora."
+      },
+      "google": {
+        "title": "Google (Gmail, Calendario, Contatti)",
+        "description": "Connessione API consigliata per gli account Google. IMAP/SMTP con password per le app resta disponibile se il tuo account Google lo consente. La configurazione sotto serve solo per l'integrazione API.",
+        "savedNote": "Configurazione salvata. La verifica dell'accesso all'account richiede l'autorizzazione dell'utente.",
+        "appPasswordNote": "IMAP/SMTP con password per le app non dipende da questa configurazione e funziona senza un progetto Google Cloud.",
+        "deviceNotSupported": "Google non offre un codice dispositivo per i permessi di posta, calendario e contatti richiesti da questa integrazione. L'accesso API usa l'accesso nel browser; solo la posta può continuare a usare una password per le app IMAP/SMTP consentita.",
+        "clientIdPh": "1234567890-abc.apps.googleusercontent.com",
+        "redirectUriNote": "Aggiungi esattamente questo URI come URI di reindirizzamento autorizzato nel client OAuth di Google Cloud: {uri}",
+        "setupTitle": "Configurazione di Google Cloud",
+        "step1": "Crea o seleziona un progetto in Google Cloud Console.",
+        "step2": "Abilita l'API Gmail, l'API Google Calendar e l'API People per i servizi necessari.",
+        "step3": "Configura la schermata di consenso di Google Auth Platform e aggiungi gli scope richiesti (l'accesso all'API Gmail è uno scope limitato).",
+        "step4": "Crea un client OAuth di tipo «Applicazione web», aggiungi l’URI di reindirizzamento sotto e copia qui il Client ID e il Client Secret.",
+        "userNoteConfigured": "L'API Google è configurata. Collega un account dalle sue impostazioni per autorizzare i servizi scelti.",
+        "userNoteNotConfigured": "L'amministratore non ha ancora configurato l'integrazione API di Google. La posta tramite la connessione IMAP/SMTP esistente continua a funzionare."
       }
     },
     "lock": {
