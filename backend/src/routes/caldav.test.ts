@@ -92,9 +92,9 @@ describe('CalDAV discovery', () => {
     expect(await response.text()).toContain('/caldav/user-1/');
   });
 
-  it('exposes only the authenticated user calendar home', async () => {
+  it('points calendar-home-set at the home collection, not the first calendar (A07)', async () => {
     authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
-    query.mockResolvedValueOnce({ rows: [{ id: 'calendar-1', name: 'Personal', sync_token: 'token-1' }] });
+    query.mockResolvedValueOnce({ rows: [{ id: 'calendar-1', name: 'Personal', sync_token: 'sync-0', read_only: false }] });
 
     const response = await fetch(`${base}/caldav/user-1/`, {
       method: 'PROPFIND',
@@ -102,9 +102,52 @@ describe('CalDAV discovery', () => {
     });
 
     expect(response.status).toBe(207);
-    expect(await response.text()).toContain('/caldav/user-1/calendar-1/');
+    const body = await response.text();
+    // Depth: 0 returns only the home itself, and the home-set is the home URL even
+    // when calendars exist. The old response returned the first calendar here, so a
+    // client that trusted it could never discover the others.
+    expect(body).toContain('<C:calendar-home-set><D:href>/caldav/user-1/</D:href></C:calendar-home-set>');
+    expect(body).not.toContain('/caldav/user-1/calendar-1/');
     expect(query.mock.calls[0][0]).toContain('WHERE user_id = $1');
     expect(query.mock.calls[0][1]).toEqual(['user-1']);
+  });
+
+  it('lists the member calendars on Depth: 1 with honest privileges and reports', async () => {
+    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
+    query.mockResolvedValueOnce({ rows: [
+      { id: 'calendar-1', name: 'Personal', sync_token: 'sync-3', read_only: false },
+      { id: 'calendar-2', name: 'Read only', sync_token: 'sync-1', read_only: true },
+    ] });
+
+    const response = await fetch(`${base}/caldav/user-1/`, {
+      method: 'PROPFIND',
+      headers: { authorization: basic('sam@example.test', 'test-dav-password'), depth: '1' },
+    });
+
+    expect(response.status).toBe(207);
+    const body = await response.text();
+    expect(body).toContain('/caldav/user-1/calendar-1/');
+    expect(body).toContain('/caldav/user-1/calendar-2/');
+    expect(body).toContain('<D:supported-report-set>');
+    expect(body).toContain('<C:calendar-query/>');
+    expect(body).toContain('<D:sync-collection/>');
+    expect(body).toContain('<D:current-user-privilege-set>');
+  });
+
+  it('advertises only the DAV classes it implements', async () => {
+    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
+
+    const response = await fetch(`${base}/caldav/`, {
+      method: 'OPTIONS',
+      headers: { authorization: basic('sam@example.test', 'test-dav-password') },
+    });
+
+    const dav = response.headers.get('dav') || '';
+    expect(dav).toContain('calendar-access');
+    // No LOCK (class 2) and no extended MKCOL (class 3): advertising them made
+    // clients probe methods this server does not implement.
+    expect(dav).not.toMatch(/\b2\b/);
+    expect(dav).not.toMatch(/\b3\b/);
   });
 
   it('lists only calendars owned by the DAV user', async () => {
@@ -120,6 +163,29 @@ describe('CalDAV discovery', () => {
     expect(await response.text()).toContain('Personal');
     expect(query.mock.calls[0][0]).toContain('WHERE id = $1 AND user_id = $2');
     expect(query.mock.calls[0][1]).toEqual(['calendar-1', 'user-1']);
+  });
+
+  it('advertises write privileges only for a writable calendar', async () => {
+    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
+    query.mockResolvedValueOnce({ rows: [{ id: 'calendar-1', name: 'Personal', sync_token: 'sync-1', read_only: false }] });
+    const writable = await fetch(`${base}/caldav/user-1/calendar-1/`, {
+      method: 'PROPFIND',
+      headers: { authorization: basic('sam@example.test', 'test-dav-password'), depth: '0' },
+    });
+    const writableBody = await writable.text();
+    expect(writableBody).toContain('<D:current-user-privilege-set>');
+    expect(writableBody).toContain('<D:privilege><D:write/></D:privilege>');
+    expect(writableBody).toContain('<D:privilege><D:bind/></D:privilege>');
+
+    query.mockReset();
+    query.mockResolvedValueOnce({ rows: [{ id: 'calendar-2', name: 'Imported', sync_token: 'sync-2', read_only: true }] });
+    const readOnly = await fetch(`${base}/caldav/user-1/calendar-2/`, {
+      method: 'PROPFIND',
+      headers: { authorization: basic('sam@example.test', 'test-dav-password'), depth: '0' },
+    });
+    const readOnlyBody = await readOnly.text();
+    expect(readOnlyBody).toContain('<D:privilege><D:read/></D:privilege>');
+    expect(readOnlyBody).not.toContain('<D:write');
   });
 });
 
@@ -261,7 +327,9 @@ describe('CalDAV calendar objects', () => {
       body: '<D:sync-collection xmlns:D="DAV:"><D:sync-token>stale-token</D:sync-token></D:sync-collection>',
     });
 
-    expect(response.status).toBe(409);
+    // RFC 6578 §3.2: an unrecognised sync token is the 403 valid-sync-token
+    // precondition, which tells the client to resynchronise from scratch.
+    expect(response.status).toBe(403);
     expect(await response.text()).toContain('valid-sync-token');
     expect(query).toHaveBeenCalledTimes(1);
   });

@@ -358,7 +358,8 @@ it('rejects an old or foreign CardDAV token instead of silently missing deletion
     method: 'REPORT', headers: { authorization: basic('test', 'dav-password') },
     body: '<D:sync-collection xmlns:D="DAV:"><D:sync-token>legacy-random-token</D:sync-token></D:sync-collection>',
   });
-  expect(result.status).toBe(409);
+  // RFC 6578 §3.2: an unrecognised sync token is the 403 valid-sync-token precondition.
+  expect(result.status).toBe(403);
   expect(await result.text()).toContain('valid-sync-token');
   expect(query).toHaveBeenCalledTimes(1);
 });

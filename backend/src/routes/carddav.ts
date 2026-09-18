@@ -126,6 +126,20 @@ function xmlEscape(s: unknown) {
     .replace(/"/g, '&quot;');
 }
 
+// Advertise only what this server enforces (RFC 3744 / RFC 3253). An address book
+// accepts PUT/DELETE for local books, so it reports the write privileges; the
+// reports listed are exactly the ones the REPORT route implements.
+const ADDRESSBOOK_PRIVILEGES = ['<D:read/>', '<D:write/>', '<D:write-content/>', '<D:bind/>', '<D:unbind/>'];
+
+function addressBookPrivilegeSet() {
+  return `<D:current-user-privilege-set>${ADDRESSBOOK_PRIVILEGES.map(privilege => `<D:privilege>${privilege}</D:privilege>`).join('')}</D:current-user-privilege-set>`;
+}
+
+function addressBookSupportedReportSet() {
+  const reports = ['<C:addressbook-query/>', '<C:addressbook-multiget/>', '<D:sync-collection/>'];
+  return `<D:supported-report-set>${reports.map(report => `<D:supported-report>${report}</D:supported-report>`).join('')}</D:supported-report-set>`;
+}
+
 function sendXml(res: Response, status: number, xml: string) {
   res.status(status)
      .setHeader('Content-Type', 'application/xml; charset=utf-8')
@@ -150,9 +164,11 @@ function rawBody(req: Request) {
 // ── OPTIONS (broadcast CardDAV support) ──────────────────────────────────────
 
 router.options('*', (req, res) => {
+  // Class 2 (LOCK) and class 3 (extended MKCOL) are not implemented; advertising
+  // them made clients probe methods that do not exist.
   res.set({
     'Allow': 'OPTIONS, GET, PUT, DELETE, PROPFIND, REPORT',
-    'DAV': '1, 2, 3, addressbook',
+    'DAV': '1, addressbook',
   }).status(200).end();
 });
 
@@ -196,6 +212,8 @@ router.propfind('/:userId/', async (req, res) => {
       `<D:displayname>${xmlEscape(book.name)}</D:displayname>`,
       `<D:sync-token>${xmlEscape(syncToken(book))}</D:sync-token>`,
       `<CS:getctag>${xmlEscape(book.sync_token)}</CS:getctag>`,
+      addressBookPrivilegeSet(),
+      addressBookSupportedReportSet(),
     ], '200 OK'),
   ]));
   sendXml(res, 207, multistatus([
@@ -227,6 +245,8 @@ router.propfind('/:userId/:bookId/', async (req, res) => {
       `<D:displayname>${xmlEscape(book.name)}</D:displayname>`,
       `<D:sync-token>${xmlEscape(syncToken(book))}</D:sync-token>`,
       `<CS:getctag>${xmlEscape(book.sync_token)}</CS:getctag>`,
+      addressBookPrivilegeSet(),
+      addressBookSupportedReportSet(),
     ], '200 OK'),
   ]);
 
@@ -279,7 +299,9 @@ router.report('/:userId/:bookId/', async (req, res) => {
     const prefix = `urn:inboxora:carddav:${book.id}:`;
     const version = token?.startsWith(prefix) && /^\d+$/.test(token.slice(prefix.length)) ? Number(token.slice(prefix.length)) : NaN;
     if (token && (!Number.isSafeInteger(version) || version > Number(book.sync_version || 0))) {
-      return sendXml(res, 409, `${xmlHeader()}<D:error xmlns:D="${DAV_NS}"><D:valid-sync-token/></D:error>`);
+      // RFC 6578 §3.2: an invalid/expired sync token is the 403 valid-sync-token
+      // precondition, which asks the client for a full resynchronisation.
+      return sendXml(res, 403, `${xmlHeader()}<D:error xmlns:D="${DAV_NS}"><D:valid-sync-token/></D:error>`);
     }
     if (token) contacts = await query<CarddavContactRow>(
       `SELECT DISTINCT ON (filename) filename AS dav_filename, etag, vcard, deleted

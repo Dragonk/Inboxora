@@ -88,6 +88,34 @@ function response(href: string, properties: string[], status = '200 OK') {
   ].join('');
 }
 
+// RFC 3744 privileges this server can actually enforce. The home collection is a
+// container only — MKCALENDAR is not implemented — so it advertises read; a
+// calendar collection adds the write privileges only when it is not read-only.
+const READ_PRIVILEGES = ['<D:read/>'];
+const WRITE_PRIVILEGES = ['<D:read/>', '<D:write/>', '<D:write-content/>', '<D:bind/>', '<D:unbind/>'];
+
+function privilegeSet(writable: boolean) {
+  const privileges = writable ? WRITE_PRIVILEGES : READ_PRIVILEGES;
+  return `<D:current-user-privilege-set>${privileges.map(privilege => `<D:privilege>${privilege}</D:privilege>`).join('')}</D:current-user-privilege-set>`;
+}
+
+// Only the reports this route actually implements are advertised (RFC 3253).
+function supportedReportSet() {
+  const reports = ['<C:calendar-query/>', '<C:calendar-multiget/>', '<D:sync-collection/>'];
+  return `<D:supported-report-set>${reports.map(report => `<D:supported-report>${report}</D:supported-report>`).join('')}</D:supported-report-set>`;
+}
+
+/** The `Depth: 1` member listing of a calendar collection (RFC 4791 §5.2). */
+function calendarCollectionProperties(calendar: { id: string; name?: string | null; sync_token?: string | null; read_only?: boolean | null }): string[] {
+  return [
+    '<D:resourcetype><D:collection/><C:calendar/></D:resourcetype>',
+    `<D:displayname>${xmlEscape(calendar.name)}</D:displayname>`,
+    `<D:sync-token>${xmlEscape(calendar.sync_token)}</D:sync-token>`,
+    privilegeSet(!calendar.read_only),
+    supportedReportSet(),
+  ];
+}
+
 function caldavRateLimit(req: Request, res: Response, next: NextFunction) {
   const { windowMs } = authLimiterConfig;
   const now = Date.now();
@@ -113,9 +141,11 @@ router.use((req, _res, next) => {
 });
 
 router.options('*', (_req: Request, res: Response) => {
+  // Class 2 (LOCK) and class 3 (extended MKCOL) are not implemented and must not
+  // be advertised; `calendar-access` plus class 1 matches the methods below.
   res.set({
     Allow: 'OPTIONS, GET, PUT, DELETE, PROPFIND, REPORT',
-    DAV: '1, 2, 3, calendar-access',
+    DAV: '1, calendar-access',
   }).status(200).end();
 });
 
@@ -132,42 +162,46 @@ router.propfind('/', (req: Request, res: Response) => {
 router.propfind('/:userId/', async (req: Request, res: Response) => {
   if (req.params.userId !== req.caldavUserId) return res.status(403).end();
 
-  const calendars = await query(
-    'SELECT id, name, sync_token FROM calendars WHERE user_id = $1 ORDER BY created_at ASC',
+  const calendars = await query<{ id: string; name?: string | null; sync_token?: string | null; read_only?: boolean | null }>(
+    'SELECT id, name, sync_token, read_only FROM calendars WHERE user_id = $1 ORDER BY created_at ASC',
     [req.caldavUserId],
   );
   const principalPath = `/caldav/${req.caldavUserId}/`;
-  const calendarHome = calendars.rows[0]
-    ? `/caldav/${req.caldavUserId}/${calendars.rows[0].id}/`
-    : principalPath;
-
-  sendXml(res, 207, multistatus([
+  // The home is the principal collection itself, not one of its calendars: the old
+  // response pointed `calendar-home-set` at the first calendar, so a client that
+  // trusted it never discovered the others (plan A07/RFC 4791 §6.2.1).
+  const responses = [
     response(principalPath, [
       '<D:resourcetype><D:principal/><D:collection/></D:resourcetype>',
       `<D:displayname>${xmlEscape(req.caldavUserId)}</D:displayname>`,
       `<D:current-user-principal><D:href>${xmlEscape(principalPath)}</D:href></D:current-user-principal>`,
-      `<C:calendar-home-set><D:href>${xmlEscape(calendarHome)}</D:href></C:calendar-home-set>`,
+      `<C:calendar-home-set><D:href>${xmlEscape(principalPath)}</D:href></C:calendar-home-set>`,
+      // The home is a container; creating/removing calendars over DAV is not supported.
+      privilegeSet(false),
     ]),
-  ]));
+  ];
+  // Depth: 1 lists the member calendar collections; Depth: 0 (the default) returns
+  // only the home itself, as RFC 4918 requires.
+  if (String(req.headers.depth ?? '0') === '1') {
+    for (const calendar of calendars.rows) {
+      responses.push(response(`${principalPath}${calendar.id}/`, calendarCollectionProperties(calendar)));
+    }
+  }
+  sendXml(res, 207, multistatus(responses));
 });
 
 router.propfind('/:userId/:calendarId/', async (req: Request, res: Response) => {
   if (req.params.userId !== req.caldavUserId) return res.status(403).end();
 
-  const result = await query(
-    'SELECT id, name, sync_token FROM calendars WHERE id = $1 AND user_id = $2',
+  const result = await query<{ id: string; name?: string | null; sync_token?: string | null; read_only?: boolean | null }>(
+    'SELECT id, name, sync_token, read_only FROM calendars WHERE id = $1 AND user_id = $2',
     [req.params.calendarId, req.caldavUserId],
   );
   const calendar = result.rows[0];
   if (!calendar) return res.status(404).end();
 
-  const calendarPath = `/caldav/${req.caldavUserId}/${calendar.id}/`;
   sendXml(res, 207, multistatus([
-    response(calendarPath, [
-      '<D:resourcetype><D:collection/><C:calendar/></D:resourcetype>',
-      `<D:displayname>${xmlEscape(calendar.name)}</D:displayname>`,
-      `<D:sync-token>${xmlEscape(calendar.sync_token)}</D:sync-token>`,
-    ]),
+    response(`/caldav/${req.caldavUserId}/${calendar.id}/`, calendarCollectionProperties(calendar)),
   ]));
 });
 
@@ -193,7 +227,9 @@ router.report('/:userId/:calendarId/', async (req: Request, res: Response) => {
     const match = requestedToken?.match(/^sync-(\d+)$/);
     const requestedVersion = match ? Number(match[1]) : null;
     if (requestedToken && (requestedVersion === null || !Number.isSafeInteger(requestedVersion) || requestedVersion > calendar.sync_version)) {
-      return sendXml(res, 409, `<?xml version="1.0" encoding="UTF-8"?><D:error xmlns:D="${DAV_NS}"><D:valid-sync-token/></D:error>`);
+      // RFC 6578 §3.2: an unrecognised/expired sync token is the 403
+      // DAV:valid-sync-token precondition, which tells the client to resynchronise.
+      return sendXml(res, 403, `<?xml version="1.0" encoding="UTF-8"?><D:error xmlns:D="${DAV_NS}"><D:valid-sync-token/></D:error>`);
     }
     if (requestedToken) {
       const changes = await query<CalendarEventRow>(

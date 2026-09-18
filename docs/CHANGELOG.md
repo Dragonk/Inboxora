@@ -51,6 +51,15 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   and is unchanged. New `GET /api/calendar/events/:id` returns one event's stored representation
   (including its rule) for the series editor, and the `recurrence` field is validated and rendered
   into iCalendar by the server, so a client cannot inject arbitrary iCalendar properties.
+- Harden the built-in CalDAV/CardDAV server's discovery and capability surface. CalDAV now
+  reports `calendar-home-set` as the calendar home collection instead of pointing at the first
+  calendar, so a client (for example DAVx⁵) discovers every calendar instead of only one, and a
+  `Depth: 1` PROPFIND on the home lists the member calendars while `Depth: 0` returns only the
+  home. Calendar and address-book collections now advertise `current-user-privilege-set` (write
+  privileges only when the collection is writable) and `supported-report-set` for exactly the
+  reports implemented. An unrecognised or expired sync token now answers `403` with
+  `DAV:valid-sync-token` (RFC 6578) instead of `409`, and the `DAV` header no longer advertises
+  class 2/3 (LOCK, extended MKCOL), which were never implemented.
 
 ## [4.0.4] - 2026-09-18
 
