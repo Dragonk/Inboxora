@@ -6,7 +6,7 @@
 
 <p align="center">
   <a href="https://github.com/Dragonk/Inboxora/actions/workflows/ci.yml"><img src="https://github.com/Dragonk/Inboxora/actions/workflows/ci.yml/badge.svg?branch=dev" alt="CI"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0--only-blue" alt="License: AGPL-3.0-only"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue" alt="License: AGPL-3.0"></a>
   <img src="https://img.shields.io/badge/version-4.0.3-informational" alt="Version 4.0.3">
 </p>
 
@@ -337,6 +337,6 @@ deployment secrets into issues, screenshots or the Wiki. To report a vulnerabili
 [MailFlow](https://github.com/maathimself/mailflow).** Inboxora is an independently developed
 fork with distinct product goals; the required upstream notices remain preserved.
 
-Licensed under [AGPL-3.0-only](LICENSE). If you run a modified Inboxora as a network service, you
+Licensed under [AGPL-3.0](LICENSE). If you run a modified Inboxora as a network service, you
 must offer its corresponding source to your users. Contributions are accepted under the same
 terms — see [CONTRIBUTING.md](CONTRIBUTING.md).
