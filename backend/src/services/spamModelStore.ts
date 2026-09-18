@@ -138,10 +138,49 @@ export async function updateIncrementalForUser(
     const model = (await getModelForUser(userId)) ?? createEmptyModel();
     const tokens = tokenize(message);
     const flagFeatures: FlagFeatures = extractFlagFeatures(message);
-    const updated = updateIncremental(model, tokens, flagFeatures, label);
+    // Repeat feedback on the SAME message (already-in-folder re-confirm)
+    // still trains the vocabulary below (reinforcement), but must NOT mint a
+    // new distinct usable sample: 50x confirming one mail must not mature
+    // the model before the next retrain reconciles the true split.
+    const seen = await hasFeedbackForFingerprint(userId, message, label).catch(() => false);
+    const updated = updateIncremental(model, tokens, flagFeatures, label, { countUsable: !seen });
     await saveModel(userId, updated);
     return updated;
   });
+}
+
+// True when this user already gave the same label for the same message
+// content. The training log carries no full From header at mark time — only
+// sender_domain — so the fingerprint is (sender domain, subject, body lead):
+// rows for the same physical mail share all three, while distinct mails
+// differ in at least one.
+async function hasFeedbackForFingerprint(
+  userId: string,
+  message: SpamMessageInput,
+  label: SpamLabel,
+): Promise<boolean> {
+  const fingerprint = feedbackFingerprint(message);
+  const result = await query<{ n: string }>(
+    `SELECT COUNT(*) AS n FROM spam_training_log
+      WHERE user_id = $1 AND label = $2
+        AND COALESCE(sender_domain, '') = $3
+        AND COALESCE(subject, '') = $4
+        AND COALESCE(LEFT(body_text, 4000), '') = $5`,
+    [userId, label, fingerprint.senderDomain, fingerprint.subject, fingerprint.body],
+  );
+  return Number(result.rows[0]?.n ?? 0) > 0;
+}
+
+function feedbackFingerprint(message: SpamMessageInput): { senderDomain: string; subject: string; body: string } {
+  const norm = (value: unknown, max: number): string => String(value ?? '').toLowerCase().replace(/\s+/g, ' ').trim().slice(0, max);
+  const from = String(message.from ?? '');
+  const at = from.lastIndexOf('@');
+  const domain = at >= 0 ? from.slice(at + 1).replace(/[^a-z0-9.-]/g, '') : '';
+  return {
+    senderDomain: domain.slice(0, 255),
+    subject: norm(message.subject, 500),
+    body: norm(message.body, 4000),
+  };
 }
 
 // Per-user serializer: incremental feedback and full retrains for the same

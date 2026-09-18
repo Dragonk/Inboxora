@@ -120,18 +120,26 @@ export function updateIncremental(
   tokens: ReadonlyArray<string>,
   flagFeatures: FlagFeatures | null | undefined,
   label: SpamLabel,
+  opts: { countUsable?: boolean } = {},
 ): SpamModelState {
   const key = label === 'spam' ? 'spam' : 'ham';
+  // Incremental feedback is one distinct user decision on one message: it
+  // counts as one usable sample of its class (unless the state predates the
+  // usable_* columns, in which case we leave them undefined so the legacy
+  // fallback in isModelMature keeps applying). Repeat feedback on the same
+  // message passes countUsable: false so re-confirming one mail cannot mint
+  // new distinct samples (the vocabulary below still reinforces normally).
+  const countUsable = opts.countUsable ?? true;
   const next: SpamModelState = {
     ...model,
     vocabulary: { ...model.vocabulary },
     trainingRecords: model.trainingRecords + 1,
-    // Incremental feedback is one distinct user decision on one message: it
-    // counts as one usable sample of its class (unless the state predates the
-    // usable_* columns, in which case we leave them undefined so the legacy
-    // fallback in isModelMature keeps applying).
-    usableSpam: model.usableSpam === undefined ? undefined : model.usableSpam + (key === 'spam' ? 1 : 0),
-    usableHam: model.usableHam === undefined ? undefined : model.usableHam + (key === 'ham' ? 1 : 0),
+    usableSpam: model.usableSpam === undefined || !countUsable
+      ? model.usableSpam
+      : model.usableSpam + (key === 'spam' ? 1 : 0),
+    usableHam: model.usableHam === undefined || !countUsable
+      ? model.usableHam
+      : model.usableHam + (key === 'ham' ? 1 : 0),
     lastTrainedAt: model.lastTrainedAt,
   };
 

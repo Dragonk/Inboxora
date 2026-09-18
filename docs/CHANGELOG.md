@@ -52,6 +52,9 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.3](wiki/R
   `usable_spam` / `usable_ham` columns (migration `0097`); ML activates only at `>= minRecords`
   usable samples with a minimum of each class (default 10), so one mail confirmed 50x or 50 spams
   with zero hams stays rules-only, and legacy featureless rows no longer mature the model.
+  Repeat feedback on the same mail still reinforces the vocabulary but no longer mints a new
+  distinct usable sample (fingerprint on sender domain + subject + body lead), so confirming
+  one mail 50x cannot mature the model even before the next full retrain.
   `GET /api/spam/status` derives maturity from the configured thresholds and the usable split;
   `PATCH /api/spam/thresholds` validates `minRecords`/`softRecords`, enforces
   `softRecords >= minRecords`, and drops the dead `hardRecords` key; `spamModelStore` per-user

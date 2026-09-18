@@ -89,4 +89,36 @@ describe('spam model store', () => {
     const second = await updateIncrementalForUser('user-2', { subject: 'hello', body: 'meeting' }, 'ham');
     expect(second?.trainingRecords).toBe(1);
   });
+
+  it('does not mint a new usable sample for repeat feedback on the same mail', async () => {
+    let logCount = 0;
+    query.mockImplementation(async (sql: string) => {
+      if (sql.startsWith('SELECT * FROM spam_models')) {
+        return { rows: [{
+          vocabulary: {}, total_spam: 4, total_ham: 0, prior_spam: 1, prior_ham: 0,
+          training_records: 1, usable_spam: 1, usable_ham: 0,
+          model_version: 1, last_trained_at: null, decay_threshold_days: 90,
+        }] };
+      }
+      if (sql.includes('FROM spam_training_log')) return { rows: [{ n: String(logCount) }] };
+      return { rows: [] };
+    });
+    const msg = { subject: 'Free prize', body: 'claim now', from: '<promo@shady.example>' };
+    const first = await updateIncrementalForUser('user-2', msg, 'spam');
+    // First feedback: no prior row in the log → new distinct sample.
+    expect(first?.usableSpam).toBe(2);
+    // The mark-spam path inserts the training row right after; simulate it.
+    logCount = 1;
+    const repeat = await updateIncrementalForUser('user-2', msg, 'spam');
+    // Repeat on the same content: vocabulary still reinforces, trainingRecords
+    // still grows, but usableSpam must NOT grow — one mail confirmed 50x is
+    // one sample, not fifty. (The mocked model row always reads back
+    // usable_spam: 1, so the repeat keeps 1 instead of minting 2.)
+    expect(repeat?.trainingRecords).toBe(2);
+    expect(repeat?.usableSpam).toBe(1);
+    // Reinforcement still happens on repeat: the token counts grow even
+    // though no new distinct sample is minted.
+    expect(repeat?.vocabulary['prize']?.spam).toBeGreaterThan(0);
+    expect(repeat?.vocabulary['prize']?.spam).toBe(first?.vocabulary['prize']?.spam);
+  });
 });
