@@ -64,7 +64,7 @@ jobs:
 
       - name: Set app version
         working-directory: frontend
-        run: npm run app:version -- "${{ steps.app-version.outputs.version }}" "${{ github.run_number }}"
+        run: npm run app:version -- "${{ steps.app-version.outputs.version }}"
 
       - name: Validate desktop release signing
         if: (matrix.os == 'windows-latest' || matrix.os == 'macos-latest') && inputs.windows_signing != false
@@ -185,7 +185,7 @@ jobs:
 
       - name: Set app version
         working-directory: frontend
-        run: npm run app:version -- "${{ steps.app-version.outputs.version }}" "${{ github.run_number }}"
+        run: npm run app:version -- "${{ steps.app-version.outputs.version }}"
 
       - name: Prepare Android release signing
         shell: bash

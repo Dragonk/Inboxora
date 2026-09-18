@@ -56,6 +56,13 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.3](wiki/R
   package list still contains the legacy `tools` SDK package, which Google removed from the SDK
   repository, so `sdkmanager` aborted with `Failed to find package 'tools'`. Both
   `publish-apps.yml` and `android-dev-build.yml` now request only `platform-tools`.
+- Android release builds no longer ship a lower `versionCode` than the previously published APKs.
+  The code came from `github.run_number`, which restarts whenever a repository is re-created: after
+  the move to the standalone repository, 4.0.3 was built with `versionCode 2` and Android rejected
+  the package as a downgrade over the installed 4.0.2 (`versionCode 9`). The code is now derived
+  from the version itself (`major * 1e6 + minor * 1e4 + patch * 1e2`, minus 50 for pre-releases),
+  so it is stable across repositories and strictly increasing along the release line; 4.0.3 is
+  rebuilt with `versionCode 4000300`. Covered by `set-app-version.test.cjs`.
 
 ## [4.0.3] - 2026-09-18
 

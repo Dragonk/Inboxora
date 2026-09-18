@@ -104,7 +104,7 @@ jobs:
         working-directory: frontend
         env:
           DEV_VERSION: 4.0.0-dev.${{ github.run_number }}
-        run: npm run app:version -- "$DEV_VERSION" "${{ github.run_number }}"
+        run: npm run app:version -- "$DEV_VERSION"
 
       - name: Build web assets and sync the Android shell
         working-directory: frontend
