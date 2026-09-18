@@ -59,7 +59,9 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   privileges only when the collection is writable) and `supported-report-set` for exactly the
   reports implemented. An unrecognised or expired sync token now answers `403` with
   `DAV:valid-sync-token` (RFC 6578) instead of `409`, and the `DAV` header no longer advertises
-  class 2/3 (LOCK, extended MKCOL), which were never implemented.
+  class 2/3 (LOCK, extended MKCOL), which were never implemented. CalDAV and CardDAV `If-Match`
+  now use strong entity-tag comparison (RFC 9110): a weak `W/"…"` validator is rejected with
+  `412` even when its value matches, instead of being stripped to a strong comparison.
 
 ## [4.0.4] - 2026-09-18
 

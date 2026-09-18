@@ -328,6 +328,9 @@ it('enforces create-only and update-only CardDAV preconditions before modifying 
   const preconditions: Array<{ headers: Record<string, string>; rows: Array<{ id: string; uid: string; etag: string }> }> = [
     { headers: { 'if-none-match': '*' }, rows: [{ id: 'contact', uid: 'same', etag: 'old' }] },
     { headers: { 'if-match': '"missing"' }, rows: [] },
+    // A weak validator must never satisfy If-Match (RFC 9110 strong comparison),
+    // even when its value is the current ETag.
+    { headers: { 'if-match': 'W/"old"' }, rows: [{ id: 'contact', uid: 'same', etag: 'old' }] },
   ];
   for (const { headers, rows } of preconditions) {
     query.mockReset(); query.mockResolvedValueOnce({ rows: [{ id: 'book-1', source: 'local' }] }).mockResolvedValueOnce({ rows });

@@ -409,6 +409,41 @@ describe('CalDAV calendar objects', () => {
     expect(query).toHaveBeenCalledTimes(2);
   });
 
+  it('rejects a weak If-Match validator even when its value matches (RFC 9110 strong comparison)', async () => {
+    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })
+      .mockResolvedValueOnce({ rows: [{ etag: 'current-etag' }] });
+
+    const response = await fetch(`${base}/caldav/user-1/calendar-1/event-1.ics`, {
+      method: 'PUT',
+      headers: { authorization: basic('sam@example.test', 'test-dav-password'), 'if-match': 'W/"current-etag"' },
+      body: 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:event-1\r\nDTSTART:20260901T090000Z\r\nDTEND:20260901T100000Z\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n',
+    });
+
+    expect(response.status).toBe(412);
+    // The two reads are the calendar and the current event; no write was attempted.
+    expect(query).toHaveBeenCalledTimes(2);
+    expect(query.mock.calls.some(([sql]) => String(sql).includes('INSERT INTO calendar_events'))).toBe(false);
+  });
+
+  it('accepts a strong If-Match validator that matches the current ETag', async () => {
+    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })
+      .mockResolvedValueOnce({ rows: [{ uid: 'event-1', etag: 'current-etag' }] })
+      .mockResolvedValueOnce({ rows: [{ uid: 'event-1', etag: 'next-etag' }] });
+
+    const response = await fetch(`${base}/caldav/user-1/calendar-1/event-1.ics`, {
+      method: 'PUT',
+      headers: { authorization: basic('sam@example.test', 'test-dav-password'), 'if-match': '"current-etag"' },
+      body: 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:event-1\r\nDTSTART:20260901T090000Z\r\nDTEND:20260901T100000Z\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n',
+    });
+
+    expect(response.status).toBe(204);
+    expect(response.headers.get('etag')).toBe('"next-etag"');
+  });
+
   it('rejects CalDAV mutation of an event whose invitation lifecycle is managed by Inboxora', async () => {
     authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
     query

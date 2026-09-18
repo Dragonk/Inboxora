@@ -16,6 +16,7 @@ import { query } from '../services/db.js';
 import { parseVCard } from '../utils/vcard.js';
 import { authLimiterConfig } from '../services/authLimiter.js';
 import { createDavAuthMiddleware } from '../services/davServerAuth.js';
+import { ifMatchSatisfied, ifNoneMatchAllowsCreate } from '../utils/davPreconditions.js';
 import { toAppError } from '../utils/errors.js';
 
 const router = Router();
@@ -406,15 +407,11 @@ router.put('/:userId/:bookId/:filename', async (req, res) => {
 
     const current = existing.rows[0];
     if (current?.uid && (current.uid !== uid || (current.dav_filename || `${current.uid}.vcf`) !== filename)) return res.status(409).end();
-    if (req.headers['if-none-match'] === '*' && current) return res.status(412).end();
-    if (req.headers['if-match'] && !current) return res.status(412).end();
+    if (!ifNoneMatchAllowsCreate(req.headers['if-none-match'], Boolean(current))) return res.status(412).end();
+    // Strong If-Match comparison (RFC 9110 §13.1.1): a weak validator never matches.
+    const currentEtag = typeof current?.etag === 'string' ? current.etag : null;
+    if (!ifMatchSatisfied(req.headers['if-match'], currentEtag)) return res.status(412).end();
     if (existing.rows.length) {
-      // Enforce If-Match precondition (RFC 6352 §6.3.2)
-      const ifMatch = req.headers['if-match'];
-      if (ifMatch && ifMatch !== '*') {
-        const clientEtag = ifMatch.replace(/^"(.*)"$/, '$1');
-        if (clientEtag !== existing.rows[0].etag) return res.status(412).end();
-      }
       // Update
       const updated = await query(`
         UPDATE contacts SET

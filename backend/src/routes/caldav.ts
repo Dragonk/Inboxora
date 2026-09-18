@@ -7,6 +7,7 @@ export { parseCalendarEvent } from '../utils/ical.js';
 import { query } from '../services/db.js';
 import { authLimiterConfig } from '../services/authLimiter.js';
 import { createDavAuthMiddleware } from '../services/davServerAuth.js';
+import { ifMatchSatisfied } from '../utils/davPreconditions.js';
 import { toAppError } from '../utils/errors.js';
 import type { Request, Response, NextFunction } from 'express';
 
@@ -65,7 +66,9 @@ function uidFromCalendarHref(href: string) {
 }
 
 function etagMatches(header: string, etag: string): boolean {
-  return header === '*' || header.split(',').some((value: string) => value.trim().replace(/^W\//, '').replaceAll('"', '') === etag);
+  // Strong comparison for If-Match (RFC 9110 §13.1.1): a weak validator never
+  // matches. Kept as a thin alias so the two call sites read the same as before.
+  return ifMatchSatisfied(header, etag);
 }
 
 function multistatus(responses: string[]) {
