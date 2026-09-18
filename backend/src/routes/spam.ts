@@ -395,7 +395,26 @@ accountSpamRouter.post('/:id/spam/reset-training', async (req: Request, res: Res
       'DELETE FROM spam_training_log WHERE user_id = $1 AND account_id = $2',
       [userId, id],
     );
-    const modelRes = await query('DELETE FROM spam_models WHERE user_id = $1', [userId]);
+    // Rebuild from whatever feedback remains for this user instead of wiping
+    // the per-user model row: with several accounts, resetting one would
+    // otherwise leave the untouched accounts without ML until the next
+    // scheduled retrain. With nothing left to learn from — or if the rebuild
+    // fails — fall back to rules-only, which is the safe state (a model never
+    // silently keeps training data the user just erased).
+    let modelRebuilt = false;
+    try {
+      modelRebuilt = (await retrainUser(userId)).ok;
+    } catch (caught) {
+      console.warn(
+        'spam reset-training: model rebuild failed, falling back to rules-only:',
+        caught instanceof Error ? caught.message : String(caught),
+      );
+    }
+    let deletedModel = false;
+    if (!modelRebuilt) {
+      const modelRes = await query('DELETE FROM spam_models WHERE user_id = $1', [userId]);
+      deletedModel = (modelRes.rowCount ?? 0) > 0;
+    }
     await query(
       `INSERT INTO spam_training_deletions (user_id, account_id, scope, records_deleted, ip_address, user_agent)
        VALUES ($1, $2, 'per_account', $3, $4::inet, $5)`,
@@ -406,7 +425,8 @@ accountSpamRouter.post('/:id/spam/reset-training', async (req: Request, res: Res
     res.json({
       ok: true,
       deletedTrainingRecords: logRes.rowCount,
-      deletedModel: (modelRes.rowCount ?? 0) > 0,
+      deletedModel,
+      modelRebuilt,
     });
   } catch (err) { next(err); }
 });

@@ -32,7 +32,7 @@ vi.mock('../services/spamModel.js', () => ({
 }));
 
 import express from 'express';
-import spamRoutes from './spam.js';
+import spamRoutes, { accountSpamRouter } from './spam.js';
 import { query as __mock_query } from '../services/db.js';
 import { getModelForUser as __mock_getModel, retrainUser as __mock_retrainUser } from '../services/spamModelStore.js';
 import { isModelMature as __mock_isMature, usableTrainingTotal as __mock_usableTotal } from '../services/spamModel.js';
@@ -52,6 +52,7 @@ function buildApp() {
   const app = express();
   app.use(express.json());
   app.use('/api/spam', spamRoutes);
+  app.use('/api/accounts', accountSpamRouter);
   return app;
 }
 
@@ -209,5 +210,100 @@ describe('/api/spam routes', () => {
     const body = (await res.json()) as Record<string, unknown>;
     expect(body.maturity).toBe('fresh');
     expect(body.usableTrainingRecords).toBe(1);
+  });
+});
+
+describe('POST /api/accounts/:id/spam/reset-training', () => {
+  const RESET_ACCOUNT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  let server: Server;
+  let base = '';
+
+  beforeAll(async () => {
+    await new Promise(resolve => {
+      server = buildApp().listen(0, resolve);
+    });
+    base = `http://127.0.0.1:${listeningPort(server)}`;
+  });
+
+  afterAll(async () => {
+    await new Promise(resolve => server.close(resolve));
+  });
+
+  beforeEach(() => {
+    query.mockReset();
+    retrainUser.mockReset();
+    resetMock();
+  });
+
+  function resetMock(options: { logRows?: number; modelRows?: number } = {}) {
+    query.mockImplementation(async (sql: string) => {
+      if (sql.includes('SELECT id FROM email_accounts WHERE id = $1')) {
+        return { rows: [{ id: RESET_ACCOUNT }] };
+      }
+      if (sql.includes('DELETE FROM spam_training_log')) {
+        return { rows: [], rowCount: options.logRows ?? 3 };
+      }
+      if (sql.includes('DELETE FROM spam_models')) {
+        return { rows: [], rowCount: options.modelRows ?? 1 };
+      }
+      return { rows: [] };
+    });
+  }
+
+  function resetRequest(body: unknown = { confirm: true }) {
+    return fetch(`${base}/api/accounts/${RESET_ACCOUNT}/spam/reset-training`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  }
+
+  it('rebuilds the per-user model from remaining records instead of wiping it', async () => {
+    retrainUser.mockResolvedValue({ ok: true, recordsUsed: 7, duration_ms: 3 });
+
+    const res = await resetRequest();
+
+    expect(res.status).toBe(200);
+    expect(retrainUser).toHaveBeenCalledWith('user-1');
+    // The model row must survive: the user's other accounts keep their
+    // training instead of going rules-only until the next scheduled retrain.
+    expect(
+      query.mock.calls.some(([sql]) => String(sql).includes('DELETE FROM spam_models')),
+    ).toBe(false);
+    expect(await res.json()).toMatchObject({
+      ok: true, deletedTrainingRecords: 3, deletedModel: false, modelRebuilt: true,
+    });
+  });
+
+  it('falls back to rules-only when no training records remain', async () => {
+    retrainUser.mockResolvedValue({
+      ok: false, recordsUsed: 0, duration_ms: 1, reason: 'no_training_data',
+    });
+
+    const res = await resetRequest();
+
+    expect(res.status).toBe(200);
+    expect(
+      query.mock.calls.some(([sql]) => String(sql).includes('DELETE FROM spam_models')),
+    ).toBe(true);
+    expect(await res.json()).toMatchObject({ deletedModel: true, modelRebuilt: false });
+  });
+
+  it('falls back to rules-only when the rebuild fails', async () => {
+    retrainUser.mockRejectedValue(new Error('db down'));
+
+    const res = await resetRequest();
+
+    expect(res.status).toBe(200);
+    expect(
+      query.mock.calls.some(([sql]) => String(sql).includes('DELETE FROM spam_models')),
+    ).toBe(true);
+    expect(await res.json()).toMatchObject({ deletedModel: true, modelRebuilt: false });
+  });
+
+  it('still requires explicit confirmation', async () => {
+    const res = await resetRequest({});
+    expect(res.status).toBe(400);
+    expect(retrainUser).not.toHaveBeenCalled();
   });
 });

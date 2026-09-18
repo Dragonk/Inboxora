@@ -61,7 +61,8 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.3](wiki/R
   Manual feedback is persisted through `recordManualFeedback`, which runs the training_log INSERT
   (now carrying a stable `training_identity`, migration `0098`) and the incremental model update
   inside one per-user serializer hold — concurrent mark-spam clicks on the same mail cannot both
-  mint a distinct sample, and repeat feedback reinforces the vocabulary without growing maturity.
+  mint a distinct sample, and a repeat confirmation is logged without changing the vocabulary or
+  the usable counters.
   Full retrain groups rows by `training_identity` with latest-decision-wins: a Spam→Ham correction
   moves the sample and retrains the vocabulary on the newest label only, independent of row order.
 - Make the training identity stable for messages without a Message-ID: the normalized content hash
@@ -87,6 +88,11 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.3](wiki/R
   `PATCH /api/spam/thresholds` validates `minRecords`/`softRecords`, enforces
   `softRecords >= minRecords`, and drops the dead `hardRecords` key; `spamModelStore` per-user
   lock map entries are released after each run.
+- Keep the other accounts' antispam training effective after a per-account reset:
+  `POST /api/accounts/:id/spam/reset-training` now deletes that account's feedback rows and
+  immediately rebuilds the per-user model from the remaining records (falling back to rules-only
+  when nothing is left to learn from or the rebuild fails) instead of deleting `spam_models`
+  outright, which left every other account untrained until the next scheduled retrain.
 - Add a hybrid antispam classifier (deterministic 14-rule engine + per-user multinomial Naive Bayes):
   rules always on, ML joins at the configured `minRecords` (>= 50 default), verdict at the configured
   `spamThreshold` (>= 0.85 default), auto-move at the configured `autoMoveThreshold` (>= 0.95 default)
