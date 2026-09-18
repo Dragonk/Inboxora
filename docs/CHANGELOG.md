@@ -23,11 +23,12 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.3](wiki/R
 - Back / Forward in the desktop title bar walk Inboxora's own view history (mail → message →
   Calendar → Contacts → Settings, including the selected account, folder and open message)
   instead of the browser's navigation history, which only ever contained login/OIDC pages
-  because Inboxora swaps application state rather than loading documents. Restoring a message
-  whose folder page was just replaced re-resolves it by id and parks it where the reading pane
-  can find it, so "Back" returns to the message even when it lives in another folder or
-  account. Settings opens as an overlay *below* the bar, so the arrows and search stay usable
-  while it is open.
+  because Inboxora swaps application state rather than loading documents. A restored message is
+  re-resolved by its durable reference — the RFC `Message-ID` header when it is known, scoped to
+  its account, falling back to the row id — and parked where the reading pane can find it, so
+  "Back" returns to the message even when it lives in another folder or account, or when a move
+  or re-sync gave it a new physical row id. Settings opens as an overlay *below* the bar, so the
+  arrows and search stay usable while it is open.
 - The visible `File / Edit / View / Window / Help` menu bar is removed on Windows and Linux.
   Its accelerators are re-registered on the window — `Ctrl+R` reload, `F11` full screen,
   `Ctrl+W` close (still hide-to-tray), `Ctrl+M` minimize and `Ctrl+,` Change Inboxora Host —

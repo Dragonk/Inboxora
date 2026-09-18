@@ -15,9 +15,24 @@ export type ViewSurface = 'mail' | 'calendar' | 'contacts' | 'settings';
 export interface ViewSnapshot {
   surface: ViewSurface;
   messageId: string | null;
+  /**
+   * A durable reference for the open message: the RFC `Message-ID` header when it
+   * is known, else the row id. The physical row id is not stable — moving or
+   * re-syncing a message regenerates it — so `messageId` alone cannot be used to
+   * bring the message back (see api.resolveMessage()).
+   */
+  messageRef: string | null;
+  /** Account the message belongs to; the same Message-ID can exist on two accounts. */
+  messageAccountId: string | null;
   accountId: string | null;
   folder: string;
   adminTab: string;
+}
+
+/** What the binding knows about the open message while its row is still loaded. */
+export interface ViewMessageHint {
+  ref?: string | null;
+  accountId?: string | null;
 }
 
 export interface ViewHistoryState {
@@ -37,6 +52,13 @@ export interface ViewHistory {
   state(): ViewHistoryState;
   /** Root the history at a fresh view (used when the app mounts). */
   reset(snapshot: ViewSnapshot): void;
+  /**
+   * Replace the view stored at the current position without moving through the
+   * history. Used when a restore resolves to a different physical row (a message
+   * that moved and was re-created): that is still the same history step, not a new
+   * navigation, and it must not truncate Forward.
+   */
+  replaceCurrent(snapshot: ViewSnapshot): void;
   /** Drop a restore that never produced a state change. */
   cancelPendingRestore(): void;
   size(): number;
@@ -60,11 +82,17 @@ export interface ViewSourceState {
  * the surface under it so opening it is its own step; `applyViewSnapshot` in the
  * React binding keeps that underlying surface, so closing Settings returns where
  * the user was.
+ *
+ * `hint` carries what the caller knows about the open message's durable reference
+ * and account, which is only available while its row is loaded.
  */
-export function viewSnapshotFromState(state: ViewSourceState): ViewSnapshot {
+export function viewSnapshotFromState(state: ViewSourceState, hint?: ViewMessageHint): ViewSnapshot {
+  const messageId = state.selectedMessageId ?? null;
   return {
     surface: state.showAdmin ? 'settings' : state.showContacts ? 'contacts' : state.showCalendar ? 'calendar' : 'mail',
-    messageId: state.selectedMessageId ?? null,
+    messageId,
+    messageRef: hint?.ref ?? null,
+    messageAccountId: hint?.accountId ?? null,
     accountId: state.selectedAccountId ?? null,
     folder: state.selectedFolder || 'INBOX',
     adminTab: state.adminTab,
@@ -74,6 +102,8 @@ export function viewSnapshotFromState(state: ViewSourceState): ViewSnapshot {
 export function viewSnapshotsEqual(a: ViewSnapshot, b: ViewSnapshot): boolean {
   return a.surface === b.surface
     && a.messageId === b.messageId
+    && a.messageRef === b.messageRef
+    && a.messageAccountId === b.messageAccountId
     && a.accountId === b.accountId
     && a.folder === b.folder
     && a.adminTab === b.adminTab;
@@ -149,6 +179,11 @@ export function createViewHistory(initial: ViewSnapshot, limit = VIEW_HISTORY_LI
       index = 0;
       pendingRestore = false;
       refreshState();
+    },
+
+    replaceCurrent(snapshot) {
+      entries[index] = snapshot;
+      pendingRestore = false;
     },
 
     cancelPendingRestore() {

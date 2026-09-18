@@ -7,7 +7,9 @@ import {
   viewSnapshotFromState,
   viewSnapshotsEqual,
   type ViewHistoryState,
+  type ViewMessageHint,
   type ViewSnapshot,
+  type ViewSourceState,
 } from '../../utils/viewHistory.ts';
 
 /**
@@ -25,35 +27,100 @@ import {
 
 const IDLE_STATE: ViewHistoryState = { canGoBack: false, canGoForward: false };
 const PENDING_MESSAGE_PREFIX = '__history_';
+// The cache below only has to outlive the loaded page of the messages the history
+// points at; the history itself is capped at 60 entries.
+const MESSAGE_REF_CACHE_LIMIT = 200;
+// The backend rejects a non-UUID accountId with 400, so only a real id is sent.
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 type StoreApi = typeof useStore;
 
 export interface AppViewHistoryOptions {
-  /** Fetch a message that is not on the loaded page (defaults to api.resolveMessage). */
-  resolveMessage?: (messageId: string) => Promise<StoreMessageRow | null>;
+  /**
+   * Resolve a durable message reference (the RFC Message-ID when known, else the
+   * row id) to the current row. Defaults to api.resolveMessage().
+   */
+  resolveMessage?: (ref: string, accountId?: string) => Promise<StoreMessageRow | null>;
 }
 
-async function defaultResolveMessage(messageId: string): Promise<StoreMessageRow | null> {
-  const message = await api.resolveMessage(messageId);
+export function accountScope(accountId: string | null | undefined): string | undefined {
+  return typeof accountId === 'string' && UUID_PATTERN.test(accountId) ? accountId : undefined;
+}
+
+async function defaultResolveMessage(ref: string, accountId?: string): Promise<StoreMessageRow | null> {
+  const message = await api.resolveMessage(ref, accountScope(accountId));
   return message && typeof message.id === 'string' ? message : null;
 }
 
 /**
  * A message restored by Back may live in a folder page that `setSelectedAccount()`
- * just cleared, so "not in the loaded arrays" does not mean "gone". Resolve it the
- * same durable way the deep-link path does (stable Message-ID first, then UUID) and
- * park it in `threadMessages`, which `setMessages()` does not evict.
+ * just cleared, so "not in the loaded arrays" does not mean "gone". Resolve it by
+ * its durable reference — the same lookup the deep-link path uses, so a message
+ * that was moved and re-created (new row id) is still found — and park it in
+ * `threadMessages`, which `setMessages()` does not evict.
  */
 export function createAppViewHistory(options: AppViewHistoryOptions = {}) {
   const store: StoreApi = useStore;
   const resolveMessage = options.resolveMessage ?? defaultResolveMessage;
   const history = createViewHistory(viewSnapshotFromState(store.getState()));
   const listeners = new Set<() => void>();
+  // Physical row id -> durable reference, learned while the row was still loaded.
+  // Only the row carries the RFC Message-ID, and the history entry has to keep
+  // pointing at the message after that page has been replaced.
+  const messageRefs = new Map<string, Required<ViewMessageHint>>();
   // Latest-wins token: a slow resolve must never write into a view the user has
   // already left.
   let restoreToken = 0;
 
-  const readSnapshot = (): ViewSnapshot => viewSnapshotFromState(store.getState());
+  function findOpenRow(state: StoreState, messageId: string): StoreMessageRow | null {
+    const inMessages = state.messages.find((row) => row.id === messageId);
+    if (inMessages) return inMessages;
+    const inSearch = state.searchResults.find((row) => row.id === messageId);
+    if (inSearch) return inSearch;
+    for (const rows of Object.values(state.threadMessages)) {
+      const match = rows.find((row) => row.id === messageId);
+      if (match) return match;
+    }
+    return null;
+  }
+
+  function rememberMessageRef(row: StoreMessageRow): void {
+    const accountId = typeof row.account_id === 'string' && row.account_id ? row.account_id : null;
+    messageRefs.delete(row.id);
+    messageRefs.set(row.id, { ref: row.message_id || row.id, accountId });
+    while (messageRefs.size > MESSAGE_REF_CACHE_LIMIT) {
+      const oldest = messageRefs.keys().next();
+      if (oldest.done) break;
+      messageRefs.delete(oldest.value);
+    }
+  }
+
+  function rememberOpenMessage(): void {
+    const state = store.getState();
+    const messageId = state.selectedMessageId;
+    if (!messageId) return;
+    const row = findOpenRow(state, messageId);
+    if (row) rememberMessageRef(row);
+  }
+
+  function snapshotFrom(state: StoreState, messageId: string | null, hint?: ViewMessageHint): ViewSnapshot {
+    const source: ViewSourceState = {
+      showContacts: state.showContacts,
+      showCalendar: state.showCalendar,
+      showAdmin: state.showAdmin,
+      selectedMessageId: messageId,
+      selectedAccountId: state.selectedAccountId,
+      selectedFolder: state.selectedFolder,
+      adminTab: state.adminTab,
+    };
+    return viewSnapshotFromState(source, hint);
+  }
+
+  function readSnapshot(): ViewSnapshot {
+    const state = store.getState();
+    const messageId = state.selectedMessageId ?? null;
+    return snapshotFrom(state, messageId, messageId ? messageRefs.get(messageId) : undefined);
+  }
 
   function notify(): void {
     listeners.forEach((listener) => {
@@ -76,25 +143,35 @@ export function createAppViewHistory(options: AppViewHistoryOptions = {}) {
    */
   function isMessageResolvable(messageId: string | null): boolean {
     if (!messageId) return false;
-    const state = store.getState();
-    if (state.messages.some((item) => item.id === messageId)) return true;
-    if (state.searchResults.some((item) => item.id === messageId)) return true;
-    return Object.values(state.threadMessages).some((rows) => rows.some((item) => item.id === messageId));
+    return findOpenRow(store.getState(), messageId) !== null;
   }
 
-  async function hydrateRestoredMessage(messageId: string, authEpoch: number): Promise<void> {
+  async function hydrateRestoredMessage(target: ViewSnapshot, authEpoch: number): Promise<void> {
     const token = ++restoreToken;
+    const reference = target.messageRef ?? target.messageId;
+    if (!reference) return;
+
     try {
-      const message = await resolveMessage(messageId);
+      const message = await resolveMessage(reference, target.messageAccountId ?? undefined);
       if (!message || token !== restoreToken) return;
 
       const state = store.getState();
       // A message fetched for a previous session, or after the user navigated on,
       // must never be injected into the current view.
       if (state.authEpoch !== authEpoch) return;
-      if (state.selectedMessageId !== messageId) return;
+      if (state.selectedMessageId !== target.messageId) return;
 
+      rememberMessageRef(message);
       state.setThreadMessages(`${PENDING_MESSAGE_PREFIX}${message.id}`, [message]);
+      // The resolved row can carry a different physical id (the message moved and
+      // was re-created). That is still the same history step, so record the new id
+      // in place — otherwise the recorder would treat it as a new navigation and
+      // truncate Forward. Done before selecting, so the entry is already correct
+      // whenever the recorder's effect runs.
+      history.replaceCurrent(snapshotFrom(state, message.id, {
+        ref: message.message_id || message.id,
+        accountId: message.account_id ?? null,
+      }));
       state.setSelectedMessage(message.id);
     } catch {
       // Leave the reader as it is; the history entry already points at the message.
@@ -141,12 +218,14 @@ export function createAppViewHistory(options: AppViewHistoryOptions = {}) {
 
     /** Called by the recorder after every observed view change. */
     record(): void {
+      rememberOpenMessage();
       history.record(readSnapshot());
       notify();
     },
 
     /** Re-root the history at the current view (app mount). */
     reset(): void {
+      rememberOpenMessage();
       history.reset(readSnapshot());
       notify();
     },
@@ -164,7 +243,7 @@ export function createAppViewHistory(options: AppViewHistoryOptions = {}) {
       notify();
 
       if (target.messageId && !isMessageResolvable(target.messageId)) {
-        void hydrateRestoredMessage(target.messageId, authEpoch);
+        void hydrateRestoredMessage(target, authEpoch);
       }
     },
   };

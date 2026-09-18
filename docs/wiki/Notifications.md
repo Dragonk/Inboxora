@@ -123,12 +123,18 @@ also keeps the existing origin/OIDC navigation policy as the only thing that can
 put a document into the browser history.
 
 Restoring a message works even when its folder page has been replaced in the
-meantime (the normal case after visiting another folder or account): the message
-is re-resolved by id — the same durable lookup the deep-link path uses, so a moved
-message is still found — and parked where the reading pane can render it. The
-Settings overlay starts below the title bar, so Back / Forward / Search / Settings
-stay clickable while Settings is open; that matters because Back out of Settings
-requires Forward to be reachable to return.
+meantime (the normal case after visiting another folder or account): the history
+entry carries the durable reference — the RFC `Message-ID` header when the row
+exposed one, scoped to the message's account, falling back to the row id — and the
+message is re-resolved through the same lookup the deep-link path uses. That
+matters because the physical row id is not stable: a move or re-sync can give the
+message a new one, and a lookup by the old id would then find nothing. The
+resolved row is parked where the reading pane can render it, and a row that came
+back under a new id replaces the history entry in place instead of counting as a
+new navigation, so Forward survives. The Settings overlay starts below the title
+bar, so Back / Forward / Search / Settings stay clickable while Settings is open;
+that matters because Back out of Settings requires Forward to be reachable to
+return.
 
 ## Android — instant notifications
 
@@ -449,6 +455,8 @@ Title bar
   - with Settings open, Back / Forward / Search / Settings are still clickable
   - Back to a message that lives in another folder or account: the message opens
     (it is re-fetched), not just the mailbox
+  - if the message was moved or re-synced in the meantime (new row id), Back still
+    opens it and Forward still returns to where you were
   - search uses the Inboxora search engine; Ctrl+E / Cmd+E focuses it
   - Settings opens the existing Settings screen at Notifications
   - Ctrl+R reload, F11 full screen, Ctrl+W close-to-tray, Ctrl+M minimize,

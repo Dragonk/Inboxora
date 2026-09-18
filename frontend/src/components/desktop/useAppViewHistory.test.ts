@@ -12,7 +12,7 @@ const storage = new Map<string, string>();
 };
 
 const { useStore } = await import('../../store/index.ts');
-const { createAppViewHistory } = await import('./useAppViewHistory.tsx');
+const { accountScope, createAppViewHistory } = await import('./useAppViewHistory.tsx');
 const { viewSnapshotFromState } = await import('../../utils/viewHistory.ts');
 type StoreMessageRow = import('../../store/index.ts').StoreMessageRow;
 
@@ -25,8 +25,8 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
-function row(id: string, folder = 'INBOX'): StoreMessageRow {
-  return { id, account_id: 'a1', folder, subject: `subject ${id}` };
+function row(id: string, folder = 'INBOX', messageId: string | null = null): StoreMessageRow {
+  return { id, account_id: 'a1', folder, message_id: messageId, subject: `subject ${id}` };
 }
 
 /** The view fields the history tracks, back to a known baseline. */
@@ -48,7 +48,9 @@ function resetStore(overrides: Record<string, unknown> = {}): void {
 
 /**
  * Drives the history exactly like AppViewHistoryRecorder: one record() per view
- * change, using the real store actions.
+ * change, using the real store actions. The echo after a restore has to be
+ * replayed explicitly, because it is what consumes the restore marker before a
+ * late lookup lands.
  */
 function recorder(history: { record(): void }) {
   return () => history.record();
@@ -76,14 +78,13 @@ test('Back restores a message whose folder page setSelectedAccount() just cleare
   );
 
   history.navigate('back');
+  record(); // the recorder echo for the restored view
 
   const restored = viewSnapshotFromState(useStore.getState());
   assert.equal(restored.folder, 'INBOX');
   assert.equal(restored.messageId, 'm1');
   assert.equal(useStore.getState().selectedFolder, 'INBOX');
 
-  // The recorder echo must not strand Forward.
-  record();
   assert.deepEqual(history.getState(), { canGoBack: true, canGoForward: true });
 });
 
@@ -102,6 +103,7 @@ test('a restored message that is not on the loaded page is fetched for the reade
   record();
 
   history.navigate('back');
+  record(); // the recorder echo, which consumes the restore marker
   await tick();
 
   assert.deepEqual(fetched, ['m1']);
@@ -127,6 +129,7 @@ test('an already loaded message is restored without a request', async () => {
   record();
 
   history.navigate('back');
+  record(); // the recorder echo, which consumes the restore marker
   await tick();
 
   assert.deepEqual(fetched, []);
@@ -146,6 +149,7 @@ test('a message resolved for a previous session is never injected', async () => 
   record();
 
   history.navigate('back');
+  record(); // the recorder echo, which consumes the restore marker
   // The session ends while the lookup is in flight.
   useStore.setState({ authEpoch: useStore.getState().authEpoch + 1 });
   lookup.resolve(row('m1'));
@@ -169,10 +173,64 @@ test('a lookup that finishes after the user navigated on is dropped', async () =
   record();
 
   history.navigate('back');
+  record(); // the recorder echo, which consumes the restore marker
   // The user opens something else before the lookup lands.
   useStore.getState().setSelectedMessage(null);
   lookup.resolve(row('m1'));
   await tick();
 
   assert.deepEqual(Object.values(useStore.getState().threadMessages).flat(), []);
+});
+
+test('a message that came back with a new row id keeps Forward available', async () => {
+  resetStore();
+  const calls: Array<{ ref: string; accountId?: string }> = [];
+  const history = createAppViewHistory({
+    resolveMessage: async (ref, accountId) => {
+      calls.push({ ref, accountId });
+      // Moved and re-created: same RFC Message-ID, brand-new physical row id.
+      return ref === '<stable@message.id>' ? row('new-uuid', 'Sent', '<stable@message.id>') : null;
+    },
+  });
+  const record = recorder(history);
+
+  history.reset();
+  useStore.setState({
+    messages: [row('old-uuid', 'INBOX', '<stable@message.id>')],
+    selectedMessageId: 'old-uuid',
+  });
+  record();
+
+  useStore.getState().setSelectedAccount(null, 'Sent');
+  record(); // the INBOX page (and its row) is gone from here on
+
+  history.navigate('back');
+  record(); // the recorder echo, which consumes the restore marker
+  await tick();
+
+  // The durable Message-ID survived the folder change, scoped to the account the
+  // message belongs to — the row id alone would not resolve after the move.
+  assert.deepEqual(calls, [{ ref: '<stable@message.id>', accountId: 'a1' }]);
+  const state = useStore.getState();
+  assert.equal(state.selectedMessageId, 'new-uuid');
+  assert.deepEqual(Object.values(state.threadMessages).flat().map((message) => message.id), ['new-uuid']);
+
+  // Selecting the new physical row is still the same history step, so the echo it
+  // produces must not add an entry and strand Forward.
+  record();
+  assert.deepEqual(history.getState(), { canGoBack: true, canGoForward: true });
+  assert.equal(Object.values(useStore.getState().threadMessages).flat().length, 1);
+
+  history.navigate('forward');
+  assert.equal(useStore.getState().selectedFolder, 'Sent');
+});
+
+test('the message reference is scoped like the backend expects', () => {
+  // /mail/resolve-message rejects a non-UUID accountId with 400, so an unusable
+  // scope must be dropped rather than sent and break the durable lookup.
+  assert.equal(accountScope('11111111-2222-3333-4444-555555555555'), '11111111-2222-3333-4444-555555555555');
+  assert.equal(accountScope('not-a-uuid'), undefined);
+  assert.equal(accountScope(''), undefined);
+  assert.equal(accountScope(null), undefined);
+  assert.equal(accountScope(undefined), undefined);
 });

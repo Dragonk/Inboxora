@@ -5,14 +5,16 @@ import { createViewHistory, viewSnapshotFromState, viewSnapshotsEqual, VIEW_HIST
 import type { ViewSnapshot, ViewSourceState } from './viewHistory.ts';
 
 function view(partial: Partial<ViewSnapshot> = {}): ViewSnapshot {
-  return {
+  const base: ViewSnapshot = {
     surface: 'mail',
     messageId: null,
+    messageRef: null,
+    messageAccountId: null,
     accountId: null,
     folder: 'INBOX',
     adminTab: 'accounts',
-    ...partial,
   };
+  return Object.assign(base, partial);
 }
 
 function source(partial: Partial<ViewSourceState> = {}): ViewSourceState {
@@ -61,12 +63,47 @@ test('compares every field that a restored view carries', () => {
   for (const changed of [
     view({ surface: 'calendar' }),
     view({ messageId: 'm1' }),
+    view({ messageRef: '<stable@message.id>' }),
+    view({ messageAccountId: 'a1' }),
     view({ accountId: 'a1' }),
     view({ folder: 'Sent' }),
     view({ adminTab: 'notifications' }),
   ]) {
     assert.equal(viewSnapshotsEqual(view(), changed), false);
   }
+});
+
+test('attaches the durable message reference the caller knows about', () => {
+  assert.deepEqual(
+    viewSnapshotFromState(source({ selectedMessageId: 'row-1' }), { ref: '<stable@message.id>', accountId: 'a1' }),
+    view({ messageId: 'row-1', messageRef: '<stable@message.id>', messageAccountId: 'a1' }),
+  );
+  // Without a hint there is nothing durable to point at, and the row id is all the
+  // history can fall back to.
+  assert.deepEqual(
+    viewSnapshotFromState(source({ selectedMessageId: 'row-1' })),
+    view({ messageId: 'row-1', messageRef: null, messageAccountId: null }),
+  );
+  assert.deepEqual(viewSnapshotFromState(source()).messageRef, null);
+});
+
+test('replaceCurrent swaps the entry without moving through the history', () => {
+  const history = createViewHistory(view());
+  history.record(view({ messageId: 'row-1', messageRef: '<stable@message.id>' }));
+  history.record(view({ surface: 'calendar' }));
+  history.back();
+
+  // The restored message resolved to a new physical row (it moved and was
+  // re-created): same history step, so the entry is updated in place.
+  history.replaceCurrent(view({ messageId: 'row-2', messageRef: '<stable@message.id>' }));
+
+  assert.equal(history.size(), 3);
+  assert.deepEqual(history.state(), { canGoBack: true, canGoForward: true });
+  assert.deepEqual(history.current(), view({ messageId: 'row-2', messageRef: '<stable@message.id>' }));
+  assert.deepEqual(history.forward(), view({ surface: 'calendar' }));
+  assert.deepEqual(history.back(), view({ messageId: 'row-2', messageRef: '<stable@message.id>' }));
+  // The entries around it are untouched.
+  assert.deepEqual(history.back(), view());
 });
 
 test('records consecutive distinct views and reports the boundaries', () => {
