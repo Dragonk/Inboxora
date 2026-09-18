@@ -1994,6 +1994,7 @@
       "statusVerified": "系统通知正常工作",
       "statusBlockedOs": "操作系统中的通知已关闭",
       "statusUnsupported": "此系统不支持通知",
+      "statusUnknown": "无法读取通知设置",
       "test": "发送测试通知",
       "testBody": "系统通知工作正常。",
       "testSent": "操作系统已确认测试通知。",
@@ -2010,6 +2011,7 @@
       "statusRegistered": "Inboxora 已注册为电子邮件应用，但当前的默认应用是其他应用",
       "statusNotRegistered": "Inboxora 未注册为电子邮件应用",
       "statusUnsupported": "只有 Windows 桌面应用才能选择默认电子邮件应用",
+      "statusUnknown": "无法读取默认电子邮件应用设置",
       "setDefault": "设为默认",
       "openSystemSettings": "打开 Windows 默认应用设置",
       "confirmHint": "Windows 需要你亲自确认默认应用——应用无法自行设为默认。Inboxora 会在该页面中显示为电子邮件客户端。"

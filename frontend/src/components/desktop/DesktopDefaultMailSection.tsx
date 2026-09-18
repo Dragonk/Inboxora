@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 /**
@@ -44,12 +44,28 @@ export default function DesktopDefaultMailSection() {
   const { t } = useTranslation();
   const [settings, setSettings] = useState<MailtoSettings>(DEFAULTS);
   const [loaded, setLoaded] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [busy, setBusy] = useState(false);
   const mailto = typeof window === 'undefined' ? undefined : window.inboxoraNative?.mailto;
+  // focus and visibilitychange can both fire; only the newest read may win, and a
+  // failed read must not be presented as "not supported by this platform".
+  const refreshToken = useRef(0);
 
   const refresh = useCallback(async () => {
-    const value = await mailto?.getSettings?.().catch(() => undefined);
-    if (value) setSettings(readSettings(value));
+    const token = ++refreshToken.current;
+    let value: unknown;
+    try {
+      value = await mailto?.getSettings?.();
+    } catch {
+      value = undefined;
+    }
+    if (token !== refreshToken.current) return;
+    if (!value) {
+      setLoadFailed(true);
+      return;
+    }
+    setLoadFailed(false);
+    setSettings(readSettings(value));
   }, [mailto]);
 
   useEffect(() => {
@@ -82,7 +98,10 @@ export default function DesktopDefaultMailSection() {
     setBusy(true);
     try {
       const value = await mailto?.register?.();
-      if (value) setSettings(readSettings(value));
+      if (value) {
+        setLoadFailed(false);
+        setSettings(readSettings(value));
+      }
       await mailto?.openSettings?.().catch(() => {});
     } finally {
       setBusy(false);
@@ -97,7 +116,9 @@ export default function DesktopDefaultMailSection() {
 
   if (!loaded && !settings.supported) return null;
 
-  const statusLabel = settings.state === 'default'
+  const statusLabel = loadFailed
+    ? t('desktop.mailto.statusUnknown')
+    : settings.state === 'default'
     ? t('desktop.mailto.statusDefault')
     : settings.state === 'registered'
       ? t('desktop.mailto.statusRegistered')
@@ -105,7 +126,9 @@ export default function DesktopDefaultMailSection() {
         ? t('desktop.mailto.statusNotRegistered')
         : t('desktop.mailto.statusUnsupported');
 
-  const statusColor = settings.state === 'default'
+  const statusColor = loadFailed
+    ? 'var(--text-tertiary)'
+    : settings.state === 'default'
     ? 'var(--green, #22c55e)'
     : settings.state === 'registered'
       ? 'var(--amber, #f59e0b)'
@@ -145,7 +168,15 @@ export default function DesktopDefaultMailSection() {
           <div style={{ ...mutedStyle, marginTop: 8 }}>{t('desktop.mailto.confirmHint')}</div>
         )}
 
-        {settings.supported && (
+        {loadFailed && (
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 14 }}>
+            <button type="button" style={buttonStyle(false)} disabled={busy} onClick={() => { void refresh(); }}>
+              {t('common.retry')}
+            </button>
+          </div>
+        )}
+
+        {!loadFailed && settings.supported && (
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 14 }}>
             {settings.state !== 'default' && (
               <button type="button" style={buttonStyle(true)} disabled={busy} onClick={setAsDefault}>

@@ -19,7 +19,10 @@ try {
   console.error('Database migrations failed:', error);
   process.exitCode = 1;
 } finally {
-  // Closing the pool releases the event loop; the health check above decides the
-  // exit code, so a close failure must not mask it.
-  await pool.end().catch(() => {});
+  // Closing the pool releases the event loop. A failure here is still a failure —
+  // report it and keep a non-zero exit code without masking a migration error.
+  await pool.end().catch((error: unknown) => {
+    console.error('Database pool shutdown failed:', error);
+    process.exitCode ||= 1;
+  });
 }

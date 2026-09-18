@@ -76,7 +76,8 @@ jobs:
           distribution: temurin
           java-version: "21"
 
-      - uses: android-actions/setup-android@v3
+      # Pinned to the v3 commit: a mutable tag can be repointed at other code.
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
         with:
           # The action's default package list still contains the legacy `tools`
           # SDK package, which Google removed from the SDK repository, so the

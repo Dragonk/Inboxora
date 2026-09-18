@@ -1994,6 +1994,7 @@
       "statusVerified": "System notifications are working",
       "statusBlockedOs": "Notifications are turned off in your operating system",
       "statusUnsupported": "This system does not support notifications",
+      "statusUnknown": "Could not read the notification settings",
       "test": "Send test notification",
       "testBody": "System notifications are working correctly.",
       "testSent": "The operating system confirmed the test notification.",
@@ -2010,6 +2011,7 @@
       "statusRegistered": "Inboxora is registered as an email app, but another app is currently the default",
       "statusNotRegistered": "Inboxora is not registered as an email app",
       "statusUnsupported": "Choosing the default email app is only available in the Windows desktop app",
+      "statusUnknown": "Could not read the default email app settings",
       "setDefault": "Set as default",
       "openSystemSettings": "Open Windows default apps",
       "confirmHint": "Windows asks you to confirm the default app yourself — an app cannot make itself the default. Inboxora will be listed as an email app on that page."

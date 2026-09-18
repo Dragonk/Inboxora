@@ -370,7 +370,9 @@ function queryWindowsRegistry(key, { valueName, defaultValue = false, recursive 
     if (defaultValue) args.push('/ve');
     else if (valueName) args.push('/v', valueName);
     if (recursive) args.push('/s');
-    return execFileSync('reg', args, { encoding: 'utf8', windowsHide: true });
+    // A hung `reg.exe` must not block the main process forever; these reads serve
+    // the settings IPC, so a timeout degrades to "unknown" instead.
+    return execFileSync('reg', args, { encoding: 'utf8', windowsHide: true, timeout: 2000 });
   } catch {
     return '';
   }

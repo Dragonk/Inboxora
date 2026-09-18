@@ -1994,6 +1994,7 @@
       "statusVerified": "Las notificaciones del sistema funcionan",
       "statusBlockedOs": "Las notificaciones están desactivadas en tu sistema operativo",
       "statusUnsupported": "Este sistema no admite notificaciones",
+      "statusUnknown": "No se pudo leer la configuración de notificaciones",
       "test": "Enviar notificación de prueba",
       "testBody": "Las notificaciones del sistema funcionan correctamente.",
       "testSent": "El sistema operativo confirmó la notificación de prueba.",
@@ -2010,6 +2011,7 @@
       "statusRegistered": "Inboxora está registrada como aplicación de correo, pero ahora mismo la predeterminada es otra",
       "statusNotRegistered": "Inboxora no está registrada como aplicación de correo",
       "statusUnsupported": "Elegir la aplicación de correo predeterminada solo está disponible en la aplicación de escritorio para Windows",
+      "statusUnknown": "No se pudo leer la configuración de la aplicación de correo predeterminada",
       "setDefault": "Establecer como predeterminada",
       "openSystemSettings": "Abrir las aplicaciones predeterminadas de Windows",
       "confirmHint": "Windows te pide que confirmes tú mismo la aplicación predeterminada: una aplicación no puede establecerse sola. Inboxora aparecerá como cliente de correo en esa página."

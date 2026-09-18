@@ -1994,6 +1994,7 @@
       "statusVerified": "Les notifications système fonctionnent",
       "statusBlockedOs": "Les notifications sont désactivées dans votre système d'exploitation",
       "statusUnsupported": "Ce système ne prend pas en charge les notifications",
+      "statusUnknown": "Impossible de lire les paramètres de notification",
       "test": "Envoyer une notification de test",
       "testBody": "Les notifications système fonctionnent correctement.",
       "testSent": "Le système d'exploitation a confirmé la notification de test.",
@@ -2010,6 +2011,7 @@
       "statusRegistered": "Inboxora est enregistrée comme application de messagerie, mais une autre application est actuellement par défaut",
       "statusNotRegistered": "Inboxora n'est pas enregistrée comme application de messagerie",
       "statusUnsupported": "Le choix de l'application de messagerie par défaut n'est disponible que dans l'application de bureau Windows",
+      "statusUnknown": "Impossible de lire les paramètres de l'application de messagerie par défaut",
       "setDefault": "Définir par défaut",
       "openSystemSettings": "Ouvrir les applications par défaut de Windows",
       "confirmHint": "Windows vous demande de confirmer vous-même l'application par défaut — une application ne peut pas s'imposer. Inboxora apparaîtra comme client de messagerie sur cette page."

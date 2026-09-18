@@ -3,6 +3,8 @@ import type { CSSProperties, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../../store/index.ts';
 import type { StoreState } from '../../store/index.ts';
+import { LAYOUTS } from '../../layouts.ts';
+import { useCompactLayout } from '../../hooks/useCompactLayout.ts';
 import { shortcutBus } from '../../utils/shortcutBus.ts';
 import { desktopTitlebarHeight, isElectronShell, isMacDesktopShell, syncDesktopTitlebarTheme } from '../../utils/desktopShell.ts';
 import { navigateAppHistory, useAppViewHistoryState } from './useAppViewHistory.tsx';
@@ -24,6 +26,9 @@ import { navigateAppHistory, useAppViewHistoryState } from './useAppViewHistory.
  * the bundle), so the outer component needs no hooks and can decide up front.
  */
 const ELECTRON_SHELL = isElectronShell();
+// Layout presets are keyed by the persisted layout name; an unknown key falls back
+// to the default preset, exactly like MailApp does.
+const LAYOUT_BY_NAME: Record<string, { direction?: string }> = LAYOUTS;
 
 interface DesktopTitleBarProps {
   /**
@@ -144,7 +149,16 @@ function DesktopTitleBarContent() {
   const setAdminTab = useStore((state: StoreState) => state.setAdminTab);
   const setShowContacts = useStore((state: StoreState) => state.setShowContacts);
   const setShowCalendar = useStore((state: StoreState) => state.setShowCalendar);
+  const layout = useStore((state: StoreState) => state.layout);
+  const selectedMessageId = useStore((state: StoreState) => state.selectedMessageId);
+  const setSelectedMessage = useStore((state: StoreState) => state.setSelectedMessage);
+  const compactLayout = useCompactLayout();
   const searchInputRef = useRef<HTMLInputElement | null>(null);
+
+  // In the compact single-pane layout the reader replaces the message list, so a
+  // title-bar search would load its results behind the open reader and the user
+  // would never see them.
+  const readerHidesList = compactLayout && (LAYOUT_BY_NAME[layout] || LAYOUTS.comfortable).direction !== 'column';
 
   useTitlebarThemeSync();
 
@@ -178,6 +192,12 @@ function DesktopTitleBarContent() {
     setShowCalendar(false);
   };
 
+  /** Start a search: switch to mail and, in the compact layout, close the reader. */
+  const startSearch = () => {
+    switchToMail();
+    if (readerHidesList && selectedMessageId) setSelectedMessage(null);
+  };
+
   return (
     <div data-testid="desktop-titlebar" className="desktop-titlebar" style={titlebarLayout()}>
       <TitlebarButton label={t('common.back')} disabled={!navigation.canGoBack} onClick={() => navigateAppHistory('back')}>
@@ -206,7 +226,11 @@ function DesktopTitleBarContent() {
           value={searchQuery}
           aria-label={t('desktop.titlebar.search')}
           placeholder={t('desktop.titlebar.search')}
-          onChange={(event) => { setSearchQuery(event.target.value); switchToMail(); }}
+          onChange={(event) => {
+            setSearchQuery(event.target.value);
+            if (event.target.value.trim()) startSearch();
+            else switchToMail();
+          }}
           onFocus={switchToMail}
           style={{
             width: '100%', height: 30, boxSizing: 'border-box',

@@ -9,9 +9,10 @@ control level as the web app: an integrated title bar, in-app control of the nat
 notifications, application-level Back / Forward, and the ability to make Inboxora the default
 email app on Windows.
 
-There are **no backend, database, API or configuration changes**: no backend source file changed
-after 4.0.3 (the release commit touches only the package version metadata), no migration was
-added, and the web/PWA build and the Android build behave exactly as in 4.0.3 — the desktop chrome is only rendered when the app runs inside the Electron shell. The
+There are **no backend runtime, database, API or configuration changes**: no migration was added,
+no endpoint or schema changed, and the web/PWA build and the Android build behave exactly as in
+4.0.3. The only backend addition is a script (`backend/src/scripts/runMigrations.ts`) that the
+real-app E2E workflow uses to prepare its database; it is not part of the running service — the desktop chrome is only rendered when the app runs inside the Electron shell. The
 upgrade is a plain image/installer replacement: nothing to apply, nothing to reconfigure, and no
 rollback procedure beyond the usual one.
 
@@ -119,8 +120,9 @@ notifications.
   (`registered` → `default` → `not-registered`), the exact `reg add` writes, the awaited
   `SHChangeNotify(0x08000000, 0x1000)`, and the Windows 10 vs 11 settings URIs.
 - CI: `Backend` and `Frontend` both green (typecheck, lint, build, tests, audit).
-- Backend: no source, schema or migration change since 4.0.3, so its suite and the migration
-  integrity checks were not re-run for this release; `tsc --noEmit` and `eslint` were re-run after
-  the version metadata bump and are clean.
+- Backend: no runtime, schema, API or migration change since 4.0.3 — the only addition is the
+  E2E migration-runner script — so the backend suite and the migration integrity checks were not
+  re-run for this release; `tsc --noEmit`, `eslint` and the production build were run against the
+  release tree and are clean.
 
 See [`docs/CHANGELOG.md`](../CHANGELOG.md) for the concise release record.

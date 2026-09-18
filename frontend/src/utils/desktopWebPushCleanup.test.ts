@@ -29,7 +29,11 @@ function harness(registrations: Array<{ endpoint?: string; throwOnGet?: boolean 
           ? { getSubscription: async () => { throw new Error('no active worker'); } }
           : { getSubscription: async () => (entry.endpoint ? {
               endpoint: entry.endpoint,
-              unsubscribe: async () => { unsubscribedLocally.push(entry.endpoint as string); return true; },
+              unsubscribe: async () => {
+                unsubscribedLocally.push(entry.endpoint as string);
+                calls.push(`localUnsubscribe:${entry.endpoint}`);
+                return true;
+              },
             } : null) },
         unregister: async () => { unregistered.push(`registration-${index}`); return true; },
       }));
@@ -66,9 +70,14 @@ test('an existing Web Push subscription is removed locally and on the server', a
   assert.deepEqual(h.unsubscribedLocally, ['https://push.example/old']);
   assert.deepEqual(h.unregistered, ['registration-0']);
   assert.deepEqual(cleanup.pendingServerUnsubscribes(), []);
-  // The server row is dropped before the local subscription, so a failure cannot
-  // leave an orphaned endpoint pointing at a dead subscription.
-  assert.deepEqual(h.calls, ['getRegistrations', 'pushUnsubscribe:https://push.example/old']);
+  // Local first, then the server: unsubscribing is what stops the duplicate
+  // immediately, and the server call may legitimately fail (no session yet) without
+  // leaving the duplicate in place. The order is asserted so a reversal is caught.
+  assert.deepEqual(h.calls, [
+    'getRegistrations',
+    'localUnsubscribe:https://push.example/old',
+    'pushUnsubscribe:https://push.example/old',
+  ]);
 });
 
 test('nothing happens outside the Electron shell, so browser Web Push is untouched', async () => {

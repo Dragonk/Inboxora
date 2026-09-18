@@ -460,8 +460,11 @@ suspending ntfy, or a reverse proxy closing the UnifiedPush (/up…) WebSocket.
 
 CI exercises the main-process logic with unit tests and a stubbed Electron
 (`desktop-settings.test.cjs`), and the renderer helpers with `desktopShell.test.ts`.
-It cannot boot a signed Windows/macOS/Linux build, so run this once on the built
-installer of each target platform before declaring a desktop release ready.
+It cannot boot a signed build, so run this once on the built installer of each
+released desktop target — **Windows and Linux**, the two platforms the packaging
+workflow builds — before declaring a desktop release ready. macOS packaging is not
+part of `publish-apps.yml` yet (it needs Apple Developer ID signing and
+notarisation secrets), so there is no `.dmg` to test.
 
 ```text
 Notifications (built installer, not electron:dev)

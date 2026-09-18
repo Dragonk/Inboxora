@@ -1994,6 +1994,7 @@
       "statusVerified": "Powiadomienia systemowe działają",
       "statusBlockedOs": "Powiadomienia są wyłączone w systemie operacyjnym",
       "statusUnsupported": "Ten system nie obsługuje powiadomień",
+      "statusUnknown": "Nie udało się odczytać ustawień powiadomień",
       "test": "Wyślij powiadomienie testowe",
       "testBody": "Powiadomienia systemowe działają poprawnie.",
       "testSent": "System operacyjny potwierdził powiadomienie testowe.",
@@ -2010,6 +2011,7 @@
       "statusRegistered": "Inboxora jest zarejestrowana jako aplikacja pocztowa, ale domyślna jest obecnie inna",
       "statusNotRegistered": "Inboxora nie jest zarejestrowana jako aplikacja pocztowa",
       "statusUnsupported": "Wybór domyślnej aplikacji pocztowej jest dostępny tylko w aplikacji desktopowej dla Windows",
+      "statusUnknown": "Nie udało się odczytać ustawień domyślnej aplikacji pocztowej",
       "setDefault": "Ustaw jako domyślną",
       "openSystemSettings": "Otwórz domyślne aplikacje w Windows",
       "confirmHint": "Windows sam poprosi Cię o potwierdzenie domyślnej aplikacji — aplikacja nie może zrobić tego za Ciebie. Inboxora pojawi się na tej stronie na liście klientów poczty."

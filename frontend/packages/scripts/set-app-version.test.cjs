@@ -19,6 +19,18 @@ test('normalizeVersion accepts tags and rejects non-versions', () => {
   assert.equal(normalizeVersion(undefined), null);
 });
 
+test('computeVersionCode rejects versions that would produce an invalid Android code', () => {
+  // Android needs a positive versionCode and Google Play caps it at 2.1e9, so a
+  // pre-release of 0.0.0 must be refused instead of deriving -50 and writing it to
+  // build.gradle.
+  assert.equal(computeVersionCode('0.0.0-dev.1'), null);
+  assert.equal(computeVersionCode('0.0.0'), null);
+  // Still valid: the pre-release of a real release, and the upper bound.
+  assert.equal(computeVersionCode('0.0.1-dev.1'), 50);
+  assert.equal(computeVersionCode('4.0.4-dev.1'), 4000350);
+  assert.equal(computeVersionCode('21.0.0'), 21000000);
+});
+
 test('computeVersionCode follows the semantic version', () => {
   assert.equal(computeVersionCode('4.0.0'), 4000000);
   assert.equal(computeVersionCode('4.0.1'), 4000100);

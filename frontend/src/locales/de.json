@@ -1994,6 +1994,7 @@
       "statusVerified": "Systembenachrichtigungen funktionieren",
       "statusBlockedOs": "Benachrichtigungen sind im Betriebssystem ausgeschaltet",
       "statusUnsupported": "Dieses System unterstützt keine Benachrichtigungen",
+      "statusUnknown": "Die Benachrichtigungseinstellungen konnten nicht gelesen werden",
       "test": "Testbenachrichtigung senden",
       "testBody": "Systembenachrichtigungen funktionieren ordnungsgemäß.",
       "testSent": "Das Betriebssystem hat die Testbenachrichtigung bestätigt.",
@@ -2010,6 +2011,7 @@
       "statusRegistered": "Inboxora ist als E-Mail-App registriert, aktuell ist aber eine andere App Standard",
       "statusNotRegistered": "Inboxora ist nicht als E-Mail-App registriert",
       "statusUnsupported": "Die Standard-E-Mail-App lässt sich nur in der Windows-Desktop-App wählen",
+      "statusUnknown": "Die Einstellungen der Standard-E-Mail-App konnten nicht gelesen werden",
       "setDefault": "Als Standard festlegen",
       "openSystemSettings": "Windows-Standardapps öffnen",
       "confirmHint": "Windows bittet dich, die Standard-App selbst zu bestätigen — eine App kann sich nicht selbst als Standard festlegen. Inboxora wird auf dieser Seite als E-Mail-App aufgeführt."

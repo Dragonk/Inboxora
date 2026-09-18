@@ -1994,6 +1994,7 @@
       "statusVerified": "Systémová oznámení fungují",
       "statusBlockedOs": "Oznámení jsou v operačním systému vypnutá",
       "statusUnsupported": "Tento systém oznámení nepodporuje",
+      "statusUnknown": "Nastavení oznámení se nepodařilo načíst",
       "test": "Odeslat testovací oznámení",
       "testBody": "Systémová oznámení fungují správně.",
       "testSent": "Operační systém potvrdil testovací oznámení.",
@@ -2010,6 +2011,7 @@
       "statusRegistered": "Inboxora je zaregistrována jako e-mailová aplikace, ale výchozí je nyní jiná",
       "statusNotRegistered": "Inboxora není zaregistrována jako e-mailová aplikace",
       "statusUnsupported": "Volba výchozí e-mailové aplikace je dostupná jen v desktopové aplikaci pro Windows",
+      "statusUnknown": "Nastavení výchozí e-mailové aplikace se nepodařilo načíst",
       "setDefault": "Nastavit jako výchozí",
       "openSystemSettings": "Otevřít výchozí aplikace Windows",
       "confirmHint": "Windows vás požádá, abyste výchozí aplikaci potvrdili sami — aplikace se nemůže nastavit sama. Inboxora se na této stránce objeví mezi e-mailovými klienty."

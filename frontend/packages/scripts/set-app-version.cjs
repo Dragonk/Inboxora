@@ -37,7 +37,12 @@ function computeVersionCode(version) {
   const prerelease = match[4];
 
   const base = major * 1_000_000 + minor * 10_000 + patch * 100;
-  return prerelease ? base - 50 : base;
+  const code = prerelease ? base - 50 : base;
+
+  // Android requires a positive versionCode and Google Play caps it at 2.1e9.
+  // `0.0.0-dev.1`, for example, derives -50, which Gradle would happily take.
+  if (!Number.isSafeInteger(code) || code <= 0 || code > 2_100_000_000) return null;
+  return code;
 }
 
 function updateJsonVersion(filePath, version) {
@@ -64,6 +69,10 @@ function main() {
   }
 
   const versionCode = computeVersionCode(version);
+  if (versionCode === null) {
+    console.error(`Version "${version}" does not produce a valid Android versionCode; no files were changed.`);
+    process.exit(1);
+  }
 
   updateJsonVersion(path.join(root, 'package.json'), version);
   updateJsonVersion(path.join(root, 'package-lock.json'), version);

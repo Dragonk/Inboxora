@@ -3,9 +3,11 @@
   ; command, which duplicates the modern ProgID registration and would dangle after
   ; an uninstall. Remove it, but only while it is still exactly the command those
   ; builds wrote — never someone else's handler.
-  ReadRegStr $0 SHCTX "Software\Classes\mailto\shell\open\command" ""
+  ; The legacy handler was written by Electron at runtime, which always uses HKCU —
+  ; SHCTX would be HKLM on a per-machine build and would miss it.
+  ReadRegStr $0 HKCU "Software\Classes\mailto\shell\open\command" ""
   StrCmp $0 '"$INSTDIR\Inboxora.exe" "%1"' 0 +2
-  DeleteRegKey SHCTX "Software\Classes\mailto"
+  DeleteRegKey HKCU "Software\Classes\mailto"
 !macroend
 
 !macro customInstall
@@ -29,7 +31,7 @@
 
   ; Tell the shell the associations changed (SHCNE_ASSOCCHANGED). Without this the
   ; Default apps page can keep showing the state from before the install.
-  System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, i 0, i 0)'
+  System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0x1000, i 0, i 0)'
 !macroend
 
 !macro customUnInstall
@@ -38,5 +40,5 @@
   DeleteRegKey SHCTX "Software\Classes\Inboxora.mailto"
   !insertmacro removeLegacyMailtoHandler
   ; Drop the association from the shell's cache as well.
-  System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, i 0, i 0)'
+  System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0x1000, i 0, i 0)'
 !macroend

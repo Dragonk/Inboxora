@@ -31,6 +31,11 @@ const PENDING_MESSAGE_PREFIX = '__history_';
 // The cache below only has to outlive the loaded page of the messages the history
 // points at; the history itself is capped at 60 entries.
 const MESSAGE_REF_CACHE_LIMIT = 200;
+// Restored rows are parked in `threadMessages` so the reader can render them after
+// its folder page was replaced. `setMessages()` never evicts them, so keep only the
+// most recent ones: Back re-hydrates on demand, and an unbounded cache would keep
+// every message the user ever navigated to.
+const HYDRATED_MESSAGE_LIMIT = 10;
 // The backend rejects a non-UUID accountId with 400, so only a real id is sent.
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -86,6 +91,8 @@ export function createAppViewHistory(options: AppViewHistoryOptions = {}) {
   // Only the row carries the RFC Message-ID, and the history entry has to keep
   // pointing at the message after that page has been replaced.
   const messageRefs = new Map<string, Required<ViewMessageHint>>();
+  // Insertion order of the parked rows, oldest first.
+  const hydratedMessageIds: string[] = [];
   // Latest-wins token: a slow resolve must never write into a view the user has
   // already left.
   let restoreToken = 0;
@@ -212,6 +219,14 @@ export function createAppViewHistory(options: AppViewHistoryOptions = {}) {
 
       rememberMessageRef(message);
       state.setThreadMessages(`${PENDING_MESSAGE_PREFIX}${message.id}`, [message]);
+      hydratedMessageIds.push(message.id);
+      while (hydratedMessageIds.length > HYDRATED_MESSAGE_LIMIT) {
+        const stale = hydratedMessageIds.shift();
+        // Never drop the row the reader is showing.
+        if (stale && stale !== state.selectedMessageId) {
+          state.clearThreadMessages(`${PENDING_MESSAGE_PREFIX}${stale}`);
+        }
+      }
       // The resolved row can carry a different physical id (the message moved and
       // was re-created). That is still the same history step, so record the new id
       // in place — otherwise the recorder would treat it as a new navigation and

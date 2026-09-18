@@ -161,7 +161,8 @@ jobs:
           distribution: temurin
           java-version: "21"
 
-      - uses: android-actions/setup-android@v3
+      # Pinned to the v3 commit: a mutable tag can be repointed at other code.
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
         with:
           # The action's default package list still contains the legacy `tools`
           # SDK package, which Google removed from the SDK repository, so the
@@ -277,6 +278,19 @@ jobs:
           printf '%s' "$INBOXORA_GPG_PRIVATE_KEY" | gpg --batch --import
           key_id="$(gpg --batch --list-secret-keys --with-colons | awk -F: '$1 == "sec" { print $5; exit }')"
           test -n "$key_id"
+
+          # The signing identity is documented in docs/keys/ and attached to every
+          # release, so a manifest signed by any other key would make those published
+          # verification instructions wrong. Bind the imported key to the documented
+          # fingerprint instead of trusting whatever the secret happens to contain.
+          documented="$(gpg --batch --show-keys --with-colons docs/keys/inboxora-release-signing.asc | awk -F: '$1 == "fpr" { print $10; exit }')"
+          imported="$(gpg --batch --list-secret-keys --with-colons "$key_id" | awk -F: '$1 == "fpr" { print $10; exit }')"
+          test -n "$documented"
+          if [ "$imported" != "$documented" ]; then
+            printf 'The imported signing key (%s) does not match the documented release key (%s)\n' "$imported" "$documented" >&2
+            exit 1
+          fi
+          printf 'Signing with the documented release key %s.\n' "$documented"
 
           mkdir -p signed
           (

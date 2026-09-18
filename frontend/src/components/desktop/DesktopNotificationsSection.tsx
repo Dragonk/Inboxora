@@ -51,15 +51,31 @@ export default function DesktopNotificationsSection() {
   const [settings, setSettings] = useState<DesktopNotificationSettings>(DEFAULTS);
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [testOutcome, setTestOutcome] = useState<TestOutcome | null>(null);
   const notifications = typeof window === 'undefined' ? undefined : window.inboxoraNative?.notifications;
   // The last OS state we showed, so a change (the user flipping the Windows switch
   // and coming back) invalidates whatever the previous test reported.
   const lastOsState = useRef<OsState | null>(null);
+  // focus and visibilitychange can both fire; only the newest read may win.
+  const refreshToken = useRef(0);
 
   const refresh = useCallback(async (options: { clearOutcome?: boolean } = {}) => {
-    const value = await notifications?.getSettings?.().catch(() => undefined);
-    if (!value) return;
+    const token = ++refreshToken.current;
+    let value: unknown;
+    try {
+      value = await notifications?.getSettings?.();
+    } catch {
+      value = undefined;
+    }
+    if (token !== refreshToken.current) return;
+    if (!value) {
+      // Leaving DEFAULTS on screen would claim notifications are enabled and
+      // supported; an unreadable state is reported instead, with a retry.
+      setLoadFailed(true);
+      return;
+    }
+    setLoadFailed(false);
     const next = readSettings(value);
     const osStateChanged = lastOsState.current !== null && lastOsState.current !== next.osState;
     lastOsState.current = next.osState;
@@ -100,6 +116,7 @@ export default function DesktopNotificationsSection() {
     try {
       const value = await notifications?.setEnabled?.(next);
       if (value) {
+        setLoadFailed(false);
         const applied = readSettings(value);
         lastOsState.current = applied.osState;
         setSettings(applied);
@@ -144,12 +161,16 @@ export default function DesktopNotificationsSection() {
   }, [notifications, refresh]);
 
   const { enabled, supported, osState, canOpenSystemSettings } = settings;
+  // Nothing may be presented as working until a settings read actually succeeded.
+  const ready = loaded && !loadFailed;
   // A test that the operating system actually confirmed outranks a stale reading:
   // it demonstrably delivered a notification, so the OS cannot be blocking them.
   const verified = testOutcome === 'confirmed' || osState === 'enabled';
   const blockedBySystem = osState === 'disabled' && !verified;
 
-  const statusLabel = !supported
+  const statusLabel = loadFailed
+    ? t('desktop.notifications.statusUnknown')
+    : !supported
     ? t('desktop.notifications.statusUnsupported')
     : !enabled
       ? t('desktop.notifications.statusOff')
@@ -159,7 +180,7 @@ export default function DesktopNotificationsSection() {
           ? t('desktop.notifications.statusBlockedOs')
           : t('desktop.notifications.statusOn');
 
-  const statusColor = !supported || !enabled
+  const statusColor = loadFailed || !supported || !enabled
     ? 'var(--text-tertiary)'
     : verified
       ? 'var(--green, #22c55e)'
@@ -226,15 +247,15 @@ export default function DesktopNotificationsSection() {
           role="switch"
           aria-checked={enabled}
           aria-label={t('desktop.notifications.enable')}
-          disabled={!loaded || busy || !supported}
+          disabled={!ready || busy || !supported}
           onClick={toggle}
           style={{
             display: 'flex', alignItems: 'center', flexShrink: 0,
             width: 44, height: 24, padding: 2, borderRadius: 999,
             border: '1px solid ' + (enabled && supported ? 'transparent' : 'var(--border)'),
             background: enabled && supported ? 'var(--accent)' : 'var(--bg-tertiary)',
-            cursor: !loaded || busy || !supported ? 'not-allowed' : 'pointer',
-            opacity: !loaded || busy || !supported ? 0.6 : 1,
+            cursor: !ready || busy || !supported ? 'not-allowed' : 'pointer',
+            opacity: !ready || busy || !supported ? 0.6 : 1,
             transition: 'background 0.15s',
           }}
         >
@@ -251,11 +272,16 @@ export default function DesktopNotificationsSection() {
         <button
           type="button"
           style={buttonStyle(true)}
-          disabled={busy || !supported || !enabled}
+          disabled={!ready || busy || !supported || !enabled}
           onClick={sendTest}
         >
           {t('desktop.notifications.test')}
         </button>
+        {loadFailed && (
+          <button type="button" style={buttonStyle(false)} disabled={busy} onClick={() => { void refresh(); }}>
+            {t('common.retry')}
+          </button>
+        )}
         {testMessage && testOutcome !== 'failed' && (
           <span style={{ alignSelf: 'center', fontSize: 12, color: testMessageColor }}>{testMessage}</span>
         )}
