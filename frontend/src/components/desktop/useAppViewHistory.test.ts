@@ -208,9 +208,12 @@ test('a message that came back with a new row id keeps Forward available', async
   record(); // the recorder echo, which consumes the restore marker
   await tick();
 
-  // The durable Message-ID survived the folder change, scoped to the account the
-  // message belongs to — the row id alone would not resolve after the move.
-  assert.deepEqual(calls, [{ ref: '<stable@message.id>', accountId: 'a1' }]);
+  // The exact row is tried first (and only it — see the next test). Once it is gone,
+  // the durable Message-ID takes over, scoped to the account the message belongs to.
+  assert.deepEqual(calls, [
+    { ref: 'old-uuid', accountId: undefined },
+    { ref: '<stable@message.id>', accountId: 'a1' },
+  ]);
   const state = useStore.getState();
   assert.equal(state.selectedMessageId, 'new-uuid');
   assert.deepEqual(Object.values(state.threadMessages).flat().map((message) => message.id), ['new-uuid']);
@@ -223,6 +226,48 @@ test('a message that came back with a new row id keeps Forward available', async
 
   history.navigate('forward');
   assert.equal(useStore.getState().selectedFolder, 'Sent');
+});
+
+test('the exact copy wins over the durable reference for the same message', async () => {
+  resetStore();
+  const calls: Array<{ ref: string; accountId?: string }> = [];
+  const history = createAppViewHistory({
+    resolveMessage: async (ref, accountId) => {
+      calls.push({ ref, accountId });
+      // The Archive copy the user was reading still exists. The same Message-ID also
+      // lives in INBOX, which /resolve-message prefers when asked by Message-ID.
+      if (ref === 'archive-uuid') return row('archive-uuid', 'Archive', '<same@id>');
+      if (ref === '<same@id>') return row('inbox-uuid', 'INBOX', '<same@id>');
+      return null;
+    },
+  });
+  const record = recorder(history);
+
+  history.reset();
+  useStore.setState({
+    messages: [row('archive-uuid', 'Archive', '<same@id>')],
+    selectedMessageId: 'archive-uuid',
+    selectedFolder: 'Archive',
+  });
+  record();
+
+  useStore.getState().setSelectedAccount(null, 'Sent');
+  record();
+
+  history.navigate('back');
+  record(); // the recorder echo
+  await tick();
+
+  // Only the exact row was asked for, so the copy the user was reading comes back
+  // instead of the INBOX twin the durable lookup would have preferred.
+  assert.deepEqual(calls, [{ ref: 'archive-uuid', accountId: undefined }]);
+  const state = useStore.getState();
+  assert.equal(state.selectedMessageId, 'archive-uuid');
+  assert.equal(state.selectedFolder, 'Archive');
+  assert.deepEqual(Object.values(state.threadMessages).flat().map((message) => message.folder), ['Archive']);
+
+  record();
+  assert.deepEqual(history.getState(), { canGoBack: true, canGoForward: true });
 });
 
 test('the message reference is scoped like the backend expects', () => {

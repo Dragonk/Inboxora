@@ -24,11 +24,13 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.3](wiki/R
   Calendar → Contacts → Settings, including the selected account, folder and open message)
   instead of the browser's navigation history, which only ever contained login/OIDC pages
   because Inboxora swaps application state rather than loading documents. A restored message is
-  re-resolved by its durable reference — the RFC `Message-ID` header when it is known, scoped to
-  its account, falling back to the row id — and parked where the reading pane can find it, so
-  "Back" returns to the message even when it lives in another folder or account, or when a move
-  or re-sync gave it a new physical row id. Settings opens as an overlay *below* the bar, so the
-  arrows and search stay usable while it is open.
+  re-resolved by its exact row id first and, only when that row is gone, by its durable reference
+  — the RFC `Message-ID` header when it is known, scoped to its account, else the row id — then
+  parked where the reading pane can find it. So "Back" returns to the exact copy the user was
+  reading (the same Message-ID can exist in INBOX and Archive, and the durable lookup prefers the
+  INBOX one), and still finds the message after a move or re-sync gave it a new physical row id.
+  Settings opens as an overlay *below* the bar, so the arrows and search stay usable while it is
+  open.
 - The visible `File / Edit / View / Window / Help` menu bar is removed on Windows and Linux.
   Its accelerators are re-registered on the window — `Ctrl+R` reload, `F11` full screen,
   `Ctrl+W` close (still hide-to-tray), `Ctrl+M` minimize and `Ctrl+,` Change Inboxora Host —

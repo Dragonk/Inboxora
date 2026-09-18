@@ -37,8 +37,10 @@ type StoreApi = typeof useStore;
 
 export interface AppViewHistoryOptions {
   /**
-   * Resolve a durable message reference (the RFC Message-ID when known, else the
-   * row id) to the current row. Defaults to api.resolveMessage().
+   * Resolve a message reference to the current row. Called with the exact physical
+   * row id first, then — only when that row is gone — with the durable reference
+   * (the RFC Message-ID when known, else the row id) scoped to its account.
+   * Defaults to api.resolveMessage().
    */
   resolveMessage?: (ref: string, accountId?: string) => Promise<StoreMessageRow | null>;
 }
@@ -148,12 +150,26 @@ export function createAppViewHistory(options: AppViewHistoryOptions = {}) {
 
   async function hydrateRestoredMessage(target: ViewSnapshot, authEpoch: number): Promise<void> {
     const token = ++restoreToken;
-    const reference = target.messageRef ?? target.messageId;
-    if (!reference) return;
+    const physicalId = target.messageId;
+    const reference = target.messageRef ?? physicalId;
+    if (!physicalId || !reference) return;
 
     try {
-      const message = await resolveMessage(reference, target.messageAccountId ?? undefined);
-      if (!message || token !== restoreToken) return;
+      // 1) The exact physical row wins. The same Message-ID can exist in more than
+      //    one folder of an account (INBOX + Archive), and the durable lookup
+      //    prefers the INBOX copy — which would silently swap the copy the user was
+      //    reading. Unscoped by account: the id is already unambiguous.
+      let message = await resolveMessage(physicalId);
+      if (token !== restoreToken) return;
+
+      if (!message && reference !== physicalId) {
+        // 2) The row is gone (moved or re-synced): fall back to the durable
+        //    reference, scoped to the account because the same Message-ID can exist
+        //    on two connected accounts.
+        message = await resolveMessage(reference, target.messageAccountId ?? undefined);
+        if (token !== restoreToken) return;
+      }
+      if (!message) return;
 
       const state = store.getState();
       // A message fetched for a previous session, or after the user navigated on,
