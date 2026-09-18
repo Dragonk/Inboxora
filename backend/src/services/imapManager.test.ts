@@ -293,6 +293,28 @@ describe('explicit IDLE configuration', () => {
     expect(client.idle).not.toHaveBeenCalled();
   });
 
+  it('coalesces two concurrent _enterExplicitIdle calls into a single idle()', async () => {
+    // The guard must be installed synchronously before the first idle()
+    // resolves, otherwise two callers could both pass the client.idling check
+    // and issue duplicate IDLE commands for one connection.
+    const idle = vi.fn().mockImplementation(async function (this: { idling: boolean }) { this.idling = true; });
+    const client = mockImapClient({ idling: false, idle });
+    const mgr = {
+      connections: new Map([['acct-idle', client]]),
+      idleAttemptedAt: new Map<string, number>(),
+      idleEnteredAt: new Map<string, number>(),
+      idleInflights: new Map<string, Promise<void>>(),
+      idleHealthWarned: new Set<string>(),
+    };
+    const idleAccount = { id: 'acct-idle', user_id: 'user-1', imap_host: 'imap.example.com' };
+
+    ImapManager.prototype._enterExplicitIdle.call(mgr, client, idleAccount);
+    ImapManager.prototype._enterExplicitIdle.call(mgr, client, idleAccount);
+
+    await vi.waitFor(() => expect(mgr.idleInflights.has('acct-idle')).toBe(false), { timeout: 3000 });
+    expect(idle).toHaveBeenCalledTimes(1);
+  });
+
   it('records idleEnteredAt when the server acknowledges IDLE via exists', () => {
     const client = mockImapClient(new EventEmitter());
     client.idling = true;
@@ -2444,6 +2466,87 @@ describe('_refreshFolderStatuses', () => {
     // total/unread update is allowed (it doesn't gate the sync decision).
     const countUpdates = query.mock.calls.filter(([sql]) => sql.includes('total_count = COALESCE'));
     expect(countUpdates).toHaveLength(1);
+  });
+
+  it('advances uid_next only after the queued sync actually ingests the new mail', async () => {
+    // End-to-end gate: cached uid_next=100 → STATUS reports 101 → the folder is
+    // queued and the watermark is NOT advanced → the real syncMessages() run
+    // inserts the new message → only then does uid_next become 101. If the
+    // watermark were written at detection time, _folderNeedsSync() would later
+    // compare 101 against 101 and skip the very fetch that was queued.
+    const e2eAccount = {
+      id: 'acct-status-e2e', user_id: 'user-1', email_address: 'me@example.com',
+      imap_host: 'imap.example.com', gtd_enabled: false, categorization_enabled: false,
+    };
+    query.mockReset();
+    parseMessage.mockReset();
+    invalidateGtdConfigCache(e2eAccount.id);
+    const folderUpserts: unknown[][] = [];
+    query.mockImplementation((sql: string, params?: unknown[]) => {
+      if (sql.includes('SELECT path, uid_next FROM folders')) {
+        return Promise.resolve({ rows: [{ path: 'INBOX', uid_next: 100 }] });
+      }
+      if (sql.includes('SELECT uid_validity, highest_modseq FROM folders')) {
+        return Promise.resolve({ rows: [{ uid_validity: 100, highest_modseq: '500' }] });
+      }
+      if (sql.includes('COUNT(*) FILTER (WHERE is_read = false)')) return Promise.resolve({ rows: [{ n: 0 }] });
+      if (sql.includes('COALESCE(MAX(uid), 0)')) return Promise.resolve({ rows: [{ max_uid: 100 }] });
+      if (sql.includes('INSERT INTO folders')) {
+        folderUpserts.push(params ?? []);
+        return Promise.resolve({ rows: [] });
+      }
+      if (sql.includes('INSERT INTO messages')) return Promise.resolve({ rows: [{ id: 'msg-101', is_new: true }] });
+      if (sql.includes('SELECT gtd_enabled, gtd_folders FROM email_accounts')) {
+        return Promise.resolve({ rows: [{ gtd_enabled: false, gtd_folders: {} }] });
+      }
+      if (sql.includes("preferences->>'categorizationEnabled'")) return Promise.resolve({ rows: [{ val: false }] });
+      return Promise.resolve({ rows: [] });
+    });
+    parseMessage.mockResolvedValue({
+      deliveryAddresses: [],
+      attributes: { emailId: null, threadId: null },
+      senderName: 'External',
+      senderEmail: 'them@example.com',
+      uid: 101,
+      messageId: null,
+      subject: 'New mail',
+      fromName: 'External',
+      fromEmail: 'them@example.com',
+      to: [], cc: [], replyTo: [],
+      inReplyTo: null,
+      references: null,
+      date: new Date('2026-07-17T10:00:00Z'),
+      snippet: 'hi',
+      isRead: true,
+      isStarred: false,
+      hasAttachments: false,
+      flags: ['\\Seen'],
+      isBulk: false,
+      parsedHeaders: {},
+    });
+    const client = mockImapClient({
+      getMailboxLock: vi.fn().mockResolvedValue({ release: vi.fn() }),
+      mailbox: { exists: 11, uidNext: 101, uidValidity: 100, highestModseq: 500n },
+      status: vi.fn().mockResolvedValue({ uidNext: 101, messages: 11, unseen: 3 }),
+      fetch: vi.fn(async function* (range: string) { if (range === '101:*') yield { uid: 101 }; }),
+    });
+    const mgr = new ImapManager({ clients: new Set() });
+    clearInterval(mgr._healthCheckTimer); clearInterval(mgr._snippetSchedulerTimer);
+
+    await ImapManager.prototype._refreshFolderStatuses.call(mgr, e2eAccount, client, new Set(['INBOX']));
+    expect(mgr._pendingFolderSyncs.has('acct-status-e2e:INBOX')).toBe(true);
+    // Detection alone must not move the watermark nor ingest anything — in
+    // either write shape (folders upsert or a bare uid_next UPDATE).
+    expect(folderUpserts).toHaveLength(0);
+    expect(query.mock.calls.some(([sql]) => /uid_next\s*=/.test(String(sql)))).toBe(false);
+    expect(query.mock.calls.some(([sql]) => String(sql).includes('INSERT INTO messages'))).toBe(false);
+
+    await ImapManager.prototype.syncMessages.call({}, e2eAccount, client, 'INBOX', 50, false, true);
+
+    // The sync ingested the message and only then advanced uid_next to 101.
+    expect(query.mock.calls.some(([sql]) => String(sql).includes('INSERT INTO messages'))).toBe(true);
+    expect(folderUpserts).toHaveLength(1);
+    expect(Number(folderUpserts[0][5])).toBe(101);
   });
 });
 
