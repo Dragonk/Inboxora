@@ -36,6 +36,7 @@ import { LAYOUTS, localizedLayout, applyLayout } from '../layouts.ts';
 import { NOTIFICATION_SOUNDS, playNotificationSound, playCustomSound, warmUpAudioContext } from '../utils/notificationSounds.ts';
 import { usePushNotifications } from '../hooks/usePushNotifications.ts';
 import SignatureEditor from './SignatureEditor.tsx';
+import SpamSettings from './SpamSettings.tsx';
 import DiagnosticsReportModal from './DiagnosticsReportModal.tsx';
 import { getEffectiveShortcuts, getGroupedActions, ACTION_DEFS, SPECIAL_KEY_LABELS, parseModKey, modLabel } from '../utils/defaultShortcuts.ts';
 import { unifiedUnreadTotal } from '../utils/unifiedInbox.ts';
@@ -7013,6 +7014,7 @@ function RulesAndBlockListTab({ initialSubTab }: SubTabSectionProps) {
     <SubTabs initialTab={initialSubTab} tabs={[
       { id: 'rules',      label: t('admin.rules.subTabRules'),     content: <RulesTab /> },
       { id: 'block-list', label: t('admin.rules.subTabBlockList'), content: <BlockListTab /> },
+      { id: 'antispam',   label: t('admin.rules.subTabAntispam'),  content: <SpamSettings /> },
     ]} />
   );
 }
@@ -8742,6 +8744,7 @@ function makeSearchIndex(t: TFunction): SearchIndexItem[] {
     // Rules
     { label: t('admin.rules.title'), keywords: ['rule', 'filter', 'condition', 'action', 'move', 'auto', 'automate', 'inbox rule', 'sort'], tab: 'rules', subtab: 'rules', breadcrumb: `${tabLabel('rules')} › ${t('admin.rules.subTabRules')}` },
     { label: t('admin.rules.subTabBlockList'), keywords: ['block', 'blocked', 'sender', 'blacklist', 'spam', 'domain'], tab: 'rules', subtab: 'block-list', breadcrumb: `${tabLabel('rules')} › ${t('admin.rules.subTabBlockList')}` },
+    { label: t('admin.rules.subTabAntispam'), keywords: ['antispam', 'antyspam', 'spam filter', 'classifier', 'naive bayes', 'threshold', 'retrain', 'maturity'], tab: 'rules', subtab: 'antispam', breadcrumb: `${tabLabel('rules')} › ${t('admin.rules.subTabAntispam')}` },
     // Appearance > Theme
     { label: tabLabel('theme'), keywords: ['theme', 'dark', 'light', 'color', 'colour', 'dark mode', 'light mode', 'dark ink', 'ink'], tab: 'appearance', subtab: 'theme', breadcrumb: `${tabLabel('appearance')} › ${tabLabel('theme')}` },
     { label: t('admin.appearance.themeMode'), keywords: ['theme mode', 'system', 'follow system', 'auto', 'always light', 'always dark', 'appearance'], tab: 'appearance', subtab: 'theme', breadcrumb: `${tabLabel('appearance')} › ${tabLabel('theme')}` },

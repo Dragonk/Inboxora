@@ -2451,31 +2451,43 @@ describe('_refreshFolderStatuses', () => {
 describe('runPostRelocateRepair', () => {
   const repairAccount = { id: 'acct-repair', user_id: 'user-1', email_address: 'a@example.com', imap_host: 'imap.example.com' };
 
-  function repairMgr(serverUids: number[], localUids: number[], recovered: string[]) {
+  function repairMgr(
+    serverUids: number[],
+    localUids: number[],
+    recovered: string[],
+    opts: { failFolders?: string[]; remaining?: number[] } = {},
+  ) {
     const mgr = new ImapManager({ clients: new Set() });
     clearInterval(mgr._healthCheckTimer); clearInterval(mgr._snippetSchedulerTimer);
     (mgr as unknown as { repairFolderMissingUids: (account: unknown, folder: string) => Promise<number> }).repairFolderMissingUids =
       async (_account: unknown, folder: string) => {
+        if (opts.failFolders?.includes(folder)) throw new Error('mailbox gone');
         const have = new Set(localUids);
         const missing = serverUids.filter(uid => !have.has(uid));
         for (const uid of missing) recovered.push(`${folder}:${uid}`);
         return missing.length;
       };
+    (mgr as unknown as { remainingRepairUids: (account: unknown, folder: string) => Promise<number[]> }).remainingRepairUids =
+      async () => opts.remaining ?? [];
     mgr.broadcast = vi.fn();
     return mgr;
   }
 
-  it('recovers a missing UID the bounded sync window would never revisit', async () => {
-    query.mockReset();
+  function markerMock(folderRows: Array<{ path: string; no_select: boolean }>) {
     query.mockImplementation((sql) => {
-      if (sql.includes('SELECT path FROM folders WHERE account_id = $1 AND path = $2')) {
+      if (typeof sql === 'string' && sql.includes('FROM account_maintenance_state')) {
         return Promise.resolve({ rows: [] }); // marker absent → repair runs
       }
-      if (sql.includes('SELECT path, no_select FROM folders')) {
-        return Promise.resolve({ rows: [{ path: 'Archive', no_select: false }] });
+      if (typeof sql === 'string' && sql.includes('SELECT path, no_select FROM folders')) {
+        return Promise.resolve({ rows: folderRows });
       }
       return Promise.resolve({ rows: [] });
     });
+  }
+
+  it('recovers a missing UID the bounded sync window would never revisit', async () => {
+    query.mockReset();
+    markerMock([{ path: 'Archive', no_select: false }]);
     const recovered: string[] = [];
     const mgr = repairMgr([1, 2, 3, 4, 5, 500, 501], [1, 2, 4, 5, 500, 501], recovered);
 
@@ -2484,15 +2496,15 @@ describe('runPostRelocateRepair', () => {
     expect(recovered).toEqual(['Archive:3']);
     expect(result).toEqual({ foldersRefreshed: 1, uidsRecovered: 1 });
     const markerWrites = query.mock.calls.filter(([sql]) =>
-      String(sql).includes('INSERT INTO folders'));
+      String(sql).includes('INSERT INTO account_maintenance_state'));
     expect(markerWrites.length).toBeGreaterThanOrEqual(1);
   });
 
   it('skips entirely when the durable marker is already present', async () => {
     query.mockReset();
     query.mockImplementation((sql) => {
-      if (sql.includes('SELECT path FROM folders WHERE account_id = $1 AND path = $2')) {
-        return Promise.resolve({ rows: [{ path: '__inboxora_repair_physical_copy_v1__' }] });
+      if (typeof sql === 'string' && sql.includes('FROM account_maintenance_state')) {
+        return Promise.resolve({ rows: [{ completed_at: new Date().toISOString() }] });
       }
       return Promise.resolve({ rows: [] });
     });
@@ -2505,20 +2517,49 @@ describe('runPostRelocateRepair', () => {
     expect(result).toEqual({ foldersRefreshed: 0, uidsRecovered: 0 });
   });
 
-  it('tolerates a failing folder and still reports the rest', async () => {
+  it('runs again when a previous attempt left the marker unset', async () => {
     query.mockReset();
     query.mockImplementation((sql) => {
-      if (sql.includes('SELECT path FROM folders WHERE account_id = $1 AND path = $2')) {
-        return Promise.resolve({ rows: [] });
+      // A failed run writes no completed_at: NULL row (or no row) → retry.
+      if (typeof sql === 'string' && sql.includes('FROM account_maintenance_state')) {
+        return Promise.resolve({ rows: [{ completed_at: null }] });
       }
-      if (sql.includes('SELECT path, no_select FROM folders')) {
-        return Promise.resolve({ rows: [
-          { path: 'INBOX', no_select: false },
-          { path: 'Broken', no_select: false },
-        ] });
+      if (typeof sql === 'string' && sql.includes('SELECT path, no_select FROM folders')) {
+        return Promise.resolve({ rows: [{ path: 'INBOX', no_select: false }] });
       }
       return Promise.resolve({ rows: [] });
     });
+    const recovered: string[] = [];
+    const mgr = repairMgr([1, 2], [1], recovered);
+
+    const result = await ImapManager.prototype.runPostRelocateRepair.call(mgr, repairAccount);
+
+    expect(recovered).toEqual(['INBOX:2']);
+    expect(result).toEqual({ foldersRefreshed: 1, uidsRecovered: 1 });
+  });
+
+  it('withholds the marker when a folder still has missing UIDs after repair', async () => {
+    query.mockReset();
+    markerMock([{ path: 'INBOX', no_select: false }]);
+    const recovered: string[] = [];
+    // ingest "succeeded" but UID 3 still missing (e.g. parse error) → no marker.
+    const mgr = repairMgr([1, 2, 3], [1, 2], recovered, { remaining: [3] });
+
+    const result = await ImapManager.prototype.runPostRelocateRepair.call(mgr, repairAccount);
+
+    expect(recovered).toEqual(['INBOX:3']);
+    expect(result.foldersRefreshed).toBe(0);
+    const markerWrites = query.mock.calls.filter(([sql]) =>
+      String(sql).includes('INSERT INTO account_maintenance_state'));
+    expect(markerWrites).toHaveLength(0);
+  });
+
+  it('tolerates a failing folder and still reports the rest', async () => {
+    query.mockReset();
+    markerMock([
+      { path: 'INBOX', no_select: false },
+      { path: 'Broken', no_select: false },
+    ]);
     const mgr = new ImapManager({ clients: new Set() });
     clearInterval(mgr._healthCheckTimer); clearInterval(mgr._snippetSchedulerTimer);
     (mgr as unknown as { repairFolderMissingUids: (account: unknown, folder: string) => Promise<number> }).repairFolderMissingUids =
@@ -2526,6 +2567,8 @@ describe('runPostRelocateRepair', () => {
         if (folder === 'Broken') throw new Error('mailbox gone');
         return 0;
       };
+    (mgr as unknown as { remainingRepairUids: (account: unknown, folder: string) => Promise<number[]> }).remainingRepairUids =
+      async (_account: unknown, folder: string) => (folder === 'Broken' ? [1] : []);
     mgr.broadcast = vi.fn();
 
     const result = await ImapManager.prototype.runPostRelocateRepair.call(mgr, repairAccount);
@@ -2533,5 +2576,83 @@ describe('runPostRelocateRepair', () => {
     // Broken failed → marker must NOT be written (repair retries next tick).
     expect(result.foldersRefreshed).toBe(1);
     expect(result.uidsRecovered).toBe(0);
+    const markerWrites = query.mock.calls.filter(([sql]) =>
+      String(sql).includes('INSERT INTO account_maintenance_state'));
+    expect(markerWrites).toHaveLength(0);
+  });
+});
+
+// ── moveSpamCopy — exactly one IMAP MOVE per physical copy ──────────────────
+// Regression for the double-MOVE: the old body fired moveMessage once inside
+// an eagerly-started promise AND a second time for the first caller.
+
+describe('moveSpamCopy', () => {
+  const spamAccount = { id: 'acct-spam', user_id: 'user-1', email_address: 'a@example.com', imap_host: 'imap.example.com' };
+
+  function spamMgr(moveImpl: (account: unknown, uid: unknown, from: string, to: string) => Promise<number | null>) {
+    const mgr = new ImapManager({ clients: new Set() });
+    clearInterval(mgr._healthCheckTimer); clearInterval(mgr._snippetSchedulerTimer);
+    (mgr as unknown as { moveMessage: typeof moveImpl }).moveMessage = moveImpl;
+    return mgr;
+  }
+
+  beforeEach(() => query.mockReset());
+
+  function mockAccountRow() {
+    query.mockImplementation((sql: unknown) => {
+      if (typeof sql === 'string' && sql.includes('SELECT * FROM email_accounts WHERE id = $1')) {
+        return Promise.resolve({ rows: [spamAccount] });
+      }
+      return Promise.resolve({ rows: [] });
+    });
+  }
+
+  it('issues exactly one moveMessage for a single caller', async () => {
+    mockAccountRow();
+    const moveMessage = vi.fn().mockResolvedValue(777);
+    const mgr = spamMgr(moveMessage);
+
+    const newUid = await mgr.moveSpamCopy('acct-spam', 123, 'INBOX', 'Spam');
+
+    expect(newUid).toBe(777);
+    expect(moveMessage).toHaveBeenCalledTimes(1);
+    expect(moveMessage).toHaveBeenCalledWith(spamAccount, 123, 'INBOX', 'Spam');
+  });
+
+  it('coalesces two concurrent callers into one MOVE with the same newUid', async () => {
+    mockAccountRow();
+    let resolveMove!: (uid: number) => void;
+    const gate = new Promise<number>(resolve => { resolveMove = resolve; });
+    const moveMessage = vi.fn().mockReturnValue(gate);
+    const mgr = spamMgr(moveMessage);
+
+    const first = mgr.moveSpamCopy('acct-spam', 123, 'INBOX', 'Spam');
+    // Let the first caller register its inflight (it awaits the account query first).
+    await vi.waitFor(() => expect(moveMessage).toHaveBeenCalledTimes(1));
+    const second = mgr.moveSpamCopy('acct-spam', 123, 'INBOX', 'Spam');
+    // Attach handlers before resolving — second shares the first's inflight.
+    const both = Promise.all([first, second]);
+    resolveMove(4242);
+    const [uidA, uidB] = await both;
+
+    expect(uidA).toBe(4242);
+    expect(uidB).toBe(4242);
+    expect(moveMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not issue a second MOVE on reject and clears the inflight', async () => {
+    mockAccountRow();
+    const moveMessage = vi.fn()
+      .mockRejectedValueOnce(new Error('IMAP down'))
+      .mockResolvedValue(999);
+    const mgr = spamMgr(moveMessage);
+
+    await expect(mgr.moveSpamCopy('acct-spam', 123, 'INBOX', 'Spam')).rejects.toThrow('IMAP down');
+    expect(moveMessage).toHaveBeenCalledTimes(1);
+
+    // Rejected inflight is cleared: a later caller retries (no unhandled rejection leaks).
+    const newUid = await mgr.moveSpamCopy('acct-spam', 123, 'INBOX', 'Spam');
+    expect(newUid).toBe(999);
+    expect(moveMessage).toHaveBeenCalledTimes(2);
   });
 });

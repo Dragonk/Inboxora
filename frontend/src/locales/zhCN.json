@@ -614,7 +614,8 @@
       "headerNamePlaceholder": "头部名称（如 X-Spam-Status）",
       "bodyConditionNote": "正文规则仅在邮件正文已下载时才会执行。如果邮件到达时正文尚未获取，规则将被跳过，邮件将留在收件箱中——正文规则不会追溯应用。",
       "subTabRules": "规则",
-      "subTabBlockList": "黑名单"
+      "subTabBlockList": "黑名单",
+      "subTabAntispam": "反垃圾邮件"
     },
     "search": {
       "placeholder": "搜索设置…",

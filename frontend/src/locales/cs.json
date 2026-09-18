@@ -269,6 +269,7 @@
       "bodyConditionNote": "Pravidla pro tělo zprávy se spustí pouze tehdy, pokud už bylo tělo staženo. Jestliže při příchodu zprávy ještě nebylo načteno, pravidlo se přeskočí a zpráva zůstane v Doručené poště — pravidla pro tělo se nepoužívají zpětně.",
       "subTabRules": "Pravidla",
       "subTabBlockList": "Seznam blokovaných",
+      "subTabAntispam": "Antispam",
       "actionsLabel": "Akce",
       "actionMarkRead": "Označit jako přečtené",
       "actionStar": "Označit hvězdičkou",

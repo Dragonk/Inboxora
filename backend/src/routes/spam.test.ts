@@ -25,17 +25,24 @@ vi.mock('../services/spamModel.js', () => ({
   classifyMessage: vi.fn(),
   extractTopTokens: vi.fn(),
   blendScores: vi.fn(),
+  isModelMature: vi.fn(),
+  usableTrainingTotal: vi.fn(),
+  MIN_TRAINING_RECORDS: 50,
+  SOFT_TRAINING_RECORDS: 500,
 }));
 
 import express from 'express';
 import spamRoutes from './spam.js';
 import { query as __mock_query } from '../services/db.js';
 import { getModelForUser as __mock_getModel } from '../services/spamModelStore.js';
+import { isModelMature as __mock_isMature, usableTrainingTotal as __mock_usableTotal } from '../services/spamModel.js';
 import { runFullRetrain as __mock_retrain } from '../services/spamScheduler.js';
 import { listeningPort } from '../test/net.js';
 
 const query = vi.mocked(__mock_query);
 const getModelForUser = vi.mocked(__mock_getModel);
+const isModelMature = vi.mocked(__mock_isMature);
+const usableTrainingTotal = vi.mocked(__mock_usableTotal);
 const runFullRetrain = vi.mocked(__mock_retrain);
 
 const MESSAGE_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
@@ -66,12 +73,20 @@ describe('/api/spam routes', () => {
     query.mockReset();
     getModelForUser.mockReset();
     runFullRetrain.mockReset();
+    isModelMature.mockReset();
+    usableTrainingTotal.mockReset();
+    // Default maturity stubs: individual tests override as needed.
+    isModelMature.mockReturnValue(false);
+    usableTrainingTotal.mockReturnValue(0);
   });
 
   it('GET /status reports maturity and enable state', async () => {
+    isModelMature.mockReturnValue(true);
+    usableTrainingTotal.mockReturnValue(120);
     getModelForUser.mockResolvedValue({
       vocabulary: {}, totalSpam: 0, totalHam: 0, priorSpam: 0.5, priorHam: 0.5,
-      trainingRecords: 120, modelVersion: 1, lastTrainedAt: null, decayThresholdDays: 90,
+      trainingRecords: 120, usableSpam: 60, usableHam: 60,
+      modelVersion: 1, lastTrainedAt: null, decayThresholdDays: 90,
     });
     query.mockImplementation(async (sql: string) => {
       if (sql.includes('FROM email_accounts WHERE user_id')) return { rows: [{ n: 2 }] };
@@ -111,11 +126,70 @@ describe('/api/spam routes', () => {
   });
 
   it('PATCH /thresholds rejects out-of-range values', async () => {
+    query.mockImplementation(async () => ({ rows: [] }));
     const res = await fetch(`${base}/api/spam/thresholds`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ spamThreshold: 0.2 }),
     });
     expect(res.status).toBe(400);
+  });
+
+  it('PATCH /thresholds validates minRecords/softRecords and drops hardRecords', async () => {
+    let savedPatch: Record<string, number> = {};
+    query.mockImplementation(async (sql: string, params?: unknown[]) => {
+      if (sql.includes('UPDATE users')) {
+        try { savedPatch = JSON.parse(String((params as unknown[])[1])); } catch { savedPatch = {}; }
+        return { rows: [] };
+      }
+      if (sql.includes('SELECT preferences FROM users')) {
+        return { rows: [{ preferences: { spam_thresholds: { minRecords: 50, softRecords: 500, ...savedPatch } } }] };
+      }
+      return { rows: [] };
+    });
+    const bad = await fetch(`${base}/api/spam/thresholds`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ minRecords: 0 }),
+    });
+    expect(bad.status).toBe(400);
+    const badSoft = await fetch(`${base}/api/spam/thresholds`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ softRecords: -5 }),
+    });
+    expect(badSoft.status).toBe(400);
+    // hardRecords is dead config: accepted-and-ignored would be dishonest, so
+    // it is simply not part of the response shape anymore.
+    const ok = await fetch(`${base}/api/spam/thresholds`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ hardRecords: 9999, minRecords: 60 }),
+    });
+    expect(ok.status).toBe(200);
+    const body = (await ok.json()) as Record<string, unknown>;
+    expect(body).not.toHaveProperty('hardRecords');
+    expect(body.minRecords).toBe(60);
+  });
+
+  it('GET /status derives maturity from configured thresholds and usable samples', async () => {
+    // 120 raw rows but only one usable spam sample → ML gate closed.
+    isModelMature.mockReturnValue(false);
+    usableTrainingTotal.mockReturnValue(1);
+    getModelForUser.mockResolvedValue({
+      vocabulary: {}, totalSpam: 1, totalHam: 0, priorSpam: 1, priorHam: 0,
+      trainingRecords: 120, usableSpam: 1, usableHam: 0,
+      modelVersion: 1, lastTrainedAt: null, decayThresholdDays: 90,
+    });
+    query.mockImplementation(async (sql: string) => {
+      if (sql.includes('FROM email_accounts WHERE user_id')) return { rows: [{ n: 1 }] };
+      if (sql.includes('SELECT preferences FROM users')) return { rows: [{ preferences: {} }] };
+      return { rows: [] };
+    });
+    const res = await fetch(`${base}/api/spam/status`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.maturity).toBe('fresh');
+    expect(body.usableTrainingRecords).toBe(1);
   });
 });

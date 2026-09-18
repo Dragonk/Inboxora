@@ -85,6 +85,7 @@
       "bodyConditionNote": "Treść reguły jest wykonywana tylko wtedy, gdy treść wiadomości została już pobrana. Jeśli treść nie została jeszcze pobrana w chwili nadejścia wiadomości, reguła zostanie pominięta, a wiadomość pozostanie w skrzynce odbiorczej — reguła nie zostanie zastosowana wstecznie.",
       "subTabRules": "Reguły",
       "subTabBlockList": "Lista blokad",
+      "subTabAntispam": "Antyspam",
       "actionsLabel": "Działania",
       "actionMarkRead": "Oznacz jako przeczytane",
       "actionStar": "Oznacz gwiazdką",

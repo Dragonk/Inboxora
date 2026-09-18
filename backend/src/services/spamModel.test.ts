@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   createEmptyModel, updateIncremental, classifyMessage, blendScores,
-  pruneVocabulary, retrainFromRecords, extractTopTokens,
+  pruneVocabulary, retrainFromRecords, extractTopTokens, isModelMature,
 } from './spamModel.js';
 
 describe('spam Naive Bayes model', () => {
@@ -43,6 +43,66 @@ describe('spam Naive Bayes model', () => {
     ], 90, now);
     expect(model.trainingRecords).toBe(2);
     expect(model.totalSpam).toBeGreaterThan(model.totalHam);
+  });
+
+  it('counts one mail confirmed many times as a single usable sample', () => {
+    const now = new Date('2026-09-18T00:00:00Z');
+    const rows = Array.from({ length: 50 }, () => ({
+      label: 'spam',
+      created_at: now,
+      message_id_header: '<same@mail.example>',
+      token_counts: { viagra: 2 },
+      flag_features: null,
+    }));
+    const model = retrainFromRecords(rows, 90, now);
+    expect(model.trainingRecords).toBe(50);
+    expect(model.usableSpam).toBe(1);
+    expect(model.usableHam).toBe(0);
+    expect(isModelMature(model, { minRecords: 50 })).toBe(false);
+  });
+
+  it('requires a minimum of each class before ML activates', () => {
+    const now = new Date('2026-09-18T00:00:00Z');
+    const spamOnly = Array.from({ length: 60 }, (_, i) => ({
+      label: 'spam',
+      created_at: now,
+      message_id_header: `<spam-${i}@mail.example>`,
+      token_counts: { viagra: 1 },
+      flag_features: null,
+    }));
+    expect(isModelMature(retrainFromRecords(spamOnly, 90, now), { minRecords: 50 })).toBe(false);
+    const mixed = [
+      ...spamOnly.slice(0, 40),
+      ...Array.from({ length: 12 }, (_, i) => ({
+        label: 'ham',
+        created_at: now,
+        message_id_header: `<ham-${i}@mail.example>`,
+        token_counts: { meeting: 1 },
+        flag_features: null,
+      })),
+    ];
+    const model = retrainFromRecords(mixed, 90, now);
+    expect(model.usableSpam).toBe(40);
+    expect(model.usableHam).toBe(12);
+    expect(isModelMature(model, { minRecords: 50 })).toBe(true);
+  });
+
+  it('ignores legacy featureless rows when counting usable samples', () => {
+    const now = new Date('2026-09-18T00:00:00Z');
+    const rows = Array.from({ length: 60 }, (_, i) => ({
+      label: i % 2 === 0 ? 'spam' : 'ham',
+      created_at: now,
+      message_id_header: `<legacy-${i}@mail.example>`,
+      token_counts: null,
+      subject: null,
+      body_text: null,
+      flag_features: null,
+    }));
+    const model = retrainFromRecords(rows, 90, now);
+    expect(model.trainingRecords).toBe(60);
+    expect(model.usableSpam).toBe(0);
+    expect(model.usableHam).toBe(0);
+    expect(isModelMature(model, { minRecords: 50 })).toBe(false);
   });
 
   it('explains top tokens', () => {

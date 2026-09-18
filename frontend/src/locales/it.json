@@ -613,6 +613,7 @@
       "bodyConditionNote": "Le regole sul corpo vengono eseguite solo se il testo del messaggio è già scaricato. Se non è ancora stato recuperato all'arrivo del messaggio, la regola viene ignorata e il messaggio resta nella posta in arrivo — le regole sul corpo non si applicano retroattivamente.",
       "subTabRules": "Regole",
       "subTabBlockList": "Lista blocchi",
+      "subTabAntispam": "Antispam",
       "actionMoveSelectFolder": "Seleziona una cartella…",
       "actionMoveRequiresAccount": "Richiede un account specifico"
     },

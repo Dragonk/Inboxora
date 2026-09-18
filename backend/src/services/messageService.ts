@@ -113,6 +113,7 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
                m.to_addresses, m.cc_addresses, m.draft_bcc_addresses, m.draft_uid_validity::text AS draft_uid_validity, m.draft_alias_id, m.draft_in_reply_to, m.draft_references, m.draft_composition, m.reply_to, m.in_reply_to,
                m.date, m.snippet, m.is_read, m.is_starred,
                m.has_attachments, m.account_id, m.category,
+               m.spam_verdict, m.spam_score_ml,
                m.list_unsubscribe, m.list_unsubscribe_post, m.delivery_addresses,
                a.name  AS account_name,
                a.email_address AS account_email,
@@ -202,6 +203,7 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
            m.to_addresses, m.cc_addresses, m.draft_bcc_addresses, m.draft_uid_validity::text AS draft_uid_validity, m.draft_alias_id, m.draft_in_reply_to, m.draft_references, m.draft_composition, m.reply_to, m.in_reply_to,
            m.date, m.snippet, m.is_read, m.is_starred,
            m.has_attachments, m.account_id, m.category,
+           m.spam_verdict, m.spam_score_ml,
            m.list_unsubscribe, m.list_unsubscribe_post, m.delivery_addresses,
            a.name as account_name, a.email_address as account_email, a.color as account_color,
            (co.id IS NOT NULL) AS has_contact_photo

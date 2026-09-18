@@ -613,6 +613,7 @@
       "bodyConditionNote": "Les règles sur le corps ne s'appliquent que si le corps du message est déjà téléchargé. S'il n'a pas encore été récupéré à l'arrivée du message, la règle est ignorée et le message reste dans la boîte de réception — les règles sur le corps ne s'appliquent pas rétroactivement.",
       "subTabRules": "Règles",
       "subTabBlockList": "Liste de blocage",
+      "subTabAntispam": "Antispam",
       "actionMoveSelectFolder": "Sélectionner un dossier…",
       "actionMoveRequiresAccount": "Nécessite un compte spécifique"
     },

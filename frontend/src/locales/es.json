@@ -613,6 +613,7 @@
       "bodyConditionNote": "Las reglas de cuerpo solo se ejecutan si el cuerpo del mensaje ya está descargado. Si aún no se ha obtenido cuando llega el mensaje, la regla se omite y el mensaje permanece en la bandeja de entrada — las reglas de cuerpo no se aplican retroactivamente.",
       "subTabRules": "Reglas",
       "subTabBlockList": "Lista de bloqueo",
+      "subTabAntispam": "Antispam",
       "actionMoveSelectFolder": "Seleccionar carpeta…",
       "actionMoveRequiresAccount": "Requiere una cuenta específica"
     },

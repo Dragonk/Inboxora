@@ -297,6 +297,31 @@ describe('listMessages — message shape', () => {
 
     expect(query.mock.calls[2][0]).toContain('delivery_addresses');
   });
+
+  it('selects spam verdict fields in the flat query so SpamBadge receives data', async () => {
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'acc-1' }] })
+      .mockResolvedValueOnce({ rows: [{ total_count: 1, unread_count: 0 }] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    await listMessages({ userId: 'user-1', accountId: 'acc-1' });
+
+    expect(query.mock.calls[2][0]).toContain('m.spam_verdict');
+    expect(query.mock.calls[2][0]).toContain('m.spam_score_ml');
+  });
+
+  it('selects spam verdict fields in the threaded query too', async () => {
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'acc-1' }] })
+      .mockResolvedValueOnce({ rows: [{ total_count: 1, unread_count: 0 }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ total: 0 }] });
+
+    await listMessages({ userId: 'user-1', accountId: 'acc-1', threaded: true });
+
+    expect(query.mock.calls[2][0]).toContain('m.spam_verdict');
+    expect(query.mock.calls[2][0]).toContain('m.spam_score_ml');
+  });
 });
 
 describe('listMessages — ghost row suppression (#407)', () => {

@@ -11,7 +11,8 @@ import { query } from '../services/db.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import { tokenize, extractFlagFeatures } from '../services/spamTokenizer.js';
 import { scoreRules } from '../services/spamRules.js';
-import { classifyMessage, extractTopTokens } from '../services/spamModel.js';
+import { classifyMessage, extractTopTokens, isModelMature, usableTrainingTotal } from '../services/spamModel.js';
+import { MIN_TRAINING_RECORDS, SOFT_TRAINING_RECORDS } from '../services/spamModel.js';
 import { getModelForUser, invalidateModelCache } from '../services/spamModelStore.js';
 import { runFullRetrain } from '../services/spamScheduler.js';
 import { detectAuthservIds } from '../services/spamAuthservIds.js';
@@ -22,9 +23,8 @@ router.use(requireAuth);
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const DEFAULT_THRESHOLDS = {
-  minRecords: 50,
-  softRecords: 500,
-  hardRecords: 500,
+  minRecords: MIN_TRAINING_RECORDS,
+  softRecords: SOFT_TRAINING_RECORDS,
   spamThreshold: 0.85,
   autoMoveThreshold: 0.95,
 };
@@ -46,13 +46,28 @@ async function readThresholds(userId: string): Promise<typeof DEFAULT_THRESHOLDS
   const stored = (prefs.spam_thresholds !== null && typeof prefs.spam_thresholds === 'object')
     ? prefs.spam_thresholds
     : {};
+  // Clamp to the same ranges the pipeline enforces so the status view and the
+  // classifier can never disagree about which settings are in effect.
+  const minRecords = Math.max(1, Math.round(clampInt(stored.minRecords, DEFAULT_THRESHOLDS.minRecords, 1, 10000)));
+  const softRecords = Math.max(minRecords, Math.round(clampInt(stored.softRecords, DEFAULT_THRESHOLDS.softRecords, 1, 100000)));
   return {
-    minRecords: stored.minRecords ?? DEFAULT_THRESHOLDS.minRecords,
-    softRecords: stored.softRecords ?? DEFAULT_THRESHOLDS.softRecords,
-    hardRecords: stored.hardRecords ?? DEFAULT_THRESHOLDS.hardRecords,
-    spamThreshold: stored.spamThreshold ?? DEFAULT_THRESHOLDS.spamThreshold,
-    autoMoveThreshold: stored.autoMoveThreshold ?? DEFAULT_THRESHOLDS.autoMoveThreshold,
+    minRecords,
+    softRecords,
+    spamThreshold: clampFloat(stored.spamThreshold, DEFAULT_THRESHOLDS.spamThreshold, 0.5, 0.99),
+    autoMoveThreshold: clampFloat(stored.autoMoveThreshold, DEFAULT_THRESHOLDS.autoMoveThreshold, 0.7, 0.99),
   };
+}
+
+function clampFloat(value: unknown, fallback: number, min: number, max: number): number {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, n));
+}
+
+function clampInt(value: unknown, fallback: number, min: number, max: number): number {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, n));
 }
 
 async function writeThresholds(userId: string, patch: Record<string, number>): Promise<void> {
@@ -71,22 +86,32 @@ async function writeThresholds(userId: string, patch: Record<string, number>): P
 router.get('/status', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userId = (req.session as { userId?: string }).userId ?? '';
-    const [model, accounts, prefs] = await Promise.all([
+    const [model, accounts, prefs, thresholds] = await Promise.all([
       getModelForUser(userId),
       query<{ n: number }>('SELECT count(*)::int AS n FROM email_accounts WHERE user_id = $1 AND antispam_enabled = true', [userId]),
       getUserPreferences(userId),
+      readThresholds(userId),
     ]);
     const enabled = prefs.spamEnabled !== false && (accounts.rows[0]?.n ?? 0) > 0;
+    // Maturity reflects the ACTUAL gate the classifier uses (distinct usable
+    // samples + per-class minimum), computed against the user's configured
+    // thresholds — never hardcoded 50/500.
+    const usable = usableTrainingTotal(model);
+    const mature = isModelMature(model, { minRecords: thresholds.minRecords });
     res.json({
       enabled,
       masterEnabled: prefs.spamEnabled !== false,
       antispamAccounts: accounts.rows[0]?.n ?? 0,
       modelVersion: model?.modelVersion ?? null,
       trainingRecords: model?.trainingRecords ?? 0,
+      usableTrainingRecords: usable,
+      usableSpam: model?.usableSpam ?? 0,
+      usableHam: model?.usableHam ?? 0,
       lastTrainedAt: model?.lastTrainedAt ?? null,
       decayThresholdDays: model?.decayThresholdDays ?? DEFAULT_DECAY_DAYS,
-      maturity: (model?.trainingRecords ?? 0) >= 500
-        ? 'mature' : (model?.trainingRecords ?? 0) >= 50 ? 'fresh' : 'insufficient',
+      maturity: !mature && usable > 0 ? 'fresh'
+        : mature && usable >= thresholds.softRecords ? 'mature'
+        : mature ? 'fresh' : 'insufficient',
     });
   } catch (err) { next(err); }
 });
@@ -99,11 +124,31 @@ router.get('/thresholds', async (req: Request, res: Response, next: NextFunction
 
 router.patch('/thresholds', requireAdmin, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { minRecords, softRecords, hardRecords, spamThreshold, autoMoveThreshold } = (req.body ?? {}) as Record<string, unknown>;
+    const { minRecords, softRecords, spamThreshold, autoMoveThreshold } = (req.body ?? {}) as Record<string, unknown>;
     const patch: Record<string, number> = {};
-    if (minRecords !== null && minRecords !== undefined) patch.minRecords = Number(minRecords);
-    if (softRecords !== null && softRecords !== undefined) patch.softRecords = Number(softRecords);
-    if (hardRecords !== null && hardRecords !== undefined) patch.hardRecords = Number(hardRecords);
+    if (minRecords !== null && minRecords !== undefined) {
+      const n = Number(minRecords);
+      if (!Number.isFinite(n) || Math.round(n) < 1 || Math.round(n) > 10000) {
+        return res.status(400).json({ error: 'minRecords must be an integer between 1 and 10000' });
+      }
+      patch.minRecords = Math.round(n);
+    }
+    if (softRecords !== null && softRecords !== undefined) {
+      const n = Number(softRecords);
+      if (!Number.isFinite(n) || Math.round(n) < 1 || Math.round(n) > 100000) {
+        return res.status(400).json({ error: 'softRecords must be an integer between 1 and 100000' });
+      }
+      patch.softRecords = Math.round(n);
+    }
+    // softRecords below minRecords would invert the blend bands — clamp up to
+    // the effective minRecords (explicit value wins over stored). The stored
+    // value is read only when both are in play, so a thresholds PATCH that
+    // touches neither still costs a single UPDATE.
+    if (patch.softRecords !== undefined) {
+      const effectiveMin = patch.minRecords
+        ?? (await readThresholds((req.session as { userId?: string }).userId ?? '')).minRecords;
+      if (patch.softRecords < effectiveMin) patch.softRecords = effectiveMin;
+    }
     if (spamThreshold !== undefined) {
       if (typeof spamThreshold !== 'number' || spamThreshold < 0.5 || spamThreshold > 0.99) {
         return res.status(400).json({ error: 'spamThreshold must be between 0.5 and 0.99' });
@@ -293,8 +338,7 @@ router.get('/explain', async (req: Request, res: Response, next: NextFunction) =
 
     const rules = scoreRules(msg, { userContacts: new Set<string>() });
     const model = await getModelForUser(row.owner_id);
-    const trainingRecords = model?.trainingRecords ?? 0;
-    const mlActive = trainingRecords >= 50;
+    const mlActive = isModelMature(model, { minRecords: MIN_TRAINING_RECORDS });
     const mlResult = mlActive && model ? classifyMessage(model, tokens, flagFeatures) : null;
 
     res.json({

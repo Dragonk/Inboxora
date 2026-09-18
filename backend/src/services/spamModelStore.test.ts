@@ -29,7 +29,7 @@ describe('spam model store', () => {
     await saveModel('user-1', {
       vocabulary: { viagra: { spam: 2, ham: 0 } },
       totalSpam: 2, totalHam: 0, priorSpam: 1, priorHam: 0,
-      trainingRecords: 1, modelVersion: 1, lastTrainedAt: null,
+      trainingRecords: 1, usableSpam: 1, usableHam: 0, modelVersion: 1, lastTrainedAt: null,
     });
     const upsert = query.mock.calls.find(([sql]) => String(sql).includes('INSERT INTO spam_models'));
     expect(upsert).toBeTruthy();
@@ -64,8 +64,8 @@ describe('spam model store', () => {
     query.mockImplementation(async (sql: string) => {
       if (sql.startsWith('SELECT label')) {
         return { rows: [
-          { label: 'spam', created_at: new Date().toISOString(), token_counts: { viagra: 2 }, subject: null, body_text: null, flag_features: null },
-          { label: 'ham', created_at: new Date().toISOString(), token_counts: { meeting: 1 }, subject: null, body_text: null, flag_features: null },
+          { label: 'spam', created_at: new Date().toISOString(), account_id: 'a1', message_id_header: '<s1@x>', message_uid: 1, folder: 'INBOX', token_counts: { viagra: 2 }, subject: null, body_text: null, flag_features: null },
+          { label: 'ham', created_at: new Date().toISOString(), account_id: 'a1', message_id_header: '<h1@x>', message_uid: 2, folder: 'INBOX', token_counts: { meeting: 1 }, subject: null, body_text: null, flag_features: null },
         ] };
       }
       if (sql.startsWith('SELECT * FROM spam_models')) return { rows: [] };
@@ -76,5 +76,17 @@ describe('spam model store', () => {
     expect(outcome.recordsUsed).toBe(2);
     const saved = query.mock.calls.find(([sql]) => String(sql).includes('INSERT INTO spam_models'));
     expect(saved?.[1]?.[1]).toContain('viagra');
+  });
+
+  it('clears the per-user lock slot after a run (no map leak)', async () => {
+    query.mockImplementation(async (sql: string) => {
+      if (sql.startsWith('SELECT * FROM spam_models')) return { rows: [] };
+      return { rows: [] };
+    });
+    await updateIncrementalForUser('user-2', { subject: 'Free prize', body: 'claim now' }, 'spam');
+    // Second run for the same user must still serialize correctly — a leaked
+    // slot would either deadlock or silently skip exclusivity.
+    const second = await updateIncrementalForUser('user-2', { subject: 'hello', body: 'meeting' }, 'ham');
+    expect(second?.trainingRecords).toBe(1);
   });
 });

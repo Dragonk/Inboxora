@@ -8,6 +8,9 @@ export interface SpamStatus {
   antispamAccounts: number;
   modelVersion: number | null;
   trainingRecords: number;
+  usableTrainingRecords?: number;
+  usableSpam?: number;
+  usableHam?: number;
   lastTrainedAt: string | null;
   decayThresholdDays: number;
   maturity: 'mature' | 'fresh' | 'insufficient';

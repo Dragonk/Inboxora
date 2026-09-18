@@ -19,6 +19,14 @@ describe('spam UI contract', () => {
     mustContain(settings, 'data-testid="spam-maturity"', 'SpamSettings');
   });
 
+  it('mounts SpamSettings under Settings → Rules → Antispam', () => {
+    const admin = readFileSync(new URL('./AdminPanel.tsx', import.meta.url), 'utf8');
+    mustContain(admin, "import SpamSettings from './SpamSettings.tsx'", 'AdminPanel import');
+    mustContain(admin, "id: 'antispam'", 'Rules antispam sub-tab');
+    mustContain(admin, 'subTabAntispam', 'Rules antispam label');
+    mustContain(admin, '<SpamSettings />', 'SpamSettings mount');
+  });
+
   it('registers every new locale key in all locales', () => {
     const keys = [
       'badgeSpam', 'badgeUnsure', 'explainTitle', 'explainMethod',
@@ -28,11 +36,13 @@ describe('spam UI contract', () => {
     for (const locale of ['en', 'de', 'fr', 'es', 'it', 'ru', 'zhCN', 'pl', 'cs']) {
       const data = JSON.parse(readFileSync(new URL(`../locales/${locale}.json`, import.meta.url), 'utf8')) as {
         spam?: Record<string, unknown>;
+        admin?: { rules?: Record<string, unknown> };
       };
       for (const key of keys) {
         assert.equal(typeof data.spam?.[key], 'string', `missing spam.${key} in ${locale}`);
         assert.ok(String(data.spam?.[key]).length > 0, `empty spam.${key} in ${locale}`);
       }
+      assert.equal(typeof data.admin?.rules?.subTabAntispam, 'string', `missing admin.rules.subTabAntispam in ${locale}`);
     }
   });
 });

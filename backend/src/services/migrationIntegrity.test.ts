@@ -197,4 +197,17 @@ describe('migration integrity', () => {
     expect(sql).toContain('ADD COLUMN IF NOT EXISTS trusted_authserv_id VARCHAR(255)');
     expect(sql).toContain('CREATE TABLE IF NOT EXISTS spam_training_deletions');
   });
+
+  it('creates the per-account maintenance state table for one-time repairs', () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/0096_account_maintenance_state.sql'), 'utf8');
+    expect(sql).toContain('CREATE TABLE IF NOT EXISTS account_maintenance_state');
+    expect(sql).toContain('PRIMARY KEY (account_id, key)');
+    expect(sql).toContain('REFERENCES email_accounts(id) ON DELETE CASCADE');
+  });
+
+  it('adds distinct-message maturity counters to the spam model', () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/0097_spam_model_usable_counts.sql'), 'utf8');
+    expect(sql).toContain('ADD COLUMN IF NOT EXISTS usable_spam BIGINT NOT NULL DEFAULT 0');
+    expect(sql).toContain('ADD COLUMN IF NOT EXISTS usable_ham BIGINT NOT NULL DEFAULT 0');
+  });
 });

@@ -39,6 +39,11 @@ beforeEach(() => {
 function mockMessageRow(overrides: Record<string, unknown> = {}) {
   query.mockImplementation(async (sql: string) => {
     if (sql.includes('FROM messages m')) return { rows: [{ ...BASE_ROW, ...overrides }] };
+    // Pre-move revalidation: the row still sits at the snapshot (folder, uid).
+    if (sql.includes('SELECT folder, uid, is_deleted, spam_user_override FROM messages')) {
+      const row = { ...BASE_ROW, ...overrides };
+      return { rows: [{ folder: row.folder, uid: row.uid, is_deleted: false, spam_user_override: row.spam_user_override }] };
+    }
     if (sql.startsWith('UPDATE messages SET')) return { rows: [] };
     if (sql.startsWith('DELETE FROM messages')) return { rows: [] };
     return { rows: [] };
@@ -135,5 +140,70 @@ describe('spam pipeline gates', () => {
     const summary = await classifyAndTagMessage('msg-1', { imap });
     expect(summary?.shouldMove).toBe(true);
     expect(summary?.moved).toBe(false);
+  });
+
+  it('does not auto-move a high-confidence spam outside INBOX', async () => {
+    mockMessageRow({ folder: 'Archive' });
+    let model = createEmptyModel();
+    for (let i = 0; i < 60; i++) {
+      model = updateIncremental(model, ['viagra', 'prize', 'winner', 'claim'], null, 'spam');
+      model = updateIncremental(model, ['meeting', 'agenda', 'minutes'], null, 'ham');
+    }
+    getModelForUser.mockResolvedValue(model);
+    const imap = { moveMessage: vi.fn(), _guardMoveUid: vi.fn(), _unguardMoveUid: vi.fn() };
+    const summary = await classifyAndTagMessage('msg-1', { imap });
+    // Still tagged as spam, but no automatic MOVE out of Archive.
+    expect(summary?.verdict).toBe('spam');
+    expect(summary?.shouldMove).toBe(false);
+    expect(imap.moveMessage).not.toHaveBeenCalled();
+  });
+
+  it('skips the MOVE when Inbox Rules relocated the copy meanwhile', async () => {
+    mockMessageRow();
+    let model = createEmptyModel();
+    for (let i = 0; i < 60; i++) {
+      model = updateIncremental(model, ['viagra', 'prize', 'winner', 'claim'], null, 'spam');
+      model = updateIncremental(model, ['meeting', 'agenda', 'minutes'], null, 'ham');
+    }
+    getModelForUser.mockResolvedValue(model);
+    // Revalidation sees the copy in another folder (moved by a rule) → no MOVE.
+    query.mockImplementation(async (sql: string) => {
+      if (sql.includes('FROM messages m')) return { rows: [{ ...BASE_ROW }] };
+      if (sql.includes('SELECT folder, uid, is_deleted, spam_user_override FROM messages')) {
+        return { rows: [{ folder: 'Work', uid: 42, is_deleted: false, spam_user_override: null }] };
+      }
+      if (sql.startsWith('UPDATE messages SET')) return { rows: [] };
+      if (sql.startsWith('DELETE FROM messages')) return { rows: [] };
+      return { rows: [] };
+    });
+    const imap = { moveMessage: vi.fn(), _guardMoveUid: vi.fn(), _unguardMoveUid: vi.fn() };
+    const summary = await classifyAndTagMessage('msg-1', { imap });
+    expect(summary?.shouldMove).toBe(true);
+    expect(summary?.moved).toBe(false);
+    expect(imap.moveMessage).not.toHaveBeenCalled();
+  });
+
+  it('skips the MOVE when a user override landed meanwhile', async () => {
+    mockMessageRow();
+    let model = createEmptyModel();
+    for (let i = 0; i < 60; i++) {
+      model = updateIncremental(model, ['viagra', 'prize', 'winner', 'claim'], null, 'spam');
+      model = updateIncremental(model, ['meeting', 'agenda', 'minutes'], null, 'ham');
+    }
+    getModelForUser.mockResolvedValue(model);
+    query.mockImplementation(async (sql: string) => {
+      if (sql.includes('FROM messages m')) return { rows: [{ ...BASE_ROW }] };
+      if (sql.includes('SELECT folder, uid, is_deleted, spam_user_override FROM messages')) {
+        return { rows: [{ folder: 'INBOX', uid: 42, is_deleted: false, spam_user_override: 'ham' }] };
+      }
+      if (sql.startsWith('UPDATE messages SET')) return { rows: [] };
+      if (sql.startsWith('DELETE FROM messages')) return { rows: [] };
+      return { rows: [] };
+    });
+    const imap = { moveMessage: vi.fn(), _guardMoveUid: vi.fn(), _unguardMoveUid: vi.fn() };
+    const summary = await classifyAndTagMessage('msg-1', { imap });
+    expect(summary?.shouldMove).toBe(true);
+    expect(summary?.moved).toBe(false);
+    expect(imap.moveMessage).not.toHaveBeenCalled();
   });
 });

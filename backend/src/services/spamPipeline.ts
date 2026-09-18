@@ -29,13 +29,15 @@ import type { FlagFeatures, SpamMessageInput } from './spamTokenizer.js';
 import { scoreRules } from './spamRules.js';
 import { extractAuthservIds, normalizeAuthservId } from './spamParser.js';
 import { getModelForUser } from './spamModelStore.js';
-import { classifyMessage, blendScores, extractTopTokens } from './spamModel.js';
+import { classifyMessage, blendScores, extractTopTokens, isModelMature, usableTrainingTotal } from './spamModel.js';
+import { resolveOwnIdentityAddresses } from './conversationIngestEnvelope.js';
+import { MIN_TRAINING_RECORDS, SOFT_TRAINING_RECORDS } from './spamModel.js';
 import { toAppError } from '../utils/errors.js';
 
 export const SPAM_THRESHOLD = 0.85;
 export const AUTO_MOVE_THRESHOLD = 0.95;
-export const MIN_TRAINING_RECORDS = 50;
-export const SOFT_TRAINING_RECORDS = 500;
+// Re-exported from spamModel (canonical home): keeps existing import sites working.
+export { MIN_TRAINING_RECORDS, SOFT_TRAINING_RECORDS } from './spamModel.js';
 
 function clampThreshold(value: unknown, fallback: number, min: number, max: number): number {
   const n = Number(value);
@@ -124,6 +126,7 @@ interface SpamMessageRow {
   account_id: string;
   folder: string;
   uid: number | string;
+  is_deleted: boolean | null;
   subject: string | null;
   body_text: string | null;
   body_html: string | null;
@@ -134,7 +137,7 @@ interface SpamMessageRow {
   owner_id: string;
   account_email: string | null;
   antispam_enabled: boolean | null;
-  folder_mappings: { spam?: string | null } | null;
+  folder_mappings: { inbox?: string | null; spam?: string | null } | null;
   trusted_authserv_id: string | null;
   master_spam_enabled: string | null;
 }
@@ -214,7 +217,7 @@ export async function classifyAndTagMessage(
   const thresholds = opts.thresholds
     ? resolveThresholdsSync(opts.thresholds)
     : await resolveSpamThresholds(row.owner_id);
-  const userContacts = await loadHamContacts(row.owner_id);
+  const userContacts = await loadHamContacts(row.owner_id, row.account_id);
 
   const rules = scoreRules(msg, {
     userContacts,
@@ -222,8 +225,11 @@ export async function classifyAndTagMessage(
   });
 
   const model = await getModelForUser(row.owner_id);
-  const trainingRecords = model?.trainingRecords ?? 0;
-  const mlActive = trainingRecords >= thresholds.minRecords;
+  // ML joins only on distinct-message maturity: >= minRecords usable unique
+  // samples with a minimum of each class — one mail confirmed 50x, or 50
+  // spams with zero hams, stays rules-only.
+  const mlActive = isModelMature(model, { minRecords: thresholds.minRecords });
+  const trainingRecords = usableTrainingTotal(model);
 
   let mlProbability: number | null = null;
   let mlConfidence: number | null = null;
@@ -243,12 +249,17 @@ export async function classifyAndTagMessage(
   const verdict: 'spam' | 'ham' | 'unsure' = blended >= thresholds.spamThreshold ? 'spam' : blended < 0.3 ? 'ham' : 'unsure';
 
   const spamFolder = row.folder_mappings?.spam ?? null;
+  // Automatic MOVE is INBOX-only: classification/tagging runs everywhere, but
+  // a destructive move out of Sent, Archive or a user-created folder would
+  // turn a false positive into lost mail. The eligible source is the
+  // account's mapped inbox (default INBOX).
+  const inboxFolder = row.folder_mappings?.inbox ?? 'INBOX';
 
   const wouldAutoMove = verdict === 'spam'
     && blended >= thresholds.autoMoveThreshold
     && mlActive
     && Boolean(spamFolder)
-    && row.folder !== spamFolder;
+    && row.folder === inboxFolder;
 
   const deferAutoMove = Boolean(opts.deferAutoMove);
   const shouldMove = wouldAutoMove && !deferAutoMove;
@@ -312,6 +323,18 @@ export async function autoMove(
     return true;
   }
   const promise = (async (): Promise<boolean> => {
+    // Re-validate the physical row immediately before the MOVE: the
+    // classification above ran fire-and-forget while Inbox Rules / the Block
+    // List may have moved the copy elsewhere in the meantime. Moving a stale
+    // (folder, uid) snapshot would relocate the WRONG copy — or a UID that no
+    // longer exists. The user override always wins, including under races.
+    const fresh = await revalidateMoveSource(messageId, row);
+    if (!fresh.ok) {
+      if (fresh.reason !== 'already_in_spam') {
+        console.warn(`spam auto-move skipped for message ${messageId}: ${fresh.reason}`);
+      }
+      return false;
+    }
     imap._guardMoveUid?.(row.account_id, row.folder, row.uid);
     try {
       const mover = imap.moveSpamCopy ?? (async (accountId, uid, fromFolder, toFolder) => {
@@ -372,6 +395,37 @@ export async function autoMove(
 // same (account, folder, uid) share one IMAP MOVE instead of issuing two.
 const spamMoveInflights = new Map<string, Promise<boolean>>();
 
+// Re-read the physical row just before an auto-move. The classifier snapshot
+// (folder, uid) may be stale by the time the MOVE runs: Inbox Rules / the
+// Block List execute after classifySpamForIngest was queued and can relocate
+// the copy, and the user may have set an override in between. Returns ok only
+// when the row still exists, is not deleted, carries no user override, and
+// still sits at the exact (folder, uid) the verdict was computed for.
+async function revalidateMoveSource(
+  messageId: string,
+  snapshot: Pick<SpamMessageRow, 'account_id' | 'folder' | 'uid'>,
+): Promise<{ ok: true } | { ok: false; reason: string }> {
+  let current: { folder: string; uid: number | string; is_deleted: boolean | null; spam_user_override: string | null } | undefined;
+  try {
+    const result = await query<{ folder: string; uid: number | string; is_deleted: boolean | null; spam_user_override: string | null }>(
+      'SELECT folder, uid, is_deleted, spam_user_override FROM messages WHERE id = $1',
+      [messageId],
+    );
+    current = result.rows[0];
+  } catch {
+    return { ok: false, reason: 'revalidation_query_failed' };
+  }
+  if (!current) return { ok: false, reason: 'message_row_gone' };
+  if (current.is_deleted) return { ok: false, reason: 'message_deleted' };
+  if (current.spam_user_override) return { ok: false, reason: 'user_override_set' };
+  if (current.folder !== snapshot.folder || String(current.uid) !== String(snapshot.uid)) {
+    return { ok: false, reason: 'message_relocated' };
+  }
+  // Belt-and-braces: the row must still reference the same account (a move
+  // across accounts is impossible, but the check is free).
+  return { ok: true };
+}
+
 async function readWasUnread(messageId: string): Promise<boolean | null> {
   try {
     const result = await query<{ is_read: boolean | null }>(
@@ -384,8 +438,21 @@ async function readWasUnread(messageId: string): Promise<boolean | null> {
   }
 }
 
-async function loadHamContacts(ownerId: string): Promise<Set<string>> {
+async function loadHamContacts(ownerId: string, accountId: string): Promise<Set<string>> {
+  const out = new Set<string>();
   try {
+    // Own identity addresses (account email + aliases, resolved through the
+    // same helper the Conversation Engine uses) are always trusted ham: mail
+    // FROM self must never count as spam.
+    try {
+      const own = await resolveOwnIdentityAddresses({ query }, accountId);
+      for (const address of own) {
+        const normalized = normalizeContactAddress(address);
+        if (normalized) out.add(normalized);
+      }
+    } catch {
+      // Non-fatal: fall through to contacts-only.
+    }
     // Only manually curated contacts count — auto-created sender rows would
     // otherwise let the first spam whitelist itself.
     const result = await query<{ primary_email: string | null; emails: unknown }>(
@@ -395,7 +462,6 @@ async function loadHamContacts(ownerId: string): Promise<Set<string>> {
        LIMIT 2000`,
       [ownerId],
     );
-    const out = new Set<string>();
     for (const row of result.rows) {
       if (typeof row.primary_email === 'string' && row.primary_email) {
         const normalized = normalizeContactAddress(row.primary_email);

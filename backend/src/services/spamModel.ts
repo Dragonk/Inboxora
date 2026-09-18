@@ -14,6 +14,12 @@ import type { FlagFeatures } from './spamTokenizer.js';
 export const MODEL_VERSION = 1;
 export const ALPHA = 1.0;
 
+// Canonical training-size bands shared by the pipeline, the HTTP thresholds
+// API and the status view. Kept here (pure logic, no I/O) so route modules
+// never need to import the pipeline (which pulls db + IMAP-adjacent code).
+export const MIN_TRAINING_RECORDS = 50;
+export const SOFT_TRAINING_RECORDS = 500;
+
 export const AUTH_WEIGHTS = {
   dkim: { fail: 0.7, pass: -0.2 },
   spf: { fail: 0.7, pass: -0.1 },
@@ -43,6 +49,13 @@ export interface SpamModelState {
   priorSpam: number;
   priorHam: number;
   trainingRecords: number;
+  // Distinct-message maturity: usable unique samples per class. trainingRecords
+  // above stays the raw row count (audit-compatible); usableSpam/usableHam
+  // gate ML activation so one mail confirmed 50x cannot mature the model.
+  // `undefined` = persisted before the usable_* columns existed (pre-upgrade
+  // row): isModelMature falls back to the raw count until the next retrain.
+  usableSpam?: number;
+  usableHam?: number;
   modelVersion: number;
   lastTrainedAt: string | null;
   decayThresholdDays?: number;
@@ -62,6 +75,8 @@ export interface TokenCounts {
 export interface TrainingRecordInput {
   label: string;
   created_at: string | Date;
+  message_id_header?: string | null;
+  message_uid?: number | string | null;
   token_counts?: TokenCounts | null;
   subject?: string | null;
   body_text?: string | null;
@@ -77,6 +92,8 @@ export function createEmptyModel(): SpamModelState {
     priorSpam: 0.5,
     priorHam: 0.5,
     trainingRecords: 0,
+    usableSpam: 0,
+    usableHam: 0,
     modelVersion: MODEL_VERSION,
     lastTrainedAt: null,
   };
@@ -109,6 +126,12 @@ export function updateIncremental(
     ...model,
     vocabulary: { ...model.vocabulary },
     trainingRecords: model.trainingRecords + 1,
+    // Incremental feedback is one distinct user decision on one message: it
+    // counts as one usable sample of its class (unless the state predates the
+    // usable_* columns, in which case we leave them undefined so the legacy
+    // fallback in isModelMature keeps applying).
+    usableSpam: model.usableSpam === undefined ? undefined : model.usableSpam + (key === 'spam' ? 1 : 0),
+    usableHam: model.usableHam === undefined ? undefined : model.usableHam + (key === 'ham' ? 1 : 0),
     lastTrainedAt: model.lastTrainedAt,
   };
 
@@ -236,6 +259,36 @@ export function blendScores(
   return 0.2 * rulesScore + 0.8 * mlScore;
 }
 
+// ML maturity gate: raw row counts are not enough. The model becomes eligible
+// only with at least `minRecords` DISTINCT usable samples AND at least
+// `minPerClass` of each class — one mail confirmed 50x, or 50 spams with zero
+// hams, must never activate ML (let alone auto-move).
+export const MIN_USABLE_PER_CLASS = 10;
+
+export function usableTrainingTotal(model: SpamModelState | null | undefined): number {
+  if (!model) return 0;
+  return (model.usableSpam ?? 0) + (model.usableHam ?? 0);
+}
+
+export function isModelMature(
+  model: SpamModelState | null | undefined,
+  bands: { minRecords?: number; minPerClass?: number } = {},
+): boolean {
+  if (!model) return false;
+  const minRecords = Math.max(1, Math.round(bands.minRecords ?? 50));
+  const minPerClass = Math.max(1, Math.round(bands.minPerClass ?? MIN_USABLE_PER_CLASS));
+  // Legacy rows persisted before usableSpam/usableHam existed carry
+  // undefined/undefined while trainingRecords > 0: fall back to the raw count
+  // so old models do not go dark after upgrade (the next retrain fills in the
+  // real split). An explicit 0/0 after a retrain means "no usable samples" —
+  // that must NOT mature.
+  const usableSplitKnown = model.usableSpam !== undefined || model.usableHam !== undefined;
+  if (!usableSplitKnown) return (model.trainingRecords ?? 0) >= minRecords;
+  return usableTrainingTotal(model) >= minRecords
+    && (model.usableSpam ?? 0) >= minPerClass
+    && (model.usableHam ?? 0) >= minPerClass;
+}
+
 export function retrainFromRecords(
   records: ReadonlyArray<TrainingRecordInput>,
   decayThresholdDays = 90,
@@ -245,7 +298,15 @@ export function retrainFromRecords(
   const nowMs = now instanceof Date ? now.getTime() : now;
   const decayMs = decayThresholdDays * 24 * 60 * 60 * 1000;
 
-  for (const record of records) {
+  // Distinct-message maturity: the same physical mail re-confirmed N times is
+  // ONE sample, not N. Identity = Message-ID header when present, else
+  // (account, uid, folder) when available, else the record index (unique).
+  const seenMessages = new Set<string>();
+  let usableSpam = 0;
+  let usableHam = 0;
+
+  for (let index = 0; index < records.length; index++) {
+    const record = records[index];
     const label: SpamLabel = record.label === 'spam' ? 'spam' : 'ham';
     const ageMs = Math.max(0, nowMs - new Date(record.created_at).getTime());
     const weight = decayMs > 0 ? 2 ** (-ageMs / decayMs) : 1;
@@ -260,6 +321,17 @@ export function retrainFromRecords(
     }
     tokens.push(...flagTokensFor(record.flag_features ?? null));
 
+    // Legacy 0021 rows (no token_counts, no subject/body) yield zero tokens:
+    // they teach the model nothing and must not count toward maturity.
+    const usable = tokens.length > 0;
+    const identity = messageIdentityFor(record, index);
+    const firstSeen = !seenMessages.has(identity);
+    if (firstSeen) seenMessages.add(identity);
+    if (usable && firstSeen) {
+      if (label === 'spam') usableSpam += 1;
+      else usableHam += 1;
+    }
+
     for (const token of tokens) {
       const entry = model.vocabulary[token] ?? (model.vocabulary[token] = { spam: 0, ham: 0 });
       entry[label] += weight;
@@ -272,8 +344,20 @@ export function retrainFromRecords(
   model.priorSpam = sum === 0 ? 0.5 : model.totalSpam / sum;
   model.priorHam = sum === 0 ? 0.5 : model.totalHam / sum;
   model.trainingRecords = records.length;
+  model.usableSpam = usableSpam;
+  model.usableHam = usableHam;
   model.lastTrainedAt = new Date(nowMs).toISOString();
   return model;
+}
+
+function messageIdentityFor(record: TrainingRecordInput, index: number): string {
+  const header = typeof record.message_id_header === 'string' ? record.message_id_header.trim() : '';
+  if (header) return `mid:${header}`;
+  const account = typeof record.account_id === 'string' ? record.account_id : '';
+  const folder = typeof record.folder === 'string' ? record.folder : '';
+  const uid = record.message_uid !== null && record.message_uid !== undefined ? String(record.message_uid) : '';
+  if (account || folder || uid) return `copy:${account}:${folder}:${uid}`;
+  return `row:${index}`;
 }
 
 export function extractTopTokens(

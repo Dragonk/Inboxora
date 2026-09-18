@@ -444,11 +444,13 @@ const FLAG_PUSH_RECONCILE_MS = 15 * 1000;
 const FLAG_PUSH_MAX_ATTEMPTS = 40;   // ~10 min of connected retries before honest revert
 const FLAG_PUSH_PER_CYCLE = 30;      // cap setFlag attempts per account per cycle (bounds cycle time)
 
-// One-time post-relocate repair bookkeeping. The marker is a no_select folder
-// row (invisible to role resolvers and the folder-mapping UI) so completion is
-// durable per account across restarts; it is written only after every folder
-// succeeds, so a failed run retries on the next tick instead of being skipped.
-const REPAIR_MARKER_PATH = '__inboxora_repair_physical_copy_v1__';
+// One-time post-relocate repair bookkeeping. Completion is durable per
+// account in account_maintenance_state (migration 0096) — deliberately NOT a
+// pseudo-folder row in `folders`: syncFolders() prunes any path the server
+// does not advertise, and backfillAllFolders() would try to SELECT it on
+// IMAP. The marker is written only after every folder verifies clean, so a
+// failed run retries on the next tick instead of being skipped.
+const REPAIR_MAINTENANCE_KEY = 'physical_copy_repair_v1';
 const REPAIR_BATCH_SIZE = 50;
 
 // Unicode bidi override/embedding characters that can visually reverse a filename,
@@ -1549,7 +1551,11 @@ export class ImapManager {
   declare idleInflights: Map<string, Promise<void>>;
   declare lastFolderSyncAt: Map<string, number>;
   declare folderSyncInflights: Map<string, Promise<boolean>>;
+  declare spamMoveInflights: Map<string, Promise<number | null>>;
   declare _pendingFolderSyncs: Set<string>;
+  // Repair runs currently in flight per account — NOT "already attempted".
+  // Whether the repair is done forever is decided by the durable marker in
+  // account_maintenance_state; this set only prevents overlapping runs.
   declare _postRelocateRepairAccounts: Set<string>;
   declare lastUserActivity: Map<string, number>;
   declare syncStartedAt: Map<string, number>;
@@ -1595,8 +1601,9 @@ export class ImapManager {
     this.idleHealthWarned = new Set(); // account IDs already reported as IDLE-capable but never entered IDLE
     this.idleInflights = new Map(); // accountId -> in-flight idle() promise (single-flight guard)
     this.folderSyncInflights = new Map(); // `${accountId}:${folder}` -> running sync promise (coalesces concurrent demand)
+    this.spamMoveInflights = new Map(); // `spam-move:${accountId}:${folder}:${uid}` -> running auto-move (exactly one IMAP MOVE per copy)
     this._pendingFolderSyncs = new Set(); // `${accountId}:${folder}` folders detected as changed, awaiting a sync tick
-    this._postRelocateRepairAccounts = new Set(); // accountIds already queued for the one-time repair this process
+    this._postRelocateRepairAccounts = new Set(); // accountIds with a repair run currently in flight (marker in DB decides "done")
     this._flagDebounceTimers   = new Map(); // accountId -> debounce timer for flag-change syncs
     this._expungeDebounceTimers = new Map(); // accountId -> debounce timer for expunge reconciles
     this._pendingFlagSync = new Set(); // accountId — flag sync was skipped because a full sync was running; drain after sync
@@ -2687,16 +2694,22 @@ export class ImapManager {
       // One-time repair for databases that ran the old Message-ID relocation:
       // rows the old code moved/collapsed across folders are restored by a
       // SEARCH-ALL/UID-diff pass over every selectable folder. Per-account
-      // (multi-account setups repair every mailbox), guarded in-process, with
-      // a durable per-account marker set only after success. Fire-and-forget,
-      // never blocks the tick.
+      // (multi-account setups repair every mailbox). The durable marker in
+      // account_maintenance_state decides "done forever"; this set guards
+      // only against overlapping runs in THIS process, so a failed run
+      // retries on the next tick instead of waiting for a restart.
+      // Fire-and-forget, never blocks the tick.
       if (!this._postRelocateRepairAccounts.has(syncAccount.id)) {
         this._postRelocateRepairAccounts.add(syncAccount.id);
         const repairAccount = syncAccount;
         setImmediate(() => {
-          this.runPostRelocateRepair(repairAccount).catch(err =>
-            console.warn(`Post-relocate repair failed for ${logAccount(repairAccount)}:`, toAppError(err).message)
-          );
+          this.runPostRelocateRepair(repairAccount)
+            .catch(err =>
+              console.warn(`Post-relocate repair failed for ${logAccount(repairAccount)}:`, toAppError(err).message)
+            )
+            .finally(() => {
+              this._postRelocateRepairAccounts.delete(repairAccount.id);
+            });
         });
       }
     } catch (caught) {
@@ -5943,29 +5956,30 @@ export class ImapManager {
   }
 
   // Serialized, account-scoped auto-move for the spam pipeline: resolves the
-  // full account row (never a partial object), reuses the coalesced
-  // folder-sync inflight guard shape via onDemandSyncing, and delegates to
-  // moveMessage (UIDPLUS-aware with non-UIDPLUS fallback).
+  // full account row (never a partial object), coalesces concurrent moves of
+  // the same physical copy into ONE IMAP MOVE, and delegates to moveMessage
+  // (UIDPLUS-aware with non-UIDPLUS fallback).
+  //
+  // Note the layering: spamPipeline.autoMove() already single-flights per
+  // (account, folder, uid) before calling here. This map is the manager-side
+  // guard for any other caller reaching moveSpamCopy directly — the actual
+  // moveMessage call below happens exactly once per key either way.
   async moveSpamCopy(accountId: string, uid: number | string, fromFolder: string, toFolder: string): Promise<number | null> {
     const accountResult = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
     const account = accountResult.rows[0];
     if (!account) throw new Error(`spam auto-move: account ${accountId} not found`);
     const key = `spam-move:${accountId}:${fromFolder}:${uid}`;
-    const existing = this.folderSyncInflights.get(key);
-    if (existing) {
-      await existing.catch(() => undefined);
-      return null;
-    }
-    const promise = (async (): Promise<boolean> => {
-      await this.moveMessage(account, uid, fromFolder, toFolder);
-      return true;
-    })();
-    this.folderSyncInflights.set(key, promise);
+    const existing = this.spamMoveInflights.get(key);
+    if (existing) return existing;
+    const promise = this.moveMessage(account, uid, fromFolder, toFolder);
+    // Attach an early rejection handler so a rejected move never surfaces as
+    // an unhandled rejection between set() and the first await below.
+    promise.catch(() => undefined);
+    this.spamMoveInflights.set(key, promise);
     try {
-      const newUid = await this.moveMessage(account, uid, fromFolder, toFolder);
-      return newUid;
+      return await promise;
     } finally {
-      if (this.folderSyncInflights.get(key) === promise) this.folderSyncInflights.delete(key);
+      if (this.spamMoveInflights.get(key) === promise) this.spamMoveInflights.delete(key);
     }
   }
 
@@ -5979,36 +5993,52 @@ export class ImapManager {
   // Repair = backfill-style SEARCH ALL → UID diff → fetch only the missing
   // UIDs, metadata-only, per folder. A folder whose server UID set is fully
   // present locally is untouched. Completion is recorded durably per account
-  // (`folders` marker row) only after all folders succeed; a failed run
-  // leaves the marker unset so the next tick retries.
+  // (account_maintenance_state) only after every folder verifies clean; a
+  // failed run leaves the marker unset so the next tick retries.
   async runPostRelocateRepair(account: EmailAccountRow): Promise<{ foldersRefreshed: number; uidsRecovered: number }> {
-    const marker = await query<{ path: string }>(
-      `SELECT path FROM folders WHERE account_id = $1 AND path = $2`,
-      [account.id, REPAIR_MARKER_PATH],
+    const marker = await query<{ completed_at: string | null }>(
+      `SELECT completed_at FROM account_maintenance_state WHERE account_id = $1 AND key = $2`,
+      [account.id, REPAIR_MAINTENANCE_KEY],
     );
-    if (marker.rows.length > 0) return { foldersRefreshed: 0, uidsRecovered: 0 };
+    if (marker.rows.length > 0 && marker.rows[0]?.completed_at) {
+      return { foldersRefreshed: 0, uidsRecovered: 0 };
+    }
     const foldersResult = await query<{ path: string; no_select?: boolean | null }>(
-      `SELECT path, no_select FROM folders WHERE account_id = $1 AND path != $2 ORDER BY path`,
-      [account.id, REPAIR_MARKER_PATH],
+      `SELECT path, no_select FROM folders WHERE account_id = $1 AND no_select IS NOT true ORDER BY path`,
+      [account.id],
     );
     const selectable = foldersResult.rows.filter(r => !r.no_select).map(r => r.path);
     let foldersRefreshed = 0;
     let uidsRecovered = 0;
+    let allVerified = true;
     for (const folder of selectable) {
       try {
         const recovered = await this.repairFolderMissingUids(account, folder);
         uidsRecovered += recovered;
-        foldersRefreshed += 1;
+        // A folder counts as refreshed only when its post-repair UID diff is
+        // empty: ingest failures (parse errors) return normally but leave the
+        // UID missing, and must NOT mark the repair complete.
+        const remaining = await this.remainingRepairUids(account, folder);
+        if (remaining.length === 0) {
+          foldersRefreshed += 1;
+        } else {
+          allVerified = false;
+          console.warn(
+            `Post-relocate repair incomplete for ${logAccount(account)}/${folder}: ${remaining.length} UID(s) still missing after repair`,
+          );
+        }
       } catch (caught) {
+        allVerified = false;
         console.warn(`Post-relocate repair skipped ${logAccount(account)}/${folder}:`, toAppError(caught).message);
       }
     }
-    if (foldersRefreshed === selectable.length) {
+    if (allVerified) {
       await query(
-        `INSERT INTO folders (account_id, path, name, delimiter, no_select)
-         VALUES ($1, $2, $2, '/', true)
-         ON CONFLICT (account_id, path) DO NOTHING`,
-        [account.id, REPAIR_MARKER_PATH],
+        `INSERT INTO account_maintenance_state (account_id, key, completed_at, details)
+         VALUES ($1, $2, NOW(), $3)
+         ON CONFLICT (account_id, key) DO UPDATE
+         SET completed_at = NOW(), details = EXCLUDED.details`,
+        [account.id, REPAIR_MAINTENANCE_KEY, JSON.stringify({ foldersRefreshed, uidsRecovered })],
       );
       this.broadcast({ type: 'sync_complete', accountId: account.id }, account.user_id);
     }
@@ -6017,6 +6047,9 @@ export class ImapManager {
 
   // Repair one folder: diff the server UID set against local rows and fetch
   // only the missing UIDs (metadata-only). Returns the recovered UID count.
+  // Note: a false return from ingestRepairMessage (parse failure) does NOT
+  // fail the folder here — runPostRelocateRepair re-diffs afterwards and
+  // withholds the durable marker until the UID set is actually complete.
   async repairFolderMissingUids(account: EmailAccountRow, folder: string): Promise<number> {
     return withFreshClient(account, async (client) => {
       const lock = await client.getMailboxLock(folder);
@@ -6054,6 +6087,29 @@ export class ImapManager {
         }
       }
       return recovered;
+    });
+  }
+
+  // Post-repair verification for one folder: SEARCH ALL on the server minus
+  // local UIDs. Only an empty diff means the folder is actually complete —
+  // this also covers UIDs that vanished from the server mid-repair (no longer
+  // missing, so the folder still verifies clean).
+  async remainingRepairUids(account: EmailAccountRow, folder: string): Promise<number[]> {
+    return withFreshClient(account, async (client) => {
+      const lock = await client.getMailboxLock(folder);
+      let serverUids: number[];
+      try {
+        serverUids = await searchUids(client, { all: true });
+      } finally {
+        lock.release();
+      }
+      if (!serverUids.length) return [];
+      const existing = await query<{ uid: number | string }>(
+        'SELECT uid FROM messages WHERE account_id = $1 AND folder = $2',
+        [account.id, folder],
+      );
+      const have = new Set(existing.rows.map(r => Number(r.uid)));
+      return serverUids.filter(uid => !have.has(Number(uid)));
     });
   }
 

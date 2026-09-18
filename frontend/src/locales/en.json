@@ -592,6 +592,7 @@
       "bodyConditionNote": "Body rules only run if the message body is already downloaded. If the body has not been fetched yet when a message arrives, the rule is skipped and the message stays in your inbox — body rules do not apply retroactively.",
       "subTabRules": "Rules",
       "subTabBlockList": "Block List",
+      "subTabAntispam": "Antispam",
       "actionsLabel": "Actions",
       "actionMarkRead": "Mark as read",
       "actionStar": "Star",

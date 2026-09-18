@@ -772,6 +772,10 @@ const SAME_VALUE_ALLOWED: Record<string, SameValueRule> = {
   // "Status" — same spelling in de and en
   'admin.security.activityColStatus': [['de', 'en']],
 
+  // "Antispam" — same spelling in en/de/fr/es/it/cs; pl uses "Antyspam",
+  // ru uses "Антиспам", zhCN uses "反垃圾邮件"
+  'admin.rules.subTabAntispam': [['en', 'de', 'fr', 'es', 'it', 'cs']],
+
   // "ID client" — fr and it share the same OAuth term
   'admin.sso.clientId':   [['fr', 'it']],
   'admin.sso.clientIdPh': [['fr', 'it']],

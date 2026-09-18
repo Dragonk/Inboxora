@@ -28,8 +28,34 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.3](wiki/R
   latter), and guard concurrent `_enterExplicitIdle` calls with a per-account single-flight promise.
 - Add a one-time post-relocate repair: per account, a SEARCH-ALL/UID-diff pass over every
   selectable folder re-fetches only the missing UIDs (including old holes a bounded recent-window
-  scan would never revisit), with a durable per-account marker written only after all folders
-  succeed so failed runs retry instead of being skipped.
+  scan would never revisit). Completion is recorded in the new `account_maintenance_state` table
+  (migration `0096`) — never as a pseudo-folder row, which `syncFolders()` would prune and
+  `backfillAllFolders()` would try to SELECT on IMAP. The in-process guard covers only runs in
+  flight, so failed runs retry on the next tick instead of waiting for a restart; each folder is
+  re-diffed after repair and the marker is written only when every folder verifies clean, so a
+  parse failure that leaves a UID missing does not mark the account repaired.
+- Fix a double IMAP MOVE in `moveSpamCopy()`: the old body fired `moveMessage()` once inside an
+  eagerly-started promise and a second time for the first caller. The method now issues exactly
+  one MOVE per physical copy, coalescing concurrent callers onto the same promise (the pipeline
+  keeps its own single-flight; the manager map guards direct callers), with regression tests for
+  single-caller, concurrent-callers and reject paths.
+- Harden antispam auto-move: automatic MOVE is INBOX-only (classification/tagging still runs
+  everywhere; Sent, Archive and custom folders are never auto-moved), and the physical row is
+  re-read immediately before the MOVE — a copy relocated by Inbox Rules / the Block List, deleted,
+  or given a user override in the meantime is skipped, so the override always wins including
+  under races.
+- Project `m.spam_verdict` / `m.spam_score_ml` in the flat and threaded list queries,
+  `GET /mail/thread/:threadId`, `GET /mail/messages/:id` and `GET /mail/resolve-message` so the
+  mounted `SpamBadge` actually receives data end-to-end.
+- Gate ML maturity on distinct usable samples: `retrainFromRecords` counts unique messages (by
+  Message-ID, else account/uid/folder) with real features per class into new `spam_models`
+  `usable_spam` / `usable_ham` columns (migration `0097`); ML activates only at `>= minRecords`
+  usable samples with a minimum of each class (default 10), so one mail confirmed 50x or 50 spams
+  with zero hams stays rules-only, and legacy featureless rows no longer mature the model.
+  `GET /api/spam/status` derives maturity from the configured thresholds and the usable split;
+  `PATCH /api/spam/thresholds` validates `minRecords`/`softRecords`, enforces
+  `softRecords >= minRecords`, and drops the dead `hardRecords` key; `spamModelStore` per-user
+  lock map entries are released after each run.
 - Add a hybrid antispam classifier (deterministic 14-rule engine + per-user multinomial Naive Bayes):
   rules always on, ML joins at the configured `minRecords` (>= 50 default), verdict at the configured
   `spamThreshold` (>= 0.85 default), auto-move at the configured `autoMoveThreshold` (>= 0.95 default)
@@ -50,10 +76,14 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.3](wiki/R
 - Warn before downloading attachments classified as potentially dangerous (executable, script, shortcut
   extensions and matching media types); the download still proceeds after explicit confirmation and the
   Download-all ZIP path cannot bypass the prompt.
+- Mount the `SpamSettings` status/master-switch/retrain panel as a third sub-tab (Antyspam) under
+  Settings → Rules, next to Rules and Block List, with a settings-search index entry and locale keys
+  in all 9 locales.
 
 ### Notes
 
-- Includes database migrations `0094_folder_uidnext_status.sql` and `0095_spam_classifier_v2.sql`;
+- Includes database migrations `0094_folder_uidnext_status.sql`, `0095_spam_classifier_v2.sql`,
+  `0096_account_maintenance_state.sql` and `0097_spam_model_usable_counts.sql`, applied in order;
   apply before running workers or accepting outbound mail. The antispam auto-move is opt-in per
   account (`email_accounts.antispam_enabled`, default off) behind the per-user master switch
   (`users.preferences.spamEnabled`, default on). No other configuration is required.

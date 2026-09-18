@@ -613,6 +613,7 @@
       "bodyConditionNote": "Regeln für den Nachrichteninhalt werden nur ausgeführt, wenn der Text bereits heruntergeladen wurde. Falls er beim Eingang noch nicht abgerufen wurde, wird die Regel übersprungen und die Nachricht bleibt im Posteingang – Inhaltsregeln werden nicht nachträglich angewendet.",
       "subTabRules": "Regeln",
       "subTabBlockList": "Blockliste",
+      "subTabAntispam": "Antispam",
       "actionMoveSelectFolder": "Ordner auswählen…",
       "actionMoveRequiresAccount": "Erfordert ein bestimmtes Konto"
     },
