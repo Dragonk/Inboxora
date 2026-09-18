@@ -166,3 +166,24 @@ data is untouched.
 
 Public remote servers must use HTTPS. Cleartext HTTP is accepted only for private or local hosts,
 and only when the administrator allows private connections.
+
+## Pulling contacts from Google
+
+Once a Google account is connected, Inboxora can read that account's **personal** Google contacts
+(the People API connections — not the organization directory and not “Other contacts”). They are
+projected into one local address book per connection, named *Google Contacts*.
+
+- A contact is identified by its Google resource name, never by its e-mail address, so renaming a
+  contact, sharing one address between people, or having a contact with no address never merges or
+  duplicates a record.
+- A contact removed in Google is removed here too; the link is kept as a tombstone so it is not
+  re-created by a later sync.
+- The book starts with **DAV access: Disabled** and is read-only, so it is not published to your
+  devices and edits here are refused rather than silently reverted by the next sync.
+- Synchronisation is incremental: the first pass reads everything and stores a cursor, later passes
+  only read what changed. If Google rejects the stored cursor, the next pass rebuilds the book from
+  a fresh baseline instead of failing.
+
+The in-app control for this sync, and the automatic schedule, are part of the account-connection
+interface that is still being finished; until then the sync is triggered through the API and the
+projected contacts appear in the normal contact list.

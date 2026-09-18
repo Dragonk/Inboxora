@@ -9,6 +9,9 @@ import { contactsToGoogleCsv, contactsToOutlookCsv, contactsToVCard, parseGoogle
 import crypto from 'crypto';
 import { queryInt, queryString, queryStringOr, routeParam, sessionUserId } from '../utils/query.js';
 import { toAppError } from '../utils/errors.js';
+import { googleConfigFromEnv, isGoogleConfigured } from '../services/providerAuthService.js';
+import { syncGoogleContacts } from '../services/providers/google/googleContactsSync.js';
+import { GoogleApiError } from '../services/providers/google/googleApiClient.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -170,6 +173,41 @@ router.delete('/address-books/:id', async (req, res) => {
     await query('DELETE FROM address_books WHERE id = $1 AND user_id = $2', [req.params.id, req.session.userId]);
     res.status(204).end();
   } catch (err) { console.error('Address book delete error:', err); res.status(500).json({ error: 'Failed to delete address book' }); }
+});
+
+// Pull the signed-in user's Google personal contacts for every connected Google
+// provider connection. The source stays the writer: the synced books are read-only
+// and are not published to DAV devices until the user enables them.
+router.post('/providers/google/sync', async (req, res) => {
+  const userId = sessionUserId(req);
+  const connections = await query<{ id: string }>(
+    "SELECT id FROM provider_connections WHERE user_id = $1 AND provider = 'google' AND status = 'active' ORDER BY created_at ASC",
+    [userId],
+  );
+  if (!connections.rows.length) {
+    return res.status(409).json({ error: 'Connect a Google account before syncing contacts' });
+  }
+  const config = googleConfigFromEnv();
+  if (!isGoogleConfigured(config)) {
+    return res.status(409).json({ error: 'Google API is not configured by the administrator' });
+  }
+
+  const results: Array<Record<string, unknown>> = [];
+  for (const connection of connections.rows) {
+    try {
+      results.push({ connectionId: connection.id, ...(await syncGoogleContacts({ userId, connectionId: connection.id, config })) });
+    } catch (caught) {
+      const error = caught instanceof GoogleApiError ? caught : null;
+      // One failing connection must not hide the others' results.
+      results.push({
+        connectionId: connection.id,
+        error: error
+          ? { code: error.code, message: error.message, retryable: error.retryable }
+          : { code: 'INTERNAL_ERROR', message: toAppError(caught).message, retryable: false },
+      });
+    }
+  }
+  res.json({ results });
 });
 
 // GET /api/contacts
@@ -513,8 +551,10 @@ router.patch('/:id', async (req, res) => {
     );
     if (!cur.rows.length) return res.status(404).json({ error: 'Contact not found' });
     const c = cur.rows[0];
-    if (c.book_source === 'carddav') {
-      return res.status(403).json({ error: 'This contact is synced from CardDAV and is read-only' });
+    if (c.book_source && c.book_source !== 'local') {
+      // Synced from a provider/adapter: the source is the writer, so a local edit
+      // would be an apparent write-back that the next sync discards.
+      return res.status(403).json({ error: 'This contact is synced from an external source and is read-only' });
     }
 
     const hasRichFields = [title, role, nickname, urls, instantMessages, categories, addresses].some(value => value !== undefined);
@@ -607,15 +647,16 @@ router.patch('/:id', async (req, res) => {
 router.delete('/:id', async (req, res) => {
   const userId = sessionUserId(req);
   try {
-    // Block deletion of CardDAV-synced (read-only) contacts; they reappear on next sync anyway.
+    // Block deletion of externally synced (read-only) contacts; they reappear on
+    // the next sync anyway.
     const owner = await query(
       `SELECT ab.source FROM contacts c JOIN address_books ab ON ab.id = c.address_book_id
        WHERE c.id = $1 AND c.user_id = $2`,
       [req.params.id, userId]
     );
     if (!owner.rows.length) return res.status(404).json({ error: 'Contact not found' });
-    if (owner.rows[0].source === 'carddav') {
-      return res.status(403).json({ error: 'This contact is synced from CardDAV and is read-only' });
+    if (owner.rows[0].source !== 'local') {
+      return res.status(403).json({ error: 'This contact is synced from an external source and is read-only' });
     }
     const result = await query<{ address_book_id: string }>(
       'DELETE FROM contacts WHERE id = $1 AND user_id = $2 RETURNING address_book_id',

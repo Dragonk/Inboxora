@@ -95,6 +95,15 @@ export function isGoogleConfigured(config: Partial<GoogleConfig>): config is Goo
   return Boolean(config.clientId && config.clientSecret && config.redirectUri);
 }
 
+/** The effective Google client configuration (the admin UI/DB values land in env). */
+export function googleConfigFromEnv(env: NodeJS.ProcessEnv = process.env): GoogleConfig {
+  return {
+    clientId: env.GOOGLE_CLIENT_ID || '',
+    clientSecret: env.GOOGLE_CLIENT_SECRET || '',
+    redirectUri: env.GOOGLE_REDIRECT_URI || '',
+  };
+}
+
 export interface CreateAuthorizationFlowInput {
   userId: string;
   provider: OAuthProvider;

@@ -113,6 +113,20 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   mode: a read-only password cannot write even to a read-write calendar or address book, it never
   widens one, and the advertised `current-user-privilege-set` reflects the intersection. Existing
   passwords default to *Read and write*, so an upgrade changes nothing.
+- Add the Google People contacts read adapter (P09, first slice). `POST
+  /api/contacts/providers/google/sync` pulls the signed-in user's personal Google contacts for every
+  active Google connection and projects them into one local address book per connection, created
+  with `source = 'google'` and DAV access *Disabled*. Contacts are linked by the People resource
+  name, never by e-mail, so a renamed contact, a shared address or a contact without an address
+  never merges or duplicates; a person the provider reports as deleted is removed locally and its
+  link kept as a tombstone. The sync cursor is stored per connection/collection under the P03 lease,
+  so only one sync runs at a time and a restarted worker cannot advance it out of order; a cursor
+  the provider rejects (HTTP 410) rebuilds the collection from a fresh baseline instead of failing.
+  Provider failures are classified (401 → re-authorize, 403 quota versus missing scope, 410 →
+  rebuild, 429/5xx → retryable) and one failing connection does not hide the others' results. The
+  synced books stay read-only in the app: REST and DAV writes to a non-local contact are refused,
+  so no write-back is pretended before it exists. The in-app sync control and the automatic
+  schedule arrive with the account-connection UI.
 
 ## [4.0.4] - 2026-09-18
 

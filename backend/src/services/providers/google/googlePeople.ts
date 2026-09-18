@@ -1,0 +1,155 @@
+import { googleApiFetch, googleUrl } from './googleApiClient.js';
+import type { GoogleApiOptions } from './googleApiClient.js';
+import type { VCardContact } from '../../../utils/vcard.js';
+
+/**
+ * Google People API read adapter (P09, contacts).
+ *
+ * Personal contacts only: the source is `people/me` connections, not the
+ * organization directory and not "Other contacts". The resource name is the
+ * identity the sync layer links to; a person's e-mail address is never used as a
+ * key, because two contacts can share one and a contact may have none.
+ */
+
+export const PEOPLE_API_BASE = 'https://people.googleapis.com/v1';
+export const PERSON_FIELDS = [
+  'names', 'nicknames', 'emailAddresses', 'phoneNumbers', 'organizations',
+  'biographies', 'urls', 'addresses', 'birthdays', 'metadata',
+].join(',');
+const MAX_PAGE_SIZE = 1000;
+
+export interface GooglePersonDate {
+  year?: number;
+  month?: number;
+  day?: number;
+}
+
+export interface GooglePerson {
+  resourceName: string;
+  etag?: string | null;
+  metadata?: {
+    deleted?: boolean | null;
+    sources?: Array<{ type?: string | null; id?: string | null; etag?: string | null }> | null;
+  } | null;
+  names?: Array<{ displayName?: string | null; givenName?: string | null; familyName?: string | null; metadata?: { primary?: boolean | null } | null }> | null;
+  nicknames?: Array<{ value?: string | null }> | null;
+  emailAddresses?: Array<{ value?: string | null; type?: string | null; metadata?: { primary?: boolean | null } | null }> | null;
+  phoneNumbers?: Array<{ value?: string | null; type?: string | null; metadata?: { primary?: boolean | null } | null }> | null;
+  organizations?: Array<{ name?: string | null; title?: string | null; department?: string | null }> | null;
+  biographies?: Array<{ value?: string | null }> | null;
+  urls?: Array<{ value?: string | null; type?: string | null }> | null;
+  addresses?: Array<{
+    type?: string | null; streetAddress?: string | null; extendedAddress?: string | null;
+    poBox?: string | null; locality?: string | null; region?: string | null;
+    postalCode?: string | null; country?: string | null;
+  }> | null;
+  birthdays?: Array<{ date?: GooglePersonDate | null; text?: string | null }> | null;
+}
+
+export interface ConnectionsPage {
+  people: GooglePerson[];
+  nextPageToken: string | null;
+  nextSyncToken: string | null;
+}
+
+function primaryFirst<T extends { metadata?: { primary?: boolean | null } | null }>(items: T[] | null | undefined): T[] {
+  const list = Array.isArray(items) ? [...items] : [];
+  return list.sort((left, right) => Number(Boolean(right.metadata?.primary)) - Number(Boolean(left.metadata?.primary)));
+}
+
+/** Google date → the partial-date form the vCard layer understands. */
+export function formatGoogleBirthday(date: GooglePersonDate | null | undefined): string | null {
+  if (!date || !date.month || !date.day) return null;
+  const month = String(date.month).padStart(2, '0');
+  const day = String(date.day).padStart(2, '0');
+  if (!date.year) return `--${month}-${day}`;
+  return `${String(date.year).padStart(4, '0')}-${month}-${day}`;
+}
+
+function typeOf(value: string | null | undefined): string {
+  const normalized = (value || 'other').toLowerCase().replace(/[^a-z]/g, '');
+  return normalized || 'other';
+}
+
+/**
+ * Map one People connection to the vCard shape. `uid` is assigned by the caller
+ * so the local contact keeps a stable identity derived from the resource name.
+ */
+export function personToVCardContact(person: GooglePerson, uid: string): VCardContact {
+  const names = primaryFirst(person.names);
+  const primaryName = names[0];
+  const emails = primaryFirst(person.emailAddresses).map(entry => ({
+    value: entry.value ?? '',
+    type: typeOf(entry.type),
+    primary: Boolean(entry.metadata?.primary),
+  })).filter(entry => entry.value);
+  const phones = primaryFirst(person.phoneNumbers).map(entry => ({
+    value: entry.value ?? '',
+    type: typeOf(entry.type),
+    primary: Boolean(entry.metadata?.primary),
+  })).filter(entry => entry.value);
+  const organization = person.organizations?.[0] ?? null;
+  const addresses = (person.addresses ?? []).map(address => ({
+    type: typeOf(address.type),
+    pobox: address.poBox ?? '',
+    extended: address.extendedAddress ?? '',
+    street: address.streetAddress ?? '',
+    locality: address.locality ?? '',
+    region: address.region ?? '',
+    postalCode: address.postalCode ?? '',
+    country: address.country ?? '',
+  })).filter(address => Object.entries(address).some(([key, value]) => key !== 'type' && value));
+
+  return {
+    uid,
+    displayName: primaryName?.displayName ?? (emails[0]?.value ?? null),
+    firstName: primaryName?.givenName ?? null,
+    lastName: primaryName?.familyName ?? null,
+    emails,
+    phones,
+    organization: organization?.name ?? null,
+    title: organization?.title ?? null,
+    nickname: person.nicknames?.[0]?.value ?? null,
+    notes: person.biographies?.[0]?.value ?? null,
+    urls: (person.urls ?? []).map(url => ({ value: url.value ?? '', type: typeOf(url.type) })).filter(url => url.value),
+    addresses,
+    birthday: formatGoogleBirthday(person.birthdays?.[0]?.date),
+  };
+}
+
+/**
+ * One page of personal connections. The first page of a fresh sync asks for a
+ * sync token, which the caller stores as the collection cursor; an incremental
+ * page must not ask for one again.
+ */
+export async function fetchConnectionsPage(options: GoogleApiOptions, input: {
+  pageToken?: string | null;
+  syncToken?: string | null;
+  pageSize?: number;
+  /** Overrides the default: only the first request of a fresh sync asks for a token. */
+  requestSyncToken?: boolean;
+} = {}): Promise<ConnectionsPage> {
+  const pageSize = Number.isFinite(input.pageSize) && Number(input.pageSize) > 0
+    ? Math.min(MAX_PAGE_SIZE, Math.floor(Number(input.pageSize)))
+    : MAX_PAGE_SIZE;
+  // A sync token may only be requested on the FIRST request of a sync: not on a
+  // later page of the same baseline, and not at all for an incremental one.
+  const requestSyncToken = input.requestSyncToken ?? (!input.syncToken && !input.pageToken);
+  const url = googleUrl(PEOPLE_API_BASE, '/people/me/connections', {
+    personFields: PERSON_FIELDS,
+    pageSize,
+    pageToken: input.pageToken ?? undefined,
+    syncToken: input.syncToken ?? undefined,
+    requestSyncToken: requestSyncToken ? true : undefined,
+  });
+  const body = await googleApiFetch<{
+    connections?: GooglePerson[] | null;
+    nextPageToken?: string | null;
+    nextSyncToken?: string | null;
+  }>(options, url);
+  return {
+    people: Array.isArray(body.connections) ? body.connections : [],
+    nextPageToken: body.nextPageToken ?? null,
+    nextSyncToken: body.nextSyncToken ?? null,
+  };
+}

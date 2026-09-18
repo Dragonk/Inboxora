@@ -11,6 +11,7 @@ import {
   fetchGoogleIdentity,
   finishAuthorizationFlow,
   googleAuthorizeUrl,
+  googleConfigFromEnv,
   googleScopesForPurpose,
   isGoogleConfigured,
   providerConfigRevision,
@@ -40,11 +41,8 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 const PURPOSES: readonly AuthorizationPurpose[] = ['new_account', 'mail_migration', 'calendar_enable', 'contacts_enable'];
 
 function googleConfig(): GoogleConfig {
-  return {
-    clientId: process.env.GOOGLE_CLIENT_ID || '',
-    clientSecret: process.env.GOOGLE_CLIENT_SECRET || '',
-    redirectUri: process.env.GOOGLE_REDIRECT_URI || '',
-  };
+  // One source of truth for the effective client configuration.
+  return googleConfigFromEnv();
 }
 
 function failRedirect(res: Response, message: string, status = 302) {
