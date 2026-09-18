@@ -19,6 +19,7 @@
 ## Folder freshness and STATUS
 
 - After each LIST, cached non-INBOX folders are revalidated with a lightweight STATUS check. A folder whose server UIDNEXT, message count, and unseen count all match the cache is skipped on reopen; folders with an advanced UIDNEXT are queued for a metadata sync. New `folders.uid_next` column; migration `0094_folder_uidnext_status.sql` must be applied before rollout.
+- Fix STATUS gate self-cancellation: `uid_next` now represents the watermark of the last completed sync, not the last observed STATUS. Detecting a change no longer writes the new value to the DB before the fetch runs (which previously caused `_folderNeedsSync` to see matching values and skip the sync).
 
 ## Frontend hardening
 
@@ -28,7 +29,7 @@
 
 ## Verification
 
-- Backend: 1862 tests passing, `tsc --noEmit` clean, `eslint src --max-warnings 0` clean, migration integrity suite clean. Focused regression suites cover physical-copy identity, explicit IDLE, STATUS-gated folder refresh, and coalesced on-demand sync.
+- Backend: 1866 tests passing, `tsc --noEmit` clean, `eslint src --max-warnings 0` clean, migration integrity suite clean. Focused regression suites cover physical-copy identity, explicit IDLE (with single-flight guard), STATUS gate, and coalesced on-demand sync.
 - Frontend: production build passes, 1712 tests passing including i18n parity, Error Boundary contract, BFCache wake contract, and dangerous-attachment classifier.
 
 See [`docs/CHANGELOG.md`](../CHANGELOG.md) for the concise release record.

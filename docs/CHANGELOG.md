@@ -22,6 +22,8 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.3](wiki/R
 - Refresh each non-INBOX folder's STATUS watermark after LIST and skip on-demand sync when the server
   UIDNEXT, message count, and unseen count match the cache. New `folders.uid_next` column; folders
   with advanced UIDNEXT are queued for a metadata sync even though only INBOX is IDLE-monitored.
+- Fix STATUS gate self-cancellation: `uid_next` is now the watermark of the last completed sync, not
+  the last observed STATUS, so detecting a change no longer writes the new value before the fetch runs.
 - Add a React Error Boundary at the entrypoint so a render-time exception shows a translated
   recovery screen with a reload action instead of a blank page.
 - Add a `pageshow` persisted handler to the WebSocket wake effect so returning from BFCache reuses

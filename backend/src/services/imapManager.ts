@@ -1532,8 +1532,10 @@ export class ImapManager {
   declare snippetIndexerRunning: Set<string>;
   declare snippetBackoff: Map<string, { failures: number; until: number }>;
   declare lastSyncOkAt: Map<string, number>;
-  declare lastExplicitIdleAt: Map<string, number>;
+  declare idleAttemptedAt: Map<string, number>;
+  declare idleEnteredAt: Map<string, number>;
   declare idleHealthWarned: Set<string>;
+  declare idleInflights: Map<string, Promise<void>>;
   declare lastFolderSyncAt: Map<string, number>;
   declare folderSyncInflights: Map<string, Promise<boolean>>;
   declare _pendingFolderSyncs: Set<string>;
@@ -1576,8 +1578,10 @@ export class ImapManager {
     this.lastUserActivity = new Map();      // accountId -> ms timestamp of last live body fetch
     this.syncTickCount = new Map(); // accountId -> successful sync ticks (for reconcile scheduling)
     this.lastSyncOkAt = new Map(); // accountId -> ms timestamp of last successful sync tick (staleness detection)
-    this.lastExplicitIdleAt = new Map(); // accountId -> explicit IDLE start attempt timestamp
-    this.idleHealthWarned = new Set(); // account IDs already reported as IDLE-capable but never started
+    this.idleAttemptedAt = new Map(); // accountId -> ms timestamp of last explicit idle() call attempt
+    this.idleEnteredAt = new Map(); // accountId -> ms timestamp when client.idling last became true
+    this.idleHealthWarned = new Set(); // account IDs already reported as IDLE-capable but never entered IDLE
+    this.idleInflights = new Map(); // accountId -> in-flight idle() promise (single-flight guard)
     this.folderSyncInflights = new Map(); // `${accountId}:${folder}` -> running sync promise (coalesces concurrent demand)
     this._pendingFolderSyncs = new Set(); // `${accountId}:${folder}` folders detected as changed, awaiting a sync tick
     this._flagDebounceTimers   = new Map(); // accountId -> debounce timer for flag-change syncs
@@ -1624,9 +1628,11 @@ export class ImapManager {
           } else if (this.connections.has(row.id)) {
             const client = this.connections.get(row.id);
             const idleExpected = !!client && providerProfile(row).usesIdle !== false;
-            if (idleExpected && !this.lastExplicitIdleAt.has(row.id) && !this.idleHealthWarned.has(row.id)) {
+            // Base the health signal on idleEnteredAt (server confirmed idling), not
+            // idleAttemptedAt — an attempt that threw would otherwise look healthy.
+            if (idleExpected && !this.idleEnteredAt.has(row.id) && !this.idleHealthWarned.has(row.id)) {
               this.idleHealthWarned.add(row.id);
-              recordSyncSignal('idle_never_started', { accountId: row.id });
+              recordSyncSignal('idle_never_entered', { accountId: row.id });
               console.warn(`Health check: ${logAccount(row)} supports persistent sync but has never entered explicit IDLE`);
             }
             // Observability: a connected account whose sync ticks have silently stalled
@@ -1980,30 +1986,50 @@ export class ImapManager {
   // auto-IDLE deliberately waits 15 seconds; an explicit start prevents a 15-second sync
   // cadence from continuously resetting that timer. A normal IMAP command breaks IDLE and
   // the completed sync re-enters it below, while ImapFlow itself restarts maxIdleTime sessions.
+  //
+  // Single-flight: concurrent callers share one in-flight promise so we never issue two
+  // idle() calls for the same account. idleAttemptedAt records the attempt; idleEnteredAt is
+  // set by the 'exists' listener (first proof the server acknowledged IDLE).
   _enterExplicitIdle(client: ImapClient, account: EmailAccountRow): void {
     if (providerProfile(account).usesIdle === false) return;
-    if (this.connections.get(account.id) !== client || client.idling) return;
+    if (this.connections.get(account.id) !== client) return;
     const idle = client.idle;
     if (typeof idle !== 'function') {
       recordWarning('imap_idle_unavailable', account.id);
       console.warn(`Explicit IMAP IDLE unavailable for ${logAccount(account)}`);
       return;
     }
-    this.lastExplicitIdleAt.set(account.id, Date.now());
+    const existing = this.idleInflights.get(account.id);
+    if (existing) return;
+    this.idleAttemptedAt.set(account.id, Date.now());
     this.idleHealthWarned.delete(account.id);
-    void idle.call(client).catch((caught: unknown) => {
-      if (this.connections.get(account.id) !== client) return;
-      const err = toAppError(caught);
-      recordWarning('imap_idle_error', account.id);
-      console.warn(`Explicit IMAP IDLE failed for ${logAccount(account)}: ${err.message}`);
-    });
+    const promise = Promise.resolve()
+      .then(() => idle.call(client))
+      .catch((caught: unknown) => {
+        if (this.connections.get(account.id) !== client) return;
+        const err = toAppError(caught);
+        recordWarning('imap_idle_error', account.id);
+        console.warn(`Explicit IMAP IDLE failed for ${logAccount(account)}: ${err.message}`);
+      })
+      .finally(() => {
+        if (this.idleInflights.get(account.id) === promise) this.idleInflights.delete(account.id);
+      });
+    this.idleInflights.set(account.id, promise);
   }
 
   // Attach the three IDLE event listeners shared by both the initial connect path
   // and the in-_syncTick reconnect path. Centralised here so a fix in one place
   // automatically covers both code paths.
   _attachIdleListeners(client: ImapClient, account: EmailAccountRow): void {
+    const markIdleEntered = () => {
+      if (this.connections.get(account.id) === client && client.idling) {
+        this.idleEnteredAt.set(account.id, Date.now());
+        this.idleHealthWarned.delete(account.id);
+      }
+    };
     client.on('exists', ({ count, prevCount }: { count?: number; prevCount?: number } = {}) => {
+      // First proof the server acknowledged IDLE — record it for health checks.
+      markIdleEntered();
       if ((count ?? 0) <= (prevCount ?? 0)) return;
       // Push an optimistic delta to the frontend immediately so the unread badge
       // updates without waiting for the full IMAP fetch + DB insert cycle.
@@ -2113,7 +2139,9 @@ export class ImapManager {
       client.on('close', () => {
         if (this.connections.get(account.id) === client) {
           this.connections.delete(account.id);
-          this.lastExplicitIdleAt.delete(account.id);
+          this.idleAttemptedAt.delete(account.id);
+          this.idleEnteredAt.delete(account.id);
+          this.idleInflights.delete(account.id);
           this.idleHealthWarned.delete(account.id);
           console.log(`IMAP connection closed for ${logAccount(account)}`);
         }
@@ -2219,7 +2247,9 @@ export class ImapManager {
     this.syncThrottleSkips.delete(accountId);
     this.syncTickCount.delete(accountId);
     this.lastSyncOkAt.delete(accountId);
-    this.lastExplicitIdleAt.delete(accountId);
+    this.idleAttemptedAt.delete(accountId);
+    this.idleEnteredAt.delete(accountId);
+    this.idleInflights.delete(accountId);
     this.idleHealthWarned.delete(accountId);
     // Drop the cached sync_error state (NOT the refusal cooldown, which deliberately survives a
     // disconnect) so a re-added account writes through instead of trusting a stale cache entry.
@@ -2490,7 +2520,9 @@ export class ImapManager {
           activeClient.on('close', () => {
             if (this.connections.get(account.id) === activeClient) {
               this.connections.delete(account.id);
-              this.lastExplicitIdleAt.delete(account.id);
+              this.idleAttemptedAt.delete(account.id);
+              this.idleEnteredAt.delete(account.id);
+              this.idleInflights.delete(account.id);
               this.idleHealthWarned.delete(account.id);
             }
           });
@@ -3039,6 +3071,12 @@ export class ImapManager {
   // UIDNEXT so on-demand opens can detect new mail without a SELECT, and queues folders whose
   // UIDNEXT advanced for a metadata sync. Bounded and non-fatal: a STATUS failure for one
   // folder does not block the others.
+  //
+  // IMPORTANT: `uid_next` in the DB is the watermark of the LAST COMPLETED SYNC, not the last
+  // observed STATUS. We deliberately do NOT write `uid_next` here — doing so would let a later
+  // _folderNeedsSync() compare the server against the just-updated DB, see them match, and skip
+  // the very fetch this change is asking for. `uid_next` is updated only after syncMessages()
+  // succeeds (via mailbox.uidNext), so the next round compares against a post-sync baseline.
   async _refreshFolderStatuses(account: EmailAccountRow, client: ImapClient, listedPaths: Set<string>): Promise<void> {
     if (typeof client.status !== 'function') return;
     let cached: { rows: Array<{ path: string; uid_next: number | null }> };
@@ -3050,18 +3088,21 @@ export class ImapManager {
     } catch { return; }
     for (const row of cached.rows) {
       if (!listedPaths.has(row.path)) continue;
-      let status: { uidNext?: number | bigint; messages?: number; unseen?: number } | undefined;
       try {
-        status = await client.status(row.path, { uidNext: true, messages: true, unseen: true });
+        const status = await client.status(row.path, { uidNext: true, messages: true, unseen: true });
         const serverUidNext = status.uidNext != null ? Number(status.uidNext) : null;
         const serverMessages = status.messages != null ? Number(status.messages) : null;
         const serverUnseen = status.unseen != null ? Number(status.unseen) : null;
-        await query(
-          'UPDATE folders SET uid_next = $1, total_count = COALESCE($2, total_count), unread_count = COALESCE($3, unread_count), updated_at = NOW() WHERE account_id = $4 AND path = $5',
-          [serverUidNext, serverMessages, serverUnseen, account.id, row.path]
-        );
         const prevUidNext = row.uid_next != null ? Number(row.uid_next) : null;
         if (serverUidNext != null && prevUidNext != null && serverUidNext !== prevUidNext) {
+          // Do NOT write uid_next here — that would self-cancel the sync below.
+          // total/unread can be updated from STATUS since they don't gate the sync decision.
+          if (serverMessages != null || serverUnseen != null) {
+            await query(
+              'UPDATE folders SET total_count = COALESCE($1, total_count), unread_count = COALESCE($2, unread_count), updated_at = NOW() WHERE account_id = $3 AND path = $4',
+              [serverMessages, serverUnseen, account.id, row.path]
+            );
+          }
           this._pendingFolderSyncs.add(`${account.id}:${row.path}`);
         }
       } catch (caught) {

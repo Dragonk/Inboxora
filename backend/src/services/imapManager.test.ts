@@ -260,31 +260,92 @@ describe('explicit IDLE configuration', () => {
     expect(cfg.maxIdleTime).toBe(240000);
   });
 
-  it('starts IDLE immediately for a connected, non-idling account', () => {
+  it('starts IDLE immediately for a connected, non-idling account', async () => {
     const client = mockImapClient({ idling: false, idle: vi.fn().mockResolvedValue(true) });
     const mgr = {
       connections: new Map([['acct-idle', client]]),
-      lastExplicitIdleAt: new Map<string, number>(),
+      idleAttemptedAt: new Map<string, number>(),
+      idleEnteredAt: new Map<string, number>(),
+      idleInflights: new Map<string, Promise<void>>(),
       idleHealthWarned: new Set<string>(['acct-idle']),
     };
     const idleAccount = { id: 'acct-idle', user_id: 'user-1', email_address: 'a@example.com', imap_host: 'imap.example.com' };
 
     ImapManager.prototype._enterExplicitIdle.call(mgr, client, idleAccount);
-
+    expect(mgr.idleInflights.has('acct-idle')).toBe(true);
+    await Promise.resolve();
     expect(client.idle).toHaveBeenCalledTimes(1);
-    expect(mgr.lastExplicitIdleAt.has('acct-idle')).toBe(true);
+    expect(mgr.idleAttemptedAt.has('acct-idle')).toBe(true);
     expect(mgr.idleHealthWarned.has('acct-idle')).toBe(false);
   });
 
-  it('does not issue a second IDLE command while the client is already idling', () => {
-    const client = mockImapClient({ idling: true, idle: vi.fn() });
+  it('does not issue a second IDLE command while one is already in flight', () => {
+    const client = mockImapClient({ idling: false, idle: vi.fn() });
+    const inflight = new Promise<void>(() => {});
     const mgr = {
       connections: new Map([['acct-idle', client]]),
-      lastExplicitIdleAt: new Map<string, number>(),
+      idleAttemptedAt: new Map<string, number>(),
+      idleEnteredAt: new Map<string, number>(),
+      idleInflights: new Map<string, Promise<void>>([['acct-idle', inflight]]),
       idleHealthWarned: new Set<string>(),
     };
     ImapManager.prototype._enterExplicitIdle.call(mgr, client, { id: 'acct-idle', user_id: 'user-1', imap_host: 'imap.example.com' });
     expect(client.idle).not.toHaveBeenCalled();
+  });
+
+  it('records idleEnteredAt when the server acknowledges IDLE via exists', () => {
+    const client = mockImapClient(new EventEmitter());
+    client.idling = true;
+    const mgr = {
+      connections: new Map([['acct-idle', client]]),
+      idleAttemptedAt: new Map<string, number>(),
+      idleEnteredAt: new Map<string, number>(),
+      idleInflights: new Map<string, Promise<void>>(),
+      idleHealthWarned: new Set<string>(['acct-idle']),
+      broadcast: vi.fn(),
+      syncingAccounts: new Set<string>(),
+      _pendingInboxSync: new Set<string>(),
+      _syncTick: vi.fn().mockResolvedValue(undefined),
+    };
+    const idleAccount = { id: 'acct-idle', user_id: 'user-1', imap_host: 'imap.example.com' };
+    ImapManager.prototype._attachIdleListeners.call(mgr, client, idleAccount);
+    client.emit('exists', { count: 12, prevCount: 11 });
+    expect(mgr.idleEnteredAt.has('acct-idle')).toBe(true);
+    expect(mgr.idleHealthWarned.has('acct-idle')).toBe(false);
+  });
+
+  it('does not issue a second IDLE command while one is already in flight', () => {
+    const client = mockImapClient({ idling: false, idle: vi.fn() });
+    const inflight = new Promise<void>(() => {});
+    const mgr = {
+      connections: new Map([['acct-idle', client]]),
+      idleAttemptedAt: new Map<string, number>(),
+      idleEnteredAt: new Map<string, number>(),
+      idleInflights: new Map<string, Promise<void>>([['acct-idle', inflight]]),
+      idleHealthWarned: new Set<string>(),
+    };
+    ImapManager.prototype._enterExplicitIdle.call(mgr, client, { id: 'acct-idle', user_id: 'user-1', imap_host: 'imap.example.com' });
+    expect(client.idle).not.toHaveBeenCalled();
+  });
+
+  it('records idleEnteredAt when the server acknowledges IDLE via exists', () => {
+    const client = mockImapClient(new EventEmitter());
+    client.idling = true;
+    const mgr = {
+      connections: new Map([['acct-idle', client]]),
+      idleAttemptedAt: new Map<string, number>(),
+      idleEnteredAt: new Map<string, number>(),
+      idleHealthWarned: new Set<string>(['acct-idle']),
+      broadcast: vi.fn(),
+      syncingAccounts: new Set<string>(),
+      _pendingInboxSync: new Set<string>(),
+      _syncTick: vi.fn().mockResolvedValue(undefined),
+    };
+    const idleAccount = { id: 'acct-idle', user_id: 'user-1', imap_host: 'imap.example.com' };
+    ImapManager.prototype._attachIdleListeners.call(mgr, client, idleAccount);
+    client.emit('exists', { count: 12, prevCount: 11 });
+    expect(mgr.idleEnteredAt.has('acct-idle')).toBe(true);
+    expect(mgr.idleHealthWarned.has('acct-idle')).toBe(false);
   });
 });
 
@@ -2312,5 +2373,32 @@ describe('syncFolderOnDemand', () => {
     expect(a).toBe(true);
     expect(b).toBe(true);
     expect(syncsStarted).toBe(1);
+  });
+});
+
+// ── _refreshFolderStatuses — must not self-cancel the sync ──────────────────
+describe('_refreshFolderStatuses', () => {
+  const statusAccount = { id: 'acct-status', user_id: 'user-1', email_address: 'a@example.com', imap_host: 'imap.example.com' };
+
+  it('does NOT write uid_next to DB when a change is detected (would self-cancel the sync)', async () => {
+    query.mockReset();
+    query.mockImplementation((sql) => {
+      if (sql.includes('SELECT path, uid_next FROM folders')) return Promise.resolve({ rows: [{ path: 'Archive', uid_next: 100 }] });
+      return Promise.resolve({ rows: [] });
+    });
+    const client = mockImapClient({ status: vi.fn().mockResolvedValue({ uidNext: 101, messages: 11, unseen: 3 }) });
+    const mgr = new ImapManager({ clients: new Set() });
+    clearInterval(mgr._healthCheckTimer); clearInterval(mgr._snippetSchedulerTimer);
+
+    await ImapManager.prototype._refreshFolderStatuses.call(mgr, statusAccount, client, new Set(['Archive']));
+
+    // Must queue the sync...
+    expect(mgr._pendingFolderSyncs.has('acct-status:Archive')).toBe(true);
+    // ...and must NOT have written uid_next to DB. Only total/unread may be updated.
+    const uidNextWrites = query.mock.calls.filter(([sql]) => sql.includes('uid_next = $1'));
+    expect(uidNextWrites).toHaveLength(0);
+    // total/unread update is allowed (it doesn't gate the sync decision).
+    const countUpdates = query.mock.calls.filter(([sql]) => sql.includes('total_count = COALESCE'));
+    expect(countUpdates).toHaveLength(1);
   });
 });
