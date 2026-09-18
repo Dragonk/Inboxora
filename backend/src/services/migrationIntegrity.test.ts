@@ -283,4 +283,15 @@ describe('migration integrity', () => {
     expect(sql).not.toMatch(/UPDATE\s+provider_operations/i);
     expect(sql).not.toMatch(/UPDATE\s+sync_states/i);
   });
+
+  it('stores OAuth authorization flows hashed, single-use and owner-scoped', () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/0103_oauth_authorization_flows.sql'), 'utf8');
+    expect(sql).toContain('CREATE TABLE IF NOT EXISTS oauth_authorization_flows');
+    // Only a hash of the one-time state is stored, and it is unique.
+    expect(sql).toContain('state_hash          TEXT NOT NULL UNIQUE');
+    expect(sql).toContain('oauth_authorization_flows_account_owner_fk');
+    expect(sql).toContain('REFERENCES email_accounts(id, user_id)');
+    expect(sql).toContain("CHECK (status IN ('pending', 'exchanging', 'completed', 'failed', 'expired', 'cancelled'))");
+    expect(sql).toContain("CHECK (auth_flow IN ('browser', 'device_code'))");
+  });
 });

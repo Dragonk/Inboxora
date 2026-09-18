@@ -13,6 +13,7 @@ import { redisClient } from './services/redis.js';
 import sendRoutes from './routes/send.js';
 import draftRoutes from './routes/draft.js';
 import oauthRoutes from './routes/oauth.js';
+import oauthGoogleRoutes from './routes/oauthGoogle.js';
 import integrationsRoutes, { loadIntegrationConfigs } from './routes/integrations.js';
 import authRoutes from './routes/auth.js';
 import accountRoutes from './routes/accounts.js';
@@ -217,6 +218,9 @@ app.use('/api/auth', authRoutes);
 app.use('/api/auth/oidc', oidcApiRouter);
 app.use('/auth/oidc', oidcBrowserRouter);
 app.use('/oauth', oauthRoutes);
+// Google web OAuth lives on the same public path as the Microsoft flow; the two
+// routers own disjoint route names.
+app.use('/oauth', oauthGoogleRoutes);
 app.use('/api/integrations', integrationsRoutes);
 app.use('/api/accounts', accountRoutes);
 app.use('/api/mail', mailRoutes);

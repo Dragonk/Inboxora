@@ -75,6 +75,19 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   delivery is at-least-once with a per-event identity and a bounded retry budget, so a delivery
   retry cannot duplicate a local effect. The migration is expand-only and must be applied before a
   build that reads the new columns.
+- Add the server-side Google web OAuth flow (P04 foundation, migration
+  `0103_oauth_authorization_flows.sql`, applied after `0102`). `GET /oauth/google` starts an
+  authorization-code + PKCE (S256) flow for a chosen purpose — new account, mail migration,
+  calendars or contacts — and requests only that purpose's scopes, so adding a mailbox never
+  silently enables calendars/contacts. `GET /oauth/google/callback` exchanges the code, resolves
+  the Google identity as issuer + subject (never the e-mail address) and stores the provider
+  connection plus the encrypted grant. Flow state is stored hashed and single-use in the database,
+  so several flows can run in parallel, a restart does not lose a pending flow, a replayed
+  callback is rejected, a callback delivered into another session attaches nothing, and a flow
+  started under a different Client ID/redirect is not completed. A token response that omits the
+  refresh token keeps the stored one, and each grant write bumps its generation. Google device
+  authorization is deliberately not offered because Google does not allow these scopes in that
+  flow. Selecting the Gmail API as the mail transport remains a separate, explicit migration step.
 
 ## [4.0.4] - 2026-09-18
 
