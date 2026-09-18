@@ -5,8 +5,127 @@ All notable changes to Inboxora are recorded here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 For the narrative version — what the release means, what to expect when upgrading, and the known
-limitations — read the matching page in the Wiki: [Release notes 4.0.2](wiki/Release-notes-4.0.2.md),
+limitations — read the matching page in the Wiki: [Release notes 4.0.3](wiki/Release-notes-4.0.3.md),
+[Release notes 4.0.2](wiki/Release-notes-4.0.2.md),
 [Release notes 4.0.1](wiki/Release-notes-4.0.1.md) and [Release notes 4.0.0](wiki/Release-notes-4.0.0.md).
+
+## [4.0.3] - 2026-09-18
+
+### Fixed
+
+- Remove automatic physical-message relocation based solely on Message-ID. Two distinct copies that
+  share an RFC Message-ID (self-sent Gmail, mailing-list mirrors) now persist as separate physical
+  rows keyed by `(account, uid, folder)`; Conversation Engine logical dedup handles the grouping.
+- Start IMAP IDLE explicitly on persistent sync connections instead of relying on ImapFlow's delayed
+  auto-IDLE, which never fired at the supported 15-second sync interval. Adds observability for
+  accounts that support IDLE but never entered it.
+- Refresh each non-INBOX folder's STATUS watermark after LIST and skip on-demand sync when the server
+  UIDNEXT, message count, and unseen count match the cache. New `folders.uid_next` column; folders
+  with advanced UIDNEXT are queued for a metadata sync even though only INBOX is IDLE-monitored.
+- Fix STATUS gate self-cancellation: `uid_next` is now the watermark of the last completed sync, not
+  the last observed STATUS, so detecting a change no longer writes the new value before the fetch runs.
+- Harden explicit IDLE: track `idleAttemptedAt` separately from `idleEnteredAt` (health check uses the
+  latter), and guard concurrent `_enterExplicitIdle` calls with a per-account single-flight promise.
+- Add a one-time post-relocate repair: per account, a SEARCH-ALL/UID-diff pass over every
+  selectable folder re-fetches only the missing UIDs (including old holes a bounded recent-window
+  scan would never revisit). Completion is recorded in the new `account_maintenance_state` table
+  (migration `0096`) — never as a pseudo-folder row, which `syncFolders()` would prune and
+  `backfillAllFolders()` would try to SELECT on IMAP. The in-process guard covers only runs in
+  flight, so failed runs retry on the next tick instead of waiting for a restart; each folder is
+  re-diffed after repair and the marker is written only when every folder verifies clean, so a
+  parse failure that leaves a UID missing does not mark the account repaired.
+- Fix a double IMAP MOVE in `moveSpamCopy()`: the old body fired `moveMessage()` once inside an
+  eagerly-started promise and a second time for the first caller. The method now issues exactly
+  one MOVE per physical copy, coalescing concurrent callers onto the same promise (the pipeline
+  keeps its own single-flight; the manager map guards direct callers), with regression tests for
+  single-caller, concurrent-callers and reject paths.
+- Harden antispam auto-move: automatic MOVE is INBOX-only (classification/tagging still runs
+  everywhere; Sent, Archive and custom folders are never auto-moved), and the physical row is
+  re-read immediately before the MOVE — a copy relocated by Inbox Rules / the Block List, deleted,
+  or given a user override in the meantime is skipped, so the override always wins including
+  under races.
+- Project `m.spam_verdict` / `m.spam_score_ml` in the flat and threaded list queries,
+  `GET /mail/thread/:threadId`, `GET /mail/messages/:id` and `GET /mail/resolve-message` so the
+  mounted `SpamBadge` actually receives data end-to-end (including the threaded final projection
+  from `ranked`, not just the `deduped` CTE).
+- `POST /api/spam/retrain-now` retrains only the caller (available to every user, matching the
+  per-user SpamSettings UI); fleet-wide rebuilds move to admin-only `POST /api/spam/retrain-all`.
+- Concurrent auto-move callers share the first caller's outcome verbatim instead of reporting
+  `moved=true` for a revalidation-skipped move; the post-relocate repair no longer marks an empty
+  local folder list as complete and runs under the per-host background-connection budget.
+- Gate ML maturity on distinct usable samples: `retrainFromRecords` counts unique messages (by
+  Message-ID, else account/uid/folder) with real features per class into new `spam_models`
+  `usable_spam` / `usable_ham` columns (migration `0097`); ML activates only at `>= minRecords`
+  usable samples with a minimum of each class (default 10), so one mail confirmed 50x or 50 spams
+  with zero hams stays rules-only, and legacy featureless rows no longer mature the model.
+  Manual feedback is persisted through `recordManualFeedback`, which runs the training_log INSERT
+  (now carrying a stable `training_identity`, migration `0098`) and the incremental model update
+  inside one per-user serializer hold — concurrent mark-spam clicks on the same mail cannot both
+  mint a distinct sample, and a repeat confirmation is logged without changing the vocabulary or
+  the usable counters.
+  Full retrain groups rows by `training_identity` with latest-decision-wins: a Spam→Ham correction
+  moves the sample and retrains the vocabulary on the newest label only, independent of row order.
+- Make the training identity stable for messages without a Message-ID: the normalized content hash
+  now takes precedence over the `(account, folder, uid)` triple, so a Spam→Ham correction keeps ONE
+  identity instead of splitting the same mail into two samples after the server re-keys folder+UID.
+  SQL normalization is unified with the TypeScript rule (migration `0099` re-derives identities on
+  databases that applied the first `0098` revision; the replaced unreleased `0098` checksum is
+  accepted so those databases keep booting).
+- Give manual feedback latest-decision-wins semantics in the incremental model too, not only after a
+  full retrain: `recordManualFeedback` reads the latest prior decision for the identity (regardless
+  of label), then either adds a new sample, logs a repeat confirmation without touching the
+  vocabulary or usable counters, or rebuilds the model from the log when the label flips. The whole
+  sequence now runs in one database transaction (`withTransaction`), so the training row and the
+  model row commit together — the incrementally maintained model equals the post-retrain model, and
+  ML can no longer mature prematurely between a correction and the next retrain.
+- Add `messages.spam_score_blended` (migration `0100`), written by the classifier and projected
+  through the flat/threaded list, thread, message and resolve-message queries. `SpamBadge` now shows
+  the score the verdict was actually decided on; rows classified before the column existed show the
+  chip without a percentage instead of the misleading ML-only number.
+- Report antispam maturity in `SpamSettings` from distinct usable samples (with a per-class
+  breakdown and the raw feedback-event count as context) instead of the raw row count.
+  `GET /api/spam/status` derives maturity from the configured thresholds and the usable split;
+  `PATCH /api/spam/thresholds` validates `minRecords`/`softRecords`, enforces
+  `softRecords >= minRecords`, and drops the dead `hardRecords` key; `spamModelStore` per-user
+  lock map entries are released after each run.
+- Keep the other accounts' antispam training effective after a per-account reset:
+  `POST /api/accounts/:id/spam/reset-training` now deletes that account's feedback rows and
+  immediately rebuilds the per-user model from the remaining records (falling back to rules-only
+  when nothing is left to learn from or the rebuild fails) instead of deleting `spam_models`
+  outright, which left every other account untrained until the next scheduled retrain.
+- Add a hybrid antispam classifier (deterministic 14-rule engine + per-user multinomial Naive Bayes):
+  rules always on, ML joins at the configured `minRecords` (>= 50 default), verdict at the configured
+  `spamThreshold` (>= 0.85 default), auto-move at the configured `autoMoveThreshold` (>= 0.95 default)
+  with ML backing only; manual /spam and /ham write one atomic training row with mark-time features
+  (also on the already-in-folder path) and train incrementally through a per-user serializer; a
+  staggered hourly single-flight scheduler rebuilds models with exponential time decay and awaits slow
+  users instead of overlapping; ingest tagging is fire-and-forget and backfill defers auto-move to
+  avoid IMAP connection storms; auto-moves resolve the full account row, share one in-flight MOVE per
+  physical copy, and keep folder badges in step; `GET /api/spam/explain` answers from stored
+  `spam_details`; `users.preferences.spamEnabled` (default on) plus per-account `antispam_enabled`
+  (default off, opt-in, settable via `PUT /api/accounts/:id` and the account form alongside
+  `trusted_authserv_id`) gate automatic classification; only `contacts.is_auto = false` plus own
+  addresses feed the contacts ham signal.
+- Add a React Error Boundary at the entrypoint so a render-time exception shows a translated
+  recovery screen with a reload action instead of a blank page.
+- Add a `pageshow` persisted handler to the WebSocket wake effect so returning from BFCache reuses
+  the existing refresh-and-reconnect path instead of staying silent.
+- Warn before downloading attachments classified as potentially dangerous (executable, script, shortcut
+  extensions and matching media types); the download still proceeds after explicit confirmation and the
+  Download-all ZIP path cannot bypass the prompt.
+- Mount the `SpamSettings` status/master-switch/retrain panel as a third sub-tab (Antyspam) under
+  Settings → Rules, next to Rules and Block List, with a settings-search index entry and locale keys
+  in all 9 locales.
+
+### Notes
+
+- Includes database migrations `0094_folder_uidnext_status.sql`, `0095_spam_classifier_v2.sql`,
+  `0096_account_maintenance_state.sql`, `0097_spam_model_usable_counts.sql`,
+  `0098_spam_training_identity.sql`, `0099_spam_identity_rederivation.sql` and
+  `0100_message_spam_score_blended.sql`, applied in order;
+  apply before running workers or accepting outbound mail. The antispam auto-move is opt-in per
+  account (`email_accounts.antispam_enabled`, default off) behind the per-user master switch
+  (`users.preferences.spamEnabled`, default on). No other configuration is required.
 
 ## [4.0.2] - 2026-09-17
 

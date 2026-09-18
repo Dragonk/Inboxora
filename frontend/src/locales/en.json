@@ -592,6 +592,7 @@
       "bodyConditionNote": "Body rules only run if the message body is already downloaded. If the body has not been fetched yet when a message arrives, the rule is skipped and the message stays in your inbox — body rules do not apply retroactively.",
       "subTabRules": "Rules",
       "subTabBlockList": "Block List",
+      "subTabAntispam": "Antispam",
       "actionsLabel": "Actions",
       "actionMarkRead": "Mark as read",
       "actionStar": "Star",
@@ -911,6 +912,11 @@
       "switchTheme": "Switch to {{theme}} theme",
       "accountInbox": "{{name}} — Inbox"
     }
+  },
+  "errorBoundary": {
+    "title": "Something went wrong",
+    "body": "Inboxora could not display this screen. Reload the page to try again.",
+    "reload": "Reload"
   },
   "common": {
     "cancel": "Cancel",
@@ -1381,6 +1387,11 @@
     "allowDomain": "Always allow from @{{domain}}",
     "downloading": "Downloading…",
     "downloadAll": "Download all",
+    "dangerousAttachment": {
+      "title": "This attachment may be unsafe",
+      "body": "This attachment may run software when opened. Download it only if you trust the sender.",
+      "download": "Download anyway"
+    },
     "reply": "Reply",
     "replyAll": "Reply All",
     "replyOptions": "Reply options",
@@ -1748,7 +1759,21 @@
     "failHamTitle": "Could not mark as not spam",
     "failBody": "The mail server rejected the move.",
     "failHamBody": "The mail server rejected the move.",
-    "failBodyBulk": "{{count}} messages could not be moved."
+    "failBodyBulk": "{{count}} messages could not be moved.",
+    "badgeSpam": "Spam",
+    "badgeUnsure": "Possibly spam",
+    "explainTitle": "Why was this flagged?",
+    "explainMethod": "Method: {{method}}",
+    "settingsTitle": "Antispam",
+    "maturity": "Model {{level}} · {{count}} training messages",
+    "maturityDetail": "{{spam}} spam / {{ham}} ham usable samples ({{events}} feedback events)",
+    "enable": "Enable antispam",
+    "disable": "Disable antispam",
+    "retrainNow": "Retrain now",
+    "enableAccount": "Auto-classify on this account",
+    "enableAccountDesc": "Off by default. Manual Spam/Ham marks always train the model.",
+    "trustedAuthservId": "Trusted authserv-id",
+    "trustedAuthservIdDesc": "Only Authentication-Results from this mail system count (e.g. mx.google.com). Empty = ignore all."
   },
   "todoist": {
     "title": "Create Todoist Task",

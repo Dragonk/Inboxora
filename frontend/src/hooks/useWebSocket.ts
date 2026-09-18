@@ -490,6 +490,7 @@ export function useWebSocket() {
       }
     };
     const pushed = (event: MessageEvent) => { if (event.data?.type === 'inboxora_mail_changed') revive(); };
+    const onPageShow = (event: PageTransitionEvent) => { if (event.persisted) revive(); };
     const countsChanged = () => refreshUnreadCounts();
     navigator.serviceWorker?.addEventListener('message', pushed);
     window.addEventListener('inboxora:unread_changed', countsChanged);
@@ -499,11 +500,13 @@ export function useWebSocket() {
     // cadence afterwards.
     ensureNativePushRegistered();
     document.addEventListener('visibilitychange', revive);
+    window.addEventListener('pageshow', onPageShow);
     window.addEventListener('online', revive);
     return () => {
       navigator.serviceWorker?.removeEventListener('message', pushed);
       window.removeEventListener('inboxora:unread_changed', countsChanged);
       document.removeEventListener('visibilitychange', revive);
+      window.removeEventListener('pageshow', onPageShow);
       window.removeEventListener('online', revive);
     };
   }, [connect]);

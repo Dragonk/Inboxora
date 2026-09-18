@@ -85,6 +85,7 @@
       "bodyConditionNote": "Treść reguły jest wykonywana tylko wtedy, gdy treść wiadomości została już pobrana. Jeśli treść nie została jeszcze pobrana w chwili nadejścia wiadomości, reguła zostanie pominięta, a wiadomość pozostanie w skrzynce odbiorczej — reguła nie zostanie zastosowana wstecznie.",
       "subTabRules": "Reguły",
       "subTabBlockList": "Lista blokad",
+      "subTabAntispam": "Antyspam",
       "actionsLabel": "Działania",
       "actionMarkRead": "Oznacz jako przeczytane",
       "actionStar": "Oznacz gwiazdką",
@@ -912,6 +913,11 @@
       "accountInbox": "{{name}} — Skrzynka odbiorcza"
     }
   },
+  "errorBoundary": {
+    "title": "Coś poszło nie tak",
+    "body": "Inboxora nie mogła wyświetlić tego ekranu. Odśwież stronę, aby spróbować ponownie.",
+    "reload": "Odśwież"
+  },
   "common": {
     "cancel": "Anuluj",
     "save": "Zapisz",
@@ -1383,6 +1389,11 @@
     "allowDomain": "Zawsze zezwalaj domenie @{{domain}}",
     "downloading": "Pobieranie…",
     "downloadAll": "Pobierz wszystko",
+    "dangerousAttachment": {
+      "title": "Ten załącznik może być niebezpieczny",
+      "body": "Ten załącznik może uruchomić program po otwarciu. Pobierz go tylko, jeśli ufasz nadawcy.",
+      "download": "Pobierz mimo to"
+    },
     "reply": "Odpowiedz",
     "replyAll": "Odpowiedz wszystkim",
     "replyOptions": "Opcje odpowiedzi",
@@ -1748,7 +1759,21 @@
     "failHamTitle": "Nie udało się oznaczyć wiadomości jako niebędącej spamem",
     "failBody": "Serwer pocztowy odrzucił przeniesienie.",
     "failHamBody": "Serwer pocztowy odrzucił przeniesienie.",
-    "failBodyBulk": "Nie udało się przenieść {{count}} wiadomości."
+    "failBodyBulk": "Nie udało się przenieść {{count}} wiadomości.",
+    "badgeSpam": "Spam",
+    "badgeUnsure": "Podejrzany spam",
+    "explainTitle": "Dlaczego oznaczono?",
+    "explainMethod": "Metoda: {{method}}",
+    "settingsTitle": "Antyspam",
+    "maturity": "Model {{level}} · {{count}} wiadomości treningowych",
+    "maturityDetail": "{{spam}} spam / {{ham}} ham użytecznych próbek ({{events}} zdarzeń opinii)",
+    "enable": "Włącz antyspam",
+    "disable": "Wyłącz antyspam",
+    "retrainNow": "Przeucz teraz",
+    "enableAccount": "Automatycznie klasyfikuj na tym koncie",
+    "enableAccountDesc": "Domyślnie wyłączone. Ręczne oznaczenia zawsze uczą model.",
+    "trustedAuthservId": "Zaufane authserv-id",
+    "trustedAuthservIdDesc": "Liczą się tylko Authentication-Results z tego systemu. Puste = ignoruj wszystkie."
   },
   "todoist": {
     "title": "Utwórz zadanie Todoist",

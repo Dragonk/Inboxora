@@ -613,6 +613,7 @@
       "bodyConditionNote": "Les règles sur le corps ne s'appliquent que si le corps du message est déjà téléchargé. S'il n'a pas encore été récupéré à l'arrivée du message, la règle est ignorée et le message reste dans la boîte de réception — les règles sur le corps ne s'appliquent pas rétroactivement.",
       "subTabRules": "Règles",
       "subTabBlockList": "Liste de blocage",
+      "subTabAntispam": "Antispam",
       "actionMoveSelectFolder": "Sélectionner un dossier…",
       "actionMoveRequiresAccount": "Nécessite un compte spécifique"
     },
@@ -911,6 +912,11 @@
       "switchTheme": "Passer au thème {{theme}}",
       "accountInbox": "{{name}} — Boîte de réception"
     }
+  },
+  "errorBoundary": {
+    "title": "Un problème est survenu",
+    "body": "Inboxora n’a pas pu afficher cet écran. Rechargez la page pour réessayer.",
+    "reload": "Recharger"
   },
   "common": {
     "cancel": "Annuler",
@@ -1381,6 +1387,11 @@
     "allowDomain": "Toujours autoriser depuis @{{domain}}",
     "downloading": "Téléchargement…",
     "downloadAll": "Tout télécharger",
+    "dangerousAttachment": {
+      "title": "Cette pièce jointe peut être dangereuse",
+      "body": "Cette pièce jointe peut exécuter un logiciel à son ouverture. Ne la téléchargez que si vous faites confiance à l’expéditeur.",
+      "download": "Télécharger quand même"
+    },
     "reply": "Répondre",
     "replyAll": "Répondre à tous",
     "replyOptions": "Options de réponse",
@@ -1748,7 +1759,21 @@
     "failHamTitle": "Impossible de marquer comme non spam",
     "failBody": "Le serveur de messagerie a refusé le déplacement.",
     "failHamBody": "Le serveur de messagerie a refusé le déplacement.",
-    "failBodyBulk": "{{count}} messages n'ont pas pu être déplacés."
+    "failBodyBulk": "{{count}} messages n'ont pas pu être déplacés.",
+    "badgeSpam": "Spam",
+    "badgeUnsure": "Éventuel spam",
+    "explainTitle": "Pourquoi signalé ?",
+    "explainMethod": "Méthode : {{method}}",
+    "settingsTitle": "Antispam",
+    "maturity": "Modèle {{level}} · {{count}} messages",
+    "maturityDetail": "{{spam}} spam / {{ham}} ham échantillons utilisables ({{events}} événements de retour)",
+    "enable": "Activer l'antispam",
+    "disable": "Désactiver l'antispam",
+    "retrainNow": "Réentraîner",
+    "enableAccount": "Classifier automatiquement sur ce compte",
+    "enableAccountDesc": "Désactivé par défaut. Les marquages manuels entraînent toujours.",
+    "trustedAuthservId": "Authserv-id de confiance",
+    "trustedAuthservIdDesc": "Seuls les Authentication-Results de ce système comptent. Vide = tout ignorer."
   },
   "todoist": {
     "title": "Créer une tâche Todoist",

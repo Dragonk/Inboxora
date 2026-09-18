@@ -13,7 +13,7 @@ vi.mock('./hostValidation.js', () => ({ resolveForConnection: vi.fn() }));
 vi.mock('./connectionPolicy.js', () => ({ getConnectionPolicy: vi.fn() }));
 
 import type { CollectedParts, EmailAccountRow } from './imapManager.js';
-import { ImapManager, providerProfile, makeClientCfg, attachmentTransferEncoding, relocateExemptGuard, insertCopiedSibling, deleteMessageCopyRow, emitSectionsChanged, ensureMailbox, createKeyedSemaphore, isConnectionRefusal, connectCooldownMs, effectiveSyncIntervalMs, folderSyncDue, planModseqSync, connectStaggerFor, walkStructure, shouldFallbackToTextPart, persistInboundCalendarInvitationFromMessage, looksLikeTextPayload, parsePersistentCap, resolvePersistentCap, persistentEligible, shouldRetryIPv4, classifyMoveBySearch } from './imapManager.js';
+import { ImapManager, providerProfile, makeClientCfg, attachmentTransferEncoding, insertCopiedSibling, deleteMessageCopyRow, emitSectionsChanged, ensureMailbox, createKeyedSemaphore, isConnectionRefusal, connectCooldownMs, effectiveSyncIntervalMs, folderSyncDue, planModseqSync, connectStaggerFor, walkStructure, shouldFallbackToTextPart, persistInboundCalendarInvitationFromMessage, looksLikeTextPayload, parsePersistentCap, resolvePersistentCap, persistentEligible, shouldRetryIPv4, classifyMoveBySearch, evaluateFolderStatusChange } from './imapManager.js';
 import { parseInboundCalendarInvitation } from './inboundCalendarInvitation.js';
 import { pluginRegistry } from '../plugins/registry.js';
 import { EventEmitter } from 'node:events';
@@ -206,35 +206,6 @@ describe('looksLikeTextPayload', () => {
   });
 });
 
-// ── relocateExemptGuard — move-detector exemption ────────────────────────────
-
-describe('relocateExemptGuard — label folder relocate exemption', () => {
-  it('is a no-op when no label plugin contributes folders', () => {
-    const guard = relocateExemptGuard([], 5);
-    expect(guard.clause).toBe('');
-    expect(guard.params).toEqual([]);
-  });
-
-  it('binds the exempt folders as a single array param', () => {
-    const guard = relocateExemptGuard(['Todo', 'Watch'], 5);
-    expect(guard.params).toEqual([['Todo', 'Watch']]);
-  });
-
-  it('exempts both the target folder ($1) and the row current folder', () => {
-    const { clause } = relocateExemptGuard(['Todo'], 5);
-    // Target folder being synced ($1) must not be relocated INTO an exempt label folder…
-    expect(clause).toContain('$1 <> ALL($5::text[])');
-    // …and a row already living in an exempt label folder must not be relocated OUT of it.
-    expect(clause).toContain('folder <> ALL($5::text[])');
-  });
-
-  it('uses the supplied positional bind index', () => {
-    const { clause } = relocateExemptGuard(['Todo'], 7);
-    expect(clause).toContain('$7::text[]');
-    expect(clause).not.toContain('$5');
-  });
-});
-
 // ── makeClientCfg — TLS enforcement ──────────────────────────────────────────
 
 describe('makeClientCfg — TLS enforcement', () => {
@@ -279,6 +250,168 @@ describe('makeClientCfg — TLS enforcement', () => {
     expect(cfg.auth).toEqual({ user: 'user', accessToken: 'oauth-access-token' });
     expect(decrypt).toHaveBeenCalledTimes(1);
     expect(decrypt).toHaveBeenCalledWith('enc:v1:token');
+  });
+});
+
+describe('explicit IDLE configuration', () => {
+  it('disables delayed auto-IDLE and keeps an explicit keepalive on persistent clients', () => {
+    const cfg = makeClientCfg(baseAccount, resolved, { enableIdle: true, idleKeepaliveMs: 240000 });
+    expect(cfg.disableAutoIdle).toBe(true);
+    expect(cfg.maxIdleTime).toBe(240000);
+  });
+
+  it('starts IDLE immediately for a connected, non-idling account', async () => {
+    const client = mockImapClient({ idling: false, idle: vi.fn().mockResolvedValue(true) });
+    const mgr = {
+      connections: new Map([['acct-idle', client]]),
+      idleAttemptedAt: new Map<string, number>(),
+      idleEnteredAt: new Map<string, number>(),
+      idleInflights: new Map<string, Promise<void>>(),
+      idleHealthWarned: new Set<string>(['acct-idle']),
+    };
+    const idleAccount = { id: 'acct-idle', user_id: 'user-1', email_address: 'a@example.com', imap_host: 'imap.example.com' };
+
+    ImapManager.prototype._enterExplicitIdle.call(mgr, client, idleAccount);
+    expect(mgr.idleInflights.has('acct-idle')).toBe(true);
+    await Promise.resolve();
+    expect(client.idle).toHaveBeenCalledTimes(1);
+    expect(mgr.idleAttemptedAt.has('acct-idle')).toBe(true);
+    expect(mgr.idleHealthWarned.has('acct-idle')).toBe(false);
+  });
+
+  it('does not issue a second IDLE command while one is already in flight', () => {
+    const client = mockImapClient({ idling: false, idle: vi.fn() });
+    const inflight = new Promise<void>(() => {});
+    const mgr = {
+      connections: new Map([['acct-idle', client]]),
+      idleAttemptedAt: new Map<string, number>(),
+      idleEnteredAt: new Map<string, number>(),
+      idleInflights: new Map<string, Promise<void>>([['acct-idle', inflight]]),
+      idleHealthWarned: new Set<string>(),
+    };
+    ImapManager.prototype._enterExplicitIdle.call(mgr, client, { id: 'acct-idle', user_id: 'user-1', imap_host: 'imap.example.com' });
+    expect(client.idle).not.toHaveBeenCalled();
+  });
+
+  it('coalesces two concurrent _enterExplicitIdle calls into a single idle()', async () => {
+    // The guard must be installed synchronously before the first idle()
+    // resolves, otherwise two callers could both pass the client.idling check
+    // and issue duplicate IDLE commands for one connection.
+    const idle = vi.fn().mockImplementation(async function (this: { idling: boolean }) { this.idling = true; });
+    const client = mockImapClient({ idling: false, idle });
+    const mgr = {
+      connections: new Map([['acct-idle', client]]),
+      idleAttemptedAt: new Map<string, number>(),
+      idleEnteredAt: new Map<string, number>(),
+      idleInflights: new Map<string, Promise<void>>(),
+      idleHealthWarned: new Set<string>(),
+    };
+    const idleAccount = { id: 'acct-idle', user_id: 'user-1', imap_host: 'imap.example.com' };
+
+    ImapManager.prototype._enterExplicitIdle.call(mgr, client, idleAccount);
+    ImapManager.prototype._enterExplicitIdle.call(mgr, client, idleAccount);
+
+    await vi.waitFor(() => expect(mgr.idleInflights.has('acct-idle')).toBe(false), { timeout: 3000 });
+    expect(idle).toHaveBeenCalledTimes(1);
+  });
+
+  it('records idleEnteredAt when the server acknowledges IDLE via exists', () => {
+    const client = mockImapClient(new EventEmitter());
+    client.idling = true;
+    const mgr = {
+      connections: new Map([['acct-idle', client]]),
+      idleAttemptedAt: new Map<string, number>(),
+      idleEnteredAt: new Map<string, number>(),
+      idleInflights: new Map<string, Promise<void>>(),
+      idleHealthWarned: new Set<string>(['acct-idle']),
+      broadcast: vi.fn(),
+      syncingAccounts: new Set<string>(),
+      _pendingInboxSync: new Set<string>(),
+      _syncTick: vi.fn().mockResolvedValue(undefined),
+    };
+    const idleAccount = { id: 'acct-idle', user_id: 'user-1', imap_host: 'imap.example.com' };
+    ImapManager.prototype._attachIdleListeners.call(mgr, client, idleAccount);
+    client.emit('exists', { count: 12, prevCount: 11 });
+    expect(mgr.idleEnteredAt.has('acct-idle')).toBe(true);
+    expect(mgr.idleHealthWarned.has('acct-idle')).toBe(false);
+  });
+
+  it('does not issue a second IDLE command while one is already in flight', () => {
+    const client = mockImapClient({ idling: false, idle: vi.fn() });
+    const inflight = new Promise<void>(() => {});
+    const mgr = {
+      connections: new Map([['acct-idle', client]]),
+      idleAttemptedAt: new Map<string, number>(),
+      idleEnteredAt: new Map<string, number>(),
+      idleInflights: new Map<string, Promise<void>>([['acct-idle', inflight]]),
+      idleHealthWarned: new Set<string>(),
+    };
+    ImapManager.prototype._enterExplicitIdle.call(mgr, client, { id: 'acct-idle', user_id: 'user-1', imap_host: 'imap.example.com' });
+    expect(client.idle).not.toHaveBeenCalled();
+  });
+
+  it('records idleEnteredAt when the server acknowledges IDLE via exists', () => {
+    const client = mockImapClient(new EventEmitter());
+    client.idling = true;
+    const mgr = {
+      connections: new Map([['acct-idle', client]]),
+      idleAttemptedAt: new Map<string, number>(),
+      idleEnteredAt: new Map<string, number>(),
+      idleInflights: new Map<string, Promise<void>>(),
+      idleHealthWarned: new Set<string>(['acct-idle']),
+      broadcast: vi.fn(),
+      syncingAccounts: new Set<string>(),
+      _pendingInboxSync: new Set<string>(),
+      _syncTick: vi.fn().mockResolvedValue(undefined),
+    };
+    const idleAccount = { id: 'acct-idle', user_id: 'user-1', imap_host: 'imap.example.com' };
+    ImapManager.prototype._attachIdleListeners.call(mgr, client, idleAccount);
+    client.emit('exists', { count: 12, prevCount: 11 });
+    expect(mgr.idleEnteredAt.has('acct-idle')).toBe(true);
+    expect(mgr.idleHealthWarned.has('acct-idle')).toBe(false);
+  });
+
+  it('records idleEnteredAt from the bounded post-start check without any event', async () => {
+    const client = mockImapClient({ idling: false, idle: vi.fn().mockImplementation(async function (this: { idling: boolean }) {
+      this.idling = true;
+    }) });
+    const mgr = {
+      connections: new Map([['acct-idle', client]]),
+      idleAttemptedAt: new Map<string, number>(),
+      idleEnteredAt: new Map<string, number>(),
+      idleInflights: new Map<string, Promise<void>>(),
+      idleHealthWarned: new Set<string>(['acct-idle']),
+    };
+    ImapManager.prototype._enterExplicitIdle.call(
+      mgr, client, { id: 'acct-idle', user_id: 'user-1', imap_host: 'imap.example.com' },
+    );
+    await vi.waitFor(() => expect(mgr.idleEnteredAt.has('acct-idle')).toBe(true), { timeout: 3000 });
+    expect(mgr.idleHealthWarned.has('acct-idle')).toBe(false);
+  });
+
+  it('does not mark entered when idle() rejects', async () => {
+    const client = mockImapClient({ idling: false, idle: vi.fn().mockRejectedValue(new Error('IDLE refused')) });
+    const mgr = {
+      connections: new Map([['acct-idle', client]]),
+      idleAttemptedAt: new Map<string, number>(),
+      idleEnteredAt: new Map<string, number>(),
+      idleInflights: new Map<string, Promise<void>>(),
+      idleHealthWarned: new Set<string>(),
+    };
+    const events: string[] = [];
+    const origWarn = console.warn;
+    console.warn = (...args: unknown[]) => { events.push(String(args[0])); };
+    try {
+      ImapManager.prototype._enterExplicitIdle.call(
+        mgr, client, { id: 'acct-idle', user_id: 'user-1', imap_host: 'imap.example.com' },
+      );
+      expect(mgr.idleAttemptedAt.has('acct-idle')).toBe(true);
+      await vi.waitFor(() => expect(mgr.idleInflights.has('acct-idle')).toBe(false), { timeout: 3000 });
+      await new Promise(r => setTimeout(r, 1200));
+      expect(mgr.idleEnteredAt.has('acct-idle')).toBe(false);
+    } finally {
+      console.warn = origWarn;
+    }
   });
 });
 
@@ -1247,6 +1380,51 @@ describe('syncMessages — empty local cache vs nonempty server (wiring)', () =>
   });
 });
 
+describe('syncMessages — physical copy identity', () => {
+  it('inserts separate Sent and INBOX physical rows with the same Message-ID', async () => {
+    const active = vi.spyOn(pluginRegistry, 'hasActiveAsync').mockResolvedValue(false);
+    const account = {
+      id: 'acct-physical-copies', user_id: 'user-1', email_address: 'me@example.com',
+      gtd_enabled: false, categorization_enabled: false, imap_host: 'imap.example.com',
+    };
+    const makeClient = (uid: number) => mockImapClient({
+      getMailboxLock: vi.fn().mockResolvedValue({ release: vi.fn() }),
+      mailbox: { exists: 1, uidValidity: 100, highestModseq: 500n },
+      fetch: vi.fn(async function* () { yield { uid }; }),
+    });
+    try {
+      query.mockReset();
+      query.mockImplementation((sql) => {
+        if (sql.includes('SELECT uid_validity, highest_modseq FROM folders')) return Promise.resolve({ rows: [{ uid_validity: 100, highest_modseq: '500' }] });
+        if (sql.includes('COUNT(*) FILTER (WHERE is_read = false)')) return Promise.resolve({ rows: [{ n: 0 }] });
+        if (sql.includes('COALESCE(MAX(uid), 0)')) return Promise.resolve({ rows: [{ max_uid: 0 }] });
+        if (sql.includes('INSERT INTO messages')) return Promise.resolve({ rows: [{ id: `copy-${query.mock.calls.length}`, is_new: true }] });
+        return Promise.resolve({ rows: [] });
+      });
+      parseMessage.mockImplementation(async (message) => ({
+        deliveryAddresses: [], attributes: { emailId: null, threadId: null }, senderName: 'Me', senderEmail: 'me@example.com',
+        uid: Number(message.uid), messageId: '<self-sent@example.test>', subject: 'Self sent', fromName: 'Me', fromEmail: 'me@example.com',
+        to: [], cc: [], replyTo: [], inReplyTo: null, references: null, date: new Date('2026-09-01T10:00:00Z'),
+        snippet: 'copy', isRead: true, isStarred: false, hasAttachments: false, flags: ['\\Seen'], isBulk: false, parsedHeaders: {},
+      }));
+
+      await ImapManager.prototype.syncMessages.call({ pluginFacade: {} }, account, makeClient(123), 'Sent', 50, false, true);
+      await ImapManager.prototype.syncMessages.call({ pluginFacade: {} }, account, makeClient(874), 'INBOX', 50, false, true);
+
+      const inserts = query.mock.calls.filter(([sql]) => sql.includes('INSERT INTO messages'));
+      expect(inserts).toHaveLength(2);
+      const insertParams = inserts.map((call) => call[1] as unknown[]);
+      expect(insertParams.map((params) => [params[1], params[2], params[3]])).toEqual([
+        [123, 'Sent', '<self-sent@example.test>'],
+        [874, 'INBOX', '<self-sent@example.test>'],
+      ]);
+      expect(query.mock.calls.some(([sql]) => sql.includes('UPDATE messages SET\n    folder ='))).toBe(false);
+    } finally {
+      active.mockRestore();
+    }
+  });
+});
+
 describe('syncMessages — Web Push branding', () => {
   beforeEach(() => {
     query.mockReset();
@@ -2164,4 +2342,435 @@ it('drains a queued arrival after the active sync releases its account lock', as
   await vi.waitFor(() => expect(mgr.syncMessages).toHaveBeenCalledTimes(2));
   expect(mgr._pendingInboxSync.has(account.id)).toBe(false);
   clearInterval(mgr._healthCheckTimer); clearInterval(mgr._snippetSchedulerTimer);
+});
+
+// ── evaluateFolderStatusChange — STATUS vs cache decision ────────────────────
+describe('evaluateFolderStatusChange', () => {
+  it('flags a changed UIDNEXT', () => {
+    expect(evaluateFolderStatusChange({
+      cachedUidNext: 100, cachedTotal: 10, cachedUnseen: 2,
+      serverUidNext: 101, serverMessages: 10, serverUnseen: 2,
+    })).toEqual({ uidNextChanged: true, totalChanged: false, unseenChanged: false });
+  });
+
+  it('flags a changed message count', () => {
+    expect(evaluateFolderStatusChange({
+      cachedUidNext: 100, cachedTotal: 10, cachedUnseen: 2,
+      serverUidNext: 100, serverMessages: 11, serverUnseen: 2,
+    })).toEqual({ uidNextChanged: false, totalChanged: true, unseenChanged: false });
+  });
+
+  it('flags a changed unseen count', () => {
+    expect(evaluateFolderStatusChange({
+      cachedUidNext: 100, cachedTotal: 10, cachedUnseen: 2,
+      serverUidNext: 100, serverMessages: 10, serverUnseen: 3,
+    })).toEqual({ uidNextChanged: false, totalChanged: false, unseenChanged: true });
+  });
+
+  it('reports nothing when server values match the cache', () => {
+    expect(evaluateFolderStatusChange({
+      cachedUidNext: 100, cachedTotal: 10, cachedUnseen: 2,
+      serverUidNext: 100, serverMessages: 10, serverUnseen: 2,
+    })).toEqual({ uidNextChanged: false, totalChanged: false, unseenChanged: false });
+  });
+
+  it('treats null server fields as unknown (no false change)', () => {
+    expect(evaluateFolderStatusChange({
+      cachedUidNext: 100, cachedTotal: 10, cachedUnseen: 2,
+      serverUidNext: null, serverMessages: null, serverUnseen: null,
+    })).toEqual({ uidNextChanged: false, totalChanged: false, unseenChanged: false });
+  });
+});
+
+// ── syncFolderOnDemand — coalescing + STATUS gate ────────────────────────────
+describe('syncFolderOnDemand', () => {
+  const onDemandAccount = { id: 'acct-ondemand', user_id: 'user-1', email_address: 'a@example.com', imap_host: 'imap.example.com' };
+
+  it('skips the sync when STATUS shows the folder is unchanged', async () => {
+    query.mockReset();
+    query.mockImplementation((sql) => {
+      if (sql.includes('SELECT uid_next, total_count, unread_count')) return Promise.resolve({ rows: [{ uid_next: 100, total_count: 10, unread_count: 2 }] });
+      return Promise.resolve({ rows: [] });
+    });
+    const mgr = new ImapManager({ clients: new Set() });
+    clearInterval(mgr._healthCheckTimer); clearInterval(mgr._snippetSchedulerTimer);
+    mgr._fetchFolderStatus = vi.fn().mockResolvedValue({ uidNext: 100, messages: 10, unseen: 2 });
+
+    const ran = await mgr.syncFolderOnDemand(onDemandAccount, 'Archive');
+
+    expect(ran).toBe(false);
+    expect(mgr._fetchFolderStatus).toHaveBeenCalledWith(onDemandAccount, 'Archive');
+  });
+
+  it('runs the sync when STATUS detects new mail', async () => {
+    query.mockReset();
+    query.mockImplementation((sql) => {
+      if (sql.includes('SELECT uid_next, total_count, unread_count')) return Promise.resolve({ rows: [{ uid_next: 100, total_count: 10, unread_count: 2 }] });
+      return Promise.resolve({ rows: [] });
+    });
+    const mgr = new ImapManager({ clients: new Set() });
+    clearInterval(mgr._healthCheckTimer); clearInterval(mgr._snippetSchedulerTimer);
+    mgr._fetchFolderStatus = vi.fn().mockResolvedValue({ uidNext: 101, messages: 11, unseen: 3 });
+    mgr.syncMessages = vi.fn().mockResolvedValue({ insertedCount: 1, broadcastedNewMessages: true });
+
+    const ran = await mgr.syncFolderOnDemand(onDemandAccount, 'Archive');
+
+    expect(ran).toBe(true);
+    expect(mgr.syncMessages).toHaveBeenCalled();
+  });
+
+  it('coalesces concurrent demand calls into one sync', async () => {
+    const mgr = new ImapManager({ clients: new Set() });
+    clearInterval(mgr._healthCheckTimer); clearInterval(mgr._snippetSchedulerTimer);
+    let syncsStarted = 0;
+    mgr._runOnDemandFolderSync = async function (this: ImapManager, account: EmailAccountRow, folder: string, key: string) {
+      syncsStarted++;
+      this.onDemandSyncing.add(key);
+      await new Promise(r => setTimeout(r, 10));
+      this.onDemandSyncing.delete(key);
+      return true;
+    };
+
+    const [a, b] = await Promise.all([
+      mgr.syncFolderOnDemand(onDemandAccount, 'Archive'),
+      mgr.syncFolderOnDemand(onDemandAccount, 'Archive'),
+    ]);
+
+    expect(a).toBe(true);
+    expect(b).toBe(true);
+    expect(syncsStarted).toBe(1);
+  });
+});
+
+// ── _refreshFolderStatuses — must not self-cancel the sync ──────────────────
+describe('_refreshFolderStatuses', () => {
+  const statusAccount = { id: 'acct-status', user_id: 'user-1', email_address: 'a@example.com', imap_host: 'imap.example.com' };
+
+  it('does NOT write uid_next to DB when a change is detected (would self-cancel the sync)', async () => {
+    query.mockReset();
+    query.mockImplementation((sql) => {
+      if (sql.includes('SELECT path, uid_next FROM folders')) return Promise.resolve({ rows: [{ path: 'Archive', uid_next: 100 }] });
+      return Promise.resolve({ rows: [] });
+    });
+    const client = mockImapClient({ status: vi.fn().mockResolvedValue({ uidNext: 101, messages: 11, unseen: 3 }) });
+    const mgr = new ImapManager({ clients: new Set() });
+    clearInterval(mgr._healthCheckTimer); clearInterval(mgr._snippetSchedulerTimer);
+
+    await ImapManager.prototype._refreshFolderStatuses.call(mgr, statusAccount, client, new Set(['Archive']));
+
+    // Must queue the sync...
+    expect(mgr._pendingFolderSyncs.has('acct-status:Archive')).toBe(true);
+    // ...and must NOT have written uid_next to DB. Only total/unread may be updated.
+    const uidNextWrites = query.mock.calls.filter(([sql]) => sql.includes('uid_next = $1'));
+    expect(uidNextWrites).toHaveLength(0);
+    // total/unread update is allowed (it doesn't gate the sync decision).
+    const countUpdates = query.mock.calls.filter(([sql]) => sql.includes('total_count = COALESCE'));
+    expect(countUpdates).toHaveLength(1);
+  });
+
+  it('advances uid_next only after the queued sync actually ingests the new mail', async () => {
+    // End-to-end gate: cached uid_next=100 → STATUS reports 101 → the folder is
+    // queued and the watermark is NOT advanced → the real syncMessages() run
+    // inserts the new message → only then does uid_next become 101. If the
+    // watermark were written at detection time, _folderNeedsSync() would later
+    // compare 101 against 101 and skip the very fetch that was queued.
+    const e2eAccount = {
+      id: 'acct-status-e2e', user_id: 'user-1', email_address: 'me@example.com',
+      imap_host: 'imap.example.com', gtd_enabled: false, categorization_enabled: false,
+    };
+    query.mockReset();
+    parseMessage.mockReset();
+    invalidateGtdConfigCache(e2eAccount.id);
+    const folderUpserts: unknown[][] = [];
+    query.mockImplementation((sql: string, params?: unknown[]) => {
+      if (sql.includes('SELECT path, uid_next FROM folders')) {
+        return Promise.resolve({ rows: [{ path: 'INBOX', uid_next: 100 }] });
+      }
+      if (sql.includes('SELECT uid_validity, highest_modseq FROM folders')) {
+        return Promise.resolve({ rows: [{ uid_validity: 100, highest_modseq: '500' }] });
+      }
+      if (sql.includes('COUNT(*) FILTER (WHERE is_read = false)')) return Promise.resolve({ rows: [{ n: 0 }] });
+      if (sql.includes('COALESCE(MAX(uid), 0)')) return Promise.resolve({ rows: [{ max_uid: 100 }] });
+      if (sql.includes('INSERT INTO folders')) {
+        folderUpserts.push(params ?? []);
+        return Promise.resolve({ rows: [] });
+      }
+      if (sql.includes('INSERT INTO messages')) return Promise.resolve({ rows: [{ id: 'msg-101', is_new: true }] });
+      if (sql.includes('SELECT gtd_enabled, gtd_folders FROM email_accounts')) {
+        return Promise.resolve({ rows: [{ gtd_enabled: false, gtd_folders: {} }] });
+      }
+      if (sql.includes("preferences->>'categorizationEnabled'")) return Promise.resolve({ rows: [{ val: false }] });
+      return Promise.resolve({ rows: [] });
+    });
+    parseMessage.mockResolvedValue({
+      deliveryAddresses: [],
+      attributes: { emailId: null, threadId: null },
+      senderName: 'External',
+      senderEmail: 'them@example.com',
+      uid: 101,
+      messageId: null,
+      subject: 'New mail',
+      fromName: 'External',
+      fromEmail: 'them@example.com',
+      to: [], cc: [], replyTo: [],
+      inReplyTo: null,
+      references: null,
+      date: new Date('2026-07-17T10:00:00Z'),
+      snippet: 'hi',
+      isRead: true,
+      isStarred: false,
+      hasAttachments: false,
+      flags: ['\\Seen'],
+      isBulk: false,
+      parsedHeaders: {},
+    });
+    const client = mockImapClient({
+      getMailboxLock: vi.fn().mockResolvedValue({ release: vi.fn() }),
+      mailbox: { exists: 11, uidNext: 101, uidValidity: 100, highestModseq: 500n },
+      status: vi.fn().mockResolvedValue({ uidNext: 101, messages: 11, unseen: 3 }),
+      fetch: vi.fn(async function* (range: string) { if (range === '101:*') yield { uid: 101 }; }),
+    });
+    const mgr = new ImapManager({ clients: new Set() });
+    clearInterval(mgr._healthCheckTimer); clearInterval(mgr._snippetSchedulerTimer);
+
+    await ImapManager.prototype._refreshFolderStatuses.call(mgr, e2eAccount, client, new Set(['INBOX']));
+    expect(mgr._pendingFolderSyncs.has('acct-status-e2e:INBOX')).toBe(true);
+    // Detection alone must not move the watermark nor ingest anything — in
+    // either write shape (folders upsert or a bare uid_next UPDATE).
+    expect(folderUpserts).toHaveLength(0);
+    expect(query.mock.calls.some(([sql]) => /uid_next\s*=/.test(String(sql)))).toBe(false);
+    expect(query.mock.calls.some(([sql]) => String(sql).includes('INSERT INTO messages'))).toBe(false);
+
+    await ImapManager.prototype.syncMessages.call({}, e2eAccount, client, 'INBOX', 50, false, true);
+
+    // The sync ingested the message and only then advanced uid_next to 101.
+    expect(query.mock.calls.some(([sql]) => String(sql).includes('INSERT INTO messages'))).toBe(true);
+    expect(folderUpserts).toHaveLength(1);
+    expect(Number(folderUpserts[0][5])).toBe(101);
+  });
+});
+
+// ── runPostRelocateRepair — SEARCH-ALL UID diff + durable marker ────────────
+describe('runPostRelocateRepair', () => {
+  const repairAccount = { id: 'acct-repair', user_id: 'user-1', email_address: 'a@example.com', imap_host: 'imap.example.com' };
+
+  function repairMgr(
+    serverUids: number[],
+    localUids: number[],
+    recovered: string[],
+    opts: { failFolders?: string[]; remaining?: number[] } = {},
+  ) {
+    const mgr = new ImapManager({ clients: new Set() });
+    clearInterval(mgr._healthCheckTimer); clearInterval(mgr._snippetSchedulerTimer);
+    (mgr as unknown as { repairFolderMissingUids: (account: unknown, folder: string) => Promise<number> }).repairFolderMissingUids =
+      async (_account: unknown, folder: string) => {
+        if (opts.failFolders?.includes(folder)) throw new Error('mailbox gone');
+        const have = new Set(localUids);
+        const missing = serverUids.filter(uid => !have.has(uid));
+        for (const uid of missing) recovered.push(`${folder}:${uid}`);
+        return missing.length;
+      };
+    (mgr as unknown as { remainingRepairUids: (account: unknown, folder: string) => Promise<number[]> }).remainingRepairUids =
+      async () => opts.remaining ?? [];
+    mgr.broadcast = vi.fn();
+    return mgr;
+  }
+
+  function markerMock(folderRows: Array<{ path: string; no_select: boolean }>) {
+    query.mockImplementation((sql) => {
+      if (typeof sql === 'string' && sql.includes('FROM account_maintenance_state')) {
+        return Promise.resolve({ rows: [] }); // marker absent → repair runs
+      }
+      if (typeof sql === 'string' && sql.includes('SELECT path, no_select FROM folders')) {
+        return Promise.resolve({ rows: folderRows });
+      }
+      return Promise.resolve({ rows: [] });
+    });
+  }
+
+  it('recovers a missing UID the bounded sync window would never revisit', async () => {
+    query.mockReset();
+    markerMock([{ path: 'Archive', no_select: false }]);
+    const recovered: string[] = [];
+    const mgr = repairMgr([1, 2, 3, 4, 5, 500, 501], [1, 2, 4, 5, 500, 501], recovered);
+
+    const result = await ImapManager.prototype.runPostRelocateRepair.call(mgr, repairAccount);
+
+    expect(recovered).toEqual(['Archive:3']);
+    expect(result).toEqual({ foldersRefreshed: 1, uidsRecovered: 1 });
+    const markerWrites = query.mock.calls.filter(([sql]) =>
+      String(sql).includes('INSERT INTO account_maintenance_state'));
+    expect(markerWrites.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('skips entirely when the durable marker is already present', async () => {
+    query.mockReset();
+    query.mockImplementation((sql) => {
+      if (typeof sql === 'string' && sql.includes('FROM account_maintenance_state')) {
+        return Promise.resolve({ rows: [{ completed_at: new Date().toISOString() }] });
+      }
+      return Promise.resolve({ rows: [] });
+    });
+    const recovered: string[] = [];
+    const mgr = repairMgr([1, 2, 3], [1], recovered);
+
+    const result = await ImapManager.prototype.runPostRelocateRepair.call(mgr, repairAccount);
+
+    expect(recovered).toEqual([]);
+    expect(result).toEqual({ foldersRefreshed: 0, uidsRecovered: 0 });
+  });
+
+  it('runs again when a previous attempt left the marker unset', async () => {
+    query.mockReset();
+    query.mockImplementation((sql) => {
+      // A failed run writes no completed_at: NULL row (or no row) → retry.
+      if (typeof sql === 'string' && sql.includes('FROM account_maintenance_state')) {
+        return Promise.resolve({ rows: [{ completed_at: null }] });
+      }
+      if (typeof sql === 'string' && sql.includes('SELECT path, no_select FROM folders')) {
+        return Promise.resolve({ rows: [{ path: 'INBOX', no_select: false }] });
+      }
+      return Promise.resolve({ rows: [] });
+    });
+    const recovered: string[] = [];
+    const mgr = repairMgr([1, 2], [1], recovered);
+
+    const result = await ImapManager.prototype.runPostRelocateRepair.call(mgr, repairAccount);
+
+    expect(recovered).toEqual(['INBOX:2']);
+    expect(result).toEqual({ foldersRefreshed: 1, uidsRecovered: 1 });
+  });
+
+  it('withholds the marker when a folder still has missing UIDs after repair', async () => {
+    query.mockReset();
+    markerMock([{ path: 'INBOX', no_select: false }]);
+    const recovered: string[] = [];
+    // ingest "succeeded" but UID 3 still missing (e.g. parse error) → no marker.
+    const mgr = repairMgr([1, 2, 3], [1, 2], recovered, { remaining: [3] });
+
+    const result = await ImapManager.prototype.runPostRelocateRepair.call(mgr, repairAccount);
+
+    expect(recovered).toEqual(['INBOX:3']);
+    expect(result.foldersRefreshed).toBe(0);
+    const markerWrites = query.mock.calls.filter(([sql]) =>
+      String(sql).includes('INSERT INTO account_maintenance_state'));
+    expect(markerWrites).toHaveLength(0);
+  });
+
+  it('tolerates a failing folder and still reports the rest', async () => {
+    query.mockReset();
+    markerMock([
+      { path: 'INBOX', no_select: false },
+      { path: 'Broken', no_select: false },
+    ]);
+    const mgr = new ImapManager({ clients: new Set() });
+    clearInterval(mgr._healthCheckTimer); clearInterval(mgr._snippetSchedulerTimer);
+    (mgr as unknown as { repairFolderMissingUids: (account: unknown, folder: string) => Promise<number> }).repairFolderMissingUids =
+      async (_account: unknown, folder: string) => {
+        if (folder === 'Broken') throw new Error('mailbox gone');
+        return 0;
+      };
+    (mgr as unknown as { remainingRepairUids: (account: unknown, folder: string) => Promise<number[]> }).remainingRepairUids =
+      async (_account: unknown, folder: string) => (folder === 'Broken' ? [1] : []);
+    mgr.broadcast = vi.fn();
+
+    const result = await ImapManager.prototype.runPostRelocateRepair.call(mgr, repairAccount);
+
+    // Broken failed → marker must NOT be written (repair retries next tick).
+    expect(result.foldersRefreshed).toBe(1);
+    expect(result.uidsRecovered).toBe(0);
+    const markerWrites = query.mock.calls.filter(([sql]) =>
+      String(sql).includes('INSERT INTO account_maintenance_state'));
+    expect(markerWrites).toHaveLength(0);
+  });
+
+  it('does not mark an empty folder list as repaired', async () => {
+    query.mockReset();
+    markerMock([]);
+    const recovered: string[] = [];
+    const mgr = repairMgr([1, 2, 3], [1], recovered);
+
+    const result = await ImapManager.prototype.runPostRelocateRepair.call(mgr, repairAccount);
+
+    expect(recovered).toEqual([]);
+    expect(result).toEqual({ foldersRefreshed: 0, uidsRecovered: 0 });
+    const markerWrites = query.mock.calls.filter(([sql]) =>
+      String(sql).includes('INSERT INTO account_maintenance_state'));
+    expect(markerWrites).toHaveLength(0);
+  });
+});
+
+// ── moveSpamCopy — exactly one IMAP MOVE per physical copy ──────────────────
+// Regression for the double-MOVE: the old body fired moveMessage once inside
+// an eagerly-started promise AND a second time for the first caller.
+
+describe('moveSpamCopy', () => {
+  const spamAccount = { id: 'acct-spam', user_id: 'user-1', email_address: 'a@example.com', imap_host: 'imap.example.com' };
+
+  function spamMgr(moveImpl: (account: unknown, uid: unknown, from: string, to: string) => Promise<number | null>) {
+    const mgr = new ImapManager({ clients: new Set() });
+    clearInterval(mgr._healthCheckTimer); clearInterval(mgr._snippetSchedulerTimer);
+    (mgr as unknown as { moveMessage: typeof moveImpl }).moveMessage = moveImpl;
+    return mgr;
+  }
+
+  beforeEach(() => query.mockReset());
+
+  function mockAccountRow() {
+    query.mockImplementation((sql: unknown) => {
+      if (typeof sql === 'string' && sql.includes('SELECT * FROM email_accounts WHERE id = $1')) {
+        return Promise.resolve({ rows: [spamAccount] });
+      }
+      return Promise.resolve({ rows: [] });
+    });
+  }
+
+  it('issues exactly one moveMessage for a single caller', async () => {
+    mockAccountRow();
+    const moveMessage = vi.fn().mockResolvedValue(777);
+    const mgr = spamMgr(moveMessage);
+
+    const newUid = await mgr.moveSpamCopy('acct-spam', 123, 'INBOX', 'Spam');
+
+    expect(newUid).toBe(777);
+    expect(moveMessage).toHaveBeenCalledTimes(1);
+    expect(moveMessage).toHaveBeenCalledWith(spamAccount, 123, 'INBOX', 'Spam');
+  });
+
+  it('coalesces two concurrent callers into one MOVE with the same newUid', async () => {
+    mockAccountRow();
+    let resolveMove!: (uid: number) => void;
+    const gate = new Promise<number>(resolve => { resolveMove = resolve; });
+    const moveMessage = vi.fn().mockReturnValue(gate);
+    const mgr = spamMgr(moveMessage);
+
+    const first = mgr.moveSpamCopy('acct-spam', 123, 'INBOX', 'Spam');
+    // Let the first caller register its inflight (it awaits the account query first).
+    await vi.waitFor(() => expect(moveMessage).toHaveBeenCalledTimes(1));
+    const second = mgr.moveSpamCopy('acct-spam', 123, 'INBOX', 'Spam');
+    // Attach handlers before resolving — second shares the first's inflight.
+    const both = Promise.all([first, second]);
+    resolveMove(4242);
+    const [uidA, uidB] = await both;
+
+    expect(uidA).toBe(4242);
+    expect(uidB).toBe(4242);
+    expect(moveMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not issue a second MOVE on reject and clears the inflight', async () => {
+    mockAccountRow();
+    const moveMessage = vi.fn()
+      .mockRejectedValueOnce(new Error('IMAP down'))
+      .mockResolvedValue(999);
+    const mgr = spamMgr(moveMessage);
+
+    await expect(mgr.moveSpamCopy('acct-spam', 123, 'INBOX', 'Spam')).rejects.toThrow('IMAP down');
+    expect(moveMessage).toHaveBeenCalledTimes(1);
+
+    // Rejected inflight is cleared: a later caller retries (no unhandled rejection leaks).
+    const newUid = await mgr.moveSpamCopy('acct-spam', 123, 'INBOX', 'Spam');
+    expect(newUid).toBe(999);
+    expect(moveMessage).toHaveBeenCalledTimes(2);
+  });
 });

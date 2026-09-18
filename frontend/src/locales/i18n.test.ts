@@ -482,6 +482,11 @@ const SAME_VALUE_ALLOWED: Record<string, SameValueRule> = {
   'layouts.compact.label': [['en', 'fr']],
   'mailFolders.archive': [['cs', 'de']],
   'mailFolders.spam': [['cs', 'de', 'en', 'it', 'pl']],
+  // "Spam"/"Antispam" are universal loanwords (same rule as mailFolders.spam).
+  'spam.badgeSpam': [['cs', 'de', 'en', 'es', 'fr', 'it', 'pl']],
+  'spam.settingsTitle': [['cs', 'de', 'en', 'es', 'fr', 'it']],
+  // cs/pl share the "Metoda:" grammar for the explain template.
+  'spam.explainMethod': [['cs', 'pl']],
   'calendar.agenda': 'any', // Common calendar term in these languages.
   'calendar.caldav': 'any',
   'calendar.day6': [['cs', 'pl']],
@@ -766,6 +771,10 @@ const SAME_VALUE_ALLOWED: Record<string, SameValueRule> = {
 
   // "Status" — same spelling in de and en
   'admin.security.activityColStatus': [['de', 'en']],
+
+  // "Antispam" — same spelling in en/de/fr/es/it/cs; pl uses "Antyspam",
+  // ru uses "Антиспам", zhCN uses "反垃圾邮件"
+  'admin.rules.subTabAntispam': [['en', 'de', 'fr', 'es', 'it', 'cs']],
 
   // "ID client" — fr and it share the same OAuth term
   'admin.sso.clientId':   [['fr', 'it']],

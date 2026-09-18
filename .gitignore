@@ -47,6 +47,11 @@ artifacts/
 # Local Android/JDK toolchain used for on-device build verification — never committed
 .toolchain/
 
+# pnpm local store + workspace files (project uses npm via package-lock.json)
+.pnpm-store/
+pnpm-lock.yaml
+pnpm-workspace.yaml
+
 # Local git bundles/backups (not part of the project)
 # NOTE: tsconfig.strict.json is intentionally tracked - it is the strict reference config.
 .backup/

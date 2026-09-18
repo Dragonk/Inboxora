@@ -183,4 +183,63 @@ describe('migration integrity', () => {
     expect(sql).toContain('ON messages(logical_message_id, date DESC NULLS LAST, id DESC)');
     expect(sql).toContain('WHERE is_deleted = false AND logical_message_id IS NOT NULL');
   });
+
+  it('stores the STATUS UIDNEXT watermark for folder freshness', () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/0094_folder_uidnext_status.sql'), 'utf8');
+    expect(sql).toContain('ADD COLUMN IF NOT EXISTS uid_next BIGINT');
+  });
+
+  it('creates the per-user antispam classifier schema', () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/0095_spam_classifier_v2.sql'), 'utf8');
+    expect(sql).toContain('CREATE TABLE IF NOT EXISTS spam_models');
+    expect(sql).toContain('ADD COLUMN IF NOT EXISTS token_counts');
+    expect(sql).toContain('ADD COLUMN IF NOT EXISTS antispam_enabled BOOLEAN NOT NULL DEFAULT false');
+    expect(sql).toContain('ADD COLUMN IF NOT EXISTS trusted_authserv_id VARCHAR(255)');
+    expect(sql).toContain('CREATE TABLE IF NOT EXISTS spam_training_deletions');
+  });
+
+  it('creates the per-account maintenance state table for one-time repairs', () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/0096_account_maintenance_state.sql'), 'utf8');
+    expect(sql).toContain('CREATE TABLE IF NOT EXISTS account_maintenance_state');
+    expect(sql).toContain('PRIMARY KEY (account_id, key)');
+    expect(sql).toContain('REFERENCES email_accounts(id) ON DELETE CASCADE');
+  });
+
+  it('adds distinct-message maturity counters to the spam model', () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/0097_spam_model_usable_counts.sql'), 'utf8');
+    expect(sql).toContain('ADD COLUMN IF NOT EXISTS usable_spam BIGINT NOT NULL DEFAULT 0');
+    expect(sql).toContain('ADD COLUMN IF NOT EXISTS usable_ham BIGINT NOT NULL DEFAULT 0');
+  });
+
+  it('adds a stable training identity to the spam training log', () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/0098_spam_training_identity.sql'), 'utf8');
+    expect(sql).toContain('ADD COLUMN IF NOT EXISTS training_identity TEXT');
+    expect(sql).toContain('idx_spam_training_log_user_identity');
+    expect(sql).toContain("'mid:'");
+    expect(sql).toContain("'copy:'");
+  });
+
+  it('applies one normalization rule for identities in SQL and TypeScript', () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/0098_spam_training_identity.sql'), 'utf8');
+    // Collapse whitespace + lowercase + trim, exactly like trainingIdentityFor.
+    expect(sql).toContain("regexp_replace(lower(COALESCE");
+    expect(sql).toContain("'\\s+', ' ', 'g'");
+  });
+
+  it('re-derives identities for databases that applied the first 0098 revision', () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/0099_spam_identity_rederivation.sql'), 'utf8');
+    expect(sql).toContain('UPDATE spam_training_log');
+    expect(sql).toContain('idx_spam_training_log_user_identity');
+  });
+
+  it('stores the final blended antispam score alongside the ML probability', () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/0100_message_spam_score_blended.sql'), 'utf8');
+    expect(sql).toContain('ADD COLUMN IF NOT EXISTS spam_score_blended FLOAT');
+  });
+
+  it('accepts the replaced unreleased 0098 checksum so applied dev databases keep booting', () => {
+    const source = readFileSync(join(process.cwd(), 'src/services/migrations.ts'), 'utf8');
+    expect(source).toContain('0098_spam_training_identity');
+    expect(source).toContain('82716d8414acd5f2a26fad940165827df0e48cc676a38ac20fd1a96ccb5b0ded');
+  });
 });

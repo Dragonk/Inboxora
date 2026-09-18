@@ -8,6 +8,13 @@ import { backfillRichContactFields } from './contactRichBackfill.js';
 const MIGRATIONS_DIR = join(dirname(fileURLToPath(import.meta.url)), '../../migrations');
 const ACCEPTED_REPLACED_MIGRATION_CHECKSUMS = new Map([
   ['0072_calendar_source_url_secrets', new Set(['5ca9454166b08d0af82935dd4032510e07b1836c61fec61223c305b6608f17a4'])],
+  // 0098 shipped in the unreleased 4.0.3 dev cycle with a content fallback
+  // that hashed raw values and preferred the physical copy triple over
+  // content — wrong for MOVE stability. It was corrected before release; a
+  // database that already ran the first revision must not hard-fail startup
+  // on the checksum. Migration 0099 re-derives those rows with the shipped
+  // rule, so accepting the old checksum leaves such a database correct.
+  ['0098_spam_training_identity', new Set(['82716d8414acd5f2a26fad940165827df0e48cc676a38ac20fd1a96ccb5b0ded'])],
 ]);
 
 async function migrationHashes() {

@@ -613,6 +613,7 @@
       "bodyConditionNote": "Regeln für den Nachrichteninhalt werden nur ausgeführt, wenn der Text bereits heruntergeladen wurde. Falls er beim Eingang noch nicht abgerufen wurde, wird die Regel übersprungen und die Nachricht bleibt im Posteingang – Inhaltsregeln werden nicht nachträglich angewendet.",
       "subTabRules": "Regeln",
       "subTabBlockList": "Blockliste",
+      "subTabAntispam": "Antispam",
       "actionMoveSelectFolder": "Ordner auswählen…",
       "actionMoveRequiresAccount": "Erfordert ein bestimmtes Konto"
     },
@@ -911,6 +912,11 @@
       "switchTheme": "Zu {{theme}} wechseln",
       "accountInbox": "{{name}} — Posteingang"
     }
+  },
+  "errorBoundary": {
+    "title": "Etwas ist schiefgelaufen",
+    "body": "Inboxora konnte diesen Bildschirm nicht anzeigen. Laden Sie die Seite neu und versuchen Sie es erneut.",
+    "reload": "Neu laden"
   },
   "common": {
     "cancel": "Abbrechen",
@@ -1381,6 +1387,11 @@
     "allowDomain": "Immer erlauben von @{{domain}}",
     "downloading": "Wird heruntergeladen…",
     "downloadAll": "Alle herunterladen",
+    "dangerousAttachment": {
+      "title": "Dieser Anhang könnte unsicher sein",
+      "body": "Dieser Anhang kann beim Öffnen Software ausführen. Laden Sie ihn nur herunter, wenn Sie dem Absender vertrauen.",
+      "download": "Trotzdem herunterladen"
+    },
     "reply": "Antworten",
     "replyAll": "Allen antworten",
     "replyOptions": "Antwortoptionen",
@@ -1748,7 +1759,21 @@
     "failHamTitle": "Als kein Spam markieren fehlgeschlagen",
     "failBody": "Der Mailserver hat die Verschiebung abgelehnt.",
     "failHamBody": "Der Mailserver hat die Verschiebung abgelehnt.",
-    "failBodyBulk": "{{count}} Nachrichten konnten nicht verschoben werden."
+    "failBodyBulk": "{{count}} Nachrichten konnten nicht verschoben werden.",
+    "badgeSpam": "Spam",
+    "badgeUnsure": "Möglicherweise Spam",
+    "explainTitle": "Warum wurde das markiert?",
+    "explainMethod": "Methode: {{method}}",
+    "settingsTitle": "Antispam",
+    "maturity": "Modell {{level}} · {{count}} Trainingsnachrichten",
+    "maturityDetail": "{{spam}} Spam / {{ham}} Ham nutzbare Stichproben ({{events}} Feedback-Ereignisse)",
+    "enable": "Antispam aktivieren",
+    "disable": "Antispam deaktivieren",
+    "retrainNow": "Jetzt neu trainieren",
+    "enableAccount": "Auf diesem Konto automatisch klassifizieren",
+    "enableAccountDesc": "Standardmäßig aus. Manuelle Spam/Ham-Markierungen trainieren immer.",
+    "trustedAuthservId": "Vertrauenswürdige Authserv-ID",
+    "trustedAuthservIdDesc": "Nur Authentication-Results dieses Mailsystems zählen. Leer = alle ignorieren."
   },
   "todoist": {
     "title": "Todoist-Aufgabe erstellen",

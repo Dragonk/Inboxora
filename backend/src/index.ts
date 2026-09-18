@@ -27,6 +27,7 @@ import contactsRoutes from './routes/contacts.js';
 import todoistRoutes from './routes/todoist.js';
 import aiRoutes from './routes/ai.js';
 import categoriesRoutes from './routes/categories.js';
+import spamRoutes, { accountSpamRouter } from './routes/spam.js';
 import { pluginRegistry } from './plugins/registry.js';
 import { loadBundledPlugins } from './plugins/loadPlugins.js';
 import { setMailEngine } from './plugins/mailEngine.js';
@@ -56,6 +57,7 @@ import conversationOverridesRoutes from './routes/conversationOverrides.js';
 import { retryConversationIngestFailures } from './services/conversationIngestRetry.js';
 import { startCalendarInvitationOutboxWorker } from './services/calendarInvitationOutbox.js';
 import { startOccurrenceScheduler } from './services/calendarOccurrences.js';
+import { start as startSpamRetrainScheduler } from './services/spamScheduler.js';
 import { createBrowserCors } from './middleware/browserCors.js';
 import { toAppError } from './utils/errors.js';
 
@@ -239,6 +241,8 @@ app.use('/api/push', pushRoutes);
 app.use('/api/calendar', calendarRouter);
 app.use('/api', aiRoutes);
 app.use('/api', categoriesRoutes);
+app.use('/api/spam', spamRoutes);
+app.use('/api/accounts', accountSpamRouter);
 // Tier-1 plugin routers, mounted via the plugin registry (see src/plugins/). Registered
 // here — before the unauthenticated /api/health and /api/version probes below — so a
 // plugin's router-level auth can't intercept them. GTD is the first such plugin; its
@@ -329,6 +333,9 @@ setInterval(() => retryConversationIngestFailures({ limit: 25 }).catch(err => co
 // Retry calendar invitations whose SMTP delivery failed, so a transient outage
 // does not leave a saved event whose invitation never reached the attendees.
 startCalendarInvitationOutboxWorker();
+// Hourly staggered full-retrain of per-user spam models (single-flight,
+// self-scheduling — a slow run delays the next tick instead of overlapping).
+startSpamRetrainScheduler();
 // Expand recurring series into materialised occurrences in the background, so the calendar
 // read path becomes an indexed range scan instead of walking every series from its origin.
 startOccurrenceScheduler();

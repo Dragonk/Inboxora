@@ -56,6 +56,7 @@ const SAFE_FIELDS = [
   'include_in_unified_inbox',
   'last_sync', 'sync_error', 'sort_order', 'folder_mappings',
   'signature', 'created_at', 'categorization_enabled',
+  'antispam_enabled', 'trusted_authserv_id',
 ];
 function safeAccount(row: DbRow): Record<string, unknown> {
   const obj: Record<string, unknown> = Object.fromEntries(SAFE_FIELDS.map(k => [k, row[k]]));
@@ -85,7 +86,7 @@ router.get('/', async (req, res) => {
             smtp_host, smtp_port, smtp_tls, auth_user, smtp_auth_user, oauth_provider, enabled,
             include_in_unified_inbox,
             last_sync, sync_error, sort_order, folder_mappings, signature, created_at,
-            categorization_enabled
+            categorization_enabled, antispam_enabled, trusted_authserv_id
      FROM email_accounts WHERE user_id = $1 ORDER BY sort_order, created_at`,
     [req.session.userId]
   );
@@ -247,12 +248,18 @@ router.put('/:id', async (req, res) => {
     if (r.requiresReconnect) pluginRequiresReconnect = true;
   }
 
-  const allowed = ['name', 'sender_name', 'color', 'enabled', 'include_in_unified_inbox', 'auth_user', 'auth_pass', 'sort_order', 'imap_host', 'imap_port', 'imap_tls', 'imap_skip_tls_verify', 'smtp_host', 'smtp_port', 'smtp_tls', 'smtp_auth_user', 'smtp_auth_pass', 'folder_mappings', 'signature', 'categorization_enabled'];
+  const allowed = ['name', 'sender_name', 'color', 'enabled', 'include_in_unified_inbox', 'auth_user', 'auth_pass', 'sort_order', 'imap_host', 'imap_port', 'imap_tls', 'imap_skip_tls_verify', 'smtp_host', 'smtp_port', 'smtp_tls', 'smtp_auth_user', 'smtp_auth_pass', 'folder_mappings', 'signature', 'categorization_enabled', 'antispam_enabled', 'trusted_authserv_id'];
   const sets = [];
   const values = [];
   let i = 1;
   for (const key of allowed) {
     if (key in updates) {
+      if (key === 'antispam_enabled' && typeof updates[key] !== 'boolean') {
+        return res.status(400).json({ error: 'antispam_enabled must be a boolean' });
+      }
+      if (key === 'trusted_authserv_id' && updates[key] !== null && typeof updates[key] !== 'string') {
+        return res.status(400).json({ error: 'trusted_authserv_id must be a string or null' });
+      }
       sets.push(`${key} = $${i++}`);
       const value = ((key === 'auth_pass' || key === 'smtp_auth_pass') && updates[key]) ? encrypt(updates[key])
         : (key === 'smtp_auth_user' || key === 'smtp_auth_pass') ? (updates[key] || null)

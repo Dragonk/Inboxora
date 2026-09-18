@@ -613,6 +613,7 @@
       "bodyConditionNote": "Las reglas de cuerpo solo se ejecutan si el cuerpo del mensaje ya está descargado. Si aún no se ha obtenido cuando llega el mensaje, la regla se omite y el mensaje permanece en la bandeja de entrada — las reglas de cuerpo no se aplican retroactivamente.",
       "subTabRules": "Reglas",
       "subTabBlockList": "Lista de bloqueo",
+      "subTabAntispam": "Antispam",
       "actionMoveSelectFolder": "Seleccionar carpeta…",
       "actionMoveRequiresAccount": "Requiere una cuenta específica"
     },
@@ -911,6 +912,11 @@
       "switchTheme": "Cambiar al tema {{theme}}",
       "accountInbox": "{{name}} — Bandeja de entrada"
     }
+  },
+  "errorBoundary": {
+    "title": "Algo salió mal",
+    "body": "Inboxora no pudo mostrar esta pantalla. Recargue la página para intentarlo de nuevo.",
+    "reload": "Recargar"
   },
   "common": {
     "cancel": "Cancelar",
@@ -1381,6 +1387,11 @@
     "allowDomain": "Permitir siempre desde @{{domain}}",
     "downloading": "Descargando…",
     "downloadAll": "Descargar todo",
+    "dangerousAttachment": {
+      "title": "Este archivo adjunto puede no ser seguro",
+      "body": "Este archivo adjunto puede ejecutar software al abrirse. Descárguelo solo si confía en el remitente.",
+      "download": "Descargar de todos modos"
+    },
     "reply": "Responder",
     "replyAll": "Responder a todos",
     "replyOptions": "Opciones de respuesta",
@@ -1748,7 +1759,21 @@
     "failHamTitle": "No se pudo marcar como no spam",
     "failBody": "El servidor de correo rechazó el movimiento.",
     "failHamBody": "El servidor de correo rechazó el movimiento.",
-    "failBodyBulk": "{{count}} mensajes no se pudieron mover."
+    "failBodyBulk": "{{count}} mensajes no se pudieron mover.",
+    "badgeSpam": "Spam",
+    "badgeUnsure": "Posible spam",
+    "explainTitle": "¿Por qué se marcó?",
+    "explainMethod": "Método: {{method}}",
+    "settingsTitle": "Antispam",
+    "maturity": "Modelo {{level}} · {{count}} mensajes",
+    "maturityDetail": "{{spam}} spam / {{ham}} ham muestras utilizables ({{events}} eventos de comentarios)",
+    "enable": "Activar antispam",
+    "disable": "Desactivar antispam",
+    "retrainNow": "Reentrenar ahora",
+    "enableAccount": "Clasificar automáticamente en esta cuenta",
+    "enableAccountDesc": "Desactivado por defecto. Las marcas manuales siempre entrenan.",
+    "trustedAuthservId": "Authserv-id de confianza",
+    "trustedAuthservIdDesc": "Solo cuentan los Authentication-Results de este sistema. Vacío = ignorar todo."
   },
   "todoist": {
     "title": "Crear tarea en Todoist",

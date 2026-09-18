@@ -56,6 +56,8 @@ import { validateHost } from '../services/hostValidation.js';
 import { safeFetch } from '../services/safeFetch.js';
 import { safeFilename, attachmentDisposition } from '../utils/contentDisposition.js';
 import { toAppError } from '../utils/errors.js';
+import { tokenize, extractFlagFeatures } from '../services/spamTokenizer.js';
+import { recordManualFeedback } from '../services/spamModelStore.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -221,6 +223,7 @@ router.get('/messages/:id', async (req, res) => {
              m.reply_to, m.in_reply_to,
              m.date, m.snippet, m.is_read, m.is_starred,
              m.has_attachments, m.account_id, m.category,
+             m.spam_verdict, m.spam_score_ml, m.spam_score_blended,
              m.list_unsubscribe, m.list_unsubscribe_post, m.unsubscribed_at, m.delivery_addresses,
              a.name AS account_name, a.email_address AS account_email,
              a.color AS account_color
@@ -259,6 +262,7 @@ router.get('/resolve-message', async (req, res) => {
              m.reply_to, m.in_reply_to,
              m.date, m.snippet, m.is_read, m.is_starred,
              m.has_attachments, m.account_id, m.category,
+             m.spam_verdict, m.spam_score_ml, m.spam_score_blended,
              m.list_unsubscribe, m.list_unsubscribe_post, m.unsubscribed_at, m.delivery_addresses,
              a.name AS account_name, a.email_address AS account_email,
              a.color AS account_color`;
@@ -337,6 +341,7 @@ router.get('/thread/:threadId', async (req, res) => {
                m.reply_to, m.in_reply_to,
                m.date, m.snippet, m.is_read, m.is_starred,
                m.has_attachments, m.account_id, m.category,
+               m.spam_verdict, m.spam_score_ml, m.spam_score_blended,
                m.list_unsubscribe, m.list_unsubscribe_post, m.unsubscribed_at, m.delivery_addresses,
                a.name AS account_name, a.email_address AS account_email, a.color AS account_color
         FROM messages m
@@ -2081,6 +2086,68 @@ router.delete('/messages/:id', async (req, res) => {
 
 // Helper: move a single message to a destination folder, update DB, log to
 // training_log, and broadcast folder_updated. Shared between /spam and /ham.
+function senderDomainOf(fromEmail: unknown): string | null {
+  if (typeof fromEmail !== 'string') return null;
+  const at = fromEmail.lastIndexOf('@');
+  if (at < 0) return null;
+  const domain = fromEmail.slice(at + 1).toLowerCase();
+  return domain || null;
+}
+
+// Compute mark-time training features (Solution C): the retrain path reads
+// spam_training_log only and never JOINs back to messages, so emptying Junk
+// cannot silently drop training records. Pure function over an already-loaded
+// message row — no DB access, so it can run before the INSERT.
+function extractSpamTrainingFeatures(row: {
+  subject?: string | null; body_text?: string | null; body_html?: string | null;
+  from_email?: string | null; reply_to?: unknown; attachments?: unknown;
+}): {
+  tokenCounts: Record<string, number>;
+  flagFeatures: ReturnType<typeof extractFlagFeatures>;
+  senderDomain: string | null;
+  attachmentTypes: string[] | null;
+  trainMessage: Parameters<typeof recordManualFeedback>[0]['trainMessage'];
+} {
+  const attachments = Array.isArray(row.attachments) ? row.attachments : [];
+  const msg = {
+    subject: row.subject ?? '',
+    body: row.body_text ?? '',
+    bodyHtml: row.body_html ?? '',
+    from: typeof row.from_email === 'string' && row.from_email ? `<${row.from_email}>` : null,
+    replyTo: typeof row.reply_to === 'string' ? row.reply_to : null,
+    attachments: attachments.filter((a): a is { filename?: string | null; name?: string | null; contentType?: string | null; type?: string | null } =>
+      a !== null && typeof a === 'object'),
+    headers: [],
+  };
+  const tokens = tokenize(msg);
+  const tokenCounts: Record<string, number> = {};
+  for (const token of tokens) tokenCounts[token] = (tokenCounts[token] ?? 0) + 1;
+  const flagFeatures = extractFlagFeatures(msg);
+  const attachmentTypes = msg.attachments.map(a => {
+    const filename = a.filename ?? a.name;
+    if (typeof filename === 'string' && filename.includes('.')) {
+      return filename.slice(filename.lastIndexOf('.') + 1).toLowerCase();
+    }
+    return null;
+  }).filter((ext): ext is string => ext !== null);
+  return {
+    tokenCounts, flagFeatures,
+    senderDomain: senderDomainOf(row.from_email),
+    attachmentTypes: attachmentTypes.length ? attachmentTypes : null,
+    trainMessage: msg,
+  };
+}
+
+// Manual feedback persistence: the training_log INSERT and the incremental
+// model update run atomically inside one per-user serializer hold (see
+// recordManualFeedback), so two concurrent mark-spam clicks on the same mail
+// cannot both mint a distinct usable sample. Awaited — not fire-and-forget —
+// so the HTTP response reflects the persisted decision; a failure here fails
+// the request loudly instead of silently dropping training data.
+async function recordSpamFeedback(input: Parameters<typeof recordManualFeedback>[0]): Promise<void> {
+  await recordManualFeedback(input);
+}
+
 async function moveForSpamLabel(messageId: string, userId: string, destinationFolder: string, label: string) {
   const result = await query<ReadMessageRow>(`
     SELECT m.*, a.user_id, a.folder_mappings FROM messages m
@@ -2093,14 +2160,17 @@ async function moveForSpamLabel(messageId: string, userId: string, destinationFo
 
   // No-op: message already in the destination folder.
   if (message.folder === destinationFolder) {
-    // Still record the training label so the user's intent is captured
-    // (e.g. re-confirming a verdict), but skip the IMAP move.
-    await query(
-      `INSERT INTO spam_training_log
-         (user_id, account_id, message_id_header, message_uid, folder, label)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [userId, message.account_id, message.message_id, message.uid, message.folder, label]
-    );
+    // Still record the full training row (features included) and train the
+    // model, so re-confirming a verdict actually reinforces it.
+    const features = extractSpamTrainingFeatures(message);
+    await recordSpamFeedback({
+      userId, accountId: message.account_id, messageIdHeader: message.message_id,
+      messageUid: message.uid, folder: message.folder, label: label as 'spam' | 'ham',
+      subject: message.subject ?? null, bodyText: message.body_text ?? null, bodyHtml: message.body_html ?? null,
+      tokenCounts: features.tokenCounts, flagFeatures: features.flagFeatures,
+      senderDomain: features.senderDomain, attachmentTypes: features.attachmentTypes,
+      trainMessage: features.trainMessage,
+    });
     await query(
       `UPDATE messages SET spam_user_override = $1, spam_verdict = $1, spam_analyzed_at = NOW() WHERE id = $2`,
       [label, messageId]
@@ -2152,16 +2222,23 @@ async function moveForSpamLabel(messageId: string, userId: string, destinationFo
   adjustFolderCounts(account.id, message.folder, -1, -wasUnread);
   adjustFolderCounts(account.id, destinationFolder, 1, wasUnread);
 
-  // Training log: capture the decision for future model training. Record the UID that now
-  // lives in the destination folder: on a UIDPLUS move the row was re-keyed to newUid above,
-  // so message.uid (the pre-move source UID) would no longer match the messages row. Non-UIDPLUS
-  // servers keep the source UID at the destination, so newUid is null there and we fall back to it.
-  await query(
-    `INSERT INTO spam_training_log
-       (user_id, account_id, message_id_header, message_uid, folder, label, source)
-     VALUES ($1, $2, $3, $4, $5, $6, 'manual')`,
-    [userId, account.id, message.message_id, newUid ?? message.uid, destinationFolder, label]
-  );
+  // Training log + incremental model update in ONE serialized step (see
+  // recordSpamFeedback): the retrain path reads this row only and never JOINs
+  // back to messages. Record the UID that now lives in the destination folder:
+  // on a UIDPLUS move the row was re-keyed to newUid above, so message.uid
+  // (the pre-move source UID) would no longer match the messages row.
+  // Non-UIDPLUS servers keep the source UID at the destination, so newUid is
+  // null there and we fall back to it.
+  const trainingFeatures = extractSpamTrainingFeatures(message);
+  const trainingLabel = label === 'spam' ? 'spam' : 'ham';
+  await recordSpamFeedback({
+    userId, accountId: account.id, messageIdHeader: message.message_id,
+    messageUid: newUid ?? message.uid, folder: destinationFolder, label: trainingLabel,
+    subject: message.subject ?? null, bodyText: message.body_text ?? null, bodyHtml: message.body_html ?? null,
+    tokenCounts: trainingFeatures.tokenCounts, flagFeatures: trainingFeatures.flagFeatures,
+    senderDomain: trainingFeatures.senderDomain, attachmentTypes: trainingFeatures.attachmentTypes,
+    trainMessage: trainingFeatures.trainMessage,
+  });
 
   // If folder_mappings.spam is not yet configured, learn from the discovered folder.
   if (label === 'spam' && !account.folder_mappings?.spam) {

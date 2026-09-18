@@ -269,6 +269,7 @@
       "bodyConditionNote": "Pravidla pro tělo zprávy se spustí pouze tehdy, pokud už bylo tělo staženo. Jestliže při příchodu zprávy ještě nebylo načteno, pravidlo se přeskočí a zpráva zůstane v Doručené poště — pravidla pro tělo se nepoužívají zpětně.",
       "subTabRules": "Pravidla",
       "subTabBlockList": "Seznam blokovaných",
+      "subTabAntispam": "Antispam",
       "actionsLabel": "Akce",
       "actionMarkRead": "Označit jako přečtené",
       "actionStar": "Označit hvězdičkou",
@@ -912,6 +913,11 @@
       "accountInbox": "{{name}} — Doručené"
     }
   },
+  "errorBoundary": {
+    "title": "Něco se pokazilo",
+    "body": "Inboxora nemohla tuto obrazovku zobrazit. Obnovte stránku a zkuste to znovu.",
+    "reload": "Obnovit"
+  },
   "common": {
     "cancel": "Zrušit",
     "save": "Uložit",
@@ -1383,6 +1389,11 @@
     "allowDomain": "Vždy povolit z @{{domain}}",
     "downloading": "Stahování…",
     "downloadAll": "Stáhnout vše",
+    "dangerousAttachment": {
+      "title": "Tato příloha může být nebezpečná",
+      "body": "Tato příloha může po otevření spustit software. Stahujte ji jen tehdy, pokud důvěřujete odesílateli.",
+      "download": "Přesto stáhnout"
+    },
     "reply": "Odpovědět",
     "replyAll": "Odpovědět všem",
     "replyOptions": "Možnosti odpovědi",
@@ -1748,7 +1759,21 @@
     "failHamTitle": "Nepodařilo se označit, že nejde o spam",
     "failBody": "Poštovní server přesunutí odmítl.",
     "failHamBody": "Poštovní server přesunutí odmítl.",
-    "failBodyBulk": "Nepodařilo se přesunout {{count}} zpráv."
+    "failBodyBulk": "Nepodařilo se přesunout {{count}} zpráv.",
+    "badgeSpam": "Spam",
+    "badgeUnsure": "Možný spam",
+    "explainTitle": "Proč označeno?",
+    "explainMethod": "Metoda: {{method}}",
+    "settingsTitle": "Antispam",
+    "maturity": "Model {{level}} · {{count}} trénovacích zpráv",
+    "maturityDetail": "{{spam}} spam / {{ham}} ham použitelných vzorků ({{events}} událostí zpětné vazby)",
+    "enable": "Zapnout antispam",
+    "disable": "Vypnout antispam",
+    "retrainNow": "Přeučit",
+    "enableAccount": "Automaticky klasifikovat na tomto účtu",
+    "enableAccountDesc": "Ve výchozím stavu vypnuto. Ruční označení vždy trénují.",
+    "trustedAuthservId": "Důvěryhodné authserv-id",
+    "trustedAuthservIdDesc": "Počítají se pouze Authentication-Results tohoto systému. Prázdné = ignorovat vše."
   },
   "todoist": {
     "title": "Vytvořit úkol v Todoistu",

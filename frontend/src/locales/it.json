@@ -613,6 +613,7 @@
       "bodyConditionNote": "Le regole sul corpo vengono eseguite solo se il testo del messaggio è già scaricato. Se non è ancora stato recuperato all'arrivo del messaggio, la regola viene ignorata e il messaggio resta nella posta in arrivo — le regole sul corpo non si applicano retroattivamente.",
       "subTabRules": "Regole",
       "subTabBlockList": "Lista blocchi",
+      "subTabAntispam": "Antispam",
       "actionMoveSelectFolder": "Seleziona una cartella…",
       "actionMoveRequiresAccount": "Richiede un account specifico"
     },
@@ -911,6 +912,11 @@
       "switchTheme": "Passa al tema {{theme}}",
       "accountInbox": "{{name}} — Posta in arrivo"
     }
+  },
+  "errorBoundary": {
+    "title": "Qualcosa è andato storto",
+    "body": "Inboxora non è riuscita a visualizzare questa schermata. Ricarica la pagina per riprovare.",
+    "reload": "Ricarica"
   },
   "common": {
     "cancel": "Annulla",
@@ -1381,6 +1387,11 @@
     "allowDomain": "Consenti sempre da @{{domain}}",
     "downloading": "Download in corso…",
     "downloadAll": "Scarica tutto",
+    "dangerousAttachment": {
+      "title": "Questo allegato potrebbe non essere sicuro",
+      "body": "Questo allegato può eseguire software quando viene aperto. Scaricalo solo se ti fidi del mittente.",
+      "download": "Scarica comunque"
+    },
     "reply": "Rispondi",
     "replyAll": "Rispondi a tutti",
     "replyOptions": "Opzioni di risposta",
@@ -1748,7 +1759,21 @@
     "failHamTitle": "Impossibile segnalare come non spam",
     "failBody": "Il server di posta ha rifiutato lo spostamento.",
     "failHamBody": "Il server di posta ha rifiutato lo spostamento.",
-    "failBodyBulk": "{{count}} messaggi non possono essere spostati."
+    "failBodyBulk": "{{count}} messaggi non possono essere spostati.",
+    "badgeSpam": "Spam",
+    "badgeUnsure": "Possibile spam",
+    "explainTitle": "Perché è stato segnalato?",
+    "explainMethod": "Metodo: {{method}}",
+    "settingsTitle": "Antispam",
+    "maturity": "Modello {{level}} · {{count}} messaggi",
+    "maturityDetail": "{{spam}} spam / {{ham}} ham campioni utilizzabili ({{events}} eventi di feedback)",
+    "enable": "Attiva antispam",
+    "disable": "Disattiva antispam",
+    "retrainNow": "Riallena ora",
+    "enableAccount": "Classifica automaticamente su questo account",
+    "enableAccountDesc": "Disattivato per impostazione predefinita. Le marcature manuali addestrano sempre.",
+    "trustedAuthservId": "Authserv-id attendibile",
+    "trustedAuthservIdDesc": "Contano solo gli Authentication-Results di questo sistema. Vuoto = ignora tutto."
   },
   "todoist": {
     "title": "Crea attività Todoist",

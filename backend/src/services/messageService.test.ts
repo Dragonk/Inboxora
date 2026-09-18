@@ -297,6 +297,38 @@ describe('listMessages — message shape', () => {
 
     expect(query.mock.calls[2][0]).toContain('delivery_addresses');
   });
+
+  it('selects spam verdict fields in the flat query so SpamBadge receives data', async () => {
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'acc-1' }] })
+      .mockResolvedValueOnce({ rows: [{ total_count: 1, unread_count: 0 }] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    await listMessages({ userId: 'user-1', accountId: 'acc-1' });
+
+    expect(query.mock.calls[2][0]).toContain('m.spam_verdict');
+    expect(query.mock.calls[2][0]).toContain('m.spam_score_ml');
+  });
+
+  it('selects spam verdict fields in the threaded query too', async () => {
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'acc-1' }] })
+      .mockResolvedValueOnce({ rows: [{ total_count: 1, unread_count: 0 }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ total: 0 }] });
+
+    await listMessages({ userId: 'user-1', accountId: 'acc-1', threaded: true });
+
+    const threadedSql = String(query.mock.calls[2][0]);
+    // The verdict must survive to the FINAL projection from `ranked` — a
+    // field present only inside the `deduped` CTE never reaches the parent
+    // row the reader renders.
+    const finalSelect = threadedSql.slice(threadedSql.lastIndexOf('FROM ranked'));
+    const projection = threadedSql.slice(threadedSql.indexOf('SELECT id, uid, folder'), threadedSql.indexOf('FROM ranked'));
+    expect(projection).toContain('spam_verdict');
+    expect(projection).toContain('spam_score_ml');
+    expect(finalSelect).toContain('rn = 1');
+  });
 });
 
 describe('listMessages — ghost row suppression (#407)', () => {
