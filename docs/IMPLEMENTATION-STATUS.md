@@ -17,10 +17,13 @@ rows. It is kept because its lessons are load-bearing, and it must never be read
 present. Earlier revisions mixed the two inside the table itself, which is how a reader could take a
 four-attempt saga — or a superseded delivery report — for a current status.
 
-Last re-measured on `dev` at `08f40ad1`: backend typecheck, lint and **2382** unit tests
-(**115 skipped** across 14 files); frontend typecheck, lint, production build and **2685** tests;
-**172** database integration tests across **17** suites on a fresh PostgreSQL 16 with the full
-**112**-migration chain. The browser matrix and the published-image smoke pair are deliberately
+Last re-measured on `dev` at `90bd9d02`: backend typecheck, lint and **2396** unit tests
+(**116 skipped** across 14 files); frontend typecheck, lint, production build and **2685** tests;
+**179** database integration tests across **17** suites on a fresh PostgreSQL 16 with the full
+**112**-migration chain. One caveat about that suite is recorded rather than implied:
+`calendarResponsiveness.test.ts` asserts an expansion finishes inside 100 ms and measured 162 ms on a
+run that competed with the database gate for the machine. It passes in isolation and in a clean full
+run, so the number is load-sensitive — a timing assertion to fix, not a result to discount. The browser matrix and the published-image smoke pair are deliberately
 **not** part of this measurement: they are reported where they belong, under P13 and P14.
 `main` has not been touched by this work.
 
@@ -40,7 +43,7 @@ Last re-measured on `dev` at `08f40ad1`: backend typecheck, lint and **2382** un
 | P04 — OAuth flows and token service | mostly delivered | `ee788ca8`, `d4592756`, `524a5f00`, `c30d13ba`, `d4927e09`, `940d629a`, `7dd0572d` + `3ed99007`, `bf9f340f` | **Provider device-code authorization**: the mailbox device flow exists, but the Graph provider flow is browser-only. |
 | P05 — mobile drawer gesture | delivered | `f76e1a40`, regression fixed in `143eca15` | Reachability verified and test-pinned: the pref defaults on, has a switch, persists through the server allow-list, and the hook's refs are attached to real elements. |
 | P06 — send/draft ledger, attachment and MIME limits | **not started** | — | Durable send/draft operation state, separately enforced file / total / MIME / HTTP limits, per-provider effective limits, Graph upload sessions and interrupted-upload recovery, and draft preservation across a failed upload. Partly enforced today and worth naming so the package is not read as untouched: `send.ts` refuses more than 100 attachments and a total above 25 MB, `MAIL_MAX_MESSAGE_BYTES` counts the **composed** message and refuses with `413 MESSAGE_TOO_LARGE` before dispatch (tested), and the HTTP body limit is 35 MB with a route-aware message. |
-| P07 — native Microsoft Graph adapters | **partial** | `524a5f00`, `c30d13ba`, `a9a3f975` (contacts), `d545ff45`, `c08fb7ae`, `f4d4fac1`, this work: `705b13bc` (folders), `011b2251` (messages), `7076f4e1` (flags), `08f40ad1` (body) | Delivered: the Graph contacts adapter and sync, the mailbox device flow, and **four P07b slices** — (1) mail folder discovery, projected onto the local `folders` model with canonical paths for Outlook's well-known folders, linked by the immutable Graph folder id (`0107`); (2) **message metadata sync** with a per-folder delta cursor, identity in `messages.provider_message_id` (`0108`), the local-wins flag window and a `410` rebuild that reconciles; (3) **flag mutations over the shared layer** with a durable retry drained by the next sync (`0109`), and a permanent refusal undone rather than kept locally; (4) **body and attachments** read on demand, sanitised and cached in the shared columns, with inline images embedded and downloads addressing the Graph attachment id. Missing: **message mutations that move or remove** (move, archive, delete/trash), conversation persistence, drafts and send, the **Graph calendar adapter**, and the **provider device flow**. Graph is therefore **not yet a mail transport**: the account still reads mail over IMAP/SMTP. |
+| P07 — native Microsoft Graph adapters | **partial** | `524a5f00`, `c30d13ba`, `a9a3f975` (contacts), `d545ff45`, `c08fb7ae`, `f4d4fac1`, this work: `705b13bc` (folders), `011b2251` (messages), `7076f4e1` (flags), `08f40ad1` (body), `90bd9d02` (delete) | Delivered: the Graph contacts adapter and sync, the mailbox device flow, and **five P07b slices** — (1) mail folder discovery, projected onto the local `folders` model with canonical paths for Outlook's well-known folders, linked by the immutable Graph folder id (`0107`); (2) **message metadata sync** with a per-folder delta cursor, identity in `messages.provider_message_id` (`0108`), the local-wins flag window and a `410` rebuild that reconciles; (3) **flag mutations over the shared layer** with a durable retry drained by the next sync (`0109`), and a permanent refusal undone rather than kept locally; (4) **body and attachments** read on demand, sanitised and cached in the shared columns, with inline images embedded and downloads addressing the Graph attachment id; (5) **delete**, which reuses the IMAP path's Trash-vs-permanent decision, re-homes the local row onto the identity a Graph move returns, and is declared non-idempotent so a recovered claim is parked rather than re-run. Missing: **move and archive** to an arbitrary folder (the adapter and the path→folder-id resolver exist; the bulk routes are not wired), conversation persistence, rules/snooze/GTD verification, drafts and send, the **Graph calendar adapter**, and the **provider device flow**. Graph is therefore **not yet a mail transport**: the account still reads mail over IMAP/SMTP. |
 | P08 — Gmail API mail adapter | **not started** | — | Labels rather than pretended folders, message/thread ingest, incremental history, body/attachments, mutations, drafts and send. Google keeps its supported IMAP/SMTP app-password path; the move to the API is **recommended, not required**, with an *Ignore* + "do not show again" suppression stored server-side per user **and** per account. |
 | P09 — Google Calendar/People + MS Graph calendar/contacts | **partial** | `29bf023e` (People), `71558193` + `c8ea8383` (Calendar with generated VTIMEZONE), `d4927e09` + `8aff1d1e` (UI), `a2973f94` (schedule); Microsoft contacts under P07 | Delivered: discovery with per-collection switches, read-only pulls for Google People, Google Calendar (VTIMEZONE included) and Microsoft contacts, and the refresh schedule. Missing: **all provider-side CRUD** — no adapter issues anything but `GET` (verified: no `POST`/`PATCH`/`DELETE` in `googlePeople.ts`, `googleCalendar.ts` or `graphContacts.ts`) — and **Microsoft calendars are not imported**. A read-only collection must stay read-only once writes exist. |
 | P10 — external CalDAV/CardDAV read-write, ICS/VCF/CSV import | **partial** | `6cf1a4bf` (vCard import), `6cccd470` (iCalendar import); Google CSV import pre-existed | The **external CalDAV/CardDAV write-back client**: `PUT`/`DELETE` on an imported collection is currently refused (correctly) instead of being forwarded to the source through the mutation layer. ICS-URL stays read-only; a locally imported ICS copy may be locally editable. |
@@ -96,10 +99,13 @@ each entry — is the reusable part:
 
 Each of these was paid for at least once, and they are collected here so they are not rediscovered:
 
-- **Read the exit status, never the piped tail.** `cmd | tail` returns *tail's* status, so a failing
-  suite reached `dev` behind a green-looking pipe. This happened twice; the second time it put a red
-  test on the branch under a commit message claiming a green run. Every pipeline that is cited as
-  evidence must propagate the real exit code (`set -o pipefail`).
+- **Read the exit status, never the piped tail — and never a chain's.** `cmd | tail` returns *tail's*
+  status, so a failing suite reached `dev` behind a green-looking pipe. This happened twice; the second
+  time it put a red test on the branch under a commit message claiming a green run. A third variant
+  happened later and is worth the sentence: a `typecheck && echo OK; lint && echo OK; tests` chain whose
+  output was then **grepped for the test summary** let a failing `tsc` through, and a slice was pushed
+  claiming all three gates green. The corrective is the same in all three: run each gate so its own
+  exit status is the thing you read, and never cite a gate you did not read the status of.
 - **A filename match is not coverage, and tool output belongs to the grep that produced it.** DV06
   was recorded as PARTIAL because three files "matched the XXE theme" in a shell call that ran several
   greps — the output belonged to a different one. The row had no test at all. The same habit produced
@@ -144,7 +150,7 @@ installation would actually have rather than on one evolved in place:
   macOS client, so client-specific behaviour — its exact `PROPFIND` bodies, its retry and error
   handling, its reaction to a refused `PROPPATCH` — is untested. That is the honest boundary of the
   DAV work, and it is the one acceptance criterion in P11 that remains open.
-- 172 integration tests pass across seventeen suites: the provider authorization-flow table, Google and
+- 179 integration tests pass across seventeen suites: the provider authorization-flow table, Google and
   Microsoft token refresh (including the two-worker race), the operation journal and outbox, the
   provider mutation layer (the claim committed before the provider call, recovery of a crashed claim,
   replay, conflict, retry scheduling and claim fencing), the
@@ -647,7 +653,7 @@ this document has been applying to itself throughout.
 
 | Rows | Verdict |
 | --- | --- |
-| RE01 | **Met.** The same functional schema is reached two ways and both were exercised: the state-reconstructing suite seeds a database, applies the chain and asserts the identifiers survive, and the database gate applies all 112 migrations to a fresh PostgreSQL 16 before running 161 tests. |
+| RE01 | **Met.** The same functional schema is reached two ways and both were exercised: the state-reconstructing suite seeds a database, applies the chain and asserts the identifiers survive, and the database gate applies all 112 migrations to a fresh PostgreSQL 16 before running 179 tests. |
 | RE03 | **Met at this commit**, from exit statuses: typecheck, lint, unit suites, the production build and the database integration set. |
 | RE04 | **Half met.** Both images are built for `linux/amd64` and `linux/arm64` and verified in the registry, with the release SHA as their source; **neither was run**, so "images exist for both platforms" is a registry fact and not a smoke test. |
 | RE02, RE06, RE07, RE08 | **Not verified, and each names a surface nobody looked at**: **RE02 is now met as the row is worded** — it asks for *documented* behaviour without destruction, and both halves are documented: `Upgrading.md` carries the rollback section it always had, and now the interrupted-migration procedure as well (the invalid-index query, dropping it, re-applying that one file, and the two things not to do). What is still unverified for RE02 is the *execution* of either: no migration was interrupted on purpose, and no rollback was performed, so the documented behaviour is a procedure rather than an observed one; **RE06 is met structurally, and not exercised.** The workflow publishes the pair from **one job** with two `Build and push` steps in sequence, no `continue-on-error` and no `always()` — so a failure in the second build fails the run — and **nothing in the repository declares a release ready automatically**: the readiness claim is in documentation, written by a person who can see both digests, which is the arrangement the row asks for. What it has not been is *tested by failing a publish on purpose*, and that is a deliberate choice rather than an omission: a failed production run leaves a misleading entry in the workflow history to prove something the structure already states. Recorded as met-structurally so the distinction is visible — the same one RE02 carries; a **backup and restore drill** in isolation, recovering tokens, mappings and operations with the right key; and the absence of secrets in **logs, build arguments, OCI labels, the frontend bundle, DTOs and test reports**. The **bundle was searched** and is clean — no secret-shaped assignment and no long high-entropy string literal in the built JavaScript assets, and no source maps are emitted to carry one — but the rest of that row is unchecked, and the absence of `import.meta.env.*` in the output is **not** evidence either way, because the bundler substitutes those at build time. **OCI labels were then fetched** from the registry — the index, the amd64 manifest and its config blob — and no secret-shaped label value is present. That negative is weaker than it looks and is recorded with its caveat: the config I read carried **no labels at all**, while the workflow does pass a label set to the build, so the labels may live in manifest annotations this check did not read. Logs, build arguments, DTOs and test reports remain unverified, and the last two are not reachable from a working checkout at all. |
@@ -836,7 +842,7 @@ That is what this table is; "code ✓" never means PASS on its own.
 | W03 | Scroll, row action, long-press, calendar and menu do not run competing operations | **PASS with NOT RUN** | The arbitration layer and its guard tests cover this; **not exercised on a device**. |
 | W04 | External calendars/books work in the UI and over DAV as RO/RW per real rights; **the write reaches the source** | **FAIL** on the second half, **delivered on the first** | The row has two clauses and the verdict hides one of them. Imported collections *do* work in the interface and over DAV, and they are reported as read-only precisely because their source is the only writer — so "RO/RW per real rights" is satisfied, with the RW case reachable for local collections and refused for imported ones. What fails is the clause the row emphasises: a write does not **reach the source**, because write-back is the open P10 client. A reader taking the bare FAIL would conclude imported collections do not work at all, which is not the case. |
 | W05 | DAV sharing independent of UI use; off / RO / RW limited by the source's rights | **PASS** | Per-collection `dav_mode`, per-password ceiling, provider collections refused writes; covered by `davVisibility` and the DAV database suite. |
-| W06 | Microsoft: full mail over Graph plus that account's calendars and contacts | **FAIL** | Contacts are delivered; the mail **folder tree** (`705b13bc`), **message metadata with a per-folder delta** (`011b2251`), **read/star flag mutations** (`7076f4e1`) and the **body with attachments** (`08f40ad1`) are delivered too. What is not: **move/archive/delete**, conversation persistence, drafts, send, and the **Graph calendar adapter** (P07b continues, P07d). The row asks for full mail, so it stays FAIL rather than partial — a mailbox you can read but not file or answer from is not mail. |
+| W06 | Microsoft: full mail over Graph plus that account's calendars and contacts | **FAIL** | Contacts are delivered; the mail **folder tree** (`705b13bc`), **message metadata with a per-folder delta** (`011b2251`), **read/star flag mutations** (`7076f4e1`), the **body with attachments** (`08f40ad1`) and **delete** (`90bd9d02`) are delivered too. What is not: **move and archive** to an arbitrary folder, conversation persistence, drafts, send, and the **Graph calendar adapter** (P07b continues, P07d). The row asks for full mail, so it stays FAIL rather than partial — a mailbox you can read but not file or answer from is not mail. |
 | W07 | Google: Gmail/Calendar/People recommended, free choice of transport, one transport after cutover | **FAIL** | Calendar and People are delivered; **Gmail is not implemented and no cutover exists** (P08, P12). |
 | W08 | Independent calendar and contact switches per Microsoft/Google account, with collection discovery | **PASS** | Per-provider connect buttons, discovery on sync, per-collection enable/disable; the switch enforcement is tested. |
 | W09 | Do not remove configuration or force migration of other IMAP/SMTP, DAV or ICS accounts | **PASS** | Nothing migrates or deletes on its own; the only deletion path is an explicit, owner-scoped disconnect that keeps imported data. |
@@ -1159,10 +1165,12 @@ endpoint is visible rather than only available over the API.
   the platform time-zone database, so a rule change needs no code change.
 - Microsoft Graph calendar events are **not** imported yet, so they cannot hit the Windows→IANA
   timezone naming problem the plan warns about.
-- A Microsoft account's **folder tree, message list, body and attachments** are imported, and
-  **read/unread and star can be changed**, but a message **cannot yet be moved, archived or deleted**
-  over Graph: it can be read and flagged, not filed. Graph is not yet a mail transport, so the account
-  still reads mail over IMAP/SMTP and nothing migrates on its own.
+- A Microsoft account's **folder tree, message list, body and attachments** are imported;
+  **read/unread, star and delete** work over Graph, where delete follows the IMAP path's rule (a draft
+  and an already-trashed message are removed for good, anything else goes to Trash). **Move and
+  archive** to an arbitrary folder are not wired to the bulk routes yet, so a message can be read,
+  flagged and discarded but not filed. Graph is not yet a mail transport, so the account still reads
+  mail over IMAP/SMTP and nothing migrates on its own.
 - Mail folder discovery is a **full snapshot** per run rather than a Graph folder delta. A folder tree
   is small enough that a snapshot is the simpler correct answer; message sync is where the delta
   cursor belongs.
@@ -1406,16 +1414,13 @@ for what is left.* The account-model question it used to raise is
 `provider_mailbox_id` and `transport_generation`, so the adapter targets an `email_accounts` row and
 the local message/folder/thread model is untouched. What remains, in order:
 
-1. **The mutations that move or remove** — move, archive, delete/trash — as adapters on the same
-   layer, in `graphMailMutations.ts` beside the flag one. They are **not** idempotent in the same
-   sense as a flag set: `DELETE` twice is a 404, so the adapter must classify carefully (a 404 on the
-   second attempt means the intent is already satisfied, not that it failed) and the recovery decision
-   must not re-run an unconfirmed removal. A move is a `POST /me/messages/{id}/move` with a
-   destination folder id, so it needs the local folder path resolved to a `mail_folder` collection's
-   `remote_id` — the reverse of the link the folder slice created. Deletion needs the
-   `deleteditems` well-known folder for a trash and `DELETE /me/messages/{id}` for a permanent one;
-   which of the two Inboxora's delete means is a product decision the existing IMAP path already
-   answers, so read it rather than inventing a second answer.
+1. **Move and archive to an arbitrary folder** — the adapter (`graphMoveMutationAdapter`), the intent
+   (`graphMoveIntent`) and the path→folder-id resolver (`graphFolderIdForPath`) all exist and are
+   exercised by the delete slice, which uses the move for Trash. What is left is wiring the **bulk
+   routes** (`/messages/bulk-move`, `/messages/bulk-archive`) and the spam/ham move to the same
+   helper `deleteMessageOverGraph` lives in, so the transport decision is made in one place rather
+   than three. Note the hazard the delete slice already handled and a bulk move must repeat: a Graph
+   move returns a **new** message id, so every moved row has to adopt it.
 2. **Conversation persistence** through `providerConversationMetadata.ts`, keyed on Graph's
    `conversationId`, never on the RFC `Message-ID` alone. The message sync already stores
    `conversationId` as `messages.thread_id`; what is missing is feeding the conversation engine from
