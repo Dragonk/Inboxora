@@ -981,6 +981,108 @@ Each of these cost a defect or a round to learn, and each applies to whatever co
   rather than remembered; ten verdicts were corrected in one session, all in the direction of *more* work
   remaining. Assume the same of anything written here after this note.
 
+## Final report (§30), in the shape the plan requires
+
+Written at `f12727f6` on `dev`, the commit this report follows; the report commit itself changes no code. It is **not**
+a declaration of completed delivery — §30's closure condition is that every agreed feature is present with its tests
+settled and a verified image pair on the same commit, and the last section below says exactly what is missing.
+
+### 1. Code
+
+**Final SHA: `f12727f6` on `origin/dev`**, tree clean, no test containers left. The integrated work spans the packages
+P00–P14 in the order the plan sets, with the largest pieces being the provider contract/registry layer and schema
+(`0101`–`0106`), the OAuth and token service for both providers, the complete Google vertical (contacts, calendars,
+People, discovery, scheduling, connector status, per-collection control), Microsoft Graph contacts and the device
+flow, the DAV hardening and the documentation package, the 4.1.0 release, and the send-path accounting added after it.
+Every commit carries the required trailer.
+
+**Discrepancies between the base audit and the final code, and how they were handled:** the plan's own tables and
+chapters were read against the implementation repeatedly, and **every** discrepancy found was disclosed rather than
+smoothed — fourteen corrections to the acceptance surface in one pass, three items resolved as **stated absences**
+rather than invented features (*Ignore* / "do not show again", a second mail transport, a Google device flow), each
+chapter read producing either a fix (device polling limits, scheduler backoff with jitter, the CalDAV projection
+filter, report dispatch by root element) or a recorded gap (metrics, scheduler diagnostics, the interface's
+duplicate-risk affordance). Two claims of mine were themselves corrected the same way, including one that described a
+size limit the code did not have.
+
+### 2. Requirements
+
+**W01–W19** are reported in the table above, each with its location and its verdict, and the **execution matrix**
+(AU/ML/AT/KC/DV/GE/MG/DC/AD) alongside it. The provider operations that are **explicitly limited** rather than
+implemented are: everything the provider owns is **read-only** (no write-back, no mutation journal), the mail
+transports over the APIs do not exist (so mail is IMAP/SMTP, and the "no send fallback" rules have no second
+transport to fall back *to*), notice preferences and the migration prompt are absent, and the device flow's
+**polling limit** was added this session while its **live** authorization remains unrun.
+
+### 3. Data and authorisation
+
+Migrations **`0101`–`0106`**, additive, to be applied **in order before application rollout**; no existing table,
+column or row is rewritten. The state-reconstructing suite that applies the chain and then asserts that seeded
+identifiers survive passes, and it creates its own database, which is why it needs `CREATEDB` and its own invocation
+rather than the ordinary suite. Existing accounts are **not migrated** and nothing is removed: a Google mailbox keeps
+working on an app password with no OAuth project, and a Microsoft mailbox needs the connection the card states.
+Read-only is enforced for provider-owned collections; disabling a provider, a method or the whole layer is enforced
+and preserves data, with a tombstone so a restart cannot resurrect old configuration. **No secrets, tokens or
+private data appear in this report or in the repository's documentation.**
+
+### 4. Quality
+
+Read from each command's **exit status**: backend typecheck, lint and **2279** unit tests green; frontend typecheck,
+lint, **2682** tests and a production build green; **99** database integration tests across twelve suites on a fresh
+PostgreSQL 16 with the full 109-migration chain; browser **205 passed, 0 failed** (desktop 125 + mobile 80).
+**Skipped, separately:** 89 backend tests and 13 backend files are skipped by design, and the browser run reports 161
+skipped alongside its 205 passing. **Not run, separately:** the browser matrix **predates** the last two interface
+changes (the provider-card test control and the composer's uncertain-send message), so it does not cover them; the
+database suites were last run before the send-path work, which does not touch what they exercise; **the performance
+comparison §25.1 requires was never run** — no representative before/after measurements exist, and the plan's own
+rule forbids substituting an invented budget for them. Error and conflict behaviour has dedicated tests: rate-limit
+versus auth classification, expired cursors, read-only refusals, idempotency mismatch and uncertainty, and the
+calendar conflict paths.
+
+### 5. Images
+
+Published from **one commit, `035f60ab1843a4a60c1d6379a0d5dbaec9304324`** (the 4.1.0 release), by the dispatched
+workflow run **`35425837287`**, which succeeded and whose source-reachability assertion the workflow itself enforces:
+
+| Image | Tag | Digest | Platforms |
+| --- | --- | --- | --- |
+| `ghcr.io/dragonk/inboxora-backend` | `dev` | `sha256:ea46f1808e4aff06fc1d624fa19afc260551955a3898f8618c84ae64eb05a7f9` | `linux/amd64`, `linux/arm64` |
+| `ghcr.io/dragonk/inboxora-frontend` | `dev` | `sha256:d099fbf3bee52733440ea425b673044af3d81ca0f8c92038297e8a0ed1606723` | `linux/amd64`, `linux/arm64` |
+
+Both were verified in the **registry** rather than taken from the workflow's conclusion: each tag resolves to an OCI
+image index carrying both platforms. **No container smoke test of the published images was run** — the digests and
+platforms are registry facts, and a smoke run is not among them. Note also that `f12727f6`, the commit this report
+describes, is **newer** than the published SHA: the images correspond to the 4.1.0 release, not to everything
+integrated since.
+
+### 6. Operations
+
+The final instructions are in the repository on `dev` and reachable from the sidebar: **Google** (browser OAuth for
+the API, app password for mail, no device flow and why) and **Microsoft** (browser and device-code variants, the
+*Allow public client flows* requirement, personal accounts and tenant blocks) in `Provider-setup.md`; the policy,
+both switches and the message-size limit in `Configuration.md`; the upgrade behaviour, the migration requirement and
+what is *not* included in `Upgrading.md`; the provider diagnostics, rotation and the three credential kinds in
+`Troubleshooting.md` and `Security.md`. UI copy, the nine locales and the README carry the same policy, and the
+provider card was captured for the documentation with `scripts/verify-docs-screenshots.mjs` passing over 30 images.
+**The procedure tests of §8 are NOT RUN**: no real Google or Microsoft application was registered, so live
+authorization is unverified for both. What can be confirmed separately is that **Google is never asked to migrate** —
+no code path returns a migration requirement for it, and connecting the API does not touch mail — and that the
+**Microsoft device-only configuration works without a secret or a callback** in the flow, its readiness and its
+refresh, as its tests assert. Rollback is documented in `Upgrading.md`. **Unresolved risks:** the interface's
+duplicate-risk affordance for an uncertain send, the configuration card's inability to *test* credentials before the
+control added in 4.1.0's successor, metrics and structured log identifiers, the report-dispatch edge case that was
+fixed but whose sibling in CardDAV shares the code path, and the absence of any live provider run.
+
+### What is missing, precisely
+
+The agreed scope is **not** fully present. Missing on `dev`: the **Graph mail adapter** (P07b) and with it the
+Microsoft mail transport requirement P12 depends on, the **Gmail API mail transport** (P08), the **Graph calendar
+adapter**, the **send/draft ledger** (P06), the **external CalDAV/CardDAV write-back client** (P10) and therefore
+P09's CRUD, the **source backfill** (P02), the **migration notices** (P12), **metrics**, and the three-size
+accounting of §12.2. Tests are settled for everything that **is** present; the published image pair corresponds to
+`035f60ab`, not to the tip. This paragraph is the report's answer to §30's closure condition, and it is deliberately
+the last thing a reader sees.
+
 ### State when this was written (measured again at `d0b93bf4`, after the 4.1.0 release)
 
 Everything below was green at that commit, read from the **exit status** of each gate rather than from piped
