@@ -2955,6 +2955,10 @@ function IntegrationsTab() {
   // Configured if the admin has a saved DB config OR the server has env-var config (#359);
   // non-admins only ever have the env-aware capability status.
   const msConfigured = (isAdmin ? configs.microsoft?.clientId : null) || msStatus?.configured;
+  // The browser method needs a confidential client: a client id alone is enough for the
+  // device method (which has its own control) but not for this button, so gating it on
+  // `configured` offered a flow that fails at Microsoft.
+  const msBrowserReady = Boolean(msStatus?.browser?.ready);
   // Google browser readiness comes from the backend so the UI never treats a
   // saved Client ID alone as a working OAuth client.
   const googleConfigured = (isAdmin ? configs.google?.clientId : null) || googleStatus?.configured;
@@ -3161,15 +3165,15 @@ function IntegrationsTab() {
 
                   <button
                     onClick={handleConnectMs}
-                    disabled={!msConfigured || connectingMs}
-                    title={!msConfigured ? t('admin.integrations.microsoft.save') : ''}
+                    disabled={!msConfigured || !msBrowserReady || connectingMs}
+                    title={!msConfigured || !msBrowserReady ? t('admin.integrations.microsoft.save') : ''}
                     style={{
-                      padding: '9px 16px', background: msConfigured ? 'var(--accent)' : 'var(--bg-elevated)',
-                      border: `1px solid ${msConfigured ? 'var(--accent)' : 'var(--border)'}`,
-                      borderRadius: 8, color: msConfigured ? 'white' : 'var(--text-tertiary)',
-                      cursor: msConfigured && !connectingMs ? 'pointer' : 'not-allowed',
+                      padding: '9px 16px', background: msConfigured && msBrowserReady ? 'var(--accent)' : 'var(--bg-elevated)',
+                      border: `1px solid ${msConfigured && msBrowserReady ? 'var(--accent)' : 'var(--border)'}`,
+                      borderRadius: 8, color: msConfigured && msBrowserReady ? 'white' : 'var(--text-tertiary)',
+                      cursor: msConfigured && msBrowserReady && !connectingMs ? 'pointer' : 'not-allowed',
                       fontSize: 13, fontWeight: 500,
-                      opacity: !msConfigured || connectingMs ? 0.6 : 1,
+                      opacity: !msConfigured || !msBrowserReady || connectingMs ? 0.6 : 1,
                       display: 'flex', alignItems: 'center', gap: 6,
                     }}
                   >

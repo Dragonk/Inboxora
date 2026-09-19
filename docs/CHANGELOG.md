@@ -414,6 +414,11 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   the Contacts page's hint (which uses the connector's own readiness) invited the user to press it.
   The status now reports the connector's readiness separately and the card uses it, so the hint and
   the button agree.
+- Stop offering the *Connect* button for a Microsoft sign-in that cannot complete. It was enabled as
+  soon as a Client ID existed, but the browser method needs a confidential client — a secret and the
+  exact redirect URI — and clicking with only a Client ID failed at Microsoft. A Client ID alone is
+  enough for the device-code method, which keeps its own control; the browser button now requires
+  the browser readiness the status already reports, so it is offered only where it can work.
 
 
 ## [4.0.4] - 2026-09-18

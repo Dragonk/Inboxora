@@ -281,3 +281,16 @@ test('the drawer swipe gesture is reachable: default on, with a switch to turn i
   const auth = await readFile(new URL('../../../backend/src/routes/auth.ts', import.meta.url), 'utf8');
   assert.match(auth, /mobileSidebarSwipeEnabled must be a boolean/);
 });
+
+test('a connect button is offered only when its own flow can run', async () => {
+  const source = await readFile(adminPanel, 'utf8');
+  // The mailbox method needs a confidential client, so a client id alone must not enable
+  // it — while the device method, which has its own control, legitimately works with one.
+  assert.match(source, /const msBrowserReady = Boolean\(msStatus\?\.browser\?\.ready\)/);
+  assert.match(source, /disabled=\{!msConfigured \|\| !msBrowserReady \|\| connectingMs\}/);
+  assert.match(source, /cursor: msConfigured && msBrowserReady && !connectingMs \? 'pointer' : 'not-allowed'/);
+  // The connector has a different callback again, and its own readiness.
+  assert.match(source, /msStatus\?\.graph\?\.ready && \(/);
+  // Google has a single flow, gated on the browser readiness for the same reason.
+  assert.match(source, /googleStatus\?\.browser\?\.ready \? \(/);
+});
