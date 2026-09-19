@@ -1,5 +1,5 @@
 import { GraphApiError, graphPost, type GraphApiOptions } from './graphApiClient.js';
-import type { ComposedMail } from '../../composedMail.js';
+import type { ComposedMail, Mailbox } from '../../composedMail.js';
 
 /**
  * Microsoft Graph's representation of a message — the renderer's output for this transport.
@@ -26,8 +26,15 @@ export interface GraphMessagePayload {
   internetMessageHeaders?: Array<{ name: string; value: string }>;
 }
 
-const toRecipients = (addresses: readonly string[]): GraphRecipient[] =>
-  addresses.map(address => ({ emailAddress: { address } }));
+const toRecipients = (mailboxes: readonly Mailbox[]): GraphRecipient[] =>
+  mailboxes.map(mailbox => ({
+    emailAddress: {
+      address: mailbox.email,
+      // Separate fields, because that is the semantic mapping: `address` holds an address and never a
+      // display-name string, and `name` is present only when the caller provided one.
+      ...(mailbox.name ? { name: mailbox.name } : {}),
+    },
+  }));
 
 /**
  * Render the canonical model into Graph's message JSON.
@@ -56,7 +63,7 @@ export function renderGraphMessage(composed: ComposedMail): GraphMessagePayload 
     ccRecipients: toRecipients(composed.cc),
     bccRecipients: toRecipients(composed.bcc),
   };
-  if (composed.replyTo) payload.replyTo = toRecipients([composed.replyTo.email]);
+  if (composed.replyTo) payload.replyTo = toRecipients([composed.replyTo]);
   if (headers.length) payload.internetMessageHeaders = headers;
   return payload;
 }

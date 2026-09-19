@@ -12,13 +12,40 @@ import { stripHeaderFromMessage } from './mimeHeaders.js';
  * the model carries `bcc` as data, and each transport renders it the way that transport can express it
  * (SMTP: envelope only, never a header; Graph: `bccRecipients`, out of band).
  *
- * Recipients are normalised strings, because normalisation happens before the model is built; the
- * model's job is to carry them, not to re-parse them.
+ * Recipients are structured — an address and an optional display name — because that is the shape the
+ * transports disagree about: SMTP wants the name in the header and only the address in the envelope, Graph
+ * wants them as two JSON fields. Parsing happens once, before the model is built.
  */
 export interface Mailbox {
   email: string;
   name?: string | null;
 }
+
+/**
+ * Parse one RFC 5322 style address into its two parts, **once**, before the model exists.
+ *
+ * The interface accepts what people type — `jan@example.com`, `Jan Kowalski <jan@example.com>`,
+ * `"Kowalski, Jan" <jan@example.com>` — and each transport needs a different half of it: SMTP puts the
+ * display name in the header and **only the address** in the envelope, while Graph keeps them as separate
+ * fields (`emailAddress.address` and `emailAddress.name`). Passing the raw string to Graph's `address`
+ * produced an address Graph would reject, which is why the split belongs here and not in a renderer.
+ */
+export function parseMailbox(value: string): Mailbox {
+  const trimmed = value.trim();
+  const angled = /^(.*)<([^<>]+)>\s*$/.exec(trimmed);
+  if (!angled) return { email: trimmed };
+
+  const email = angled[2].trim();
+  const rawName = angled[1].trim().replace(/^"(.*)"$/s, '$1').replace(/\\(.)/g, '$1').trim();
+  return rawName ? { email, name: rawName } : { email };
+}
+
+/** The display form used in headers: `Name <address>`, or just the address. */
+export const formatMailbox = (mailbox: Mailbox): string =>
+  mailbox.name ? `${mailbox.name} <${mailbox.email}>` : mailbox.email;
+
+/** The plain-address list used wherever only addresses are legal (the SMTP envelope). */
+export const mailboxAddresses = (mailboxes: readonly Mailbox[]): string[] => mailboxes.map(mailbox => mailbox.email);
 
 export interface ComposedAttachment {
   filename: string;
@@ -33,9 +60,9 @@ export interface ComposedMail {
   messageId: string;
   from: Mailbox;
   replyTo?: Mailbox | null;
-  to: string[];
-  cc: string[];
-  bcc: string[];
+  to: Mailbox[];
+  cc: Mailbox[];
+  bcc: Mailbox[];
   subject: string;
   plainBody: string;
   htmlBody?: string | null;
@@ -58,9 +85,6 @@ export interface RenderedSmtpMessage {
   mailOptions: SendMailOptions;
 }
 
-const formatMailbox = (mailbox: Mailbox): string =>
-  mailbox.name ? `${mailbox.name} <${mailbox.email}>` : mailbox.email;
-
 /**
  * Render the model for SMTP: one MIME message without `Bcc`, plus the envelope that carries it.
  *
@@ -70,9 +94,11 @@ const formatMailbox = (mailbox: Mailbox): string =>
  * that), because a raw message is sent as given and a blind recipient must exist only in the envelope.
  */
 export async function renderSmtpMessage(composed: ComposedMail): Promise<RenderedSmtpMessage> {
+  // The envelope carries addresses only: a display name is a header convenience, and an envelope with one
+  // in it is not a valid SMTP recipient.
   const envelope = {
     from: composed.from.email,
-    to: [...composed.to, ...composed.cc, ...composed.bcc],
+    to: mailboxAddresses([...composed.to, ...composed.cc, ...composed.bcc]),
   };
 
   const mailOptions: SendMailOptions = {
@@ -85,9 +111,9 @@ export async function renderSmtpMessage(composed: ComposedMail): Promise<Rendere
     ...(composed.replyTo ? { replyTo: formatMailbox(composed.replyTo) } : {}),
     // Nodemailer uses bcc for the envelope but omits it from generated MIME. Do not add a synthetic
     // To header for a BCC-only message.
-    ...(composed.to.length ? { to: composed.to.join(', ') } : {}),
-    ...(composed.cc.length ? { cc: composed.cc.join(', ') } : {}),
-    ...(composed.bcc.length ? { bcc: composed.bcc.join(', ') } : {}),
+    ...(composed.to.length ? { to: composed.to.map(formatMailbox).join(', ') } : {}),
+    ...(composed.cc.length ? { cc: composed.cc.map(formatMailbox).join(', ') } : {}),
+    ...(composed.bcc.length ? { bcc: composed.bcc.map(formatMailbox).join(', ') } : {}),
     subject: composed.subject,
     ...(composed.priority && composed.priority !== 'normal' ? { priority: composed.priority } : {}),
     text: composed.plainBody,

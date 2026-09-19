@@ -12,7 +12,7 @@ import { resolveSentFolder } from '../utils/mailUtils.js';
 import { generateVCard } from '../utils/vcard.js';
 import { createAccountMailTransport } from '../services/sendTransport.js';
 import { SEND_ATTACHMENT_TOTAL_BYTES, sendLimits } from '../services/sendLimits.js';
-import { renderSmtpMessage } from '../services/composedMail.js';
+import { parseMailbox, renderSmtpMessage } from '../services/composedMail.js';
 import { fetchSourceAttachment, SourceAttachmentError } from '../services/sourceAttachments.js';
 import { imapManager } from '../index.js';
 import { pluginRegistry } from '../plugins/registry.js';
@@ -754,10 +754,13 @@ router.post('/send', async (req, res) => {
     const { raw: rawMessage, mailOptions } = await renderSmtpMessage({
       messageId,
       from: { email: fromEmail, name: fromName },
-      replyTo: fromReplyTo ? { email: fromReplyTo } : null,
-      to: normalizedTo,
-      cc: normalizedCc,
-      bcc: normalizedBcc,
+      replyTo: fromReplyTo ? parseMailbox(fromReplyTo) : null,
+      // Parsed once, here: every transport reads the same structured recipients, and each renders the
+      // half it needs (SMTP the display name in headers and the bare address in the envelope, Graph two
+      // separate JSON fields).
+      to: normalizedTo.map(parseMailbox),
+      cc: normalizedCc.map(parseMailbox),
+      bcc: normalizedBcc.map(parseMailbox),
       subject: normalizedSubject,
       plainBody: plainBodyText,
       htmlBody,

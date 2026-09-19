@@ -15,7 +15,7 @@ import type { ComposedMail } from '../../composedMail.js';
 const base: ComposedMail = {
   messageId: '<fixed@inboxora.test>',
   from: { email: 'sam@contoso.test', name: 'Sam' },
-  to: ['visible@example.test'],
+  to: [{ email: 'visible@example.test' }],
   cc: [],
   bcc: [],
   subject: 'Subject line',
@@ -28,9 +28,9 @@ describe('renderGraphMessage', () => {
   it('maps the three recipient groups separately, with the blind recipient as bccRecipients', () => {
     const payload = renderGraphMessage({
       ...base,
-      to: ['visible@example.test'],
-      cc: ['copy@example.test'],
-      bcc: ['blind@example.test'],
+      to: [{ email: 'visible@example.test' }],
+      cc: [{ email: 'copy@example.test' }],
+      bcc: [{ email: 'blind@example.test' }],
     });
     expect(payload.toRecipients).toEqual([{ emailAddress: { address: 'visible@example.test' } }]);
     expect(payload.ccRecipients).toEqual([{ emailAddress: { address: 'copy@example.test' } }]);
@@ -40,7 +40,7 @@ describe('renderGraphMessage', () => {
   });
 
   it('needs no Bcc header: a blind recipient is representable as data', () => {
-    const payload = renderGraphMessage({ ...base, to: [], bcc: ['blind@example.test'] });
+    const payload = renderGraphMessage({ ...base, to: [], bcc: [{ email: 'blind@example.test' }] });
     expect(payload.toRecipients).toHaveLength(0);
     expect(payload.bccRecipients).toHaveLength(1);
   });
@@ -75,7 +75,7 @@ describe('createGraphDraft', () => {
     const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ id: 'AAMkAD-draft-1' }), {
       status: 201, headers: { 'content-type': 'application/json' },
     }));
-    const draft = await createGraphDraft(api(fetchImpl), { ...base, bcc: ['blind@example.test'] });
+    const draft = await createGraphDraft(api(fetchImpl), { ...base, bcc: [{ email: 'blind@example.test' }] });
 
     const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toContain('/me/messages');
@@ -139,5 +139,30 @@ describe('sendGraphDraft', () => {
     const fetchImpl = vi.fn(async () => { throw new Error('timeout'); });
     await sendGraphDraft(api(fetchImpl), 'draft-1');
     expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+});
+
+// The semantic mapping the transports disagree about: Graph keeps the address and the display name in
+// separate fields, so a `Name <address>` input must never arrive as one `address` string.
+describe('graph recipients are structured', () => {
+  it('maps name and address separately, and omits name when there is none', () => {
+    const payload = renderGraphMessage({
+      ...base,
+      to: [{ email: 'jan@example.test', name: 'Jan Kowalski' }],
+      cc: [{ email: 'copy@example.test' }],
+      bcc: [{ email: 'blind@example.test', name: 'Blind Person' }],
+    });
+    expect(payload.toRecipients).toEqual([{ emailAddress: { address: 'jan@example.test', name: 'Jan Kowalski' } }]);
+    expect(payload.ccRecipients).toEqual([{ emailAddress: { address: 'copy@example.test' } }]);
+    expect(payload.bccRecipients).toEqual([{ emailAddress: { address: 'blind@example.test', name: 'Blind Person' } }]);
+    // The address field never carries the display form.
+    for (const group of [payload.toRecipients, payload.ccRecipients, payload.bccRecipients]) {
+      for (const recipient of group) expect(recipient.emailAddress.address).not.toContain('<');
+    }
+  });
+
+  it('carries replyTo as a structured mailbox too', () => {
+    const payload = renderGraphMessage({ ...base, replyTo: { email: 'replies@example.test', name: 'Replies' } });
+    expect(payload.replyTo).toEqual([{ emailAddress: { address: 'replies@example.test', name: 'Replies' } }]);
   });
 });
