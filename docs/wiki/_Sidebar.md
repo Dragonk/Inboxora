@@ -11,6 +11,7 @@
   - [External calendars](External-calendars.md)
   - [Mobile navigation](Mobile-navigation.md)
 - **Operations**
+  - [Connecting Google and Microsoft accounts](Provider-setup.md)
   - [Security](Security.md)
   - [Upgrading](Upgrading.md)
   - [Migrating from MailFlow](Migrating-from-MailFlow.md)

@@ -236,6 +236,14 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   pairs are OR-ed, and a repeated header is treated as one. A malformed header is a `400`; a
   well-formed condition that is not met, or a valid form not evaluated here (a tagged list, which
   can name another resource), is a `412`.
+- Add an operator procedure for the provider APIs (`docs/wiki/Provider-setup.md`, linked from the
+  sidebar and the configuration page). It documents what each connector actually reads, the exact
+  redirect URIs (`/oauth/google/callback`, `/oauth/microsoft/callback`,
+  `/oauth/provider/microsoft/callback`), the environment variables and their fallbacks, the
+  delegated permissions per feature, the difference between the Microsoft mailbox sign-in and the
+  Graph contact connector, how refresh and re-authorization behave, and a troubleshooting table
+  covering the failures an operator actually sees. Every Inboxora-side name, path and variable in
+  the page was checked against the code it describes.
 
 ## [4.0.4] - 2026-09-18
 

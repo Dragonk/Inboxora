@@ -34,8 +34,11 @@ The same Entra application is also what the **Microsoft Graph** API integration 
 authorization entry point is `/oauth/provider/microsoft` and it asks only for the scopes of the
 purpose it was started with (`mail_migration`, `calendar_enable` or `contacts_enable`), so granting
 calendars never grants the mailbox. It is deliberately separate from `/oauth/microsoft`, which is
-the existing mailbox sign-in. The Graph connection flow is not yet reachable from the settings
-screen; until it is, it is started from that URL by a signed-in user.
+the existing mailbox sign-in.
+
+Step-by-step registration for both providers — the exact redirect URIs, environment variables,
+permissions and a troubleshooting table — is in
+[Connecting Google and Microsoft accounts](Provider-setup.md).
 
 ## Appearance
 
