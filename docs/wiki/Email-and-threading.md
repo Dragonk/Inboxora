@@ -7,6 +7,13 @@ works in practice and what the rest of the mail side offers.
 ## Accounts, folders and the unified inbox
 
 - Multiple IMAP/SMTP accounts can be added, edited, reordered, disabled and reconnected.
+
+**Mail has one transport: IMAP/SMTP, for every provider.** The Google and Microsoft API connections described
+in [Connecting Google and Microsoft accounts](Provider-setup.md) serve **contacts and calendars**; they do not
+send or receive mail, and connecting one does not change how a mailbox is reached. Gmail keeps working with an
+app password, and Microsoft mail needs the API connection *for the mailbox sign-in* — a different use of the
+same authorization — rather than for the messages themselves. There is therefore no second mail transport to
+choose between, and nothing that could silently fall back to another one.
 - Each account has a colour, a sender name, optional **aliases** (send-as addresses with their
   own Reply-To and signature) and an HTML **signature**.
 - Folder roles (Sent, Drafts, Trash, Spam, Archive) are detected from IMAP special-use flags or
