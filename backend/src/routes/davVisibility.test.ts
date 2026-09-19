@@ -291,3 +291,47 @@ describe('WebDAV If header on a write', () => {
     expect(response.status).toBe(204);
   });
 });
+
+describe('a collection whose source is a provider refuses DAV writes', () => {
+  // The source is the writer for an imported or connected collection. This is what
+  // keeps an unimplemented write-back from silently accepting an edit that the next
+  // sync would discard, so it is pinned for both protocols rather than assumed.
+  const eventBody = 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:e1\r\nDTSTART:20260901T090000Z\r\nDTEND:20260901T100000Z\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n';
+  const cardBody = 'BEGIN:VCARD\r\nVERSION:3.0\r\nUID:c1\r\nFN:Ada\r\nEND:VCARD';
+  const providerCalendar = { id: 'cal-g', name: 'Imported', sync_token: 'sync-1', read_only: true, source: 'google', dav_mode: 'read_write' };
+  const providerBook = { id: 'book-g', name: 'Imported', sync_token: 'sync-1', sync_version: 1, source: 'google', dav_mode: 'read_write' };
+
+  it('advertises read only for a provider calendar even when its DAV mode is read-write', async () => {
+    query.mockResolvedValue({ rows: [providerCalendar] });
+    const response = await fetch(`${base}/caldav/user-1/cal-g/`, { method: 'PROPFIND', headers: { ...AUTH, depth: '0' } });
+    expect(response.status).toBe(207);
+    const body = await response.text();
+    expect(body).toContain('<D:privilege><D:read/></D:privilege>');
+    // Advertising a write the handlers would refuse is the bug this guards against.
+    expect(body).not.toContain('<D:write');
+  });
+
+  it('refuses a calendar write with 403 and stores nothing', async () => {
+    query.mockResolvedValue({ rows: [providerCalendar] });
+    const put = await fetch(`${base}/caldav/user-1/cal-g/event.ics`, {
+      method: 'PUT', headers: { ...AUTH, 'content-type': 'text/calendar' }, body: eventBody,
+    });
+    expect(put.status).toBe(403);
+    const del = await fetch(`${base}/caldav/user-1/cal-g/event.ics`, { method: 'DELETE', headers: AUTH });
+    expect(del.status).toBe(403);
+    expect(queryCallsMatching('INSERT INTO calendar_events')).toHaveLength(0);
+    expect(queryCallsMatching('DELETE FROM calendar_events')).toHaveLength(0);
+  });
+
+  it('refuses an address-book write the same way', async () => {
+    query.mockResolvedValue({ rows: [providerBook] });
+    const put = await fetch(`${base}/carddav/user-1/book-g/contact.vcf`, {
+      method: 'PUT', headers: { ...AUTH, 'content-type': 'text/vcard' }, body: cardBody,
+    });
+    expect(put.status).toBe(403);
+    const del = await fetch(`${base}/carddav/user-1/book-g/contact.vcf`, { method: 'DELETE', headers: AUTH });
+    expect(del.status).toBe(403);
+    expect(queryCallsMatching('INSERT INTO contacts')).toHaveLength(0);
+    expect(queryCallsMatching('DELETE FROM contacts')).toHaveLength(0);
+  });
+});

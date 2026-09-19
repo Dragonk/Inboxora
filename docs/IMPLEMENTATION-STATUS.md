@@ -9,8 +9,8 @@ Nothing here is aspirational: a package is only marked delivered when its behavi
 tests — including integration tests against a real PostgreSQL where persistence, leases or cursors
 are involved — and merged to `origin/dev`.
 
-Last verified on `dev` at `f3d96aa6`: backend typecheck, lint and **2223 tests**; frontend
-typecheck, lint, production build and **2635 tests**. `main` has not been touched by this work.
+Last verified on `dev` at `e32274f9`: backend typecheck, lint and **2226 tests**; frontend
+typecheck, lint, production build and **2644 tests**. `main` has not been touched by this work.
 
 ## Status
 
@@ -64,7 +64,9 @@ reader does not re-open the same question.
 ## Known limitations of what is delivered
 
 - Pulled Google and Microsoft contacts and Google calendars are **read-only** in Inboxora: REST and
-  DAV refuse to edit a collection whose source is not local, and the source is the writer.
+  DAV refuse to edit a collection whose source is not local, and the source is the writer. The DAV
+  side of that rule is pinned by tests for both protocols, including that a provider collection
+  advertises read only even when its DAV mode says read-write.
 - Recurring Google events keep their timezone through a **generated VTIMEZONE**; the generator reads
   the platform time-zone database, so a rule change needs no code change.
 - Microsoft Graph calendar events are **not** imported yet, so they cannot hit the Windows→IANA
