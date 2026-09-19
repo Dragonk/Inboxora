@@ -1028,7 +1028,10 @@ rather than the ordinary suite. Existing accounts are **not migrated** and nothi
 working on an app password with no OAuth project, and a Microsoft mailbox needs the connection the card states.
 Read-only is enforced for provider-owned collections; disabling a provider, a method or the whole layer is enforced
 and preserves data, with a tombstone so a restart cannot resurrect old configuration. **No secrets, tokens or
-private data appear in this report or in the repository's documentation.**
+private data appear in this report or in the repository's documentation**, and that is a checked claim rather than an
+assurance: the documentation, README and `.env.example` were searched for credential-shaped assignments
+(`secret`, `password`, `token` followed by a long value) and for long hex or base64 runs. Nothing matched; the only
+long strings are a commit SHA — which §30.5 requires — and image or URL paths.
 
 ### 4. Quality
 
