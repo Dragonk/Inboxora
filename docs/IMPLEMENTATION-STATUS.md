@@ -1466,13 +1466,28 @@ for what is left.* The account-model question it used to raise is
 `provider_mailbox_id` and `transport_generation`, so the adapter targets an `email_accounts` row and
 the local message/folder/thread model is untouched. What remains, in order:
 
-1. **Conversation persistence.** The message sync already stores Graph's `conversationId` as
-   `messages.thread_id`, so the thread *key* exists; what is missing is feeding the conversation
-   engine the way the IMAP ingest does (`upsertConversationCopy` with a provider descriptor from
-   `providerConversationMetadata`/`providerThreadAdapter`). Read the IMAP ingest before writing a
-   second path — the provider identity rules there (`source: 'provider-thread-id'`, the namespace)
-   are the part that must not be reinvented, and `gmailNativePg.integration.test.ts` is the example
-   of asserting them on a real database.
+1. **Conversation persistence — the change is now scoped, not open.** The thread *key* already
+   exists: the Graph sync stores `conversationId` in `messages.thread_id`. What is missing is that the
+   conversation engine learns it, and the exact place was read rather than guessed:
+   `providerMetadataForMessage` (`services/providerConversationMetadata.ts`) derives the provider
+   identity from the message row and the account, and its contract type declares only
+   `{ id, imap_host }`. For a Graph account that means:
+   a. **widen the account parameter** to carry `mail_transport` (the row already has it) and treat a
+      Graph account as its own provider, so its threads cannot be merged with an IMAP mailbox's;
+   b. **use `thread_id` as the provider thread id** — Graph's `conversationId` is server-assigned and
+      immutable, exactly the property that makes Gmail's `X-GM-THRID` strong, so it must set
+      `isStrong: true` and `source: 'provider-thread-id'`. It must **not** be pushed through
+      `outlookConversationRoot`, which expects the 22-byte hex Thread-Index root and would return null
+      for a base64 `conversationId`;
+   c. **call the shared persist path from the Graph sync**, per applied row and *outside* the page's
+      transaction, which is how the IMAP ingest orders it — `persistConversationCopyForRow` in
+      `imapManager.ts` is generic over the row and needs exporting rather than a second copy in the
+      adapter;
+   d. **namespace by account**, so two Graph mailboxes with coincidentally equal conversation ids do
+      not share a thread.
+   The test that would catch a mistake here is the one `gmailNativePg.integration.test.ts` already
+   models: two messages sharing a `conversationId` group into one conversation, and a third with a
+   different one does not, asserted on a real database rather than on the mapper.
 
 3. **Rules and the GTD/plugin abstractions** — checked, and the check found work rather than an
    all-clear, which is why it was written as something to verify: **GTD needs two provider-aware**
