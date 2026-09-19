@@ -544,6 +544,21 @@ claimed a green run. It was corrected in the next commit, and it is the **second
 this session — the screenshot verifier in round 198 was the first — and the first that put a red test on the branch.
 The corrective is mechanical and now stated: read the **exit status**, never the piped tail, before staging.
 
+### The send state machine and drafts (§12.7–12.8), read against the code
+
+| Requirement | State |
+| --- | --- |
+| A send state machine with `accepted` distinct from delivered, and no delivery claim without evidence | **The semantics exist under different names.** Durable send intents carry `completed`/`mismatch`/`uncertain`/`inflight`, the SMTP result carries accepted and rejected recipients separately, and the sent copy is a separate step (IMAP APPEND). Nothing in the stored state claims delivery. The plan's state names are its proposal, not a contract the code must adopt. |
+| A stable idempotency key bound to the draft, recipients, alias and files; two parallel clicks start at most one operation | **Met** — the fingerprint and its compatible variants are stored with the intent, and the claim is a database row plus a Redis reservation, which is what makes a second click a no-op rather than a second message. |
+| The durable claim must live in the database, with Redis only accelerating it | **Met, and deliberately commented as such** — the database intent is described in the code as "the final, cross-process gate immediately before SMTP", authoritative "if Redis is flushed while another request is still preparing". This is the rule the plan states, implemented as the reason it states it. |
+| After `outcome_unknown`, automatic retry is off until reconciliation | **Met** — an uncertain intent refuses automatic re-send and says the result is still being confirmed. |
+| A deliberate re-send after an unknown outcome warns about duplicate risk | **Not verified.** The state exists; whether the interface warns in the words the row asks for was not read. |
+| A late autosave must not resurrect a sent draft | **Met in mechanism.** Remote autosave is decided by `shouldAutosave`, which receives the **`sending` and `savingDraft`** flags as inputs rather than checking dirtiness alone, and a successful send deletes the sent draft and closes the composer. The predicate's body was not read, so this is verified from its inputs and its caller, not from its implementation. |
+| A draft snapshot must carry Bcc, quote, signature, alias, reply headers and inline/reference data; revision conflicts must not overwrite a newer answer; changing the account must move the draft per an explicit policy | **Not verified** for the conflict and account-change halves. The snapshot half is exercised by the existing draft tests, and attachments are documented as deliberately not stored in drafts. |
+
+Two rows are therefore open questions rather than answers, and both are in the interface rather than in the
+durability layer: the wording of the duplicate-risk warning, and the cross-tab revision and account-change policy.
+
 ## The send and attachment specification (§12), as the task list for P06, P07b and P08
 
 Reading this chapter turns "P06 and P07b are package-scale" into a specification, and two of its numbers are traps
