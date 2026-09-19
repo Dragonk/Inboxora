@@ -64,7 +64,7 @@ describe('CalDAV collection visibility (dav_mode)', () => {
     const response = await fetch(`${base}/caldav/user-1/`, { method: 'PROPFIND', headers: { ...AUTH, depth: '1' } });
     expect(response.status).toBe(207);
     // Off collections are filtered in SQL, so they cannot leak through the listing.
-    const homeQuery = queryCallsMatching('FROM calendars WHERE user_id')[0];
+    const homeQuery = queryCallsMatching('FROM calendars c')[0];
     expect(String(homeQuery?.[0])).toContain("dav_mode <> 'off'");
     expect(await response.text()).not.toContain('cal-off');
   });
@@ -128,7 +128,7 @@ describe('CardDAV collection visibility (dav_mode)', () => {
     query.mockResolvedValueOnce({ rows: [{ id: 'book-on', name: 'On', sync_token: 'sync-1', sync_version: 1, source: 'local', dav_mode: 'read_write' }] });
     const response = await fetch(`${base}/carddav/user-1/`, { method: 'PROPFIND', headers: { ...AUTH, depth: '1' } });
     expect(response.status).toBe(207);
-    expect(String(queryCallsMatching('FROM address_books WHERE user_id')[0]?.[0])).toContain("dav_mode <> 'off'");
+    expect(String(queryCallsMatching('FROM address_books ab')[0]?.[0])).toContain("dav_mode <> 'off'");
     expect(await response.text()).not.toContain('book-off');
   });
 

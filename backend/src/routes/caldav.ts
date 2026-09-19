@@ -9,6 +9,9 @@ import { query } from '../services/db.js';
 import { authLimiterConfig } from '../services/authLimiter.js';
 import { createDavAuthMiddleware } from '../services/davServerAuth.js';
 import { collectionDavWritable, davWriteRefusalMessage, resolveCollectionAccess } from '../services/providerAccess.js';
+import { deleteCaldavEvent, putCaldavEvent } from '../services/providers/caldavWriteBack.js';
+import { davWriteBackHttpStatus } from '../services/providers/davWriteBack.js';
+import type { DavWriteBackRouteResult } from '../services/providers/davWriteBack.js';
 import { evaluateDavIf, ifMatchSatisfied } from '../utils/davPreconditions.js';
 import { toAppError } from '../utils/errors.js';
 import type { Request, Response, NextFunction } from 'express';
@@ -26,6 +29,40 @@ function davRefusal(res: Response, reason: string): void {
     .type('application/xml')
     .send(`<?xml version="1.0" encoding="utf-8"?><D:error xmlns:D="DAV:"><D:responsedescription>${xmlEscape(reason)}</D:responsedescription></D:error>`);
 }
+
+/**
+ * Answer an external write-back's result.
+ *
+ * The mapping lives in the write-back module so the two DAV routers cannot drift; here only the
+ * ETag a confirmed write produced is added, because a client stores it for its next `If-Match`.
+ */
+function respondWriteBack(res: Response, result: DavWriteBackRouteResult): void {
+  if (result.retryAfterSeconds !== undefined) res.setHeader('Retry-After', String(result.retryAfterSeconds));
+  if (result.status === 'confirmed' && result.etag) res.setHeader('ETag', `"${result.etag}"`);
+  res.status(davWriteBackHttpStatus(result)).end();
+}
+
+/** The collection columns the capability model and the write-back both read. */
+interface CalendarAccessRow {
+  id: string;
+  name?: string | null;
+  sync_token?: string | null;
+  read_only?: boolean | null;
+  source?: string | null;
+  dav_mode?: string | null;
+  external_url?: string | null;
+  /** `integration_collections.source_access`: what the origin itself permits. */
+  source_access?: string | null;
+  /** `integration_collections.user_access`: the user's own write-back opt-in. */
+  user_access?: string | null;
+}
+
+const CALENDAR_ACCESS_COLUMNS = 'c.id, c.name, c.sync_token, c.read_only, c.source, c.dav_mode, c.external_url, ic.source_access, ic.user_access';
+/** A calendar maps to at most one integration collection; an absent row leaves the columns null. */
+const CALENDAR_ACCESS_JOIN = `LEFT JOIN LATERAL (
+    SELECT source_access, user_access FROM integration_collections
+     WHERE local_calendar_id = c.id ORDER BY created_at ASC LIMIT 1
+  ) ic ON true`;
 
 const router = Router();
 const caldavBuckets = new Map();
@@ -239,9 +276,10 @@ router.propfind('/', (req: Request, res: Response) => {
 router.propfind('/:userId/', async (req: Request, res: Response) => {
   if (req.params.userId !== req.caldavUserId) return res.status(403).end();
 
-  const calendars = await query<{ id: string; name?: string | null; sync_token?: string | null; read_only?: boolean | null; source?: string | null; dav_mode?: string | null }>(
+  const calendars = await query<CalendarAccessRow>(
     // A collection turned off is not discoverable at all.
-    "SELECT id, name, sync_token, read_only, source, dav_mode FROM calendars WHERE user_id = $1 AND dav_mode <> 'off' ORDER BY created_at ASC",
+    `SELECT ${CALENDAR_ACCESS_COLUMNS} FROM calendars c ${CALENDAR_ACCESS_JOIN}
+      WHERE c.user_id = $1 AND c.dav_mode <> 'off' ORDER BY c.created_at ASC`,
     [req.caldavUserId],
   );
   const principalPath = `/caldav/${req.caldavUserId}/`;
@@ -271,8 +309,8 @@ router.propfind('/:userId/', async (req: Request, res: Response) => {
 router.propfind('/:userId/:calendarId/', async (req: Request, res: Response) => {
   if (req.params.userId !== req.caldavUserId) return res.status(403).end();
 
-  const result = await query<{ id: string; name?: string | null; sync_token?: string | null; read_only?: boolean | null; source?: string | null; dav_mode?: string | null }>(
-    'SELECT id, name, sync_token, read_only, source, dav_mode FROM calendars WHERE id = $1 AND user_id = $2',
+  const result = await query<CalendarAccessRow>(
+    `SELECT ${CALENDAR_ACCESS_COLUMNS} FROM calendars c ${CALENDAR_ACCESS_JOIN} WHERE c.id = $1 AND c.user_id = $2`,
     [req.params.calendarId, req.caldavUserId],
   );
   const calendar = result.rows[0];
@@ -399,8 +437,8 @@ router.get('/:userId/:calendarId/:filename', async (req: Request, res: Response)
 
 router.put('/:userId/:calendarId/:filename', async (req: Request, res: Response) => {
   if (req.params.userId !== req.caldavUserId) return res.status(403).end();
-  const calendarResult = await query<{ id: string; source?: string | null; read_only?: boolean | null; dav_mode?: string | null; sync_token?: string | null }>(
-    'SELECT id, source, read_only, dav_mode, sync_token FROM calendars WHERE id = $1 AND user_id = $2',
+  const calendarResult = await query<CalendarAccessRow>(
+    `SELECT ${CALENDAR_ACCESS_COLUMNS} FROM calendars c ${CALENDAR_ACCESS_JOIN} WHERE c.id = $1 AND c.user_id = $2`,
     [req.params.calendarId, req.caldavUserId],
   );
   const calendar = calendarResult.rows[0];
@@ -413,8 +451,8 @@ router.put('/:userId/:calendarId/:filename', async (req: Request, res: Response)
   const event = parseCalendarEvent(await rawBody(req));
   const filename = req.params.filename;
   if (!event) return res.status(400).end();
-  const currentResult = await query<{ uid: string; dav_filename?: string | null; etag: string; invite_account_id?: string | null }>(
-    "SELECT uid, dav_filename, etag, invite_account_id FROM calendar_events WHERE calendar_id = $1 AND (uid = $2 OR COALESCE(dav_filename, uid || '.ics') = $4) AND recurrence_id = $3",
+  const currentResult = await query<{ id: string; uid: string; dav_filename?: string | null; etag: string; invite_account_id?: string | null }>(
+    "SELECT id, uid, dav_filename, etag, invite_account_id FROM calendar_events WHERE calendar_id = $1 AND (uid = $2 OR COALESCE(dav_filename, uid || '.ics') = $4) AND recurrence_id = $3",
     [calendar.id, event.uid, '', filename],
   );
   const current = currentResult.rows[0];
@@ -427,6 +465,23 @@ router.put('/:userId/:calendarId/:filename', async (req: Request, res: Response)
   const ifDecision = evaluateDavIf(req.headers['if'], { etag: current?.etag ?? null, syncToken: calendar.sync_token ?? null });
   if (ifDecision.status === 'bad-request') return res.status(400).end();
   if (ifDecision.status === 'precondition-failed') return res.status(412).end();
+  // An imported collection writes through its own adapter; the source's answer is what decides
+  // whether the local projection changes at all.
+  if (access.providerKey === 'caldav') {
+    return respondWriteBack(res, await putCaldavEvent({
+      method: 'PUT',
+      userId: req.caldavUserId,
+      calendar: { id: calendar.id, external_url: calendar.external_url ?? null, source: calendar.source ?? null },
+      filename: String(filename),
+      uid: event.uid,
+      raw: event.raw,
+      parsed: event,
+      exists: Boolean(current),
+      localObjectId: current?.id ?? null,
+      localRevision: current?.etag ?? null,
+      credentialId: req.caldavCredentialId ?? null,
+    }));
+  }
   let stored;
   try {
     stored = await query(
@@ -452,13 +507,16 @@ router.put('/:userId/:calendarId/:filename', async (req: Request, res: Response)
 
 router.delete('/:userId/:calendarId/:filename', async (req: Request, res: Response) => {
   if (req.params.userId !== req.caldavUserId) return res.status(403).end();
-  const calendarResult = await query<{ id: string; source?: string | null; read_only?: boolean | null; dav_mode?: string | null; sync_token?: string | null }>('SELECT id, source, read_only, dav_mode, sync_token FROM calendars WHERE id = $1 AND user_id = $2', [req.params.calendarId, req.caldavUserId]);
+  const calendarResult = await query<CalendarAccessRow>(
+    `SELECT ${CALENDAR_ACCESS_COLUMNS} FROM calendars c ${CALENDAR_ACCESS_JOIN} WHERE c.id = $1 AND c.user_id = $2`,
+    [req.params.calendarId, req.caldavUserId],
+  );
   const calendar = calendarResult.rows[0];
   if (!calendar || davModeOf(calendar.dav_mode) === 'off') return res.status(404).end();
   const access = resolveCollectionAccess(calendar, { feature: 'calendars', operation: 'delete', channel: 'dav', credentialMaxMode: credentialMaxMode(req) });
   if (!access.allowed) return davRefusal(res, davWriteRefusalMessage(access, 'calendar'));
   const uid = req.params.filename;
-  const currentResult = await query<{ etag: string; invite_account_id?: string | null }>("SELECT etag, invite_account_id FROM calendar_events WHERE calendar_id = $1 AND COALESCE(dav_filename, uid || '.ics') = $2 AND recurrence_id = $3", [calendar.id, uid, '']);
+  const currentResult = await query<{ id: string; uid: string; etag: string; invite_account_id?: string | null }>("SELECT id, uid, etag, invite_account_id FROM calendar_events WHERE calendar_id = $1 AND COALESCE(dav_filename, uid || '.ics') = $2 AND recurrence_id = $3", [calendar.id, uid, '']);
   const current = currentResult.rows[0];
   if (!current) return res.status(404).end();
   if (current.invite_account_id) return res.status(409).end();
@@ -468,6 +526,21 @@ router.delete('/:userId/:calendarId/:filename', async (req: Request, res: Respon
   const ifDecision = evaluateDavIf(req.headers['if'], { etag: current.etag, syncToken: calendar.sync_token ?? null });
   if (ifDecision.status === 'bad-request') return res.status(400).end();
   if (ifDecision.status === 'precondition-failed') return res.status(412).end();
+  if (access.providerKey === 'caldav') {
+    return respondWriteBack(res, await deleteCaldavEvent({
+      method: 'DELETE',
+      userId: req.caldavUserId,
+      calendar: { id: calendar.id, external_url: calendar.external_url ?? null, source: calendar.source ?? null },
+      filename: String(uid),
+      uid: current.uid,
+      raw: '',
+      parsed: null,
+      exists: true,
+      localObjectId: current.id,
+      localRevision: current.etag,
+      credentialId: req.caldavCredentialId ?? null,
+    }));
+  }
   const deleted = await query(
     "DELETE FROM calendar_events WHERE calendar_id = $1 AND COALESCE(dav_filename, uid || '.ics') = $2 AND recurrence_id = $3 AND invite_account_id IS NULL AND etag = $4 RETURNING id",
     [calendar.id, uid, '', current.etag],

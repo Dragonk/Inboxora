@@ -108,7 +108,7 @@ describe('CalDAV discovery', () => {
     // client that trusted it could never discover the others.
     expect(body).toContain('<C:calendar-home-set><D:href>/caldav/user-1/</D:href></C:calendar-home-set>');
     expect(body).not.toContain('/caldav/user-1/calendar-1/');
-    expect(query.mock.calls[0][0]).toContain('WHERE user_id = $1');
+    expect(query.mock.calls[0][0]).toContain('WHERE c.user_id = $1');
     expect(query.mock.calls[0][1]).toEqual(['user-1']);
   });
 
@@ -161,7 +161,7 @@ describe('CalDAV discovery', () => {
 
     expect(response.status).toBe(207);
     expect(await response.text()).toContain('Personal');
-    expect(query.mock.calls[0][0]).toContain('WHERE id = $1 AND user_id = $2');
+    expect(query.mock.calls[0][0]).toContain('WHERE c.id = $1 AND c.user_id = $2');
     expect(query.mock.calls[0][1]).toEqual(['calendar-1', 'user-1']);
   });
 

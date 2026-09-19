@@ -208,16 +208,22 @@ describe('the default registry describes what this build can do', () => {
     expect(notOptedIn.allowed).toBe(false);
     expect(notOptedIn.reasonCode).toBe('COLLECTION_READ_ONLY');
 
-    // The adapters whose write paths do not exist yet still refuse as unclaimed writes, whatever the
-    // collection says.
-    for (const source of ['google', 'caldav', 'carddav'] as const) {
+    // CalDAV and CardDAV forward a write through the P10 client, so an opted-in collection of either
+    // origin is accepted; google_api still has no write path and refuses whatever the collection says.
+    for (const [source, feature] of [['caldav', 'calendars'], ['carddav', 'contacts']] as const) {
       const access = resolveCollectionAccess(
         { source, dav_mode: 'read_write', source_access: 'read_write', user_access: 'read_write' },
-        { feature: source === 'google' ? 'calendars' : 'calendars', operation: 'create' },
+        { feature, operation: 'create' },
       );
-      expect(access.allowed, source).toBe(false);
-      expect(access.reasonCode, source).toBe('OPERATION_FORBIDDEN');
+      expect(access.allowed, source).toBe(true);
+      expect(access.providerKey, source).toBe(source);
     }
+    const google = resolveCollectionAccess(
+      { source: 'google', dav_mode: 'read_write', source_access: 'read_write', user_access: 'read_write' },
+      { feature: 'calendars', operation: 'create' },
+    );
+    expect(google.allowed).toBe(false);
+    expect(google.reasonCode).toBe('OPERATION_FORBIDDEN');
   });
 
   it('keeps a local address book writable', () => {

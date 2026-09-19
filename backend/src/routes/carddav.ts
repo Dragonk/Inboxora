@@ -14,6 +14,9 @@ import type { Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
 import { query } from '../services/db.js';
 import { collectionDavWritable, davWriteRefusalMessage, resolveCollectionAccess } from '../services/providerAccess.js';
+import { deleteCarddavContact, putCarddavContact } from '../services/providers/carddavWriteBack.js';
+import { davWriteBackHttpStatus } from '../services/providers/davWriteBack.js';
+import type { DavWriteBackRouteResult } from '../services/providers/davWriteBack.js';
 import { parseVCard } from '../utils/vcard.js';
 import { authLimiterConfig } from '../services/authLimiter.js';
 import { createDavAuthMiddleware } from '../services/davServerAuth.js';
@@ -58,6 +61,29 @@ interface AddressBookRow {
   sync_version?: number | null;
   source?: string | null;
   dav_mode?: string | null;
+  /** The remote address-book URL; a CardDAV import stores it here directly. */
+  external_url?: string | null;
+  /** `integration_collections.source_access`: what the origin itself permits. */
+  source_access?: string | null;
+  /** `integration_collections.user_access`: the user's own write-back opt-in. */
+  user_access?: string | null;
+}
+
+const BOOK_ACCESS_COLUMNS = 'ab.id, ab.name, ab.sync_token, ab.sync_version, ab.source, ab.dav_mode, ab.external_url, ic.source_access, ic.user_access';
+/** A book maps to at most one integration collection; an absent row leaves the columns null. */
+const BOOK_ACCESS_JOIN = `LEFT JOIN LATERAL (
+    SELECT source_access, user_access FROM integration_collections
+     WHERE local_address_book_id = ab.id ORDER BY created_at ASC LIMIT 1
+  ) ic ON true`;
+
+/**
+ * Answer an external write-back's result with the same mapping the calendar router uses. A stale
+ * local copy is a `412`; an ambiguous outcome is a `502` and never a success.
+ */
+function respondWriteBack(res: Response, result: DavWriteBackRouteResult): void {
+  if (result.retryAfterSeconds !== undefined) res.setHeader('Retry-After', String(result.retryAfterSeconds));
+  if (result.status === 'confirmed' && result.etag) res.set('ETag', `"${result.etag}"`);
+  res.status(davWriteBackHttpStatus(result)).end();
 }
 
 interface CarddavContactRow {
@@ -270,7 +296,7 @@ router.propfind('/:userId/', async (req, res) => {
   if (req.params.userId !== userId) return res.status(403).end();
 
   const principalPath  = `/carddav/${userId}/`;
-  const r = await query<AddressBookRow>("SELECT id, name, sync_token, sync_version, source, dav_mode FROM address_books WHERE user_id = $1 AND dav_mode <> 'off' ORDER BY created_at", [userId]);
+  const r = await query<AddressBookRow>(`SELECT ${BOOK_ACCESS_COLUMNS} FROM address_books ab ${BOOK_ACCESS_JOIN} WHERE ab.user_id = $1 AND ab.dav_mode <> 'off' ORDER BY ab.created_at`, [userId]);
   const principal = response(principalPath, [
     propstat([
       '<D:resourcetype><D:principal/><D:collection/></D:resourcetype>',
@@ -305,7 +331,7 @@ router.propfind('/:userId/:bookId/', async (req, res) => {
   const depth = req.headers['depth'] || '0';
 
   const bookResult = await query<AddressBookRow>(
-    'SELECT * FROM address_books WHERE id = $1 AND user_id = $2',
+    `SELECT ${BOOK_ACCESS_COLUMNS} FROM address_books ab ${BOOK_ACCESS_JOIN} WHERE ab.id = $1 AND ab.user_id = $2`,
     [req.params.bookId, userId]
   );
   if (!bookResult.rows.length) return res.status(404).end();
@@ -477,7 +503,7 @@ router.put('/:userId/:bookId/:filename', async (req, res) => {
 
   try {
     const bookResult = await query<AddressBookRow>(
-      'SELECT id, source, dav_mode, sync_token, sync_version FROM address_books WHERE id = $1 AND user_id = $2',
+      `SELECT ${BOOK_ACCESS_COLUMNS} FROM address_books ab ${BOOK_ACCESS_JOIN} WHERE ab.id = $1 AND ab.user_id = $2`,
       [req.params.bookId, userId]
     );
     if (!bookResult.rows.length) return res.status(404).end();
@@ -503,6 +529,23 @@ router.put('/:userId/:bookId/:filename', async (req, res) => {
     const ifDecision = evaluateDavIf(req.headers['if'], { etag: currentEtag, syncToken: syncToken(book) });
     if (ifDecision.status === 'bad-request') return res.status(400).end();
     if (ifDecision.status === 'precondition-failed') return res.status(412).end();
+    // An imported address book writes through its own adapter; nothing local changes until the
+    // source confirms, so a refusal cannot leave a contact the source never accepted.
+    if (access.providerKey === 'carddav') {
+      return respondWriteBack(res, await putCarddavContact({
+        method: 'PUT',
+        userId,
+        book: { id: bookId, external_url: book.external_url ?? null, source: book.source ?? null },
+        filename: String(filename),
+        uid,
+        card: parsed,
+        vcard,
+        exists: Boolean(current),
+        localObjectId: typeof current?.id === 'string' ? current.id : null,
+        localRevision: currentEtag,
+        credentialId: req.cardavCredentialId ?? null,
+      }));
+    }
     if (existing.rows.length) {
       // Update
       const updated = await query(`
@@ -569,7 +612,7 @@ router.delete('/:userId/:bookId/:filename', async (req, res) => {
 
   try {
     const bookResult = await query<AddressBookRow>(
-      'SELECT id, source, dav_mode, sync_token, sync_version FROM address_books WHERE id = $1 AND user_id = $2',
+      `SELECT ${BOOK_ACCESS_COLUMNS} FROM address_books ab ${BOOK_ACCESS_JOIN} WHERE ab.id = $1 AND ab.user_id = $2`,
       [req.params.bookId, userId]
     );
     if (!bookResult.rows.length) return res.status(404).end();
@@ -577,8 +620,8 @@ router.delete('/:userId/:bookId/:filename', async (req, res) => {
     const access = resolveCollectionAccess(bookResult.rows[0], { feature: 'contacts', operation: 'delete', channel: 'dav', credentialMaxMode: req.davMaxMode ?? null });
     if (!access.allowed) return davRefusal(res, davWriteRefusalMessage(access, 'address book'));
 
-    const currentRow = await query<{ etag: string }>(
-      "SELECT etag FROM contacts WHERE address_book_id = $1 AND COALESCE(dav_filename, uid || '.vcf') = $2",
+    const currentRow = await query<{ id: string; uid: string; etag: string }>(
+      "SELECT id, uid, etag FROM contacts WHERE address_book_id = $1 AND COALESCE(dav_filename, uid || '.vcf') = $2",
       [req.params.bookId, uid]
     );
     const ifDecision = evaluateDavIf(req.headers['if'], {
@@ -587,6 +630,25 @@ router.delete('/:userId/:bookId/:filename', async (req, res) => {
     });
     if (ifDecision.status === 'bad-request') return res.status(400).end();
     if (ifDecision.status === 'precondition-failed') return res.status(412).end();
+
+    if (access.providerKey === 'carddav') {
+      const current = currentRow.rows[0];
+      if (!current) return res.status(req.headers['if-match'] ? 412 : 404).end();
+      if (!ifMatchSatisfied(req.headers['if-match'], current.etag)) return res.status(412).end();
+      return respondWriteBack(res, await deleteCarddavContact({
+        method: 'DELETE',
+        userId,
+        book: { id: bookResult.rows[0].id, external_url: bookResult.rows[0].external_url ?? null, source: bookResult.rows[0].source ?? null },
+        filename: String(uid),
+        uid: current.uid,
+        card: null,
+        vcard: '',
+        exists: true,
+        localObjectId: current.id,
+        localRevision: current.etag,
+        credentialId: req.cardavCredentialId ?? null,
+      }));
+    }
 
     const result = await query(
       `DELETE FROM contacts

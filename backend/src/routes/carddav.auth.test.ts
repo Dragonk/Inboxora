@@ -105,10 +105,10 @@ describe('CardDAV authentication', () => {
     const xml = await response.text();
     expect(xml).toContain('/carddav/user-1/personal-contacts/');
     expect(xml).toContain('/carddav/user-1/work-contacts/');
-    expect(query).toHaveBeenCalledWith(
-      "SELECT id, name, sync_token, sync_version, source, dav_mode FROM address_books WHERE user_id = $1 AND dav_mode <> 'off' ORDER BY created_at",
-      ['user-1'],
-    );
+    const discovery = query.mock.calls.find(([sql]) => String(sql).includes('FROM address_books ab'));
+    expect(discovery?.[1]).toEqual(['user-1']);
+    expect(String(discovery?.[0])).toContain('ab.user_id = $1');
+    expect(String(discovery?.[0])).toContain("ab.dav_mode <> 'off'");
   });
 
   it('advertises CardDAV write privileges only for a local address book', async () => {
