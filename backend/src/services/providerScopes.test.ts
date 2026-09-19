@@ -111,3 +111,22 @@ describe('Microsoft readiness predicates', () => {
     expect(isMicrosoftBrowserFlowReady({})).toBe(false);
   });
 });
+
+describe('the scopes the connect buttons actually request', () => {
+  // The UI sends `access=read_only` for every purpose it offers, because the connectors
+  // only read. If a purpose stopped narrowing, the consent screen would silently widen.
+  it('never asks for write access for a purpose the interface offers', () => {
+    const google = [
+      ...googleScopesForPurpose('contacts_enable', 'read_only'),
+      ...googleScopesForPurpose('calendar_enable', 'read_only'),
+    ];
+    expect(google).not.toContain(`${GOOGLE}contacts`);
+    expect(google).not.toContain(`${GOOGLE}calendar.events`);
+    expect(google).toContain(`${GOOGLE}contacts.readonly`);
+    expect(google).toContain(`${GOOGLE}calendar.events.readonly`);
+
+    const microsoft = microsoftScopesForPurpose('contacts_enable', 'read_only');
+    expect(microsoft).toContain(`${GRAPH}Contacts.Read`);
+    expect(microsoft).not.toContain(`${GRAPH}Contacts.ReadWrite`);
+  });
+});

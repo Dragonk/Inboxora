@@ -362,6 +362,12 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   connector now uses `/oauth/provider/microsoft/callback`, derived from the trusted `APP_URL` (or
   from `MS_PROVIDER_REDIRECT_URI` when set), and the readiness flag that offers the connect action
   requires that callback rather than the mailbox one.
+- Ask only for the access these connectors use. Both connect buttons requested write scopes —
+  `contacts`/`calendar.events` on Google, `Contacts.ReadWrite` on Microsoft — while every adapter
+  reads. A permission the software never exercises is one the user cannot see a reason for, and it
+  widens what a leaked grant can do. The buttons now send `access=read_only`, which the server
+  already honours by narrowing the scope, and both ends are pinned by tests so the consent screen
+  cannot silently widen again.
 
 ## [4.0.4] - 2026-09-18
 

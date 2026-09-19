@@ -2895,7 +2895,7 @@ function IntegrationsTab() {
     // Contacts is the Graph feature that exists today; the purpose decides the
     // scopes, so this never asks for the mailbox or the calendar.
     const a = document.createElement('a');
-    a.href = '/oauth/provider/microsoft?purpose=contacts_enable';
+    a.href = '/oauth/provider/microsoft?purpose=contacts_enable&access=read_only';
     a.target = '_blank';
     a.rel = 'opener';
     document.body.appendChild(a);
@@ -2909,9 +2909,10 @@ function IntegrationsTab() {
     // One authorization per feature: a contacts-only grant cannot read calendars, and
     // asking for both at once would request scopes the user did not choose. Google's
     // incremental consent keeps the scopes of the earlier connection, so connecting
-    // twice accumulates them instead of replacing them.
+    // twice accumulates them instead of replacing them. `access=read_only` is honest:
+    // Inboxora only reads these collections, so it must not ask to write them.
     const a = document.createElement('a');
-    a.href = `/oauth/google?purpose=${purpose}`;
+    a.href = `/oauth/google?purpose=${purpose}&access=read_only`;
     a.target = '_blank';
     a.rel = 'opener';
     document.body.appendChild(a);

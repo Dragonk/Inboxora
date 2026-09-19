@@ -13,7 +13,7 @@ test('the Google provider card offers an account connection once the browser flo
   assert.match(source, /data-testid="google-connect"/);
   // One authorization per feature: a contacts grant cannot read calendars.
   assert.match(source, /const handleConnectGoogle = \(purpose: 'contacts_enable' \| 'calendar_enable'\) => \{/);
-  assert.match(source, /a\.href = `\/oauth\/google\?purpose=\$\{purpose\}`/);
+  assert.match(source, /a\.href = `\/oauth\/google\?purpose=\$\{purpose\}&access=read_only`/);
   assert.match(source, /data-testid="google-connect-calendars"/);
   assert.match(source, /handleConnectGoogle\('calendar_enable'\)/);
   assert.match(source, /googleStatus\?\.browser\?\.ready \? \(/);
@@ -67,7 +67,7 @@ test('the Microsoft card offers the Graph connection as its own action', async (
   const source = await readFile(adminPanel, 'utf8');
   assert.match(source, /data-testid="microsoft-graph-connect"/);
   assert.match(source, /const handleConnectMicrosoftGraph = \(\) => \{/);
-  assert.match(source, /a\.href = '\/oauth\/provider\/microsoft\?purpose=contacts_enable'/);
+  assert.match(source, /a\.href = '\/oauth\/provider\/microsoft\?purpose=contacts_enable&access=read_only'/);
   // It is a separate authorisation: the mailbox sign-in above stays untouched.
   assert.match(source, /admin\.integrations\.microsoft\.graphHint/);
   assert.match(source, /msStatus\?\.browser\?\.ready && \(/);
@@ -254,4 +254,13 @@ test('a failed authorization releases every connect button, not only the mailbox
   for (const flag of ['setConnectingMs', 'setConnectingGoogle', 'setConnectingGraph']) {
     assert.match(errorBranch, new RegExp(flag), `${flag} must be released on error`);
   }
+});
+
+test('the connect buttons ask for read access, which is all the connectors use', async () => {
+  const source = await readFile(adminPanel, 'utf8');
+  // Both connectors only read, so a write scope would be a permission the user cannot see
+  // a reason for. The server honours `access=read_only` by narrowing the scope.
+  const urls = source.match(/a\.href = [^;]*purpose=[^;]*;/g) ?? [];
+  assert.equal(urls.length, 2, 'both connect actions must be covered');
+  for (const url of urls) assert.match(url, /access=read_only/, url);
 });
