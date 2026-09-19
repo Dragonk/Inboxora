@@ -385,6 +385,156 @@ export async function fetchGoogleIdentity(input: {
   return { subject: payload.sub, email: payload.email ?? null, emailVerified: payload.email_verified === true };
 }
 
+const MICROSOFT_IDENTITY_SCOPES = ['openid', 'profile', 'email', 'offline_access'];
+const GRAPH_SCOPE_BASE = 'https://graph.microsoft.com/';
+
+/**
+ * The Graph scopes one purpose asks for. Features never imply one another: asking
+ * for calendars must not silently grant the mailbox. `User.Read` accompanies every
+ * purpose because identifying the account we just authorized needs it; it is the
+ * lowest-privilege Graph scope and grants no data access on its own.
+ */
+export function microsoftScopesForPurpose(purpose: AuthorizationPurpose, access: RequestedAccess = 'source'): string[] {
+  const scopes = new Set<string>([...MICROSOFT_IDENTITY_SCOPES, `${GRAPH_SCOPE_BASE}User.Read`]);
+  const suffix = access === 'read_only' ? 'Read' : 'ReadWrite';
+  switch (purpose) {
+    case 'new_account':
+    case 'mail_migration':
+      scopes.add(`${GRAPH_SCOPE_BASE}Mail.ReadWrite`);
+      scopes.add(`${GRAPH_SCOPE_BASE}Mail.Send`);
+      break;
+    case 'calendar_enable':
+      scopes.add(`${GRAPH_SCOPE_BASE}Calendars.${suffix}`);
+      break;
+    case 'contacts_enable':
+      scopes.add(`${GRAPH_SCOPE_BASE}Contacts.${suffix}`);
+      break;
+  }
+  return [...scopes].sort();
+}
+
+export function microsoftAuthorizeUrl(input: {
+  config: MicrosoftConfig;
+  scopes: readonly string[];
+  state: string;
+  codeChallenge: string;
+  nonce?: string | null;
+}): string {
+  const url = new URL(`${MICROSOFT_ISSUER}/${safeTenantId(input.config.tenantId)}/oauth2/v2.0/authorize`);
+  url.searchParams.set('client_id', input.config.clientId);
+  url.searchParams.set('response_type', 'code');
+  url.searchParams.set('redirect_uri', input.config.redirectUri);
+  url.searchParams.set('response_mode', 'query');
+  url.searchParams.set('scope', [...input.scopes].join(' '));
+  url.searchParams.set('state', input.state);
+  url.searchParams.set('code_challenge', input.codeChallenge);
+  url.searchParams.set('code_challenge_method', 'S256');
+  // Pick the account explicitly instead of silently reusing the browser session,
+  // so connecting the wrong mailbox is a visible choice, not an accident.
+  url.searchParams.set('prompt', 'select_account');
+  if (input.nonce) url.searchParams.set('nonce', input.nonce);
+  return url.toString();
+}
+
+export interface ExchangedMicrosoftTokens {
+  accessToken: string;
+  refreshToken: string | null;
+  expiresAt: Date;
+  scopes: string[];
+  idToken: string | null;
+}
+
+/** Exchange an authorization code for Graph tokens. */
+export async function exchangeMicrosoftAuthorizationCode(input: {
+  code: string;
+  codeVerifier: string;
+  config: MicrosoftConfig;
+  fetchImpl?: FetchLike;
+}): Promise<ExchangedMicrosoftTokens> {
+  const fetchImpl = input.fetchImpl ?? fetch;
+  const body = new URLSearchParams({
+    code: input.code,
+    client_id: input.config.clientId,
+    redirect_uri: input.config.redirectUri,
+    grant_type: 'authorization_code',
+    code_verifier: input.codeVerifier,
+  });
+  // A public client (the device flow) has no secret and sends none.
+  if (input.config.clientSecret) body.set('client_secret', input.config.clientSecret);
+
+  let response: Response;
+  try {
+    response = await fetchImpl(microsoftTokenEndpoint(input.config.tenantId), {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: body.toString(),
+      signal: AbortSignal.timeout(15000),
+    });
+  } catch (caught) {
+    throw new ProviderAuthError('TOKEN_ENDPOINT_UNAVAILABLE', caught instanceof Error ? caught.message : 'Microsoft token endpoint unreachable');
+  }
+  const payload = await response.json().catch(() => ({})) as {
+    access_token?: string; refresh_token?: string; expires_in?: number; scope?: string;
+    id_token?: string; error?: string; error_description?: string;
+  };
+  if (!response.ok || payload.error) {
+    throw new ProviderAuthError(payload.error || 'TOKEN_EXCHANGE_FAILED', payload.error_description || 'Microsoft token exchange failed');
+  }
+  if (!payload.access_token) throw new ProviderAuthError('TOKEN_EXCHANGE_FAILED', 'Microsoft token response has no access token');
+  const expiresIn = typeof payload.expires_in === 'number' && Number.isFinite(payload.expires_in) && payload.expires_in > 0
+    ? payload.expires_in
+    : 3600;
+  return {
+    accessToken: payload.access_token,
+    refreshToken: payload.refresh_token ?? null,
+    expiresAt: new Date(Date.now() + expiresIn * 1000),
+    scopes: typeof payload.scope === 'string' ? payload.scope.split(' ').filter(Boolean) : [],
+    idToken: payload.id_token ?? null,
+  };
+}
+
+export const MICROSOFT_GRAPH_ME_ENDPOINT = 'https://graph.microsoft.com/v1.0/me';
+
+export interface MicrosoftIdentity {
+  subject: string;
+  email: string | null;
+  /**
+   * Identity is read from Graph with the token we just received server-to-server
+   * from Microsoft over TLS, bound to our client id and redirect URI. Nothing here
+   * is supplied by the browser, so the identity cannot be forged by the caller.
+   */
+  displayName: string | null;
+}
+
+/** Resolve the signed-in Microsoft account from the Graph access token. */
+export async function fetchMicrosoftIdentity(input: {
+  accessToken: string;
+  fetchImpl?: FetchLike;
+}): Promise<MicrosoftIdentity> {
+  const fetchImpl = input.fetchImpl ?? fetch;
+  const url = `${MICROSOFT_GRAPH_ME_ENDPOINT}?$select=id,userPrincipalName,mail,displayName`;
+  let response: Response;
+  try {
+    response = await fetchImpl(url, {
+      headers: { authorization: `Bearer ${input.accessToken}`, accept: 'application/json' },
+      signal: AbortSignal.timeout(10000),
+    });
+  } catch (caught) {
+    throw new ProviderAuthError('USERINFO_UNAVAILABLE', caught instanceof Error ? caught.message : 'Microsoft Graph /me unreachable');
+  }
+  if (!response.ok) throw new ProviderAuthError('USERINFO_FAILED', `Microsoft Graph /me returned ${response.status}`);
+  const payload = await response.json().catch(() => ({})) as {
+    id?: string; userPrincipalName?: string; mail?: string; displayName?: string;
+  };
+  if (!payload.id) throw new ProviderAuthError('IDENTITY_MISSING_SUBJECT', 'Microsoft Graph /me has no id');
+  return {
+    subject: payload.id,
+    // `mail` is absent for some account types; the UPN is the address to show.
+    email: payload.mail ?? payload.userPrincipalName ?? null,
+    displayName: payload.displayName ?? null,
+  };
+}
+
 /**
  * Find or create the identity connection for a verified grant. Identity is
  * issuer + subject, never the e-mail address, so a renamed or aliased account

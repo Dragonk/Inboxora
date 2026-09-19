@@ -2080,5 +2080,11 @@
       "openSystemSettings": "Open Windows default apps",
       "confirmHint": "Windows asks you to confirm the default app yourself — an app cannot make itself the default. Inboxora will be listed as an email app on that page."
     }
+  },
+  "providers": {
+    "microsoftGraphConnected": {
+      "title": "Microsoft account connected",
+      "body": "Your Microsoft account is connected for the API-based features. No mailbox was changed."
+    }
   }
 }

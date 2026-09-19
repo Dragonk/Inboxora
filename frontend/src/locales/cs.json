@@ -2080,5 +2080,11 @@
       "openSystemSettings": "Otevřít výchozí aplikace Windows",
       "confirmHint": "Windows vás požádá, abyste výchozí aplikaci potvrdili sami — aplikace se nemůže nastavit sama. Inboxora se na této stránce objeví mezi e-mailovými klienty."
     }
+  },
+  "providers": {
+    "microsoftGraphConnected": {
+      "title": "Účet Microsoft připojen",
+      "body": "Váš účet Microsoft je připojen pro funkce API. Žádná schránka nebyla změněna."
+    }
   }
 }

@@ -14,6 +14,7 @@ import sendRoutes from './routes/send.js';
 import draftRoutes from './routes/draft.js';
 import oauthRoutes from './routes/oauth.js';
 import oauthGoogleRoutes from './routes/oauthGoogle.js';
+import oauthMicrosoftRoutes from './routes/oauthMicrosoft.js';
 import integrationsRoutes, { loadIntegrationConfigs } from './routes/integrations.js';
 import authRoutes from './routes/auth.js';
 import accountRoutes from './routes/accounts.js';
@@ -222,6 +223,9 @@ app.use('/oauth', oauthRoutes);
 // Google web OAuth lives on the same public path as the Microsoft flow; the two
 // routers own disjoint route names.
 app.use('/oauth', oauthGoogleRoutes);
+// The Graph provider flow deliberately uses /oauth/provider/microsoft, leaving the
+// existing /oauth/microsoft account-connection flow untouched.
+app.use('/oauth', oauthMicrosoftRoutes);
 app.use('/api/integrations', integrationsRoutes);
 app.use('/api/accounts', accountRoutes);
 app.use('/api/mail', mailRoutes);

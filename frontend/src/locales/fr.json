@@ -2080,5 +2080,11 @@
       "openSystemSettings": "Ouvrir les applications par défaut de Windows",
       "confirmHint": "Windows vous demande de confirmer vous-même l'application par défaut — une application ne peut pas s'imposer. Inboxora apparaîtra comme client de messagerie sur cette page."
     }
+  },
+  "providers": {
+    "microsoftGraphConnected": {
+      "title": "Compte Microsoft connecté",
+      "body": "Votre compte Microsoft est connecté pour les fonctions API. Aucune boîte aux lettres n’a été modifiée."
+    }
   }
 }

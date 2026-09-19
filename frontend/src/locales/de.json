@@ -2080,5 +2080,11 @@
       "openSystemSettings": "Windows-Standardapps öffnen",
       "confirmHint": "Windows bittet dich, die Standard-App selbst zu bestätigen — eine App kann sich nicht selbst als Standard festlegen. Inboxora wird auf dieser Seite als E-Mail-App aufgeführt."
     }
+  },
+  "providers": {
+    "microsoftGraphConnected": {
+      "title": "Microsoft-Konto verbunden",
+      "body": "Ihr Microsoft-Konto ist für die API-Funktionen verbunden. Kein Postfach wurde geändert."
+    }
   }
 }

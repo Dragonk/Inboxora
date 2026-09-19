@@ -185,6 +185,19 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   the grant as needing re-authorization instead of retrying in a loop. The `.env.example` no longer
   claims Microsoft Graph is already required for mailboxes: the Graph transport is still to come, and
   Microsoft mail continues to use the existing OAuth2 IMAP/SMTP path until it lands.
+- Add the Microsoft Graph provider authorization flow (P07, reachable at
+  `/oauth/provider/microsoft`; not yet exposed in the settings screen). Authorization-code + PKCE
+  against the configured Entra tenant, with the same protections as the Google flow: the one-time
+  state is stored only as a hash and is single-use, the callback is bound to the session that
+  started it, a configuration change mid-flow is rejected, and a declined consent or a replayed
+  callback cannot complete a flow later. Scopes are per purpose — `mail_migration`,
+  `calendar_enable` and `contacts_enable` never imply one another, and a read-only request asks for
+  `.Read` rather than `.ReadWrite` — plus `User.Read`, the lowest-privilege Graph scope, which is
+  what identifies the account that was just authorized. The identity is read from Graph with the
+  token Microsoft returned server-to-server, never from anything the browser supplied. The route is
+  deliberately separate from `/oauth/microsoft`, which keeps handling mailbox sign-in unchanged; the
+  returned connection is reported as a connection, not as a new account, and creates or migrates no
+  mailbox.
 
 ## [4.0.4] - 2026-09-18
 

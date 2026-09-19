@@ -2080,5 +2080,11 @@
       "openSystemSettings": "打开 Windows 默认应用设置",
       "confirmHint": "Windows 需要你亲自确认默认应用——应用无法自行设为默认。Inboxora 会在该页面中显示为电子邮件客户端。"
     }
+  },
+  "providers": {
+    "microsoftGraphConnected": {
+      "title": "Microsoft 账户已连接",
+      "body": "您的 Microsoft 账户已连接以使用 API 功能。未更改任何邮箱。"
+    }
   }
 }

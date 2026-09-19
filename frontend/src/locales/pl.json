@@ -2080,5 +2080,11 @@
       "openSystemSettings": "Otwórz domyślne aplikacje w Windows",
       "confirmHint": "Windows sam poprosi Cię o potwierdzenie domyślnej aplikacji — aplikacja nie może zrobić tego za Ciebie. Inboxora pojawi się na tej stronie na liście klientów poczty."
     }
+  },
+  "providers": {
+    "microsoftGraphConnected": {
+      "title": "Konto Microsoft połączone",
+      "body": "Konto Microsoft jest połączone na potrzeby funkcji API. Żadna skrzynka nie została zmieniona."
+    }
   }
 }

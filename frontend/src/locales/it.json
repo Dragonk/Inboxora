@@ -2080,5 +2080,11 @@
       "openSystemSettings": "Apri le app predefinite di Windows",
       "confirmHint": "Windows ti chiede di confermare tu stesso l'app predefinita: un'app non può imporsi da sola. Inboxora comparirà come client di posta in quella pagina."
     }
+  },
+  "providers": {
+    "microsoftGraphConnected": {
+      "title": "Account Microsoft connesso",
+      "body": "Il tuo account Microsoft è connesso per le funzioni API. Nessuna casella è stata modificata."
+    }
   }
 }

@@ -30,6 +30,13 @@ Those pulls are refreshed on a schedule (every 15 minutes by default); set
 `PROVIDER_SYNC_INTERVAL_MINUTES` to change the cadence, or to `0` to disable the automatic refresh
 and sync only when a user asks for it. Only collections a user has already pulled are refreshed.
 
+The same Entra application is also what the **Microsoft Graph** API integration uses. Its
+authorization entry point is `/oauth/provider/microsoft` and it asks only for the scopes of the
+purpose it was started with (`mail_migration`, `calendar_enable` or `contacts_enable`), so granting
+calendars never grants the mailbox. It is deliberately separate from `/oauth/microsoft`, which is
+the existing mailbox sign-in. The Graph connection flow is not yet reachable from the settings
+screen; until it is, it is started from that URL by a signed-in user.
+
 ## Appearance
 
 **Settings → Appearance** groups theme, layout and typography.

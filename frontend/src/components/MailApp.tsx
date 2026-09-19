@@ -829,6 +829,9 @@ export default function MailApp() {
         // Google API authorization stores a provider connection; it does not create
         // or migrate a mailbox, so this must not open the Accounts screen.
         addNotification({ type: 'info', title: t('contacts.googleConnected.title'), body: t('contacts.googleConnected.body') });
+      } else if (provider === 'microsoft_graph') {
+        // Same rule for the Graph provider flow: a connection, not a mailbox.
+        addNotification({ type: 'info', title: t('providers.microsoftGraphConnected.title'), body: t('providers.microsoftGraphConnected.body') });
       } else {
         setAdminTab('accounts');
         setShowAdmin(true);

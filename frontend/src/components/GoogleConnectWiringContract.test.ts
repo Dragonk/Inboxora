@@ -28,6 +28,10 @@ test('a same-tab Google callback reports the connection instead of opening the a
   assert.match(source, /if \(provider === 'google'\) \{/);
   assert.match(source, /contacts\.googleConnected\.title/);
   assert.match(source, /contacts\.googleConnected\.body/);
+  // The Graph provider flow is also a connection, not a mailbox.
+  assert.match(source, /provider === 'microsoft_graph'/);
+  assert.match(source, /providers\.microsoftGraphConnected\.title/);
+  assert.match(source, /providers\.microsoftGraphConnected\.body/);
 });
 
 test('the contacts screen offers the Google pull only when connected', async () => {
@@ -65,6 +69,8 @@ test('every locale translates the Google connect and sync controls', async () =>
     }
     assert.equal(typeof strings.contacts.googleConnected.title, 'string', `${name} is missing contacts.googleConnected.title`);
     assert.equal(typeof strings.contacts.googleConnected.body, 'string', `${name} is missing contacts.googleConnected.body`);
+    assert.equal(typeof strings.providers.microsoftGraphConnected.title, 'string', `${name} is missing providers.microsoftGraphConnected.title`);
+    assert.equal(typeof strings.providers.microsoftGraphConnected.body, 'string', `${name} is missing providers.microsoftGraphConnected.body`);
     // The sync summaries interpolate with i18next syntax.
     assert.match(strings.contacts.addressBooks.googleSyncDone, /\{\{created\}\}/, `${name} googleSyncDone has no placeholders`);
     assert.match(strings.calendar.googleSyncDone, /\{\{calendars\}\}/, `${name} calendar googleSyncDone has no placeholders`);

@@ -107,6 +107,29 @@ describeOrSkip('OAuth authorization flows (PostgreSQL)', () => {
     expect(after.rows[0]?.status).toBe('completed');
   });
 
+  it('scopes a flow to its provider, so a Google state cannot start a Microsoft flow', async () => {
+    const microsoftFlow = await inTransaction(client => createAuthorizationFlow(client, {
+      userId: USER_ID, provider: 'microsoft', purpose: 'calendar_enable',
+      scopes: ['openid', 'offline_access', 'https://graph.microsoft.com/Calendars.ReadWrite'],
+      configRevision: 'rev-ms',
+    }));
+    const googleFlow = await inTransaction(client => createAuthorizationFlow(client, {
+      userId: USER_ID, provider: 'google', purpose: 'new_account',
+      scopes: ['openid', 'email'],
+      configRevision: 'rev-g',
+    }));
+
+    // The wrong provider must neither consume nor reveal the flow.
+    expect(await inTransaction(client => takeAuthorizationFlow(client, { state: googleFlow.state, provider: 'microsoft' }))).toBeNull();
+    expect(await inTransaction(client => takeAuthorizationFlow(client, { state: microsoftFlow.state, provider: 'google' }))).toBeNull();
+
+    const taken = await inTransaction(client => takeAuthorizationFlow(client, { state: microsoftFlow.state, provider: 'microsoft' }));
+    expect(taken).toMatchObject({ userId: USER_ID, provider: 'microsoft', purpose: 'calendar_enable', configRevision: 'rev-ms' });
+    expect(taken?.requestedScopes).toContain('https://graph.microsoft.com/Calendars.ReadWrite');
+    // The provider-mismatch attempts above must not have consumed it.
+    expect(await inTransaction(client => takeAuthorizationFlow(client, { state: microsoftFlow.state, provider: 'microsoft' }))).toBeNull();
+  });
+
   it('refuses an expired flow', async () => {
     const created = await inTransaction(client => createAuthorizationFlow(client, {
       userId: USER_ID, provider: 'google', purpose: 'contacts_enable', scopes: ['openid'], ttlSeconds: 60,
