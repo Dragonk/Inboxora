@@ -11,6 +11,19 @@ limitations — read the matching page in the Wiki: [Release notes 4.1.0](wiki/R
 [Release notes 4.0.2](wiki/Release-notes-4.0.2.md),
 [Release notes 4.0.1](wiki/Release-notes-4.0.1.md) and [Release notes 4.0.0](wiki/Release-notes-4.0.0.md).
 
+## [Unreleased]
+
+### Added
+
+- A provider configuration can be **tested**, not only reported ready. `POST /api/integrations/:provider/test`
+  checks the stored client id and secret against the provider using a deliberately unusable grant: the provider
+  answers `invalid_client` when the credentials are wrong and `invalid_grant` when it accepts them, which is the
+  whole test and costs the provider nothing. The secret is decrypted for the call and is never part of the answer,
+  and no user data or grant is involved. Readiness reports that the fields are present; this reports whether they
+  work, which is the difference an administrator with a mistyped secret notices at the provider instead of on the
+  card. **The card's button for it is not part of this change**: the endpoint exists and is documented, and the
+  interface half is outstanding.
+
 ## [4.1.0] - 2026-09-19
 
 ### Added

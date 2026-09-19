@@ -252,6 +252,50 @@ function publicConfig(config: ProviderConfig): ProviderConfig {
 }
 
 // Get all integration configs (secrets redacted) — admin only (exposes OAuth client IDs)
+// Verify the stored client credentials against the provider. Readiness reports that the fields are present;
+// this reports whether the provider accepts them, which is the difference between a configured method and a
+// working one — a mistyped secret otherwise reads as ready until an authorization fails at the provider.
+router.post('/:provider/test', requireAdmin, async (req: Request, res: Response) => {
+  const provider = Array.isArray(req.params.provider) ? req.params.provider[0] : req.params.provider;
+  if (!isProviderName(provider)) return res.status(400).json({ error: 'Unknown provider' });
+
+  const stored = await readStoredConfig(provider);
+  if (!stored.clientId) {
+    return res.status(409).json({ ok: false, code: 'ADMIN_CONFIGURATION_REQUIRED', error: 'No client id is saved for this provider' });
+  }
+  // Only the id and secret are used, and the secret never leaves the server: it is decrypted for the call and
+  // is not part of the answer. No user data and no user grant are involved.
+  const secret = typeof stored.clientSecret === 'string' && stored.clientSecret ? decrypt(stored.clientSecret) : null;
+  const endpoint = provider === 'google'
+    ? 'https://oauth2.googleapis.com/token'
+    : `https://login.microsoftonline.com/${encodeURIComponent(stored.tenantId || 'common')}/oauth2/v2.0/token`;
+
+  try {
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        // A deliberately unusable grant. The provider answers `invalid_client` when the credentials are wrong
+        // and something else — `invalid_grant` usually — when they are accepted; that distinction is the whole
+        // test, and it costs the provider nothing.
+        grant_type: 'authorization_code',
+        code: 'inboxora-configuration-test',
+        client_id: stored.clientId,
+        ...(secret ? { client_secret: secret } : {}),
+        ...(stored.redirectUri ? { redirect_uri: stored.redirectUri } : {}),
+      }),
+      signal: AbortSignal.timeout(10000),
+    });
+    const body = (await response.json()) as { error?: string; error_description?: string };
+    const code = typeof body.error === 'string' ? body.error : null;
+    const credentialsAccepted = code !== 'invalid_client' && code !== 'unauthorized_client';
+    res.json({ ok: credentialsAccepted, code: credentialsAccepted ? 'CREDENTIALS_ACCEPTED' : (code ?? 'INVALID_CLIENT') });
+  } catch (caught) {
+    console.error('Provider configuration test failed:', toAppError(caught).message);
+    res.status(502).json({ ok: false, code: 'UPSTREAM_UNAVAILABLE' });
+  }
+});
+
 // Disconnect a provider account the signed-in user connected. Deliberately not admin-only:
 // the connection is theirs, and needing an administrator to undo an authorization would make
 // the consent weaker than it looks. Nothing imported is deleted — see the service.

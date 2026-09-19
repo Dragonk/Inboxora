@@ -191,4 +191,44 @@ describe('provider disable tombstone', () => {
     expect(storedConfigs.get('google')).toMatchObject({ clientId: 'c2', disabled: false });
     expect(process.env.GOOGLE_CLIENT_ID).toBe('c2');
   });
+
+describe('a provider configuration can be tested, not just reported ready', () => {
+  it('says the credentials are accepted when the provider refuses only the grant', async () => {
+    storedConfigs.set('google', { clientId: 'client-1', clientSecret: 'encrypted:secret-1', redirectUri: 'https://x/cb' });
+    const realFetch = globalThis.fetch;
+    const seen: string[] = [];
+    // The suite talks to its own server, so only the provider call is faked.
+    vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+      if (String(url).startsWith(base)) return realFetch(url, init);
+      seen.push(`${String(url)}|${String(init?.body)}`);
+      return { ok: false, status: 400, json: async () => ({ error: 'invalid_grant' }) } as Response;
+    });
+
+    const response = await realFetch(`${base}/api/integrations/google/test`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+    });
+    const body = await response.json() as { ok: boolean; code: string };
+    expect(response.status).toBe(200);
+    expect(body).toEqual({ ok: true, code: 'CREDENTIALS_ACCEPTED' });
+    // The stored secret was actually used, and it is not part of the answer.
+    expect(seen[0]).toContain('client_secret=secret-1');
+    expect(JSON.stringify(body)).not.toContain('secret-1');
+    vi.unstubAllGlobals();
+  });
+
+  it('says the credentials are wrong when the provider refuses the client', async () => {
+    storedConfigs.set('google', { clientId: 'client-2', clientSecret: 'encrypted:wrong', redirectUri: 'https://x/cb' });
+    const realFetch = globalThis.fetch;
+    vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+      if (String(url).startsWith(base)) return realFetch(url, init);
+      return { ok: false, status: 401, json: async () => ({ error: 'invalid_client' }) } as Response;
+    });
+
+    const response = await realFetch(`${base}/api/integrations/google/test`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+    });
+    expect(await response.json()).toEqual({ ok: false, code: 'invalid_client' });
+    vi.unstubAllGlobals();
+  });
+});
 });
