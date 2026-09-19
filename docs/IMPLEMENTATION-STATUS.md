@@ -1188,7 +1188,7 @@ no code path returns a migration requirement for it, and connecting the API does
 refresh, as its tests assert. Rollback is documented in `Upgrading.md`. **Unresolved risks:** the interface's
 duplicate-risk affordance for an uncertain send; the configuration-card **test control** being newer than the published
 images, so it is not in 4.1.0 and is verified by typecheck, lint, the parity suite and the build rather than by a
-component test; metrics and structured log identifiers; the **image-publication failure path**; a **backup and restore drill**; secrets in logs, build arguments, labels, bundles and DTOs, of which only the documentation was searched; and the absence of any live provider run.
+component test; metrics and structured log identifiers; the **image-publication failure path**; **RE07's crypto half is now tested** — the encryption primitive the row depends on was exercised only through mocks until now, and a test pins the round trip, the absence of plaintext in the ciphertext, and the refusal of a different key, plus two implicit contracts (`encrypt` throws without a valid key rather than storing plaintext, and `decrypt` throws on a non-string). What remains is the **operational drill** — dump, restore into a fresh database, and confirm the tokens, mappings and operations come back readable with the same key; secrets in logs, build arguments, labels, bundles and DTOs, of which only the documentation was searched; and the absence of any live provider run.
 
 ### What is missing, precisely
 

@@ -13,6 +13,14 @@ limitations — read the matching page in the Wiki: [Release notes 4.1.0](wiki/R
 
 ## [Unreleased]
 
+### Added
+
+- A test for **stored credential encryption**, which was exercised only through mocks: it round-trips with the same key,
+  produces ciphertext that does not contain the plaintext, and — the property a backup depends on — is **unreadable with a
+  different key** rather than returning the plaintext or silent garbage. It also pins two contracts that were implicit:
+  encrypting without a valid `ENCRYPTION_KEY` throws rather than storing plaintext, and `decrypt` throws on a non-string
+  instead of returning null.
+
 ### Changed
 
 - After an **uncertain send**, the composer releases its idempotency key, so the user's next deliberate Send is a
