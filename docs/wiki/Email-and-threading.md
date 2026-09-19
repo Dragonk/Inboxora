@@ -165,8 +165,7 @@ walkthrough and the scripted alternative.
 - Attachments and inline images. The composer warns when the body mentions an attachment but none is attached,
   and asks for confirmation when the subject is empty. It does **not** pre-check the size: the server counts the
   composed message when you send — headers, base64 growth and separators included — and refuses one above
-  `MAIL_MAX_MESSAGE_BYTES` (25 MiB by default) with the byte count, naming the attachment if one file alone is
-  over the limit. Passing that check means this installation accepted the message, not that the provider will.
+  `MAIL_MAX_MESSAGE_BYTES` (25 MiB by default) with the byte count and the attachment subtotal, naming the file if one is over the limit on its own. Passing that check means this installation accepted the message, not that the provider will.
 - Drafts autosave to the account's IMAP **Drafts** folder. Attachments are **not** stored in
   drafts, and the interface says so.
 - Sending is idempotent: a retry after a lost response returns the first result instead of

@@ -62,7 +62,7 @@ failures below it.
 | *Sent, but not saved to your Sent folder* | The message was delivered. Only the Sent copy failed; do not resend. |
 | Idempotency or duplicate-send error | A previous attempt is still in flight. Wait a moment and retry. |
 | SMTP authentication error | Wrong SMTP password, or the provider requires an app password. |
-| Attachment too large | The combined uploaded, inline and forwarded size exceeds the limit. The composer warns before sending, and the server counts the **composed** message — headers, base64 growth and separators included — and refuses one above `MAIL_MAX_MESSAGE_BYTES` (25 MiB by default) with `413 MESSAGE_TOO_LARGE` and the real byte count. Raising that variable raises no provider's own limit, so a message the installation accepts can still be refused upstream. |
+| Attachment too large | The combined uploaded, inline and forwarded size exceeds the limit. The composer warns before sending, and the server counts the **composed** message — headers, base64 growth and separators included — and refuses one above `MAIL_MAX_MESSAGE_BYTES` (25 MiB by default) with `413 MESSAGE_TOO_LARGE`, the real byte count **and how much of it is attachments**, so it is clear whether to remove a file or shorten the message. Raising that variable raises no provider's own limit, so a message the installation accepts can still be refused upstream. |
 | Sending unavailable | Redis is not reachable. Idempotent sending requires it. |
 
 ## Threading looks wrong
