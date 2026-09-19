@@ -7,7 +7,7 @@ export { parseCalendarEvent } from '../utils/ical.js';
 import { query } from '../services/db.js';
 import { authLimiterConfig } from '../services/authLimiter.js';
 import { createDavAuthMiddleware } from '../services/davServerAuth.js';
-import { ifMatchSatisfied } from '../utils/davPreconditions.js';
+import { evaluateDavIf, ifMatchSatisfied } from '../utils/davPreconditions.js';
 import { toAppError } from '../utils/errors.js';
 import type { Request, Response, NextFunction } from 'express';
 
@@ -326,8 +326,8 @@ router.get('/:userId/:calendarId/:filename', async (req: Request, res: Response)
 
 router.put('/:userId/:calendarId/:filename', async (req: Request, res: Response) => {
   if (req.params.userId !== req.caldavUserId) return res.status(403).end();
-  const calendarResult = await query<{ id: string; source?: string | null; read_only?: boolean | null; dav_mode?: string | null }>(
-    'SELECT id, source, read_only, dav_mode FROM calendars WHERE id = $1 AND user_id = $2',
+  const calendarResult = await query<{ id: string; source?: string | null; read_only?: boolean | null; dav_mode?: string | null; sync_token?: string | null }>(
+    'SELECT id, source, read_only, dav_mode, sync_token FROM calendars WHERE id = $1 AND user_id = $2',
     [req.params.calendarId, req.caldavUserId],
   );
   const calendar = calendarResult.rows[0];
@@ -347,6 +347,11 @@ router.put('/:userId/:calendarId/:filename', async (req: Request, res: Response)
   if (current?.invite_account_id) return res.status(409).end();
   if (req.headers['if-none-match'] === '*' && current) return res.status(412).end();
   if (req.headers['if-match'] && (!current || !etagMatches(req.headers['if-match'], current.etag))) return res.status(412).end();
+  // The `If` header is a precondition too: a form we cannot evaluate fails rather
+  // than silently unprotecting the write.
+  const ifDecision = evaluateDavIf(req.headers['if'], { etag: current?.etag ?? null, syncToken: calendar.sync_token ?? null });
+  if (ifDecision.status === 'bad-request') return res.status(400).end();
+  if (ifDecision.status === 'precondition-failed') return res.status(412).end();
   let stored;
   try {
     stored = await query(
@@ -372,7 +377,7 @@ router.put('/:userId/:calendarId/:filename', async (req: Request, res: Response)
 
 router.delete('/:userId/:calendarId/:filename', async (req: Request, res: Response) => {
   if (req.params.userId !== req.caldavUserId) return res.status(403).end();
-  const calendarResult = await query<{ id: string; source?: string | null; read_only?: boolean | null; dav_mode?: string | null }>('SELECT id, source, read_only, dav_mode FROM calendars WHERE id = $1 AND user_id = $2', [req.params.calendarId, req.caldavUserId]);
+  const calendarResult = await query<{ id: string; source?: string | null; read_only?: boolean | null; dav_mode?: string | null; sync_token?: string | null }>('SELECT id, source, read_only, dav_mode, sync_token FROM calendars WHERE id = $1 AND user_id = $2', [req.params.calendarId, req.caldavUserId]);
   const calendar = calendarResult.rows[0];
   if (!calendar || davModeOf(calendar.dav_mode) === 'off') return res.status(404).end();
   if (calendar.source !== 'local' || calendar.read_only || davModeOf(calendar.dav_mode) === 'read_only' || !credentialCanWrite(req)) return res.status(403).end();
@@ -382,6 +387,11 @@ router.delete('/:userId/:calendarId/:filename', async (req: Request, res: Respon
   if (!current) return res.status(404).end();
   if (current.invite_account_id) return res.status(409).end();
   if (req.headers['if-match'] && !etagMatches(req.headers['if-match'], current.etag)) return res.status(412).end();
+  // The `If` header is a precondition too: a form we cannot evaluate fails rather
+  // than silently unprotecting the delete.
+  const ifDecision = evaluateDavIf(req.headers['if'], { etag: current.etag, syncToken: calendar.sync_token ?? null });
+  if (ifDecision.status === 'bad-request') return res.status(400).end();
+  if (ifDecision.status === 'precondition-failed') return res.status(412).end();
   const deleted = await query(
     "DELETE FROM calendar_events WHERE calendar_id = $1 AND COALESCE(dav_filename, uid || '.ics') = $2 AND recurrence_id = $3 AND invite_account_id IS NULL AND etag = $4 RETURNING id",
     [calendar.id, uid, '', current.etag],

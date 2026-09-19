@@ -16,7 +16,7 @@ import { query } from '../services/db.js';
 import { parseVCard } from '../utils/vcard.js';
 import { authLimiterConfig } from '../services/authLimiter.js';
 import { createDavAuthMiddleware } from '../services/davServerAuth.js';
-import { ifMatchSatisfied, ifNoneMatchAllowsCreate } from '../utils/davPreconditions.js';
+import { evaluateDavIf, ifMatchSatisfied, ifNoneMatchAllowsCreate } from '../utils/davPreconditions.js';
 import { toAppError } from '../utils/errors.js';
 
 const router = Router();
@@ -415,7 +415,7 @@ router.put('/:userId/:bookId/:filename', async (req, res) => {
 
   try {
     const bookResult = await query<AddressBookRow>(
-      'SELECT id, source, dav_mode FROM address_books WHERE id = $1 AND user_id = $2',
+      'SELECT id, source, dav_mode, sync_token, sync_version FROM address_books WHERE id = $1 AND user_id = $2',
       [req.params.bookId, userId]
     );
     if (!bookResult.rows.length) return res.status(404).end();
@@ -435,6 +435,11 @@ router.put('/:userId/:bookId/:filename', async (req, res) => {
     // Strong If-Match comparison (RFC 9110 §13.1.1): a weak validator never matches.
     const currentEtag = typeof current?.etag === 'string' ? current.etag : null;
     if (!ifMatchSatisfied(req.headers['if-match'], currentEtag)) return res.status(412).end();
+    // The `If` header is a precondition too: a form we cannot evaluate fails rather
+    // than silently unprotecting the write.
+    const ifDecision = evaluateDavIf(req.headers['if'], { etag: currentEtag, syncToken: syncToken(book) });
+    if (ifDecision.status === 'bad-request') return res.status(400).end();
+    if (ifDecision.status === 'precondition-failed') return res.status(412).end();
     if (existing.rows.length) {
       // Update
       const updated = await query(`
@@ -501,12 +506,23 @@ router.delete('/:userId/:bookId/:filename', async (req, res) => {
 
   try {
     const bookResult = await query<AddressBookRow>(
-      'SELECT id, source, dav_mode FROM address_books WHERE id = $1 AND user_id = $2',
+      'SELECT id, source, dav_mode, sync_token, sync_version FROM address_books WHERE id = $1 AND user_id = $2',
       [req.params.bookId, userId]
     );
     if (!bookResult.rows.length) return res.status(404).end();
     if (davModeOf(bookResult.rows[0].dav_mode) === 'off') return res.status(404).end();
     if (bookResult.rows[0].source !== 'local' || davModeOf(bookResult.rows[0].dav_mode) === 'read_only' || !credentialCanWrite(req)) return res.status(403).end();
+
+    const currentRow = await query<{ etag: string }>(
+      "SELECT etag FROM contacts WHERE address_book_id = $1 AND COALESCE(dav_filename, uid || '.vcf') = $2",
+      [req.params.bookId, uid]
+    );
+    const ifDecision = evaluateDavIf(req.headers['if'], {
+      etag: currentRow.rows[0]?.etag ?? null,
+      syncToken: syncToken(bookResult.rows[0]),
+    });
+    if (ifDecision.status === 'bad-request') return res.status(400).end();
+    if (ifDecision.status === 'precondition-failed') return res.status(412).end();
 
     const result = await query(
       `DELETE FROM contacts

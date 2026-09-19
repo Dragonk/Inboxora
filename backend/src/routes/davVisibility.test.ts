@@ -222,3 +222,72 @@ describe('application-password ceiling (max_dav_mode)', () => {
     expect(response.status).toBe(201);
   });
 });
+
+describe('WebDAV If header on a write', () => {
+  const eventBody = 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:e1\r\nDTSTART:20260901T090000Z\r\nDTEND:20260901T100000Z\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n';
+  const cardBody = 'BEGIN:VCARD\r\nVERSION:3.0\r\nUID:c1\r\nFN:Ada\r\nEND:VCARD';
+
+  const readWriteCalendar = (syncToken = 'sync-1') => ({
+    id: 'cal-rw', name: 'Work', sync_token: syncToken, read_only: false, source: 'local', dav_mode: 'read_write',
+  });
+
+  it('accepts a write whose state-token condition matches the collection', async () => {
+    query
+      .mockResolvedValueOnce({ rows: [readWriteCalendar()] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ uid: 'e1', etag: 'etag-1' }] });
+    const response = await fetch(`${base}/caldav/user-1/cal-rw/event.ics`, {
+      method: 'PUT',
+      headers: { ...AUTH, 'content-type': 'text/calendar', if: '(<sync-1>)' },
+      body: eventBody,
+    });
+    expect(response.status).toBe(201);
+  });
+
+  it('refuses a write whose state-token condition is stale, and writes nothing', async () => {
+    query.mockResolvedValue({ rows: [readWriteCalendar('sync-2')] });
+    const response = await fetch(`${base}/caldav/user-1/cal-rw/event.ics`, {
+      method: 'PUT',
+      headers: { ...AUTH, 'content-type': 'text/calendar', if: '(<sync-1>)' },
+      body: eventBody,
+    });
+    expect(response.status).toBe(412);
+    expect(queryCallsMatching('INSERT INTO calendar_events')).toHaveLength(0);
+  });
+
+  it('reports a malformed If header as a client error rather than ignoring it', async () => {
+    query.mockResolvedValue({ rows: [readWriteCalendar()] });
+    const response = await fetch(`${base}/caldav/user-1/cal-rw/event.ics`, {
+      method: 'PUT',
+      headers: { ...AUTH, 'content-type': 'text/calendar', if: '(<sync-1>' },
+      body: eventBody,
+    });
+    expect(response.status).toBe(400);
+    expect(queryCallsMatching('INSERT INTO calendar_events')).toHaveLength(0);
+  });
+
+  it('fails a tagged list closed instead of treating it as no condition', async () => {
+    query.mockResolvedValue({ rows: [{ id: 'book-rw', name: 'Personal', sync_token: 'sync-1', sync_version: 1, source: 'local', dav_mode: 'read_write' }] });
+    const response = await fetch(`${base}/carddav/user-1/book-rw/contact.vcf`, {
+      method: 'PUT',
+      headers: { ...AUTH, 'content-type': 'text/vcard', if: '</carddav/user-1/book-rw/> (["etag-1"])' },
+      body: cardBody,
+    });
+    expect(response.status).toBe(412);
+    expect(queryCallsMatching('INSERT INTO contacts')).toHaveLength(0);
+  });
+
+  it('evaluates an entity-tag condition on a CardDAV write against the stored etag', async () => {
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'book-rw', name: 'Personal', sync_token: 'sync-1', sync_version: 1, source: 'local', dav_mode: 'read_write' }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'c1', uid: 'c1', etag: 'etag-9', dav_filename: 'contact.vcf' }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'c1' }] })
+      .mockResolvedValueOnce({ rows: [] });
+    const response = await fetch(`${base}/carddav/user-1/book-rw/contact.vcf`, {
+      method: 'PUT',
+      headers: { ...AUTH, 'content-type': 'text/vcard', if: '(["etag-9"])' },
+      body: cardBody,
+    });
+    expect(response.status).toBe(204);
+  });
+});

@@ -88,6 +88,12 @@ with sync tokens, and conditional updates. Conflict handling is real: a write wi
 version tag is rejected rather than overwriting somebody else's change, and a client that
 presents an unknown sync token is told to resynchronise from scratch.
 
+Conditional requests are enforced, not advisory. `If-Match` and the WebDAV `If` header are both
+honoured on writes, including entity-tag conditions and state-token conditions compared against
+the collection's sync token, so a client cannot lose its protection by using one form instead of
+the other. A condition the server cannot evaluate fails the request rather than being ignored: a
+malformed header is a `400`, and an unmet (or unevaluable) condition is a `412`.
+
 Events that Inboxora owns because invitations were sent for them are protected from being
 silently modified by a DAV client.
 

@@ -227,6 +227,15 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   Microsoft refresh (or the reverse), a provider/collection pair without an adapter yet is skipped
   rather than attempted, and a failure on either side is logged and retried on the next tick without
   affecting the other.
+- Honour the WebDAV `If` header on CalDAV and CardDAV writes (P11 hardening, DV19). It is a
+  precondition, not a hint, so a syntactically valid condition the server cannot evaluate now
+  **fails** instead of being treated as absent — previously an ignored `If` silently stopped
+  protecting a client's optimistic-concurrency guard. Entity-tag conditions (`["etag"]`) use strong
+  comparison exactly like `If-Match`, state-token conditions (`(<token>)`) are compared against the
+  collection's sync token, `Not` negates a condition, conditions inside one pair are AND-ed and
+  pairs are OR-ed, and a repeated header is treated as one. A malformed header is a `400`; a
+  well-formed condition that is not met, or a valid form not evaluated here (a tagged list, which
+  can name another resource), is a `412`.
 
 ## [4.0.4] - 2026-09-18
 
