@@ -15,6 +15,16 @@ limitations — read the matching page in the Wiki: [Release notes 4.1.0](wiki/R
 
 ### Changed
 
+- **Sending from a Microsoft Graph account says why it cannot, instead of failing like a credential
+  problem** (P07b/P06 boundary). A native account has no SMTP credentials — its mail goes over Graph,
+  and that transport is Stage 3 work that does not exist yet — so `createAccountSmtpTransport` fell
+  through to the separate-credentials branch and returned an error that described neither the cause nor
+  the missing feature. It now answers `501` with `OPERATION_FORBIDDEN` and a sentence naming the gap.
+  The guard sits in the factory rather than at a call site, so every caller is covered, and it is the
+  fourth time this pattern has been applied (folder management, GTD setup, the body prefetch): name the
+  unsupported operation where the work would happen. When the shared send layer lands, this refusal is
+  replaced by the adapter rather than left standing over it.
+
 - **Graph messages now reach the conversation engine** (P07b, twenty-second slice, completing the
   twenty-first). The message sync projects each row it wrote into the conversation engine, so threads
   group on Graph's `conversationId` rather than being absent from the engine entirely. Two ordering

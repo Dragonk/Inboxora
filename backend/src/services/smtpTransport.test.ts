@@ -245,3 +245,17 @@ describe('createAccountSmtpTransport', () => {
     expect(nodemailer.createTransport).not.toHaveBeenCalled();
   });
 });
+
+// A native Microsoft account has no SMTP credentials; its mail is sent over Graph, and
+// that transport does not exist yet (v4 Stage 3). The guard lives in the factory so
+// every caller gets the honest answer instead of a credential error that describes
+// neither the cause nor the missing feature.
+describe('createAccountSmtpTransport and the account transport', () => {
+  it('refuses a Microsoft Graph account with a code rather than a credential error', async () => {
+    const result = await createAccountSmtpTransport({
+      id: 'acct-1', user_id: 'user-1', email_address: 'sam@contoso.test', mail_transport: 'microsoft_graph',
+    } as never);
+    expect(result).toMatchObject({ status: 501, code: 'OPERATION_FORBIDDEN' });
+    expect((result as { error: string }).error).toContain('shared send layer');
+  });
+});
