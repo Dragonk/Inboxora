@@ -1617,97 +1617,47 @@ started" row suggests, so the slice is a seam rather than a rewrite:
 
   **The remaining slice is smaller than this note first implied, and the structure is now known.** I had
 
-  **Step 1 — the send contract. Corrected: MIME *can* carry Bcc; our artefact deliberately does not.**
-  The first version of this note said MIME could not represent a blind recipient, which is wrong and is
-  corrected here. Confirmed against the Microsoft Graph v1.0 documentation:
-  - `POST /me/sendMail` accepts **JSON or base64 MIME**; for the MIME form the recipients — **including
-    Bcc** — are the Internet message headers. There is **no separate SMTP-style envelope** in either form.
-  - A draft is `POST /me/messages`; a completed draft is sent with `POST /me/messages/{id}/send`.
-  - A file attachment **under 3 MB** is added directly (`/me/messages/{id}/attachments`); **3–150 MB**
-    requires `/me/messages/{id}/attachments/createUploadSession`.
-  - **3 MB is the choice of how to add one attachment; 150 MB is the upload-session per-file ceiling.
-    Neither is the message ceiling** — they must not be modelled as send limits.
-
-  So the reason the current `sendGraphMime` must not be wired is **not** a limitation of MIME: it is that
-  the artefact we hand it has had its `Bcc:` header **removed on purpose** (`3e9b0054`, so that a buffer
-  sent as `raw` over SMTP cannot disclose blind recipients) while the recipients were moved out of band
-  into the envelope. Graph has no envelope to receive them, so the current pairing loses the Bcc — the
-  conclusion "do not wire it yet" stands, for that reason and not the false one.
-
-  **Accepted target model** (recorded before implementation, so the renderer boundary is not invented
-  while wiring): a single semantic composition, rendered per transport —
-  `canonical composed message → provider-specific renderer`.
-  - One typed model, e.g. `ComposedMail`: from, replyTo, to, cc, bcc, subject, plain body, HTML body,
-    safe/custom headers, attachments, inline attachments with `contentId`, `In-Reply-To`, `References`,
-    priority, and provider-independent operation metadata.
-  - **SMTP**: `ComposedMail → MIME without Bcc + SMTP envelope`.
-  - **Microsoft Graph**: `ComposedMail → JSON microsoft.graph.message`, **draft-first** (below).
-  - **Gmail (later)**: `ComposedMail →` Gmail's own representation.
-  - MIME is therefore **not** the canonical model: it is one transport's wire representation. The
-    composer must not compose twice — semantic composition happens once, and the renderer chooses the
-    wire form.
-
-  **Graph uses one draft-first pipeline for every size** — small and large attachments alike, because two
-  pipelines would mean two outcome semantics and two Bcc behaviours:
-  1. `POST /me/messages` with subject, body, `toRecipients`, `ccRecipients`, **`bccRecipients`**,
-     `replyTo` and the permitted custom Internet headers; keep the returned draft id.
-  2. Attachments on that draft: direct under 3 MB, `createUploadSession` from 3–150 MB, honouring
-     `nextExpectedRanges`, sending `Content-Range` as the API requires, handling resume, expiry and
-     cancel, and **never sending an `Authorization` header to the pre-authorized upload URL**.
-  3. `POST /me/messages/{id}/send` only once every attachment is confirmed.
-  Direct `/me/sendMail` is **not** the main pipeline; a helper left unused after the change is removed
-  rather than kept as a dead adapter.
-
-  **Staging draft versus user draft.** The provider draft this pipeline creates is a *send staging draft*
-  with its own lifecycle (`creating → uploading → ready → sending → sent`, plus `upload_failed`,
-  `send_outcome_unknown`, `cancelled`), distinct from a user draft the person saved and expects to see in
-  Drafts. The staging draft is not shown as a second draft unless that is intended, and if it survives a
-  failure at the provider, reconciliation/cleanup has to know it belongs to a specific Inboxora operation
-  — which is the purpose of the operation identifier below.
-
-  **Idempotency and uncertain outcomes keep the existing split, with no third system**: `send_idempotency`
-  for the HTTP/user intent and replay, `provider_operations` for the provider mutation. Per step: create
-  draft is a **create — treat as non-idempotent** unless a provider-side unambiguous lookup of the created
-  staging draft exists; an upload chunk is retried **only** per `nextExpectedRanges` and upload-session
-  semantics; the final send is non-idempotent and an uncertain outcome **never** triggers an automatic
-  second send. **An uncertain Graph send is never retried over SMTP.**
-
-  **Reconciliation.** The draft creation carries an operation identifier in a permitted custom Internet
-  header (e.g. `X-Inboxora-Operation-Id`, no secrets and no internal tokens) **if Graph allows it to be
-  read back reliably**; the purpose is to distinguish "no draft was created" from "the draft exists but
-  the response was lost". If the API does not allow a reliable lookup after an unknown create outcome,
-  the operation stays `outcome_unknown` rather than creating a second draft.
-
-  **Slice A is scoped to exact loci, read from the file rather than estimated.** It is refactor-only —
-  `composer → ComposedMail → transport renderer`, never `composer → SMTP MIME → other transports` — and the
-  behaviour must not change, so every region it touches is named with its line and its job:
-  - `routes/send.ts:666` builds `mailOptions` (messageId, `from`, the **explicit envelope**, replyTo, the
-    three recipient groups, subject, priority, text) — this becomes the renderer's output, derived from the
-    model;
-  - `:693`–`:701` embeds inline images and assigns `mailOptions.html` — the inline attachments and their
-    `contentId`s move into the model;
-  - `:714`–`:724` assembles `allAttachments` (uploaded + inline + forwarded) and assigns
-    `mailOptions.attachments` — same list, now a model field;
-  - `:757`–`:777` is the composition itself: a nodemailer **stream transport** with `newline: 'windows'`,
-    drained into a buffer, then `stripHeaderFromMessage(..., 'Bcc')`. That whole block is the SMTP
-    renderer's body — it is the only place the wire form is produced;
-  - `:856` sends `{ ...mailOptions, raw: rawMessage }`, and this call site does not change at all once the
-    renderer returns `{ raw, mailOptions }`.
-  The renderer's contract is therefore `ComposedMail → { raw, envelope, mailOptions }`, with the envelope
-  built from `to + cc + bcc` (already verified identical to nodemailer's derivation) and `raw` carrying
-  **no** `Bcc:` header. Two properties make the refactor safe to call a refactor: the model is built only
-  **after** `allAttachments` is complete, so the renderer call sits at `:757` and not at `:666`; and the
-  size guards that read `rawMessage` stay after it, so they still count the compiled message.
-  The tests Slice A owes are the renderer's own — MIME without `Bcc`, envelope with it, To/Cc/Reply-To/
-  References/priority preserved, inline `cid` preserved — plus the existing send suites staying green,
-  which is the only thing that proves "zero behaviour change".
-
-  **What the acceptance tests must prove** (not merely compare objects): To only; Cc only and To+Cc; Bcc;
-  To+Cc+Bcc; Bcc present as `bccRecipients` in the Graph draft create; Bcc **absent** from the SMTP MIME
-  artefact; SMTP still carrying Bcc in its envelope; Graph never consulting an SMTP envelope; the local
-  Sent/composer model retaining what it needs to show the sender their own Bcc; and the recipient's
-  message never depending on a stored local `Bcc:` header. Test diagnostics must not log recipient
-  addresses.
+  **Send layer — concise state (facts, not a narrative).**
+  - **Decision (binding)**: `semantic composition → ComposedMail → provider-specific renderer`. MIME is
+    **not** the canonical model; it is the SMTP wire form. One typed `ComposedMail`: messageId, from,
+    replyTo, to, cc, bcc, subject, plainBody, htmlBody, inReplyTo, references, priority, safe custom
+    headers, attachments, inline attachments with `contentId`, provider-independent operation metadata.
+  - **Graph facts confirmed against the v1.0 docs**: `POST /me/sendMail` accepts JSON **or** base64 MIME;
+    in the MIME form the recipients — **Bcc included** — are the Internet message headers; **neither form
+    has an SMTP-style envelope**. Draft is `POST /me/messages`; a completed draft is sent with
+    `POST /me/messages/{id}/send`. File attachment **<3 MB** direct; **3–150 MB** via
+    `createUploadSession`. **3 MB is the method threshold for one attachment and 150 MB the per-file
+    upload ceiling — neither is a message limit.**
+  - **Why the current `sendGraphMime` is not wired**: the artefact handed to it has its `Bcc:` header
+    removed deliberately (`3e9b0054`) with the recipients moved into the envelope, and Graph has no
+    envelope to receive them. It is to be **removed or replaced** by the draft pipeline, not left as a
+    dead adapter; MIME is not at fault and must not be described as unable to carry Bcc.
+  - **Graph pipeline, one path for every size** (draft-first): (1) `POST /me/messages` with subject, body,
+    `toRecipients`/`ccRecipients`/`bccRecipients`, replyTo and permitted custom headers, keeping the draft
+    id; (2) attachments on that draft — direct under 3 MB, `createUploadSession` from 3–150 MB honouring
+    `nextExpectedRanges`, `Content-Range`, resume, expiry and cancel, and **never** sending
+    `Authorization` to the pre-authorized upload URL; (3) `POST /me/messages/{id}/send` only once every
+    attachment is confirmed.
+  - **Staging draft ≠ user draft**: lifecycle `creating → uploading → ready → sending → sent`, plus
+    `upload_failed`, `send_outcome_unknown`, `cancelled`, tied to the send intent, the provider operation
+    and the provider draft id; a staging draft surviving a failure must be attributable to one Inboxora
+    operation (custom header such as `X-Inboxora-Operation-Id`, no secrets) **if** Graph allows a reliable
+    read-back — otherwise the operation stays `outcome_unknown` rather than creating a second draft.
+  - **Idempotency unchanged, no third system**: `send_idempotency` = HTTP/user intent and replay;
+    `provider_operations` = provider mutation. Create draft and final send are non-idempotent; chunks are
+    retried only per session state; an uncertain outcome never auto-resends and **never** falls back to
+    SMTP.
+  - **Slice A (next, refactor-only, no Graph) loci** — `routes/send.ts:666` `mailOptions` (becomes renderer
+    output), `:693`–`:701` inline embed into the model, `:714`–`:724` `allAttachments` into the model,
+    `:757`–`:777` composition + `Bcc` strip (becomes the renderer body), `:856` unchanged. The model is
+    built **after** `allAttachments` exists, so the renderer call belongs at `:757`; the size guards
+    reading `rawMessage` stay after it. Renderer contract: `ComposedMail → { raw, envelope, mailOptions }`,
+    envelope from `to + cc + bcc`, `raw` without `Bcc`.
+  - **Acceptance must prove, not compare**: To / Cc / To+Cc / Bcc / To+Cc+Bcc; Bcc present as
+    `bccRecipients` in the Graph draft create; Bcc **absent** from the SMTP artefact; SMTP still carrying
+    Bcc in its envelope; Graph never consulting an SMTP envelope; the local Sent/composer model retaining
+    what it needs to show the sender their own Bcc; and the recipient's message never depending on a
+    stored local `Bcc:` header. Test diagnostics must not log recipient addresses.
   described it as needing the route's dispatch moved and an error-precedence decision; neither is
   necessary. The seam can return a **transport-shaped object** for a native account — an object with a
   `sendMail(options)` that posts `options.raw` — and the route's send site is then **untouched**, because
