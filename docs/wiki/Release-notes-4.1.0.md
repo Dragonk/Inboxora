@@ -19,9 +19,10 @@ position:
   migrate mail, does not ask for Gmail permissions, and not configuring it leaves the app-password
   path fully available.
 - **Microsoft needs the connection for mail.** Outlook.com and Microsoft 365 no longer accept a
-  mailbox password, so those accounts need an authorized connection. Microsoft mail itself still
-  travels over OAuth2 IMAP/SMTP in this release; the **Graph mail transport is not part of 4.1.0**
-  (see limitations).
+  mailbox password, so those accounts need an authorized connection. Microsoft mail travels over
+  OAuth2 IMAP/SMTP, and the **native Graph transport is now implemented and wired** (read, file,
+  flag and **send** through the single send seam); no account is migrated to it in this release, so
+  an existing account keeps using IMAP/SMTP until the in-place cutover (see limitations).
 
 Everything the providers deliver is **pulled read-only**. Editing, deleting or removing an imported
 collection through Inboxora is refused with a reason rather than silently undone at the next refresh:
@@ -69,9 +70,12 @@ and reconnecting re-links the same collections rather than duplicating them.
 - Additive schema for the above (`0107`–`0109`): the mail-folder collection link, the message's
   provider identity with a partial unique index, and the operation payload that makes the pending
   pool drainable.
-- Send-path groundwork: one definition for the four size dimensions, an explicit delivery envelope,
-  a single composition of the message, and the `graphMailSend` adapter (unwired in this release —
-  see limitations).
+- The **send pipeline onto the canonical model, and its Graph transport**: one composition of the
+  message, an explicit delivery envelope, a transport seam that binds an account to SMTP or Graph,
+  and a Graph send that is **draft-first** — Graph JSON (so `bccRecipients` carries blind recipients
+  out of band), attachments added inline or through a resumable upload session, then the send — with
+  `accepted` / refused-before-acceptance / unknown-outcome told apart so an uncertain send is parked
+  rather than retried.
 - A `dev`-tagged image publication from the integrating branch. **The `dev` images are development
   builds, not this release**: 4.1.0 is released when `dev` is merged to `main`.
 
@@ -108,10 +112,12 @@ and reconnecting re-links the same collections rather than duplicating them.
 - **Graph mail is an adapter, not yet a transport for anyone.** The code paths above are exercised by
   tests and reachable for an account marked as a native Graph account, but **no account is migrated to
   it in this release** — the in-place cutover (P12) is not part of 4.1.0 — so an existing Microsoft
-  account keeps reading mail over OAuth2 IMAP/SMTP. **Sending over Graph is not implemented**: a send
-  from a native account is refused with a clear code rather than falling back to SMTP, drafts are not
-  implemented, and provider-side search and reply/forward dependencies are not implemented. The Gmail
-  API mail transport is not in this release either; Google mail continues with an app password.
+  account keeps reading mail over OAuth2 IMAP/SMTP. **Sending over Graph is implemented and wired**:
+  a native account's send is created as a Graph draft, its attachments are uploaded, and only then is
+  it sent, with an unknown outcome parked rather than retried; because no account is native yet, this
+  path is exercised by tests rather than by live accounts. **Graph drafts, provider-side search and
+  the reply/forward dependencies are not implemented.** The Gmail API mail transport is not in this
+  release either; Google mail continues with an app password.
 - **Provider data is read-only, and so are imported calendars and address books.** Write-back, the
   external CalDAV/CardDAV client and provider CRUD (calendar and contacts create/update/delete) are
   not in this release, so an imported collection cannot be edited, deleted or removed from Inboxora.

@@ -10,9 +10,9 @@ import { redactEmail } from '../utils/redact.js';
 import type { EmailAccountRow } from '../services/imapManager.js';
 import { resolveSentFolder } from '../utils/mailUtils.js';
 import { generateVCard } from '../utils/vcard.js';
-import { createAccountMailTransport } from '../services/sendTransport.js';
+import { createAccountMailTransport, type MailTransport } from '../services/sendTransport.js';
 import { SEND_ATTACHMENT_TOTAL_BYTES, sendLimits } from '../services/sendLimits.js';
-import { parseMailbox, renderSmtpMessage } from '../services/composedMail.js';
+import { parseMailbox, renderSmtpMessage, type ComposedMail } from '../services/composedMail.js';
 import { fetchSourceAttachment, SourceAttachmentError } from '../services/sourceAttachments.js';
 import { imapManager } from '../index.js';
 import { pluginRegistry } from '../plugins/registry.js';
@@ -654,10 +654,10 @@ router.post('/send', async (req, res) => {
     if (reservationRenewal) clearInterval(reservationRenewal);
     reservationRenewal = null;
   };
-  let delivered = false; // true once transport.sendMail has actually handed off the message
-  let smtpDispatchStarted = false;
+  let delivered = false; // true once the transport has actually accepted the message for delivery
+  let dispatchStarted = false;
   let finalizationStarted = false;
-  let smtpRecipients: { accepted: string[]; rejected: string[] } | null = null;
+  let transportRecipients: { accepted: string[]; rejected: string[] } | null = null;
   const markLeaseUncertain = (fromRenewal = false) => {
     // A renewal response can arrive after finalization has begun. It no longer
     // owns the lease and must not overwrite a completed-result reconciliation.
@@ -667,11 +667,15 @@ router.post('/send', async (req, res) => {
     }
   };
   try {
-    const smtp = await createAccountMailTransport(account);
-    if (smtp.error) return res.status(smtp.status).json({ error: smtp.error });
-    if (!smtp.transport) throw new Error('SMTP transport is unavailable');
-    account = smtp.account;
-    const transport = smtp.transport;
+    const bound = await createAccountMailTransport(account);
+    if ('error' in bound) {
+      return res.status(bound.status).json({
+        ...(bound.code ? { code: bound.code } : {}),
+        error: bound.error,
+      });
+    }
+    account = bound.account;
+    const transport: MailTransport = bound.transport;
 
     // Use a stable Message-ID so the SMTP copy and any IMAP APPEND reference the same message.
     const domain = (fromEmail || '').split('@')[1] || 'mailflow.local';
@@ -744,20 +748,15 @@ router.post('/send', async (req, res) => {
     // bounded metadata/search re-observation path below.
     const serverAutoSaves = !!account.oauth_provider || /gmail/i.test(account.imap_host || account.smtp_host || '');
 
-    // Generate CRLF MIME now. Non-auto-saving servers use it immediately; the
-    // auto-save path retains it for a verified fallback when the provider fails
-    // to materialize a Sent copy.
-    // Use CRLF newlines ('windows'): RFC 5322 / IMAP APPEND require CRLF. A bare-LF message is
-    // stored verbatim by strict servers (e.g. PurelyMail/Dovecot), and downstream clients then
-    // mis-parse the headers — the reporter saw Subject and the To display-name dropped (#365). This
-    // delivered copy uses a separate transport that is already CRLF, so only the Sent copy was wrong.
-    const { raw: rawMessage, mailOptions } = await renderSmtpMessage({
+    // The canonical, transport-independent model. Composition into a wire format happens **once**, in the
+    // transport's renderer: SMTP renders MIME, Graph renders its own JSON message from the same model.
+    // Recipients are parsed once, here: every transport reads the same structured recipients, and each
+    // renders the half it needs (SMTP the display name in headers and the bare address in the envelope,
+    // Graph two separate JSON fields).
+    const composed: ComposedMail = {
       messageId,
       from: { email: fromEmail, name: fromName },
       replyTo: fromReplyTo ? parseMailbox(fromReplyTo) : null,
-      // Parsed once, here: every transport reads the same structured recipients, and each renders the
-      // half it needs (SMTP the display name in headers and the bare address in the envelope, Graph two
-      // separate JSON fields).
       to: normalizedTo.map(parseMailbox),
       cc: normalizedCc.map(parseMailbox),
       bcc: normalizedBcc.map(parseMailbox),
@@ -774,26 +773,38 @@ router.post('/send', async (req, res) => {
         cid: (attachment as { cid?: string }).cid,
         contentDisposition: (attachment as { contentDisposition?: 'attachment' | 'inline' }).contentDisposition,
       })),
-    });
+    };
+
+    // Only the transport that dispatches the RFC-822 message needs it rendered — for the size ceiling and
+    // for the Sent-folder APPEND. A native Graph account renders its own representation from `composed`, so
+    // no SMTP message is constructed for it at all.
+    //
+    // CRLF ('windows'): RFC 5322 / IMAP APPEND require it. A bare-LF message is stored verbatim by strict
+    // servers (e.g. PurelyMail/Dovecot), and downstream clients then mis-parse the headers — the reporter
+    // saw Subject and the To display-name dropped (#365). This delivered copy uses a separate transport
+    // that is already CRLF, so only the Sent copy was wrong.
+    const rendered = transport.sendsRenderedMessage ? await renderSmtpMessage(composed) : null;
 
     // §12.2: the interface's estimate is preliminary, and this is the message as actually compiled — headers,
     // base64 growth, separators and CRLF included — counted on the server side, before any dispatch. Nothing has
-    // been claimed or handed to SMTP at this point, so refusing here leaves no uncertain send behind.
-    const messageLimit = limits.mimeBytes;
-    if (rawMessage.length > messageLimit) {
-      // §12.2 counts three figures, not one: the raw attachment bytes, the compiled MIME, and the transport
-      // encoding. The first two are known here, and naming the attachment subtotal tells the user whether to
-      // remove a file or shorten the message — the difference between advice and a number.
-      const rawAttachmentBytes = allAttachments.reduce(
-        (sum, a) => sum + (Buffer.isBuffer(a.content) ? a.content.length : 0), 0,
-      );
-      return res.status(413).json({
-        code: 'MESSAGE_TOO_LARGE',
-        actual: rawMessage.length,
-        limit: messageLimit,
-        error: `The composed message is ${rawMessage.length} bytes, above this installation's limit of ${messageLimit}.`
-          + ` Attachments account for ${rawAttachmentBytes} of them.`,
-      });
+    // been claimed or handed to the transport at this point, so refusing here leaves no uncertain send behind.
+    if (rendered) {
+      const messageLimit = limits.mimeBytes;
+      if (rendered.raw.length > messageLimit) {
+        // §12.2 counts three figures, not one: the raw attachment bytes, the compiled MIME, and the transport
+        // encoding. The first two are known here, and naming the attachment subtotal tells the user whether to
+        // remove a file or shorten the message — the difference between advice and a number.
+        const rawAttachmentBytes = allAttachments.reduce(
+          (sum, a) => sum + (Buffer.isBuffer(a.content) ? a.content.length : 0), 0,
+        );
+        return res.status(413).json({
+          code: 'MESSAGE_TOO_LARGE',
+          actual: rendered.raw.length,
+          limit: messageLimit,
+          error: `The composed message is ${rendered.raw.length} bytes, above this installation's limit of ${messageLimit}.`
+            + ` Attachments account for ${rawAttachmentBytes} of them.`,
+        });
+      }
     }
 
     // A database-backed intent is the final, cross-process gate immediately before SMTP.
@@ -840,26 +851,53 @@ router.post('/send', async (req, res) => {
       reservationRenewal.unref?.();
     }
 
-    // Persist the uncertain state before invoking SMTP: a process crash or lost
-    // final DATA acknowledgement cannot then turn into an automatic re-dispatch.
+    // Persist the uncertain state before invoking the transport: a process crash or lost
+    // final acknowledgement cannot then turn into an automatic re-dispatch.
     if (idempotencyKey && intentToken) {
       await markSendIntentUncertain(req.session.userId!, idempotencyKey, intentToken!);
     }
-    smtpDispatchStarted = true;
-    // Hand over the message composed for the accounting instead of letting the transport
-    // compose a second one. Measured before the change, with the explicit envelope already in
-    // place: a pre-composed buffer delivered through `raw` is byte-identical to one the
-    // transport composes itself, and the envelope is identical either way — so this removes a
-    // second composition rather than moving it. The buffer carries no `Bcc:` header (the route
-    // strips it), which is what makes it safe to send verbatim: a raw message is sent as given,
-    // and a blind recipient must exist only in the envelope.
-    const smtpInfo = await transport.sendMail({ ...mailOptions, raw: rawMessage });
+    dispatchStarted = true;
+    // The transport answers with an outcome it can tell apart. Only `accepted` means the message is on its
+    // way; a definite refusal is released so the same key can retry, and an unknown outcome is parked and
+    // never re-dispatched. SMTP still throws its protocol failures (the catch below classifies those), and
+    // a successful hand-off arrives as `accepted` with nodemailer's recipient lists.
+    const outcome = await transport.send({ composed, ...(rendered ? { rendered } : {}) });
+    if (outcome.status === 'outcome_unknown') {
+      // The provider may or may not have the message. Keep the durable uncertain intent and the Redis
+      // lease: a retry must reconcile rather than send again.
+      if (idempotencyKey && intentToken) {
+        await markSendIntentUncertain(req.session.userId!, idempotencyKey, intentToken).catch(() => {});
+      }
+      return res.status(502).json({
+        code: 'SEND_OUTCOME_UNKNOWN',
+        error: 'The mail provider response was interrupted after dispatch began. This message will not be sent again automatically.',
+      });
+    }
+    if (outcome.status === 'refused') {
+      // A refusal read before acceptance: nothing has left for the recipients, so both gates are released
+      // and the same idempotency key can make a deliberate retry.
+      console.error(`Transport refused the send (${outcome.code}): ${outcome.error}`);
+      stopReservationRenewal();
+      if (idempotencyKey && intentClaimed && intentToken) {
+        await releaseSendIntent(req.session.userId!, idempotencyKey, intentToken)
+          .catch(() => markSendIntentUncertain(req.session.userId!, idempotencyKey!, intentToken!).catch(() => {}));
+      }
+      if (idemKeyRedis && reservationAcquired && reservationToken) {
+        await releaseIdempotencyLease(idemKeyRedis, reservationToken).catch(() => {});
+      }
+      const statusCode = outcome.statusCode >= 400 && outcome.statusCode < 600 ? outcome.statusCode : 502;
+      return res.status(statusCode).json({
+        code: outcome.code,
+        ...(outcome.retryable ? { retryable: true } : {}),
+        error: outcome.error,
+      });
+    }
     delivered = true;
     // Capture recipient outcomes immediately. Any later Sent-folder/metadata failure
-    // must return the same SMTP result to both the client and idempotency replay.
-    const acceptedRecipients = Array.isArray(smtpInfo.accepted) ? smtpInfo.accepted.map(String) : [];
-    const rejectedRecipients = Array.isArray(smtpInfo.rejected) ? smtpInfo.rejected.map(String) : [];
-    smtpRecipients = { accepted: acceptedRecipients, rejected: rejectedRecipients };
+    // must return the same transport result to both the client and idempotency replay.
+    const acceptedRecipients = outcome.accepted;
+    const rejectedRecipients = outcome.rejected;
+    transportRecipients = { accepted: acceptedRecipients, rejected: rejectedRecipients };
 
     // Auto-learn sent recipients so they rank above inbound-only senders in autocomplete.
     // Fire-and-forget — a DB error here must never affect the send response.
@@ -934,8 +972,8 @@ router.post('/send', async (req, res) => {
     const sentFolder = await resolveSentFolder(accountId, account.folder_mappings);
     console.log(`Post-send: ${redactEmail(account.email_address || '')} sentFolder=${sentFolder} autoSaves=${serverAutoSaves}`);
 
-    // sentCopySaved: null = not applicable (server auto-saves, or no Sent folder resolved);
-    // true/false = whether OUR IMAP APPEND landed the Sent copy. Surfaced to the client so
+    // sentCopySaved: null = not applicable (server auto-saves, no Sent folder resolved, or a non-SMTP
+    // transport); true/false = whether OUR IMAP APPEND landed the Sent copy. Surfaced to the client so
     // it can warn when a delivered message could not be saved to Sent.
     let sentCopySaved = null;
     const sentMeta = sentFolder ? {
@@ -947,13 +985,18 @@ router.post('/send', async (req, res) => {
       cc: mapRecipientList(normalizedCc),
       snippet: buildSentSnippet(body, inputBodyIsHtml),
       date: new Date(),
-      // Carried so the Sent row threads into its conversation via the References chain
-      // rather than orphaning at its own Message-ID (#378).
-      inReplyTo: mailOptions.inReplyTo || null,
-      references: mailOptions.references || null,
+      // Read from the canonical model, not from nodemailer's options: those exist only on the SMTP arm,
+      // and the threading metadata belongs to the message rather than to one rendering of it. Carried so
+      // the Sent row threads into its conversation via the References chain rather than orphaning at its
+      // own Message-ID (#378).
+      inReplyTo: composed.inReplyTo || null,
+      references: composed.references || null,
     } : null;
 
-    if (sentFolder) {
+    // The Sent copy is an SMTP concern. A native Graph account has no IMAP endpoint to append to, and the
+    // provider itself files the sent message in Sent Items — the mail sync ingests it from there, so the
+    // verified-APPEND fallback below must not open an IMAP connection for it.
+    if (sentFolder && transport.sendsRenderedMessage && rendered) {
       if (!serverAutoSaves) {
         // Non-auto-saving account: APPEND the Sent copy ourselves — exactly ONCE. IMAP
         // APPEND is NOT idempotent (unlike a \Seen flag), so we must not retry: a retry
@@ -964,7 +1007,7 @@ router.post('/send', async (req, res) => {
         sentCopySaved = false;
         try {
           const { uid } = await Promise.race([
-            imapManager.appendToSent(account, sentFolder, rawMessage),
+            imapManager.appendToSent(account, sentFolder, rendered.raw),
             new Promise<never>((_, rej) => setTimeout(() => rej(new Error('Sent APPEND timed out')), 20000)),
           ]);
           sentCopySaved = true;
@@ -980,7 +1023,7 @@ router.post('/send', async (req, res) => {
               // (Sent isn't INBOX, and the tick watches only the state folders), so this is the
               // only trigger. The hook swallows per-plugin errors — the next inbound sync / tick
               // self-heals.
-              .then(() => pluginRegistry.runHook('onSentMessage', { imapManager: imapManager.pluginFacade, account, messageId: mailOptions.messageId }))
+              .then(() => pluginRegistry.runHook('onSentMessage', { imapManager: imapManager.pluginFacade, account, messageId: composed.messageId }))
               .catch(e => console.error(`Post-append sync failed: ${e.message}`));
           }, 1000);
         } catch (caught) {
@@ -1002,12 +1045,12 @@ router.post('/send', async (req, res) => {
             account,
             sentFolder,
             messageId,
-            rawMessage,
+            rawMessage: rendered.raw,
             sentMeta,
           }).then(result => {
             if (!result.saved) return;
             return imapManager.syncFolderOnDemand(account, sentFolder)
-              .then(() => pluginRegistry.runHook('onSentMessage', { imapManager: imapManager.pluginFacade, account, messageId: mailOptions.messageId }));
+              .then(() => pluginRegistry.runHook('onSentMessage', { imapManager: imapManager.pluginFacade, account, messageId: composed.messageId }));
           }).catch(err => console.error(`Post-send Sent-copy verification failed: ${err.message}`));
         });
       }
@@ -1042,16 +1085,16 @@ router.post('/send', async (req, res) => {
   } catch (caught) {
     const err = toAppError(caught);
     if (delivered) {
-      // SMTP already accepted this message. A Sent-folder or metadata failure
+      // The transport already accepted this message. A Sent-folder or metadata failure
       // must not invite the user to send it again.
       console.error('Post-send processing failed:', err.message);
       const sendResult = {
         ok: true,
         sentCopySaved: false,
-        ...(smtpRecipients?.rejected.length ? {
+        ...(transportRecipients?.rejected.length ? {
           partialDelivery: true,
-          accepted: smtpRecipients.accepted,
-          rejected: smtpRecipients.rejected,
+          accepted: transportRecipients.accepted,
+          rejected: transportRecipients.rejected,
         } : {}),
       };
       stopReservationRenewal();
@@ -1067,7 +1110,7 @@ router.post('/send', async (req, res) => {
     }
     console.error('Send failed:', err.message);
     stopReservationRenewal();
-    const retryableFailure = !smtpDispatchStarted || isExplicitSmtpRejection(caught) || isDefinitelyPreDeliveryFailure(caught);
+    const retryableFailure = !dispatchStarted || isExplicitSmtpRejection(caught) || isDefinitelyPreDeliveryFailure(caught);
     if (retryableFailure) {
       // A structured 4xx/5xx response is a known SMTP rejection, so DATA was not
       // accepted. Complete both releases before responding: the same idempotency

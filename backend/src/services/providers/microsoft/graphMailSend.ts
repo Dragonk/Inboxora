@@ -96,7 +96,7 @@ export type GraphSendResult =
    * The provider answered and refused, before acceptance. `retryable` is the provider's own class:
    * throttling and its 5xx are worth another attempt, a permission or identity refusal is not.
    */
-  | { status: 'refused'; code: string; message: string; retryable: boolean }
+  | { status: 'refused'; httpStatus: number; code: string; message: string; retryable: boolean }
   /**
    * The outcome is **not known**: the request may or may not have reached the provider. This is the one
    * answer that must never be treated as either success or failure, and it is never retried here.
@@ -131,6 +131,7 @@ export async function sendGraphDraft(
       if (status >= 400 && status < 500) {
         return {
           status: 'refused',
+          httpStatus: status,
           code: caught.code ?? 'PROVIDER_REFUSED',
           message: caught.message,
           retryable: status === 429,

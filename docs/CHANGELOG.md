@@ -32,6 +32,21 @@ release is never claimed before it has happened.
 
 ### Added
 
+- **Microsoft Graph send (P07b, the send pipeline).** A native Microsoft Graph account can now
+  **send** mail. The message is composed once into a transport-independent model and handed to the
+  single send seam, which binds the account to Graph rather than SMTP; the seam — not the route —
+  decides which transports exist, and a native account never opens an SMTP connection. Graph sends
+  **draft-first**: the message is created as Graph JSON so blind recipients travel out of band as
+  `bccRecipients` (the composed MIME deliberately has no `Bcc:` header), every attachment is added to
+  that draft — inline below 3 MB, through a resumable upload session from 3 MB up to 150 MB — and
+  only then is it sent. The three answers the provider can give are told apart: **accepted**, a
+  **refusal read before acceptance** (nothing has left, so the idempotency claim is released and the
+  same key can retry deliberately), and an **unknown outcome**, which is parked as
+  `send_outcome_unknown` and is never re-sent automatically. The sent copy is Microsoft's own — the
+  mail sync ingests it from Sent Items — so no IMAP APPEND runs for a native account. IMAP/SMTP
+  accounts keep their existing behaviour unchanged: same route, same rendered message, same envelope
+  and blind-recipient guarantees.
+
 - **Microsoft Graph message delete (P07b, fifth slice).** Deleting a Graph message follows the same
   product decision the IMAP path already makes — a **draft** and a message **already in Trash** are
   removed for good, anything else is **moved to Trash** — carried out through the shared

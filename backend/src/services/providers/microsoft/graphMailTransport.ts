@@ -1,5 +1,6 @@
 import { createGraphDraft, sendGraphDraft } from './graphMailSend.js';
 import { addGraphAttachment } from './graphMailAttachments.js';
+import type { GraphApiOptions } from './graphApiClient.js';
 import type { ComposedMail } from '../../composedMail.js';
 
 /**
@@ -15,7 +16,7 @@ export type TransportSendResult =
 export interface GraphTransportApi {
   userId: string;
   connectionId: string;
-  config: unknown;
+  config?: GraphApiOptions['config'];
 }
 
 /**
@@ -36,12 +37,12 @@ export function graphMailTransport(api: GraphTransportApi) {
     async send(input: { composed: ComposedMail }): Promise<TransportSendResult> {
       let draftId: string | null = null;
       try {
-        const draft = await createGraphDraft(api as never, input.composed);
+        const draft = await createGraphDraft(api, input.composed);
         draftId = draft.id;
         for (const attachment of input.composed.attachments ?? []) {
-          await addGraphAttachment(api as never, draft.id, attachment);
+          await addGraphAttachment(api, draft.id, attachment);
         }
-        const sent = await sendGraphDraft(api as never, draft.id);
+        const sent = await sendGraphDraft(api, draft.id);
         if (sent.status === 'accepted') {
           return {
             status: 'accepted',
@@ -51,7 +52,7 @@ export function graphMailTransport(api: GraphTransportApi) {
           };
         }
         if (sent.status === 'refused') {
-          return { status: 'refused', statusCode: 0, code: sent.code, error: sent.message, retryable: sent.retryable };
+          return { status: 'refused', statusCode: sent.httpStatus, code: sent.code, error: sent.message, retryable: sent.retryable };
         }
         return { status: 'outcome_unknown', reason: sent.reason };
       } catch (caught) {

@@ -11,7 +11,8 @@ vi.mock('./graphMailAttachments.js', () => ({ addGraphAttachment: attachMock }))
 import { graphMailTransport } from './graphMailTransport.js';
 import type { ComposedMail } from '../../composedMail.js';
 
-const api = { userId: 'user-1', connectionId: 'connection-1', config: {} };
+// `config` is omitted so the transport reads the environment's own config, exactly as the seam leaves it.
+const api = { userId: 'user-1', connectionId: 'connection-1' };
 const composed: ComposedMail = {
   messageId: '<m@x>',
   from: { email: 'sam@contoso.test' },
