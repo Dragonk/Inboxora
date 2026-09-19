@@ -429,6 +429,13 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   decorative for any caller that bypassed the interface. The route now answers `403` with a clear
   message, and a configuration that cannot be read leaves the method enabled rather than failing
   closed.
+- Make the provider and per-method switches real. `enabled` per provider and `webEnabled` /
+  `apiEnabled` per method were stored and partly displayed, but nothing enforced them: switching
+  Google or Microsoft — or one of their methods — off left every flow startable, and the readiness
+  card still reported the provider as enabled. The stored switches are now read by the flows
+  themselves (both Microsoft authorizations, the device method and the Google authorization), the
+  readiness report reflects them, and both halves are covered by tests, because a report that says
+  "unavailable" over a route that still works is the same defect in the other direction.
 
 
 ## [4.0.4] - 2026-09-18

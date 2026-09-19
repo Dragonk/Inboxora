@@ -82,6 +82,13 @@ describe('POST /oauth/microsoft/device', () => {
     expect(vi.mocked(fetch)).not.toHaveBeenCalled();
   });
 
+  it('refuses the method when the whole provider is switched off', async () => {
+    query.mockResolvedValue({ rows: [{ config: { disabled: true } }] });
+    const response = await startDevice();
+    expect(response.status).toBe(403);
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled();
+  });
+
   it('starts the flow when the method is enabled, returning only what the user needs', async () => {
     const response = await startDevice();
     expect(response.status).toBe(200);

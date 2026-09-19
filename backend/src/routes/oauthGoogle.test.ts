@@ -155,6 +155,19 @@ describe('GET /oauth/google (start)', () => {
     expect(params[3]).toBeNull();
   });
 
+  it('refuses to start when the administrator switched the API off', async () => {
+    mocks.query.mockResolvedValueOnce({ rows: [{ config: { apiEnabled: false } }] });
+    const apiOff = await startFlow();
+    expect(apiOff.status).toBe(302);
+    expect(apiOff.headers.get('location')).toContain('oauth_error=');
+
+    mocks.query.mockResolvedValueOnce({ rows: [{ config: { disabled: true } }] });
+    const providerOff = await startFlow();
+    expect(providerOff.status).toBe(302);
+    expect(providerOff.headers.get('location')).toContain('oauth_error=');
+    expect(queryCallsMatching('INSERT INTO oauth_authorization_flows')).toHaveLength(0);
+  });
+
   it('rejects a target account the actor does not own', async () => {
     mocks.query.mockImplementation(async (sql: string) => {
       if (String(sql).includes('SELECT 1 FROM email_accounts')) return { rows: [], rowCount: 0 };

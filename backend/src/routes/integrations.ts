@@ -136,19 +136,21 @@ function microsoftReadiness(stored: ProviderConfig): IntegrationStatus['microsof
   if (!config.providerRedirectUri) graphMissing.push('providerRedirectUri');
   return {
     configured: !!clientId,
-    enabled: !!clientId,
-    browser: { ready: missing.length === 0, missing },
+    // A provider the administrator switched off is reported as not enabled, so the card stops
+    // offering it at the same moment the flow stops accepting it.
+    enabled: !!clientId && stored.disabled !== true,
+    browser: { ready: missing.length === 0 && stored.webEnabled !== false && stored.disabled !== true, missing },
     graph: { ready: graphMissing.length === 0, missing: graphMissing },
     deviceCode: {
       supported: true,
-      ready: deviceReady,
+      ready: deviceReady && stored.disabled !== true,
       ...(deviceReady ? {} : { reason: clientId ? 'device_disabled' : 'missing_client_id' }),
     },
     mailPolicy: 'required',
   };
 }
 
-function googleReadiness(): IntegrationStatus['google'] {
+function googleReadiness(stored: ProviderConfig): IntegrationStatus['google'] {
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const missing: string[] = [];
   if (!clientId) missing.push('clientId');
@@ -156,8 +158,10 @@ function googleReadiness(): IntegrationStatus['google'] {
   if (!process.env.GOOGLE_REDIRECT_URI) missing.push('redirectUri');
   return {
     configured: !!clientId,
-    enabled: !!clientId,
-    browser: { ready: missing.length === 0, missing },
+    enabled: !!clientId && stored.disabled !== true,
+    // The operator's API switch is part of readiness, so the card stops offering the
+    // connector at the same moment the flow stops accepting it.
+    browser: { ready: missing.length === 0 && stored.disabled !== true && stored.apiEnabled !== false, missing },
     // Google's limited-input device flow does not allow the Gmail, Calendar or
     // People scopes this integration needs, so it is never offered.
     deviceCode: { supported: false, ready: false, reason: 'not_supported' },
@@ -260,10 +264,13 @@ router.get('/', requireAdmin, async (_req: Request, res: Response) => {
 // Capability check for any authenticated user (non-admins included). Reports only
 // readiness per method — never a client ID, a secret or another account's data.
 router.get('/status', async (_req: Request, res: Response) => {
-  const microsoftStored = await readStoredConfig('microsoft');
+  const [microsoftStored, googleStored] = await Promise.all([
+    readStoredConfig('microsoft'),
+    readStoredConfig('google'),
+  ]);
   const status: IntegrationStatus = {
     microsoft: microsoftReadiness(microsoftStored),
-    google: googleReadiness(),
+    google: googleReadiness(googleStored),
   };
   res.json(status);
 });

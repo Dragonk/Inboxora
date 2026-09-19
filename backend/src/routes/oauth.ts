@@ -8,6 +8,7 @@ import { encrypt, decrypt } from '../services/encryption.js';
 import { redactEmail } from '../utils/redact.js';
 import { queryString } from '../utils/query.js';
 import { toAppError } from '../utils/errors.js';
+import { readProviderSwitches } from '../services/providerSwitches.js';
 import type { Request, Response } from 'express';
 import type { DbClient } from '../services/db.js';
 
@@ -85,6 +86,10 @@ function getMsConfig() {
 // Step 1: redirect user to Microsoft login
 router.get('/microsoft', async (req: Request, res: Response) => {
   if (!req.session?.userId) return res.status(401).json({ error: 'Not authenticated' });
+  const switches = await readProviderSwitches('microsoft');
+  if (!switches.enabled || !switches.webEnabled) {
+    return res.status(403).json({ error: 'The Microsoft web sign-in is disabled in the Integrations settings.' });
+  }
 
   const { clientId, tenantId, redirectUri } = getMsConfig();
   if (!clientId || !tenantId || !redirectUri) {
@@ -282,18 +287,14 @@ router.post('/microsoft/device', async (req: Request, res: Response) => {
   // The saved configuration can switch this method off. The readiness report already says
   // so, and the interface honours it — but reporting a method as unavailable while the
   // route still starts it makes the setting decoration for anything that bypasses the UI.
-  try {
-    const stored = await query<{ config?: { deviceEnabled?: boolean } }>(
-      'SELECT config FROM integration_config WHERE provider = $1',
-      ['microsoft'],
-    );
-    if (stored?.rows?.[0]?.config?.deviceEnabled === false) {
+  // The saved configuration can switch the provider or this method off. The readiness
+  // report already says so, and the interface honours it — but reporting a method as
+  // unavailable while the route still starts it makes the setting decoration.
+  {
+    const switches = await readProviderSwitches('microsoft');
+    if (!switches.enabled || !switches.deviceEnabled) {
       return res.status(403).json({ error: 'The Microsoft device-code method is disabled in the Integrations settings.' });
     }
-  } catch (caught) {
-    // A missing row or an unreadable configuration must not block a method that the
-    // administrator has not switched off.
-    console.error('Device code configuration read failed:', toAppError(caught).message);
   }
 
   try {

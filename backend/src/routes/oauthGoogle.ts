@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { query, withTransaction } from '../services/db.js';
+import { readProviderSwitches } from '../services/providerSwitches.js';
 import { requireAuth } from '../middleware/auth.js';
 import { toAppError } from '../utils/errors.js';
 import {
@@ -65,6 +66,10 @@ function readAccess(value: unknown): RequestedAccess {
 router.get('/google', requireAuth, async (req: Request, res: Response) => {
   const config = googleConfig();
   if (!isGoogleConfigured(config)) return failRedirect(res, 'Google API is not configured');
+  // An administrator can switch the provider or its API method off; the readiness report
+  // already says so, and the flow must agree with it rather than starting anyway.
+  const switches = await readProviderSwitches('google');
+  if (!switches.enabled || !switches.apiEnabled) return failRedirect(res, 'Google API is disabled by the administrator');
   const userId = req.session.userId;
   if (!userId) return res.status(401).json({ error: 'Not authenticated' });
 

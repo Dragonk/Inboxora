@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { query, withTransaction } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
+import { readProviderSwitches } from '../services/providerSwitches.js';
 import { toAppError } from '../utils/errors.js';
 import {
   MICROSOFT_GRANT_AUDIENCE,
@@ -62,6 +63,10 @@ function readAccess(value: unknown): RequestedAccess {
 router.get('/provider/microsoft', requireAuth, async (req: Request, res: Response) => {
   const config = microsoftConfigFromEnv();
   if (!isMicrosoftConfigured(config)) return failRedirect(res, 'Microsoft API is not configured');
+  // Same question as the readiness report: a provider or method the administrator switched
+  // off must not be startable here either.
+  const switches = await readProviderSwitches('microsoft');
+  if (!switches.enabled || !switches.webEnabled) return failRedirect(res, 'Microsoft API is disabled by the administrator');
   const userId = req.session.userId;
   if (!userId) return res.status(401).json({ error: 'Not authenticated' });
 

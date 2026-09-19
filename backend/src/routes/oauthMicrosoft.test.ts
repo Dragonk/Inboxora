@@ -181,6 +181,20 @@ describe('GET /oauth/provider/microsoft (start)', () => {
     expect(scope).not.toContain('Mail.');
   });
 
+  it('refuses to start when the administrator switched the connector or its method off', async () => {
+    // The readiness report already reports these as unavailable; the flow must agree.
+    mocks.query.mockResolvedValueOnce({ rows: [{ config: { webEnabled: false } }] });
+    const disabled = await startFlow();
+    expect(disabled.status).toBe(302);
+    expect(disabled.headers.get('location')).toContain('oauth_error=');
+
+    mocks.query.mockResolvedValueOnce({ rows: [{ config: { disabled: true } }] });
+    const providerOff = await startFlow();
+    expect(providerOff.status).toBe(302);
+    expect(providerOff.headers.get('location')).toContain('oauth_error=');
+    expect(queryCallsMatching('INSERT INTO oauth_authorization_flows')).toHaveLength(0);
+  });
+
   it('rejects a target account the actor does not own', async () => {
     mocks.query.mockImplementation(async (sql: string) => {
       if (String(sql).includes('SELECT 1 FROM email_accounts')) return { rows: [], rowCount: 0 };
