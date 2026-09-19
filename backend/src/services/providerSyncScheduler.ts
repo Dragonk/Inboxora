@@ -1,7 +1,13 @@
 import { query } from './db.js';
-import { googleConfigFromEnv, isGoogleConfigured } from './providerAuthService.js';
+import {
+  googleConfigFromEnv,
+  isGoogleConfigured,
+  isMicrosoftConfigured,
+  microsoftConfigFromEnv,
+} from './providerAuthService.js';
 import { syncGoogleContacts } from './providers/google/googleContactsSync.js';
 import { syncGoogleCalendar } from './providers/google/googleCalendarSync.js';
+import { syncGraphContacts } from './providers/microsoft/graphContactsSync.js';
 
 /**
  * Periodic refresh of the provider collections a user has already pulled (P09).
@@ -78,20 +84,23 @@ export interface ProviderSyncRunSummary {
 /** Refresh every already-pulled collection of every active provider connection. */
 export async function runProviderSyncs(): Promise<ProviderSyncRunSummary> {
   const targets = await listProviderSyncTargets();
-  const config = googleConfigFromEnv();
-  const googleReady = isGoogleConfigured(config);
+  const googleConfig = googleConfigFromEnv();
+  const microsoftConfig = microsoftConfigFromEnv();
+  // Readiness is per provider: an unconfigured Google must never stop Microsoft.
+  const ready: Record<string, boolean> = {
+    google: isGoogleConfigured(googleConfig),
+    microsoft: isMicrosoftConfigured(microsoftConfig),
+  };
   let ran = 0;
   let failed = 0;
 
   for (const target of targets) {
-    // Microsoft adapters arrive with P07; until then only Google can be refreshed.
-    if (target.provider !== 'google') continue;
-    if (!googleReady) break;
+    if (!ready[target.provider]) continue;
     for (const kind of target.features) {
-      const sync = kind === 'address_book' ? syncGoogleContacts : kind === 'calendar' ? syncGoogleCalendar : null;
+      const sync = syncFor(target.provider, kind);
       if (!sync) continue;
       try {
-        await sync({ userId: target.userId, connectionId: target.connectionId, config });
+        await sync(target, googleConfig, microsoftConfig);
         ran += 1;
       } catch (error) {
         failed += 1;
@@ -101,6 +110,21 @@ export async function runProviderSyncs(): Promise<ProviderSyncRunSummary> {
     }
   }
   return { connections: targets.length, ran, failed };
+}
+
+/** The adapter for a provider/collection pair, or null when there is none yet. */
+function syncFor(provider: string, kind: string): ((target: ProviderSyncTarget, google: ReturnType<typeof googleConfigFromEnv>, microsoft: ReturnType<typeof microsoftConfigFromEnv>) => Promise<unknown>) | null {
+  if (provider === 'google') {
+    if (kind === 'address_book') return (target, google) => syncGoogleContacts({ userId: target.userId, connectionId: target.connectionId, config: google });
+    if (kind === 'calendar') return (target, google) => syncGoogleCalendar({ userId: target.userId, connectionId: target.connectionId, config: google });
+    return null;
+  }
+  if (provider === 'microsoft') {
+    // The Graph calendar adapter arrives with P07d; until then only contacts exist.
+    if (kind === 'address_book') return (target, _google, microsoft) => syncGraphContacts({ userId: target.userId, connectionId: target.connectionId, config: microsoft });
+    return null;
+  }
+  return null;
 }
 
 async function tick(): Promise<void> {

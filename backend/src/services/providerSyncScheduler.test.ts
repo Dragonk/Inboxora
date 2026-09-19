@@ -4,16 +4,23 @@ const mocks = vi.hoisted(() => ({
   query: vi.fn(),
   syncGoogleContacts: vi.fn(),
   syncGoogleCalendar: vi.fn(),
+  syncGraphContacts: vi.fn(),
   googleConfigured: { value: true },
+  microsoftConfigured: { value: true },
 }));
 
 vi.mock('./db.js', () => ({ query: mocks.query }));
-vi.mock('./providerAuthService.js', () => ({
+// Keep every real export and override only what this suite needs.
+vi.mock('./providerAuthService.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./providerAuthService.js')>()),
   googleConfigFromEnv: () => ({ clientId: 'client-1', clientSecret: 'secret-1', redirectUri: 'https://inboxora.example/oauth/google/callback' }),
   isGoogleConfigured: () => mocks.googleConfigured.value,
+  microsoftConfigFromEnv: () => ({ clientId: 'ms-client', clientSecret: 'ms-secret', redirectUri: 'https://inboxora.example/oauth/provider/microsoft/callback', tenantId: 'common' }),
+  isMicrosoftConfigured: () => mocks.microsoftConfigured.value,
 }));
 vi.mock('./providers/google/googleContactsSync.js', () => ({ syncGoogleContacts: mocks.syncGoogleContacts }));
 vi.mock('./providers/google/googleCalendarSync.js', () => ({ syncGoogleCalendar: mocks.syncGoogleCalendar }));
+vi.mock('./providers/microsoft/graphContactsSync.js', () => ({ syncGraphContacts: mocks.syncGraphContacts }));
 
 import {
   listProviderSyncTargets,
@@ -34,7 +41,9 @@ afterEach(() => {
   mocks.query.mockReset();
   mocks.syncGoogleContacts.mockReset();
   mocks.syncGoogleCalendar.mockReset();
+  mocks.syncGraphContacts.mockReset();
   mocks.googleConfigured.value = true;
+  mocks.microsoftConfigured.value = true;
 });
 
 describe('providerSyncIntervalMinutes', () => {
@@ -99,10 +108,55 @@ describe('runProviderSyncs', () => {
     expect(JSON.stringify(warn.mock.calls)).not.toContain('access-valid');
   });
 
-  it('does not touch a provider whose adapter does not exist yet', async () => {
+  it('does not touch a provider/collection pair that has no adapter yet', async () => {
     mocks.query.mockResolvedValueOnce({ rows: [target({ provider: 'microsoft', features: ['calendar'] })] });
     await expect(runProviderSyncs()).resolves.toEqual({ connections: 1, ran: 0, failed: 0 });
     expect(mocks.syncGoogleCalendar).not.toHaveBeenCalled();
+    expect(mocks.syncGraphContacts).not.toHaveBeenCalled();
+  });
+
+  it('refreshes the Microsoft contacts of a connection that already pulled them', async () => {
+    mocks.query.mockResolvedValueOnce({ rows: [target({ provider: 'microsoft', features: ['address_book'] })] });
+    mocks.syncGraphContacts.mockResolvedValueOnce({});
+
+    await expect(runProviderSyncs()).resolves.toEqual({ connections: 1, ran: 1, failed: 0 });
+    expect(mocks.syncGraphContacts).toHaveBeenCalledWith(expect.objectContaining({
+      userId: 'user-1', connectionId: 'connection-1', config: expect.objectContaining({ clientId: 'ms-client' }),
+    }));
+    expect(mocks.syncGoogleContacts).not.toHaveBeenCalled();
+  });
+
+  it('keeps the providers independent: an unconfigured Google does not stop Microsoft', async () => {
+    mocks.googleConfigured.value = false;
+    mocks.query.mockResolvedValueOnce({ rows: [
+      target({ provider: 'google', features: ['address_book'] }),
+      target({ provider: 'microsoft', features: ['address_book'] }),
+    ] });
+    mocks.syncGraphContacts.mockResolvedValueOnce({});
+
+    await expect(runProviderSyncs()).resolves.toEqual({ connections: 2, ran: 1, failed: 0 });
+    expect(mocks.syncGoogleContacts).not.toHaveBeenCalled();
+    expect(mocks.syncGraphContacts).toHaveBeenCalledOnce();
+  });
+
+  it('does not call Microsoft when the administrator has not configured it', async () => {
+    mocks.microsoftConfigured.value = false;
+    mocks.query.mockResolvedValueOnce({ rows: [target({ provider: 'microsoft', features: ['address_book'] })] });
+    await expect(runProviderSyncs()).resolves.toEqual({ connections: 1, ran: 0, failed: 0 });
+    expect(mocks.syncGraphContacts).not.toHaveBeenCalled();
+  });
+
+  it('counts a failing Microsoft refresh without stopping the rest', async () => {
+    mocks.query.mockResolvedValueOnce({ rows: [
+      target({ provider: 'microsoft', features: ['address_book'] }),
+      target({ connection_id: 'connection-2', provider: 'google', features: ['address_book'] }),
+    ] });
+    mocks.syncGraphContacts.mockRejectedValueOnce(new Error('token expired'));
+    mocks.syncGoogleContacts.mockResolvedValueOnce({});
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await expect(runProviderSyncs()).resolves.toEqual({ connections: 2, ran: 1, failed: 1 });
+    expect(mocks.syncGoogleContacts).toHaveBeenCalledOnce();
   });
 
   it('does nothing when the administrator has not configured the Google API', async () => {

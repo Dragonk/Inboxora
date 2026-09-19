@@ -210,5 +210,7 @@ The connector is reachable from the interface: **Settings → Integrations → E
 Microsoft card offers **Connect Microsoft contacts**, which authorizes Microsoft Graph for contacts
 only and never changes or migrates your mailbox. Once connected, the Contacts page's address-book
 menu shows **Sync Microsoft contacts** next to **Sync Google contacts**, and each run reports what
-it changed for that account. An automatic refresh for this connector follows with the scheduled
-provider refresh.
+it changed for that account. Once pulled, this book is refreshed on the same schedule as the Google
+ones (every 15 minutes by default, `PROVIDER_SYNC_INTERVAL_MINUTES`; `0` disables it), and the two
+providers are refreshed independently — an account configured for one is never affected by the
+other.

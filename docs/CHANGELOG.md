@@ -221,6 +221,12 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   contacts**; the two are offered and reported independently, so an account connected for one
   provider never hides the other, and each run says which account it belongs to and what it added,
   updated and removed.
+- Refresh the Microsoft contacts a user has already pulled on the same schedule as the Google ones.
+  Until now only Google was refreshed automatically, so a Microsoft book went stale unless the user
+  asked again. Readiness is now decided per provider, so an unconfigured Google can no longer stop a
+  Microsoft refresh (or the reverse), a provider/collection pair without an adapter yet is skipped
+  rather than attempted, and a failure on either side is logged and retried on the next tick without
+  affecting the other.
 
 ## [4.0.4] - 2026-09-18
 
