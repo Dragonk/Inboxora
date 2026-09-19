@@ -195,6 +195,18 @@ filename match was written up as coverage and had to be taken back:
 | KC13 (vCard 3/4, many fields, a date without a year, a photo, Polish characters) | `utils/vcard.test.ts` round-trips `ANNIVERSARY`, rejects and labels an impossible date (`2021-02-29`), and preserves unknown properties (`X-CUSTOM`). The three gaps found by reading it are now closed by cases of their own: a **`VERSION:4.0` card** parses like 3.0 with non-ASCII text intact, a 4.0 birthday without a year (`--1210`) yields `null` rather than an invented date, and `PHOTO` is carried as a **data URI** for inline images while a `VALUE=URI` reference is not stored as if it were the image | **PASS** for the asserted parts. The suite's fixtures were ASCII before these cases; a format the parser ignored would have gone unnoticed behind a green suite, which is why they were worth adding |
 | KC15 (one Google contact in several groups: no duplicate canonical contact) | nothing matched | **no duplication, verified by reading; memberships are dropped.** The sync upserts one row per `resourceName`, so a contact in several groups cannot duplicate — but `memberships` appears nowhere in the Google provider code, so the groups are discarded rather than stored. That is now stated in the wiki as a limitation. Carrying them would mean resolving `contactGroups.list` to names and writing them as `categories`, which the contacts table already holds. Reading the mapper for the same question found more: it used names, emails, phones, organisation, title, addresses, nicknames, notes, URLs and birthdays, and dropped photos, anniversaries and instant-message handles. **Anniversaries and handles are now carried** (the mask asks for `events` and `imClients`, both mapped and tested); **photos and memberships still are not** — a photo needs an authenticated request per contact, and group names would need a `contactGroups.list` call |
 
+**The device-code series (DC01–DC03) has two findings**, recorded here rather than left in the plan:
+
+| Row | Requirement | State |
+| --- | --- | --- |
+| DC01 | The device flow requests **Graph** scopes, not Outlook IMAP scopes, and works without a redirect URI or client secret | **FAIL**, and for the reason P07b is open: the device flow that exists is the **mailbox** one and asks for `IMAP.AccessAsUser.All`/`SMTP.Send`, which is correct for what it does but is not the Graph flow the row describes. It will be satisfiable when the Graph mail adapter (P07b) exists. |
+| DC02 | Two parallel flows for one user have distinct flow ids and do not overwrite each other | **FAIL.** `deviceFlows` is a `Map` keyed by `req.session.userId`, so a second start **replaces** the first: the first poll would then report the second flow's state, and completing the first code would be invisible. One flow per user at a time is the behaviour; the row asks for more. |
+| DC03 | The flow is bound to user/session/account/purpose/configRevision; another user's flow id and another mailbox are not accepted | **PARTIAL.** The flow is bound to the session's user — another user cannot reach or continue it, which is the security half — but there is no flow id, and no binding to the account, purpose or configuration revision the row lists. |
+
+Both FAILs are in the mailbox device flow, not in the provider connector, and neither is a security hole: the
+map's key is what makes another user's flow unreachable. They are the plan's bar for a flow that can run
+twice, which this one cannot.
+
 **GE12 and the device halves of GE01–GE05 and GE09 are NOT RUN**: they require Android/PWA and Safari
 iOS, and no device was used.
 
