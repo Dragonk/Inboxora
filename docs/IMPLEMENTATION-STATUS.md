@@ -1163,6 +1163,34 @@ collections by remote id.
 credential — and the card lists them with a **Disconnect** control, so the state needed to use the
 endpoint is visible rather than only available over the API.
 
+## Unsupported operations on a native Microsoft account, named per route
+
+P07b has wired eleven actions through the transport dispatch. This is the audit of what is **left**, done
+by listing every `imapManager.*` call site in the mail routes and reading which of them a Microsoft Graph
+account can reach — the same check snooze should have had before it was assumed to be local, and the
+thing W13/W19 require to be *named* rather than discovered by a user whose action fails.
+
+Reachable today, and **not** wired to the provider:
+
+| Route | IMAP call it makes | What a Graph account gets |
+| --- | --- | --- |
+| `POST /messages/bulk-delete` | `bulkPermanentDelete`, `bulkMoveMessages` | The permanent-delete half and the move-to-Trash half both call IMAP. **The highest-value gap left**: it is the multi-select delete in the list, and the shared move helper now makes it a contained change. Graph trash-moves must stay out of the delete-and-re-insert statement, exactly as in bulk-move and bulk-archive, and the permanent-delete needs the small helper single-message delete already uses inline. |
+| `POST /mark-all-read` | `markAllReadImap` | The local rows are already updated by the same handler; only the provider flag write fails. A Graph version is a per-message flag mutation on the shared layer — or, cheaper and honest, a refusal until it is wired. |
+| `GET /messages/:id/headers` | `fetchHeaders` | No IMAP headers exist for a Graph message; the route should either build them from the stored row or answer `501`-style rather than `500`. |
+| `GET /messages/:id/attachments.zip` | `fetchMultipleAttachments` | Single attachments already download from Graph; the zip bundles several, so it needs the same per-attachment fetch in a loop. |
+| `POST /folders`, `/folders/delete`, `/folders/rename`, `/folders/empty` | `createFolder`, `deleteFolder`, `renameFolder`, `emptyFolder` | Folder management is IMAP-only. Graph *can* create a folder — the snooze slice added that primitive — so these are implementable, but each also needs a discovery pass so the local model follows. `emptyFolder` has no direct Graph equivalent and needs pagination over the folder's messages. |
+
+**Not reachable**, verified rather than assumed: every other `imapManager.*` call site in the mail routes
+sits inside an `else` branch that a native account does not enter — the flag push, the single-message
+move-to-Trash and permanent delete, snooze, spam/ham, and the IMAP arms of bulk-move and bulk-archive.
+`imapManager.broadcast`, `_guardMoveUid`/`_unguardMoveUid` and `syncFolderOnDemand` are not provider
+calls: the first two are no-ops for an account that is never IMAP-synced, and the third is only ever
+reached for IMAP accounts.
+
+**The order they should be done in**: `bulk-delete` first (core action, helper already exists), then the
+folder routes (they make a native account self-managing, and the create primitive is already there),
+then `mark-all-read`, `headers` and the attachment zip, which are smaller and have local fallbacks.
+
 ## Known limitations of what is delivered
 
 - Pulled Google and Microsoft contacts and Google calendars are **read-only** in Inboxora: REST and
