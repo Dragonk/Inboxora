@@ -327,6 +327,36 @@ endpoint is visible rather than only available over the API.
 Entry points and constraints discovered while building what exists. They are recorded so the next
 session does not have to rediscover them, not as a design that has been agreed.
 
+### State when this was written (`ea5d0933` on `dev`)
+
+Everything below was green at that commit: backend **2255** unit tests, frontend **2655** plus a
+production build, **89** database integration tests on a fresh PostgreSQL 16 with the full
+109-migration chain, and the browser matrix at **124** (desktop) and **189** (two mobile viewports).
+
+Two of those layers are **not** gated by CI — `ci.yml` has no database service, and the Playwright
+workflow is `pull_request`-only — so run them by hand before pushing:
+
+```
+cd backend && TMPDIR=/tmp npm test
+DB_HOST=127.0.0.1 DB_PORT=55432 DB_NAME=… DB_USER=… DB_PASSWORD=… REQUIRE_DAV_POSTGRES=1 \
+  npx vitest run src/services/providerAuthService.integration.test.ts \
+  src/services/providerTokenService.integration.test.ts \
+  src/services/providerOperations.integration.test.ts \
+  src/services/providerConnectionService.integration.test.ts \
+  src/services/providers/google src/services/providers/microsoft \
+  src/routes/davPg.integration.test.ts
+cd frontend && PLAYWRIGHT_BROWSERS_PATH=$PWD/../.pw-browsers npx playwright test --project=chromium-desktop
+```
+
+Open findings for the next session, each with its evidence in this document: the Microsoft
+device switch and the provider/per-method switches are **closed** (enforced, tested); the disconnect
+gap is **closed** (endpoint, card control, reconnection, and its consequences verified on a real
+database); the integrations card now **has** browser coverage. Still open: the pre-existing Google
+provider description asserts an app-password alternative unconditionally, and two readiness flags
+(`traditionalImapAvailableInInboxora`, `deviceCode.supported`) are reported constants rather than
+probes — if either capability becomes configurable, it must be computed before the text around it
+can be trusted.
+
 **P07b — Microsoft Graph mail adapter.** Reuse `services/providers/microsoft/graphApiClient.ts` and
 take `graphContactsSync.ts` as the template: discovery, `integration_collections`, `remote_object_links`,
 a cursor in `sync_states` under the P03 lease, and per-object idempotent upserts. The open problem is
