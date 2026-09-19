@@ -13,6 +13,16 @@ limitations — read the matching page in the Wiki: [Release notes 4.1.0](wiki/R
 
 ## [Unreleased]
 
+### Security
+
+- **A blind recipient is asserted never to reach a visible field.** The suite's BCC case only checked that
+  `bcc` was passed to the transport, which stays true even if the recipient is later dropped from the
+  envelope — so a change that composed the message once and sent it as `raw` could lose every BCC
+  recipient while the test stayed green. The new case sends to a visible recipient, a copy recipient and a
+  blind one, and asserts the blind address is carried in `bcc` and appears in **neither** `to` nor `cc`
+  nor a headers bag. It is written against what the route controls today so that it still holds once the
+  envelope becomes explicit and the assertion can be extended to it.
+
 ### Changed
 
 - **A send is now bound to a transport in one place** (`services/sendTransport.ts`), which is the seam the

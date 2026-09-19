@@ -166,6 +166,33 @@ describe('send failure semantics', () => {
     expect(redisClient.del).not.toHaveBeenCalled();
   });
 
+  // Blind recipients are a privacy boundary, not a formatting detail: the address must
+  // reach the transport's envelope and must never appear in a visible field. This case is
+  // written against what the route controls today (the options it hands over) so that it
+  // still holds when the message is composed once and passed as `raw` — at which point the
+  // envelope becomes explicit and this assertion can be extended to it. The suite's other
+  // BCC case asserts only that `bcc` was passed, which a `raw` send would keep true while
+  // dropping the recipient entirely.
+  it('never places a blind recipient in a visible field', async () => {
+    const response = await post({
+      accountId: 'a1',
+      to: ['visible@example.com'],
+      cc: ['copy@example.com'],
+      bcc: ['blind@example.com'],
+      subject: 'Private',
+      body: 'Hello',
+    });
+
+    expect(response.status).toBe(200);
+    const [mailOptions] = sendMail.mock.calls[0];
+    // Carried where it belongs — the envelope nodemailer builds from `bcc`.
+    expect(mailOptions).toMatchObject({ bcc: 'blind@example.com' });
+    // And nowhere a recipient or a relay could read it from the headers.
+    expect(String(mailOptions.to ?? '')).not.toContain('blind@');
+    expect(String(mailOptions.cc ?? '')).not.toContain('blind@');
+    expect(mailOptions).not.toHaveProperty('headers');
+  });
+
   it('accepts BCC-only delivery without adding a visible To header', async () => {
     const response = await post({
       accountId: 'a1', bcc: ['blind@example.com'], subject: 'Private', body: 'Hello',
