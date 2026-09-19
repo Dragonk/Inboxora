@@ -1482,7 +1482,13 @@ the local message/folder/thread model is untouched. What remains, in order:
    c. **call the shared persist path from the Graph sync**, per applied row and *outside* the page's
       transaction, which is how the IMAP ingest orders it — `persistConversationCopyForRow` in
       `imapManager.ts` is generic over the row and needs exporting rather than a second copy in the
-      adapter;
+      adapter. The mechanism that makes "outside" real: `applyGraphMailMessagesPage` runs inside
+      `withTransaction`, so it must **return the row ids it wrote** (it currently returns counts only)
+      and the caller persist them after that transaction commits. Calling the persist path from inside
+      the page would nest the conversation write in the page transaction — the engine opens its own, and
+      that is the specific mistake this note exists to prevent. The account row also has to be loaded
+      once in `syncGraphMailMessagesForAccount` and passed down, since the folder-level function
+      currently receives only `accountId`;
    d. **namespace by account**, so two Graph mailboxes with coincidentally equal conversation ids do
       not share a thread.
    The test that would catch a mistake here is the one `gmailNativePg.integration.test.ts` already
