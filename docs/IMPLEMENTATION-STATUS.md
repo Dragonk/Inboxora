@@ -609,8 +609,12 @@ Each of these cost a defect or a round to learn, and each applies to whatever co
   precondition there, not beside it.
 - **An actionable failure needs a code the UI maps, and the mapping must survive the provider's spelling.**
   `providerFailure.ts` compares upper-cased, because `invalid_grant` arrives from a token endpoint exactly as
-  the provider writes it, while `PROVIDER_AUTH_REQUIRED` arrives from our own code. The connectors record the
-  code they are given; a new error type must be added to **every** recording site, which is four places.
+  the provider writes it, while `PROVIDER_AUTH_REQUIRED` arrives from our own code. A new error type or code
+  has to be recognised in **seven** places, verified by counting them rather than by remembering: the four
+  recording sites in the connectors (`googleContactsSync`, `googleCalendarSync` twice — once per calendar —
+  and `graphContactsSync`), the two OAuth callbacks that turn a failure into the redirect's error, and the
+  token service's own `invalid_grant`/`unauthorized_client` parking check. The first version of this note
+  said four, which is only the recording half.
 - **A test that catches a rule should assert the rule, not the shape.** The DAV refusals, the invitation
   guard and the reconnect cycle each have a case that would fail if the behaviour changed rather than if the
   SQL text changed; copies of SQL fragments are the weaker form and rot silently.
