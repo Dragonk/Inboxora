@@ -840,6 +840,42 @@ router.get('/messages/:id/attachments/:part', async (req, res) => {
 
 
 
+
+/**
+ * Empty a folder on Microsoft Graph.
+ *
+ * The IMAP path answers what "empty" means here, so this mirrors it rather than
+ * inventing an answer: every message is **removed permanently** (the IMAP call is
+ * `emptyFolder`, and the local rows are deleted afterwards), not moved to
+ * deleted-items. Graph has no "empty this folder" call, so this is one DELETE per
+ * message — bounded by the folder's size, and deliberately not attempted in
+ * parallel so a large folder cannot open hundreds of requests at once.
+ *
+ * A refusal **throws**, which is what the caller's catch expects: the local cleanup
+ * is then skipped, so a folder the provider only partly emptied does not appear
+ * empty here. The next delta reconciles whatever did go.
+ */
+async function emptyGraphFolder(userId: string, account: EmailAccountRow, path: string): Promise<void> {
+  if (!account.provider_connection_id) throw new Error('This account is not linked to a Microsoft connection');
+  const rows = await query<{ id: string; provider_message_id: string | null }>(
+    'SELECT id, provider_message_id FROM messages WHERE account_id = $1 AND folder = $2 AND provider_message_id IS NOT NULL',
+    [account.id, path],
+  );
+  let refused = 0;
+  for (const row of rows.rows) {
+    if (!row.provider_message_id) continue;
+    const removed = await deleteGraphMessagePermanently({
+      userId, accountId: account.id, connectionId: account.provider_connection_id,
+      config: microsoftConfigFromEnv(), resourceId: row.id, providerMessageId: row.provider_message_id,
+    });
+    if (!removed.deleted) {
+      refused += 1;
+      console.error(`empty-folder: Graph did not confirm the removal of ${row.id} (${removed.code ?? 'unknown'})`);
+    }
+  }
+  if (refused > 0) throw new Error(`Microsoft Graph did not confirm ${refused} of ${rows.rows.length} removals`);
+}
+
 /** Delete a folder on the provider, then remove Inboxora's copy of it. */
 async function deleteGraphFolder(
   userId: string,
@@ -909,17 +945,14 @@ async function renameGraphFolder(
 }
 
 /**
- * Folder management is IMAP-only, and says so.
+ * The refusal for any transport whose folder management is not implemented.
  *
- * These four routes create, rename, delete and empty a folder on the mail server.
- * A Microsoft Graph account has no IMAP session to do it with, so each of them used
- * to attempt one and fail with a generic error — an unsupported operation that
- * looked like a broken one. Graph *can* create a folder (the snooze slice needed
- * that), so these are implementable rather than impossible; until they are, the
- * refusal is explicit and names the workaround the user actually has.
- *
- * `empty` is the one without a direct Graph equivalent: it needs pagination over
- * the folder's messages, which is a design decision rather than a call.
+ * All four folder routes are implemented for a Microsoft Graph account now, each
+ * with its own branch, so none of them reaches this for that transport. It stays as
+ * the guarantee that a transport without a branch is **refused rather than handed to
+ * IMAP** — the failure mode this whole set of slices existed to remove — and it is
+ * still the answer for a *nested* create, which Graph handles by parent id while the
+ * local model carries a path.
  */
 function folderManagementRefusal(account: EmailAccountRow): { error: string; code: string } | null {
   if (account.mail_transport !== 'microsoft_graph') return null;
@@ -1802,8 +1835,8 @@ router.post('/folders/empty', async (req, res) => {
   if (!isValidFolderName(path)) return res.status(400).json({ error: 'Invalid folder path' });
   const check = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2', [accountId, req.session.userId]);
   if (!check.rows.length) return res.status(404).json({ error: 'Account not found' });
-  const folderRefusal = folderManagementRefusal(check.rows[0]);
-  if (folderRefusal) return res.status(501).json(folderRefusal);
+  // Every folder route is implemented for a native account now, so there is no
+  // refusal left to make here; the transport decides inside the work below.
   const account = check.rows[0];
 
   const inflightKey = `${accountId}:${path}`;
@@ -1814,7 +1847,11 @@ router.post('/folders/empty', async (req, res) => {
 
   (async () => {
     try {
-      await imapManager.emptyFolder(account, path);
+      if (account.mail_transport === 'microsoft_graph') {
+        await emptyGraphFolder(sessionUserId(req), account, path);
+      } else {
+        await imapManager.emptyFolder(account, path);
+      }
       await query('DELETE FROM messages WHERE account_id = $1 AND folder = $2', [accountId, path]);
       await query(
         'UPDATE folders SET total_count = 0, unread_count = 0 WHERE account_id = $1 AND path = $2',

@@ -15,6 +15,15 @@ limitations — read the matching page in the Wiki: [Release notes 4.1.0](wiki/R
 
 ### Changed
 
+- **Emptying a folder works on a Microsoft Graph account** (P07b, seventeenth slice), which closes the
+  audit of IMAP-only operations. The IMAP path answered what "empty" means — every message is **removed
+  permanently**, not moved to deleted-items — so this mirrors it rather than inventing an answer. Graph
+  has no "empty this folder" call, so it is one removal per message, sequential on purpose so a large
+  folder cannot open hundreds of requests at once. A refusal **throws**, so the local rows are left
+  alone: a folder the provider only partly emptied must not look empty here, and the next delta
+  reconciles what did go. All four folder routes now have a provider branch, and the shared refusal
+  remains only as the guarantee that a transport without one is refused rather than handed to IMAP.
+
 - **Deleting a folder works on a Microsoft Graph account** (P07b, sixteenth slice). The route removes the
   folder on the provider and then Inboxora's copy of it — the same local cleanup the IMAP path already
   did, so no new product decision was needed: the provider deletes the folder's contents with it, and the

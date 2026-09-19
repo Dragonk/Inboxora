@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   graphRenameMailFolder: vi.fn(),
   graphDeleteMailFolder: vi.fn(),
   graphFolderIdForPath: vi.fn(),
+  runProviderMutation: vi.fn(),
   syncGraphMailFoldersForAccount: vi.fn(),
   createFolder: vi.fn(),
   renameFolder: vi.fn(),
@@ -33,6 +34,7 @@ vi.mock('../index.js', () => ({
   },
 }));
 
+vi.mock('../services/providerMutationService.js', () => ({ runProviderMutation: mocks.runProviderMutation }));
 vi.mock('../services/providers/microsoft/graphMailSync.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../services/providers/microsoft/graphMailSync.js')>();
   return { ...actual, graphFolderIdForPath: mocks.graphFolderIdForPath, syncGraphMailFoldersForAccount: mocks.syncGraphMailFoldersForAccount };
@@ -84,31 +86,30 @@ const post = (path: string, body: Record<string, unknown>) =>
   fetch(`${base}/api/mail${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
 
 describe('folder management on a native account refuses instead of failing like a bug', () => {
-  // Create and rename are implemented for a native account now; delete and empty
-  // still refuse, and the test says which is which rather than assuming all four.
-  const cases: Array<[string, Record<string, unknown>]> = [
-    ['/folders/empty', { accountId: ACCOUNT_ID, path: 'A' }],
-  ];
-
-  for (const [path, body] of cases) {
-    it(`${path} answers 501 with a code and names the workaround`, async () => {
-      mocks.query.mockResolvedValueOnce({
-        rows: [{ id: ACCOUNT_ID, mail_transport: 'microsoft_graph', provider_connection_id: 'connection-1' }],
-        rowCount: 1,
-      });
-
+  // Every one of the four routes is implemented for a native account now, so none
+  // still refuses. The loop is kept as the assertion that the refusal is gone
+  // rather than deleted with the last case, because "no route here falls back to
+  // IMAP" is the property this file exists for.
+  it('no folder route refuses any more, and none of them reaches IMAP', async () => {
+    for (const body of [
+      { accountId: ACCOUNT_ID, name: 'Projects' },
+      { accountId: ACCOUNT_ID, oldPath: 'A', newName: 'B' },
+      { accountId: ACCOUNT_ID, path: 'A' },
+    ]) {
+      mocks.query.mockReset();
+      // The account lookup comes first and must say Graph, or the route falls to IMAP.
+      mocks.query.mockResolvedValue({ rows: [{ id: ACCOUNT_ID, mail_transport: 'microsoft_graph', provider_connection_id: 'connection-1', remote_id: 'graph-x' }], rowCount: 1 });
+      mocks.graphCreateMailFolder.mockResolvedValue({ id: 'graph-x' });
+      mocks.graphRenameMailFolder.mockResolvedValue({ id: 'graph-x' });
+      mocks.graphDeleteMailFolder.mockResolvedValue(undefined);
+      const path = body.name ? '/folders' : body.oldPath ? '/folders/rename' : '/folders/delete';
       const response = await post(path, body);
-      expect(response.status).toBe(501);
-      const payload = await response.json() as { code: string; error: string };
-      expect(payload.code).toBe('OPERATION_FORBIDDEN');
-      expect(payload.error).toContain('Sync folders');
-      // No IMAP call is attempted for an account that has no IMAP session.
-      expect(mocks.createFolder).not.toHaveBeenCalled();
-      expect(mocks.renameFolder).not.toHaveBeenCalled();
-      expect(mocks.deleteFolder).not.toHaveBeenCalled();
-      expect(mocks.emptyFolder).not.toHaveBeenCalled();
-    });
-  }
+      expect(response.status, `${path} should not refuse`).not.toBe(501);
+    }
+    expect(mocks.createFolder).not.toHaveBeenCalled();
+    expect(mocks.renameFolder).not.toHaveBeenCalled();
+    expect(mocks.deleteFolder).not.toHaveBeenCalled();
+  });
 
   it('leaves an IMAP account on the IMAP path', async () => {
     mocks.query.mockResolvedValueOnce({ rows: [{ id: ACCOUNT_ID, mail_transport: 'imap_smtp' }], rowCount: 1 });
@@ -186,5 +187,42 @@ describe('deleting a folder on a native account', () => {
     // A local delete after a refused provider delete would be silent data loss.
     expect(mocks.query.mock.calls.some(([sql]) => String(sql).includes('DELETE FROM folders'))).toBe(false);
     expect(mocks.query.mock.calls.some(([sql]) => String(sql).includes('DELETE FROM messages'))).toBe(false);
+  });
+});
+
+describe('emptying a folder on a native account', () => {
+  it('removes every message permanently on the provider, as the IMAP path does', async () => {
+    mocks.query
+      .mockResolvedValueOnce({ rows: [{ id: ACCOUNT_ID, mail_transport: 'microsoft_graph', provider_connection_id: 'connection-1' }], rowCount: 1 })  // route account
+      .mockResolvedValueOnce({ rows: [{ id: 'msg-1', provider_message_id: 'AAMkAD-1' }], rowCount: 1 });                                              // folder messages
+    mocks.runProviderMutation.mockResolvedValue({ status: 'confirmed', operationId: 'op-1', replayed: false });
+
+    const response = await post('/folders/empty', { accountId: ACCOUNT_ID, path: 'Junk' });
+    // The route answers as soon as the work is accepted; the removal happens after.
+    expect(response.status).toBe(202);
+    await new Promise(resolve => setTimeout(resolve, 10));
+
+    const [request] = mocks.runProviderMutation.mock.calls[0];
+    expect(request.operation).toBe('delete');
+    expect(request.payload).toMatchObject({ providerMessageId: 'AAMkAD-1' });
+    expect(mocks.query.mock.calls.some(([sql]) => String(sql).includes('DELETE FROM messages'))).toBe(true);
+    expect(mocks.emptyFolder).not.toHaveBeenCalled();
+  });
+
+  it('leaves the local rows alone when the provider refuses, so the folder does not look empty', async () => {
+    mocks.query
+      .mockResolvedValueOnce({ rows: [{ id: ACCOUNT_ID, mail_transport: 'microsoft_graph', provider_connection_id: 'connection-1' }], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ id: 'msg-1', provider_message_id: 'AAMkAD-1' }], rowCount: 1 });
+    mocks.runProviderMutation.mockResolvedValue({ status: 'permanent', operationId: 'op-1', code: 'RESOURCE_NOT_FOUND', replayed: false });
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const response = await post('/folders/empty', { accountId: ACCOUNT_ID, path: 'Junk' });
+    expect(response.status).toBe(202);
+    await new Promise(resolve => setTimeout(resolve, 10));
+
+    // A local cleanup after a refused provider removal would report an empty folder
+    // whose messages are still there.
+    expect(mocks.query.mock.calls.some(([sql]) => String(sql).includes('DELETE FROM messages'))).toBe(false);
+    error.mockRestore();
   });
 });
