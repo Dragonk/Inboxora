@@ -86,14 +86,17 @@ export interface RenderedSmtpMessage {
 }
 
 /**
- * Render the model for SMTP: one MIME message without `Bcc`, plus the envelope that carries it.
+ * Compose the model into one MIME message and the envelope that addresses it.
  *
- * The message is composed **once**, here. The buffer returned is the one a transport is given as `raw`,
- * so it is also the one measured against the size limits — and the `Bcc:` header the composer writes is
- * removed from it (measured: nodemailer's stream transport keeps it, and `keepBcc: false` does not change
- * that), because a raw message is sent as given and a blind recipient must exist only in the envelope.
+ * The message is composed **once**, here. Both renderers below start from this, so the two representations
+ * of the same model cannot drift: the only difference between them is whether the composer's `Bcc:` header
+ * survives into the buffer.
+ *
+ * Measured (nodemailer's stream transport, `keepBcc` unset): a `bcc` in the options **is** written as a
+ * `Bcc:` header in the generated message, and `keepBcc: false` does not change that. So keeping or removing
+ * it is this function's caller's decision, which is why the strip is not done here.
  */
-export async function renderSmtpMessage(composed: ComposedMail): Promise<RenderedSmtpMessage> {
+async function composeRawMail(composed: ComposedMail): Promise<{ raw: Buffer; envelope: RenderedSmtpMessage['envelope']; mailOptions: SendMailOptions }> {
   // The envelope carries addresses only: a display name is a header convenience, and an envelope with one
   // in it is not a valid SMTP recipient.
   const envelope = {
@@ -113,6 +116,9 @@ export async function renderSmtpMessage(composed: ComposedMail): Promise<Rendere
     // To header for a BCC-only message.
     ...(composed.to.length ? { to: composed.to.map(formatMailbox).join(', ') } : {}),
     ...(composed.cc.length ? { cc: composed.cc.map(formatMailbox).join(', ') } : {}),
+    // The blind recipients reach the envelope through this, and — measured, see above — the generated
+    // message carries them in a `Bcc:` header as well. A caller that must not deliver that header removes
+    // it; one whose transport derives the envelope from the headers keeps it.
     ...(composed.bcc.length ? { bcc: composed.bcc.map(formatMailbox).join(', ') } : {}),
     subject: composed.subject,
     ...(composed.priority && composed.priority !== 'normal' ? { priority: composed.priority } : {}),
@@ -148,5 +154,36 @@ export async function renderSmtpMessage(composed: ComposedMail): Promise<Rendere
     messageStream.on('error', reject);
   });
 
-  return { raw: stripHeaderFromMessage(Buffer.concat(chunks), 'Bcc'), envelope, mailOptions };
+  return { raw: Buffer.concat(chunks), envelope, mailOptions };
+}
+
+/**
+ * Render the model for SMTP: one MIME message without `Bcc`, plus the envelope that carries it.
+ *
+ * The buffer returned is the one a transport is given as `raw`, so it is also the one measured against the
+ * size limits — and the `Bcc:` header the composer writes is removed from it, because a raw message is sent
+ * as given and a blind recipient must exist only in the envelope.
+ */
+export async function renderSmtpMessage(composed: ComposedMail): Promise<RenderedSmtpMessage> {
+  const composed_message = await composeRawMail(composed);
+  return {
+    raw: stripHeaderFromMessage(composed_message.raw, 'Bcc'),
+    envelope: composed_message.envelope,
+    mailOptions: composed_message.mailOptions,
+  };
+}
+
+/**
+ * Render the model for a transport that derives its envelope from the message headers.
+ *
+ * Gmail's `users.messages.send` is the one such transport here, and the difference is forced by the
+ * provider: the Gmail API's `Message` resource has **no envelope field** (checked against the API
+ * discovery document), and its own documentation says the send delivers "to the recipients in the `To`,
+ * `Cc`, and `Bcc` headers". A buffer with the `Bcc:` header stripped would therefore silently drop every
+ * blind recipient — the one failure mode that is worse than the header existing, because nothing reports
+ * it. Gmail, like any submission agent, does not expose that header on the copies it delivers.
+ */
+export async function renderGmailRawMessage(composed: ComposedMail): Promise<Buffer> {
+  const rendered = await composeRawMail(composed);
+  return rendered.raw;
 }

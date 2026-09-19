@@ -129,7 +129,16 @@ and reconnecting re-links the same collections rather than duplicating them.
   archiving is **removing `INBOX`** — Gmail has no Archive label, so the row moves to whichever label
   remains or leaves the local view — a permanent delete is `messages.delete`, and mark-all-read is one
   journal-backed flag write per unread message. All of those are state sets on labels and are declared
-  idempotent, unlike the delete. Drafts and send are the **remaining P08 slices**.
+  idempotent, unlike the delete. **Send** is a branch of the existing send seam — not a second pipeline
+  in the route — and maps Gmail's answer onto `accepted` / refused-before-acceptance / unknown-outcome,
+  so an uncertain send is parked rather than retried; the size ceiling is Gmail's own raw-message limit,
+  checked before dispatch. One provider fact changes the **Bcc** rule and is worth stating plainly: the
+  Gmail API's `Message` resource has **no envelope field** (verified against the API discovery document),
+  and Gmail's own documentation says the send delivers "to the recipients in the `To`, `Cc`, and `Bcc`
+  headers". The Gmail arm therefore **keeps** the `Bcc:` header — removing it would silently drop every
+  blind recipient — and relies on Gmail, like any submission agent, to keep that header off the copies it
+  delivers. The SMTP arm still removes it and relies on the envelope. Drafts are the **remaining P08
+  slice**.
 
 ## Fixed
 
@@ -185,7 +194,7 @@ and reconnecting re-links the same collections rather than duplicating them.
   first. **Provider-side search and the reply/forward dependencies are not implemented.**
   **Gmail API mail is a partial adapter, not yet a transport for anyone.** Its read path exists —
   label discovery and projection, message/thread ingest with a history cursor, body and attachments
-  on demand, and the message mutations — but drafts and send are not implemented, and **no Google
+  on demand, the message mutations and send — but drafts are not implemented, and **no Google
   account is migrated to it**: `mail_transport` stays `imap_smtp` unless an explicit cutover sets it,
   so Google mail continues with an app password and the Gmail API code is unreachable for an existing
   account. When such an account is eventually cut over, one consequence of modelling Gmail's plural
@@ -234,17 +243,21 @@ Not re-run for this revision, and therefore **NOT RUN** rather than passing:
 
 A static review or a mocked test does not stand in for any of the above.
 
-### Gmail API read path (P08, labels and ingest)
+### Gmail API read path, mutations and send (P08)
 
 Verified at the commit that delivered it, each gate's own exit status read:
 
 - Backend `npx tsc --noEmit` and `npx eslint src --max-warnings 0`: clean.
-- The full backend unit suite: green (the run includes 35 new Gmail unit tests across
-  `gmailLabels.test.ts`, `gmailMail.test.ts` and `gmailMailBody.test.ts`).
+- The full backend unit suite: green, including the new Gmail units in `gmailLabels.test.ts`,
+  `gmailMail.test.ts`, `gmailMailBody.test.ts`, `gmailMailMutations.test.ts`, `gmailMailSend.test.ts`
+  and `gmailMailTransport.test.ts`, plus the send-seam and bulk-read-dispatch route cases.
 - PostgreSQL integration: a fresh database (`inboxora_gmail_gate`) with the full migration chain
   applied, then `gmailMailSync.integration.test.ts` — **9 tests, green** — covering label projection
   and its collection links, label rename and deletion with message re-homing, the baseline and its
   stored `historyId`, an incremental run that applies a mailbox move and a deletion, the `404`
   rebuild with reconciliation, the sync lease, and the paused-baseline resume from its checkpoint.
-- **Real-provider acceptance is NOT RUN**: no live Gmail mailbox was used, so the Gmail REST calls
-  are exercised only against faked HTTP responses.
+- PostgreSQL integration suites for the Gmail label/message sync (9 tests) and the message mutations
+  (5 tests), both green.
+- **Real-provider acceptance is NOT RUN**: no live Gmail mailbox was used, so the Gmail REST calls — and
+  in particular Gmail's own handling of the `Bcc:` header on a delivered copy — are exercised only
+  against faked HTTP responses. That last point is the one an operator must not read as verified.

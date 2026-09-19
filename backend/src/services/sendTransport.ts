@@ -1,6 +1,7 @@
 import { createAccountSmtpTransport } from './smtpTransport.js';
-import { microsoftConfigFromEnv } from './providerAuthService.js';
+import { googleConfigFromEnv, microsoftConfigFromEnv } from './providerAuthService.js';
 import { graphMailTransport, type TransportSendResult } from './providers/microsoft/graphMailTransport.js';
+import { gmailMailTransport } from './providers/google/gmailMailTransport.js';
 import type { ComposedMail, RenderedSmtpMessage } from './composedMail.js';
 
 export type { TransportSendResult };
@@ -30,7 +31,7 @@ export type { TransportSendResult };
  * *behind* it.
  */
 export interface MailTransport {
-  kind: 'smtp' | 'microsoft_graph';
+  kind: 'smtp' | 'microsoft_graph' | 'gmail_api';
   /** True when the route's rendered RFC-822 message is what this transport dispatches. */
   readonly sendsRenderedMessage: boolean;
   /**
@@ -102,6 +103,31 @@ export async function createAccountMailTransport<Account extends MailTransportAc
         kind: 'microsoft_graph',
         sendsRenderedMessage: false,
         send: (input: { composed: ComposedMail }) => graph.send(input),
+      },
+    };
+  }
+
+  // The Gmail branch belongs here too, for the same reason the Graph one does: binding a native account to
+  // its provider is the seam's job, and the route must not learn which transports exist.
+  if (account.mail_transport === 'gmail_api') {
+    if (!account.provider_connection_id) {
+      return {
+        status: 409,
+        code: 'PROVIDER_AUTH_REQUIRED',
+        error: 'This account is not linked to a Google connection. Reconnect the account to send mail.',
+      };
+    }
+    const gmail = gmailMailTransport({
+      userId: account.user_id ?? '',
+      connectionId: account.provider_connection_id,
+      config: googleConfigFromEnv(),
+    });
+    return {
+      account,
+      transport: {
+        kind: 'gmail_api',
+        sendsRenderedMessage: false,
+        send: (input: { composed: ComposedMail }) => gmail.send(input),
       },
     };
   }

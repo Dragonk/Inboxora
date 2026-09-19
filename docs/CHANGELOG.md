@@ -78,7 +78,18 @@ release is never claimed before it has happened.
   `messages.delete`, and mark-all-read is one journal-backed flag write per unread message. Every one
   of those is a **state set on labels**, so it converges and is declared idempotent — a recovered claim
   is safe to re-run — which is the opposite of the delete, and the reason the two are declared
-  differently. Drafts and send are the remaining P08 slices.
+  differently. **Send** is a branch of the existing send seam rather than a second pipeline in the
+  route: a Gmail account renders the canonical model once into the RFC-822 buffer `raw` takes, and the
+  provider's own answer is mapped onto `accepted` / refused-before-acceptance / unknown-outcome, so an
+  uncertain send is parked and never retried. The size ceiling is checked in Gmail's terms — the decoded
+  message against Gmail's own 25 MiB raw-message limit — before anything is dispatched. One provider
+  fact is recorded because it **changes the Bcc rule**: the Gmail API's `Message` resource has **no
+  envelope field** (checked against the API discovery document), and Gmail's own documentation says the
+  send delivers "to the recipients in the `To`, `Cc`, and `Bcc` headers". So the Gmail arm **keeps** the
+  `Bcc:` header, because stripping it would silently drop every blind recipient; Gmail derives the
+  delivery envelope from the headers and, like any submission agent, does not expose that header on the
+  copies it delivers. The SMTP arm still removes it and relies on the envelope, and the two renders
+  differ only in that one respect. Drafts are the remaining P08 slice.
 
 - **Microsoft Graph calendars (P07d, read path).** A Microsoft connection's calendars are now
   discovered and pulled with their events, next to the contacts that already were. Each calendar

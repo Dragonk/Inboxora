@@ -6,23 +6,31 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // never touches SMTP, and a native account without its connection is refused before any
 // transport is built.
 const graphSend = vi.hoisted(() => vi.fn());
+const gmailSend = vi.hoisted(() => vi.fn());
 vi.mock('./smtpTransport.js', () => ({ createAccountSmtpTransport: vi.fn() }));
 vi.mock('./providers/microsoft/graphMailTransport.js', () => ({
   graphMailTransport: vi.fn(() => ({ kind: 'microsoft_graph', send: graphSend })),
+}));
+vi.mock('./providers/google/gmailMailTransport.js', () => ({
+  gmailMailTransport: vi.fn(() => ({ kind: 'gmail_api', send: gmailSend })),
 }));
 
 import { createAccountMailTransport } from './sendTransport.js';
 import { createAccountSmtpTransport } from './smtpTransport.js';
 import { graphMailTransport } from './providers/microsoft/graphMailTransport.js';
+import { gmailMailTransport } from './providers/google/gmailMailTransport.js';
 import type { ComposedMail, RenderedSmtpMessage } from './composedMail.js';
 
 const smtp = vi.mocked(createAccountSmtpTransport);
 const graph = vi.mocked(graphMailTransport);
+const gmail = vi.mocked(gmailMailTransport);
 
 beforeEach(() => {
   smtp.mockReset();
   graph.mockClear();
+  gmail.mockClear();
   graphSend.mockReset();
+  gmailSend.mockReset();
 });
 
 const rendered: RenderedSmtpMessage = {
@@ -90,6 +98,35 @@ describe('binding a send to a transport', () => {
     expect(bound).toMatchObject({ status: 409, code: 'PROVIDER_AUTH_REQUIRED' });
     expect(smtp).not.toHaveBeenCalled();
     expect(graph).not.toHaveBeenCalled();
+  });
+
+  it('binds a native Gmail account to Gmail, and never consults SMTP or Graph for it', async () => {
+    gmailSend.mockResolvedValue({ status: 'accepted', accepted: ['you@example.test'], rejected: [] });
+    const account = {
+      id: 'acct-1', user_id: 'user-1', email_address: 'sam@gmail.test',
+      mail_transport: 'gmail_api', provider_connection_id: 'connection-g',
+    };
+
+    const bound = await createAccountMailTransport(account);
+    if ('error' in bound) throw new Error('expected a transport');
+    expect(bound.transport.kind).toBe('gmail_api');
+    // The Gmail transport composes its own representation, so no RFC-822 message from the route is used.
+    expect(bound.transport.sendsRenderedMessage).toBe(false);
+    expect(smtp).not.toHaveBeenCalled();
+    expect(graph).not.toHaveBeenCalled();
+    expect(gmail).toHaveBeenCalledWith({ userId: 'user-1', connectionId: 'connection-g', config: expect.anything() });
+
+    await bound.transport.send({ composed });
+    expect(gmailSend).toHaveBeenCalledWith({ composed });
+  });
+
+  it('refuses a native Gmail account whose connection is missing, before building any transport', async () => {
+    const bound = await createAccountMailTransport({
+      id: 'acct-1', user_id: 'user-1', mail_transport: 'gmail_api', provider_connection_id: null,
+    } as never);
+    expect(bound).toMatchObject({ status: 409, code: 'PROVIDER_AUTH_REQUIRED' });
+    expect(smtp).not.toHaveBeenCalled();
+    expect(gmail).not.toHaveBeenCalled();
   });
 
   it('carries the SMTP factory’s refusal through unchanged, including its domain code', async () => {
