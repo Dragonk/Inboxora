@@ -15,6 +15,14 @@ limitations — read the matching page in the Wiki: [Release notes 4.1.0](wiki/R
 
 ### Changed
 
+- **"Mark all as read" reaches Microsoft Graph** (P07b, tenth slice). The route updated the local rows and
+  then asked IMAP to set `\Seen`, so on a native account the interface looked right until the next sync
+  brought the unread state back. It now sets the flag on each unread message through the same
+  journal-backed write the single read/unread route uses — one mutation per message, since Graph has no
+  "mark folder read" call — and the list of messages is taken **before** the local update flips them,
+  or it would find nothing. An outcome the provider does not confirm is logged with how many it did
+  confirm rather than reported as success.
+
 - **Deleting several Microsoft Graph messages at once works** (P07b, ninth slice). `POST /messages/bulk-delete`
   — the multi-select delete — still called IMAP for both halves: the permanent removal of a draft or an
   already-trashed message, and the move to Trash for everything else. Both now go to the provider, on the

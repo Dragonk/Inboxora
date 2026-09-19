@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   query: vi.fn(),
   runProviderMutation: vi.fn(),
   graphFolderIdForPath: vi.fn(),
+  markAllReadImap: vi.fn(),
   resolveArchiveFolder: vi.fn(),
   resolveTrashFolder: vi.fn(),
   resolveAllTrashPaths: vi.fn(),
@@ -29,6 +30,7 @@ vi.mock('../middleware/auth.js', () => ({
 vi.mock('../index.js', () => ({
   imapManager: {
     bulkMoveMessages: mocks.bulkMoveMessages,
+    markAllReadImap: mocks.markAllReadImap,
     broadcast: mocks.broadcast,
     _guardMoveUid: mocks._guardMoveUid,
     _unguardMoveUid: mocks._unguardMoveUid,
@@ -238,5 +240,37 @@ describe('bulk-delete keeps a Graph row out of the re-insert statement too', () 
     expect(mocks.runProviderMutation.mock.calls[0][0].operation).toBe('delete');
     expect(mocks.bulkMoveMessages).not.toHaveBeenCalled();
     expect(mocks.graphFolderIdForPath).not.toHaveBeenCalled();
+  });
+});
+
+describe('mark-all-read asks the provider, on the transport that has one', () => {
+  it('sets the flag on every unread Graph message through the mutation layer', async () => {
+    mocks.query
+      .mockResolvedValueOnce({ rows: [{ ...graphAccount() }], rowCount: 1 })                                        // account
+      .mockResolvedValueOnce({ rows: [{ id: MESSAGE_ID, provider_message_id: 'AAMkAD-1' }], rowCount: 1 });           // unread
+    mocks.runProviderMutation.mockResolvedValue({ status: 'confirmed', operationId: 'op-1', replayed: false });
+
+    const response = await post('/mark-all-read', { accountId: ACCOUNT_ID, folder: 'INBOX' });
+    expect(response.status).toBe(200);
+    // The list is taken before the local rows are flipped, or it would find nothing.
+    const unreadQuery = mocks.query.mock.calls.findIndex(([sql]) => String(sql).includes('is_read = false AND provider_message_id IS NOT NULL'));
+    const localUpdate = mocks.query.mock.calls.findIndex(([sql]) => String(sql).startsWith('UPDATE messages SET is_read = true'));
+    expect(unreadQuery).toBeGreaterThanOrEqual(0);
+    expect(unreadQuery).toBeLessThan(localUpdate);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    const [request] = mocks.runProviderMutation.mock.calls[0];
+    expect(request.payload).toMatchObject({ providerMessageId: 'AAMkAD-1', flag: '\\Seen', value: true });
+    expect(mocks.markAllReadImap).not.toHaveBeenCalled();
+  });
+
+  it('leaves an IMAP account on the IMAP path and does not query for provider ids', async () => {
+    mocks.query.mockResolvedValueOnce({ rows: [{ id: ACCOUNT_ID, mail_transport: 'imap_smtp' }], rowCount: 1 });
+    mocks.markAllReadImap.mockResolvedValue(undefined);
+
+    const response = await post('/mark-all-read', { accountId: ACCOUNT_ID, folder: 'INBOX' });
+    expect(response.status).toBe(200);
+    expect(mocks.markAllReadImap).toHaveBeenCalled();
+    expect(mocks.query.mock.calls.some(([sql]) => String(sql).includes('provider_message_id IS NOT NULL'))).toBe(false);
+    expect(mocks.runProviderMutation).not.toHaveBeenCalled();
   });
 });

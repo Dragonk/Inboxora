@@ -798,6 +798,46 @@ router.get('/messages/:id/attachments/:part', async (req, res) => {
 
 
 
+
+/**
+ * Set `\Seen` on every unread Microsoft Graph message of a folder.
+ *
+ * One mutation per message, through the same journal-backed flag write the single
+ * read/unread route uses, so an ambiguous outcome is parked rather than retried as
+ * if it were safe. The local rows are already updated by the caller, and the local
+ * `*_changed_at` window keeps a sync that read the provider earlier from reverting
+ * them before these land.
+ *
+ * Bounded and honest: it reports how many the provider confirmed, and a failure is
+ * logged rather than disguised as success.
+ */
+async function markAllReadOverGraph(
+  userId: string,
+  account: EmailAccountRow,
+  messages: ReadonlyArray<{ id: string; provider_message_id: string | null }>,
+): Promise<{ confirmed: number; failed: number }> {
+  if (!account.provider_connection_id) return { confirmed: 0, failed: messages.length };
+  const api = { userId, connectionId: account.provider_connection_id, config: microsoftConfigFromEnv() };
+  let confirmed = 0;
+  let failed = 0;
+  for (const message of messages) {
+    if (!message.provider_message_id) { failed += 1; continue; }
+    const payload = { providerMessageId: message.provider_message_id, flag: '\\Seen', value: true, intentAt: new Date().toISOString() };
+    const result = await runProviderMutation(
+      {
+        userId, channel: 'web', operation: 'update', accountId: account.id, resourceId: message.id,
+        ...graphFlagIntent({ messageId: message.id, write: payload }), payload,
+        retry: { delaySeconds: 300 },
+      },
+      graphFlagMutationAdapter({ api }),
+    );
+    if (result.status === 'confirmed' || result.status === 'accepted') confirmed += 1;
+    else failed += 1;
+  }
+  if (failed > 0) console.warn(`mark-all-read: Microsoft Graph confirmed ${confirmed} of ${messages.length} messages`);
+  return { confirmed, failed };
+}
+
 /**
  * Make sure the account has the folder snooze needs, on whichever transport it uses.
  *
@@ -1440,13 +1480,28 @@ router.post('/mark-all-read', async (req, res) => {
     [accountId, req.session.userId]
   );
   if (!check.rows.length) return res.status(404).json({ error: 'Account not found' });
+  const account = check.rows[0];
+  // The provider write addresses the messages that are unread *now*, so the list has
+  // to be taken before the local update below flips them.
+  const unread = account.mail_transport === 'microsoft_graph'
+    ? (await query<{ id: string; provider_message_id: string | null }>(
+        'SELECT id, provider_message_id FROM messages WHERE account_id = $1 AND folder = $2 AND is_read = false AND provider_message_id IS NOT NULL',
+        [accountId, folder],
+      )).rows
+    : [];
   await query('UPDATE messages SET is_read = true, read_changed_at = NOW() WHERE account_id = $1 AND folder = $2', [accountId, folder]);
   await query('UPDATE folders SET unread_count = 0 WHERE account_id = $1 AND path = $2', [accountId, folder])
     .catch(err => console.error('Folder count update failed:', err.message));
-  // Also update IMAP so the change survives the next sync (non-fatal if it fails)
-  imapManager.markAllReadImap(check.rows[0], folder).catch(err =>
-    console.warn('markAllReadImap failed:', err.message)
-  );
+  // Also update the provider so the change survives the next sync (non-fatal if it fails).
+  if (account.mail_transport === 'microsoft_graph') {
+    void markAllReadOverGraph(sessionUserId(req), account, unread).catch(err =>
+      console.warn('markAllReadOverGraph failed:', err.message)
+    );
+  } else {
+    imapManager.markAllReadImap(account, folder).catch(err =>
+      console.warn('markAllReadImap failed:', err.message)
+    );
+  }
   imapManager.broadcast({ type: 'sync_complete', accountId }, check.rows[0].user_id);
   res.json({ ok: true });
 });
