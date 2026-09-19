@@ -327,6 +327,31 @@ describe('a collection whose source is a provider refuses DAV writes', () => {
     expect(queryCallsMatching('DELETE FROM calendar_events')).toHaveLength(0);
   });
 
+  it('refuses a property change with a reason, on both protocols', async () => {
+    // Clients such as Thunderbird and DAVx5 set a display name or colour on the collection. With
+    // no handler the method falls through to the framework default, which reads as "the collection
+    // is gone" on a collection that plainly exists.
+    const body = '<?xml version="1.0"?><D:propertyupdate xmlns:D="DAV:"><D:set><D:prop><D:displayname>Renamed</D:displayname></D:prop></D:set></D:propertyupdate>';
+    query.mockResolvedValue({ rows: [providerCalendar] });
+    const calendar = await fetch(`${base}/caldav/user-1/cal-g/`, {
+      method: 'PROPPATCH', headers: { ...AUTH, 'content-type': 'application/xml' }, body,
+    });
+    expect(calendar.status).toBe(403);
+    expect(calendar.headers.get('content-type')).toContain('application/xml');
+    expect(await calendar.text()).toContain('managed by Inboxora');
+
+    query.mockResolvedValue({ rows: [providerBook] });
+    const book = await fetch(`${base}/carddav/user-1/book-g/`, {
+      method: 'PROPPATCH', headers: { ...AUTH, 'content-type': 'application/xml' }, body,
+    });
+    expect(book.status).toBe(403);
+    expect(await book.text()).toContain('managed by Inboxora');
+
+    // Refused means nothing was written under any spelling of the property.
+    expect(queryCallsMatching('UPDATE calendars SET')).toHaveLength(0);
+    expect(queryCallsMatching('UPDATE address_books SET')).toHaveLength(0);
+  });
+
   it('refuses an address-book write the same way', async () => {
     query.mockResolvedValue({ rows: [providerBook] });
     const put = await fetch(`${base}/carddav/user-1/book-g/contact.vcf`, {

@@ -243,6 +243,11 @@ router.propfind('/:userId/:calendarId/', async (req: Request, res: Response) => 
   ]));
 });
 
+router.proppatch('/:userId/:calendarId/', async (req: Request, res: Response) => {
+  if (req.params.userId !== req.caldavUserId) return res.status(403).end();
+  return davRefusal(res, 'Calendar properties are managed by Inboxora, not by DAV clients.');
+});
+
 router.report('/:userId/:calendarId/', async (req: Request, res: Response) => {
   if (req.params.userId !== req.caldavUserId) return res.status(403).end();
   const calendarResult = await query<{ sync_version: number; dav_mode?: string | null; [key: string]: unknown }>(

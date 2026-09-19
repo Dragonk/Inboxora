@@ -312,6 +312,14 @@ router.propfind('/:userId/:bookId/', async (req, res) => {
 
 // ── REPORT /{userId}/{bookId}/ (addressbook-query / sync-collection) ──────────
 
+router.proppatch('/:userId/:bookId/', async (req, res) => {
+  // The attribute here is `cardavUserId` — the name this router has always used — not the
+  // `caldavUserId` of the calendar router, which is what a copied handler gets wrong.
+  const userId = req.cardavUserId;
+  if (req.params.userId !== userId) return res.status(403).end();
+  return davRefusal(res, 'Address book properties are managed by Inboxora, not by DAV clients.');
+});
+
 router.report('/:userId/:bookId/', async (req, res) => {
   const userId = req.cardavUserId;
   if (req.params.userId !== userId) return res.status(403).end();

@@ -276,30 +276,17 @@ those packages have not started. It does mean "delivered" in the table above sho
 "the code exists and its tests pass", not "the application exercises it" — which is what the
 per-package column now says for P01 and P03.
 
-## Open: PROPPATCH has no handler
+## Closed: PROPPATCH is answered
 
 Clients such as Thunderbird and DAVx5 set a display name or colour on a collection with `PROPPATCH`.
-Neither router has a handler for it, so the request falls through to the framework's default — which
-a client, receiving it on a collection that plainly exists, has every reason to read as "the
-collection is gone". Nothing in Inboxora accepts or explains the property change.
+Neither router handled it, so the request reached the framework default — which a client receiving it
+on a collection that exists has every reason to read as "the collection is gone".
 
-**Two corrections to what I first recorded here, both worth more than the original claim:**
-
-1. The `403` with an empty body that I reported was produced by the handler *I had just added*, not
-   by the pre-existing server. With no handler there is no such response; what an unhandled method
-   returns is the framework default, and I did not verify it before describing it.
-2. My handler wrote no body because its guard compared the path's user id against the **CalDAV**
-   request attribute. CardDAV's own guards compare against a local `userId` instead, so in the
-   CardDAV router that attribute is `undefined` and the guard refused before the reason was written.
-   The attribute name was my mistake, not a gap in the authentication.
-
-What is verified: no `PROPPATCH` handler in either router; no fallback or catch-all route inside
-them (only per-route guards); the routers are mounted plainly at `/caldav` and `/carddav`; and
-`davServerAuth.ts` populates the credential for every authenticated request, whatever the method.
-The next attempt should start by adding the handler with the correct per-router attribute — or
-better, with the same local-variable shape the neighbouring guards use — and by asserting the
-framework's current default response first, so the change is measured against it rather than
-against a number invented in a test.
+Both routers now refuse it with a `DAV:error` body saying that properties are managed by Inboxora,
+and the tests assert the refusal writes nothing. Two mistakes made on the way, both worth keeping:
+the response I first described was produced by the handler I had just added rather than by the
+server, and my CardDAV handler compared against the calendar router's request attribute — this router
+has always called it `cardavUserId` — so its guard refused before the reason could be written.
 
 `MKCALENDAR` remains deliberately unimplemented and documented as such in `caldav.ts`, with the
 compliance classes that would imply unadvertised, which is correct.

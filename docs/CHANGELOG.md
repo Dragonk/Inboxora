@@ -462,6 +462,11 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   cannot tell apart from a permissions failure and a user cannot read in a log. The refusal now
   carries a `DAV:error` body naming the reason, on both protocols and on the create/update and delete
   paths.
+- Answer a `PROPPATCH` instead of falling through. Clients such as Thunderbird and DAVx5 set a
+  collection's display name or colour that way, and nothing handled it, so the request reached the
+  framework default — which a client receiving it on a collection that exists has every reason to
+  read as "the collection is gone". Both protocols now refuse it with a `DAV:error` body saying that
+  properties are managed by Inboxora, and the refusal writes nothing.
 
 
 ## [4.0.4] - 2026-09-18
