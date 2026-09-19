@@ -65,6 +65,18 @@ previous product's images in the migration guide, and `AADSTS50011` is a Microso
 that by definition appears in their response, not in our code. They are recorded here so the next
 reader does not re-open the same question.
 
+## API contract check
+
+The endpoints added in this work were re-checked against the fields the frontend actually reads,
+field by field, rather than assumed: the three connector status payloads
+(`configured`/`connected`/`connections` plus `books[]` or `calendars[]` and their five per-row
+fields), the per-connection sync results, the three import payloads (`{ imported }`), and the route
+error shape, which `api.ts` turns into the thrown message the UI displays.
+
+The check is recorded because it is cheap and it found a real defect the previous round — the
+calendar status endpoint was missing `lastErrorAt`, so the dialog rendered an empty
+`… ( )`. On this pass every field matched. Re-run it after touching any of these endpoints.
+
 ## Known limitations of what is delivered
 
 - Pulled Google and Microsoft contacts and Google calendars are **read-only** in Inboxora: REST and
