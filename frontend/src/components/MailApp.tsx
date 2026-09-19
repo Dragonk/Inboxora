@@ -825,8 +825,14 @@ export default function MailApp() {
       api.getAccounts()
         .then(accounts => { setAccounts(accounts); })
         .catch(console.error);
-      setAdminTab('accounts');
-      setShowAdmin(true);
+      if (provider === 'google') {
+        // Google API authorization stores a provider connection; it does not create
+        // or migrate a mailbox, so this must not open the Accounts screen.
+        addNotification({ type: 'info', title: t('contacts.googleConnected.title'), body: t('contacts.googleConnected.body') });
+      } else {
+        setAdminTab('accounts');
+        setShowAdmin(true);
+      }
     } else if (oauthError) {
       window.history.replaceState({}, '', '/');
     } else if (oidcSuccess) {

@@ -163,6 +163,22 @@ function addressBookDavModeOf(value: unknown): AddressBookDavMode {
   return value === 'off' || value === 'read_only' || value === 'read_write' ? value : 'read_write';
 }
 
+/** The Google People status the sync control reads (no credential is exposed). */
+interface GoogleContactsStatus {
+  configured?: boolean;
+  connected?: boolean;
+  connections?: number;
+  books?: Array<{ addressBookId: string; contactCount?: number; lastSyncedAt?: string | null; lastErrorCode?: string | null }>;
+}
+
+/** One connection's outcome from POST /contacts/providers/google/sync. */
+interface GoogleContactsSyncOutcome {
+  created?: number;
+  updated?: number;
+  deleted?: number;
+  error?: { code?: string; message?: string; retryable?: boolean };
+}
+
 
 export default function ContactsPage({ isActive = true }) {
   const { t } = useTranslation();
@@ -175,6 +191,11 @@ export default function ContactsPage({ isActive = true }) {
   const [bookDialog, setBookDialog] = useState<BookDialogState | null>(null);
   const [bookSaving, setBookSaving] = useState(false);
   const [bookError, setBookError] = useState<string | null>(null);
+  // The Google People pull: `connected` decides whether the sync action is offered,
+  // and the notice reports what the last run changed.
+  const [googleContacts, setGoogleContacts] = useState<GoogleContactsStatus | null>(null);
+  const [googleSyncing, setGoogleSyncing] = useState(false);
+  const [googleSyncNotice, setGoogleSyncNotice] = useState('');
   const isMobile = useCompactLayout();
 
   const [contacts, setContacts]     = useState<ContactRow[]>([]);
@@ -252,10 +273,15 @@ export default function ContactsPage({ isActive = true }) {
   useEffect(() => { totalRef.current = total; }, [total]);
 
   const loadAddressBooks = useCallback(async () => {
-    const result = await api.addressBooks.list();
+    const [books, google] = await Promise.all([
+      api.addressBooks.list(),
+      // A server without the Google adapter must not break the address books.
+      api.googleContacts.status().catch(() => null),
+    ]);
     // Older servers and test fixtures may not expose address books yet. Contacts
     // must remain usable while the client and API roll out independently.
-    setAddressBooks(Array.isArray(result.addressBooks) ? result.addressBooks : []);
+    setAddressBooks(Array.isArray(books.addressBooks) ? books.addressBooks : []);
+    setGoogleContacts(google ?? null);
   }, []);
 
   const load = useCallback(async (q = '') => {
@@ -326,6 +352,27 @@ export default function ContactsPage({ isActive = true }) {
       await api.addressBooks.update(book.id, { visible: !book.visible });
       await loadAddressBooks();
     } catch (err) { setListError(toAppError(err).message); }
+  };
+
+  const runGoogleContactsSync = async () => {
+    setGoogleSyncing(true);
+    setGoogleSyncNotice('');
+    setListError(null);
+    try {
+      const result = await api.googleContacts.sync() as { results?: GoogleContactsSyncOutcome[] };
+      const outcomes = Array.isArray(result?.results) ? result.results : [];
+      const sum = (field: 'created' | 'updated' | 'deleted') => outcomes.reduce((total, outcome) => total + (outcome[field] ?? 0), 0);
+      const failed = outcomes.filter(outcome => outcome.error).length;
+      setGoogleSyncNotice(failed
+        ? t('contacts.addressBooks.googleSyncPartial', { created: sum('created'), updated: sum('updated'), deleted: sum('deleted'), failed })
+        : t('contacts.addressBooks.googleSyncDone', { created: sum('created'), updated: sum('updated'), deleted: sum('deleted') }));
+      await loadAddressBooks();
+      await load(searchRef.current);
+    } catch (err) {
+      setListError(toAppError(err).message);
+    } finally {
+      setGoogleSyncing(false);
+    }
   };
 
   const importGoogleCsv = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -569,6 +616,7 @@ export default function ContactsPage({ isActive = true }) {
           {addressBooks.map(book => <option key={book.id} value={book.id}>{book.visible ? '' : '○ '}{book.name}</option>)}
         </select>
         <Button onClick={openCreateBook}>{t('contacts.addressBooks.create')}</Button>
+        {googleContacts?.connected && <Button data-testid="contacts-google-sync" disabled={googleSyncing} onClick={runGoogleContactsSync}>{googleSyncing ? t('contacts.addressBooks.googleSyncing') : t('contacts.addressBooks.googleSync')}</Button>}
         {selectedAddressBookId && <>
           {selectedBook?.source === 'local' && <Button data-testid="contacts-address-book-rename" onClick={() => openRenameBook(selectedBook)}>{t('contacts.addressBooks.rename')}</Button>}
           <Button onClick={toggleAddressBookVisibility}>{t(selectedBook?.visible ? 'contacts.addressBooks.hide' : 'contacts.addressBooks.show')}</Button>
@@ -580,6 +628,7 @@ export default function ContactsPage({ isActive = true }) {
       </div>
     </details>
     <input ref={importInputRef} type="file" accept=".csv,text/csv" onChange={importGoogleCsv} style={{ display: 'none' }} />
+    {googleSyncNotice && <p role="status" data-testid="contacts-google-sync-result" style={{ margin: '6px 0 0', fontSize: 12, color: 'var(--text-tertiary)' }}>{googleSyncNotice}</p>}
   </div>;
   // Rendered by both layouts: the address-book menu is shared, so its dialog must be too.
   const bookNameDialog = bookDialog && <Dialog

@@ -175,6 +175,45 @@ router.delete('/address-books/:id', async (req, res) => {
   } catch (err) { console.error('Address book delete error:', err); res.status(500).json({ error: 'Failed to delete address book' }); }
 });
 
+// Whether Google contacts can be pulled, and what has been pulled so far. Safe for
+// any authenticated user: it exposes no credential, only counts and timestamps.
+router.get('/providers/google/status', async (req, res) => {
+  const userId = sessionUserId(req);
+  const [connections, books] = await Promise.all([
+    query<{ id: string }>(
+      "SELECT id FROM provider_connections WHERE user_id = $1 AND provider = 'google' AND status = 'active'",
+      [userId],
+    ),
+    query<{
+      connection_id: string; address_book_id: string; name: string | null;
+      contact_count: number; last_success_at: string | Date | null; last_error_code: string | null;
+    }>(
+      `SELECT ic.connection_id, ab.id AS address_book_id, ab.name,
+              (SELECT COUNT(*)::int FROM contacts c WHERE c.address_book_id = ab.id) AS contact_count,
+              s.last_success_at, s.last_error_code
+         FROM integration_collections ic
+         JOIN address_books ab ON ab.id = ic.local_address_book_id
+         LEFT JOIN sync_states s ON s.collection_id = ic.id AND s.user_id = ic.user_id
+        WHERE ic.user_id = $1 AND ic.kind = 'address_book'
+        ORDER BY ab.created_at ASC`,
+      [userId],
+    ),
+  ]);
+  res.json({
+    configured: isGoogleConfigured(googleConfigFromEnv()),
+    connected: connections.rows.length > 0,
+    connections: connections.rows.length,
+    books: books.rows.map(row => ({
+      connectionId: row.connection_id,
+      addressBookId: row.address_book_id,
+      name: row.name,
+      contactCount: row.contact_count,
+      lastSyncedAt: row.last_success_at,
+      lastErrorCode: row.last_error_code,
+    })),
+  });
+});
+
 // Pull the signed-in user's Google personal contacts for every connected Google
 // provider connection. The source stays the writer: the synced books are read-only
 // and are not published to DAV devices until the user enables them.

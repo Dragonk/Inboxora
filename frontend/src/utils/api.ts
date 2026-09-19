@@ -381,6 +381,11 @@ export const api = {
     importGoogleCsv: (id: string, csv: string) => request('POST', `/contacts/address-books/${encodeURIComponent(id)}/import/google-csv`, { csv }),
     exportUrl: (id: string, format: string) =>`${BASE}/contacts/address-books/${encodeURIComponent(id)}/export?format=${encodeURIComponent(format)}`,
   },
+  // Google People pull: status is safe for any user, sync is idempotent per cursor.
+  googleContacts: {
+    status: () => request('GET', '/contacts/providers/google/status'),
+    sync: () => request('POST', '/contacts/providers/google/sync'),
+  },
 
   // CardDAV contact sync (Nextcloud etc.)
   carddav: {

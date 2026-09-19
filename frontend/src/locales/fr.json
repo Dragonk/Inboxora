@@ -396,7 +396,12 @@
         "step3": "Configurez l'écran de consentement Google Auth Platform et ajoutez les portées requises (l'accès à l'API Gmail est une portée restreinte).",
         "step4": "Créez un client OAuth de type « Application Web », ajoutez l’URI de redirection ci-dessous et copiez ici son Client ID et son Client Secret.",
         "userNoteConfigured": "L'API Google est configurée. Connectez un compte depuis ses paramètres pour autoriser les services choisis.",
-        "userNoteNotConfigured": "L'administrateur n'a pas encore configuré l'intégration API Google. Le courrier via la connexion IMAP/SMTP existante continue de fonctionner."
+        "userNoteNotConfigured": "L'administrateur n'a pas encore configuré l'intégration API Google. Le courrier via la connexion IMAP/SMTP existante continue de fonctionner.",
+        "connect": "Connecter un compte Google",
+        "connecting": "Ouverture de Google…",
+        "connectHint": "Google vous demandera d'autoriser les Contacts. La messagerie et les agendas s'ajoutent séparément.",
+        "connectUnavailable": "Un administrateur doit configurer l’API Google avant de pouvoir connecter un compte.",
+        "connectedNote": "Compte Google connecté. Synchronisez vos contacts depuis la page Contacts."
       }
     },
     "lock": {
@@ -1129,7 +1134,15 @@
       "importGoogle": "Importer un fichier CSV Google",
       "exportGoogle": "Exporter au format CSV Google",
       "exportOutlook": "Exporter au format CSV Outlook",
-      "davAccessHint": "Indique si ce carnet d'adresses est publié vers les appareils connectés (CardDAV). Cela n'accorde jamais plus que ce que le carnet autorise."
+      "davAccessHint": "Indique si ce carnet d'adresses est publié vers les appareils connectés (CardDAV). Cela n'accorde jamais plus que ce que le carnet autorise.",
+      "googleSync": "Synchroniser les contacts Google",
+      "googleSyncing": "Synchronisation…",
+      "googleSyncDone": "Contacts Google : {{created}} ajoutés, {{updated}} mis à jour, {{deleted}} supprimés.",
+      "googleSyncPartial": "Contacts Google : {{created}} ajoutés, {{updated}} mis à jour, {{deleted}} supprimés ; {{failed}} connexion(s) en échec."
+    },
+    "googleConnected": {
+      "title": "Google connecté",
+      "body": "Votre compte Google est connecté. Récupérez vos contacts depuis la page Contacts."
     }
   },
   "contextMenu": {

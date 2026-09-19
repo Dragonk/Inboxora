@@ -2657,6 +2657,7 @@ function IntegrationsTab() {
   const [googleStatus, setGoogleStatus] = useState<{ configured?: boolean; browser?: { ready?: boolean; missing?: string[] }; [key: string]: unknown } | null>(null);
   const [googleSaving, setGoogleSaving] = useState(false);
   const [googleSaveMsg, setGoogleSaveMsg] = useState('');
+  const [connectingGoogle, setConnectingGoogle] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState('');
   const [connectingMs, setConnectingMs] = useState(false);
@@ -2738,7 +2739,17 @@ function IntegrationsTab() {
     // which tab/modal is currently open.
     const handleMessage = (e: MessageEvent) => {
       if (e.origin !== window.location.origin) return;
-      if (e.data?.type === 'oauth_success' && e.data?.provider === 'microsoft') {
+      if (e.data?.type === 'oauth_success' && e.data?.provider === 'google') {
+        // A Google authorization stores a provider connection; nothing is added to
+        // the account list, so the Google card reports it and its readiness refreshes.
+        setGoogleSaveMsg(t('admin.integrations.google.connectedNote'));
+        setConnectingGoogle(false);
+        setGoogleExpanded(true);
+        api.getIntegrationsStatus().then(data => setGoogleStatus(data.google || null)).catch(console.error);
+        if (isAdmin) api.getIntegrations().then(setConfigs).catch(console.error);
+        // The contacts page reads this status to offer the pull.
+        api.getAccounts().then(setAccounts).catch(console.error);
+      } else if (e.data?.type === 'oauth_success' && e.data?.provider === 'microsoft') {
         setSaveMsg(t('admin.integrations.microsoft.connectedNote'));
         setConnectingMs(false);
         // Reload both so the new account appears in the sidebar immediately.
@@ -2864,6 +2875,20 @@ function IntegrationsTab() {
     a.click();
     document.body.removeChild(a);
     setTimeout(() => setConnectingMs(false), 5000);
+  };
+
+  const handleConnectGoogle = () => {
+    setConnectingGoogle(true);
+    // Contacts is the Google feature that exists today; mail and calendar purposes
+    // arrive with their own adapters, and each purpose asks only for its scopes.
+    const a = document.createElement('a');
+    a.href = '/oauth/google?purpose=contacts_enable';
+    a.target = '_blank';
+    a.rel = 'opener';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => setConnectingGoogle(false), 5000);
   };
 
   const handleTdConnect = async () => {
@@ -3375,6 +3400,32 @@ function IntegrationsTab() {
                     }}>
                       {t('admin.integrations.google.deviceNotSupported')}
                     </div>
+
+                    {/* Any signed-in user may authorize their own Google account; the
+                        connect action is gated on the browser flow being ready. */}
+                    {googleStatus?.browser?.ready ? (
+                      <div style={{ marginBottom: 14 }}>
+                        <button
+                          data-testid="google-connect"
+                          disabled={connectingGoogle}
+                          onClick={handleConnectGoogle}
+                          style={{
+                            padding: '9px 16px', background: 'var(--bg-elevated)', border: '1px solid var(--border)',
+                            borderRadius: 8, color: 'var(--text-primary)', cursor: connectingGoogle ? 'not-allowed' : 'pointer',
+                            fontSize: 13, fontWeight: 500, opacity: connectingGoogle ? 0.7 : 1,
+                          }}
+                        >
+                          {connectingGoogle ? t('admin.integrations.google.connecting') : t('admin.integrations.google.connect')}
+                        </button>
+                        <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 6 }}>
+                          {t('admin.integrations.google.connectHint')}
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{ marginBottom: 14, fontSize: 12, color: 'var(--text-tertiary)' }}>
+                        {t('admin.integrations.google.connectUnavailable')}
+                      </div>
+                    )}
 
                     {googleSaveMsg && (
                       <div style={{

@@ -396,7 +396,12 @@
         "step3": "Configura la schermata di consenso di Google Auth Platform e aggiungi gli scope richiesti (l'accesso all'API Gmail è uno scope limitato).",
         "step4": "Crea un client OAuth di tipo «Applicazione web», aggiungi l’URI di reindirizzamento sotto e copia qui il Client ID e il Client Secret.",
         "userNoteConfigured": "L'API Google è configurata. Collega un account dalle sue impostazioni per autorizzare i servizi scelti.",
-        "userNoteNotConfigured": "L'amministratore non ha ancora configurato l'integrazione API di Google. La posta tramite la connessione IMAP/SMTP esistente continua a funzionare."
+        "userNoteNotConfigured": "L'amministratore non ha ancora configurato l'integrazione API di Google. La posta tramite la connessione IMAP/SMTP esistente continua a funzionare.",
+        "connect": "Connetti un account Google",
+        "connecting": "Apertura di Google…",
+        "connectHint": "Ti verrà chiesto di autorizzare Contatti Google. Posta e calendari si aggiungono separatamente.",
+        "connectUnavailable": "Un amministratore deve configurare l’API di Google prima di poter connettere un account.",
+        "connectedNote": "Account Google connesso. Sincronizza i contatti dalla pagina Contatti."
       }
     },
     "lock": {
@@ -1129,7 +1134,15 @@
       "importGoogle": "Importa un CSV da Google",
       "exportGoogle": "Esporta CSV per Google",
       "exportOutlook": "Esporta CSV per Outlook",
-      "davAccessHint": "Indica se questa rubrica viene pubblicata sui dispositivi connessi (CardDAV). Non concede mai più di quanto consenta la rubrica stessa."
+      "davAccessHint": "Indica se questa rubrica viene pubblicata sui dispositivi connessi (CardDAV). Non concede mai più di quanto consenta la rubrica stessa.",
+      "googleSync": "Sincronizza contatti Google",
+      "googleSyncing": "Sincronizzazione…",
+      "googleSyncDone": "Contatti Google: {{created}} aggiunti, {{updated}} aggiornati, {{deleted}} rimossi.",
+      "googleSyncPartial": "Contatti Google: {{created}} aggiunti, {{updated}} aggiornati, {{deleted}} rimossi; {{failed}} connessioni non riuscite."
+    },
+    "googleConnected": {
+      "title": "Google connesso",
+      "body": "Il tuo account Google è connesso. Recupera i contatti dalla pagina Contatti."
     }
   },
   "contextMenu": {

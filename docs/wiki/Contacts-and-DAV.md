@@ -184,6 +184,7 @@ projected into one local address book per connection, named *Google Contacts*.
   only read what changed. If Google rejects the stored cursor, the next pass rebuilds the book from
   a fresh baseline instead of failing.
 
-The in-app control for this sync, and the automatic schedule, are part of the account-connection
-interface that is still being finished; until then the sync is triggered through the API and the
-projected contacts appear in the normal contact list.
+The in-app control for this sync is the **Sync Google contacts** action in the Contacts page's
+address-book menu, which appears once a Google account is connected. An automatic schedule is
+still to come with the account-connection interface; until then the pull runs when you ask for it,
+and the projected contacts appear in the normal contact list.

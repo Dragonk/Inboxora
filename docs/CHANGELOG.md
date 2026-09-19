@@ -127,6 +127,16 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   synced books stay read-only in the app: REST and DAV writes to a non-local contact are refused,
   so no write-back is pretended before it exists. The in-app sync control and the automatic
   schedule arrive with the account-connection UI.
+- Wire the Google authorization flow into the interface (P04). The Google card in
+  **Settings → Integrations → Email providers** now offers **Connect a Google account** to any
+  signed-in user as soon as the browser flow is ready, and explains what an administrator still has
+  to configure otherwise; the flow asks only for Google Contacts, because mail and calendars are
+  added separately with their own adapters. A completed popup or same-tab callback reports the
+  connection instead of opening the Accounts screen (no mailbox is created or migrated), and the
+  Contacts page shows a **Sync Google contacts** action, plus a per-run summary of what was added,
+  updated and removed, once an account is connected. A new safe status endpoint
+  (`GET /api/contacts/providers/google/status`) reports readiness, the connection count and each
+  synced book's count and last-sync time without exposing any credential.
 
 ## [4.0.4] - 2026-09-18
 

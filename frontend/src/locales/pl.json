@@ -835,7 +835,12 @@
         "step3": "Skonfiguruj ekran zgody Google Auth Platform i dodaj wymagane zakresy (dostęp do Gmail API to zakres restricted).",
         "step4": "Utwórz klienta OAuth typu „Aplikacja internetowa”, dodaj poniższy URI przekierowania i skopiuj tutaj Client ID oraz Client Secret.",
         "userNoteConfigured": "Google API jest skonfigurowane. Połącz konto w jego ustawieniach, aby autoryzować wybrane usługi.",
-        "userNoteNotConfigured": "Administrator nie skonfigurował jeszcze integracji Google API. Poczta przez istniejące połączenie IMAP/SMTP działa dalej."
+        "userNoteNotConfigured": "Administrator nie skonfigurował jeszcze integracji Google API. Poczta przez istniejące połączenie IMAP/SMTP działa dalej.",
+        "connect": "Połącz konto Google",
+        "connecting": "Otwieranie Google…",
+        "connectHint": "Zostaniesz poproszony o autoryzację Kontaktów Google. Poczta i kalendarze dodaje się osobno.",
+        "connectUnavailable": "Administrator musi najpierw skonfigurować Google API, aby można było połączyć konto.",
+        "connectedNote": "Konto Google połączone. Kontakty możesz zsynchronizować na stronie Kontakty."
       }
     },
     "ssoLinked": {
@@ -1129,7 +1134,15 @@
       "importGoogle": "Importuj plik CSV z Google",
       "exportGoogle": "Eksport CSV do Google",
       "exportOutlook": "Eksport CSV do Outlooka",
-      "davAccessHint": "Określa, czy ta książka adresowa jest udostępniana podłączonym urządzeniom (CardDAV). Nigdy nie przyznaje więcej, niż pozwala sama książka."
+      "davAccessHint": "Określa, czy ta książka adresowa jest udostępniana podłączonym urządzeniom (CardDAV). Nigdy nie przyznaje więcej, niż pozwala sama książka.",
+      "googleSync": "Synchronizuj kontakty Google",
+      "googleSyncing": "Synchronizowanie…",
+      "googleSyncDone": "Kontakty Google: dodano {{created}}, zaktualizowano {{updated}}, usunięto {{deleted}}.",
+      "googleSyncPartial": "Kontakty Google: dodano {{created}}, zaktualizowano {{updated}}, usunięto {{deleted}}; nie udało się dla {{failed}} połączeń."
+    },
+    "googleConnected": {
+      "title": "Google połączone",
+      "body": "Konto Google jest połączone. Pobierz kontakty na stronie Kontakty."
     }
   },
   "contextMenu": {

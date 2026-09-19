@@ -48,6 +48,42 @@ beforeEach(() => {
 });
 
 const sync = () => fetch(`${base}/api/contacts/providers/google/sync`, { method: 'POST' });
+const status = () => fetch(`${base}/api/contacts/providers/google/status`);
+
+describe('GET /api/contacts/providers/google/status', () => {
+  it('reports readiness, the connection count and per-book progress without secrets', async () => {
+    mocks.query
+      .mockResolvedValueOnce({ rows: [{ id: 'connection-1' }] })
+      .mockResolvedValueOnce({ rows: [{
+        connection_id: 'connection-1', address_book_id: 'book-1', name: 'Google Contacts',
+        contact_count: 12, last_success_at: '2026-09-14T10:00:00.000Z', last_error_code: null,
+      }] });
+
+    const response = await status();
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      configured: true,
+      connected: true,
+      connections: 1,
+      books: [{
+        connectionId: 'connection-1', addressBookId: 'book-1', name: 'Google Contacts',
+        contactCount: 12, lastSyncedAt: '2026-09-14T10:00:00.000Z', lastErrorCode: null,
+      }],
+    });
+    // The status reads only counts/timestamps and the caller's own connections.
+    const [connectionSql, connectionParams] = mocks.query.mock.calls[0] as [string, unknown[]];
+    expect(connectionSql).toContain("provider = 'google'");
+    expect(connectionParams).toEqual(['user-1']);
+    const [bookSql, bookParams] = mocks.query.mock.calls[1] as [string, unknown[]];
+    expect(bookSql).toContain('ic.user_id = $1');
+    expect(bookParams).toEqual(['user-1']);
+  });
+
+  it('reports not connected when the user has no Google connection', async () => {
+    mocks.query.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [] });
+    expect(await (await status()).json()).toEqual({ configured: true, connected: false, connections: 0, books: [] });
+  });
+});
 
 describe('POST /api/contacts/providers/google/sync', () => {
   it('asks the user to connect an account when there is no Google connection', async () => {

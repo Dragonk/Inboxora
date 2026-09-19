@@ -396,7 +396,12 @@
         "step3": "Configure the Google Auth Platform consent screen and add the required scopes (Gmail API access is a restricted scope).",
         "step4": "Create an OAuth client of type \"Web application\", add the redirect URI below and copy its Client ID and Client Secret here.",
         "userNoteConfigured": "Google API is configured. Connect an account from its settings to authorize the selected services.",
-        "userNoteNotConfigured": "The administrator has not configured the Google API integration yet. Mail over the existing IMAP/SMTP connection keeps working."
+        "userNoteNotConfigured": "The administrator has not configured the Google API integration yet. Mail over the existing IMAP/SMTP connection keeps working.",
+        "connect": "Connect a Google account",
+        "connecting": "Opening Google…",
+        "connectHint": "You will be asked to authorize Google Contacts. Mail and calendars are added separately.",
+        "connectUnavailable": "An administrator must configure the Google API before an account can be connected.",
+        "connectedNote": "Google account connected. You can sync your contacts from the Contacts page."
       }
     },
     "lock": {
@@ -1129,7 +1134,15 @@
       "importGoogle": "Import Google CSV",
       "exportGoogle": "Google CSV",
       "exportOutlook": "Outlook CSV",
-      "davAccessHint": "Controls whether this address book is published to connected devices (CardDAV). It never grants more than the book itself allows."
+      "davAccessHint": "Controls whether this address book is published to connected devices (CardDAV). It never grants more than the book itself allows.",
+      "googleSync": "Sync Google contacts",
+      "googleSyncing": "Syncing…",
+      "googleSyncDone": "Google contacts: {{created}} added, {{updated}} updated, {{deleted}} removed.",
+      "googleSyncPartial": "Google contacts: {{created}} added, {{updated}} updated, {{deleted}} removed; {{failed}} connection(s) failed."
+    },
+    "googleConnected": {
+      "title": "Google connected",
+      "body": "Your Google account is connected. Pull your contacts from the Contacts page."
     }
   },
   "contextMenu": {

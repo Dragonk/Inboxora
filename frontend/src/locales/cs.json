@@ -827,7 +827,12 @@
         "step3": "Nastavte obrazovku souhlasu Google Auth Platform a přidejte požadované rozsahy (přístup k Gmail API je omezený rozsah).",
         "step4": "Vytvořte klienta OAuth typu „Webová aplikace“, přidejte níže uvedené URI přesměrování a zkopírujte sem Client ID a Client Secret.",
         "userNoteConfigured": "Google API je nakonfigurováno. Připojte účet v jeho nastavení a autorizujte vybrané služby.",
-        "userNoteNotConfigured": "Správce ještě nenakonfiguroval integraci Google API. Pošta přes stávající připojení IMAP/SMTP funguje dál."
+        "userNoteNotConfigured": "Správce ještě nenakonfiguroval integraci Google API. Pošta přes stávající připojení IMAP/SMTP funguje dál.",
+        "connect": "Připojit účet Google",
+        "connecting": "Otevírání Google…",
+        "connectHint": "Google požádá o přístup ke Kontaktům Google. Pošta a kalendáře se přidávají zvlášť.",
+        "connectUnavailable": "Správce musí nejprve nakonfigurovat Google API, než lze účet připojit.",
+        "connectedNote": "Účet Google připojen. Kontakty synchronizujte na stránce Kontakty."
       }
     },
     "ai": {
@@ -1129,7 +1134,15 @@
       "importGoogle": "Importovat CSV z Google",
       "exportGoogle": "Export CSV pro Google",
       "exportOutlook": "Export CSV pro Outlook",
-      "davAccessHint": "Určuje, zda je tento adresář zpřístupněn připojeným zařízením (CardDAV). Nikdy neuděluje více, než dovoluje samotný adresář."
+      "davAccessHint": "Určuje, zda je tento adresář zpřístupněn připojeným zařízením (CardDAV). Nikdy neuděluje více, než dovoluje samotný adresář.",
+      "googleSync": "Synchronizovat kontakty Google",
+      "googleSyncing": "Synchronizace…",
+      "googleSyncDone": "Kontakty Google: přidáno {{created}}, aktualizováno {{updated}}, odebráno {{deleted}}.",
+      "googleSyncPartial": "Kontakty Google: přidáno {{created}}, aktualizováno {{updated}}, odebráno {{deleted}}; {{failed}} připojení selhalo."
+    },
+    "googleConnected": {
+      "title": "Google připojen",
+      "body": "Váš účet Google je připojen. Načtěte kontakty na stránce Kontakty."
     }
   },
   "contextMenu": {

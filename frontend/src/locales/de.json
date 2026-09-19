@@ -396,7 +396,12 @@
         "step3": "Konfigurieren Sie den Zustimmungsbildschirm der Google Auth Platform und fügen Sie die erforderlichen Scopes hinzu (Gmail-API-Zugriff ist ein eingeschränkter Scope).",
         "step4": "Erstellen Sie einen OAuth-Client vom Typ „Webanwendung“, fügen Sie die unten stehende Weiterleitungs-URI hinzu und kopieren Sie Client-ID und Client-Secret hierher.",
         "userNoteConfigured": "Die Google API ist konfiguriert. Verbinden Sie ein Konto in dessen Einstellungen, um die gewählten Dienste zu autorisieren.",
-        "userNoteNotConfigured": "Der Administrator hat die Google-API-Integration noch nicht konfiguriert. Mail über die bestehende IMAP/SMTP-Verbindung funktioniert weiterhin."
+        "userNoteNotConfigured": "Der Administrator hat die Google-API-Integration noch nicht konfiguriert. Mail über die bestehende IMAP/SMTP-Verbindung funktioniert weiterhin.",
+        "connect": "Google-Konto verbinden",
+        "connecting": "Google wird geöffnet…",
+        "connectHint": "Sie werden um die Freigabe von Google Kontakte gebeten. Mail und Kalender werden getrennt hinzugefügt.",
+        "connectUnavailable": "Ein Administrator muss die Google API konfigurieren, bevor ein Konto verbunden werden kann.",
+        "connectedNote": "Google-Konto verbunden. Kontakte lassen sich auf der Seite Kontakte synchronisieren."
       }
     },
     "lock": {
@@ -1129,7 +1134,15 @@
       "importGoogle": "Google-CSV importieren",
       "exportGoogle": "CSV für Google exportieren",
       "exportOutlook": "CSV für Outlook exportieren",
-      "davAccessHint": "Legt fest, ob dieses Adressbuch für verbundene Geräte (CardDAV) bereitgestellt wird. Es gewährt nie mehr, als das Adressbuch selbst erlaubt."
+      "davAccessHint": "Legt fest, ob dieses Adressbuch für verbundene Geräte (CardDAV) bereitgestellt wird. Es gewährt nie mehr, als das Adressbuch selbst erlaubt.",
+      "googleSync": "Google-Kontakte synchronisieren",
+      "googleSyncing": "Synchronisierung…",
+      "googleSyncDone": "Google-Kontakte: {{created}} hinzugefügt, {{updated}} aktualisiert, {{deleted}} entfernt.",
+      "googleSyncPartial": "Google-Kontakte: {{created}} hinzugefügt, {{updated}} aktualisiert, {{deleted}} entfernt; {{failed}} Verbindung(en) fehlgeschlagen."
+    },
+    "googleConnected": {
+      "title": "Google verbunden",
+      "body": "Ihr Google-Konto ist verbunden. Rufen Sie Ihre Kontakte auf der Seite Kontakte ab."
     }
   },
   "contextMenu": {

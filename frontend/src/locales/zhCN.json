@@ -396,7 +396,12 @@
         "step3": "配置 Google Auth Platform 同意屏幕并添加所需范围（Gmail API 访问属于受限范围）。",
         "step4": "创建类型为“Web 应用”的 OAuth 客户端，添加下方的重定向 URI，并将其 Client ID 和 Client Secret 复制到此处。",
         "userNoteConfigured": "Google API 已配置。请在账户设置中连接账户以授权所选服务。",
-        "userNoteNotConfigured": "管理员尚未配置 Google API 集成。通过现有 IMAP/SMTP 连接的邮件仍可正常使用。"
+        "userNoteNotConfigured": "管理员尚未配置 Google API 集成。通过现有 IMAP/SMTP 连接的邮件仍可正常使用。",
+        "connect": "连接 Google 账户",
+        "connecting": "正在打开 Google…",
+        "connectHint": "系统会请求您授权 Google 通讯录。邮件和日历需单独添加。",
+        "connectUnavailable": "管理员必须先配置 Google API，才能连接账户。",
+        "connectedNote": "Google 账户已连接。可在“联系人”页面同步联系人。"
       }
     },
     "lock": {
@@ -1129,7 +1134,15 @@
       "importGoogle": "导入 Google CSV 文件",
       "exportGoogle": "导出 Google CSV 文件",
       "exportOutlook": "导出 Outlook CSV 文件",
-      "davAccessHint": "控制此通讯录是否发布到已连接的设备（CardDAV）。它绝不会授予超过通讯录本身允许的权限。"
+      "davAccessHint": "控制此通讯录是否发布到已连接的设备（CardDAV）。它绝不会授予超过通讯录本身允许的权限。",
+      "googleSync": "同步 Google 联系人",
+      "googleSyncing": "正在同步…",
+      "googleSyncDone": "Google 联系人：新增 {{created}}，更新 {{updated}}，删除 {{deleted}}。",
+      "googleSyncPartial": "Google 联系人：新增 {{created}}，更新 {{updated}}，删除 {{deleted}}；{{failed}} 个连接失败。"
+    },
+    "googleConnected": {
+      "title": "Google 已连接",
+      "body": "您的 Google 账户已连接。请在“联系人”页面获取联系人。"
     }
   },
   "contextMenu": {
