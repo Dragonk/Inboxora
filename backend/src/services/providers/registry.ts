@@ -146,9 +146,11 @@ export const DEFAULT_PROVIDER_REGISTRATIONS: readonly ProviderRegistration[] = O
     mailTransport: 'microsoft_graph',
     source: 'microsoft',
     features: ['mail', 'calendars', 'contacts'],
-    // Read only in this build: Graph mail (P07b) and Graph calendar CRUD (P07d)
-    // are not implemented, so a mutation would change only the local copy.
-    writeThrough: false,
+    // Graph writes exist for mail (P07b: flags, move, delete), contacts and calendar events (P09), so a
+    // mutation is forwarded to Microsoft. This does **not** make a pulled collection writable by itself:
+    // the collection must also say the origin permits writes (`source_access`) and the user must have
+    // enabled them (`user_access`), which is the capability model's fourth layer.
+    writeThrough: true,
     // Graph contacts do not document a conditional header on every mutation.
     conflictProtection: protections({ delete: 'best_effort' }),
   },
@@ -175,17 +177,19 @@ export const DEFAULT_PROVIDER_REGISTRATIONS: readonly ProviderRegistration[] = O
     key: 'caldav',
     source: 'caldav',
     features: ['calendars'],
-    // The external CalDAV write-back client (P10) does not exist yet: accepting
-    // a PUT would change only Inboxora's projection of the collection.
-    writeThrough: false,
+    // The external CalDAV write-back client (P10) forwards a PUT/DELETE to the collection's own
+    // server through the mutation layer, so the adapter can honour the write. It does not make a
+    // pulled calendar writable by itself: the collection's own access mode and the device
+    // password's ceiling are still applied by the capability resolver.
+    writeThrough: true,
     conflictProtection: protections(),
   },
   {
     key: 'carddav',
     source: 'carddav',
     features: ['contacts'],
-    // As CalDAV: no external write-back client yet.
-    writeThrough: false,
+    // As CalDAV: P10 forwards the write to the CardDAV server the book was imported from.
+    writeThrough: true,
     conflictProtection: protections(),
   },
   {

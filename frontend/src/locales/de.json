@@ -1896,6 +1896,8 @@
     "confirmDelete": "Dieses Ereignis löschen?",
     "deleteFailed": "Ereignis konnte nicht gelöscht werden.",
     "readOnly": "Importiertes Ereignis (schreibgeschützt)",
+    "enableWriteBack": "Rückschreiben aktivieren",
+    "disableWriteBack": "Rückschreiben deaktivieren",
     "edit": "Ereignis bearbeiten",
     "eventActions": "Ereignisaktionen",
     "closeMenu": "Kalendermenü schließen",

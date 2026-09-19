@@ -44,6 +44,18 @@ export interface CollectionAccessRow {
   /** `calendars.read_only`; `address_books` has no such column. */
   read_only?: boolean | null;
   dav_mode?: string | null;
+  /**
+   * `integration_collections.source_access`: what the **origin itself** permits. `read_only` means the
+   * provider would refuse or silently ignore a write, so no user setting can make it writable.
+   */
+  source_access?: string | null;
+  /**
+   * `integration_collections.user_access`: the user's choice for this collection. Only `read_write`
+   * enables write-back, and it is never a default — a freshly pulled collection is read-only until the
+   * user asks otherwise, which is what keeps "a read-only collection stays read-only once writes exist"
+   * true even after an adapter learns to write.
+   */
+  user_access?: string | null;
 }
 
 export interface CollectionAccessRequest {
@@ -132,6 +144,15 @@ export function resolveCollectionAccess(
       if (conflictProtection === 'unsupported') factors.push(deny('OPERATION_FORBIDDEN'));
     }
     if (row.read_only === true) factors.push(deny('COLLECTION_READ_ONLY'));
+    // The origin's own permission and the user's choice are separate gates, and both must permit the
+    // write. A collection whose origin is read-only can never be written, whatever the user selects; a
+    // collection the user has not enabled stays read-only even though its adapter can now write it.
+    // They apply only to a **remote** collection: `local` is Inboxora's own store, has no
+    // `integration_collections` row, and must not be denied because those columns are absent.
+    if (origin !== null && origin !== 'local') {
+      if (row.source_access === 'read_only') factors.push(deny('COLLECTION_READ_ONLY'));
+      if (row.user_access !== 'read_write') factors.push(deny('COLLECTION_READ_ONLY'));
+    }
     if (channel === 'dav' && effective !== 'read_write') factors.push(deny('COLLECTION_READ_ONLY'));
     return combinePermissions(factors, conflictProtection);
   });

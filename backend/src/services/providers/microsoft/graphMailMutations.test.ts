@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { GraphApiError } from './graphApiClient.js';
 import {
-  classifyGraphMailMutationFailure,
+  classifyGraphMutationFailure,
   graphDeleteIntent,
   graphDeleteMutationAdapter,
   graphMoveIntent,
@@ -38,20 +38,20 @@ describe('mapping a local flag onto a Graph patch', () => {
 describe('classifying a Graph mutation failure', () => {
   it('keeps a retryable refusal retryable, with its delay', () => {
     const throttled = new GraphApiError({ code: 'RATE_LIMITED', message: 'slow down', status: 429, retryable: true, retryAfterSeconds: 12 });
-    expect(classifyGraphMailMutationFailure(throttled)).toEqual({ status: 'retryable', code: 'RATE_LIMITED', retryAfterSeconds: 12 });
+    expect(classifyGraphMutationFailure(throttled)).toEqual({ status: 'retryable', code: 'RATE_LIMITED', retryAfterSeconds: 12 });
   });
 
   it('treats a missing message or a scope problem as permanent', () => {
-    expect(classifyGraphMailMutationFailure(new GraphApiError({ code: 'RESOURCE_NOT_FOUND', message: 'gone', status: 404 })))
+    expect(classifyGraphMutationFailure(new GraphApiError({ code: 'RESOURCE_NOT_FOUND', message: 'gone', status: 404 })))
       .toEqual({ status: 'permanent', code: 'RESOURCE_NOT_FOUND' });
-    expect(classifyGraphMailMutationFailure(new GraphApiError({ code: 'INSUFFICIENT_SCOPES', message: 'no', status: 403 })))
+    expect(classifyGraphMutationFailure(new GraphApiError({ code: 'INSUFFICIENT_SCOPES', message: 'no', status: 403 })))
       .toEqual({ status: 'permanent', code: 'INSUFFICIENT_SCOPES' });
   });
 
   it('treats a thrown request as an unknown outcome, never a retry', () => {
     // A timeout cannot tell us whether the PATCH reached the server, so an
     // automatic retry could apply a mutation that already happened.
-    expect(classifyGraphMailMutationFailure(new Error('The operation was aborted'))).toEqual({ status: 'outcome_unknown', code: 'MUTATION_OUTCOME_UNKNOWN' });
+    expect(classifyGraphMutationFailure(new Error('The operation was aborted'))).toEqual({ status: 'outcome_unknown', code: 'MUTATION_OUTCOME_UNKNOWN' });
   });
 });
 

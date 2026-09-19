@@ -55,6 +55,8 @@ interface CalendarRow {
   display_visible?: boolean | null;
   custom_name?: boolean | null;
   dav_mode?: string | null;
+  /** The provider collection this calendar was pulled into; absent for a local calendar. */
+  collection_id?: string | null;
   [key: string]: unknown;
 }
 
@@ -320,6 +322,26 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
   // Editability is the server's answer (`read_only`), not a comparison against the origin: a provider
   // collection becomes editable the moment the server says so, and a read-only one stays read-only.
   const ownedCalendar = (calendar: CalendarRow) => Boolean(!calendar.read_only && calendar.owner_user_id);
+
+  /**
+   * Turn write-back on or off for a pulled calendar.
+   *
+   * The provider is the authority on whether it accepts writes, so the answer — including a refusal —
+   * comes from the server and is shown as-is rather than guessed from the calendar's source here.
+   */
+  const setWriteBack = async (calendar: CalendarRow) => {
+    if (!calendar.collection_id) return;
+    setCalendarSaving(true);
+    try {
+      await api.setCollectionWriteBack(calendar.collection_id, Boolean(calendar.read_only));
+      setOpenCalendarMenu(null);
+      await onCalendarsChanged();
+    } catch (caught) {
+      setEditError(toAppError(caught).message);
+    } finally {
+      setCalendarSaving(false);
+    }
+  };
   const updateCalendarAppearance = async (calendar: CalendarRow, changes: { name?: string; color?: string; davMode?: DavMode }) => {
     setCalendarSaving(true); setEditError(null);
     try {
@@ -356,7 +378,7 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
     </div>
     <section style={section}>
       <div style={sectionHeading}><strong>{t('calendar.calendars')}</strong><button data-testid="calendar-sidebar-manage-sources" onClick={openSources} style={linkButton}>{t('calendar.manageSources')}</button></div>
-      {[...calendars].sort((a, b) => Number(a.source !== 'local') - Number(b.source !== 'local')).map((calendar, index, all) => <div key={calendar.id}>{(index === 0 || (all[index - 1].source === 'local') !== (calendar.source === 'local')) && <h2 style={{ ...sectionHeading, margin: '12px 0 4px' }}>{calendar.source === 'local' ? t('calendar.myCalendars') : t('calendar.sourceCalendar')}</h2>}<div key={calendar.id} className="cal-row" style={calendarRow}><label style={calendarToggle}><input data-testid="calendar-visibility-toggle" type="checkbox" checked={isVisible(calendar.id)} onChange={() => onToggleCalendar(calendar.id)} /><span style={{ ...colorDot, background: calendar.color || 'var(--accent)' }} />{calendar.name}{ownedCalendar(calendar) ? <small style={owned}>{t('calendar.owned')}</small> : <small style={readOnly}>{t('calendar.sourceCalendar')}</small>}</label>{<div style={menuWrap}><button type="button" aria-label={t('calendar.calendarActions', { name: calendar.name })} aria-expanded={openCalendarMenu === calendar.id} onClick={() => setOpenCalendarMenu(openCalendarMenu === calendar.id ? null : calendar.id)} style={menuButton} disabled={calendarSaving}>⋮</button>{openCalendarMenu === calendar.id && <div role="menu" aria-label={t('calendar.calendarActions', { name: calendar.name })} style={contextMenu}><button role="menuitem" onClick={() => editCalendar(calendar)}>{t('calendar.rename')}</button><button role="menuitem" onClick={() => editCalendar(calendar)}>{t('calendar.changeColor')}</button>{ownedCalendar(calendar) && <button role="menuitem" onClick={() => deleteCalendar(calendar)} style={dangerButton}>{t('calendar.deleteCalendar')}</button>}</div>}</div>}</div></div>)}
+      {[...calendars].sort((a, b) => Number(a.source !== 'local') - Number(b.source !== 'local')).map((calendar, index, all) => <div key={calendar.id}>{(index === 0 || (all[index - 1].source === 'local') !== (calendar.source === 'local')) && <h2 style={{ ...sectionHeading, margin: '12px 0 4px' }}>{calendar.source === 'local' ? t('calendar.myCalendars') : t('calendar.sourceCalendar')}</h2>}<div key={calendar.id} className="cal-row" style={calendarRow}><label style={calendarToggle}><input data-testid="calendar-visibility-toggle" type="checkbox" checked={isVisible(calendar.id)} onChange={() => onToggleCalendar(calendar.id)} /><span style={{ ...colorDot, background: calendar.color || 'var(--accent)' }} />{calendar.name}{ownedCalendar(calendar) ? <small style={owned}>{t('calendar.owned')}</small> : <small style={readOnly}>{t('calendar.sourceCalendar')}</small>}</label>{<div style={menuWrap}><button type="button" aria-label={t('calendar.calendarActions', { name: calendar.name })} aria-expanded={openCalendarMenu === calendar.id} onClick={() => setOpenCalendarMenu(openCalendarMenu === calendar.id ? null : calendar.id)} style={menuButton} disabled={calendarSaving}>⋮</button>{openCalendarMenu === calendar.id && <div role="menu" aria-label={t('calendar.calendarActions', { name: calendar.name })} style={contextMenu}><button role="menuitem" onClick={() => editCalendar(calendar)}>{t('calendar.rename')}</button><button role="menuitem" onClick={() => editCalendar(calendar)}>{t('calendar.changeColor')}</button>{calendar.collection_id && <button role="menuitem" data-testid="calendar-write-back" onClick={() => setWriteBack(calendar)} disabled={calendarSaving}>{calendar.read_only ? t('calendar.enableWriteBack') : t('calendar.disableWriteBack')}</button>}{ownedCalendar(calendar) && <button role="menuitem" onClick={() => deleteCalendar(calendar)} style={dangerButton}>{t('calendar.deleteCalendar')}</button>}</div>}</div>}</div></div>)}
     </section>
     {calendarEdit && <Dialog testId="calendar-appearance-dialog" title={t('calendar.calendarActions', { name: calendarEdit.calendar.name })} closeLabel={t('calendar.close')} busy={calendarSaving} onClose={() => setCalendarEdit(null)} footer={<>
       <Button onClick={() => setCalendarEdit(null)} disabled={calendarSaving}>{t('calendar.cancel')}</Button>

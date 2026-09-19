@@ -1,4 +1,4 @@
-import { graphGet, graphUrl } from './graphApiClient.js';
+import { graphDelete, graphGet, graphPatch, graphPost, graphUrl } from './graphApiClient.js';
 import type { GraphApiOptions } from './graphApiClient.js';
 import type { VCardContact } from '../../../utils/vcard.js';
 
@@ -168,4 +168,125 @@ export async function fetchContactsPage(options: GraphApiOptions, input: {
     nextLink: body['@odata.nextLink'] ?? null,
     deltaLink: body['@odata.deltaLink'] ?? null,
   };
+}
+
+/**
+ * The Graph contact fields a write sends.
+ *
+ * Only fields the local model can express are sent, and a **PATCH** sends only the ones the caller
+ * supplied: Graph treats an omitted property as "leave it alone" and an explicit `null` as "clear it",
+ * so a partial update must not be built by sending empty strings for everything else — that would erase
+ * the contact's other details.
+ */
+export interface GraphContactPayload {
+  displayName?: string;
+  givenName?: string;
+  surname?: string;
+  nickName?: string;
+  emailAddresses?: Array<{ address: string; name?: string }>;
+  businessPhones?: string[];
+  homePhones?: string[];
+  mobilePhone?: string;
+  companyName?: string;
+  jobTitle?: string;
+  department?: string;
+  personalNotes?: string;
+  businessHomePage?: string;
+  businessAddress?: GraphPhysicalAddress;
+  homeAddress?: GraphPhysicalAddress;
+  otherAddress?: GraphPhysicalAddress;
+  categories?: string[];
+  imAddresses?: string[];
+  birthday?: string;
+  anniversary?: string;
+}
+
+/** The vCard address columns Graph uses, so a round trip through the sync is lossless. */
+function graphAddressOf(address: { type?: string; [key: string]: string | undefined } | undefined): GraphPhysicalAddress | null {
+  if (!address) return null;
+  const mapped: GraphPhysicalAddress = {
+    street: address.street ?? '',
+    city: address.locality ?? '',
+    state: address.region ?? '',
+    postalCode: address.postalCode ?? '',
+    countryOrRegion: address.country ?? '',
+  };
+  return Object.values(mapped).some(value => value) ? mapped : null;
+}
+
+/** Graph's birthday is a date-time; the local model stores a date. */
+function graphDate(value: string | null | undefined): string | undefined {
+  if (!value) return undefined;
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
+  return match ? `${match[1]}-${match[2]}-${match[3]}T00:00:00Z` : undefined;
+}
+
+/**
+ * Map a local contact onto Graph's contact shape.
+ *
+ * `full` distinguishes a **create** from a **patch**: a create states every field (a new contact has no
+ * other details to preserve, and an explicit empty value is what makes the local copy authoritative),
+ * while a patch sends only what the caller provided so untouched fields keep their provider value.
+ */
+export function vCardToGraphContact(contact: VCardContact, options: { full: boolean }): GraphContactPayload {
+  const payload: GraphContactPayload = {};
+  const emails = (contact.emails ?? []).filter(entry => entry.value?.trim());
+  const phones = (contact.phones ?? []).filter(entry => entry.value?.trim());
+
+  if (options.full || contact.displayName !== undefined) payload.displayName = contact.displayName ?? '';
+  if (options.full || contact.firstName !== undefined) payload.givenName = contact.firstName ?? '';
+  if (options.full || contact.lastName !== undefined) payload.surname = contact.lastName ?? '';
+  if (options.full || contact.nickname !== undefined) payload.nickName = contact.nickname ?? '';
+  if (options.full || contact.emails !== undefined) {
+    // The primary address is the one the local model marks (or the first), and Graph keeps the order.
+    const ordered = [...emails].sort((a, b) => Number(Boolean(b.primary)) - Number(Boolean(a.primary)));
+    payload.emailAddresses = ordered.map(entry => ({ address: String(entry.value).trim(), name: contact.displayName ?? undefined }));
+  }
+  if (options.full || contact.phones !== undefined) {
+    payload.businessPhones = phones.filter(entry => entry.type === 'work').map(entry => String(entry.value).trim());
+    payload.homePhones = phones.filter(entry => entry.type === 'home').map(entry => String(entry.value).trim());
+    const mobile = phones.find(entry => entry.type === 'cell' || entry.type === 'mobile');
+    payload.mobilePhone = mobile ? String(mobile.value).trim() : '';
+  }
+  if (options.full || contact.organization !== undefined) payload.companyName = contact.organization ?? '';
+  if (options.full || contact.title !== undefined) payload.jobTitle = contact.title ?? '';
+  if (options.full || contact.role !== undefined) payload.department = contact.role ?? '';
+  if (options.full || contact.notes !== undefined) payload.personalNotes = contact.notes ?? '';
+  if (options.full || contact.urls !== undefined) {
+    payload.businessHomePage = contact.urls?.find(entry => entry.value)?.value ?? '';
+  }
+  if (options.full || contact.addresses !== undefined) {
+    const byType = (type: string) => graphAddressOf((contact.addresses ?? []).find(address => address.type === type));
+    payload.businessAddress = byType('work') ?? undefined;
+    payload.homeAddress = byType('home') ?? undefined;
+    payload.otherAddress = byType('other') ?? undefined;
+  }
+  if (options.full || contact.categories !== undefined) payload.categories = contact.categories ?? [];
+  if (options.full || contact.instantMessages !== undefined) {
+    payload.imAddresses = (contact.instantMessages ?? []).map(entry => entry.value).filter((value): value is string => Boolean(value));
+  }
+  if (options.full || contact.birthday !== undefined) payload.birthday = graphDate(contact.birthday);
+  if (options.full || contact.anniversary !== undefined) payload.anniversary = graphDate(contact.anniversary);
+  return payload;
+}
+
+/** The Graph resource path for one contact folder's contacts. */
+export function graphContactsPath(folderId?: string | null): string {
+  return `/me/contactFolders/${encodeURIComponent(folderId || DEFAULT_CONTACT_FOLDER)}/contacts`;
+}
+
+export async function createGraphContact(api: GraphApiOptions, folderId: string | null | undefined, payload: GraphContactPayload): Promise<GraphContact | null> {
+  return graphPost<GraphContact>(api, graphContactsPath(folderId), payload);
+}
+
+/**
+ * Patch one contact. Graph addresses a contact by its own id rather than by its folder, so the id is the
+ * only identity a write needs; the folder is kept on the local link for the read path.
+ */
+export async function patchGraphContact(api: GraphApiOptions, contactId: string, payload: GraphContactPayload): Promise<GraphContact | null> {
+  return graphPatch<GraphContact>(api, `/me/contacts/${encodeURIComponent(contactId)}`, payload);
+}
+
+export async function deleteGraphContact(api: GraphApiOptions, contactId: string): Promise<void> {
+  await graphDelete(api, `/me/contacts/${encodeURIComponent(contactId)}`);
 }

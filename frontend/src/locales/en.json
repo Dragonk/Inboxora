@@ -1896,6 +1896,8 @@
     "confirmDelete": "Delete this event?",
     "deleteFailed": "Could not delete event.",
     "readOnly": "Imported event (read-only)",
+    "enableWriteBack": "Enable write-back",
+    "disableWriteBack": "Disable write-back",
     "edit": "Edit event",
     "eventActions": "Event actions",
     "closeMenu": "Close calendar menu",

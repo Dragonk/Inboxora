@@ -453,8 +453,14 @@ router.post('/invitations/:messageId', async (req, res) => {
 
 router.get('/calendars', async (req, res) => {
   const result = await query(
-    `SELECT id, name, description, color, source, external_url, read_only, display_visible, owner_user_id, sync_token, created_at, updated_at, dav_mode
-     FROM calendars WHERE user_id = $1 AND owner_user_id = $1 ORDER BY created_at ASC`,
+    // `collection_id` is what the write-back opt-in is addressed by: a pulled calendar is written through
+    // its collection, and the interface needs the id to offer the switch.
+    `SELECT c.id, c.name, c.description, c.color, c.source, c.external_url, c.read_only, c.display_visible,
+            c.owner_user_id, c.sync_token, c.created_at, c.updated_at, c.dav_mode, ic.id AS collection_id
+       FROM calendars c
+       LEFT JOIN integration_collections ic ON ic.local_calendar_id = c.id AND ic.kind = 'calendar' AND ic.user_id = c.user_id
+      WHERE c.user_id = $1 AND c.owner_user_id = $1
+      ORDER BY c.created_at ASC`,
     [req.session.userId],
   );
   const appearance = await contactCalendarAppearance(sessionUserId(req));

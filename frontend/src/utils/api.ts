@@ -327,6 +327,10 @@ export const api = {
   getIntegrationsStatus: () => request('GET', '/integrations/status'),
   // Disconnect a provider account the signed-in user connected. Imported data is kept.
   disconnectProviderConnection: (id: string) => request('POST', `/integrations/provider-connections/${encodeURIComponent(id)}/disconnect`),
+  // Enable or disable write-back for one pulled collection. The server refuses when the provider does not
+  // allow writes to it, so the interface does not need to guess.
+  setCollectionWriteBack: (collectionId: string, writeBack: boolean) =>
+    request('PATCH', `/integrations/collections/${encodeURIComponent(collectionId)}`, { writeBack }),
   testProviderConfiguration: (provider: 'google' | 'microsoft') =>
     request('POST', `/integrations/${provider}/test`),
   saveIntegration: (provider: string, config: unknown) => request('POST', `/integrations/${provider}`, config),

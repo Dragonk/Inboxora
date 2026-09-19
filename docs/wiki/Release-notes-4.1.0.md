@@ -63,6 +63,14 @@ and reconnecting re-links the same collections rather than duplicating them.
   **typed provider-mutation layer** with an operation journal: a claim is committed before the
   provider call, so a recovered non-idempotent operation is parked as `outcome_unknown` rather than
   run a second time.
+- **Microsoft Graph contact write-back, behind an explicit per-collection switch.** Creating, editing or
+  deleting a contact in a pulled Microsoft address book writes to Graph first and only then to the local
+  copy, through the same provider journal that fences every other provider mutation; a contact the
+  provider no longer has counts as removed, and a newly created one keeps the provider's identity so the
+  next sync updates it instead of duplicating it. A pulled collection is still read-only until the user
+  turns write-back on for that specific collection, and the switch refuses when the provider itself does
+  not allow writes or when no adapter can forward them yet. Migration **`0112`** adds the `read_write`
+  value the switch needs.
 - **Microsoft Graph calendars**, on the same connector as contacts: every calendar is discovered and
   pulled with its events into a local calendar that starts read-only and hidden from DAV devices. A
   recurring event stays one resource — Graph's structured recurrence becomes an `RRULE`, the wall time
@@ -134,12 +142,14 @@ and reconnecting re-links the same collections rather than duplicating them.
 
 ## Configuration and migration requirements
 
-- Apply migrations **`0101`–`0111` in order, before rolling out the application**. They are
+- Apply migrations **`0101`–`0112` in order, before rolling out the application**. They are
   additive; no existing table, column or row is rewritten. `0110` adds three nullable columns to
   `oauth_authorization_flows` for the device authorization and must be applied before a device flow
   is started, not merely before the application starts. `0111` adds the nullable
   `messages.provider_labels` array the Gmail API adapter writes; it must be applied before that
   adapter runs, and an application version that predates it simply leaves the column `NULL`.
+  `0112` extends the `integration_collections` write-access check with the `read_write` value and
+  changes no row, so nothing becomes writable because of it.
 - New optional variables: `PROVIDER_INTEGRATIONS_ENABLED` (`0` disables the whole provider layer,
   including the sync paths) and `PROVIDER_SYNC_INTERVAL_MINUTES` (refresh cadence; `0` leaves
   syncing to the user). Both are documented in `.env.example` and the wiki.
@@ -170,12 +180,13 @@ and reconnecting re-links the same collections rather than duplicating them.
   labels on a single `messages` row is already decided: a message in the inbox that also carries user
   labels appears **once**, in the inbox, with its additional labels retained in
   `messages.provider_labels`.
-- **Provider data is read-only, and so are imported calendars and address books.** The provider
-  **write** paths — provider CRUD (calendar and contacts create/update/delete), the external
-  CalDAV/CardDAV write-back client and the mail migration/cutover — are not in this release, so an
-  imported collection still cannot be edited, deleted or removed from Inboxora. The capability model
-  is the decision point that will change when they land; the interface now reads the server's
-  `read_only` rather than re-deriving editability from a calendar's origin.
+- **Provider data is read-only by default, and imported collections stay that way until you enable
+  write-back for them.** What is *not* in this release: **calendar-event** create/update/delete (the
+  Microsoft contacts write path is; the calendar one is read-only), **Google** calendar/contacts
+  writes, the external CalDAV/CardDAV write-back client, and the mail migration/cutover. The
+  capability model is the single decision point, the interface reads the server's `read_only` rather
+  than re-deriving editability from a calendar's origin, and the write-back switch refuses rather than
+  accepting a change it cannot forward.
 - **The migration prompt with *Ignore* and "do not show again" is not in this release.** What exists
   is the requirement stated on the Microsoft card, and the enforced provider/method/installation
   switches. The dismissal controls belong to the migration work.

@@ -1896,6 +1896,8 @@
     "confirmDelete": "删除此事件？",
     "deleteFailed": "无法删除事件。",
     "readOnly": "导入的事件（只读）",
+    "enableWriteBack": "启用回写",
+    "disableWriteBack": "禁用回写",
     "edit": "编辑事件",
     "eventActions": "事件操作",
     "closeMenu": "关闭日历菜单",

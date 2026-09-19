@@ -31,6 +31,19 @@ release is never claimed before it has happened.
 ## [4.1.0]
 
 ### Added
+- **Microsoft Graph contact writes, behind an explicit write-back switch (P09).** Creating, editing and
+  deleting a contact in a pulled Microsoft address book now writes to **Graph first** and only then to
+  the local copy: the mutation goes through the shared provider journal (a durable claim before the
+  provider call, an ambiguous answer parked rather than retried, a refusal reported rather than
+  swallowed), and a contact the provider no longer has counts as removed. A newly created contact is
+  stored under the provider's own identity, so the next delta updates that row instead of inserting a
+  second copy. Nothing becomes writable on its own: a pulled collection stays read-only until the user
+  turns write-back on for **that collection**, and the switch refuses when the provider itself does not
+  permit writes (`canEdit: false` on a calendar) or when no adapter forwards that kind of write yet. The
+  provider's own permission (`source_access`) and the user's choice (`user_access`, migration `0112`) are
+  now both read by the capability model, so a read-only collection stays read-only even though its
+  adapter can write — which is what the plan requires.
+
 
 - **Gmail API mail adapter, read path (P08): labels and message/thread ingest.** A Google account can
   now read its mail through the **Gmail API** instead of IMAP: labels are discovered and projected onto
@@ -743,6 +756,13 @@ release is never claimed before it has happened.
   is.
 
 ### Changed
+- **A collection's write permission now needs both the origin's consent and the user's.** The capability
+  model read only the collection's `read_only` flag, which meant an adapter that learned to write would
+  have made every pulled collection writable without anyone asking. It now also reads
+  `integration_collections.source_access` (what the provider permits) and `user_access` (the user's
+  choice, whose new `read_write` value arrives with migration `0112`). Both default to read-only, so
+  this changes nothing until write-back is switched on per collection.
+
 
 - **The message is composed once, not twice.** The send route composed the message for its size
   accounting and then handed the options to nodemailer, which composed it again for delivery. The

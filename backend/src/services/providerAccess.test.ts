@@ -57,7 +57,9 @@ describe('collection access comes from the capability model', () => {
   });
 
   it('changes the decision when the adapter declares write-through', () => {
-    const row = { source: 'caldav', read_only: false, dav_mode: 'read_write' };
+    // An adapter that writes through is necessary but not sufficient: the collection must also say the
+    // origin permits writes and the user must have enabled them.
+    const row = { source: 'caldav', read_only: false, dav_mode: 'read_write', source_access: 'read_write', user_access: 'read_write' };
     const withoutWrites = registryWith(registration({ key: 'caldav', source: 'caldav', features: ['calendars'], writeThrough: false }));
     const withWrites = registryWith(registration({ key: 'caldav', source: 'caldav', features: ['calendars'], writeThrough: true }));
 
@@ -65,12 +67,34 @@ describe('collection access comes from the capability model', () => {
     expect(resolveCollectionAccess(row, { feature: 'calendars', operation: 'update' }, { registry: withWrites }).allowed).toBe(true);
   });
 
+  it('does not make a collection writable just because its adapter learned to write', () => {
+    // The plan's rule: a read-only collection stays read-only once writes exist. The user's opt-in is a
+    // separate gate, and an absent one is a pre-0112 row that could only have meant "not enabled".
+    const registry = registryWith(registration({ key: 'microsoft_graph', source: 'microsoft', features: ['contacts'], writeThrough: true }));
+    for (const row of [
+      { source: 'microsoft', dav_mode: 'read_write' },
+      { source: 'microsoft', dav_mode: 'read_write', source_access: 'read_write', user_access: 'source' },
+    ]) {
+      const access = resolveCollectionAccess(row, { feature: 'contacts', operation: 'create' }, { registry });
+      expect(access.allowed).toBe(false);
+      expect(access.reasonCode).toBe('COLLECTION_READ_ONLY');
+    }
+    // And the origin's own refusal cannot be overridden by the user's choice.
+    const refusedBySource = resolveCollectionAccess(
+      { source: 'microsoft', dav_mode: 'read_write', source_access: 'read_only', user_access: 'read_write' },
+      { feature: 'contacts', operation: 'create' },
+      { registry },
+    );
+    expect(refusedBySource.allowed).toBe(false);
+    expect(refusedBySource.reasonCode).toBe('COLLECTION_READ_ONLY');
+  });
+
   it('changes the decision per operation when the adapter declares a conflict protection', () => {
     const registry = registryWith(registration({
       key: 'caldav', source: 'caldav', features: ['calendars'], writeThrough: true,
       conflictProtection: { ...ALL_ATOMIC, update: 'unsupported' },
     }));
-    const row = { source: 'caldav', read_only: false, dav_mode: 'read_write' };
+    const row = { source: 'caldav', read_only: false, dav_mode: 'read_write', source_access: 'read_write', user_access: 'read_write' };
 
     expect(resolveCollectionAccess(row, { feature: 'calendars', operation: 'create' }, { registry }).allowed).toBe(true);
     const update = resolveCollectionAccess(row, { feature: 'calendars', operation: 'update' }, { registry });
@@ -171,10 +195,29 @@ describe('the convenience predicates and refusal message', () => {
 });
 
 describe('the default registry describes what this build can do', () => {
-  it('does not claim a write-through the adapters do not implement', () => {
-    const access = resolveCollectionAccess({ source: 'microsoft', dav_mode: 'read_write' }, { feature: 'contacts', operation: 'create' });
-    expect(access.allowed).toBe(false);
-    expect(access.reasonCode).toBe('OPERATION_FORBIDDEN');
+  it('claims write-through only for the adapters that implement it', () => {
+    // Graph forwards mail, contact and calendar-event writes, so it declares write-through. A mutation of
+    // a pulled Graph collection is still refused, but for the collection's own reason (nobody enabled it)
+    // rather than because no write path exists.
+    const optedIn = { source: 'microsoft', dav_mode: 'read_write', source_access: 'read_write', user_access: 'read_write' } as const;
+    const graph = resolveCollectionAccess(optedIn, { feature: 'contacts', operation: 'create' });
+    expect(graph.providerKey).toBe('microsoft_graph');
+    expect(graph.allowed).toBe(true);
+
+    const notOptedIn = resolveCollectionAccess({ source: 'microsoft', dav_mode: 'read_write' }, { feature: 'contacts', operation: 'create' });
+    expect(notOptedIn.allowed).toBe(false);
+    expect(notOptedIn.reasonCode).toBe('COLLECTION_READ_ONLY');
+
+    // The adapters whose write paths do not exist yet still refuse as unclaimed writes, whatever the
+    // collection says.
+    for (const source of ['google', 'caldav', 'carddav'] as const) {
+      const access = resolveCollectionAccess(
+        { source, dav_mode: 'read_write', source_access: 'read_write', user_access: 'read_write' },
+        { feature: source === 'google' ? 'calendars' : 'calendars', operation: 'create' },
+      );
+      expect(access.allowed, source).toBe(false);
+      expect(access.reasonCode, source).toBe('OPERATION_FORBIDDEN');
+    }
   });
 
   it('keeps a local address book writable', () => {

@@ -76,6 +76,8 @@ function arrangeQuery(contact: ContactDateEntry[], result: typeof updatedContact
       title: null, role: null, nickname: null, urls: [], instant_messages: [], categories: [], addresses: [],
       vcard: existingVCard, book_source: 'local', address_book_id: 'book-1',
     }] })
+    // The writer is resolved from the book's collection row; a local book has none.
+    .mockResolvedValueOnce({ rows: [{ id: 'book-1', source: 'local', collection_id: null, remote_id: null, connection_id: null, source_access: null, user_access: null }] })
     .mockResolvedValueOnce({ rows: [result] })
     .mockResolvedValueOnce({ rows: [] });
 }
@@ -381,7 +383,12 @@ describe('a contact whose book is written by a source refuses REST edits', () =>
     it(`refuses to edit a contact from a ${source} book, writing nothing`, async () => {
       query
         .mockResolvedValueOnce({ rows: [{ id: 'user-1' }] })
-        .mockResolvedValueOnce({ rows: [contactRow(source)] });
+        .mockResolvedValueOnce({ rows: [contactRow(source)] })
+        // A provider book the user has not enabled for write-back stays read-only, whichever source it is.
+        .mockResolvedValueOnce({ rows: [{
+          id: 'book-1', source, collection_id: 'collection-1', remote_id: 'contacts',
+          connection_id: 'connection-1', source_access: 'read_write', user_access: 'source',
+        }] });
 
       const server = createApp().listen(0);
       const response = await fetch(`http://127.0.0.1:${listeningPort(server)}/api/contacts/contact-1`, {
@@ -400,7 +407,11 @@ describe('a contact whose book is written by a source refuses REST edits', () =>
       // `requireAuth` performs the session lookup first, so the source row is second.
       query
         .mockResolvedValueOnce({ rows: [{ id: 'user-1' }] })
-        .mockResolvedValueOnce({ rows: [{ source }] });
+        .mockResolvedValueOnce({ rows: [{ address_book_id: 'book-1' }] })
+        .mockResolvedValueOnce({ rows: [{
+          id: 'book-1', source, collection_id: 'collection-1', remote_id: 'contacts',
+          connection_id: 'connection-1', source_access: 'read_write', user_access: 'source',
+        }] });
 
       const server = createApp().listen(0);
       const response = await fetch(`http://127.0.0.1:${listeningPort(server)}/api/contacts/contact-1`, { method: 'DELETE' });

@@ -331,7 +331,8 @@ describe('local calendar API', () => {
 
     expect(response.status).toBe(200);
     expect(responseArray(await response.json(), 'calendars')).toContainEqual({ id: 'calendar-1', name: 'Personal', source: 'local', read_only: false });
-    expect(queryCall(0)[0]).toContain('WHERE user_id = $1');
+    // The list is aliased so the write-back collection id can be joined in without an extra query.
+    expect(queryCall(0)[0]).toContain('WHERE c.user_id = $1 AND c.owner_user_id = $1');
     expect(queryCall(0)[1]).toEqual(['user-1']);
   });
 

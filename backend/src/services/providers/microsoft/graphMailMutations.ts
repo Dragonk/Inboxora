@@ -75,8 +75,11 @@ export function graphMessagePatchForFlag(flag: string, value: boolean): GraphMes
  * A network failure is deliberately `outcome_unknown`, not `retryable`: a timeout
  * cannot tell us whether the request reached the server, and re-running a mutation
  * that may have been applied is the failure mode the layer exists to prevent.
+ *
+ * It is the classifier for **every** Graph adapter, not only mail: the mapping is a property of the
+ * transport's error type, so contacts and calendar writes share it rather than each re-deriving it.
  */
-export function classifyGraphMailMutationFailure<T = void>(error: unknown): ProviderAdapterOutcome<T> {
+export function classifyGraphMutationFailure<T = void>(error: unknown): ProviderAdapterOutcome<T> {
   if (error instanceof GraphApiError) {
     if (error.retryable) {
       return {
@@ -112,7 +115,7 @@ export function graphFlagMutationAdapter(options: {
         await patch(options.api, graphMessageResource(write.providerMessageId), body);
         return { status: 'committed' };
       } catch (error) {
-        return classifyGraphMailMutationFailure(error);
+        return classifyGraphMutationFailure(error);
       }
     },
   };
@@ -255,7 +258,7 @@ export function graphMoveMutationAdapter(options: {
         if (!moved?.id) return { status: 'outcome_unknown', code: 'MUTATION_OUTCOME_UNKNOWN' };
         return { status: 'committed', value: moved };
       } catch (error) {
-        return classifyGraphMailMutationFailure(error);
+        return classifyGraphMutationFailure(error);
       }
     },
   };
@@ -274,7 +277,7 @@ export function graphDeleteMutationAdapter(options: {
         await remove(options.api, write.providerMessageId);
         return { status: 'committed' };
       } catch (error) {
-        return classifyGraphMailMutationFailure(error);
+        return classifyGraphMutationFailure(error);
       }
     },
   };

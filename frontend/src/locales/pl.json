@@ -1896,6 +1896,8 @@
     "confirmDelete": "Usunąć to wydarzenie?",
     "deleteFailed": "Nie udało się usunąć wydarzenia.",
     "readOnly": "Zaimportowane wydarzenie (tylko do odczytu)",
+    "enableWriteBack": "Włącz zapis zwrotny",
+    "disableWriteBack": "Wyłącz zapis zwrotny",
     "edit": "Edytuj wydarzenie",
     "eventActions": "Akcje wydarzenia",
     "closeMenu": "Zamknij menu kalendarza",

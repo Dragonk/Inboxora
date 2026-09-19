@@ -1896,6 +1896,8 @@
     "confirmDelete": "¿Eliminar este evento?",
     "deleteFailed": "No se pudo eliminar el evento.",
     "readOnly": "Evento importado (solo lectura)",
+    "enableWriteBack": "Activar escritura de vuelta",
+    "disableWriteBack": "Desactivar escritura de vuelta",
     "edit": "Editar evento",
     "eventActions": "Acciones del evento",
     "closeMenu": "Cerrar menú del calendario",

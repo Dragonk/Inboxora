@@ -1896,6 +1896,8 @@
     "confirmDelete": "Smazat tuto událost?",
     "deleteFailed": "Událost se nepodařilo smazat.",
     "readOnly": "Importovaná událost (jen pro čtení)",
+    "enableWriteBack": "Povolit zpětný zápis",
+    "disableWriteBack": "Zakázat zpětný zápis",
     "edit": "Upravit událost",
     "eventActions": "Akce události",
     "closeMenu": "Zavřít nabídku kalendáře",

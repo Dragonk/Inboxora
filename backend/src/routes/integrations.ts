@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { providerIntegrationsEnabled } from '../services/providerSwitches.js';
+import { collectionIsWritable } from '../services/providerAccess.js';
 import { disconnectProviderConnection } from '../services/providerConnectionService.js';
 import { microsoftConfigFromEnv } from '../services/providerAuthService.js';
 import { query } from '../services/db.js';
@@ -312,6 +313,86 @@ router.post('/provider-connections/:id/disconnect', async (req: Request, res: Re
     console.error('Provider disconnect failed:', toAppError(caught).message);
     res.status(500).json({ error: 'Failed to disconnect the provider account' });
   }
+});
+
+/**
+ * Enable or disable write-back for one pulled collection (P07d/P09).
+ *
+ * Pulled collections are read-only, and learning to write one must not change that silently: this is the
+ * user's explicit opt-in, and it is the **only** thing that sets `user_access = 'read_write'`. Two gates
+ * still apply after it, and neither can be overridden here:
+ *
+ *  - the source must permit writes at all (`source_access`), which the sync recorded from the provider's
+ *    own answer — a calendar Microsoft marks `canEdit: false` is refused with a reason; and
+ *  - the adapter must actually forward the mutation, which the capability model reads from the registry.
+ *
+ * For a calendar the local `read_only` column mirrors the choice, because that is what the interface
+ * reads; an address book has no such column and is judged by the collection alone.
+ */
+router.patch('/collections/:id', async (req: Request, res: Response) => {
+  const userId = req.session?.userId;
+  if (!userId) return res.status(401).json({ error: 'Not authenticated' });
+  if (typeof req.body?.writeBack !== 'boolean') return res.status(400).json({ error: 'writeBack must be a boolean' });
+  const enable = req.body.writeBack as boolean;
+
+  const result = await query<{
+    id: string; kind: string; source: string | null; source_access: string; user_access: string;
+    local_calendar_id: string | null; local_address_book_id: string | null;
+  }>(
+    `SELECT ic.id, ic.kind, ic.source_access, ic.user_access,
+            ic.local_calendar_id, ic.local_address_book_id,
+            COALESCE(c.source, ab.source) AS source
+       FROM integration_collections ic
+       LEFT JOIN calendars c ON c.id = ic.local_calendar_id
+       LEFT JOIN address_books ab ON ab.id = ic.local_address_book_id
+      WHERE ic.id = $1 AND ic.user_id = $2`,
+    [Array.isArray(req.params.id) ? req.params.id[0] : req.params.id, userId],
+  );
+  const collection = result.rows[0];
+  if (!collection) return res.status(404).json({ error: 'Collection not found' });
+  if (enable && collection.source_access !== 'read_write') {
+    return res.status(409).json({
+      code: 'SOURCE_READ_ONLY',
+      error: 'The provider does not allow changes to this collection',
+    });
+  }
+  // The adapter must actually forward this kind of write. Passing the opted-in values isolates the
+  // registry and conflict-protection layers, so this answers "does a write path exist at all?" rather
+  // than repeating the collection's own gate.
+  if (enable) {
+    const feature = collection.kind === 'calendar' ? 'calendars'
+      : collection.kind === 'address_book' ? 'contacts'
+        : null;
+    if (!feature || !collectionIsWritable({
+      source: collection.source,
+      source_access: 'read_write',
+      user_access: 'read_write',
+    }, feature)) {
+      return res.status(409).json({
+        code: 'WRITE_PATH_UNAVAILABLE',
+        error: 'Writing this kind of collection back to its source is not available yet',
+      });
+    }
+  }
+
+  const userAccess = enable ? 'read_write' : 'source';
+  await query('UPDATE integration_collections SET user_access = $2, updated_at = NOW() WHERE id = $1', [collection.id, userAccess]);
+  if (collection.local_calendar_id) {
+    // The calendar list reports this flag, so it is kept in step rather than recomputed per request.
+    await query('UPDATE calendars SET read_only = $2, updated_at = NOW() WHERE id = $1 AND user_id = $3', [
+      collection.local_calendar_id, !enable, userId,
+    ]);
+  }
+
+  res.json({
+    collection: {
+      id: collection.id,
+      kind: collection.kind,
+      sourceAccess: collection.source_access,
+      userAccess,
+      writeBack: enable,
+    },
+  });
 });
 
 router.get('/', requireAdmin, async (_req: Request, res: Response) => {
