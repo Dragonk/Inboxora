@@ -1089,9 +1089,9 @@ authorization is unverified for both. What can be confirmed separately is that *
 no code path returns a migration requirement for it, and connecting the API does not touch mail — and that the
 **Microsoft device-only configuration works without a secret or a callback** in the flow, its readiness and its
 refresh, as its tests assert. Rollback is documented in `Upgrading.md`. **Unresolved risks:** the interface's
-duplicate-risk affordance for an uncertain send, the configuration card's inability to *test* credentials before the
-control added in 4.1.0's successor, metrics and structured log identifiers, the report-dispatch edge case that was
-fixed but whose sibling in CardDAV shares the code path, and the absence of any live provider run.
+duplicate-risk affordance for an uncertain send; the configuration-card **test control** being newer than the published
+images, so it is not in 4.1.0 and is verified by typecheck, lint, the parity suite and the build rather than by a
+component test; metrics and structured log identifiers; and the absence of any live provider run.
 
 ### What is missing, precisely
 
