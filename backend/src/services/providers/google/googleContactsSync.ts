@@ -72,6 +72,14 @@ export async function ensureGoogleAddressBook(client: PoolClient, input: {
     [input.connectionId, GOOGLE_PERSONAL_COLLECTION_REMOTE_ID],
   );
   if (existing.rows[0]?.local_address_book_id) {
+    // Already linked. The provider's own permission is refreshed — the People API lets the signed-in
+    // user modify their own contacts, so this collection is writable at the source — while `enabled` and
+    // `user_access` stay exactly as the user left them.
+    await client.query(
+      `UPDATE integration_collections SET source_access = 'read_write', updated_at = NOW()
+        WHERE id = $1 AND source_access IS DISTINCT FROM 'read_write'`,
+      [existing.rows[0].id],
+    );
     return { addressBookId: existing.rows[0].local_address_book_id, collectionId: existing.rows[0].id };
   }
 
@@ -89,10 +97,11 @@ export async function ensureGoogleAddressBook(client: PoolClient, input: {
 
       if (existing.rows[0]) {
         // Link the book to the row that exists, without re-asserting `enabled`: a user who
-        // disabled this collection must not have a sync switch it back on.
+        // disabled this collection must not have a sync switch it back on. `source_access` is the
+        // provider's fact, so it is set to this source's answer.
         await client.query(
           `UPDATE integration_collections
-              SET local_address_book_id = $2, updated_at = NOW()
+              SET local_address_book_id = $2, source_access = 'read_write', updated_at = NOW()
             WHERE id = $1`,
           [existing.rows[0].id, addressBookId],
         );
@@ -102,7 +111,7 @@ export async function ensureGoogleAddressBook(client: PoolClient, input: {
       const collection = await client.query<{ id: string }>(
         `INSERT INTO integration_collections
            (user_id, connection_id, kind, remote_id, local_address_book_id, enabled, source_access, user_access, dav_mode)
-         VALUES ($1, $2, 'address_book', $3, $4, true, 'read_only', 'source', 'off')
+         VALUES ($1, $2, 'address_book', $3, $4, true, 'read_write', 'source', 'off')
          ON CONFLICT DO NOTHING
          RETURNING id`,
         [input.userId, input.connectionId, GOOGLE_PERSONAL_COLLECTION_REMOTE_ID, addressBookId],

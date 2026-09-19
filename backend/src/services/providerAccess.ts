@@ -118,11 +118,24 @@ export function resolveCollectionAccess(
   const registration = origin === null ? undefined : registry.forSource(origin, request.feature);
   const collectionDavMode = normalizeDavMode(row.dav_mode);
 
-  // Layer 2: `local` is the origin itself; every other origin needs an adapter
-  // that actually writes through, and none of the remote ones do yet.
+  // Layer 2: `local` is the origin itself; every other origin needs an adapter that actually writes
+  // through.
   const forwardsMutations = registration !== undefined
     && (registration.source === 'local' || registration.writeThrough);
-  const effective = effectiveDavMode(collectionDavMode, credentialMaxMode, forwardsMutations);
+  /**
+   * Whether a **DAV** write can actually be forwarded.
+   *
+   * The DAV channel is served by `routes/caldav.ts` and `routes/carddav.ts`, which forward a `PUT`/`DELETE`
+   * to the external CalDAV/CardDAV source (and accept one for the local store). A provider collection —
+   * Microsoft Graph, Google — is written by the REST routes, not by those handlers, so a DAV write to it
+   * would be applied to the local copy and discarded by the next sync: precisely the outcome the refusal
+   * exists to prevent. Advertising it as DAV-writable is the same mistake as accepting it, so the DAV
+   * ceiling is computed from what the DAV handlers genuinely forward, not from the web write-through flag.
+   */
+  const forwardsDavMutations = forwardsMutations
+    && registration !== undefined
+    && (registration.source === 'local' || registration.key === 'caldav' || registration.key === 'carddav');
+  const effective = effectiveDavMode(collectionDavMode, credentialMaxMode, forwardsDavMutations);
 
   const conflictProtectionFor = (operation: ProviderOperation): ConflictProtection =>
     registration?.conflictProtection[operation] ?? 'unsupported';

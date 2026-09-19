@@ -166,6 +166,36 @@ describe('the DAV channel narrows but never widens', () => {
     expect(access.effectiveDavMode).toBe('read_only');
     expect(access.allowed).toBe(false);
   });
+
+  it('keeps a provider collection DAV read-only even when its adapter writes through', () => {
+    // The DAV handlers forward a PUT/DELETE only for the external CalDAV/CardDAV client (and accept one
+    // for the local store). A Graph or Google collection is written by the REST routes, so a DAV write to
+    // it would land on the local copy and be discarded by the next sync — which is exactly what the
+    // refusal exists to prevent. Writing it over the *web* channel stays allowed.
+    for (const [source, feature] of [['microsoft', 'calendars'], ['google', 'calendars'], ['microsoft', 'contacts'], ['google', 'contacts']] as const) {
+      const row = { source, dav_mode: 'read_write', source_access: 'read_write', user_access: 'read_write' };
+      const web = resolveCollectionAccess(row, { feature, operation: 'update' });
+      expect(web.allowed, `${source} ${feature} web`).toBe(true);
+
+      const dav = resolveCollectionAccess(row, { feature, operation: 'update', channel: 'dav', credentialMaxMode: 'read_write' });
+      expect(dav.allowed, `${source} ${feature} dav`).toBe(false);
+      expect(dav.effectiveDavMode, `${source} ${feature} dav mode`).toBe('read_only');
+      expect(dav.reasonCode, `${source} ${feature} reason`).toBe('COLLECTION_READ_ONLY');
+    }
+  });
+
+  it('still lets the external DAV client and the local store be written over DAV', () => {
+    const local = resolveCollectionAccess({ source: 'local', dav_mode: 'read_write' }, { feature: 'calendars', operation: 'update', channel: 'dav', credentialMaxMode: 'read_write' });
+    expect(local.allowed).toBe(true);
+    expect(local.effectiveDavMode).toBe('read_write');
+
+    const external = resolveCollectionAccess(
+      { source: 'caldav', dav_mode: 'read_write', source_access: 'read_write', user_access: 'read_write' },
+      { feature: 'calendars', operation: 'update', channel: 'dav', credentialMaxMode: 'read_write' },
+    );
+    expect(external.allowed).toBe(true);
+    expect(external.effectiveDavMode).toBe('read_write');
+  });
 });
 
 describe('the convenience predicates and refusal message', () => {

@@ -127,6 +127,14 @@ describeOrSkip('Google contacts sync (PostgreSQL)', () => {
     ));
     expect(book.rows[0]).toMatchObject({ source: 'google', dav_mode: 'off' });
 
+    // The People API lets the signed-in user modify their own contacts, so the collection records the
+    // provider's permission as `read_write`; the user's own choice (`user_access`) stays `source` until
+    // they enable write-back for it, which is what keeps a pulled book read-only by default.
+    const collection = await autocommit(client => client.query<{ source_access: string; user_access: string }>(
+      `SELECT source_access, user_access FROM integration_collections WHERE user_id = $1 AND kind = 'address_book'`, [USER_ID],
+    ));
+    expect(collection.rows[0]).toMatchObject({ source_access: 'read_write', user_access: 'source' });
+
     const contacts = await autocommit(client => client.query<{ display_name: string; primary_email: string; vcard: string; uid: string }>(
       'SELECT display_name, primary_email, vcard, uid FROM contacts WHERE user_id = $1 ORDER BY display_name', [USER_ID],
     ));

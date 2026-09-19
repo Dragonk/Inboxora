@@ -31,6 +31,26 @@ release is never claimed before it has happened.
 ## [4.1.0]
 
 ### Added
+- **Google Calendar and Google Contacts write through the provider journal (P09).** An event or a
+  contact created, edited or deleted in Inboxora and belonging to a write-enabled Google collection is
+  now written to Google first (`events.insert`/`patch`/`delete`,
+  `people.createContact`/`updateContact`/`deleteContact`), through the same journal and the same
+  provider-first order the Microsoft paths use: a refusal leaves the local copy untouched, an ambiguous
+  answer is parked rather than retried, a created resource keeps the provider's own identity and is
+  linked in `remote_object_links` so the next sync updates it instead of duplicating it, and the local
+  resource id — never the provider's — is what the journal's `resource_id` column records. Google sends
+  the attendee notifications itself (`sendUpdates`), so Inboxora does not send a second invitation on a
+  provider calendar. Write-back remains an explicit per-collection opt-in.
+- **The Google mail migration recommendation, with a durable "do not show again" (P09).**
+  `GET /api/integrations/notices` lists the active recommendation for the caller's own Google mailboxes
+  that are still on IMAP/SMTP — and only when the provider layer is enabled, the Google method is on and
+  an OAuth client is configured, because recommending a destination that does not exist is a dead end.
+  `POST /api/integrations/notices/:accountId/suppress` records a per-user, per-account suppression in
+  `account_notice_preferences` (the table `0101` already declares, so no migration). "Ignore" stays a
+  client-side dismissal. The **Microsoft requirement notice cannot be suppressed**: the table's closed
+  `notice_type` check admits only the Google recommendation, which is what keeps a requirement from
+  becoming optional.
+
 - **A native Microsoft Graph account's search reaches the mailbox, not only Inboxora's own rows (P07b).**
   `GET /api/search` keeps its response shape, but when the search is scoped to a `microsoft_graph`
   account — or spans all accounts and the local page came up short of the limit — the route asks Graph's
@@ -1107,6 +1127,23 @@ release is never claimed before it has happened.
   passed.
 
 ### Fixed
+- **A Google collection could never actually be opted in for write-back.** The Calendar and People
+  syncs recorded `source_access = 'read_only'` unconditionally, so the per-collection write-back switch
+  refused every Google collection with `SOURCE_READ_ONLY` — the new Google write paths were unreachable
+  in production because of a column the adapter's own capability had moved past. The Google calendar sync
+  now records what Google says (`accessRole` `owner`/`writer` means writable, `reader`/`freeBusyReader`
+  does not) and the contacts sync records the People API's answer for the user's own contacts, refreshing
+  that fact on each discovery **without** touching `enabled` or `user_access` — the user's choices are not
+  a discovery pass's to change. A share upgraded from reader to writer is therefore picked up, and a shared
+  read-only calendar still cannot be made writable.
+- **A provider collection was advertised as DAV-writable when the DAV handlers cannot write it.** The
+  DAV ceiling was computed from the adapter's write-through flag, but `routes/caldav.ts` and
+  `routes/carddav.ts` forward only for the external CalDAV/CardDAV client (and accept a write for the
+  local store); a Microsoft Graph or Google collection would have been accepted over DAV and applied to
+  the local copy, which the next provider sync discards. The DAV mode now requires the DAV channel to be
+  able to forward, so a provider collection is DAV read-only while staying writable over the web channel,
+  and the advertised privileges agree with what the handlers do.
+
 - **A Microsoft contact or calendar-event write could not be journalled at all.** `provider_operations.resource_id`
   is a `UUID` column — it names Inboxora's own resource — but the two write paths bound the **provider's**
   id (`AAMkAD-…`) there, so PostgreSQL rejected the INSERT before any provider call and every update and

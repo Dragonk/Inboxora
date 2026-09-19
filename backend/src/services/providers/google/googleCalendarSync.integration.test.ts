@@ -231,6 +231,32 @@ describeOrSkip('Google Calendar sync (PostgreSQL)', { timeout: PG_TEST_TIMEOUT_M
     expect((await storedEvents()).map(event => event.uid)).toEqual(['dentist@google.com', 'standup@google.com']);
   });
 
+  it('records the provider’s own access role, and refreshes it without touching the user’s choice', async () => {
+    const connectionId = await seedConnection();
+    // A calendar shared read-only: the provider permits no writes, so the write-back switch must refuse.
+    const reader = { items: [{ id: 'primary', summary: 'Me', timeZone: 'Europe/Warsaw', accessRole: 'reader', primary: true }] };
+    await syncGoogleCalendar({
+      userId: USER_ID, connectionId, config: CONFIG,
+      fetchImpl: fakeProvider([() => json(reader), () => json({ items: [], nextSyncToken: 'sync-1' })]).fetchImpl,
+    });
+    const readOnly = await autocommit(client => client.query<{ source_access: string; user_access: string; enabled: boolean }>(
+      `SELECT source_access, user_access, enabled FROM integration_collections WHERE user_id = $1 AND kind = 'calendar'`, [USER_ID],
+    ));
+    expect(readOnly.rows[0]).toMatchObject({ source_access: 'read_only' });
+
+    // The share is upgraded to writer. The provider's fact is refreshed; `enabled` and `user_access`
+    // (the user's own choices) are not touched by a discovery pass.
+    const writer = { items: [{ id: 'primary', summary: 'Me', timeZone: 'Europe/Warsaw', accessRole: 'writer', primary: true }] };
+    await syncGoogleCalendar({
+      userId: USER_ID, connectionId, config: CONFIG,
+      fetchImpl: fakeProvider([() => json(writer), () => json({ items: [], nextSyncToken: 'sync-2' })]).fetchImpl,
+    });
+    const upgraded = await autocommit(client => client.query<{ source_access: string; user_access: string; enabled: boolean }>(
+      `SELECT source_access, user_access, enabled FROM integration_collections WHERE user_id = $1 AND kind = 'calendar'`, [USER_ID],
+    ));
+    expect(upgraded.rows[0]).toMatchObject({ source_access: 'read_write' });
+  });
+
   it('reports a per-calendar failure instead of hiding it', async () => {
     const connectionId = await seedConnection();
     await syncGoogleCalendar({

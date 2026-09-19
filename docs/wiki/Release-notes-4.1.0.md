@@ -52,6 +52,28 @@ Disconnecting an account revokes its grant and deletes its stored tokens; the im
 and reconnecting re-links the same collections rather than duplicating them.
 
 ## Added
+- **Google Calendar and Google Contacts write through the provider journal.** An event or a contact
+  created, edited or deleted in Inboxora and belonging to a write-enabled Google collection is now
+  written to Google first — `events.insert`/`patch`/`delete` and
+  `people.createContact`/`updateContact`/`deleteContact` — through the same journal and the same
+  provider-first order the Microsoft paths use. A refusal leaves the local copy untouched, an ambiguous
+  answer is parked and never retried, a created resource keeps Google's own identity (`event.id`,
+  `people/c…` resource name) and is linked so the next sync updates it instead of duplicating it, and the
+  journal records the **local** resource id, not the provider's. Google sends the attendee notifications
+  itself (`sendUpdates`), so Inboxora does not send a second invitation on a provider calendar. Writing a
+  pulled collection back remains an explicit per-collection opt-in, and a calendar Google reports as
+  read-only stays refused.
+- **The Google mail migration recommendation, with a durable "do not show again".**
+  `GET /api/integrations/notices` lists the recommendation for the caller's own Google mailboxes still on
+  IMAP/SMTP — and only while the provider layer, the Google method and an OAuth client are all in place,
+  because recommending a destination that does not exist is a dead end.
+  `POST /api/integrations/notices/:accountId/suppress` records a per-user, per-account suppression in
+  `account_notice_preferences` (no schema change). *Ignore* remains a dismissal the interface forgets; the
+  suppression is the one that survives a reload and a second device. The **Microsoft requirement notice
+  cannot be suppressed** — the table's closed notice-type check has no value for it, which is what keeps a
+  requirement from becoming optional. **No interface surface reads these endpoints yet**, so the notice is
+  reachable through the API only.
+
 
 - Provider contracts and a registry, with additive schema (`0101`–`0106`): connections, grants,
   remote links, sync state, operations, an outbox and notice preferences.
@@ -151,6 +173,21 @@ and reconnecting re-links the same collections rather than duplicating them.
   acceptance, which is NOT RUN.
 
 ## Fixed
+- **A Google collection could never actually be opted in for write-back.** The Calendar and People syncs
+  recorded `source_access = 'read_only'` unconditionally, so the per-collection write-back switch refused
+  every Google collection with `SOURCE_READ_ONLY` and the new Google write paths were unreachable outside
+  tests. The calendar sync now records Google's own answer (`accessRole` `owner`/`writer` means writable)
+  and the contacts sync records the People API's answer for the user's own contacts, refreshing that fact
+  on each discovery **without** touching `enabled` or `user_access`. A share upgraded from reader to writer
+  is therefore picked up, and a shared read-only calendar still cannot be made writable.
+- **A provider collection was advertised as DAV-writable when the DAV handlers cannot write it.** The DAV
+  ceiling came from the adapter's write-through flag, but the CalDAV/CardDAV handlers forward only for the
+  external CalDAV/CardDAV client (and accept a write for the local store). A Microsoft Graph or Google
+  collection would have been accepted over DAV and applied to the local copy, which the next provider sync
+  discards. The DAV mode now requires the DAV channel to be able to forward, so such a collection is DAV
+  read-only while staying writable over the web channel — and a DAV client can no longer be told it may
+  write something the server would silently drop.
+
 
 - **Bulk read/unread on a native account opened an IMAP connection.** The bulk route grouped the
   selected messages by account and then called the IMAP flag write for every group, so a Microsoft
@@ -212,13 +249,18 @@ and reconnecting re-links the same collections rather than duplicating them.
   labels appears **once**, in the inbox, with its additional labels retained in
   `messages.provider_labels`.
 - **Provider data is read-only by default, and imported collections stay that way until you enable
-  write-back for them** — per collection. What is *not* in this release: **Google** calendar/contacts
-  writes and the mail migration/cutover. The capability model is the single decision point, the
-  interface reads the server's `read_only` rather than re-deriving editability from a calendar's
-  origin, and the write-back switch refuses rather than accepting a change it cannot forward (a
-  calendar the provider marks `canEdit: false`, or a source whose write path does not exist yet). A
-  legacy CalDAV/CardDAV collection imported before this release has no write-back record yet, so it
-  stays read-only over DAV until one is created for it — the import paths create one for new imports.
+  write-back for them** — per collection. Microsoft Graph and Google collections can be written **over
+  the web interface** once enabled; **over DAV a provider collection stays read-only**, because the DAV
+  server forwards a write only to an external CalDAV/CardDAV source, and advertising anything else would
+  invite a change the next sync discards. The capability model is the single decision point, the
+  interface reads the server's `read_only` rather than re-deriving editability from a calendar's origin,
+  and the write-back switch refuses rather than accepting a change it cannot forward (a calendar the
+  provider marks read-only, or a source whose write path does not exist yet). A legacy CalDAV/CardDAV
+  collection imported before this release has no write-back record yet, so it stays read-only over DAV
+  until one is created for it — the import paths create one for new imports.
+- **The Google migration recommendation has no interface surface yet.** The endpoints exist
+  (`GET /api/integrations/notices`, `POST .../suppress`), and the wording and the *Ignore* control belong
+  to the interface, which has not been built, so nothing shows the notice in this release.
 
 ### Provider-side search for native Microsoft Graph accounts (P07b)
 

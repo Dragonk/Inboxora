@@ -74,12 +74,25 @@ function calendarColor(entry: GoogleCalendarListEntry): string {
     : DEFAULT_COLOR;
 }
 
+/**
+ * What the provider itself permits for one calendar.
+ *
+ * Google states it as the calendar's `accessRole`: `owner` and `writer` may be written, `reader` and
+ * `freeBusyReader` may not. This is the same fact Graph's `canEdit` carries, and it is what the
+ * write-back switch consults before enabling writes, so a shared read-only calendar can never be offered
+ * as writable and a role that changes (a share upgraded to writer) is picked up at the next discovery.
+ */
+export function googleCalendarSourceAccess(entry: GoogleCalendarListEntry): 'read_only' | 'read_write' {
+  return entry.accessRole === 'owner' || entry.accessRole === 'writer' ? 'read_write' : 'read_only';
+}
+
 /** Find or create the local calendar and collection link for one Google calendar. */
 export async function ensureGoogleCalendarCollection(client: PoolClient, input: {
   userId: string;
   connectionId: string;
   entry: GoogleCalendarListEntry;
 }): Promise<void> {
+  const sourceAccess = googleCalendarSourceAccess(input.entry);
   const linkQuery = `SELECT id, local_calendar_id FROM integration_collections
      WHERE connection_id = $1 AND kind = 'calendar' AND remote_id = $2`;
   const existing = await client.query<{ id: string; local_calendar_id: string | null }>(
@@ -87,9 +100,15 @@ export async function ensureGoogleCalendarCollection(client: PoolClient, input: 
     [input.connectionId, input.entry.id],
   );
   if (existing.rows[0]?.local_calendar_id) {
-    // Already linked: nothing to do. Re-asserting `enabled` here would switch a
-    // collection the user disabled back on at the next refresh, and the access columns
-    // belong to the link rather than to each run.
+    // Already linked. `enabled` and `user_access` are **not** re-asserted — switching a collection the
+    // user disabled back on, or undoing their write-back choice, would both be wrong. `source_access` is
+    // the provider's own fact rather than the user's, and it can change (a share upgraded to writer), so
+    // it is refreshed and nothing else is touched.
+    await client.query(
+      `UPDATE integration_collections SET source_access = $2, updated_at = NOW()
+        WHERE id = $1 AND source_access IS DISTINCT FROM $2`,
+      [existing.rows[0].id, sourceAccess],
+    );
     return;
   }
 
@@ -109,10 +128,10 @@ export async function ensureGoogleCalendarCollection(client: PoolClient, input: 
       if (existing.rows[0]) {
         await client.query(
           `UPDATE integration_collections
-              SET local_calendar_id = $2, enabled = true, source_access = 'read_only', user_access = 'source',
+              SET local_calendar_id = $2, enabled = true, source_access = $3, user_access = 'source',
                   dav_mode = 'off', updated_at = NOW()
             WHERE id = $1`,
-          [existing.rows[0].id, calendarId],
+          [existing.rows[0].id, calendarId, sourceAccess],
         );
         return;
       }
@@ -120,10 +139,10 @@ export async function ensureGoogleCalendarCollection(client: PoolClient, input: 
       const collection = await client.query<{ id: string }>(
         `INSERT INTO integration_collections
            (user_id, connection_id, kind, remote_id, local_calendar_id, enabled, source_access, user_access, dav_mode)
-         VALUES ($1, $2, 'calendar', $3, $4, true, 'read_only', 'source', 'off')
+         VALUES ($1, $2, 'calendar', $3, $4, true, $5, 'source', 'off')
          ON CONFLICT DO NOTHING
          RETURNING id`,
-        [input.userId, input.connectionId, input.entry.id, calendarId],
+        [input.userId, input.connectionId, input.entry.id, calendarId, sourceAccess],
       );
       const collectionId = collection.rows[0]?.id
         ?? (await client.query<{ id: string }>(linkQuery, [input.connectionId, input.entry.id])).rows[0]?.id;
