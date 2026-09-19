@@ -293,6 +293,44 @@ describe('Google CSV import persistence', () => {
   });
 });
 
+describe('an address book written by a source cannot be deleted', () => {
+  // Deleting one would leave its integration collection with no local book (the foreign key
+  // clears the link rather than failing), and the next sync would create the book again — so
+  // the delete would appear to work and silently undo itself. The guard is what prevents it,
+  // and it is pinned here because it is otherwise only reachable through the interface.
+  for (const source of ['google', 'microsoft', 'carddav']) {
+    it(`refuses to delete a ${source} book, deleting nothing`, async () => {
+      query.mockReset();
+      query
+        .mockResolvedValueOnce({ rows: [{ id: 'user-1' }] })
+        .mockResolvedValueOnce({ rows: [{ id: 'book-1', name: 'Imported', source }] });
+
+      const server = createApp().listen(0);
+      const response = await fetch(`http://127.0.0.1:${listeningPort(server)}/api/contacts/address-books/book-1`, { method: 'DELETE' });
+      await new Promise(resolve => server.close(resolve));
+
+      expect(response.status).toBe(403);
+      expect(query.mock.calls.some(([sql]) => String(sql).includes('DELETE FROM address_books'))).toBe(false);
+    });
+  }
+
+  it('still deletes a local book when another local book remains', async () => {
+    query.mockReset();
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'user-1' }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'book-1', name: 'Personal', source: 'local' }] })
+      .mockResolvedValueOnce({ rows: [{ count: 2 }] })
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 });
+
+    const server = createApp().listen(0);
+    const response = await fetch(`http://127.0.0.1:${listeningPort(server)}/api/contacts/address-books/book-1`, { method: 'DELETE' });
+    await new Promise(resolve => server.close(resolve));
+
+    expect(response.status).toBe(204);
+    expect(query.mock.calls.some(([sql]) => String(sql).includes('DELETE FROM address_books'))).toBe(true);
+  });
+});
+
 describe('Address book DAV sharing (dav_mode)', () => {
   it('stores a DAV mode on a local address book', async () => {
     query

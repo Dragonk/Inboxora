@@ -262,6 +262,11 @@ endpoint is visible rather than only available over the API.
 - Pulled Google and Microsoft contacts and Google calendars are **read-only** in Inboxora: REST and
   DAV refuse to edit a collection whose source is not local, and the source is the writer. The
   authorization requests read-only scopes to match, so nothing asks for access it never uses.
+- Imported collections also **cannot be deleted** from Inboxora: the delete path requires a local
+  source, so an imported book or calendar stays visible (frozen after a disconnect) rather than being
+  removable. That is deliberate — the source is the writer, so removing the copy would only invite the
+  next refresh to recreate it (the foreign key clears the link rather than failing, so the delete
+  would appear to work and silently undo itself). Pinned by tests for all three sources.
 - An event Inboxora owns because invitations were sent for it is protected on every write path: the
   CalDAV `PUT` refuses it, the invitation ingest respects its sequence, and the `.ics` import now
   leaves it unchanged and reports the count rather than replacing it. The DAV
