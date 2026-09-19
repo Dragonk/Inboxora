@@ -1615,6 +1615,27 @@ started" row suggests, so the slice is a seam rather than a rewrite:
   - **`delivered` stays honest for free**: one POST either returned or did not, and there is no
     cross-transport fallback, so an uncertain Graph outcome parks rather than retrying over SMTP.
 
+  **The remaining slice is smaller than this note first implied, and the structure is now known.** I had
+  described it as needing the route's dispatch moved and an error-precedence decision; neither is
+  necessary. The seam can return a **transport-shaped object** for a native account — an object with a
+  `sendMail(options)` that posts `options.raw` — and the route's send site is then **untouched**, because
+  it already passes `raw` (that is what `0b93d799` bought). No reordering, no precedence question, no
+  second dispatch site. The work is:
+  1. **`graphApiClient.ts`**: let `graphSend` carry a raw body (content type + string). It currently
+     hardcodes `content-type: application/json` and `JSON.stringify`, and the MIME path needs neither —
+     but the auth, the single controlled 401 refresh and the timeout must stay in **one** place rather than
+     being copied into a second sender.
+  2. **`services/providers/microsoft/graphMailSend.ts`**: `sendGraphMime(api, mime)` — base64 the buffer,
+     post it, classify failures with the existing `classifyGraphError`, and treat a non-2xx as a failure the
+     caller can see rather than a silent one.
+  3. **`services/sendTransport.ts`**: return that object for a native account instead of the refusal, and
+     report `accepted`/`rejected` from the envelope the route already built, since the route reads those.
+  4. **Tests**: the adapter against a fake fetch; the seam returning a Graph transport rather than a `501`;
+     and a route-level case that a native account's send reaches Graph and **not** nodemailer.
+
+  The original note on ordering is kept below, because it is still true if anyone does move composition
+  above the seam — it simply is not the path this slice takes.
+
   **And the seam is in the right file but the wrong position — the first step is an ordering change.**
   `createAccountMailTransport` wraps transport *resolution* (line 656), but the composed message does not
   exist there: the route composes it with a nodemailer stream transport at line 749, **ninety lines
