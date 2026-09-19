@@ -288,6 +288,12 @@ the response I first described was produced by the handler I had just added rath
 server, and my CardDAV handler compared against the calendar router's request attribute — this router
 has always called it `cardavUserId` — so its guard refused before the reason could be written.
 
+`PROPPATCH` is deliberately **not** listed in either router's `Allow` header, and that is the right
+state rather than an oversight: the server refuses the operation, so advertising it would invite
+clients to attempt something they cannot accomplish. The refusal follows RFC 4918 — `403` with a
+`DAV:error` body — and both routers advertise `OPTIONS, GET, PUT, DELETE, PROPFIND, REPORT` with
+compliance `1, addressbook` / `1, calendar-access`, which matches what they implement.
+
 `MKCALENDAR` remains deliberately unimplemented and documented as such in `caldav.ts`, with the
 compliance classes that would imply unadvertised, which is correct.
 
