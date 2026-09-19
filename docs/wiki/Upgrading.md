@@ -69,6 +69,9 @@ straightforward — but note the following.
 | Conversation metadata | Populated as mail syncs. Historical mail is grouped gradually; an administrator can run a rebuild per account. |
 | Calendar | New local calendars start empty. Add CalDAV or ICS sources to import existing ones. |
 | Contacts | New empty address books. Import a Google CSV, or connect a CardDAV account to pull existing contacts. |
+| Google accounts | **Nothing is removed and nothing is forced.** An existing mail account keeps working with its Google app password, and an administrator can *optionally* register a Google OAuth client to pull that account's contacts and calendars read-only. Connecting the API does not change the mail transport and does not ask for Gmail permissions. |
+| Microsoft accounts | Mail needs the API connection, because Outlook.com and Microsoft 365 no longer accept a mailbox password. An administrator registers one Azure application — with either the browser or the device-code method — and each user then authorizes their own account. Existing accounts and their local history stay in place; they simply cannot reach the mailbox until that authorization happens. |
+| Imported collections | Contacts and calendars pulled from a provider are **read-only** here: the provider is their writer. Editing, deleting or removing them through Inboxora is refused rather than silently undone at the next refresh. |
 | DAV | CardDAV and CalDAV endpoints become available. Existing devices need an **application password** from Settings → DAV access. |
 | Docker stack | A new **ntfy** service and a new `ntfy_data` volume are added for Android instant notifications. They are independent of PostgreSQL and Redis, so no mail, calendar or contact data is touched. Refresh the published `docker-compose.yml` from the release before pulling. |
 | Notifications (Android) | Set the **ntfy** app's **Default server** to `https://<your-domain>` — the origin, **no `/push` path** (the ntfy app rejects a base URL with a path). Inboxora proxies the UnifiedPush topic namespace at that origin. PWA Web Push is unchanged. |
@@ -88,6 +91,29 @@ straightforward — but note the following.
 5. Create DAV application passwords for each device and re-add the account on the device.
 6. If a mailbox is still grouped oddly afterwards, review **Threading diagnostics** for the
    affected conversations and use the manual merge, split or lock actions.
+
+### If nothing is configured for a provider yet
+
+The upgrade does not require a provider to be configured, and an installation may run with none. Mail over
+IMAP/SMTP keeps working for every account that uses a password, including Google with an app password.
+
+When an administrator does configure one:
+
+1. register the application as [Connecting Google and Microsoft accounts](Provider-setup.md) describes;
+2. save the client id (and secret, where the method needs one) on the provider card, and check that the card
+   reports the method as ready;
+3. each user authorizes their own account from the same card — the administrator's configuration and the
+   user's authorization are deliberately separate, and no account is created or changed by configuring the
+   application.
+
+### About the provider notices
+
+This release does **not** include the per-account migration prompt with an *Ignore* action and a
+"do not show again" checkbox. What exists is the requirement itself, stated on the Microsoft card: mail for
+those accounts needs the API connection. An administrator can switch a provider or one of its methods off,
+which is enforced, and the whole provider layer can be switched off for an installation with
+`PROVIDER_INTEGRATIONS_ENABLED=0`. The dismissal controls are part of the migration work and are not to be
+expected here — worth knowing so that their absence is not read as a missing setting.
 
 ## Rollback
 
