@@ -368,6 +368,12 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   widens what a leaked grant can do. The buttons now send `access=read_only`, which the server
   already honours by narrowing the scope, and both ends are pinned by tests so the consent screen
   cannot silently widen again.
+- Fix the mobile drawer staying open over the page after navigating. Handing styling back to React
+  cleared the drawer's inline `transform` instead of restoring it, and React does not re-apply a
+  style it has already committed — so after a navigation click (which also fires `blur` and aborts
+  the gesture sequence) the drawer rendered at its layout position, covering the content it had just
+  navigated to, even though the state said closed. Found by running the end-to-end suite, which had
+  not been part of the gates.
 
 ## [4.0.4] - 2026-09-18
 

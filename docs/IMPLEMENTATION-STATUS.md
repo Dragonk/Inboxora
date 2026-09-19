@@ -102,18 +102,15 @@ found two things the unit and contract tests could not:
    `{ name }` only. The rename dialog deliberately sends the book's DAV access as well, so the
    assertion had been stale since that dialog learned to edit both. The expectation now includes
    `davMode` and the spec passes.
-2. **Open:** three tests in `calendar.spec.ts` fail on the desktop project —
-   *mobile primary navigation re-enters Contacts and Calendar at their roots*,
-   *mobile Contacts exposes contextual back-button names*, and
-   *mobile long Contacts and Mail lists keep their final rows above fixed navigation*.
-   After a mobile module navigation the drawer is still **fully in the viewport**
-   (`toBeInViewport` reports "viewport ratio 1"), so it intercepts the next click; the log shows
-   `<span>Kalendarz</span>` from `[data-testid="mobile-sidebar"]` swallowing a click on a contact
-   row. The drawer's nav items do call `setMobileSidebarOpen(false)` and the store setter applies
-   the value directly, so the cause is not yet identified; the failing traces and screenshots are
-   under `frontend/artifacts/playwright-test-results/`. A wait for the closed drawer was added to
-   the shared `navigateModule` helper, did not make them pass, and was reverted rather than left
-   in place unverified.
+2. **Fixed:** three mobile-navigation tests in `calendar.spec.ts` failed because the drawer
+   stayed fully on screen after a module navigation and intercepted the next click. Root cause
+   was in the drawer gesture hook: after animating, it handed styling back to React by *clearing*
+   the inline transform. React does not re-apply a style it has already committed, so the drawer
+   was left with no transform at all — rendering at its layout position, fully open — while the
+   state said closed. A navigation click also fires `blur`, which aborts the gesture sequence and
+   triggers exactly that path. It now restores the value React owns for the current state.
+   Verified: the three tests pass, the full `chromium-desktop` project is green (123 passed, 59
+   skipped), and the drawer-related specs pass on `chromium-mobile-390`.
 
 Run the suite with:
 `PLAYWRIGHT_BROWSERS_PATH=$PWD/../.pw-browsers npx playwright test --project=chromium-desktop`

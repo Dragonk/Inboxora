@@ -103,11 +103,20 @@ export function useMobileDrawerGesture(options: UseMobileDrawerGestureOptions): 
       if (backdrop) backdrop.style.opacity = String(Math.max(0, Math.min(1, progress)));
     };
 
+    /**
+     * Hand the element back to React.
+     *
+     * Restoring the value React owns matters: clearing the property looks equivalent but
+     * is not, because React does not re-apply a style it has already committed. After a
+     * programmatic close — a navigation click, which also fires `blur` and aborts the
+     * sequence — clearing left the drawer with *no* transform, so it rendered at its
+     * layout position, fully open over the page, while the state said closed.
+     */
     const clearInlineStyles = () => {
       const drawer = latest.current.drawerRef.current;
       if (drawer) {
         drawer.style.transition = '';
-        drawer.style.transform = '';
+        drawer.style.transform = latest.current.open ? 'translateX(0px)' : 'translateX(-100%)';
       }
       const backdrop = latest.current.backdropRef?.current;
       if (backdrop) backdrop.style.opacity = '';
