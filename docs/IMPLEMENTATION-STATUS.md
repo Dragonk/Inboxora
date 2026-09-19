@@ -202,11 +202,12 @@ filename match was written up as coverage and had to be taken back:
 | AD03 | Google with no Client ID/Secret/callback: the API is unavailable **with an explanation**, and the traditional account path stays available | **PASS.** The card renders `admin.integrations.google.connectUnavailable` — "An administrator must configure the Google API before an account can be connected." — beside the disabled button, and the account screen is untouched. |
 | AD07 | Saving a new Client ID does not pair it with an old secret; the effects are confirmed and a matching credential is required | **FAIL.** `mergeConfig` carries an existing stored secret across any save that omits a new one, so changing the Client ID silently keeps the previous secret. Readiness then still reports the method **ready** (client id *and* secret are present), and the mismatch surfaces only at the provider — the failure mode the row exists to prevent. |
 
-The fix for AD07 is small and precisely located: in `mergeConfig`, keep the stored secret only while
-`incoming.clientId === existing.clientId`, so a changed Client ID requires the secret again and readiness
-falls back to not-ready, which is what makes the card ask for it. It was attempted and **reverted**: the case
-I wrote used a mock field the suite does not have, and re-reading that harness properly is more than the
-remaining session could do. The rule is recorded rather than half-shipped, as with the other withheld changes.
+The fix is **not** the obvious one, and finding that out is the value of the attempt. Dropping the stored
+secret when the client id changes satisfies AD07 and **violates AD05**, whose test asserts that an omitted
+secret on an edit is preserved — it failed, which is how the conflict surfaced. AD05 protects an administrator
+who edits a redirect URI without retyping the secret; AD07 protects one who changes the client id. The row's
+own wording resolves them: require **confirmation of the effects**. That is a save-path flag plus a prompt in
+the card, and it is recorded rather than half-shipped, as with the other withheld changes.
 
 **The device-code series (DC01–DC03) has two findings**, recorded here rather than left in the plan:
 
