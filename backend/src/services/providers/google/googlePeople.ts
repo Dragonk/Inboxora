@@ -1,4 +1,4 @@
-import { googleApiFetch, googleUrl } from './googleApiClient.js';
+import { googleApiFetch, googleApiJson, googleApiVoid, googleUrl } from './googleApiClient.js';
 import type { GoogleApiOptions } from './googleApiClient.js';
 import type { VCardContact } from '../../../utils/vcard.js';
 
@@ -27,6 +27,15 @@ export interface GooglePersonDate {
   day?: number;
 }
 
+/** One `names` entry. `unstructuredName` is the form a contact with only a display name is written as. */
+export interface GooglePersonName {
+  displayName?: string | null;
+  givenName?: string | null;
+  familyName?: string | null;
+  unstructuredName?: string | null;
+  metadata?: { primary?: boolean | null } | null;
+}
+
 export interface GooglePerson {
   resourceName: string;
   etag?: string | null;
@@ -34,7 +43,7 @@ export interface GooglePerson {
     deleted?: boolean | null;
     sources?: Array<{ type?: string | null; id?: string | null; etag?: string | null }> | null;
   } | null;
-  names?: Array<{ displayName?: string | null; givenName?: string | null; familyName?: string | null; metadata?: { primary?: boolean | null } | null }> | null;
+  names?: GooglePersonName[] | null;
   nicknames?: Array<{ value?: string | null }> | null;
   emailAddresses?: Array<{ value?: string | null; type?: string | null; metadata?: { primary?: boolean | null } | null }> | null;
   phoneNumbers?: Array<{ value?: string | null; type?: string | null; metadata?: { primary?: boolean | null } | null }> | null;
@@ -162,4 +171,72 @@ export async function fetchConnectionsPage(options: GoogleApiOptions, input: {
     nextPageToken: body.nextPageToken ?? null,
     nextSyncToken: body.nextSyncToken ?? null,
   };
+}
+
+// ── Writes (P09, contacts CRUD) ──────────────────────────────────────────────
+//
+// A contact is addressed by its **resource name**, the identity the read path already stores in
+// `remote_object_links.object_remote_id`; an e-mail address is never a key, because two contacts can
+// share one and a contact may have none.
+
+/**
+ * The fields a contact write may set.
+ *
+ * This is deliberately the same set `personToVCardContact` projects back, so a write and the read
+ * that follows it agree: a field the read path ignores is not written, because the next sync would
+ * drop the local copy of it and the user's change would vanish without an error.
+ */
+export const PERSON_WRITE_FIELDS = [
+  'names', 'nicknames', 'emailAddresses', 'phoneNumbers', 'organizations',
+  'biographies', 'urls', 'addresses', 'birthdays', 'events', 'imClients',
+] as const;
+
+/** The People body a create/update sends: every member optional, because a write sets what it has. */
+export type GooglePersonWrite = Partial<Omit<GooglePerson, 'resourceName'>> & { resourceName?: string };
+
+/**
+ * The path segment for one person, or `null` when the stored name is not one this adapter may put in
+ * a URL. Validating rather than encoding is what keeps a stored value from turning into a second path
+ * segment; the read path only ever stores `people/*`.
+ */
+export function personResourcePath(resourceName: string): string | null {
+  return /^(?:people|otherContacts)\/[A-Za-z0-9_-]+$/.test(resourceName) ? resourceName : null;
+}
+
+/** `people.createContact`. Google assigns the resource name and etag the link is recorded from. */
+export async function createGooglePerson(options: GoogleApiOptions, person: GooglePersonWrite): Promise<GooglePerson | null> {
+  return googleApiJson<GooglePerson>(options, googleUrl(PEOPLE_API_BASE, '/people:createContact', { personFields: PERSON_FIELDS }), {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(person),
+  });
+}
+
+/**
+ * `people.updateContact`.
+ *
+ * `resourcePath` must be a value {@link personResourcePath} accepted. `updateFields` is the mask the
+ * payload was built for: a field named in the mask that the body sends as an empty list is cleared,
+ * and a field the body omits is left as it was — which is what makes "the local contact is the whole
+ * desired state" true without clearing fields the caller never had.
+ */
+export async function updateGooglePerson(
+  options: GoogleApiOptions,
+  resourcePath: string,
+  person: GooglePersonWrite,
+  updateFields: readonly string[],
+): Promise<GooglePerson | null> {
+  return googleApiJson<GooglePerson>(
+    options,
+    googleUrl(PEOPLE_API_BASE, `/${resourcePath}:updateContact`, {
+      personFields: PERSON_FIELDS,
+      updatePersonFields: updateFields.join(','),
+    }),
+    { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(person) },
+  );
+}
+
+/** `people.deleteContact`. Google answers `200` with an empty body. */
+export async function deleteGooglePerson(options: GoogleApiOptions, resourcePath: string): Promise<void> {
+  await googleApiVoid(options, googleUrl(PEOPLE_API_BASE, `/${resourcePath}:deleteContact`, {}), { method: 'DELETE' });
 }

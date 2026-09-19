@@ -3,6 +3,7 @@ import { providerIntegrationsEnabled } from '../services/providerSwitches.js';
 import { collectionIsWritable } from '../services/providerAccess.js';
 import { disconnectProviderConnection } from '../services/providerConnectionService.js';
 import { microsoftConfigFromEnv } from '../services/providerAuthService.js';
+import { listActiveGoogleMailRecommendations, suppressGoogleMailRecommendation } from '../services/accountNotices.js';
 import { query } from '../services/db.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import { encrypt, decrypt, isEncrypted } from '../services/encryption.js';
@@ -393,6 +394,48 @@ router.patch('/collections/:id', async (req: Request, res: Response) => {
       writeBack: enable,
     },
   });
+});
+
+/**
+ * The active Google mail migration recommendation for the caller's own accounts (P09).
+ *
+ * Authenticated, never admin-only: the notice is about the caller's own mailbox. Only the account id,
+ * its address and the notice type cross the wire — the wording, the migration link and what "ignore"
+ * means are the interface's, so the copy can change without a server release.
+ *
+ * The Microsoft requirement notice is deliberately absent from this endpoint. It is a requirement, not
+ * a recommendation, and `account_notice_preferences` has no notice type for it, so there is nothing
+ * here that could suppress it. That must stay true.
+ */
+router.get('/notices', async (req: Request, res: Response) => {
+  const userId = req.session?.userId;
+  if (!userId) return res.status(401).json({ error: 'Not authenticated' });
+  try {
+    const notices = await listActiveGoogleMailRecommendations(userId);
+    res.json({ notices });
+  } catch (caught) {
+    console.error('Listing account notices failed:', toAppError(caught).message);
+    res.status(500).json({ error: 'Failed to load account notices' });
+  }
+});
+
+/**
+ * "Do not show again" for one account's recommendation.
+ *
+ * This is the durable, server-side suppression; "ignore" remains a client-side dismissal. Ownership is
+ * enforced in the service, so another user's account id answers `404`.
+ */
+router.post('/notices/:accountId/suppress', async (req: Request, res: Response) => {
+  const userId = req.session?.userId;
+  if (!userId) return res.status(401).json({ error: 'Not authenticated' });
+  try {
+    const result = await suppressGoogleMailRecommendation(userId, routeParam(req.params.accountId));
+    if (!result.ok) return res.status(result.status).json({ error: result.error });
+    res.json({ ok: true });
+  } catch (caught) {
+    console.error('Suppressing an account notice failed:', toAppError(caught).message);
+    res.status(500).json({ error: 'Failed to save the notice preference' });
+  }
 });
 
 router.get('/', requireAdmin, async (_req: Request, res: Response) => {

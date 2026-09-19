@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import type { Response } from 'express';
 import type { VCardContact } from '../utils/vcard.ts';
 import { query, withTransaction } from '../services/db.js';
 import { collectionIsWritable } from '../services/providerAccess.js';
@@ -23,6 +24,15 @@ import {
   resolveContactWriteTarget,
   writeGraphContact,
 } from '../services/providerContactWrites.js';
+import {
+  googlePersonLinkForLocalRow,
+  localUidForGoogleContact,
+  recordGoogleContactLink,
+  removeGoogleContactLink,
+  resolveGoogleContactWriteTarget,
+  writeGoogleContact,
+} from '../services/providerGoogleWrites.js';
+import type { GoogleContactWriteTarget } from '../services/providerGoogleWrites.js';
 import { GraphApiError } from '../services/providers/microsoft/graphApiClient.js';
 
 const router = Router();
@@ -154,6 +164,35 @@ async function requireLocalAddressBook(userId: string, addressBookId: string): P
   // the adapter that owns its `source`, which is what the capability model answers.
   if (!collectionIsWritable(book, 'contacts')) return { error: 'This address book is read-only', status: 403 };
   return { book };
+}
+
+/**
+ * Resolve which writer owns an address book, including the Google one.
+ *
+ * `resolveContactWriteTarget` owns the local and Microsoft branches. Google's contact write path lives
+ * in `providerGoogleWrites.ts`, so it is asked only when the shared resolver refused: it answers
+ * `google` for a write-enabled Google book and `not_google` for anything else, which keeps every other
+ * refusal (missing, read-only, an origin with no writer) exactly as the capability model produced it.
+ */
+type WritableContactBook =
+  | { ok: false; status: number; error: string }
+  | { ok: true; target: (ReturnType<typeof resolveContactWriteTarget> extends Promise<infer T> ? Exclude<T, { kind: 'refused' }> : never) | GoogleContactWriteTarget };
+
+async function writableContactBook(userId: string, addressBookId: string): Promise<WritableContactBook> {
+  const target = await resolveContactWriteTarget(userId, addressBookId);
+  if (target.kind !== 'refused') return { ok: true, target };
+  const google = await resolveGoogleContactWriteTarget(userId, addressBookId);
+  if (google.kind === 'google') return { ok: true, target: google };
+  if (google.kind === 'refused') return { ok: false, status: google.status, error: google.error };
+  return { ok: false, status: target.status, error: target.error };
+}
+
+/** Report a provider contact write refusal with the shared vocabulary, as the calendar routes do. */
+function contactWriteRefusal(res: Response, failure: { status: number; error: string; code?: string }): void {
+  res.status(failure.status).json({
+    ...(failure.code ? { code: failure.code } : {}),
+    error: failure.error,
+  });
 }
 
 router.get('/address-books', async (req, res) => {
@@ -736,11 +775,13 @@ router.post('/', async (req, res) => {
     }
     // A provider-backed book writes to its origin first: the provider is the source of truth, and a local
     // row that claims a contact the provider never accepted is worse than a slower create.
-    const writeTarget = await resolveContactWriteTarget(userId, addressBookId);
-    if (writeTarget.kind === 'refused') return res.status(writeTarget.status).json({ error: writeTarget.error });
+    const access = await writableContactBook(userId, addressBookId);
+    if (!access.ok) return res.status(access.status).json({ error: access.error });
+    const writeTarget = access.target;
     let providerContactId: string | null = null;
+    let providerEtag: string | null = null;
     let uid: string = crypto.randomUUID();
-    if (writeTarget.kind === 'graph') {
+    if (writeTarget.kind === 'graph' || writeTarget.kind === 'google') {
       // The local book enforces one row per address; writing to the provider first and then failing the
       // local insert would leave a contact the interface cannot see, so the duplicate is refused here.
       if (primaryEmail) {
@@ -750,20 +791,20 @@ router.post('/', async (req, res) => {
         );
         if (duplicate.rows.length) return res.status(409).json({ error: 'A contact with that email already exists' });
       }
-      const attempt = await writeGraphContact({
-        userId,
-        target: writeTarget,
-        operation: 'create',
-        contact: { displayName, firstName, lastName, emails, phones, organization, notes, birthday: storedBirthday, anniversary: storedAnniversary, contactDates: storedContactDates, ...rich },
-      });
-      if (attempt.status === 'failed') {
-        return res.status(attempt.failure.status).json({
-          ...(attempt.failure.code ? { code: attempt.failure.code } : {}),
-          error: attempt.failure.error,
-        });
+      const contact = { displayName, firstName, lastName, emails, phones, organization, notes, birthday: storedBirthday, anniversary: storedAnniversary, contactDates: storedContactDates, ...rich };
+      if (writeTarget.kind === 'graph') {
+        const attempt = await writeGraphContact({ userId, target: writeTarget, operation: 'create', contact });
+        if (attempt.status === 'failed') return contactWriteRefusal(res, attempt.failure);
+        providerContactId = attempt.providerContactId;
+        uid = localUidForGraphContact(providerContactId);
+      } else {
+        const attempt = await writeGoogleContact({ userId, target: writeTarget, operation: 'create', contact });
+        if (attempt.status === 'failed') return contactWriteRefusal(res, attempt.failure);
+        providerContactId = attempt.providerContactId;
+        // The version the create returned is what a later update must present back to People.
+        providerEtag = attempt.person?.etag ?? null;
+        uid = localUidForGoogleContact(providerContactId);
       }
-      providerContactId = attempt.providerContactId;
-      uid = localUidForGraphContact(providerContactId);
     }
     const vcard = generateVCard({ uid, displayName, firstName, lastName, emails, phones, organization, notes, birthday: storedBirthday, anniversary: storedAnniversary, contactDates: storedContactDates, ...rich });
     const etag = crypto.createHash('md5').update(vcard).digest('hex');
@@ -789,6 +830,10 @@ router.post('/', async (req, res) => {
 
     if (providerContactId && writeTarget.kind === 'graph') {
       await recordGraphContactLink({ userId, target: writeTarget, providerContactId, localId: result.rows[0].id });
+    } else if (providerContactId && writeTarget.kind === 'google') {
+      await recordGoogleContactLink({
+        userId, target: writeTarget, providerContactId, localId: result.rows[0].id, etag: providerEtag,
+      });
     }
     await bumpSyncToken(addressBookId);
     res.status(201).json(providerContactId ? { ...result.rows[0], providerContactId } : result.rows[0]);
@@ -828,8 +873,9 @@ router.patch('/:id', async (req, res) => {
     // Which writer owns this book is the capability model's answer, resolved once for the provider and
     // the local paths alike: a local edit to a provider collection would be an apparent write-back the
     // next sync discards.
-    const writeTarget = await resolveContactWriteTarget(userId, c.address_book_id);
-    if (writeTarget.kind === 'refused') return res.status(writeTarget.status).json({ error: writeTarget.error });
+    const access = await writableContactBook(userId, c.address_book_id);
+    if (!access.ok) return res.status(access.status).json({ error: access.error });
+    const writeTarget = access.target;
 
     const hasRichFields = [title, role, nickname, urls, instantMessages, categories, addresses].some(value => value !== undefined);
     const rich = hasRichFields ? normalizeRichContactFields({
@@ -890,14 +936,18 @@ router.patch('/:id', async (req, res) => {
       const providerContactId = await graphContactIdForLocalRow(userId, writeTarget.collectionId, c.id);
       if (!providerContactId) return res.status(409).json({ error: 'This contact is not linked to its provider copy yet' });
       const attempt = await writeGraphContact({
-        userId, target: writeTarget, operation: 'update', providerContactId, contact: contactVCard,
+        userId, target: writeTarget, operation: 'update', providerContactId, contact: contactVCard, localResourceId: c.id,
       });
-      if (attempt.status === 'failed') {
-        return res.status(attempt.failure.status).json({
-          ...(attempt.failure.code ? { code: attempt.failure.code } : {}),
-          error: attempt.failure.error,
-        });
-      }
+      if (attempt.status === 'failed') return contactWriteRefusal(res, attempt.failure);
+    } else if (writeTarget.kind === 'google') {
+      const link = await googlePersonLinkForLocalRow(userId, writeTarget.collectionId, c.id);
+      if (!link) return res.status(409).json({ error: 'This contact is not linked to its provider copy yet' });
+      // People's updateContact requires the etag of the version the caller read; the link carries it.
+      const attempt = await writeGoogleContact({
+        userId, target: writeTarget, operation: 'update',
+        providerContactId: link.resourceName, contact: contactVCard, etag: link.etag, localResourceId: c.id,
+      });
+      if (attempt.status === 'failed') return contactWriteRefusal(res, attempt.failure);
     }
 
     const result = await query(`
@@ -945,22 +995,30 @@ router.delete('/:id', async (req, res) => {
       [req.params.id, userId]
     );
     if (!owner.rows.length) return res.status(404).json({ error: 'Contact not found' });
-    const writeTarget = await resolveContactWriteTarget(userId, owner.rows[0].address_book_id);
-    if (writeTarget.kind === 'refused') return res.status(writeTarget.status).json({ error: writeTarget.error });
+    const access = await writableContactBook(userId, owner.rows[0].address_book_id);
+    if (!access.ok) return res.status(access.status).json({ error: access.error });
+    const writeTarget = access.target;
 
-    if (writeTarget.kind === 'graph') {
-      const providerContactId = await graphContactIdForLocalRow(userId, writeTarget.collectionId, req.params.id);
+    if (writeTarget.kind === 'graph' || writeTarget.kind === 'google') {
+      const providerContactId = writeTarget.kind === 'graph'
+        ? await graphContactIdForLocalRow(userId, writeTarget.collectionId, req.params.id)
+        : (await googlePersonLinkForLocalRow(userId, writeTarget.collectionId, req.params.id))?.resourceName ?? null;
       if (!providerContactId) return res.status(409).json({ error: 'This contact is not linked to its provider copy yet' });
-      const attempt = await writeGraphContact({ userId, target: writeTarget, operation: 'delete', providerContactId });
       // A contact the provider no longer has is the end state the user asked for, so its local row is
       // removed and the link tombstoned rather than the delete being reported as a failure.
-      if (attempt.status === 'failed' && attempt.failure.code !== 'RESOURCE_NOT_FOUND') {
-        return res.status(attempt.failure.status).json({
-          ...(attempt.failure.code ? { code: attempt.failure.code } : {}),
-          error: attempt.failure.error,
-        });
+      if (writeTarget.kind === 'graph') {
+        const attempt = await writeGraphContact({ userId, target: writeTarget, operation: 'delete', providerContactId, localResourceId: req.params.id });
+        if (attempt.status === 'failed' && attempt.failure.code !== 'RESOURCE_NOT_FOUND') {
+          return contactWriteRefusal(res, attempt.failure);
+        }
+        await removeGraphContactLink({ userId, target: writeTarget, providerContactId });
+      } else {
+        const attempt = await writeGoogleContact({ userId, target: writeTarget, operation: 'delete', providerContactId, localResourceId: req.params.id });
+        if (attempt.status === 'failed' && attempt.failure.code !== 'RESOURCE_NOT_FOUND') {
+          return contactWriteRefusal(res, attempt.failure);
+        }
+        await removeGoogleContactLink({ userId, target: writeTarget, providerContactId });
       }
-      await removeGraphContactLink({ userId, target: writeTarget, providerContactId });
     }
 
     const result = await query<{ address_book_id: string }>(

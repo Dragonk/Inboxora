@@ -1,4 +1,4 @@
-import { googleApiFetch, googleUrl } from './googleApiClient.js';
+import { googleApiFetch, googleApiJson, googleApiVoid, googleUrl } from './googleApiClient.js';
 import type { GoogleApiOptions } from './googleApiClient.js';
 import { buildVTimezone, isValidTimeZone } from '../../../utils/icalTimezone.js';
 import {
@@ -123,6 +123,81 @@ export async function fetchCalendarEvents(options: GoogleApiOptions, calendarId:
     nextPageToken: body.nextPageToken ?? null,
     nextSyncToken: body.nextSyncToken ?? null,
   };
+}
+
+// ── Writes (P09, calendar CRUD) ──────────────────────────────────────────────
+//
+// The three calls below are the only place a Google calendar event is created, changed or removed.
+// The body is built by the adapter (`providerGoogleWrites.ts`) so the local model stays out of this
+// file and the mapping is testable without a network.
+
+/**
+ * What Google sends to the attendees of a write.
+ *
+ * `none` is always sent explicitly rather than omitted: Google's default is "send nothing", but a
+ * default is a guess about the user's intent, and Inboxora's own invitation mail is suppressed on a
+ * provider calendar on the understanding that the provider was told what to do.
+ */
+export type GoogleSendUpdates = 'all' | 'externalOnly' | 'none';
+
+/** The event body `events.insert` and `events.patch` accept. */
+export interface GoogleEventWritePayload {
+  summary?: string;
+  description?: string;
+  location?: string;
+  start?: GoogleEventDateTime;
+  end?: GoogleEventDateTime;
+  /** Complete iCalendar lines (`RRULE:…`), which is the form Google stores. */
+  recurrence?: string[];
+  attendees?: Array<{ email: string }>;
+}
+
+/** `events.insert`. The created event carries the id and iCalUID the local link is built from. */
+export async function insertGoogleEvent(
+  options: GoogleApiOptions,
+  calendarId: string,
+  payload: GoogleEventWritePayload,
+  input: { sendUpdates: GoogleSendUpdates },
+): Promise<GoogleCalendarEvent | null> {
+  return googleApiJson<GoogleCalendarEvent>(
+    options,
+    googleUrl(GOOGLE_CALENDAR_API_BASE, `/calendars/${encodeURIComponent(calendarId)}/events`, { sendUpdates: input.sendUpdates }),
+    { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) },
+  );
+}
+
+/**
+ * `events.patch`.
+ *
+ * A PATCH, not an update: a local edit changes the fields the editor showed, and replacing the whole
+ * event would discard what another client set on a field Inboxora does not model.
+ */
+export async function patchGoogleEvent(
+  options: GoogleApiOptions,
+  calendarId: string,
+  eventId: string,
+  payload: GoogleEventWritePayload,
+  input: { sendUpdates: GoogleSendUpdates },
+): Promise<GoogleCalendarEvent | null> {
+  return googleApiJson<GoogleCalendarEvent>(
+    options,
+    googleUrl(GOOGLE_CALENDAR_API_BASE, `/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`, { sendUpdates: input.sendUpdates }),
+    { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) },
+  );
+}
+
+/** `events.delete`. Google answers `204`; a missing event answers `404` and is classified by the caller. */
+export async function deleteGoogleEvent(
+  options: GoogleApiOptions,
+  calendarId: string,
+  eventId: string,
+  input: { sendUpdates: GoogleSendUpdates },
+): Promise<void> {
+  await googleApiVoid(
+    options,
+    googleUrl(GOOGLE_CALENDAR_API_BASE, `/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`, { sendUpdates: input.sendUpdates }),
+    { method: 'DELETE' },
+  );
 }
 
 /** The local wall-clock date-time of an RFC 3339 stamp (`2026-09-01T09:00:00+02:00`). */

@@ -12,6 +12,14 @@ import {
   resolveCalendarWriteTarget,
   writeGraphCalendarEvent,
 } from '../services/providerCalendarWrites.js';
+import {
+  googleEventIdForLocalRow,
+  recordGoogleCalendarEventLink,
+  removeGoogleCalendarEventLink,
+  resolveGoogleCalendarWriteTarget,
+  writeGoogleCalendarEvent,
+} from '../services/providerGoogleWrites.js';
+import type { GoogleCalendarWriteTarget } from '../services/providerGoogleWrites.js';
 import type { AttachmentRef, EmailAccountRow } from '../services/imapManager.js';
 import ICAL from 'ical.js';
 import { parseInboundCalendarInvitation } from '../services/inboundCalendarInvitation.js';
@@ -19,7 +27,7 @@ import { parseCalendarEvent } from '../utils/ical.js';
 import { descriptionContentLines, normalizeDescription } from '../utils/richText.js';
 import { Router } from 'express';
 import { providerIntegrationsEnabled } from '../services/providerSwitches.js';
-import type { Request } from 'express';
+import type { Request, Response } from 'express';
 import crypto from 'crypto';
 import { query, withTransaction } from '../services/db.js';
 import { collectionIsWritable } from '../services/providerAccess.js';
@@ -316,15 +324,36 @@ async function updateInvitedEvent(req: Request, fields: InvitationFields) {
  * the capability model (adapter, conflict protection, the origin's permission and the user's write-back
  * choice) decides *whether*, and the returned target says *who*. A local calendar returns the local
  * target; a write-enabled provider collection returns the connection and the provider's own calendar id.
+ *
+ * The shared resolver owns the local and Microsoft branches. Google's write path lives in
+ * `providerGoogleWrites.ts`, which is asked only when the shared resolver refused: it answers `google`
+ * for a write-enabled Google collection and `not_google` for everything else, so every other refusal
+ * (missing, read-only, an origin with no writer) is returned exactly as it was.
  */
 type WritableCalendar =
   | { ok: false; status: number; error: string }
-  | { ok: true; target: ReturnType<typeof resolveCalendarWriteTarget> extends Promise<infer T> ? Exclude<T, { kind: 'refused' }> : never };
+  | { ok: true; target: (ReturnType<typeof resolveCalendarWriteTarget> extends Promise<infer T> ? Exclude<T, { kind: 'refused' }> : never) | GoogleCalendarWriteTarget };
 
 async function writableCalendar(userId: string, calendarId: string): Promise<WritableCalendar> {
   const target = await resolveCalendarWriteTarget(userId, calendarId);
-  if (target.kind === 'refused') return { ok: false, status: target.status, error: target.error };
-  return { ok: true, target };
+  if (target.kind !== 'refused') return { ok: true, target };
+  const google = await resolveGoogleCalendarWriteTarget(userId, calendarId);
+  if (google.kind === 'google') return { ok: true, target: google };
+  if (google.kind === 'refused') return { ok: false, status: google.status, error: google.error };
+  return { ok: false, status: target.status, error: target.error };
+}
+
+/**
+ * Report a provider write refusal with the shared vocabulary.
+ *
+ * `code` is what the interface switches on (`RESOURCE_NOT_FOUND`, `MUTATION_OUTCOME_UNKNOWN`, a
+ * provider problem code) and `error` is the sentence it shows; neither provider invents its own shape.
+ */
+function providerWriteRefusal(res: Response, failure: { status: number; error: string; code?: string }): void {
+  res.status(failure.status).json({
+    ...(failure.code ? { code: failure.code } : {}),
+    error: failure.error,
+  });
 }
 
 async function contactCalendarAppearance(userId: string): Promise<{ name?: string | null; color?: string | null; [key: string]: unknown }> {
@@ -722,36 +751,50 @@ router.post('/events', async (req, res) => {
 
   const access = await writableCalendar(sessionUserId(req), calendarId);
   if (!access.ok) return res.status(access.status).json({ error: access.error });
-  const providerTarget = access.target.kind === 'graph' ? access.target : null;
+  const target = access.target;
 
   // A provider-backed calendar is written at the provider **first**. Microsoft notifies attendees itself
-  // when an event carries them, so Inboxora's own invitation mail is skipped on this path rather than
-  // sending a second copy.
+  // when an event carries them, and Google does when `sendUpdates` asks it to, so Inboxora's own
+  // invitation mail is skipped on this path rather than sending a second copy.
   let providerEvent: { providerEventId: string; uid: string } | null = null;
-  if (providerTarget) {
+  const providerIdempotencyKey = typeof req.headers['x-idempotency-key'] === 'string' ? req.headers['x-idempotency-key'].slice(0, 128) : null;
+  const eventWrite = {
+    summary: summary || null, description, location, url, startsAt: times.startsAt, endsAt: times.endsAt,
+    allDay: Boolean(allDay), attendees: normalizedAttendees, recurrence,
+  };
+  if (target.kind === 'graph') {
     const attempt = await writeGraphCalendarEvent({
       userId: req.session.userId!,
-      target: providerTarget,
+      target,
       operation: 'create',
-      idempotencyKey: typeof req.headers['x-idempotency-key'] === 'string' ? req.headers['x-idempotency-key'].slice(0, 128) : null,
-      event: {
-        summary: summary || null, description, location, url, startsAt: times.startsAt, endsAt: times.endsAt,
-        allDay: Boolean(allDay), attendees: normalizedAttendees, recurrence,
-      },
+      idempotencyKey: providerIdempotencyKey,
+      event: eventWrite,
     });
-    if (attempt.status === 'failed') {
-      return res.status(attempt.failure.status).json({
-        ...(attempt.failure.code ? { code: attempt.failure.code } : {}),
-        error: attempt.failure.error,
-      });
-    }
+    if (attempt.status === 'failed') return providerWriteRefusal(res, attempt.failure);
     providerEvent = {
       providerEventId: attempt.providerEventId,
       // The provider's own iCalUId keeps the local resource, the DAV view and the next sync on one identity.
       uid: attempt.event?.iCalUId?.trim() || `msgrap-${attempt.providerEventId}`,
     };
+  } else if (target.kind === 'google') {
+    // Google sends the invitation from this one call when the user asked for it; with `none` it sends
+    // nothing, so the choice is stated rather than left to Google's default.
+    const attempt = await writeGoogleCalendarEvent({
+      userId: req.session.userId!,
+      target,
+      operation: 'create',
+      idempotencyKey: providerIdempotencyKey,
+      event: eventWrite,
+      sendUpdates: sendInvites ? 'all' : 'none',
+    });
+    if (attempt.status === 'failed') return providerWriteRefusal(res, attempt.failure);
+    // Same identity rule as the read path uses for an event without an iCalUID.
+    providerEvent = {
+      providerEventId: attempt.providerEventId,
+      uid: attempt.event?.iCalUID?.trim() || `${attempt.providerEventId}@google.com`,
+    };
   }
-  const invitesHandledByProvider = providerTarget !== null;
+  const invitesHandledByProvider = target.kind !== 'local';
 
   let invitationAccount = null;
   if (sendInvites && !invitesHandledByProvider) {
@@ -819,15 +862,24 @@ router.post('/events', async (req, res) => {
                starts_at, ends_at, all_day, timezone, attendees, invite_account_id, invitation_sequence, created_at, updated_at`,
     [calendarId, req.session.userId, uid, rawIcal, summary || null, description, location, url, organizer, times.startsAt, times.endsAt, Boolean(allDay), timezone, jsonbAttendees(normalizedAttendees), invitationAccount?.id || null],
   );
-  if (providerEvent && providerTarget) {
+  if (providerEvent) {
     // The link is recorded after the local row exists, so the next delta updates this row instead of
     // inserting a second copy of the event.
-    await recordGraphCalendarEventLink({
-      userId: req.session.userId!,
-      target: providerTarget,
-      providerEventId: providerEvent.providerEventId,
-      localId: result.rows[0].id,
-    });
+    if (target.kind === 'graph') {
+      await recordGraphCalendarEventLink({
+        userId: req.session.userId!,
+        target,
+        providerEventId: providerEvent.providerEventId,
+        localId: result.rows[0].id,
+      });
+    } else if (target.kind === 'google') {
+      await recordGoogleCalendarEventLink({
+        userId: req.session.userId!,
+        target,
+        providerEventId: providerEvent.providerEventId,
+        localId: result.rows[0].id,
+      });
+    }
   }
   let invitationError = null;
   if (invitationAccount) {
@@ -969,30 +1021,30 @@ router.patch('/events/:eventId', async (req, res) => {
 
   const access = await writableCalendar(sessionUserId(req), calendarId);
   if (!access.ok) return res.status(access.status).json({ error: access.error });
-  const providerTarget = access.target.kind === 'graph' ? access.target : null;
-  if (providerTarget) {
-    // Provider first: an edit Microsoft refuses must not change the local copy, and Microsoft notifies
-    // attendees itself, so Inboxora's own invitation mail is skipped on this path.
-    const providerEventId = await graphEventIdForLocalRow(req.session.userId!, providerTarget.collectionId, req.params.eventId);
+  const target = access.target;
+  if (target.kind === 'graph' || target.kind === 'google') {
+    // Provider first: an edit the provider refuses must not change the local copy, and the provider
+    // notifies attendees itself, so Inboxora's own invitation mail is skipped on this path.
+    const providerEventId = target.kind === 'graph'
+      ? await graphEventIdForLocalRow(req.session.userId!, target.collectionId, req.params.eventId)
+      : await googleEventIdForLocalRow(req.session.userId!, target.collectionId, req.params.eventId);
     if (!providerEventId) return res.status(409).json({ error: 'This event is not linked to its provider copy yet' });
-    const attempt = await writeGraphCalendarEvent({
-      userId: req.session.userId!,
-      target: providerTarget,
-      operation: 'update',
-      providerEventId,
-      event: {
-        summary: summary || null, description, location, url, startsAt: times.startsAt, endsAt: times.endsAt,
-        allDay: Boolean(allDay), attendees: normalizedAttendees, recurrence: recurrenceProvided ? recurrence : null,
-      },
-    });
-    if (attempt.status === 'failed') {
-      return res.status(attempt.failure.status).json({
-        ...(attempt.failure.code ? { code: attempt.failure.code } : {}),
-        error: attempt.failure.error,
+    const eventWrite = {
+      summary: summary || null, description, location, url, startsAt: times.startsAt, endsAt: times.endsAt,
+      allDay: Boolean(allDay), attendees: normalizedAttendees, recurrence: recurrenceProvided ? recurrence : null,
+    };
+    if (target.kind === 'graph') {
+      const attempt = await writeGraphCalendarEvent({ userId: req.session.userId!, target, operation: 'update', providerEventId, event: eventWrite, localResourceId: req.params.eventId });
+      if (attempt.status === 'failed') return providerWriteRefusal(res, attempt.failure);
+    } else {
+      const attempt = await writeGoogleCalendarEvent({
+        userId: req.session.userId!, target, operation: 'update', providerEventId, event: eventWrite,
+        sendUpdates: sendInvites ? 'all' : 'none', localResourceId: req.params.eventId,
       });
+      if (attempt.status === 'failed') return providerWriteRefusal(res, attempt.failure);
     }
   }
-  const invitesHandledByProvider = providerTarget !== null;
+  const invitesHandledByProvider = target.kind !== 'local';
 
   let invitationAccount = null;
   if (sendInvites && !invitesHandledByProvider) {
@@ -1095,20 +1147,28 @@ router.delete('/events/:eventId', async (req, res) => {
 
   const access = await writableCalendar(sessionUserId(req), calendarId);
   if (!access.ok) return res.status(access.status).json({ error: access.error });
-  if (access.target.kind === 'graph') {
-    // Provider first, and Microsoft notifies attendees itself. An event Microsoft no longer has is the end
-    // state the caller asked for, so the local row is still removed and the link tombstoned.
-    const providerTarget = access.target;
-    const providerEventId = await graphEventIdForLocalRow(req.session.userId!, providerTarget.collectionId, req.params.eventId);
+  const target = access.target;
+  if (target.kind === 'graph' || target.kind === 'google') {
+    // Provider first, and the provider notifies attendees itself. An event the provider no longer has is
+    // the end state the caller asked for, so the local row is still removed and the link tombstoned.
+    const providerEventId = target.kind === 'graph'
+      ? await graphEventIdForLocalRow(req.session.userId!, target.collectionId, req.params.eventId)
+      : await googleEventIdForLocalRow(req.session.userId!, target.collectionId, req.params.eventId);
     if (!providerEventId) return res.status(409).json({ error: 'This event is not linked to its provider copy yet' });
-    const attempt = await writeGraphCalendarEvent({ userId: req.session.userId!, target: providerTarget, operation: 'delete', providerEventId });
-    if (attempt.status === 'failed' && attempt.failure.code !== 'RESOURCE_NOT_FOUND') {
-      return res.status(attempt.failure.status).json({
-        ...(attempt.failure.code ? { code: attempt.failure.code } : {}),
-        error: attempt.failure.error,
-      });
+    if (target.kind === 'graph') {
+      const attempt = await writeGraphCalendarEvent({ userId: req.session.userId!, target, operation: 'delete', providerEventId, localResourceId: req.params.eventId });
+      if (attempt.status === 'failed' && attempt.failure.code !== 'RESOURCE_NOT_FOUND') {
+        return providerWriteRefusal(res, attempt.failure);
+      }
+      await removeGraphCalendarEventLink({ userId: req.session.userId!, target, providerEventId });
+    } else {
+      // The cancellation is sent from the provider's own delete, so attendees are told once.
+      const attempt = await writeGoogleCalendarEvent({ userId: req.session.userId!, target, operation: 'delete', providerEventId, sendUpdates: 'all', localResourceId: req.params.eventId });
+      if (attempt.status === 'failed' && attempt.failure.code !== 'RESOURCE_NOT_FOUND') {
+        return providerWriteRefusal(res, attempt.failure);
+      }
+      await removeGoogleCalendarEventLink({ userId: req.session.userId!, target, providerEventId });
     }
-    await removeGraphCalendarEventLink({ userId: req.session.userId!, target: providerTarget, providerEventId });
   }
 
   const outcome = await withTransaction(async client => {

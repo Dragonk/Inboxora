@@ -388,7 +388,10 @@ describe('a contact whose book is written by a source refuses REST edits', () =>
         .mockResolvedValueOnce({ rows: [{
           id: 'book-1', source, collection_id: 'collection-1', remote_id: 'contacts',
           connection_id: 'connection-1', source_access: 'read_write', user_access: 'source',
-        }] });
+        }] })
+        // The shared resolver refused, so the Google resolver is asked whether this is a write-enabled
+        // Google book; it is not (its own query returns nothing here), and the refusal stands.
+        .mockResolvedValue({ rows: [] });
 
       const server = createApp().listen(0);
       const response = await fetch(`http://127.0.0.1:${listeningPort(server)}/api/contacts/contact-1`, {
@@ -411,7 +414,9 @@ describe('a contact whose book is written by a source refuses REST edits', () =>
         .mockResolvedValueOnce({ rows: [{
           id: 'book-1', source, collection_id: 'collection-1', remote_id: 'contacts',
           connection_id: 'connection-1', source_access: 'read_write', user_access: 'source',
-        }] });
+        }] })
+        // As above: the Google resolver's own lookup finds no write-enabled Google book.
+        .mockResolvedValue({ rows: [] });
 
       const server = createApp().listen(0);
       const response = await fetch(`http://127.0.0.1:${listeningPort(server)}/api/contacts/contact-1`, { method: 'DELETE' });

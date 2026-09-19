@@ -67,12 +67,22 @@ describe('the per-collection write-back opt-in', () => {
   });
 
   it('refuses when no adapter forwards this kind of write, even if the source would allow it', async () => {
-    // A Google calendar: the source permits writes, but the adapter declares no write-through yet.
-    const response = await patchCollection({ writeBack: true }, collection({ source: 'google' }));
+    // An ICS subscription: the collection's own access says read_write, but no adapter writes one back.
+    const response = await patchCollection({ writeBack: true }, collection({ source: 'ical_url' }));
 
     expect(response.status).toBe(409);
     expect(response.body).toMatchObject({ code: 'WRITE_PATH_UNAVAILABLE' });
     expect(updates()).toHaveLength(0);
+  });
+
+  it('accepts the opt-in for a Google collection whose adapter now forwards writes', async () => {
+    // The P09 Google calendar CRUD adapter declares write-through, so the registry layer no longer
+    // refuses it; the origin's own permission and the user's choice are still the gates that decide.
+    const response = await patchCollection({ writeBack: true }, collection({ source: 'google' }));
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({ collection: { userAccess: 'read_write', writeBack: true } });
+    expect(updates()).toHaveLength(2);
   });
 
   it('turns write-back off again, restoring the read-only mirror', async () => {

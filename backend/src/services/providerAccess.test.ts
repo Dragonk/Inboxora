@@ -209,7 +209,9 @@ describe('the default registry describes what this build can do', () => {
     expect(notOptedIn.reasonCode).toBe('COLLECTION_READ_ONLY');
 
     // CalDAV and CardDAV forward a write through the P10 client, so an opted-in collection of either
-    // origin is accepted; google_api still has no write path and refuses whatever the collection says.
+    // origin is accepted. Google's Calendar/People adapters forward create/update/delete too (P09), so
+    // an opted-in google_api collection is accepted for the same reason Graph's is — and refused for
+    // the same reason when nobody opted in, which is the gate that keeps a pulled collection read-only.
     for (const [source, feature] of [['caldav', 'calendars'], ['carddav', 'contacts']] as const) {
       const access = resolveCollectionAccess(
         { source, dav_mode: 'read_write', source_access: 'read_write', user_access: 'read_write' },
@@ -219,11 +221,22 @@ describe('the default registry describes what this build can do', () => {
       expect(access.providerKey, source).toBe(source);
     }
     const google = resolveCollectionAccess(
-      { source: 'google', dav_mode: 'read_write', source_access: 'read_write', user_access: 'read_write' },
+      { source: 'google', dav_mode: 'off', source_access: 'read_write', user_access: 'read_write' },
       { feature: 'calendars', operation: 'create' },
     );
-    expect(google.allowed).toBe(false);
-    expect(google.reasonCode).toBe('OPERATION_FORBIDDEN');
+    expect(google.providerKey).toBe('google_api');
+    expect(google.allowed).toBe(true);
+
+    const googleNotOptedIn = resolveCollectionAccess(
+      { source: 'google', dav_mode: 'off', source_access: 'read_write' },
+      { feature: 'calendars', operation: 'create' },
+    );
+    expect(googleNotOptedIn.allowed).toBe(false);
+    expect(googleNotOptedIn.reasonCode).toBe('COLLECTION_READ_ONLY');
+    // Known limitation (reported, not fixed here): the DAV channel applies the same write-through flag,
+    // while `routes/caldav.ts` and `routes/carddav.ts` forward only for the caldav/carddav providers. A
+    // provider collection must therefore not be made DAV read-write until that channel forwards too;
+    // the fix belongs in the per-channel capability model, not in a route.
   });
 
   it('keeps a local address book writable', () => {
