@@ -299,14 +299,20 @@ describe('WebDAV If header on a write', () => {
   });
 });
 
-describe('a collection whose source is a provider refuses DAV writes', () => {
-  // The source is the writer for an imported or connected collection. This is what
-  // keeps an unimplemented write-back from silently accepting an edit that the next
-  // sync would discard, so it is pinned for both protocols rather than assumed.
+describe('a collection whose source is a provider refuses DAV writes it was not enabled for', () => {
+  // A pulled collection is read-only until the user enables write-back for **that** collection, and a
+  // source whose adapter cannot forward the change is refused whatever the collection says. Both
+  // refusals are pinned for both protocols rather than assumed, because accepting an edit the provider
+  // never receives is the failure this guards against.
   const eventBody = 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:e1\r\nDTSTART:20260901T090000Z\r\nDTEND:20260901T100000Z\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n';
   const cardBody = 'BEGIN:VCARD\r\nVERSION:3.0\r\nUID:c1\r\nFN:Ada\r\nEND:VCARD';
+  // A Google collection the user has not enabled: the adapter can write, the collection does not allow it.
   const providerCalendar = { id: 'cal-g', name: 'Imported', sync_token: 'sync-1', read_only: true, source: 'google', dav_mode: 'read_write' };
   const providerBook = { id: 'book-g', name: 'Imported', sync_token: 'sync-1', sync_version: 1, source: 'google', dav_mode: 'read_write' };
+  // A source with no write path at all: an ICS subscription cannot be written back to, and an unknown
+  // source has no adapter — both keep the "written by its source" answer rather than a read-only one.
+  const unclaimedCalendar = { ...providerCalendar, source: 'ical_url' };
+  const unclaimedBook = { ...providerBook, source: 'pop3-ish' };
 
   it('advertises read only for a provider calendar even when its DAV mode is read-write', async () => {
     query.mockResolvedValue({ rows: [providerCalendar] });
@@ -324,14 +330,32 @@ describe('a collection whose source is a provider refuses DAV writes', () => {
       method: 'PUT', headers: { ...AUTH, 'content-type': 'text/calendar' }, body: eventBody,
     });
     expect(put.status).toBe(403);
-    // A bare 403 cannot be told apart from a permissions problem; the body says which it is.
+    // A bare 403 cannot be told apart from a permissions problem; the body says which it is. This one is
+    // the collection's own access — the adapter exists, the user has not enabled write-back for it.
     expect(put.headers.get('content-type')).toContain('application/xml');
-    expect(await put.clone().text()).toContain('written by its source');
+    expect(await put.clone().text()).toContain('This calendar is read-only');
     const del = await fetch(`${base}/caldav/user-1/cal-g/event.ics`, { method: 'DELETE', headers: AUTH });
     expect(del.status).toBe(403);
-    expect(await del.text()).toContain('written by its source');
+    expect(await del.text()).toContain('This calendar is read-only');
     expect(queryCallsMatching('INSERT INTO calendar_events')).toHaveLength(0);
     expect(queryCallsMatching('DELETE FROM calendar_events')).toHaveLength(0);
+  });
+
+  it('names the source when no adapter can write it, on both protocols', async () => {
+    query.mockResolvedValue({ rows: [unclaimedCalendar] });
+    const put = await fetch(`${base}/caldav/user-1/cal-g/event.ics`, {
+      method: 'PUT', headers: { ...AUTH, 'content-type': 'text/calendar' }, body: eventBody,
+    });
+    expect(put.status).toBe(403);
+    expect(await put.text()).toContain('written by its source');
+
+    query.mockResolvedValue({ rows: [unclaimedBook] });
+    const card = await fetch(`${base}/carddav/user-1/book-g/contact.vcf`, {
+      method: 'PUT', headers: { ...AUTH, 'content-type': 'text/vcard' }, body: cardBody,
+    });
+    expect(card.status).toBe(403);
+    expect(await card.text()).toContain('written by its source');
+    expect(queryCallsMatching('INSERT INTO contacts')).toHaveLength(0);
   });
 
   it('refuses an oversized DAV body instead of holding it in memory', async () => {
@@ -379,7 +403,7 @@ describe('a collection whose source is a provider refuses DAV writes', () => {
       method: 'PUT', headers: { ...AUTH, 'content-type': 'text/vcard' }, body: cardBody,
     });
     expect(put.status).toBe(403);
-    expect(await put.clone().text()).toContain('written by its source');
+    expect(await put.clone().text()).toContain('This address book is read-only');
     const del = await fetch(`${base}/carddav/user-1/book-g/contact.vcf`, { method: 'DELETE', headers: AUTH });
     expect(del.status).toBe(403);
     expect(queryCallsMatching('INSERT INTO contacts')).toHaveLength(0);
