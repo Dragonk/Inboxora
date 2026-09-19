@@ -180,6 +180,36 @@ DAV rows are covered at protocol level but share P11's open criterion: no real c
 Recording this way is deliberate: the plan requires PASS, FAIL, SKIPPED and NOT RUN separated with
 evidence, and a row is not PASS because a similar test exists.
 
+## Open defect: the DAV request body is unbounded
+
+Found while finishing DV06, and it is a real one rather than a test gap. The CalDAV and CardDAV routes
+read the request body themselves, in a `rawBody` helper that accumulates chunks with **no size cap**:
+
+```ts
+let body = '';
+req.setEncoding('utf8');
+req.on('data', (chunk) => { body += chunk; });
+req.on('end', () => resolve(body));
+```
+
+The application's `express.json({ limit: '1mb' })` does not apply to these requests, because a DAV
+client sends `application/xml`, `text/calendar` or `text/vcard` — content types that parser ignores.
+So a client with a device password can stream an arbitrary amount of data and have the server hold all
+of it in memory as a growing string, on an endpoint whose job is to serve mail, contacts and calendars
+to everyone else. It is authenticated, and it is still a memory-exhaustion path: one request can take
+the process down for every user.
+
+The fix has two parts, and both are needed:
+
+- refuse early on `Content-Length` with `413`, which gives honest clients a correct answer;
+- cap the accumulation inside `rawBody` and destroy the request, because a client that sends chunked
+  or lies about its length would bypass the first part.
+
+This is not fixed here: it is a security-relevant change across two routers and their call sites, and
+it needs its own tests — a request just over the limit, one that lies about its length, and the
+existing DAV suites still green. Starting it at the end of this session and stopping half-way would
+leave the endpoints in a state nobody could trust.
+
 ## Acceptance criteria W01–W19, as the plan requires them reported
 
 The plan states that the scope is not complete until every W item has associated code **and real test
