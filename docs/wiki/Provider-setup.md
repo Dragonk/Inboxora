@@ -146,6 +146,34 @@ state. Revoking one does not affect the other.
   user already pulled**: connecting an account never starts an import by itself. Change the cadence
   with `PROVIDER_SYNC_INTERVAL_MINUTES`, or set it to `0` to refresh only when a user asks.
 
+## Disconnecting an account
+
+**Settings → Integrations** lists the accounts connected for each provider, with a **Disconnect**
+button beside each one. Disconnecting:
+
+- revokes the stored authorization and **deletes the saved access and refresh tokens**;
+- stops the refresh schedule for that account and disables its imported collections, so nothing
+  keeps syncing;
+- **keeps your imported data.** Contacts, address books, calendars and events stay visible, and stay
+  read-only.
+
+Nothing imported is deleted, and that is deliberate: removing your data is a separate decision.
+You cannot delete an imported collection while its source is still able to write to it, because the
+next refresh would simply recreate it. To stop *seeing* it, hide it instead — the address book's
+visibility toggle or the calendar's visibility switch — which never deletes anything.
+
+Reconnecting the same account restores the connection and re-enables its collections. The next
+refresh continues from where it stopped, and rebuilds from scratch if the provider rejects the old
+position.
+
+## Turning a provider or one of its methods off
+
+An administrator can switch a whole provider off, and switch individual methods off, in
+**Settings → Integrations**. Those switches are enforced, not cosmetic: a provider or method that is
+switched off is no longer offered by the interface **and** no longer startable, so the card and the
+flow always agree. The Microsoft **device-code** method has its own switch, because it needs only a
+Client ID where the browser method needs a secret and the exact redirect URI.
+
 ## Troubleshooting
 
 | Symptom | Cause and fix |
