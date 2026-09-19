@@ -31,6 +31,22 @@ release is never claimed before it has happened.
 ## [4.1.0]
 
 ### Added
+- **A native Microsoft Graph account's search reaches the mailbox, not only Inboxora's own rows (P07b).**
+  `GET /api/search` keeps its response shape, but when the search is scoped to a `microsoft_graph`
+  account — or spans all accounts and the local page came up short of the limit — the route asks Graph's
+  own index once (`GET /me/messages?$search="…"`, with the message sync's `$select` and page size), groups
+  the hits by the local folder path their `parentFolderId` resolves to, upserts them through the
+  message-sync projection in one transaction and runs the sync's post-commit conversation projection.
+  Mail the delta cursor never pulled — old messages, folders the sync never visited, anything outside its
+  recent window — is found and openable, and a repeated search updates in place because identity is
+  `provider_message_id`. The `$search` literal escapes backslashes and double quotes and is capped at 500
+  characters; a hit whose folder cannot be resolved is skipped and counted rather than filed into a
+  guessed folder; a provider failure is reported as `providerErrors` beside the local results and never
+  fails them; `PROVIDER_INTEGRATIONS_ENABLED=0` stops the outbound call; and the account's
+  `mail_transport` — never `source` — decides the branch, so a Google account still searches locally.
+  Search is a read into the local model, not a sync: it never touches a delta cursor, and no migration is
+  needed.
+
 - **An existing Microsoft account can move to the native Graph transport in place (P12).**
   `POST /api/accounts/:id/migrate` (optional body `{ connectionId }`) keeps the same `email_accounts.id`
   and every local message, folder, draft, alias and conversation, and switches the account only when an

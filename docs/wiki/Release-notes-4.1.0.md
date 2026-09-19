@@ -220,6 +220,22 @@ and reconnecting re-links the same collections rather than duplicating them.
   legacy CalDAV/CardDAV collection imported before this release has no write-back record yet, so it
   stays read-only over DAV until one is created for it — the import paths create one for new imports.
 
+### Provider-side search for native Microsoft Graph accounts (P07b)
+
+Inboxora's search box reads Inboxora's own `messages` table. For a Graph-served mailbox that holds only
+what the delta cursor pulled, so older mail — or mail in a folder the sync never visited — answered "no
+results" for messages that exist. A search scoped to a native Graph account now asks Graph's search index
+first and lands the hits in the local model before answering, so results are local rows as before and
+threading, opening, flagging and attachments work unchanged.
+
+Two limits are stated rather than hidden: a hit whose folder is not linked to the account (a disabled
+collection, or a folder created after the last refresh) has no local path and is **skipped and counted**,
+never guessed; and a provider failure returns the local results unchanged with a `providerErrors` entry
+naming the account and the reason. Search is a read into the local model, not a sync — it never touches a
+delta cursor. No migration is required. Only `microsoft_graph` is in scope (a Google account still
+searches locally), and `PROVIDER_INTEGRATIONS_ENABLED=0` stops the outbound search. **NOT RUN**: the
+provider is faked at the HTTP boundary and no live Outlook mailbox was searched.
+
 ### An existing Microsoft account moves to the native Graph transport in place (P12, Microsoft half)
 
 `POST /api/accounts/:id/migrate` (optional body `{ connectionId }`) moves an existing Microsoft account
