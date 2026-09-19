@@ -17,7 +17,7 @@ rows. It is kept because its lessons are load-bearing, and it must never be read
 present. Earlier revisions mixed the two inside the table itself, which is how a reader could take a
 four-attempt saga — or a superseded delivery report — for a current status.
 
-Last re-measured on `dev` at `3e9b0054`: backend typecheck, lint and **2450** unit tests
+Last re-measured on `dev` at `0b93d799`: backend typecheck, lint and **2450** unit tests
 (**116 skipped** across 14 files); frontend typecheck, lint, production build and **2685** tests;
 **188** database integration tests across **18** suites on a fresh PostgreSQL 16 with the full
 **112**-migration chain — and, since the CI slice, verified the same way a new installation would
@@ -1622,8 +1622,12 @@ started" row suggests, so the slice is a seam rather than a rewrite:
   has nothing to post. Worse, the route currently composes the message **twice** — once at 749 for the
   accounting and again inside `nodemailer.sendMail`, which builds its own MIME from `mailOptions`.
 
-  The first step is therefore not "call Graph" but: **compose once, above the seam, and hand the same
-  artefact to both branches** — SMTP via nodemailer's `raw`, Graph as the request body. That removes the
+  ~~The first step is therefore not "call Graph" but: **compose once, above the seam, and hand the same
+  artefact to both branches**~~ — **done for SMTP** (`0b93d799`): composition already happened before the
+  send, so the transport now takes the composed buffer through `raw` instead of composing a second one,
+  with no reordering and therefore no precedence decision. What remains of this item is only the Graph
+  branch consuming the same buffer. The original note read: **compose once, above the seam, and hand the
+  same artefact to both branches** — SMTP via nodemailer's `raw`, Graph as the request body. That removes the
   double composition, gives the Graph branch the MIME it needs at the point where it needs it, and leaves
   the `delivered` boundary where it is. Note also that the factory can return a **refreshed account**
   (`account = smtp.account`), so anything moved above the seam must not depend on the refreshed row.
