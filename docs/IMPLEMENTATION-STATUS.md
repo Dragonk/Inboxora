@@ -246,8 +246,9 @@ the stored row — `1815-12-10`, `1835-07-08` and one `jabber` handle. Writing i
 are `DATE`: the first run compared against pg's `Date` objects and failed, which was the assertion being
 wrong rather than the data, so the query casts to text.
 
-**Graph still has only the unit cases** — its mapper and upsert are verified by reading, and the same
-database-level case is the remaining step there.
+**Graph now has it too**: the Graph contacts integration suite stores a contact carrying a birthday, an
+anniversary and two IM addresses (one empty) and asserts the row — `1815-12-10`, `1835-07-08` and a single
+`other`-typed handle. Both providers are therefore proven end to end on a real database, not only mapped.
 
 ## Acceptance criteria W01–W19, as the plan requires them reported
 

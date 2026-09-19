@@ -163,6 +163,37 @@ describeOrSkip('Microsoft Graph contacts sync (PostgreSQL)', () => {
     expect(incremental.urls[0]).toBe(`${DELTA_BASE}?$deltatoken=baseline`);
   });
 
+  it('stores the anniversary and IM addresses a Graph contact carries', async () => {
+    // The mirror of the Google case: the mapper's fields are verified by reading and by unit tests,
+    // and this is the proof that the columns are written.
+    const connectionId = await seedConnection();
+    const provider = fakeProvider([
+      () => json({
+        value: [{
+          ...contact('c9', 'Ada Lovelace', 'ada@contoso.test'),
+          birthday: '1815-12-10T00:00:00Z',
+          anniversary: '1835-07-08T00:00:00Z',
+          imAddresses: ['ada@jabber.example', ''],
+        }],
+        '@odata.deltaLink': `${DELTA_BASE}?$deltatoken=fields`,
+      }),
+    ]);
+
+    await syncGraphContacts({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl: provider.fetchImpl });
+
+    // DATE columns come back as Date objects unless cast, which is the mistake the Google case made
+    // first; comparing text is comparing the data rather than the driver.
+    const stored = await autocommit(client => client.query<{
+      birthday: string | null; anniversary: string | null; instant_messages: Array<{ value: string; type: string }>;
+    }>('SELECT birthday::text AS birthday, anniversary::text AS anniversary, instant_messages FROM contacts WHERE user_id = $1', [USER_ID]));
+    expect(stored.rows[0]).toMatchObject({
+      birthday: '1815-12-10',
+      anniversary: '1835-07-08',
+      // A bare Graph IM address has no protocol, so it is typed `other`, and the empty entry is gone.
+      instant_messages: [{ value: 'ada@jabber.example', type: 'other' }],
+    });
+  });
+
   it('removes a contact the delta reports as deleted, keeping a tombstone link', async () => {
     const connectionId = await seedConnection();
     await syncGraphContacts({
