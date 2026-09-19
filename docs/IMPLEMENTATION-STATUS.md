@@ -154,13 +154,19 @@ More rows this work can evidence, all from tests observed passing in this sessio
 | MG04 | Standalone Google/Microsoft DAV, ICS and plain IMAP accounts: no migration is forced on them | Nothing in this work migrates or deletes another account's configuration; the only removal path is an explicit owner-scoped disconnect |
 
 | DV07 | UID different from the filename: read, PUT, DELETE and sync use a stable href | **PASS.** `davPg.integration.test.ts` stores an event whose `UID` is `embedded-event` under the file `client-generated.ics`, and a contact whose `UID` is `embedded-contact` under `client-generated.vcf`, then asserts the stored `dav_filename` and the sync-change row — so the href, not the UID, is the identity |
-| DV06 | DTD/XXE, large body, deep XML, traversal and cross-origin hrefs are safely rejected | **PARTIAL.** The XXE/DOCTYPE theme is exercised in `carddav.auth.test.ts`, `davCredentials.test.ts` and `davVisibility.test.ts`; I checked that the theme appears there, **not what each asserts**. The large-body, deep-XML and traversal parts are NOT RUN |
+| DV06 | DTD/XXE, large body, deep XML, traversal and cross-origin hrefs are safely rejected | **NOT RUN.** The XML-parsing hardening is not tested anywhere: the only `DOCTYPE` in the backend tests is an HTML page in a mail-parsing case, and the only `ENTITY` match is the substring inside `IDENTITY_MISSING_SUBJECT`. Whatever the parsers do with a DTD, a deep document or a traversal href is unverified |
 
 **One correction worth stating:** DV08 was recorded as NOT RUN for its parallel-`PUT` half in the
 previous revision. That was wrong — I read the unit-level precondition file and did not open the
 integration suite, which has covered it on a real database all along. It is the third time in this
-work that I described coverage from the wrong source rather than reading the one that holds it, and
-each time the record, not the code, was what needed fixing.
+work that I described coverage from the wrong source rather than reading the one that holds it.
+
+**And a fourth, caught before it could stand:** the previous revision of this table recorded DV06 as
+PARTIAL, "the XXE/DOCTYPE theme is exercised in three suites". That was false. Those three files
+matched the *`dav_mode = 'off'`* pattern in a shell call that ran several greps, and I attributed the
+output to the wrong one; the XML hardening of DV06 has no test at all and is NOT RUN. The row is
+corrected, and the mechanism is worth naming because it is a new layer of the same habit — this time
+the misreading was of my own tool output, not of the code.
 
 **GE12 and the device halves of GE01–GE05 and GE09 are NOT RUN**: they require Android/PWA and Safari
 iOS, and no device was used.
