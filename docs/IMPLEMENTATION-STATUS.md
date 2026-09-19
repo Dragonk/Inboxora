@@ -169,6 +169,16 @@ output to the wrong one; the XML hardening of DV06 has no test at all and is NOT
 corrected, and the mechanism is worth naming because it is a new layer of the same habit — this time
 the misreading was of my own tool output, not of the code.
 
+**The remaining KC rows need reading, not guessing.** I searched for their themes and am recording
+where to look, deliberately **without** a verdict — the DV06 entry above is the cautionary tale, where a
+filename match was written up as coverage and had to be taken back:
+
+| Row | Where to look | State |
+| --- | --- | --- |
+| KC04 (DST, differing TZIDs, date-only, exclusive end, midnight) | `calendarRecurrence.test.ts`, `calendarRecurrenceEquivalence.test.ts`, `googleCalendar.test.ts` and `googleCalendarSync.integration.test.ts` all touch time zones and recurrence | **unverified** — read what they assert before claiming it |
+| KC13 (vCard 3/4, many fields, a date without a year, a photo, Polish characters) | `utils/vcard.test.ts` (and `inlineImages.test.ts` for the photo path) | **unverified** for the same reason |
+| KC15 (one Google contact in several groups: no duplicate canonical contact) | nothing matched | **apparently uncovered.** The sync keys a contact by its `resourceName`, so duplicates are unlikely, but membership handling has no test |
+
 **GE12 and the device halves of GE01–GE05 and GE09 are NOT RUN**: they require Android/PWA and Safari
 iOS, and no device was used.
 
