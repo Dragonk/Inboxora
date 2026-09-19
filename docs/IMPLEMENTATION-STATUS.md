@@ -296,6 +296,35 @@ wrong rather than the data, so the query casts to text.
 anniversary and two IM addresses (one empty) and asserts the row — `1815-12-10`, `1835-07-08` and a single
 `other`-typed handle. Both providers are therefore proven end to end on a real database, not only mapped.
 
+## The normative documentation checklist (`TEKSTY-I-CHECKLISTA-AGENTA-v4.md`)
+
+The delivery archive contains a **normative** document beside the plan — ready PL/EN copy plus a list of
+documentation places that **must** be updated — and it was not read until now, because the archive listing I
+first looked at was truncated by a `head -5`. Reading it changes the documentation picture materially: most of
+its entries are unmet.
+
+| Required | State |
+| --- | --- |
+| `docs/wiki/Upgrading.md` — account behaviour, Microsoft's requirement, Google's recommendation with *Ignore* and a checkbox, no account removal, what to do without configuration | **MISSING.** No such page exists; upgrade guidance lives in a paragraph of `Installation.md`. |
+| `docs/wiki/Microsoft-provider.md`, `docs/wiki/Google-provider.md` — the full procedures from the admin guide, as product pages | **MISSING.** The procedures live in `Provider-setup.md`, which covers both; the checklist calls these "proposed names" and requires the procedures and all links either way. |
+| `README.md`, `docs/wiki/Home.md` — native integrations, Google optional with app passwords kept, Microsoft required, links to configuration and upgrade | **Partly met.** `Home.md` is in the sidebar and the wiki covers the policy; `README.md` was not checked against the requirement. |
+| `Configuration.md` — remove the "Google app password only" simplification, show both methods, the shared `emailProviders` and the feature switches | **Partly met**: the file documents `PROVIDER_SYNC_INTERVAL_MINUTES` and the purposes, and the switch added this session is in `.env.example`; whether the simplification is gone was not verified. |
+| `Getting-started.md`, `Troubleshooting.md`, `Email-and-threading.md`, `Calendar.md`, `External-calendars.md`, `Contacts-and-DAV.md`, `Mobile-navigation.md`, `Security.md`/`SECURITY.md`, `_Sidebar.md` | **Not checked** against their required content in this pass. |
+| A contradiction search for stale phrases (`migration_required`, "required migration", "Google only app password", "no client secret", `device`, `MS_CLIENT_ID`, `oauth_provider`) | **Not run.** |
+| Help UI, card copy, tooltips and `aria-label`s matching the same policy | **Not checked.** |
+| Screenshots refreshed from the real preview and anonymised | **Not done**, and the checklist forbids edited images that imitate a working interface. |
+
+The document also states two rules this work already follows and one it must not break: **do not claim that
+writing to `docs/wiki` updated an external wiki without proof** (the status document describes the publish
+script without claiming a publication), and **do not announce the scope complete with an undocumented account
+connection** — which is why the W-list still carries its FAILs.
+
+**What this means for the remaining work**: the documentation package is not "nearly done"; a normative list
+of required pages and updates is substantially unmet, and the two missing pages plus `Upgrading.md` are
+concrete, bounded deliverables rather than package-scale ones. They were not attempted here because writing
+three pages of operator instruction properly is more than the remaining session can verify, and a documentation
+page written without checking the code it describes would be worse than the gap.
+
 ## Acceptance criteria W01–W19, as the plan requires them reported
 
 The plan states that the scope is not complete until every W item has associated code **and real test
