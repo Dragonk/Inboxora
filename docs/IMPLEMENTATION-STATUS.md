@@ -983,7 +983,9 @@ Each of these cost a defect or a round to learn, and each applies to whatever co
 
 ## Final report (§30), in the shape the plan requires
 
-Written at `f12727f6` on `dev`, the commit this report follows; the report commit itself changes no code. It is **not**
+Written at `f12727f6` on `dev` — the last commit to change **code** — and current at `48b94cbf`, the tip it is
+committed against. Every commit between them is documentation only, which is why both are given: §30.1 asks for
+the final SHA, and the answer is a pair rather than one hash. It is **not**
 a declaration of completed delivery — §30's closure condition is that every agreed feature is present with its tests
 settled and a verified image pair on the same commit, and the last section below says exactly what is missing.
 
