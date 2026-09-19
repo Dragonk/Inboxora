@@ -19,6 +19,7 @@ import type { CSSProperties } from 'react';
 import type { StoreState } from '../store/index.ts';
 import { toAppError } from '../utils/errors.ts';
 import { providerFailureKey } from '../utils/providerFailure.ts';
+import { providerConnectorSummary } from '../utils/providerSyncSummary.ts';
 
 // Deterministic avatar color from a string
 function avatarColor(str: string): string {
@@ -172,29 +173,6 @@ interface ProviderContactsStatus {
   books?: Array<{ addressBookId: string; contactCount?: number; lastSyncedAt?: string | null; lastErrorCode?: string | null; lastErrorAt?: string | null }>;
 }
 
-/** The freshest last-sync time of a provider, or its first recorded failure. */
-function providerSyncSummary(status: ProviderContactsStatus | null): { key: string | null; values: Record<string, string> } | null {
-  const books = Array.isArray(status?.books) ? status.books : [];
-  const failed = books.find(book => book.lastErrorCode);
-  if (failed) {
-    // A failure always records when it happened, so the message can say when.
-    const when = failed.lastErrorAt ? new Date(failed.lastErrorAt).toLocaleString() : '';
-    // An actionable code gets a sentence; anything else keeps the raw code.
-    const actionable = providerFailureKey(failed.lastErrorCode);
-    return {
-      key: actionable ?? 'contacts.addressBooks.lastSyncFailed',
-      values: { code: String(failed.lastErrorCode), when },
-    };
-  }
-  const times = books.map(book => book.lastSyncedAt).filter((value): value is string => typeof value === 'string');
-  if (!times.length) return null;
-  const latest = [...times].sort().at(-1) as string;
-  // The date is the freshest sync, the count is the total across the books: the two
-  // are different aggregations, so the message says "in total" rather than implying the
-  // count belongs to that one time.
-  const count = books.reduce((total, book) => total + (book.contactCount ?? 0), 0);
-  return { key: null, values: { date: new Date(latest).toLocaleString(), count: String(count) } };
-}
 
 /** One connection's outcome from POST /contacts/providers/google/sync. */
 interface GoogleContactsSyncOutcome {
@@ -659,8 +637,16 @@ export default function ContactsPage({ isActive = true }) {
   });
   const setCategories = (value: string) => setForm(f => ({ ...f, categories: value.split(',').map(category => category.trim()).filter(Boolean) }));
 
-  const googleSummary = providerSyncSummary(googleContacts);
-  const microsoftSummary = providerSyncSummary(microsoftContacts);
+  const googleSummary = providerConnectorSummary(googleContacts?.books, {
+    id: book => book.addressBookId,
+    count: book => book.contactCount ?? 0,
+    failureKey: code => providerFailureKey(code) ?? 'contacts.addressBooks.lastSyncFailed',
+  });
+  const microsoftSummary = providerConnectorSummary(microsoftContacts?.books, {
+    id: book => book.addressBookId,
+    count: book => book.contactCount ?? 0,
+    failureKey: code => providerFailureKey(code) ?? 'contacts.addressBooks.lastSyncFailed',
+  });
   const selectedBook = addressBooks.find(book => book.id === selectedAddressBookId);
   const bookControls = <div className="contacts-book-controls">
     <div className="contacts-books" role="group" aria-label={t('contacts.addressBooks.label')}>

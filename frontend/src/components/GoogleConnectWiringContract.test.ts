@@ -146,9 +146,9 @@ test('a local calendar can import an .ics file from the appearance dialog', asyn
 
 test('each provider reports when it last synced, or that it failed', async () => {
   const source = await readFile(contactsPage, 'utf8');
-  assert.match(source, /function providerSyncSummary\(status: ProviderContactsStatus \| null\)/);
+  assert.match(source, /providerConnectorSummary\(googleContacts\?\.books/);
+  assert.match(source, /providerConnectorSummary\(microsoftContacts\?\.books/);
   // The freshest time wins, and a recorded failure is shown instead of a time.
-  assert.match(source, /books\.find\(book => book\.lastErrorCode\)/);
   assert.match(source, /contacts\.addressBooks\.lastSynced/);
   assert.match(source, /contacts\.addressBooks\.lastSyncFailed/);
   assert.match(source, /data-testid="contacts-google-sync-status"/);
@@ -157,8 +157,7 @@ test('each provider reports when it last synced, or that it failed', async () =>
 
 test('the calendar connector reports when it last synced, or that it failed', async () => {
   const source = await readFile(calendarSidebar, 'utf8');
-  assert.match(source, /function googleCalendarSyncSummary\(status: GoogleCalendarStatus \| null\)/);
-  assert.match(source, /calendars\.find\(calendar => calendar\.lastErrorCode\)/);
+  assert.match(source, /providerConnectorSummary\(googleCalendars\?\.calendars/);
   assert.match(source, /calendar\.lastSynced/);
   assert.match(source, /calendar\.lastSyncFailed/);
   assert.match(source, /data-testid="calendar-google-sync-status"/);
@@ -172,11 +171,12 @@ test('an actionable provider failure is explained instead of shown as a code', a
   assert.match(helper, /providers\.syncFailedAuth/);
   assert.match(helper, /providers\.syncFailedScopes/);
   assert.match(helper, /providers\.syncFailedRateLimited/);
-  assert.match(source, /providerFailureKey\(failed\.lastErrorCode\)/);
-  assert.match(sidebar, /providerFailureKey\(failed\.lastErrorCode\)/);
+  // The mapping is wired through the summary helper's failureKey, one per surface.
+  assert.match(source, /failureKey: code => providerFailureKey\(code\) \?\? 'contacts\.addressBooks\.lastSyncFailed'/);
+  assert.match(sidebar, /failureKey: code => providerFailureKey\(code\) \?\? 'calendar\.lastSyncFailed'/);
   // A code with no known action keeps the raw code rather than a friendly guess.
-  assert.match(source, /actionable \?\? 'contacts\.addressBooks\.lastSyncFailed'/);
-  assert.match(sidebar, /actionable \?\? 'calendar\.lastSyncFailed'/);
+  assert.match(source, /contacts\.addressBooks\.lastSyncFailed/);
+  assert.match(sidebar, /calendar\.lastSyncFailed/);
 });
 
 test('an import confirms what it added instead of refreshing silently', async () => {
@@ -216,8 +216,8 @@ test('the last-sync line reports the total the connector holds', async () => {
   const sidebar = await readFile(calendarSidebar, 'utf8');
   // The count is a total across books/calendars while the date is the freshest sync, so
   // the message must not imply the count belongs to that one time.
-  assert.match(contacts, /book\.contactCount \?\? 0/);
-  assert.match(sidebar, /calendar\.eventCount \?\? 0/);
+  assert.match(contacts, /count: book => book\.contactCount \?\? 0/);
+  assert.match(sidebar, /count: calendar => calendar\.eventCount \?\? 0/);
   const strings = JSON.parse(await readFile(new URL('../locales/en.json', import.meta.url), 'utf8'));
   assert.match(strings.contacts.addressBooks.lastSynced, /\{\{count\}\}/);
   assert.match(strings.contacts.addressBooks.lastSynced, /in total/);

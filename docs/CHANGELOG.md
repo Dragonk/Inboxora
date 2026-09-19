@@ -337,6 +337,13 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   consent left that button disabled until its five-second timeout, because only the mailbox button
   was released. The error text still appears in the mailbox area: the popup does not report which
   provider failed, and attributing it to a guess would be worse than leaving it unattributed.
+- Make the connector status line's arithmetic robust and tested. The four aggregations (freshest
+  sync, total, failure precedence, the action sentence) existed twice, once per surface and only as
+  component code that no test could reach. They now live in one helper with unit tests, and it
+  de-duplicates rows by collection: the `sync_states` unique key includes `coverage`, so the status
+  query could one day return two rows for one collection, and a fan-out would silently double the
+  number the line reports. Relying on "only one row exists today" is fine for the query, not for a
+  count the user reads.
 
 ## [4.0.4] - 2026-09-18
 

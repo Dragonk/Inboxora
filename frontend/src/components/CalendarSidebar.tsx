@@ -6,6 +6,7 @@ import { Button, Dialog } from './ui.tsx';
 import type { CSSProperties, FormEvent } from 'react';
 import { toAppError } from '../utils/errors.ts';
 import { providerFailureKey } from '../utils/providerFailure.ts';
+import { providerConnectorSummary } from '../utils/providerSyncSummary.ts';
 import type { TFunction } from 'i18next';
 
 /** A calendar source as GET /calendar/sources returns it. */
@@ -110,26 +111,6 @@ interface CalendarSidebarProps {
   canCreate: boolean;
   sourcePanelRequest?: number;
   t: TFunction;
-}
-/** The freshest last-sync time of the imported Google calendars, or a recorded failure. */
-function googleCalendarSyncSummary(status: GoogleCalendarStatus | null): { key: string | null; values: Record<string, string> } | null {
-  const calendars = Array.isArray(status?.calendars) ? status.calendars : [];
-  const failed = calendars.find(calendar => calendar.lastErrorCode);
-  if (failed) {
-    const when = failed.lastErrorAt ? new Date(failed.lastErrorAt).toLocaleString() : '';
-    // An actionable code gets a sentence; anything else keeps the raw code.
-    const actionable = providerFailureKey(failed.lastErrorCode);
-    return {
-      key: actionable ?? 'calendar.lastSyncFailed',
-      values: { code: String(failed.lastErrorCode), when },
-    };
-  }
-  const times = calendars.map(calendar => calendar.lastSyncedAt).filter((value): value is string => typeof value === 'string');
-  if (!times.length) return null;
-  const latest = [...times].sort().at(-1) as string;
-  // The date is the freshest sync, the count is the total across the calendars.
-  const count = calendars.reduce((total, calendar) => total + (calendar.eventCount ?? 0), 0);
-  return { key: null, values: { date: new Date(latest).toLocaleString(), count: String(count) } };
 }
 
 export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds, weekStartsOn = 1, locale, onSelectDate, onShiftMonth, onToggleCalendar, onSourcesChanged, onCalendarsChanged, onCreate, canCreate, sourcePanelRequest = 0, t }: CalendarSidebarProps) {
@@ -250,7 +231,11 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
       setSourceError(toAppError(error).message);
     }
   };
-  const googleSummary = googleCalendarSyncSummary(googleCalendars);
+  const googleSummary = providerConnectorSummary(googleCalendars?.calendars, {
+    id: calendar => calendar.calendarId,
+    count: calendar => calendar.eventCount ?? 0,
+    failureKey: code => providerFailureKey(code) ?? 'calendar.lastSyncFailed',
+  });
   const loadGoogleCalendars = async () => {
     try {
       const result = await api.calendar.googleCalendars.status() as GoogleCalendarStatus;
