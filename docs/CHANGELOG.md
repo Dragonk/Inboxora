@@ -15,6 +15,19 @@ limitations — read the matching page in the Wiki: [Release notes 4.1.0](wiki/R
 
 ### Changed
 
+- **Graph conversations are identified correctly, and the engine does not read them yet** (P07b,
+  twenty-first slice — deliberately one half of a pair). `providerMetadataForMessage` now recognises a
+  Microsoft Graph account and takes its `conversationId` (stored as `thread_id`) as a **strong** provider
+  thread id. That matters because the previous behaviour was not "wrong grouping" but **silent loss**:
+  with the account typed as an ordinary Outlook mailbox, the id went through the Thread-Index path,
+  which expects a 22-byte hex root and answers `null` for a base64 conversation id, so the thread key
+  was dropped. The namespace now carries the account too, so two Graph mailboxes cannot share a thread.
+  **What is not done: the message sync does not call the conversation engine yet**, so this is a
+  verified mapping with no production caller. It is committed as half rather than as a finished feature
+  because the second half — exporting `persistConversationCopyForRow`, returning the row ids the page
+  wrote, and persisting them *after* the page's transaction commits — is scoped in the status document
+  and was not safe to attempt with the remaining budget of the session.
+
 - **Ensuring a folder works on a Microsoft Graph account, which completes GTD's setup step** (P07b,
   twentieth slice). `ensureFolder` opened an IMAP session, and three callers reach it — the labels
   capability, the folder routes and GTD — so the branch lives there rather than being copied into each

@@ -38,3 +38,39 @@ describe('provider conversation metadata', () => {
     expect(result.threadTopic).toBe('Topic');
   });
 });
+
+// A native Microsoft account carries Graph's `conversationId` in `thread_id`. It is
+// server-assigned and immutable, so it is strong evidence — the same property Gmail's
+// X-GM-THRID has — and it must not be routed through the Outlook Thread-Index path,
+// which expects a 22-byte hex root and answers null for a base64 id. Dropping the key
+// silently would be the worse of the two failures.
+describe('Graph conversations', () => {
+  const account = { id: 'acct-1', imap_host: 'outlook.office365.com', mail_transport: 'microsoft_graph' };
+  const message = { thread_id: 'AAQkADM0YmY3Y2Et=', messageId: '<m1@contoso.test>' };
+
+  it('takes the conversation id as a strong provider thread id', () => {
+    const metadata = providerMetadataForMessage(message, account);
+    expect(metadata).toMatchObject({
+      provider: 'graph',
+      providerThreadId: 'AAQkADM0YmY3Y2Et=',
+      isStrong: true,
+      source: 'provider-thread-id',
+    });
+    // The namespace carries the account, so two mailboxes cannot share a thread.
+    expect(metadata.namespace).toContain('acct-1');
+  });
+
+  it('does not fall back to the Outlook Thread-Index path for a Graph account', () => {
+    // A base64 conversation id has no 22-byte hex root, so that path would answer null.
+    const metadata = providerMetadataForMessage({ thread_id: 'AAQkADM0YmY3Y2Et=' }, account);
+    expect(metadata.providerThreadId).toBe('AAQkADM0YmY3Y2Et=');
+    expect(metadata.source).not.toBe('outlook-conversation-index-root');
+  });
+
+  it('treats an IMAP Outlook mailbox exactly as before', () => {
+    const metadata = providerMetadataForMessage(message, { id: 'acct-1', imap_host: 'outlook.office365.com' });
+    expect(metadata.provider).toBe('outlook');
+    expect(metadata.isStrong).toBe(false);
+    expect(metadata.providerThreadId).toBeNull();
+  });
+});
