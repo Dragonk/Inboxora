@@ -544,6 +544,26 @@ claimed a green run. It was corrected in the next commit, and it is the **second
 this session — the screenshot verifier in round 198 was the first — and the first that put a red test on the branch.
 The corrective is mechanical and now stated: read the **exit status**, never the piped tail, before staging.
 
+### The editor's messages (§12.9): the behaviour exists, the translation does not
+
+The last unread subsection of §12 lists five messages it calls **mandatory and translated**. Read against the
+implementation, four of the five behaviours exist today — and three of the five are shown to the user as the server's
+English sentence rather than as an interface message, which is the requirement the plan actually makes.
+
+| The plan's message | State |
+| --- | --- |
+| "File «x» has {actual}; the limit is {limit}. The file was not attached." | **Behaviour yes, translation no.** The refusal carries `ATTACHMENT_TOO_LARGE`, the file name and its bytes, and the composer displays the server's English text. The plan wants the numbers filled into a translated sentence. |
+| "The whole message encoded is {actual}, and {limit} is allowed. Remove some files or shorten the message." | **Behaviour yes, translation no** — the same shape: `MESSAGE_TOO_LARGE` now carries the composed size, the limit and the attachment subtotal, and none of it is translated. |
+| "The provider rejected this attachment type. The draft was kept." | **No behaviour to translate**: there is no provider attachment path until the API transports exist. |
+| "The forwarded attachment could not be fetched. The message was not sent without this file." | **Behaviour yes, translation no** — the send is refused before dispatch when a forwarded part cannot be read, which is the required consequence — and the refusal has **no code at all**, so the composer could not branch on it even if it wanted to. |
+| "The message may have been accepted… sending again may cause a duplicate." | **Done**, in nine languages: the uncertainty message added this session says the result is unknown, that it will not be resent automatically, and where to look. The plan's wording mentions the duplicate risk explicitly, which is a wording difference rather than a gap. |
+
+So §12.9's requirement is **met for one of five and half-met for three**: the behaviour is right in each case, and the
+missing half is consistent — codes exist for two of the three (and the third needs one), and the composer needs a branch
+and a translated sentence with the numbers interpolated. That is a bounded piece of work of exactly the shape this
+session completed twice for other messages, and it is recorded rather than started because the composer's error
+rendering, three locale sets and a new code is more than the remaining budget can implement **and verify**.
+
 ### The send state machine and drafts (§12.7–12.8), read against the code
 
 | Requirement | State |
