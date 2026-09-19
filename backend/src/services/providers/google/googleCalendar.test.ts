@@ -79,6 +79,48 @@ describe('buildVTimezone', () => {
   });
 });
 
+describe('a midnight event keeps its day', () => {
+  it('projects a local midnight as that day, not the one before or after', () => {
+    // The classic day-shift hazard: 00:00 in a zone ahead of UTC is the previous day in UTC, so a
+    // conversion that goes through UTC and back can move the event a day. This is the one part of
+    // KC04 that no assertion covered.
+    const timezone = buildVTimezone('Europe/Warsaw', 2026, 2026);
+    expect(timezone).not.toBeNull();
+    const resource = [
+      'BEGIN:VCALENDAR', 'VERSION:2.0',
+      String(timezone),
+      'BEGIN:VEVENT', 'UID:midnight',
+      'DTSTART;TZID=Europe/Warsaw:20260901T000000',
+      'DTEND;TZID=Europe/Warsaw:20260901T010000',
+      'SUMMARY:Midnight',
+      'END:VEVENT',
+      'END:VCALENDAR', '',
+    ].join('\r\n');
+    const [event] = projectCalendarResource(
+      { id: 'row', calendar_id: 'cal', raw_ical: resource },
+      new Date('2026-01-01T00:00:00Z'),
+      new Date('2026-12-31T00:00:00Z'),
+    );
+    // 00:00 CEST is 22:00Z the day before; the projection stores the instant, and the round trip back
+    // must land on the 1st at midnight rather than on either neighbour.
+    expect(event?.starts_at?.toISOString()).toBe('2026-08-31T22:00:00.000Z');
+  });
+
+  it('writes a midnight instant back as the same local midnight', () => {
+    const ical = buildGoogleEventICalendar({
+      id: 'evt-midnight',
+      iCalUID: 'evt-midnight@google.com',
+      summary: 'Midnight',
+      status: 'confirmed',
+      start: { dateTime: '2026-09-01T00:00:00+02:00', timeZone: 'Europe/Warsaw' },
+      end: { dateTime: '2026-09-01T01:00:00+02:00', timeZone: 'Europe/Warsaw' },
+      updated: '2026-08-30T10:00:00Z',
+    });
+    expect(ical).toContain('DTSTART;TZID=Europe/Warsaw:20260901T000000');
+    expect(ical).not.toContain('20260831T');
+  });
+});
+
 describe('buildGoogleEventICalendar', () => {
   it('keeps a timed event in its zone with a usable VTIMEZONE', () => {
     const ical = buildGoogleEventICalendar({
