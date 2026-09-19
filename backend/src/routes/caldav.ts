@@ -11,6 +11,20 @@ import { evaluateDavIf, ifMatchSatisfied } from '../utils/davPreconditions.js';
 import { toAppError } from '../utils/errors.js';
 import type { Request, Response, NextFunction } from 'express';
 
+/**
+ * Refuse a DAV write with a reason.
+ *
+ * `403` with no body is the least useful answer a client can get: it cannot distinguish a
+ * permissions problem from a collection Inboxora keeps read-only because its source writes it, and
+ * neither can a user reading a log. A `DAV:error` body is the standard place to say which.
+ */
+function davRefusal(res: Response, reason: string): void {
+  res
+    .status(403)
+    .type('application/xml')
+    .send(`<?xml version="1.0" encoding="utf-8"?><D:error xmlns:D="DAV:"><D:responsedescription>${xmlEscape(reason)}</D:responsedescription></D:error>`);
+}
+
 const router = Router();
 const caldavBuckets = new Map();
 const CALDAV_MAX_REQUESTS = 500;
@@ -334,7 +348,11 @@ router.put('/:userId/:calendarId/:filename', async (req: Request, res: Response)
   if (!calendar || davModeOf(calendar.dav_mode) === 'off') return res.status(404).end();
   // A read_only DAV mode blocks writes the same way a read-only source does, and a
   // read-only device password cannot write even to a read-write calendar.
-  if (calendar.source !== 'local' || calendar.read_only || davModeOf(calendar.dav_mode) === 'read_only' || !credentialCanWrite(req)) return res.status(403).end();
+  if (calendar.source !== 'local' || calendar.read_only || davModeOf(calendar.dav_mode) === 'read_only' || !credentialCanWrite(req)) {
+    return davRefusal(res, calendar.source !== 'local'
+      ? 'This calendar is written by its source, so Inboxora will not accept changes to it.'
+      : 'This calendar is read-only.');
+  }
   const event = parseCalendarEvent(await rawBody(req));
   const filename = req.params.filename;
   if (!event) return res.status(400).end();
@@ -380,7 +398,11 @@ router.delete('/:userId/:calendarId/:filename', async (req: Request, res: Respon
   const calendarResult = await query<{ id: string; source?: string | null; read_only?: boolean | null; dav_mode?: string | null; sync_token?: string | null }>('SELECT id, source, read_only, dav_mode, sync_token FROM calendars WHERE id = $1 AND user_id = $2', [req.params.calendarId, req.caldavUserId]);
   const calendar = calendarResult.rows[0];
   if (!calendar || davModeOf(calendar.dav_mode) === 'off') return res.status(404).end();
-  if (calendar.source !== 'local' || calendar.read_only || davModeOf(calendar.dav_mode) === 'read_only' || !credentialCanWrite(req)) return res.status(403).end();
+  if (calendar.source !== 'local' || calendar.read_only || davModeOf(calendar.dav_mode) === 'read_only' || !credentialCanWrite(req)) {
+    return davRefusal(res, calendar.source !== 'local'
+      ? 'This calendar is written by its source, so Inboxora will not accept changes to it.'
+      : 'This calendar is read-only.');
+  }
   const uid = req.params.filename;
   const currentResult = await query<{ etag: string; invite_account_id?: string | null }>("SELECT etag, invite_account_id FROM calendar_events WHERE calendar_id = $1 AND COALESCE(dav_filename, uid || '.ics') = $2 AND recurrence_id = $3", [calendar.id, uid, '']);
   const current = currentResult.rows[0];

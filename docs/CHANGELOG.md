@@ -457,6 +457,11 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   was already stated in that provider's own description, but nothing in the interface said that
   Outlook.com and Microsoft 365 no longer accept a mailbox password. The Microsoft card now states
   that requirement, so the person choosing knows the connection is the only option.
+- Tell a DAV client why a write was refused. A collection Inboxora keeps read-only — because its
+  source writes it, or because its DAV mode says so — answered `403` with no body, which a client
+  cannot tell apart from a permissions failure and a user cannot read in a log. The refusal now
+  carries a `DAV:error` body naming the reason, on both protocols and on the create/update and delete
+  paths.
 
 
 ## [4.0.4] - 2026-09-18

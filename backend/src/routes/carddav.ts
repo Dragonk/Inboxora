@@ -19,6 +19,20 @@ import { createDavAuthMiddleware } from '../services/davServerAuth.js';
 import { evaluateDavIf, ifMatchSatisfied, ifNoneMatchAllowsCreate } from '../utils/davPreconditions.js';
 import { toAppError } from '../utils/errors.js';
 
+/**
+ * Refuse a DAV write with a reason.
+ *
+ * `403` with no body is the least useful answer a client can get: it cannot distinguish a
+ * permissions problem from a collection Inboxora keeps read-only because its source writes it, and
+ * neither can a user reading a log. A `DAV:error` body is the standard place to say which.
+ */
+function davRefusal(res: Response, reason: string): void {
+  res
+    .status(403)
+    .type('application/xml')
+    .send(`<?xml version="1.0" encoding="utf-8"?><D:error xmlns:D="DAV:"><D:responsedescription>${xmlEscape(reason)}</D:responsedescription></D:error>`);
+}
+
 const router = Router();
 
 interface AddressBookRow {
@@ -421,7 +435,11 @@ router.put('/:userId/:bookId/:filename', async (req, res) => {
     if (!bookResult.rows.length) return res.status(404).end();
     const book = bookResult.rows[0];
     if (davModeOf(book.dav_mode) === 'off') return res.status(404).end();
-    if (book.source !== 'local' || davModeOf(book.dav_mode) === 'read_only' || !credentialCanWrite(req)) return res.status(403).end();
+    if (book.source !== 'local' || davModeOf(book.dav_mode) === 'read_only' || !credentialCanWrite(req)) {
+      return davRefusal(res, book.source !== 'local'
+        ? 'This address book is written by its source, so Inboxora will not accept changes to it.'
+        : 'This address book is read-only.');
+    }
     const bookId = book.id;
 
     const existing = await query(
@@ -511,7 +529,11 @@ router.delete('/:userId/:bookId/:filename', async (req, res) => {
     );
     if (!bookResult.rows.length) return res.status(404).end();
     if (davModeOf(bookResult.rows[0].dav_mode) === 'off') return res.status(404).end();
-    if (bookResult.rows[0].source !== 'local' || davModeOf(bookResult.rows[0].dav_mode) === 'read_only' || !credentialCanWrite(req)) return res.status(403).end();
+    if (bookResult.rows[0].source !== 'local' || davModeOf(bookResult.rows[0].dav_mode) === 'read_only' || !credentialCanWrite(req)) {
+      return davRefusal(res, bookResult.rows[0].source !== 'local'
+        ? 'This address book is written by its source, so Inboxora will not accept changes to it.'
+        : 'This address book is read-only.');
+    }
 
     const currentRow = await query<{ etag: string }>(
       "SELECT etag FROM contacts WHERE address_book_id = $1 AND COALESCE(dav_filename, uid || '.vcf') = $2",

@@ -311,14 +311,18 @@ describe('a collection whose source is a provider refuses DAV writes', () => {
     expect(body).not.toContain('<D:write');
   });
 
-  it('refuses a calendar write with 403 and stores nothing', async () => {
+  it('refuses a calendar write with a reason, and stores nothing', async () => {
     query.mockResolvedValue({ rows: [providerCalendar] });
     const put = await fetch(`${base}/caldav/user-1/cal-g/event.ics`, {
       method: 'PUT', headers: { ...AUTH, 'content-type': 'text/calendar' }, body: eventBody,
     });
     expect(put.status).toBe(403);
+    // A bare 403 cannot be told apart from a permissions problem; the body says which it is.
+    expect(put.headers.get('content-type')).toContain('application/xml');
+    expect(await put.clone().text()).toContain('written by its source');
     const del = await fetch(`${base}/caldav/user-1/cal-g/event.ics`, { method: 'DELETE', headers: AUTH });
     expect(del.status).toBe(403);
+    expect(await del.text()).toContain('written by its source');
     expect(queryCallsMatching('INSERT INTO calendar_events')).toHaveLength(0);
     expect(queryCallsMatching('DELETE FROM calendar_events')).toHaveLength(0);
   });
@@ -329,6 +333,7 @@ describe('a collection whose source is a provider refuses DAV writes', () => {
       method: 'PUT', headers: { ...AUTH, 'content-type': 'text/vcard' }, body: cardBody,
     });
     expect(put.status).toBe(403);
+    expect(await put.clone().text()).toContain('written by its source');
     const del = await fetch(`${base}/carddav/user-1/book-g/contact.vcf`, { method: 'DELETE', headers: AUTH });
     expect(del.status).toBe(403);
     expect(queryCallsMatching('INSERT INTO contacts')).toHaveLength(0);
