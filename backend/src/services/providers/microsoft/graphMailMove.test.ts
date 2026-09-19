@@ -18,7 +18,7 @@ vi.mock('./graphMailSync.js', async (importOriginal) => {
   return { ...actual, graphFolderIdForPath: mocks.graphFolderIdForPath };
 });
 
-import { moveGraphMessageToFolder } from './graphMailMove.js';
+import { deleteGraphMessagePermanently, moveGraphMessageToFolder } from './graphMailMove.js';
 import { providerUidForGraphMessage } from './graphMail.js';
 
 const input = {
@@ -77,5 +77,27 @@ describe('moving one Graph message onto a local folder', () => {
     expect(request.payload).toMatchObject({ providerMessageId: 'AAMkAD-1', destinationFolderId: 'graph-snoozed' });
     expect(request.resourceId).toBe('message-1');
     expect(adapter).toMatchObject({ resourceType: 'message', idempotent: false });
+  });
+});
+
+describe('removing one Graph message for good', () => {
+  const remove = {
+    userId: 'user-1', accountId: 'account-1', connectionId: 'connection-1',
+    resourceId: 'message-1', providerMessageId: 'AAMkAD-1',
+  };
+
+  it('reports the removal only when the provider confirmed it', async () => {
+    mocks.runProviderMutation.mockResolvedValue({ status: 'confirmed', operationId: 'op-1', replayed: false });
+    await expect(deleteGraphMessagePermanently(remove)).resolves.toEqual({ deleted: true });
+    const [request, adapter] = mocks.runProviderMutation.mock.calls[0];
+    expect(request.operation).toBe('delete');
+    expect(adapter).toMatchObject({ resourceType: 'message', idempotent: false });
+  });
+
+  it('carries the provider code when it did not, so a caller can tell refusal from uncertainty', async () => {
+    mocks.runProviderMutation.mockResolvedValue({ status: 'permanent', operationId: 'op-1', code: 'RESOURCE_NOT_FOUND', replayed: false });
+    await expect(deleteGraphMessagePermanently(remove)).resolves.toEqual({ deleted: false, code: 'RESOURCE_NOT_FOUND' });
+    mocks.runProviderMutation.mockResolvedValue({ status: 'outcome_unknown', operationId: 'op-2', code: 'MUTATION_OUTCOME_UNKNOWN', replayed: false });
+    await expect(deleteGraphMessagePermanently(remove)).resolves.toEqual({ deleted: false, code: 'MUTATION_OUTCOME_UNKNOWN' });
   });
 });

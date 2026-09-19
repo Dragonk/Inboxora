@@ -19,13 +19,9 @@ import { isMicrosoftConfigured, microsoftConfigFromEnv } from '../services/provi
 import { syncGraphMailFoldersForAccount, syncGraphMailMessagesForAccount } from '../services/providers/microsoft/graphMailSync.js';
 import type { EmailAccountRow } from '../services/imapManager.js';
 import { GraphApiError } from '../services/providers/microsoft/graphApiClient.js';
-import {
-  graphCreateMailFolder,
-  graphDeleteIntent,
-  graphDeleteMutationAdapter,
-} from '../services/providers/microsoft/graphMailMutations.js';
+import { graphCreateMailFolder } from '../services/providers/microsoft/graphMailMutations.js';
 import { graphFolderIdForPath } from '../services/providers/microsoft/graphMailSync.js';
-import { moveGraphMessageToFolder } from '../services/providers/microsoft/graphMailMove.js';
+import { deleteGraphMessagePermanently, moveGraphMessageToFolder } from '../services/providers/microsoft/graphMailMove.js';
 import {
   collectGraphInlineImages,
   embedGraphInlineImages,
@@ -144,6 +140,8 @@ interface MailMessageRow {
   uid: number;
   folder: string;
   account_id: string;
+  /** The provider's immutable id, on a natively-ingested message (migration 0108). */
+  provider_message_id?: string | null;
   is_read?: boolean;
   folder_mappings?: FolderMappings | null;
   subject?: string | null;
@@ -863,28 +861,18 @@ async function deleteMessageOverGraph(input: {
   if (!account.provider_connection_id || !message.provider_message_id) {
     return { ok: false, status: 409, error: 'This message has no Microsoft Graph identity', code: 'RESOURCE_NOT_FOUND' };
   }
-  const api = {
-    userId: input.userId,
-    connectionId: account.provider_connection_id,
-    config: microsoftConfigFromEnv(),
-  };
-
   if (input.destinationPath === null) {
-    const payload = { providerMessageId: message.provider_message_id, intentAt: new Date().toISOString() };
-    const intent = graphDeleteIntent(payload);
-    const result = await runProviderMutation(
-      {
-        userId: input.userId, channel: 'web', operation: 'delete', accountId: message.account_id,
-        resourceId: message.id, ...intent, payload, retry: { delaySeconds: 300 },
-      },
-      graphDeleteMutationAdapter({ api }),
-    );
-    if (result.status === 'confirmed') return { ok: true, moved: false };
+    const deleted = await deleteGraphMessagePermanently({
+      userId: input.userId, accountId: message.account_id, connectionId: account.provider_connection_id,
+      config: microsoftConfigFromEnv(), resourceId: message.id, providerMessageId: message.provider_message_id,
+    });
+    if (deleted.deleted) return { ok: true, moved: false };
+    const refused = deleted.code === 'RESOURCE_NOT_FOUND' || deleted.code === 'PROVIDER_AUTH_REQUIRED' || deleted.code === 'INSUFFICIENT_SCOPES' || deleted.code === 'OPERATION_FORBIDDEN';
     return {
       ok: false,
-      status: result.status === 'permanent' ? 409 : 502,
-      error: result.status === 'permanent' ? 'Microsoft Graph refused to delete this message' : 'The delete could not be confirmed with Microsoft Graph',
-      ...(result.code ? { code: result.code } : {}),
+      status: refused ? 409 : 502,
+      error: refused ? 'Microsoft Graph refused to delete this message' : 'The delete could not be confirmed with Microsoft Graph',
+      ...(deleted.code ? { code: deleted.code } : {}),
     };
   }
 
@@ -1768,6 +1756,9 @@ router.post('/messages/bulk-delete', async (req, res) => {
     // trashMoveSucceeded: moved from a non-Trash folder into Trash.
     const expungeSucceeded: MailMessageRow[] = [];
     const trashMoveSucceeded: Array<{ msg: MailMessageRow; trashPath: string; newUid: number | null }> = [];
+    // Graph trash-moves were re-homed by the provider pass. They belong in the counts
+    // and the response, and they must stay out of the CTE.
+    const graphTrashMoved: Array<{ msg: MailMessageRow; trashPath: string; newUid: null }> = [];
     const accountsById: Record<string, import('../services/imapManager.js').EmailAccountRow> = {};
 
     for (const [accountId, msgs] of Object.entries(byAccount)) {
@@ -1786,6 +1777,30 @@ router.post('/messages/bulk-delete', async (req, res) => {
       // Drafts and messages already in Trash are permanently deleted; others move to Trash.
       const toExpunge = msgs.filter(m => allTrashPaths.has(m.folder) || allDraftsPaths.has(m.folder));
       const toMove    = msgs.filter(m => !allTrashPaths.has(m.folder) && !allDraftsPaths.has(m.folder));
+
+      // A native account deletes through its provider. The decision above is the
+      // same one; only the calls differ. Graph trash-moves are re-homed by the move
+      // helper itself, so they must stay out of the CTE below — it re-inserts under
+      // an IMAP UID the provider does not have.
+      if (account.mail_transport === 'microsoft_graph') {
+        for (const m of toExpunge) {
+          if (!m.provider_message_id) { console.error(`bulk-delete: ${m.id} has no provider id`); continue; }
+          const removed = await deleteGraphMessagePermanently({
+            userId: sessionUserId(req), accountId, connectionId: account.provider_connection_id ?? '',
+            config: microsoftConfigFromEnv(), resourceId: m.id, providerMessageId: m.provider_message_id,
+          });
+          if (removed.deleted) expungeSucceeded.push(m);
+          else console.error(`bulk-delete: Graph did not confirm the removal of ${m.id} (${removed.code ?? 'unknown'})`);
+        }
+        for (const m of toMove) {
+          const moved = await moveMessagesOverGraph({
+            userId: sessionUserId(req), accountId, account, messages: [m], destinationPath: trashPath,
+          });
+          if (moved.movedIds.length > 0) graphTrashMoved.push({ msg: m, trashPath, newUid: null });
+          else console.error(`bulk-delete: Graph did not confirm the trash move of ${m.id}`);
+        }
+        continue;
+      }
 
       // Permanently delete messages already in a trash-like folder (grouped by actual folder).
       if (toExpunge.length) {
@@ -1833,7 +1848,7 @@ router.post('/messages/bulk-delete', async (req, res) => {
     // Group by trashPath since different accounts may have different Trash folders.
     if (trashMoveSucceeded.length) {
       const byTrashPath: Record<string, Array<{ msg: MailMessageRow; trashPath: string; newUid: number | null }>> = {};
-      for (const u of trashMoveSucceeded) {
+      for (const u of [...trashMoveSucceeded, ...graphTrashMoved]) {
         (byTrashPath[u.trashPath] = byTrashPath[u.trashPath] || []).push(u);
       }
       for (const [trashPath, entries] of Object.entries(byTrashPath)) {
@@ -1876,6 +1891,7 @@ router.post('/messages/bulk-delete', async (req, res) => {
     const allSucceeded = [
       ...expungeSucceeded.map(m => m.id),
       ...trashMoveSucceeded.map(u => u.msg.id),
+      ...graphTrashMoved.map(u => u.msg.id),
     ];
     if (allSucceeded.length) {
       const srcDeltas: Record<string, { accountId: string; path: string; total: number; unread: number }> = {};

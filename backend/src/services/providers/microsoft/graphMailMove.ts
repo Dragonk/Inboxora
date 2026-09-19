@@ -1,6 +1,6 @@
 import { query } from '../../db.js';
 import { graphFolderIdForPath } from './graphMailSync.js';
-import { graphMoveIntent, graphMoveMutationAdapter } from './graphMailMutations.js';
+import { graphDeleteIntent, graphDeleteMutationAdapter, graphMoveIntent, graphMoveMutationAdapter } from './graphMailMutations.js';
 import { providerUidForGraphMessage } from './graphMail.js';
 import { runProviderMutation } from '../../providerMutationService.js';
 import type { GraphApiOptions } from './graphApiClient.js';
@@ -83,4 +83,48 @@ export async function moveGraphMessageToFolder(input: {
     console.warn(`Graph move: the local row ${input.resourceId} was gone before it could be re-homed`);
   }
   return { moved: true, newProviderMessageId: result.value.id, newUid };
+}
+
+/**
+ * Permanently remove one Microsoft Graph message.
+ *
+ * The sibling of `moveGraphMessageToFolder` and the same reasoning: one
+ * implementation behind single-message delete and the bulk route, so the
+ * non-idempotent classification and the intent identity are not written twice. A
+ * `DELETE` is not a move to the deleted-items folder — that is a move, and the
+ * caller decides which of the two Inboxora's "delete" means.
+ */
+export type DeleteGraphMessageResult = { deleted: true } | { deleted: false; code?: string };
+
+export async function deleteGraphMessagePermanently(input: {
+  userId: string;
+  accountId: string;
+  connectionId: string;
+  config?: GraphApiOptions['config'];
+  /** The local `messages.id`. */
+  resourceId: string;
+  providerMessageId: string;
+}): Promise<DeleteGraphMessageResult> {
+  const payload = { providerMessageId: input.providerMessageId, intentAt: new Date().toISOString() };
+  const result = await runProviderMutation(
+    {
+      userId: input.userId,
+      channel: 'web',
+      operation: 'delete',
+      accountId: input.accountId,
+      resourceId: input.resourceId,
+      ...graphDeleteIntent(payload),
+      payload,
+      retry: { delaySeconds: 300 },
+    },
+    graphDeleteMutationAdapter({
+      api: {
+        userId: input.userId,
+        connectionId: input.connectionId,
+        ...(input.config ? { config: input.config } : {}),
+      },
+    }),
+  );
+  if (result.status === 'confirmed' || result.status === 'accepted') return { deleted: true };
+  return { deleted: false, ...(result.code ? { code: result.code } : {}) };
 }

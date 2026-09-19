@@ -15,6 +15,15 @@ limitations — read the matching page in the Wiki: [Release notes 4.1.0](wiki/R
 
 ### Changed
 
+- **Deleting several Microsoft Graph messages at once works** (P07b, ninth slice). `POST /messages/bulk-delete`
+  — the multi-select delete — still called IMAP for both halves: the permanent removal of a draft or an
+  already-trashed message, and the move to Trash for everything else. Both now go to the provider, on the
+  same shared helpers single-message delete, filing, spam/ham and snooze use, so the rule that a Graph
+  move re-identifies the message is still implemented once. The rule that Graph rows must stay out of the
+  IMAP delete-and-re-insert statement applies here too, and the counts and the response include them.
+  A removal or a move the provider does not confirm is logged and left alone rather than reported as
+  done.
+
 - **Snooze works on a Microsoft Graph account, in both directions** (P07b, eighth slice). `/messages/:id/snooze`
   called IMAP's folder creation and move directly, so it failed on a native account; the wakeup half was
   worse, because it lives inside the mail manager and would have sent the message *into* Snoozed and never

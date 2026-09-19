@@ -11,6 +11,9 @@ const mocks = vi.hoisted(() => ({
   runProviderMutation: vi.fn(),
   graphFolderIdForPath: vi.fn(),
   resolveArchiveFolder: vi.fn(),
+  resolveTrashFolder: vi.fn(),
+  resolveAllTrashPaths: vi.fn(),
+  resolveAllDraftsPaths: vi.fn(),
   isAllMailFolder: vi.fn(),
   adjustFolderCounts: vi.fn(),
   broadcast: vi.fn(),
@@ -50,6 +53,9 @@ vi.mock('../utils/mailUtils.js', async (importOriginal) => {
   return {
     ...actual,
     resolveArchiveFolder: mocks.resolveArchiveFolder,
+    resolveTrashFolder: mocks.resolveTrashFolder,
+    resolveAllTrashPaths: mocks.resolveAllTrashPaths,
+    resolveAllDraftsPaths: mocks.resolveAllDraftsPaths,
     isAllMailFolder: mocks.isAllMailFolder,
     adjustFolderCounts: mocks.adjustFolderCounts,
   };
@@ -100,6 +106,9 @@ beforeEach(() => {
   mocks.query.mockResolvedValue({ rows: [], rowCount: 1 });
   mocks.graphFolderIdForPath.mockResolvedValue('graph-archive');
   mocks.resolveArchiveFolder.mockResolvedValue('Archive');
+  mocks.resolveTrashFolder.mockResolvedValue('Trash');
+  mocks.resolveAllTrashPaths.mockResolvedValue(new Set(['Trash']));
+  mocks.resolveAllDraftsPaths.mockResolvedValue(new Set<string>());
   mocks.isAllMailFolder.mockResolvedValue(false);
   mocks.runProviderMutation.mockResolvedValue({ status: 'confirmed', operationId: 'op-1', value: { id: 'AAMkAD-2' }, replayed: false });
 });
@@ -197,5 +206,37 @@ describe('bulk-archive keeps a Graph row out of the re-insert CTE', () => {
     const response = await post('/messages/bulk-archive', { ids: [MESSAGE_ID] });
     expect(await response.json()).toEqual({ ok: true, archived: [], noArchiveFolder: [ACCOUNT_ID] });
     expect(mocks.runProviderMutation).not.toHaveBeenCalled();
+  });
+});
+
+describe('bulk-delete keeps a Graph row out of the re-insert statement too', () => {
+  it('moves a Graph message to Trash through the provider and re-homes it', async () => {
+    mocks.query
+      .mockResolvedValueOnce({ rows: [messageRow()], rowCount: 1 })                     // owned messages
+      .mockResolvedValueOnce({ rows: [{ ...graphAccount() }], rowCount: 1 });           // account
+
+    const response = await post('/messages/bulk-delete', { ids: [MESSAGE_ID] });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ ok: true, deleted: [MESSAGE_ID] });
+
+    const [request] = mocks.runProviderMutation.mock.calls[0];
+    expect(request.payload).toMatchObject({ providerMessageId: 'AAMkAD-1', destinationFolderId: 'graph-archive' });
+    // The CTE would delete the row and re-insert it under an IMAP UID the provider
+    // does not have, so it must never see a Graph row.
+    expect(mocks.query.mock.calls.some(([sql]) => String(sql).includes('DELETE FROM messages WHERE id = ANY'))).toBe(false);
+    expect(mocks.query.mock.calls.some(([sql]) => String(sql).includes('provider_message_id = $3'))).toBe(true);
+    expect(mocks.bulkMoveMessages).not.toHaveBeenCalled();
+  });
+
+  it('removes a Graph message that is already in Trash, without the move path', async () => {
+    mocks.query
+      .mockResolvedValueOnce({ rows: [messageRow({ folder: 'Trash' })], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ ...graphAccount() }], rowCount: 1 });
+
+    const response = await post('/messages/bulk-delete', { ids: [MESSAGE_ID] });
+    expect(response.status).toBe(200);
+    expect(mocks.runProviderMutation.mock.calls[0][0].operation).toBe('delete');
+    expect(mocks.bulkMoveMessages).not.toHaveBeenCalled();
+    expect(mocks.graphFolderIdForPath).not.toHaveBeenCalled();
   });
 });
