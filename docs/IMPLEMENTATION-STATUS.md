@@ -146,12 +146,18 @@ More rows this work can evidence, all from tests observed passing in this sessio
 | Row | Scenario | Evidence in this repository |
 | --- | --- | --- |
 | DV03 | The intersection of DAV off / credential read-only / collection read-write, on every endpoint | `davCredentials.test.ts` for the per-password ceiling and `davVisibility.test.ts` for the per-collection mode; the write refusals are asserted per protocol |
-| DV08 | Bad or weak `If-Match`, `If-None-Match: *`, two parallel `PUT` | The strong `If-Match` work (`58f2c809`) and `davPreconditions.test.ts` cover the first two, including a tagged-list `If` failing closed. **The parallel `PUT` half is NOT RUN** — no concurrency case exists |
+| DV08 | Bad or weak `If-Match`, `If-None-Match: *`, two parallel `PUT` | **PASS.** `davPreconditions.test.ts` covers weak and tagged-list conditions (failing closed), and `davPg.integration.test.ts` runs two parallel `PUT`s with the same `If-Match` against a real database and asserts the statuses are exactly `[204, 412]` — one wins, one is refused, no lost update |
 | DV16 | Importing an ICS file versus an invitation arriving by mail: separate processes, correct UID collision | `calendarIcsImport.test.ts`, which asserts that a file does **not** overwrite an event Inboxora owns through a sent invitation and reports it instead |
 | DV19 | WebDAV `If` with a token and a collection Resource-Tag: compliant evaluation, no ignoring, no cross-user bypass | `davIfHeader.test.ts` with the `evaluateDavIf` decision table, tagged lists failing closed |
 | GE06 | The gesture switch turned off, then a reload and a new sign-in: it stays off and the zone returns to the row | `f76e1a40` with the preference allow-list; the switch, its default and its persistence are pinned by a contract test |
 | MG01 | A Google app password stays active without OAuth; Microsoft legacy needs Graph consent; a password is never converted into a token | The authorization requests read-only People/Calendar scopes, no mail transport changes, and no code path turns a password into a grant |
 | MG04 | Standalone Google/Microsoft DAV, ICS and plain IMAP accounts: no migration is forced on them | Nothing in this work migrates or deletes another account's configuration; the only removal path is an explicit owner-scoped disconnect |
+
+**One correction worth stating:** DV08 was recorded as NOT RUN for its parallel-`PUT` half in the
+previous revision. That was wrong — I read the unit-level precondition file and did not open the
+integration suite, which has covered it on a real database all along. It is the third time in this
+work that I described coverage from the wrong source rather than reading the one that holds it, and
+each time the record, not the code, was what needed fixing.
 
 **GE12 and the device halves of GE01–GE05 and GE09 are NOT RUN**: they require Android/PWA and Safari
 iOS, and no device was used.
