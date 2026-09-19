@@ -2774,3 +2774,32 @@ describe('moveSpamCopy', () => {
     expect(moveMessage).toHaveBeenCalledTimes(2);
   });
 });
+
+// The message-list route fires a fire-and-forget body prefetch on every listing. A
+// native account has no IMAP session to prefetch over — its bodies are read on demand
+// by the transport-aware body route — so the guard lives inside the method and these
+// cases pin it rather than trusting the call site.
+describe('folder body prefetch and the account transport', () => {
+  it('does not open an IMAP session for a Microsoft Graph account', async () => {
+    const { query } = await import('./db.js');
+    vi.mocked(query).mockReset().mockResolvedValueOnce({ rows: [{ id: 'acct-1', mail_transport: 'microsoft_graph' }] });
+
+    const { ImapManager } = await import('./imapManager.js');
+    await new ImapManager({} as never).prefetchFolderBodies('acct-1', ['11111111-1111-1111-1111-111111111111']);
+
+    // One query — the account — and nothing after it: no uncached-message lookup.
+    expect(vi.mocked(query)).toHaveBeenCalledTimes(1);
+  });
+
+  it('still looks for uncached bodies on an IMAP account', async () => {
+    const { query } = await import('./db.js');
+    vi.mocked(query).mockReset()
+      .mockResolvedValueOnce({ rows: [{ id: 'acct-1', mail_transport: 'imap_smtp' }] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    const { ImapManager } = await import('./imapManager.js');
+    await new ImapManager({} as never).prefetchFolderBodies('acct-1', ['11111111-1111-1111-1111-111111111111']);
+
+    expect(vi.mocked(query)).toHaveBeenCalledTimes(2);
+  });
+});

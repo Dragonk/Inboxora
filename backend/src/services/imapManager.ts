@@ -4840,6 +4840,12 @@ export class ImapManager {
     const accountResult = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
     if (!accountResult.rows.length) return;
     const account = accountResult.rows[0];
+    // A native account has no IMAP session to prefetch over: its bodies are read on
+    // demand, by the transport-aware body route. The guard lives here rather than at
+    // the call site so every caller is covered — the message-list route fires this
+    // fire-and-forget on each listing, and on a Graph account it could only open a
+    // connection that fails.
+    if (account.mail_transport && account.mail_transport !== 'imap_smtp') return;
     if (!providerProfile(account).snippetIndex) return;
 
     const uncachedResult = await query<{ id: string; uid: number; folder: string }>(

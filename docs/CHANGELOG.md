@@ -15,6 +15,15 @@ limitations — read the matching page in the Wiki: [Release notes 4.1.0](wiki/R
 
 ### Changed
 
+- **The message list no longer opens an IMAP session for a Microsoft Graph account** (P07b, fifteenth
+  slice). `GET /messages` fires a background body prefetch on every listing, and it had no transport
+  check: on a native account each listing opened a connection that could only fail. The guard now lives
+  inside `prefetchFolderBodies`, where the account is already loaded, so every caller is covered rather
+  than the one call site that was looked at. A native account's bodies are read on demand by the
+  transport-aware body route, so nothing is lost. This was found by **re-verifying the audit's own
+  negative claim** — the paragraph saying which IMAP calls a native account cannot reach — which is the
+  first time that claim has been checked since it was written.
+
 - **Creating and renaming a folder work on a Microsoft Graph account** (P07b, fourteenth slice). `POST /folders`
   and `/folders/rename` now act on the provider: the folder is created or its display name changed, and the
   discovery run that follows produces the local row, its `mail_folder` collection and — for a rename — the
