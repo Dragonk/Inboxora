@@ -316,6 +316,26 @@ its entries are unmet.
 | Help UI, card copy, tooltips and `aria-label`s matching the same policy | **Not checked.** |
 | Screenshots refreshed from the real preview and anonymised | **Not done**, and the checklist forbids edited images that imitate a working interface. |
 
+**The screenshots are verified, and the verifier's scope is narrower than the checklist's requirement.**
+`scripts/verify-docs-screenshots.mjs` reports **28 images, all referenced and non-empty** — it checks that every
+image a README or wiki page references exists, that no committed image is orphaned, that each is a plausible PNG
+rather than a truncated capture, and that none is a placeholder. What it does **not** check is **freshness**: it
+cannot tell whether an image still matches the interface it shows.
+
+Reading the set answers the useful question: it covers mail, calendar, contacts, mobile navigation and settings
+(appearance, DAV access, about, rebuild, threading) — and **not the provider card**, which is the surface this
+work changed most. So nothing in the committed set is stale *because of this work*; the checklist's requirement
+resolves into a bounded task rather than a blocked one:
+
+1. append a capture of the integrations card to `frontend/e2e/docs-screenshots.spec.ts` — the spec already opens
+   Settings and its tabs, so it is a matter of one test and the mocked API the others use;
+2. reference the new image from `Provider-setup.md`, where the policy and the method readiness are described;
+3. run the spec with the mocked preview and then `node scripts/verify-docs-screenshots.mjs`, which enforces the
+   four properties above and would catch a blank or placeholder capture.
+
+That was recorded as "blocked on environment" in earlier rounds, which was wrong: the mocked preview is exactly
+how CI produces these images, so the work is available here.
+
 **`SECURITY.md`** was the last comparison, and it needed the one thing it lacked: its "already in scope for
 review" list covered authentication, the DAV servers, encrypted credentials, the connection policy, rendering
 and the admin boundary — all still true — but said nothing about the **provider grant model** this work added.
