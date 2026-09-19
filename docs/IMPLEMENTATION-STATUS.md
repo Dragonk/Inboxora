@@ -316,6 +316,13 @@ its entries are unmet.
 | Help UI, card copy, tooltips and `aria-label`s matching the same policy | **Not checked.** |
 | Screenshots refreshed from the real preview and anonymised | **Not done**, and the checklist forbids edited images that imitate a working interface. |
 
+**`SECURITY.md`** was the last comparison, and it needed the one thing it lacked: its "already in scope for
+review" list covered authentication, the DAV servers, encrypted credentials, the connection policy, rendering
+and the admin boundary — all still true — but said nothing about the **provider grant model** this work added.
+It now lists provider grants (the user's authorization and its tokens) and the separation of the three
+credentials, and states the rule that provider tokens are never returned to the browser, with SSO deliberately
+separate from a provider connection. Those are the boundaries a security report about this feature would concern.
+
 **Where the admin guide's sections belong**, which is worth settling before anyone writes the two "missing"
 pages: the guide has eight sections and they map onto different surfaces, so the requirement is not two pages of
 procedure but a set of touchpoints — and the checklist itself says the list means required touchpoints rather

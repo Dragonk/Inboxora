@@ -34,7 +34,14 @@ The project cares especially about these boundaries, and reports about them are 
 - the server connection policy that restricts which hosts Inboxora may contact,
 - rendering of untrusted message HTML and remote-content blocking,
 - attachment handling and archive downloads,
-- the privilege boundary between regular users and administrators.
+- the privilege boundary between regular users and administrators,
+- **provider grants**: the authorization a user gives so Inboxora may read their Google or Microsoft
+  contacts and calendars, the access and refresh tokens held for it, and the separation between a user's
+  grant, an administrator's OAuth client and a mail account's app password — three credentials that are
+  configured by different people, stored in different places, and revoked independently,
+- the rule that **provider tokens are never returned to the browser**: authorizations exchange and refresh
+  server-side, the device-code method shows only a user code, and sign-in (SSO) is deliberately separate
+  from a provider connection.
 
 ## Handling secrets
 
