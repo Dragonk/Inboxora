@@ -121,16 +121,19 @@ SMTP suite (`send.reliability`, `send.sent`, `send.forwarded`, `sendTransport.te
 SMTP arm is unchanged. The `accepted` / `refused` / `outcome_unknown` mapping, resume/expiry/cancel of an
 upload session and the over-ceiling refusal without a provider call are covered in
 `graphMailAttachments.test.ts` and `graphMailTransport.test.ts`. W06 as a **package** stays FAIL until
-the remaining rows are delivered (provider-side search, the reply/forward dependencies and the provider write paths), which is the
-list below.
-7. Then, in order: Graph calendar (discovery, sync, CRUD,
-   recurrence, attendees, permission mapping) · Graph contacts CRUD · Gmail API (P08: labels, threads,
-   history, send, drafts, attachments) · Google Calendar/People CRUD · Google migration recommendation with
-   per-user-per-account suppression · frontend capability cleanup (no `source === 'local'` editability) ·
-   P10 DAV write-back · P12 in-place Microsoft cutover (same `email_accounts.id`, no duplicate, Graph only
-   afterwards).
+its last two rows are delivered — **provider-side search** and **the reply/forward dependencies** — since
+every other row it names (folders, delta sync, flags, body/attachments, delete, move/archive, spam/ham,
+snooze, bulk delete, mark-all-read, headers, attachment ZIP, drafts, send, and the calendar and contacts
+read **and** write paths) is delivered and tested.
+7. Delivered in this work, in the order the packages were unblocked: Graph drafts · provider device-code ·
+   Graph calendar read path · Graph contacts CRUD behind the write-back switch · Graph calendar-event CRUD ·
+   **P10 DAV write-back** · **P08 Gmail API** (labels, ingest, body/attachments, mutations, drafts, send) ·
+   **P12 in-place Microsoft cutover** · the frontend capability cleanup (no `source === 'local'`
+   editability). Remaining: **provider-side search over Graph**, **Google Calendar/People CRUD + the
+   migration recommendation with *Ignore* + "do not show again" per user and per account**, and **P14**.
 8. **All provider writes go through `providerMutationService`**; `writeThrough` is enabled only for the
-   adapters and operations that genuinely support it.
+   adapters and operations that genuinely support it — `microsoft_graph` and `caldav`/`carddav` today, with
+   `google_api` to follow when its adapter lands, and `local` writing locally by construction.
 9. **P14 — final validation and publication**: the full gate matrix on the final SHA, then the `:dev` image
    pair from that exact SHA with its digests and architectures, then the runtime smoke (health, version,
    login, basic UI, account listing, no migration crash). Real-provider acceptance, DAVx⁵ and the CI jobs
