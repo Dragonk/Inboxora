@@ -17,10 +17,12 @@ rows. It is kept because its lessons are load-bearing, and it must never be read
 present. Earlier revisions mixed the two inside the table itself, which is how a reader could take a
 four-attempt saga — or a superseded delivery report — for a current status.
 
-Last re-measured on `dev` at `90bd9d02`: backend typecheck, lint and **2396** unit tests
+Last re-measured on `dev` at `d63a72b9`: backend typecheck, lint and **2396** unit tests
 (**116 skipped** across 14 files); frontend typecheck, lint, production build and **2685** tests;
 **179** database integration tests across **17** suites on a fresh PostgreSQL 16 with the full
-**112**-migration chain. One caveat about that suite is recorded rather than implied:
+**112**-migration chain — and, since the CI slice, verified the same way a new installation would
+experience it: a database created empty for the purpose, the chain applied from zero, the suites run
+against it, then dropped. One caveat about that suite is recorded rather than implied:
 `calendarResponsiveness.test.ts` asserts an expansion finishes inside 100 ms and measured 162 ms on a
 run that competed with the database gate for the machine. It passes in isolation and in a clean full
 run, so the number is load-sensitive — a timing assertion to fix, not a result to discount. The browser matrix and the published-image smoke pair are deliberately
