@@ -21,14 +21,27 @@ noted.
 | Sync actions | Sync folders now, reconnect, re-index for search, toggle inbox categorisation. |
 
 Microsoft 365 accounts use OAuth2 and need an administrator to register an Azure application
-under **Settings → Integrations** first. Google mail accounts are connected with a Google app
-password.
+under **Settings → Integrations → Email providers**, where both providers are configured side by
+side rather than in two competing places.
 
-An administrator can also register a Google Cloud OAuth client there to enable the API-based
-integrations: connecting a Google account to pull its **contacts** and **calendars** read-only.
-Those pulls are refreshed on a schedule (every 15 minutes by default); set
-`PROVIDER_SYNC_INTERVAL_MINUTES` to change the cadence, or to `0` to disable the automatic refresh
-and sync only when a user asks for it. Only collections a user has already pulled are refreshed.
+**Google has two methods and neither is forced.** An administrator can register a Google Cloud OAuth
+client to enable the API-based integrations — connecting a Google account to pull its **contacts**
+and **calendars** read-only — and a Google mailbox can equally be used with an **app password** over
+IMAP/SMTP. Connecting the API does not migrate mail and does not ask for Gmail permissions, and not
+configuring it leaves the app-password path fully available. The card states the recommendation rather
+than a requirement.
+
+**Microsoft is the other way round**: Outlook.com and Microsoft 365 no longer accept a mailbox
+password, so mail for those accounts needs the API connection, and the card says so.
+
+Two switches govern the provider layer:
+
+- `PROVIDER_SYNC_INTERVAL_MINUTES` — how often already-pulled collections are refreshed (15 by
+  default); `0` disables the schedule and leaves syncing to the user.
+- `PROVIDER_INTEGRATIONS_ENABLED` — `0` stops this installation offering or starting **any**
+  provider authorization and stops the sync paths too, so an installation that must not call a
+  provider does not; unset means enabled. The per-provider and per-method switches in the card narrow
+  a configured installation further.
 
 The same Entra application is also what the **Microsoft Graph** API integration uses. Its
 authorization entry point is `/oauth/provider/microsoft` and it asks only for the scopes of the
