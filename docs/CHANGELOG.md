@@ -34,17 +34,42 @@ limitations — read the matching page in the Wiki: [Release notes 4.1.0](wiki/R
   has to be pluggable behind it. A native account is still refused, deliberately once — by the SMTP
   factory, so no caller can hand it a Microsoft Graph account, rather than by a second copy of the check.
 
-### Fixed
 
-- **A too-large message rejected by the forwarded-attachment backstop now answers with a domain code
-  instead of prose.** The send route has three size guards, and the last of them — the exact re-check
-  against the **fetched** forwarded bytes, after the declared-size check that can under-report — returned
-  a bare `400` with an English sentence while its two siblings returned `413` with `ATTACHMENT_TOO_LARGE`
-  or `MESSAGE_TOO_LARGE` and the numbers. A client had to match that sentence to learn what happened,
-  which is the reason the other two guards gained codes in the first place — and this one is the last
-  line of defence, so it is the one most likely to be reached. It now answers like the others.
+- An **uncertain send** is now reported with a code (`SEND_OUTCOME_UNKNOWN`, the name the plan gives it) rather than
+  only an English sentence. The behaviour is unchanged and deliberately so — the message was handed to the server
+  and the answer was lost, so Inboxora will not send it again automatically — but a code is what lets an interface
+  answer in the user's own language instead of showing the server's text. The composer now does exactly that: it
+  recognises the code and says — in all nine languages, as a notification and beside the composer — that the result is
+  unknown, that the message will not be sent again automatically, and that the account's Sent folder is the authority.
 
-### Changed
+
+- Two size guards on the send path now answer **`413`** with a domain code instead of `400` with prose only. §22.1 maps
+  content that is too large to `413`, and these were the oldest of the checks: the attachment-upload guard reports
+  `ATTACHMENT_TOO_LARGE` and the uploads-plus-forwarded total reports `MESSAGE_TOO_LARGE`. The limits are unchanged —
+  they still measure the base64 wire size rather than the composed message — so nothing that used to be refused is now
+  accepted; a client simply no longer has to match English text to learn what happened.
+
+
+- **Mail flag changes (read/unread, star) now go through the shared provider-mutation layer**, so the IMAP write and
+  its outcome are recorded durably in the operation journal before the local bookkeeping runs. Nothing changes for the
+  user: a failed or unconfirmed write still leaves the change queued for the background reconciler, and an unavailable
+  journal degrades to the previous behaviour rather than failing the action. What is new is that a process stopping
+  between the IMAP write and the database no longer leaves the change without evidence.
+
+- **Collection access is now decided by the provider capability model** rather than by comparisons written out at each
+  call site. The REST and DAV write guards, the DAV advertised privileges and the contacts list's read-only flag all ask
+  one resolver, which combines the origin adapter's declared support with the collection's own access and the device
+  password's ceiling. The visible fix is that a **Google or Microsoft address book is now reported read-only** in the
+  interface; previously only CardDAV books were, so a synced book looked editable until the server refused the write.
+  Behaviour is otherwise unchanged: writes to a provider-owned collection are still refused, because no remote write path
+  exists yet, and a read-only collection or a read-only device password still only narrows access.
+
+- After an **uncertain send**, the composer releases its idempotency key, so the user's next deliberate Send is a
+  **new operation** rather than a refusal — which is what the plan asks for, together with the duplicate-risk warning
+  that is already shown. Nothing sends on its own: this composer dispatches only from a click, and the key exists to
+  stop an *automatic* duplicate, so releasing it once the user has been told the outcome is unknown removes no
+  protection. Checking the Sent folder remains the first advice, because a duplicate is worse than a delay.
+
 
 - **The four send size dimensions have one definition** (`services/sendLimits.ts`) instead of four
   literals and locals spread through a 1067-line route, two of which were the same `26_214_400` written
@@ -238,6 +263,16 @@ limitations — read the matching page in the Wiki: [Release notes 4.1.0](wiki/R
   created empty for the purpose, where the chain applied from zero and all 179 integration tests
   passed.
 
+### Fixed
+
+- **A too-large message rejected by the forwarded-attachment backstop now answers with a domain code
+  instead of prose.** The send route has three size guards, and the last of them — the exact re-check
+  against the **fetched** forwarded bytes, after the declared-size check that can under-report — returned
+  a bare `400` with an English sentence while its two siblings returned `413` with `ATTACHMENT_TOO_LARGE`
+  or `MESSAGE_TOO_LARGE` and the numbers. A client had to match that sentence to learn what happened,
+  which is the reason the other two guards gained codes in the first place — and this one is the last
+  line of defence, so it is the one most likely to be reached. It now answers like the others.
+
 ### Added
 
 - **Microsoft Graph message delete (P07b, fifth slice).** Deleting a Graph message follows the same
@@ -317,56 +352,16 @@ limitations — read the matching page in the Wiki: [Release notes 4.1.0](wiki/R
   encrypting without a valid `ENCRYPTION_KEY` throws rather than storing plaintext, and `decrypt` throws on a non-string
   instead of returning null.
 
-### Changed
 
-- **Mail flag changes (read/unread, star) now go through the shared provider-mutation layer**, so the IMAP write and
-  its outcome are recorded durably in the operation journal before the local bookkeeping runs. Nothing changes for the
-  user: a failed or unconfirmed write still leaves the change queued for the background reconciler, and an unavailable
-  journal degrades to the previous behaviour rather than failing the action. What is new is that a process stopping
-  between the IMAP write and the database no longer leaves the change without evidence.
+- A provider configuration can be **tested**, not only reported ready. `POST /api/integrations/:provider/test`
+  checks the stored client id and secret against the provider using a deliberately unusable grant: the provider
+  answers `invalid_client` when the credentials are wrong and `invalid_grant` when it accepts them, which is the
+  whole test and costs the provider nothing. The secret is decrypted for the call and is never part of the answer,
+  and no user data or grant is involved. Readiness reports that the fields are present; this reports whether they
+  work, which is the difference an administrator with a mistyped secret notices at the provider instead of on the
+  card. Each provider card carries a **Test configuration** button for it, which reports which of the two it
+  is — accepted, rejected, no client id saved, or the provider unreachable — in place.
 
-- **Collection access is now decided by the provider capability model** rather than by comparisons written out at each
-  call site. The REST and DAV write guards, the DAV advertised privileges and the contacts list's read-only flag all ask
-  one resolver, which combines the origin adapter's declared support with the collection's own access and the device
-  password's ceiling. The visible fix is that a **Google or Microsoft address book is now reported read-only** in the
-  interface; previously only CardDAV books were, so a synced book looked editable until the server refused the write.
-  Behaviour is otherwise unchanged: writes to a provider-owned collection are still refused, because no remote write path
-  exists yet, and a read-only collection or a read-only device password still only narrows access.
-
-- After an **uncertain send**, the composer releases its idempotency key, so the user's next deliberate Send is a
-  **new operation** rather than a refusal — which is what the plan asks for, together with the duplicate-risk warning
-  that is already shown. Nothing sends on its own: this composer dispatches only from a click, and the key exists to
-  stop an *automatic* duplicate, so releasing it once the user has been told the outcome is unknown removes no
-  protection. Checking the Sent folder remains the first advice, because a duplicate is worse than a delay.
-
-### Added
-
-- Refusals on the forwarded-attachment path now carry **domain codes** rather than only sentences:
-  `ATTACHMENT_FETCH_FAILED` when a part cannot be read from the source mailbox — §22.1's rule, which is also §12.9's
-  sentence: a retry of the read is possible, and the message is not sent without the file — and `RESOURCE_NOT_FOUND`
-  for a referenced message, part or account that is not there. The behaviour is unchanged; what is new is that an
-  interface has something to branch on instead of matching English text. The composer now does branch on them and
-  renders **translated** sentences with the server's figures — the file name, the actual size and the limit, in units a
-  person reads — in all nine languages, rather than showing the server's English.
-
-### Changed
-
-- Two size guards on the send path now answer **`413`** with a domain code instead of `400` with prose only. §22.1 maps
-  content that is too large to `413`, and these were the oldest of the checks: the attachment-upload guard reports
-  `ATTACHMENT_TOO_LARGE` and the uploads-plus-forwarded total reports `MESSAGE_TOO_LARGE`. The limits are unchanged —
-  they still measure the base64 wire size rather than the composed message — so nothing that used to be refused is now
-  accepted; a client simply no longer has to match English text to learn what happened.
-
-### Changed
-
-- An **uncertain send** is now reported with a code (`SEND_OUTCOME_UNKNOWN`, the name the plan gives it) rather than
-  only an English sentence. The behaviour is unchanged and deliberately so — the message was handed to the server
-  and the answer was lost, so Inboxora will not send it again automatically — but a code is what lets an interface
-  answer in the user's own language instead of showing the server's text. The composer now does exactly that: it
-  recognises the code and says — in all nine languages, as a notification and beside the composer — that the result is
-  unknown, that the message will not be sent again automatically, and that the account's Sent folder is the authority.
-
-### Added
 
 - A **message-size ceiling on the send path**, counted on the composed message. The interface's estimate was the
   only check there was, so an oversized message travelled to the SMTP server and failed there with whatever that
@@ -382,16 +377,14 @@ limitations — read the matching page in the Wiki: [Release notes 4.1.0](wiki/R
   transport is SMTP, so it is not reported rather than reported as a zero.
 
 
-### Added
 
-- A provider configuration can be **tested**, not only reported ready. `POST /api/integrations/:provider/test`
-  checks the stored client id and secret against the provider using a deliberately unusable grant: the provider
-  answers `invalid_client` when the credentials are wrong and `invalid_grant` when it accepts them, which is the
-  whole test and costs the provider nothing. The secret is decrypted for the call and is never part of the answer,
-  and no user data or grant is involved. Readiness reports that the fields are present; this reports whether they
-  work, which is the difference an administrator with a mistyped secret notices at the provider instead of on the
-  card. Each provider card carries a **Test configuration** button for it, which reports which of the two it
-  is — accepted, rejected, no client id saved, or the provider unreachable — in place.
+- Refusals on the forwarded-attachment path now carry **domain codes** rather than only sentences:
+  `ATTACHMENT_FETCH_FAILED` when a part cannot be read from the source mailbox — §22.1's rule, which is also §12.9's
+  sentence: a retry of the read is possible, and the message is not sent without the file — and `RESOURCE_NOT_FOUND`
+  for a referenced message, part or account that is not there. The behaviour is unchanged; what is new is that an
+  interface has something to branch on instead of matching English text. The composer now does branch on them and
+  renders **translated** sentences with the server's figures — the file name, the actual size and the limit, in units a
+  person reads — in all nine languages, rather than showing the server's English.
 
 ## [4.1.0] - 2026-09-19
 
