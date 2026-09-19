@@ -1678,6 +1678,30 @@ started" row suggests, so the slice is a seam rather than a rewrite:
   the response was lost". If the API does not allow a reliable lookup after an unknown create outcome,
   the operation stays `outcome_unknown` rather than creating a second draft.
 
+  **Slice A is scoped to exact loci, read from the file rather than estimated.** It is refactor-only —
+  `composer → ComposedMail → transport renderer`, never `composer → SMTP MIME → other transports` — and the
+  behaviour must not change, so every region it touches is named with its line and its job:
+  - `routes/send.ts:666` builds `mailOptions` (messageId, `from`, the **explicit envelope**, replyTo, the
+    three recipient groups, subject, priority, text) — this becomes the renderer's output, derived from the
+    model;
+  - `:693`–`:701` embeds inline images and assigns `mailOptions.html` — the inline attachments and their
+    `contentId`s move into the model;
+  - `:714`–`:724` assembles `allAttachments` (uploaded + inline + forwarded) and assigns
+    `mailOptions.attachments` — same list, now a model field;
+  - `:757`–`:777` is the composition itself: a nodemailer **stream transport** with `newline: 'windows'`,
+    drained into a buffer, then `stripHeaderFromMessage(..., 'Bcc')`. That whole block is the SMTP
+    renderer's body — it is the only place the wire form is produced;
+  - `:856` sends `{ ...mailOptions, raw: rawMessage }`, and this call site does not change at all once the
+    renderer returns `{ raw, mailOptions }`.
+  The renderer's contract is therefore `ComposedMail → { raw, envelope, mailOptions }`, with the envelope
+  built from `to + cc + bcc` (already verified identical to nodemailer's derivation) and `raw` carrying
+  **no** `Bcc:` header. Two properties make the refactor safe to call a refactor: the model is built only
+  **after** `allAttachments` is complete, so the renderer call sits at `:757` and not at `:666`; and the
+  size guards that read `rawMessage` stay after it, so they still count the compiled message.
+  The tests Slice A owes are the renderer's own — MIME without `Bcc`, envelope with it, To/Cc/Reply-To/
+  References/priority preserved, inline `cid` preserved — plus the existing send suites staying green,
+  which is the only thing that proves "zero behaviour change".
+
   **What the acceptance tests must prove** (not merely compare objects): To only; Cc only and To+Cc; Bcc;
   To+Cc+Bcc; Bcc present as `bccRecipients` in the Graph draft create; Bcc **absent** from the SMTP MIME
   artefact; SMTP still carrying Bcc in its envelope; Graph never consulting an SMTP envelope; the local
