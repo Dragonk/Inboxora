@@ -386,9 +386,13 @@ describeOrSkip('cutOverMicrosoftMailAccount (PostgreSQL)', () => {
       expect(refused.code).toBe('ACCOUNT_MIGRATION_IDENTITY_MISMATCH');
       expect(refused.message).toContain('other-alias@contoso.test');
     }
-    // Refused means nothing was switched and the refusal was not recorded as an account state.
+    // Refused means nothing was switched. This refusal is a request-shape problem, not an account state,
+    // so it records nothing — unlike a missing grant, which records `authorization_required`.
     expect((await readAccount(ACCOUNT_ID))?.mail_transport).toBeNull();
-    expect(refused.recorded).toBe(false);
+    if (refused.status === 'refused') {
+      expect(refused.migrationState).toBeNull();
+      expect(refused.recorded).toBe(false);
+    }
 
     const deliberate = await cutOverMicrosoftMailAccount({
       userId: USER_ID, accountId: ACCOUNT_ID, connectionId, allowIdentityMismatch: true, discoverFolders: false,
