@@ -117,6 +117,38 @@ These cover the built-in ntfy / UnifiedPush path. See
 | Need to re-register a device | Inboxora → Settings → Notifications → *Check again*, or reinstall/clear data for the ntfy app and set the server again. The endpoint is rotated automatically on the next registration. |
 | Notifications work, but a duplicate appears once after reinstalling | The dedup cache is per install; a fresh install can show one already-seen message. Subsequent events are deduplicated normally. |
 
+## Provider connections (Google and Microsoft)
+
+| Symptom | What to check |
+| --- | --- |
+| A client id is saved but the connection does not work | The full set matters, not the id: the correct client type, the secret where the method needs one, an exactly matching callback, and the method being enabled. The card reports each method's readiness separately — a saved client id alone is not working configuration. |
+| `redirect_uri_mismatch` or a reply-URL error | Scheme, hostname, port, path **and the trailing slash** must match the callback the card shows. |
+| `invalid_client`, or a secret that has expired | The client id and the secret **Value**, not the Secret ID. Rotate the secret on the same client and keep it in the encrypted configuration rather than in a file or a ticket. |
+| The device method asks for a secret, or reports a client error | Whether **Allow public client flows** is enabled for the application. The device grant has no redirect and no secret; if it fails, change that setting rather than the identity or the transport. |
+| Consent refused, or blocked by organisational policy | Do not work around it. The missing permission or the administrator's requirement is the answer; ask for the specific one rather than a broader scope. |
+| Google refuses a test account, or reports `org_internal` | The OAuth consent screen's audience and test-user list, the project's status, and the organisation's rules. |
+| Google API calls fail, or calendars and contacts stay empty | That the Calendar and People APIs are enabled in the right project, and that only the intended feature was authorized. |
+| Google asks to sign in again after a week | The consent screen's testing status, and the real reason for the expiry — not an IMAP fault. A testing-mode consent expires; publishing the app or adding the account as a test user is the fix. |
+| Google IMAP refuses a password | Whether it is an **app password**, still permitted, and not revoked — changing the main Google password revokes app passwords made with it. The error is shown even when the API recommendation is not. |
+| The wrong account was authorized | Cancel and sign in with the intended one. Inboxora does not "re-point" accounts to fix this. |
+| No Google OAuth after an upgrade | The IMAP/SMTP method still works. The API card explains that an administrator configures it; the dismissal controls that belong with the migration prompt are not part of this release. |
+| Inboxora keeps working but notifications are slow | Refreshes are scheduled polling, not push. Push delivery (Pub/Sub or webhooks) would be separate work; polling is unaffected by it. |
+
+### Rotating a secret, changing a client id, or removing a provider
+
+These are three different operations and only the first is routine:
+
+- **Rotating the secret on the same client** keeps the client id and needs no new user consent. Save the new
+  Value on the card; the old one stops working and existing grants keep refreshing.
+- **Changing the client id** may invalidate existing grants, and the card asks for confirmation first when the
+  stored secret would otherwise be kept — a secret belongs to the client it was issued for. Do not copy grants
+  across clients without re-authorizing: the authorization is what ties an account to a client.
+- **Disabling a provider, a method, or the whole layer** is enforced rather than cosmetic, and it **preserves
+  data**. `PROVIDER_SYNC_INTERVAL_MINUTES=0` stops the schedule, `PROVIDER_INTEGRATIONS_ENABLED=0` stops this
+  installation offering or starting any provider authorization *and* the sync paths, and deleting a provider's
+  configuration writes a tombstone so a restart cannot resurrect it from the environment. Removing the API
+  configuration does not remove Google IMAP accounts or any other source.
+
 ## Getting help
 
 Open an issue with:
