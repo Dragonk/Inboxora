@@ -333,6 +333,10 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   button stuck until its timeout, and the Contacts page unaware that an account had just become
   connectable. The Graph connector now gets its own confirmation, distinct from the mailbox sign-in
   because they are different grants.
+- Release every connect button when an authorization fails. A failed Google or Microsoft Graph
+  consent left that button disabled until its five-second timeout, because only the mailbox button
+  was released. The error text still appears in the mailbox area: the popup does not report which
+  provider failed, and attributing it to a guess would be worse than leaving it unattributed.
 
 ## [4.0.4] - 2026-09-18
 

@@ -2765,8 +2765,13 @@ function IntegrationsTab() {
         if (isAdmin) api.getIntegrations().then(setConfigs).catch(console.error);
         api.getAccounts().then(setAccounts).catch(console.error);
       } else if (e.data?.type === 'oauth_error') {
+        // The popup does not report which provider failed, so the message stays in the
+        // mailbox area and is not attributed. What must not happen is a button staying
+        // disabled: every flow that could be pending is released here.
         setSaveMsg('Error: ' + e.data.error);
         setConnectingMs(false);
+        setConnectingGoogle(false);
+        setConnectingGraph(false);
       }
     };
     window.addEventListener('message', handleMessage);

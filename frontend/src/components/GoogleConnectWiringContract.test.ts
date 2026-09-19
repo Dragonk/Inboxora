@@ -246,3 +246,12 @@ test('the opener acknowledges the Graph connector popup, which posts its own pro
     assert.match(source, new RegExp(`provider === '${provider}'`), `no opener branch for ${provider}`);
   }
 });
+
+test('a failed authorization releases every connect button, not only the mailbox one', async () => {
+  const source = await readFile(adminPanel, 'utf8');
+  const errorBranch = /e\.data\?\.type === 'oauth_error'\)\s*\{([\s\S]*?)\} else if/.exec(source)?.[1] ?? '';
+  assert.ok(errorBranch, 'the oauth_error branch must exist');
+  for (const flag of ['setConnectingMs', 'setConnectingGoogle', 'setConnectingGraph']) {
+    assert.match(errorBranch, new RegExp(flag), `${flag} must be released on error`);
+  }
+});
