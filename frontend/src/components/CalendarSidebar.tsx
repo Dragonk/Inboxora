@@ -110,6 +110,17 @@ interface CalendarSidebarProps {
   sourcePanelRequest?: number;
   t: TFunction;
 }
+/** The freshest last-sync time of the imported Google calendars, or a recorded failure. */
+function googleCalendarSyncSummary(status: GoogleCalendarStatus | null): { failed: boolean; values: Record<string, string> } | null {
+  const calendars = Array.isArray(status?.calendars) ? status.calendars : [];
+  const failed = calendars.find(calendar => calendar.lastErrorCode);
+  if (failed) return { failed: true, values: { code: String(failed.lastErrorCode) } };
+  const times = calendars.map(calendar => calendar.lastSyncedAt).filter((value): value is string => typeof value === 'string');
+  if (!times.length) return null;
+  const latest = [...times].sort().at(-1) as string;
+  return { failed: false, values: { date: new Date(latest).toLocaleString() } };
+}
+
 export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds, weekStartsOn = 1, locale, onSelectDate, onShiftMonth, onToggleCalendar, onSourcesChanged, onCalendarsChanged, onCreate, canCreate, sourcePanelRequest = 0, t }: CalendarSidebarProps) {
   const [showSources, setShowSources] = useState(false);
   const [sources, setSources] = useState<CalendarSource[]>([]);
@@ -225,6 +236,7 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
       setSourceError(toAppError(error).message);
     }
   };
+  const googleSummary = googleCalendarSyncSummary(googleCalendars);
   const loadGoogleCalendars = async () => {
     try {
       const result = await api.calendar.googleCalendars.status() as GoogleCalendarStatus;
@@ -387,6 +399,7 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
         {googleCalendars?.connected ? <>
           <p style={{ margin: '6px 0', fontSize: 12, color: 'var(--text-tertiary)' }}>{t('calendar.googleHint')}</p>
           <button data-testid="calendar-google-sync" disabled={googleSyncing} onClick={runGoogleCalendarSync} style={primaryButton}>{t(googleSyncing ? 'calendar.googleSyncing' : 'calendar.googleSync')}</button>
+          {googleSummary && <p data-testid="calendar-google-sync-status" style={{ margin: '6px 0 0', fontSize: 11, color: 'var(--text-tertiary)' }}>{t(googleSummary.failed ? 'calendar.lastSyncFailed' : 'calendar.lastSynced', googleSummary.values)}</p>}
           {googleSyncNotice && <p role="status" data-testid="calendar-google-sync-result" style={{ margin: '8px 0 0', fontSize: 12 }}>{googleSyncNotice}</p>}
         </> : <p style={{ margin: '6px 0', fontSize: 12, color: 'var(--text-tertiary)' }}>{t('calendar.googleNotConnected')}</p>}
       </div>

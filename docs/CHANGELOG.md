@@ -273,7 +273,10 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   address books, or the recorded error code when a run failed, so a silent problem is visible
   without opening the logs. The status line comes from the payload the page already loaded, so it
   costs no extra request.
-
+- The same for the calendar connector: **Settings → Calendar → Manage sources** now shows the
+  freshest last-sync time of the imported Google calendars, or the recorded error code when a run
+  failed, so a calendar that stopped updating is visible where the sync action is rather than only
+  in the logs. It uses the status payload the dialog already loads.
 ## [4.0.4] - 2026-09-18
 
 ### Changed

@@ -45,6 +45,10 @@ connected, and reports what each run did — how many calendars were read and ho
 added, updated and removed — including a partial failure when one calendar could not be read. The
 imported calendars appear in the calendar list straight away.
 
+Next to the sync action the dialog reports when the pull last succeeded — the freshest time across
+the imported calendars — or the error code of a failed run, so a calendar that quietly stopped
+updating is visible there instead of only in the server log.
+
 Once you have pulled a Google calendar it is refreshed automatically (every 15 minutes by default;
 an administrator can change or disable that with `PROVIDER_SYNC_INTERVAL_MINUTES`). Only calendars
 you have already pulled are refreshed — connecting an account never starts an import on its own.

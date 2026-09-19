@@ -2015,7 +2015,9 @@
     "googleSyncPartial": "Kalendáře Google: {{calendars}} kalendářů, přidáno {{created}}, aktualizováno {{updated}}, odebráno {{deleted}}; selhání: {{failed}}.",
     "googleNotConnected": "Připojte účet Google v Nastavení → Integrace a importujte kalendáře.",
     "importIcs": "Importovat soubor .ics",
-    "importingIcs": "Importuji…"
+    "importingIcs": "Importuji…",
+    "lastSynced": "Naposledy synchronizováno: {{date}}",
+    "lastSyncFailed": "Synchronizace selhala: {{code}}"
   },
   "mailFolders": {
     "inbox": "Doručená pošta",

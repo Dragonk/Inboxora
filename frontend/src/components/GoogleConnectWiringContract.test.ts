@@ -152,3 +152,12 @@ test('each provider reports when it last synced, or that it failed', async () =>
   assert.match(source, /data-testid="contacts-google-sync-status"/);
   assert.match(source, /data-testid="contacts-microsoft-sync-status"/);
 });
+
+test('the calendar connector reports when it last synced, or that it failed', async () => {
+  const source = await readFile(calendarSidebar, 'utf8');
+  assert.match(source, /function googleCalendarSyncSummary\(status: GoogleCalendarStatus \| null\)/);
+  assert.match(source, /calendars\.find\(calendar => calendar\.lastErrorCode\)/);
+  assert.match(source, /calendar\.lastSynced/);
+  assert.match(source, /calendar\.lastSyncFailed/);
+  assert.match(source, /data-testid="calendar-google-sync-status"/);
+});

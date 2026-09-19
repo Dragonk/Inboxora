@@ -2015,7 +2015,9 @@
     "googleSyncPartial": "Google 日历：{{calendars}} 个日历，新增 {{created}}，更新 {{updated}}，删除 {{deleted}}；{{failed}} 个失败。",
     "googleNotConnected": "请在“设置 → 集成”中连接 Google 账户以导入日历。",
     "importIcs": "导入 .ics 文件",
-    "importingIcs": "正在导入…"
+    "importingIcs": "正在导入…",
+    "lastSynced": "上次同步：{{date}}",
+    "lastSyncFailed": "同步失败：{{code}}"
   },
   "mailFolders": {
     "inbox": "收件箱",

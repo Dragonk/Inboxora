@@ -2015,7 +2015,9 @@
     "googleSyncPartial": "Календари Google: {{calendars}} календар(ей), добавлено {{created}}, обновлено {{updated}}, удалено {{deleted}}; сбоев: {{failed}}.",
     "googleNotConnected": "Подключите аккаунт Google в «Настройки → Интеграции», чтобы импортировать календари.",
     "importIcs": "Импорт файла .ics",
-    "importingIcs": "Импорт…"
+    "importingIcs": "Импорт…",
+    "lastSynced": "Последняя синхронизация: {{date}}",
+    "lastSyncFailed": "Сбой синхронизации: {{code}}"
   },
   "mailFolders": {
     "inbox": "Входящие",

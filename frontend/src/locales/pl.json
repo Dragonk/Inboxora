@@ -2015,7 +2015,9 @@
     "googleSyncPartial": "Kalendarze Google: {{calendars}} kalendarzy, dodano {{created}}, zaktualizowano {{updated}}, usunięto {{deleted}}; niepowodzenia: {{failed}}.",
     "googleNotConnected": "Połącz konto Google w Ustawieniach → Integracjach, aby zaimportować kalendarze.",
     "importIcs": "Importuj plik .ics",
-    "importingIcs": "Importowanie…"
+    "importingIcs": "Importowanie…",
+    "lastSynced": "Ostatnia synchronizacja: {{date}}",
+    "lastSyncFailed": "Synchronizacja nie powiodła się: {{code}}"
   },
   "mailFolders": {
     "inbox": "Odebrane",
