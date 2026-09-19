@@ -377,6 +377,34 @@ two missing pages are concrete, bounded deliverables. They were not attempted he
 three pages of operator instruction properly is more than the remaining session can verify, and a documentation
 page written without checking the code it describes would be worse than the gap.
 
+## Observability: what the plan asks for and what exists (§25.2)
+
+A chapter-level reading rather than a table one, and it found a scope item my per-package status never mentioned.
+The plan asks for shared metrics — sync lag and last success, round time, pages/records/bytes, active leases,
+stale generations rejected, retries and rate limiting, expired cursors, conflicts, unknown operations, migrations
+per state, queue and spool size — with the explicit constraint that **cardinality must not grow with the number
+of emails or message ids**, and for logs carrying `correlationId`, `operationId`, the adapter type, a safe code
+and the provider's request id.
+
+**No metrics exist**, and the logs do not carry those structured identifiers: they are human-readable messages
+with a code, which is enough to debug a run and not enough to graph one. That is now recorded rather than
+implied, and it belongs to **P13**, whose scope names metrics.
+
+What the same section asks for *is* met, and the distinction is worth keeping:
+
+- **a rate-limit regression is distinguished from an authorization failure** — `providerFailureKey` maps
+  `RATE_LIMITED`/`UPSTREAM_UNAVAILABLE` to a retry-later sentence and the auth codes to "reconnect", and the
+  connectors record the provider's own code;
+- **read-only sync success is distinguished from write readiness** — the connector status reports last success
+  and the collection's access separately, and an imported collection is refused writes rather than reported as
+  writable;
+- **the diagnostic export redacts** personal data and credential-bearing URLs, as `SECURITY.md` states;
+- **the account surfaces are separate** — mail in the accounts screen, and contacts, calendars and DAV/ICS
+  sources on their own pages, each with its own last-sync or failure line.
+
+Metrics are the kind of work that needs its own design (what is exported, in what format, and how cardinality is
+bounded), which is why it is recorded here rather than started at the end of a session.
+
 ## The agent acceptance procedure (guide §8), reported as the guide requires
 
 The admin guide's §8 asks for the procedure to be performed in an isolated installation **as a new
