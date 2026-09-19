@@ -21,6 +21,7 @@ import {
   type OAuthProvider,
 } from './providerAuthService.js';
 import { acquireRefreshLease, getGoogleAccessToken, getMicrosoftAccessToken, readGrantForUser } from './providerTokenService.js';
+import { disconnectProviderConnection } from './providerConnectionService.js';
 
 const hasPg = process.env.DB_HOST && process.env.DB_NAME;
 const describeOrSkip = hasPg ? describe : describe.skip;
@@ -263,6 +264,28 @@ describeOrSkip('Microsoft Graph grant refresh (PostgreSQL)', () => {
     expect(url).toBe('https://login.microsoftonline.com/consumers/oauth2/v2.0/token');
     expect(init.body).toContain('grant_type=refresh_token');
     expect(init.body).toContain('scope=https%3A%2F%2Fgraph.microsoft.com%2FMail.ReadWrite');
+  });
+
+  it('demands re-authorization for a disconnected grant, without contacting the provider', async () => {
+    // Disconnecting sets `status = 'revoked'` and clears both tokens. Nothing wrote that status
+    // before this work, so this path is newly reachable: the token service must treat it as
+    // "authorize again" rather than reading a token that is no longer there.
+    const connectionId = await seedGrant({
+      subject: 'google-disconnected', accessToken: 'access-before', refreshToken: 'refresh-before',
+      expiresAt: new Date(Date.now() + 3600_000),
+    });
+    const fetchImpl = vi.fn();
+    // A live grant works first, so the assertion below is about the disconnect, not the seed.
+    expect(await getGoogleAccessToken({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl }))
+      .toMatchObject({ accessToken: 'access-before', refreshed: false });
+
+    await disconnectProviderConnection(USER_ID, connectionId);
+
+    await expect(getGoogleAccessToken({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl }))
+      .rejects.toMatchObject({ code: 'REAUTH_REQUIRED' });
+    // A revoked grant must not be refreshed: there is no token to refresh with, and asking the
+    // provider would only produce a failure the user cannot act on.
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 
   it('parks a revoked Microsoft grant as reauth_required', async () => {
