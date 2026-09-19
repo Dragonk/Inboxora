@@ -66,6 +66,35 @@ been run at all:
 | runtime smoke pair | **NOT RUN** | No container was ever started from the published pair: `/api/health`, `/api/version` and a basic login/UI check on those exact digests are unverified. The digests and platforms are registry facts, not a smoke test. |
 | final v4 publication | **not done** | The published images correspond to `035f60ab` (the 4.1.0 release), **not** to the tip of `dev`, and v4 still has open packages (P06, P07b, P08, P09 CRUD, P10, P12). A final publish must wait for the exact final SHA after the scope closes, and then be followed by the smoke pair above. |
 
+## Static verification of the CI plumbing (no runner available)
+
+The stage-10 jobs have **never executed on a GitHub runner** in this work — that stays **NOT RUN**. What
+was checked instead, on `868259ca`, is that everything they reference exists, because a wrong path is the
+defect that would only surface there:
+
+- **Every npm script they call exists** and is the one used locally: backend `typecheck` / `build` /
+  `lint` / `test`, frontend `typecheck` / `lint` / `build` / `test`.
+- **Every integration path in the database job exists** — the six `provider*.integration.test.ts` suites,
+  the two provider source directories, and `src/routes/davPg.integration.test.ts` — and
+  `src/scripts/runMigrations.ts` is the migrator the local recipe runs.
+- **The browser job is configured as it reads.** It installs Chromium, runs the unit suite and the build,
+  and then `npx playwright test` across the five projects named in `playwright.config.ts`
+  (`chromium-desktop`, `-tablet`, `-mobile-390`, `-mobile`, `-mobile-landscape`) with
+  `VITE_E2E_MOCKED=true`, excluding `real-app.spec.ts` unless `PLAYWRIGHT_REAL_APP=1` — so no live
+  provider is contacted — and never updating the reviewed visual references. It writes an environment
+  report and uploads the report, the results and that file.
+- **The triggers are what the stage requires**: `push: [dev]`, pull requests into `dev` and `main`, and a
+  manual dispatch taking an exact SHA, which the first step asserts against `github.sha`.
+
+**A near-miss worth recording, because it is the fifth instance of the same error in this work.** Reading
+the job, I saw `run: npm test` under a Chromium install and concluded the browser gate never ran a browser
+test — a serious finding, and wrong: the step after it runs `npx playwright test` with all five projects.
+I had read a nearby signature as the whole behaviour, which is precisely the mistake this document has
+recorded against its own text four times (`headers`, folder `delete`, the forwarded-attachment limit, and
+the P06 plan). The difference this time is only that the claim was checked before it was committed rather
+than after, which is the entire value of the rule.
+
+
 ## History — failed approaches, corrections and long diagnostics
 
 This section is the audit trail, moved out of the *Status* table so the table states only the current
