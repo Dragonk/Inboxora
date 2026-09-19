@@ -77,6 +77,22 @@ The check is recorded because it is cheap and it found a real defect the previou
 calendar status endpoint was missing `lastErrorAt`, so the dialog rendered an empty
 `… ( )`. On this pass every field matched. Re-run it after touching any of these endpoints.
 
+## DAV visibility of imported data (verified, not assumed)
+
+Whether data written by the connectors and the importers reaches DAV clients depends on
+database triggers rather than on the routes, so it was verified directly against PostgreSQL
+16 with the full migration chain rather than inferred from the code:
+
+- **Calendars:** inserting a `calendar_events` row advances `calendars.sync_version` and sets
+  `sync_token` to `sync-<version>`, which is the value the CalDAV endpoint advertises. The
+  `.ics` import therefore no longer writes a token of its own — a random UUID it used to
+  write replaced a well-formed one.
+- **Contacts:** inserting a `contacts` row advances `address_books.sync_version`, from which
+  the advertised CardDAV token `urn:inboxora:carddav:<book>:<version>` is derived. The
+  importer's `bumpSyncToken` refreshes the `getctag` that older clients poll and is *not* what
+  notifies collection-sync clients; that is now documented at the helper so it is neither
+  relied on nor removed by mistake.
+
 ## Known limitations of what is delivered
 
 - Pulled Google and Microsoft contacts and Google calendars are **read-only** in Inboxora: REST and

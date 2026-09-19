@@ -102,7 +102,16 @@ async function defaultAddressBook(userId: string) {
   return r.rows[0].id;
 }
 
-// Bump the address book sync_token so CardDAV clients re-sync.
+/**
+ * Refresh the address book's `sync_token`, which CardDAV serves as the `getctag`.
+ *
+ * This does **not** notify collection-sync clients on its own: they compare the token the
+ * server advertises, `urn:inboxora:carddav:<book>:<version>`, and `sync_version` is bumped
+ * by the trigger on `contacts`. Both were verified against a real database — inserting a
+ * contact (what an import does per card) advances `sync_version` — so a reader should not
+ * rely on this call for change notification, nor remove the trigger believing this covers
+ * it. Kept because the getctag is what older clients poll.
+ */
 async function bumpSyncToken(addressBookId: string): Promise<void> {
   await query(
     `UPDATE address_books SET sync_token = gen_random_uuid()::text, updated_at = NOW()
