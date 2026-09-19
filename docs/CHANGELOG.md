@@ -168,6 +168,13 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   an account. The imported calendars appear in the calendar list as soon as the run finishes. With
   this the whole Google slice — connect an account, pull contacts, pull calendars — is reachable
   without calling the API by hand; the automatic schedule is still to come.
+- Refresh the Google collections a user has already pulled on a schedule (default every 15
+  minutes, `PROVIDER_SYNC_INTERVAL_MINUTES`, `0` disables it). Only collections that already
+  exist are refreshed, so connecting an account never starts an import by itself — the schedule
+  keeps what you chose to pull up to date instead. Every run is lease-protected, so a scheduled
+  pass, a restart and a manual sync cannot run at the same time or advance a cursor out of order;
+  a slow pass is never overlapped, and a failure on one connection is logged and retried on the
+  next tick without stopping the others.
 
 ## [4.0.4] - 2026-09-18
 

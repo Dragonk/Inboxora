@@ -185,6 +185,7 @@ projected into one local address book per connection, named *Google Contacts*.
   a fresh baseline instead of failing.
 
 The in-app control for this sync is the **Sync Google contacts** action in the Contacts page's
-address-book menu, which appears once a Google account is connected. An automatic schedule is
-still to come with the account-connection interface; until then the pull runs when you ask for it,
-and the projected contacts appear in the normal contact list.
+address-book menu, which appears once a Google account is connected. An automatic refresh follows
+the same rule as calendars: a book you have already pulled is refreshed on a schedule (every 15
+minutes by default, configurable or disableable by an administrator with
+`PROVIDER_SYNC_INTERVAL_MINUTES`), while connecting an account never starts an import by itself.

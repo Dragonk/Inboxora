@@ -43,8 +43,11 @@ The in-app control for this pull is **Sync Google calendars**, in the **Manage s
 under **Settings → Calendar → Calendar subscriptions**. It appears once a Google account is
 connected, and reports what each run did — how many calendars were read and how many events were
 added, updated and removed — including a partial failure when one calendar could not be read. The
-imported calendars appear in the calendar list straight away. An automatic schedule is still to
-come, so today the pull runs when you ask for it.
+imported calendars appear in the calendar list straight away.
+
+Once you have pulled a Google calendar it is refreshed automatically (every 15 minutes by default;
+an administrator can change or disable that with `PROVIDER_SYNC_INTERVAL_MINUTES`). Only calendars
+you have already pulled are refreshed — connecting an account never starts an import on its own.
 
 ### Holiday calendars
 

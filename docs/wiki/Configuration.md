@@ -24,6 +24,12 @@ Microsoft 365 accounts use OAuth2 and need an administrator to register an Azure
 under **Settings → Integrations** first. Google mail accounts are connected with a Google app
 password.
 
+An administrator can also register a Google Cloud OAuth client there to enable the API-based
+integrations: connecting a Google account to pull its **contacts** and **calendars** read-only.
+Those pulls are refreshed on a schedule (every 15 minutes by default); set
+`PROVIDER_SYNC_INTERVAL_MINUTES` to change the cadence, or to `0` to disable the automatic refresh
+and sync only when a user asks for it. Only collections a user has already pulled are refreshed.
+
 ## Appearance
 
 **Settings → Appearance** groups theme, layout and typography.
