@@ -124,6 +124,31 @@ repeatedly since (see the matrix below), so nothing here is outstanding:
 Run the suite with:
 `PLAYWRIGHT_BROWSERS_PATH=$PWD/../.pw-browsers npx playwright test --project=chromium-desktop`
 
+## The plan's execution matrix (`Macierz-testow-do-uzupelnienia.md`)
+
+The delivery archive carries a second gate artifact beside W01–W19: an execution matrix of numbered
+scenarios across **AU** (authorization), **ML** (mail), **AT** (attachments), **KC** (contacts and
+calendars) and more, with columns ID / scenario / level / state / SHA-evidence. In the archive **every
+row still reads `NIEURUCHOMIONY`** (not started).
+
+It is not reproduced here, because copying it would create a second copy to drift. What belongs here is
+which rows this work can already evidence, so the next session fills the matrix in the plan's own file
+rather than reconstructing it:
+
+| Row | Scenario | Evidence in this repository |
+| --- | --- | --- |
+| AU07 | Two workers refresh the same grant in parallel; no new refresh token is lost | `providerTokenService.integration.test.ts`, the race case — and the double-exchange window it exposed, fixed in `940d629a` |
+| AU11 | The same identity with a changed address or alias does not duplicate the account | `upsertProviderConnection` keys on user + provider + issuer + subject; the reconnect case in `providerConnectionService.integration.test.ts` asserts one row survives a disconnect and re-authorization |
+| KC03 | Series with exceptions, a cancelled instance and a moved exception stay consistent | The Google calendar merge (`71558193`) with `c8ea8383`; the merge case "a moved instance and a cancelled event" passes in the provider suites |
+
+Everything else on the matrix is **NOT RUN**, and for large parts of it that is structural rather than
+an oversight: **ML\*** needs the mail adapters that do not exist (P07b, P08), **AT\*** needs P06, and
+**AU01–AU03, AU05, AU06, AU09, AU10** concern the migration and consent flows of P12. The **KC** and
+DAV rows are covered at protocol level but share P11's open criterion: no real client was driven.
+
+Recording this way is deliberate: the plan requires PASS, FAIL, SKIPPED and NOT RUN separated with
+evidence, and a row is not PASS because a similar test exists.
+
 ## Acceptance criteria W01–W19, as the plan requires them reported
 
 The plan states that the scope is not complete until every W item has associated code **and real test
