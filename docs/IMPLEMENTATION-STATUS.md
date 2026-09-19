@@ -22,10 +22,13 @@ Last re-measured on `dev` at `694141eb`: backend typecheck, lint and **2404** un
 **179** database integration tests across **17** suites on a fresh PostgreSQL 16 with the full
 **112**-migration chain — and, since the CI slice, verified the same way a new installation would
 experience it: a database created empty for the purpose, the chain applied from zero, the suites run
-against it, then dropped. One caveat about that suite is recorded rather than implied:
-`calendarResponsiveness.test.ts` asserts an expansion finishes inside 100 ms and measured 162 ms on a
-run that competed with the database gate for the machine. It passes in isolation and in a clean full
-run, so the number is load-sensitive — a timing assertion to fix, not a result to discount. The browser matrix and the published-image smoke pair are deliberately
+against it, then dropped. That suite's one load-sensitive assertion has since been
+**fixed rather than discounted**: `calendarResponsiveness.test.ts` bounded the pooled expansion's
+event-loop lag at an absolute 100 ms and was observed failing at 162 ms on a machine that was busy
+running another gate, with the pool working exactly as designed. Its bounds are now relative to the
+inline run on the same machine — a starved timer records *no* samples, so the sample counts and the
+lag comparisons still fail if the worker pool stops being used, while a busy runner can no longer fail
+it. The browser matrix and the published-image smoke pair are deliberately
 **not** part of this measurement: they are reported where they belong, under P13 and P14.
 `main` has not been touched by this work.
 
