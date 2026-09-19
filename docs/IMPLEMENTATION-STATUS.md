@@ -1608,6 +1608,21 @@ started" row suggests, so the slice is a seam rather than a rewrite:
   double composition, gives the Graph branch the MIME it needs at the point where it needs it, and leaves
   the `delivered` boundary where it is. Note also that the factory can return a **refreshed account**
   (`account = smtp.account`), so anything moved above the seam must not depend on the refreshed row.
+
+  **Two constraints on that step, both from the route's own comments, and the second is a delivery bug if
+  it is missed:**
+  1. **Error precedence.** The seam is early on purpose — a bad account is refused before any composition
+     work. Moving composition above it reorders a size refusal relative to an account refusal, and the
+     send suites pin that order. Either compose above the seam *after* resolving it, or keep the refusal
+     first and compose between the two.
+  2. **BCC.** Nodemailer "uses bcc for the SMTP envelope but omits it from generated MIME" (the route
+     says so where it builds `mailOptions`, and refuses to synthesise a `To` header for a BCC-only
+     retry). Passing `raw` therefore hands nodemailer a message with **no BCC header**, and its envelope
+     is derived from the headers unless one is supplied — so a raw send without an explicit
+     `envelope: { from, to: [...to, ...cc? , ...bcc] }` would **silently drop every BCC recipient**, or,
+     depending on the server, expose them. Recipient privacy is a boundary this project does not trade
+     for a tidy refactor: the shared artefact needs the envelope carried alongside it, not inferred from
+     it.
 - **idempotency already exists, and the division is decided** (both mechanisms read, not assumed).
   `claimSendIntent` / `markSendIntentUncertain` / `completeSendIntent` / `releaseSendIntent` write
   `send_idempotency`, a durable claim keyed by the **client's** `X-Idempotency-Key` with an intent token,
