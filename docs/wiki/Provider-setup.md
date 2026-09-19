@@ -134,6 +134,44 @@ The Graph connector never touches the mailbox, and an account connected for mail
 grant contact access: each has its own grant, its own refresh token and its own re-authorization
 state. Revoking one does not affect the other.
 
+## Connecting with the device code (no client secret)
+
+The browser method needs a confidential client — a secret and the exact redirect URI. There is a second
+method for accounts where that is not possible or not wanted: the **device code**. It needs only the
+**Client ID** and the tenant, because no redirect happens.
+
+**In Entra**, before this method can be used: **Authentication → Advanced settings → Allow public client
+flows** must be enabled and saved. Without it, Microsoft refuses the device authorization with an error that
+mentions a public client. The application registration itself is still required, as are the Graph or Outlook
+permissions the flow asks for.
+
+**In Inboxora**, the device method has its own switch on the Microsoft card, and its own readiness: the
+browser method can be unconfigured while the device method works, and the other way round. The card will not
+offer a method whose requirements are missing, and switching the device method off hides it — the setting is
+enforced, not cosmetic.
+
+**What the user does:** press *Start* on the card, which produces a code and a verification address; open that
+address, enter the code, sign in with the account to connect, check the application name and the consents
+shown, and approve. Inboxora polls in the background and stores the tokens on the server — **nothing is ever
+copied into the administration panel**, and there is no token field to fill in.
+
+The code is valid for the period shown on screen. **Expiring it or declining the prompt are ordinary
+outcomes**, not errors: the card says which happened ("code expired", "authorization was declined") and the
+user simply starts again. Two device flows can be in progress at once for different accounts; each is
+identified separately, so starting a second one does not invalidate the first.
+
+Personal Microsoft accounts do not need this method — the browser method works for them. A work or school
+tenant can **block** device-code sign-in entirely; when it does, the browser method is the way in, or the
+tenant administrator must allow public client flows.
+
+## There is no Google device code
+
+Google's limited-input device flow does not permit the Gmail, Calendar or People scopes this integration
+needs, so Inboxora does not offer one — and the card says so rather than showing a button that cannot work.
+Do **not** create a *TVs and Limited Input devices* client for Inboxora, and do not work around this with
+another application's Client ID: neither grants the scopes. The options are the browser OAuth flow for the
+API integrations, or an app password for mail on accounts that permit one.
+
 ## How connections are kept alive
 
 - Access tokens are refreshed automatically, single-flight: only one worker refreshes a grant at a
