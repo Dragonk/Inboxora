@@ -2793,6 +2793,12 @@ function IntegrationsTab() {
       setSaveMsg('Client ID and Tenant ID are required');
       return;
     }
+    // The same guard as the Google card: a stored secret belongs to the client id it was issued for.
+    const storedMs = (configs.microsoft ?? null) as { clientId?: string; clientSecret?: string } | null;
+    const msSecretUntouched = !msForm.clientSecret || msForm.clientSecret === storedMs?.clientSecret;
+    if (storedMs?.clientId && msForm.clientId !== storedMs.clientId && msSecretUntouched) {
+      if (!window.confirm(t('admin.integrations.clientIdChangeConfirm'))) return;
+    }
     setSaving(true);
     setSaveMsg('');
     try {
@@ -2815,6 +2821,15 @@ function IntegrationsTab() {
     if (!googleForm.clientId || !googleForm.clientSecret || !googleForm.redirectUri) {
       setGoogleSaveMsg('Client ID, Client Secret and Redirect URI are required');
       return;
+    }
+    // AD07, against AD05: the API keeps a stored secret when the edit omits a new one — that is what lets an
+    // administrator change a redirect URI without retyping it — so a new Client ID would silently be paired
+    // with a secret issued for the previous client, and the mismatch would surface only at the provider. The
+    // stored secret arrives masked, so an untouched field is comparable with what the API returned.
+    const storedGoogle = (configs.google ?? null) as { clientId?: string; clientSecret?: string } | null;
+    const googleSecretUntouched = !googleForm.clientSecret || googleForm.clientSecret === storedGoogle?.clientSecret;
+    if (storedGoogle?.clientId && googleForm.clientId !== storedGoogle.clientId && googleSecretUntouched) {
+      if (!window.confirm(t('admin.integrations.clientIdChangeConfirm'))) return;
     }
     setGoogleSaving(true);
     setGoogleSaveMsg('');

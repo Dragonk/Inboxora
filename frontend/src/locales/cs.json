@@ -841,7 +841,8 @@
         "connectCalendars": "Připojit kalendáře Google"
       },
       "connectedAccounts": "Připojené účty",
-      "disconnect": "Odpojit"
+      "disconnect": "Odpojit",
+      "clientIdChangeConfirm": "Toto Client ID se liší od uloženého a uložený secret byl vydán pro uloženého klienta. Zůstane zachován, pokud nezadáte nový secret. Pokračovat?"
     },
     "ai": {
       "title": "Asistent AI",

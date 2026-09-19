@@ -410,7 +410,8 @@
         "connectCalendars": "Connecter les agendas Google"
       },
       "connectedAccounts": "Comptes connectés",
-      "disconnect": "Déconnecter"
+      "disconnect": "Déconnecter",
+      "clientIdChangeConfirm": "Cet ID client diffère de celui enregistré, et le secret stocké a été émis pour le client enregistré. Il sera conservé si vous ne saisissez pas de nouveau secret. Continuer ?"
     },
     "lock": {
       "title": "Verrouillage de l'écran",

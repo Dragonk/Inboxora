@@ -410,7 +410,8 @@
         "connectCalendars": "Connect Google calendars"
       },
       "connectedAccounts": "Connected accounts",
-      "disconnect": "Disconnect"
+      "disconnect": "Disconnect",
+      "clientIdChangeConfirm": "This Client ID is different from the saved one, and the stored secret was issued for the saved client. It will be kept unless you enter a new secret. Continue?"
     },
     "lock": {
       "title": "Screen lock",

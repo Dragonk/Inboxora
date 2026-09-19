@@ -849,7 +849,8 @@
         "connectCalendars": "Połącz kalendarze Google"
       },
       "connectedAccounts": "Połączone konta",
-      "disconnect": "Odłącz"
+      "disconnect": "Odłącz",
+      "clientIdChangeConfirm": "Ten Client ID różni się od zapisanego, a zapisany sekret został wydany dla zapisanego klienta. Zostanie zachowany, jeśli nie podasz nowego sekretu. Kontynuować?"
     },
     "ssoLinked": {
       "title": "Połączono tożsamość SSO",

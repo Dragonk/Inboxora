@@ -410,7 +410,8 @@
         "connectCalendars": "Conectar calendarios de Google"
       },
       "connectedAccounts": "Cuentas conectadas",
-      "disconnect": "Desconectar"
+      "disconnect": "Desconectar",
+      "clientIdChangeConfirm": "Este ID de cliente es distinto del guardado, y el secreto almacenado se emitió para el cliente guardado. Se conservará si no introduces un secreto nuevo. ¿Continuar?"
     },
     "lock": {
       "title": "Bloqueo de pantalla",

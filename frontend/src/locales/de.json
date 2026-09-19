@@ -410,7 +410,8 @@
         "connectCalendars": "Google-Kalender verbinden"
       },
       "connectedAccounts": "Verbundene Konten",
-      "disconnect": "Trennen"
+      "disconnect": "Trennen",
+      "clientIdChangeConfirm": "Diese Client-ID unterscheidet sich von der gespeicherten, und das gespeicherte Secret wurde für den gespeicherten Client ausgestellt. Es bleibt erhalten, wenn Sie kein neues Secret eingeben. Fortfahren?"
     },
     "lock": {
       "title": "Bildschirmsperre",

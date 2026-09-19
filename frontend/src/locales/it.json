@@ -410,7 +410,8 @@
         "connectCalendars": "Connetti calendari Google"
       },
       "connectedAccounts": "Account connessi",
-      "disconnect": "Disconnetti"
+      "disconnect": "Disconnetti",
+      "clientIdChangeConfirm": "Questo ID client è diverso da quello salvato e il secret memorizzato è stato emesso per il client salvato. Verrà mantenuto se non inserisci un nuovo secret. Continuare?"
     },
     "lock": {
       "title": "Blocco schermo",

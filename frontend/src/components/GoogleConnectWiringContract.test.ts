@@ -333,3 +333,13 @@ test('a failed authorization is reported, and in words a user can act on', async
   assert.match(mail, /const key = providerFailureKey\(oauthError\)/);
   assert.match(mail, /title: t\('providers\.connectFailedTitle'\)/);
 });
+
+test('changing the Client ID warns before saving, since the stored secret belongs to the old one', async () => {
+  const source = await readFile(adminPanel, 'utf8');
+  // AD07 against AD05: the API preserves an omitted secret, so the warning has to come from the card, and
+  // only when the secret field is untouched — a new secret is the other way to resolve the pairing.
+  assert.match(source, /admin\.integrations\.clientIdChangeConfirm/);
+  assert.match(source, /const googleSecretUntouched = !googleForm\.clientSecret \|\| googleForm\.clientSecret === storedGoogle\?\.clientSecret/);
+  assert.match(source, /const msSecretUntouched = !msForm\.clientSecret \|\| msForm\.clientSecret === storedMs\?\.clientSecret/);
+  assert.match(source, /if \(!window\.confirm\(t\('admin\.integrations\.clientIdChangeConfirm'\)\)\) return;/);
+});

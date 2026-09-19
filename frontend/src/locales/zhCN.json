@@ -410,7 +410,8 @@
         "connectCalendars": "连接 Google 日历"
       },
       "connectedAccounts": "已连接的账户",
-      "disconnect": "断开连接"
+      "disconnect": "断开连接",
+      "clientIdChangeConfirm": "此 Client ID 与已保存的不同，而已保存的密钥是为已保存的客户端签发的。如果未输入新密钥，它将保留。是否继续？"
     },
     "lock": {
       "title": "屏幕锁定",

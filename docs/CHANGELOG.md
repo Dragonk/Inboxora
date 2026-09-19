@@ -508,6 +508,11 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   second one — another mailbox, while the first was still pending — silently replaced the first: its poll
   reported the second flow's state and completing its code was invisible. Each flow now has an id, the
   client polls with it, and the entry records its owner so another session still cannot reach it.
+- Warn before changing a provider's Client ID. The stored secret belongs to the client it was issued for, and
+  the API deliberately keeps an omitted secret so that editing a redirect URI does not mean retyping it — which
+  meant a new Client ID was silently paired with the old secret, and the mismatch appeared only when the
+  provider refused it. Both cards now ask first, unless a new secret is being supplied, which resolves the
+  pairing by itself.
 
 
 ## [4.0.4] - 2026-09-18
