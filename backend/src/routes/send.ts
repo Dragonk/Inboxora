@@ -13,7 +13,7 @@ import { redactEmail } from '../utils/redact.js';
 import type { EmailAccountRow } from '../services/imapManager.js';
 import { resolveSentFolder } from '../utils/mailUtils.js';
 import { generateVCard } from '../utils/vcard.js';
-import { createAccountSmtpTransport } from '../services/smtpTransport.js';
+import { createAccountMailTransport } from '../services/sendTransport.js';
 import { SEND_ATTACHMENT_TOTAL_BYTES, sendLimits } from '../services/sendLimits.js';
 import { imapManager } from '../index.js';
 import { pluginRegistry } from '../plugins/registry.js';
@@ -653,7 +653,7 @@ router.post('/send', async (req, res) => {
     }
   };
   try {
-    const smtp = await createAccountSmtpTransport(account);
+    const smtp = await createAccountMailTransport(account);
     if (smtp.error) return res.status(smtp.status).json({ error: smtp.error });
     if (!smtp.transport) throw new Error('SMTP transport is unavailable');
     account = smtp.account;

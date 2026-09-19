@@ -13,6 +13,17 @@ limitations — read the matching page in the Wiki: [Release notes 4.1.0](wiki/R
 
 ## [Unreleased]
 
+### Changed
+
+- **A send is now bound to a transport in one place** (`services/sendTransport.ts`), which is the seam the
+  shared send layer needs. The route reached `createAccountSmtpTransport` directly, making "how mail
+  leaves this installation" an SMTP question by construction; it now goes through a named seam, so the
+  Microsoft Graph transport becomes a branch there rather than a second pipeline inside a 1067-line route.
+  Nothing else moved: the `delivered` flag, the intent claim and the uncertain-outcome handling stay where
+  they are, because that boundary already decides whether an outcome is knowable and the transport only
+  has to be pluggable behind it. A native account is still refused, deliberately once — by the SMTP
+  factory, so no caller can hand it a Microsoft Graph account, rather than by a second copy of the check.
+
 ### Fixed
 
 - **A too-large message rejected by the forwarded-attachment backstop now answers with a domain code
