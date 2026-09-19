@@ -625,6 +625,20 @@ endpoint is visible rather than only available over the API.
 Entry points and constraints discovered while building what exists. They are recorded so the next
 session does not have to rediscover them, not as a design that has been agreed.
 
+### Small specified items, as opposed to packages
+
+These are not packages like P07b; each is measured in a few files, and each has its location recorded above.
+They are collected here because a reader planning work looks at this section, not at the acceptance tables.
+
+| Item | What it needs | Where it is described |
+| --- | --- | --- |
+| **AD07** — a new Client ID silently keeps the old secret | A confirmation flag on the save path (keep the secret when confirmed, refuse with a clear answer otherwise) plus a prompt in the card. The naive fix of dropping the secret **breaks AD05** and its test, so the two rows must be satisfied together. | the AD table, above |
+| **DC02** — one device flow per user | `deviceFlows` is keyed by `req.session.userId`, so a second start replaces the first. Keying by a flow id and returning it to the client is the shape; the map's key is also what stops another user reaching a flow, so that property must survive. | the DC table, above |
+| **DC03** — flow binding | Bind the flow to the account, purpose and configuration revision it was started with, not only to the session's user. | the DC table, above |
+| **Contact photos** | Neither provider carries them: a photo needs an authenticated request per contact, which is a deliberate omission rather than an oversight, and the wiki says so. | the provider wiki, "What Inboxora does not do" |
+| **The real DAV client run** | P11's acceptance criterion is a full loop with DAVx⁵; the protocol is verified and no real client has talked to the server. | the matrix section, DV rows |
+| **The DAV upgrade case's diagnosis** | `runMigrations()` takes no argument and the case applies files itself; if that changes, the case is where to start. | the P02 row |
+
 ### Conventions this work settled on, worth reusing
 
 Each of these cost a defect or a round to learn, and each applies to whatever comes next:
