@@ -128,6 +128,11 @@ through:
 | `chromium-mobile` (Pixel 7) | 81 passed, 0 failed, 101 skipped |
 | `chromium-tablet`, `chromium-mobile-390`, `chromium-mobile-landscape` | 171 passed, 0 failed, 204 skipped |
 
+Re-run after the later interface work (the disconnect control, the readiness gates and the new
+strings): `chromium-desktop` and the two mobile projects again green — 123 passed / 0 failed and
+189 passed / 0 failed respectively — so the changes since the first run are covered by this gate
+too, not only by the unit suites.
+
 `chromium-tablet` runs only the `v3-*` specs by configuration, so its coverage is narrower than
 the others by design.
 
