@@ -66,6 +66,25 @@ been run at all:
 | runtime smoke pair | **NOT RUN** | No container was ever started from the published pair: `/api/health`, `/api/version` and a basic login/UI check on those exact digests are unverified. The digests and platforms are registry facts, not a smoke test. |
 | final v4 publication | **not done** | The published images correspond to `035f60ab` (the 4.1.0 release), **not** to the tip of `dev`, and v4 still has open packages (P06, P07b, P08, P09 CRUD, P10, P12). A final publish must wait for the exact final SHA after the scope closes, and then be followed by the smoke pair above. |
 
+## Open documentation defect: the `[Unreleased]` changelog has repeated category headings
+
+`docs/CHANGELOG.md`'s `[Unreleased]` section has **five `### Changed` headings and four `### Added`** where
+the format wants one of each. Some of that is mine — entries added in this work were inserted under both
+`### Changed` and, later, anchored before `### Fixed`, which created a second `### Changed` block — and
+some predates it.
+
+**It was not fixed, and the reason matters more than the defect.** The obvious repair is to move each
+duplicate block's body under the first heading of its category. A script doing that dropped **five
+bullet entries** (42 before, 37 after); the count of `- ` bullets in the section caught it, and
+`git checkout -- docs/CHANGELOG.md` restored the file. Repeated headings are cosmetic; a changelog that
+has silently lost five entries is release documentation that lies, and per `AGENTS.md` these files are the
+only release documentation there is.
+
+So the repair is left to a session that can do it editorially — deciding entry by entry which category
+each block belongs to — rather than mechanically, and the verification that caught it is the one to reuse:
+**count the bullets in the section before and after any restructuring of it.** A heading-level diff looks
+correct while entries have gone.
+
 ## Static verification of the CI plumbing (no runner available)
 
 The stage-10 jobs have **never executed on a GitHub runner** in this work — that stays **NOT RUN**. What
