@@ -423,6 +423,12 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   enabled whenever a Client ID existed, so switching the method off in the saved configuration left
   it fully usable — the readiness text said one thing and the control did another. The button now
   follows the device method's own readiness, like the browser and connector controls do for theirs.
+- Enforce the Microsoft device-code switch on the server, not only in the interface. The method's
+  readiness was reported and the button honoured it, but `POST /oauth/microsoft/device` still started
+  the flow for a method an administrator had switched off — so the setting was effective for users and
+  decorative for any caller that bypassed the interface. The route now answers `403` with a clear
+  message, and a configuration that cannot be read leaves the method enabled rather than failing
+  closed.
 
 
 ## [4.0.4] - 2026-09-18

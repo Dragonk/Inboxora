@@ -279,6 +279,22 @@ router.post('/microsoft/device', async (req: Request, res: Response) => {
   if (!clientId || !tenantId) {
     return res.status(400).json({ error: 'Microsoft integration not configured. Set Client ID and Tenant ID in the Integrations tab.' });
   }
+  // The saved configuration can switch this method off. The readiness report already says
+  // so, and the interface honours it — but reporting a method as unavailable while the
+  // route still starts it makes the setting decoration for anything that bypasses the UI.
+  try {
+    const stored = await query<{ config?: { deviceEnabled?: boolean } }>(
+      'SELECT config FROM integration_config WHERE provider = $1',
+      ['microsoft'],
+    );
+    if (stored?.rows?.[0]?.config?.deviceEnabled === false) {
+      return res.status(403).json({ error: 'The Microsoft device-code method is disabled in the Integrations settings.' });
+    }
+  } catch (caught) {
+    // A missing row or an unreadable configuration must not block a method that the
+    // administrator has not switched off.
+    console.error('Device code configuration read failed:', toAppError(caught).message);
+  }
 
   try {
     const dcRes = await fetch(`${MICROSOFT_AUTH_URL}/${tenantId}/oauth2/v2.0/devicecode`, {
