@@ -115,6 +115,37 @@ which is enforced, and the whole provider layer can be switched off for an insta
 `PROVIDER_INTEGRATIONS_ENABLED=0`. The dismissal controls are part of the migration work and are not to be
 expected here — worth knowing so that their absence is not read as a missing setting.
 
+## If a migration is interrupted
+
+The migrations are **additive**: they add tables, columns and indexes and rewrite none, so an interruption leaves a
+partially extended schema rather than damaged data. What it can leave behind is an **invalid index**, because five of the
+files build indexes with `CREATE INDEX CONCURRENTLY` outside a transaction — a cancelled or failed concurrent build
+leaves the index present but unusable, and the next run may then report a duplicate-object error instead of completing.
+
+Check for one before re-running:
+
+```sql
+SELECT indexrelid::regclass AS invalid_index FROM pg_index WHERE NOT indisvalid;
+```
+
+If that returns rows, drop them and apply the migration file again:
+
+```sql
+DROP INDEX CONCURRENTLY <invalid_index>;
+```
+
+```bash
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/migrations/<the interrupted file>.sql
+```
+
+The runner records each file it has applied with its checksum, so a re-run **skips what is already applied** and refuses
+rather than guessing if a file's content no longer matches its record (`Migration checksum mismatch`). Check which file
+was in flight before re-running rather than assuming: the interrupted one is the only file that should need to be
+applied by hand.
+
+**Do not** re-run the whole chain by hand, and do not drop tables to "start clean": the schema is extended in place, and
+the rows it extends are what the application is serving.
+
 ## Rollback
 
 Images are pinned, so a rollback is an image change:
