@@ -15,6 +15,16 @@ limitations — read the matching page in the Wiki: [Release notes 4.1.0](wiki/R
 
 ### Added
 
+- A **message-size ceiling on the send path**, counted on the composed message. The interface's estimate was the
+  only check there was, so an oversized message travelled to the SMTP server and failed there with whatever that
+  server said. The server now counts the message as actually compiled — headers, base64 growth, separators and CRLF
+  included — **before** anything is claimed or dispatched, and answers `413 MESSAGE_TOO_LARGE` with the real byte
+  count and the limit. `MAIL_MAX_MESSAGE_BYTES` raises the limit from its 25 MiB default; passing this check means
+  this installation accepted the message, **not** that the provider will.
+
+
+### Added
+
 - A provider configuration can be **tested**, not only reported ready. `POST /api/integrations/:provider/test`
   checks the stored client id and secret against the provider using a deliberately unusable grant: the provider
   answers `invalid_client` when the credentials are wrong and `invalid_grant` when it accepts them, which is the

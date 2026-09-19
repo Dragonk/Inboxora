@@ -715,6 +715,17 @@ router.post('/send', async (req, res) => {
     });
     const rawMessage = Buffer.concat(chunks);
 
+    // §12.2: the interface's estimate is preliminary, and this is the message as actually compiled — headers,
+    // base64 growth, separators and CRLF included — counted on the server side, before any dispatch. Nothing has
+    // been claimed or handed to SMTP at this point, so refusing here leaves no uncertain send behind.
+    const messageLimit = mailMaxMessageBytes();
+    if (rawMessage.length > messageLimit) {
+      return res.status(413).json({
+        code: 'MESSAGE_TOO_LARGE',
+        error: `The composed message is ${rawMessage.length} bytes, above this installation's limit of ${messageLimit}.`,
+      });
+    }
+
     // A database-backed intent is the final, cross-process gate immediately before SMTP.
     // It remains authoritative if Redis is flushed while another request is still preparing.
     if (idempotencyKey) {
@@ -995,3 +1006,16 @@ router.post('/send', async (req, res) => {
 });
 
 export default router;
+
+/**
+ * The ceiling on one composed message, in bytes.
+ *
+ * The default is Gmail's raw-message limit (25 MiB) because it is the lowest ceiling an installation is likely to
+ * meet, and a provider's own limit can still be lower: passing this check means the installation accepted the
+ * message, not that the provider will. `MAIL_MAX_MESSAGE_BYTES` raises it for servers that permit more.
+ */
+export function mailMaxMessageBytes(env: NodeJS.ProcessEnv = process.env): number {
+  const configured = Number(env.MAIL_MAX_MESSAGE_BYTES);
+  if (Number.isFinite(configured) && configured > 0) return Math.floor(configured);
+  return 25 * 1024 * 1024;
+}

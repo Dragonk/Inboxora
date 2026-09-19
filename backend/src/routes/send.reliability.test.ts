@@ -212,4 +212,29 @@ describe('send failure semantics', () => {
     expect(sendMail).not.toHaveBeenCalled();
     expect(redisClient.set).not.toHaveBeenCalled();
   });
+
+  it('refuses a message above the installation limit before dispatch', async () => {
+    // §12.2: the interface estimate is preliminary; the composed message is counted on the server, and nothing
+    // may have been dispatched when it is too large.
+    process.env.MAIL_MAX_MESSAGE_BYTES = '1000';
+    try {
+      const response = await fetch(`${base}/api/mail/send`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          to: 'you@example.com',
+          subject: 'Oversized',
+          body: 'x'.repeat(4000),
+        }),
+      });
+      expect(response.status).toBe(413);
+      const body = await response.json() as { code?: string; error?: string };
+      expect(body.code).toBe('MESSAGE_TOO_LARGE');
+      expect(body.error).toContain('1000');
+      // The whole point of counting it here: the message never reached SMTP.
+      expect(sendMail).not.toHaveBeenCalled();
+    } finally {
+      delete process.env.MAIL_MAX_MESSAGE_BYTES;
+    }
+  });
 });
