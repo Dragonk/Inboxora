@@ -522,8 +522,7 @@ live authorization is NOT RUN.
 already does: both images (`inboxora-backend`, `inboxora-frontend`), tagged `dev`, for `linux/amd64` and
 `linux/arm64`, with an assertion that the source SHA is **reachable from `origin/dev`** — the plan's "one final
 SHA" rule, enforced by the workflow rather than by convention. It is a `workflow_dispatch` workflow, so it was
-**dispatched from this release's SHA** once that SHA was the head of `dev`. The run's outcome is recorded with it
-rather than assumed, and nothing here touches `main`.
+**dispatched from this release's SHA** once that SHA was the head of `dev`. **The run completed successfully from SHA `035f60ab`**, and the images were then verified in the registry rather than taken on the workflow's word: `ghcr.io/dragonk/inboxora-backend:dev` and `ghcr.io/dragonk/inboxora-frontend:dev` both resolve to **OCI image indexes** carrying **`linux/amd64` and `linux/arm64`**. That is W14's runtime half — both images, both architectures, one dev-reachable SHA — and the registry check is what makes it evidence instead of a green checkmark. Nothing here touches `main`.
 
 ## Acceptance criteria W01–W19, as the plan requires them reported
 
