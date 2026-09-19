@@ -86,6 +86,14 @@ defect that would only surface there:
 - **The triggers are what the stage requires**: `push: [dev]`, pull requests into `dev` and `main`, and a
   manual dispatch taking an exact SHA, which the first step asserts against `github.sha`.
 
+**No Graph adapter function is dormant.** The distinction this document draws between *delivered* and
+*wired* was applied to my own P07b surface rather than only to other people's: for every `export function`
+in `services/providers/microsoft/*.ts`, the non-test references outside its own definition were counted,
+and **none has zero** — each is called from production code, so nothing in that package is a leaf waiting
+for a caller. That matters most for the functions added toward the end of the run, when the temptation to
+land a well-tested helper and defer the wiring is highest; the conversation identity half (`2224e80c`)
+was exactly that shape and was completed by `ff35ca81` rather than left standing.
+
 **A near-miss worth recording, because it is the fifth instance of the same error in this work.** Reading
 the job, I saw `run: npm test` under a Chromium install and concluded the browser gate never ran a browser
 test — a serious finding, and wrong: the step after it runs `npx playwright test` with all five projects.
