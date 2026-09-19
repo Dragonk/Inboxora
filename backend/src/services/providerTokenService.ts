@@ -312,8 +312,21 @@ async function getProviderAccessToken<TConfig>(profile: ProviderTokenProfile<TCo
   }
 
   try {
+    // Re-read the grant *under* the lease before calling the provider. A successful
+    // store releases the lease, so a worker that read an expired token before another
+    // worker stored a fresh one can still acquire the now-free lease. Without this check
+    // it would refresh a second time with the token it read earlier — harmless where the
+    // provider keeps its refresh token, but a real risk where it rotates it, because the
+    // second exchange can invalidate the first worker's result.
+    const guarded = await withTransaction(client => readGrantForUser(client, { userId: input.userId, connectionId: input.connectionId, audience }));
+    const superseded = usableToken(guarded, now, skewMs);
+    if (superseded) {
+      await withTransaction(client => releaseRefreshLease(client, initial.id)).catch(() => {});
+      return { ...superseded, refreshed: true };
+    }
     const tokens = await profile.exchange({
-      refreshToken: initial.refreshToken,
+      // The token read under the lease, not the one read before acquiring it.
+      refreshToken: guarded?.refreshToken ?? initial.refreshToken,
       scopes: initial.scopes,
       config: input.config,
       ...(input.fetchImpl ? { fetchImpl: input.fetchImpl } : {}),

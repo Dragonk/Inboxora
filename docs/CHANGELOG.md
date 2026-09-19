@@ -379,6 +379,12 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   invitations could have been replaced by a file — organizer, attendees and all — silently, which
   a DAV client is explicitly refused. Those conflicts are now left unchanged and reported, and a
   file whose events are all protected is no longer described as containing none.
+- Close a window in which a grant could be refreshed twice. A successful store releases the refresh
+  lease, so a worker that had read an expired token *before* another worker stored a fresh one could
+  still acquire the now-free lease and call the provider again with the token it read earlier.
+  Harmless where the provider keeps its refresh token, but a real risk where it rotates it — the
+  second exchange can invalidate the first worker's result. The grant is now re-read under the lease
+  and a token that has since become usable is returned instead of refreshing again.
 
 
 ## [4.0.4] - 2026-09-18

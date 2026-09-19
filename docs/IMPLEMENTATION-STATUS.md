@@ -166,6 +166,18 @@ Recipes to close the two gaps, left unapplied because CI cost is an operator dec
 - **Browser suite** — add `push: branches: [dev]` to `conversation-v2-playwright.yml`, or integrate
   through a pull request so its existing trigger applies.
 
+## Concurrency note on the refresh lease
+
+A successful token store releases the refresh lease as part of writing the new token. That leaves
+a window in which a worker that read an *expired* grant before another worker stored a fresh one
+can acquire the now-free lease and refresh a second time with the token it read earlier. Where the
+provider keeps its refresh token that is harmless; where it rotates one — Microsoft does — the
+second exchange can invalidate the first worker's result, so the grant is now re-read under the
+lease and a token that has become usable is returned instead of refreshing again.
+
+Covered by the two-worker race test, which is the check that exposed the window: it failed once on
+a fresh database, and passes repeatedly after the fix.
+
 ## Known limitations of what is delivered
 
 - Pulled Google and Microsoft contacts and Google calendars are **read-only** in Inboxora: REST and
