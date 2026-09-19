@@ -228,7 +228,10 @@ and every local message, folder, draft, alias and conversation is left exactly a
 
 - The switch succeeds only when an active Microsoft connection whose grant carries **`Mail.ReadWrite`
   and `Mail.Send`** resolves for the account — either named explicitly or matched on the verified
-  provider identity — and only for an account the caller owns.
+  provider identity — and only for an account the caller owns. An explicitly named connection whose
+  verified address is **not** the account's is refused (`ACCOUNT_MIGRATION_IDENTITY_MISMATCH`) rather
+  than silently switching the account onto another mailbox; the deliberate alias case passes
+  `allowIdentityMismatch: true`, so the exception is a stated decision rather than an accident.
 - It is **one atomic update** under a row lock (`mail_transport`, `provider_connection_id`, `protocol`,
   `migration_state = 'active_native'`, transport generation + 1), so a crash leaves either the whole
   switch or none of it, and a retry on an already-switched account is a no-op rather than a second

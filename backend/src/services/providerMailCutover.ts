@@ -79,6 +79,7 @@ export type MicrosoftMailCutoverRefusalCode =
   | 'MICROSOFT_NOT_CONFIGURED'
   | 'ACCOUNT_MIGRATION_CONNECTION_INVALID'
   | 'ACCOUNT_MIGRATION_CONNECTION_REQUIRED'
+  | 'ACCOUNT_MIGRATION_IDENTITY_MISMATCH'
   | 'PROVIDER_AUTH_REQUIRED';
 
 /** The account fields the result carries; a subset of the row, with the migration state narrowed. */
@@ -128,6 +129,15 @@ export interface CutOverMicrosoftMailInput {
    * from the verified provider identity, and an ambiguous match is refused rather than guessed.
    */
   connectionId?: string | null;
+  /**
+   * Accept an explicit connection whose verified address is not this account's address.
+   *
+   * The cutover must not change the mailbox it operates on: with the flag absent, an explicit connection
+   * for a *different* address is refused, because after the switch Inboxora would read and send that
+   * other mailbox while the account still says this one. An alias can legitimately differ from the
+   * connection's UPN, so the deliberate case is possible — explicitly, and only explicitly.
+   */
+  allowIdentityMismatch?: boolean;
   /** Overrides the environment configuration (tests inject one). */
   config?: GraphApiOptions['config'];
   fetchImpl?: FetchLike;
@@ -267,6 +277,7 @@ async function resolveConnection(
   account: AccountRow,
   userId: string,
   explicitConnectionId: string | null,
+  allowIdentityMismatch: boolean,
 ): Promise<
   | { kind: 'resolved'; connection: ConnectionRow }
   | { kind: 'refused'; httpStatus: number; code: MicrosoftMailCutoverRefusalCode; message: string }
@@ -282,6 +293,18 @@ async function resolveConnection(
       return {
         kind: 'refused', httpStatus: 409, code: 'ACCOUNT_MIGRATION_CONNECTION_INVALID',
         message: 'That is not a Microsoft connection of this user',
+      };
+    }
+    // The account's identity must survive the switch. A connection whose verified address differs would
+    // make Inboxora read and send a different mailbox under this account's name, so it is refused unless
+    // the caller explicitly says the difference is intended (an alias whose UPN is the other address).
+    const accountAddress = (account.email_address ?? '').trim().toLowerCase();
+    const connectionAddress = (connection.provider_user_id ?? '').trim().toLowerCase();
+    if (!allowIdentityMismatch && accountAddress && connectionAddress && accountAddress !== connectionAddress) {
+      return {
+        kind: 'refused', httpStatus: 409, code: 'ACCOUNT_MIGRATION_IDENTITY_MISMATCH',
+        message: `That connection belongs to ${connection.provider_user_id}, not to ${account.email_address}. `
+          + 'Switching would read and send the other mailbox under this account. Pass allowIdentityMismatch: true if the difference is an alias you intend.',
       };
     }
     return { kind: 'resolved', connection };
@@ -383,7 +406,7 @@ export async function cutOverMicrosoftMailAccount(
       };
     }
 
-    const resolved = await resolveConnection(client, account, input.userId, explicitConnectionId);
+    const resolved = await resolveConnection(client, account, input.userId, explicitConnectionId, input.allowIdentityMismatch === true);
     if (resolved.kind === 'refused') {
       // Only a missing authorization is an account state worth recording. A malformed or ambiguous
       // connection choice is a request error the caller fixes and retries immediately.

@@ -367,20 +367,34 @@ describeOrSkip('cutOverMicrosoftMailAccount (PostgreSQL)', () => {
     expect((await readAccount(ACCOUNT_ID))?.migration_state).toBe('not_applicable');
   });
 
-  it('accepts an explicitly named connection when the address does not match the verified identity', async () => {
-    // The connection belongs to the same user but its verified identity is another address (an
-    // alias, or a second mailbox). Auto-resolution must not guess; the explicit choice must work.
+  it('refuses an explicit connection for another mailbox unless the caller says the difference is intended', async () => {
+    // The connection belongs to the same user but its verified identity is another address (an alias, or
+    // a second mailbox). Auto-resolution must not guess, and the explicit choice must not silently change
+    // which mailbox the account operates on: after the switch Inboxora would read and send that other
+    // mailbox while the account still says this one. So the deliberate case is explicit too.
     const { connectionId } = await seedMicrosoftAccount({ providerUserId: 'other-alias@contoso.test' });
 
     const auto = await cutOverMicrosoftMailAccount({ userId: USER_ID, accountId: ACCOUNT_ID, discoverFolders: false });
     expect(auto.status).toBe('refused');
     if (auto.status === 'refused') expect(auto.code).toBe('PROVIDER_AUTH_REQUIRED');
 
-    const explicit = await cutOverMicrosoftMailAccount({
+    const refused = await cutOverMicrosoftMailAccount({
       userId: USER_ID, accountId: ACCOUNT_ID, connectionId, discoverFolders: false,
     });
-    expect(explicit.status).toBe('migrated');
-    if (explicit.status === 'migrated') expect(explicit.connectionId).toBe(connectionId);
+    expect(refused.status).toBe('refused');
+    if (refused.status === 'refused') {
+      expect(refused.code).toBe('ACCOUNT_MIGRATION_IDENTITY_MISMATCH');
+      expect(refused.message).toContain('other-alias@contoso.test');
+    }
+    // Refused means nothing was switched and the refusal was not recorded as an account state.
+    expect((await readAccount(ACCOUNT_ID))?.mail_transport).toBeNull();
+    expect(refused.recorded).toBe(false);
+
+    const deliberate = await cutOverMicrosoftMailAccount({
+      userId: USER_ID, accountId: ACCOUNT_ID, connectionId, allowIdentityMismatch: true, discoverFolders: false,
+    });
+    expect(deliberate.status).toBe('migrated');
+    if (deliberate.status === 'migrated') expect(deliberate.connectionId).toBe(connectionId);
   });
 
   it('refuses an account the actor does not own, changing nothing', async () => {

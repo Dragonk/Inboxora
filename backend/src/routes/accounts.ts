@@ -423,12 +423,17 @@ router.post('/:id/migrate', async (req, res) => {
   if (requestedConnection !== undefined && requestedConnection !== null && !isUuid(requestedConnection)) {
     return res.status(400).json({ error: 'connectionId must be a UUID' });
   }
+  const allowIdentityMismatch = (req.body ?? {}).allowIdentityMismatch;
+  if (allowIdentityMismatch !== undefined && typeof allowIdentityMismatch !== 'boolean') {
+    return res.status(400).json({ error: 'allowIdentityMismatch must be a boolean' });
+  }
 
   try {
     const result = await cutOverMicrosoftMailAccount({
       userId,
       accountId: id,
       connectionId: requestedConnection ?? null,
+      allowIdentityMismatch: allowIdentityMismatch === true,
     });
 
     switch (result.status) {

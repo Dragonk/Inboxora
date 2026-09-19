@@ -126,6 +126,7 @@ describe('POST /api/accounts/:id/migrate', () => {
       userId: '11111111-1111-1111-1111-111111111111',
       accountId: ACCOUNT_ID,
       connectionId: null,
+      allowIdentityMismatch: false,
     });
     expect(imapManager.disconnectAccount).toHaveBeenCalledWith(ACCOUNT_ID);
     expect(imapManager.connectAccount).not.toHaveBeenCalled();
@@ -146,10 +147,25 @@ describe('POST /api/accounts/:id/migrate', () => {
       userId: '11111111-1111-1111-1111-111111111111',
       accountId: ACCOUNT_ID,
       connectionId: CONNECTION_ID,
+      allowIdentityMismatch: false,
     });
 
     cutover.mockClear();
     const malformed = await migrate({ connectionId: 'not-a-uuid' });
+    expect(malformed.status).toBe(400);
+    expect(cutover).not.toHaveBeenCalled();
+  });
+
+  it('passes a deliberate identity mismatch through and rejects a malformed one', async () => {
+    cutover.mockResolvedValue({
+      status: 'migrated', account: nativeAccount, connectionId: CONNECTION_ID, transitions: [], foldersDiscovered: false, folders: 0,
+    });
+
+    expect((await migrate({ connectionId: CONNECTION_ID, allowIdentityMismatch: true })).status).toBe(200);
+    expect(cutover).toHaveBeenCalledWith(expect.objectContaining({ connectionId: CONNECTION_ID, allowIdentityMismatch: true }));
+
+    cutover.mockClear();
+    const malformed = await migrate({ connectionId: CONNECTION_ID, allowIdentityMismatch: 'yes' });
     expect(malformed.status).toBe(400);
     expect(cutover).not.toHaveBeenCalled();
   });
