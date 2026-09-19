@@ -228,8 +228,19 @@ routers are mounted, and Express searches forward from the failing layer, so it 
 errors — the handler that does is the generic one further down, which currently answers `500`. The
 fix has to extend *that* one, or answer from the router itself.
 
-Both attempts left the tree green after revert; no part of either is in it. The third attempt should
-begin with the mid-upload question, not with the cap, because the cap is the easy half.
+3. A third attempt removed the mid-upload problem by **discarding** the excess while still reading the
+   request to its end, and rejecting only on `end`. It hung in exactly the same way. That rules out the
+   explanation the second attempt produced: the hang is **not** caused by answering while the client is
+   still writing.
+
+The hypothesis the next attempt must test *before* writing any of the fix, because three variants have
+now failed on the same symptom: **does a 1.1 MB `PUT` to a valid DAV collection complete at all in this
+harness?** If it does not, the fixture — not the cap — is what is hanging, and the cap may already be
+correct. Reproduce that in isolation first, with no cap in the code and a body just over and just under
+the proposed limit, and only then decide the response strategy.
+
+All three attempts left the tree green after revert; no part of any is in it. Three variants of the same
+fix failing on the same symptom is the signal to stop guessing and build the reproduction.
 
 ## Acceptance criteria W01–W19, as the plan requires them reported
 
