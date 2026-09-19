@@ -13,6 +13,7 @@ import { generateVCard } from '../utils/vcard.js';
 import { createAccountMailTransport } from '../services/sendTransport.js';
 import { SEND_ATTACHMENT_TOTAL_BYTES, sendLimits } from '../services/sendLimits.js';
 import { renderSmtpMessage } from '../services/composedMail.js';
+import { fetchSourceAttachment, SourceAttachmentError } from '../services/sourceAttachments.js';
 import { imapManager } from '../index.js';
 import { pluginRegistry } from '../plugins/registry.js';
 import { toAppError } from '../utils/errors.js';
@@ -48,6 +49,8 @@ interface ForwardedMessageRow {
   folder: string;
   attachments: string | StoredAttachment[] | null;
   account_id: string;
+  /** Present on a natively-ingested message; the Graph source's immutable id. */
+  provider_message_id?: string | null;
 }
 
 /** A forwarded attachment whose bytes were fetched over IMAP. */
@@ -491,7 +494,7 @@ router.post('/send', async (req, res) => {
       // forwardedAttachments array can't fan out into one DB round-trip per entry.
       const distinctMsgIds = [...new Set(forwardedAttachments.map(fa => fa.messageId))];
       const msgRows = await query<ForwardedMessageRow>(
-        `SELECT m.id, m.uid, m.folder, m.attachments, m.account_id FROM messages m
+        `SELECT m.id, m.uid, m.folder, m.attachments, m.account_id, m.provider_message_id FROM messages m
          JOIN email_accounts a ON m.account_id = a.id
          WHERE m.id = ANY($1::uuid[]) AND a.user_id = $2`,
         [distinctMsgIds, req.session.userId!]
@@ -533,10 +536,23 @@ router.post('/send', async (req, res) => {
         const fetched = await Promise.all(batch.map(async ({ msg, att }) => {
           const acct = acctById.get(msg.account_id);
           if (!acct) throw Object.assign(new Error('Account not found'), { status: 404, code: 'RESOURCE_NOT_FOUND' });
-          const buffer = await imapManager.fetchAttachment(acct, msg.uid, msg.folder, att.part);
-          if (!buffer) // §22.1 names this outcome, and its rule is §12.9's sentence: a retry of the read is possible, and the
-            // message is not sent without the file.
-            throw Object.assign(new Error(`Could not fetch attachment: ${att.filename}`), { status: 502, code: 'ATTACHMENT_FETCH_FAILED' });
+          // Fetched from the account that OWNS the message, not from the sender: a forward whose source
+          // is a native Graph account must read the bytes over Graph and never open IMAP. §22.1 names a
+          // failed fetch, and its rule is §12.9's sentence: the read can be retried, and the message is
+          // not sent without the file.
+          const buffer = await fetchSourceAttachment({
+            account: acct,
+            message: { uid: msg.uid, folder: msg.folder, provider_message_id: msg.provider_message_id ?? null },
+            attachment: { part: att.part, filename: att.filename },
+            imap: (sourceAccount, uid, folder, part) =>
+              imapManager.fetchAttachment(sourceAccount as EmailAccountRow, uid as number, folder, part),
+            maxBytes: limits.attachmentBytes,
+          }).catch((caught: unknown) => {
+            if (caught instanceof SourceAttachmentError) {
+              throw Object.assign(new Error(caught.message), { status: caught.status, code: caught.code });
+            }
+            throw caught;
+          });
           return {
             filename: sanitizeHeaderValue(att.filename || 'attachment'),
             content: buffer,
