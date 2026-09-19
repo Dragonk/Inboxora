@@ -260,6 +260,12 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   instead of stored broken and does not stop the valid events beside it; a file that is not a
   calendar, or that contains no event at all, is reported as a `400`; and a calendar owned by a
   provider or an imported feed refuses the write, because its source is its writer.
+- Run one provider refresh shortly after start instead of waiting a whole interval. A restart used
+  to leave already-pulled contacts and calendars stale for up to the refresh interval (15 minutes by
+  default); the schedule now performs a first pass 30 seconds after start and then keeps to the
+  normal cadence, so a restart no longer delays freshness. The delay keeps the pass out of the way
+  of start-up, the existing single-flight guard still prevents it from overlapping a running pass,
+  and the timer does not hold the process open.
 
 ## [4.0.4] - 2026-09-18
 
