@@ -523,6 +523,11 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   cadence as a healthy one — which is the behaviour a provider is least willing to forgive. A throttled pass now
   doubles the wait towards a thirty-minute ceiling with jitter, so a fleet of installations does not retry in
   lockstep, and a healthy pass returns to the normal cadence.
+- Let the recurrence projection decide a CalDAV time-range query. The query used `OR recurring` to select
+  candidates — an indexed form of the old raw-text check — and then returned every candidate, so a series whose
+  rule never lands inside the requested window came back anyway and the client received resources it had not asked
+  for. Candidates are now filtered by their actual occurrences in the window, which is also what makes the filter
+  correct across daylight-saving changes and overrides rather than approximately right.
 
 
 ## [4.0.4] - 2026-09-18

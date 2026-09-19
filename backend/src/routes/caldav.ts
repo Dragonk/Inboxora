@@ -3,6 +3,7 @@
 
 import { Router } from 'express';
 import { parseCalendarEvent, parseUtc } from '../utils/ical.js';
+import { projectCalendarResource } from '../utils/calendarRecurrence.js';
 export { parseCalendarEvent } from '../utils/ical.js';
 import { query } from '../services/db.js';
 import { authLimiterConfig } from '../services/authLimiter.js';
@@ -339,7 +340,17 @@ router.report('/:userId/:calendarId/', async (req: Request, res: Response) => {
         "SELECT uid, recurrence_id, etag, raw_ical, dav_filename FROM calendar_events WHERE calendar_id = $1 AND recurrence_id = $2 ORDER BY uid ASC",
         [calendar.id, ''],
       );
-    events = current.rows;
+    // `OR recurring` selects candidates; it is not the final word. A series whose rule never lands inside the
+    // requested window is a candidate that matches nothing, and returning it hands the client resources it did
+    // not ask for — so the projection decides, which is also what makes the filter correct across DST and
+    // overrides rather than approximately right.
+    events = start && end
+      // The row is a calendar_events record; the projection reads its raw iCalendar, which is the only
+      // part of it the helper needs.
+      ? current.rows.filter(row => projectCalendarResource(
+        row as unknown as Parameters<typeof projectCalendarResource>[0], start, end,
+      ).length > 0)
+      : current.rows;
   }
 
   const responses = events.map((event) => response(`${basePath}${encodeURIComponent(event.dav_filename || `${event.uid}.ics`)}`, event.deleted
