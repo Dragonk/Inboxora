@@ -222,6 +222,32 @@ absent or unreadable row as "not switched off" rather than failing closed. The e
 had **no test at all**; it now has five, covering the unauthenticated, unconfigured, switched-off,
 working and unreadable-configuration paths.
 
+## Open: the provider and per-method switches are decorative
+
+`integration_config` stores `enabled` per provider and `webEnabled` / `apiEnabled` per method, and
+none of them gates anything. Verified by reading every consumer:
+
+- The only code outside `integrations.ts` that reads the stored provider configuration is the
+  device-switch check added in the last round. `webEnabled` and `apiEnabled` have **no reader at
+  all**, in routes or services.
+- The readiness report computes `enabled: !!clientId` rather than the stored `enabled`, so switching
+  a provider off changes neither what the card offers nor what the flows do. `integrations.ts` maps
+  `record.enabled === false` to a `disabled` flag on the public configuration, which reaches the
+  interface but no authorisation path.
+
+Consequence: an administrator who disables Google, Microsoft, or one of their methods still has the
+corresponding flow startable, which is the same expectation gap as the device switch — one level up.
+
+Enforcement sites, when it is done: `GET /oauth/microsoft` and `GET /oauth/provider/microsoft` and
+`POST /oauth/microsoft/device` (against `enabled` and the matching method flag), `GET /oauth/google`
+(against `enabled` and `apiEnabled`), and the provider status/sync routes so a disabled provider is
+not offered.
+
+Deliberately **not** split into a report-only change here: making the readiness report honour the
+switches while the flows ignore them would create exactly the inversion — a report that says
+"unavailable" over a route that still works — that the last round closed for the device method.
+Enforce first, then report, in one change with tests for each site.
+
 ## Known limitations of what is delivered
 
 - Pulled Google and Microsoft contacts and Google calendars are **read-only** in Inboxora: REST and
