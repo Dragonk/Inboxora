@@ -937,6 +937,12 @@ export default function ComposeModal() {
         // can honestly do — and it is more than the server's sentence in another language.
         setError(t('compose.sendUncertainBody'));
         addNotification({ type: 'info', title: t('compose.sendUncertainTitle'), message: t('compose.sendUncertainBody') });
+        // §12.7: a deliberate re-send must be a NEW operation, and the warning above is the one it requires. The
+        // key is what makes a retry land on the same intent, so clearing it here is what turns the user's next
+        // explicit Send into a fresh operation. Nothing sends on its own — this composer only dispatches from a
+        // click — so the protection the key provides is not lost by clearing it: it exists to stop an *automatic*
+        // duplicate, and there is no automatic path left once the user has been told the outcome is unknown.
+        idempotencyKeyRef.current = null;
       } else {
         setError(appError.message);
       }

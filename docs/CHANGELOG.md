@@ -13,6 +13,14 @@ limitations — read the matching page in the Wiki: [Release notes 4.1.0](wiki/R
 
 ## [Unreleased]
 
+### Changed
+
+- After an **uncertain send**, the composer releases its idempotency key, so the user's next deliberate Send is a
+  **new operation** rather than a refusal — which is what the plan asks for, together with the duplicate-risk warning
+  that is already shown. Nothing sends on its own: this composer dispatches only from a click, and the key exists to
+  stop an *automatic* duplicate, so releasing it once the user has been told the outcome is unknown removes no
+  protection. Checking the Sent folder remains the first advice, because a duplicate is worse than a delay.
+
 ### Added
 
 - Refusals on the forwarded-attachment path now carry **domain codes** rather than only sentences:
