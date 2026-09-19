@@ -198,6 +198,21 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   deliberately separate from `/oauth/microsoft`, which keeps handling mailbox sign-in unchanged; the
   returned connection is reported as a connection, not as a new account, and creates or migrates no
   mailbox.
+- Add the Microsoft Graph contacts connector (P07/P09, reachable at
+  `/api/contacts/providers/microsoft/status` and `/sync`; not yet offered in the interface).
+  Outlook's default contact folder is read through Graph and projected into one local address book
+  per connection, created read-only with DAV access *Disabled*. Contacts are linked by the Outlook
+  contact id, never by e-mail; a contact deleted in Outlook is removed locally with a tombstone link.
+  Synchronisation uses Graph's delta feed — a baseline first, then changes only — and a delta link
+  Graph rejects (HTTP 410) rebuilds the book from a baseline **and reconciles** it, removing what the
+  baseline no longer lists, which a plain re-read would silently leave behind. Each connection's
+  cursor is stored under the P03 lease, so only one sync runs at a time and a restarted worker cannot
+  advance it out of order. Graph failures are classified (401 → re-authorize, 403 → missing scope,
+  404, 410 → rebuild, 429/5xx → retryable with Retry-After, after one controlled token refresh on a
+  401), and one failing connection does not hide the others' results. Also fixes a real defect found
+  while wiring this: both contacts status endpoints listed **every** address book of the user rather
+  than the books of that provider, so a Google book could be reported by the Microsoft connector and
+  vice versa; each is now scoped to its own connections.
 
 ## [4.0.4] - 2026-09-18
 

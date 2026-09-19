@@ -78,6 +78,8 @@ describe('GET /api/contacts/providers/google/status', () => {
     expect(connectionSql).toContain("provider = 'google'");
     expect(connectionParams).toEqual(['user-1']);
     const [bookSql, bookParams] = mocks.query.mock.calls[1] as [string, unknown[]];
+    // Scoped to the Google connections, so a Microsoft book is never reported here.
+    expect(bookSql).toContain("pc.provider = 'google'");
     expect(bookSql).toContain('ic.user_id = $1');
     expect(bookParams).toEqual(['user-1']);
   });

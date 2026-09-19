@@ -9,9 +9,11 @@ import { contactsToGoogleCsv, contactsToOutlookCsv, contactsToVCard, parseGoogle
 import crypto from 'crypto';
 import { queryInt, queryString, queryStringOr, routeParam, sessionUserId } from '../utils/query.js';
 import { toAppError } from '../utils/errors.js';
-import { googleConfigFromEnv, isGoogleConfigured } from '../services/providerAuthService.js';
+import { googleConfigFromEnv, isGoogleConfigured, isMicrosoftConfigured, microsoftConfigFromEnv } from '../services/providerAuthService.js';
 import { syncGoogleContacts } from '../services/providers/google/googleContactsSync.js';
 import { GoogleApiError } from '../services/providers/google/googleApiClient.js';
+import { syncGraphContacts } from '../services/providers/microsoft/graphContactsSync.js';
+import { GraphApiError } from '../services/providers/microsoft/graphApiClient.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -193,6 +195,7 @@ router.get('/providers/google/status', async (req, res) => {
               s.last_success_at, s.last_error_code
          FROM integration_collections ic
          JOIN address_books ab ON ab.id = ic.local_address_book_id
+         JOIN provider_connections pc ON pc.id = ic.connection_id AND pc.provider = 'google'
          LEFT JOIN sync_states s ON s.collection_id = ic.id AND s.user_id = ic.user_id
         WHERE ic.user_id = $1 AND ic.kind = 'address_book'
         ORDER BY ab.created_at ASC`,
@@ -212,6 +215,78 @@ router.get('/providers/google/status', async (req, res) => {
       lastErrorCode: row.last_error_code,
     })),
   });
+});
+
+// The same status and pull for the Microsoft Graph connector. Kept as its own pair
+// of routes because the two providers are configured, authorized and reported
+// independently — one being unconfigured must never hide the other.
+router.get('/providers/microsoft/status', async (req, res) => {
+  const userId = sessionUserId(req);
+  const [connections, books] = await Promise.all([
+    query<{ id: string }>(
+      "SELECT id FROM provider_connections WHERE user_id = $1 AND provider = 'microsoft' AND status = 'active'",
+      [userId],
+    ),
+    query<{
+      connection_id: string; address_book_id: string; name: string | null;
+      contact_count: number; last_success_at: string | Date | null; last_error_code: string | null;
+    }>(
+      `SELECT ic.connection_id, ab.id AS address_book_id, ab.name,
+              (SELECT COUNT(*)::int FROM contacts c WHERE c.address_book_id = ab.id) AS contact_count,
+              s.last_success_at, s.last_error_code
+         FROM integration_collections ic
+         JOIN address_books ab ON ab.id = ic.local_address_book_id
+         JOIN provider_connections pc ON pc.id = ic.connection_id AND pc.provider = 'microsoft'
+         LEFT JOIN sync_states s ON s.collection_id = ic.id AND s.user_id = ic.user_id
+        WHERE ic.user_id = $1 AND ic.kind = 'address_book'
+        ORDER BY ab.created_at ASC`,
+      [userId],
+    ),
+  ]);
+  res.json({
+    configured: isMicrosoftConfigured(microsoftConfigFromEnv()),
+    connected: connections.rows.length > 0,
+    connections: connections.rows.length,
+    books: books.rows.map(row => ({
+      connectionId: row.connection_id,
+      addressBookId: row.address_book_id,
+      name: row.name,
+      contactCount: row.contact_count,
+      lastSyncedAt: row.last_success_at,
+      lastErrorCode: row.last_error_code,
+    })),
+  });
+});
+
+router.post('/providers/microsoft/sync', async (req, res) => {
+  const userId = sessionUserId(req);
+  const connections = await query<{ id: string }>(
+    "SELECT id FROM provider_connections WHERE user_id = $1 AND provider = 'microsoft' AND status = 'active' ORDER BY created_at ASC",
+    [userId],
+  );
+  if (!connections.rows.length) {
+    return res.status(409).json({ error: 'Connect a Microsoft account before syncing contacts' });
+  }
+  const config = microsoftConfigFromEnv();
+  if (!isMicrosoftConfigured(config)) {
+    return res.status(409).json({ error: 'Microsoft API is not configured by the administrator' });
+  }
+
+  const results: Array<Record<string, unknown>> = [];
+  for (const connection of connections.rows) {
+    try {
+      results.push({ connectionId: connection.id, ...(await syncGraphContacts({ userId, connectionId: connection.id, config })) });
+    } catch (caught) {
+      const error = caught instanceof GraphApiError ? caught : null;
+      results.push({
+        connectionId: connection.id,
+        error: error
+          ? { code: error.code, message: error.message, retryable: error.retryable }
+          : { code: 'INTERNAL_ERROR', message: toAppError(caught).message, retryable: false },
+      });
+    }
+  }
+  res.json({ results });
 });
 
 // Pull the signed-in user's Google personal contacts for every connected Google

@@ -189,3 +189,24 @@ address-book menu, which appears once a Google account is connected. An automati
 the same rule as calendars: a book you have already pulled is refreshed on a schedule (every 15
 minutes by default, configurable or disableable by an administrator with
 `PROVIDER_SYNC_INTERVAL_MINUTES`), while connecting an account never starts an import by itself.
+
+## Pulling contacts from Microsoft
+
+Once a Microsoft account is connected through the Graph authorization flow, Inboxora can read the
+contacts of its **default Outlook contact folder**. They land in one local address book per
+connection, named *Microsoft Contacts*.
+
+- A contact is identified by its Outlook contact id, never by its e-mail address, so two contacts
+  sharing an address, or a contact with none, never merge or duplicate.
+- Synchronisation uses Outlook's **delta** feed: the first pass reads everything and stores a delta
+  link, and later passes read only what changed. A contact deleted in Outlook is removed here too,
+  and the link is kept as a tombstone so it is not re-created.
+- If Outlook rejects the stored delta link (it expires when the mailbox goes untouched for long
+  enough), that book is **rebuilt from a baseline and reconciled**: contacts the baseline no longer
+  lists are removed locally, which a plain re-read would miss.
+- Like the Google book, it arrives with **DAV access: Disabled** and is read-only in the app.
+
+The connector is reachable through the API (`/api/contacts/providers/microsoft/status` and
+`/sync`) but is **not yet offered in the interface**, so today it is triggered there rather than
+from the Contacts page; the in-app control and the automatic refresh follow with the settings
+connection button.

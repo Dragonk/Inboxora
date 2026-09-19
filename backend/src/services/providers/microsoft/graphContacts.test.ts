@@ -1,0 +1,202 @@
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { classifyGraphError, graphGet, graphUrl, GraphApiError } from './graphApiClient.js';
+import { contactUidForGraphContact, fetchContactsPage, graphContactToVCard, normalizeGraphBirthday } from './graphContacts.js';
+import type { GraphContact } from './graphContacts.js';
+
+const tokenMock = vi.hoisted(() => vi.fn(async (_input: { skewSeconds?: number } = {}) => ({
+  accessToken: 'graph-token-1', expiresAt: new Date(Date.now() + 3600_000), generation: 1, refreshed: false, scopes: [],
+})));
+
+vi.mock('../../providerTokenService.js', () => ({ getMicrosoftAccessToken: tokenMock }));
+vi.mock('../../providerAuthService.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../providerAuthService.js')>()),
+  microsoftConfigFromEnv: () => ({ clientId: 'client-1', clientSecret: 'secret-1', redirectUri: 'https://x/cb', tenantId: 'common' }),
+}));
+
+const headers = (values: Record<string, string> = {}) => new Headers(values);
+const OPTIONS = { userId: 'user-1', connectionId: 'connection-1' };
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  tokenMock.mockClear();
+});
+
+describe('classifyGraphError', () => {
+  it('maps an unauthorized call to a re-authorize problem', () => {
+    expect(classifyGraphError(401, { error: { message: 'Invalid authentication token' } }, headers()))
+      .toMatchObject({ code: 'PROVIDER_AUTH_REQUIRED', retryable: false });
+  });
+
+  it('maps a forbidden call to a missing scope, carrying the provider reason', () => {
+    const error = classifyGraphError(403, { error: { code: 'ErrorAccessDenied', message: 'Access is denied.' } }, headers());
+    expect(error).toMatchObject({ code: 'INSUFFICIENT_SCOPES', providerReason: 'ErrorAccessDenied' });
+  });
+
+  it('distinguishes a missing resource from an expired delta token', () => {
+    expect(classifyGraphError(404, {}, headers()).code).toBe('RESOURCE_NOT_FOUND');
+    expect(classifyGraphError(410, { error: { code: 'syncStateNotFound' } }, headers()).code).toBe('INVALID_SYNC_CURSOR');
+  });
+
+  it('marks throttling and server errors retryable, with Retry-After when given', () => {
+    expect(classifyGraphError(429, {}, headers({ 'retry-after': '12' })))
+      .toMatchObject({ code: 'RATE_LIMITED', retryable: true, retryAfterSeconds: 12 });
+    expect(classifyGraphError(503, {}, headers()).code).toBe('UPSTREAM_UNAVAILABLE');
+    expect(classifyGraphError(503, {}, headers()).retryable).toBe(true);
+  });
+
+  it('is a typed error, so the adapter can branch on it', () => {
+    expect(classifyGraphError(400, { error: { code: 'BadRequest', message: 'nope' } }, headers())).toBeInstanceOf(GraphApiError);
+  });
+});
+
+describe('graphUrl', () => {
+  it('keeps the escaped select list and drops absent values', () => {
+    const url = new URL(graphUrl('/me/contactFolders/contacts/contacts/delta', {
+      $select: 'id,displayName', $top: 200, $skiptoken: undefined, $filter: null,
+    }));
+    expect(url.searchParams.get('$select')).toBe('id,displayName');
+    expect(url.searchParams.get('$top')).toBe('200');
+    expect(url.searchParams.has('$skiptoken')).toBe(false);
+    expect(url.searchParams.has('$filter')).toBe(false);
+  });
+});
+
+describe('normalizeGraphBirthday', () => {
+  it('takes the date part of the ISO timestamp Graph returns', () => {
+    expect(normalizeGraphBirthday('1970-04-01T00:00:00Z')).toBe('1970-04-01');
+    expect(normalizeGraphBirthday('1970-04-01')).toBe('1970-04-01');
+    expect(normalizeGraphBirthday('')).toBeNull();
+    expect(normalizeGraphBirthday('sometime')).toBeNull();
+  });
+});
+
+describe('graphContactToVCard', () => {
+  const contact: GraphContact = {
+    id: 'AAMkAGI2',
+    displayName: 'Ada Lovelace',
+    givenName: 'Ada',
+    surname: 'Lovelace',
+    nickName: 'Ada',
+    emailAddresses: [{ address: 'ada@contoso.test', name: 'Ada Lovelace' }, { address: 'ada.home@example.test' }],
+    businessPhones: ['+48 22 000 00 00'],
+    homePhones: ['+48 22 111 11 11'],
+    mobilePhone: '+48 600 000 000',
+    companyName: 'Analytical Engines',
+    jobTitle: 'Mathematician',
+    department: 'Research',
+    personalNotes: 'First programmer',
+    birthday: '1815-12-10T00:00:00Z',
+    businessHomePage: 'https://example.test/ada',
+    businessAddress: { street: 'St James Square 1', city: 'London', postalCode: 'SW1', countryOrRegion: 'UK' },
+    homeAddress: { city: 'London' },
+    otherAddress: {},
+    categories: ['Friends', ''],
+  };
+
+  it('maps names, labelled phones, org fields, notes and addresses', () => {
+    const card = graphContactToVCard(contact, contactUidForGraphContact(contact.id));
+    expect(card).toMatchObject({
+      uid: 'msgraph-AAMkAGI2',
+      displayName: 'Ada Lovelace',
+      firstName: 'Ada',
+      lastName: 'Lovelace',
+      nickname: 'Ada',
+      organization: 'Analytical Engines',
+      title: 'Mathematician',
+      role: 'Research',
+      notes: 'First programmer',
+      birthday: '1815-12-10',
+      categories: ['Friends'],
+    });
+    // The first e-mail is primary; Graph gives no type, so it is left generic.
+    expect(card.emails).toEqual([
+      { value: 'ada@contoso.test', type: 'other', primary: true },
+      { value: 'ada.home@example.test', type: 'other', primary: false },
+    ]);
+    expect(card.phones).toEqual([
+      { value: '+48 22 000 00 00', type: 'work' },
+      { value: '+48 22 111 11 11', type: 'home' },
+      { value: '+48 600 000 000', type: 'cell' },
+    ]);
+    expect(card.urls).toEqual([{ value: 'https://example.test/ada', type: 'work' }]);
+    // An empty address object contributes nothing.
+    expect(card.addresses).toEqual([
+      { type: 'work', pobox: '', extended: '', street: 'St James Square 1', locality: 'London', region: '', postalCode: 'SW1', country: 'UK' },
+      { type: 'home', pobox: '', extended: '', street: '', locality: 'London', region: '', postalCode: '', country: '' },
+    ]);
+  });
+
+  it('identifies a contact by its id, never by an e-mail address', () => {
+    expect(contactUidForGraphContact('AAMkAGI2')).toBe('msgraph-AAMkAGI2');
+    // A contact with no e-mail still has an identity.
+    const card = graphContactToVCard({ id: 'no-mail', givenName: 'Anon' }, 'msgraph-no-mail');
+    expect(card.uid).toBe('msgraph-no-mail');
+    expect(card.emails).toEqual([]);
+    expect(card.phones).toEqual([]);
+    expect(card.addresses).toEqual([]);
+    // With no display name, the primary e-mail is the best label available.
+    expect(card.displayName).toBeNull();
+    expect(graphContactToVCard({ id: 'x', emailAddresses: [{ address: 'a@b.test' }] }, 'msgraph-x').displayName).toBe('a@b.test');
+  });
+});
+
+describe('fetchContactsPage', () => {
+  const json = (body: unknown, status = 200): Response =>
+    ({ ok: status >= 200 && status < 300, status, headers: new Headers(), json: async () => body }) as Response;
+
+  it('reads the default folder delta with a select list and surfaces the delta link', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(json({
+      value: [{ id: 'c1', displayName: 'Ada' }],
+      '@odata.deltaLink': 'https://graph.microsoft.com/v1.0/me/contactFolders/contacts/contacts/delta?$deltatoken=abc',
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const page = await fetchContactsPage(OPTIONS);
+    expect(page.contacts).toHaveLength(1);
+    expect(page.nextLink).toBeNull();
+    expect(page.deltaLink).toContain('$deltatoken=abc');
+    const url = String(fetchMock.mock.calls[0][0]);
+    expect(url).toContain('/me/contactFolders/contacts/contacts/delta');
+    expect(url).toContain('%24select=id');
+    expect(url).toContain('%24top=200');
+  });
+
+  it('marks a deleted entry from its @removed marker', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({
+      value: [{ id: 'gone', '@removed': { reason: 'deleted' } }],
+      '@odata.deltaLink': 'https://graph.microsoft.com/v1.0/delta?$deltatoken=next',
+    })));
+    const page = await fetchContactsPage(OPTIONS);
+    expect(page.contacts[0]?.removed).toEqual({ reason: 'deleted' });
+  });
+
+  it('follows the absolute next link exactly as Graph provided it', async () => {
+    const next = 'https://graph.microsoft.com/v1.0/me/contactFolders/contacts/contacts/delta?$skiptoken=xyz';
+    const fetchMock = vi.fn().mockResolvedValue(json({ value: [] }));
+    vi.stubGlobal('fetch', fetchMock);
+    await fetchContactsPage(OPTIONS, { nextLink: next });
+    expect(String(fetchMock.mock.calls[0][0])).toBe(next);
+  });
+
+  it('refreshes once and retries after a 401', async () => {
+    tokenMock
+      .mockResolvedValueOnce({ accessToken: 'stale', expiresAt: new Date(Date.now() + 3600_000), generation: 1, refreshed: false, scopes: [] })
+      .mockResolvedValueOnce({ accessToken: 'fresh', expiresAt: new Date(Date.now() + 3600_000), generation: 2, refreshed: true, scopes: [] });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: false, status: 401, headers: new Headers(), json: async () => ({ error: { message: 'expired' } }) } as Response)
+      .mockResolvedValueOnce(json({ value: [{ id: 'c1' }] }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const page = await fetchContactsPage(OPTIONS);
+    expect(page.contacts).toHaveLength(1);
+    expect(tokenMock).toHaveBeenCalledTimes(2);
+    // The retry uses the refreshed token, and the second read forces a refresh.
+    expect(String((fetchMock.mock.calls[1][1] as RequestInit).headers && JSON.stringify((fetchMock.mock.calls[1][1] as { headers: Record<string, string> }).headers))).toContain('fresh');
+    expect(tokenMock.mock.calls[1][0]).toMatchObject({ skewSeconds: 60 * 60 * 24 * 365 });
+  });
+
+  it('turns an expired delta token into the rebuild signal', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({ error: { code: 'syncStateNotFound', message: 'delta token expired' } }, 410)));
+    await expect(graphGet(OPTIONS, '/me/contactFolders/contacts/contacts/delta')).rejects.toMatchObject({ code: 'INVALID_SYNC_CURSOR' });
+  });
+});
