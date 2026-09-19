@@ -841,9 +841,10 @@
         "userNoteNotConfigured": "Administrator nie skonfigurował jeszcze integracji Google API. Poczta przez istniejące połączenie IMAP/SMTP działa dalej.",
         "connect": "Połącz konto Google",
         "connecting": "Otwieranie Google…",
-        "connectHint": "Zostaniesz poproszony o autoryzację Kontaktów Google. Poczta i kalendarze dodaje się osobno.",
+        "connectHint": "Wybierz, co autoryzujesz: przycisk kontaktów prosi o kontakty, ten o kalendarze. Połącz dwa razy, aby mieć oba; poczta nie jest tu nigdy wymagana.",
         "connectUnavailable": "Administrator musi najpierw skonfigurować Google API, aby można było połączyć konto.",
-        "connectedNote": "Konto Google połączone. Kontakty możesz zsynchronizować na stronie Kontakty."
+        "connectedNote": "Konto Google połączone. Kontakty możesz zsynchronizować na stronie Kontakty.",
+        "connectCalendars": "Połącz kalendarze Google"
       }
     },
     "ssoLinked": {

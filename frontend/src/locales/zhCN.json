@@ -402,9 +402,10 @@
         "userNoteNotConfigured": "管理员尚未配置 Google API 集成。通过现有 IMAP/SMTP 连接的邮件仍可正常使用。",
         "connect": "连接 Google 账户",
         "connecting": "正在打开 Google…",
-        "connectHint": "系统会请求您授权 Google 通讯录。邮件和日历需单独添加。",
+        "connectHint": "请选择要授权的项目：联系人按钮请求联系人，此按钮请求日历。两者都需要请连接两次；此处永不请求邮件权限。",
         "connectUnavailable": "管理员必须先配置 Google API，才能连接账户。",
-        "connectedNote": "Google 账户已连接。可在“联系人”页面同步联系人。"
+        "connectedNote": "Google 账户已连接。可在“联系人”页面同步联系人。",
+        "connectCalendars": "连接 Google 日历"
       }
     },
     "lock": {

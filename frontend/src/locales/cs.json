@@ -833,9 +833,10 @@
         "userNoteNotConfigured": "Správce ještě nenakonfiguroval integraci Google API. Pošta přes stávající připojení IMAP/SMTP funguje dál.",
         "connect": "Připojit účet Google",
         "connecting": "Otevírání Google…",
-        "connectHint": "Google požádá o přístup ke Kontaktům Google. Pošta a kalendáře se přidávají zvlášť.",
+        "connectHint": "Zvolte, co autorizujete: tlačítko kontaktů žádá kontakty, toto kalendáře. Pro obojí se připojte dvakrát; pošta se zde nikdy nevyžaduje.",
         "connectUnavailable": "Správce musí nejprve nakonfigurovat Google API, než lze účet připojit.",
-        "connectedNote": "Účet Google připojen. Kontakty synchronizujte na stránce Kontakty."
+        "connectedNote": "Účet Google připojen. Kontakty synchronizujte na stránce Kontakty.",
+        "connectCalendars": "Připojit kalendáře Google"
       }
     },
     "ai": {

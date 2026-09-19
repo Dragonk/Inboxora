@@ -2892,11 +2892,14 @@ function IntegrationsTab() {
     setTimeout(() => setConnectingGraph(false), 5000);
   };
 
-  const handleConnectGoogle = () => {    setConnectingGoogle(true);
-    // Contacts is the Google feature that exists today; mail and calendar purposes
-    // arrive with their own adapters, and each purpose asks only for its scopes.
+  const handleConnectGoogle = (purpose: 'contacts_enable' | 'calendar_enable') => {
+    setConnectingGoogle(true);
+    // One authorization per feature: a contacts-only grant cannot read calendars, and
+    // asking for both at once would request scopes the user did not choose. Google's
+    // incremental consent keeps the scopes of the earlier connection, so connecting
+    // twice accumulates them instead of replacing them.
     const a = document.createElement('a');
-    a.href = '/oauth/google?purpose=contacts_enable';
+    a.href = `/oauth/google?purpose=${purpose}`;
     a.target = '_blank';
     a.rel = 'opener';
     document.body.appendChild(a);
@@ -3445,7 +3448,7 @@ function IntegrationsTab() {
                         <button
                           data-testid="google-connect"
                           disabled={connectingGoogle}
-                          onClick={handleConnectGoogle}
+                          onClick={() => handleConnectGoogle('contacts_enable')}
                           style={{
                             padding: '9px 16px', background: 'var(--bg-elevated)', border: '1px solid var(--border)',
                             borderRadius: 8, color: 'var(--text-primary)', cursor: connectingGoogle ? 'not-allowed' : 'pointer',
@@ -3453,6 +3456,20 @@ function IntegrationsTab() {
                           }}
                         >
                           {connectingGoogle ? t('admin.integrations.google.connecting') : t('admin.integrations.google.connect')}
+                        </button>
+                        {/* Calendars need their own grant: a contacts authorization does
+                            not include the calendar scopes. */}
+                        <button
+                          data-testid="google-connect-calendars"
+                          disabled={connectingGoogle}
+                          onClick={() => handleConnectGoogle('calendar_enable')}
+                          style={{
+                            padding: '9px 16px', marginLeft: 8, background: 'var(--bg-elevated)', border: '1px solid var(--border)',
+                            borderRadius: 8, color: 'var(--text-primary)', cursor: connectingGoogle ? 'not-allowed' : 'pointer',
+                            fontSize: 13, fontWeight: 500, opacity: connectingGoogle ? 0.7 : 1,
+                          }}
+                        >
+                          {connectingGoogle ? t('admin.integrations.google.connecting') : t('admin.integrations.google.connectCalendars')}
                         </button>
                         <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 6 }}>
                           {t('admin.integrations.google.connectHint')}

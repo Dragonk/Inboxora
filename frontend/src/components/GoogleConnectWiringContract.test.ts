@@ -11,9 +11,11 @@ const localesDir = new URL('../locales/', import.meta.url);
 test('the Google provider card offers an account connection once the browser flow is ready', async () => {
   const source = await readFile(adminPanel, 'utf8');
   assert.match(source, /data-testid="google-connect"/);
-  assert.match(source, /const handleConnectGoogle = \(\) => \{/);
-  // Contacts is the feature that exists today; the purpose decides the scopes asked for.
-  assert.match(source, /a\.href = '\/oauth\/google\?purpose=contacts_enable'/);
+  // One authorization per feature: a contacts grant cannot read calendars.
+  assert.match(source, /const handleConnectGoogle = \(purpose: 'contacts_enable' \| 'calendar_enable'\) => \{/);
+  assert.match(source, /a\.href = `\/oauth\/google\?purpose=\$\{purpose\}`/);
+  assert.match(source, /data-testid="google-connect-calendars"/);
+  assert.match(source, /handleConnectGoogle\('calendar_enable'\)/);
   assert.match(source, /googleStatus\?\.browser\?\.ready \? \(/);
   assert.match(source, /admin\.integrations\.google\.connectUnavailable/);
   // A completed popup flow updates the Google card (no mailbox is created).

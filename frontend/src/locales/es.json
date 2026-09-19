@@ -402,9 +402,10 @@
         "userNoteNotConfigured": "El administrador aún no ha configurado la integración de la API de Google. El correo por la conexión IMAP/SMTP existente sigue funcionando.",
         "connect": "Conectar una cuenta de Google",
         "connecting": "Abriendo Google…",
-        "connectHint": "Se te pedirá autorizar Contactos de Google. El correo y los calendarios se añaden por separado.",
+        "connectHint": "Elige qué autorizas: el botón de contactos pide contactos y este, calendarios. Conecta dos veces para ambos; el correo nunca se solicita aquí.",
         "connectUnavailable": "Un administrador debe configurar la API de Google antes de poder conectar una cuenta.",
-        "connectedNote": "Cuenta de Google conectada. Sincroniza tus contactos desde la página Contactos."
+        "connectedNote": "Cuenta de Google conectada. Sincroniza tus contactos desde la página Contactos.",
+        "connectCalendars": "Conectar calendarios de Google"
       }
     },
     "lock": {

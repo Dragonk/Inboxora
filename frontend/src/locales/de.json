@@ -402,9 +402,10 @@
         "userNoteNotConfigured": "Der Administrator hat die Google-API-Integration noch nicht konfiguriert. Mail über die bestehende IMAP/SMTP-Verbindung funktioniert weiterhin.",
         "connect": "Google-Konto verbinden",
         "connecting": "Google wird geöffnet…",
-        "connectHint": "Sie werden um die Freigabe von Google Kontakte gebeten. Mail und Kalender werden getrennt hinzugefügt.",
+        "connectHint": "Wählen Sie, was autorisiert wird: die Kontakte-Schaltfläche fragt Kontakte an, diese Kalender. Für beides zweimal verbinden; Mail wird hier nie angefragt.",
         "connectUnavailable": "Ein Administrator muss die Google API konfigurieren, bevor ein Konto verbunden werden kann.",
-        "connectedNote": "Google-Konto verbunden. Kontakte lassen sich auf der Seite Kontakte synchronisieren."
+        "connectedNote": "Google-Konto verbunden. Kontakte lassen sich auf der Seite Kontakte synchronisieren.",
+        "connectCalendars": "Google-Kalender verbinden"
       }
     },
     "lock": {

@@ -9,7 +9,7 @@ Nothing here is aspirational: a package is only marked delivered when its behavi
 tests — including integration tests against a real PostgreSQL where persistence, leases or cursors
 are involved — and merged to `origin/dev`.
 
-Last verified on `dev` at `811a50d8`: backend typecheck, lint and **2211 tests**; frontend
+Last verified on `dev` at `902360a6`: backend typecheck, lint and **2211 tests**; frontend
 typecheck, lint, production build and **2635 tests**. `main` has not been touched by this work.
 
 ## Status
@@ -20,7 +20,7 @@ typecheck, lint, production build and **2635 tests**. `main` has not been touche
 | P01 — shared provider contracts | delivered | `abbe2b9b` | — |
 | P02 — additive schema (connections, grants, remote links, operation journal, outbox, notice preferences) | delivered | `abbe2b9b` (connections/grants/remote links, `0101`), `78b8c182` (journal/outbox, `0102`), `d4592756` (`0104`), `d7b8ceb9` (`0105`), `1a84536d` (`0106`) | `account_notice_preferences` exists but is unused until P12. |
 | P03 — operation journal, sync leases, domain outbox | delivered | `78b8c182` | — |
-| P04 — OAuth flows and token service | mostly delivered | `ee788ca8` (Google web flow), `d4592756` (single-flight refresh + CAS), `524a5f00` (Microsoft refresh), `c30d13ba` (Microsoft Graph provider flow), `d4927e09` (Google flow in the UI) | Provider **device-code** authorization (the mailbox device flow exists; the Graph provider flow is browser-only). Purpose selector beyond contacts in the UI. |
+| P04 — OAuth flows and token service | mostly delivered | `ee788ca8` (Google web flow), `d4592756` (single-flight refresh + CAS), `524a5f00` (Microsoft refresh), `c30d13ba` (Microsoft Graph provider flow), `d4927e09` (Google flow in the UI), per-feature Google connect buttons | Provider **device-code** authorization (the mailbox device flow exists; the Graph provider flow is browser-only). |
 | P05 — mobile drawer gesture | delivered | `f76e1a40` | — |
 | P06 — send/draft ledger, attachment and MIME limits | **not started** | — | Durable upload/send ledger, separated file/total/MIME/HTTP limits, draft preservation on failure. |
 | P07 — native Microsoft Graph adapters | **partial** | `524a5f00`, `c30d13ba`, `a9a3f975` (contacts), `d545ff45`, `c08fb7ae`, `f4d4fac1` | **Graph mail adapter** (blocks P12), Graph calendar adapter, provider device flow. |
