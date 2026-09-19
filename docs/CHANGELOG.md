@@ -15,6 +15,18 @@ limitations — read the matching page in the Wiki: [Release notes 4.1.0](wiki/R
 
 ### Added
 
+- **Microsoft Graph message body and attachments (P07b, fourth slice).** Opening a Graph message now
+  reads its body from Microsoft — fetched on demand, sanitised with the same HTML sanitiser the IMAP
+  path uses, and cached in the same `body_html`/`body_text`/`attachments` columns, so the reading
+  interface needs no branch and later views are served from the cache. **Attachments** are listed with
+  their provider metadata and download by their Graph attachment id, under the same 50 MB ceiling the
+  IMAP path enforces; a download is refused before the bytes are decoded. **Inline images are
+  embedded** as data URIs from their `contentId`, bounded in count and size, which is what keeps the
+  cached HTML out of the "unresolved `cid:`" rule that would otherwise re-fetch the body on every view.
+  A single unreadable inline image is skipped rather than failing the whole message. The message body
+  cache, the remote-image blocking preference and the calendar-invitation marker all behave as they do
+  for IMAP.
+
 - **Microsoft Graph message flags, and the pending-mutation drain (P07b, third slice).** Marking a
   Graph message read/unread or starred now writes to Microsoft through the **shared provider-mutation
   layer** — the same `confirmed`/`retryable`/`outcome_unknown` semantics, claim fencing and journal as

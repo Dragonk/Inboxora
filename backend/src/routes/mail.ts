@@ -18,6 +18,16 @@ import { providerIntegrationsEnabled } from '../services/providerSwitches.js';
 import { isMicrosoftConfigured, microsoftConfigFromEnv } from '../services/providerAuthService.js';
 import { syncGraphMailFoldersForAccount, syncGraphMailMessagesForAccount } from '../services/providers/microsoft/graphMailSync.js';
 import type { EmailAccountRow } from '../services/imapManager.js';
+import { GraphApiError } from '../services/providers/microsoft/graphApiClient.js';
+import {
+  collectGraphInlineImages,
+  embedGraphInlineImages,
+  fetchGraphAttachmentBytes,
+  fetchGraphAttachments,
+  fetchGraphMessageBody,
+  localAttachmentsForGraph,
+} from '../services/providers/microsoft/graphMailBody.js';
+import type { Request as ExpressRequest, Response as ExpressResponse } from 'express';
 /** Attachment metadata as stored in messages.attachments (JSON) and fetched from IMAP. */
 interface AttachmentMeta {
   part: string;
@@ -505,10 +515,14 @@ router.get('/messages/:id/body', async (req, res) => {
     return res.json({ html: responseHtml, text: message.body_text, attachments, hasBlockedRemoteImages, senderEmail: message.sender_email, senderName: message.sender_name, ...(message.calendar_invitation_id ? { calendarInvitation: true } : {}) });
   }
 
-  // Fetch from IMAP — signal user activity so background jobs back off during this request.
+  // Fetch from the account's transport — signal user activity so background jobs
+  // back off during this request. A native account has no IMAP session to read.
   try {
     const accountResult = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1', [message.account_id]);
     const account = accountResult.rows[0];
+    if (account?.mail_transport === 'microsoft_graph') {
+      return await respondWithGraphBody(req, res, message, account);
+    }
     imapManager.noteUserActivity(account.id);
 
     const { html, text, attachments } = await fetchWithTimeout(
@@ -743,7 +757,26 @@ router.get('/messages/:id/attachments/:part', async (req, res) => {
   try {
     const accountResult = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1', [message.account_id]);
     if (!accountResult.rows.length) return res.status(404).json({ error: 'Account not found' });
-    const buffer = await imapManager.fetchAttachment(accountResult.rows[0], message.uid, message.folder, partNum);
+    const attachmentAccount = accountResult.rows[0];
+    // A native account's attachments come from the provider, addressed by the
+    // Graph attachment id stored as the `part` above.
+    if (attachmentAccount.mail_transport === 'microsoft_graph') {
+      if (!message.provider_message_id || !attachmentAccount.provider_connection_id) {
+        return res.status(409).json({ error: 'This message has no Microsoft Graph identity', code: 'RESOURCE_NOT_FOUND' });
+      }
+      const bytes = await fetchGraphAttachmentBytes(
+        { userId: attachmentAccount.user_id, connectionId: attachmentAccount.provider_connection_id, config: microsoftConfigFromEnv() },
+        message.provider_message_id,
+        partNum,
+        ATTACHMENT_SIZE_LIMIT,
+      );
+      if (!bytes.length) return res.status(404).json({ error: 'Could not fetch attachment' });
+      res.setHeader('Content-Type', att.type || 'application/octet-stream');
+      res.setHeader('Content-Disposition', attachmentDisposition(att.filename || 'attachment'));
+      res.setHeader('Content-Length', bytes.length);
+      return void res.send(bytes);
+    }
+    const buffer = await imapManager.fetchAttachment(attachmentAccount, message.uid, message.folder, partNum);
 
     if (!buffer) return res.status(404).json({ error: 'Could not fetch attachment' });
 
@@ -756,6 +789,92 @@ router.get('/messages/:id/attachments/:part', async (req, res) => {
     res.status(500).json({ error: 'Failed to fetch attachment' });
   }
 });
+
+
+/**
+ * Serve and cache the body of a Microsoft Graph message.
+ *
+ * The result lands in the same `body_html`/`body_text`/`attachments` columns the
+ * IMAP path uses, so the reading interface needs no branch and every later view is
+ * served from the cache. Inline images are embedded as data URIs, which is also
+ * what keeps the cached HTML out of the "unresolved `cid:`" rule that forces a
+ * re-fetch on every view.
+ */
+async function respondWithGraphBody(
+  req: ExpressRequest,
+  res: ExpressResponse,
+  message: ReadMessageRow,
+  account: EmailAccountRow,
+): Promise<void> {
+  if (!account.provider_connection_id || !message.provider_message_id) {
+    // A Graph account whose message carries no provider id is a broken row rather
+    // than a temporary failure, so it is reported instead of retried for ever.
+    res.status(409).json({ error: 'This message has no Microsoft Graph identity', code: 'RESOURCE_NOT_FOUND' });
+    return;
+  }
+  const api = {
+    userId: account.user_id,
+    connectionId: account.provider_connection_id,
+    config: microsoftConfigFromEnv(),
+  };
+
+  try {
+    const [body, attachments] = await Promise.all([
+      fetchGraphMessageBody(api, message.provider_message_id),
+      fetchGraphAttachments(api, message.provider_message_id),
+    ]);
+
+    let html: string | null = null;
+    let text: string | null = null;
+    if (body?.contentType === 'html') {
+      const inline = await collectGraphInlineImages(api, message.provider_message_id, attachments);
+      html = sanitizeDbText(sanitizeEmail(embedGraphInlineImages(body.content, inline)));
+    } else if (body) {
+      text = sanitizeDbText(body.content);
+    }
+
+    const visibleAttachments = localAttachmentsForGraph(attachments);
+    const snip = sanitizeDbText(snippetFromBody(text ?? '', html));
+
+    // Only cache when there is something to cache, exactly as the IMAP path does:
+    // a transient empty answer must not wipe a previously successful body.
+    if (html || text || visibleAttachments.length > 0) {
+      await query(
+        `UPDATE messages
+            SET body_html = $1, body_text = $2, attachments = $3,
+                snippet = CASE WHEN $5 != '' THEN $5 ELSE snippet END
+          WHERE id = $4`,
+        [html, text, JSON.stringify(visibleAttachments), message.id, snip]
+      );
+    }
+
+    const skipBlocking = req.query.remoteImages === '1';
+    let responseHtml = html;
+    let hasBlockedRemoteImages = false;
+    if (!skipBlocking && html && shouldBlockRemoteImages(message.preferences, message) && hasRemoteImages(html)) {
+      responseHtml = blockRemoteImages(html);
+      hasBlockedRemoteImages = true;
+    }
+    res.json({
+      html: responseHtml,
+      text,
+      attachments: visibleAttachments,
+      hasBlockedRemoteImages,
+      senderEmail: message.sender_email,
+      senderName: message.sender_name,
+      ...(message.calendar_invitation_id ? { calendarInvitation: true } : {}),
+    });
+  } catch (caught) {
+    const problem = caught instanceof GraphApiError ? caught : null;
+    console.error('Graph body fetch error:', problem?.message ?? (caught instanceof Error ? caught.message : caught));
+    if (problem?.code === 'RESOURCE_NOT_FOUND') return void res.status(404).json({ error: 'This message no longer exists in the mailbox', code: problem.code });
+    if (problem?.code === 'RATE_LIMITED') return void res.status(503).json({ error: 'Microsoft Graph is throttling this mailbox. Please try again shortly.', code: problem.code, retryable: true });
+    if (problem && (problem.code === 'PROVIDER_AUTH_REQUIRED' || problem.code === 'INSUFFICIENT_SCOPES')) {
+      return void res.status(403).json({ error: 'Microsoft Graph refused this request. Reconnect the account or check its permissions.', code: problem.code });
+    }
+    res.status(502).json({ error: 'Could not load the message body from Microsoft Graph' });
+  }
+}
 
 /**
  * Push a flag change through the shared provider-mutation layer (P03).
