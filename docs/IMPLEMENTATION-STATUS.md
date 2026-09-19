@@ -20,7 +20,7 @@ typecheck, lint, production build and **2644 tests**. `main` has not been touche
 | P01 — shared provider contracts | **partial** | `abbe2b9b` | The contracts and the registry are wired (the registry is read by the mail paths). `providers/capabilities.ts` is imported only by its own tests, so the capability table is not yet consulted in production. |
 | P02 — additive schema (connections, grants, remote links, operation journal, outbox, notice preferences) | delivered | `abbe2b9b` (connections/grants/remote links, `0101`), `78b8c182` (journal/outbox, `0102`), `d4592756` (`0104`), `d7b8ceb9` (`0105`), `1a84536d` (`0106`) | `account_notice_preferences` exists but is unused until P12. |
 | P03 — operation journal, sync leases, domain outbox | **partial** | `78b8c182` | The leases are wired: the Google and Microsoft connectors take them on every run. The **operation journal and the domain outbox are delivered and tested (16 cases) but nothing in production calls them** — they are the intended vehicle for P10 write-back and the P12 cutover, so they are dormant until those land. |
-| P04 — OAuth flows and token service | mostly delivered | `ee788ca8` (Google web flow), `d4592756` (single-flight refresh + CAS), `524a5f00` (Microsoft refresh), `c30d13ba` (Microsoft Graph provider flow), `d4927e09` (Google flow in the UI), per-feature Google connect buttons | Provider **device-code** authorization (the mailbox device flow exists; the Graph provider flow is browser-only). |
+| P04 — OAuth flows and token service | mostly delivered | `ee788ca8` (Google web flow), `d4592756` (single-flight refresh + CAS), `524a5f00` (Microsoft refresh), `c30d13ba` (Microsoft Graph provider flow), `d4927e09` (Google flow in the UI), per-feature Google connect buttons; this session: `940d629a` (refresh re-reads the grant under the lease), `7dd0572d` + `3ed99007` (disconnect a connection, from the card), `bf9f340f` (the provider and per-method switches are enforced, not just reported) | Provider **device-code** authorization (the mailbox device flow exists; the Graph provider flow is browser-only). |
 | P05 — mobile drawer gesture | delivered | `f76e1a40`, regression fixed in `143eca15` | Reachability verified and test-pinned: the pref defaults on, has a switch, persists through the server allow-list, and the hook's content/drawer/backdrop refs are attached to real elements, so the listeners cannot be attached to nothing. |
 | P06 — send/draft ledger, attachment and MIME limits | **not started** | — | Durable upload/send ledger, separated file/total/MIME/HTTP limits, draft preservation on failure. See the note below on what is already enforced. |
 | P07 — native Microsoft Graph adapters | **partial** | `524a5f00`, `c30d13ba`, `a9a3f975` (contacts), `d545ff45`, `c08fb7ae`, `f4d4fac1` | **Graph mail adapter** (blocks P12), Graph calendar adapter, provider device flow. |
@@ -28,7 +28,7 @@ typecheck, lint, production build and **2644 tests**. `main` has not been touche
 | P09 — Google Calendar/People + MS Graph calendar/contacts | **partial** | `29bf023e` (People), `71558193` + `c8ea8383` (Calendar with generated VTIMEZONE), `d4927e09` + `8aff1d1e` (UI), `a2973f94` (schedule); Microsoft contacts under P07 | Microsoft Graph **calendar** adapter. |
 | P10 — external CalDAV/CardDAV read-write, ICS/VCF/CSV import | **partial** | `6cf1a4bf` (vCard import), `6cccd470` (iCalendar import); Google CSV import pre-existed | External CalDAV/CardDAV **write-back** client. |
 | P11 — DAV server hardening | mostly delivered | `0afab53d` (discovery/classes), `58f2c809` (strong `If-Match`), `d7b8ceb9` (per-collection visibility/mode), `1a84536d` (per-password ceiling), `db97a1af` (WebDAV `If` header), `6c6584cb` + `811a50d8` (connector status visibility) | Write-through result reporting, any remaining `DAV:` classes the plan lists. |
-| P12 — account migration/cutover, MS-required and Google-recommended notices | **not started** | — | Deliberately blocked: a notice must not point users at a mail transport that does not exist yet (needs P07b/P08). |
+| P12 — account migration/cutover, MS-required and Google-recommended notices | **not started** | `acd1bf78` + `35451f02` cover the notices | The **notices** exist: the Microsoft card states that Outlook.com and Microsoft 365 no longer accept a mailbox password, and Google's recommendation is stated in that provider's own description. The **migration/cutover** is not started and stays deliberately blocked: a migration flow must not point users at a mail transport that does not exist yet (needs P07b/P08). |
 | P13 — hardening, E2E, release notes | **partial** | `065b3f86` (provider setup procedure); i18n kept at nine locales throughout | End-to-end suite for the new flows, release notes for a chosen version. |
 | P14 — final integration, CI, publish images | **not started** | — | Publish both `:dev` images and smoke-test the pair. Needs a release version and registry authorization. |
 
@@ -129,9 +129,9 @@ through:
 | `chromium-tablet`, `chromium-mobile-390`, `chromium-mobile-landscape` | 171 passed, 0 failed, 204 skipped |
 
 Re-run after the later interface work (the disconnect control, the readiness gates and the new
-strings): `chromium-desktop` and the two mobile projects again green — 123 passed / 0 failed and
-189 passed / 0 failed respectively — so the changes since the first run are covered by this gate
-too, not only by the unit suites.
+strings), and again after the connector-card spec was added: `chromium-desktop` **124 passed,
+0 failed** and the two mobile projects **189 passed, 0 failed**, so the changes since the first run
+are covered by this gate too, not only by the unit suites.
 
 `chromium-tablet` runs only the `v3-*` specs by configuration, so its coverage is narrower than
 the others by design.
