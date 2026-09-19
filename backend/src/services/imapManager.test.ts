@@ -531,8 +531,15 @@ describe('insertCopiedSibling', () => {
   });
 
   it('uses the shared projection for CE metadata on partial Sent/repair envelopes', async () => {
-    const sourceText = await import('node:fs').then(({ readFileSync }) => readFileSync(new URL('./imapManager.ts', import.meta.url), 'utf8'));
-    expect(sourceText).toContain('const persistenceMessage = { ...result.rows[0], ...(rawMessage || {}) };');
+    // The projection moved to `conversationRowIngest.ts` so the Graph adapter can call
+    // it without importing the mail manager; the merge it pins is unchanged, so the
+    // assertion follows the code rather than being deleted with it. The second
+    // assertion is what makes the move safe: the mail manager must still *call* the
+    // shared function instead of having grown a second copy.
+    const sourceText = await import('node:fs').then(({ readFileSync }) => readFileSync(new URL('./conversationRowIngest.ts', import.meta.url), 'utf8'));
+    expect(sourceText).toContain('const persistenceMessage = { ...result.rows[0], ...raw };');
+    const managerText = await import('node:fs').then(({ readFileSync }) => readFileSync(new URL('./imapManager.ts', import.meta.url), 'utf8'));
+    expect(managerText).toContain("import { persistConversationCopyForRow } from './conversationRowIngest.js';");
   });
 });
 

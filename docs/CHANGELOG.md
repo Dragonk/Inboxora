@@ -15,8 +15,21 @@ limitations — read the matching page in the Wiki: [Release notes 4.1.0](wiki/R
 
 ### Changed
 
-- **Graph conversations are identified correctly, and the engine does not read them yet** (P07b,
-  twenty-first slice — deliberately one half of a pair). `providerMetadataForMessage` now recognises a
+- **Graph messages now reach the conversation engine** (P07b, twenty-second slice, completing the
+  twenty-first). The message sync projects each row it wrote into the conversation engine, so threads
+  group on Graph's `conversationId` rather than being absent from the engine entirely. Two ordering
+  rules are load-bearing and are both tested: the projection runs **after** the page's transaction
+  commits — the engine opens its own, and nesting them was the specific mistake the plan warned about —
+  and the row ids it needs are returned by the page function rather than inferred. The shared
+  `persistConversationCopyForRow` moved out of the mail manager into `conversationRowIngest.ts`
+  unchanged, so the Graph adapter can call it without importing the mail manager and creating a cycle;
+  the IMAP ingest calls the same function, so both transports share one projection rather than two.
+  A real-PostgreSQL case asserts the grouping end to end: two messages sharing a conversation id land
+  in one conversation, a third in its own, and every message carries the provider thread id the mapping
+  derived.
+
+- **Graph conversations are identified correctly, and the engine read them from the next slice**
+  (P07b, twenty-first slice — one half of a pair, completed above). `providerMetadataForMessage` now recognises a
   Microsoft Graph account and takes its `conversationId` (stored as `thread_id`) as a **strong** provider
   thread id. That matters because the previous behaviour was not "wrong grouping" but **silent loss**:
   with the account typed as an ordinary Outlook mailbox, the id went through the Thread-Index path,

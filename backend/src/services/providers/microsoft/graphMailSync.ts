@@ -20,6 +20,8 @@ import {
 } from './graphMail.js';
 import type { GraphMessage, LocalMailFolder } from './graphMail.js';
 import { drainGraphMailFlagOperations } from './graphMailMutations.js';
+import { persistConversationCopyForRow } from '../../conversationRowIngest.js';
+import type { ConversationAccountRow } from '../../conversationRowIngest.js';
 import type { FetchLike } from '../../providerAuthService.js';
 
 /**
@@ -325,8 +327,8 @@ export async function applyGraphMailMessagesPage(
   context: MessageContext,
   messages: readonly GraphMessage[],
   seenProviderIds?: Set<string>,
-): Promise<{ created: number; updated: number; deleted: number; skipped: number }> {
-  const totals = { created: 0, updated: 0, deleted: 0, skipped: 0 };
+): Promise<{ created: number; updated: number; deleted: number; skipped: number; rowIds: string[] }> {
+  const totals = { created: 0, updated: 0, deleted: 0, skipped: 0, rowIds: [] as string[] };
   for (const message of messages) {
     if (!message.id) { totals.skipped += 1; continue; }
     if (message['@removed']) {
@@ -382,6 +384,10 @@ export async function applyGraphMailMessagesPage(
         );
         applied = result.rows[0] ?? null;
         if (applied) {
+          // The id is collected so the caller can run the conversation projection
+          // **after** this transaction commits: the engine opens its own, and nesting
+          // the two is the mistake this return value exists to prevent.
+          totals.rowIds.push(applied.id);
           if (applied.inserted) totals.created += 1;
           else totals.updated += 1;
         }
@@ -425,6 +431,23 @@ export async function listGraphFolderTargets(client: PoolClient, input: { connec
   return result.rows.map(row => ({ collectionId: row.collection_id, remoteId: row.remote_id, folderPath: row.path }));
 }
 
+
+/**
+ * Project the messages a page wrote into the conversation engine.
+ *
+ * Called **after** the page's transaction commits — the engine opens its own — and one
+ * row at a time so a single failure is recorded against that row by the shared
+ * function rather than aborting the sync. The body of a Graph message is not needed
+ * here: delivery and provider metadata come from the persisted row, which is what the
+ * ingest paths share.
+ */
+async function persistConversations(rowIds: readonly string[], account: ConversationAccountRow): Promise<void> {
+  for (const rowId of rowIds) {
+    await persistConversationCopyForRow(rowId, account, null).catch(error =>
+      console.warn(`Graph conversation projection failed for ${rowId}:`, error instanceof Error ? error.message : error));
+  }
+}
+
 /**
  * Sync the messages of every discovered folder of one Graph mail account.
  *
@@ -453,13 +476,23 @@ export async function syncGraphMailMessagesForAccount(input: {
     console.warn(`Graph mail: ${drained.unresolved} scheduled flag mutation(s) still unresolved for account ${input.accountId}`);
   }
 
+  // Loaded once, for the conversation projection: the folder-level function would
+  // otherwise query it per folder, and the projection needs the transport and host to
+  // derive the provider identity.
+  const accountResult = await query<ConversationAccountRow>(
+    'SELECT id, user_id, imap_host, mail_transport FROM email_accounts WHERE id = $1',
+    [input.accountId],
+  );
+  const account = accountResult.rows[0];
+  if (!account) return { accountId: input.accountId, folders: 0, created: 0, updated: 0, deleted: 0, skipped: 0, fullSyncFolders: 0 };
+
   const targets = await withTransaction(client => listGraphFolderTargets(client, input));
   const totals: GraphMailMessageSyncResult = {
     accountId: input.accountId, folders: 0, created: 0, updated: 0, deleted: 0, skipped: 0, fullSyncFolders: 0,
   };
 
   for (const target of targets) {
-    const result = await syncGraphMailMessagesForFolder({ ...input, target });
+    const result = await syncGraphMailMessagesForFolder({ ...input, account, target });
     totals.folders += 1;
     totals.created += result.created;
     totals.updated += result.updated;
@@ -475,6 +508,8 @@ export async function syncGraphMailMessagesForFolder(input: {
   userId: string;
   connectionId: string;
   accountId: string;
+  /** Loaded once by the account-level caller; the conversation projection needs it. */
+  account: ConversationAccountRow;
   target: FolderTarget;
   config?: GraphApiOptions['config'];
   fetchImpl?: FetchLike;
@@ -538,6 +573,7 @@ export async function syncGraphMailMessagesForFolder(input: {
         throw caught;
       }
       const applied = await withTransaction(client => applyGraphMailMessagesPage(client, context, fetched.messages, seen));
+      await persistConversations(applied.rowIds, input.account);
       totals.created += applied.created;
       totals.updated += applied.updated;
       totals.deleted += applied.deleted;

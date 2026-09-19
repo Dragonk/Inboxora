@@ -1,0 +1,70 @@
+import { query } from './db.js';
+import { toAppError } from '../utils/errors.js';
+import { conversationPersistedFields, resolveOwnIdentityAddresses } from './conversationIngestEnvelope.js';
+import { upsertConversationCopy } from './conversationPersistence.js';
+import { recordConversationIngestFailure } from './conversationIngestFailures.js';
+
+/**
+ * Project one persisted message row into the conversation engine.
+ *
+ * Moved out of `imapManager` unchanged, so a provider adapter can call it without
+ * importing the mail manager — `graphMailSync` needs this and importing `imapManager`
+ * would create a cycle, since `imapManager` now imports the Graph sync for
+ * `ensureFolder`. The body is the shipped one: the persisted row is authoritative for
+ * delivery/provider/Sender metadata, and the caller must invoke this **outside** its own
+ * transaction, because the conversation engine opens one of its own.
+ */
+export interface ConversationAccountRow {
+  id: string;
+  user_id: string;
+  imap_host?: string | null;
+  mail_transport?: string | null;
+}
+
+/**
+ * The optional raw envelope the ingest paths know about. The parameter is typed as
+ * `unknown` because its callers pass their own richer shapes (ImapFlow's fetch object
+ * among them) and this function only reads two optional fields; narrowing happens here
+ * rather than forcing every caller onto one type.
+ */
+interface RawConversationEnvelope {
+  envelope?: { messageId?: string | null } | null;
+  messageId?: string | null;
+}
+
+export async function persistConversationCopyForRow(rowId: string, account: ConversationAccountRow, rawMessage?: unknown): Promise<void> {
+  const raw = (rawMessage ?? {}) as RawConversationEnvelope & Record<string, unknown>;
+  try {
+    const result = await query(`
+      SELECT m.*, a.user_id
+        FROM messages m
+        JOIN email_accounts a ON a.id = m.account_id
+       WHERE m.id = $1 AND a.id = $2`, [rowId, account.id]);
+    if (result.rows.length !== 1) return;
+    // Sent/upsert and retry paths may provide only a partial raw envelope. The
+    // persisted row is authoritative for delivery/provider/Sender metadata, so
+    // merge it before deriving provider identity and own-address resolution.
+    // This keeps live ingest, Sent ingest, retry, and rebuild on the same input
+    // contract instead of silently dropping delivery_addresses or provider IDs.
+    const persistenceMessage = { ...result.rows[0], ...raw };
+    // `imap_host` is nullable on the account row and the metadata contract wants
+    // `string | undefined`, so it is normalised at this boundary rather than widening
+    // the contract for one caller.
+    const metadataAccount = { id: account.id, user_id: account.user_id, imap_host: account.imap_host ?? undefined, mail_transport: account.mail_transport ?? null };
+    const envelope = conversationPersistedFields(persistenceMessage, metadataAccount);
+    envelope.identities = await resolveOwnIdentityAddresses({ query }, account.id, persistenceMessage);
+    await query(`UPDATE messages SET conversation_raw_headers = COALESCE($1, conversation_raw_headers), conversation_thread_index = COALESCE($2, conversation_thread_index), conversation_thread_topic = COALESCE($3, conversation_thread_topic) WHERE id = $4`, [envelope.conversation_raw_headers, envelope.conversation_thread_index, envelope.conversation_thread_topic, rowId]);
+    await upsertConversationCopy({ ...result.rows[0], ...envelope }, {
+      identities: envelope.identities,
+      provider: envelope.provider,
+      // Explicit authenticated tenant context; never infer ownership from the
+      // persisted/message payload in the conversation persistence layer.
+      userId: account.user_id,
+    });
+  } catch (caught) {
+    const err = toAppError(caught);
+    console.error('Conversation persistence error:', err.message);
+    await recordConversationIngestFailure({ userId: account.user_id, accountId: account.id, messageRowId: rowId, operation: 'imap-ingest', error: err, diagnostics: { rawMessageId: raw.envelope?.messageId || raw.messageId || null } }).catch(recordErr => console.error('Conversation failure recording error:', recordErr.message));
+  }
+}
+

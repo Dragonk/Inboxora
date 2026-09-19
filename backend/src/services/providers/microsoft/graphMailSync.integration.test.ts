@@ -568,3 +568,55 @@ describeOrSkip('resolving a local folder path back to its Graph folder id (Postg
     await expect(graphFolderIdForPath({ connectionId, accountId: ACCOUNT_ID, path: 'INBOX' })).resolves.toBe('graph-inbox');
   });
 });
+
+// The conversation projection runs after each page's transaction, and Graph's
+// `conversationId` is strong evidence — the property that makes it correct to group on.
+// Asserted on the real database, because the identity rule lives in a mapper but the
+// grouping is the engine's behaviour.
+describeOrSkip('Graph conversations on PostgreSQL', () => {
+  beforeAll(async () => {
+    if (!process.env.ENCRYPTION_KEY) process.env.ENCRYPTION_KEY = crypto.randomBytes(32).toString('hex');
+    await autocommit(client => client.query(
+      `INSERT INTO users (id, username) VALUES ($1, 'graph-mail-conversation-user') ON CONFLICT (id) DO NOTHING`,
+      [USER_ID],
+    ));
+  });
+
+  beforeEach(async () => {
+    await autocommit(async client => {
+      await client.query('DELETE FROM provider_connections WHERE user_id = $1', [USER_ID]);
+      await client.query('DELETE FROM email_accounts WHERE user_id = $1', [USER_ID]);
+    });
+  });
+
+  it('groups two messages that share a conversation id, and keeps a third apart', async () => {
+    const connectionId = await seedConnection();
+    await discoverFolders(connectionId);
+    await syncGraphMailMessagesForAccount({
+      userId: USER_ID, connectionId, accountId: ACCOUNT_ID, config: CONFIG,
+      fetchImpl: fakeMailProvider({
+        inbox: [{
+          value: [
+            graphMessage('c-1', { conversationId: 'conv-shared' }),
+            graphMessage('c-2', { conversationId: 'conv-shared' }),
+            graphMessage('c-3', { conversationId: 'conv-other' }),
+          ],
+          '@odata.deltaLink': DELTA_INBOX,
+        }],
+      }).fetchImpl,
+    });
+
+    // The projection ran: every message carries the provider thread id the mapping
+    // derived, which is the part the mapper alone could not prove.
+    const threads = await autocommit(client => client.query<{ provider_thread_id: string | null }>(
+      'SELECT DISTINCT provider_thread_id FROM messages WHERE account_id = $1', [ACCOUNT_ID],
+    ));
+    expect(threads.rows.map(row => row.provider_thread_id).sort()).toEqual(['conv-other', 'conv-shared']);
+
+    // And the engine grouped on it: two messages in one conversation, one in another.
+    const conversations = await autocommit(client => client.query<{ copy_count: number }>(
+      'SELECT copy_count FROM conversations WHERE account_id = $1 ORDER BY copy_count DESC', [ACCOUNT_ID],
+    ));
+    expect(conversations.rows.map(row => Number(row.copy_count))).toEqual([2, 1]);
+  });
+});

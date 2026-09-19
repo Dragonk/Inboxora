@@ -21,7 +21,6 @@ import { getConnectionPolicy } from './connectionPolicy.js';
 import { applyInboxRules, applyBlockList } from './inboxRules.js';
 import { generateVCard } from '../utils/vcard.js';
 import { randomUUID } from 'crypto';
-import { upsertConversationCopy } from './conversationPersistence.js';
 import { deleteGraphMessagePermanently } from './providers/microsoft/graphMailMove.js';
 import { graphFolderIdForPath, syncGraphMailFoldersForAccount } from './providers/microsoft/graphMailSync.js';
 import { graphCreateMailFolder } from './providers/microsoft/graphMailMutations.js';
@@ -29,8 +28,7 @@ import { moveGraphMessageToFolder } from './providers/microsoft/graphMailMove.js
 import { graphFlagIntent, graphFlagMutationAdapter } from './providers/microsoft/graphMailMutations.js';
 import { runProviderMutation } from './providerMutationService.js';
 import { microsoftConfigFromEnv } from './providerAuthService.js';
-import { recordConversationIngestFailure } from './conversationIngestFailures.js';
-import { conversationPersistedFields, resolveOwnIdentityAddresses } from './conversationIngestEnvelope.js';
+import { persistConversationCopyForRow } from './conversationRowIngest.js';
 import { providerFetchQuery, providerCapabilitiesFromClient } from './providerThreadAdapter.js';
 import { parseInboundCalendarInvitation } from './inboundCalendarInvitation.js';
 import { persistInboundCalendarInvitation } from './inboundCalendarInvitationPersistence.js';
@@ -87,37 +85,6 @@ interface IngestUnreadMessage {
   parsedHeaders?: unknown;
   _bodyText?: string;
   [key: string]: unknown;
-}
-
-async function persistConversationCopyForRow(rowId: string, account: EmailAccountRow, rawMessage: RawMessageInput | null | undefined): Promise<void> {
-  try {
-    const result = await query(`
-      SELECT m.*, a.user_id
-        FROM messages m
-        JOIN email_accounts a ON a.id = m.account_id
-       WHERE m.id = $1 AND a.id = $2`, [rowId, account.id]);
-    if (result.rows.length !== 1) return;
-    // Sent/upsert and retry paths may provide only a partial raw envelope. The
-    // persisted row is authoritative for delivery/provider/Sender metadata, so
-    // merge it before deriving provider identity and own-address resolution.
-    // This keeps live ingest, Sent ingest, retry, and rebuild on the same input
-    // contract instead of silently dropping delivery_addresses or provider IDs.
-    const persistenceMessage = { ...result.rows[0], ...(rawMessage || {}) };
-    const envelope = conversationPersistedFields(persistenceMessage, account);
-    envelope.identities = await resolveOwnIdentityAddresses({ query }, account.id, persistenceMessage);
-    await query(`UPDATE messages SET conversation_raw_headers = COALESCE($1, conversation_raw_headers), conversation_thread_index = COALESCE($2, conversation_thread_index), conversation_thread_topic = COALESCE($3, conversation_thread_topic) WHERE id = $4`, [envelope.conversation_raw_headers, envelope.conversation_thread_index, envelope.conversation_thread_topic, rowId]);
-    await upsertConversationCopy({ ...result.rows[0], ...envelope }, {
-      identities: envelope.identities,
-      provider: envelope.provider,
-      // Explicit authenticated tenant context; never infer ownership from the
-      // persisted/message payload in the conversation persistence layer.
-      userId: account.user_id,
-    });
-  } catch (caught) {
-    const err = toAppError(caught);
-    console.error('Conversation persistence error:', err.message);
-    await recordConversationIngestFailure({ userId: account.user_id, accountId: account.id, messageRowId: rowId, operation: 'imap-ingest', error: err, diagnostics: { rawMessageId: rawMessage?.envelope?.messageId || rawMessage?.messageId || null } }).catch(recordErr => console.error('Conversation failure recording error:', recordErr.message));
-  }
 }
 
 // Resolves the IMAP host for an account, applying server-level connection policy.
