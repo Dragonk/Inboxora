@@ -1544,12 +1544,23 @@ started" row suggests, so the slice is a seam rather than a rewrite:
   flag is the honest boundary for `SEND_OUTCOME_UNKNOWN`: everything before it is a failure the user can
   retry, everything after it is an outcome nobody can promise. The shared layer's job is to make that
   boundary explicit for every transport, not to invent a new one for Graph.
-- **idempotency already exists and must not be duplicated.** `claimSendIntent` / `markSendIntentUncertain`
-  / `completeSendIntent` / `releaseSendIntent` are a durable intent claim keyed by
-  `X-Idempotency-Key`, plus a Redis fast path. Before adding anything, decide how that relates to
-  `provider_operations` — the HTTP-level replay belongs to the intent table, the provider mutation to the
-  journal, and a third mechanism would be the mistake this work keeps removing. Read both, then write
-  the decision down.
+- **idempotency already exists, and the division is decided** (both mechanisms read, not assumed).
+  `claimSendIntent` / `markSendIntentUncertain` / `completeSendIntent` / `releaseSendIntent` write
+  `send_idempotency`, a durable claim keyed by the **client's** `X-Idempotency-Key` with an intent token,
+  a request fingerprint and a stored result, plus a Redis fast path. `provider_operations` is the provider
+  journal, keyed by the **mutation's own** identity, with a payload column so an ambiguous outcome can be
+  parked and reconciled.
+  They answer different questions and **neither may stand in for the other**:
+  the intent table answers *"has this HTTP request already run, and what did it return?"* — user-scoped,
+  and the only thing that can deduplicate two identical requests, because only the client knows they are
+  the same request. The journal answers *"was this provider side effect performed, and may it be re-run?"*
+  — connection- and resource-scoped, and the only thing that can reconcile after a restart, because only
+  it holds the payload.
+  So the send layer claims the intent at the HTTP boundary and journals the provider call inside it; a
+  third mechanism would be the duplication this work keeps removing. The existing lifecycle already
+  follows that shape — `releaseSendIntent` on a pre-delivery failure, `markSendIntentUncertain` once
+  hand-off has happened, `completeSendIntent` with the result — which is why the seam is a wrap and not a
+  rewrite.
 - **the limits are half-counted.** The composed message is counted against `MAIL_MAX_MESSAGE_BYTES` and
   refused with `413` before any idempotency claim, which is correct ordering; the per-file total is not,
   and **forwarded** attachments are validated by count only because their sizes are known only after the
