@@ -155,6 +155,42 @@ describeOrSkip('Google contacts sync (PostgreSQL)', () => {
     expect(incremental.urls[0]).not.toContain('requestSyncToken');
   });
 
+  it('stores the anniversary and IM handle a person carries, not just maps them', async () => {
+    // The unit cases prove the mapping and the upsert was verified by reading; this is the end-to-end
+    // proof that both columns are written, which is the difference between a field being mapped and a
+    // field existing.
+    const connectionId = await seedConnection();
+    const provider = fakeProvider([
+      () => json({
+        connections: [{
+          ...person('people/c9', 'Ada Lovelace', 'ada@example.test'),
+          birthdays: [{ date: { year: 1815, month: 12, day: 10 } }],
+          events: [
+            { type: 'other', date: { year: 2000, month: 1, day: 1 } },
+            { type: 'anniversary', date: { year: 1835, month: 7, day: 8 } },
+          ],
+          imClients: [{ username: 'ada', protocol: 'jabber' }, { protocol: 'skype' }],
+        }],
+        nextSyncToken: 'sync-fields',
+      }),
+    ]);
+
+    await syncGoogleContacts({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl: provider.fetchImpl });
+
+    // `birthday` and `anniversary` are DATE columns, so they are compared as text: pg would
+    // otherwise hand back Date objects and the assertion would be about the driver, not the data.
+    const stored = await autocommit(client => client.query<{
+      birthday: string | null; anniversary: string | null; instant_messages: Array<{ value: string; type: string }>;
+    }>('SELECT birthday::text AS birthday, anniversary::text AS anniversary, instant_messages FROM contacts WHERE user_id = $1', [USER_ID]));
+    // The anniversary comes from the dated `anniversary` event, not from the `other` one before it,
+    // and the handle without a username is not stored.
+    expect(stored.rows[0]).toMatchObject({
+      birthday: '1815-12-10',
+      anniversary: '1835-07-08',
+      instant_messages: [{ value: 'ada', type: 'jabber' }],
+    });
+  });
+
   it('does not switch a disabled collection back on when it refreshes', async () => {
     // Only the connector status and the schedule read `enabled`, and the schedule honours
     // it. A refresh re-asserting it would silently undo a disable at the next run.

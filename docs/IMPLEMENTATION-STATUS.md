@@ -240,10 +240,14 @@ list and `parsed.anniversary` / `parsed.instantMessages` among the parameters, f
 So neither change is inert, which was worth checking — a mapper that returns a field no statement writes
 is the same silence as a switch nothing reads.
 
-What is **not** yet done: no **database-level** assertion writes a provider payload with an anniversary
-or an IM handle and reads the row back. The unit cases cover the mapping, and the plumbing is verified by
-reading; the end-to-end proof would be one case in each provider's existing PostgreSQL integration suite,
-seeding a person/contact with those fields and asserting the stored row.
+**Google now has that assertion**: the contacts integration suite syncs a person carrying a birthday, a
+dated `anniversary` event preceded by an `other` event, and an IM client without a username, then reads
+the stored row — `1815-12-10`, `1835-07-08` and one `jabber` handle. Writing it also confirmed the columns
+are `DATE`: the first run compared against pg's `Date` objects and failed, which was the assertion being
+wrong rather than the data, so the query casts to text.
+
+**Graph still has only the unit cases** — its mapper and upsert are verified by reading, and the same
+database-level case is the remaining step there.
 
 ## Acceptance criteria W01–W19, as the plan requires them reported
 
