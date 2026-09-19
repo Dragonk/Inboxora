@@ -1616,6 +1616,36 @@ started" row suggests, so the slice is a seam rather than a rewrite:
     cross-transport fallback, so an uncertain Graph outcome parks rather than retrying over SMTP.
 
   **The remaining slice is smaller than this note first implied, and the structure is now known.** I had
+
+  **Step 1 of the continuation — the Bcc question — is answered locally, and it says do NOT wire
+  `sendGraphMime` as it stands. Confirming it against live Microsoft documentation was not possible in
+  this session (the search tool has no API key), so this is recorded as reasoning from the measured
+  behaviour plus the API shape, with the specific points to confirm named.**
+  - What is measured locally: the composed artefact has its `Bcc:` header **stripped** (deliberately —
+    4.1.0 note `3e9b0054`), and the envelope (`to` + `cc` + `bcc`) is carried **separately**, out of band.
+    That is exactly right for SMTP, where the envelope is a protocol parameter.
+  - `sendGraphMime` posts that artefact to `/me/sendMail` as `text/plain` + base64 MIME. Graph has **no
+    separate envelope parameter** in that shape: recipients are read from the message headers. So for a
+    message with a blind recipient the current adapter can only **lose** it (it is not in the headers) or
+    **disclose** it (put it back in the headers). Neither is acceptable, which is why the adapter must not
+    be wired before the shape changes.
+  - The likely-correct shapes, in the order I would confirm them:
+    **(C) draft-first, JSON message** — `POST /me/messages` with `toRecipients` / `ccRecipients` /
+    `bccRecipients` (blind recipients out of band, in the message body rather than the MIME), attachments
+    added to that draft (direct under the provider's small-attachment ceiling, upload session above it),
+    then `POST /me/messages/{id}/send`. One shape covers a plain send, Bcc, large attachments **and**
+    draft preservation, which is what P06 asks for anyway.
+    **(A) JSON `message` send** — `POST /me/sendMail` with the same recipient arrays: simpler, but no
+    draft to preserve on failure.
+    **(B) MIME** — usable only where **no** blind recipient exists, if `/me/sendMail` accepts a MIME body
+    at all; it is not a general path.
+  - To confirm against live documentation before any wiring: whether `/me/sendMail` accepts a MIME body
+    (the current adapter assumes so), the exact draft-attachment upload-session calls and the direct
+    attachment ceiling, and whether Graph accepts any recipient information outside the message.
+  - The transport-level acceptance list (To only, Cc, Bcc, all three, the artefact not disclosing Bcc where
+    it must not, the provider receiving the blind recipient, and the local result keeping the Bcc metadata
+    the composer and the Sent projection need) is written for the **chosen** shape; until the shape is
+    chosen those tests would certify the wrong thing.
   described it as needing the route's dispatch moved and an error-precedence decision; neither is
   necessary. The seam can return a **transport-shaped object** for a native account — an object with a
   `sendMail(options)` that posts `options.raw` — and the route's send site is then **untouched**, because
