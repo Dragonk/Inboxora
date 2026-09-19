@@ -133,6 +133,7 @@ jobs:
             src/services/providerTokenService.integration.test.ts \
             src/services/providerOperations.integration.test.ts \
             src/services/providerMutationService.integration.test.ts \
+            src/services/providerWritesJournal.integration.test.ts \
             src/services/providerConnectionService.integration.test.ts \
             src/services/providerSchemaUpgrade.integration.test.ts \
             src/services/providers/google src/services/providers/microsoft \
