@@ -17,9 +17,9 @@ typecheck, lint, production build and **2644 tests**. `main` has not been touche
 | Package | Status | Delivered (commit) | Missing |
 | --- | --- | --- | --- |
 | P00 — preparation/audit | n/a | — | Prepared against the existing baseline; no code artefact. |
-| P01 — shared provider contracts | delivered | `abbe2b9b` | — |
+| P01 — shared provider contracts | **partial** | `abbe2b9b` | The contracts and the registry are wired (the registry is read by the mail paths). `providers/capabilities.ts` is imported only by its own tests, so the capability table is not yet consulted in production. |
 | P02 — additive schema (connections, grants, remote links, operation journal, outbox, notice preferences) | delivered | `abbe2b9b` (connections/grants/remote links, `0101`), `78b8c182` (journal/outbox, `0102`), `d4592756` (`0104`), `d7b8ceb9` (`0105`), `1a84536d` (`0106`) | `account_notice_preferences` exists but is unused until P12. |
-| P03 — operation journal, sync leases, domain outbox | delivered | `78b8c182` | — |
+| P03 — operation journal, sync leases, domain outbox | **partial** | `78b8c182` | The leases are wired: the Google and Microsoft connectors take them on every run. The **operation journal and the domain outbox are delivered and tested (16 cases) but nothing in production calls them** — they are the intended vehicle for P10 write-back and the P12 cutover, so they are dormant until those land. |
 | P04 — OAuth flows and token service | mostly delivered | `ee788ca8` (Google web flow), `d4592756` (single-flight refresh + CAS), `524a5f00` (Microsoft refresh), `c30d13ba` (Microsoft Graph provider flow), `d4927e09` (Google flow in the UI), per-feature Google connect buttons | Provider **device-code** authorization (the mailbox device flow exists; the Graph provider flow is browser-only). |
 | P05 — mobile drawer gesture | delivered | `f76e1a40` | — |
 | P06 — send/draft ledger, attachment and MIME limits | **not started** | — | Durable upload/send ledger, separated file/total/MIME/HTTP limits, draft preservation on failure. See the note below on what is already enforced. |
@@ -190,6 +190,19 @@ That asymmetry is why a refresh no longer re-asserts any of them. Writing fields
 harmless, but `enabled` is read, and re-asserting it meant a disabled collection was switched back
 on by the next sync. When P10/P12 give these columns readers, the sync must continue to leave them
 to whoever owns them.
+
+## Wired versus dormant
+
+Reading the import graph rather than trusting the package list corrects two rows above: some of
+this work is delivered and tested but not yet *called*. `syncCoordinator`'s leases run on every
+connector sync, and the provider registry is consulted by the mail paths — but
+`providerOperations.ts` (the journal and outbox) and `providers/capabilities.ts` have no production
+importer.
+
+That is not a defect: they were built as the vehicle for P10 write-back and the P12 cutover, and
+those packages have not started. It does mean "delivered" in the table above should be read as
+"the code exists and its tests pass", not "the application exercises it" — which is what the
+per-package column now says for P01 and P03.
 
 ## Known limitations of what is delivered
 
