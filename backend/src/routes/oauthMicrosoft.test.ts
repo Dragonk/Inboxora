@@ -33,12 +33,17 @@ const CONFIG = {
   tenantId: 'consumers',
 };
 
+const DEVICE_FLOW_ID = 'aaaaaaaa-1111-4111-8111-111111111111';
+
 let sessionUserId = 'user-1';
 let takenFlow: Record<string, unknown>;
 let tokenStatus = 200;
 let tokenBody: Record<string, unknown>;
 let graphStatus = 200;
 let graphBody: Record<string, unknown>;
+let deviceStatus = 200;
+let deviceBody: Record<string, unknown>;
+let deviceFlowRow: Record<string, unknown>;
 
 const originalEnv = {
   APP_URL: process.env.APP_URL,
@@ -61,6 +66,7 @@ function providerCalls(): unknown[][] {
 
 beforeAll(async () => {
   const app = express();
+  app.use(express.json());
   app.use((req, _res, next) => { (req as unknown as { session: { userId: string } }).session = { userId: sessionUserId }; next(); });
   app.use('/oauth', oauthMicrosoftRouter);
   await new Promise<void>((resolve) => { server = app.listen(0, () => resolve()); });
@@ -84,6 +90,17 @@ beforeEach(() => {
     scope: 'https://graph.microsoft.com/Mail.ReadWrite https://graph.microsoft.com/Mail.Send',
   };
   graphBody = { id: 'ms-sub-1', userPrincipalName: 'user@contoso.test', mail: 'user@contoso.test', displayName: 'Contoso User' };
+  deviceStatus = 200;
+  deviceBody = {
+    device_code: 'device-code-1', user_code: 'ABCD-EFGH', verification_uri: 'https://microsoft.com/devicelogin',
+    expires_in: 900, interval: 5,
+  };
+  deviceFlowRow = {
+    id: DEVICE_FLOW_ID, user_id: 'user-1', purpose: 'contacts_enable', target_account_id: null,
+    requested_scopes: ['offline_access', 'https://graph.microsoft.com/Contacts.Read'],
+    config_revision: null, device_code_enc: 'enc:device-code-1', device_interval_seconds: 5,
+    device_last_polled_at: null, expires_at: new Date(Date.now() + 600_000), status: 'pending',
+  };
   takenFlow = {
     id: 'flow-1', user_id: 'user-1', provider: 'microsoft', purpose: 'mail_migration',
     target_account_id: null, code_verifier_enc: 'enc:verifier-1', nonce: 'nonce-1',
@@ -101,7 +118,10 @@ beforeEach(() => {
   mocks.query.mockImplementation(async (sql: string) => {
     const text = String(sql);
     if (text.includes("SET status = 'exchanging'")) return { rows: [takenFlow], rowCount: 1 };
-    if (text.includes('INSERT INTO oauth_authorization_flows')) return { rows: [{ id: 'flow-1', expires_at: new Date(Date.now() + 600_000) }], rowCount: 1 };
+    if (text.includes('INSERT INTO oauth_authorization_flows')) return { rows: [{ id: DEVICE_FLOW_ID, expires_at: new Date(Date.now() + 600_000) }], rowCount: 1 };
+    if (text.includes("auth_flow = 'device_code'")) return { rows: [deviceFlowRow], rowCount: 1 };
+    if (text.includes('SET device_code_enc')) return { rows: [{ id: 'flow-1' }], rowCount: 1 };
+    if (text.includes('SET device_last_polled_at')) return { rows: [{ id: 'flow-1' }], rowCount: 1 };
     if (text.includes('SELECT 1 FROM email_accounts')) return { rows: [{ '?column?': 1 }], rowCount: 1 };
     if (text.includes('SELECT id FROM provider_connections')) return { rows: [], rowCount: 0 };
     if (text.includes('INSERT INTO provider_connections')) return { rows: [{ id: 'connection-1' }], rowCount: 1 };
@@ -112,6 +132,9 @@ beforeEach(() => {
 
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
     if (String(url).startsWith(base)) return realFetch(url, init);
+    if (String(url).includes('login.microsoftonline.com') && String(url).includes('/devicecode')) {
+      return { ok: deviceStatus === 200, status: deviceStatus, json: async () => deviceBody } as Response;
+    }
     if (String(url).includes('login.microsoftonline.com') && String(url).includes('/token')) {
       return { ok: tokenStatus === 200, status: tokenStatus, json: async () => tokenBody } as Response;
     }
@@ -295,5 +318,133 @@ describe('GET /oauth/provider/microsoft/callback', () => {
     expect(queryCallsMatching('INSERT INTO oauth_grants')).toHaveLength(0);
     const finish = queryCallsMatching('UPDATE oauth_authorization_flows').find(([sql]) => String(sql).includes('SET status = $2'));
     expect(JSON.stringify(finish)).toContain('USERINFO_FAILED');
+  });
+});
+
+// The provider connection via device code: the same connection the browser flow creates, for a
+// deployment that registers a public client (no secret, no callback).
+const startDevice = (body: unknown = { purpose: 'contacts_enable', access: 'read_only' }) => realFetch(`${base}/oauth/provider/microsoft/device`, {
+  method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+});
+const pollDevice = (flowId = DEVICE_FLOW_ID) => realFetch(`${base}/oauth/provider/microsoft/device/poll`, {
+  method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ flowId }),
+});
+
+describe('POST /oauth/provider/microsoft/device (provider device authorization)', () => {
+  it('returns the user code and records the device code on a device flow, without a secret', async () => {
+    const response = await startDevice();
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      flowId: DEVICE_FLOW_ID, userCode: 'ABCD-EFGH',
+      verificationUri: 'https://microsoft.com/devicelogin', expiresIn: 900, interval: 5,
+    });
+
+    const [[deviceUrl, deviceInit]] = providerCalls();
+    expect(String(deviceUrl)).toBe('https://login.microsoftonline.com/consumers/oauth2/v2.0/devicecode');
+    const body = String((deviceInit as { body?: string }).body);
+    // A public client sends no secret, and the scopes are Graph's.
+    expect(body).not.toContain('client_secret');
+    expect(decodeURIComponent(body)).toContain('https://graph.microsoft.com/Contacts.Read');
+
+    const [insert] = queryCallsMatching('INSERT INTO oauth_authorization_flows');
+    expect(JSON.stringify(insert)).toContain('device_code');
+    // The provider's own lifetime bounds the flow.
+    expect(JSON.stringify(insert)).toContain('900');
+    const [stored] = queryCallsMatching('SET device_code_enc');
+    expect(JSON.stringify(stored)).toContain('device-code-1');
+  });
+
+  it('refuses when the device method is switched off for the provider', async () => {
+    mocks.query.mockResolvedValueOnce({ rows: [{ config: { deviceEnabled: false } }] });
+    const response = await startDevice();
+    expect(response.status).toBe(403);
+    expect(queryCallsMatching('INSERT INTO oauth_authorization_flows')).toHaveLength(0);
+    expect(providerCalls()).toHaveLength(0);
+  });
+
+  it('refuses when Microsoft is not configured', async () => {
+    delete process.env.MS_CLIENT_ID;
+    const response = await startDevice();
+    expect(response.status).toBe(409);
+    expect(providerCalls()).toHaveLength(0);
+  });
+});
+
+describe('POST /oauth/provider/microsoft/device/poll', () => {
+  it('reports pending while the user has not finished, and stores no grant', async () => {
+    tokenStatus = 400;
+    tokenBody = { error: 'authorization_pending' };
+    const response = await pollDevice();
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ status: 'pending' });
+    expect(queryCallsMatching('INSERT INTO oauth_grants')).toHaveLength(0);
+    expect(queryCallsMatching('SET device_last_polled_at')).toHaveLength(1);
+  });
+
+  it('does not call the provider again before the interval it asked for', async () => {
+    deviceFlowRow = { ...deviceFlowRow, device_last_polled_at: new Date() };
+    const response = await pollDevice();
+    expect(await response.json()).toEqual({ status: 'pending' });
+    expect(providerCalls()).toHaveLength(0);
+  });
+
+  it('stores the Graph connection and grant when the user finishes, and completes the flow', async () => {
+    const response = await pollDevice();
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ status: 'success' });
+
+    const [[tokenUrl, tokenInit]] = providerCalls();
+    expect(String(tokenUrl)).toBe('https://login.microsoftonline.com/consumers/oauth2/v2.0/token');
+    const body = String((tokenInit as { body?: string }).body);
+    expect(body).toContain('grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Adevice_code');
+    expect(body).not.toContain('client_secret');
+    expect(body).toContain('device_code=device-code-1');
+
+    const connectionParams = JSON.stringify(queryCallsMatching('INSERT INTO provider_connections')[0]);
+    expect(connectionParams).toContain('ms-sub-1');
+    const grantParams = JSON.stringify(queryCallsMatching('INSERT INTO oauth_grants')[0]);
+    expect(grantParams).toContain('https://graph.microsoft.com/');
+    // A device grant is a public client's: its refresh must omit the secret.
+    expect(grantParams).toContain('public');
+    const finish = queryCallsMatching('UPDATE oauth_authorization_flows').find(([sql]) => String(sql).includes('SET status = $2'));
+    expect(JSON.stringify(finish)).toContain('completed');
+  });
+
+  it('records a declined authorization as failed', async () => {
+    tokenStatus = 400;
+    tokenBody = { error: 'authorization_declined' };
+    const response = await pollDevice();
+    expect(await response.json()).toEqual({ status: 'declined' });
+    const finish = queryCallsMatching('UPDATE oauth_authorization_flows').find(([sql]) => String(sql).includes('SET status = $2'));
+    expect(JSON.stringify(finish)).toContain('PROVIDER_DENIED');
+    expect(queryCallsMatching('INSERT INTO oauth_grants')).toHaveLength(0);
+  });
+
+  it('reports an expired device code as expired', async () => {
+    tokenStatus = 400;
+    tokenBody = { error: 'expired_token' };
+    const response = await pollDevice();
+    expect(await response.json()).toEqual({ status: 'expired' });
+    const finish = queryCallsMatching('UPDATE oauth_authorization_flows').find(([sql]) => String(sql).includes('SET status = $2'));
+    expect(JSON.stringify(finish)).toContain('expired');
+  });
+
+  it('does not see another user’s flow', async () => {
+    mocks.query.mockImplementation(async (sql: string) => {
+      if (String(sql).includes("auth_flow = 'device_code'")) return { rows: [], rowCount: 0 };
+      return { rows: [], rowCount: 0 };
+    });
+    const response = await pollDevice();
+    expect(response.status).toBe(404);
+    expect(providerCalls()).toHaveLength(0);
+  });
+
+  it('reports a flow whose device code was never stored instead of calling the provider', async () => {
+    deviceFlowRow = { ...deviceFlowRow, device_code_enc: null };
+    const response = await pollDevice();
+    expect((await response.json()) as { status: string }).toMatchObject({ status: 'error' });
+    expect(providerCalls()).toHaveLength(0);
+    const finish = queryCallsMatching('UPDATE oauth_authorization_flows').find(([sql]) => String(sql).includes('SET status = $2'));
+    expect(JSON.stringify(finish)).toContain('DEVICE_CODE_MISSING');
   });
 });

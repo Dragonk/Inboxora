@@ -32,6 +32,18 @@ release is never claimed before it has happened.
 
 ### Added
 
+- **Microsoft Graph provider authorization by device code (P04).** The Graph connector — the provider
+  connection that calendars and contacts sync through — can now be authorized without a client secret
+  and without a registered callback, by the same device-code grant the mailbox flow uses. The operator
+  registers a **public client**, the card shows a code, and the poll that completes it is held on the
+  **flow row in the database** (the device code encrypted, the interval the provider asked for, the last
+  poll time), so a server restart no longer strands a pending authorization. The provider's own pending
+  /declined/expired answers are reported as the flow's states rather than as errors, a poll arriving
+  before the requested interval is answered from the stored state instead of becoming a call to
+  Microsoft, and a `slow_down` stores the provider's new interval. Identity is still read server-to-server
+  from Graph, and the recorded grant is marked as a **public client's**, so its refresh omits the secret.
+  Requires migration **`0110`**.
+
 - **Microsoft Graph drafts (P07b).** Saving a draft from a native Microsoft Graph account now creates
   the draft **at Microsoft** rather than appending MIME over IMAP, and re-saving **patches the same
   provider object** so the mailbox never holds two versions of one draft. Because Graph's JSON keeps

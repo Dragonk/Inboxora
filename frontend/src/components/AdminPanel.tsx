@@ -2925,6 +2925,47 @@ function IntegrationsTab() {
     setTimeout(() => setConnectingGraph(false), 5000);
   };
 
+  // The Graph connection through device code: the same provider connection as the browser link above,
+  // for an installation that registered a public client (no secret, no callback). It refreshes the
+  // connector status on success rather than the account list, because it creates no mailbox account.
+  const [graphDeviceFlow, setGraphDeviceFlow] = useState<{ flowId?: string; userCode?: string; verificationUri?: string; interval?: number; [key: string]: unknown } | null>(null);
+  const [graphDeviceStatus, setGraphDeviceStatus] = useState<string | null>(null);
+  const graphDevicePollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const stopGraphDeviceFlow = () => {
+    if (graphDevicePollRef.current) { clearInterval(graphDevicePollRef.current); graphDevicePollRef.current = null; }
+    setGraphDeviceFlow(null);
+    setGraphDeviceStatus(null);
+  };
+  const handleStartGraphDeviceFlow = async () => {
+    stopGraphDeviceFlow();
+    setGraphDeviceStatus('pending');
+    try {
+      const data = await api.startProviderMsDeviceFlow();
+      setGraphDeviceFlow(data);
+      graphDevicePollRef.current = setInterval(async () => {
+        try {
+          const result = await api.pollProviderMsDeviceFlow(String(data.flowId));
+          if (result.status === 'pending') return;
+          if (graphDevicePollRef.current !== null) clearInterval(graphDevicePollRef.current);
+          graphDevicePollRef.current = null;
+          setGraphDeviceStatus(result.status);
+          if (result.status === 'success') {
+            setGraphSaveMsg(t('admin.integrations.microsoft.graphConnectedNote'));
+            api.getIntegrationsStatus().then(status => setMsStatus(status.microsoft || null)).catch(console.error);
+            setTimeout(stopGraphDeviceFlow, 3000);
+          }
+        } catch {
+          if (graphDevicePollRef.current !== null) clearInterval(graphDevicePollRef.current);
+          graphDevicePollRef.current = null;
+          setGraphDeviceStatus('error');
+        }
+      }, (Number(data.interval) > 0 ? Number(data.interval) : 5) * 1000);
+    } catch (err) {
+      setGraphDeviceStatus('error');
+      setGraphSaveMsg('Error: ' + toAppError(err).message);
+    }
+  };
+
   const handleConnectGoogle = (purpose: 'contacts_enable' | 'calendar_enable') => {
     setConnectingGoogle(true);
     // One authorization per feature: a contacts-only grant cannot read calendars, and
@@ -3232,21 +3273,87 @@ function IntegrationsTab() {
                       offered as its own, clearly named action. */}
                   {/* Gated on the connector's own readiness, not the mailbox flow's: the two
                       have different callbacks, and tying them together hid this button in an
-                      installation that has a working connector but no mailbox sign-in. */}
-                  {msStatus?.graph?.ready && (
+                      installation that has a working connector but no mailbox sign-in. The
+                      device method is the same connector without a secret or callback, so it
+                      keeps the section visible where only a public client is registered. */}
+                  {(msStatus?.graph?.ready || msDeviceReady) && (
                     <div style={{ marginTop: 10 }}>
-                      <button
-                        data-testid="microsoft-graph-connect"
-                        onClick={handleConnectMicrosoftGraph}
-                        disabled={connectingGraph}
-                        style={{
-                          padding: '9px 16px', background: 'var(--bg-elevated)', border: '1px solid var(--border)',
-                          borderRadius: 8, color: 'var(--text-primary)', cursor: connectingGraph ? 'not-allowed' : 'pointer',
-                          fontSize: 13, fontWeight: 500, opacity: connectingGraph ? 0.7 : 1,
-                        }}
-                      >
-                        {connectingGraph ? t('admin.integrations.microsoft.graphConnecting') : t('admin.integrations.microsoft.graphConnect')}
-                      </button>
+                      {msStatus?.graph?.ready && (
+                        <button
+                          data-testid="microsoft-graph-connect"
+                          onClick={handleConnectMicrosoftGraph}
+                          disabled={connectingGraph}
+                          style={{
+                            padding: '9px 16px', background: 'var(--bg-elevated)', border: '1px solid var(--border)',
+                            borderRadius: 8, color: 'var(--text-primary)', cursor: connectingGraph ? 'not-allowed' : 'pointer',
+                            fontSize: 13, fontWeight: 500, opacity: connectingGraph ? 0.7 : 1,
+                          }}
+                        >
+                          {connectingGraph ? t('admin.integrations.microsoft.graphConnecting') : t('admin.integrations.microsoft.graphConnect')}
+                        </button>
+                      )}
+                      {msDeviceReady && (
+                        <div style={{ marginTop: msStatus?.graph?.ready ? 10 : 0 }}>
+                          {!graphDeviceFlow ? (
+                            <button
+                              data-testid="microsoft-graph-device-connect"
+                              onClick={handleStartGraphDeviceFlow}
+                              disabled={!msConfigured}
+                              style={{
+                                padding: '9px 16px', background: 'var(--bg-elevated)', border: '1px solid var(--border)',
+                                borderRadius: 8, color: 'var(--text-primary)', cursor: msConfigured ? 'pointer' : 'not-allowed',
+                                fontSize: 13, fontWeight: 500, opacity: msConfigured ? 1 : 0.5,
+                              }}
+                            >
+                              {t('admin.integrations.microsoft.graphDeviceConnect')}
+                            </button>
+                          ) : (
+                            <div style={{ padding: '12px 14px', borderRadius: 8, background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
+                              {graphDeviceStatus === 'success' ? (
+                                <div style={{ color: 'var(--green)', fontSize: 13, fontWeight: 500 }}>{t('admin.integrations.microsoft.connectedNote')}</div>
+                              ) : graphDeviceStatus === 'declined' ? (
+                                <div style={{ color: 'var(--red)', fontSize: 13 }}>{t('admin.integrations.microsoft.deviceCodeDeclined')}</div>
+                              ) : graphDeviceStatus === 'expired' ? (
+                                <div style={{ color: 'var(--text-tertiary)', fontSize: 13 }}>{t('admin.integrations.microsoft.deviceCodeExpired')}</div>
+                              ) : graphDeviceStatus === 'error' ? (
+                                <div style={{ color: 'var(--red)', fontSize: 13 }}>{t('admin.integrations.microsoft.deviceCodeError')}</div>
+                              ) : (
+                                <>
+                                  <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>
+                                    {t('admin.integrations.microsoft.deviceCodeInstructions')}
+                                  </div>
+                                  <div style={{ marginBottom: 8 }}>
+                                    <a href={String(graphDeviceFlow.verificationUri || '')} target="_blank" rel="noreferrer"
+                                      style={{ fontSize: 12, color: 'var(--accent)', fontWeight: 500 }}>
+                                      {String(graphDeviceFlow.verificationUri || '')}
+                                    </a>
+                                  </div>
+                                  <span style={{
+                                    fontFamily: 'JetBrains Mono, monospace', fontSize: 18, fontWeight: 700,
+                                    letterSpacing: '0.15em', color: 'var(--text-primary)',
+                                    padding: '5px 12px', background: 'var(--bg-tertiary)',
+                                    border: '1px solid var(--border)', borderRadius: 6,
+                                  }}>
+                                    {String(graphDeviceFlow.userCode || '')}
+                                  </span>
+                                </>
+                              )}
+                              {graphDeviceStatus !== 'success' && (
+                                <button onClick={stopGraphDeviceFlow} style={{
+                                  display: 'block', marginTop: 10, padding: '5px 10px', background: 'transparent',
+                                  border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-secondary)',
+                                  cursor: 'pointer', fontSize: 12,
+                                }}>
+                                  {t('admin.integrations.microsoft.deviceCodeCancel')}
+                                </button>
+                              )}
+                            </div>
+                          )}
+                          <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 6 }}>
+                            {t('admin.integrations.microsoft.graphDeviceHint')}
+                          </div>
+                        </div>
+                      )}
                       {(msStatus?.connections?.length ?? 0) > 0 && (
                         <div style={{ marginTop: 10, fontSize: 12 }}>
                           <div style={{ color: 'var(--text-secondary)' }}>{t('admin.integrations.connectedAccounts')}</div>

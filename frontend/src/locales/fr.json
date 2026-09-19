@@ -343,6 +343,8 @@
         "deviceCodeError": "Une erreur s'est produite. Veuillez réessayer.",
         "deviceCodeCancel": "Annuler",
         "graphConnect": "Connecter les contacts Microsoft",
+        "graphDeviceConnect": "Connecter l’API Microsoft par code d’appareil",
+        "graphDeviceHint": "Nécessite seulement un ID client avec les flux de client public autorisés — ni secret ni URI de redirection. Autorise Microsoft Graph pour les contacts uniquement.",
         "graphConnecting": "Ouverture de Microsoft…",
         "graphHint": "Autorise Microsoft Graph pour les contacts uniquement. Votre boîte aux lettres n’est ni modifiée ni migrée.",
         "graphConnectedNote": "Contacts Microsoft connectés. Utilisez « Synchroniser les contacts Microsoft » sur la page Contacts.",

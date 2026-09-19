@@ -343,6 +343,8 @@
         "deviceCodeError": "Произошла ошибка. Повторите попытку.",
         "deviceCodeCancel": "Отмена",
         "graphConnect": "Подключить контакты Microsoft",
+        "graphDeviceConnect": "Подключить API Microsoft через код устройства",
+        "graphDeviceHint": "Нужен только идентификатор клиента с разрешёнными общедоступными потоками — без секрета и URI перенаправления. Авторизует Microsoft Graph только для контактов.",
         "graphConnecting": "Открытие Microsoft…",
         "graphHint": "Авторизует Microsoft Graph только для контактов. Почтовый ящик не изменяется и не переносится.",
         "graphConnectedNote": "Контакты Microsoft подключены. Используйте «Синхронизировать контакты Microsoft» на странице «Контакты».",

@@ -782,6 +782,8 @@
         "deviceCodeError": "Wystąpił błąd. Spróbuj ponownie.",
         "deviceCodeCancel": "Anuluj",
         "graphConnect": "Połącz kontakty Microsoft",
+        "graphDeviceConnect": "Połącz API Microsoftu kodem urządzenia",
+        "graphDeviceHint": "Wymaga tylko identyfikatora klienta z włączonymi publicznymi przepływami — bez sekretu i adresu przekierowania. Autoryzuje Microsoft Graph tylko dla kontaktów.",
         "graphConnecting": "Otwieranie Microsoft…",
         "graphHint": "Autoryzuje Microsoft Graph tylko dla kontaktów. Nie zmienia ani nie migruje Twojej skrzynki.",
         "graphConnectedNote": "Kontakty Microsoft połączone. Użyj opcji Synchronizuj kontakty Microsoft na stronie Kontakty.",

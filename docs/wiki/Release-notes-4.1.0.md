@@ -40,7 +40,9 @@ application creates no account.
 - **Microsoft**: Client ID and tenant, with **two independent methods** — the browser flow (which
   needs a secret and the callback) and the **device code** (which needs neither, only *Allow public
   client flows* in Entra). Either can be configured without the other, and switching one off is
-  enforced rather than cosmetic.
+  enforced rather than cosmetic. Both methods exist for the **mailbox** sign-in and for the **Graph
+  connector**: the connector no longer requires a callback or a secret to be authorized, so a
+  public-client registration is enough to pull contacts and calendars.
 - **Per-method readiness** distinguishes "configured" from "working conditions present", the card
   states each provider's policy in place, and a provider, a method or the whole layer can be turned
   off — including installation-wide with `PROVIDER_INTEGRATIONS_ENABLED=0`, which also stops the
@@ -61,6 +63,10 @@ and reconnecting re-links the same collections rather than duplicating them.
   **typed provider-mutation layer** with an operation journal: a claim is committed before the
   provider call, so a recovered non-idempotent operation is parked as `outcome_unknown` rather than
   run a second time.
+- The Graph connector's **device-code authorization**: the provider connection can be created by a
+  public client — no secret and no callback — with the device code, the provider's poll interval and
+  the last poll held on the flow row, so a restart does not strand a pending authorization. Requires
+  migration **`0110`**.
 - The **native Microsoft Graph mail adapter** (`backend/src/services/providers/microsoft/`): mail
   folder discovery and management (create, rename, delete, empty, ensure), message metadata sync
   with a per-folder delta cursor and a `410` rebuild, body and attachments (single, inline and ZIP),
@@ -96,8 +102,10 @@ and reconnecting re-links the same collections rather than duplicating them.
 
 ## Configuration and migration requirements
 
-- Apply migrations **`0101`–`0106` in order, before rolling out the application**. They are
-  additive; no existing table, column or row is rewritten.
+- Apply migrations **`0101`–`0110` in order, before rolling out the application**. They are
+  additive; no existing table, column or row is rewritten. `0110` adds three nullable columns to
+  `oauth_authorization_flows` for the device authorization and must be applied before a device flow
+  is started, not merely before the application starts.
 - New optional variables: `PROVIDER_INTEGRATIONS_ENABLED` (`0` disables the whole provider layer,
   including the sync paths) and `PROVIDER_SYNC_INTERVAL_MINUTES` (refresh cadence; `0` leaves
   syncing to the user). Both are documented in `.env.example` and the wiki.
@@ -140,10 +148,10 @@ and reconnecting re-links the same collections rather than duplicating them.
 Measured on `dev` at `dbf6077b`, with each gate's own exit status read rather than inferred from a
 pipeline:
 
-- Backend: **2513 tests passed, 117 skipped** (206 files passed, 14 skipped), typecheck and lint clean.
-- Frontend: **2685 tests passed, 0 failed**, typecheck, lint and production build clean.
-- Database: **191 integration tests across 19 suites** on PostgreSQL 16, with the full migration chain
-  (112 migrations) applied in order.
+- Backend: **2523 tests passed, 117 skipped** (206 files passed, 14 skipped), typecheck and lint clean.
+- Frontend: **2690 tests passed, 0 failed**, typecheck, lint and production build clean.
+- Database: **215 integration tests across 21 suites** on PostgreSQL 16, with the full migration chain
+  (113 migrations) applied to a fresh, empty database created for the purpose and dropped afterwards.
 
 Not re-run for this revision, and therefore **NOT RUN** rather than passing:
 

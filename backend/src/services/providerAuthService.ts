@@ -171,6 +171,96 @@ export function microsoftTokenEndpoint(tenantId?: string | null): string {
   return `${MICROSOFT_ISSUER}/${safeTenantId(tenantId)}/oauth2/v2.0/token`;
 }
 
+/** The v2.0 device-authorization endpoint for a tenant. */
+export function microsoftDeviceCodeEndpoint(tenantId?: string | null): string {
+  return `${MICROSOFT_ISSUER}/${safeTenantId(tenantId)}/oauth2/v2.0/devicecode`;
+}
+
+/** Persist the provider's device code against its flow. The caller supplies the transaction. */
+export async function storeDeviceAuthorization(client: PoolClient, input: {
+  flowId: string;
+  deviceCode: string;
+  intervalSeconds: number;
+}): Promise<void> {
+  await client.query(
+    `UPDATE oauth_authorization_flows
+        SET device_code_enc = $2, device_interval_seconds = $3
+      WHERE id = $1 AND status = 'pending'`,
+    [input.flowId, encrypt(input.deviceCode), Math.max(1, Math.floor(input.intervalSeconds))],
+  );
+}
+
+export interface DeviceAuthorizationFlow {
+  id: string;
+  userId: string;
+  purpose: AuthorizationPurpose;
+  targetAccountId: string | null;
+  requestedScopes: string[];
+  configRevision: string | null;
+  deviceCode: string | null;
+  intervalSeconds: number;
+  lastPolledAt: Date | null;
+  expiresAt: Date;
+  status: AuthorizationFlowStatus;
+}
+
+/**
+ * Read a pending device flow for polling, scoped to its owner.
+ *
+ * No state transition happens here — polling is not single-use, because a device flow is polled until
+ * the provider answers — so the read is a plain ownership-checked select. A flow whose status is no
+ * longer `pending` is returned as-is so the caller can report the terminal state instead of calling
+ * the provider again.
+ */
+export async function readDeviceAuthorizationFlow(client: PoolClient, input: {
+  flowId: string;
+  userId: string;
+}): Promise<DeviceAuthorizationFlow | null> {
+  const result = await client.query<{
+    id: string; user_id: string; purpose: AuthorizationPurpose; target_account_id: string | null;
+    requested_scopes: string[] | null; config_revision: string | null; device_code_enc: string | null;
+    device_interval_seconds: number | null; device_last_polled_at: Date | null; expires_at: Date;
+    status: AuthorizationFlowStatus;
+  }>(
+    `SELECT id, user_id, purpose, target_account_id, requested_scopes, config_revision,
+            device_code_enc, device_interval_seconds, device_last_polled_at, expires_at, status
+       FROM oauth_authorization_flows
+      WHERE id = $1 AND user_id = $2 AND auth_flow = 'device_code'`,
+    [input.flowId, input.userId],
+  );
+  const row = result.rows[0];
+  if (!row) return null;
+  return {
+    id: row.id,
+    userId: row.user_id,
+    purpose: row.purpose,
+    targetAccountId: row.target_account_id,
+    requestedScopes: row.requested_scopes ?? [],
+    configRevision: row.config_revision,
+    deviceCode: row.device_code_enc ? decrypt(row.device_code_enc) : null,
+    intervalSeconds: Number(row.device_interval_seconds) > 0 ? Number(row.device_interval_seconds) : 5,
+    lastPolledAt: row.device_last_polled_at,
+    expiresAt: row.expires_at,
+    status: row.status,
+  };
+}
+
+/** Record that a poll reached the provider, so the interval is measured from the real call. */
+export async function markDeviceAuthorizationPolled(client: PoolClient, input: {
+  flowId: string;
+  intervalSeconds?: number;
+}): Promise<void> {
+  await client.query(
+    `UPDATE oauth_authorization_flows
+        SET device_last_polled_at = NOW(),
+            device_interval_seconds = COALESCE($2, device_interval_seconds)
+      WHERE id = $1 AND status = 'pending'`,
+    [input.flowId, Number.isFinite(input.intervalSeconds) && Number(input.intervalSeconds) > 0
+      ? Math.max(1, Math.floor(Number(input.intervalSeconds)))
+      : null],
+  );
+}
+
 export interface CreateAuthorizationFlowInput {
   userId: string;
   provider: OAuthProvider;
@@ -518,6 +608,127 @@ export async function exchangeMicrosoftAuthorizationCode(input: {
 }
 
 export const MICROSOFT_GRAPH_ME_ENDPOINT = 'https://graph.microsoft.com/v1.0/me';
+
+export interface StartedDeviceAuthorization {
+  deviceCode: string;
+  userCode: string;
+  verificationUri: string;
+  expiresInSeconds: number;
+  intervalSeconds: number;
+}
+
+/**
+ * Begin a Microsoft device authorization for **Graph** scopes.
+ *
+ * This is the provider-connection sibling of the mailbox device flow: the same public-client grant, but
+ * the token it yields is a Graph grant bound to a `provider_connections` row rather than IMAP/SMTP
+ * credentials on a mailbox. A public client sends no secret, which is exactly the property that makes
+ * the method usable where a confidential client and a callback are not configured.
+ */
+export async function startMicrosoftDeviceAuthorization(input: {
+  config: MicrosoftConfig;
+  scopes: readonly string[];
+  fetchImpl?: FetchLike;
+}): Promise<StartedDeviceAuthorization> {
+  const fetchImpl = input.fetchImpl ?? fetch;
+  let response: Response;
+  try {
+    response = await fetchImpl(microsoftDeviceCodeEndpoint(input.config.tenantId), {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: input.config.clientId,
+        scope: [...input.scopes].join(' '),
+      }).toString(),
+      signal: AbortSignal.timeout(15000),
+    });
+  } catch (caught) {
+    throw new ProviderAuthError('DEVICE_ENDPOINT_UNAVAILABLE', caught instanceof Error ? caught.message : 'Microsoft device authorization endpoint unreachable');
+  }
+  const payload = await response.json().catch(() => ({})) as {
+    device_code?: string; user_code?: string; verification_uri?: string;
+    expires_in?: number; interval?: number; error?: string; error_description?: string;
+  };
+  if (!response.ok || payload.error) {
+    throw new ProviderAuthError(payload.error || 'DEVICE_AUTHORIZATION_FAILED', payload.error_description || 'Microsoft refused to start the device authorization');
+  }
+  if (!payload.device_code || !payload.user_code || !payload.verification_uri) {
+    throw new ProviderAuthError('DEVICE_AUTHORIZATION_FAILED', 'Microsoft device authorization response is incomplete');
+  }
+  return {
+    deviceCode: payload.device_code,
+    userCode: payload.user_code,
+    verificationUri: payload.verification_uri,
+    expiresInSeconds: Number.isFinite(payload.expires_in) && Number(payload.expires_in) > 0 ? Number(payload.expires_in) : 900,
+    intervalSeconds: Number.isFinite(payload.interval) && Number(payload.interval) > 0 ? Number(payload.interval) : 5,
+  };
+}
+
+/**
+ * One poll of a Graph device authorization.
+ *
+ * The provider's pending/declined/expired answers are **not** errors: they are the flow's states, and
+ * reporting them as failures would make the interface show a broken flow for a user who simply has not
+ * finished. A `slow_down` carries the provider's own new interval, which the caller stores so the next
+ * poll waits as instructed instead of being told again.
+ */
+export type MicrosoftDevicePollResult =
+  | { status: 'pending' }
+  | { status: 'slow_down'; intervalSeconds?: number }
+  | { status: 'declined' }
+  | { status: 'expired' }
+  | { status: 'authorized'; tokens: ExchangedMicrosoftTokens };
+
+export async function pollMicrosoftDeviceAuthorization(input: {
+  config: MicrosoftConfig;
+  deviceCode: string;
+  fetchImpl?: FetchLike;
+}): Promise<MicrosoftDevicePollResult> {
+  const fetchImpl = input.fetchImpl ?? fetch;
+  let response: Response;
+  try {
+    response = await fetchImpl(microsoftTokenEndpoint(input.config.tenantId), {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: input.config.clientId,
+        grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
+        device_code: input.deviceCode,
+      }).toString(),
+      signal: AbortSignal.timeout(15000),
+    });
+  } catch (caught) {
+    throw new ProviderAuthError('TOKEN_ENDPOINT_UNAVAILABLE', caught instanceof Error ? caught.message : 'Microsoft token endpoint unreachable');
+  }
+  const payload = await response.json().catch(() => ({})) as {
+    access_token?: string; refresh_token?: string; expires_in?: number; scope?: string;
+    id_token?: string; error?: string; error_description?: string; interval?: number;
+  };
+  if (payload.error === 'authorization_pending') return { status: 'pending' };
+  if (payload.error === 'authorization_declined') return { status: 'declined' };
+  if (payload.error === 'expired_token' || payload.error === 'bad_verification_code') return { status: 'expired' };
+  if (payload.error === 'slow_down') {
+    return {
+      status: 'slow_down',
+      ...(Number.isFinite(payload.interval) && Number(payload.interval) > 0 ? { intervalSeconds: Number(payload.interval) } : {}),
+    };
+  }
+  if (!response.ok || payload.error) {
+    throw new ProviderAuthError(payload.error || 'TOKEN_EXCHANGE_FAILED', payload.error_description || 'Microsoft device token exchange failed');
+  }
+  if (!payload.access_token) throw new ProviderAuthError('TOKEN_EXCHANGE_FAILED', 'Microsoft token response has no access token');
+  const expiresIn = Number.isFinite(payload.expires_in) && Number(payload.expires_in) > 0 ? Number(payload.expires_in) : 3600;
+  return {
+    status: 'authorized',
+    tokens: {
+      accessToken: payload.access_token,
+      refreshToken: payload.refresh_token ?? null,
+      expiresAt: new Date(Date.now() + expiresIn * 1000),
+      scopes: typeof payload.scope === 'string' ? payload.scope.split(' ').filter(Boolean) : [],
+      idToken: payload.id_token ?? null,
+    },
+  };
+}
 
 export interface MicrosoftIdentity {
   subject: string;

@@ -774,6 +774,8 @@
         "deviceCodeError": "Došlo k chybě. Zkuste to znovu.",
         "deviceCodeCancel": "Zrušit",
         "graphConnect": "Připojit kontakty Microsoft",
+        "graphDeviceConnect": "Připojit API Microsoftu pomocí kódu zařízení",
+        "graphDeviceHint": "Vyžaduje pouze ID klienta s povolenými veřejnými toky klienta — bez tajného klíče a URI přesměrování. Autorizuje Microsoft Graph pouze pro kontakty.",
         "graphConnecting": "Otevírání Microsoft…",
         "graphHint": "Autorizuje Microsoft Graph pouze pro kontakty. Vaše schránka se nemění ani nepřesouvá.",
         "graphConnectedNote": "Kontakty Microsoft připojeny. Použijte „Synchronizovat kontakty Microsoft“ na stránce Kontakty.",

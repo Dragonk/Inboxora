@@ -343,6 +343,8 @@
         "deviceCodeError": "An error occurred. Please try again.",
         "deviceCodeCancel": "Cancel",
         "graphConnect": "Connect Microsoft contacts",
+        "graphDeviceConnect": "Connect Microsoft API with device code",
+        "graphDeviceHint": "Needs only a client ID with public client flows allowed — no secret and no redirect URI. Authorizes Microsoft Graph for contacts only.",
         "graphConnecting": "Opening Microsoft…",
         "graphHint": "Authorizes Microsoft Graph for contacts only. It does not change or migrate your mailbox.",
         "graphConnectedNote": "Microsoft contacts connected. Use Sync Microsoft contacts on the Contacts page.",

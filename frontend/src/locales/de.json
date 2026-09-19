@@ -343,6 +343,8 @@
         "deviceCodeError": "Ein Fehler ist aufgetreten. Bitte erneut versuchen.",
         "deviceCodeCancel": "Abbrechen",
         "graphConnect": "Microsoft-Kontakte verbinden",
+        "graphDeviceConnect": "Microsoft-API mit Gerätecode verbinden",
+        "graphDeviceHint": "Benötigt nur eine Client-ID mit erlaubten öffentlichen Clientflows — kein Secret und keine Redirect-URI. Autorisiert Microsoft Graph nur für Kontakte.",
         "graphConnecting": "Microsoft wird geöffnet…",
         "graphHint": "Autorisiert Microsoft Graph nur für Kontakte. Ihr Postfach wird nicht geändert oder migriert.",
         "graphConnectedNote": "Microsoft-Kontakte verbunden. Nutzen Sie „Microsoft-Kontakte synchronisieren“ auf der Seite Kontakte.",

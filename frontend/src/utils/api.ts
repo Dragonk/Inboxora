@@ -344,6 +344,28 @@ export const api = {
     const res = await fetch(`/oauth/microsoft/device/poll${suffix}`, { credentials: 'include' });
     return res.json();
   },
+  // The provider (Graph) connection via device code: a public client, so it needs neither a secret nor
+  // a callback. It records a provider connection and grant, never a mailbox account.
+  startProviderMsDeviceFlow: async (purpose = 'contacts_enable', access: 'source' | 'read_only' = 'read_only') => {
+    const res = await fetch('/oauth/provider/microsoft/device', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ purpose, access }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to start device authorization');
+    return data;
+  },
+  pollProviderMsDeviceFlow: async (flowId: string) => {
+    const res = await fetch('/oauth/provider/microsoft/device/poll', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ flowId }),
+    });
+    return res.json();
+  },
 
   // Sync
   syncNow: (accountId?: string | undefined) => request('POST', '/mail/sync', accountId ? { accountId } : {}),

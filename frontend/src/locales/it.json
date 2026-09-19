@@ -343,6 +343,8 @@
         "deviceCodeError": "Si è verificato un errore. Riprova.",
         "deviceCodeCancel": "Annulla",
         "graphConnect": "Connetti contatti Microsoft",
+        "graphDeviceConnect": "Connetti l'API Microsoft con codice dispositivo",
+        "graphDeviceHint": "Richiede solo un ID client con flussi client pubblici consentiti: nessun segreto e nessun URI di reindirizzamento. Autorizza Microsoft Graph solo per i contatti.",
         "graphConnecting": "Apertura di Microsoft…",
         "graphHint": "Autorizza Microsoft Graph solo per i contatti. Non modifica né migra la tua casella.",
         "graphConnectedNote": "Contatti Microsoft connessi. Usa «Sincronizza contatti Microsoft» nella pagina Contatti.",

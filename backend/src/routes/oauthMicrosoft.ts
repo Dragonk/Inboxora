@@ -12,10 +12,15 @@ import {
   fetchMicrosoftIdentity,
   finishAuthorizationFlow,
   isMicrosoftConfigured,
+  markDeviceAuthorizationPolled,
   microsoftAuthorizeUrl,
   microsoftConfigFromEnv,
   microsoftScopesForPurpose,
+  pollMicrosoftDeviceAuthorization,
   providerConfigRevision,
+  readDeviceAuthorizationFlow,
+  startMicrosoftDeviceAuthorization,
+  storeDeviceAuthorization,
   storeOAuthGrant,
   takeAuthorizationFlow,
   upsertProviderConnection,
@@ -102,6 +107,159 @@ router.get('/provider/microsoft', requireAuth, async (req: Request, res: Respons
     const error = toAppError(caught);
     console.error('Microsoft Graph OAuth start failed:', error.message);
     return failRedirect(res, 'Could not start Microsoft authorization');
+  }
+});
+
+// Device authorization: the same connection as the browser flow, for a deployment with no secret and
+// no callback. The flow row holds the device code so a restart does not strand a pending authorization.
+router.post('/provider/microsoft/device', requireAuth, async (req: Request, res: Response) => {
+  const config = microsoftConfigFromEnv();
+  if (!isMicrosoftConfigured(config)) return res.status(409).json({ error: 'Microsoft API is not configured' });
+  const switches = await readProviderSwitches('microsoft');
+  // The device method has its own switch: a provider or method the administrator turned off must not be
+  // startable here either, exactly as on the browser route.
+  if (!switches.enabled || !switches.deviceEnabled) {
+    return res.status(403).json({ error: 'Microsoft API is disabled by the administrator' });
+  }
+  const userId = req.session.userId;
+  if (!userId) return res.status(401).json({ error: 'Not authenticated' });
+
+  const purpose = readPurpose(req.body?.purpose);
+  const access = readAccess(req.body?.access);
+  const requestedAccount = typeof req.body?.accountId === 'string' && UUID_PATTERN.test(req.body.accountId) ? req.body.accountId : null;
+  if (requestedAccount) {
+    const owned = await query('SELECT 1 FROM email_accounts WHERE id = $1 AND user_id = $2', [requestedAccount, userId]);
+    if (!owned.rows.length) return res.status(404).json({ error: 'Account not found' });
+  }
+
+  try {
+    const scopes = microsoftScopesForPurpose(purpose, access);
+    const started = await startMicrosoftDeviceAuthorization({ config, scopes });
+    const flow = await withTransaction(async client => {
+      const created = await createAuthorizationFlow(client, {
+        userId,
+        provider: 'microsoft',
+        purpose,
+        targetAccountId: requestedAccount,
+        scopes,
+        returnRoute: '/settings',
+        configRevision: providerConfigRevision(config),
+        authFlow: 'device_code',
+        // The provider's own lifetime bounds the flow: an expired device code cannot be completed.
+        ttlSeconds: started.expiresInSeconds,
+      });
+      await storeDeviceAuthorization(client, {
+        flowId: created.flowId,
+        deviceCode: started.deviceCode,
+        intervalSeconds: started.intervalSeconds,
+      });
+      return created;
+    });
+    return res.json({
+      flowId: flow.flowId,
+      userCode: started.userCode,
+      verificationUri: started.verificationUri,
+      expiresIn: started.expiresInSeconds,
+      interval: started.intervalSeconds,
+    });
+  } catch (caught) {
+    const error = toAppError(caught);
+    console.error('Microsoft Graph device authorization start failed:', error.message);
+    return res.status(502).json({ error: 'Could not start Microsoft authorization' });
+  }
+});
+
+// One poll of the device authorization. The interface polls at the interval the provider asked for.
+router.post('/provider/microsoft/device/poll', requireAuth, async (req: Request, res: Response) => {
+  const config = microsoftConfigFromEnv();
+  if (!isMicrosoftConfigured(config)) return res.status(409).json({ error: 'Microsoft API is not configured' });
+  const userId = req.session.userId;
+  if (!userId) return res.status(401).json({ error: 'Not authenticated' });
+  const flowId = typeof req.body?.flowId === 'string' ? req.body.flowId : '';
+  if (!UUID_PATTERN.test(flowId)) return res.status(400).json({ error: 'flowId required' });
+
+  try {
+    const flow = await withTransaction(client => readDeviceAuthorizationFlow(client, { flowId, userId }));
+    if (!flow) return res.status(404).json({ status: 'error', error: 'No pending device authorization' });
+    if (flow.status !== 'pending') {
+      // A terminal flow is reported from its own state; the provider is not asked again.
+      const terminal = flow.status === 'completed' ? 'success'
+        : flow.status === 'expired' ? 'expired'
+          : flow.status === 'cancelled' ? 'cancelled'
+            : 'error';
+      return res.json({ status: terminal });
+    }
+    if (flow.expiresAt.getTime() <= Date.now()) {
+      await withTransaction(client => finishAuthorizationFlow(client, { flowId: flow.id, status: 'expired' })).catch(() => {});
+      return res.json({ status: 'expired' });
+    }
+    // A poll before the provider's interval is answered from the flow's own state instead of becoming a
+    // call to Microsoft: the interface respects the interval, and nothing else should be able to hammer
+    // the provider through this endpoint.
+    const intervalMs = Math.max(1, flow.intervalSeconds) * 1000;
+    if (flow.lastPolledAt && Date.now() - flow.lastPolledAt.getTime() < intervalMs) {
+      return res.json({ status: 'pending' });
+    }
+    if (!flow.deviceCode) {
+      await withTransaction(client => finishAuthorizationFlow(client, { flowId: flow.id, status: 'failed', errorCode: 'DEVICE_CODE_MISSING' })).catch(() => {});
+      return res.json({ status: 'error', error: 'This authorization has no device code' });
+    }
+
+    const result = await pollMicrosoftDeviceAuthorization({ config, deviceCode: flow.deviceCode });
+    if (result.status === 'pending') {
+      await withTransaction(client => markDeviceAuthorizationPolled(client, { flowId: flow.id })).catch(() => {});
+      return res.json({ status: 'pending' });
+    }
+    if (result.status === 'slow_down') {
+      await withTransaction(client => markDeviceAuthorizationPolled(client, {
+        flowId: flow.id,
+        ...(result.intervalSeconds !== undefined ? { intervalSeconds: result.intervalSeconds } : {}),
+      })).catch(() => {});
+      return res.json({ status: 'pending' });
+    }
+    if (result.status === 'declined') {
+      await withTransaction(client => finishAuthorizationFlow(client, { flowId: flow.id, status: 'failed', errorCode: 'PROVIDER_DENIED' })).catch(() => {});
+      return res.json({ status: 'declined' });
+    }
+    if (result.status === 'expired') {
+      await withTransaction(client => finishAuthorizationFlow(client, { flowId: flow.id, status: 'expired' })).catch(() => {});
+      return res.json({ status: 'expired' });
+    }
+
+    // Authorized: read the identity from Graph with the token we received server-to-server, then record
+    // the connection and its grant. The identity is issuer + subject, never the address.
+    const identity = await fetchMicrosoftIdentity({ accessToken: result.tokens.accessToken });
+    await withTransaction(async client => {
+      const connectionId = await upsertProviderConnection(client, {
+        userId: flow.userId,
+        provider: 'microsoft',
+        issuer: MICROSOFT_ISSUER,
+        subject: identity.subject,
+        tenantId: config.tenantId,
+        providerUserId: identity.email,
+        clientConfigId: config.clientId,
+      });
+      await storeOAuthGrant(client, {
+        connectionId,
+        audience: MICROSOFT_GRANT_AUDIENCE,
+        accessToken: result.tokens.accessToken,
+        refreshToken: result.tokens.refreshToken,
+        expiresAt: result.tokens.expiresAt,
+        scopes: result.tokens.scopes.length ? result.tokens.scopes : flow.requestedScopes,
+        authFlow: 'device_code',
+        // A device grant is issued to a public client, so its refresh must omit the secret.
+        clientAuthMethod: 'public',
+        clientConfigId: config.clientId,
+        clientIdAtIssue: config.clientId,
+      });
+      await finishAuthorizationFlow(client, { flowId: flow.id, status: 'completed' });
+    });
+    return res.json({ status: 'success' });
+  } catch (caught) {
+    const error = toAppError(caught);
+    const code = caught instanceof ProviderAuthError ? caught.code : 'AUTH_FAILED';
+    console.error('Microsoft Graph device poll error:', code, error.message);
+    return res.json({ status: 'error', error: 'Microsoft authentication failed' });
   }
 });
 
