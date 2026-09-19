@@ -66,6 +66,39 @@ been run at all:
 | runtime smoke pair | **NOT RUN** | No container was ever started from the published pair: `/api/health`, `/api/version` and a basic login/UI check on those exact digests are unverified. The digests and platforms are registry facts, not a smoke test. |
 | final v4 publication | **not done** | The published images correspond to `035f60ab` (the 4.1.0 release), **not** to the tip of `dev`, and v4 still has open packages (P06, P07b, P08, P09 CRUD, P10, P12). A final publish must wait for the exact final SHA after the scope closes, and then be followed by the smoke pair above. |
 
+## Next actions (handoff)
+
+Remaining v4 scope in dependency order; the send-layer facts, the Graph pipeline contract and the slice-A
+loci are in the send-layer notes below, so this list carries no narrative.
+
+1. **Slice A — `ComposedMail` + SMTP renderer** (refactor-only, no Graph). Implement the typed model and
+   `renderSmtpMessage(composed) → { raw, envelope, mailOptions }`, move `routes/send.ts` at the five
+   recorded loci, and prove zero behaviour change with renderer tests plus the existing send suites.
+2. **Slice B — `fetchSourceAttachment(account, message, attachment)`**: one provider-aware helper
+   dispatched on the **source** account (IMAP / Graph / Gmail later); matrix IMAP→IMAP, IMAP→Graph,
+   Graph→IMAP, Graph→Graph; a Graph source must never open an IMAP connection.
+3. **Slice C — remove or replace `sendGraphMime`** and implement the draft JSON: `POST /me/messages` with
+   `toRecipients`, `ccRecipients`, `bccRecipients`, replyTo, body, subject and permitted custom headers.
+4. **Slice D — attachment pipeline** on that draft: direct below 3 MB, `createUploadSession` from 3–150 MB
+   (`Content-Range`, `nextExpectedRanges`, resume, expiry, cancel, no `Authorization` on the pre-authorized
+   URL).
+5. **Slice E — staging draft lifecycle** bound to the send intent, the provider operation and the draft id.
+6. **Slice F — final send** `POST /me/messages/{id}/send`: non-idempotent, `202` accepted, lost response →
+   `outcome_unknown`, no automatic resend, **no Graph → SMTP fallback**; only then wire Graph into
+   `createAccountMailTransport()`, and never as an `if (microsoft)` inside `routes/send.ts`.
+7. Then, in order: Graph user drafts · provider device-code · Graph calendar (discovery, sync, CRUD,
+   recurrence, attendees, permission mapping) · Graph contacts CRUD · Gmail API (P08: labels, threads,
+   history, send, drafts, attachments) · Google Calendar/People CRUD · Google migration recommendation with
+   per-user-per-account suppression · frontend capability cleanup (no `source === 'local'` editability) ·
+   P10 DAV write-back · P12 in-place Microsoft cutover (same `email_accounts.id`, no duplicate, Graph only
+   afterwards).
+8. **All provider writes go through `providerMutationService`**; `writeThrough` is enabled only for the
+   adapters and operations that genuinely support it.
+9. **P14 — final validation and publication**: the full gate matrix on the final SHA, then the `:dev` image
+   pair from that exact SHA with its digests and architectures, then the runtime smoke (health, version,
+   login, basic UI, account listing, no migration crash). Real-provider acceptance, DAVx⁵ and the CI jobs
+   on a runner stay **NOT RUN** unless credentials, clients or a runner are actually available.
+
 ## Open documentation defect: the `[Unreleased]` changelog has repeated category headings
 
 `docs/CHANGELOG.md`'s `[Unreleased]` section has **five `### Changed` headings and four `### Added`** where
