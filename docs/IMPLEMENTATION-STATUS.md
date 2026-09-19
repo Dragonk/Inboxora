@@ -407,6 +407,7 @@ suite creates and drops its own rows, so it needs nothing but an empty migrated 
             src/services/providerTokenService.integration.test.ts \
             src/services/providerOperations.integration.test.ts \
             src/services/providerConnectionService.integration.test.ts \
+            src/services/providerSchemaUpgrade.integration.test.ts \
             src/services/providers/google src/services/providers/microsoft \
             src/routes/davPg.integration.test.ts
 ```
@@ -616,6 +617,7 @@ DB_HOST=127.0.0.1 DB_PORT=55432 DB_NAME=… DB_USER=… DB_PASSWORD=… REQUIRE_
   src/services/providerTokenService.integration.test.ts \
   src/services/providerOperations.integration.test.ts \
   src/services/providerConnectionService.integration.test.ts \
+  src/services/providerSchemaUpgrade.integration.test.ts \
   src/services/providers/google src/services/providers/microsoft \
   src/routes/davPg.integration.test.ts
 cd frontend && PLAYWRIGHT_BROWSERS_PATH=$PWD/../.pw-browsers npx playwright test --project=chromium-desktop
