@@ -210,14 +210,26 @@ it needs its own tests — a request just over the limit, one that lies about it
 existing DAV suites still green. Starting it at the end of this session and stopping half-way would
 leave the endpoints in a state nobody could trust.
 
-**An attempt was made and reverted, and the reason is the first thing to know about the fix.** Adding
-the cap as a router-level middleware that also watched the stream broke **30 existing DAV tests**:
-attaching a `data` listener there starts the request flowing *before* the route handler runs, so the
-handlers' own `rawBody` reader received nothing and every body arrived empty. The cap belongs inside
-`rawBody`, where the stream is legitimately consumed, with the rejection carrying body-parser's
-`entity.too.large` marker so the existing `413` handler in `index.ts` answers with the same
-route-aware message it already gives for oversized JSON uploads. The revert left all 76 DAV tests
-green, and no part of the attempt is in the tree.
+**Two attempts were made and both reverted. What they established is the substance of this note.**
+
+1. A router-level middleware that watched the stream broke **30 existing DAV tests**: attaching a
+   `data` listener there starts the request flowing *before* the route handler runs, so the handlers'
+   own `rawBody` reader received nothing and every body arrived empty. The cap must live **inside
+   `rawBody`**, where the stream is legitimately consumed.
+2. With the cap inside `rawBody`, rejecting with body-parser's `entity.too.large` marker, the DAV
+   suites stayed green (76) and the rejection reached an error handler — but a request that is
+   **still uploading** when the server answers left the exchange **hanging**: the test timed out
+   rather than receiving the `413`. Answering a client mid-upload needs either draining the rest of
+   the stream or closing the connection deliberately, and choosing between those two is the design
+   decision this fix turns on.
+
+Also worth knowing before starting: the `413` mapper registered at `index.ts:174` sits **before** the
+routers are mounted, and Express searches forward from the failing layer, so it never sees their
+errors — the handler that does is the generic one further down, which currently answers `500`. The
+fix has to extend *that* one, or answer from the router itself.
+
+Both attempts left the tree green after revert; no part of either is in it. The third attempt should
+begin with the mid-upload question, not with the cap, because the cap is the easy half.
 
 ## Acceptance criteria W01–W19, as the plan requires them reported
 
