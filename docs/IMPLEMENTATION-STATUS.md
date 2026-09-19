@@ -1639,6 +1639,23 @@ started" row suggests, so the slice is a seam rather than a rewrite:
      by compiling three messages (to+cc+bcc, bcc alone, display-name `from`) and comparing both envelopes
      before touching the path. The BCC case asserts the delivered envelope now, so the compose-once slice
      cannot pass while blind recipients are dropped. The original risk recorded here was:
+
+     **But the artefact the route already builds for accounting must not be sent as-is, and that was
+     measured rather than reasoned about.** The composition at line 749 uses `streamTransport`, and in
+     this nodemailer version **`streamTransport` keeps a `Bcc:` header in the generated message** while
+     `jsonTransport` does not (`keepBcc` is `undefined` on both, so the transport is the difference, not
+     an option). The route's own comment — "nodemailer uses bcc for the SMTP envelope but omits it from
+     generated MIME" — therefore describes the **delivery** transport, not the stream composition the
+     size accounting uses. Handing that buffer to a transport as `raw` sends the message **as given**, so
+     every blind recipient would be written into the headers of the delivered mail: the compose-once
+     slice, whose purpose included protecting the envelope, would have introduced exactly the disclosure
+     the explicit envelope was added to prevent. The shared artefact must therefore be composed
+     **without** the Bcc header, and "no BCC header in the delivered message" belongs in the same change
+     as the case that asserts the envelope.
+
+     What is measured is stream-versus-json. That the real SMTP path drops Bcc is the route's comment and
+     nodemailer's documented behaviour rather than something measured here, and the note says which is
+     which.
      Nodemailer "uses bcc for the SMTP envelope but omits it from generated MIME" (the route
      says so where it builds `mailOptions`, and refuses to synthesise a `To` header for a BCC-only
      retry). Passing `raw` therefore hands nodemailer a message with **no BCC header**, and its envelope
