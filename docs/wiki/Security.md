@@ -48,6 +48,24 @@ issues, screenshots, logs or this Wiki.
 
 ## Mail and calendar connections
 
+A connected Google or Microsoft account is represented by a **grant**, and the credentials involved are three
+separate things that must not be conflated: the **administrator's OAuth client** (a client id and, where the
+method needs one, a secret), the **user's grant** (the access and refresh tokens issued to that account), and —
+for mail that uses one — the **app password** held with the mail account. They live in different places, are
+configured by different people, and removing one does not remove the others. Removing the API configuration
+leaves Google IMAP accounts and their app passwords untouched, and disconnecting an account revokes the grant
+and deletes its stored tokens without touching the mail account itself.
+
+**Tokens are never handed to the browser.** An authorization happens in the user's browser, but the exchange
+and the refresh happen on the server: the grant is written to the database and used from there, no endpoint
+returns a token, and the device-code method polls server-side — the interface only ever shows a user code. For
+the same reason, the sign-in method (SSO) is deliberately separate from the provider connections: an OIDC
+identity provider signs a user in, a provider grant allows reading that user's contacts or calendars, and
+neither implies the other.
+
+Grant tokens are encrypted at rest with `ENCRYPTION_KEY`, like the rest of the stored credentials here. A
+revoked or disconnected grant is marked as such and its tokens are **deleted**, not kept for a later retry.
+
 - The administrator controls which servers Inboxora may reach: private and local addresses,
   insecure TLS and non-standard ports are each gated under **Settings → Security**.
 - External calendar and DAV sources are validated against the same policy, which limits
