@@ -45,7 +45,6 @@ limitations — read the matching page in the Wiki: [Release notes 4.1.0](wiki/R
   nodemailer derives** rather than assumed: to+cc+bcc, bcc alone, and a display-name `from` all produce
   the same envelope either way. The BCC case now asserts the delivered envelope, not just the option.
 
-## [Unreleased]
 
 ### Security
 
