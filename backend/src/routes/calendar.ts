@@ -1154,11 +1154,11 @@ router.get('/providers/google/status', async (req, res) => {
     ),
     query<{
       connection_id: string; calendar_id: string; name: string | null;
-      event_count: number; last_success_at: string | Date | null; last_error_code: string | null;
+      event_count: number; last_success_at: string | Date | null; last_error_code: string | null; last_error_at: string | Date | null;
     }>(
       `SELECT ic.connection_id, c.id AS calendar_id, c.name,
               (SELECT COUNT(*)::int FROM calendar_events e WHERE e.calendar_id = c.id) AS event_count,
-              s.last_success_at, s.last_error_code
+              s.last_success_at, s.last_error_code, s.last_error_at
          FROM integration_collections ic
          JOIN calendars c ON c.id = ic.local_calendar_id
          LEFT JOIN sync_states s ON s.collection_id = ic.id AND s.user_id = ic.user_id
@@ -1178,6 +1178,7 @@ router.get('/providers/google/status', async (req, res) => {
       eventCount: row.event_count,
       lastSyncedAt: row.last_success_at,
       lastErrorCode: row.last_error_code,
+      lastErrorAt: row.last_error_at,
     })),
   });
 });

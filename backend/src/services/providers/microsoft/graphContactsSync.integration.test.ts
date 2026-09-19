@@ -214,6 +214,26 @@ describeOrSkip('Microsoft Graph contacts sync (PostgreSQL)', () => {
     expect(link.rows[0]?.status).toBe('deleted');
   });
 
+  it('records the failure time and code when a run fails after taking the lease', async () => {
+    const connectionId = await seedConnection();
+    // The first page succeeds, the second fails: the run throws after the lease was taken,
+    // so this is the path that records the failure the status line reports.
+    const provider = fakeProvider([
+      () => json({ value: [contact('c1', 'Ada Lovelace', 'ada@contoso.test')], '@odata.nextLink': `${DELTA_BASE}?$skiptoken=page-2` }),
+      () => json({ error: { code: 'ErrorInternalServerError', message: 'server error' } }, 500),
+    ]);
+
+    await expect(syncGraphContacts({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl: provider.fetchImpl }))
+      .rejects.toMatchObject({ code: 'UPSTREAM_UNAVAILABLE' });
+
+    const state = await autocommit(client => client.query<{ last_error_code: string | null; last_error_at: Date | null }>(
+      'SELECT last_error_code, last_error_at FROM sync_states WHERE user_id = $1 AND feature = $2', [USER_ID, 'contacts'],
+    ));
+    // Both fields, because the status line shows the code *and* when it happened.
+    expect(state.rows[0]?.last_error_code).toBe('UPSTREAM_UNAVAILABLE');
+    expect(state.rows[0]?.last_error_at).not.toBeNull();
+  });
+
   it('refuses a second concurrent sync for the same connection', async () => {
     const connectionId = await seedConnection();
     await syncGraphContacts({

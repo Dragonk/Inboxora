@@ -322,6 +322,11 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
 - Clear a contact import's confirmation when you switch address books. It is shown outside the
   address-book menu, so the previous book's result stayed visible over the next one — the same stale
   confirmation the calendar import no longer shows.
+- Return the failure timestamp from the **calendar** status endpoint too. It was added to the
+  contacts endpoints only, so the calendar sources dialog had the time interpolated as empty and
+  showed a failure as `… ( )` instead of when it happened. Both surfaces now carry it, and a
+  real-database case covers the other half of the contract: a run that fails after taking the lease
+  records both the code and the time the status line reads.
 
 ## [4.0.4] - 2026-09-18
 

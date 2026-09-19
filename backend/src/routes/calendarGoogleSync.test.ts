@@ -69,7 +69,7 @@ describe('GET /api/calendar/providers/google/status', () => {
       .mockResolvedValueOnce({ rows: [{ id: 'connection-1' }] })
       .mockResolvedValueOnce({ rows: [{
         connection_id: 'connection-1', calendar_id: 'calendar-1', name: 'Me',
-        event_count: 42, last_success_at: '2026-09-14T10:00:00.000Z', last_error_code: null,
+        event_count: 42, last_success_at: '2026-09-14T10:00:00.000Z', last_error_code: null, last_error_at: null,
       }] });
 
     const response = await status();
@@ -80,7 +80,7 @@ describe('GET /api/calendar/providers/google/status', () => {
       connections: 1,
       calendars: [{
         connectionId: 'connection-1', calendarId: 'calendar-1', name: 'Me',
-        eventCount: 42, lastSyncedAt: '2026-09-14T10:00:00.000Z', lastErrorCode: null,
+        eventCount: 42, lastSyncedAt: '2026-09-14T10:00:00.000Z', lastErrorCode: null, lastErrorAt: null,
       }],
     });
     const [connectionSql, connectionParams] = mocks.query.mock.calls[0] as [string, unknown[]];
