@@ -306,3 +306,15 @@ export function graphDeleteIntent(payload: GraphMailDeletePayload): { idempotenc
 export async function graphCreateMailFolder(api: GraphApiOptions, displayName: string): Promise<GraphMailFolder | null> {
   return graphPost<GraphMailFolder>(api, '/me/mailFolders', { displayName });
 }
+
+/**
+ * Rename a mail folder.
+ *
+ * Graph identifies the folder immutably and the display name is what changes, so a
+ * rename is a PATCH and the discovery run that follows is what moves the local path
+ * — the folder sync already recognises a path change and relocates the folder's
+ * messages with it, which is why nothing here touches `messages`.
+ */
+export async function graphRenameMailFolder(api: GraphApiOptions, folderId: string, displayName: string): Promise<GraphMailFolder | null> {
+  return graphPatch<GraphMailFolder>(api, `/me/mailFolders/${encodeURIComponent(folderId)}`, { displayName });
+}

@@ -7,6 +7,10 @@ import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vites
 
 const mocks = vi.hoisted(() => ({
   query: vi.fn(),
+  graphCreateMailFolder: vi.fn(),
+  graphRenameMailFolder: vi.fn(),
+  graphFolderIdForPath: vi.fn(),
+  syncGraphMailFoldersForAccount: vi.fn(),
   createFolder: vi.fn(),
   renameFolder: vi.fn(),
   deleteFolder: vi.fn(),
@@ -26,6 +30,19 @@ vi.mock('../index.js', () => ({
     broadcast: vi.fn(),
     pluginFacade: {},
   },
+}));
+
+vi.mock('../services/providers/microsoft/graphMailSync.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../services/providers/microsoft/graphMailSync.js')>();
+  return { ...actual, graphFolderIdForPath: mocks.graphFolderIdForPath, syncGraphMailFoldersForAccount: mocks.syncGraphMailFoldersForAccount };
+});
+vi.mock('../services/providers/microsoft/graphMailMutations.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../services/providers/microsoft/graphMailMutations.js')>();
+  return { ...actual, graphCreateMailFolder: mocks.graphCreateMailFolder, graphRenameMailFolder: mocks.graphRenameMailFolder };
+});
+vi.mock('../services/providerAuthService.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../services/providerAuthService.js')>()),
+  microsoftConfigFromEnv: () => ({ clientId: 'client-1', clientSecret: 'secret-1', redirectUri: 'https://x/cb', tenantId: 'common' }),
 }));
 
 import express from 'express';
@@ -53,15 +70,17 @@ afterAll(async () => {
 beforeEach(() => {
   for (const mock of Object.values(mocks)) mock.mockReset();
   mocks.query.mockResolvedValue({ rows: [], rowCount: 1 });
+  mocks.graphFolderIdForPath.mockResolvedValue('graph-projects');
+  mocks.syncGraphMailFoldersForAccount.mockResolvedValue([]);
 });
 
 const post = (path: string, body: Record<string, unknown>) =>
   fetch(`${base}/api/mail${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
 
 describe('folder management on a native account refuses instead of failing like a bug', () => {
+  // Create and rename are implemented for a native account now; delete and empty
+  // still refuse, and the test says which is which rather than assuming all four.
   const cases: Array<[string, Record<string, unknown>]> = [
-    ['/folders', { accountId: ACCOUNT_ID, name: 'Projects' }],
-    ['/folders/rename', { accountId: ACCOUNT_ID, oldPath: 'A', newName: 'B' }],
     ['/folders/delete', { accountId: ACCOUNT_ID, path: 'A' }],
     ['/folders/empty', { accountId: ACCOUNT_ID, path: 'A' }],
   ];
@@ -93,5 +112,42 @@ describe('folder management on a native account refuses instead of failing like 
     const response = await post('/folders', { accountId: ACCOUNT_ID, name: 'Projects' });
     expect(response.status).toBe(200);
     expect(mocks.createFolder).toHaveBeenCalled();
+  });
+});
+
+describe('creating and renaming a folder on a native account', () => {
+  it('creates it on the provider and discovers it, rather than writing the local row itself', async () => {
+    mocks.query
+      .mockResolvedValueOnce({ rows: [{ id: ACCOUNT_ID, mail_transport: 'microsoft_graph', provider_connection_id: 'connection-1' }], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ remote_id: 'graph-projects' }], rowCount: 1 });   // graphFolderIdForPath after discovery
+    mocks.graphCreateMailFolder.mockResolvedValue({ id: 'graph-projects', displayName: 'Projects' });
+
+    const response = await post('/folders', { accountId: ACCOUNT_ID, name: 'Projects' });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, folder: 'Projects' });
+    expect(mocks.graphCreateMailFolder).toHaveBeenCalledWith(expect.objectContaining({ connectionId: 'connection-1' }), 'Projects');
+    // Discovery produces the local row and its collection; the route must not insert one.
+    expect(mocks.syncGraphMailFoldersForAccount).toHaveBeenCalledWith(expect.objectContaining({ accountId: ACCOUNT_ID }));
+    expect(mocks.query.mock.calls.some(([sql]) => String(sql).includes('INSERT INTO folders'))).toBe(false);
+    expect(mocks.createFolder).not.toHaveBeenCalled();
+  });
+
+  it('refuses a nested folder on a native account rather than guessing a path', async () => {
+    mocks.query.mockResolvedValueOnce({ rows: [{ id: ACCOUNT_ID, mail_transport: 'microsoft_graph', provider_connection_id: 'connection-1' }], rowCount: 1 });
+
+    const response = await post('/folders', { accountId: ACCOUNT_ID, name: 'Projects', parentPath: 'INBOX' });
+    expect(response.status).toBe(501);
+    expect(mocks.graphCreateMailFolder).not.toHaveBeenCalled();
+  });
+
+  it('reports a provider refusal instead of a success the mailbox does not have', async () => {
+    mocks.query.mockResolvedValueOnce({ rows: [{ id: ACCOUNT_ID, mail_transport: 'microsoft_graph', provider_connection_id: 'connection-1' }], rowCount: 1 });
+    const { GraphApiError } = await import('../services/providers/microsoft/graphApiClient.js');
+    mocks.graphCreateMailFolder.mockRejectedValue(new GraphApiError({ code: 'INSUFFICIENT_SCOPES', message: 'no', status: 403 }));
+
+    const response = await post('/folders', { accountId: ACCOUNT_ID, name: 'Projects' });
+    expect(response.status).toBe(502);
+    expect(await response.json()).toMatchObject({ code: 'INSUFFICIENT_SCOPES' });
+    expect(mocks.syncGraphMailFoldersForAccount).not.toHaveBeenCalled();
   });
 });

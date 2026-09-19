@@ -19,7 +19,7 @@ import { isMicrosoftConfigured, microsoftConfigFromEnv } from '../services/provi
 import { syncGraphMailFoldersForAccount, syncGraphMailMessagesForAccount } from '../services/providers/microsoft/graphMailSync.js';
 import type { EmailAccountRow } from '../services/imapManager.js';
 import { GraphApiError } from '../services/providers/microsoft/graphApiClient.js';
-import { graphCreateMailFolder } from '../services/providers/microsoft/graphMailMutations.js';
+import { graphCreateMailFolder, graphRenameMailFolder } from '../services/providers/microsoft/graphMailMutations.js';
 import { graphFolderIdForPath } from '../services/providers/microsoft/graphMailSync.js';
 import { deleteGraphMessagePermanently, moveGraphMessageToFolder } from '../services/providers/microsoft/graphMailMove.js';
 import {
@@ -838,6 +838,55 @@ router.get('/messages/:id/attachments/:part', async (req, res) => {
 
 
 
+
+/** Create a folder on the provider, then discover it. */
+async function createGraphFolder(
+  userId: string,
+  account: EmailAccountRow,
+  displayName: string,
+): Promise<{ ok: true; path: string } | { ok: false; status: number; error: string; code: string }> {
+  if (!account.provider_connection_id) return { ok: false, status: 409, error: 'This account is not linked to a Microsoft connection', code: 'PROVIDER_AUTH_REQUIRED' };
+  const config = microsoftConfigFromEnv();
+  try {
+    await graphCreateMailFolder({ userId, connectionId: account.provider_connection_id, config }, displayName);
+  } catch (caught) {
+    const problem = caught instanceof GraphApiError ? caught : null;
+    return {
+      ok: false,
+      status: problem?.code === 'RATE_LIMITED' ? 503 : 502,
+      error: 'Microsoft Graph did not create this folder',
+      code: problem?.code ?? 'INTERNAL_ERROR',
+    };
+  }
+  await syncGraphMailFoldersForAccount({ userId, connectionId: account.provider_connection_id, accountId: account.id, config });
+  const resolved = await graphFolderIdForPath({ connectionId: account.provider_connection_id, accountId: account.id, path: displayName });
+  if (!resolved) return { ok: false, status: 502, error: 'The folder was created but not discovered; sync folders and try again', code: 'RESOURCE_NOT_FOUND' };
+  return { ok: true, path: displayName };
+}
+
+/** Rename a folder on the provider, then discover so the local path follows. */
+async function renameGraphFolder(
+  userId: string,
+  account: EmailAccountRow,
+  oldPath: string,
+  newName: string,
+): Promise<{ ok: true } | { ok: false; status: number; error: string; code: string }> {
+  if (!account.provider_connection_id) return { ok: false, status: 409, error: 'This account is not linked to a Microsoft connection', code: 'PROVIDER_AUTH_REQUIRED' };
+  const folderId = await graphFolderIdForPath({ connectionId: account.provider_connection_id, accountId: account.id, path: oldPath });
+  if (!folderId) return { ok: false, status: 404, error: `The folder "${oldPath}" is not a folder this Microsoft account discovered`, code: 'RESOURCE_NOT_FOUND' };
+  const config = microsoftConfigFromEnv();
+  try {
+    await graphRenameMailFolder({ userId, connectionId: account.provider_connection_id, config }, folderId, newName);
+  } catch (caught) {
+    const problem = caught instanceof GraphApiError ? caught : null;
+    return { ok: false, status: problem?.code === 'RATE_LIMITED' ? 503 : 502, error: 'Microsoft Graph did not rename this folder', code: problem?.code ?? 'INTERNAL_ERROR' };
+  }
+  // Discovery does the local work: the folder sync sees the new path and relocates
+  // the folder's messages, so nothing here touches `messages` itself.
+  await syncGraphMailFoldersForAccount({ userId, connectionId: account.provider_connection_id, accountId: account.id, config });
+  return { ok: true };
+}
+
 /**
  * Folder management is IMAP-only, and says so.
  *
@@ -1574,6 +1623,15 @@ router.post('/folders', async (req, res) => {
   if (parentPath && !isValidFolderName(parentPath)) return res.status(400).json({ error: 'Invalid parent path' });
   const check = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2', [accountId, req.session.userId]);
   if (!check.rows.length) return res.status(404).json({ error: 'Account not found' });
+  // A native account creates on the provider, then discovers: the local `folders`
+  // row and its `mail_folder` collection are what discovery produces, so creating
+  // them here too would make a second source of truth.
+  if (check.rows[0].mail_transport === 'microsoft_graph') {
+    if (parentPath) return res.status(501).json(folderManagementRefusal(check.rows[0])!);
+    const created = await createGraphFolder(sessionUserId(req), check.rows[0], name.trim());
+    if (!created.ok) return res.status(created.status).json({ error: created.error, code: created.code });
+    return res.json({ ok: true, folder: created.path });
+  }
   const folderRefusal = folderManagementRefusal(check.rows[0]);
   if (folderRefusal) return res.status(501).json(folderRefusal);
 
@@ -1629,6 +1687,13 @@ router.post('/folders/rename', async (req, res) => {
   if (!isValidFolderName(oldPath)) return res.status(400).json({ error: 'Invalid folder path' });
   const check = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2', [accountId, req.session.userId]);
   if (!check.rows.length) return res.status(404).json({ error: 'Account not found' });
+  // A native rename is a display-name change plus a discovery run; the folder sync
+  // already recognises the resulting path change and moves the folder's messages.
+  if (check.rows[0].mail_transport === 'microsoft_graph') {
+    const renamed = await renameGraphFolder(sessionUserId(req), check.rows[0], oldPath, newName.trim());
+    if (!renamed.ok) return res.status(renamed.status).json({ error: renamed.error, code: renamed.code });
+    return res.json({ ok: true });
+  }
   const folderRefusal = folderManagementRefusal(check.rows[0]);
   if (folderRefusal) return res.status(501).json(folderRefusal);
 

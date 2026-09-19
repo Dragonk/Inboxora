@@ -15,6 +15,14 @@ limitations — read the matching page in the Wiki: [Release notes 4.1.0](wiki/R
 
 ### Changed
 
+- **Creating and renaming a folder work on a Microsoft Graph account** (P07b, fourteenth slice). `POST /folders`
+  and `/folders/rename` now act on the provider: the folder is created or its display name changed, and the
+  discovery run that follows produces the local row, its `mail_folder` collection and — for a rename — the
+  path change the folder sync already knows how to follow, moving the folder's messages with it. The route
+  deliberately does **not** write the local row itself, because discovery is what owns that model and two
+  writers would drift. A **nested** folder is still refused with a clear `501`: Graph nests by parent id and
+  the local path model would have to guess. **Delete and empty still refuse** and say so.
+
 - **Folder management on a Microsoft Graph account now refuses explicitly** (P07b, thirteenth slice).
   Creating, renaming, deleting and emptying a folder are IMAP operations, so on a native account each
   attempted an IMAP session and failed with a generic error — an unsupported operation that looked like
