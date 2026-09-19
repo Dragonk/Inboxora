@@ -846,7 +846,14 @@ router.post('/send', async (req, res) => {
       await markSendIntentUncertain(req.session.userId!, idempotencyKey, intentToken!);
     }
     smtpDispatchStarted = true;
-    const smtpInfo = await transport.sendMail(mailOptions);
+    // Hand over the message composed for the accounting instead of letting the transport
+    // compose a second one. Measured before the change, with the explicit envelope already in
+    // place: a pre-composed buffer delivered through `raw` is byte-identical to one the
+    // transport composes itself, and the envelope is identical either way — so this removes a
+    // second composition rather than moving it. The buffer carries no `Bcc:` header (the route
+    // strips it), which is what makes it safe to send verbatim: a raw message is sent as given,
+    // and a blind recipient must exist only in the envelope.
+    const smtpInfo = await transport.sendMail({ ...mailOptions, raw: rawMessage });
     delivered = true;
     // Capture recipient outcomes immediately. Any later Sent-folder/metadata failure
     // must return the same SMTP result to both the client and idempotency replay.

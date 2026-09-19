@@ -13,6 +13,17 @@ limitations — read the matching page in the Wiki: [Release notes 4.1.0](wiki/R
 
 ## [Unreleased]
 
+### Changed
+
+- **The message is composed once, not twice.** The send route composed the message for its size
+  accounting and then handed the options to nodemailer, which composed it again for delivery. The
+  transport now receives the buffer that was already built and measured. It is the same change that makes
+  the artefact shareable with a second transport later, and it was measured before it was made: a
+  pre-composed buffer delivered through `raw` is **byte-identical** to one the transport composes itself,
+  and the envelope is identical either way, so this removes a composition rather than moving one. The
+  buffer carries no `Bcc:` header — the previous slice strips it — which is what makes it safe to send
+  verbatim, since a raw message is sent as given.
+
 ### Security
 
 - **The composed message no longer carries a `Bcc:` header.** The send route composes the message for
