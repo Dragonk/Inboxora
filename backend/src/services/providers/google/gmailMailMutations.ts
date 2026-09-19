@@ -183,6 +183,135 @@ export function gmailLabelDeleteAdapter(options: {
 // ── Messages ─────────────────────────────────────────────────────────────────
 
 /**
+ * Gmail's label modification: the one write that expresses *every* message state
+ * change this adapter needs.
+ *
+ * Gmail has no "move", no "flag" and no "mark read" of its own — a message's state
+ * is its label set, and `messages.modify` adds and removes labels. `UNREAD` is the
+ * unread marker (so read means *removing* it), `STARRED` is the flag, `INBOX` is
+ * inbox membership, `TRASH` is the trash, and a user label is a folder. That makes
+ * every one of these an **idempotent** state set: adding a label a message already
+ * has, or removing one it does not, converges, so a recovered claim may safely run it
+ * again. That is the deliberate opposite of the delete adapter below.
+ */
+export async function gmailModifyMessageLabels(
+  api: GoogleApiOptions,
+  providerMessageId: string,
+  addLabelIds: readonly string[],
+  removeLabelIds: readonly string[],
+): Promise<void> {
+  await gmailPost<unknown>(api, `users/${GMAIL_USER}/messages/${encodeURIComponent(providerMessageId)}/modify`, {
+    addLabelIds: [...addLabelIds],
+    removeLabelIds: [...removeLabelIds],
+  });
+}
+
+/**
+ * The label change a local flag corresponds to, or `null` for a flag Gmail has no
+ * equivalent for. Returning null rather than guessing keeps an unimplemented flag a
+ * visible refusal instead of a silent no-op.
+ */
+export function gmailLabelChangeForFlag(flag: string, value: boolean): { add: string[]; remove: string[] } | null {
+  if (flag === '\\Seen') return value ? { add: [], remove: ['UNREAD'] } : { add: ['UNREAD'], remove: [] };
+  if (flag === '\\Flagged') return value ? { add: ['STARRED'], remove: [] } : { add: [], remove: ['STARRED'] };
+  return null;
+}
+
+/** A flag write as the application models it, with IMAP-style flag names. */
+export interface GmailMailFlagPayload {
+  providerMessageId: string;
+  flag: string;
+  value: boolean;
+  intentAt: string;
+}
+
+/**
+ * `intentAt` is part of the *intent identity*, not decoration: it makes the
+ * idempotency key unique per user action while remaining derivable from the stored
+ * payload, so a retry reclaims its own journal row instead of inserting a second one
+ * — and a later click of the same control is a new operation rather than a replay of
+ * an old result.
+ */
+export function gmailFlagIntent(input: { messageId: string; write: GmailMailFlagPayload }): { idempotencyKey: string; payloadHash: string } {
+  return {
+    idempotencyKey: `gmail-mail-flag:${input.messageId}:${input.write.flag}:${input.write.value}:${input.write.intentAt}`,
+    payloadHash: createHash('sha256').update(JSON.stringify(input.write)).digest('hex'),
+  };
+}
+
+export function gmailFlagMutationAdapter(options: {
+  api: GoogleApiOptions;
+  /** Injected in tests; the application uses `gmailModifyMessageLabels`. */
+  modify?: typeof gmailModifyMessageLabels;
+}): ProviderMutationAdapter<GmailMailFlagPayload, void> {
+  const modify = options.modify ?? gmailModifyMessageLabels;
+  return {
+    resourceType: 'message',
+    // A state set, not a delta: re-applying it converges.
+    idempotent: true,
+    async perform(write) {
+      const change = gmailLabelChangeForFlag(write.flag, write.value);
+      if (!change) return { status: 'permanent', code: 'OPERATION_FORBIDDEN' };
+      try {
+        await modify(options.api, write.providerMessageId, change.add, change.remove);
+        return { status: 'committed' };
+      } catch (error) {
+        return classifyGmailMailMutationFailure(error);
+      }
+    },
+  };
+}
+
+// ── Moving and archiving a message ───────────────────────────────────────────
+
+/**
+ * A move, as Gmail models it: the message keeps its identity and its labels change.
+ *
+ * `removeLabelId` is the mailbox the message is leaving, and it is optional because
+ * archiving removes `INBOX` without naming a destination. Adding a label the message
+ * already carries is a no-op on Gmail's side, so the whole operation converges and is
+ * declared idempotent — unlike a Graph move, which re-identifies the message.
+ */
+export interface GmailMailMovePayload {
+  providerMessageId: string;
+  addLabelIds: string[];
+  removeLabelIds: string[];
+  intentAt: string;
+}
+
+export function gmailMoveIntent(payload: GmailMailMovePayload): { idempotencyKey: string; payloadHash: string } {
+  return {
+    idempotencyKey: `gmail-mail-move:${payload.providerMessageId}:${[...payload.addLabelIds].sort().join(',')}:${[...payload.removeLabelIds].sort().join(',')}:${payload.intentAt}`,
+    payloadHash: createHash('sha256').update(JSON.stringify(payload)).digest('hex'),
+  };
+}
+
+export function gmailMoveMutationAdapter(options: {
+  api: GoogleApiOptions;
+  modify?: typeof gmailModifyMessageLabels;
+}): ProviderMutationAdapter<GmailMailMovePayload, void> {
+  const modify = options.modify ?? gmailModifyMessageLabels;
+  return {
+    resourceType: 'message',
+    // Adding/removing labels converges; the provider id does not change.
+    idempotent: true,
+    async perform(write) {
+      try {
+        await modify(options.api, write.providerMessageId, write.addLabelIds, write.removeLabelIds);
+        return { status: 'committed' };
+      } catch (error) {
+        return classifyGmailMailMutationFailure(error);
+      }
+    },
+  };
+}
+
+export interface GmailMailDeletePayload {
+  providerMessageId: string;
+  intentAt: string;
+}
+
+/**
  * Permanently remove one Gmail message.
  *
  * Not a move to Trash — that is a label change, and the caller decides which of the
@@ -192,11 +321,6 @@ export function gmailLabelDeleteAdapter(options: {
  */
 export async function gmailDeleteMessage(api: GoogleApiOptions, providerMessageId: string): Promise<void> {
   await gmailDelete(api, `users/${GMAIL_USER}/messages/${encodeURIComponent(providerMessageId)}`);
-}
-
-export interface GmailMailDeletePayload {
-  providerMessageId: string;
-  intentAt: string;
 }
 
 export function gmailDeleteIntent(payload: GmailMailDeletePayload): { idempotencyKey: string; payloadHash: string } {

@@ -70,7 +70,15 @@ release is never claimed before it has happened.
   the IMAP path uses, inline `cid:` images are embedded as data URIs under a bounded count and byte
   budget, and a download addresses Gmail's own attachment id under the same per-file ceiling the IMAP
   and Graph paths enforce — including when a forward reads its bytes from a Gmail source account.
-  Message mutations, drafts and send are the remaining P08 slices.
+  **Message mutations** go through the shared provider-mutation layer, where Gmail's own semantics
+  decide each operation: a flag is a label (`\Seen` is the absence of `UNREAD`, `\Flagged` is
+  `STARRED`), a move adds the destination label and removes the mailbox the message leaves, trash and
+  spam/ham are the same label move, archiving is **removing `INBOX`** (Gmail has no Archive label, so
+  the row moves to whichever label remains or leaves the local view), a permanent delete is
+  `messages.delete`, and mark-all-read is one journal-backed flag write per unread message. Every one
+  of those is a **state set on labels**, so it converges and is declared idempotent — a recovered claim
+  is safe to re-run — which is the opposite of the delete, and the reason the two are declared
+  differently. Drafts and send are the remaining P08 slices.
 
 - **Microsoft Graph calendars (P07d, read path).** A Microsoft connection's calendars are now
   discovered and pulled with their events, next to the contacts that already were. Each calendar
@@ -1024,6 +1032,13 @@ release is never claimed before it has happened.
 
 ### Fixed
 
+- **Bulk read/unread on a native mail account opened an IMAP connection.** `/messages/bulk-read`
+  grouped the selected messages by account and then called the IMAP flag write for every group, so a
+  Microsoft Graph or Gmail API account — which has no IMAP session at all — had one opened on its
+  behalf, and the response reported the change as applied whether or not the provider ever received it.
+  The write now dispatches on the account's transport through the shared journal on every path, both
+  native transports included, with a route test pinning that an IMAP account still uses the IMAP write
+  while a native account never does.
 - **A provider calendar rebuild now reconciles.** When a provider rejects the sync cursor, the calendar
   is rebuilt from a complete baseline — but a resource that baseline no longer lists was previously left
   in place, so an event deleted at the provider while the cursor was unusable would have stayed visible

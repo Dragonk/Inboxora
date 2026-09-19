@@ -122,11 +122,23 @@ and reconnecting re-links the same collections rather than duplicating them.
   embedded as data URIs under a bounded count and byte budget; a download addresses Gmail's own
   attachment id under the same per-file ceiling the IMAP and Graph paths enforce; and the body,
   source-header, attachment, attachment-ZIP and forwarded-attachment paths all dispatch on the
-  account's transport, so a Gmail message is never read over IMAP. Message mutations, drafts and send
-  are the **remaining P08 slices**.
+  account's transport, so a Gmail message is never read over IMAP. **Message mutations** go through
+  the shared provider-mutation layer, where Gmail's own semantics decide each operation: a flag is a
+  label (`\Seen` is the absence of `UNREAD`, `\Flagged` is `STARRED`), a move adds the destination
+  label and removes the mailbox the message leaves (which is also what trash and spam/ham are),
+  archiving is **removing `INBOX`** — Gmail has no Archive label, so the row moves to whichever label
+  remains or leaves the local view — a permanent delete is `messages.delete`, and mark-all-read is one
+  journal-backed flag write per unread message. All of those are state sets on labels and are declared
+  idempotent, unlike the delete. Drafts and send are the **remaining P08 slices**.
 
 ## Fixed
 
+- **Bulk read/unread on a native account opened an IMAP connection.** The bulk route grouped the
+  selected messages by account and then called the IMAP flag write for every group, so a Microsoft
+  Graph or Gmail API account — which has no IMAP session — had one opened for it, and the response
+  reported the change as applied whether or not the provider received it. The write now dispatches on
+  the account's transport through the shared journal on every path, both native transports included;
+  a route test pins that an IMAP account still uses the IMAP write and a native one never does.
 - **Device-code polling** could make the server call Microsoft once per poll; a poll arriving before
   the provider's interval is now answered from the flow's own state.
 - The **refresh schedule ignored `Retry-After`**; a throttled provider now doubles the wait towards a
@@ -172,8 +184,8 @@ and reconnecting re-links the same collections rather than duplicating them.
   re-saving patches that same object rather than leaving two, and deleting removes it at Microsoft
   first. **Provider-side search and the reply/forward dependencies are not implemented.**
   **Gmail API mail is a partial adapter, not yet a transport for anyone.** Its read path exists —
-  label discovery and projection, message/thread ingest with a history cursor, and body and
-  attachments on demand — but message mutations, drafts and send are not implemented, and **no Google
+  label discovery and projection, message/thread ingest with a history cursor, body and attachments
+  on demand, and the message mutations — but drafts and send are not implemented, and **no Google
   account is migrated to it**: `mail_transport` stays `imap_smtp` unless an explicit cutover sets it,
   so Google mail continues with an app password and the Gmail API code is unreachable for an existing
   account. When such an account is eventually cut over, one consequence of modelling Gmail's plural

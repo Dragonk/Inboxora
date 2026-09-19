@@ -31,13 +31,17 @@ import {
 } from '../services/providers/google/gmailMailBody.js';
 import {
   deleteGmailMessagePermanently,
+  gmailFlagIntent,
+  gmailFlagMutationAdapter,
   gmailLabelCreateAdapter,
   gmailLabelCreateIntent,
   gmailLabelDeleteAdapter,
   gmailLabelDeleteIntent,
   gmailLabelRenameAdapter,
   gmailLabelRenameIntent,
+  type GmailMailFlagPayload,
 } from '../services/providers/google/gmailMailMutations.js';
+import { archiveGmailMessage, moveGmailMessageToLabel } from '../services/providers/google/gmailMailMove.js';
 import { graphCreateMailFolder, graphDeleteMailFolder, graphRenameMailFolder } from '../services/providers/microsoft/graphMailMutations.js';
 import { graphFolderIdForPath } from '../services/providers/microsoft/graphMailSync.js';
 import { deleteGraphMessagePermanently, moveGraphMessageToFolder } from '../services/providers/microsoft/graphMailMove.js';
@@ -1225,8 +1229,30 @@ async function ensureSnoozedFolder(
   account: EmailAccountRow,
   folderPath: string,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  if (account.mail_transport !== 'microsoft_graph') {
+  if (account.mail_transport !== 'microsoft_graph' && account.mail_transport !== 'gmail_api') {
     await imapManager.ensureFolder(account, folderPath);
+    return { ok: true };
+  }
+  if (account.mail_transport === 'gmail_api') {
+    if (!account.provider_connection_id) return { ok: false, error: 'This account is not linked to a Google connection' };
+    const connectionId = account.provider_connection_id;
+    const resolve = () => gmailLabelIdForPath({ connectionId, accountId: account.id, path: folderPath });
+    if (await resolve()) return { ok: true };
+    const config = googleConfigFromEnv();
+    // The label is created through the mutation layer, like every other label write:
+    // a recovered claim that may already have created it is parked rather than
+    // re-run, because a duplicate name is a `409` Gmail cannot tell apart from one
+    // that already existed.
+    try {
+      const created = await createGmailLabelFolder(userId, account, folderPath);
+      if (!created.ok) console.warn(`Snooze: creating "${folderPath}" on Gmail failed: ${created.error}`);
+    } catch (caught) {
+      console.warn(`Snooze: creating "${folderPath}" on Gmail failed:`, toAppError(caught).message);
+    }
+    await syncGmailMailLabelsForAccount({ userId, connectionId, accountId: account.id, config });
+    if (!(await resolve())) {
+      return { ok: false, error: `The "${folderPath}" label could not be created on the Gmail account` };
+    }
     return { ok: true };
   }
   if (!account.provider_connection_id) return { ok: false, error: 'This account is not linked to a Microsoft connection' };
@@ -1321,6 +1347,64 @@ async function deleteMessageOverGraph(input: {
   };
 }
 
+/**
+ * Delete (or move to Trash) a Gmail API message.
+ *
+ * The provider call runs **before** the local row changes, exactly as the IMAP and
+ * Graph paths do. `destinationPath` of `null` means a permanent delete, which is what
+ * a draft and an already-trashed message get; otherwise the destination is the Trash
+ * label, reached by the same label move every other Gmail move uses. The message keeps
+ * its provider identity throughout, so nothing here returns a new one.
+ */
+async function deleteMessageOverGmail(input: {
+  userId: string;
+  account: EmailAccountRow;
+  message: ReadMessageRow;
+  destinationPath: string | null;
+}): Promise<
+  | { ok: true; moved: false }
+  | { ok: true; moved: true }
+  | { ok: false; status: number; error: string; code?: string }
+> {
+  const { account, message } = input;
+  if (!account.provider_connection_id || !message.provider_message_id) {
+    return { ok: false, status: 409, error: 'This message has no Gmail API identity', code: 'RESOURCE_NOT_FOUND' };
+  }
+  if (input.destinationPath === null) {
+    const deleted = await deleteGmailMessagePermanently({
+      userId: input.userId, accountId: message.account_id, connectionId: account.provider_connection_id,
+      config: googleConfigFromEnv(), resourceId: message.id, providerMessageId: message.provider_message_id,
+    });
+    if (deleted.deleted) return { ok: true, moved: false };
+    const refused = deleted.code === 'RESOURCE_NOT_FOUND' || deleted.code === 'PROVIDER_AUTH_REQUIRED' || deleted.code === 'INSUFFICIENT_SCOPES' || deleted.code === 'OPERATION_FORBIDDEN';
+    return {
+      ok: false,
+      status: refused ? 409 : 502,
+      error: refused ? 'Gmail refused to delete this message' : 'The delete could not be confirmed with Gmail',
+      ...(deleted.code ? { code: deleted.code } : {}),
+    };
+  }
+
+  const moved = await moveGmailMessageToLabel({
+    userId: input.userId,
+    accountId: message.account_id,
+    connectionId: account.provider_connection_id,
+    config: googleConfigFromEnv(),
+    resourceId: message.id,
+    providerMessageId: message.provider_message_id,
+    destinationPath: input.destinationPath,
+    sourcePath: message.folder,
+  });
+  if (moved.moved) return { ok: true, moved: true };
+  const permanent = moved.code === 'RESOURCE_NOT_FOUND' || moved.code === 'PROVIDER_AUTH_REQUIRED' || moved.code === 'INSUFFICIENT_SCOPES' || moved.code === 'OPERATION_FORBIDDEN';
+  return {
+    ok: false,
+    status: permanent ? 409 : 502,
+    error: permanent ? 'Gmail refused to move this message' : 'The move could not be confirmed with Gmail',
+    ...(moved.code ? { code: moved.code } : {}),
+  };
+}
+
 
 /**
  * Move several Microsoft Graph messages into one local folder.
@@ -1369,6 +1453,93 @@ async function moveMessagesOverGraph(input: {
     newUids[message.id] = result.newUid;
   }
   return { movedIds, failedIds, newUids };
+}
+
+/**
+ * Move several Gmail API messages into one local folder.
+ *
+ * A thin loop over `moveGmailMessageToLabel`, which owns the mechanics: Gmail keeps
+ * the message's identity across a move, so unlike the Graph pass there is no new
+ * provider id and no new `uid` to report — `newUids` is empty by construction, and
+ * the caller's UIDPLUS delete-and-re-insert must be skipped for these rows.
+ */
+async function moveMessagesOverGmail(input: {
+  userId: string;
+  accountId: string;
+  account: EmailAccountRow;
+  messages: ReadonlyArray<{ id: string; folder?: string | null; provider_message_id?: string | null }>;
+  destinationPath: string;
+}): Promise<{ movedIds: string[]; failedIds: string[]; newUids: Record<string, string> }> {
+  const movedIds: string[] = [];
+  const failedIds: string[] = [];
+  if (!input.account.provider_connection_id) {
+    return { movedIds, failedIds: input.messages.map(message => message.id), newUids: {} };
+  }
+  for (const message of input.messages) {
+    if (!message.provider_message_id) {
+      failedIds.push(message.id);
+      continue;
+    }
+    const result = await moveGmailMessageToLabel({
+      userId: input.userId,
+      accountId: input.accountId,
+      connectionId: input.account.provider_connection_id,
+      config: googleConfigFromEnv(),
+      resourceId: message.id,
+      providerMessageId: message.provider_message_id,
+      destinationPath: input.destinationPath,
+      ...(message.folder ? { sourcePath: message.folder } : {}),
+    });
+    if (!result.moved) {
+      console.error(`bulk-move: Gmail refused or did not confirm the move of ${message.id} (${result.code ?? 'unknown'})`);
+      failedIds.push(message.id);
+      continue;
+    }
+    movedIds.push(message.id);
+  }
+  return { movedIds, failedIds, newUids: {} };
+}
+
+/**
+ * Archive several Gmail API messages: leave the inbox, keep every other label.
+ *
+ * Gmail has no Archive folder, so this is not a move and takes no destination. Each
+ * message's local folder becomes the first of its remaining labels that is a
+ * mailbox, or the row is removed when no label is one — the same archived state the
+ * ingest path produces, rather than a synthetic "Archive" path Gmail does not have.
+ */
+async function archiveMessagesOverGmail(input: {
+  userId: string;
+  accountId: string;
+  account: EmailAccountRow;
+  messages: ReadonlyArray<{ id: string; provider_message_id?: string | null }>;
+}): Promise<{ archivedIds: string[]; failedIds: string[] }> {
+  const archivedIds: string[] = [];
+  const failedIds: string[] = [];
+  if (!input.account.provider_connection_id) {
+    return { archivedIds, failedIds: input.messages.map(message => message.id) };
+  }
+  for (const message of input.messages) {
+    if (!message.provider_message_id) {
+      failedIds.push(message.id);
+      continue;
+    }
+    const result = await archiveGmailMessage({
+      userId: input.userId,
+      accountId: input.accountId,
+      connectionId: input.account.provider_connection_id,
+      config: googleConfigFromEnv(),
+      resourceId: message.id,
+      providerMessageId: message.provider_message_id,
+    });
+    if (!result.archived) {
+      console.error(`bulk-archive: Gmail refused or did not confirm archiving ${message.id} (${result.code ?? 'unknown'})`);
+      failedIds.push(message.id);
+      continue;
+    }
+    archivedIds.push(message.id);
+  }
+  return { archivedIds, failedIds };
 }
 
 /**
@@ -1576,6 +1747,9 @@ async function pushFlagMutation(options: {
   if (account.mail_transport === 'microsoft_graph') {
     return pushGraphFlagMutation(options);
   }
+  if (account.mail_transport === 'gmail_api') {
+    return pushGmailFlagMutation(options);
+  }
   let status: ProviderMutationStatus = 'outcome_unknown';
   let code: string | undefined;
   try {
@@ -1677,6 +1851,101 @@ async function pushGraphFlagMutation(options: {
     console.error('Provider mutation journal unavailable for a Graph flag write:', toAppError(caught).message);
     return { status: 'outcome_unknown', code: 'MUTATION_OUTCOME_UNKNOWN' };
   }
+}
+
+/**
+ * The Gmail flag write, on the same journal as the IMAP and Graph ones.
+ *
+ * A flag on Gmail is a label: `\Seen` is the absence of `UNREAD` and `\Flagged` is
+ * `STARRED`, so the write is an add/remove that converges and is declared
+ * idempotent. As for Graph, a failure is **not** handed to the IMAP flag-push
+ * reconciler — that queue writes over IMAP — so a `retryable` outcome is scheduled
+ * in the journal and drained by the next message sync instead.
+ */
+async function pushGmailFlagMutation(options: {
+  userId: string;
+  account: EmailAccountRow;
+  accountId: string;
+  messageId: string;
+  providerMessageId?: string | null;
+  flag: string;
+  value: boolean;
+}): Promise<{ status: ProviderMutationStatus; code?: string }> {
+  const { account, accountId, messageId, flag, value } = options;
+  if (!account.provider_connection_id) {
+    return { status: 'permanent', code: 'PROVIDER_AUTH_REQUIRED' };
+  }
+  if (!options.providerMessageId) {
+    console.error('Gmail flag update skipped: the local message carries no provider id');
+    return { status: 'permanent', code: 'RESOURCE_NOT_FOUND' };
+  }
+
+  const payload: GmailMailFlagPayload = {
+    providerMessageId: options.providerMessageId,
+    flag,
+    value,
+    intentAt: new Date().toISOString(),
+  };
+  const { idempotencyKey, payloadHash } = gmailFlagIntent({ messageId, write: payload });
+  try {
+    const mutation = await runProviderMutation<GmailMailFlagPayload, void>(
+      {
+        userId: options.userId,
+        channel: 'web',
+        operation: 'update',
+        accountId,
+        resourceId: messageId,
+        idempotencyKey,
+        payloadHash,
+        payload,
+        retry: { delaySeconds: 300 },
+      },
+      gmailFlagMutationAdapter({
+        api: { userId: options.userId, connectionId: account.provider_connection_id, config: googleConfigFromEnv() },
+      }),
+    );
+    if (mutation.status === 'confirmed') return { status: mutation.status };
+    console.error(`Gmail flag update not confirmed (${mutation.status}${mutation.code ? `, ${mutation.code}` : ''})`);
+    return { status: mutation.status, ...(mutation.code ? { code: mutation.code } : {}) };
+  } catch (caught) {
+    console.error('Provider mutation journal unavailable for a Gmail flag write:', toAppError(caught).message);
+    return { status: 'outcome_unknown', code: 'MUTATION_OUTCOME_UNKNOWN' };
+  }
+}
+
+/**
+ * Set `\Seen` on every unread Gmail API message of a folder.
+ *
+ * One mutation per message through the same journal-backed flag write the single
+ * read/unread route uses, bounded and honest: it reports how many Gmail confirmed
+ * and logs a failure rather than disguising it as success. The local rows are
+ * already updated by the caller, and the local `*_changed_at` window keeps a sync
+ * that read Gmail earlier from reverting them before these land.
+ */
+async function markAllReadOverGmail(
+  userId: string,
+  account: EmailAccountRow,
+  messages: ReadonlyArray<{ id: string; provider_message_id: string | null }>,
+): Promise<{ confirmed: number; failed: number }> {
+  if (!account.provider_connection_id) return { confirmed: 0, failed: messages.length };
+  let confirmed = 0;
+  let failed = 0;
+  for (const message of messages) {
+    if (!message.provider_message_id) { failed += 1; continue; }
+    const outcome = await pushGmailFlagMutation({
+      userId,
+      account,
+      accountId: account.id,
+      messageId: message.id,
+      providerMessageId: message.provider_message_id,
+      flag: '\\Seen',
+      value: true,
+    });
+    if (outcome.status === 'confirmed' || outcome.status === 'accepted') confirmed += 1;
+    else failed += 1;
+  }
+  if (failed > 0) console.warn(`mark-all-read: Gmail confirmed ${confirmed} of ${messages.length} messages`);
+  return { confirmed, failed };
 }
 
 // Mark read/unread
@@ -1932,7 +2201,7 @@ router.post('/mark-all-read', async (req, res) => {
   const account = check.rows[0];
   // The provider write addresses the messages that are unread *now*, so the list has
   // to be taken before the local update below flips them.
-  const unread = account.mail_transport === 'microsoft_graph'
+  const unread = account.mail_transport === 'microsoft_graph' || account.mail_transport === 'gmail_api'
     ? (await query<{ id: string; provider_message_id: string | null }>(
         'SELECT id, provider_message_id FROM messages WHERE account_id = $1 AND folder = $2 AND is_read = false AND provider_message_id IS NOT NULL',
         [accountId, folder],
@@ -1945,6 +2214,10 @@ router.post('/mark-all-read', async (req, res) => {
   if (account.mail_transport === 'microsoft_graph') {
     void markAllReadOverGraph(sessionUserId(req), account, unread).catch(err =>
       console.warn('markAllReadOverGraph failed:', err.message)
+    );
+  } else if (account.mail_transport === 'gmail_api') {
+    void markAllReadOverGmail(sessionUserId(req), account, unread).catch(err =>
+      console.warn('markAllReadOverGmail failed:', err.message)
     );
   } else {
     imapManager.markAllReadImap(account, folder).catch(err =>
@@ -2196,7 +2469,7 @@ router.post('/messages/bulk-read', async (req, res) => {
 
   try {
     const result = await query<ReadMessageRow>(
-      `SELECT m.id, m.uid, m.folder, m.is_read, m.account_id, m.message_id FROM messages m
+      `SELECT m.id, m.uid, m.folder, m.is_read, m.account_id, m.message_id, m.provider_message_id FROM messages m
        JOIN email_accounts a ON m.account_id = a.id
        WHERE m.id = ANY($2::uuid[]) AND a.user_id = $1`,
       [req.session.userId, ids]
@@ -2255,6 +2528,29 @@ router.post('/messages/bulk-read', async (req, res) => {
     for (const [accountId, msgs] of Object.entries(byAccount)) {
       const accountResult = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
       const account = accountResult.rows[0];
+      // A native account has no IMAP session: the write goes to its provider through
+      // the same journal-backed flag adapter the single-message route uses. Before
+      // this branch existed, a bulk read/unread on a native account opened an IMAP
+      // connection for a mailbox that has none and reported success regardless.
+      if (account && (account.mail_transport === 'microsoft_graph' || account.mail_transport === 'gmail_api')) {
+        for (const msg of msgs) {
+          const outcome = await pushFlagMutation({
+            userId: sessionUserId(req),
+            account,
+            accountId,
+            messageId: msg.id,
+            providerMessageId: msg.provider_message_id,
+            uid: msg.uid,
+            folder: msg.folder,
+            flag: '\\Seen',
+            value: read,
+          });
+          if (outcome.status !== 'confirmed' && outcome.status !== 'accepted') {
+            console.error(`bulk-read ${account.mail_transport} ${msg.id}: not confirmed (${outcome.status}${outcome.code ? `, ${outcome.code}` : ''})`);
+          }
+        }
+        continue;
+      }
       const results = await runInBatches(
         msgs, 3,
         msg => imapManager.setFlag(account, msg.uid, msg.folder, '\\Seen', read)
@@ -2365,6 +2661,28 @@ router.post('/messages/bulk-delete', async (req, res) => {
           });
           if (moved.movedIds.length > 0) graphTrashMoved.push({ msg: m, trashPath, newUid: null });
           else console.error(`bulk-delete: Graph did not confirm the trash move of ${m.id}`);
+        }
+        continue;
+      }
+      // A Gmail API account: a permanent removal is `messages.delete`, and a trash
+      // move is the Trash label reached by the shared label move. The message keeps
+      // its provider identity, so `newUid` is null exactly as for Graph.
+      if (account.mail_transport === 'gmail_api') {
+        for (const m of toExpunge) {
+          if (!m.provider_message_id) { console.error(`bulk-delete: ${m.id} has no provider id`); continue; }
+          const removed = await deleteGmailMessagePermanently({
+            userId: sessionUserId(req), accountId, connectionId: account.provider_connection_id ?? '',
+            config: googleConfigFromEnv(), resourceId: m.id, providerMessageId: m.provider_message_id,
+          });
+          if (removed.deleted) expungeSucceeded.push(m);
+          else console.error(`bulk-delete: Gmail did not confirm the removal of ${m.id} (${removed.code ?? 'unknown'})`);
+        }
+        for (const m of toMove) {
+          const moved = await moveMessagesOverGmail({
+            userId: sessionUserId(req), accountId, account, messages: [m], destinationPath: trashPath,
+          });
+          if (moved.movedIds.length > 0) graphTrashMoved.push({ msg: m, trashPath, newUid: null });
+          else console.error(`bulk-delete: Gmail did not confirm the trash move of ${m.id}`);
         }
         continue;
       }
@@ -2657,6 +2975,16 @@ router.post('/messages/bulk-move', async (req, res) => {
         graphMovedIds.push(...graphMove.movedIds);
         continue;
       }
+      // Gmail keeps the message's identity across a move, so the caller's UIDPLUS
+      // delete-and-re-insert is still wrong for it — it re-inserts under a UID the
+      // provider never had — and the move helper has already re-homed the row.
+      if (account.mail_transport === 'gmail_api') {
+        const gmailMove = await moveMessagesOverGmail({
+          userId: sessionUserId(req), accountId, account, messages: msgs, destinationPath: folder,
+        });
+        graphMovedIds.push(...gmailMove.movedIds);
+        continue;
+      }
       const byFolder: Record<string, MailMessageRow[]> = {};
       for (const msg of msgs) {
         (byFolder[msg.folder] = byFolder[msg.folder] || []).push(msg);
@@ -2787,6 +3115,10 @@ router.post('/messages/bulk-archive', async (req, res) => {
     // Graph archives were re-homed by the provider pass. They belong in the returned
     // list and in the count bookkeeping, and they must stay out of the CTE.
     const graphArchived: Array<{ id: string; accountId: string; folder: string }> = [];
+    // A Gmail archive has no destination folder to report — the row either stays
+    // under a label it kept or is removed — so it carries the source folder and the
+    // unread flag the count adjustment needs instead.
+    const gmailArchived: Array<{ id: string; accountId: string; sourceFolder: string; wasUnread: boolean }> = [];
     const noArchiveFolder = [];
     const accountsById: Record<string, EmailAccountRow> = {};
     // Archive-folder paths that resolved to Gmail's All Mail (special_use '\All').
@@ -2795,6 +3127,26 @@ router.post('/messages/bulk-archive', async (req, res) => {
     const allMailDestFolders = new Set();
 
     for (const [accountId, msgs] of Object.entries(byAccount)) {
+      const accountResult = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
+      const account = accountResult.rows[0];
+      accountsById[accountId] = account;
+      // Gmail has no Archive folder, so this is **not** a move and the destination
+      // lookup below rightly finds nothing: archiving is leaving the inbox, and each
+      // message keeps every other label. It must therefore be handled before that
+      // lookup, which would otherwise report "no archive folder" for every Gmail
+      // account. The local row's new folder is whatever mailbox remains.
+      if (account.mail_transport === 'gmail_api') {
+        const archived = await archiveMessagesOverGmail({
+          userId: sessionUserId(req), accountId, account, messages: msgs,
+        });
+        for (const id of archived.archivedIds) {
+          const message = msgs.find(candidate => candidate.id === id);
+          if (message) gmailArchived.push({ id, accountId, sourceFolder: message.folder, wasUnread: !message.is_read });
+        }
+        for (const id of archived.failedIds) console.error(`bulk-archive: Gmail did not archive ${id}`);
+        continue;
+      }
+
       const archiveFolder = await resolveArchiveFolder(accountId, msgs[0].folder_mappings);
       if (!archiveFolder) {
         noArchiveFolder.push(accountId);
@@ -2804,9 +3156,6 @@ router.post('/messages/bulk-archive', async (req, res) => {
         allMailDestFolders.add(archiveFolder);
       }
 
-      const accountResult = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
-      const account = accountResult.rows[0];
-      accountsById[accountId] = account;
       // A native account archives through its provider, and the re-homing below is
       // done by the move pass, so it does not go through the UIDPLUS CTE.
       if (account.mail_transport === 'microsoft_graph') {
@@ -2884,6 +3233,11 @@ router.post('/messages/bulk-archive', async (req, res) => {
     }
 
     // Adjust cached folder counts: use signed deltas so source and dest share one pass.
+    // A Gmail archive is not a move: the row left the folder it was in and either
+    // landed under a label it kept (which the helper already wrote) or is gone.
+    for (const entry of gmailArchived) {
+      adjustFolderCounts(entry.accountId, entry.sourceFolder, -1, entry.wasUnread ? -1 : 0);
+    }
     if (archivedIds.length > 0 || graphArchived.length > 0) {
       const idToArchiveDest = new Map([
         ...archivedIds.map(({ id, folder: dest }) => [id, dest] as const),
@@ -2923,7 +3277,7 @@ router.post('/messages/bulk-archive', async (req, res) => {
     // Refresh GTD section data for any archived thread that still carries a GTD label sibling.
     notifyMailMutation(owned, sessionUserId(req));
 
-    res.json({ ok: true, archived: [...archivedIds.map(a => a.id), ...graphArchived.map(a => a.id)], noArchiveFolder });
+    res.json({ ok: true, archived: [...archivedIds.map(a => a.id), ...graphArchived.map(a => a.id), ...gmailArchived.map(a => a.id)], noArchiveFolder });
   } catch (err) {
     console.error('bulk-archive error:', err);
     res.status(500).json({ error: 'Failed to archive messages' });
@@ -3103,6 +3457,17 @@ router.post('/messages/:id/snooze', async (req, res) => {
         if (tm.id === msg.id) return res.status(502).json({ error: 'Failed to move message to Snoozed folder' });
         continue;
       }
+    } else if (account.mail_transport === 'gmail_api') {
+      // As for Graph: the move helper owns the label change and re-homes the row, so
+      // only the snooze record's own bookkeeping and the counts are left here.
+      const moved = await moveMessagesOverGmail({
+        userId: sessionUserId(req), accountId: account.id, account, messages: [tm], destinationPath: snoozedFolder,
+      });
+      if (moved.movedIds.length === 0) {
+        console.error(`Snooze Gmail move did not confirm for message ${tm.id}`);
+        if (tm.id === msg.id) return res.status(502).json({ error: 'Failed to move message to Snoozed folder' });
+        continue;
+      }
     } else {
       imapManager._guardMoveUid(tm.account_id, tm.folder, tm.uid);
       try {
@@ -3203,6 +3568,37 @@ router.delete('/messages/:id', async (req, res) => {
         // destination's next delta lists the message under its new id and re-ingests it.
         console.warn('Graph move: the local row was gone before it could be re-homed; the next sync will re-ingest it');
       }
+      adjustFolderCounts(message.account_id, message.folder, -1, -wasUnread);
+      adjustFolderCounts(message.account_id, trashPath, 1, wasUnread);
+    } else {
+      await query('DELETE FROM messages WHERE id = $1', [id]);
+      adjustFolderCounts(message.account_id, message.folder, -1, -wasUnread);
+    }
+    imapManager.broadcast({ type: 'folder_updated', folder: message.folder, accountId: message.account_id }, req.session.userId);
+    notifyMailMutation([message], sessionUserId(req));
+    return res.json({ ok: true });
+  }
+
+  if (account.mail_transport === 'gmail_api') {
+    const trashPath = await resolveTrashFolder(message.account_id, account.folder_mappings);
+    const allTrashPaths = await resolveAllTrashPaths(message.account_id, account.folder_mappings);
+    const strategy = getDeleteStrategy(message.folder, trashPath, allTrashPaths);
+    const permanent = isDraft || strategy.action === 'expunge';
+    if (!permanent && (!trashPath || strategy.action === 'no_trash')) {
+      return res.status(422).json({ error: 'No Trash folder configured for this account' });
+    }
+
+    const outcome = await deleteMessageOverGmail({
+      userId: sessionUserId(req),
+      account,
+      message,
+      destinationPath: permanent ? null : trashPath,
+    });
+    if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error, ...(outcome.code ? { code: outcome.code } : {}) });
+
+    if (outcome.moved && trashPath) {
+      // A Gmail move keeps the message's identity — the helper already re-homed the
+      // row's folder and stored labels — so only the counts move with it.
       adjustFolderCounts(message.account_id, message.folder, -1, -wasUnread);
       adjustFolderCounts(message.account_id, trashPath, 1, wasUnread);
     } else {
@@ -3410,6 +3806,22 @@ async function moveForSpamLabel(messageId: string, userId: string, destinationFo
     newUid = move.newUids[messageId] ?? null;
     // The move re-homed the row; the user's verdict is recorded separately, exactly
     // as the IMAP branch records it alongside its own folder/uid update.
+    await query(
+      `UPDATE messages SET spam_user_override = $1, spam_verdict = $1, spam_analyzed_at = NOW() WHERE id = $2`,
+      [label, messageId]
+    );
+  } else if (account.mail_transport === 'gmail_api') {
+    const move = await moveMessagesOverGmail({
+      userId, accountId: account.id, account, messages: [message], destinationPath: destinationFolder,
+    });
+    if (move.movedIds.length === 0) {
+      // The message stays where the user can see it; the verdict is not recorded,
+      // because a training row for a move that did not happen would be a lie.
+      return { ok: false, status: 502, error: 'Gmail did not confirm the move' };
+    }
+    // Gmail keeps the message's identity across a label change, so there is no new
+    // UID to adopt; the helper already re-homed the row's folder and stored labels.
+    newUid = null;
     await query(
       `UPDATE messages SET spam_user_override = $1, spam_verdict = $1, spam_analyzed_at = NOW() WHERE id = $2`,
       [label, messageId]
