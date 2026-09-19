@@ -46,6 +46,21 @@ installation would actually have rather than on one evolved in place:
   Microsoft token refresh (including the two-worker race), the operation journal and outbox, the
   Google and Microsoft contact syncs, the Google calendar sync, and the DAV HTTP integration.
 
+## Documentation verification
+
+The plan requires the documentation to match the built code (DO07), so the wiki was checked
+mechanically rather than by reading: every API/OAuth path, DAV endpoint and environment-style
+identifier quoted across `docs/wiki/*.md` was grepped against the sources.
+
+Result: no documentation errors. Of 7 distinct paths and 46 identifiers, the five that the first
+pass could not find in `backend/src` or `frontend/src` are all legitimate references to something
+outside the application's own code — `SHCNF_FLUSH` is an Electron shell flag used by
+`frontend/packages/electron/`, `POSTGRES_DB` and `INBOXORA_VERSION` are variables of the operator's
+own container environment named in install and upgrade commands, `MAILFLOW_VERSION` refers to the
+previous product's images in the migration guide, and `AADSTS50011` is a Microsoft-side error code
+that by definition appears in their response, not in our code. They are recorded here so the next
+reader does not re-open the same question.
+
 ## Known limitations of what is delivered
 
 - Pulled Google and Microsoft contacts and Google calendars are **read-only** in Inboxora: REST and
