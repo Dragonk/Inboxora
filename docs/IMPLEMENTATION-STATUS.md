@@ -1431,20 +1431,27 @@ for what is left.* The account-model question it used to raise is
 `provider_mailbox_id` and `transport_generation`, so the adapter targets an `email_accounts` row and
 the local message/folder/thread model is untouched. What remains, in order:
 
-1. **Conversation persistence.** The message sync already stores Graph's `conversationId` as
+1. **Snooze has the same bypass spam/ham had, and a second hazard behind it.**
+   `/messages/:id/snooze` calls `imapManager.ensureFolder` and `imapManager.moveMessage` directly, so
+   on a native account it fails. Wiring the move is the proven pattern, but two things must be decided
+   first: the **Snoozed folder must exist on the provider** (`POST /me/mailFolders`, then a folder
+   discovery so the local path and its `mail_folder` collection exist), because a Graph account only
+   has the folders it discovered; and the **return path** — whatever moves a snoozed message back when
+   its time comes — must become transport-aware in the *same* slice, or snooze becomes a one-way trip
+   on a Graph account. A half-wired snooze is worse than the current honest failure.
+
+2. **Conversation persistence.** The message sync already stores Graph's `conversationId` as
    `messages.thread_id`, so the thread *key* exists; what is missing is feeding the conversation
    engine the way the IMAP ingest does (`upsertConversationCopy` with a provider descriptor from
    `providerConversationMetadata`/`providerThreadAdapter`). Read the IMAP ingest before writing a
    second path — the provider identity rules there (`source: 'provider-thread-id'`, the namespace)
    are the part that must not be reinvented, and `gmailNativePg.integration.test.ts` is the example
    of asserting them on a real database.
-2. **Conversation persistence** through `providerConversationMetadata.ts`, keyed on Graph's
-   `conversationId`, never on the RFC `Message-ID` alone. The message sync already stores
-   `conversationId` as `messages.thread_id`; what is missing is feeding the conversation engine from
-   it the way the IMAP path does.
-3. **Rules, snooze and the GTD/plugin abstractions** — these are local behaviours driven by the same
-   message rows, so they should need no Graph-specific code; verify that rather than assuming it, and
-   name anything that does.
+
+3. **Rules and the GTD/plugin abstractions** — local behaviours driven by the same message rows, so
+   they should need no Graph-specific code; verify that rather than assuming it, and name anything
+   that does.
+
 4. **Drafts and send** belong to P06 and the shared send layer — not a Graph-only pipeline.
 
 Read §12 of the plan before choosing the send shape; the three-size accounting and the upload-session
