@@ -518,10 +518,19 @@ historical release notes were left as history rather than rewritten to look curr
 anonymised with the missing live tests disclosed as **NOT RUN instead of passed from a mock** (DO08) — which is the rule
 this document has been applying to itself throughout.
 
-### RE — not yet read
+### RE — release engineering (8 rows), now read
 
-The eight RE rows have not been examined, and saying so is the point: a series that is missing from the matrix is a gap
-whether or not it turns out to be met, and the next session should read it before claiming the matrix is complete.
+| Rows | Verdict |
+| --- | --- |
+| RE01 | **Met.** The same functional schema is reached two ways and both were exercised: the state-reconstructing suite seeds a database, applies the chain and asserts the identifiers survive, and the database gate applies all 109 migrations to a fresh PostgreSQL 16 before running 99 tests. |
+| RE03 | **Met at this commit**, from exit statuses: typecheck, lint, unit suites, the production build and the database integration set. |
+| RE04 | **Half met.** Both images are built for `linux/amd64` and `linux/arm64` and verified in the registry, with the release SHA as their source; **neither was run**, so "images exist for both platforms" is a registry fact and not a smoke test. |
+| RE02, RE06, RE07, RE08 | **Not verified, and each names a surface nobody looked at**: the behaviour of an **interrupted migration** and of an application **rollback** beyond `Upgrading.md`'s rollback section; the failure path where the **second image's publication fails**, where the argument that the pair cannot be called ready is reasoning rather than a test; a **backup and restore drill** in isolation, recovering tokens, mappings and operations with the right key; and the absence of secrets in **logs, build arguments, OCI labels, the frontend bundle, DTOs and test reports** — of which only the documentation was searched. |
+| RE05 | **Not verified, and it is a new risk**: a **PWA service worker** from a previous deployment talking to a changed backend. Nothing in this work considered the compatibility contract between a cached client and the new API. |
+
+With RE read, **all twelve series are now accounted for**, and the mix is the honest one: most rows met or partially met,
+several absent because their package is absent, and four surfaces that no one has looked at, listed above rather than
+folded into a general assurance.
 
 ## The agent acceptance procedure (guide §8), reported as the guide requires
 
@@ -1179,7 +1188,7 @@ no code path returns a migration requirement for it, and connecting the API does
 refresh, as its tests assert. Rollback is documented in `Upgrading.md`. **Unresolved risks:** the interface's
 duplicate-risk affordance for an uncertain send; the configuration-card **test control** being newer than the published
 images, so it is not in 4.1.0 and is verified by typecheck, lint, the parity suite and the build rather than by a
-component test; metrics and structured log identifiers; and the absence of any live provider run.
+component test; metrics and structured log identifiers; the **interrupted-migration and image-publication failure paths**; a **backup and restore drill**; the **PWA service worker** against a changed backend; secrets in logs, build arguments, labels, bundles and DTOs, of which only the documentation was searched; and the absence of any live provider run.
 
 ### What is missing, precisely
 
