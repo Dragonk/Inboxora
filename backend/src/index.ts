@@ -62,7 +62,7 @@ import { startCalendarInvitationOutboxWorker } from './services/calendarInvitati
 import { startOccurrenceScheduler } from './services/calendarOccurrences.js';
 import { start as startSpamRetrainScheduler } from './services/spamScheduler.js';
 import { createBrowserCors } from './middleware/browserCors.js';
-import { toAppError } from './utils/errors.js';
+import {toAppError, requestTooLargeMessage } from './utils/errors.js';
 
 const packageMeta = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf-8'));
 let buildMeta: { version?: string } = {};
@@ -173,7 +173,7 @@ app.use(express.json({ limit: '1mb' }));
 // Return a clean JSON error when the body parser rejects an oversized payload.
 app.use((err: Error & { type?: string }, req: Request, res: Response, next: NextFunction) => {
   if (err.type === 'entity.too.large') {
-    return res.status(413).json({ error: 'Request too large. Total attachment size must not exceed 25 MB.' });
+    return res.status(413).json({ error: requestTooLargeMessage(req.path) });
   }
   next(err);
 });

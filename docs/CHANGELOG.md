@@ -284,6 +284,12 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   authorizations, and its hint explains that each asks for its own feature and that mail is never
   requested there. Google's incremental consent keeps the scopes of the earlier connection, so
   connecting twice accumulates them rather than replacing them.
+- Report the right limit when an upload is rejected as too large. The body parser rejects an
+  oversized request before any route runs, and its single message named the 25 MB attachment limit
+  even for a contacts or calendar import, describing something the user was not doing. The message
+  is now chosen from the path: the 900 KB import limit for contact and calendar imports, the 5 MB
+  spritesheet limit for the pet import, the attachment limit for sending or saving a draft, and a
+  plain "request too large" elsewhere rather than a limit that does not apply.
 ## [4.0.4] - 2026-09-18
 
 ### Changed
