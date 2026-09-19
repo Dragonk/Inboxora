@@ -148,10 +148,17 @@ The Microsoft write paths are complete (mail, contacts and calendar events all f
 `providerMutationService`, gated by the per-collection write-back switch at
 `PATCH /integrations/collections/:id`). What is left of the v4 scope:
 
-1. **P14** — the final gate matrix on the frozen SHA, the `:dev` image pair from that exact SHA with its
-   digests and architectures, then the runtime smoke (health, version asserted against the SHA, login,
-   basic UI, account listing, no migration crash). Real-provider acceptance and DAVx⁵ stay **NOT RUN**
-   unless credentials or clients are actually available.
+1. **Nothing in the v4 scope.** P14 is done: the gate matrix ran on the frozen SHA `43c15e91`, the
+   `:dev` images were built from it by workflow run `35459869340` (amd64 + arm64, digests recorded above),
+   and the published pair was pulled and smoked — health, `/api/version` reporting that SHA, first-user
+   registration, a fresh login, the account list and the interface, with no restart and no migration
+   failure.
+2. **What stays NOT RUN, deliberately and by the plan's own permission**: real Google/Microsoft provider
+   authorization and sync (no live application is registered), DAV client acceptance with DAVx⁵,
+   Thunderbird or macOS, the browser suite and screenshots for this revision, the CI jobs on a GitHub
+   runner, and a real mailbox cutover to Graph or the Gmail API. Each is stated where it belongs rather
+   than implied, and none is a code gap: every provider call in the suites is faked at the HTTP boundary
+   against a real PostgreSQL.
 
 Everything else the v4 plan names has been delivered and tested on `dev`: the send seam and its Graph
 transport, Graph drafts, the provider device-code flow, the Graph calendar read path and both write paths,
