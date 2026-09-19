@@ -1623,6 +1623,16 @@ started" row suggests, so the slice is a seam rather than a rewrite:
      depending on the server, expose them. Recipient privacy is a boundary this project does not trade
      for a tidy refactor: the shared artefact needs the envelope carried alongside it, not inferred from
      it.
+
+     **And the suite would not catch it.** The case that covers BCC
+     (`send.reliability.test.ts`, "accepts BCC-only delivery without adding a visible To header") asserts
+     that `sendMail` was called with `bcc: 'blind@example.com'` and **no `to`** — the *option*, not the
+     envelope nodemailer derives from it. So a change that switched to `raw` and lost every BCC recipient
+     would leave that test green, because `bcc` would still be present in the options while the message
+     posted had no BCC header and no explicit envelope. The gap is not in the assertion's intent but in
+     its layer, and it closes only once the envelope is part of the artefact: then the case can assert the
+     delivered envelope — `to` plus `bcc`, and no BCC header — which is the property that actually
+     matters.
 - **idempotency already exists, and the division is decided** (both mechanisms read, not assumed).
   `claimSendIntent` / `markSendIntentUncertain` / `completeSendIntent` / `releaseSendIntent` write
   `send_idempotency`, a durable claim keyed by the **client's** `X-Idempotency-Key` with an intent token,
