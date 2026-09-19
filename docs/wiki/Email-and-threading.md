@@ -162,9 +162,11 @@ walkthrough and the scripted alternative.
 - Rich text or plain text, per your compose preference. Rich text supports formatting, lists,
   links, tables and images.
 - To, Cc and Bcc with per-address copy, plus header-injection validation.
-- Attachments and inline images, with a combined size limit; the composer warns when the body
-  mentions an attachment but none is attached, and asks for confirmation when the subject is
-  empty.
+- Attachments and inline images. The composer warns when the body mentions an attachment but none is attached,
+  and asks for confirmation when the subject is empty. It does **not** pre-check the size: the server counts the
+  composed message when you send — headers, base64 growth and separators included — and refuses one above
+  `MAIL_MAX_MESSAGE_BYTES` (25 MiB by default) with the byte count, naming the attachment if one file alone is
+  over the limit. Passing that check means this installation accepted the message, not that the provider will.
 - Drafts autosave to the account's IMAP **Drafts** folder. Attachments are **not** stored in
   drafts, and the interface says so.
 - Sending is idempotent: a retry after a lost response returns the first result instead of

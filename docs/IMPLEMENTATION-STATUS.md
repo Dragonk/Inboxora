@@ -509,6 +509,14 @@ listed so the boundary is visible rather than implied.
 **None of these may be reported as PASS**, which is the guide's point: a verified code path is not a verified
 connection. The distinction is the same one the W-list already carries for W06, W07 and W10.
 
+**A documentation claim that preceded its code.** `Email-and-threading.md` described attachments "with a combined
+size limit" — and there was no limit in the composer or on the server, only whatever a reverse proxy happened to
+impose. This session has spent most of its effort finding documentation that overstated **implemented** scope; this
+is the same defect in the opposite direction, a page promising a guarantee the code did not provide, and it survived
+because nobody sends 26 MiB by accident. The send-path work above made the promise true at last, and the wording is
+now precise about *when*: the composer does not pre-check, the server counts on send, and passing that check is not
+the provider's permission.
+
 **§12's first item is now implemented for the transport that exists.** The send path composed its message on the
 server and never counted it, so an oversized message travelled to the SMTP server and failed there; it is now
 counted as compiled — before any idempotency claim or dispatch, so a refusal leaves no uncertain send — and refused
