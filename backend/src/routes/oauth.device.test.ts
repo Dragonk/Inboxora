@@ -89,11 +89,33 @@ describe('POST /oauth/microsoft/device', () => {
     expect(vi.mocked(fetch)).not.toHaveBeenCalled();
   });
 
+  it('keeps a second flow for the same user separate from the first', async () => {
+    // The map used to be keyed by the user, so a second start replaced the first: the first poll would
+    // report the second flow's state and completing the first code would be invisible.
+    const first = await (await startDevice()).json() as { flowId?: string; userCode?: string };
+    const second = await (await startDevice()).json() as { flowId?: string; userCode?: string };
+    expect(first.flowId).toBeTruthy();
+    expect(second.flowId).toBeTruthy();
+    expect(first.flowId).not.toBe(second.flowId);
+
+    // Polling each id reaches its own flow rather than whichever started last.
+    const polledFirst = await realFetch(`${base}/oauth/microsoft/device/poll?flowId=${first.flowId}`);
+    expect(polledFirst.status).toBe(200);
+    const polledSecond = await realFetch(`${base}/oauth/microsoft/device/poll?flowId=${second.flowId}`);
+    expect(polledSecond.status).toBe(200);
+
+    // And an id that is not this user's is refused rather than served.
+    const foreign = await realFetch(`${base}/oauth/microsoft/device/poll?flowId=not-a-flow`);
+    expect(foreign.status).toBe(400);
+  });
+
   it('starts the flow when the method is enabled, returning only what the user needs', async () => {
     const response = await startDevice();
     expect(response.status).toBe(200);
     const body = await response.json() as Record<string, unknown>;
-    expect(body).toEqual({ userCode: 'ABCD-EFGH', verificationUri: 'https://microsoft.com/devicelogin', expiresIn: 900, interval: 5 });
+    expect(body).toMatchObject({ userCode: 'ABCD-EFGH', verificationUri: 'https://microsoft.com/devicelogin', expiresIn: 900, interval: 5 });
+    // The flow id is what makes a second, parallel flow addressable; the client polls with it.
+    expect(typeof body.flowId).toBe('string');
     // The device token is never sent to the browser; only the user code.
     expect(JSON.stringify(body)).not.toContain('device-code-1');
     // The route sends URLSearchParams, so stringify before matching.

@@ -333,8 +333,11 @@ export const api = {
     if (!res.ok) throw new Error(data.error || 'Failed to start device code flow');
     return data;
   },
-  pollMsDeviceFlow: async () => {
-    const res = await fetch('/oauth/microsoft/device/poll', { credentials: 'include' });
+  pollMsDeviceFlow: async (flowId?: string) => {
+    // The flow id names which pending flow to poll: a second start for another mailbox must not make
+    // the first one unobservable.
+    const suffix = flowId ? `?flowId=${encodeURIComponent(flowId)}` : '';
+    const res = await fetch(`/oauth/microsoft/device/poll${suffix}`, { credentials: 'include' });
     return res.json();
   },
 

@@ -2860,7 +2860,7 @@ function IntegrationsTab() {
       const intervalMs = (data.interval || 5) * 1000;
       devicePollRef.current = setInterval(async () => {
         try {
-          const result = await api.pollMsDeviceFlow();
+          const result = await api.pollMsDeviceFlow(data.flowId);
           if (result.status === 'pending') return;
           if (devicePollRef.current !== null) clearInterval(devicePollRef.current);
           devicePollRef.current = null;

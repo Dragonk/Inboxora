@@ -1,4 +1,4 @@
-import { randomBytes } from 'crypto';
+import { randomBytes, randomUUID } from 'crypto';
 import type { EmailAccountRow } from '../services/imapManager.js';
 import { Router } from 'express';
 import { createRemoteJWKSet, jwtVerify } from 'jose';
@@ -312,7 +312,14 @@ router.post('/microsoft/device', async (req: Request, res: Response) => {
       throw new Error(dc.error_description || dc.error || 'Failed to start device code flow');
     }
 
-    deviceFlows.set(req.session.userId, {
+    // Keyed by a flow id rather than by the user: one user may legitimately start a second flow
+    // (another mailbox) while the first is still pending, and keying by user made the second silently
+    // replace the first — the first poll would then report the second flow's state. The owner is stored
+    // inside the entry, and the poll checks it, so another session still cannot reach this flow.
+    const flowId = randomUUID();
+    deviceFlows.set(flowId, {
+      flowId,
+      userId: req.session.userId,
       deviceCode: dc.device_code,
       tenantId,
       clientId,
@@ -320,6 +327,7 @@ router.post('/microsoft/device', async (req: Request, res: Response) => {
     });
 
     res.json({
+      flowId,
       userCode: dc.user_code,
       verificationUri: dc.verification_uri,
       expiresIn: dc.expires_in,
@@ -335,10 +343,17 @@ router.post('/microsoft/device', async (req: Request, res: Response) => {
 // Step 2: poll for token — called repeatedly by the frontend until resolved.
 router.get('/microsoft/device/poll', async (req: Request, res: Response) => {
   if (!req.session?.userId) return res.status(401).json({ error: 'Not authenticated' });
-  const flow = deviceFlows.get(req.session.userId);
-  if (!flow) return res.status(400).json({ status: 'error', error: 'No pending device code flow' });
+  // Prefer the flow the client names; fall back to the user's own pending flow so a client that predates
+  // the flow id keeps working. Either way the entry must belong to this session's user.
+  const requestedFlowId = queryString(req.query.flowId);
+  const flow = requestedFlowId
+    ? deviceFlows.get(requestedFlowId)
+    : [...deviceFlows.values()].filter(candidate => candidate.userId === req.session.userId).at(-1);
+  if (!flow || flow.userId !== req.session.userId) {
+    return res.status(400).json({ status: 'error', error: 'No pending device code flow' });
+  }
   if (Date.now() > flow.expiresAt) {
-    deviceFlows.delete(req.session.userId);
+    deviceFlows.delete(flow.flowId);
     return res.json({ status: 'expired' });
   }
 
@@ -357,19 +372,19 @@ router.get('/microsoft/device/poll', async (req: Request, res: Response) => {
 
     if (tokens.error === 'authorization_pending') return res.json({ status: 'pending' });
     if (tokens.error === 'authorization_declined') {
-      deviceFlows.delete(req.session.userId);
+      deviceFlows.delete(flow.flowId);
       return res.json({ status: 'declined' });
     }
     if (tokens.error === 'expired_token') {
-      deviceFlows.delete(req.session.userId);
+      deviceFlows.delete(flow.flowId);
       return res.json({ status: 'expired' });
     }
     if (!tokenRes.ok) {
-      deviceFlows.delete(req.session.userId);
+      deviceFlows.delete(flow.flowId);
       return res.json({ status: 'error', error: tokens.error_description || tokens.error || 'Token exchange failed' });
     }
 
-    deviceFlows.delete(req.session.userId);
+    deviceFlows.delete(flow.flowId);
     // Device-code flow never uses a client secret → public client. Its refresh must
     // omit the secret too, or Microsoft rejects it with AADSTS90023 (#216).
     await processMicrosoftTokens(req.session.userId, tokens, { tenantId: flow.tenantId, clientId: flow.clientId, publicClient: true });
@@ -377,7 +392,7 @@ router.get('/microsoft/device/poll', async (req: Request, res: Response) => {
   } catch (caught) {
     const err = toAppError(caught);
     console.error('Device code poll error:', err.message);
-    deviceFlows.delete(req.session.userId);
+    deviceFlows.delete(flow.flowId);
     res.json({ status: 'error', error: err.message });
   }
 });

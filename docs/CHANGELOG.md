@@ -504,6 +504,10 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   call the adapters directly — so an installation that had switched the layer off could still call out to a
   provider for collections it had pulled earlier. Both now refuse: the routes answer `403`, and the schedule
   reports a run of nothing rather than an error, since it is not a user action.
+- Keep two Microsoft device-code flows apart. They were stored under the signed-in user, so starting a
+  second one — another mailbox, while the first was still pending — silently replaced the first: its poll
+  reported the second flow's state and completing its code was invisible. Each flow now has an id, the
+  client polls with it, and the entry records its owner so another session still cannot reach it.
 
 
 ## [4.0.4] - 2026-09-18
