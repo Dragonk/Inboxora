@@ -1,6 +1,3 @@
-import nodemailer from 'nodemailer';
-import type { SendMailOptions } from 'nodemailer';
-import { Readable } from 'node:stream';
 import { randomBytes, createHash, randomUUID } from 'crypto';
 import { Router } from 'express';
 import { query } from '../services/db.js';
@@ -15,7 +12,7 @@ import { resolveSentFolder } from '../utils/mailUtils.js';
 import { generateVCard } from '../utils/vcard.js';
 import { createAccountMailTransport } from '../services/sendTransport.js';
 import { SEND_ATTACHMENT_TOTAL_BYTES, sendLimits } from '../services/sendLimits.js';
-import { stripHeaderFromMessage } from '../services/mimeHeaders.js';
+import { renderSmtpMessage } from '../services/composedMail.js';
 import { imapManager } from '../index.js';
 import { pluginRegistry } from '../plugins/registry.js';
 import { toAppError } from '../utils/errors.js';
@@ -663,32 +660,14 @@ router.post('/send', async (req, res) => {
     // Use a stable Message-ID so the SMTP copy and any IMAP APPEND reference the same message.
     const domain = (fromEmail || '').split('@')[1] || 'mailflow.local';
     const messageId = `<${randomBytes(16).toString('hex')}@${domain}>`;
-    const mailOptions: SendMailOptions = {
-      messageId,
-      from: `${fromName} <${fromEmail}>`,
-      // The envelope is stated rather than derived. It is the same one nodemailer would
-      // build from the three recipient options — verified, not assumed: the explicit and
-      // derived envelopes are identical for to+cc+bcc, for bcc alone, and with a display
-      // name in `from`. Stating it is what lets the artefact carry its recipients once the
-      // message is composed a single time and sent as `raw`, where nodemailer would
-      // otherwise have to guess them from headers — and a BCC recipient is by definition
-      // not in a header.
-      envelope: {
-        from: fromEmail,
-        to: [...normalizedTo, ...normalizedCc, ...normalizedBcc],
-      },
-      ...(fromReplyTo ? { replyTo: fromReplyTo } : {}),
-      // Nodemailer uses bcc for the SMTP envelope but omits it from generated MIME.
-      // Do not add a synthetic To header for BCC-only retries.
-      ...(normalizedTo.length ? { to: normalizedTo.join(', ') } : {}),
-      ...(normalizedCc.length ? { cc: normalizedCc.join(', ') } : {}),
-      ...(normalizedBcc.length ? { bcc: normalizedBcc.join(', ') } : {}),
-      subject: normalizedSubject,
-      ...(emailPriority !== 'normal' ? { priority: emailPriority } : {}),
-      text: effectiveSignature
-        ? bodyToPlain(body, inputBodyIsHtml) + '\n\n-- \n' + effectiveSignatureText + (quotedBody || '')
-        : bodyToPlain(body, inputBodyIsHtml) + (quotedBody || ''),
-    };
+    // The semantic content. Composition into a wire format happens once, in the transport's renderer
+    // below — this is what will also let a Graph renderer build `bccRecipients` from the same model.
+    const plainBodyText = effectiveSignature
+      ? bodyToPlain(body, inputBodyIsHtml) + '\n\n-- \n' + effectiveSignatureText + (quotedBody || '')
+      : bodyToPlain(body, inputBodyIsHtml) + (quotedBody || '');
+    let htmlBody: string | null = null;
+    let inReplyToHeader: string | null = null;
+    let referencesHeader: string | null = null;
 
     let inlineImageAttachments: InlineAttachment[] = [];
     if (outputBodyIsHtml) {
@@ -698,18 +677,18 @@ router.post('/send', async (req, res) => {
           : '') +
         (quotedBodyHtml || (quotedBody ? textToHtml(quotedBody) : ''));
       const embedded = embedInlineDataImages(rawHtml);
-      mailOptions.html = embedded.html;
+      htmlBody = embedded.html;
       inlineImageAttachments = embedded.attachments;
     }
 
     if (inReplyTo) {
-      mailOptions.inReplyTo = sanitizeHeaderValue(inReplyTo);
+      inReplyToHeader = sanitizeHeaderValue(inReplyTo);
     }
     // References is valid and useful even when In-Reply-To is absent. Preserve
     // the complete ordered chain independently so RFC-only References replies
     // remain attached to the existing Conversation after Sent ingest.
     if (references || inReplyTo) {
-      mailOptions.references = sanitizeHeaderValue(references || inReplyTo);
+      referencesHeader = sanitizeHeaderValue(references || inReplyTo);
     }
     const allAttachments = [
       ...inlineImageAttachments,
@@ -720,9 +699,7 @@ router.post('/send', async (req, res) => {
       })) : []),
       ...resolvedFwdAttachments,
     ];
-    if (allAttachments.length) {
-      mailOptions.attachments = allAttachments;
-    }
+
 
     // §22.1 wants an oversized attachment named rather than only totalled, and §12.2 requires the real bytes
     // rather than a declared size: these contents are the decoded ones, so this is measurement, not trust. The
@@ -758,23 +735,27 @@ router.post('/send', async (req, res) => {
     // stored verbatim by strict servers (e.g. PurelyMail/Dovecot), and downstream clients then
     // mis-parse the headers — the reporter saw Subject and the To display-name dropped (#365). This
     // delivered copy uses a separate transport that is already CRLF, so only the Sent copy was wrong.
-    const streamTransport = nodemailer.createTransport({ streamTransport: true, newline: 'windows' });
-    const streamInfo = await streamTransport.sendMail(mailOptions);
-    const chunks: Buffer[] = [];
-    const messageStream = streamInfo.message;
-    if (!(messageStream instanceof Readable)) {
-      throw new Error('Stream transport did not return a readable message');
-    }
-    await new Promise<void>((resolve, reject) => {
-      messageStream.on('data', c => chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c)));
-      messageStream.on('end', resolve);
-      messageStream.on('error', reject);
+    const { raw: rawMessage, mailOptions } = await renderSmtpMessage({
+      messageId,
+      from: { email: fromEmail, name: fromName },
+      replyTo: fromReplyTo ? { email: fromReplyTo } : null,
+      to: normalizedTo,
+      cc: normalizedCc,
+      bcc: normalizedBcc,
+      subject: normalizedSubject,
+      plainBody: plainBodyText,
+      htmlBody,
+      inReplyTo: inReplyToHeader,
+      references: referencesHeader,
+      priority: emailPriority,
+      attachments: allAttachments.map(attachment => ({
+        filename: attachment.filename,
+        content: attachment.content as Buffer,
+        contentType: (attachment as { contentType?: string }).contentType,
+        cid: (attachment as { cid?: string }).cid,
+        contentDisposition: (attachment as { contentDisposition?: 'attachment' | 'inline' }).contentDisposition,
+      })),
     });
-    // The composer keeps a `Bcc:` header in this buffer (measured; `keepBcc: false` does not
-    // change it), and a buffer handed to a transport as `raw` is sent as given — so it is
-    // stripped here, once, where the accounting and any future shared artefact both read it.
-    // Blind recipients live in the envelope only.
-    const rawMessage = stripHeaderFromMessage(Buffer.concat(chunks), 'Bcc');
 
     // §12.2: the interface's estimate is preliminary, and this is the message as actually compiled — headers,
     // base64 growth, separators and CRLF included — counted on the server side, before any dispatch. Nothing has
