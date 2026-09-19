@@ -172,7 +172,7 @@ Do **not** create a *TVs and Limited Input devices* client for Inboxora, and do 
 another application's Client ID: neither grants the scopes. The options are the browser OAuth flow for the
 API integrations, or an app password for mail on accounts that permit one.
 
-![The provider card in Settings, showing each method's readiness and the policy](https://raw.githubusercontent.com/Dragonk/Inboxora/main/media/screenshots/settings-integrations-desktop.png)
+| ![The provider card in Settings, showing each method's readiness and the policy](https://raw.githubusercontent.com/Dragonk/Inboxora/main/media/screenshots/settings-integrations-desktop.png) | ![The same card on a phone](https://raw.githubusercontent.com/Dragonk/Inboxora/main/media/screenshots/settings-integrations-mobile.png) |
 
 ## How connections are kept alive
 
