@@ -15,7 +15,10 @@ vi.mock('../middleware/auth.js', () => ({
     next();
   },
 }));
-vi.mock('../services/providerAuthService.js', () => ({
+// Keep every real export and override only what this suite needs: the router pulls
+// the token service in transitively, so a narrower mock breaks module evaluation.
+vi.mock('../services/providerAuthService.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../services/providerAuthService.js')>()),
   googleConfigFromEnv: () => ({ clientId: 'client-1', clientSecret: 'secret-1', redirectUri: 'https://inboxora.example/oauth/google/callback' }),
   isGoogleConfigured: () => mocks.configured.value,
 }));

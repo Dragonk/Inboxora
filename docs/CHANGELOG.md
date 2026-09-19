@@ -175,6 +175,16 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   pass, a restart and a manual sync cannot run at the same time or advance a cursor out of order;
   a slow pass is never overlapped, and a failure on one connection is logged and retried on the
   next tick without stopping the others.
+- Add a Microsoft Graph access-token service (P04/P07 foundation, internal; no user-visible change
+  yet). Google and Microsoft now share one refresh path — the single-flight lease, the generation
+  compare-and-swap and the re-auth parking — with only the token exchange differing, so the parts
+  that must not diverge cannot. Microsoft rotates refresh tokens on most refreshes, so a returned
+  token replaces the stored one while an omitted one keeps it; a public client (the device flow)
+  sends no client secret, and the tenant id is validated before it is interpolated into the token
+  URL so a malformed value can never retarget the request. A revoked consent (`invalid_grant`) parks
+  the grant as needing re-authorization instead of retrying in a loop. The `.env.example` no longer
+  claims Microsoft Graph is already required for mailboxes: the Graph transport is still to come, and
+  Microsoft mail continues to use the existing OAuth2 IMAP/SMTP path until it lands.
 
 ## [4.0.4] - 2026-09-18
 

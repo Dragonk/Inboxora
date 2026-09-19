@@ -27,6 +27,9 @@ export const GOOGLE_USERINFO_ENDPOINT = 'https://openidconnect.googleapis.com/v1
 /** Google access tokens are valid across its APIs; the audience names the API family. */
 export const GOOGLE_GRANT_AUDIENCE = 'https://www.googleapis.com/';
 export const GOOGLE_ISSUER = 'https://accounts.google.com';
+/** Microsoft Graph is the resource; the grant audience is the Graph origin. */
+export const MICROSOFT_GRANT_AUDIENCE = 'https://graph.microsoft.com/';
+export const MICROSOFT_ISSUER = 'https://login.microsoftonline.com';
 
 const GOOGLE_AUTH_BASE = 'https://www.googleapis.com/auth/';
 const GOOGLE_IDENTITY_SCOPES = ['openid', 'email', 'profile'] as const;
@@ -102,6 +105,46 @@ export function googleConfigFromEnv(env: NodeJS.ProcessEnv = process.env): Googl
     clientSecret: env.GOOGLE_CLIENT_SECRET || '',
     redirectUri: env.GOOGLE_REDIRECT_URI || '',
   };
+}
+
+export interface MicrosoftConfig {
+  clientId: string;
+  /** Empty for a public client, which is how the device flow is registered. */
+  clientSecret: string;
+  redirectUri: string;
+  tenantId: string;
+}
+
+/**
+ * A tenant identifier is interpolated into the token URL path, so anything that
+ * could change the target host or path is rejected rather than sent.
+ */
+function safeTenantId(value: unknown): string {
+  const tenant = typeof value === 'string' ? value.trim() : '';
+  return /^[A-Za-z0-9.-]+$/.test(tenant) ? tenant : 'common';
+}
+
+/** The effective Microsoft client configuration (MS_* environment variables). */
+export function microsoftConfigFromEnv(env: NodeJS.ProcessEnv = process.env): MicrosoftConfig {
+  return {
+    clientId: env.MS_CLIENT_ID || '',
+    clientSecret: env.MS_CLIENT_SECRET || '',
+    redirectUri: env.MS_REDIRECT_URI || '',
+    tenantId: safeTenantId(env.MS_TENANT_ID),
+  };
+}
+
+/**
+ * Only a client id is required: the device flow is a public client and needs
+ * neither a secret nor a redirect URI, so Graph access must not be gated on them.
+ */
+export function isMicrosoftConfigured(config: Partial<MicrosoftConfig>): config is MicrosoftConfig {
+  return Boolean(config.clientId);
+}
+
+/** The v2.0 token endpoint for a tenant (`common` when none is configured). */
+export function microsoftTokenEndpoint(tenantId?: string | null): string {
+  return `${MICROSOFT_ISSUER}/${safeTenantId(tenantId)}/oauth2/v2.0/token`;
 }
 
 export interface CreateAuthorizationFlowInput {

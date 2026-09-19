@@ -3,9 +3,12 @@ import { decrypt, encrypt } from './encryption.js';
 import {
   GOOGLE_GRANT_AUDIENCE,
   GOOGLE_TOKEN_ENDPOINT,
+  MICROSOFT_GRANT_AUDIENCE,
   ProviderAuthError,
+  microsoftTokenEndpoint,
   type FetchLike,
   type GoogleConfig,
+  type MicrosoftConfig,
 } from './providerAuthService.js';
 import type { PoolClient } from 'pg';
 
@@ -164,16 +167,20 @@ export async function markGrantReauthRequired(client: PoolClient, input: {
   );
 }
 
-export interface RefreshedGoogleTokens {
+export interface RefreshedTokens {
   accessToken: string;
   refreshToken: string | null;
   expiresAt: Date;
   scopes: string[];
 }
 
+export interface RefreshedGoogleTokens extends RefreshedTokens {}
+
 /** Exchange a refresh token. Provider errors are mapped, never swallowed. */
 export async function exchangeGoogleRefreshToken(input: {
   refreshToken: string;
+  /** The grant's consented scopes; Google infers them from the refresh token. */
+  scopes?: readonly string[];
   config: GoogleConfig;
   fetchImpl?: FetchLike;
 }): Promise<RefreshedGoogleTokens> {
@@ -231,37 +238,65 @@ function usableToken(grant: GrantView | null, now: Date, skewMs: number): Omit<A
   return { accessToken: grant.accessToken, expiresAt: grant.expiresAt, generation: grant.generation, scopes: grant.scopes };
 }
 
+/** Provider-specific pieces of the shared refresh orchestration. */
+interface ProviderTokenProfile<TConfig> {
+  /** Names the provider in diagnostics only; never user-facing. */
+  label: string;
+  audience: string;
+  exchange: (input: {
+    refreshToken: string;
+    scopes: readonly string[];
+    config: TConfig;
+    fetchImpl?: FetchLike;
+  }) => Promise<RefreshedTokens>;
+}
+
+const GOOGLE_TOKEN_PROFILE: ProviderTokenProfile<GoogleConfig> = {
+  label: 'Google',
+  audience: GOOGLE_GRANT_AUDIENCE,
+  exchange: (input) => exchangeGoogleRefreshToken(input),
+};
+
+const MICROSOFT_TOKEN_PROFILE: ProviderTokenProfile<MicrosoftConfig> = {
+  label: 'Microsoft',
+  audience: MICROSOFT_GRANT_AUDIENCE,
+  exchange: (input) => exchangeMicrosoftRefreshToken(input),
+};
+
 /**
- * Return a usable access token for a grant, refreshing it only when needed.
+ * Return a usable access token for a stored grant, refreshing it only when needed.
  * Throws `ProviderAuthError` with `REAUTH_REQUIRED` when the user must reconnect,
  * and with `REFRESH_IN_PROGRESS` when another worker holds the lease (the caller
  * retries later rather than starting a second refresh).
+ *
+ * Both providers share this path on purpose: the lease, the generation
+ * compare-and-swap and the re-auth parking are the parts that must not diverge.
  */
-export async function getGoogleAccessToken(input: {
+async function getProviderAccessToken<TConfig>(profile: ProviderTokenProfile<TConfig>, input: {
   userId: string;
   connectionId: string;
   audience?: string;
-  config: GoogleConfig;
+  config: TConfig;
   owner?: string;
   fetchImpl?: FetchLike;
   now?: Date;
   skewSeconds?: number;
   leaseSeconds?: number;
 }): Promise<AccessTokenResult> {
-  const audience = input.audience ?? GOOGLE_GRANT_AUDIENCE;
+  const audience = input.audience ?? profile.audience;
   const now = input.now ?? new Date();
   const skewMs = (Number.isFinite(input.skewSeconds) ? Number(input.skewSeconds) : DEFAULT_SKEW_SECONDS) * 1000;
 
   const initial = await withTransaction(client => readGrantForUser(client, { userId: input.userId, connectionId: input.connectionId, audience }));
-  if (!initial) throw new ProviderAuthError('GRANT_NOT_FOUND', 'No stored Google grant for this connection');
+  if (!initial) throw new ProviderAuthError('GRANT_NOT_FOUND', `No stored ${profile.label} grant for this connection`);
   if (initial.status === 'reauth_required' || initial.status === 'revoked') {
-    throw new ProviderAuthError('REAUTH_REQUIRED', 'The Google grant needs the user to authorize again');
+    throw new ProviderAuthError('REAUTH_REQUIRED', `The ${profile.label} grant needs the user to authorize again`);
   }
   const current = usableToken(initial, now, skewMs);
   if (current) return { ...current, refreshed: false };
   if (!initial.refreshToken) {
     await withTransaction(client => markGrantReauthRequired(client, { grantId: initial.id, reason: 'MISSING_REFRESH_TOKEN' }));
-    throw new ProviderAuthError('REAUTH_REQUIRED', 'The stored Google grant has no refresh token');
+    throw new ProviderAuthError('REAUTH_REQUIRED', `The stored ${profile.label} grant has no refresh token`);
   }
 
   const owner = input.owner ?? 'token-service';
@@ -277,10 +312,11 @@ export async function getGoogleAccessToken(input: {
   }
 
   try {
-    const tokens = await exchangeGoogleRefreshToken({
+    const tokens = await profile.exchange({
       refreshToken: initial.refreshToken,
+      scopes: initial.scopes,
       config: input.config,
-      fetchImpl: input.fetchImpl,
+      ...(input.fetchImpl ? { fetchImpl: input.fetchImpl } : {}),
     });
     const stored = await withTransaction(client => storeRefreshedGrant(client, {
       grantId: initial.id,
@@ -313,4 +349,84 @@ export async function getGoogleAccessToken(input: {
     }
     throw caught;
   }
+}
+
+export async function getGoogleAccessToken(input: {
+  userId: string;
+  connectionId: string;
+  audience?: string;
+  config: GoogleConfig;
+  owner?: string;
+  fetchImpl?: FetchLike;
+  now?: Date;
+  skewSeconds?: number;
+  leaseSeconds?: number;
+}): Promise<AccessTokenResult> {
+  return getProviderAccessToken(GOOGLE_TOKEN_PROFILE, input);
+}
+
+export interface RefreshedMicrosoftTokens extends RefreshedTokens {}
+
+/**
+ * Exchange a Microsoft refresh token. Microsoft usually rotates it, so a returned
+ * refresh token replaces the stored one; an omitted one keeps the stored value.
+ * A public client (the device flow) has no secret and sends none.
+ */
+export async function exchangeMicrosoftRefreshToken(input: {
+  refreshToken: string;
+  scopes?: readonly string[];
+  config: MicrosoftConfig;
+  fetchImpl?: FetchLike;
+}): Promise<RefreshedMicrosoftTokens> {
+  const fetchImpl = input.fetchImpl ?? fetch;
+  const body = new URLSearchParams({
+    client_id: input.config.clientId,
+    grant_type: 'refresh_token',
+    refresh_token: input.refreshToken,
+  });
+  if (input.config.clientSecret) body.set('client_secret', input.config.clientSecret);
+  if (input.scopes?.length) body.set('scope', [...input.scopes].join(' '));
+
+  let response: Response;
+  try {
+    response = await fetchImpl(microsoftTokenEndpoint(input.config.tenantId), {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: body.toString(),
+      signal: AbortSignal.timeout(15000),
+    });
+  } catch (caught) {
+    throw new ProviderAuthError('TOKEN_ENDPOINT_UNAVAILABLE', caught instanceof Error ? caught.message : 'Microsoft token endpoint unreachable');
+  }
+  const payload = await response.json().catch(() => ({})) as {
+    access_token?: string; refresh_token?: string; expires_in?: number; scope?: string;
+    error?: string; error_description?: string;
+  };
+  if (!response.ok || payload.error) {
+    throw new ProviderAuthError(payload.error || 'TOKEN_REFRESH_FAILED', payload.error_description || 'Microsoft token refresh failed');
+  }
+  if (!payload.access_token) throw new ProviderAuthError('TOKEN_REFRESH_FAILED', 'Microsoft refresh response has no access token');
+  const expiresIn = typeof payload.expires_in === 'number' && Number.isFinite(payload.expires_in) && payload.expires_in > 0
+    ? payload.expires_in
+    : 3600;
+  return {
+    accessToken: payload.access_token,
+    refreshToken: payload.refresh_token ?? null,
+    expiresAt: new Date(Date.now() + expiresIn * 1000),
+    scopes: typeof payload.scope === 'string' ? payload.scope.split(' ').filter(Boolean) : [],
+  };
+}
+
+export async function getMicrosoftAccessToken(input: {
+  userId: string;
+  connectionId: string;
+  audience?: string;
+  config: MicrosoftConfig;
+  owner?: string;
+  fetchImpl?: FetchLike;
+  now?: Date;
+  skewSeconds?: number;
+  leaseSeconds?: number;
+}): Promise<AccessTokenResult> {
+  return getProviderAccessToken(MICROSOFT_TOKEN_PROFILE, input);
 }
