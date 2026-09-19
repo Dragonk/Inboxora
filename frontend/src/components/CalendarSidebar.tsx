@@ -317,7 +317,9 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
       setSourceError(toAppError(error).message);
     }
   };
-  const ownedCalendar = (calendar: CalendarRow) => Boolean(calendar.source === 'local' && !calendar.read_only && calendar.owner_user_id);
+  // Editability is the server's answer (`read_only`), not a comparison against the origin: a provider
+  // collection becomes editable the moment the server says so, and a read-only one stays read-only.
+  const ownedCalendar = (calendar: CalendarRow) => Boolean(!calendar.read_only && calendar.owner_user_id);
   const updateCalendarAppearance = async (calendar: CalendarRow, changes: { name?: string; color?: string; davMode?: DavMode }) => {
     setCalendarSaving(true); setEditError(null);
     try {

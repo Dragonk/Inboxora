@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   syncGoogleContacts: vi.fn(),
   syncGoogleCalendar: vi.fn(),
   syncGraphContacts: vi.fn(),
+  syncGraphCalendar: vi.fn(),
   syncGraphMailFolders: vi.fn(),
   syncGraphMailMessagesForAccount: vi.fn(),
   googleConfigured: { value: true },
@@ -23,6 +24,7 @@ vi.mock('./providerAuthService.js', async (importOriginal) => ({
 vi.mock('./providers/google/googleContactsSync.js', () => ({ syncGoogleContacts: mocks.syncGoogleContacts }));
 vi.mock('./providers/google/googleCalendarSync.js', () => ({ syncGoogleCalendar: mocks.syncGoogleCalendar }));
 vi.mock('./providers/microsoft/graphContactsSync.js', () => ({ syncGraphContacts: mocks.syncGraphContacts }));
+vi.mock('./providers/microsoft/graphCalendarSync.js', () => ({ syncGraphCalendar: mocks.syncGraphCalendar }));
 vi.mock('./providers/microsoft/graphMailSync.js', () => ({
   syncGraphMailFolders: mocks.syncGraphMailFolders,
   syncGraphMailMessagesForAccount: mocks.syncGraphMailMessagesForAccount,
@@ -49,6 +51,7 @@ afterEach(() => {
   mocks.syncGoogleContacts.mockReset();
   mocks.syncGoogleCalendar.mockReset();
   mocks.syncGraphContacts.mockReset();
+  mocks.syncGraphCalendar.mockReset();
   mocks.syncGraphMailFolders.mockReset();
   mocks.syncGraphMailMessagesForAccount.mockReset().mockResolvedValue({ accountId: 'account-1' });
   mocks.googleConfigured.value = true;
@@ -118,8 +121,23 @@ describe('runProviderSyncs', () => {
   });
 
   it('does not touch a provider/collection pair that has no adapter yet', async () => {
-    mocks.query.mockResolvedValueOnce({ rows: [target({ provider: 'microsoft', features: ['calendar'] })] });
+    // Gmail labels are the pair with no adapter: the Microsoft calendar adapter landed with P07d, so the
+    // assertion names a kind that is genuinely unhandled rather than the one that just gained a sync.
+    mocks.query.mockResolvedValueOnce({ rows: [target({ provider: 'microsoft', features: ['mail_label'] })] });
     await expect(runProviderSyncs()).resolves.toEqual({ connections: 1, ran: 0, failed: 0 });
+    expect(mocks.syncGoogleCalendar).not.toHaveBeenCalled();
+    expect(mocks.syncGraphContacts).not.toHaveBeenCalled();
+    expect(mocks.syncGraphCalendar).not.toHaveBeenCalled();
+  });
+
+  it('refreshes the Microsoft calendars of a connection that already pulled them', async () => {
+    mocks.query.mockResolvedValueOnce({ rows: [target({ provider: 'microsoft', features: ['calendar'] })] });
+    mocks.syncGraphCalendar.mockResolvedValueOnce({ collections: 2 });
+
+    await expect(runProviderSyncs()).resolves.toEqual({ connections: 1, ran: 1, failed: 0 });
+    expect(mocks.syncGraphCalendar).toHaveBeenCalledWith(expect.objectContaining({
+      userId: 'user-1', connectionId: 'connection-1', config: expect.objectContaining({ clientId: 'ms-client' }),
+    }));
     expect(mocks.syncGoogleCalendar).not.toHaveBeenCalled();
     expect(mocks.syncGraphContacts).not.toHaveBeenCalled();
   });

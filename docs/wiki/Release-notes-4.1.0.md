@@ -63,6 +63,12 @@ and reconnecting re-links the same collections rather than duplicating them.
   **typed provider-mutation layer** with an operation journal: a claim is committed before the
   provider call, so a recovered non-idempotent operation is parked as `outcome_unknown` rather than
   run a second time.
+- **Microsoft Graph calendars**, on the same connector as contacts: every calendar is discovered and
+  pulled with its events into a local calendar that starts read-only and hidden from DAV devices. A
+  recurring event stays one resource — Graph's structured recurrence becomes an `RRULE`, the wall time
+  keeps its zone with a generated `VTIMEZONE`, and a moved or cancelled instance is a
+  `RECURRENCE-ID` override inside its master — and a calendar Microsoft marks as not editable is
+  recorded as such rather than offered for writing.
 - The Graph connector's **device-code authorization**: the provider connection can be created by a
   public client — no secret and no callback — with the device code, the provider's poll interval and
   the last poll held on the flow row, so a restart does not strand a pending authorization. Requires
@@ -128,9 +134,12 @@ and reconnecting re-links the same collections rather than duplicating them.
   re-saving patches that same object rather than leaving two, and deleting removes it at Microsoft
   first. **Provider-side search and the reply/forward dependencies are not implemented.** The Gmail API
   mail transport is not in this release either; Google mail continues with an app password.
-- **Provider data is read-only, and so are imported calendars and address books.** Write-back, the
-  external CalDAV/CardDAV client and provider CRUD (calendar and contacts create/update/delete) are
-  not in this release, so an imported collection cannot be edited, deleted or removed from Inboxora.
+- **Provider data is read-only, and so are imported calendars and address books.** The provider
+  **write** paths — provider CRUD (calendar and contacts create/update/delete), the external
+  CalDAV/CardDAV write-back client and the mail migration/cutover — are not in this release, so an
+  imported collection still cannot be edited, deleted or removed from Inboxora. The capability model
+  is the decision point that will change when they land; the interface now reads the server's
+  `read_only` rather than re-deriving editability from a calendar's origin.
 - **The migration prompt with *Ignore* and "do not show again" is not in this release.** What exists
   is the requirement stated on the Microsoft card, and the enforced provider/method/installation
   switches. The dismissal controls belong to the migration work.

@@ -1,7 +1,10 @@
 import ICAL from 'ical.js';
 
 /**
- * Merge a Google Calendar batch into the one stored resource (P09).
+ * Merge a provider calendar batch into the one stored resource (P09/P07d).
+ *
+ * The merge is **provider-neutral**: it works on the iCalendar text a provider adapter produced, so
+ * Google's and Microsoft's batches go through one implementation of the RFC 4791 rule below.
  *
  * RFC 4791 requires every component of a recurring set — the master and its
  * `RECURRENCE-ID` overrides — to live in the **same** calendar object resource.
@@ -52,11 +55,11 @@ function copyOwnedProperties(target: ICAL.Component, source: ICAL.Component): vo
 }
 
 /**
- * Merge one Google-generated VCALENDAR into the stored resource. Returns the new
+ * Merge one provider-generated VCALENDAR into the stored resource. Returns the new
  * resource text, or null when the batch cannot be read (the caller keeps the
  * stored resource rather than writing a broken one).
  */
-export function mergeGoogleCalendarResource(existingRaw: string | null | undefined, incomingRaw: string): string | null {
+export function mergeProviderCalendarResource(existingRaw: string | null | undefined, incomingRaw: string): string | null {
   const incoming = parse(incomingRaw);
   if (!incoming) return null;
   const incomingMaster = incoming.getAllSubcomponents('vevent').find(event => !event.hasProperty('recurrence-id')) ?? null;

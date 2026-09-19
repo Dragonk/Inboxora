@@ -9,10 +9,18 @@ import {
   readSyncState,
   releaseSyncLease,
 } from '../../syncCoordinator.js';
-import { GoogleApiError } from './googleApiClient.js';
-import type { GoogleApiOptions } from './googleApiClient.js';
-import { fetchCalendarEvents, fetchCalendarList, buildGoogleSeriesICalendar } from './googleCalendar.js';
-import type { GoogleCalendarEvent, GoogleCalendarListEntry } from './googleCalendar.js';
+import { GraphApiError } from './graphApiClient.js';
+import type { GraphApiOptions } from './graphApiClient.js';
+import {
+  buildGraphSeriesICalendar,
+  fetchGraphCalendarEventsPage,
+  fetchGraphCalendarsPage,
+  graphCalendarAllowsWrites,
+  graphCalendarColor,
+  graphEventIsCancelled,
+  groupGraphEvents,
+} from './graphCalendar.js';
+import type { GraphCalendar, GraphEvent } from './graphCalendar.js';
 import {
   applyProviderCalendarEventGroup,
   reconcileProviderCalendarCollection,
@@ -20,26 +28,28 @@ import {
   type CalendarResourceAdapters,
 } from '../providerCalendarProjection.js';
 import { ProviderAuthError } from '../../providerAuthService.js';
-import type { FetchLike, GoogleConfig } from '../../providerAuthService.js';
+import type { FetchLike } from '../../providerAuthService.js';
+import type { MicrosoftConfig } from '../../providerAuthService.js';
 
 /**
- * Google Calendar read sync (P09).
+ * Microsoft Graph **calendar read sync** (P07d).
  *
- * One local calendar per Google calendar, created read-only with DAV access
- * disabled. A Google event id is the remote identity; the local resource keeps the
- * whole series (the plan forbids fragmenting it), so Google's master and its
- * instance overrides are merged into the single resource DAV requires.
+ * The shape is the Google one, deliberately: one local calendar per provider calendar, created read-only
+ * with DAV access off, linked through `integration_collections`, synced under the P03 lease with a
+ * per-collection delta cursor stored only after every group was applied, and rebuilt from a baseline when
+ * the provider rejects the cursor. What differs is the provider: Graph's cursor is an absolute
+ * `@odata.deltaLink` rather than a sync token, so the stored cursor is that link, and its `@removed`
+ * tombstones are how a deletion in Outlook reaches Inboxora.
  *
- * The per-collection cursor is stored under the P03 lease: only one sync runs per
- * collection, and a restarted worker cannot advance the cursor out of order. A
- * cursor the provider rejects (HTTP 410) rebuilds that collection from a baseline.
+ * Permission mapping is a stored fact rather than a guess: a calendar Graph marks `canEdit: false` can
+ * never be offered for write-back, and the collection's `source_access` records whether the provider
+ * allows writes at all.
  */
 
 const MAX_PAGES = 1000;
-const PAGE_SIZE = 1000;
-const DEFAULT_COLOR = '#4285f4';
+const PAGE_SIZE = 100;
 
-export interface GoogleCalendarSyncResult {
+export interface GraphCalendarSyncResult {
   collections: number;
   created: number;
   updated: number;
@@ -57,28 +67,28 @@ interface CalendarCollection {
 
 type ApplyContext = CalendarProjectionContext;
 
-/** The adapter hooks the shared projection needs for a Google batch. */
-const GOOGLE_PROJECTION: CalendarResourceAdapters<GoogleCalendarEvent> = {
-  buildResource: (group, context) => buildGoogleSeriesICalendar({
+/** The adapter hooks the shared projection needs for a Graph batch. */
+const GRAPH_PROJECTION: CalendarResourceAdapters<GraphEvent> = {
+  buildResource: (group, context) => buildGraphSeriesICalendar({
     master: group.master,
     overrides: group.overrides,
     defaultTimeZone: context.defaultTimeZone,
   }),
-  isCancelled: event => event.status === 'cancelled',
-  fallbackUid: remoteId => `${remoteId}@google.com`,
+  isCancelled: graphEventIsCancelled,
+  fallbackUid: remoteId => `${remoteId}@microsoft.com`,
 };
 
-function calendarColor(entry: GoogleCalendarListEntry): string {
-  return typeof entry.backgroundColor === 'string' && /^#[0-9a-f]{6}$/i.test(entry.backgroundColor)
-    ? entry.backgroundColor
-    : DEFAULT_COLOR;
-}
-
-/** Find or create the local calendar and collection link for one Google calendar. */
-export async function ensureGoogleCalendarCollection(client: PoolClient, input: {
+/**
+ * Find or create the local calendar and collection link for one Graph calendar.
+ *
+ * A calendar the provider refuses to edit is stored with `source_access = 'read_only'`; one it allows is
+ * still pulled read-only, but the link records that the source permits writes, which is what a later
+ * write-back can consult instead of asking Inboxora's own column.
+ */
+export async function ensureGraphCalendarCollection(client: PoolClient, input: {
   userId: string;
   connectionId: string;
-  entry: GoogleCalendarListEntry;
+  entry: GraphCalendar;
 }): Promise<void> {
   const linkQuery = `SELECT id, local_calendar_id FROM integration_collections
      WHERE connection_id = $1 AND kind = 'calendar' AND remote_id = $2`;
@@ -87,32 +97,32 @@ export async function ensureGoogleCalendarCollection(client: PoolClient, input: 
     [input.connectionId, input.entry.id],
   );
   if (existing.rows[0]?.local_calendar_id) {
-    // Already linked: nothing to do. Re-asserting `enabled` here would switch a
-    // collection the user disabled back on at the next refresh, and the access columns
-    // belong to the link rather than to each run.
+    // Already linked: nothing to do. Re-asserting `enabled` here would switch a collection the user
+    // disabled back on at the next refresh.
     return;
   }
 
-  const label = input.entry.summary?.trim() || input.entry.id;
+  const label = input.entry.name?.trim() || input.entry.id;
+  const sourceAccess = graphCalendarAllowsWrites(input.entry) ? 'read_write' : 'read_only';
   for (let attempt = 0; attempt < 20; attempt++) {
     const name = attempt === 0 ? label : `${label} (${attempt + 1})`;
     try {
       const created = await client.query<{ id: string }>(
         // A provider calendar starts read-only and hidden from DAV devices.
         `INSERT INTO calendars (user_id, owner_user_id, name, color, source, read_only, dav_mode)
-         VALUES ($1, $1, $2, $3, 'google', true, 'off') RETURNING id`,
-        [input.userId, name, calendarColor(input.entry)],
+         VALUES ($1, $1, $2, $3, 'microsoft', true, 'off') RETURNING id`,
+        [input.userId, name, graphCalendarColor(input.entry)],
       );
       const calendarId = created.rows[0]?.id;
-      if (!calendarId) throw new Error('Could not create the Google calendar');
+      if (!calendarId) throw new Error('Could not create the Microsoft calendar');
 
       if (existing.rows[0]) {
         await client.query(
           `UPDATE integration_collections
-              SET local_calendar_id = $2, enabled = true, source_access = 'read_only', user_access = 'source',
+              SET local_calendar_id = $2, enabled = true, source_access = $3, user_access = 'source',
                   dav_mode = 'off', updated_at = NOW()
             WHERE id = $1`,
-          [existing.rows[0].id, calendarId],
+          [existing.rows[0].id, calendarId, sourceAccess],
         );
         return;
       }
@@ -120,61 +130,44 @@ export async function ensureGoogleCalendarCollection(client: PoolClient, input: 
       const collection = await client.query<{ id: string }>(
         `INSERT INTO integration_collections
            (user_id, connection_id, kind, remote_id, local_calendar_id, enabled, source_access, user_access, dav_mode)
-         VALUES ($1, $2, 'calendar', $3, $4, true, 'read_only', 'source', 'off')
+         VALUES ($1, $2, 'calendar', $3, $4, true, $5, 'source', 'off')
          ON CONFLICT DO NOTHING
          RETURNING id`,
-        [input.userId, input.connectionId, input.entry.id, calendarId],
+        [input.userId, input.connectionId, input.entry.id, calendarId, sourceAccess],
       );
       const collectionId = collection.rows[0]?.id
         ?? (await client.query<{ id: string }>(linkQuery, [input.connectionId, input.entry.id])).rows[0]?.id;
-      if (!collectionId) throw new Error('Could not link the Google calendar');
+      if (!collectionId) throw new Error('Could not link the Microsoft calendar');
       return;
     } catch (caught) {
       if (toAppError(caught).code === '23505') continue; // name taken — try the next suffix
       throw caught;
     }
   }
-  throw new Error('Could not create the Google calendar');
+  throw new Error('Could not create the Microsoft calendar');
 }
 
-/** Group a batch by remote master id: overrides travel with their master. */
-export function groupGoogleEvents(events: readonly GoogleCalendarEvent[]): Map<string, { master: GoogleCalendarEvent | null; overrides: GoogleCalendarEvent[] }> {
-  const groups = new Map<string, { master: GoogleCalendarEvent | null; overrides: GoogleCalendarEvent[] }>();
-  const ensure = (id: string) => {
-    if (!groups.has(id)) groups.set(id, { master: null, overrides: [] });
-    return groups.get(id)!;
-  };
-  for (const event of events) {
-    if (event.recurringEventId) ensure(event.recurringEventId).overrides.push(event);
-    else ensure(event.id).master = event;
-  }
-  return groups;
-}
-
-/**
- * Apply one Google master group through the shared provider projection, so Google and Microsoft
- * cannot drift in how a recurring set becomes one local resource.
- */
-export async function applyGoogleEventGroup(client: PoolClient, context: ApplyContext, remoteId: string, group: {
-  master: GoogleCalendarEvent | null;
-  overrides: GoogleCalendarEvent[];
+/** Apply one Graph master group through the shared provider projection. */
+export async function applyGraphEventGroup(client: PoolClient, context: ApplyContext, remoteId: string, group: {
+  master: GraphEvent | null;
+  overrides: GraphEvent[];
 }): Promise<'created' | 'updated' | 'deleted' | 'skipped'> {
-  return applyProviderCalendarEventGroup(client, context, remoteId, group, GOOGLE_PROJECTION);
+  return applyProviderCalendarEventGroup(client, context, remoteId, group, GRAPH_PROJECTION);
 }
 
-async function listAllCalendars(api: GoogleApiOptions): Promise<GoogleCalendarListEntry[]> {
-  const calendars: GoogleCalendarListEntry[] = [];
-  let pageToken: string | null = null;
+async function listAllCalendars(api: GraphApiOptions): Promise<GraphCalendar[]> {
+  const calendars: GraphCalendar[] = [];
+  let link: string | null = null;
   for (let page = 0; page < MAX_PAGES; page++) {
-    const result = await fetchCalendarList(api, { pageToken });
+    const result = await fetchGraphCalendarsPage(api, { link, pageSize: PAGE_SIZE });
     calendars.push(...result.calendars);
-    pageToken = result.nextPageToken;
-    if (!pageToken) break;
+    link = result.nextLink;
+    if (!link) break;
   }
   return calendars;
 }
 
-async function syncCollection(api: GoogleApiOptions, collection: CalendarCollection, context: Omit<ApplyContext, 'collectionId' | 'calendarId' | 'remoteCalendarId'>): Promise<{
+async function syncCollection(api: GraphApiOptions, collection: CalendarCollection, context: Omit<ApplyContext, 'collectionId' | 'calendarId' | 'remoteCalendarId'>): Promise<{
   created: number; updated: number; deleted: number; skipped: number; fullSync: boolean;
 }> {
   const syncStateId = await withTransaction(client => ensureSyncState(client, {
@@ -184,12 +177,12 @@ async function syncCollection(api: GoogleApiOptions, collection: CalendarCollect
     collectionId: collection.id,
     coverage: 'events',
   }));
-  const owner = `google-calendar:${collection.id}`;
+  const owner = `microsoft-calendar:${collection.id}`;
   const lease = await withTransaction(client => acquireSyncLease(client, { syncStateId, owner }));
   if (!lease) {
-    throw new GoogleApiError({
+    throw new GraphApiError({
       code: 'RATE_LIMITED',
-      message: 'Another Google calendar sync is already running for this calendar',
+      message: 'Another Microsoft calendar sync is already running for this calendar',
       status: 409,
       retryable: true,
     });
@@ -200,20 +193,22 @@ async function syncCollection(api: GoogleApiOptions, collection: CalendarCollect
     const state = await withTransaction(client => readSyncState(client, syncStateId));
     let cursor = state?.cursor ?? null;
     totals.fullSync = cursor === null;
-    let pageToken: string | null = null;
-    let nextSyncToken: string | null = null;
+    // A resumed run follows the stored delta link; a first run (or a rebuild) starts from the endpoint.
+    let link: string | null = cursor;
     let rebuilt = false;
-    const events: GoogleCalendarEvent[] = [];
+    const events: GraphEvent[] = [];
 
     for (let page = 0; page < MAX_PAGES; page++) {
       let fetched;
       try {
-        fetched = await fetchCalendarEvents(api, collection.remoteId, { pageToken, syncToken: cursor, maxResults: PAGE_SIZE });
+        // A resumed run starts from the stored delta link; a first run starts from the endpoint.
+        fetched = await fetchGraphCalendarEventsPage(api, collection.remoteId, { link, pageSize: PAGE_SIZE });
       } catch (caught) {
-        // Lost history: reconcile the whole calendar from a fresh baseline.
-        if (caught instanceof GoogleApiError && caught.code === 'INVALID_SYNC_CURSOR' && cursor) {
+        // A delta link Graph rejects (410, or a cursor it no longer honours) means the history is gone:
+        // reconcile the whole calendar from a fresh baseline instead of trusting a partial batch.
+        if (caught instanceof GraphApiError && caught.code === 'INVALID_SYNC_CURSOR' && (link ?? cursor)) {
+          link = null;
           cursor = null;
-          pageToken = null;
           events.length = 0;
           totals.fullSync = true;
           rebuilt = true;
@@ -222,9 +217,9 @@ async function syncCollection(api: GoogleApiOptions, collection: CalendarCollect
         throw caught;
       }
       events.push(...fetched.events);
-      if (fetched.nextSyncToken) nextSyncToken = fetched.nextSyncToken;
-      pageToken = fetched.nextPageToken;
-      if (!pageToken) break;
+      if (fetched.deltaLink) cursor = fetched.deltaLink;
+      link = fetched.nextLink;
+      if (!link) break;
     }
 
     const applyContext: ApplyContext = {
@@ -233,13 +228,14 @@ async function syncCollection(api: GoogleApiOptions, collection: CalendarCollect
       remoteCalendarId: collection.remoteId,
       calendarId: collection.localCalendarId,
     };
-    const groups = groupGoogleEvents(events);
+    const groups = groupGraphEvents(events);
     for (const [remoteId, group] of groups) {
-      const applied = await withTransaction(client => applyGoogleEventGroup(client, applyContext, remoteId, group));
+      const applied = await withTransaction(client => applyGraphEventGroup(client, applyContext, remoteId, group));
       totals[applied] += 1;
     }
-    // A rebuild read a complete baseline, so a resource it omits was deleted while the cursor was
-    // unusable; an incremental batch must never be reconciled this way.
+    // A rebuild read a complete baseline, so anything it does not mention was deleted at the provider
+    // while the cursor was unusable. An incremental batch must never be reconciled this way: there,
+    // omission means "unchanged".
     if (rebuilt) {
       const removed = await withTransaction(client => reconcileProviderCalendarCollection(
         client, { userId: context.userId, collectionId: collection.id }, new Set(groups.keys()),
@@ -247,17 +243,17 @@ async function syncCollection(api: GoogleApiOptions, collection: CalendarCollect
       totals.deleted += removed;
     }
 
-    // The cursor advances only after every group was applied, so a crash mid-run
-    // re-reads from the previous cursor instead of skipping changes.
+    // The cursor advances only after every group was applied, so a crash mid-run re-reads from the
+    // previous link instead of skipping changes.
     const committed = await withTransaction(client => commitSyncCheckpoint(client, {
       syncStateId,
       generation: lease.generation,
-      cursor: nextSyncToken ?? cursor,
+      cursor,
       clearPageCheckpoint: true,
       lastErrorCode: null,
     }));
     if (!committed) {
-      throw new GoogleApiError({
+      throw new GraphApiError({
         code: 'MUTATION_OUTCOME_UNKNOWN',
         message: 'The sync lease was lost before the cursor could be stored',
         status: 409,
@@ -266,34 +262,34 @@ async function syncCollection(api: GoogleApiOptions, collection: CalendarCollect
     await withTransaction(client => releaseSyncLease(client, { syncStateId, generation: lease.generation })).catch(() => {});
     return totals;
   } catch (caught) {
-    const code = caught instanceof GoogleApiError || caught instanceof ProviderAuthError ? caught.code : 'INTERNAL_ERROR';
+    const code = caught instanceof GraphApiError || caught instanceof ProviderAuthError ? caught.code : 'INTERNAL_ERROR';
     await withTransaction(client => failSyncRun(client, { syncStateId, generation: lease.generation, errorCode: code })).catch(() => {});
     throw caught;
   }
 }
 
 /**
- * Synchronise every calendar of one Google connection. One calendar failing does
- * not stop the others; its failure is reported per collection.
+ * Synchronise every calendar of one Microsoft connection. One calendar failing does not stop the others;
+ * its failure is reported per collection.
  */
-export async function syncGoogleCalendar(input: {
+export async function syncGraphCalendar(input: {
   userId: string;
   connectionId: string;
-  config: GoogleConfig;
+  config: MicrosoftConfig;
   fetchImpl?: FetchLike;
-}): Promise<GoogleCalendarSyncResult> {
-  const api: GoogleApiOptions = {
+}): Promise<GraphCalendarSyncResult> {
+  const api: GraphApiOptions = {
     userId: input.userId,
     connectionId: input.connectionId,
     config: input.config,
-    owner: `google-calendar:${input.connectionId}`,
+    owner: `microsoft-calendar:${input.connectionId}`,
     ...(input.fetchImpl ? { fetchImpl: input.fetchImpl } : {}),
   };
   const calendars = await listAllCalendars(api);
   await withTransaction(async client => {
     // One client, so the discovery writes run in sequence on the same connection.
     for (const entry of calendars) {
-      await ensureGoogleCalendarCollection(client, { userId: input.userId, connectionId: input.connectionId, entry });
+      await ensureGraphCalendarCollection(client, { userId: input.userId, connectionId: input.connectionId, entry });
     }
   });
 
@@ -308,9 +304,11 @@ export async function syncGoogleCalendar(input: {
     remoteId: row.remote_id,
     localCalendarId: row.local_calendar_id,
   }));
-  const defaultTimeZone = calendars.find(entry => entry.primary)?.timeZone ?? calendars[0]?.timeZone ?? null;
+  // Graph stamps each event with its own zone; a calendar-level zone is only a fallback and is read from
+  // the user's mailbox settings lazily. `null` means "trust the event's zone", which is what Graph sends.
+  const defaultTimeZone = null;
 
-  const result: GoogleCalendarSyncResult = {
+  const result: GraphCalendarSyncResult = {
     collections: collections.length,
     created: 0, updated: 0, deleted: 0, skipped: 0, fullSync: false, errors: [],
   };
@@ -329,7 +327,7 @@ export async function syncGoogleCalendar(input: {
     } catch (caught) {
       result.errors.push({
         calendarId: collection.remoteId,
-        code: caught instanceof GoogleApiError || caught instanceof ProviderAuthError ? caught.code : 'INTERNAL_ERROR',
+        code: caught instanceof GraphApiError || caught instanceof ProviderAuthError ? caught.code : 'INTERNAL_ERROR',
       });
     }
   }

@@ -32,6 +32,18 @@ release is never claimed before it has happened.
 
 ### Added
 
+- **Microsoft Graph calendars (P07d, read path).** A Microsoft connection's calendars are now
+  discovered and pulled with their events, next to the contacts that already were. Each calendar
+  becomes a local calendar that starts **read-only and hidden from DAV devices**, linked by its
+  immutable Graph id, and refreshed on the same schedule as the other provider collections. A
+  recurring event stays **one resource**: Graph's structured `recurrence` is rendered into an `RRULE`
+  (every pattern type it defines, with `COUNT` or an inclusive UTC `UNTIL`), the wall time keeps its
+  zone with a generated `VTIMEZONE`, an all-day event stays date-valued, and a moved or cancelled
+  instance travels as a `RECURRENCE-ID` override inside its master's resource. A delta link Graph
+  rejects rebuilds the calendar from a baseline, and the provider's own permission (`canEdit`) is
+  recorded on the collection so a calendar Microsoft refuses to edit can never be offered as
+  writable. No new migration is required for this package.
+
 - **Microsoft Graph provider authorization by device code (P04).** The Graph connector — the provider
   connection that calendars and contacts sync through — can now be authorized without a client secret
   and without a registered callback, by the same device-code grant the mailbox flow uses. The operator
@@ -964,6 +976,15 @@ release is never claimed before it has happened.
   passed.
 
 ### Fixed
+
+- **A provider calendar rebuild now reconciles.** When a provider rejects the sync cursor, the calendar
+  is rebuilt from a complete baseline — but a resource that baseline no longer lists was previously left
+  in place, so an event deleted at the provider while the cursor was unusable would have stayed visible
+  forever (an incremental delta cannot repair it, because it only carries what changed). The rebuild now
+  removes the local events of that collection which the baseline omits, keeping the remote link as a
+  tombstone. It runs **only** on a rebuild: in an incremental batch, an omitted event means "unchanged".
+  The Google and Microsoft calendar paths share this through one projection module.
+
 
 - **A too-large message rejected by the forwarded-attachment backstop now answers with a domain code
   instead of prose.** The send route has three size guards, and the last of them — the exact re-check

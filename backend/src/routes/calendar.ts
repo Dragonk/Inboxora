@@ -1,8 +1,10 @@
 import { calendarResources, mergeCalendarResource, rruleFromCalendarResource, setSeriesRecurrence, truncateSeriesBefore } from '../utils/calendarRecurrence.js';
 import { parseRecurrenceInput, recurrenceViewFromRRule } from '../utils/calendarRecurrenceRule.js';
-import { googleConfigFromEnv, isGoogleConfigured } from '../services/providerAuthService.js';
+import { googleConfigFromEnv, isGoogleConfigured, isMicrosoftConfigured, microsoftConfigFromEnv } from '../services/providerAuthService.js';
 import { syncGoogleCalendar } from '../services/providers/google/googleCalendarSync.js';
 import { GoogleApiError } from '../services/providers/google/googleApiClient.js';
+import { syncGraphCalendar } from '../services/providers/microsoft/graphCalendarSync.js';
+import { GraphApiError } from '../services/providers/microsoft/graphApiClient.js';
 import type { AttachmentRef, EmailAccountRow } from '../services/imapManager.js';
 import ICAL from 'ical.js';
 import { parseInboundCalendarInvitation } from '../services/inboundCalendarInvitation.js';
@@ -1178,7 +1180,8 @@ router.get('/providers/google/status', async (req, res) => {
          FROM integration_collections ic
          JOIN calendars c ON c.id = ic.local_calendar_id
          LEFT JOIN sync_states s ON s.collection_id = ic.id AND s.user_id = ic.user_id
-        WHERE ic.user_id = $1 AND ic.kind = 'calendar'
+         JOIN provider_connections pc ON pc.id = ic.connection_id
+        WHERE ic.user_id = $1 AND ic.kind = 'calendar' AND pc.provider = 'google'
         ORDER BY c.created_at ASC`,
       [userId],
     ),
@@ -1226,6 +1229,87 @@ router.post('/providers/google/sync', async (req, res) => {
       results.push({ connectionId: connection.id, ...(await syncGoogleCalendar({ userId, connectionId: connection.id, config })) });
     } catch (caught) {
       const error = caught instanceof GoogleApiError ? caught : null;
+      results.push({
+        connectionId: connection.id,
+        error: error
+          ? { code: error.code, message: error.message, retryable: error.retryable }
+          : { code: 'INTERNAL_ERROR', message: toAppError(caught).message, retryable: false },
+      });
+    }
+  }
+  res.json({ results });
+});
+
+
+// Whether Microsoft calendars can be pulled, and what has been pulled so far. The scope is
+// deliberately per provider: a Microsoft calendar and a Google calendar share the `calendar` collection
+// kind, so the connection's provider is what separates them.
+router.get('/providers/microsoft/status', async (req, res) => {
+  const userId = sessionUserId(req);
+  const [connections, collections] = await Promise.all([
+    query<{ id: string }>(
+      "SELECT id FROM provider_connections WHERE user_id = $1 AND provider = 'microsoft' AND status = 'active'",
+      [userId],
+    ),
+    query<{
+      connection_id: string; calendar_id: string; name: string | null; source_access: string | null;
+      event_count: number; last_success_at: string | Date | null; last_error_code: string | null; last_error_at: string | Date | null;
+    }>(
+      `SELECT ic.connection_id, c.id AS calendar_id, c.name, ic.source_access,
+              (SELECT COUNT(*)::int FROM calendar_events e WHERE e.calendar_id = c.id) AS event_count,
+              s.last_success_at, s.last_error_code, s.last_error_at
+         FROM integration_collections ic
+         JOIN calendars c ON c.id = ic.local_calendar_id
+         LEFT JOIN sync_states s ON s.collection_id = ic.id AND s.user_id = ic.user_id
+         JOIN provider_connections pc ON pc.id = ic.connection_id
+        WHERE ic.user_id = $1 AND ic.kind = 'calendar' AND pc.provider = 'microsoft'
+        ORDER BY c.created_at ASC`,
+      [userId],
+    ),
+  ]);
+  res.json({
+    configured: isMicrosoftConfigured(microsoftConfigFromEnv()),
+    connected: connections.rows.length > 0,
+    connections: connections.rows.length,
+    calendars: collections.rows.map(row => ({
+      connectionId: row.connection_id,
+      calendarId: row.calendar_id,
+      name: row.name,
+      // Whether the provider itself permits writes to this calendar. Read-only is the honest default.
+      canWriteAtSource: row.source_access === 'read_write',
+      eventCount: row.event_count,
+      lastSyncedAt: row.last_success_at,
+      lastErrorCode: row.last_error_code,
+      lastErrorAt: row.last_error_at,
+    })),
+  });
+});
+
+// Pull the signed-in user's Microsoft calendars and their events. The synced calendars are read-only and
+// hidden from DAV devices until the user enables them, exactly as the Google path stores them.
+router.post('/providers/microsoft/sync', async (req, res) => {
+  if (!providerIntegrationsEnabled()) {
+    return res.status(403).json({ error: 'Provider integrations are disabled on this installation' });
+  }
+  const userId = sessionUserId(req);
+  const connections = await query<{ id: string }>(
+    "SELECT id FROM provider_connections WHERE user_id = $1 AND provider = 'microsoft' AND status = 'active' ORDER BY created_at ASC",
+    [userId],
+  );
+  if (!connections.rows.length) {
+    return res.status(409).json({ error: 'Connect a Microsoft account before syncing calendars' });
+  }
+  const config = microsoftConfigFromEnv();
+  if (!isMicrosoftConfigured(config)) {
+    return res.status(409).json({ error: 'Microsoft API is not configured by the administrator' });
+  }
+
+  const results: Array<Record<string, unknown>> = [];
+  for (const connection of connections.rows) {
+    try {
+      results.push({ connectionId: connection.id, ...(await syncGraphCalendar({ userId, connectionId: connection.id, config })) });
+    } catch (caught) {
+      const error = caught instanceof GraphApiError ? caught : null;
       results.push({
         connectionId: connection.id,
         error: error

@@ -9,6 +9,7 @@ import {
 import { syncGoogleContacts } from './providers/google/googleContactsSync.js';
 import { syncGoogleCalendar } from './providers/google/googleCalendarSync.js';
 import { syncGraphContacts } from './providers/microsoft/graphContactsSync.js';
+import { syncGraphCalendar } from './providers/microsoft/graphCalendarSync.js';
 import { syncGraphMailFolders, syncGraphMailMessagesForAccount } from './providers/microsoft/graphMailSync.js';
 
 /**
@@ -160,10 +161,10 @@ function syncFor(provider: string, kind: string): ((target: ProviderSyncTarget, 
     return null;
   }
   if (provider === 'microsoft') {
-    // The Graph calendar adapter arrives with P07d; until then contacts and the mail
-    // folder tree exist. A mail folder sync is a full snapshot, so an overlapping
-    // tick is refused by the lease rather than queued.
+    // A mail folder sync is a full snapshot, so an overlapping tick is refused by the
+    // lease rather than queued.
     if (kind === 'address_book') return (target, _google, microsoft) => syncGraphContacts({ userId: target.userId, connectionId: target.connectionId, config: microsoft });
+    if (kind === 'calendar') return (target, _google, microsoft) => syncGraphCalendar({ userId: target.userId, connectionId: target.connectionId, config: microsoft });
     if (kind === 'mail_folder') {
       // Discovery first, then the messages: the per-folder delta cursors belong to
       // the folders discovery maintains, so a new folder is only ever synced after

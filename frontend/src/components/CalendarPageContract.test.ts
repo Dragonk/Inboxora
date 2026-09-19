@@ -17,7 +17,9 @@ test('calendar events expose context-menu invocation without per-event action bu
   assert.doesNotMatch(source, /eventActionButton/);
   // The context menu itself stays available (right-click / Shift+F10 / long-press).
   assert.match(source, /<CalendarContextMenu/);
-  assert.match(source, /source === 'local'/);
+  // Editability is the server's `read_only`, never a comparison against the origin: a provider
+  // collection the server reports as writable must be editable without a code change here.
+  assert.doesNotMatch(source, /source === 'local'|source !== 'local'/);
   assert.match(source, /<TimeGrid[^>]*openContextMenu=\{openContextMenu\}/);
   assert.match(source, /allDayEvents[\s\S]*onContextMenu/);
 });
@@ -42,7 +44,7 @@ test('calendar source management stays in the visibility panel and owned calenda
   assert.match(sidebar, /calendar-appearance-dialog/);
   assert.match(sidebar, /type="color"/);
   assert.match(sidebar, /confirmCalendarDelete/);
-  assert.match(sidebar, /source === 'local' && !calendar\.read_only/);
+  assert.match(sidebar, /!calendar\.read_only && calendar\.owner_user_id/);
 });
 
 
