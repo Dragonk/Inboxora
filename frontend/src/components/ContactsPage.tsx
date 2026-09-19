@@ -670,6 +670,10 @@ export default function ContactsPage({ isActive = true }) {
         <Button onClick={openCreateBook}>{t('contacts.addressBooks.create')}</Button>
         {googleContacts?.connected && <Button data-testid="contacts-google-sync" disabled={providerSyncing !== null} onClick={() => runProviderContactsSync('google')}>{providerSyncing === 'google' ? t('contacts.addressBooks.googleSyncing') : t('contacts.addressBooks.googleSync')}</Button>}
         {microsoftContacts?.connected && <Button data-testid="contacts-microsoft-sync" disabled={providerSyncing !== null} onClick={() => runProviderContactsSync('microsoft')}>{providerSyncing === 'microsoft' ? t('contacts.addressBooks.microsoftSyncing') : t('contacts.addressBooks.microsoftSync')}</Button>}
+        {/* Configured by an administrator but not connected by this user: say so, and
+            where to connect it, instead of showing nothing. */}
+        {googleContacts?.configured && !googleContacts?.connected && <span data-testid="contacts-google-connect-hint" style={providerStatusStyle}>{t('providers.connectGoogleHint')}</span>}
+        {microsoftContacts?.configured && !microsoftContacts?.connected && <span data-testid="contacts-microsoft-connect-hint" style={providerStatusStyle}>{t('providers.connectMicrosoftHint')}</span>}
         {googleSummary && <span data-testid="contacts-google-sync-status" style={providerStatusStyle}>{t(googleSummary.key ?? 'contacts.addressBooks.lastSynced', googleSummary.values)}</span>}
         {microsoftSummary && <span data-testid="contacts-microsoft-sync-status" style={providerStatusStyle}>{t(microsoftSummary.key ?? 'contacts.addressBooks.lastSynced', microsoftSummary.values)}</span>}
         {selectedAddressBookId && <>

@@ -309,6 +309,11 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   somewhere in the calendar behind it; the dialog now stays open with the count the server returns,
   which also lets a second file follow without reopening it. A previous file's confirmation no
   longer greets the next calendar you open.
+- Say when a provider is ready to connect. The contacts page showed nothing for a provider an
+  administrator had already configured, so a user could not tell that contact import was available
+  to them; it now names the provider and the button to use under **Settings → Integrations**. It
+  appears only in the not-connected case and never replaces the sync control for an account that is
+  connected.
 ## [4.0.4] - 2026-09-18
 
 ### Changed

@@ -2105,6 +2105,8 @@
     },
     "syncFailedAuth": "Hay que volver a conectar la cuenta. Abre la tarjeta de integración y conéctala de nuevo.",
     "syncFailedScopes": "A la conexión le falta un permiso que esta función necesita. Vuelve a conectarla y concede el acceso solicitado.",
-    "syncFailedRateLimited": "El proveedor está limitando las solicitudes ahora mismo. Se reintentará automáticamente."
+    "syncFailedRateLimited": "El proveedor está limitando las solicitudes ahora mismo. Se reintentará automáticamente.",
+    "connectGoogleHint": "Google está listo para conectarse. Usa «Conectar una cuenta de Google» en Ajustes → Integraciones para traer sus contactos aquí.",
+    "connectMicrosoftHint": "Microsoft está listo para conectarse. Usa «Conectar contactos de Microsoft» en Ajustes → Integraciones para traer sus contactos aquí."
   }
 }

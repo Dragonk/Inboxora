@@ -2105,6 +2105,8 @@
     },
     "syncFailedAuth": "Die Verbindung muss erneut hergestellt werden. Öffnen Sie die Integrationskarte und verbinden Sie das Konto neu.",
     "syncFailedScopes": "Der Verbindung fehlt eine Berechtigung, die diese Funktion benötigt. Verbinden Sie sie neu und erlauben Sie den Zugriff.",
-    "syncFailedRateLimited": "Der Anbieter begrenzt gerade die Anfragen. Es wird automatisch erneut versucht."
+    "syncFailedRateLimited": "Der Anbieter begrenzt gerade die Anfragen. Es wird automatisch erneut versucht.",
+    "connectGoogleHint": "Google kann verbunden werden. Nutzen Sie „Google-Konto verbinden“ unter Einstellungen → Integrationen, um die Kontakte hier abzurufen.",
+    "connectMicrosoftHint": "Microsoft kann verbunden werden. Nutzen Sie „Microsoft-Kontakte verbinden“ unter Einstellungen → Integrationen, um die Kontakte hier abzurufen."
   }
 }

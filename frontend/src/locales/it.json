@@ -2105,6 +2105,8 @@
     },
     "syncFailedAuth": "La connessione va ristabilita. Apri la scheda di integrazione e riconnetti l’account.",
     "syncFailedScopes": "Alla connessione manca un’autorizzazione necessaria a questa funzione. Riconnettila e concedi l’accesso richiesto.",
-    "syncFailedRateLimited": "Il provider sta limitando le richieste in questo momento. Verrà ritentato automaticamente."
+    "syncFailedRateLimited": "Il provider sta limitando le richieste in questo momento. Verrà ritentato automaticamente.",
+    "connectGoogleHint": "Google è pronto per la connessione. Usa «Connetti un account Google» in Impostazioni → Integrazioni per portare qui i contatti.",
+    "connectMicrosoftHint": "Microsoft è pronto per la connessione. Usa «Connetti contatti Microsoft» in Impostazioni → Integrazioni per portare qui i contatti."
   }
 }

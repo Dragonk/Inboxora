@@ -199,3 +199,14 @@ test('a calendar import confirms its result and leaves the dialog open', async (
   // A stale confirmation must not greet the next calendar.
   assert.match(source, /setOpenCalendarMenu\(null\); setEditError\(null\); setImportNotice\(''\);/);
 });
+
+test('a configured but unconnected provider says so on the contacts page', async () => {
+  const source = await readFile(contactsPage, 'utf8');
+  // Silence is the wrong answer when the administrator has already made it possible.
+  assert.match(source, /googleContacts\?\.configured && !googleContacts\?\.connected && <span data-testid="contacts-google-connect-hint"/);
+  assert.match(source, /microsoftContacts\?\.configured && !microsoftContacts\?\.connected && <span data-testid="contacts-microsoft-connect-hint"/);
+  assert.match(source, /providers\.connectGoogleHint/);
+  assert.match(source, /providers\.connectMicrosoftHint/);
+  // The hint must not replace the sync control for a provider that *is* connected.
+  assert.match(source, /googleContacts\?\.connected && <Button data-testid="contacts-google-sync"/);
+});
