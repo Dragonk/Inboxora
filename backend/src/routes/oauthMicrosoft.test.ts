@@ -26,7 +26,10 @@ const realFetch = globalThis.fetch.bind(globalThis) as typeof fetch;
 const CONFIG = {
   clientId: '11111111-2222-3333-4444-555555555555',
   clientSecret: 'ms-secret',
-  redirectUri: 'https://inboxora.example/oauth/provider/microsoft/callback',
+  redirectUri: 'https://inboxora.example/oauth/microsoft/callback',
+  // The provider flow has its own callback; using the mailbox one sent its code to the
+  // legacy route, which knows nothing about this flow's state.
+  providerRedirectUri: 'https://inboxora.example/oauth/provider/microsoft/callback',
   tenantId: 'consumers',
 };
 
@@ -38,6 +41,7 @@ let graphStatus = 200;
 let graphBody: Record<string, unknown>;
 
 const originalEnv = {
+  APP_URL: process.env.APP_URL,
   MS_CLIENT_ID: process.env.MS_CLIENT_ID,
   MS_CLIENT_SECRET: process.env.MS_CLIENT_SECRET,
   MS_REDIRECT_URI: process.env.MS_REDIRECT_URI,
@@ -90,6 +94,8 @@ beforeEach(() => {
   process.env.MS_CLIENT_SECRET = CONFIG.clientSecret;
   process.env.MS_REDIRECT_URI = CONFIG.redirectUri;
   process.env.MS_TENANT_ID = CONFIG.tenantId;
+  // The provider callback is derived from the trusted APP_URL when not set explicitly.
+  process.env.APP_URL = 'https://inboxora.example';
 
   mocks.query.mockReset();
   mocks.query.mockImplementation(async (sql: string) => {
@@ -123,6 +129,7 @@ afterEach(() => {
   delete process.env.MS_CLIENT_SECRET;
   delete process.env.MS_REDIRECT_URI;
   delete process.env.MS_TENANT_ID;
+  delete process.env.APP_URL;
 });
 
 const startFlow = (query = '') => realFetch(`${base}/oauth/provider/microsoft${query}`, { redirect: 'manual' });
@@ -143,7 +150,10 @@ describe('GET /oauth/provider/microsoft (start)', () => {
     const location = new URL(String(response.headers.get('location')));
     expect(location.origin + location.pathname).toBe('https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize');
     expect(location.searchParams.get('client_id')).toBe(CONFIG.clientId);
-    expect(location.searchParams.get('redirect_uri')).toBe(CONFIG.redirectUri);
+    // The provider flow must send its own callback, not the mailbox one: the mailbox
+    // route knows nothing about this flow's state, so the code would be lost there.
+    expect(location.searchParams.get('redirect_uri')).toBe(CONFIG.providerRedirectUri);
+    expect(location.searchParams.get('redirect_uri')).not.toBe(CONFIG.redirectUri);
     expect(location.searchParams.get('code_challenge_method')).toBe('S256');
     expect(location.searchParams.get('response_mode')).toBe('query');
     // Never silently reuse the browser session.

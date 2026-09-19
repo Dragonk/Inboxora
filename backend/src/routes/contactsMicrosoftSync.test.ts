@@ -18,7 +18,7 @@ vi.mock('../middleware/auth.js', () => ({
 // Keep every real export and override only what this suite needs.
 vi.mock('../services/providerAuthService.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../services/providerAuthService.js')>()),
-  microsoftConfigFromEnv: () => ({ clientId: 'client-1', clientSecret: 'secret-1', redirectUri: 'https://x/cb', tenantId: 'common' }),
+  microsoftConfigFromEnv: () => ({ clientId: 'client-1', clientSecret: 'secret-1', redirectUri: 'https://x/cb', providerRedirectUri: 'https://x/oauth/provider/microsoft/callback', tenantId: 'common' }),
   isMicrosoftConfigured: () => mocks.configured.value,
   // The status flag is stricter than refresh readiness: it gates a "connect" hint.
   isMicrosoftBrowserFlowReady: () => mocks.browserReady.value,

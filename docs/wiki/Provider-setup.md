@@ -97,7 +97,8 @@ Pulled data arrives read-only and with **DAV access: Disabled**; see
    ```
 
    The first belongs to the mailbox sign-in, the second to the API connector. Registering only one
-   of them limits you to that feature.
+   of them limits you to that feature. Inboxora derives the connector's URI from `APP_URL` (or takes
+   `MS_PROVIDER_REDIRECT_URI` when you set it), so the two flows never share a callback.
 4. Under **Certificates & secrets**, create a client secret and copy its **value** (not its id).
 5. Under **Authentication**, enable **Allow public client flows** if you want the device-code
    method, which needs no secret and no redirect URI.

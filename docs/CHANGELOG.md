@@ -355,6 +355,13 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   card that would fail at Microsoft. The status now uses a browser-flow predicate (client id, secret
   and redirect URI), while the **sync** action keeps the looser one, because refreshing a grant needs
   no secret. Both predicates are pinned by tests so the distinction cannot collapse.
+- Give the Microsoft Graph authorization its own callback. Both Microsoft flows read
+  `MS_REDIRECT_URI`, which belongs to the mailbox sign-in, so the connector asked Microsoft to
+  return its authorization code to `/oauth/microsoft/callback` — a route that knows nothing about
+  the connector's state. The connection could therefore never complete in a real installation. The
+  connector now uses `/oauth/provider/microsoft/callback`, derived from the trusted `APP_URL` (or
+  from `MS_PROVIDER_REDIRECT_URI` when set), and the readiness flag that offers the connect action
+  requires that callback rather than the mailbox one.
 
 ## [4.0.4] - 2026-09-18
 

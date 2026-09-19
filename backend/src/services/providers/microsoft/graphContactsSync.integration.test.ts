@@ -24,7 +24,7 @@ const hasPg = process.env.DB_HOST && process.env.DB_NAME;
 const describeOrSkip = hasPg ? describe : describe.skip;
 
 const USER_ID = '00000000-0000-0000-0000-0000000004a1';
-const CONFIG = { clientId: 'client-1', clientSecret: 'secret-1', redirectUri: 'https://x/cb', tenantId: 'common' };
+const CONFIG = { clientId: 'client-1', clientSecret: 'secret-1', redirectUri: 'https://x/cb', providerRedirectUri: 'https://x/oauth/provider/microsoft/callback', tenantId: 'common' };
 const originalKey = process.env.ENCRYPTION_KEY;
 const DELTA_BASE = 'https://graph.microsoft.com/v1.0/me/contactFolders/contacts/contacts/delta';
 

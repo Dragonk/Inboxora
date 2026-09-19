@@ -111,7 +111,15 @@ export interface MicrosoftConfig {
   clientId: string;
   /** Empty for a public client, which is how the device flow is registered. */
   clientSecret: string;
+  /** The mailbox sign-in callback (`/oauth/microsoft/callback`). */
   redirectUri: string;
+  /**
+   * The Graph provider flow's own callback (`/oauth/provider/microsoft/callback`).
+   * It must differ from `redirectUri`: both flows exist on separate routes, so sending
+   * the mailbox URI to Microsoft delivers the provider flow's code to the legacy
+   * callback, which knows nothing about its state.
+   */
+  providerRedirectUri: string;
   tenantId: string;
 }
 
@@ -126,10 +134,15 @@ function safeTenantId(value: unknown): string {
 
 /** The effective Microsoft client configuration (MS_* environment variables). */
 export function microsoftConfigFromEnv(env: NodeJS.ProcessEnv = process.env): MicrosoftConfig {
+  const appUrl = typeof env.APP_URL === 'string' ? env.APP_URL.trim().replace(/\/+$/, '') : '';
   return {
     clientId: env.MS_CLIENT_ID || '',
     clientSecret: env.MS_CLIENT_SECRET || '',
     redirectUri: env.MS_REDIRECT_URI || '',
+    // Derived from the trusted APP_URL rather than from the mailbox callback, so an
+    // installation cannot accidentally point the provider flow at the wrong route.
+    providerRedirectUri: (env.MS_PROVIDER_REDIRECT_URI || '').trim()
+      || (appUrl ? `${appUrl}/oauth/provider/microsoft/callback` : ''),
     tenantId: safeTenantId(env.MS_TENANT_ID),
   };
 }
@@ -149,7 +162,7 @@ export function isMicrosoftConfigured(config: Partial<MicrosoftConfig>): config 
  * exists" would invite the user into a flow that fails at the provider.
  */
 export function isMicrosoftBrowserFlowReady(config: Partial<MicrosoftConfig>): config is MicrosoftConfig {
-  return Boolean(config.clientId && config.clientSecret && config.redirectUri);
+  return Boolean(config.clientId && config.clientSecret && config.providerRedirectUri);
 }
 
 /** The v2.0 token endpoint for a tenant (`common` when none is configured). */
@@ -433,7 +446,7 @@ export function microsoftAuthorizeUrl(input: {
   const url = new URL(`${MICROSOFT_ISSUER}/${safeTenantId(input.config.tenantId)}/oauth2/v2.0/authorize`);
   url.searchParams.set('client_id', input.config.clientId);
   url.searchParams.set('response_type', 'code');
-  url.searchParams.set('redirect_uri', input.config.redirectUri);
+  url.searchParams.set('redirect_uri', input.config.providerRedirectUri);
   url.searchParams.set('response_mode', 'query');
   url.searchParams.set('scope', [...input.scopes].join(' '));
   url.searchParams.set('state', input.state);
@@ -465,7 +478,7 @@ export async function exchangeMicrosoftAuthorizationCode(input: {
   const body = new URLSearchParams({
     code: input.code,
     client_id: input.config.clientId,
-    redirect_uri: input.config.redirectUri,
+    redirect_uri: input.config.providerRedirectUri,
     grant_type: 'authorization_code',
     code_verifier: input.codeVerifier,
   });

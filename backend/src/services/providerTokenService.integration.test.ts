@@ -200,6 +200,7 @@ const MS_CONFIG = {
   clientId: '11111111-2222-3333-4444-555555555555',
   clientSecret: 'ms-secret',
   redirectUri: 'https://inboxora.example/oauth/microsoft/callback',
+  providerRedirectUri: 'https://inboxora.example/oauth/provider/microsoft/callback',
   tenantId: 'consumers',
 };
 

@@ -6,6 +6,7 @@ const CONFIG = {
   clientId: '11111111-2222-3333-4444-555555555555',
   clientSecret: 'ms-secret',
   redirectUri: 'https://inboxora.example/oauth/microsoft/callback',
+  providerRedirectUri: 'https://inboxora.example/oauth/provider/microsoft/callback',
   tenantId: 'consumers',
 };
 
@@ -29,13 +30,24 @@ describe('microsoftTokenEndpoint', () => {
 describe('microsoftConfigFromEnv / isMicrosoftConfigured', () => {
   it('reads the MS_* variables and defaults the tenant', () => {
     expect(microsoftConfigFromEnv({ MS_CLIENT_ID: 'abc' } as NodeJS.ProcessEnv)).toEqual({
-      clientId: 'abc', clientSecret: '', redirectUri: '', tenantId: 'common',
+      clientId: 'abc', clientSecret: '', redirectUri: '', providerRedirectUri: '', tenantId: 'common',
     });
     expect(microsoftConfigFromEnv({
       MS_CLIENT_ID: 'abc', MS_CLIENT_SECRET: 's', MS_REDIRECT_URI: 'https://x/cb', MS_TENANT_ID: 'contoso.onmicrosoft.com',
     } as NodeJS.ProcessEnv)).toEqual({
-      clientId: 'abc', clientSecret: 's', redirectUri: 'https://x/cb', tenantId: 'contoso.onmicrosoft.com',
+      clientId: 'abc', clientSecret: 's', redirectUri: 'https://x/cb', providerRedirectUri: '', tenantId: 'contoso.onmicrosoft.com',
     });
+    // The provider callback is derived from the trusted APP_URL, never from the mailbox one.
+    expect(microsoftConfigFromEnv({
+      MS_CLIENT_ID: 'abc', MS_REDIRECT_URI: 'https://mail.example/oauth/microsoft/callback', APP_URL: 'https://mail.example/',
+    } as NodeJS.ProcessEnv)).toMatchObject({
+      redirectUri: 'https://mail.example/oauth/microsoft/callback',
+      providerRedirectUri: 'https://mail.example/oauth/provider/microsoft/callback',
+    });
+    expect(microsoftConfigFromEnv({
+      MS_CLIENT_ID: 'abc', APP_URL: 'https://mail.example',
+      MS_PROVIDER_REDIRECT_URI: 'https://mail.example/custom/graph/callback',
+    } as NodeJS.ProcessEnv).providerRedirectUri).toBe('https://mail.example/custom/graph/callback');
   });
 
   it('treats a client id as sufficient, because the device flow is a public client', () => {
