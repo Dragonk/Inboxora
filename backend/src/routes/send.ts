@@ -665,6 +665,17 @@ router.post('/send', async (req, res) => {
     const mailOptions: SendMailOptions = {
       messageId,
       from: `${fromName} <${fromEmail}>`,
+      // The envelope is stated rather than derived. It is the same one nodemailer would
+      // build from the three recipient options — verified, not assumed: the explicit and
+      // derived envelopes are identical for to+cc+bcc, for bcc alone, and with a display
+      // name in `from`. Stating it is what lets the artefact carry its recipients once the
+      // message is composed a single time and sent as `raw`, where nodemailer would
+      // otherwise have to guess them from headers — and a BCC recipient is by definition
+      // not in a header.
+      envelope: {
+        from: fromEmail,
+        to: [...normalizedTo, ...normalizedCc, ...normalizedBcc],
+      },
       ...(fromReplyTo ? { replyTo: fromReplyTo } : {}),
       // Nodemailer uses bcc for the SMTP envelope but omits it from generated MIME.
       // Do not add a synthetic To header for BCC-only retries.

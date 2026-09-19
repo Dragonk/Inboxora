@@ -191,6 +191,13 @@ describe('send failure semantics', () => {
     expect(String(mailOptions.to ?? '')).not.toContain('blind@');
     expect(String(mailOptions.cc ?? '')).not.toContain('blind@');
     expect(mailOptions).not.toHaveProperty('headers');
+    // The envelope is where the blind recipient does belong, and it is now stated rather
+    // than left for nodemailer to derive — so the guarantee survives the message being
+    // composed once and sent as `raw`, where headers could not carry it.
+    expect(mailOptions.envelope).toEqual({
+      from: 'me@example.com',
+      to: ['visible@example.com', 'copy@example.com', 'blind@example.com'],
+    });
   });
 
   it('accepts BCC-only delivery without adding a visible To header', async () => {

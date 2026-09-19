@@ -13,6 +13,18 @@ limitations — read the matching page in the Wiki: [Release notes 4.1.0](wiki/R
 
 ## [Unreleased]
 
+### Changed
+
+- **A send now states its envelope instead of leaving it to be derived.** The three recipient options
+  stayed the input and nodemailer derived `RCPT TO` from them, which is fine while it composes the
+  message — and becomes a delivery bug the moment the message is composed once and handed over as `raw`,
+  because a blind recipient is by definition not in a header. The envelope is now built from the same
+  normalised lists (`to` + `cc` + `bcc`) and passed explicitly, **verified to be identical to what
+  nodemailer derives** rather than assumed: to+cc+bcc, bcc alone, and a display-name `from` all produce
+  the same envelope either way. The BCC case now asserts the delivered envelope, not just the option.
+
+## [Unreleased]
+
 ### Security
 
 - **A blind recipient is asserted never to reach a visible field.** The suite's BCC case only checked that
