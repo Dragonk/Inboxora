@@ -475,6 +475,18 @@ different route — a row demanding the evidence — and it is now tested. The r
 modules (`aiHttp`, `archiveInbox`, `carddavClient`, `composeFormat` and their neighbours), and each should be judged by
 reading it rather than by this list.
 
+**Read, in the end, for the one property that mattered most.** The candidates that could make an outbound request were
+checked rather than inferred, because an SSRF surface behind an unreferenced module is the worst version of this finding.
+`carddavClient.ts` turns out to be the best-hardened code in the set: it validates the host up front with the same policy
+IMAP/SMTP hosts use, **re-validates on every request** because hrefs come back from the server (principal, home set) and
+cannot be trusted, and `safeFetch` validates **every redirect hop's IP** — three layers, the second and third covering the
+two second-order holes usually left open. `aiHttp.ts` has no `fetch` at all, so it is not a client, and `calendarFeed`,
+`archiveInbox`, `composeFormat` and `contactRichBackfill` make no outbound requests either.
+
+The claim is therefore closed **for the seven candidates checked and the sensitive-name filter above**, and stated that
+narrowly: no unreferenced module that plausibly makes an outbound request lacks validation. A module can be
+security-relevant without a security name — the filter cannot see those, and this list is where the next reader starts.
+
 ## Observability: what the plan asks for and what exists (§25.2)
 
 A chapter-level reading rather than a table one, and it found a scope item my per-package status never mentioned.
