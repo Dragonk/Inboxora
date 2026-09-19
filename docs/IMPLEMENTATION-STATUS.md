@@ -195,6 +195,19 @@ filename match was written up as coverage and had to be taken back:
 | KC13 (vCard 3/4, many fields, a date without a year, a photo, Polish characters) | `utils/vcard.test.ts` round-trips `ANNIVERSARY`, rejects and labels an impossible date (`2021-02-29`), and preserves unknown properties (`X-CUSTOM`). The three gaps found by reading it are now closed by cases of their own: a **`VERSION:4.0` card** parses like 3.0 with non-ASCII text intact, a 4.0 birthday without a year (`--1210`) yields `null` rather than an invented date, and `PHOTO` is carried as a **data URI** for inline images while a `VALUE=URI` reference is not stored as if it were the image | **PASS** for the asserted parts. The suite's fixtures were ASCII before these cases; a format the parser ignored would have gone unnoticed behind a green suite, which is why they were worth adding |
 | KC15 (one Google contact in several groups: no duplicate canonical contact) | nothing matched | **no duplication, verified by reading; memberships are dropped.** The sync upserts one row per `resourceName`, so a contact in several groups cannot duplicate — but `memberships` appears nowhere in the Google provider code, so the groups are discarded rather than stored. That is now stated in the wiki as a limitation. Carrying them would mean resolving `contactGroups.list` to names and writing them as `categories`, which the contacts table already holds. Reading the mapper for the same question found more: it used names, emails, phones, organisation, title, addresses, nicknames, notes, URLs and birthdays, and dropped photos, anniversaries and instant-message handles. **Anniversaries and handles are now carried** (the mask asks for `events` and `imClients`, both mapped and tested); **photos and memberships still are not** — a photo needs an authenticated request per contact, and group names would need a `contactGroups.list` call |
 
+**The admin series (AD01–AD09) was read too**, and one row is a real gap:
+
+| Row | Requirement | State |
+| --- | --- | --- |
+| AD03 | Google with no Client ID/Secret/callback: the API is unavailable **with an explanation**, and the traditional account path stays available | **PASS.** The card renders `admin.integrations.google.connectUnavailable` — "An administrator must configure the Google API before an account can be connected." — beside the disabled button, and the account screen is untouched. |
+| AD07 | Saving a new Client ID does not pair it with an old secret; the effects are confirmed and a matching credential is required | **FAIL.** `mergeConfig` carries an existing stored secret across any save that omits a new one, so changing the Client ID silently keeps the previous secret. Readiness then still reports the method **ready** (client id *and* secret are present), and the mismatch surfaces only at the provider — the failure mode the row exists to prevent. |
+
+The fix for AD07 is small and precisely located: in `mergeConfig`, keep the stored secret only while
+`incoming.clientId === existing.clientId`, so a changed Client ID requires the secret again and readiness
+falls back to not-ready, which is what makes the card ask for it. It was attempted and **reverted**: the case
+I wrote used a mock field the suite does not have, and re-reading that harness properly is more than the
+remaining session could do. The rule is recorded rather than half-shipped, as with the other withheld changes.
+
 **The device-code series (DC01–DC03) has two findings**, recorded here rather than left in the plan:
 
 | Row | Requirement | State |
