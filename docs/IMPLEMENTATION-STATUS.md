@@ -1037,8 +1037,18 @@ test control and the composer's uncertain-send message, the two changes that pos
 **205 passed, 161 skipped** reported earlier in this document, and the cause is **the project flags, not the code**:
 the earlier figure came from `--project=chromium-desktop --project=chromium-mobile`, while this run used
 `--project=chromium-desktop --project=chromium-mobile-390` — a different phone project with a different set of
-skipped tests. Both are green; a number is only comparable with the projects it was measured on, which is why the
-command belongs beside the figure. The **database gate was re-executed too**, exactly as the recipe below prescribes, on a fresh
+skipped tests. Both are green, and both were then re-measured at this commit so the document carries one comparable
+pair rather than two half-explanations:
+
+| Projects | Passed | Skipped | Exit |
+| --- | --- | --- | --- |
+| `chromium-desktop` + `chromium-mobile` | **205** | **163** | 0 |
+| `chromium-desktop` + `chromium-mobile-390` | **232** | **136** | 0 |
+
+The skipped count in the first row is **two higher** than the 161 recorded earlier, and that is this session's own
+work: the provider-card capture added a test to the screenshots spec, which skips itself unless `DOCS_SCREENSHOTS=1`,
+so two more tests skip in an ordinary run. A number is only comparable with the projects it was measured on **and**
+with the tree it was measured at, which is why both belong beside the figure. The **database gate was re-executed too**, exactly as the recipe below prescribes, on a fresh
 PostgreSQL 16 with all 109 migrations applied in order: **12 files, 99 tests, exit 0** — which also turns that recipe
 from "ready to paste" into an executed one. **Not run, separately: the performance comparison §25.1 requires** — no
 representative before/after measurements exist, and the plan's own rule forbids substituting an invented budget for
