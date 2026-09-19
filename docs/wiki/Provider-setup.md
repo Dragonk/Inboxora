@@ -199,6 +199,11 @@ operation is worse than one that says it will not perform it.
 - **Google contact groups are not carried over.** A contact that belongs to several groups is stored
   once, as it should be, but its memberships are not represented locally — the connector does not read
   them. Group-based organisation therefore exists only in Google.
+- **Photos, anniversaries and instant-message handles are not carried over either.** The connector reads
+  names, email addresses, phone numbers, organisation and job title, addresses, nicknames, notes,
+  URLs and birthdays. Everything else the People API returns for a person is discarded. Anniversaries
+  and instant-message handles would fit columns the contacts already have; a photo needs its own
+  authenticated request per contact, which is why it is not fetched.
 - A Google calendar is imported as a whole; its events, not the calendar's own settings (colour,
   sharing, reminders), are represented.
 - **Gmail is not connected at all**: mail for a Google account continues over IMAP/SMTP with an app
