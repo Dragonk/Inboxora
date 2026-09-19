@@ -34,6 +34,13 @@ than a requirement.
 **Microsoft is the other way round**: Outlook.com and Microsoft 365 no longer accept a mailbox
 password, so mail for those accounts needs the API connection, and the card says so.
 
+One further limit belongs here because it is about sending rather than about providers:
+`MAIL_MAX_MESSAGE_BYTES` caps one **composed** message, counted on the server with headers, base64 growth and
+separators included, and defaults to 25 MiB — Gmail's raw-message limit, the lowest an installation is likely to
+meet. A message above it is refused with `413 MESSAGE_TOO_LARGE` and the real byte count **before** anything is
+dispatched. Raising it raises no provider's own limit: passing this check means the installation accepted the
+message, not that the provider will.
+
 Two switches govern the provider layer:
 
 - `PROVIDER_SYNC_INTERVAL_MINUTES` — how often already-pulled collections are refreshed (15 by

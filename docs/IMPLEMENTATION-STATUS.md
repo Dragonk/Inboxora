@@ -509,6 +509,20 @@ listed so the boundary is visible rather than implied.
 **None of these may be reported as PASS**, which is the guide's point: a verified code path is not a verified
 connection. The distinction is the same one the W-list already carries for W06, W07 and W10.
 
+**§12's first item is now implemented for the transport that exists.** The send path composed its message on the
+server and never counted it, so an oversized message travelled to the SMTP server and failed there; it is now
+counted as compiled — before any idempotency claim or dispatch, so a refusal leaves no uncertain send — and refused
+with `413 MESSAGE_TOO_LARGE`, the real byte count and the limit, configurable with `MAIL_MAX_MESSAGE_BYTES` and
+defaulting to Gmail's 25 MiB raw-message ceiling rather than an invented budget. A case asserts the refusal and that
+**`sendMail` was never called**. The three-size accounting of §12.2, the provider uploads and the state machine
+remain open.
+
+**And a process failure worth recording beside it.** That change's case reached `dev` red: I piped the test runner
+to `tail`, which returns the pipe's status, so the chain continued past a failing suite and the commit message
+claimed a green run. It was corrected in the next commit, and it is the **second occurrence** of the same mistake in
+this session — the screenshot verifier in round 198 was the first — and the first that put a red test on the branch.
+The corrective is mechanical and now stated: read the **exit status**, never the piped tail, before staging.
+
 ## The send and attachment specification (§12), as the task list for P06, P07b and P08
 
 Reading this chapter turns "P06 and P07b are package-scale" into a specification, and two of its numbers are traps
