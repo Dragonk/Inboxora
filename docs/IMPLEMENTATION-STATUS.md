@@ -305,7 +305,7 @@ its entries are unmet.
 
 | Required | State |
 | --- | --- |
-| `docs/wiki/Upgrading.md` — account behaviour, Microsoft's requirement, Google's recommendation with *Ignore* and a checkbox, no account removal, what to do without configuration | **MISSING.** No such page exists; upgrade guidance lives in a paragraph of `Installation.md`. |
+| `docs/wiki/Upgrading.md` — account behaviour, Microsoft's requirement, Google's recommendation with *Ignore* and a checkbox, no account removal, what to do without configuration | **Exists and is tracked** (the previous revision of this row said MISSING — it was written before the command that listed the files, and I did not read that output before recording the claim, which is the error this audit keeps correcting). Whether its content covers each required item was **not** compared in this pass. |
 | `docs/wiki/Microsoft-provider.md`, `docs/wiki/Google-provider.md` — the full procedures from the admin guide, as product pages | **MISSING.** The procedures live in `Provider-setup.md`, which covers both; the checklist calls these "proposed names" and requires the procedures and all links either way. |
 | `README.md`, `docs/wiki/Home.md` — native integrations, Google optional with app passwords kept, Microsoft required, links to configuration and upgrade | **Partly met.** `Home.md` is in the sidebar and the wiki covers the policy; `README.md` was not checked against the requirement. |
 | `Configuration.md` — remove the "Google app password only" simplification, show both methods, the shared `emailProviders` and the feature switches | **Partly met**: the file documents `PROVIDER_SYNC_INTERVAL_MINUTES` and the purposes, and the switch added this session is in `.env.example`; whether the simplification is gone was not verified. |
@@ -319,9 +319,10 @@ writing to `docs/wiki` updated an external wiki without proof** (the status docu
 script without claiming a publication), and **do not announce the scope complete with an undocumented account
 connection** — which is why the W-list still carries its FAILs.
 
-**What this means for the remaining work**: the documentation package is not "nearly done"; a normative list
-of required pages and updates is substantially unmet, and the two missing pages plus `Upgrading.md` are
-concrete, bounded deliverables rather than package-scale ones. They were not attempted here because writing
+**What this means for the remaining work**: the two provider pages are genuinely missing, and the content of
+the existing pages was not compared with the checklist's required text — so the documentation package is
+**unverified against its normative list**, which is weaker than "done" and weaker than "unmet" but honest. The
+two missing pages are concrete, bounded deliverables. They were not attempted here because writing
 three pages of operator instruction properly is more than the remaining session can verify, and a documentation
 page written without checking the code it describes would be worse than the gap.
 
