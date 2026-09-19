@@ -107,7 +107,14 @@ async function accessToken(options: GraphApiOptions, skewSeconds?: number): Prom
  * `url` may be a path (`/me/...`) or a full URL, because Graph hands back absolute
  * `@odata.nextLink` values.
  */
-async function graphSend(options: GraphApiOptions, pathOrUrl: string, init: { method: string; body?: unknown }): Promise<Response> {
+/**
+ * `rawBody` carries a non-JSON payload — the MIME message of a send. It is a parameter here,
+ * rather than a second sender beside this one, so the auth, the single controlled 401 refresh
+ * and the timeout stay in exactly one place.
+ */
+export type GraphRawBody = { contentType: string; body: string };
+
+async function graphSend(options: GraphApiOptions, pathOrUrl: string, init: { method: string; body?: unknown; rawBody?: GraphRawBody }): Promise<Response> {
   const fetchImpl = options.fetchImpl ?? fetch;
   const url = pathOrUrl.startsWith('http') ? pathOrUrl : `${GRAPH_API_BASE}${pathOrUrl}`;
   const send = async (token: string): Promise<Response> => fetchImpl(url, {
@@ -115,9 +122,13 @@ async function graphSend(options: GraphApiOptions, pathOrUrl: string, init: { me
     headers: {
       authorization: `Bearer ${token}`,
       accept: 'application/json',
-      ...(init.body === undefined ? {} : { 'content-type': 'application/json' }),
+      ...(init.rawBody !== undefined
+        ? { 'content-type': init.rawBody.contentType }
+        : init.body === undefined ? {} : { 'content-type': 'application/json' }),
     },
-    ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
+    ...(init.rawBody !== undefined
+      ? { body: init.rawBody.body }
+      : init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
     signal: AbortSignal.timeout(GRAPH_TIMEOUT_MS),
   });
 
@@ -153,6 +164,16 @@ export async function graphPatch<T>(options: GraphApiOptions, pathOrUrl: string,
 }
 
 /** POST to a Graph action. `202 Accepted` with an empty body is a success. */
+/**
+ * POST a non-JSON payload. Returns nothing on success: Graph answers a send with `202` and no
+ * body, so there is nothing to decode — and a non-2xx is thrown as the classified error rather
+ * than swallowed, because a send that the provider refused must not look like one it accepted.
+ */
+export async function graphPostRawBody(options: GraphApiOptions, pathOrUrl: string, rawBody: GraphRawBody): Promise<void> {
+  const response = await graphSend(options, pathOrUrl, { method: 'POST', rawBody });
+  if (!response.ok) await throwForStatus(response);
+}
+
 export async function graphPost<T>(options: GraphApiOptions, pathOrUrl: string, body: unknown): Promise<T | null> {
   const response = await graphSend(options, pathOrUrl, { method: 'POST', body });
   if (!response.ok) await throwForStatus(response);
