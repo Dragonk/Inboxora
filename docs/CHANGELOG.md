@@ -15,6 +15,16 @@ limitations — read the matching page in the Wiki: [Release notes 4.1.0](wiki/R
 
 ### Changed
 
+- **Snooze works on a Microsoft Graph account, in both directions** (P07b, eighth slice). `/messages/:id/snooze`
+  called IMAP's folder creation and move directly, so it failed on a native account; the wakeup half was
+  worse, because it lives inside the mail manager and would have sent the message *into* Snoozed and never
+  brought it back. Both halves now go through one shared Graph move helper — the same one the bulk routes
+  and spam/ham use — so the rule that a Graph move **re-identifies the message** is implemented once. The
+  `Snoozed` folder is created on the provider and then discovered, because a Graph account only has the
+  folders it has discovered and a move needs a local path to address. A wakeup the provider does not
+  confirm throws, so the snooze record survives and the next cycle retries rather than dropping the
+  message. The IMAP path, including its UIDPLUS cases, is unchanged.
+
 - **Mark as spam / not spam works on a Microsoft Graph account** (P07b, seventh slice). Both actions
   moved a message by calling IMAP directly, bypassing the transport dispatch every other action now
   has — so on a native account they looked available and failed. They now use the same journal-backed

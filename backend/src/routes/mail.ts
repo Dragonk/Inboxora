@@ -20,13 +20,12 @@ import { syncGraphMailFoldersForAccount, syncGraphMailMessagesForAccount } from 
 import type { EmailAccountRow } from '../services/imapManager.js';
 import { GraphApiError } from '../services/providers/microsoft/graphApiClient.js';
 import {
+  graphCreateMailFolder,
   graphDeleteIntent,
   graphDeleteMutationAdapter,
-  graphMoveIntent,
-  graphMoveMutationAdapter,
 } from '../services/providers/microsoft/graphMailMutations.js';
 import { graphFolderIdForPath } from '../services/providers/microsoft/graphMailSync.js';
-import { providerUidForGraphMessage } from '../services/providers/microsoft/graphMail.js';
+import { moveGraphMessageToFolder } from '../services/providers/microsoft/graphMailMove.js';
 import {
   collectGraphInlineImages,
   embedGraphInlineImages,
@@ -800,6 +799,43 @@ router.get('/messages/:id/attachments/:part', async (req, res) => {
 
 
 
+
+/**
+ * Make sure the account has the folder snooze needs, on whichever transport it uses.
+ *
+ * A Microsoft account only has the folders it has discovered, so `Snoozed` has to be
+ * created on the provider **and** discovered before a move can address it — creating
+ * it alone would leave no local path and no `mail_folder` collection. A create that
+ * fails is not fatal: the folder may already exist, and the discovery run that
+ * follows is the authority on whether it does.
+ */
+async function ensureSnoozedFolder(
+  userId: string,
+  account: EmailAccountRow,
+  folderPath: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (account.mail_transport !== 'microsoft_graph') {
+    await imapManager.ensureFolder(account, folderPath);
+    return { ok: true };
+  }
+  if (!account.provider_connection_id) return { ok: false, error: 'This account is not linked to a Microsoft connection' };
+  const connectionId = account.provider_connection_id;
+  const resolve = () => graphFolderIdForPath({ connectionId, accountId: account.id, path: folderPath });
+  if (await resolve()) return { ok: true };
+
+  const config = microsoftConfigFromEnv();
+  try {
+    await graphCreateMailFolder({ userId, connectionId, config }, folderPath);
+  } catch (caught) {
+    console.warn(`Snooze: creating "${folderPath}" on Microsoft Graph failed:`, toAppError(caught).message);
+  }
+  await syncGraphMailFoldersForAccount({ userId, connectionId, accountId: account.id, config });
+  if (!(await resolve())) {
+    return { ok: false, error: `The "${folderPath}" folder could not be created on the Microsoft account` };
+  }
+  return { ok: true };
+}
+
 /**
  * Delete (or move to Trash) a Microsoft Graph message.
  *
@@ -852,41 +888,35 @@ async function deleteMessageOverGraph(input: {
     };
   }
 
-  const destinationFolderId = await graphFolderIdForPath({
+  const resolvedDestination = await graphFolderIdForPath({
     connectionId: account.provider_connection_id,
     accountId: message.account_id,
     path: input.destinationPath,
   });
-  if (!destinationFolderId) {
+  if (!resolvedDestination) {
     return { ok: false, status: 422, error: `The folder "${input.destinationPath}" is not a folder this Microsoft account discovered`, code: 'RESOURCE_NOT_FOUND' };
   }
 
-  const payload = {
+  // The same helper the bulk routes, spam/ham and the snooze wakeup use, so the
+  // "adopt the identity a Graph move returns" rule exists in exactly one place.
+  const moved = await moveGraphMessageToFolder({
+    userId: input.userId,
+    accountId: message.account_id,
+    connectionId: account.provider_connection_id,
+    config: microsoftConfigFromEnv(),
+    resourceId: message.id,
     providerMessageId: message.provider_message_id,
-    destinationFolderId,
-    intentAt: new Date().toISOString(),
-  };
-  const intent = graphMoveIntent(payload);
-  const result = await runProviderMutation(
-    {
-      userId: input.userId, channel: 'web', operation: 'update', accountId: message.account_id,
-      resourceId: message.id, ...intent, payload, retry: { delaySeconds: 300 },
-    },
-    graphMoveMutationAdapter({ api }),
-  );
-  if (result.status === 'confirmed' && result.value?.id) {
-    return {
-      ok: true,
-      moved: true,
-      newProviderMessageId: result.value.id,
-      newUid: providerUidForGraphMessage(result.value.id),
-    };
+    destinationPath: input.destinationPath,
+  });
+  if (moved.moved) {
+    return { ok: true, moved: true, newProviderMessageId: moved.newProviderMessageId, newUid: moved.newUid };
   }
+  const permanent = moved.code === 'RESOURCE_NOT_FOUND' || moved.code === 'PROVIDER_AUTH_REQUIRED' || moved.code === 'INSUFFICIENT_SCOPES' || moved.code === 'OPERATION_FORBIDDEN';
   return {
     ok: false,
-    status: result.status === 'permanent' ? 409 : 502,
-    error: result.status === 'permanent' ? 'Microsoft Graph refused to move this message' : 'The move could not be confirmed with Microsoft Graph',
-    ...(result.code ? { code: result.code } : {}),
+    status: permanent ? 409 : 502,
+    error: permanent ? 'Microsoft Graph refused to move this message' : 'The move could not be confirmed with Microsoft Graph',
+    ...(moved.code ? { code: moved.code } : {}),
   };
 }
 
@@ -894,16 +924,11 @@ async function deleteMessageOverGraph(input: {
 /**
  * Move several Microsoft Graph messages into one local folder.
  *
- * The bulk routes below were written around IMAP's per-UIDPLUS move: they guard
- * source UIDs, then delete-and-re-insert rows in one CTE. A Graph move has different
- * mechanics — it re-identifies the message — so it gets its own pass and the shared
- * count/broadcast bookkeeping afterwards, rather than being threaded through a CTE
- * that assumes UIDs survive a move.
- *
- * One destination is resolved per account, once, and every message then runs through
- * the same journal-backed move the single-message delete uses. A message the
- * provider refuses is reported as failed and left where it is; nothing is silently
- * dropped.
+ * A thin loop over `moveGraphMessageToFolder`, which owns the mechanics and is also
+ * what the snooze wakeup uses. The bulk routes were written around IMAP's per-UIDPLUS
+ * move — guards, then a delete-and-re-insert — and a Graph move does not fit that
+ * shape, so it gets its own pass and the shared count/broadcast bookkeeping
+ * afterwards.
  */
 async function moveMessagesOverGraph(input: {
   userId: string;
@@ -916,61 +941,31 @@ async function moveMessagesOverGraph(input: {
   const movedIds: string[] = [];
   const failedIds: string[] = [];
   const newUids: Record<string, string> = {};
-  if (!input.account.provider_connection_id) return { movedIds, failedIds: input.messages.map(message => message.id), newUids };
-
-  const destinationFolderId = await graphFolderIdForPath({
-    connectionId: input.account.provider_connection_id,
-    accountId: input.accountId,
-    path: input.destinationPath,
-  });
-  if (!destinationFolderId) {
-    console.warn(`bulk-move: "${input.destinationPath}" is not a folder this Microsoft account discovered`);
+  if (!input.account.provider_connection_id) {
     return { movedIds, failedIds: input.messages.map(message => message.id), newUids };
   }
-
-  const api = {
-    userId: input.userId,
-    connectionId: input.account.provider_connection_id,
-    config: microsoftConfigFromEnv(),
-  };
 
   for (const message of input.messages) {
     if (!message.provider_message_id) {
       failedIds.push(message.id);
       continue;
     }
-    const payload = {
+    const result = await moveGraphMessageToFolder({
+      userId: input.userId,
+      accountId: input.accountId,
+      connectionId: input.account.provider_connection_id,
+      config: microsoftConfigFromEnv(),
+      resourceId: message.id,
       providerMessageId: message.provider_message_id,
-      destinationFolderId,
-      intentAt: new Date().toISOString(),
-    };
-    const result = await runProviderMutation(
-      {
-        userId: input.userId, channel: 'web', operation: 'update', accountId: input.accountId,
-        resourceId: message.id, ...graphMoveIntent(payload), payload,
-        retry: { delaySeconds: 300 },
-      },
-      graphMoveMutationAdapter({ api }),
-    );
-    if (result.status !== 'confirmed' || !result.value?.id) {
-      console.error(`bulk-move: Graph refused or did not confirm the move of ${message.id} (${result.status})`);
+      destinationPath: input.destinationPath,
+    });
+    if (!result.moved) {
+      console.error(`bulk-move: Graph refused or did not confirm the move of ${message.id} (${result.code ?? 'unknown'})`);
       failedIds.push(message.id);
       continue;
     }
-    const newUid = providerUidForGraphMessage(result.value.id);
-    // A stale row at the destination with the same derived number would collide.
-    await query('DELETE FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3 AND id != $4',
-      [input.accountId, newUid, input.destinationPath, message.id]);
-    const updated = await query(
-      'UPDATE messages SET folder = $1, uid = $2, provider_message_id = $3 WHERE id = $4',
-      [input.destinationPath, newUid, result.value.id, message.id],
-    );
-    if ((updated.rowCount ?? 0) === 0) {
-      // A concurrent sync removed the row; the destination's next delta re-ingests it.
-      console.warn(`bulk-move: the local row ${message.id} was gone before it could be re-homed`);
-    }
     movedIds.push(message.id);
-    newUids[message.id] = newUid;
+    newUids[message.id] = result.newUid;
   }
   return { movedIds, failedIds, newUids };
 }
@@ -2501,7 +2496,11 @@ router.post('/messages/:id/snooze', async (req, res) => {
   const convo = await gatherSnoozeConversation(msg);
 
   try {
-    await imapManager.ensureFolder(account, snoozedFolder);
+    const ensured = await ensureSnoozedFolder(sessionUserId(req), account, snoozedFolder);
+    if (!ensured.ok) {
+      console.error(`Snooze could not prepare the ${snoozedFolder} folder:`, ensured.error);
+      return res.status(502).json({ error: ensured.error });
+    }
   } catch (caught) {
     const err = toAppError(caught);
     console.error(`Snooze ensureFolder failed for message ${id}:`, err.message);
@@ -2509,38 +2508,53 @@ router.post('/messages/:id/snooze', async (req, res) => {
   }
 
   for (const tm of convo) {
-    imapManager._guardMoveUid(tm.account_id, tm.folder, tm.uid);
-    try {
-      let snoozedUid;
-      try {
-        snoozedUid = await imapManager.moveMessage(account, tm.uid, tm.folder, snoozedFolder);
-      } catch (caught) {
-        const err = toAppError(caught);
-        console.error(`Snooze IMAP move failed for message ${tm.id}:`, err.message);
-        // The message the user acted on must succeed; a failed sibling is logged
-        // and skipped so the rest of the conversation still snoozes.
-        if (tm.id === msg.id) return res.status(500).json({ error: 'Failed to move message to Snoozed folder' });
+    if (account.mail_transport === 'microsoft_graph') {
+      // The shared move re-homes the row onto the identity Graph returns, so the
+      // snooze record's original folder and the counts below are the only local
+      // bookkeeping left to do here.
+      const moved = await moveMessagesOverGraph({
+        userId: sessionUserId(req), accountId: account.id, account, messages: [tm], destinationPath: snoozedFolder,
+      });
+      if (moved.movedIds.length === 0) {
+        console.error(`Snooze Graph move did not confirm for message ${tm.id}`);
+        if (tm.id === msg.id) return res.status(502).json({ error: 'Failed to move message to Snoozed folder' });
         continue;
       }
-      if (snoozedUid != null) {
-        await query('UPDATE messages SET folder = $1, uid = $2 WHERE id = $3', [snoozedFolder, snoozedUid, tm.id]);
-      } else {
-        imapManager._guardMoveUid(tm.account_id, snoozedFolder, tm.uid);
-        await query('UPDATE messages SET folder = $1 WHERE id = $2', [snoozedFolder, tm.id]);
-        setTimeout(() => imapManager._unguardMoveUid(tm.account_id, snoozedFolder, tm.uid), 10_000);
+    } else {
+      imapManager._guardMoveUid(tm.account_id, tm.folder, tm.uid);
+      try {
+        let snoozedUid;
+        try {
+          snoozedUid = await imapManager.moveMessage(account, tm.uid, tm.folder, snoozedFolder);
+        } catch (caught) {
+          const err = toAppError(caught);
+          console.error(`Snooze IMAP move failed for message ${tm.id}:`, err.message);
+          // The message the user acted on must succeed; a failed sibling is logged
+          // and skipped so the rest of the conversation still snoozes.
+          if (tm.id === msg.id) return res.status(500).json({ error: 'Failed to move message to Snoozed folder' });
+          continue;
+        }
+        if (snoozedUid != null) {
+          await query('UPDATE messages SET folder = $1, uid = $2 WHERE id = $3', [snoozedFolder, snoozedUid, tm.id]);
+        } else {
+          imapManager._guardMoveUid(tm.account_id, snoozedFolder, tm.uid);
+          await query('UPDATE messages SET folder = $1 WHERE id = $2', [snoozedFolder, tm.id]);
+          setTimeout(() => imapManager._unguardMoveUid(tm.account_id, snoozedFolder, tm.uid), 10_000);
+        }
+      } finally {
+        imapManager._unguardMoveUid(tm.account_id, tm.folder, tm.uid);
       }
-
-      await query(
-        `INSERT INTO snoozed_messages (user_id, account_id, message_id_header, original_folder, snooze_until, snoozed_folder)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [req.session.userId, tm.account_id, tm.message_id, tm.folder, untilDate.toISOString(), snoozedFolder]
-      );
-
-      adjustFolderCounts(tm.account_id, tm.folder, -1, tm.is_read ? 0 : -1);
-      adjustFolderCounts(tm.account_id, snoozedFolder, 1, tm.is_read ? 0 : 1);
-    } finally {
-      imapManager._unguardMoveUid(tm.account_id, tm.folder, tm.uid);
     }
+
+    // Shared: the snooze record and the cached counts, on either transport.
+    await query(
+      `INSERT INTO snoozed_messages (user_id, account_id, message_id_header, original_folder, snooze_until, snoozed_folder)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [req.session.userId, tm.account_id, tm.message_id, tm.folder, untilDate.toISOString(), snoozedFolder]
+    );
+
+    adjustFolderCounts(tm.account_id, tm.folder, -1, tm.is_read ? 0 : -1);
+    adjustFolderCounts(tm.account_id, snoozedFolder, 1, tm.is_read ? 0 : 1);
   }
 
   // Refresh GTD section data if the snoozed conversation carries a GTD label (its in_inbox flips).

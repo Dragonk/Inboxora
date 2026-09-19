@@ -5,6 +5,7 @@ import { withTransaction } from '../../db.js';
 import { listDueOperations } from '../../providerOperations.js';
 import { runProviderMutation } from '../../providerMutationService.js';
 import type { ProviderAdapterOutcome, ProviderMutationAdapter } from '../../providerMutationService.js';
+import type { GraphMailFolder } from './graphMail.js';
 import type { FetchLike } from '../../providerAuthService.js';
 
 /**
@@ -292,4 +293,16 @@ export function graphDeleteIntent(payload: GraphMailDeletePayload): { idempotenc
     idempotencyKey: `graph-mail-delete:${payload.providerMessageId}:${payload.intentAt}`,
     payloadHash: createHash('sha256').update(JSON.stringify(payload)).digest('hex'),
   };
+}
+
+/**
+ * Create a top-level mail folder.
+ *
+ * Snooze needs a `Snoozed` folder, and a Graph account only has the folders it has
+ * discovered — so the provider has to be asked to create it and the discovery run
+ * again, or there is no local path and no `mail_folder` collection for a move to
+ * address.
+ */
+export async function graphCreateMailFolder(api: GraphApiOptions, displayName: string): Promise<GraphMailFolder | null> {
+  return graphPost<GraphMailFolder>(api, '/me/mailFolders', { displayName });
 }

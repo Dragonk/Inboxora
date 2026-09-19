@@ -1,0 +1,86 @@
+import { query } from '../../db.js';
+import { graphFolderIdForPath } from './graphMailSync.js';
+import { graphMoveIntent, graphMoveMutationAdapter } from './graphMailMutations.js';
+import { providerUidForGraphMessage } from './graphMail.js';
+import { runProviderMutation } from '../../providerMutationService.js';
+import type { GraphApiOptions } from './graphApiClient.js';
+
+/**
+ * Move one Microsoft Graph message to a local folder path and re-home its row.
+ *
+ * This is the single implementation behind every Graph move — the bulk routes, spam
+ * and ham, and the snooze wakeup. It lives here rather than in a route module
+ * because the snooze wakeup runs inside the mail manager, and a service importing a
+ * route module would be a layering inversion.
+ *
+ * The part worth naming: a Graph move **re-identifies the message**, so the row
+ * adopts the id the provider returned and the compatibility `uid` derived from it.
+ * Skipping that would leave the row keyed to an id the provider no longer has, and
+ * the next delta would insert a second row for the same message.
+ */
+export type MoveGraphMessageResult =
+  | { moved: true; newProviderMessageId: string; newUid: string }
+  | { moved: false; code?: string };
+
+export async function moveGraphMessageToFolder(input: {
+  userId: string;
+  accountId: string;
+  connectionId: string;
+  config?: GraphApiOptions['config'];
+  /** The local `messages.id`. */
+  resourceId: string;
+  providerMessageId: string;
+  destinationPath: string;
+}): Promise<MoveGraphMessageResult> {
+  const destinationFolderId = await graphFolderIdForPath({
+    connectionId: input.connectionId,
+    accountId: input.accountId,
+    path: input.destinationPath,
+  });
+  if (!destinationFolderId) return { moved: false, code: 'RESOURCE_NOT_FOUND' };
+
+  const payload = {
+    providerMessageId: input.providerMessageId,
+    destinationFolderId,
+    intentAt: new Date().toISOString(),
+  };
+  const result = await runProviderMutation(
+    {
+      userId: input.userId,
+      channel: 'web',
+      operation: 'update',
+      accountId: input.accountId,
+      resourceId: input.resourceId,
+      ...graphMoveIntent(payload),
+      payload,
+      retry: { delaySeconds: 300 },
+    },
+    graphMoveMutationAdapter({
+      api: {
+        userId: input.userId,
+        connectionId: input.connectionId,
+        ...(input.config ? { config: input.config } : {}),
+      },
+    }),
+  );
+  if (result.status !== 'confirmed' || !result.value?.id) {
+    return { moved: false, ...(result.code ? { code: result.code } : {}) };
+  }
+
+  const newUid = providerUidForGraphMessage(result.value.id);
+  // A stale row at the destination holding the same derived number would collide.
+  await query(
+    'DELETE FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3 AND id != $4',
+    [input.accountId, newUid, input.destinationPath, input.resourceId],
+  );
+  const updated = await query(
+    'UPDATE messages SET folder = $1, uid = $2, provider_message_id = $3 WHERE id = $4',
+    [input.destinationPath, newUid, result.value.id, input.resourceId],
+  );
+  if ((updated.rowCount ?? 0) === 0) {
+    // A concurrent sync removed the row; the destination's next delta re-ingests it
+    // under its new id, so this is a warning rather than a failure.
+    console.warn(`Graph move: the local row ${input.resourceId} was gone before it could be re-homed`);
+  }
+  return { moved: true, newProviderMessageId: result.value.id, newUid };
+}

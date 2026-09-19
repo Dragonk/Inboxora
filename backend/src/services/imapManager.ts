@@ -22,6 +22,10 @@ import { applyInboxRules, applyBlockList } from './inboxRules.js';
 import { generateVCard } from '../utils/vcard.js';
 import { randomUUID } from 'crypto';
 import { upsertConversationCopy } from './conversationPersistence.js';
+import { moveGraphMessageToFolder } from './providers/microsoft/graphMailMove.js';
+import { graphFlagIntent, graphFlagMutationAdapter } from './providers/microsoft/graphMailMutations.js';
+import { runProviderMutation } from './providerMutationService.js';
+import { microsoftConfigFromEnv } from './providerAuthService.js';
 import { recordConversationIngestFailure } from './conversationIngestFailures.js';
 import { conversationPersistedFields, resolveOwnIdentityAddresses } from './conversationIngestEnvelope.js';
 import { providerFetchQuery, providerCapabilitiesFromClient } from './providerThreadAdapter.js';
@@ -5789,11 +5793,61 @@ export class ImapManager {
     }, 60_000);
   }
 
+  /**
+   * Wake one snoozed Microsoft Graph message: move it back and mark it unread.
+   *
+   * The move goes through the same helper the snooze itself uses, so the "adopt the
+   * identity a Graph move returns" rule is not implemented twice. Marking it unread
+   * is a flag mutation on the *new* id, because the old one no longer exists after
+   * the move.
+   *
+   * Returns false when the provider did not confirm, which the caller turns into a
+   * thrown error so the snooze record survives and the row is retried next cycle
+   * rather than being dropped.
+   */
+  private async wakeSnoozedGraphMessage(
+    account: EmailAccountRow,
+    row: { user_id: string; account_id: string; message_id: string; provider_message_id: string | null; original_folder: string },
+  ): Promise<boolean> {
+    if (!account.provider_connection_id || !row.provider_message_id) return false;
+    const config = microsoftConfigFromEnv();
+    const moved = await moveGraphMessageToFolder({
+      userId: row.user_id,
+      accountId: row.account_id,
+      connectionId: account.provider_connection_id,
+      config,
+      resourceId: row.message_id,
+      providerMessageId: row.provider_message_id,
+      destinationPath: row.original_folder,
+    });
+    if (!moved.moved) {
+      console.warn(`Snooze wakeup: Microsoft Graph did not move message ${row.message_id} back to ${row.original_folder}`);
+      return false;
+    }
+    const payload = { providerMessageId: moved.newProviderMessageId, flag: '\\Seen', value: false, intentAt: new Date().toISOString() };
+    await runProviderMutation(
+      {
+        userId: row.user_id,
+        channel: 'worker',
+        operation: 'update',
+        accountId: row.account_id,
+        resourceId: row.message_id,
+        ...graphFlagIntent({ messageId: row.message_id, write: payload }),
+        payload,
+        retry: { delaySeconds: 300 },
+      },
+      graphFlagMutationAdapter({ api: { userId: row.user_id, connectionId: account.provider_connection_id, config } }),
+    ).catch(error => console.warn('Snooze wakeup: could not mark the message unread on Microsoft Graph:', error instanceof Error ? error.message : error));
+    await query('UPDATE messages SET is_read = false, read_changed_at = NOW() WHERE id = $1', [row.message_id]);
+    return true;
+  }
+
   async _runSnoozeWakeup() {
     // Find snoozed messages whose snooze_until has passed and which are still in
     // the snoozed folder (joined via stable Message-ID header).
-    const due = await query<{ snooze_id: string; user_id: string; account_id: string; message_id_header: string; original_folder: string; snoozed_folder: string; uid: number | string; is_read: boolean | null }>(`
+    const due = await query<{ snooze_id: string; user_id: string; account_id: string; message_id: string; provider_message_id: string | null; message_id_header: string; original_folder: string; snoozed_folder: string; uid: number | string; is_read: boolean | null }>(`
       SELECT sm.id AS snooze_id, sm.user_id, sm.account_id,
+             m.id AS message_id, m.provider_message_id,
              sm.message_id_header, sm.original_folder, sm.snoozed_folder, m.uid, m.is_read
       FROM snoozed_messages sm
       JOIN messages m ON m.account_id = sm.account_id
@@ -5812,6 +5866,20 @@ export class ImapManager {
         // Guard source UID before the IMAP move so reconcileDeletes cannot delete
         // the DB row if an EXPUNGE arrives from the Snoozed folder while the move
         // is in flight.
+        // A native account wakes through its provider, which re-homes the row itself
+        // (Graph re-identifies the message on every move), so the IMAP branch below —
+        // with its UIDPLUS and non-UIDPLUS cases — is skipped entirely. The snooze
+        // record, the counts and the broadcast after this block are shared.
+        if (account.mail_transport === 'microsoft_graph') {
+          const woken = await this.wakeSnoozedGraphMessage(account, row);
+          if (!woken) throw new Error('Microsoft Graph did not confirm the snooze wakeup');
+          await query('DELETE FROM snoozed_messages WHERE id = $1', [row.snooze_id]);
+          adjustFolderCounts(row.account_id, row.snoozed_folder, -1, row.is_read ? 0 : -1);
+          adjustFolderCounts(row.account_id, row.original_folder, 1, 1);
+          this.broadcast({ type: 'snooze_wakeup', accountId: row.account_id }, row.user_id);
+          continue;
+        }
+
         this._guardMoveUid(row.account_id, row.snoozed_folder, row.uid);
         let newUid;
         try {
