@@ -89,3 +89,18 @@ describe('microsoftScopesForPurpose', () => {
     }
   });
 });
+
+describe('Microsoft readiness predicates', () => {
+  it('separates "refresh can work" from "the browser flow can run"', async () => {
+    const { isMicrosoftBrowserFlowReady, isMicrosoftConfigured } = await import('./providerAuthService.js');
+    const full = { clientId: 'c', clientSecret: 's', redirectUri: 'https://x/cb', tenantId: 'common' };
+    // A public client (device flow) can refresh with a client id alone.
+    expect(isMicrosoftConfigured({ clientId: 'c' })).toBe(true);
+    expect(isMicrosoftBrowserFlowReady({ clientId: 'c' })).toBe(false);
+    // The browser flow is confidential and needs the exact redirect URI.
+    expect(isMicrosoftBrowserFlowReady({ clientId: 'c', clientSecret: 's' })).toBe(false);
+    expect(isMicrosoftBrowserFlowReady({ clientId: 'c', redirectUri: 'https://x/cb' })).toBe(false);
+    expect(isMicrosoftBrowserFlowReady(full)).toBe(true);
+    expect(isMicrosoftBrowserFlowReady({})).toBe(false);
+  });
+});

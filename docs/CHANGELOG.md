@@ -349,6 +349,12 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   random UUID of its own on top — a value that scheme never produces. Removing it also removes a
   redundant statement per import. Verified on a real database that inserting an event bumps the
   token and that it stays in the advertised form, which is what the DAV clients depend on.
+- Make the Microsoft connector's readiness mean what the hint promises. The contacts status
+  reported *configured* when only a client id existed, which is enough to refresh a stored token but
+  not to run the browser authorization — so a user could be invited to connect an account through a
+  card that would fail at Microsoft. The status now uses a browser-flow predicate (client id, secret
+  and redirect URI), while the **sync** action keeps the looser one, because refreshing a grant needs
+  no secret. Both predicates are pinned by tests so the distinction cannot collapse.
 
 ## [4.0.4] - 2026-09-18
 

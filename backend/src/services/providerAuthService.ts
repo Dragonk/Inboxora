@@ -136,10 +136,20 @@ export function microsoftConfigFromEnv(env: NodeJS.ProcessEnv = process.env): Mi
 
 /**
  * Only a client id is required: the device flow is a public client and needs
- * neither a secret nor a redirect URI, so Graph access must not be gated on them.
+ * neither a secret nor a redirect URI, so token refresh must not be gated on them.
  */
 export function isMicrosoftConfigured(config: Partial<MicrosoftConfig>): config is MicrosoftConfig {
   return Boolean(config.clientId);
+}
+
+/**
+ * Whether the **browser** authorization flow can actually run. It needs a confidential
+ * client, so a secret and the exact redirect URI are required — use this wherever a
+ * "connect an account" action is offered, because a status that only means "a client id
+ * exists" would invite the user into a flow that fails at the provider.
+ */
+export function isMicrosoftBrowserFlowReady(config: Partial<MicrosoftConfig>): config is MicrosoftConfig {
+  return Boolean(config.clientId && config.clientSecret && config.redirectUri);
 }
 
 /** The v2.0 token endpoint for a tenant (`common` when none is configured). */

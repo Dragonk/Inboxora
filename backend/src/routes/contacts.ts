@@ -9,7 +9,7 @@ import { contactsToGoogleCsv, contactsToOutlookCsv, contactsToVCard, parseGoogle
 import crypto from 'crypto';
 import { queryInt, queryString, queryStringOr, routeParam, sessionUserId } from '../utils/query.js';
 import { toAppError } from '../utils/errors.js';
-import { googleConfigFromEnv, isGoogleConfigured, isMicrosoftConfigured, microsoftConfigFromEnv } from '../services/providerAuthService.js';
+import { googleConfigFromEnv, isGoogleConfigured, isMicrosoftBrowserFlowReady, isMicrosoftConfigured, microsoftConfigFromEnv } from '../services/providerAuthService.js';
 import { syncGoogleContacts } from '../services/providers/google/googleContactsSync.js';
 import { GoogleApiError } from '../services/providers/google/googleApiClient.js';
 import { syncGraphContacts } from '../services/providers/microsoft/graphContactsSync.js';
@@ -254,7 +254,9 @@ router.get('/providers/microsoft/status', async (req, res) => {
     ),
   ]);
   res.json({
-    configured: isMicrosoftConfigured(microsoftConfigFromEnv()),
+    // The flag gates a "connect an account" hint, so it must mean the browser flow is
+    // ready — not merely that a client id exists.
+    configured: isMicrosoftBrowserFlowReady(microsoftConfigFromEnv()),
     connected: connections.rows.length > 0,
     connections: connections.rows.length,
     books: books.rows.map(row => ({

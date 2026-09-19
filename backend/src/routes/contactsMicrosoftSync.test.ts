@@ -3,7 +3,7 @@ import express from 'express';
 import type { Server } from 'node:http';
 import { listeningPort } from '../test/net.js';
 
-const mocks = vi.hoisted(() => ({ query: vi.fn(), syncGraphContacts: vi.fn(), configured: { value: true } }));
+const mocks = vi.hoisted(() => ({ query: vi.fn(), syncGraphContacts: vi.fn(), configured: { value: true }, browserReady: { value: true } }));
 
 vi.mock('../services/db.js', () => ({
   query: mocks.query,
@@ -20,6 +20,8 @@ vi.mock('../services/providerAuthService.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../services/providerAuthService.js')>()),
   microsoftConfigFromEnv: () => ({ clientId: 'client-1', clientSecret: 'secret-1', redirectUri: 'https://x/cb', tenantId: 'common' }),
   isMicrosoftConfigured: () => mocks.configured.value,
+  // The status flag is stricter than refresh readiness: it gates a "connect" hint.
+  isMicrosoftBrowserFlowReady: () => mocks.browserReady.value,
 }));
 vi.mock('../services/providers/microsoft/graphContactsSync.js', () => ({ syncGraphContacts: mocks.syncGraphContacts }));
 
@@ -43,6 +45,7 @@ afterAll(async () => {
 
 beforeEach(() => {
   mocks.configured.value = true;
+  mocks.browserReady.value = true;
   mocks.query.mockReset();
   mocks.syncGraphContacts.mockReset();
 });
@@ -116,5 +119,27 @@ describe('Microsoft contacts connector routes', () => {
       connectionId: 'connection-2',
       error: { code: 'PROVIDER_AUTH_REQUIRED', message: 'Invalid authentication token', retryable: false },
     });
+  });
+});
+
+describe('Microsoft connector readiness', () => {
+  it('does not offer the connection when only a client id exists', async () => {
+    // A public client can refresh a token but cannot run the browser flow, so a status
+    // that said "configured" here would send the user into a flow that fails at Microsoft.
+    mocks.browserReady.value = false;
+    mocks.query.mockResolvedValue({ rows: [] });
+    expect(await (await status()).json()).toMatchObject({ configured: false });
+  });
+
+  it('still allows syncing when a client id exists but the browser flow is not ready', async () => {
+    // Refreshing a stored grant needs no secret; only the connect action does.
+    mocks.browserReady.value = false;
+    mocks.configured.value = true;
+    mocks.query.mockResolvedValueOnce({ rows: [{ id: 'connection-1' }] });
+    mocks.syncGraphContacts.mockResolvedValueOnce({ addressBookId: 'book-1', created: 1, updated: 0, deleted: 0, skipped: 0, fullSync: true, cursor: 'delta-1' });
+
+    const response = await sync();
+    expect(response.status).toBe(200);
+    expect((await response.json() as { results: Array<Record<string, unknown>> }).results[0]).toMatchObject({ created: 1 });
   });
 });
