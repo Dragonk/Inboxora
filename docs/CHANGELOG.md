@@ -374,6 +374,12 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   the gesture sequence) the drawer rendered at its layout position, covering the content it had just
   navigated to, even though the state said closed. Found by running the end-to-end suite, which had
   not been part of the gates.
+- Stop an `.ics` import overwriting an event Inboxora owns. The import upserts by UID, and it
+  lacked the guard the CalDAV write path applies: an event kept in sync because Inboxora sent its
+  invitations could have been replaced by a file — organizer, attendees and all — silently, which
+  a DAV client is explicitly refused. Those conflicts are now left unchanged and reported, and a
+  file whose events are all protected is no longer described as containing none.
+
 
 ## [4.0.4] - 2026-09-18
 
