@@ -405,7 +405,7 @@
         "connecting": "Google wird geöffnet…",
         "connectHint": "Wählen Sie, was autorisiert wird: die Kontakte-Schaltfläche fragt Kontakte an, diese Kalender. Für beides zweimal verbinden; Mail wird hier nie angefragt.",
         "connectUnavailable": "Ein Administrator muss die Google API konfigurieren, bevor ein Konto verbunden werden kann.",
-        "connectedNote": "Google-Konto verbunden. Kontakte lassen sich auf der Seite Kontakte synchronisieren.",
+        "connectedNote": "Google-Konto verbunden.",
         "connectCalendars": "Google-Kalender verbinden"
       }
     },

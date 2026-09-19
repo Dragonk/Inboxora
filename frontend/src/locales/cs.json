@@ -836,7 +836,7 @@
         "connecting": "Otevírání Google…",
         "connectHint": "Zvolte, co autorizujete: tlačítko kontaktů žádá kontakty, toto kalendáře. Pro obojí se připojte dvakrát; pošta se zde nikdy nevyžaduje.",
         "connectUnavailable": "Správce musí nejprve nakonfigurovat Google API, než lze účet připojit.",
-        "connectedNote": "Účet Google připojen. Kontakty synchronizujte na stránce Kontakty.",
+        "connectedNote": "Účet Google připojen.",
         "connectCalendars": "Připojit kalendáře Google"
       }
     },

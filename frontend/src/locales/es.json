@@ -405,7 +405,7 @@
         "connecting": "Abriendo Google…",
         "connectHint": "Elige qué autorizas: el botón de contactos pide contactos y este, calendarios. Conecta dos veces para ambos; el correo nunca se solicita aquí.",
         "connectUnavailable": "Un administrador debe configurar la API de Google antes de poder conectar una cuenta.",
-        "connectedNote": "Cuenta de Google conectada. Sincroniza tus contactos desde la página Contactos.",
+        "connectedNote": "Cuenta de Google conectada.",
         "connectCalendars": "Conectar calendarios de Google"
       }
     },

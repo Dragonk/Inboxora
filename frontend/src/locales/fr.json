@@ -405,7 +405,7 @@
         "connecting": "Ouverture de Google…",
         "connectHint": "Choisissez ce que vous autorisez : le bouton contacts demande les contacts, celui-ci les agendas. Connectez deux fois pour les deux ; la messagerie n’est jamais demandée ici.",
         "connectUnavailable": "Un administrateur doit configurer l’API Google avant de pouvoir connecter un compte.",
-        "connectedNote": "Compte Google connecté. Synchronisez vos contacts depuis la page Contacts.",
+        "connectedNote": "Compte Google connecté.",
         "connectCalendars": "Connecter les agendas Google"
       }
     },

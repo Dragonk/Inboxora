@@ -844,7 +844,7 @@
         "connecting": "Otwieranie Google…",
         "connectHint": "Wybierz, co autoryzujesz: przycisk kontaktów prosi o kontakty, ten o kalendarze. Połącz dwa razy, aby mieć oba; poczta nie jest tu nigdy wymagana.",
         "connectUnavailable": "Administrator musi najpierw skonfigurować Google API, aby można było połączyć konto.",
-        "connectedNote": "Konto Google połączone. Kontakty możesz zsynchronizować na stronie Kontakty.",
+        "connectedNote": "Konto Google połączone.",
         "connectCalendars": "Połącz kalendarze Google"
       }
     },

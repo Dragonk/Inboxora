@@ -402,6 +402,11 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   `PROVIDER_SYNC_INTERVAL_MINUTES=0` to disable that schedule. The wording now tells the user to try
   again shortly, which is true either way, instead of describing behaviour the operator may have
   turned off.
+- Stop telling a user who connected Google calendars to sync their contacts. The same confirmation
+  is shown after authorizing either Google purpose, and it named the contacts page specifically, so
+  the instruction was wrong for the calendar button. It now states what happened; each surface
+  already offers its own sync action, so naming one was both redundant and, half the time,
+  incorrect.
 
 
 ## [4.0.4] - 2026-09-18

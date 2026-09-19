@@ -405,7 +405,7 @@
         "connecting": "正在打开 Google…",
         "connectHint": "请选择要授权的项目：联系人按钮请求联系人，此按钮请求日历。两者都需要请连接两次；此处永不请求邮件权限。",
         "connectUnavailable": "管理员必须先配置 Google API，才能连接账户。",
-        "connectedNote": "Google 账户已连接。可在“联系人”页面同步联系人。",
+        "connectedNote": "Google 账户已连接。",
         "connectCalendars": "连接 Google 日历"
       }
     },
