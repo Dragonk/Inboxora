@@ -509,6 +509,22 @@ listed so the boundary is visible rather than implied.
 **None of these may be reported as PASS**, which is the guide's point: a verified code path is not a verified
 connection. The distinction is the same one the W-list already carries for W06, W07 and W10.
 
+## Release 4.1.0 and the image publication
+
+The release version was **sanctioned as 4.1.0** and applied: both package manifests and their lockfiles carry it,
+the changelog's `Unreleased` section became `4.1.0 - 2026-09-19`, `docs/wiki/Release-notes-4.1.0.md` exists and is
+linked from the changelog header and the wiki sidebar. **W19 is therefore met**, and the release notes state the
+policy, the additions, the fixes, the migration requirement (`0101`–`0106` in order, before rollout), the two new
+optional variables and the known limitations — including that no real provider application was registered, so the
+live authorization is NOT RUN.
+
+**Image publication was authorized as `dev`-tagged images**, which is what `.github/workflows/publish.yml`
+already does: both images (`inboxora-backend`, `inboxora-frontend`), tagged `dev`, for `linux/amd64` and
+`linux/arm64`, with an assertion that the source SHA is **reachable from `origin/dev`** — the plan's "one final
+SHA" rule, enforced by the workflow rather than by convention. It is a `workflow_dispatch` workflow, so it was
+**dispatched from this release's SHA** once that SHA was the head of `dev`. The run's outcome is recorded with it
+rather than assumed, and nothing here touches `main`.
+
 ## Acceptance criteria W01–W19, as the plan requires them reported
 
 The plan states that the scope is not complete until every W item has associated code **and real test
