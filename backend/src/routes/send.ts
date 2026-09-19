@@ -750,7 +750,14 @@ router.post('/send', async (req, res) => {
       catch { return res.status(503).json({ error: 'Sending is temporarily unavailable. Please try again shortly.' }); }
       if (claim.state === 'completed') return res.json(claim.result);
       if (claim.state === 'mismatch') return res.status(409).json({ error: 'This idempotency key belongs to a different message.' });
-      if (claim.state === 'uncertain') return res.status(409).json({ error: 'The result of this send is still being confirmed. It will not be sent again automatically.' });
+      if (claim.state === 'uncertain') {
+        // §22.1 names this outcome `SEND_OUTCOME_UNKNOWN`, and a code is what lets an interface say what the
+        // server is doing correctly instead of showing its sentence.
+        return res.status(409).json({
+          code: 'SEND_OUTCOME_UNKNOWN',
+          error: 'The result of this send is still being confirmed. It will not be sent again automatically.',
+        });
+      }
       if (claim.state === 'inflight') return res.status(409).json({ error: 'This message is already being sent.' });
       intentClaimed = true;
     }

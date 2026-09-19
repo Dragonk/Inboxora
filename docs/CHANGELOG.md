@@ -13,6 +13,14 @@ limitations — read the matching page in the Wiki: [Release notes 4.1.0](wiki/R
 
 ## [Unreleased]
 
+### Changed
+
+- An **uncertain send** is now reported with a code (`SEND_OUTCOME_UNKNOWN`, the name the plan gives it) rather than
+  only an English sentence. The behaviour is unchanged and deliberately so — the message was handed to the server
+  and the answer was lost, so Inboxora will not send it again automatically — but a code is what lets an interface
+  answer in the user's own language instead of showing the server's text. The interface half is not part of this
+  change; the behaviour is explained in the wiki in the meantime.
+
 ### Added
 
 - A **message-size ceiling on the send path**, counted on the composed message. The interface's estimate was the

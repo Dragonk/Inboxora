@@ -180,7 +180,7 @@ describe('send failure semantics', () => {
 
   it.each([
     ['pending', null, 409, { error: 'This message is already being sent.' }],
-    ['uncertain', null, 409, { error: 'The result of this send is still being confirmed. It will not be sent again automatically.' }],
+    ['uncertain', null, 409, { code: 'SEND_OUTCOME_UNKNOWN', error: 'The result of this send is still being confirmed. It will not be sent again automatically.' }],
     ['completed', { ok: true, sentFolder: 'Sent' }, 200, { ok: true, sentFolder: 'Sent' }],
   ] as const)('returns durable duplicate intent %s without a second SMTP dispatch', async (status, result, expectedStatus, expectedBody) => {
     mockExistingIntent(status, result);
