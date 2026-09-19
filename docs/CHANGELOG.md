@@ -15,6 +15,22 @@ limitations — read the matching page in the Wiki: [Release notes 4.1.0](wiki/R
 
 ### Added
 
+- **Microsoft Graph mail folder discovery (P07b, first slice).** A Microsoft account whose
+  `mail_transport` is `microsoft_graph` can now have its mailbox folder tree imported: Outlook's
+  well-known folders map onto Inboxora's canonical paths (`INBOX`, `Sent`, `Drafts`, `Trash`, `Spam`,
+  `Archive`) with their IMAP-style `special_use`, ordinary folders derive a nested path, and each
+  folder is linked to its **immutable Graph folder id** in `integration_collections.remote_id`. A
+  folder renamed at the provider is recognised as the same folder: its local path follows and its
+  messages are moved with it instead of being orphaned. The folder list is refreshed on the existing
+  provider schedule, and "Sync folders" on a Graph account triggers the first discovery.
+  This is **folder discovery only** — messages are not imported yet and Graph is not yet a mail
+  transport, so the account still reads its mail over IMAP/SMTP.
+
+- **Migration `0107_mail_folder_collection_link.sql`** adds `integration_collections.local_folder_id`
+  (nullable, `REFERENCES folders(id) ON DELETE SET NULL`) and a partial index on it. It must be
+  applied **in order, after `0106`, and before the application is rolled out**; a collection whose
+  value is NULL behaves exactly as before.
+
 - A test for **stored credential encryption**, which was exercised only through mocks: it round-trips with the same key,
   produces ciphertext that does not contain the plaintext, and — the property a backup depends on — is **unreadable with a
   different key** rather than returning the plaintext or silent garbage. It also pins two contracts that were implicit:

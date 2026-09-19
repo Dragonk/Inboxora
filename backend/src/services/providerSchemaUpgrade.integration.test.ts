@@ -32,7 +32,9 @@ const USER_ID = '00000000-0000-0000-0000-00000000e1a1';
 const CALENDAR_ID = '11111111-1111-1111-1111-111111111111';
 const BOOK_ID = '22222222-2222-2222-2222-222222222222';
 const CONTACT_ID = '33333333-3333-3333-3333-333333333333';
-const PROVIDER_MIGRATIONS = /^010[1-6]_/;
+// Every migration from the provider layer onwards, so a new one is included by
+// extending the range rather than by being forgotten.
+const PROVIDER_MIGRATIONS = /^010[1-9]_|^01[1-9]\d_/;
 const UPGRADE_DB = `inboxora_upgrade_${process.pid}_${Date.now()}`.toLowerCase();
 
 const migrationFiles = () => readdirSync(MIGRATIONS_DIR).filter(name => name.endsWith('.sql')).sort();

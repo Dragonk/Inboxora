@@ -9,6 +9,7 @@ import {
 import { syncGoogleContacts } from './providers/google/googleContactsSync.js';
 import { syncGoogleCalendar } from './providers/google/googleCalendarSync.js';
 import { syncGraphContacts } from './providers/microsoft/graphContactsSync.js';
+import { syncGraphMailFolders } from './providers/microsoft/graphMailSync.js';
 
 /**
  * Periodic refresh of the provider collections a user has already pulled (P09).
@@ -74,7 +75,7 @@ export async function listProviderSyncTargets(): Promise<ProviderSyncTarget[]> {
        JOIN integration_collections ic
          ON ic.connection_id = pc.id
         AND ic.enabled = true
-        AND (ic.local_calendar_id IS NOT NULL OR ic.local_address_book_id IS NOT NULL)
+        AND (ic.local_calendar_id IS NOT NULL OR ic.local_address_book_id IS NOT NULL OR ic.local_folder_id IS NOT NULL)
       WHERE pc.status = 'active' AND pc.provider IN ('google', 'microsoft')
       GROUP BY pc.user_id, pc.id, pc.provider
       ORDER BY pc.user_id, pc.id`,
@@ -159,8 +160,11 @@ function syncFor(provider: string, kind: string): ((target: ProviderSyncTarget, 
     return null;
   }
   if (provider === 'microsoft') {
-    // The Graph calendar adapter arrives with P07d; until then only contacts exist.
+    // The Graph calendar adapter arrives with P07d; until then contacts and the mail
+    // folder tree exist. A mail folder sync is a full snapshot, so an overlapping
+    // tick is refused by the lease rather than queued.
     if (kind === 'address_book') return (target, _google, microsoft) => syncGraphContacts({ userId: target.userId, connectionId: target.connectionId, config: microsoft });
+    if (kind === 'mail_folder') return (target, _google, microsoft) => syncGraphMailFolders({ userId: target.userId, connectionId: target.connectionId, config: microsoft });
     return null;
   }
   return null;

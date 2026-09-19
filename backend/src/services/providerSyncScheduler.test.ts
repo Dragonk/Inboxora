@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   syncGoogleContacts: vi.fn(),
   syncGoogleCalendar: vi.fn(),
   syncGraphContacts: vi.fn(),
+  syncGraphMailFolders: vi.fn(),
   googleConfigured: { value: true },
   microsoftConfigured: { value: true },
 }));
@@ -21,6 +22,7 @@ vi.mock('./providerAuthService.js', async (importOriginal) => ({
 vi.mock('./providers/google/googleContactsSync.js', () => ({ syncGoogleContacts: mocks.syncGoogleContacts }));
 vi.mock('./providers/google/googleCalendarSync.js', () => ({ syncGoogleCalendar: mocks.syncGoogleCalendar }));
 vi.mock('./providers/microsoft/graphContactsSync.js', () => ({ syncGraphContacts: mocks.syncGraphContacts }));
+vi.mock('./providers/microsoft/graphMailSync.js', () => ({ syncGraphMailFolders: mocks.syncGraphMailFolders }));
 
 import { nextSyncBackoffMs,
   FIRST_PASS_DELAY_MS,
@@ -43,6 +45,7 @@ afterEach(() => {
   mocks.syncGoogleContacts.mockReset();
   mocks.syncGoogleCalendar.mockReset();
   mocks.syncGraphContacts.mockReset();
+  mocks.syncGraphMailFolders.mockReset();
   mocks.googleConfigured.value = true;
   mocks.microsoftConfigured.value = true;
 });
@@ -74,7 +77,7 @@ describe('listProviderSyncTargets', () => {
     // An account that was connected but never pulled anything must not be selected.
     expect(sql).toContain("pc.status = 'active'");
     expect(sql).toContain('ic.enabled = true');
-    expect(sql).toContain('ic.local_calendar_id IS NOT NULL OR ic.local_address_book_id IS NOT NULL');
+    expect(sql).toContain('ic.local_calendar_id IS NOT NULL OR ic.local_address_book_id IS NOT NULL OR ic.local_folder_id IS NOT NULL');
   });
 
   it('tolerates a driver that returns no feature array', async () => {
@@ -125,6 +128,17 @@ describe('runProviderSyncs', () => {
       userId: 'user-1', connectionId: 'connection-1', config: expect.objectContaining({ clientId: 'ms-client' }),
     }));
     expect(mocks.syncGoogleContacts).not.toHaveBeenCalled();
+  });
+
+  it('refreshes the Microsoft mail folder tree of a connection that already discovered it', async () => {
+    mocks.query.mockResolvedValueOnce({ rows: [target({ provider: 'microsoft', features: ['mail_folder'] })] });
+    mocks.syncGraphMailFolders.mockResolvedValueOnce([]);
+
+    await expect(runProviderSyncs()).resolves.toEqual({ connections: 1, ran: 1, failed: 0 });
+    expect(mocks.syncGraphMailFolders).toHaveBeenCalledWith(expect.objectContaining({
+      userId: 'user-1', connectionId: 'connection-1', config: expect.objectContaining({ clientId: 'ms-client' }),
+    }));
+    expect(mocks.syncGraphContacts).not.toHaveBeenCalled();
   });
 
   it('keeps the providers independent: an unconfigured Google does not stop Microsoft', async () => {
