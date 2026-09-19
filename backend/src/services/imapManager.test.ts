@@ -2803,3 +2803,35 @@ describe('folder body prefetch and the account transport', () => {
     expect(vi.mocked(query)).toHaveBeenCalledTimes(2);
   });
 });
+
+// The GTD transition path reaches `removeMessageCopy` to drop a label copy. On a
+// native account there is no IMAP session to delete it with, so the provider is asked
+// instead — the same path that would otherwise build label copies and then fail to
+// remove them.
+vi.mock('./providers/microsoft/graphMailMove.js', () => ({ deleteGraphMessagePermanently: vi.fn(async () => ({ deleted: true })) }));
+
+describe('removing a message copy on a native account', () => {
+  it('asks the provider rather than IMAP', async () => {
+    const { query } = await import('./db.js');
+    vi.mocked(query).mockReset()
+      .mockResolvedValueOnce({ rows: [{ id: 'acct-1', user_id: 'user-1', mail_transport: 'microsoft_graph', provider_connection_id: 'connection-1' }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'msg-1', provider_message_id: 'AAMkAD-1' }] })
+      .mockResolvedValueOnce({ rows: [{ removed: true }] })
+      // The helper's fire-and-forget count adjustment queries again; anything past the
+      // three arranged answers resolves empty rather than undefined.
+      .mockResolvedValue({ rows: [], rowCount: 0 });
+
+    const { ImapManager } = await import('./imapManager.js');
+    const manager = new ImapManager({} as never);
+    const permanentDelete = vi.spyOn(manager, 'permanentDeleteMessage').mockResolvedValue(undefined);
+
+    await manager.removeMessageCopy('acct-1', 42, 'GTD/Todo');
+    // The IMAP delete is never attempted for an account that has no IMAP session.
+    expect(permanentDelete).not.toHaveBeenCalled();
+    // The provider removal is asked for the copy's own identity.
+    const { deleteGraphMessagePermanently } = await import('./providers/microsoft/graphMailMove.js');
+    expect(vi.mocked(deleteGraphMessagePermanently)).toHaveBeenCalledWith(expect.objectContaining({
+      accountId: 'acct-1', resourceId: 'msg-1', providerMessageId: 'AAMkAD-1',
+    }));
+  });
+});

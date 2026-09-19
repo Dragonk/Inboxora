@@ -22,6 +22,7 @@ import { applyInboxRules, applyBlockList } from './inboxRules.js';
 import { generateVCard } from '../utils/vcard.js';
 import { randomUUID } from 'crypto';
 import { upsertConversationCopy } from './conversationPersistence.js';
+import { deleteGraphMessagePermanently } from './providers/microsoft/graphMailMove.js';
 import { moveGraphMessageToFolder } from './providers/microsoft/graphMailMove.js';
 import { graphFlagIntent, graphFlagMutationAdapter } from './providers/microsoft/graphMailMutations.js';
 import { runProviderMutation } from './providerMutationService.js';
@@ -5484,6 +5485,36 @@ export class ImapManager {
     const accountResult = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
     const account = accountResult.rows[0];
     if (!account) throw new Error(`removeMessageCopy: account ${accountId} not found`);
+
+    // A label copy on a native account is removed at the provider, the same way the
+    // copy itself was made: `permanentDeleteMessage` below is an IMAP call, and the
+    // GTD transition path reaches this method, so without this branch a native
+    // account would build label copies and then fail to remove them.
+    if (account.mail_transport && account.mail_transport !== 'imap_smtp') {
+      const row = await query<{ id: string; provider_message_id: string | null }>(
+        'SELECT id, provider_message_id FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3',
+        [accountId, uid, folder],
+      );
+      const copy = row.rows[0];
+      if (copy?.provider_message_id && account.provider_connection_id) {
+        const removed = await deleteGraphMessagePermanently({
+          userId: account.user_id,
+          accountId,
+          connectionId: account.provider_connection_id,
+          config: microsoftConfigFromEnv(),
+          resourceId: copy.id,
+          providerMessageId: copy.provider_message_id,
+        });
+        if (!removed.deleted) {
+          // Not confirmed: the local row stays, so the next delta reconciles rather
+          // than Inboxora forgetting a copy the mailbox still holds.
+          throw new Error(`removeMessageCopy: Microsoft Graph did not confirm the removal (${removed.code ?? 'unknown'})`);
+        }
+      }
+      const removedRow = await deleteMessageCopyRow(accountId, uid, folder);
+      await pluginRegistry.runHook('afterLabelRemove', { mgr: this.pluginFacade, account, folder, uid });
+      return removedRow;
+    }
 
     await this.permanentDeleteMessage(account, uid, folder);
     const result = await deleteMessageCopyRow(accountId, uid, folder);

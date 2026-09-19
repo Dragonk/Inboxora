@@ -15,6 +15,16 @@ limitations — read the matching page in the Wiki: [Release notes 4.1.0](wiki/R
 
 ### Changed
 
+- **GTD label copies are removed through the provider on a Microsoft Graph account** (P07b, nineteenth
+  slice). The transition path reaches `removeMessageCopy` to drop a copy, and that method called
+  `permanentDeleteMessage` — IMAP — so a native account would have built label copies and then failed to
+  remove them. It now asks the provider for the copy's own identity, using the same permanent-removal
+  helper as every other Graph delete, and deletes the local row only when the removal is confirmed: an
+  unconfirmed removal throws, so the row survives and the next delta reconciles instead of Inboxora
+  forgetting a copy the mailbox still holds. This was the second of GTD's two transport dependencies
+  found by last round's check, and it is fixed before the folder setup is made to work, so GTD cannot
+  start and then fail a layer deeper.
+
 - **GTD's folder setup refuses explicitly on a Microsoft Graph account** (P07b, eighteenth slice), and the
   check that produced it found more than the refusal. `POST /gtd/folders/ensure` — the setup step for the
   whole feature — creates its label folders through the labels capability, which goes over IMAP, so on a
