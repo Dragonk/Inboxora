@@ -377,6 +377,23 @@ two missing pages are concrete, bounded deliverables. They were not attempted he
 three pages of operator instruction properly is more than the remaining session can verify, and a documentation
 page written without checking the code it describes would be worse than the gap.
 
+## The DAV server chapter (§17): verdicts, one recorded deviation, two unverified rows
+
+Read against the implementation rather than against the earlier P11 summary. Most of it holds, one thing the plan
+explicitly forbids is what the code does, and two rows were not verified.
+
+| Requirement | State |
+| --- | --- |
+| An invalid or expired sync token answers `403` with `DAV:valid-sync-token`, so the client resynchronises rather than receiving a generic `409` or an empty change list | **Satisfied** — the REPORT handler answers exactly that, with a comment naming the precondition. |
+| `DAV: 1, 2, 3` may not be claimed beyond what is implemented; `MKCALENDAR`/`MKCOL`/`PROPPATCH`/`COPY`/`MOVE`/`LOCK` must not be advertised | **Satisfied** — both services advertise `DAV: 1` with their compliance class, `PROPPATCH` is answered with a refusal rather than a 404, and the deliberate omissions are documented in the code. |
+| A device password may only narrow, never widen, a collection's `dav_mode` | **Satisfied** — and the same rule is what makes a provider-sourced collection refuse writes whatever the password allows. |
+| A collection with DAV access **off** is absent from discovery **and** unreachable by a direct href | **Satisfied for discovery and the collection reads** — both queries filter `dav_mode <> 'off'`. The chapter extends the same filtering to **photos, feeds and search**, and those paths were **not checked**, so a stale URL reaching one of them is unverified rather than ruled out. |
+| The report type must not be recognised by `body.includes('calendar-query')` | **Deviation, and the plan names this exact thing.** The handlers do use `includes` on the body — it is how they have always distinguished `sync-collection`, `calendar-query` and `calendar-multiget`. It is correct for a compliant client and wrong in one edge case: a multiget whose href contains that substring would be misread as a query. Recorded as a known deviation rather than silently improved, because changing report dispatch needs its own tests per report type. |
+| A time-range filter must use the real recurrence projection, with `SQL OR recurring` only selecting candidates | **Unverified.** The query does select `recurring` as a candidate; whether the projection is then the final filter was not checked, and the chapter is specific that the SQL is not. |
+
+Two of the rows are therefore open questions rather than answers, and they are recorded as such: the
+photos/feeds/search filtering, and whether the recurrence projection is the final word on a time-range query.
+
 ## Account settings and independent integrations (§19): three findings, one conditional whole
 
 The chapter describes a per-account model — provider and connection method shown instead of IMAP hosts, two
