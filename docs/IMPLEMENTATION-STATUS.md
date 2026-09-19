@@ -82,6 +82,29 @@ loci are in the send-layer notes below, so this list carries no narrative.
 | E | `d38b53f5` | `services/stagingDraft.ts`: the staging lifecycle with `send_outcome_unknown` terminal (so an unknown outcome cannot be retried structurally), upload-failure recoverable, cancel only before hand-over, and the journal payload plus the opaque `X-Inboxora-Operation-Id`. No third durability mechanism. |
 | F (provider) | `b3018e56` | `sendGraphDraft()`: `202` accepted, a read 4xx refused with the provider's retryability, everything else `outcome_unknown`, and exactly one request so nothing retries on its own. |
 
+**Recipient model fixed** (`ecfae64d`): `ComposedMail.to/cc/bcc` are `Mailbox { email, name? }`, parsed
+**once** at the route boundary via `parseMailbox()`; SMTP renders the display form into the headers and
+**only addresses** into the envelope (still no `Bcc:` in the raw MIME), Graph maps `emailAddress.address`
+and `emailAddress.name` separately. Regressions cover a bare address, `Name <address>`, a quoted display
+name, a name-less angle form, To/Cc/Bcc with names, the envelope carrying addresses only, and the Graph
+payload never putting `<` in `address`.
+
+**The Graph transport itself exists and is tested** (`7a8c9523`, `graphMailTransport.ts`): draft → every
+attachment → send, mapping to `accepted` / `refused` / `outcome_unknown`, with a pre-send failure reported
+as a **retryable refusal** (nothing has left) and exactly one send attempted.
+
+**Two facts about the wiring, learned by attempting it, so the next attempt does not rediscover them.**
+The route and seam were reverted to `ecfae64d` rather than left half-changed — the trial is recorded here
+instead:
+1. The route already declares a `sendResult` object later (it builds the response with `partialDelivery`,
+   `sentCopySaved`, `sentFolder`), so the new outcome value needs a different name (`transportResult`) or
+   the two must be merged deliberately.
+2. `mailOptions` is used **after** the send for Sent-folder metadata (`inReplyTo`, `references`,
+   `messageId`) and for the IMAP APPEND. With SMTP-only rendering it exists only on the SMTP arm, so those
+   sites must read from the **model** instead — `composed.inReplyTo`, `composed.references`,
+   `composed.messageId` — and the APPEND path is already skipped for Graph by making `serverAutoSaves`
+   true when the transport is not SMTP.
+
 **What remains of F is the seam wiring, and it is the next commit.** The transport contract must carry the
 `ComposedMail` model — not only nodemailer's options and the rendered MIME — or a Graph transport cannot
 render `bccRecipients`; and `createAccountMailTransport()` must return a Graph transport for a native
