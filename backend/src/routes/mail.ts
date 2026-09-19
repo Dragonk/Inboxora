@@ -19,7 +19,16 @@ import { resolveMailTransportForSync } from '../services/mailTransportTarget.js'
 import { syncGraphMailFoldersForAccount, syncGraphMailMessagesForAccount } from '../services/providers/microsoft/graphMailSync.js';
 import type { EmailAccountRow } from '../services/imapManager.js';
 import { GraphApiError } from '../services/providers/microsoft/graphApiClient.js';
+import { GoogleApiError } from '../services/providers/google/googleApiClient.js';
 import { gmailLabelIdForPath, syncGmailMailLabelsForAccount, syncGmailMailMessagesForAccount } from '../services/providers/google/gmailMailSync.js';
+import {
+  collectGmailInlineImages,
+  embedGmailInlineImages,
+  fetchGmailAttachmentBytes,
+  fetchGmailMessageContent,
+  fetchGmailMessageHeaders,
+  localAttachmentsForGmail,
+} from '../services/providers/google/gmailMailBody.js';
 import {
   deleteGmailMessagePermanently,
   gmailLabelCreateAdapter,
@@ -539,6 +548,9 @@ router.get('/messages/:id/body', async (req, res) => {
     if (account?.mail_transport === 'microsoft_graph') {
       return await respondWithGraphBody(req, res, message, account);
     }
+    if (account?.mail_transport === 'gmail_api') {
+      return await respondWithGmailBody(req, res, message, account);
+    }
     imapManager.noteUserActivity(account.id);
 
     const { html, text, attachments } = await fetchWithTimeout(
@@ -638,6 +650,19 @@ router.get('/messages/:id/headers', async (req, res) => {
           console.warn('Headers Graph fetch failed:', caught instanceof Error ? caught.message : caught);
         }
       }
+    } else if (account.mail_transport === 'gmail_api') {
+      // As for Graph: the provider's own headers are the honest answer, and asking
+      // IMAP first could only time out before the fallback below.
+      if (account.provider_connection_id && message.provider_message_id) {
+        try {
+          headers = await fetchGmailMessageHeaders(
+            { userId: account.user_id, connectionId: account.provider_connection_id, config: googleConfigFromEnv() },
+            message.provider_message_id,
+          );
+        } catch (caught) {
+          console.warn('Headers Gmail fetch failed:', caught instanceof Error ? caught.message : caught);
+        }
+      }
     } else {
       try {
         headers = await imapManager.fetchHeaders(account, message.uid, message.folder);
@@ -721,6 +746,21 @@ router.get('/messages/:id/attachments.zip', async (req, res) => {
       for (const att of eligible) {
         try {
           const bytes = await fetchGraphAttachmentBytes(api, message.provider_message_id, String(att.part), ZIP_MAX_FILE_BYTES);
+          if (bytes.length) bufferMap.set(att.part, bytes);
+        } catch (caught) {
+          // One unreadable or oversized attachment must not fail the whole archive.
+          console.warn(`Attachment zip: skipped ${att.part}:`, caught instanceof Error ? caught.message : caught);
+        }
+      }
+    } else if (account.mail_transport === 'gmail_api') {
+      if (!account.provider_connection_id || !message.provider_message_id) {
+        return res.status(409).json({ error: 'This message has no Gmail API identity', code: 'RESOURCE_NOT_FOUND' });
+      }
+      const api = { userId: account.user_id, connectionId: account.provider_connection_id, config: googleConfigFromEnv() };
+      bufferMap = new Map();
+      for (const att of eligible) {
+        try {
+          const bytes = await fetchGmailAttachmentBytes(api, message.provider_message_id, String(att.part), ZIP_MAX_FILE_BYTES);
           if (bytes.length) bufferMap.set(att.part, bytes);
         } catch (caught) {
           // One unreadable or oversized attachment must not fail the whole archive.
@@ -819,6 +859,24 @@ router.get('/messages/:id/attachments/:part', async (req, res) => {
       }
       const bytes = await fetchGraphAttachmentBytes(
         { userId: attachmentAccount.user_id, connectionId: attachmentAccount.provider_connection_id, config: microsoftConfigFromEnv() },
+        message.provider_message_id,
+        partNum,
+        ATTACHMENT_SIZE_LIMIT,
+      );
+      if (!bytes.length) return res.status(404).json({ error: 'Could not fetch attachment' });
+      res.setHeader('Content-Type', att.type || 'application/octet-stream');
+      res.setHeader('Content-Disposition', attachmentDisposition(att.filename || 'attachment'));
+      res.setHeader('Content-Length', bytes.length);
+      return void res.send(bytes);
+    }
+    // A Gmail attachment is addressed by the provider's attachment id, which is what
+    // the local `part` holds for a message this adapter ingested.
+    if (attachmentAccount.mail_transport === 'gmail_api') {
+      if (!message.provider_message_id || !attachmentAccount.provider_connection_id) {
+        return res.status(409).json({ error: 'This message has no Gmail API identity', code: 'RESOURCE_NOT_FOUND' });
+      }
+      const bytes = await fetchGmailAttachmentBytes(
+        { userId: attachmentAccount.user_id, connectionId: attachmentAccount.provider_connection_id, config: googleConfigFromEnv() },
         message.provider_message_id,
         partNum,
         ATTACHMENT_SIZE_LIMIT,
@@ -1395,6 +1453,92 @@ async function respondWithGraphBody(
       return void res.status(403).json({ error: 'Microsoft Graph refused this request. Reconnect the account or check its permissions.', code: problem.code });
     }
     res.status(502).json({ error: 'Could not load the message body from Microsoft Graph' });
+  }
+}
+
+/**
+ * Read and cache one Gmail API message's body and attachments on demand.
+ *
+ * Gmail's `format=full` answers both questions in one call — the MIME tree carries
+ * each part's headers, size and the id its bytes are fetched by — so the visible
+ * attachment list and the body cannot disagree. The provider's attachment id is
+ * stored as the `part` a download addresses, exactly as the Graph adapter stores
+ * Graph's, which is what lets the attachment route stay transport-agnostic.
+ *
+ * Inline images are embedded as data URIs under a bounded count and byte budget, and
+ * the cache columns are the same ones the IMAP path writes, so the interface needs
+ * no branch. A transient empty answer never overwrites a previously good cache.
+ */
+async function respondWithGmailBody(
+  req: ExpressRequest,
+  res: ExpressResponse,
+  message: ReadMessageRow,
+  account: EmailAccountRow,
+): Promise<void> {
+  if (!account.provider_connection_id || !message.provider_message_id) {
+    // An account whose message carries no provider id is a broken row rather than a
+    // temporary failure, so it is reported instead of retried for ever.
+    res.status(409).json({ error: 'This message has no Gmail API identity', code: 'RESOURCE_NOT_FOUND' });
+    return;
+  }
+  const api = {
+    userId: account.user_id,
+    connectionId: account.provider_connection_id,
+    config: googleConfigFromEnv(),
+  };
+
+  try {
+    const content = await fetchGmailMessageContent(api, message.provider_message_id);
+
+    let html: string | null = null;
+    let text: string | null = null;
+    if (content.html) {
+      const inline = await collectGmailInlineImages(api, message.provider_message_id, content.attachments);
+      html = sanitizeDbText(sanitizeEmail(embedGmailInlineImages(content.html, inline)));
+    } else if (content.text) {
+      text = sanitizeDbText(content.text);
+    }
+
+    const visibleAttachments = localAttachmentsForGmail(content.attachments);
+    const snip = sanitizeDbText(snippetFromBody(text ?? '', html));
+
+    // Only cache when there is something to cache, exactly as the IMAP path does:
+    // a transient empty answer must not wipe a previously successful body.
+    if (html || text || visibleAttachments.length > 0) {
+      await query(
+        `UPDATE messages
+            SET body_html = $1, body_text = $2, attachments = $3,
+                snippet = CASE WHEN $5 != '' THEN $5 ELSE snippet END
+          WHERE id = $4`,
+        [html, text, JSON.stringify(visibleAttachments), message.id, snip]
+      );
+    }
+
+    const skipBlocking = req.query.remoteImages === '1';
+    let responseHtml = html;
+    let hasBlockedRemoteImages = false;
+    if (!skipBlocking && html && shouldBlockRemoteImages(message.preferences, message) && hasRemoteImages(html)) {
+      responseHtml = blockRemoteImages(html);
+      hasBlockedRemoteImages = true;
+    }
+    res.json({
+      html: responseHtml,
+      text,
+      attachments: visibleAttachments,
+      hasBlockedRemoteImages,
+      senderEmail: message.sender_email,
+      senderName: message.sender_name,
+      ...(message.calendar_invitation_id ? { calendarInvitation: true } : {}),
+    });
+  } catch (caught) {
+    const problem = caught instanceof GoogleApiError ? caught : null;
+    console.error('Gmail body fetch error:', problem?.message ?? (caught instanceof Error ? caught.message : caught));
+    if (problem?.code === 'RESOURCE_NOT_FOUND') return void res.status(404).json({ error: 'This message no longer exists in the mailbox', code: problem.code });
+    if (problem?.code === 'RATE_LIMITED') return void res.status(503).json({ error: 'Gmail is throttling this mailbox. Please try again shortly.', code: problem.code, retryable: true });
+    if (problem && (problem.code === 'PROVIDER_AUTH_REQUIRED' || problem.code === 'INSUFFICIENT_SCOPES')) {
+      return void res.status(403).json({ error: 'Gmail refused this request. Reconnect the account or check its permissions.', code: problem.code });
+    }
+    res.status(502).json({ error: 'Could not load the message body from Gmail' });
   }
 }
 

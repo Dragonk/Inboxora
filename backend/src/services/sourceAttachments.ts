@@ -1,5 +1,6 @@
 import { fetchGraphAttachmentBytes } from './providers/microsoft/graphMailBody.js';
-import { microsoftConfigFromEnv } from './providerAuthService.js';
+import { fetchGmailAttachmentBytes } from './providers/google/gmailMailBody.js';
+import { googleConfigFromEnv, microsoftConfigFromEnv } from './providerAuthService.js';
 
 /**
  * A source account as this module needs it: which transport owns the message, and what that transport
@@ -45,12 +46,12 @@ export class SourceAttachmentError extends Error {
  *
  * The dispatch is on the *source* account's transport, never on the account doing the sending: a forward
  * from an Outlook mailbox into a Gmail one must read the bytes from Outlook, and — the part that matters
- * most — a native Graph message must never be fetched over IMAP. Before this, the send route called
- * `imapManager.fetchAttachment` unconditionally, so a forward whose source was a native Graph account
+ * most — a native Graph or Gmail message must never be fetched over IMAP. Before this, the send route
+ * called `imapManager.fetchAttachment` unconditionally, so a forward whose source was a native account
  * would open an IMAP connection for a mailbox that has no IMAP session at all.
  *
- * A provider that is neither IMAP nor Graph yet (Gmail API) fails explicitly rather than falling back to
- * IMAP, so the gap is named instead of silently mis-routed.
+ * A transport with no branch here fails explicitly rather than falling back to IMAP, so the gap is named
+ * instead of silently mis-routed.
  */
 export async function fetchSourceAttachment(input: {
   account: SourceAttachmentAccount;
@@ -75,6 +76,29 @@ export async function fetchSourceAttachment(input: {
         userId: account.user_id,
         connectionId: account.provider_connection_id,
         config: microsoftConfigFromEnv(),
+      },
+      message.provider_message_id,
+      attachment.part,
+      maxBytes ?? Number.MAX_SAFE_INTEGER,
+    );
+    if (!bytes.length) {
+      throw new SourceAttachmentError(`Could not fetch attachment: ${attachment.filename ?? attachment.part}`, 502, 'ATTACHMENT_FETCH_FAILED');
+    }
+    return bytes;
+  }
+
+  if (transport === 'gmail_api') {
+    if (!account.provider_connection_id) {
+      throw new SourceAttachmentError('This message belongs to an account with no Google connection', 409, 'PROVIDER_AUTH_REQUIRED');
+    }
+    if (!message.provider_message_id) {
+      throw new SourceAttachmentError('This Gmail message has no provider identity to read attachments from', 409, 'RESOURCE_NOT_FOUND');
+    }
+    const bytes = await fetchGmailAttachmentBytes(
+      {
+        userId: account.user_id,
+        connectionId: account.provider_connection_id,
+        config: googleConfigFromEnv(),
       },
       message.provider_message_id,
       attachment.part,

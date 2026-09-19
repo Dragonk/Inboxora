@@ -51,8 +51,13 @@ release is never claimed before it has happened.
   non-idempotent and never auto-retried; rename is a state set). Requires migration **`0111`**.
   **No account is migrated:** `mail_transport` only becomes `gmail_api` through a later, explicit
   cutover (P12), so every existing Google account keeps reading and sending over IMAP/SMTP exactly as
-  before, and the work above is unreachable for it. This slice is the read path only — body and
-  attachments on demand, message mutations, drafts and send are the remaining P08 slices.
+  before, and the work above is unreachable for it. **Body and attachments** are read on demand
+  through the provider: one `format=full` read answers the MIME tree, the body and the attachment list
+  together, the HTML is sanitised and cached in the same `body_html`/`body_text`/`attachments` columns
+  the IMAP path uses, inline `cid:` images are embedded as data URIs under a bounded count and byte
+  budget, and a download addresses Gmail's own attachment id under the same per-file ceiling the IMAP
+  and Graph paths enforce — including when a forward reads its bytes from a Gmail source account.
+  Message mutations, drafts and send are the remaining P08 slices.
 
 - **Microsoft Graph calendars (P07d, read path).** A Microsoft connection's calendars are now
   discovered and pulled with their events, next to the contacts that already were. Each calendar

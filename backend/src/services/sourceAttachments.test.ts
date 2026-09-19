@@ -1,24 +1,32 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // The dispatch must follow the account that OWNS the message, not the one sending it, and a native
-// Graph source must never reach the IMAP fetcher. That last one is the defect this exists to prevent:
-// the route used to call `imapManager.fetchAttachment` unconditionally, so forwarding from a Graph
-// account opened an IMAP connection for a mailbox that has no IMAP session.
+// Graph or Gmail source must never reach the IMAP fetcher. That last one is the defect this exists to
+// prevent: the route used to call `imapManager.fetchAttachment` unconditionally, so forwarding from a
+// native account opened an IMAP connection for a mailbox that has no IMAP session.
 const graphFetch = vi.hoisted(() => vi.fn(async () => Buffer.from('graph-bytes')));
+const gmailFetch = vi.hoisted(() => vi.fn(async () => Buffer.from('gmail-bytes')));
 vi.mock('./providers/microsoft/graphMailBody.js', () => ({ fetchGraphAttachmentBytes: graphFetch }));
-vi.mock('./providerAuthService.js', () => ({ microsoftConfigFromEnv: () => ({ clientId: 'client-1' }) }));
+vi.mock('./providers/google/gmailMailBody.js', () => ({ fetchGmailAttachmentBytes: gmailFetch }));
+vi.mock('./providerAuthService.js', () => ({
+  microsoftConfigFromEnv: () => ({ clientId: 'client-1' }),
+  googleConfigFromEnv: () => ({ clientId: 'client-g' }),
+}));
 
 import { fetchSourceAttachment, SourceAttachmentError } from './sourceAttachments.js';
 
 const imapAccount = { id: 'acct-imap', user_id: 'user-1', mail_transport: 'imap_smtp' };
 const graphAccount = { id: 'acct-graph', user_id: 'user-1', mail_transport: 'microsoft_graph', provider_connection_id: 'connection-1' };
+const gmailAccount = { id: 'acct-gmail', user_id: 'user-1', mail_transport: 'gmail_api', provider_connection_id: 'connection-g' };
 const imapMessage = { uid: 42, folder: 'INBOX' };
 const graphMessage = { uid: 7, folder: 'Inbox', provider_message_id: 'AAMkAD-1' };
+const gmailMessage = { uid: 8, folder: 'INBOX', provider_message_id: '18f2a4c0d1e2f3a4' };
 
 let imap: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
   graphFetch.mockClear();
+  gmailFetch.mockClear();
   imap = vi.fn(async () => Buffer.from('imap-bytes'));
 });
 
@@ -30,6 +38,7 @@ describe('fetchSourceAttachment', () => {
     expect(bytes.toString()).toBe('imap-bytes');
     expect(imap).toHaveBeenCalledTimes(1);
     expect(graphFetch).not.toHaveBeenCalled();
+    expect(gmailFetch).not.toHaveBeenCalled();
   });
 
   it('IMAP source → Graph sender still reads over IMAP (dispatch follows the source)', async () => {
@@ -62,6 +71,21 @@ describe('fetchSourceAttachment', () => {
     expect(imap).not.toHaveBeenCalled();
   });
 
+  it('Gmail API source → IMAP sender reads over Gmail and never opens IMAP', async () => {
+    // The provider's attachment id is the `part` a message ingested from Gmail stores, and the sender's
+    // transport is irrelevant: only the source account decides.
+    const bytes = await fetchSourceAttachment({
+      account: gmailAccount, message: gmailMessage, attachment: { part: 'att-1' }, imap: imap as never,
+    });
+    expect(bytes.toString()).toBe('gmail-bytes');
+    expect(imap).not.toHaveBeenCalled();
+    expect(graphFetch).not.toHaveBeenCalled();
+    const [api, providerMessageId, attachmentId] = gmailFetch.mock.calls[0] as unknown as [unknown, string, string];
+    expect(providerMessageId).toBe('18f2a4c0d1e2f3a4');
+    expect(attachmentId).toBe('att-1');
+    expect((api as { connectionId: string }).connectionId).toBe('connection-g');
+  });
+
   it('refuses a Graph source with no provider identity rather than trying IMAP', async () => {
     await expect(fetchSourceAttachment({
       account: graphAccount, message: { uid: 7, folder: 'Inbox' }, attachment: { part: 'x' }, imap: imap as never,
@@ -70,10 +94,25 @@ describe('fetchSourceAttachment', () => {
     expect(graphFetch).not.toHaveBeenCalled();
   });
 
-  it('names an unimplemented transport instead of serving it over IMAP', async () => {
-    const gmailApi = { id: 'acct-g', user_id: 'user-1', mail_transport: 'gmail_api' };
+  it('refuses a Gmail source with no provider identity rather than trying IMAP', async () => {
     await expect(fetchSourceAttachment({
-      account: gmailApi, message: imapMessage, attachment: { part: '2' }, imap: imap as never,
+      account: gmailAccount, message: { uid: 8, folder: 'INBOX' }, attachment: { part: 'x' }, imap: imap as never,
+    })).rejects.toMatchObject({ code: 'RESOURCE_NOT_FOUND', status: 409 });
+    expect(imap).not.toHaveBeenCalled();
+    expect(gmailFetch).not.toHaveBeenCalled();
+  });
+
+  it('reports a Gmail source whose bytes did not arrive as a fetch failure', async () => {
+    gmailFetch.mockResolvedValueOnce(Buffer.alloc(0));
+    await expect(fetchSourceAttachment({
+      account: gmailAccount, message: gmailMessage, attachment: { part: 'att-1', filename: 'x.pdf' }, imap: imap as never,
+    })).rejects.toMatchObject({ code: 'ATTACHMENT_FETCH_FAILED', status: 502 });
+  });
+
+  it('names an unimplemented transport instead of serving it over IMAP', async () => {
+    const unknown = { id: 'acct-x', user_id: 'user-1', mail_transport: 'some_future_transport' };
+    await expect(fetchSourceAttachment({
+      account: unknown, message: imapMessage, attachment: { part: '2' }, imap: imap as never,
     })).rejects.toMatchObject({ code: 'OPERATION_FORBIDDEN', status: 501 });
     expect(imap).not.toHaveBeenCalled();
   });

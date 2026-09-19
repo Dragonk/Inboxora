@@ -108,8 +108,14 @@ and reconnecting re-links the same collections rather than duplicating them.
   **This does not change any existing Google account.** Nothing in this work sets
   `mail_transport = 'gmail_api'`: the app-password IMAP/SMTP path stays the transport for every Google
   account until an explicit in-place cutover (P12) implements the move, and the Gmail API code is
-  unreachable for an account that has not been cut over to it. Body and attachments on demand, message
-  mutations, drafts and send are the **remaining P08 slices**.
+  unreachable for an account that has not been cut over to it. **Body and attachments are read on
+  demand**: one `format=full` read answers the MIME tree, the body and the attachment list together;
+  the HTML is sanitised and cached in the same columns the IMAP path writes; inline `cid:` images are
+  embedded as data URIs under a bounded count and byte budget; a download addresses Gmail's own
+  attachment id under the same per-file ceiling the IMAP and Graph paths enforce; and the body,
+  source-header, attachment, attachment-ZIP and forwarded-attachment paths all dispatch on the
+  account's transport, so a Gmail message is never read over IMAP. Message mutations, drafts and send
+  are the **remaining P08 slices**.
 
 ## Fixed
 
@@ -156,8 +162,8 @@ and reconnecting re-links the same collections rather than duplicating them.
   re-saving patches that same object rather than leaving two, and deleting removes it at Microsoft
   first. **Provider-side search and the reply/forward dependencies are not implemented.**
   **Gmail API mail is a partial adapter, not yet a transport for anyone.** Its read path exists —
-  label discovery and projection, and message/thread ingest with a history cursor — but body and
-  attachments on demand, message mutations, drafts and send are not implemented, and **no Google
+  label discovery and projection, message/thread ingest with a history cursor, and body and
+  attachments on demand — but message mutations, drafts and send are not implemented, and **no Google
   account is migrated to it**: `mail_transport` stays `imap_smtp` unless an explicit cutover sets it,
   so Google mail continues with an app password and the Gmail API code is unreachable for an existing
   account. When such an account is eventually cut over, one consequence of modelling Gmail's plural
@@ -210,8 +216,8 @@ A static review or a mocked test does not stand in for any of the above.
 Verified at the commit that delivered it, each gate's own exit status read:
 
 - Backend `npx tsc --noEmit` and `npx eslint src --max-warnings 0`: clean.
-- The full backend unit suite: green (the run includes 25 new Gmail unit tests across
-  `gmailLabels.test.ts` and `gmailMail.test.ts`).
+- The full backend unit suite: green (the run includes 35 new Gmail unit tests across
+  `gmailLabels.test.ts`, `gmailMail.test.ts` and `gmailMailBody.test.ts`).
 - PostgreSQL integration: a fresh database (`inboxora_gmail_gate`) with the full migration chain
   applied, then `gmailMailSync.integration.test.ts` — **9 tests, green** — covering label projection
   and its collection links, label rename and deletion with message re-homing, the baseline and its
