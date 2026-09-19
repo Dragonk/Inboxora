@@ -304,6 +304,11 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   a user could not tell a successful import of forty contacts from a file that matched nothing. Both
   importers now report the count the server returns, in all nine languages, in the same place as the
   sync notices.
+- Confirm what a calendar import added, and keep the dialog open to show it. Importing an `.ics`
+  file closed the appearance dialog immediately, so the only feedback was the event count changing
+  somewhere in the calendar behind it; the dialog now stays open with the count the server returns,
+  which also lets a second file follow without reopening it. A previous file's confirmation no
+  longer greets the next calendar you open.
 ## [4.0.4] - 2026-09-18
 
 ### Changed

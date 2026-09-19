@@ -150,6 +150,9 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
   const [googleSyncing, setGoogleSyncing] = useState(false);
   const [googleSyncNotice, setGoogleSyncNotice] = useState('');
   const [icsImporting, setIcsImporting] = useState(false);
+  // What the last .ics import added, so the result is visible instead of the dialog
+  // simply closing.
+  const [importNotice, setImportNotice] = useState('');
   const importIcsRef = useRef<HTMLInputElement | null>(null);
   useBackLayer(openCalendarMenu, () => { if (!calendarSaving) setOpenCalendarMenu(null); }, 4510);
   const cells = useMemo(() => monthCells(anchor, weekStartsOn), [anchor, weekStartsOn]);
@@ -286,8 +289,9 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
     setIcsImporting(true);
     setEditError(null);
     try {
-      await api.calendar.importIcs(calendar.id, await file.text());
-      setCalendarEdit(null);
+      const result = await api.calendar.importIcs(calendar.id, await file.text()) as { imported?: number };
+      // The dialog stays open: the confirmation is the point, and another file may follow.
+      setImportNotice(t('calendar.importDone', { count: result?.imported ?? 0 }));
       await onSourcesChanged();
     } catch (error) {
       setEditError(toAppError(error).message);
@@ -329,7 +333,7 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
     } catch (error) { setEditError(toAppError(error).message); } finally { setCalendarSaving(false); }
   };
   const editCalendar = (calendar: CalendarRow) => {
-    setOpenCalendarMenu(null); setEditError(null);
+    setOpenCalendarMenu(null); setEditError(null); setImportNotice('');
     setCalendarEdit({ calendar, name: calendar.name ?? '', color: calendar.color || '#35558a', davMode: davModeOf(calendar.dav_mode) });
   };
   const deleteCalendar = async (calendar: CalendarRow) => {
@@ -382,6 +386,7 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
         {/* An .ics file goes into one local calendar; a provider calendar is written
             by its source, which is why this lives in the appearance dialog. */}
         <button type="button" data-testid="calendar-import-ics" disabled={icsImporting} onClick={() => importIcsRef.current?.click()} style={linkButton}>{icsImporting ? t('calendar.importingIcs') : t('calendar.importIcs')}</button>
+        {importNotice && <p role="status" data-testid="calendar-import-result" style={{ margin: 0, fontSize: 12, color: 'var(--text-tertiary)' }}>{importNotice}</p>}
       </div>
     </Dialog>}
     <input ref={importIcsRef} type="file" accept=".ics,text/calendar" onChange={importIcsFile} style={{ display: 'none' }} />

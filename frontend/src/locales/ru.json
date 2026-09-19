@@ -2019,7 +2019,8 @@
     "importIcs": "Импорт файла .ics",
     "importingIcs": "Импорт…",
     "lastSynced": "Последняя синхронизация: {{date}}",
-    "lastSyncFailed": "Сбой синхронизации: {{code}} ({{when}})"
+    "lastSyncFailed": "Сбой синхронизации: {{code}} ({{when}})",
+    "importDone": "Импортировано событий: {{count}}."
   },
   "mailFolders": {
     "inbox": "Входящие",

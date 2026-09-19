@@ -2019,7 +2019,8 @@
     "importIcs": "导入 .ics 文件",
     "importingIcs": "正在导入…",
     "lastSynced": "上次同步：{{date}}",
-    "lastSyncFailed": "同步失败：{{code}}（{{when}}）"
+    "lastSyncFailed": "同步失败：{{code}}（{{when}}）",
+    "importDone": "已导入 {{count}} 个日程。"
   },
   "mailFolders": {
     "inbox": "收件箱",

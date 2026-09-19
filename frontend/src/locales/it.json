@@ -2019,7 +2019,8 @@
     "importIcs": "Importa file .ics",
     "importingIcs": "Importazione…",
     "lastSynced": "Ultima sincronizzazione: {{date}}",
-    "lastSyncFailed": "Sincronizzazione non riuscita: {{code}} ({{when}})"
+    "lastSyncFailed": "Sincronizzazione non riuscita: {{code}} ({{when}})",
+    "importDone": "{{count}} evento/i importato/i."
   },
   "mailFolders": {
     "inbox": "Posta in arrivo",

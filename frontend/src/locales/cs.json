@@ -2019,7 +2019,8 @@
     "importIcs": "Importovat soubor .ics",
     "importingIcs": "Importuji…",
     "lastSynced": "Naposledy synchronizováno: {{date}}",
-    "lastSyncFailed": "Synchronizace selhala: {{code}} ({{when}})"
+    "lastSyncFailed": "Synchronizace selhala: {{code}} ({{when}})",
+    "importDone": "Importováno {{count}} událostí."
   },
   "mailFolders": {
     "inbox": "Doručená pošta",

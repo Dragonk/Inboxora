@@ -187,3 +187,15 @@ test('an import confirms what it added instead of refreshing silently', async ()
   assert.match(source, /data-testid="contacts-import-result"/);
   assert.match(source, /count: result\?\.imported \?\? 0/);
 });
+
+test('a calendar import confirms its result and leaves the dialog open', async () => {
+  const source = await readFile(calendarSidebar, 'utf8');
+  assert.match(source, /setImportNotice\(t\('calendar\.importDone', { count: result\?\.imported \?\? 0 }\)\)/);
+  assert.match(source, /data-testid="calendar-import-result"/);
+  // The confirmation is only useful if the dialog stays open to show it.
+  const successPath = /importDone'[\s\S]{0,200}?await onSourcesChanged\(\)/.exec(source)?.[0] ?? '';
+  assert.ok(successPath, 'the success path must refresh the calendars');
+  assert.doesNotMatch(successPath, /setCalendarEdit\(null\)/);
+  // A stale confirmation must not greet the next calendar.
+  assert.match(source, /setOpenCalendarMenu\(null\); setEditError\(null\); setImportNotice\(''\);/);
+});
