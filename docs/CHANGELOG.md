@@ -518,6 +518,11 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   enforced it, so any other caller could poll as fast as it liked. A poll that arrives before the interval has
   passed is now answered from the flow's own state, without calling the provider — the same answer Microsoft
   gives for `slow_down`, at no cost to it.
+- Back the refresh schedule off when a provider throttles. `Retry-After` was parsed and recorded by the
+  classifiers, but the schedule ran at a fixed interval, so a throttled collection was retried on the same
+  cadence as a healthy one — which is the behaviour a provider is least willing to forgive. A throttled pass now
+  doubles the wait towards a thirty-minute ceiling with jitter, so a fleet of installations does not retry in
+  lockstep, and a healthy pass returns to the normal cadence.
 
 
 ## [4.0.4] - 2026-09-18

@@ -22,7 +22,7 @@ vi.mock('./providers/google/googleContactsSync.js', () => ({ syncGoogleContacts:
 vi.mock('./providers/google/googleCalendarSync.js', () => ({ syncGoogleCalendar: mocks.syncGoogleCalendar }));
 vi.mock('./providers/microsoft/graphContactsSync.js', () => ({ syncGraphContacts: mocks.syncGraphContacts }));
 
-import {
+import { nextSyncBackoffMs,
   FIRST_PASS_DELAY_MS,
   listProviderSyncTargets,
   providerSyncIntervalMinutes,
@@ -241,5 +241,29 @@ describe('the installation switch reaches the schedule', () => {
     } finally {
       delete process.env.PROVIDER_INTEGRATIONS_ENABLED;
     }
+  });
+});
+
+describe('the schedule backs off from a throttled run', () => {
+  it('doubles towards a ceiling and resets when a pass is healthy', () => {
+    // A fixed interval retried a throttled collection on the same cadence as a healthy one, which is what the
+    // plan asks not to do; Retry-After was parsed but never used by the schedule.
+    const noJitter = () => 0;
+    const first = nextSyncBackoffMs(0, true, noJitter);
+    expect(first).toBe(60_000);
+
+    const second = nextSyncBackoffMs(first, true, noJitter);
+    expect(second).toBe(120_000);
+
+    // The ceiling holds however long the throttling lasts.
+    let delay = second;
+    for (let i = 0; i < 12; i += 1) delay = nextSyncBackoffMs(delay, true, noJitter);
+    expect(delay).toBe(30 * 60_000);
+
+    // A healthy pass returns to the normal cadence, and jitter keeps a fleet from retrying in lockstep.
+    expect(nextSyncBackoffMs(delay, false, noJitter)).toBe(0);
+    const jittered = nextSyncBackoffMs(0, true, () => 0.999);
+    expect(jittered).toBeGreaterThan(60_000);
+    expect(jittered).toBeLessThanOrEqual(60_000 + 15_000);
   });
 });

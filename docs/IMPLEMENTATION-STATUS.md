@@ -382,11 +382,11 @@ page written without checking the code it describes would be worse than the gap.
 Reading these three subsections against the code gives one real gap and a set of requirements that are already
 met — several of them deliberately, which is worth recording because the plan names them as traps:
 
-- **`Retry-After` is respected in classification, not in scheduling.** `classifyGoogleError` and its Graph
-  counterpart parse the header and mark the error retryable with the delay attached, and `providerReason` is kept
-  for diagnostics. What does **not** exist is the **limited exponential backoff with jitter** the section asks
-  for: the refresh schedule runs at a fixed interval, so a throttled collection is retried on the same cadence as
-  a healthy one. That is the gap this reading found, and it belongs with the scheduler.
+- **`Retry-After` is now respected in scheduling too.** The classifiers parse it and mark the error
+  retryable with its delay; the schedule previously ignored it and retried a throttled collection on the same
+  cadence as a healthy one. A throttled pass now backs off by doubling towards a thirty-minute ceiling with
+  jitter, a healthy pass resets it, and stopping the scheduler clears that state — which the first attempt at
+  this forgot, and which the suite caught as a leak between its own cases.
 - **A 403 is not treated as an auth error.** The classifier checks Google's own reason against a set of
   rate/quota reasons and maps those to `RATE_LIMITED` — retryable, with the delay — keeping only genuine
   permission failures as `INSUFFICIENT_SCOPES`. The plan names this as the mistake to avoid; the code carries a
