@@ -10,7 +10,7 @@ import { runProviderMutation } from '../services/providerMutationService.js';
 import { imapFlagMutationAdapter } from '../services/providers/imapFlagMutation.js';
 import { providerIntegrationsEnabled } from '../services/providerSwitches.js';
 import { isMicrosoftConfigured, microsoftConfigFromEnv } from '../services/providerAuthService.js';
-import { syncGraphMailFoldersForAccount } from '../services/providers/microsoft/graphMailSync.js';
+import { syncGraphMailFoldersForAccount, syncGraphMailMessagesForAccount } from '../services/providers/microsoft/graphMailSync.js';
 import type { EmailAccountRow } from '../services/imapManager.js';
 /** Attachment metadata as stored in messages.attachments (JSON) and fetched from IMAP. */
 interface AttachmentMeta {
@@ -927,16 +927,62 @@ router.patch('/messages/:id/star', async (req, res) => {
   res.json({ ok: true, is_starred: starred });
 });
 
+/**
+ * What an account's mail transport means for a sync trigger.
+ *
+ * The two triggers — a full sync and a folder resync — must not disagree about
+ * which accounts are native or which guards apply, so the decision is made once.
+ * An account with no transport recorded is IMAP, because that is the only thing a
+ * pre-v4 row could have been.
+ */
+type GraphMailTarget =
+  | { kind: 'imap' }
+  | { kind: 'graph'; connectionId: string; config: ReturnType<typeof microsoftConfigFromEnv> }
+  | { kind: 'refused'; status: number; error: string };
+
+async function resolveMailTransportForSync(userId: string, accountId: string): Promise<GraphMailTarget> {
+  const check = await query<{ id: string; mail_transport: string | null; provider_connection_id: string | null }>(
+    'SELECT id, mail_transport, provider_connection_id FROM email_accounts WHERE id = $1 AND user_id = $2',
+    [accountId, userId],
+  );
+  if (!check.rows.length) return { kind: 'refused', status: 404, error: 'Account not found' };
+  const account = check.rows[0];
+  if (account.mail_transport !== 'microsoft_graph') return { kind: 'imap' };
+  if (!providerIntegrationsEnabled()) {
+    return { kind: 'refused', status: 403, error: 'Provider integrations are disabled on this installation' };
+  }
+  const config = microsoftConfigFromEnv();
+  if (!isMicrosoftConfigured(config)) {
+    return { kind: 'refused', status: 409, error: 'Microsoft API is not configured by the administrator' };
+  }
+  if (!account.provider_connection_id) {
+    return { kind: 'refused', status: 409, error: 'This account is not linked to a Microsoft connection' };
+  }
+  return { kind: 'graph', connectionId: account.provider_connection_id, config };
+}
+
 // Manual sync (INBOX)
 router.post('/sync', async (req, res) => {
   const { accountId } = req.body; // optional — omit for all accounts
   if (accountId) {
     if (!UUID_RE.test(accountId)) return res.status(400).json({ error: 'Invalid account id' });
-    const check = await query<{ id: string }>(
-      'SELECT id FROM email_accounts WHERE id = $1 AND user_id = $2',
-      [accountId, req.session.userId]
-    );
-    if (!check.rows.length) return res.status(404).json({ error: 'Account not found' });
+    const target = await resolveMailTransportForSync(sessionUserId(req), accountId);
+    if (target.kind === 'refused') return res.status(target.status).json({ error: target.error });
+    if (target.kind === 'graph') {
+      const userId = sessionUserId(req);
+      // A native account has no IMAP session to sync: discovery first, because the
+      // message cursors are per discovered folder.
+      void (async () => {
+        try {
+          await syncGraphMailFoldersForAccount({ userId, connectionId: target.connectionId, accountId, config: target.config });
+          await syncGraphMailMessagesForAccount({ userId, connectionId: target.connectionId, accountId, config: target.config });
+          imapManager.broadcast({ type: 'sync_complete', accountId }, userId);
+        } catch (err) {
+          console.error('Graph mail sync error:', err instanceof Error ? err.message : err);
+        }
+      })();
+      return res.json({ ok: true, transport: 'microsoft_graph' });
+    }
   }
   // Run sync in background so response returns immediately
   imapManager.syncNow(sessionUserId(req), accountId || null)
@@ -951,32 +997,17 @@ router.post('/sync-folders', async (req, res) => {
   const { accountId } = req.body; // optional — omit for all accounts
   if (accountId) {
     if (!UUID_RE.test(accountId)) return res.status(400).json({ error: 'Invalid account id' });
-    const check = await query<{ id: string; mail_transport: string | null; provider_connection_id: string | null }>(
-      'SELECT id, mail_transport, provider_connection_id FROM email_accounts WHERE id = $1 AND user_id = $2',
-      [accountId, req.session.userId]
-    );
-    if (!check.rows.length) return res.status(404).json({ error: 'Account not found' });
-    const account = check.rows[0];
+    const target = await resolveMailTransportForSync(sessionUserId(req), accountId);
+    if (target.kind === 'refused') return res.status(target.status).json({ error: target.error });
     // A native account discovers its folders from its provider, not over IMAP. This
     // is the trigger that creates the first mail-folder collection; without it the
     // scheduled refresh would have nothing to refresh, because it only visits
     // collections that already exist.
-    if (account.mail_transport === 'microsoft_graph') {
-      if (!providerIntegrationsEnabled()) {
-        return res.status(403).json({ error: 'Provider integrations are disabled on this installation' });
-      }
-      const config = microsoftConfigFromEnv();
-      if (!isMicrosoftConfigured(config)) {
-        return res.status(409).json({ error: 'Microsoft API is not configured by the administrator' });
-      }
-      if (!account.provider_connection_id) {
-        return res.status(409).json({ error: 'This account is not linked to a Microsoft connection' });
-      }
+    if (target.kind === 'graph') {
       const userId = sessionUserId(req);
-      const connectionId = account.provider_connection_id;
       // In the background, like the IMAP path: the response returns immediately and
       // `folders_synced` tells the client when to refetch the folder list.
-      syncGraphMailFoldersForAccount({ userId, connectionId, accountId, config })
+      syncGraphMailFoldersForAccount({ userId, connectionId: target.connectionId, accountId, config: target.config })
         .then(() => imapManager.broadcast({ type: 'folders_synced', accountId }, userId))
         .catch(err => console.error('Graph folder discovery error:', err.message));
       return res.json({ ok: true, transport: 'microsoft_graph' });

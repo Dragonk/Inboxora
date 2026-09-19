@@ -15,6 +15,22 @@ limitations — read the matching page in the Wiki: [Release notes 4.1.0](wiki/R
 
 ### Added
 
+- **Microsoft Graph mail message sync (P07b, second slice).** A Graph account's message **metadata** —
+  subject, correspondents, To/Cc/Reply-To, received date, snippet, read/flagged state, attachment
+  flag, and the Graph `conversationId` as the thread — is now ingested into the local `messages`
+  table, one delta cursor per folder, refreshed on the provider schedule and by "Sync now". Identity
+  is the provider's **immutable message id** (`messages.provider_message_id`), never the RFC
+  `Message-ID` and never a hash of it; a `410` from Graph rebuilds the folder from a baseline **and
+  reconciles**, so a message deleted while the cursor was unusable does not stay behind for ever. A
+  flag the user just changed is not reverted by a sync that read the server earlier (the same 30 s
+  local-wins window the IMAP path uses). **Body, attachments and message mutations are not in this
+  slice**, and Graph is still not a mail transport: the account continues to read mail over IMAP/SMTP.
+
+- **Migration `0108_message_provider_identity.sql`** adds `messages.provider_message_id` with a
+  partial unique index on `(account_id, provider_message_id)` and an index on
+  `(account_id, folder)`. It must be applied **in order, after `0107`, and before the application is
+  rolled out**; every pre-v4 IMAP row has a NULL provider id and is untouched.
+
 - **Microsoft Graph mail folder discovery (P07b, first slice).** A Microsoft account whose
   `mail_transport` is `microsoft_graph` can now have its mailbox folder tree imported: Outlook's
   well-known folders map onto Inboxora's canonical paths (`INBOX`, `Sent`, `Drafts`, `Trash`, `Spam`,

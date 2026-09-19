@@ -1,16 +1,24 @@
 import type { PoolClient } from 'pg';
 import { withTransaction } from '../../db.js';
+import { toAppError } from '../../../utils/errors.js';
 import {
   acquireSyncLease,
   commitSyncCheckpoint,
   ensureSyncState,
   failSyncRun,
+  readSyncState,
   releaseSyncLease,
 } from '../../syncCoordinator.js';
 import { GraphApiError } from './graphApiClient.js';
 import type { GraphApiOptions } from './graphApiClient.js';
-import { fetchMailFolders, graphFolderPathMap } from './graphMail.js';
-import type { LocalMailFolder } from './graphMail.js';
+import {
+  fetchMailFolders,
+  fetchMessagesDeltaPage,
+  graphFolderPathMap,
+  localMessageForGraphMessage,
+  providerUidForGraphMessage,
+} from './graphMail.js';
+import type { GraphMessage, LocalMailFolder } from './graphMail.js';
 import type { FetchLike } from '../../providerAuthService.js';
 
 /**
@@ -237,6 +245,314 @@ export async function syncGraphMailFoldersForAccount(input: {
     }
     await withTransaction(client => releaseSyncLease(client, { syncStateId, generation: lease.generation })).catch(() => {});
     return { accountId: input.accountId, folders: mapped.size, ...applied };
+  } catch (caught) {
+    const code = caught instanceof GraphApiError ? caught.code : 'INTERNAL_ERROR';
+    await withTransaction(client => failSyncRun(client, { syncStateId, generation: lease.generation, errorCode: code })).catch(() => {});
+    throw caught;
+  }
+}
+
+/**
+ * Microsoft Graph **message metadata** sync (P07b, second slice).
+ *
+ * One delta cursor per folder collection in `sync_states`, so a later run reads
+ * only what changed. Identity is the provider's immutable message id
+ * (`messages.provider_message_id`, migration `0108`), never the RFC `Message-ID`
+ * and never a hash of it; `uid` is derived so the column's legacy
+ * `UNIQUE (account_id, uid, folder)` stays meaningful.
+ *
+ * Two rules are inherited deliberately from the IMAP path rather than invented:
+ * the `*_changed_at` local-wins window, so a flag the user just changed is not
+ * reverted by a sync that read the server before the change landed; and a delta
+ * token Graph rejects (`410`) rebuilding the folder from a baseline **and
+ * reconciling**, because a plain re-read would miss whatever was deleted while the
+ * cursor was unusable.
+ *
+ * Not yet here: body, attachments and message mutations. This slice brings the
+ * message list — subject, correspondents, date, snippet, flags, thread — into the
+ * local model, which is what the interface lists.
+ */
+
+
+export interface GraphMailMessageSyncResult {
+  accountId: string;
+  folders: number;
+  created: number;
+  updated: number;
+  deleted: number;
+  skipped: number;
+  fullSyncFolders: number;
+}
+
+/** One folder's outcome, so a caller can tell a baseline from an incremental run. */
+interface FolderMessageSyncResult {
+  created: number;
+  updated: number;
+  deleted: number;
+  skipped: number;
+  fullSync: boolean;
+}
+
+/** The local folder a mail-folder collection projects onto. */
+interface FolderTarget {
+  collectionId: string;
+  remoteId: string;
+  folderPath: string;
+}
+
+interface MessageContext {
+  userId: string;
+  accountId: string;
+  folderPath: string;
+}
+
+const MESSAGE_MAX_PAGES = 1000;
+/** The local-wins window the IMAP path uses, in seconds. */
+const LOCAL_WINS_SECONDS = 30;
+
+/**
+ * Upsert one page of messages.
+ *
+ * The `ON CONFLICT` target is the partial provider-identity index: an identical
+ * message is updated in place, so re-reading the same page changes nothing. A `uid`
+ * collision — astronomically unlikely, and possible only between two *different*
+ * provider ids — is resolved by asking for the next derived number instead of
+ * failing the page.
+ */
+export async function applyGraphMailMessagesPage(
+  client: PoolClient,
+  context: MessageContext,
+  messages: readonly GraphMessage[],
+  seenProviderIds?: Set<string>,
+): Promise<{ created: number; updated: number; deleted: number; skipped: number }> {
+  const totals = { created: 0, updated: 0, deleted: 0, skipped: 0 };
+  for (const message of messages) {
+    if (!message.id) { totals.skipped += 1; continue; }
+    if (message['@removed']) {
+      const removed = await client.query(
+        'DELETE FROM messages WHERE account_id = $1 AND provider_message_id = $2',
+        [context.accountId, message.id],
+      );
+      if ((removed.rowCount ?? 0) > 0) totals.deleted += 1;
+      else totals.skipped += 1;
+      continue;
+    }
+    const local = localMessageForGraphMessage(message);
+    if (!local) { totals.skipped += 1; continue; }
+    seenProviderIds?.add(local.providerMessageId);
+
+    let applied: { id: string; inserted: boolean } | null = null;
+    for (let attempt = 0; attempt < 3 && !applied; attempt++) {
+      const uid = attempt === 0 ? local.uid : providerUidForGraphMessage(local.providerMessageId, attempt);
+      try {
+        const result = await client.query<{ id: string; inserted: boolean }>(
+          `INSERT INTO messages (
+             account_id, uid, folder, provider_message_id, message_id, thread_id, subject, from_name, from_email,
+             to_addresses, cc_addresses, reply_to, date, snippet, is_read, is_starred, has_attachments, synced_at
+           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11::jsonb,$12::jsonb,$13,$14,$15,$16,$17,NOW())
+           ON CONFLICT (account_id, provider_message_id) WHERE provider_message_id IS NOT NULL DO UPDATE SET
+             folder = EXCLUDED.folder,
+             uid = EXCLUDED.uid,
+             message_id = EXCLUDED.message_id,
+             thread_id = EXCLUDED.thread_id,
+             subject = EXCLUDED.subject,
+             from_name = EXCLUDED.from_name,
+             from_email = EXCLUDED.from_email,
+             to_addresses = EXCLUDED.to_addresses,
+             cc_addresses = EXCLUDED.cc_addresses,
+             reply_to = EXCLUDED.reply_to,
+             date = EXCLUDED.date,
+             snippet = EXCLUDED.snippet,
+             is_read = CASE
+               WHEN messages.read_changed_at IS NULL OR messages.read_changed_at < NOW() - make_interval(secs => $18)
+                 THEN EXCLUDED.is_read ELSE messages.is_read END,
+             is_starred = CASE
+               WHEN messages.star_changed_at IS NULL OR messages.star_changed_at < NOW() - make_interval(secs => $18)
+                 THEN EXCLUDED.is_starred ELSE messages.is_starred END,
+             has_attachments = EXCLUDED.has_attachments,
+             synced_at = NOW()
+           RETURNING id, (xmax = 0) AS inserted`,
+          [
+            context.accountId, uid, context.folderPath, local.providerMessageId, local.messageId, local.threadId,
+            local.subject, local.fromName, local.fromEmail,
+            JSON.stringify(local.toAddresses), JSON.stringify(local.ccAddresses), JSON.stringify(local.replyTo),
+            local.date, local.snippet, local.isRead, local.isStarred, local.hasAttachments, LOCAL_WINS_SECONDS,
+          ],
+        );
+        applied = result.rows[0] ?? null;
+        if (applied) {
+          if (applied.inserted) totals.created += 1;
+          else totals.updated += 1;
+        }
+      } catch (caught) {
+        // 23505 here is the legacy (account_id, uid, folder) index: another message
+        // already owns this derived number, so ask for the next one.
+        if (toAppError(caught).code === '23505') continue;
+        throw caught;
+      }
+    }
+    if (!applied) totals.skipped += 1;
+  }
+  return totals;
+}
+
+/** Remove the local provider messages of a folder that a rebuilt baseline did not list. */
+export async function reconcileGraphMailMessages(
+  client: PoolClient,
+  context: MessageContext,
+  seenProviderIds: ReadonlySet<string>,
+): Promise<number> {
+  const removed = await client.query(
+    `DELETE FROM messages
+      WHERE account_id = $1 AND folder = $2 AND provider_message_id IS NOT NULL
+        AND provider_message_id <> ALL($3::text[])`,
+    [context.accountId, context.folderPath, [...seenProviderIds]],
+  );
+  return removed.rowCount ?? 0;
+}
+
+/** The enabled mail-folder collections of one connection, with their local paths. */
+export async function listGraphFolderTargets(client: PoolClient, input: { connectionId: string; accountId: string }): Promise<FolderTarget[]> {
+  const result = await client.query<{ collection_id: string; remote_id: string; path: string }>(
+    `SELECT ic.id AS collection_id, ic.remote_id, f.path
+       FROM integration_collections ic
+       JOIN folders f ON f.id = ic.local_folder_id
+      WHERE ic.connection_id = $1 AND ic.account_id = $2 AND ic.kind = 'mail_folder' AND ic.enabled = true
+      ORDER BY ic.remote_id`,
+    [input.connectionId, input.accountId],
+  );
+  return result.rows.map(row => ({ collectionId: row.collection_id, remoteId: row.remote_id, folderPath: row.path }));
+}
+
+/**
+ * Sync the messages of every discovered folder of one Graph mail account.
+ *
+ * Folder discovery must have run first: a folder with no collection and no local
+ * path has no cursor to keep and no `messages.folder` value to write.
+ */
+export async function syncGraphMailMessagesForAccount(input: {
+  userId: string;
+  connectionId: string;
+  accountId: string;
+  config?: GraphApiOptions['config'];
+  fetchImpl?: FetchLike;
+  owner?: string;
+}): Promise<GraphMailMessageSyncResult> {
+  const targets = await withTransaction(client => listGraphFolderTargets(client, input));
+  const totals: GraphMailMessageSyncResult = {
+    accountId: input.accountId, folders: 0, created: 0, updated: 0, deleted: 0, skipped: 0, fullSyncFolders: 0,
+  };
+
+  for (const target of targets) {
+    const result = await syncGraphMailMessagesForFolder({ ...input, target });
+    totals.folders += 1;
+    totals.created += result.created;
+    totals.updated += result.updated;
+    totals.deleted += result.deleted;
+    totals.skipped += result.skipped;
+    if (result.fullSync) totals.fullSyncFolders += 1;
+  }
+  return totals;
+}
+
+/** Sync one folder collection under the P03 lease that owns its delta cursor. */
+export async function syncGraphMailMessagesForFolder(input: {
+  userId: string;
+  connectionId: string;
+  accountId: string;
+  target: FolderTarget;
+  config?: GraphApiOptions['config'];
+  fetchImpl?: FetchLike;
+  owner?: string;
+}): Promise<FolderMessageSyncResult> {
+  const syncStateId = await withTransaction(client => ensureSyncState(client, {
+    userId: input.userId,
+    connectionId: input.connectionId,
+    accountId: input.accountId,
+    feature: 'mail',
+    collectionId: input.target.collectionId,
+    coverage: 'messages',
+  }));
+
+  const owner = input.owner ?? `graph-mail-messages:${input.target.collectionId}`;
+  const lease = await withTransaction(client => acquireSyncLease(client, { syncStateId, owner }));
+  if (!lease) {
+    throw new GraphApiError({
+      code: 'RATE_LIMITED',
+      message: `Another Microsoft message sync is already running for folder ${input.target.remoteId}`,
+      status: 409,
+      retryable: true,
+    });
+  }
+
+  const api: GraphApiOptions = {
+    userId: input.userId,
+    connectionId: input.connectionId,
+    owner,
+    ...(input.config ? { config: input.config } : {}),
+    ...(input.fetchImpl ? { fetchImpl: input.fetchImpl } : {}),
+  };
+  const context: MessageContext = { userId: input.userId, accountId: input.accountId, folderPath: input.target.folderPath };
+
+  try {
+    const state = await withTransaction(client => readSyncState(client, syncStateId));
+    let cursor = state?.cursor ?? null;
+    let fullSync = cursor === null;
+    let nextLink: string | null = null;
+    // Only a baseline needs the seen-set: a delta reports deletions explicitly.
+    const seen = new Set<string>();
+    const totals = { created: 0, updated: 0, deleted: 0, skipped: 0 };
+
+    for (let page = 0; page < MESSAGE_MAX_PAGES; page++) {
+      let fetched;
+      try {
+        fetched = await fetchMessagesDeltaPage(api, {
+          folderId: input.target.remoteId,
+          nextLink,
+          deltaLink: nextLink ? null : cursor,
+        });
+      } catch (caught) {
+        // An expired delta token: rebuild this folder from a baseline instead of failing.
+        if (caught instanceof GraphApiError && caught.code === 'INVALID_SYNC_CURSOR' && cursor) {
+          cursor = null;
+          nextLink = null;
+          fullSync = true;
+          seen.clear();
+          continue;
+        }
+        throw caught;
+      }
+      const applied = await withTransaction(client => applyGraphMailMessagesPage(client, context, fetched.messages, seen));
+      totals.created += applied.created;
+      totals.updated += applied.updated;
+      totals.deleted += applied.deleted;
+      totals.skipped += applied.skipped;
+      if (fetched.deltaLink) cursor = fetched.deltaLink;
+      nextLink = fetched.nextLink;
+      if (!nextLink) break;
+    }
+
+    if (fullSync) {
+      // A baseline lists everything that still exists, so anything else is gone.
+      totals.deleted += await withTransaction(client => reconcileGraphMailMessages(client, context, seen));
+    }
+
+    const committed = await withTransaction(client => commitSyncCheckpoint(client, {
+      syncStateId,
+      generation: lease.generation,
+      cursor,
+      clearPageCheckpoint: true,
+      lastErrorCode: null,
+    }));
+    if (!committed) {
+      throw new GraphApiError({
+        code: 'MUTATION_OUTCOME_UNKNOWN',
+        message: 'The sync lease was lost before the delta cursor could be stored',
+        status: 409,
+      });
+    }
+    await withTransaction(client => releaseSyncLease(client, { syncStateId, generation: lease.generation })).catch(() => {});
+    return { ...totals, fullSync };
   } catch (caught) {
     const code = caught instanceof GraphApiError ? caught.code : 'INTERNAL_ERROR';
     await withTransaction(client => failSyncRun(client, { syncStateId, generation: lease.generation, errorCode: code })).catch(() => {});

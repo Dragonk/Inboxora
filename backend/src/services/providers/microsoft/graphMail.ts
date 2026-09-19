@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import { graphGet, graphUrl } from './graphApiClient.js';
 import type { GraphApiOptions } from './graphApiClient.js';
 
@@ -152,4 +153,155 @@ export async function fetchMailFolders(
     } while (nextLink);
   }
   return folders;
+}
+
+/**
+ * A message as Graph returns it for the delta endpoint. Only the fields the
+ * adapter reads are declared; the `$select` below is what asks for them.
+ *
+ * `internetMessageId` is the RFC `Message-ID` header and is carried through as
+ * metadata only — it is neither unique nor stable, so identity is `id`.
+ * `conversationId` is Graph's own thread identity and is what the conversation
+ * layer keys on.
+ */
+export interface GraphEmailAddress {
+  name?: string | null;
+  address?: string | null;
+}
+
+export interface GraphRecipient {
+  emailAddress?: GraphEmailAddress | null;
+}
+
+export interface GraphMessage {
+  id: string;
+  internetMessageId?: string | null;
+  conversationId?: string | null;
+  subject?: string | null;
+  bodyPreview?: string | null;
+  receivedDateTime?: string | null;
+  sentDateTime?: string | null;
+  isRead?: boolean | null;
+  isDraft?: boolean | null;
+  hasAttachments?: boolean | null;
+  flag?: { flagStatus?: string | null } | null;
+  from?: GraphRecipient | null;
+  toRecipients?: GraphRecipient[] | null;
+  ccRecipients?: GraphRecipient[] | null;
+  replyTo?: GraphRecipient[] | null;
+  changeKey?: string | null;
+  parentFolderId?: string | null;
+  /** Set on the delta entry that reports a deletion, instead of the message. */
+  '@removed'?: { reason?: string } | null;
+}
+
+/** A message projected onto the local `messages` row. */
+export interface LocalGraphMessage {
+  /** Compatibility number; the identity is the provider id, not this. */
+  uid: string;
+  providerMessageId: string;
+  messageId: string | null;
+  threadId: string | null;
+  subject: string | null;
+  fromName: string | null;
+  fromEmail: string | null;
+  toAddresses: Array<{ name: string | null; address: string }>;
+  ccAddresses: Array<{ name: string | null; address: string }>;
+  replyTo: Array<{ name: string | null; address: string }>;
+  date: Date | null;
+  snippet: string | null;
+  isRead: boolean;
+  isStarred: boolean;
+  hasAttachments: boolean;
+  isDraft: boolean;
+}
+
+export const GRAPH_MESSAGE_SELECT = 'id,internetMessageId,conversationId,subject,bodyPreview,receivedDateTime,sentDateTime,isRead,isDraft,hasAttachments,flag,from,toRecipients,ccRecipients,replyTo,changeKey,parentFolderId';
+const MESSAGE_PAGE_SIZE = 50;
+
+export interface GraphMessagePage {
+  value?: GraphMessage[];
+  '@odata.nextLink'?: string;
+  '@odata.deltaLink'?: string;
+}
+
+/**
+ * The `uid` a Graph message gets in the local row.
+ *
+ * `messages.uid` is `BIGINT NOT NULL` and historically the IMAP UID, so a Graph
+ * message needs *a* number. Deriving it from the provider id by hash keeps it
+ * stable across runs — which is what the column's `UNIQUE (account_id, uid, folder)`
+ * needs — while the real identity lives in `provider_message_id`. The digest is
+ * truncated to 63 bits and never zero, and `attempt` lets the caller resolve the
+ * astronomically unlikely collision with another message's number.
+ */
+export function providerUidForGraphMessage(id: string, attempt = 0): string {
+  const digest = createHash('sha256').update(attempt === 0 ? id : `${id}#${attempt}`).digest();
+  let value = BigInt(`0x${digest.subarray(0, 8).toString('hex')}`) & ((1n << 63n) - 1n);
+  if (value === 0n) value = 1n;
+  return value.toString();
+}
+
+function addresses(recipients: readonly GraphRecipient[] | null | undefined): Array<{ name: string | null; address: string }> {
+  const result: Array<{ name: string | null; address: string }> = [];
+  for (const recipient of recipients ?? []) {
+    const address = recipient?.emailAddress?.address?.trim();
+    if (!address) continue;
+    result.push({ name: recipient.emailAddress?.name?.trim() || null, address });
+  }
+  return result;
+}
+
+function parseGraphDate(value: string | null | undefined): Date | null {
+  if (!value) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+/** Project one Graph message. `null` for an entry that is a deletion or has no id. */
+export function localMessageForGraphMessage(message: GraphMessage): LocalGraphMessage | null {
+  if (!message.id || message['@removed']) return null;
+  const from = message.from?.emailAddress;
+  return {
+    uid: providerUidForGraphMessage(message.id),
+    providerMessageId: message.id,
+    messageId: message.internetMessageId?.trim() || null,
+    threadId: message.conversationId?.trim() || null,
+    subject: message.subject ?? null,
+    fromName: from?.name?.trim() || null,
+    fromEmail: from?.address?.trim() || null,
+    toAddresses: addresses(message.toRecipients),
+    ccAddresses: addresses(message.ccRecipients),
+    replyTo: addresses(message.replyTo),
+    date: parseGraphDate(message.receivedDateTime) ?? parseGraphDate(message.sentDateTime),
+    snippet: message.bodyPreview ?? null,
+    isRead: Boolean(message.isRead),
+    isStarred: (message.flag?.flagStatus ?? '').toLowerCase() === 'flagged',
+    hasAttachments: Boolean(message.hasAttachments),
+    isDraft: Boolean(message.isDraft),
+  };
+}
+
+/**
+ * Read one page of a folder's message delta, resuming from `nextLink` first and
+ * falling back to the stored `deltaLink`, exactly as Graph issued them.
+ */
+export async function fetchMessagesDeltaPage(api: GraphApiOptions, input: {
+  folderId: string;
+  nextLink?: string | null;
+  deltaLink?: string | null;
+  top?: number;
+}): Promise<{ messages: GraphMessage[]; nextLink: string | null; deltaLink: string | null }> {
+  const url = input.nextLink
+    ?? input.deltaLink
+    ?? graphUrl(`/me/mailFolders/${encodeURIComponent(input.folderId)}/messages/delta`, {
+      $select: GRAPH_MESSAGE_SELECT,
+      $top: input.top ?? MESSAGE_PAGE_SIZE,
+    });
+  const page = await graphGet<GraphMessagePage>(api, url);
+  return {
+    messages: page.value ?? [],
+    nextLink: page['@odata.nextLink'] ?? null,
+    deltaLink: page['@odata.deltaLink'] ?? null,
+  };
 }

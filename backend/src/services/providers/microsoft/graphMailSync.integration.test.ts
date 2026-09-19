@@ -17,7 +17,7 @@ import {
   upsertProviderConnection,
 } from '../../providerAuthService.js';
 import { acquireSyncLease, ensureSyncState } from '../../syncCoordinator.js';
-import { syncGraphMailFolders, syncGraphMailFoldersForAccount } from './graphMailSync.js';
+import { syncGraphMailFolders, syncGraphMailFoldersForAccount, syncGraphMailMessagesForAccount } from './graphMailSync.js';
 
 const hasPg = process.env.DB_HOST && process.env.DB_NAME;
 const describeOrSkip = hasPg ? describe : describe.skip;
@@ -256,5 +256,192 @@ describeOrSkip('Microsoft Graph mail folder discovery (PostgreSQL)', () => {
     }));
     await expect(syncGraphMailFolders({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl: fakeFolders([TREE]).fetchImpl }))
       .resolves.toEqual([]);
+  });
+});
+
+// ── Message metadata sync (P07b, second slice) ───────────────────────────────
+
+const FLAT_TREE = {
+  value: [
+    { id: 'graph-inbox', displayName: 'Inbox', wellKnownName: 'inbox', childFolderCount: 0 },
+    { id: 'graph-sent', displayName: 'Sent Items', wellKnownName: 'sentitems', childFolderCount: 0 },
+  ],
+};
+
+const DELTA_INBOX = 'https://graph.microsoft.com/v1.0/me/mailFolders/graph-inbox/messages/delta?$deltatoken=inbox';
+
+function graphMessage(id: string, overrides: Record<string, unknown> = {}) {
+  return {
+    id,
+    internetMessageId: `<${id}@contoso.test>`,
+    conversationId: `conv-${id}`,
+    subject: `Subject ${id}`,
+    bodyPreview: `Preview ${id}`,
+    receivedDateTime: '2026-03-04T09:15:00Z',
+    isRead: false,
+    flag: { flagStatus: 'notFlagged' },
+    from: { emailAddress: { name: 'Ada Lovelace', address: 'ada@contoso.test' } },
+    toRecipients: [{ emailAddress: { address: 'sam@contoso.test' } }],
+    ccRecipients: [],
+    replyTo: [],
+    ...overrides,
+  };
+}
+
+/** Serve the folder tree once, then a scripted sequence of message delta pages. */
+function fakeMailProvider(script: { inbox?: unknown[]; sent?: unknown[] }) {
+  const urls: string[] = [];
+  const inbox = [...(script.inbox ?? [])];
+  const sent = [...(script.sent ?? [])];
+  const fetchImpl = async (url: string): Promise<Response> => {
+    const target = String(url);
+    urls.push(target);
+    if (target.includes('/childFolders')) return json({ value: [] });
+    if (target.includes('/messages/delta')) {
+      const next = target.includes('graph-inbox') ? inbox.shift() : sent.shift();
+      return json(next ?? { value: [], '@odata.deltaLink': `${DELTA_INBOX}-empty` });
+    }
+    return json(FLAT_TREE);
+  };
+  return { fetchImpl: fetchImpl as unknown as typeof fetch, urls };
+}
+
+async function storedMessages(): Promise<Array<{ provider_message_id: string; folder: string; subject: string | null; thread_id: string | null; is_read: boolean; is_starred: boolean; from_email: string | null }>> {
+  const result = await autocommit(client => client.query<{ provider_message_id: string; folder: string; subject: string | null; thread_id: string | null; is_read: boolean; is_starred: boolean; from_email: string | null }>(
+    'SELECT provider_message_id, folder, subject, thread_id, is_read, is_starred, from_email FROM messages WHERE account_id = $1 ORDER BY provider_message_id',
+    [ACCOUNT_ID],
+  ));
+  return result.rows;
+}
+
+async function discoverFolders(connectionId: string): Promise<void> {
+  await syncGraphMailFolders({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl: fakeFolders([FLAT_TREE]).fetchImpl });
+}
+
+describeOrSkip('Microsoft Graph mail message sync (PostgreSQL)', () => {
+  // This suite is separate from the folder one, so it establishes the same owner
+  // and the same clean slate rather than depending on a sibling suite's hooks.
+  beforeAll(async () => {
+    if (!process.env.ENCRYPTION_KEY) process.env.ENCRYPTION_KEY = crypto.randomBytes(32).toString('hex');
+    await autocommit(client => client.query(
+      `INSERT INTO users (id, username) VALUES ($1, 'graph-mail-message-user') ON CONFLICT (id) DO NOTHING`,
+      [USER_ID],
+    ));
+  });
+
+  beforeEach(async () => {
+    await autocommit(async client => {
+      await client.query('DELETE FROM provider_connections WHERE user_id = $1', [USER_ID]);
+      await client.query('DELETE FROM email_accounts WHERE user_id = $1', [USER_ID]);
+    });
+  });
+
+  it('ingests a baseline into the local message list with the provider identity', async () => {
+    const connectionId = await seedConnection();
+    await discoverFolders(connectionId);
+
+    const provider = fakeMailProvider({
+      inbox: [{ value: [graphMessage('m1'), graphMessage('m2', { isRead: true, flag: { flagStatus: 'flagged' } })], '@odata.deltaLink': DELTA_INBOX }],
+    });
+    const result = await syncGraphMailMessagesForAccount({ userId: USER_ID, connectionId, accountId: ACCOUNT_ID, config: CONFIG, fetchImpl: provider.fetchImpl });
+
+    // Both folders are baselines on the first run: neither has a cursor yet.
+    expect(result).toMatchObject({ accountId: ACCOUNT_ID, folders: 2, created: 2, deleted: 0, fullSyncFolders: 2 });
+    const messages = await storedMessages();
+    expect(messages.map(row => row.provider_message_id)).toEqual(['m1', 'm2']);
+    expect(messages[0]).toMatchObject({ folder: 'INBOX', subject: 'Subject m1', thread_id: 'conv-m1', is_read: false, is_starred: false, from_email: 'ada@contoso.test' });
+    expect(messages[1]).toMatchObject({ is_read: true, is_starred: true });
+
+    // The cursor is stored per folder, so the next run is incremental.
+    const cursors = await autocommit(client => client.query<{ cursor: string | null }>(
+      "SELECT cursor FROM sync_states WHERE user_id = $1 AND feature = 'mail' AND coverage = 'messages' ORDER BY cursor", [USER_ID],
+    ));
+    expect(cursors.rows.map(row => row.cursor)).toContain(DELTA_INBOX);
+  });
+
+  it('applies a delta change and a deletion, and re-sends the stored cursor', async () => {
+    const connectionId = await seedConnection();
+    await discoverFolders(connectionId);
+    await syncGraphMailMessagesForAccount({
+      userId: USER_ID, connectionId, accountId: ACCOUNT_ID, config: CONFIG,
+      fetchImpl: fakeMailProvider({ inbox: [{ value: [graphMessage('m1'), graphMessage('m2')], '@odata.deltaLink': DELTA_INBOX }] }).fetchImpl,
+    });
+
+    const delta = fakeMailProvider({
+      inbox: [{ value: [graphMessage('m1', { subject: 'Renamed' }), { id: 'm2', '@removed': { reason: 'deleted' } }], '@odata.deltaLink': `${DELTA_INBOX}-2` }],
+    });
+    const result = await syncGraphMailMessagesForAccount({ userId: USER_ID, connectionId, accountId: ACCOUNT_ID, config: CONFIG, fetchImpl: delta.fetchImpl });
+
+    expect(result).toMatchObject({ created: 0, updated: 1, deleted: 1, fullSyncFolders: 0 });
+    const messages = await storedMessages();
+    expect(messages.map(row => row.provider_message_id)).toEqual(['m1']);
+    expect(messages[0]?.subject).toBe('Renamed');
+    // The stored delta link is what the run resumes from, not the folder's first page.
+    expect(delta.urls.some(url => url.includes('inbox') && url.includes('deltatoken'))).toBe(true);
+  });
+
+  it('does not revert a flag the user just changed', async () => {
+    const connectionId = await seedConnection();
+    await discoverFolders(connectionId);
+    await syncGraphMailMessagesForAccount({
+      userId: USER_ID, connectionId, accountId: ACCOUNT_ID, config: CONFIG,
+      fetchImpl: fakeMailProvider({ inbox: [{ value: [graphMessage('m1')], '@odata.deltaLink': DELTA_INBOX }] }).fetchImpl,
+    });
+    // The user marks it read locally; the server answer that arrives next still says unread.
+    await autocommit(client => client.query("UPDATE messages SET is_read = true, read_changed_at = NOW() WHERE account_id = $1 AND provider_message_id = 'm1'", [ACCOUNT_ID]));
+
+    await syncGraphMailMessagesForAccount({
+      userId: USER_ID, connectionId, accountId: ACCOUNT_ID, config: CONFIG,
+      fetchImpl: fakeMailProvider({ inbox: [{ value: [graphMessage('m1', { isRead: false })], '@odata.deltaLink': `${DELTA_INBOX}-2` }] }).fetchImpl,
+    });
+
+    expect((await storedMessages())[0]?.is_read).toBe(true);
+  });
+
+  it('rebuilds the folder when Graph rejects the delta token, and reconciles what the baseline omits', async () => {
+    const connectionId = await seedConnection();
+    await discoverFolders(connectionId);
+    await syncGraphMailMessagesForAccount({
+      userId: USER_ID, connectionId, accountId: ACCOUNT_ID, config: CONFIG,
+      fetchImpl: fakeMailProvider({ inbox: [{ value: [graphMessage('m1'), graphMessage('m2')], '@odata.deltaLink': DELTA_INBOX }] }).fetchImpl,
+    });
+
+    let calls = 0;
+    const rebuilding = async (url: string): Promise<Response> => {
+      const target = String(url);
+      if (target.includes('/childFolders')) return json({ value: [] });
+      if (target.includes('/messages/delta')) {
+        calls += 1;
+        if (calls === 1) return json({ error: { code: 'syncStateNotFound', message: 'expired' } }, 410);
+        return json({ value: [graphMessage('m1')], '@odata.deltaLink': `${DELTA_INBOX}-rebuilt` });
+      }
+      return json(FLAT_TREE);
+    };
+    const result = await syncGraphMailMessagesForAccount({
+      userId: USER_ID, connectionId, accountId: ACCOUNT_ID, config: CONFIG, fetchImpl: rebuilding as unknown as typeof fetch,
+    });
+
+    // m2 was not in the rebuilt baseline, so it is gone rather than stale for ever.
+    expect(result).toMatchObject({ deleted: 1, fullSyncFolders: 1 });
+    expect((await storedMessages()).map(row => row.provider_message_id)).toEqual(['m1']);
+  });
+
+  it('is idempotent: re-reading the same baseline changes nothing', async () => {
+    const connectionId = await seedConnection();
+    await discoverFolders(connectionId);
+    const page = { value: [graphMessage('m1'), graphMessage('m2')] };
+    await syncGraphMailMessagesForAccount({
+      userId: USER_ID, connectionId, accountId: ACCOUNT_ID, config: CONFIG,
+      fetchImpl: fakeMailProvider({ inbox: [{ ...page, '@odata.deltaLink': DELTA_INBOX }] }).fetchImpl,
+    });
+    const before = await storedMessages();
+
+    // An empty delta page, which is what a refresh with no changes returns.
+    const second = await syncGraphMailMessagesForAccount({
+      userId: USER_ID, connectionId, accountId: ACCOUNT_ID, config: CONFIG,
+      fetchImpl: fakeMailProvider({ inbox: [{ value: [], '@odata.deltaLink': `${DELTA_INBOX}-2` }] }).fetchImpl,
+    });
+    expect(second).toMatchObject({ created: 0, updated: 0, deleted: 0 });
+    expect(await storedMessages()).toEqual(before);
   });
 });

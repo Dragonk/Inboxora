@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   syncGoogleCalendar: vi.fn(),
   syncGraphContacts: vi.fn(),
   syncGraphMailFolders: vi.fn(),
+  syncGraphMailMessagesForAccount: vi.fn(),
   googleConfigured: { value: true },
   microsoftConfigured: { value: true },
 }));
@@ -22,7 +23,10 @@ vi.mock('./providerAuthService.js', async (importOriginal) => ({
 vi.mock('./providers/google/googleContactsSync.js', () => ({ syncGoogleContacts: mocks.syncGoogleContacts }));
 vi.mock('./providers/google/googleCalendarSync.js', () => ({ syncGoogleCalendar: mocks.syncGoogleCalendar }));
 vi.mock('./providers/microsoft/graphContactsSync.js', () => ({ syncGraphContacts: mocks.syncGraphContacts }));
-vi.mock('./providers/microsoft/graphMailSync.js', () => ({ syncGraphMailFolders: mocks.syncGraphMailFolders }));
+vi.mock('./providers/microsoft/graphMailSync.js', () => ({
+  syncGraphMailFolders: mocks.syncGraphMailFolders,
+  syncGraphMailMessagesForAccount: mocks.syncGraphMailMessagesForAccount,
+}));
 
 import { nextSyncBackoffMs,
   FIRST_PASS_DELAY_MS,
@@ -46,6 +50,7 @@ afterEach(() => {
   mocks.syncGoogleCalendar.mockReset();
   mocks.syncGraphContacts.mockReset();
   mocks.syncGraphMailFolders.mockReset();
+  mocks.syncGraphMailMessagesForAccount.mockReset().mockResolvedValue({ accountId: 'account-1' });
   mocks.googleConfigured.value = true;
   mocks.microsoftConfigured.value = true;
 });
@@ -130,13 +135,17 @@ describe('runProviderSyncs', () => {
     expect(mocks.syncGoogleContacts).not.toHaveBeenCalled();
   });
 
-  it('refreshes the Microsoft mail folder tree of a connection that already discovered it', async () => {
+  it('refreshes the Microsoft mail folder tree and then its messages', async () => {
     mocks.query.mockResolvedValueOnce({ rows: [target({ provider: 'microsoft', features: ['mail_folder'] })] });
-    mocks.syncGraphMailFolders.mockResolvedValueOnce([]);
+    mocks.syncGraphMailFolders.mockResolvedValueOnce([{ accountId: 'account-1' }]);
 
     await expect(runProviderSyncs()).resolves.toEqual({ connections: 1, ran: 1, failed: 0 });
     expect(mocks.syncGraphMailFolders).toHaveBeenCalledWith(expect.objectContaining({
       userId: 'user-1', connectionId: 'connection-1', config: expect.objectContaining({ clientId: 'ms-client' }),
+    }));
+    // Discovery first, then the messages of each discovered account.
+    expect(mocks.syncGraphMailMessagesForAccount).toHaveBeenCalledWith(expect.objectContaining({
+      userId: 'user-1', connectionId: 'connection-1', accountId: 'account-1',
     }));
     expect(mocks.syncGraphContacts).not.toHaveBeenCalled();
   });

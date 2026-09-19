@@ -9,7 +9,7 @@ import {
 import { syncGoogleContacts } from './providers/google/googleContactsSync.js';
 import { syncGoogleCalendar } from './providers/google/googleCalendarSync.js';
 import { syncGraphContacts } from './providers/microsoft/graphContactsSync.js';
-import { syncGraphMailFolders } from './providers/microsoft/graphMailSync.js';
+import { syncGraphMailFolders, syncGraphMailMessagesForAccount } from './providers/microsoft/graphMailSync.js';
 
 /**
  * Periodic refresh of the provider collections a user has already pulled (P09).
@@ -164,7 +164,21 @@ function syncFor(provider: string, kind: string): ((target: ProviderSyncTarget, 
     // folder tree exist. A mail folder sync is a full snapshot, so an overlapping
     // tick is refused by the lease rather than queued.
     if (kind === 'address_book') return (target, _google, microsoft) => syncGraphContacts({ userId: target.userId, connectionId: target.connectionId, config: microsoft });
-    if (kind === 'mail_folder') return (target, _google, microsoft) => syncGraphMailFolders({ userId: target.userId, connectionId: target.connectionId, config: microsoft });
+    if (kind === 'mail_folder') {
+      // Discovery first, then the messages: the per-folder delta cursors belong to
+      // the folders discovery maintains, so a new folder is only ever synced after
+      // it has a collection to hold its cursor.
+      return async (target, _google, microsoft) => {
+        const folders = await syncGraphMailFolders({ userId: target.userId, connectionId: target.connectionId, config: microsoft });
+        const messages = [];
+        for (const account of folders) {
+          messages.push(await syncGraphMailMessagesForAccount({
+            userId: target.userId, connectionId: target.connectionId, accountId: account.accountId, config: microsoft,
+          }));
+        }
+        return { folders, messages };
+      };
+    }
     return null;
   }
   return null;

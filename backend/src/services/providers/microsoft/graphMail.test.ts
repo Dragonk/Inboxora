@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fetchMailFolders, graphFolderPathMap, localFolderForGraphFolder } from './graphMail.js';
+import {
+  fetchMailFolders,
+  fetchMessagesDeltaPage,
+  graphFolderPathMap,
+  localFolderForGraphFolder,
+  localMessageForGraphMessage,
+  providerUidForGraphMessage,
+} from './graphMail.js';
 import type { GraphMailFolder } from './graphMail.js';
 
 const tokenMock = vi.hoisted(() => vi.fn(async () => ({
@@ -135,5 +142,112 @@ describe('reading the folder tree from Graph', () => {
   it('ignores a folder Graph returned without an id', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ value: [{ displayName: 'No id' }, { id: 'ok', displayName: 'OK' }] })));
     await expect(fetchMailFolders(OPTIONS)).resolves.toEqual([{ id: 'ok', displayName: 'OK' }]);
+  });
+});
+
+describe('projecting a Graph message onto the local row', () => {
+  const message = {
+    id: 'AAMkAD-graph-1',
+    internetMessageId: '<abc@contoso.test>',
+    conversationId: 'conv-1',
+    subject: 'Quarterly plan',
+    bodyPreview: 'Here is the plan…',
+    receivedDateTime: '2026-03-04T09:15:00Z',
+    isRead: true,
+    isDraft: false,
+    hasAttachments: true,
+    flag: { flagStatus: 'flagged' },
+    from: { emailAddress: { name: 'Ada Lovelace', address: 'ada@contoso.test' } },
+    toRecipients: [{ emailAddress: { address: 'sam@contoso.test' } }, { emailAddress: { address: '' } }],
+    ccRecipients: [{ emailAddress: { name: 'Grace', address: 'grace@contoso.test' } }],
+    replyTo: [{ emailAddress: { address: 'replies@contoso.test' } }],
+    changeKey: 'change-1',
+  };
+
+  it('maps the fields the local list reads', () => {
+    const local = localMessageForGraphMessage(message);
+    expect(local).toMatchObject({
+      providerMessageId: 'AAMkAD-graph-1',
+      // The RFC header is metadata, not identity.
+      messageId: '<abc@contoso.test>',
+      threadId: 'conv-1',
+      subject: 'Quarterly plan',
+      fromName: 'Ada Lovelace',
+      fromEmail: 'ada@contoso.test',
+      snippet: 'Here is the plan…',
+      isRead: true,
+      isStarred: true,
+      hasAttachments: true,
+      isDraft: false,
+    });
+    expect(local?.date?.toISOString()).toBe('2026-03-04T09:15:00.000Z');
+    // A recipient without an address is dropped rather than stored as blank.
+    expect(local?.toAddresses).toEqual([{ name: null, address: 'sam@contoso.test' }]);
+    expect(local?.ccAddresses).toEqual([{ name: 'Grace', address: 'grace@contoso.test' }]);
+    expect(local?.replyTo).toEqual([{ name: null, address: 'replies@contoso.test' }]);
+  });
+
+  it('treats anything other than a flagged status as unstarred', () => {
+    expect(localMessageForGraphMessage({ ...message, flag: { flagStatus: 'notFlagged' } })?.isStarred).toBe(false);
+    expect(localMessageForGraphMessage({ ...message, flag: null })?.isStarred).toBe(false);
+  });
+
+  it('falls back to the sent date when the received date is absent', () => {
+    const local = localMessageForGraphMessage({ ...message, receivedDateTime: null, sentDateTime: '2026-03-01T08:00:00Z' });
+    expect(local?.date?.toISOString()).toBe('2026-03-01T08:00:00.000Z');
+  });
+
+  it('returns null for a delta deletion entry and for a message with no id', () => {
+    expect(localMessageForGraphMessage({ id: 'gone', '@removed': { reason: 'deleted' } })).toBeNull();
+    expect(localMessageForGraphMessage({ id: '' })).toBeNull();
+  });
+});
+
+describe('the compatibility uid a Graph message gets', () => {
+  it('is stable for one id and different between ids', () => {
+    const first = providerUidForGraphMessage('AAMkAD-graph-1');
+    expect(providerUidForGraphMessage('AAMkAD-graph-1')).toBe(first);
+    expect(providerUidForGraphMessage('AAMkAD-graph-2')).not.toBe(first);
+  });
+
+  it('is a positive 63-bit number, so it fits the BIGINT column', () => {
+    const uid = providerUidForGraphMessage('AAMkAD-graph-1');
+    expect(BigInt(uid) > 0n).toBe(true);
+    expect(BigInt(uid) < (1n << 63n)).toBe(true);
+  });
+
+  it('offers a different number for the next attempt, for a collision', () => {
+    expect(providerUidForGraphMessage('AAMkAD-graph-1', 1)).not.toBe(providerUidForGraphMessage('AAMkAD-graph-1'));
+  });
+});
+
+describe('reading a message delta page', () => {
+  it('asks the folder delta endpoint with the selected fields on the first call', async () => {
+    const urls: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      urls.push(String(url));
+      return jsonResponse({ value: [{ id: 'm1' }], '@odata.deltaLink': 'https://graph.microsoft.com/v1.0/delta?token=1' });
+    }));
+
+    const page = await fetchMessagesDeltaPage(OPTIONS, { folderId: 'graph-inbox' });
+    expect(page.messages).toEqual([{ id: 'm1' }]);
+    expect(page.deltaLink).toBe('https://graph.microsoft.com/v1.0/delta?token=1');
+    expect(urls[0]).toContain('/me/mailFolders/graph-inbox/messages/delta');
+    expect(urls[0]).toContain('select=');
+  });
+
+  it('follows the next link and then the stored delta link exactly as Graph issued them', async () => {
+    const seen: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      seen.push(String(url));
+      return jsonResponse({ value: [] });
+    }));
+
+    await fetchMessagesDeltaPage(OPTIONS, { folderId: 'f', nextLink: 'https://graph.microsoft.com/v1.0/next?page=2' });
+    await fetchMessagesDeltaPage(OPTIONS, { folderId: 'f', deltaLink: 'https://graph.microsoft.com/v1.0/delta?token=stored' });
+    expect(seen).toEqual([
+      'https://graph.microsoft.com/v1.0/next?page=2',
+      'https://graph.microsoft.com/v1.0/delta?token=stored',
+    ]);
   });
 });
