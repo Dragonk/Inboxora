@@ -118,3 +118,33 @@ describe('personToVCardContact', () => {
     expect(contact.addresses).toEqual([]);
   });
 });
+
+describe('personToVCardContact carries the fields with local columns', () => {
+  it('maps an anniversary event and an instant-message handle', async () => {
+    const { personToVCardContact } = await import('./googlePeople.js');
+    const parsed = personToVCardContact({
+      resourceName: 'people/c1',
+      names: [{ displayName: 'Ada Lovelace', givenName: 'Ada', familyName: 'Lovelace' }],
+      emailAddresses: [{ value: 'ada@example.test', type: 'work' }],
+      phoneNumbers: [],
+      birthdays: [{ date: { year: 1815, month: 12, day: 10 } }],
+      events: [
+        { type: 'other', date: { year: 2000, month: 1, day: 1 } },
+        { type: 'anniversary', date: { year: 1835, month: 7, day: 8 } },
+      ],
+      imClients: [{ username: 'ada', protocol: 'jabber' }, { protocol: 'skype' }],
+    }, 'book-1');
+    expect(parsed.birthday).toBe('1815-12-10');
+    // The dated `other` event must not be mistaken for the anniversary.
+    expect(parsed.anniversary).toBe('1835-07-08');
+    // A handle with no username is not a handle.
+    expect(parsed.instantMessages).toEqual([{ value: 'ada', type: 'jabber' }]);
+  });
+
+  it('leaves both empty when the person has neither', async () => {
+    const { personToVCardContact } = await import('./googlePeople.js');
+    const parsed = personToVCardContact({ resourceName: 'people/c2', names: [{ displayName: 'Anon' }] }, 'book-1');
+    expect(parsed.anniversary).toBeNull();
+    expect(parsed.instantMessages).toEqual([]);
+  });
+});

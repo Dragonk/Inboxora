@@ -15,6 +15,9 @@ export const PEOPLE_API_BASE = 'https://people.googleapis.com/v1';
 export const PERSON_FIELDS = [
   'names', 'nicknames', 'emailAddresses', 'phoneNumbers', 'organizations',
   'biographies', 'urls', 'addresses', 'birthdays', 'metadata',
+  // Anniversaries and instant-message handles have columns in the contacts table and are mapped
+  // below; asking for them costs nothing extra in the same request.
+  'events', 'imClients',
 ].join(',');
 const MAX_PAGE_SIZE = 1000;
 
@@ -44,6 +47,8 @@ export interface GooglePerson {
     postalCode?: string | null; country?: string | null;
   }> | null;
   birthdays?: Array<{ date?: GooglePersonDate | null; text?: string | null }> | null;
+  events?: Array<{ type?: string; date?: { year?: number; month?: number; day?: number } }>;
+  imClients?: Array<{ username?: string; protocol?: string }>;
 }
 
 export interface ConnectionsPage {
@@ -114,6 +119,11 @@ export function personToVCardContact(person: GooglePerson, uid: string): VCardCo
     urls: (person.urls ?? []).map(url => ({ value: url.value ?? '', type: typeOf(url.type) })).filter(url => url.value),
     addresses,
     birthday: formatGoogleBirthday(person.birthdays?.[0]?.date),
+    // An anniversary is a dated event of type `anniversary`; People API returns others too.
+    anniversary: formatGoogleBirthday((person.events ?? []).find(event => event.type === 'anniversary')?.date),
+    instantMessages: (person.imClients ?? [])
+      .map(client => ({ value: client.username ?? '', type: typeOf(client.protocol) }))
+      .filter(entry => entry.value),
   };
 }
 

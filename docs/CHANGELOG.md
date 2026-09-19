@@ -478,6 +478,11 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   by the operator and answers in kilobytes, but a compromised or misconfigured one could have made the
   process buffer an arbitrary reply. The response is now capped at 1 MB and a larger one is refused
   rather than held, with a case that serves an oversized reply and asserts the refusal.
+- Carry anniversaries and instant-message handles from Google contacts. The connector asked the People
+  API for neither, so both were discarded even though the contacts table has had columns for them — and
+  for the vCard import — all along. The request now includes `events` and `imClients` and both are
+  mapped, so a Google contact arrives with what it holds. Photos and group memberships are still not
+  carried, and the wiki says why.
 
 
 ## [4.0.4] - 2026-09-18
