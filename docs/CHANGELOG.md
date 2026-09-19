@@ -13,19 +13,22 @@ limitations — read the matching page in the Wiki: [Release notes 4.1.0](wiki/R
 
 ## How entries are kept
 
-Work in progress accumulates under **`[Unreleased]`**, one heading per category in Keep a Changelog
-order (**Added → Changed → Deprecated → Removed → Fixed → Security**), and a change is recorded in the
-same commit that makes it — not gathered afterwards from the commit log, which reliably loses the
-"why" and keeps only the "what".
+Work in progress accumulates under the section for the version it is intended for — today
+**`[4.1.0]`, which is prepared on `dev` and is not released yet** — with one heading per category in
+Keep a Changelog order (**Added → Changed → Deprecated → Removed → Fixed → Security**). A change is
+recorded in the same commit that makes it, not gathered afterwards from the commit log, which reliably
+loses the "why" and keeps only the "what". `[Unreleased]` is for work whose version has not been
+chosen, and it is empty while a version is in preparation.
 
-When a version is sanctioned, that section becomes `## [x.y.z] - <date>`, a matching
-`wiki/Release-notes-<x.y.z>.md` is written for it, and `[Unreleased]` starts empty again. The release
-notes are the narrative: user and operator impact, migration and configuration requirements, the
-**known safe limitations**, and what was verified (including anything left **NOT RUN**). A version is
-never inferred from the size of the section — it is chosen, and the notes then describe what the
-version actually contains.
+**A section is dated only once the version is actually released**, which happens when `dev` is merged
+to `main` — until then it carries no date, the way `[3.4.0]` does. The matching
+`wiki/Release-notes-<x.y.z>.md` is written alongside it and states its own status honestly: prepared
+on `dev`, released, or superseded. The release notes are the narrative — user and operator impact,
+migration and configuration requirements, the **known safe limitations**, and what was verified
+(including anything left **NOT RUN**). A version is never inferred from the size of the section, and a
+release is never claimed before it has happened.
 
-## [Unreleased]
+## [4.1.0]
 
 ### Added
 
@@ -140,299 +143,6 @@ version actually contains.
   renders **translated** sentences with the server's figures — the file name, the actual size and the limit, in units a
   person reads — in all nine languages, rather than showing the server's English.
 
-### Changed
-
-- **The message is composed once, not twice.** The send route composed the message for its size
-  accounting and then handed the options to nodemailer, which composed it again for delivery. The
-  transport now receives the buffer that was already built and measured. It is the same change that makes
-  the artefact shareable with a second transport later, and it was measured before it was made: a
-  pre-composed buffer delivered through `raw` is **byte-identical** to one the transport composes itself,
-  and the envelope is identical either way, so this removes a composition rather than moving one. The
-  buffer carries no `Bcc:` header — the previous slice strips it — which is what makes it safe to send
-  verbatim, since a raw message is sent as given.
-
-
-- **A send now states its envelope instead of leaving it to be derived.** The three recipient options
-  stayed the input and nodemailer derived `RCPT TO` from them, which is fine while it composes the
-  message — and becomes a delivery bug the moment the message is composed once and handed over as `raw`,
-  because a blind recipient is by definition not in a header. The envelope is now built from the same
-  normalised lists (`to` + `cc` + `bcc`) and passed explicitly, **verified to be identical to what
-  nodemailer derives** rather than assumed: to+cc+bcc, bcc alone, and a display-name `from` all produce
-  the same envelope either way. The BCC case now asserts the delivered envelope, not just the option.
-
-
-
-- **A send is now bound to a transport in one place** (`services/sendTransport.ts`), which is the seam the
-  shared send layer needs. The route reached `createAccountSmtpTransport` directly, making "how mail
-  leaves this installation" an SMTP question by construction; it now goes through a named seam, so the
-  Microsoft Graph transport becomes a branch there rather than a second pipeline inside a 1067-line route.
-  Nothing else moved: the `delivered` flag, the intent claim and the uncertain-outcome handling stay where
-  they are, because that boundary already decides whether an outcome is knowable and the transport only
-  has to be pluggable behind it. A native account is still refused, deliberately once — by the SMTP
-  factory, so no caller can hand it a Microsoft Graph account, rather than by a second copy of the check.
-
-
-- An **uncertain send** is now reported with a code (`SEND_OUTCOME_UNKNOWN`, the name the plan gives it) rather than
-  only an English sentence. The behaviour is unchanged and deliberately so — the message was handed to the server
-  and the answer was lost, so Inboxora will not send it again automatically — but a code is what lets an interface
-  answer in the user's own language instead of showing the server's text. The composer now does exactly that: it
-  recognises the code and says — in all nine languages, as a notification and beside the composer — that the result is
-  unknown, that the message will not be sent again automatically, and that the account's Sent folder is the authority.
-
-
-- Two size guards on the send path now answer **`413`** with a domain code instead of `400` with prose only. §22.1 maps
-  content that is too large to `413`, and these were the oldest of the checks: the attachment-upload guard reports
-  `ATTACHMENT_TOO_LARGE` and the uploads-plus-forwarded total reports `MESSAGE_TOO_LARGE`. The limits are unchanged —
-  they still measure the base64 wire size rather than the composed message — so nothing that used to be refused is now
-  accepted; a client simply no longer has to match English text to learn what happened.
-
-
-- **Mail flag changes (read/unread, star) now go through the shared provider-mutation layer**, so the IMAP write and
-  its outcome are recorded durably in the operation journal before the local bookkeeping runs. Nothing changes for the
-  user: a failed or unconfirmed write still leaves the change queued for the background reconciler, and an unavailable
-  journal degrades to the previous behaviour rather than failing the action. What is new is that a process stopping
-  between the IMAP write and the database no longer leaves the change without evidence.
-
-- **Collection access is now decided by the provider capability model** rather than by comparisons written out at each
-  call site. The REST and DAV write guards, the DAV advertised privileges and the contacts list's read-only flag all ask
-  one resolver, which combines the origin adapter's declared support with the collection's own access and the device
-  password's ceiling. The visible fix is that a **Google or Microsoft address book is now reported read-only** in the
-  interface; previously only CardDAV books were, so a synced book looked editable until the server refused the write.
-  Behaviour is otherwise unchanged: writes to a provider-owned collection are still refused, because no remote write path
-  exists yet, and a read-only collection or a read-only device password still only narrows access.
-
-- After an **uncertain send**, the composer releases its idempotency key, so the user's next deliberate Send is a
-  **new operation** rather than a refusal — which is what the plan asks for, together with the duplicate-risk warning
-  that is already shown. Nothing sends on its own: this composer dispatches only from a click, and the key exists to
-  stop an *automatic* duplicate, so releasing it once the user has been told the outcome is unknown removes no
-  protection. Checking the Sent folder remains the first advice, because a duplicate is worse than a delay.
-
-
-- **The four send size dimensions have one definition** (`services/sendLimits.ts`) instead of four
-  literals and locals spread through a 1067-line route, two of which were the same `26_214_400` written
-  twice. The relationship between them was accidental: raising the message ceiling did not raise the
-  attachment total, and nothing named which dimension a refusal belonged to. The module exports the
-  kinds, the derived values and the refusal shapes, and `mailMaxMessageBytes` is re-exported from the
-  route rather than defined there a second time. Behaviour is unchanged — the same numbers, one place —
-  which is what the P06 plan asked for before the shared send layer is built on top.
-
-- **Sending from a Microsoft Graph account says why it cannot, instead of failing like a credential
-  problem** (P07b/P06 boundary). A native account has no SMTP credentials — its mail goes over Graph,
-  and that transport is Stage 3 work that does not exist yet — so `createAccountSmtpTransport` fell
-  through to the separate-credentials branch and returned an error that described neither the cause nor
-  the missing feature. It now answers `501` with `OPERATION_FORBIDDEN` and a sentence naming the gap.
-  The guard sits in the factory rather than at a call site, so every caller is covered, and it is the
-  fourth time this pattern has been applied (folder management, GTD setup, the body prefetch): name the
-  unsupported operation where the work would happen. When the shared send layer lands, this refusal is
-  replaced by the adapter rather than left standing over it.
-
-- **Graph messages now reach the conversation engine** (P07b, twenty-second slice, completing the
-  twenty-first). The message sync projects each row it wrote into the conversation engine, so threads
-  group on Graph's `conversationId` rather than being absent from the engine entirely. Two ordering
-  rules are load-bearing and are both tested: the projection runs **after** the page's transaction
-  commits — the engine opens its own, and nesting them was the specific mistake the plan warned about —
-  and the row ids it needs are returned by the page function rather than inferred. The shared
-  `persistConversationCopyForRow` moved out of the mail manager into `conversationRowIngest.ts`
-  unchanged, so the Graph adapter can call it without importing the mail manager and creating a cycle;
-  the IMAP ingest calls the same function, so both transports share one projection rather than two.
-  A real-PostgreSQL case asserts the grouping end to end: two messages sharing a conversation id land
-  in one conversation, a third in its own, and every message carries the provider thread id the mapping
-  derived.
-
-- **Graph conversations are identified correctly, and the engine read them from the next slice**
-  (P07b, twenty-first slice — one half of a pair, completed above). `providerMetadataForMessage` now recognises a
-  Microsoft Graph account and takes its `conversationId` (stored as `thread_id`) as a **strong** provider
-  thread id. That matters because the previous behaviour was not "wrong grouping" but **silent loss**:
-  with the account typed as an ordinary Outlook mailbox, the id went through the Thread-Index path,
-  which expects a 22-byte hex root and answers `null` for a base64 conversation id, so the thread key
-  was dropped. The namespace now carries the account too, so two Graph mailboxes cannot share a thread.
-  **What is not done: the message sync does not call the conversation engine yet**, so this is a
-  verified mapping with no production caller. It is committed as half rather than as a finished feature
-  because the second half — exporting `persistConversationCopyForRow`, returning the row ids the page
-  wrote, and persisting them *after* the page's transaction commits — is scoped in the status document
-  and was not safe to attempt with the remaining budget of the session.
-
-- **Ensuring a folder works on a Microsoft Graph account, which completes GTD's setup step** (P07b,
-  twentieth slice). `ensureFolder` opened an IMAP session, and three callers reach it — the labels
-  capability, the folder routes and GTD — so the branch lives there rather than being copied into each
-  one. A native account resolves the path through the collection link, creates the folder at the
-  provider when it is missing, and runs discovery, because discovery is what produces the local
-  `folders` row and its `mail_folder` collection. This supersedes the `501` refusal added to
-  `POST /gtd/folders/ensure` two slices ago: that refusal was correct while the capability could not do
-  the work, and it is now removed along with its test rather than left standing over a working feature.
-
-- **GTD label copies are removed through the provider on a Microsoft Graph account** (P07b, nineteenth
-  slice). The transition path reaches `removeMessageCopy` to drop a copy, and that method called
-  `permanentDeleteMessage` — IMAP — so a native account would have built label copies and then failed to
-  remove them. It now asks the provider for the copy's own identity, using the same permanent-removal
-  helper as every other Graph delete, and deletes the local row only when the removal is confirmed: an
-  unconfirmed removal throws, so the row survives and the next delta reconciles instead of Inboxora
-  forgetting a copy the mailbox still holds. This was the second of GTD's two transport dependencies
-  found by last round's check, and it is fixed before the folder setup is made to work, so GTD cannot
-  start and then fail a layer deeper.
-
-- **GTD's folder setup refuses explicitly on a Microsoft Graph account** (P07b, eighteenth slice), and the
-  check that produced it found more than the refusal. `POST /gtd/folders/ensure` — the setup step for the
-  whole feature — creates its label folders through the labels capability, which goes over IMAP, so on a
-  native account it failed like a bug. It now answers `501` with a code and the workaround the user has
-  (create the folders in Outlook, then "Sync folders"), because those are ordinary mail folders and the
-  rest of GTD keys off their paths.
-
-  **What the same read found, and it is the point of the check**: the GTD transition path also calls
-  `imapManager.removeMessageCopy`, so this was not merely a missing folder setup on a native account.
-  That is recorded in the status document's GTD row rather than left as a second surprise, and it is why
-  "rules and GTD are local behaviours, so they should need no Graph-specific code" was written as
-  something to **verify** — snooze looked local too and was not.
-
-- **Emptying a folder works on a Microsoft Graph account** (P07b, seventeenth slice), which closes the
-  audit of IMAP-only operations. The IMAP path answered what "empty" means — every message is **removed
-  permanently**, not moved to deleted-items — so this mirrors it rather than inventing an answer. Graph
-  has no "empty this folder" call, so it is one removal per message, sequential on purpose so a large
-  folder cannot open hundreds of requests at once. A refusal **throws**, so the local rows are left
-  alone: a folder the provider only partly emptied must not look empty here, and the next delta
-  reconciles what did go. All four folder routes now have a provider branch, and the shared refusal
-  remains only as the guarantee that a transport without one is refused rather than handed to IMAP.
-
-- **Deleting a folder works on a Microsoft Graph account** (P07b, sixteenth slice). The route removes the
-  folder on the provider and then Inboxora's copy of it — the same local cleanup the IMAP path already
-  did, so no new product decision was needed: the provider deletes the folder's contents with it, and the
-  local mirror follows. The `integration_collections` row that linked the folder to its Graph id is
-  removed too, so a later discovery does not resurrect a collection for a folder that is gone. A provider
-  refusal — Graph will not remove a well-known folder — is reported with its code and **nothing local is
-  deleted**, because a local delete after a refused provider delete is silent data loss. **Emptying a
-  folder still refuses** with its own explanation.
-
-- **The message list no longer opens an IMAP session for a Microsoft Graph account** (P07b, fifteenth
-  slice). `GET /messages` fires a background body prefetch on every listing, and it had no transport
-  check: on a native account each listing opened a connection that could only fail. The guard now lives
-  inside `prefetchFolderBodies`, where the account is already loaded, so every caller is covered rather
-  than the one call site that was looked at. A native account's bodies are read on demand by the
-  transport-aware body route, so nothing is lost. This was found by **re-verifying the audit's own
-  negative claim** — the paragraph saying which IMAP calls a native account cannot reach — which is the
-  first time that claim has been checked since it was written.
-
-- **Creating and renaming a folder work on a Microsoft Graph account** (P07b, fourteenth slice). `POST /folders`
-  and `/folders/rename` now act on the provider: the folder is created or its display name changed, and the
-  discovery run that follows produces the local row, its `mail_folder` collection and — for a rename — the
-  path change the folder sync already knows how to follow, moving the folder's messages with it. The route
-  deliberately does **not** write the local row itself, because discovery is what owns that model and two
-  writers would drift. A **nested** folder is still refused with a clear `501`: Graph nests by parent id and
-  the local path model would have to guess. **Delete and empty still refuse** and say so.
-
-- **Folder management on a Microsoft Graph account now refuses explicitly** (P07b, thirteenth slice).
-  Creating, renaming, deleting and emptying a folder are IMAP operations, so on a native account each
-  attempted an IMAP session and failed with a generic error — an unsupported operation that looked like
-  a broken one. Each answers `501` with a code and names the workaround the user actually has (create or
-  change the folder in Outlook, then "Sync folders"). Graph *can* create a folder — the snooze slice
-  needed that primitive — so these are implementable rather than impossible; until they are, the
-  failure says which one it is. The IMAP path is unchanged.
-
-- **Downloading all attachments as a ZIP works on a Microsoft Graph account** (P07b, twelfth slice). The
-  route read every attachment through IMAP, so on a native account the single-attachment download worked
-  while "download all" did not. Each file is now fetched from the provider under the same 50 MB per-file
-  ceiling, and everything after that — the filename deduplication, the archive and the response — is
-  shared with the IMAP path, so there is no second naming or ZIP implementation. One unreadable or
-  oversized attachment is skipped and logged rather than failing the whole archive, and a native message
-  that carries no provider identity is refused with a code instead of an empty archive.
-
-- **"View source headers" works on a Microsoft Graph account** (P07b, eleventh slice). The route asked IMAP
-  for the raw headers and, when that failed, synthesised them from the local row — so a native account got
-  a plausible-looking header block after a pointless IMAP attempt that could only time out. Graph retains
-  the real RFC headers, so they are now fetched from `internetMessageHeaders` and formatted the way the
-  route's parser expects. An empty answer is treated as a normal one: not every mailbox retains those
-  headers, and the existing fallback still covers that case rather than the route inventing them.
-
-- **"Mark all as read" reaches Microsoft Graph** (P07b, tenth slice). The route updated the local rows and
-  then asked IMAP to set `\Seen`, so on a native account the interface looked right until the next sync
-  brought the unread state back. It now sets the flag on each unread message through the same
-  journal-backed write the single read/unread route uses — one mutation per message, since Graph has no
-  "mark folder read" call — and the list of messages is taken **before** the local update flips them,
-  or it would find nothing. An outcome the provider does not confirm is logged with how many it did
-  confirm rather than reported as success.
-
-- **Deleting several Microsoft Graph messages at once works** (P07b, ninth slice). `POST /messages/bulk-delete`
-  — the multi-select delete — still called IMAP for both halves: the permanent removal of a draft or an
-  already-trashed message, and the move to Trash for everything else. Both now go to the provider, on the
-  same shared helpers single-message delete, filing, spam/ham and snooze use, so the rule that a Graph
-  move re-identifies the message is still implemented once. The rule that Graph rows must stay out of the
-  IMAP delete-and-re-insert statement applies here too, and the counts and the response include them.
-  A removal or a move the provider does not confirm is logged and left alone rather than reported as
-  done.
-
-- **Snooze works on a Microsoft Graph account, in both directions** (P07b, eighth slice). `/messages/:id/snooze`
-  called IMAP's folder creation and move directly, so it failed on a native account; the wakeup half was
-  worse, because it lives inside the mail manager and would have sent the message *into* Snoozed and never
-  brought it back. Both halves now go through one shared Graph move helper — the same one the bulk routes
-  and spam/ham use — so the rule that a Graph move **re-identifies the message** is implemented once. The
-  `Snoozed` folder is created on the provider and then discovered, because a Graph account only has the
-  folders it has discovered and a move needs a local path to address. A wakeup the provider does not
-  confirm throws, so the snooze record survives and the next cycle retries rather than dropping the
-  message. The IMAP path, including its UIDPLUS cases, is unchanged.
-
-- **Mark as spam / not spam works on a Microsoft Graph account** (P07b, seventh slice). Both actions
-  moved a message by calling IMAP directly, bypassing the transport dispatch every other action now
-  has — so on a native account they looked available and failed. They now use the same journal-backed
-  move as filing, and the training record and the user's verdict are written **only after the provider
-  confirms the move**, so a move that did not happen never becomes a training row. The IMAP path,
-  including its UIDPLUS cases and the spam folder mapping it learns, is unchanged.
-
-- **Microsoft Graph messages can be filed** (P07b, sixth slice): **Move to folder** and **Archive** now
-  go to Microsoft through the shared provider-mutation layer, and the local row adopts the identity a
-  Graph move returns — the mechanism single-message delete introduced, now shared by both bulk routes.
-  One destination is resolved per account, once, through the collection link the folder slice created;
-  a message the provider refuses is left where it is and reported as not moved, so the interface never
-  claims a file that did not happen. A Graph row is deliberately kept out of the IMAP
-  delete-and-re-insert statement the bulk routes use: a Graph move re-identifies the message, so that
-  statement would delete the row and re-insert it under a UID the provider does not have. **Not yet
-  wired:** mark-as-spam and mark-as-ham still use IMAP for every account, so they are not available on
-  a native one.
-
-- **The PostgreSQL integration suites and the browser matrix are now part of the `dev` gate.** The two
-  layers that found this work's real defects — a lost lease, a two-worker token refresh, a cursor
-  advanced out of order, and the drawer that covered the page after a navigation — ran only by hand,
-  so a regression could reach `dev` while every gated check was green. `ci.yml` gains a
-  `backend-database` job (`postgres:16-alpine`, the migration chain applied to an **empty** database
-  with the application's own runner, then the provider and DAV suites), and
-  `conversation-v2-playwright.yml` now also triggers on `push: [dev]`. Both workflows set
-  `bash -euo pipefail`, so a pipeline's exit status is the real one rather than the last command's.
-  **Not verified:** neither job has run on a GitHub runner, so the action versions, cache paths and
-  service wiring are unproven; the commands inside them have been executed by hand against a database
-  created empty for the purpose, where the chain applied from zero and all 179 integration tests
-  passed.
-
-### Fixed
-
-- **A too-large message rejected by the forwarded-attachment backstop now answers with a domain code
-  instead of prose.** The send route has three size guards, and the last of them — the exact re-check
-  against the **fetched** forwarded bytes, after the declared-size check that can under-report — returned
-  a bare `400` with an English sentence while its two siblings returned `413` with `ATTACHMENT_TOO_LARGE`
-  or `MESSAGE_TOO_LARGE` and the numbers. A client had to match that sentence to learn what happened,
-  which is the reason the other two guards gained codes in the first place — and this one is the last
-  line of defence, so it is the one most likely to be reached. It now answers like the others.
-
-### Security
-
-- **The composed message no longer carries a `Bcc:` header.** The send route composes the message for
-  size accounting with nodemailer's stream transport, and **that composition keeps a `Bcc:` header** while
-  the delivery transport omits it — measured, and the obvious switch does not help: `keepBcc: false` on the
-  stream transport still emits it, with the same byte count. Harmless while the buffer is only measured,
-  and a disclosure the moment a buffer is handed to a transport as `raw`, since a raw message is sent as
-  given. It is now stripped once, where the accounting and any future shared artefact read it, so blind
-  recipients live in the envelope only. The accounting consequently counts what would actually be sent
-  rather than the header that would be dropped.
-
-
-- **A blind recipient is asserted never to reach a visible field.** The suite's BCC case only checked that
-  `bcc` was passed to the transport, which stays true even if the recipient is later dropped from the
-  envelope — so a change that composed the message once and sent it as `raw` could lose every BCC
-  recipient while the test stayed green. The new case sends to a visible recipient, a copy recipient and a
-  blind one, and asserts the blind address is carried in `bcc` and appears in **neither** `to` nor `cc`
-  nor a headers bag. It is written against what the route controls today so that it still holds once the
-  envelope becomes explicit and the assertion can be extended to it.
-
-## [4.1.0] - 2026-09-19
-
-### Added
 
 - Mobile: open the navigation drawer by dragging right from the left quarter of the visible
   surface. A single gesture owner arbitrates between the drawer, a message-row swipe and
@@ -954,6 +664,295 @@ version actually contains.
   element now decides, with the XML declaration and any comment skipped first, which is what the request actually
   is.
 
+### Changed
+
+- **The message is composed once, not twice.** The send route composed the message for its size
+  accounting and then handed the options to nodemailer, which composed it again for delivery. The
+  transport now receives the buffer that was already built and measured. It is the same change that makes
+  the artefact shareable with a second transport later, and it was measured before it was made: a
+  pre-composed buffer delivered through `raw` is **byte-identical** to one the transport composes itself,
+  and the envelope is identical either way, so this removes a composition rather than moving one. The
+  buffer carries no `Bcc:` header — the previous slice strips it — which is what makes it safe to send
+  verbatim, since a raw message is sent as given.
+
+
+- **A send now states its envelope instead of leaving it to be derived.** The three recipient options
+  stayed the input and nodemailer derived `RCPT TO` from them, which is fine while it composes the
+  message — and becomes a delivery bug the moment the message is composed once and handed over as `raw`,
+  because a blind recipient is by definition not in a header. The envelope is now built from the same
+  normalised lists (`to` + `cc` + `bcc`) and passed explicitly, **verified to be identical to what
+  nodemailer derives** rather than assumed: to+cc+bcc, bcc alone, and a display-name `from` all produce
+  the same envelope either way. The BCC case now asserts the delivered envelope, not just the option.
+
+
+
+- **A send is now bound to a transport in one place** (`services/sendTransport.ts`), which is the seam the
+  shared send layer needs. The route reached `createAccountSmtpTransport` directly, making "how mail
+  leaves this installation" an SMTP question by construction; it now goes through a named seam, so the
+  Microsoft Graph transport becomes a branch there rather than a second pipeline inside a 1067-line route.
+  Nothing else moved: the `delivered` flag, the intent claim and the uncertain-outcome handling stay where
+  they are, because that boundary already decides whether an outcome is knowable and the transport only
+  has to be pluggable behind it. A native account is still refused, deliberately once — by the SMTP
+  factory, so no caller can hand it a Microsoft Graph account, rather than by a second copy of the check.
+
+
+- An **uncertain send** is now reported with a code (`SEND_OUTCOME_UNKNOWN`, the name the plan gives it) rather than
+  only an English sentence. The behaviour is unchanged and deliberately so — the message was handed to the server
+  and the answer was lost, so Inboxora will not send it again automatically — but a code is what lets an interface
+  answer in the user's own language instead of showing the server's text. The composer now does exactly that: it
+  recognises the code and says — in all nine languages, as a notification and beside the composer — that the result is
+  unknown, that the message will not be sent again automatically, and that the account's Sent folder is the authority.
+
+
+- Two size guards on the send path now answer **`413`** with a domain code instead of `400` with prose only. §22.1 maps
+  content that is too large to `413`, and these were the oldest of the checks: the attachment-upload guard reports
+  `ATTACHMENT_TOO_LARGE` and the uploads-plus-forwarded total reports `MESSAGE_TOO_LARGE`. The limits are unchanged —
+  they still measure the base64 wire size rather than the composed message — so nothing that used to be refused is now
+  accepted; a client simply no longer has to match English text to learn what happened.
+
+
+- **Mail flag changes (read/unread, star) now go through the shared provider-mutation layer**, so the IMAP write and
+  its outcome are recorded durably in the operation journal before the local bookkeeping runs. Nothing changes for the
+  user: a failed or unconfirmed write still leaves the change queued for the background reconciler, and an unavailable
+  journal degrades to the previous behaviour rather than failing the action. What is new is that a process stopping
+  between the IMAP write and the database no longer leaves the change without evidence.
+
+- **Collection access is now decided by the provider capability model** rather than by comparisons written out at each
+  call site. The REST and DAV write guards, the DAV advertised privileges and the contacts list's read-only flag all ask
+  one resolver, which combines the origin adapter's declared support with the collection's own access and the device
+  password's ceiling. The visible fix is that a **Google or Microsoft address book is now reported read-only** in the
+  interface; previously only CardDAV books were, so a synced book looked editable until the server refused the write.
+  Behaviour is otherwise unchanged: writes to a provider-owned collection are still refused, because no remote write path
+  exists yet, and a read-only collection or a read-only device password still only narrows access.
+
+- After an **uncertain send**, the composer releases its idempotency key, so the user's next deliberate Send is a
+  **new operation** rather than a refusal — which is what the plan asks for, together with the duplicate-risk warning
+  that is already shown. Nothing sends on its own: this composer dispatches only from a click, and the key exists to
+  stop an *automatic* duplicate, so releasing it once the user has been told the outcome is unknown removes no
+  protection. Checking the Sent folder remains the first advice, because a duplicate is worse than a delay.
+
+
+- **The four send size dimensions have one definition** (`services/sendLimits.ts`) instead of four
+  literals and locals spread through a 1067-line route, two of which were the same `26_214_400` written
+  twice. The relationship between them was accidental: raising the message ceiling did not raise the
+  attachment total, and nothing named which dimension a refusal belonged to. The module exports the
+  kinds, the derived values and the refusal shapes, and `mailMaxMessageBytes` is re-exported from the
+  route rather than defined there a second time. Behaviour is unchanged — the same numbers, one place —
+  which is what the P06 plan asked for before the shared send layer is built on top.
+
+- **Sending from a Microsoft Graph account says why it cannot, instead of failing like a credential
+  problem** (P07b/P06 boundary). A native account has no SMTP credentials — its mail goes over Graph,
+  and that transport is Stage 3 work that does not exist yet — so `createAccountSmtpTransport` fell
+  through to the separate-credentials branch and returned an error that described neither the cause nor
+  the missing feature. It now answers `501` with `OPERATION_FORBIDDEN` and a sentence naming the gap.
+  The guard sits in the factory rather than at a call site, so every caller is covered, and it is the
+  fourth time this pattern has been applied (folder management, GTD setup, the body prefetch): name the
+  unsupported operation where the work would happen. When the shared send layer lands, this refusal is
+  replaced by the adapter rather than left standing over it.
+
+- **Graph messages now reach the conversation engine** (P07b, twenty-second slice, completing the
+  twenty-first). The message sync projects each row it wrote into the conversation engine, so threads
+  group on Graph's `conversationId` rather than being absent from the engine entirely. Two ordering
+  rules are load-bearing and are both tested: the projection runs **after** the page's transaction
+  commits — the engine opens its own, and nesting them was the specific mistake the plan warned about —
+  and the row ids it needs are returned by the page function rather than inferred. The shared
+  `persistConversationCopyForRow` moved out of the mail manager into `conversationRowIngest.ts`
+  unchanged, so the Graph adapter can call it without importing the mail manager and creating a cycle;
+  the IMAP ingest calls the same function, so both transports share one projection rather than two.
+  A real-PostgreSQL case asserts the grouping end to end: two messages sharing a conversation id land
+  in one conversation, a third in its own, and every message carries the provider thread id the mapping
+  derived.
+
+- **Graph conversations are identified correctly, and the engine read them from the next slice**
+  (P07b, twenty-first slice — one half of a pair, completed above). `providerMetadataForMessage` now recognises a
+  Microsoft Graph account and takes its `conversationId` (stored as `thread_id`) as a **strong** provider
+  thread id. That matters because the previous behaviour was not "wrong grouping" but **silent loss**:
+  with the account typed as an ordinary Outlook mailbox, the id went through the Thread-Index path,
+  which expects a 22-byte hex root and answers `null` for a base64 conversation id, so the thread key
+  was dropped. The namespace now carries the account too, so two Graph mailboxes cannot share a thread.
+  **What is not done: the message sync does not call the conversation engine yet**, so this is a
+  verified mapping with no production caller. It is committed as half rather than as a finished feature
+  because the second half — exporting `persistConversationCopyForRow`, returning the row ids the page
+  wrote, and persisting them *after* the page's transaction commits — is scoped in the status document
+  and was not safe to attempt with the remaining budget of the session.
+
+- **Ensuring a folder works on a Microsoft Graph account, which completes GTD's setup step** (P07b,
+  twentieth slice). `ensureFolder` opened an IMAP session, and three callers reach it — the labels
+  capability, the folder routes and GTD — so the branch lives there rather than being copied into each
+  one. A native account resolves the path through the collection link, creates the folder at the
+  provider when it is missing, and runs discovery, because discovery is what produces the local
+  `folders` row and its `mail_folder` collection. This supersedes the `501` refusal added to
+  `POST /gtd/folders/ensure` two slices ago: that refusal was correct while the capability could not do
+  the work, and it is now removed along with its test rather than left standing over a working feature.
+
+- **GTD label copies are removed through the provider on a Microsoft Graph account** (P07b, nineteenth
+  slice). The transition path reaches `removeMessageCopy` to drop a copy, and that method called
+  `permanentDeleteMessage` — IMAP — so a native account would have built label copies and then failed to
+  remove them. It now asks the provider for the copy's own identity, using the same permanent-removal
+  helper as every other Graph delete, and deletes the local row only when the removal is confirmed: an
+  unconfirmed removal throws, so the row survives and the next delta reconciles instead of Inboxora
+  forgetting a copy the mailbox still holds. This was the second of GTD's two transport dependencies
+  found by last round's check, and it is fixed before the folder setup is made to work, so GTD cannot
+  start and then fail a layer deeper.
+
+- **GTD's folder setup refuses explicitly on a Microsoft Graph account** (P07b, eighteenth slice), and the
+  check that produced it found more than the refusal. `POST /gtd/folders/ensure` — the setup step for the
+  whole feature — creates its label folders through the labels capability, which goes over IMAP, so on a
+  native account it failed like a bug. It now answers `501` with a code and the workaround the user has
+  (create the folders in Outlook, then "Sync folders"), because those are ordinary mail folders and the
+  rest of GTD keys off their paths.
+
+  **What the same read found, and it is the point of the check**: the GTD transition path also calls
+  `imapManager.removeMessageCopy`, so this was not merely a missing folder setup on a native account.
+  That is recorded in the status document's GTD row rather than left as a second surprise, and it is why
+  "rules and GTD are local behaviours, so they should need no Graph-specific code" was written as
+  something to **verify** — snooze looked local too and was not.
+
+- **Emptying a folder works on a Microsoft Graph account** (P07b, seventeenth slice), which closes the
+  audit of IMAP-only operations. The IMAP path answered what "empty" means — every message is **removed
+  permanently**, not moved to deleted-items — so this mirrors it rather than inventing an answer. Graph
+  has no "empty this folder" call, so it is one removal per message, sequential on purpose so a large
+  folder cannot open hundreds of requests at once. A refusal **throws**, so the local rows are left
+  alone: a folder the provider only partly emptied must not look empty here, and the next delta
+  reconciles what did go. All four folder routes now have a provider branch, and the shared refusal
+  remains only as the guarantee that a transport without one is refused rather than handed to IMAP.
+
+- **Deleting a folder works on a Microsoft Graph account** (P07b, sixteenth slice). The route removes the
+  folder on the provider and then Inboxora's copy of it — the same local cleanup the IMAP path already
+  did, so no new product decision was needed: the provider deletes the folder's contents with it, and the
+  local mirror follows. The `integration_collections` row that linked the folder to its Graph id is
+  removed too, so a later discovery does not resurrect a collection for a folder that is gone. A provider
+  refusal — Graph will not remove a well-known folder — is reported with its code and **nothing local is
+  deleted**, because a local delete after a refused provider delete is silent data loss. **Emptying a
+  folder still refuses** with its own explanation.
+
+- **The message list no longer opens an IMAP session for a Microsoft Graph account** (P07b, fifteenth
+  slice). `GET /messages` fires a background body prefetch on every listing, and it had no transport
+  check: on a native account each listing opened a connection that could only fail. The guard now lives
+  inside `prefetchFolderBodies`, where the account is already loaded, so every caller is covered rather
+  than the one call site that was looked at. A native account's bodies are read on demand by the
+  transport-aware body route, so nothing is lost. This was found by **re-verifying the audit's own
+  negative claim** — the paragraph saying which IMAP calls a native account cannot reach — which is the
+  first time that claim has been checked since it was written.
+
+- **Creating and renaming a folder work on a Microsoft Graph account** (P07b, fourteenth slice). `POST /folders`
+  and `/folders/rename` now act on the provider: the folder is created or its display name changed, and the
+  discovery run that follows produces the local row, its `mail_folder` collection and — for a rename — the
+  path change the folder sync already knows how to follow, moving the folder's messages with it. The route
+  deliberately does **not** write the local row itself, because discovery is what owns that model and two
+  writers would drift. A **nested** folder is still refused with a clear `501`: Graph nests by parent id and
+  the local path model would have to guess. **Delete and empty still refuse** and say so.
+
+- **Folder management on a Microsoft Graph account now refuses explicitly** (P07b, thirteenth slice).
+  Creating, renaming, deleting and emptying a folder are IMAP operations, so on a native account each
+  attempted an IMAP session and failed with a generic error — an unsupported operation that looked like
+  a broken one. Each answers `501` with a code and names the workaround the user actually has (create or
+  change the folder in Outlook, then "Sync folders"). Graph *can* create a folder — the snooze slice
+  needed that primitive — so these are implementable rather than impossible; until they are, the
+  failure says which one it is. The IMAP path is unchanged.
+
+- **Downloading all attachments as a ZIP works on a Microsoft Graph account** (P07b, twelfth slice). The
+  route read every attachment through IMAP, so on a native account the single-attachment download worked
+  while "download all" did not. Each file is now fetched from the provider under the same 50 MB per-file
+  ceiling, and everything after that — the filename deduplication, the archive and the response — is
+  shared with the IMAP path, so there is no second naming or ZIP implementation. One unreadable or
+  oversized attachment is skipped and logged rather than failing the whole archive, and a native message
+  that carries no provider identity is refused with a code instead of an empty archive.
+
+- **"View source headers" works on a Microsoft Graph account** (P07b, eleventh slice). The route asked IMAP
+  for the raw headers and, when that failed, synthesised them from the local row — so a native account got
+  a plausible-looking header block after a pointless IMAP attempt that could only time out. Graph retains
+  the real RFC headers, so they are now fetched from `internetMessageHeaders` and formatted the way the
+  route's parser expects. An empty answer is treated as a normal one: not every mailbox retains those
+  headers, and the existing fallback still covers that case rather than the route inventing them.
+
+- **"Mark all as read" reaches Microsoft Graph** (P07b, tenth slice). The route updated the local rows and
+  then asked IMAP to set `\Seen`, so on a native account the interface looked right until the next sync
+  brought the unread state back. It now sets the flag on each unread message through the same
+  journal-backed write the single read/unread route uses — one mutation per message, since Graph has no
+  "mark folder read" call — and the list of messages is taken **before** the local update flips them,
+  or it would find nothing. An outcome the provider does not confirm is logged with how many it did
+  confirm rather than reported as success.
+
+- **Deleting several Microsoft Graph messages at once works** (P07b, ninth slice). `POST /messages/bulk-delete`
+  — the multi-select delete — still called IMAP for both halves: the permanent removal of a draft or an
+  already-trashed message, and the move to Trash for everything else. Both now go to the provider, on the
+  same shared helpers single-message delete, filing, spam/ham and snooze use, so the rule that a Graph
+  move re-identifies the message is still implemented once. The rule that Graph rows must stay out of the
+  IMAP delete-and-re-insert statement applies here too, and the counts and the response include them.
+  A removal or a move the provider does not confirm is logged and left alone rather than reported as
+  done.
+
+- **Snooze works on a Microsoft Graph account, in both directions** (P07b, eighth slice). `/messages/:id/snooze`
+  called IMAP's folder creation and move directly, so it failed on a native account; the wakeup half was
+  worse, because it lives inside the mail manager and would have sent the message *into* Snoozed and never
+  brought it back. Both halves now go through one shared Graph move helper — the same one the bulk routes
+  and spam/ham use — so the rule that a Graph move **re-identifies the message** is implemented once. The
+  `Snoozed` folder is created on the provider and then discovered, because a Graph account only has the
+  folders it has discovered and a move needs a local path to address. A wakeup the provider does not
+  confirm throws, so the snooze record survives and the next cycle retries rather than dropping the
+  message. The IMAP path, including its UIDPLUS cases, is unchanged.
+
+- **Mark as spam / not spam works on a Microsoft Graph account** (P07b, seventh slice). Both actions
+  moved a message by calling IMAP directly, bypassing the transport dispatch every other action now
+  has — so on a native account they looked available and failed. They now use the same journal-backed
+  move as filing, and the training record and the user's verdict are written **only after the provider
+  confirms the move**, so a move that did not happen never becomes a training row. The IMAP path,
+  including its UIDPLUS cases and the spam folder mapping it learns, is unchanged.
+
+- **Microsoft Graph messages can be filed** (P07b, sixth slice): **Move to folder** and **Archive** now
+  go to Microsoft through the shared provider-mutation layer, and the local row adopts the identity a
+  Graph move returns — the mechanism single-message delete introduced, now shared by both bulk routes.
+  One destination is resolved per account, once, through the collection link the folder slice created;
+  a message the provider refuses is left where it is and reported as not moved, so the interface never
+  claims a file that did not happen. A Graph row is deliberately kept out of the IMAP
+  delete-and-re-insert statement the bulk routes use: a Graph move re-identifies the message, so that
+  statement would delete the row and re-insert it under a UID the provider does not have. **Not yet
+  wired:** mark-as-spam and mark-as-ham still use IMAP for every account, so they are not available on
+  a native one.
+
+- **The PostgreSQL integration suites and the browser matrix are now part of the `dev` gate.** The two
+  layers that found this work's real defects — a lost lease, a two-worker token refresh, a cursor
+  advanced out of order, and the drawer that covered the page after a navigation — ran only by hand,
+  so a regression could reach `dev` while every gated check was green. `ci.yml` gains a
+  `backend-database` job (`postgres:16-alpine`, the migration chain applied to an **empty** database
+  with the application's own runner, then the provider and DAV suites), and
+  `conversation-v2-playwright.yml` now also triggers on `push: [dev]`. Both workflows set
+  `bash -euo pipefail`, so a pipeline's exit status is the real one rather than the last command's.
+  **Not verified:** neither job has run on a GitHub runner, so the action versions, cache paths and
+  service wiring are unproven; the commands inside them have been executed by hand against a database
+  created empty for the purpose, where the chain applied from zero and all 179 integration tests
+  passed.
+
+### Fixed
+
+- **A too-large message rejected by the forwarded-attachment backstop now answers with a domain code
+  instead of prose.** The send route has three size guards, and the last of them — the exact re-check
+  against the **fetched** forwarded bytes, after the declared-size check that can under-report — returned
+  a bare `400` with an English sentence while its two siblings returned `413` with `ATTACHMENT_TOO_LARGE`
+  or `MESSAGE_TOO_LARGE` and the numbers. A client had to match that sentence to learn what happened,
+  which is the reason the other two guards gained codes in the first place — and this one is the last
+  line of defence, so it is the one most likely to be reached. It now answers like the others.
+
+### Security
+
+- **The composed message no longer carries a `Bcc:` header.** The send route composes the message for
+  size accounting with nodemailer's stream transport, and **that composition keeps a `Bcc:` header** while
+  the delivery transport omits it — measured, and the obvious switch does not help: `keepBcc: false` on the
+  stream transport still emits it, with the same byte count. Harmless while the buffer is only measured,
+  and a disclosure the moment a buffer is handed to a transport as `raw`, since a raw message is sent as
+  given. It is now stripped once, where the accounting and any future shared artefact read it, so blind
+  recipients live in the envelope only. The accounting consequently counts what would actually be sent
+  rather than the header that would be dropped.
+
+
+- **A blind recipient is asserted never to reach a visible field.** The suite's BCC case only checked that
+  `bcc` was passed to the transport, which stays true even if the recipient is later dropped from the
+  envelope — so a change that composed the message once and sent it as `raw` could lose every BCC
+  recipient while the test stayed green. The new case sends to a visible recipient, a copy recipient and a
+  blind one, and asserts the blind address is carried in `bcc` and appears in **neither** `to` nor `cc`
+  nor a headers bag. It is written against what the route controls today so that it still holds once the
+  envelope becomes explicit and the assertion can be extended to it.
 
 ## [4.0.4] - 2026-09-18
 
