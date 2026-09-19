@@ -1514,6 +1514,36 @@ against the same total, which today are validated by count only and whose sizes 
 the IMAP fetch, and (c) the durable ledger with draft preservation. Those need a limit definition
 shared with the composer rather than a constant chosen inside the route.
 
+**P06 + the shared send layer — the seam is now located.** Stage 3 of the v4 continuation, read rather
+than planned in the abstract. `send.ts` is 1067 lines and already has more of the shape than its "not
+started" row suggests, so the slice is a seam rather than a rewrite:
+
+- **one transport call to wrap.** There is a single `transport.sendMail(mailOptions)` and a `delivered`
+  flag whose comment already says what it is for — *true once `sendMail` has actually handed off*. That
+  flag is the honest boundary for `SEND_OUTCOME_UNKNOWN`: everything before it is a failure the user can
+  retry, everything after it is an outcome nobody can promise. The shared layer's job is to make that
+  boundary explicit for every transport, not to invent a new one for Graph.
+- **idempotency already exists and must not be duplicated.** `claimSendIntent` / `markSendIntentUncertain`
+  / `completeSendIntent` / `releaseSendIntent` are a durable intent claim keyed by
+  `X-Idempotency-Key`, plus a Redis fast path. Before adding anything, decide how that relates to
+  `provider_operations` — the HTTP-level replay belongs to the intent table, the provider mutation to the
+  journal, and a third mechanism would be the mistake this work keeps removing. Read both, then write
+  the decision down.
+- **the limits are half-counted.** The composed message is counted against `MAIL_MAX_MESSAGE_BYTES` and
+  refused with `413` before any idempotency claim, which is correct ordering; the per-file total is not,
+  and **forwarded** attachments are validated by count only because their sizes are known only after the
+  IMAP fetch. The three sizes the plan asks for are file / attachments-total / MIME, and they belong in
+  one definition shared with the composer rather than as constants in the route.
+- **Graph specifics, in the order they will be needed**: `POST /me/sendMail` for a plain send;
+  `POST /me/messages` then `POST /me/messages/{id}/send` for a draft, which is what makes "preserve the
+  draft on failure" possible; `createUploadSession` above Graph's 3 MB direct-attachment limit, and the
+  **interrupted/expired session** states P06 names. One requirement is easy to lose and is the user's
+  explicit one: a **forwarded** attachment must be fetched from the **source** account's provider, not
+  the sending account's.
+- **never fall back.** A Graph send whose outcome is uncertain must not be retried over SMTP; that is a
+  cross-transport duplicate, and it is the reason the send layer owns the decision rather than each
+  route.
+
 **P10 — external CalDAV/CardDAV write-back.** The read-only pieces and the `remote_object_links`
 rows are in place, and `provider_operations.ts` was written for exactly this: a write is an
 operation with a generation, a terminal state and a typed failure, and a conflict must surface as a
