@@ -15,6 +15,7 @@ import type {
 export type ProviderKey =
   | 'local'
   | MailTransport
+  | 'google_api'
   | 'caldav'
   | 'carddav'
   | 'ical_url';
@@ -28,7 +29,8 @@ export class ProviderRegistryError extends Error {}
 
 function isProviderKey(value: unknown): value is ProviderKey {
   return value === 'local' || value === 'imap_smtp' || value === 'microsoft_graph'
-    || value === 'gmail_api' || value === 'caldav' || value === 'carddav' || value === 'ical_url';
+    || value === 'gmail_api' || value === 'google_api' || value === 'caldav'
+    || value === 'carddav' || value === 'ical_url';
 }
 
 function isConflictProtection(value: unknown): value is ConflictProtection {
@@ -82,6 +84,16 @@ export class ProviderRegistry {
     return this.providers.get(key)?.features.includes(feature) ?? false;
   }
 
+  /**
+   * The adapter that owns a resource kind for a collection origin. A `source`
+   * column can be served by more than one adapter (Google's mail transport and
+   * its People/Calendar API are separate registrations), so the lookup is by
+   * origin **and** feature rather than by origin alone.
+   */
+  forSource(source: SourceKind, feature: IntegrationFeature): ProviderRegistration | undefined {
+    return this.list().find(provider => provider.source === source && provider.features.includes(feature));
+  }
+
   conflictProtectionFor(key: ProviderKey, operation: ProviderOperation): ConflictProtection {
     return this.providers.get(key)?.conflictProtection[operation] ?? 'unsupported';
   }
@@ -102,6 +114,15 @@ function protections(overrides: Partial<Record<ProviderOperation, ConflictProtec
  * Descriptors for the transports the product supports. The values state what
  * each protocol can actually guarantee; a missing capability must be surfaced
  * to the user rather than silently downgraded.
+ *
+ * `writeThrough` means **this build's adapter forwards a mutation to the
+ * collection's origin**. It is therefore false both for an import/read-only
+ * source and for an adapter whose write path does not exist yet — a registration
+ * must not advertise a write it cannot perform, because the capability resolver
+ * (and through it every REST and DAV write guard) trusts this field. Flipping it
+ * to `true` is the last step of implementing that adapter's mutations, not the
+ * first. `local` is the origin itself, so its writes are accepted locally and
+ * are recognised by `source === 'local'` rather than by this flag.
  */
 export const DEFAULT_PROVIDER_REGISTRATIONS: readonly ProviderRegistration[] = Object.freeze([
   {
@@ -125,7 +146,9 @@ export const DEFAULT_PROVIDER_REGISTRATIONS: readonly ProviderRegistration[] = O
     mailTransport: 'microsoft_graph',
     source: 'microsoft',
     features: ['mail', 'calendars', 'contacts'],
-    writeThrough: true,
+    // Read only in this build: Graph mail (P07b) and Graph calendar CRUD (P07d)
+    // are not implemented, so a mutation would change only the local copy.
+    writeThrough: false,
     // Graph contacts do not document a conditional header on every mutation.
     conflictProtection: protections({ delete: 'best_effort' }),
   },
@@ -134,22 +157,35 @@ export const DEFAULT_PROVIDER_REGISTRATIONS: readonly ProviderRegistration[] = O
     mailTransport: 'gmail_api',
     source: 'google',
     features: ['mail'],
-    writeThrough: true,
+    // Read only in this build: the Gmail transport (P08) is not implemented.
+    writeThrough: false,
     // Gmail has no version precondition and `deleteContact`-style calls lack CAS.
     conflictProtection: protections({ update: 'best_effort', delete: 'unsupported', rsvp: 'unsupported' }),
+  },
+  {
+    key: 'google_api',
+    source: 'google',
+    features: ['calendars', 'contacts'],
+    // The People/Calendar read adapters exist; no provider-side create/update/
+    // delete does (P09), so this is read only until it does.
+    writeThrough: false,
+    conflictProtection: protections({ rsvp: 'unsupported' }),
   },
   {
     key: 'caldav',
     source: 'caldav',
     features: ['calendars'],
-    writeThrough: true,
+    // The external CalDAV write-back client (P10) does not exist yet: accepting
+    // a PUT would change only Inboxora's projection of the collection.
+    writeThrough: false,
     conflictProtection: protections(),
   },
   {
     key: 'carddav',
     source: 'carddav',
     features: ['contacts'],
-    writeThrough: true,
+    // As CalDAV: no external write-back client yet.
+    writeThrough: false,
     conflictProtection: protections(),
   },
   {

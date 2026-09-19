@@ -422,3 +422,38 @@ describe('a contact whose book is written by a source refuses REST edits', () =>
     expect(response.status).toBe(200);
   });
 });
+
+describe('the read-only flag comes from the capability model, for every provider', () => {
+  // The list and the single-contact read used to infer editability from one
+  // adapter's source value (`ab.source = 'carddav'`), so a Google or Microsoft
+  // book looked editable in the interface while the server refused the write.
+  for (const [source, expected] of [['local', false], ['carddav', true], ['google', true], ['microsoft', true], ['ical_url', true]] as const) {
+    it(`reports read_only=${expected} for a ${source} address book in the list`, async () => {
+      query
+        .mockResolvedValueOnce({ rows: [{ id: 'user-1' }] })
+        .mockResolvedValueOnce({ rows: [{ id: 'contact-1', display_name: 'Ada', book_source: source }] })
+        .mockResolvedValueOnce({ rows: [{ count: '1' }] });
+      const server = createApp().listen(0);
+      const response = await fetch(`http://127.0.0.1:${listeningPort(server)}/api/contacts`);
+      await new Promise(resolve => server.close(resolve));
+
+      expect(response.status).toBe(200);
+      const payload = await response.json() as { contacts: Array<{ read_only: boolean; book_source: string }> };
+      expect(payload.contacts[0].read_only).toBe(expected);
+      // The origin is still reported, so the interface can explain who owns it.
+      expect(payload.contacts[0].book_source).toBe(source);
+    });
+  }
+
+  it('reports read_only on a single contact read too', async () => {
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'user-1' }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'contact-1', display_name: 'Ada', book_source: 'google', vcard: null }] });
+    const server = createApp().listen(0);
+    const response = await fetch(`http://127.0.0.1:${listeningPort(server)}/api/contacts/contact-1`);
+    await new Promise(resolve => server.close(resolve));
+
+    expect(response.status).toBe(200);
+    expect((await response.json() as { read_only: boolean }).read_only).toBe(true);
+  });
+});

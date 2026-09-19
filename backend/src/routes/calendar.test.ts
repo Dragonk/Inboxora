@@ -430,7 +430,10 @@ describe('local calendar API', () => {
     expect(responseArray(await response.json(), 'calendars')[0]).toMatchObject({ name: 'Rodzina', custom_name: true, color: '#123456', read_only: true });
   });
   it('requires exact calendar-name confirmation before deleting an owned calendar', async () => {
-    query.mockResolvedValueOnce({ rows: [{ id: 'calendar-2' }] });
+    // The capability decision loads the row, then the scoped DELETE returns it.
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'calendar-2' }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'calendar-2' }] });
 
     const response = await fetch(`${base}/api/calendar/calendars/calendar-2`, {
       method: 'DELETE', headers: { 'content-type': 'application/json' },
@@ -438,9 +441,12 @@ describe('local calendar API', () => {
     });
 
     expect(response.status).toBe(204);
-    expect(queryCall(0)[0]).toContain('DELETE FROM calendars');
-    expect(queryCall(0)[0]).toContain('owner_user_id = $2');
-    expect(queryCall(0)[1]).toEqual(['calendar-2', 'user-1', 'Work']);
+    // The capability model decides on the loaded row first; the DELETE is then
+    // scoped to the same owner and confirmed name.
+    expect(queryCall(0)[0]).toContain('SELECT id, source, read_only FROM calendars');
+    const [deleteSql, deleteParameters] = queryCallContaining('DELETE FROM calendars');
+    expect(deleteSql).toContain('owner_user_id = $2');
+    expect(deleteParameters).toEqual(['calendar-2', 'user-1', 'Work']);
   });
 
   it('does not delete a calendar when server-side confirmation does not match', async () => {

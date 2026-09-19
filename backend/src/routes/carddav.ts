@@ -13,6 +13,7 @@ import { Router } from 'express';
 import type { Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
 import { query } from '../services/db.js';
+import { collectionDavWritable, davWriteRefusalMessage, resolveCollectionAccess } from '../services/providerAccess.js';
 import { parseVCard } from '../utils/vcard.js';
 import { authLimiterConfig } from '../services/authLimiter.js';
 import { createDavAuthMiddleware } from '../services/davServerAuth.js';
@@ -176,14 +177,14 @@ function davModeOf(value: unknown): DavMode {
   return value === 'off' || value === 'read_only' || value === 'read_write' ? value : 'read_write';
 }
 
-/** Whether this server would accept a write to the book (local, read-write books only). */
-function addressBookWritable(book: AddressBookRow): boolean {
-  return (book.source ?? 'local') === 'local' && davModeOf(book.dav_mode) === 'read_write';
-}
-
-/** Whether the authenticating device password may write at all. */
-function credentialCanWrite(req: { davMaxMode?: 'read_only' | 'read_write' }): boolean {
-  return req.davMaxMode !== 'read_only';
+/**
+ * Whether the capability model accepts a DAV write to this book. The advertised
+ * privileges and the enforced PUT/DELETE guard must be the same decision, so both
+ * come from here rather than from a local `source` comparison.
+ */
+function bookDavWritable(req: { davMaxMode?: 'read_only' | 'read_write' }, book: AddressBookRow): boolean {
+  const maxMode = req.davMaxMode === 'read_only' || req.davMaxMode === 'read_write' ? req.davMaxMode : null;
+  return collectionDavWritable(book, 'contacts', maxMode);
 }
 
 function addressBookSupportedReportSet() {
@@ -285,7 +286,7 @@ router.propfind('/:userId/', async (req, res) => {
       `<D:displayname>${xmlEscape(book.name)}</D:displayname>`,
       `<D:sync-token>${xmlEscape(syncToken(book))}</D:sync-token>`,
       `<CS:getctag>${xmlEscape(book.sync_token)}</CS:getctag>`,
-      addressBookPrivilegeSet(addressBookWritable(book) && credentialCanWrite(req)),
+      addressBookPrivilegeSet(bookDavWritable(req, book)),
       addressBookSupportedReportSet(),
     ], '200 OK'),
   ]));
@@ -319,7 +320,7 @@ router.propfind('/:userId/:bookId/', async (req, res) => {
       `<D:displayname>${xmlEscape(book.name)}</D:displayname>`,
       `<D:sync-token>${xmlEscape(syncToken(book))}</D:sync-token>`,
       `<CS:getctag>${xmlEscape(book.sync_token)}</CS:getctag>`,
-      addressBookPrivilegeSet(addressBookWritable(book) && credentialCanWrite(req)),
+      addressBookPrivilegeSet(bookDavWritable(req, book)),
       addressBookSupportedReportSet(),
     ], '200 OK'),
   ]);
@@ -482,11 +483,8 @@ router.put('/:userId/:bookId/:filename', async (req, res) => {
     if (!bookResult.rows.length) return res.status(404).end();
     const book = bookResult.rows[0];
     if (davModeOf(book.dav_mode) === 'off') return res.status(404).end();
-    if (book.source !== 'local' || davModeOf(book.dav_mode) === 'read_only' || !credentialCanWrite(req)) {
-      return davRefusal(res, book.source !== 'local'
-        ? 'This address book is written by its source, so Inboxora will not accept changes to it.'
-        : 'This address book is read-only.');
-    }
+    const access = resolveCollectionAccess(book, { feature: 'contacts', operation: 'update', channel: 'dav', credentialMaxMode: req.davMaxMode ?? null });
+    if (!access.allowed) return davRefusal(res, davWriteRefusalMessage(access, 'address book'));
     const bookId = book.id;
 
     const existing = await query(
@@ -576,11 +574,8 @@ router.delete('/:userId/:bookId/:filename', async (req, res) => {
     );
     if (!bookResult.rows.length) return res.status(404).end();
     if (davModeOf(bookResult.rows[0].dav_mode) === 'off') return res.status(404).end();
-    if (bookResult.rows[0].source !== 'local' || davModeOf(bookResult.rows[0].dav_mode) === 'read_only' || !credentialCanWrite(req)) {
-      return davRefusal(res, bookResult.rows[0].source !== 'local'
-        ? 'This address book is written by its source, so Inboxora will not accept changes to it.'
-        : 'This address book is read-only.');
-    }
+    const access = resolveCollectionAccess(bookResult.rows[0], { feature: 'contacts', operation: 'delete', channel: 'dav', credentialMaxMode: req.davMaxMode ?? null });
+    if (!access.allowed) return davRefusal(res, davWriteRefusalMessage(access, 'address book'));
 
     const currentRow = await query<{ etag: string }>(
       "SELECT etag FROM contacts WHERE address_book_id = $1 AND COALESCE(dav_filename, uid || '.vcf') = $2",

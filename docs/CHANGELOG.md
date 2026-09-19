@@ -23,6 +23,14 @@ limitations — read the matching page in the Wiki: [Release notes 4.1.0](wiki/R
 
 ### Changed
 
+- **Collection access is now decided by the provider capability model** rather than by comparisons written out at each
+  call site. The REST and DAV write guards, the DAV advertised privileges and the contacts list's read-only flag all ask
+  one resolver, which combines the origin adapter's declared support with the collection's own access and the device
+  password's ceiling. The visible fix is that a **Google or Microsoft address book is now reported read-only** in the
+  interface; previously only CardDAV books were, so a synced book looked editable until the server refused the write.
+  Behaviour is otherwise unchanged: writes to a provider-owned collection are still refused, because no remote write path
+  exists yet, and a read-only collection or a read-only device password still only narrows access.
+
 - After an **uncertain send**, the composer releases its idempotency key, so the user's next deliberate Send is a
   **new operation** rather than a refusal — which is what the plan asks for, together with the duplicate-risk warning
   that is already shown. Nothing sends on its own: this composer dispatches only from a click, and the key exists to

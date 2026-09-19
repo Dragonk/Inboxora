@@ -13,6 +13,7 @@ import { providerIntegrationsEnabled } from '../services/providerSwitches.js';
 import type { Request } from 'express';
 import crypto from 'crypto';
 import { query, withTransaction } from '../services/db.js';
+import { collectionIsWritable, resolveCollectionAccess } from '../services/providerAccess.js';
 import { requireAuth } from '../middleware/auth.js';
 import { decrypt, encrypt } from '../services/encryption.js';
 import { validateHost } from '../services/hostValidation.js';
@@ -306,7 +307,11 @@ async function writableCalendar(userId: string, calendarId: string) {
   );
   const calendar = result.rows[0];
   if (!calendar) return { status: 404, error: 'Calendar not found' };
-  if (calendar.read_only || calendar.source !== 'local') return { status: 403, error: 'This calendar is read-only' };
+  // Whether the calendar accepts a write is the capability model's answer — the
+  // origin's adapter, the collection's own access and (on DAV) the password's
+  // ceiling — not a comparison against `source` written out here.
+  const access = resolveCollectionAccess(calendar, { feature: 'calendars', operation: 'update' });
+  if (!access.allowed) return { status: 403, error: 'This calendar is read-only' };
   return { calendar };
 }
 
@@ -532,9 +537,19 @@ router.patch('/calendars/:calendarId', async (req, res) => {
 router.delete('/calendars/:calendarId', async (req, res) => {
   const confirmName = calendarName(req.body?.confirmName);
   if (!confirmName) return res.status(400).json({ error: 'confirmName is required' });
+  // The capability model decides whether the calendar may be removed at all; the
+  // DELETE that follows is scoped to the same owner and confirmed name, so the
+  // decision cannot be raced into a different row.
+  const current = await query(
+    `SELECT id, source, read_only FROM calendars
+     WHERE id = $1 AND owner_user_id = $2 AND user_id = $2 AND name = $3`,
+    [req.params.calendarId, req.session.userId, confirmName],
+  );
+  const candidate = current.rows[0];
+  if (!candidate || !collectionIsWritable(candidate, 'calendars')) return res.status(404).json({ error: 'Calendar not found' });
   const result = await query(
     `DELETE FROM calendars
-     WHERE id = $1 AND owner_user_id = $2 AND user_id = $2 AND name = $3 AND source = 'local' AND read_only = false
+     WHERE id = $1 AND owner_user_id = $2 AND user_id = $2 AND name = $3
      RETURNING id`,
     [req.params.calendarId, req.session.userId, confirmName],
   );

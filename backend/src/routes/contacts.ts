@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import type { VCardContact } from '../utils/vcard.ts';
 import { query, withTransaction } from '../services/db.js';
+import { collectionIsWritable } from '../services/providerAccess.js';
 import { providerIntegrationsEnabled } from '../services/providerSwitches.js';
 import { requireAuth } from '../middleware/auth.js';
 import { generateVCard, mergeVCard, normalizeContactDateLabel, normalizeVCardDate, parseVCard, splitVCards } from '../utils/vcard.js';
@@ -132,7 +133,9 @@ async function requireLocalAddressBook(userId: string, addressBookId: string): P
   const result = await query<{ id: string; name?: string | null; source?: string | null; visible?: boolean | null }>('SELECT id, name, source, visible FROM address_books WHERE id = $1 AND user_id = $2', [addressBookId, userId]);
   const book = result.rows[0];
   if (!book) return { error: 'Address book not found', status: 404 };
-  if (book.source !== 'local') return { error: 'This address book is read-only', status: 403 };
+  // A book has no `read_only` column: whether it accepts a write is a property of
+  // the adapter that owns its `source`, which is what the capability model answers.
+  if (!collectionIsWritable(book, 'contacts')) return { error: 'This address book is read-only', status: 403 };
   return { book };
 }
 
@@ -399,7 +402,7 @@ router.get('/', async (req, res) => {
         c.address_book_id, ab.name AS address_book_name, c.is_auto, c.send_count, c.last_sent,
         c.etag, c.created_at, c.updated_at,
         (c.photo_data IS NOT NULL) AS has_contact_photo,
-        (ab.source = 'carddav') AS read_only
+        ab.source AS book_source
       FROM contacts c
       JOIN address_books ab ON ab.id = c.address_book_id
       WHERE ${conditions.join(' AND ')}
@@ -415,7 +418,16 @@ router.get('/', async (req, res) => {
       params
     );
 
-    res.json({ contacts: result.rows, total: parseInt(total.rows[0].count) });
+    // Read-only is the capability model's answer for the book that owns each row,
+    // not a comparison against one adapter's source value — which is why a Google
+    // or Microsoft book is now reported read-only too instead of looking editable
+    // until the server refuses the write.
+    const contacts = result.rows.map(row => ({
+      ...row,
+      read_only: !collectionIsWritable({ source: typeof row.book_source === 'string' ? row.book_source : null }, 'contacts'),
+    }));
+
+    res.json({ contacts, total: parseInt(total.rows[0].count) });
   } catch (err) {
     console.error('Contacts list error:', err);
     res.status(500).json({ error: 'Failed to fetch contacts' });
@@ -616,7 +628,7 @@ router.post('/address-books/:id/import/vcard', async (req, res) => {
 router.get('/:id', async (req, res) => {
   const userId = sessionUserId(req);
   try {
-    const result = await query<{ id: string; uid: string; display_name?: string | null; first_name?: string | null; last_name?: string | null; primary_email?: string | null; emails?: unknown; phones?: unknown; organization?: string | null; notes?: string | null; birthday?: string | null; anniversary?: string | null; contactDates?: unknown; title?: string | null; role?: string | null; nickname?: string | null; urls?: unknown; addresses?: unknown; instantMessages?: unknown; categories?: string[]; googleFields?: unknown; photo_data?: string | null; vcard?: string | null; is_auto?: boolean | null; send_count?: number | null; last_sent?: string | Date | null }>(
+    const result = await query<{ id: string; uid: string; display_name?: string | null; first_name?: string | null; last_name?: string | null; primary_email?: string | null; emails?: unknown; phones?: unknown; organization?: string | null; notes?: string | null; birthday?: string | null; anniversary?: string | null; contactDates?: unknown; title?: string | null; role?: string | null; nickname?: string | null; urls?: unknown; addresses?: unknown; instantMessages?: unknown; categories?: string[]; googleFields?: unknown; photo_data?: string | null; vcard?: string | null; is_auto?: boolean | null; send_count?: number | null; last_sent?: string | Date | null; book_source?: string | null; read_only?: boolean }>(
       `SELECT c.id, c.uid, c.display_name, c.first_name, c.last_name,
               c.primary_email, c.emails, c.phones, c.organization,
               c.notes, c.birthday, c.anniversary, c.contact_dates AS "contactDates", c.title, c.role, c.nickname,
@@ -624,7 +636,7 @@ router.get('/:id', async (req, res) => {
               c.google_fields AS "googleFields",
               c.photo_data, c.is_auto, c.send_count, c.last_sent,
               c.etag, c.vcard, c.created_at, c.updated_at,
-              (ab.source = 'carddav') AS read_only
+              ab.source AS book_source
        FROM contacts c
        JOIN address_books ab ON ab.id = c.address_book_id
        WHERE c.id = $1 AND c.user_id = $2`,
@@ -632,6 +644,7 @@ router.get('/:id', async (req, res) => {
     );
     if (!result.rows.length) return res.status(404).json({ error: 'Contact not found' });
     const contact = result.rows[0];
+    contact.read_only = !collectionIsWritable({ source: contact.book_source ?? null }, 'contacts');
     if (contact.vcard) {
       const parsed = parseVCard(contact.vcard);
       const scalarFields: ReadonlyArray<'title' | 'role' | 'nickname'> = ['title', 'role', 'nickname'];
@@ -750,9 +763,10 @@ router.patch('/:id', async (req, res) => {
     );
     if (!cur.rows.length) return res.status(404).json({ error: 'Contact not found' });
     const c = cur.rows[0];
-    if (c.book_source && c.book_source !== 'local') {
+    if (!collectionIsWritable({ source: c.book_source }, 'contacts')) {
       // Synced from a provider/adapter: the source is the writer, so a local edit
-      // would be an apparent write-back that the next sync discards.
+      // would be an apparent write-back that the next sync discards. Which sources
+      // that covers is the capability model's answer, not a local comparison.
       return res.status(403).json({ error: 'This contact is synced from an external source and is read-only' });
     }
 
@@ -854,7 +868,7 @@ router.delete('/:id', async (req, res) => {
       [req.params.id, userId]
     );
     if (!owner.rows.length) return res.status(404).json({ error: 'Contact not found' });
-    if (owner.rows[0].source !== 'local') {
+    if (!collectionIsWritable({ source: typeof owner.rows[0].source === 'string' ? owner.rows[0].source : null }, 'contacts')) {
       return res.status(403).json({ error: 'This contact is synced from an external source and is read-only' });
     }
     const result = await query<{ address_book_id: string }>(

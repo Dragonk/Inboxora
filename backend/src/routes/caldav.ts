@@ -8,6 +8,7 @@ export { parseCalendarEvent } from '../utils/ical.js';
 import { query } from '../services/db.js';
 import { authLimiterConfig } from '../services/authLimiter.js';
 import { createDavAuthMiddleware } from '../services/davServerAuth.js';
+import { collectionDavWritable, davWriteRefusalMessage, resolveCollectionAccess } from '../services/providerAccess.js';
 import { evaluateDavIf, ifMatchSatisfied } from '../utils/davPreconditions.js';
 import { toAppError } from '../utils/errors.js';
 import type { Request, Response, NextFunction } from 'express';
@@ -168,20 +169,21 @@ function supportedReportSet() {
   return `<D:supported-report-set>${reports.map(report => `<D:supported-report>${report}</D:supported-report>`).join('')}</D:supported-report-set>`;
 }
 
-/** Whether the authenticating device password may write at all. */
-function credentialCanWrite(req: Request): boolean {
-  return req.davMaxMode !== 'read_only';
+/** The authenticating device password's ceiling, or `null` when it sets none. */
+function credentialMaxMode(req: Request): 'read_only' | 'read_write' | null {
+  return req.davMaxMode === 'read_only' || req.davMaxMode === 'read_write' ? req.davMaxMode : null;
+}
+
+/** Whether the capability model accepts a DAV write to this calendar. */
+function calendarDavWritable(req: Request, calendar: { source?: string | null; read_only?: boolean | null; dav_mode?: string | null }): boolean {
+  return collectionDavWritable(calendar, 'calendars', credentialMaxMode(req));
 }
 
 /** The `Depth: 1` member listing of a calendar collection (RFC 4791 §5.2). */
-function calendarCollectionProperties(calendar: { id: string; name?: string | null; sync_token?: string | null; read_only?: boolean | null; source?: string | null; dav_mode?: string | null }, credentialWritable: boolean): string[] {
-  // The DAV mode and the device password can only narrow what the source already
-  // allows, and a local, non-read-only calendar is the only thing a DAV write is
-  // accepted for today.
-  const writable = credentialWritable
-    && davModeOf(calendar.dav_mode) === 'read_write'
-    && !calendar.read_only
-    && (calendar.source ?? 'local') === 'local';
+function calendarCollectionProperties(calendar: { id: string; name?: string | null; sync_token?: string | null }, writable: boolean): string[] {
+  // `writable` comes from the capability resolver, the same decision the PUT and
+  // DELETE handlers enforce, so the advertised privileges cannot offer a write
+  // the guard would refuse.
   return [
     '<D:resourcetype><D:collection/><C:calendar/></D:resourcetype>',
     `<D:displayname>${xmlEscape(calendar.name)}</D:displayname>`,
@@ -260,7 +262,7 @@ router.propfind('/:userId/', async (req: Request, res: Response) => {
   // only the home itself, as RFC 4918 requires.
   if (String(req.headers.depth ?? '0') === '1') {
     for (const calendar of calendars.rows) {
-      responses.push(response(`${principalPath}${calendar.id}/`, calendarCollectionProperties(calendar, credentialCanWrite(req))));
+      responses.push(response(`${principalPath}${calendar.id}/`, calendarCollectionProperties(calendar, calendarDavWritable(req, calendar))));
     }
   }
   sendXml(res, 207, multistatus(responses));
@@ -278,7 +280,7 @@ router.propfind('/:userId/:calendarId/', async (req: Request, res: Response) => 
   if (!calendar || davModeOf(calendar.dav_mode) === 'off') return res.status(404).end();
 
   sendXml(res, 207, multistatus([
-    response(`/caldav/${req.caldavUserId}/${calendar.id}/`, calendarCollectionProperties(calendar, credentialCanWrite(req))),
+    response(`/caldav/${req.caldavUserId}/${calendar.id}/`, calendarCollectionProperties(calendar, calendarDavWritable(req, calendar))),
   ]));
 });
 
@@ -403,13 +405,11 @@ router.put('/:userId/:calendarId/:filename', async (req: Request, res: Response)
   );
   const calendar = calendarResult.rows[0];
   if (!calendar || davModeOf(calendar.dav_mode) === 'off') return res.status(404).end();
-  // A read_only DAV mode blocks writes the same way a read-only source does, and a
-  // read-only device password cannot write even to a read-write calendar.
-  if (calendar.source !== 'local' || calendar.read_only || davModeOf(calendar.dav_mode) === 'read_only' || !credentialCanWrite(req)) {
-    return davRefusal(res, calendar.source !== 'local'
-      ? 'This calendar is written by its source, so Inboxora will not accept changes to it.'
-      : 'This calendar is read-only.');
-  }
+  // One decision, from the capability model: the source's adapter, the
+  // collection's own access and the device password's ceiling are combined there
+  // rather than re-derived here.
+  const access = resolveCollectionAccess(calendar, { feature: 'calendars', operation: 'update', channel: 'dav', credentialMaxMode: credentialMaxMode(req) });
+  if (!access.allowed) return davRefusal(res, davWriteRefusalMessage(access, 'calendar'));
   const event = parseCalendarEvent(await rawBody(req));
   const filename = req.params.filename;
   if (!event) return res.status(400).end();
@@ -455,11 +455,8 @@ router.delete('/:userId/:calendarId/:filename', async (req: Request, res: Respon
   const calendarResult = await query<{ id: string; source?: string | null; read_only?: boolean | null; dav_mode?: string | null; sync_token?: string | null }>('SELECT id, source, read_only, dav_mode, sync_token FROM calendars WHERE id = $1 AND user_id = $2', [req.params.calendarId, req.caldavUserId]);
   const calendar = calendarResult.rows[0];
   if (!calendar || davModeOf(calendar.dav_mode) === 'off') return res.status(404).end();
-  if (calendar.source !== 'local' || calendar.read_only || davModeOf(calendar.dav_mode) === 'read_only' || !credentialCanWrite(req)) {
-    return davRefusal(res, calendar.source !== 'local'
-      ? 'This calendar is written by its source, so Inboxora will not accept changes to it.'
-      : 'This calendar is read-only.');
-  }
+  const access = resolveCollectionAccess(calendar, { feature: 'calendars', operation: 'delete', channel: 'dav', credentialMaxMode: credentialMaxMode(req) });
+  if (!access.allowed) return davRefusal(res, davWriteRefusalMessage(access, 'calendar'));
   const uid = req.params.filename;
   const currentResult = await query<{ etag: string; invite_account_id?: string | null }>("SELECT etag, invite_account_id FROM calendar_events WHERE calendar_id = $1 AND COALESCE(dav_filename, uid || '.ics') = $2 AND recurrence_id = $3", [calendar.id, uid, '']);
   const current = currentResult.rows[0];

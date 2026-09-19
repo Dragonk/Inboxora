@@ -190,7 +190,12 @@ export interface ProviderDescriptor {
   /** Mail transport this descriptor implements, when it handles mail. */
   readonly mailTransport?: MailTransport;
   readonly features: readonly IntegrationFeature[];
-  /** Write-through to the origin, as opposed to a read-only/import source. */
+  /**
+   * Whether **this build's** adapter forwards a mutation to the collection's
+   * origin. False for an import/read-only source and for an adapter whose write
+   * path is not implemented yet: the capability resolver trusts this field, so
+   * it must not advertise a write the adapter cannot perform.
+   */
   readonly writeThrough: boolean;
   /** Per-operation conflict protection offered by the provider endpoints. */
   readonly conflictProtection: Readonly<Record<ProviderOperation, ConflictProtection>>;
