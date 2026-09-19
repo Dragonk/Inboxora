@@ -40,7 +40,13 @@ test('an address book can be renamed from the books menu', async ({ page, fixtur
   await dialog.getByRole('button', { name: 'Zapisz', exact: true }).click();
 
   await expect(dialog).toHaveCount(0);
-  expect(patches).toEqual([{ url: expect.stringContaining('/contacts/address-books/book-work'), body: { name: 'Prywatne' } }]);
+  // The dialog edits the name *and* the book's DAV access, so the PATCH carries both — a
+  // local book's access can be narrowed or widened here, and omitting it would silently
+  // leave the previous value.
+  expect(patches).toEqual([{
+    url: expect.stringContaining('/contacts/address-books/book-work'),
+    body: { name: 'Prywatne', davMode: 'read_write' },
+  }]);
 });
 
 test('creating an address book uses the app dialog, not a native prompt', async ({ page, fixtureApi }, testInfo) => {

@@ -93,6 +93,31 @@ database triggers rather than on the routes, so it was verified directly against
   notifies collection-sync clients; that is now documented at the helper so it is neither
   relied on nor removed by mistake.
 
+## Known failing end-to-end tests (open, must be fixed before release)
+
+The Playwright suite is not part of the gates that were run during this work, and running it
+found two things the unit and contract tests could not:
+
+1. **Fixed:** `contacts-address-books.spec.ts` asserted that renaming an address book sends
+   `{ name }` only. The rename dialog deliberately sends the book's DAV access as well, so the
+   assertion had been stale since that dialog learned to edit both. The expectation now includes
+   `davMode` and the spec passes.
+2. **Open:** three tests in `calendar.spec.ts` fail on the desktop project —
+   *mobile primary navigation re-enters Contacts and Calendar at their roots*,
+   *mobile Contacts exposes contextual back-button names*, and
+   *mobile long Contacts and Mail lists keep their final rows above fixed navigation*.
+   After a mobile module navigation the drawer is still **fully in the viewport**
+   (`toBeInViewport` reports "viewport ratio 1"), so it intercepts the next click; the log shows
+   `<span>Kalendarz</span>` from `[data-testid="mobile-sidebar"]` swallowing a click on a contact
+   row. The drawer's nav items do call `setMobileSidebarOpen(false)` and the store setter applies
+   the value directly, so the cause is not yet identified; the failing traces and screenshots are
+   under `frontend/artifacts/playwright-test-results/`. A wait for the closed drawer was added to
+   the shared `navigateModule` helper, did not make them pass, and was reverted rather than left
+   in place unverified.
+
+Run the suite with:
+`PLAYWRIGHT_BROWSERS_PATH=$PWD/../.pw-browsers npx playwright test --project=chromium-desktop`
+
 ## Known limitations of what is delivered
 
 - Pulled Google and Microsoft contacts and Google calendars are **read-only** in Inboxora: REST and
