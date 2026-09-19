@@ -19,6 +19,7 @@
   - [Development](Development.md)
 - **Reference**
   - [V3 interface](V3-interface.md)
+  - [4.1.0 changes and release status](Release-notes-4.1.0.md)
   - [4.0.4 changes and release status](Release-notes-4.0.4.md)
   - [4.0.3 changes and release status](Release-notes-4.0.3.md)
   - [4.0.2 changes and release status](Release-notes-4.0.2.md)

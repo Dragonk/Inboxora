@@ -5,12 +5,13 @@ All notable changes to Inboxora are recorded here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 For the narrative version — what the release means, what to expect when upgrading, and the known
-limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/Release-notes-4.0.4.md),
+limitations — read the matching page in the Wiki: [Release notes 4.1.0](wiki/Release-notes-4.1.0.md),
+[Release notes 4.0.4](wiki/Release-notes-4.0.4.md),
 [Release notes 4.0.3](wiki/Release-notes-4.0.3.md),
 [Release notes 4.0.2](wiki/Release-notes-4.0.2.md),
 [Release notes 4.0.1](wiki/Release-notes-4.0.1.md) and [Release notes 4.0.0](wiki/Release-notes-4.0.0.md).
 
-## [Unreleased]
+## [4.1.0] - 2026-09-19
 
 ### Added
 
