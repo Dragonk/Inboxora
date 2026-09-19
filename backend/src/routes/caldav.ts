@@ -59,14 +59,37 @@ function sendXml(res: Response, status: number, body: string) {
   res.status(status).setHeader('Content-Type', 'application/xml; charset=utf-8').send(body);
 }
 
+/**
+ * The largest DAV body that means anything is one event or one card, and nothing else bounds this
+ * stream: the application's JSON body limit does not apply to XML, calendar and vCard content types.
+ * The cap belongs here, where the request is legitimately read.
+ *
+ * An oversized body is discarded rather than buffered, and the answer comes once the client has
+ * finished sending — replying mid-upload left the exchange hanging. The rejection carries
+ * body-parser's `entity.too.large` marker, so the application answers `413` with the same route-aware
+ * message it already gives for an oversized JSON upload.
+ */
+const DAV_BODY_LIMIT_BYTES = 1_048_576;
+
+function davBodyTooLarge(): Error & { type: string } {
+  return Object.assign(new Error('DAV request body is too large'), { type: 'entity.too.large' });
+}
+
 function rawBody(req: Request) {
-  return new Promise<string>(( resolve, reject) => {
+  return new Promise<string>((resolve, reject) => {
     if (typeof req.body === 'string') return resolve(req.body);
     if (Buffer.isBuffer(req.body)) return resolve(req.body.toString('utf8'));
+    const declared = Number(req.headers['content-length'] ?? 0);
+    let tooLarge = Number.isFinite(declared) && declared > DAV_BODY_LIMIT_BYTES;
     let body = '';
+    let seen = 0;
     req.setEncoding('utf8');
-    req.on('data', (chunk) => { body += chunk; });
-    req.on('end', () => resolve(body));
+    req.on('data', (chunk) => {
+      seen += Buffer.byteLength(chunk, 'utf8');
+      if (seen > DAV_BODY_LIMIT_BYTES) { tooLarge = true; return; }
+      body += chunk;
+    });
+    req.on('end', () => (tooLarge ? reject(davBodyTooLarge()) : resolve(body)));
     req.on('error', reject);
   });
 }

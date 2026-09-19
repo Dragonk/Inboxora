@@ -1,3 +1,4 @@
+import 'express-async-errors';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import express from 'express';
 import type { Server } from 'node:http';
@@ -37,6 +38,12 @@ beforeAll(async () => {
   const app = express();
   app.use('/caldav', caldavRouter);
   app.use('/carddav', carddavRouter);
+
+  // After the mounts, like the application's.
+  app.use((err: { type?: string }, _req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if (err.type === 'entity.too.large') return res.status(413).json({ error: 'This request is too large' });
+    next(err);
+  });
   await new Promise<void>((resolve) => { server = app.listen(0, () => resolve()); });
   base = `http://127.0.0.1:${listeningPort(server)}`;
 });
@@ -325,6 +332,20 @@ describe('a collection whose source is a provider refuses DAV writes', () => {
     expect(await del.text()).toContain('written by its source');
     expect(queryCallsMatching('INSERT INTO calendar_events')).toHaveLength(0);
     expect(queryCallsMatching('DELETE FROM calendar_events')).toHaveLength(0);
+  });
+
+  it('refuses an oversized DAV body instead of holding it in memory', async () => {
+    // The body is read only once the collection is known writable, so this row is local and open.
+    query.mockResolvedValue({ rows: [{ id: 'local-1', name: 'Local', source: 'local', read_only: false, dav_mode: 'read_write', sync_token: 'sync-1', sync_version: 1 }] });
+    const oversized = 'x'.repeat(1_100_000);
+    for (const [path, contentType] of [['caldav/user-1/cal-g/event.ics', 'text/calendar'], ['carddav/user-1/book-g/contact.vcf', 'text/vcard']] as const) {
+      const response = await fetch(`${base}/${path}`, {
+        method: 'PUT', headers: { ...AUTH, 'content-type': contentType }, body: oversized,
+      });
+      expect(response.status).toBe(413);
+    }
+    expect(queryCallsMatching('INSERT INTO calendar_events')).toHaveLength(0);
+    expect(queryCallsMatching('INSERT INTO contacts')).toHaveLength(0);
   });
 
   it('refuses a property change with a reason, on both protocols', async () => {

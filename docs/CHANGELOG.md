@@ -467,6 +467,12 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   framework default — which a client receiving it on a collection that exists has every reason to
   read as "the collection is gone". Both protocols now refuse it with a `DAV:error` body saying that
   properties are managed by Inboxora, and the refusal writes nothing.
+- Bound the CalDAV and CardDAV request body. Those routes read their own bodies, and nothing capped
+  them: the application's JSON body limit does not apply to XML, calendar and vCard content types, so a
+  client with a device password could make the process hold an arbitrary body in memory on the
+  endpoints that serve everyone else. The body is now capped at 1 MB, excess is discarded rather than
+  buffered, and an oversized request is refused with the same route-aware `413` message an oversized
+  JSON upload already gets.
 
 
 ## [4.0.4] - 2026-09-18

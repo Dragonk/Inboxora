@@ -180,73 +180,29 @@ DAV rows are covered at protocol level but share P11's open criterion: no real c
 Recording this way is deliberate: the plan requires PASS, FAIL, SKIPPED and NOT RUN separated with
 evidence, and a row is not PASS because a similar test exists.
 
-## Open defect: the DAV request body is unbounded
+## Closed: the DAV request body is bounded
 
-Found while finishing DV06, and it is a real one rather than a test gap. The CalDAV and CardDAV routes
-read the request body themselves, in a `rawBody` helper that accumulates chunks with **no size cap**:
+The CalDAV and CardDAV routes read their own request bodies, and nothing capped them: the
+application's `express.json({ limit: '1mb' })` does not apply to XML, calendar and vCard content
+types, so a client with a device password could stream an arbitrary body and have the process hold it
+in memory on the endpoints that serve everyone else. The body is now capped at **1 MB** inside
+`rawBody`, where the request is legitimately read; excess is discarded rather than buffered, and the
+rejection carries body-parser's `entity.too.large` marker so the application answers `413` with the
+route-aware message it already gives for oversized JSON uploads. Both protocols are covered and the
+refusal writes nothing.
 
-```ts
-let body = '';
-req.setEncoding('utf8');
-req.on('data', (chunk) => { body += chunk; });
-req.on('end', () => resolve(body));
-```
+**Three attempts were needed, and the reason is worth keeping.** The first added the cap as
+router-level middleware that watched the stream, which broke 30 tests: attaching a `data` listener
+there starts the request flowing before the handler runs, so every body arrived empty. The second and
+third moved the cap into `rawBody` — correctly — and then hung in the test, which produced two wrong
+conclusions in this document, including "the cap may already be correct". A probe with no cap in the
+code showed a 1.1 MB `PUT` answering `400` promptly, which cleared the read path and pointed at the
+rejection path; the cause was that the **test harness did not import `express-async-errors`**, so a
+rejected handler produced no response at all. The application has had that import all along, so the
+production behaviour was never in question — only my ability to observe it.
 
-The application's `express.json({ limit: '1mb' })` does not apply to these requests, because a DAV
-client sends `application/xml`, `text/calendar` or `text/vcard` — content types that parser ignores.
-So a client with a device password can stream an arbitrary amount of data and have the server hold all
-of it in memory as a growing string, on an endpoint whose job is to serve mail, contacts and calendars
-to everyone else. It is authenticated, and it is still a memory-exhaustion path: one request can take
-the process down for every user.
-
-The fix has two parts, and both are needed:
-
-- refuse early on `Content-Length` with `413`, which gives honest clients a correct answer;
-- cap the accumulation inside `rawBody` and destroy the request, because a client that sends chunked
-  or lies about its length would bypass the first part.
-
-This is not fixed here: it is a security-relevant change across two routers and their call sites, and
-it needs its own tests — a request just over the limit, one that lies about its length, and the
-existing DAV suites still green. Starting it at the end of this session and stopping half-way would
-leave the endpoints in a state nobody could trust.
-
-**Two attempts were made and both reverted. What they established is the substance of this note.**
-
-1. A router-level middleware that watched the stream broke **30 existing DAV tests**: attaching a
-   `data` listener there starts the request flowing *before* the route handler runs, so the handlers'
-   own `rawBody` reader received nothing and every body arrived empty. The cap must live **inside
-   `rawBody`**, where the stream is legitimately consumed.
-2. With the cap inside `rawBody`, rejecting with body-parser's `entity.too.large` marker, the DAV
-   suites stayed green (76) and the rejection reached an error handler — but a request that is
-   **still uploading** when the server answers left the exchange **hanging**: the test timed out
-   rather than receiving the `413`. Answering a client mid-upload needs either draining the rest of
-   the stream or closing the connection deliberately, and choosing between those two is the design
-   decision this fix turns on.
-
-Also worth knowing before starting: the `413` mapper registered at `index.ts:174` sits **before** the
-routers are mounted, and Express searches forward from the failing layer, so it never sees their
-errors — the handler that does is the generic one further down, which currently answers `500`. The
-fix has to extend *that* one, or answer from the router itself.
-
-3. A third attempt removed the mid-upload problem by **discarding** the excess while still reading the
-   request to its end, and rejecting only on `end`. It hung in exactly the same way. That rules out the
-   explanation the second attempt produced: the hang is **not** caused by answering while the client is
-   still writing.
-
-The reproduction has since been run, and it **falsified that hypothesis**: with no cap in the code, a
-1 KB `PUT` returns `204` and a 1.1 MB one returns **`400`** — promptly. The request is read to the end
-without trouble, so the fixture is not what hangs and the cap is not "already correct".
-
-What that leaves is narrower and more useful: the hang is in the **rejection path**, not in reading.
-The next attempt should isolate *that* — a route handler that rejects with the `entity.too.large`
-marker, in the same harness, with no `rawBody` involved — and find out whether the rejection reaches
-the error handler at all, because a rejected promise that produces **no response whatsoever** is a
-different failure from a wrong status code. Suspicion worth checking first: whether the harness and the
-application differ in how an async handler's rejection is forwarded, since the harness mounts routers
-without the application's `express-async-errors` import.
-
-All three attempts left the tree green after revert; no part of any is in it. Three variants of the same
-fix failing on the same symptom is the signal to stop guessing and build the reproduction.
+The lesson is narrower than "test more": when a handler rejects and the client sees nothing, the
+question is whether the rejection is *forwarded*, not what the handler did.
 
 ## Acceptance criteria W01–W19, as the plan requires them reported
 

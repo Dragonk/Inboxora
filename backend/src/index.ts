@@ -287,6 +287,13 @@ app.get('/api/update', async (_req: Request, res: Response) => {
 // The `express-async-errors` import above patches Express 4 to forward async
 // rejections here; without both pieces, a thrown DB error hangs the request.
 app.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
+  // A DAV route's oversized body arrives here rather than at the mapper above the routers, since
+  // error handlers registered before a failing layer are never searched for.
+  const typed = err as { type?: string } | null;
+  if (typed?.type === 'entity.too.large') {
+    if (res.headersSent) return;
+    return res.status(413).json({ error: requestTooLargeMessage(req.path) });
+  }
   console.error('Unhandled route error:', err);
   if (res.headersSent) return;
   res.status(500).json({ error: 'Internal server error' });
