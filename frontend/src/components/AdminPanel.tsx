@@ -2645,7 +2645,7 @@ function IntegrationsTab() {
   const [configs, setConfigs] = useState<Record<string, { clientId?: string; [key: string]: unknown }>>({});
   // Non-admins can't read the full config (admin-only), but need to know whether
   // Microsoft OAuth is configured so the connect buttons enable. (#315)
-  const [msStatus, setMsStatus] = useState<{ configured?: boolean; browser?: { ready?: boolean; missing?: string[] }; [key: string]: unknown } | null>(null); // { configured } for non-admins
+  const [msStatus, setMsStatus] = useState<{ configured?: boolean; browser?: { ready?: boolean; missing?: string[] }; graph?: { ready?: boolean; missing?: string[] }; [key: string]: unknown } | null>(null); // { configured } for non-admins
   const [loading, setLoading] = useState(true);
   const [msForm, setMsForm] = useState({ clientId: '', clientSecret: '', tenantId: '', redirectUri: '' });
   const [msExpanded, setMsExpanded] = useState(false);
@@ -3185,7 +3185,10 @@ function IntegrationsTab() {
                   {/* The Graph API connection is separate from the mailbox sign-in
                       above: it never creates or migrates an account, so it is
                       offered as its own, clearly named action. */}
-                  {msStatus?.browser?.ready && (
+                  {/* Gated on the connector's own readiness, not the mailbox flow's: the two
+                      have different callbacks, and tying them together hid this button in an
+                      installation that has a working connector but no mailbox sign-in. */}
+                  {msStatus?.graph?.ready && (
                     <div style={{ marginTop: 10 }}>
                       <button
                         data-testid="microsoft-graph-connect"

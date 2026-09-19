@@ -70,7 +70,9 @@ test('the Microsoft card offers the Graph connection as its own action', async (
   assert.match(source, /a\.href = '\/oauth\/provider\/microsoft\?purpose=contacts_enable&access=read_only'/);
   // It is a separate authorisation: the mailbox sign-in above stays untouched.
   assert.match(source, /admin\.integrations\.microsoft\.graphHint/);
-  assert.match(source, /msStatus\?\.browser\?\.ready && \(/);
+  // Gated on the connector's own readiness: the mailbox flow has a different callback,
+  // and tying them together hid this button where the connector could actually run.
+  assert.match(source, /msStatus\?\.graph\?\.ready && \(/);
 });
 
 test('every locale translates the Google connect and sync controls', async () => {

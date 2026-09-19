@@ -407,6 +407,13 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   the instruction was wrong for the calendar button. It now states what happened; each surface
   already offers its own sync action, so naming one was both redundant and, half the time,
   incorrect.
+- Offer the Microsoft contacts connector wherever it can actually run. The button was gated on the
+  mailbox sign-in's readiness, which needs `MS_REDIRECT_URI` — a callback the connector does not use,
+  because it authorizes on `/oauth/provider/microsoft/callback` derived from `APP_URL`. An
+  installation that had a working connector but no mailbox sign-in therefore hid the button, while
+  the Contacts page's hint (which uses the connector's own readiness) invited the user to press it.
+  The status now reports the connector's readiness separately and the card uses it, so the hint and
+  the button agree.
 
 
 ## [4.0.4] - 2026-09-18

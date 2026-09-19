@@ -48,6 +48,8 @@ interface ProviderReadiness {
   mailPolicy: string;
   browser: { ready: boolean; missing: string[] };
   deviceCode: { supported: boolean; ready: boolean; reason?: string };
+  /** Only Microsoft reports it: the Graph connector has its own callback. */
+  graph?: { ready: boolean; missing: string[] };
 }
 
 interface IntegrationStatus {
@@ -158,6 +160,20 @@ describe('GET /api/integrations/status (non-admin capability check)', () => {
     expect(body.microsoft.browser.ready).toBe(false);
     expect(body.microsoft.browser.missing).toEqual(['clientSecret', 'redirectUri']);
     expect(body.microsoft.mailPolicy).toBe('required');
+  });
+
+  it('reports the Graph connector readiness separately from the mailbox sign-in', async () => {
+    // The connector authorizes on its own callback, derived from APP_URL, so it can be
+    // ready where the mailbox flow cannot run. Reporting one readiness for both tied the
+    // connector button to a callback it does not use, and hid it.
+    process.env.MS_CLIENT_ID = 'some-client-id';
+    process.env.MS_CLIENT_SECRET = 'some-secret';
+    process.env.APP_URL = 'https://inboxora.example';
+    delete process.env.MS_REDIRECT_URI;
+
+    const body = await integrationStatusBody(await fetch(`${integrationBase()}/api/integrations/status`));
+    expect(body.microsoft.browser.ready).toBe(false);
+    expect(body.microsoft.graph).toEqual({ ready: true, missing: [] });
   });
 
   it('reports Microsoft web readiness only once every web field is present', async () => {

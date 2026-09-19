@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { microsoftConfigFromEnv } from '../services/providerAuthService.js';
 import { query } from '../services/db.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import { encrypt, decrypt, isEncrypted } from '../services/encryption.js';
@@ -99,6 +100,12 @@ export interface ProviderReadiness {
   enabled: boolean;
   browser: { ready: boolean; missing: string[] };
   deviceCode: { supported: boolean; ready: boolean; reason?: string };
+  /**
+   * The Graph connector's own flow, which authorizes on a different callback from the
+   * mailbox sign-in. Reported separately so the card can offer the connector exactly
+   * where it can run, rather than tying it to the mailbox flow's readiness.
+   */
+  graph?: { ready: boolean; missing: string[] };
 }
 
 export interface IntegrationStatus {
@@ -119,10 +126,19 @@ function microsoftReadiness(stored: ProviderConfig): IntegrationStatus['microsof
   // Device authorization needs only a registered client: no redirect URI and no
   // client secret. The saved row's explicit device disable is honoured.
   const deviceReady = !!clientId && stored.deviceEnabled !== false;
+  // The connector authorizes on its own callback, which is derived from APP_URL when
+  // MS_PROVIDER_REDIRECT_URI is unset. Reporting it separately is what lets the card
+  // offer the connector where the mailbox sign-in is not configured, and only there.
+  const config = microsoftConfigFromEnv();
+  const graphMissing: string[] = [];
+  if (!config.clientId) graphMissing.push('clientId');
+  if (!config.clientSecret) graphMissing.push('clientSecret');
+  if (!config.providerRedirectUri) graphMissing.push('providerRedirectUri');
   return {
     configured: !!clientId,
     enabled: !!clientId,
     browser: { ready: missing.length === 0, missing },
+    graph: { ready: graphMissing.length === 0, missing: graphMissing },
     deviceCode: {
       supported: true,
       ready: deviceReady,
