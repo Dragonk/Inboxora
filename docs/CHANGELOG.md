@@ -314,6 +314,12 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   to them; it now names the provider and the button to use under **Settings → Integrations**. It
   appears only in the not-connected case and never replaces the sync control for an account that is
   connected.
+- Report how much each connector is holding on its last-sync line. The line showed only a time, so
+  a connector that had synced but imported nothing looked the same as one holding hundreds of
+  contacts; it now names the total across that provider's books or calendars. The date stays the
+  freshest sync, so the message says "in total" rather than implying the count belongs to that one
+  time — they are different aggregations over the same set.
+
 ## [4.0.4] - 2026-09-18
 
 ### Changed

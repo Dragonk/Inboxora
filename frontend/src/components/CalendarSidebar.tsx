@@ -127,7 +127,9 @@ function googleCalendarSyncSummary(status: GoogleCalendarStatus | null): { key: 
   const times = calendars.map(calendar => calendar.lastSyncedAt).filter((value): value is string => typeof value === 'string');
   if (!times.length) return null;
   const latest = [...times].sort().at(-1) as string;
-  return { key: null, values: { date: new Date(latest).toLocaleString() } };
+  // The date is the freshest sync, the count is the total across the calendars.
+  const count = calendars.reduce((total, calendar) => total + (calendar.eventCount ?? 0), 0);
+  return { key: null, values: { date: new Date(latest).toLocaleString(), count: String(count) } };
 }
 
 export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds, weekStartsOn = 1, locale, onSelectDate, onShiftMonth, onToggleCalendar, onSourcesChanged, onCalendarsChanged, onCreate, canCreate, sourcePanelRequest = 0, t }: CalendarSidebarProps) {

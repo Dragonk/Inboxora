@@ -210,3 +210,17 @@ test('a configured but unconnected provider says so on the contacts page', async
   // The hint must not replace the sync control for a provider that *is* connected.
   assert.match(source, /googleContacts\?\.connected && <Button data-testid="contacts-google-sync"/);
 });
+
+test('the last-sync line reports the total the connector holds', async () => {
+  const contacts = await readFile(contactsPage, 'utf8');
+  const sidebar = await readFile(calendarSidebar, 'utf8');
+  // The count is a total across books/calendars while the date is the freshest sync, so
+  // the message must not imply the count belongs to that one time.
+  assert.match(contacts, /book\.contactCount \?\? 0/);
+  assert.match(sidebar, /calendar\.eventCount \?\? 0/);
+  const strings = JSON.parse(await readFile(new URL('../locales/en.json', import.meta.url), 'utf8'));
+  assert.match(strings.contacts.addressBooks.lastSynced, /\{\{count\}\}/);
+  assert.match(strings.contacts.addressBooks.lastSynced, /in total/);
+  assert.match(strings.calendar.lastSynced, /\{\{count\}\}/);
+  assert.match(strings.calendar.lastSynced, /in total/);
+});

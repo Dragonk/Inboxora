@@ -1148,7 +1148,7 @@
       "microsoftSyncDone": "Контакты Microsoft: добавлено {{created}}, обновлено {{updated}}, удалено {{deleted}}.",
       "microsoftSyncPartial": "Контакты Microsoft: добавлено {{created}}, обновлено {{updated}}, удалено {{deleted}}; не удалось для {{failed}} подключений.",
       "importVCard": "Импорт vCard",
-      "lastSynced": "Последняя синхронизация: {{date}}",
+      "lastSynced": "Последняя синхронизация: {{date}} (всего {{count}})",
       "lastSyncFailed": "Сбой синхронизации: {{code}} ({{when}})",
       "importDone": "Импортировано контактов: {{count}}."
     },
@@ -2018,7 +2018,7 @@
     "googleNotConnected": "Подключите аккаунт Google в «Настройки → Интеграции», чтобы импортировать календари.",
     "importIcs": "Импорт файла .ics",
     "importingIcs": "Импорт…",
-    "lastSynced": "Последняя синхронизация: {{date}}",
+    "lastSynced": "Последняя синхронизация: {{date}} (всего событий: {{count}})",
     "lastSyncFailed": "Сбой синхронизации: {{code}} ({{when}})",
     "importDone": "Импортировано событий: {{count}}."
   },

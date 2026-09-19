@@ -189,7 +189,11 @@ function providerSyncSummary(status: ProviderContactsStatus | null): { key: stri
   const times = books.map(book => book.lastSyncedAt).filter((value): value is string => typeof value === 'string');
   if (!times.length) return null;
   const latest = [...times].sort().at(-1) as string;
-  return { key: null, values: { date: new Date(latest).toLocaleString() } };
+  // The date is the freshest sync, the count is the total across the books: the two
+  // are different aggregations, so the message says "in total" rather than implying the
+  // count belongs to that one time.
+  const count = books.reduce((total, book) => total + (book.contactCount ?? 0), 0);
+  return { key: null, values: { date: new Date(latest).toLocaleString(), count: String(count) } };
 }
 
 /** One connection's outcome from POST /contacts/providers/google/sync. */

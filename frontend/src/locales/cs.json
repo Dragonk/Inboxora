@@ -1148,7 +1148,7 @@
       "microsoftSyncDone": "Kontakty Microsoft: přidáno {{created}}, aktualizováno {{updated}}, odebráno {{deleted}}.",
       "microsoftSyncPartial": "Kontakty Microsoft: přidáno {{created}}, aktualizováno {{updated}}, odebráno {{deleted}}; {{failed}} připojení selhalo.",
       "importVCard": "Importovat vCard",
-      "lastSynced": "Naposledy synchronizováno: {{date}}",
+      "lastSynced": "Naposledy synchronizováno: {{date}} (celkem {{count}})",
       "lastSyncFailed": "Synchronizace selhala: {{code}} ({{when}})",
       "importDone": "Importováno {{count}} kontakt(ů)."
     },
@@ -2018,7 +2018,7 @@
     "googleNotConnected": "Připojte účet Google v Nastavení → Integrace a importujte kalendáře.",
     "importIcs": "Importovat soubor .ics",
     "importingIcs": "Importuji…",
-    "lastSynced": "Naposledy synchronizováno: {{date}}",
+    "lastSynced": "Naposledy synchronizováno: {{date}} (celkem {{count}} událostí)",
     "lastSyncFailed": "Synchronizace selhala: {{code}} ({{when}})",
     "importDone": "Importováno {{count}} událostí."
   },

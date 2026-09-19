@@ -1148,7 +1148,7 @@
       "microsoftSyncDone": "Contactos de Microsoft: {{created}} añadidos, {{updated}} actualizados, {{deleted}} eliminados.",
       "microsoftSyncPartial": "Contactos de Microsoft: {{created}} añadidos, {{updated}} actualizados, {{deleted}} eliminados; {{failed}} conexión(es) fallidas.",
       "importVCard": "Importar vCard",
-      "lastSynced": "Última sincronización: {{date}}",
+      "lastSynced": "Última sincronización: {{date}} ({{count}} en total)",
       "lastSyncFailed": "Error de sincronización: {{code}} ({{when}})",
       "importDone": "{{count}} contacto(s) importado(s)."
     },
@@ -2018,7 +2018,7 @@
     "googleNotConnected": "Conecta una cuenta de Google en Ajustes → Integraciones para importar calendarios.",
     "importIcs": "Importar archivo .ics",
     "importingIcs": "Importando…",
-    "lastSynced": "Última sincronización: {{date}}",
+    "lastSynced": "Última sincronización: {{date}} ({{count}} eventos en total)",
     "lastSyncFailed": "Error de sincronización: {{code}} ({{when}})",
     "importDone": "{{count}} evento(s) importado(s)."
   },

@@ -1148,7 +1148,7 @@
       "microsoftSyncDone": "Microsoft 联系人：新增 {{created}}，更新 {{updated}}，删除 {{deleted}}。",
       "microsoftSyncPartial": "Microsoft 联系人：新增 {{created}}，更新 {{updated}}，删除 {{deleted}}；{{failed}} 个连接失败。",
       "importVCard": "导入 vCard",
-      "lastSynced": "上次同步：{{date}}",
+      "lastSynced": "上次同步：{{date}}（共 {{count}}）",
       "lastSyncFailed": "同步失败：{{code}}（{{when}}）",
       "importDone": "已导入 {{count}} 个联系人。"
     },
@@ -2018,7 +2018,7 @@
     "googleNotConnected": "请在“设置 → 集成”中连接 Google 账户以导入日历。",
     "importIcs": "导入 .ics 文件",
     "importingIcs": "正在导入…",
-    "lastSynced": "上次同步：{{date}}",
+    "lastSynced": "上次同步：{{date}}（共 {{count}} 个日程）",
     "lastSyncFailed": "同步失败：{{code}}（{{when}}）",
     "importDone": "已导入 {{count}} 个日程。"
   },
