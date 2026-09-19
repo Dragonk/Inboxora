@@ -457,6 +457,10 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   interface read it, so the requirement was known to the server and invisible to the person making
   the choice. The Microsoft card now states the requirement, and the Google card states the
   recommendation while leaving the alternative open.
+- Only claim the Google alternative where it exists. The recommendation note said an app password
+  still works, which asserted a capability rather than reading the flag that reports it; it now
+  follows `traditionalImapAvailableInInboxora` and has a shorter wording for the case where that
+  route is not offered.
 
 
 ## [4.0.4] - 2026-09-18

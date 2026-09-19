@@ -408,7 +408,8 @@
         "connectUnavailable": "Un amministratore deve configurare l’API di Google prima di poter connettere un account.",
         "connectedNote": "Account Google connesso.",
         "connectCalendars": "Connetti calendari Google",
-        "mailPolicyRecommended": "Google consiglia di collegarsi con OAuth. Una password per le app funziona ancora se l'amministratore lo consente."
+        "mailPolicyRecommended": "Google consiglia di collegarsi con OAuth. Una password per le app funziona ancora se l'amministratore lo consente.",
+        "mailPolicyRecommendedNoAlternative": "Google consiglia di collegarsi con OAuth."
       },
       "connectedAccounts": "Account connessi",
       "disconnect": "Disconnetti"

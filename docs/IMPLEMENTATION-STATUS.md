@@ -210,6 +210,22 @@ those packages have not started. It does mean "delivered" in the table above sho
 "the code exists and its tests pass", not "the application exercises it" — which is what the
 per-package column now says for P01 and P03.
 
+## Reported flags that are constants
+
+Two readiness fields remain reported and unread, and both are constants rather than probes, so the
+next reader does not mistake them for wired capability:
+
+- `google.traditionalImapAvailableInInboxora` — hardcoded `true` in both readiness builders. The
+  Google card now reads it before claiming an app-password alternative exists, so the statement
+  follows the flag instead of asserting the capability, but the flag itself is not computed from
+  anything.
+- `deviceCode.supported` — `true` for Microsoft, `false` for Google with `reason: 'not_supported'`,
+  also constants. The cards do not need them, because the Google card has no device section and the
+  Microsoft one is gated on `deviceCode.ready`.
+
+If either capability ever becomes configurable, the flag has to be computed before the description
+around it can be trusted.
+
 ## Reachability check on the mobile gesture
 
 A preference-gated feature can pass every test and still be unreachable — off by default, with no

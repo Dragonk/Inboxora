@@ -408,7 +408,8 @@
         "connectUnavailable": "Ein Administrator muss die Google API konfigurieren, bevor ein Konto verbunden werden kann.",
         "connectedNote": "Google-Konto verbunden.",
         "connectCalendars": "Google-Kalender verbinden",
-        "mailPolicyRecommended": "Google empfiehlt die Verbindung über OAuth. Ein App-Passwort funktioniert weiterhin, wenn der Administrator es zulässt."
+        "mailPolicyRecommended": "Google empfiehlt die Verbindung über OAuth. Ein App-Passwort funktioniert weiterhin, wenn der Administrator es zulässt.",
+        "mailPolicyRecommendedNoAlternative": "Google empfiehlt die Verbindung über OAuth."
       },
       "connectedAccounts": "Verbundene Konten",
       "disconnect": "Trennen"

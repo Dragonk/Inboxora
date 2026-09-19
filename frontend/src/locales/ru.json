@@ -408,7 +408,8 @@
         "connectUnavailable": "Администратор должен настроить Google API, прежде чем можно будет подключить аккаунт.",
         "connectedNote": "Аккаунт Google подключён.",
         "connectCalendars": "Подключить календари Google",
-        "mailPolicyRecommended": "Google рекомендует подключаться через OAuth. Пароль приложения по-прежнему работает, если администратор это разрешает."
+        "mailPolicyRecommended": "Google рекомендует подключаться через OAuth. Пароль приложения по-прежнему работает, если администратор это разрешает.",
+        "mailPolicyRecommendedNoAlternative": "Google рекомендует подключаться через OAuth."
       },
       "connectedAccounts": "Подключённые аккаунты",
       "disconnect": "Отключить"

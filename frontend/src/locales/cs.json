@@ -839,7 +839,8 @@
         "connectUnavailable": "Správce musí nejprve nakonfigurovat Google API, než lze účet připojit.",
         "connectedNote": "Účet Google připojen.",
         "connectCalendars": "Připojit kalendáře Google",
-        "mailPolicyRecommended": "Google doporučuje připojení přes OAuth. Heslo aplikace stále funguje, pokud to administrátor povolí."
+        "mailPolicyRecommended": "Google doporučuje připojení přes OAuth. Heslo aplikace stále funguje, pokud to administrátor povolí.",
+        "mailPolicyRecommendedNoAlternative": "Google doporučuje připojení přes OAuth."
       },
       "connectedAccounts": "Připojené účty",
       "disconnect": "Odpojit"

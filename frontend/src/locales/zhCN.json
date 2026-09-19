@@ -408,7 +408,8 @@
         "connectUnavailable": "管理员必须先配置 Google API，才能连接账户。",
         "connectedNote": "Google 账户已连接。",
         "connectCalendars": "连接 Google 日历",
-        "mailPolicyRecommended": "Google 建议使用 OAuth 连接。若管理员允许，应用专用密码仍然可用。"
+        "mailPolicyRecommended": "Google 建议使用 OAuth 连接。若管理员允许，应用专用密码仍然可用。",
+        "mailPolicyRecommendedNoAlternative": "Google 建议使用 OAuth 连接。"
       },
       "connectedAccounts": "已连接的账户",
       "disconnect": "断开连接"

@@ -321,6 +321,10 @@ test('the provider mail policy is stated where the choice is made', async () => 
   assert.match(source, /data-testid="google-mail-policy"/);
   assert.match(source, /admin\.integrations\.microsoft\.mailPolicyRequired/);
   assert.match(source, /admin\.integrations\.google\.mailPolicyRecommended/);
+  // And the alternative is only claimed where the server says the traditional route exists,
+  // with a wording for the case where it does not.
+  assert.match(source, /googleStatus\?\.traditionalImapAvailableInInboxora/);
+  assert.match(source, /admin\.integrations\.google\.mailPolicyRecommendedNoAlternative/);
   // Recommended must not read as required: the Google wording has to leave the alternative open.
   const locales = await readFile(new URL('../locales/en.json', import.meta.url), 'utf8');
   assert.match(locales, /recommends connecting with OAuth/);

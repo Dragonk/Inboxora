@@ -2654,7 +2654,7 @@ function IntegrationsTab() {
   // mail never depends on this configuration.
   const [googleForm, setGoogleForm] = useState({ clientId: '', clientSecret: '', redirectUri: '' });
   const [googleExpanded, setGoogleExpanded] = useState(false);
-  const [googleStatus, setGoogleStatus] = useState<{ configured?: boolean; browser?: { ready?: boolean; missing?: string[] }; connections?: Array<{ id: string; providerUserId?: string | null }>; mailPolicy?: string; [key: string]: unknown } | null>(null);
+  const [googleStatus, setGoogleStatus] = useState<{ configured?: boolean; browser?: { ready?: boolean; missing?: string[] }; connections?: Array<{ id: string; providerUserId?: string | null }>; mailPolicy?: string; traditionalImapAvailableInInboxora?: boolean; [key: string]: unknown } | null>(null);
   const [googleSaving, setGoogleSaving] = useState(false);
   const [googleSaveMsg, setGoogleSaveMsg] = useState('');
   const [connectingGoogle, setConnectingGoogle] = useState(false);
@@ -3533,7 +3533,9 @@ function IntegrationsTab() {
                             data-testid="google-mail-policy"
                             style={{ marginTop: 10, fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5 }}
                           >
-                            {t('admin.integrations.google.mailPolicyRecommended')}
+                            {googleStatus?.traditionalImapAvailableInInboxora
+                              ? t('admin.integrations.google.mailPolicyRecommended')
+                              : t('admin.integrations.google.mailPolicyRecommendedNoAlternative')}
                           </div>
                         )}
                         {(googleStatus?.connections?.length ?? 0) > 0 && (
