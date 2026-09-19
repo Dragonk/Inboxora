@@ -233,11 +233,17 @@ fix has to extend *that* one, or answer from the router itself.
    explanation the second attempt produced: the hang is **not** caused by answering while the client is
    still writing.
 
-The hypothesis the next attempt must test *before* writing any of the fix, because three variants have
-now failed on the same symptom: **does a 1.1 MB `PUT` to a valid DAV collection complete at all in this
-harness?** If it does not, the fixture — not the cap — is what is hanging, and the cap may already be
-correct. Reproduce that in isolation first, with no cap in the code and a body just over and just under
-the proposed limit, and only then decide the response strategy.
+The reproduction has since been run, and it **falsified that hypothesis**: with no cap in the code, a
+1 KB `PUT` returns `204` and a 1.1 MB one returns **`400`** — promptly. The request is read to the end
+without trouble, so the fixture is not what hangs and the cap is not "already correct".
+
+What that leaves is narrower and more useful: the hang is in the **rejection path**, not in reading.
+The next attempt should isolate *that* — a route handler that rejects with the `entity.too.large`
+marker, in the same harness, with no `rawBody` involved — and find out whether the rejection reaches
+the error handler at all, because a rejected promise that produces **no response whatsoever** is a
+different failure from a wrong status code. Suspicion worth checking first: whether the harness and the
+application differ in how an async handler's rejection is forwarded, since the harness mounts routers
+without the application's `express-async-errors` import.
 
 All three attempts left the tree green after revert; no part of any is in it. Three variants of the same
 fix failing on the same symptom is the signal to stop guessing and build the reproduction.
