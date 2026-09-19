@@ -11,7 +11,134 @@ limitations — read the matching page in the Wiki: [Release notes 4.1.0](wiki/R
 [Release notes 4.0.2](wiki/Release-notes-4.0.2.md),
 [Release notes 4.0.1](wiki/Release-notes-4.0.1.md) and [Release notes 4.0.0](wiki/Release-notes-4.0.0.md).
 
+## How entries are kept
+
+Work in progress accumulates under **`[Unreleased]`**, one heading per category in Keep a Changelog
+order (**Added → Changed → Deprecated → Removed → Fixed → Security**), and a change is recorded in the
+same commit that makes it — not gathered afterwards from the commit log, which reliably loses the
+"why" and keeps only the "what".
+
+When a version is sanctioned, that section becomes `## [x.y.z] - <date>`, a matching
+`wiki/Release-notes-<x.y.z>.md` is written for it, and `[Unreleased]` starts empty again. The release
+notes are the narrative: user and operator impact, migration and configuration requirements, the
+**known safe limitations**, and what was verified (including anything left **NOT RUN**). A version is
+never inferred from the size of the section — it is chosen, and the notes then describe what the
+version actually contains.
+
 ## [Unreleased]
+
+### Added
+
+- **Microsoft Graph message delete (P07b, fifth slice).** Deleting a Graph message follows the same
+  product decision the IMAP path already makes — a **draft** and a message **already in Trash** are
+  removed for good, anything else is **moved to Trash** — carried out through the shared
+  provider-mutation layer. A Graph move **re-identifies the message**, so the local row adopts the new
+  provider id and compatibility number rather than being left on a dead one. The provider call runs
+  before the local row changes, as it does for IMAP: a row that claims a message is in Trash when the
+  provider never moved it is worse than a slower delete. A refused or unconfirmed delete leaves the
+  row untouched and answers `409`/`502` rather than reporting success. Move and delete are declared
+  **non-idempotent** on purpose — a second attempt addresses an id that no longer exists and answers
+  `404`, which cannot be told apart from "gone for another reason" — so a recovered claim is parked as
+  `outcome_unknown` instead of being re-run automatically.
+
+- **Microsoft Graph message body and attachments (P07b, fourth slice).** Opening a Graph message now
+  reads its body from Microsoft — fetched on demand, sanitised with the same HTML sanitiser the IMAP
+  path uses, and cached in the same `body_html`/`body_text`/`attachments` columns, so the reading
+  interface needs no branch and later views are served from the cache. **Attachments** are listed with
+  their provider metadata and download by their Graph attachment id, under the same 50 MB ceiling the
+  IMAP path enforces; a download is refused before the bytes are decoded. **Inline images are
+  embedded** as data URIs from their `contentId`, bounded in count and size, which is what keeps the
+  cached HTML out of the "unresolved `cid:`" rule that would otherwise re-fetch the body on every view.
+  A single unreadable inline image is skipped rather than failing the whole message. The message body
+  cache, the remote-image blocking preference and the calendar-invitation marker all behave as they do
+  for IMAP.
+
+- **Microsoft Graph message flags, and the pending-mutation drain (P07b, third slice).** Marking a
+  Graph message read/unread or starred now writes to Microsoft through the **shared provider-mutation
+  layer** — the same `confirmed`/`retryable`/`outcome_unknown` semantics, claim fencing and journal as
+  the IMAP flag write — instead of a Graph-only pipeline. A permanent provider refusal (a deleted
+  message, a lost scope) **undoes the optimistic local change and answers `409`** rather than leaving
+  a state the mailbox does not have; a `retryable` outcome is scheduled in the journal and drained by
+  the next message sync, which settles pending flags *before* reading the delta so the sync cannot
+  overwrite a change still in flight. This is the drainer the `pending` pool was missing. The IMAP
+  path is unchanged.
+
+- **Migration `0109_provider_operation_payload.sql`** adds `provider_operations.payload`, the adapter
+  parameters a scheduled retry is re-run with. Without it a `pending` row was unreadable, which is why
+  nothing drained the pool. It must be applied **in order, after `0108`, and before the application is
+  rolled out**; the column is nullable and no existing row is rewritten.
+
+- **Microsoft Graph mail message sync (P07b, second slice).** A Graph account's message **metadata** —
+  subject, correspondents, To/Cc/Reply-To, received date, snippet, read/flagged state, attachment
+  flag, and the Graph `conversationId` as the thread — is now ingested into the local `messages`
+  table, one delta cursor per folder, refreshed on the provider schedule and by "Sync now". Identity
+  is the provider's **immutable message id** (`messages.provider_message_id`), never the RFC
+  `Message-ID` and never a hash of it; a `410` from Graph rebuilds the folder from a baseline **and
+  reconciles**, so a message deleted while the cursor was unusable does not stay behind for ever. A
+  flag the user just changed is not reverted by a sync that read the server earlier (the same 30 s
+  local-wins window the IMAP path uses). **Body, attachments and message mutations are not in this
+  slice**, and Graph is still not a mail transport: the account continues to read mail over IMAP/SMTP.
+
+- **Migration `0108_message_provider_identity.sql`** adds `messages.provider_message_id` with a
+  partial unique index on `(account_id, provider_message_id)` and an index on
+  `(account_id, folder)`. It must be applied **in order, after `0107`, and before the application is
+  rolled out**; every pre-v4 IMAP row has a NULL provider id and is untouched.
+
+- **Microsoft Graph mail folder discovery (P07b, first slice).** A Microsoft account whose
+  `mail_transport` is `microsoft_graph` can now have its mailbox folder tree imported: Outlook's
+  well-known folders map onto Inboxora's canonical paths (`INBOX`, `Sent`, `Drafts`, `Trash`, `Spam`,
+  `Archive`) with their IMAP-style `special_use`, ordinary folders derive a nested path, and each
+  folder is linked to its **immutable Graph folder id** in `integration_collections.remote_id`. A
+  folder renamed at the provider is recognised as the same folder: its local path follows and its
+  messages are moved with it instead of being orphaned. The folder list is refreshed on the existing
+  provider schedule, and "Sync folders" on a Graph account triggers the first discovery.
+  This is **folder discovery only** — messages are not imported yet and Graph is not yet a mail
+  transport, so the account still reads its mail over IMAP/SMTP.
+
+- **Migration `0107_mail_folder_collection_link.sql`** adds `integration_collections.local_folder_id`
+  (nullable, `REFERENCES folders(id) ON DELETE SET NULL`) and a partial index on it. It must be
+  applied **in order, after `0106`, and before the application is rolled out**; a collection whose
+  value is NULL behaves exactly as before.
+
+- A test for **stored credential encryption**, which was exercised only through mocks: it round-trips with the same key,
+  produces ciphertext that does not contain the plaintext, and — the property a backup depends on — is **unreadable with a
+  different key** rather than returning the plaintext or silent garbage. It also pins two contracts that were implicit:
+  encrypting without a valid `ENCRYPTION_KEY` throws rather than storing plaintext, and `decrypt` throws on a non-string
+  instead of returning null.
+
+
+- A provider configuration can be **tested**, not only reported ready. `POST /api/integrations/:provider/test`
+  checks the stored client id and secret against the provider using a deliberately unusable grant: the provider
+  answers `invalid_client` when the credentials are wrong and `invalid_grant` when it accepts them, which is the
+  whole test and costs the provider nothing. The secret is decrypted for the call and is never part of the answer,
+  and no user data or grant is involved. Readiness reports that the fields are present; this reports whether they
+  work, which is the difference an administrator with a mistyped secret notices at the provider instead of on the
+  card. Each provider card carries a **Test configuration** button for it, which reports which of the two it
+  is — accepted, rejected, no client id saved, or the provider unreachable — in place.
+
+
+- A **message-size ceiling on the send path**, counted on the composed message. The interface's estimate was the
+  only check there was, so an oversized message travelled to the SMTP server and failed there with whatever that
+  server said. The server now counts the message as actually compiled — headers, base64 growth, separators and CRLF
+  included — **before** anything is claimed or dispatched, and answers `413 MESSAGE_TOO_LARGE` with the real byte
+  count and the limit. `MAIL_MAX_MESSAGE_BYTES` raises the limit from its 25 MiB default; passing this check means
+  this installation accepted the message, **not** that the provider will.
+- An oversized **attachment** is named rather than only totalled: the message says which file is above the limit and
+  by how much, measured from the decoded contents rather than a declared size. The policy is unchanged — the total
+  would have refused the same message — but the administrator learns what to remove.
+- A message refused for its **composed size** now reports how much of it is attachments, measured as the raw bytes of
+  the decoded files. The third figure the plan asks for — the transport encoding — has no meaning while the only
+  transport is SMTP, so it is not reported rather than reported as a zero.
+
+
+
+- Refusals on the forwarded-attachment path now carry **domain codes** rather than only sentences:
+  `ATTACHMENT_FETCH_FAILED` when a part cannot be read from the source mailbox — §22.1's rule, which is also §12.9's
+  sentence: a retry of the read is possible, and the message is not sent without the file — and `RESOURCE_NOT_FOUND`
+  for a referenced message, part or account that is not there. The behaviour is unchanged; what is new is that an
+  interface has something to branch on instead of matching English text. The composer now does branch on them and
+  renders **translated** sentences with the server's figures — the file name, the actual size and the limit, in units a
+  person reads — in all nine languages, rather than showing the server's English.
 
 ### Changed
 
@@ -24,18 +151,6 @@ limitations — read the matching page in the Wiki: [Release notes 4.1.0](wiki/R
   buffer carries no `Bcc:` header — the previous slice strips it — which is what makes it safe to send
   verbatim, since a raw message is sent as given.
 
-### Security
-
-- **The composed message no longer carries a `Bcc:` header.** The send route composes the message for
-  size accounting with nodemailer's stream transport, and **that composition keeps a `Bcc:` header** while
-  the delivery transport omits it — measured, and the obvious switch does not help: `keepBcc: false` on the
-  stream transport still emits it, with the same byte count. Harmless while the buffer is only measured,
-  and a disclosure the moment a buffer is handed to a transport as `raw`, since a raw message is sent as
-  given. It is now stripped once, where the accounting and any future shared artefact read it, so blind
-  recipients live in the envelope only. The accounting consequently counts what would actually be sent
-  rather than the header that would be dropped.
-
-### Changed
 
 - **A send now states its envelope instead of leaving it to be derived.** The three recipient options
   stayed the input and nodemailer derived `RCPT TO` from them, which is fine while it composes the
@@ -46,17 +161,6 @@ limitations — read the matching page in the Wiki: [Release notes 4.1.0](wiki/R
   the same envelope either way. The BCC case now asserts the delivered envelope, not just the option.
 
 
-### Security
-
-- **A blind recipient is asserted never to reach a visible field.** The suite's BCC case only checked that
-  `bcc` was passed to the transport, which stays true even if the recipient is later dropped from the
-  envelope — so a change that composed the message once and sent it as `raw` could lose every BCC
-  recipient while the test stayed green. The new case sends to a visible recipient, a copy recipient and a
-  blind one, and asserts the blind address is carried in `bcc` and appears in **neither** `to` nor `cc`
-  nor a headers bag. It is written against what the route controls today so that it still holds once the
-  envelope becomes explicit and the assertion can be extended to it.
-
-### Changed
 
 - **A send is now bound to a transport in one place** (`services/sendTransport.ts`), which is the seam the
   shared send layer needs. The route reached `createAccountSmtpTransport` directly, making "how mail
@@ -306,118 +410,25 @@ limitations — read the matching page in the Wiki: [Release notes 4.1.0](wiki/R
   which is the reason the other two guards gained codes in the first place — and this one is the last
   line of defence, so it is the one most likely to be reached. It now answers like the others.
 
-### Added
+### Security
 
-- **Microsoft Graph message delete (P07b, fifth slice).** Deleting a Graph message follows the same
-  product decision the IMAP path already makes — a **draft** and a message **already in Trash** are
-  removed for good, anything else is **moved to Trash** — carried out through the shared
-  provider-mutation layer. A Graph move **re-identifies the message**, so the local row adopts the new
-  provider id and compatibility number rather than being left on a dead one. The provider call runs
-  before the local row changes, as it does for IMAP: a row that claims a message is in Trash when the
-  provider never moved it is worse than a slower delete. A refused or unconfirmed delete leaves the
-  row untouched and answers `409`/`502` rather than reporting success. Move and delete are declared
-  **non-idempotent** on purpose — a second attempt addresses an id that no longer exists and answers
-  `404`, which cannot be told apart from "gone for another reason" — so a recovered claim is parked as
-  `outcome_unknown` instead of being re-run automatically.
-
-- **Microsoft Graph message body and attachments (P07b, fourth slice).** Opening a Graph message now
-  reads its body from Microsoft — fetched on demand, sanitised with the same HTML sanitiser the IMAP
-  path uses, and cached in the same `body_html`/`body_text`/`attachments` columns, so the reading
-  interface needs no branch and later views are served from the cache. **Attachments** are listed with
-  their provider metadata and download by their Graph attachment id, under the same 50 MB ceiling the
-  IMAP path enforces; a download is refused before the bytes are decoded. **Inline images are
-  embedded** as data URIs from their `contentId`, bounded in count and size, which is what keeps the
-  cached HTML out of the "unresolved `cid:`" rule that would otherwise re-fetch the body on every view.
-  A single unreadable inline image is skipped rather than failing the whole message. The message body
-  cache, the remote-image blocking preference and the calendar-invitation marker all behave as they do
-  for IMAP.
-
-- **Microsoft Graph message flags, and the pending-mutation drain (P07b, third slice).** Marking a
-  Graph message read/unread or starred now writes to Microsoft through the **shared provider-mutation
-  layer** — the same `confirmed`/`retryable`/`outcome_unknown` semantics, claim fencing and journal as
-  the IMAP flag write — instead of a Graph-only pipeline. A permanent provider refusal (a deleted
-  message, a lost scope) **undoes the optimistic local change and answers `409`** rather than leaving
-  a state the mailbox does not have; a `retryable` outcome is scheduled in the journal and drained by
-  the next message sync, which settles pending flags *before* reading the delta so the sync cannot
-  overwrite a change still in flight. This is the drainer the `pending` pool was missing. The IMAP
-  path is unchanged.
-
-- **Migration `0109_provider_operation_payload.sql`** adds `provider_operations.payload`, the adapter
-  parameters a scheduled retry is re-run with. Without it a `pending` row was unreadable, which is why
-  nothing drained the pool. It must be applied **in order, after `0108`, and before the application is
-  rolled out**; the column is nullable and no existing row is rewritten.
-
-- **Microsoft Graph mail message sync (P07b, second slice).** A Graph account's message **metadata** —
-  subject, correspondents, To/Cc/Reply-To, received date, snippet, read/flagged state, attachment
-  flag, and the Graph `conversationId` as the thread — is now ingested into the local `messages`
-  table, one delta cursor per folder, refreshed on the provider schedule and by "Sync now". Identity
-  is the provider's **immutable message id** (`messages.provider_message_id`), never the RFC
-  `Message-ID` and never a hash of it; a `410` from Graph rebuilds the folder from a baseline **and
-  reconciles**, so a message deleted while the cursor was unusable does not stay behind for ever. A
-  flag the user just changed is not reverted by a sync that read the server earlier (the same 30 s
-  local-wins window the IMAP path uses). **Body, attachments and message mutations are not in this
-  slice**, and Graph is still not a mail transport: the account continues to read mail over IMAP/SMTP.
-
-- **Migration `0108_message_provider_identity.sql`** adds `messages.provider_message_id` with a
-  partial unique index on `(account_id, provider_message_id)` and an index on
-  `(account_id, folder)`. It must be applied **in order, after `0107`, and before the application is
-  rolled out**; every pre-v4 IMAP row has a NULL provider id and is untouched.
-
-- **Microsoft Graph mail folder discovery (P07b, first slice).** A Microsoft account whose
-  `mail_transport` is `microsoft_graph` can now have its mailbox folder tree imported: Outlook's
-  well-known folders map onto Inboxora's canonical paths (`INBOX`, `Sent`, `Drafts`, `Trash`, `Spam`,
-  `Archive`) with their IMAP-style `special_use`, ordinary folders derive a nested path, and each
-  folder is linked to its **immutable Graph folder id** in `integration_collections.remote_id`. A
-  folder renamed at the provider is recognised as the same folder: its local path follows and its
-  messages are moved with it instead of being orphaned. The folder list is refreshed on the existing
-  provider schedule, and "Sync folders" on a Graph account triggers the first discovery.
-  This is **folder discovery only** — messages are not imported yet and Graph is not yet a mail
-  transport, so the account still reads its mail over IMAP/SMTP.
-
-- **Migration `0107_mail_folder_collection_link.sql`** adds `integration_collections.local_folder_id`
-  (nullable, `REFERENCES folders(id) ON DELETE SET NULL`) and a partial index on it. It must be
-  applied **in order, after `0106`, and before the application is rolled out**; a collection whose
-  value is NULL behaves exactly as before.
-
-- A test for **stored credential encryption**, which was exercised only through mocks: it round-trips with the same key,
-  produces ciphertext that does not contain the plaintext, and — the property a backup depends on — is **unreadable with a
-  different key** rather than returning the plaintext or silent garbage. It also pins two contracts that were implicit:
-  encrypting without a valid `ENCRYPTION_KEY` throws rather than storing plaintext, and `decrypt` throws on a non-string
-  instead of returning null.
+- **The composed message no longer carries a `Bcc:` header.** The send route composes the message for
+  size accounting with nodemailer's stream transport, and **that composition keeps a `Bcc:` header** while
+  the delivery transport omits it — measured, and the obvious switch does not help: `keepBcc: false` on the
+  stream transport still emits it, with the same byte count. Harmless while the buffer is only measured,
+  and a disclosure the moment a buffer is handed to a transport as `raw`, since a raw message is sent as
+  given. It is now stripped once, where the accounting and any future shared artefact read it, so blind
+  recipients live in the envelope only. The accounting consequently counts what would actually be sent
+  rather than the header that would be dropped.
 
 
-- A provider configuration can be **tested**, not only reported ready. `POST /api/integrations/:provider/test`
-  checks the stored client id and secret against the provider using a deliberately unusable grant: the provider
-  answers `invalid_client` when the credentials are wrong and `invalid_grant` when it accepts them, which is the
-  whole test and costs the provider nothing. The secret is decrypted for the call and is never part of the answer,
-  and no user data or grant is involved. Readiness reports that the fields are present; this reports whether they
-  work, which is the difference an administrator with a mistyped secret notices at the provider instead of on the
-  card. Each provider card carries a **Test configuration** button for it, which reports which of the two it
-  is — accepted, rejected, no client id saved, or the provider unreachable — in place.
-
-
-- A **message-size ceiling on the send path**, counted on the composed message. The interface's estimate was the
-  only check there was, so an oversized message travelled to the SMTP server and failed there with whatever that
-  server said. The server now counts the message as actually compiled — headers, base64 growth, separators and CRLF
-  included — **before** anything is claimed or dispatched, and answers `413 MESSAGE_TOO_LARGE` with the real byte
-  count and the limit. `MAIL_MAX_MESSAGE_BYTES` raises the limit from its 25 MiB default; passing this check means
-  this installation accepted the message, **not** that the provider will.
-- An oversized **attachment** is named rather than only totalled: the message says which file is above the limit and
-  by how much, measured from the decoded contents rather than a declared size. The policy is unchanged — the total
-  would have refused the same message — but the administrator learns what to remove.
-- A message refused for its **composed size** now reports how much of it is attachments, measured as the raw bytes of
-  the decoded files. The third figure the plan asks for — the transport encoding — has no meaning while the only
-  transport is SMTP, so it is not reported rather than reported as a zero.
-
-
-
-- Refusals on the forwarded-attachment path now carry **domain codes** rather than only sentences:
-  `ATTACHMENT_FETCH_FAILED` when a part cannot be read from the source mailbox — §22.1's rule, which is also §12.9's
-  sentence: a retry of the read is possible, and the message is not sent without the file — and `RESOURCE_NOT_FOUND`
-  for a referenced message, part or account that is not there. The behaviour is unchanged; what is new is that an
-  interface has something to branch on instead of matching English text. The composer now does branch on them and
-  renders **translated** sentences with the server's figures — the file name, the actual size and the limit, in units a
-  person reads — in all nine languages, rather than showing the server's English.
+- **A blind recipient is asserted never to reach a visible field.** The suite's BCC case only checked that
+  `bcc` was passed to the transport, which stays true even if the recipient is later dropped from the
+  envelope — so a change that composed the message once and sent it as `raw` could lose every BCC
+  recipient while the test stayed green. The new case sends to a visible recipient, a copy recipient and a
+  blind one, and asserts the blind address is carried in `bcc` and appears in **neither** `to` nor `cc`
+  nor a headers bag. It is written against what the route controls today so that it still holds once the
+  envelope becomes explicit and the assertion can be extended to it.
 
 ## [4.1.0] - 2026-09-19
 

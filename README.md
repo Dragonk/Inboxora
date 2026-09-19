@@ -7,7 +7,7 @@
 <p align="center">
   <a href="https://github.com/Dragonk/Inboxora/actions/workflows/ci.yml"><img src="https://github.com/Dragonk/Inboxora/actions/workflows/ci.yml/badge.svg?branch=dev" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue" alt="License: AGPL-3.0"></a>
-  <img src="https://img.shields.io/badge/version-4.0.4-informational" alt="Version 4.0.4">
+  <img src="https://img.shields.io/badge/version-4.1.0-informational" alt="Version 4.1.0">
 </p>
 
 Inboxora brings mail, contacts and calendars into one self-hosted application. It speaks
@@ -17,11 +17,15 @@ your existing devices keep working.
 This release is a large step beyond the upstream MailFlow fork it started from: Inboxora
 adds a real conversation engine for email threading, a full calendar with invitations,
 first-party contacts with CardDAV/CalDAV access, and a rebuilt interface. See
-[What's new in 4.0](#whats-new-in-40) for the full picture. Version 4.0.4 is the current
-release: a desktop-app release that adds the integrated title bar, Back / Forward over Inboxora's
-own views, in-app control of the native notifications, and the Windows default email app. The
-server, database, API and configuration are unchanged from 4.0.3. See the
-[4.0.4 release notes](docs/wiki/Release-notes-4.0.4.md).
+[What's new in 4.1](#whats-new-in-41) for the current release and
+[What's new in 4.0](#whats-new-in-40) for the rest. **Version 4.1.0 is the current release**:
+it adds the native provider integration layer, so Google and Microsoft accounts can be
+connected and their **contacts and calendars pulled directly** instead of through a feed URL
+or a CSV export, plus recurring events and a hardened DAV server. Provider data is pulled
+**read-only**. Microsoft mail still travels over OAuth2 IMAP/SMTP — the Graph mail transport is
+**not** part of 4.1.0. See the
+[4.1.0 release notes](docs/wiki/Release-notes-4.1.0.md) for the migration steps and the known
+limitations.
 
 <p align="center">
   <img src="media/screenshots/mail-inbox-desktop.png" width="820" alt="Inboxora: the unified inbox with an expanded conversation and an open message">
@@ -95,9 +99,36 @@ The same mailbox on a phone (390×844):
 | --- | --- |
 | ![DAV access settings](media/screenshots/settings-dav-access-desktop.png) | <img src="media/screenshots/settings-dav-access-mobile.png" width="260" alt="DAV access settings on a phone"> |
 
+## What's new in 4.1
+
+**4.1.0 is the current release.** It adds the **native provider integration layer**: an
+administrator configures Google and/or Microsoft once under **Settings → Integrations → Email
+providers**, each user then authorizes their own account, and Inboxora pulls that account's
+**contacts and calendars** directly. The two providers are deliberately not treated the same way:
+
+- **Google is optional.** Mail keeps working over IMAP/SMTP with an **app password**, exactly as
+  before. Adding a Google OAuth client adds the contacts and calendars pull; it does not migrate
+  mail and does not ask for Gmail permissions.
+- **Microsoft needs a connection for mail.** Outlook.com and Microsoft 365 no longer accept a
+  mailbox password, so those accounts need an authorized connection — either the browser flow or
+  the **device code**, which needs no client secret and no redirect URI. Microsoft mail still
+  travels over OAuth2 IMAP/SMTP in this release.
+
+Imported provider data is **read-only in Inboxora**: comparing, filtering and DAV access work,
+while editing an imported collection is refused with a reason instead of being silently undone at
+the next refresh. The release also adds **recurring events** with invitation support and hardens
+the built-in CalDAV/CardDAV discovery and capability surface.
+
+Apply migrations **`0101`–`0106` in order before rolling out** a build that reads the new columns;
+they are additive and no existing row is rewritten. `PROVIDER_INTEGRATIONS_ENABLED=0` disables the
+whole provider layer, and with no provider configured mail, contacts, calendars and DAV behave as
+in 4.0.4. The **Graph mail transport and the Gmail API mail transport are not part of 4.1.0**. See
+the [4.1.0 release notes](docs/wiki/Release-notes-4.1.0.md) for the full list and the known safe
+limitations.
+
 ## What's new in 4.0
 
-**4.0.4 is the current release.** It is a desktop-app release: the web/PWA and Android builds
+**4.0.4 was the last 4.0 release.** It is a desktop-app release: the web/PWA and Android builds
 behave exactly as in 4.0.3, and there is no migration, configuration or API change to apply — pin
 the published 4.0.4 image tag (or install the 4.0.4 desktop build) as usual. See the
 [4.0.4 release notes](docs/wiki/Release-notes-4.0.4.md) for the desktop details and the known
