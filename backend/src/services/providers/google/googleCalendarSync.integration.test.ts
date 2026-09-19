@@ -109,7 +109,13 @@ function project(raw: string, from: string, to: string): string[] {
   ).map(event => event.starts_at?.toISOString() ?? 'missing').sort();
 }
 
-describeOrSkip('Google Calendar sync (PostgreSQL)', () => {
+// These cases do real database work while the whole gated set shares one PostgreSQL instance, so a
+// 5-second default is a deadline on the machine rather than on the behaviour: the rebuild case was
+// observed timing out at 5.8s under that load while passing alone. The timeout is raised (the
+// assertions still have to pass) rather than the test being weakened or skipped.
+const PG_TEST_TIMEOUT_MS = 30_000;
+
+describeOrSkip('Google Calendar sync (PostgreSQL)', { timeout: PG_TEST_TIMEOUT_MS }, () => {
   beforeAll(async () => {
     process.env.ENCRYPTION_KEY = crypto.randomBytes(32).toString('hex');
     await autocommit(client => client.query(
