@@ -69,10 +69,11 @@ and reconnecting re-links the same collections rather than duplicating them.
   because recommending a destination that does not exist is a dead end.
   `POST /api/integrations/notices/:accountId/suppress` records a per-user, per-account suppression in
   `account_notice_preferences` (no schema change). *Ignore* remains a dismissal the interface forgets; the
-  suppression is the one that survives a reload and a second device. The **Microsoft requirement notice
-  cannot be suppressed** — the table's closed notice-type check has no value for it, which is what keeps a
-  requirement from becoming optional. **No interface surface reads these endpoints yet**, so the notice is
-  reachable through the API only.
+  suppression is the one that survives a reload and a second device. The **accounts settings show the
+  recommendation for each affected mailbox**, with *Ignore* and *do not show again* side by side so the
+  difference between them is visible. The **Microsoft requirement notice cannot be suppressed** — the
+  table's closed notice-type check has no value for it, which is what keeps a requirement from becoming
+  optional.
 
 
 - Provider contracts and a registry, with additive schema (`0101`–`0106`): connections, grants,
@@ -173,6 +174,19 @@ and reconnecting re-links the same collections rather than duplicating them.
   acceptance, which is NOT RUN.
 
 ## Fixed
+- **Inbox-rule forwards from a native Microsoft Graph account.** A rule that forwards mail could not work
+  for an account on `mail_transport = 'microsoft_graph'`: the forwarder read the source message over IMAP
+  (a connection the mailbox does not have) and delivered through the SMTP factory, which refuses a native
+  Graph account by design. Reading and sending now follow the account's own transport — the body through
+  the same Graph reader the message-body route uses, files through the shared attachment dispatcher under
+  the per-file ceiling, and delivery through the send seam. IMAP/SMTP accounts forward exactly as before.
+  **Delivery state:** `sent` is recorded only when the provider accepts; a refusal read before acceptance
+  releases the reservation so a deliberate retry can send; an interrupted or unknown provider response
+  leaves it **pending**, so a later rule run reconciles rather than sending a second copy, and the forward
+  is never reported as sent. A source account with no body reader yet (native Gmail) is refused with a
+  named error instead of being read over IMAP, and a legacy Microsoft row with no provider identity still
+  forwards from its cached body but refuses a forward that would need an uncached Graph read. No migration.
+
 - **A Google collection could never actually be opted in for write-back.** The Calendar and People syncs
   recorded `source_access = 'read_only'` unconditionally, so the per-collection write-back switch refused
   every Google collection with `SOURCE_READ_ONLY` and the new Google write paths were unreachable outside
@@ -258,9 +272,9 @@ and reconnecting re-links the same collections rather than duplicating them.
   provider marks read-only, or a source whose write path does not exist yet). A legacy CalDAV/CardDAV
   collection imported before this release has no write-back record yet, so it stays read-only over DAV
   until one is created for it — the import paths create one for new imports.
-- **The Google migration recommendation has no interface surface yet.** The endpoints exist
-  (`GET /api/integrations/notices`, `POST .../suppress`), and the wording and the *Ignore* control belong
-  to the interface, which has not been built, so nothing shows the notice in this release.
+- **The Google migration recommendation is shown in the accounts settings**, per affected mailbox, with
+  *Ignore* (this session) and *do not show again* (durable, server-side). A mailbox the server does not
+  report an active notice for is never guessed at by the interface.
 
 ### Provider-side search for native Microsoft Graph accounts (P07b)
 

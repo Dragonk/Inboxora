@@ -46,10 +46,11 @@ release is never claimed before it has happened.
   that are still on IMAP/SMTP — and only when the provider layer is enabled, the Google method is on and
   an OAuth client is configured, because recommending a destination that does not exist is a dead end.
   `POST /api/integrations/notices/:accountId/suppress` records a per-user, per-account suppression in
-  `account_notice_preferences` (the table `0101` already declares, so no migration). "Ignore" stays a
-  client-side dismissal. The **Microsoft requirement notice cannot be suppressed**: the table's closed
-  `notice_type` check admits only the Google recommendation, which is what keeps a requirement from
-  becoming optional.
+  `account_notice_preferences` (the table `0101` already declares, so no migration). The **accounts
+  settings show the recommendation for each affected mailbox** with *Ignore* — a dismissal this session
+  only — and *do not show again*, which is the durable server-side suppression. The **Microsoft
+  requirement notice cannot be suppressed**: the table's closed `notice_type` check admits only the Google
+  recommendation, which is what keeps a requirement from becoming optional.
 
 - **A native Microsoft Graph account's search reaches the mailbox, not only Inboxora's own rows (P07b).**
   `GET /api/search` keeps its response shape, but when the search is scoped to a `microsoft_graph`
@@ -1127,6 +1128,18 @@ release is never claimed before it has happened.
   passed.
 
 ### Fixed
+- **An inbox rule that forwards from a native Microsoft Graph account now works, and reads and sends
+  over Graph.** The rule forwarder was provider-blind: it read the forwarded message's body and
+  attachments over IMAP and delivered through the SMTP factory, so a native account opened a mailbox it
+  does not have and then hit SMTP's deliberate `501` refusal — the forward could not work at all. The
+  body and attachments are now read over Graph, through the same Graph reader and the shared attachment
+  dispatcher the body and send routes use, and the forward is dispatched through the send seam. A forward
+  the provider accepts is recorded as `sent` (the only path that reports success); a definite refusal — or
+  an SMTP protocol failure, unchanged — releases the pending reservation for a deliberate retry; an
+  unknown provider outcome leaves it **pending**, so a later rule run reconciles instead of sending a
+  second copy. A source account with no reader here (native Gmail, whose body reader is not written yet)
+  is refused by name rather than silently read over IMAP. No migration.
+
 - **A Google collection could never actually be opted in for write-back.** The Calendar and People
   syncs recorded `source_access = 'read_only'` unconditionally, so the per-collection write-back switch
   refused every Google collection with `SOURCE_READ_ONLY` — the new Google write paths were unreachable

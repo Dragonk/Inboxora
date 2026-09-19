@@ -576,6 +576,30 @@ function AccountsTab() {
   const [foldersLoading, setFoldersLoading] = useState(false);
   const [foldersSaving, setFoldersSaving] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState<ConfirmOverlayProps['dialog'] | null>(null);
+  /**
+   * The Google mail migration recommendation (P09). "Ignore" is this component's own memory for the
+   * session; "do not show again" is a server-side suppression that survives a reload and another
+   * device. The server decides which accounts have an active notice, so the interface never invents one.
+   */
+  const [notices, setNotices] = useState<Array<{ accountId: string; address: string; noticeType: string }>>([]);
+  const [ignoredNotices, setIgnoredNotices] = useState<string[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    api.getNotices()
+      .then((data: { notices?: Array<{ accountId: string; address: string; noticeType: string }> }) => {
+        if (!cancelled) setNotices(Array.isArray(data?.notices) ? data.notices : []);
+      })
+      .catch(() => { /* a notice that cannot be loaded is simply not shown */ });
+    return () => { cancelled = true; };
+  }, []);
+  const suppressNotice = async (accountId: string) => {
+    try {
+      await api.suppressNotice(accountId);
+      setNotices(current => current.filter(notice => notice.accountId !== accountId));
+    } catch (err) {
+      addNotification({ type: 'error', title: t('admin.accounts.noticeError'), body: toAppError(err).message });
+    }
+  };
 
   // Alias form state
   const [aliasFormMode, setAliasFormMode] = useState<'add' | 'edit' | null>(null);
@@ -1087,6 +1111,47 @@ function AccountsTab() {
           {t('admin.accounts.empty')}
         </div>
       )}
+
+      {notices
+        .filter(notice => !ignoredNotices.includes(notice.accountId))
+        .map(notice => (
+          <div
+            key={notice.accountId}
+            data-testid="google-mail-recommendation"
+            style={{
+              border: '1px solid var(--border-subtle)', borderLeft: '3px solid var(--accent)',
+              borderRadius: 10, background: 'var(--bg-tertiary)', padding: '12px 14px', marginBottom: 10,
+            }}
+          >
+            <div style={{ fontSize: 13, color: 'var(--text-primary)', lineHeight: 1.5 }}>
+              {t('admin.accounts.googleRecommendation', { address: notice.address })}
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                data-testid="google-recommendation-ignore"
+                onClick={() => setIgnoredNotices(current => [...current, notice.accountId])}
+                style={{
+                  padding: '6px 12px', background: 'var(--bg-elevated)', border: '1px solid var(--border)',
+                  borderRadius: 7, color: 'var(--text-secondary)', fontSize: 12, cursor: 'pointer',
+                }}
+              >
+                {t('admin.accounts.noticeIgnore')}
+              </button>
+              <button
+                type="button"
+                data-testid="google-recommendation-suppress"
+                onClick={() => suppressNotice(notice.accountId)}
+                style={{
+                  padding: '6px 12px', background: 'var(--accent)', border: 'none',
+                  borderRadius: 7, color: 'var(--accent-text)', fontSize: 12, cursor: 'pointer',
+                }}
+              >
+                {t('admin.accounts.noticeNever')}
+              </button>
+            </div>
+          </div>
+        ))}
 
       {accounts.map(account => { const progress = backfillProgress[account.id]; return (
         <div key={account.id} style={{
