@@ -25,6 +25,7 @@ Windows default email app); the server, database, API and configuration are unch
 | Harden a deployment | [Security](Security.md) |
 | Fix something that is not working | [Troubleshooting](Troubleshooting.md) |
 | Upgrade from 3.x or from MailFlow | [Upgrading](Upgrading.md) |
+| Connect Google or Microsoft accounts | [Connecting Google and Microsoft accounts](Provider-setup.md). **Google has two methods and neither is forced** — mail keeps working over IMAP/SMTP with an app password, and an administrator can optionally enable the API to pull that account's contacts and calendars. **Microsoft mail needs the API connection**, because Outlook.com and Microsoft 365 no longer accept a mailbox password. The switches, and what each does, are in [Configuration](Configuration.md). |
 | Move a MailFlow 3.3.0 deployment to Inboxora | [Migrating from MailFlow](Migrating-from-MailFlow.md) |
 | Build, test or contribute | [Development](Development.md) |
 
