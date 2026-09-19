@@ -42,6 +42,13 @@ installation would actually have rather than on one evolved in place:
   (`provider_connections`, `oauth_grants`, `integration_collections`, `remote_object_links`,
   `provider_operations`, `domain_outbox`, `sync_states`, `account_notice_preferences`) all exist
   afterwards;
+- **P11's acceptance criterion in the plan is a full loop with DAVx⁵**, and that has *not* been
+  performed. What is verified is the protocol: discovery, policies, the change log, the preconditions
+  and the write paths are exercised by unit, database and browser-level tests, and the requests they
+  send are the ones a client sends. Nothing here has talked to an actual DAVx⁵, Thunderbird or
+  macOS client, so client-specific behaviour — its exact `PROPFIND` bodies, its retry and error
+  handling, its reaction to a refused `PROPPATCH` — is untested. That is the honest boundary of the
+  DAV work, and it is the one acceptance criterion in P11 that remains open.
 - 89 integration tests pass across eleven suites: the provider authorization-flow table, Google and
   Microsoft token refresh (including the two-worker race), the operation journal and outbox, the
   Google and Microsoft contact syncs, the Google calendar sync, the provider disconnect and its reconnect cycle, and the DAV HTTP
