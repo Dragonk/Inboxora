@@ -42,9 +42,9 @@ installation would actually have rather than on one evolved in place:
   (`provider_connections`, `oauth_grants`, `integration_collections`, `remote_object_links`,
   `provider_operations`, `domain_outbox`, `sync_states`, `account_notice_preferences`) all exist
   afterwards;
-- 44 integration tests pass across seven suites: the provider authorization-flow table, Google and
+- 87 integration tests pass across eleven suites: the provider authorization-flow table, Google and
   Microsoft token refresh (including the two-worker race), the operation journal and outbox, the
-  Google and Microsoft contact syncs, the Google calendar sync, and the DAV HTTP integration. The
+  Google and Microsoft contact syncs, the Google calendar sync, the provider disconnect, and the DAV HTTP integration. The
   contact suites also assert the `sync_states` bookkeeping the connector status line reads: a success
   must leave a success time and clear the error, and a failure after the lease is taken must record
   both the code and the time, so that data source is regression-protected rather than verified once
