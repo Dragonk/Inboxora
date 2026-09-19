@@ -213,6 +213,10 @@ operation is worse than one that says it will not perform it.
 
 - **The mailbox is not connected over Graph**: mail continues over IMAP/SMTP from the accounts
   screen, and the connector covers contacts only. Microsoft calendars are not imported.
+- **Contact photos and group categories are not carried over.** The connector reads names, email
+  addresses, phone numbers, company, job title, department, notes, URLs, addresses, birthdays,
+  anniversaries and instant-message addresses; Graph's category labels are read as categories, but a
+  photo is not fetched.
 - The two authorizations are separate — the mailbox sign-in and the contacts connector have their
   own callbacks, their own readiness and their own switches.
 

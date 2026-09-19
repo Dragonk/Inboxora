@@ -15,8 +15,8 @@ export const DEFAULT_CONTACT_FOLDER = 'contacts';
 const CONTACT_SELECT = [
   'id', 'displayName', 'givenName', 'surname', 'nickName',
   'emailAddresses', 'businessPhones', 'homePhones', 'mobilePhone',
-  'companyName', 'jobTitle', 'department', 'personalNotes', 'birthday',
-  'businessHomePage', 'businessAddress', 'homeAddress', 'otherAddress', 'categories',
+  'companyName', 'jobTitle', 'department', 'personalNotes', 'birthday', 'anniversary',
+  'businessHomePage', 'businessAddress', 'homeAddress', 'otherAddress', 'categories', 'imAddresses',
 ].join(',');
 
 export interface GraphContactFolder {
@@ -48,6 +48,8 @@ export interface GraphContact {
   department?: string | null;
   personalNotes?: string | null;
   birthday?: string | null;
+  anniversary?: string | null;
+  imAddresses?: string[] | null;
   businessHomePage?: string | null;
   businessAddress?: GraphPhysicalAddress | null;
   homeAddress?: GraphPhysicalAddress | null;
@@ -123,6 +125,10 @@ export function graphContactToVCard(contact: GraphContact, uid: string): VCardCo
     addresses,
     categories: (contact.categories ?? []).filter(Boolean),
     birthday: normalizeGraphBirthday(contact.birthday),
+    // Graph's anniversary is the same timestamp shape as its birthday, and an IM address is a bare
+    // string with no protocol, so it is typed `other` rather than guessed at.
+    anniversary: normalizeGraphBirthday(contact.anniversary),
+    instantMessages: (contact.imAddresses ?? []).filter(Boolean).map(value => ({ value, type: 'other' })),
   };
 }
 

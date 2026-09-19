@@ -483,6 +483,11 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   for the vCard import — all along. The request now includes `events` and `imClients` and both are
   mapped, so a Google contact arrives with what it holds. Photos and group memberships are still not
   carried, and the wiki says why.
+- Carry anniversaries and instant-message addresses from Microsoft contacts too. The Graph connector
+  never asked for `anniversary` or `imAddresses`, so both were discarded like their Google counterparts
+  were — the same columns sat empty for the same reason. Graph's anniversary uses the same timestamp
+  shape as its birthday, and a bare IM address carries no protocol, so it is typed `other` rather than
+  guessed at.
 
 
 ## [4.0.4] - 2026-09-18
