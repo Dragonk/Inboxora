@@ -379,33 +379,35 @@ module boundary against a real PostgreSQL.
 
 ## Verification
 
-Measured on the frozen `dev` SHA **`43c15e91e83532a4bcd50ed3b1ad4806fa70c4ce`**, with each gate's own exit
+Measured on the frozen `dev` SHA **`f2b0dbf13594adc454e610d8aa458d581a83bdff`**, with each gate's own exit
 status read rather than inferred from a pipeline:
 
-- Backend: typecheck clean, lint clean, **2828 unit tests passed, 179 skipped** (234 files passed, 23
+- Backend: typecheck clean, lint clean, **2855 unit tests passed, 180 skipped** (236 files passed, 24
   skipped).
-- Frontend: typecheck clean, lint clean, **2699 tests passed, 0 failed**, production build clean.
+- Frontend: typecheck clean, lint clean, **2705 tests passed, 0 failed**, production build clean.
 - Database: a database created empty for the purpose, the **whole 115-migration chain applied from zero**
-  by the application's own runner, then **383 integration tests across 40 suites** on PostgreSQL 16 —
-  exit 0. (Running the unit suite *and* the integration suites against one database in a single process is
-  not a supported combination: independent integration files then contend on the same conversation tables
-  and a `SERIALIZABLE` rebuild can hit a serialization failure. The two figures above are the separate,
-  supported invocations.)
+  by the application's own runner, then **384 integration tests across 41 suites** on PostgreSQL 16 —
+  exit 0, including the send-ledger suite that asserts on real rows that a size refusal claims no intent
+  and leaves no provider operation behind. (Running the unit suite *and* the integration suites against one
+  database in a single process is not a supported combination: independent integration files then contend
+  on the same conversation tables and a `SERIALIZABLE` rebuild can hit a serialization failure. The two
+  figures above are the separate, supported invocations.)
 
 **Images published from that exact SHA** (documentation-only commits follow it, so the published images are the current `dev` code). Workflow run
-[`35459869340`](https://github.com/Dragonk/Inboxora/actions/runs/35459869340) built and pushed the `:dev`
-tags from `43c15e91`; both resolve to OCI image indexes carrying `linux/amd64` **and** `linux/arm64`:
+[`35471043131`](https://github.com/Dragonk/Inboxora/actions/runs/35471043131) built and pushed the `:dev`
+tags from `f2b0dbf1`; both resolve to OCI image indexes carrying `linux/amd64` **and** `linux/arm64`:
 
-- `ghcr.io/dragonk/inboxora-backend:dev` — `sha256:fdf967e5cba7b6a6fde4c8a0e5aa1f65b86f9344ccc1c9364bcda93477c9eaa9`
-- `ghcr.io/dragonk/inboxora-frontend:dev` — `sha256:3c3efc78b40ad0e82f064044f41f85c2b193a2bfbbadb20cd5bdc32b26e8c15f`
+- `ghcr.io/dragonk/inboxora-backend:dev` — `sha256:04512c4407e774fbb6d5fe956a6b74511a4755fb9451e8e79c245c2df4f4f20e`
+- `ghcr.io/dragonk/inboxora-frontend:dev` — `sha256:87456ed55c4591807a069869aef6e7db0cc4aa600da00cfae28355245fc3660b`
 
 **Runtime smoke of that published pair — RUN, and passed.** The pair was pulled and started as a stack
 (PostgreSQL, Redis, ntfy, backend, frontend) from a fresh volume: the backend applied the migration chain
 and became healthy, `/api/health` answered `{"status":"ok"}`, **`/api/version` answered
-`{"version":"dev","sha":"43c15e91e83532a4bcd50ed3b1ad4806fa70c4ce"}`** — the published image is the frozen
-revision — the first user was registered (admin), a fresh cookie jar logged in through
-`POST /api/auth/login`, `/api/auth/me` returned that user, `/api/accounts` returned `[]`, and the UI root
-served the application. No container restarted and no migration failed.
+`{"version":"dev","sha":"f2b0dbf13594adc454e610d8aa458d581a83bdff"}`** — the published image is the frozen
+revision — `schema_migrations` held all **115** rows, the first user was registered (admin), a fresh cookie
+jar logged in through `POST /api/auth/login`, `/api/auth/me` returned that user, `/api/accounts` returned
+`[]`, and the UI root served the application. `docker inspect` reported **0 restarts** for every container
+and no migration failed.
 
 Not run for this revision, and therefore **NOT RUN** rather than passing:
 

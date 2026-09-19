@@ -48,8 +48,8 @@ release is never claimed before it has happened.
   discarding the draft.
 
 - **Published `:dev` images from the frozen v4 SHA, and smoked them.** The `:dev` tags now correspond to
-  `43c15e91` — the tip of `dev` after every v4 package closed — and were built by workflow run
-  `35459869340` as OCI image indexes carrying `linux/amd64` and `linux/arm64`. The published pair was then
+  `f2b0dbf1` — the tip of `dev` after every v4 package, P06 included, closed — and were built by workflow run
+  `35471043131` as OCI image indexes carrying `linux/amd64` and `linux/arm64`. The published pair was then
   pulled and started as a stack from a fresh volume: the backend applied the whole migration chain and
   became healthy, `/api/health` answered `ok`, **`/api/version` reported the frozen SHA**, the first user
   was registered, a fresh session logged in, the account list answered, and the interface served. `main`
