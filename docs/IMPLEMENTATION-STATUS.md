@@ -241,6 +241,29 @@ card that offers it.
 - Covered by tests at every site: provider off and method off for each of the three Microsoft
   entry points and the Google one, plus the existing readiness cases.
 
+## Open: a connected provider account cannot be disconnected
+
+Verified by reading rather than assumed: there is **no route for provider connections** (no
+`/provider-connections` handler anywhere), and **nothing writes `revoked`** to `oauth_grants.status`
+— the only statuses ever set are `active` and `reauth_required`. A user who authorizes Google or
+Microsoft therefore has no way to remove that connection in Inboxora, and no screen that even lists
+what is connected.
+
+What is missing, and what a disconnect should do when it is built:
+
+- list the connected provider accounts (the data is there: `provider_connections` joined to
+  `oauth_grants`), so the integration card can show what is connected rather than only that
+  *something* is;
+- revoke the grant — set `oauth_grants.status = 'revoked'`, which the token service already treats as
+  needing re-authorization — and delete the stored tokens rather than leaving them encrypted at rest;
+- decide deliberately what happens to the imported collections: they are marked read-only and their
+  source is their writer, so after a disconnect they would simply stop refreshing and stay frozen
+  unless the collections and their remote links are removed too. That choice belongs in the change,
+  not in a default.
+
+Not attempted here: it is a feature with a data-retention decision in it, and this round's remaining
+room was enough to verify and state the gap accurately, not to build it properly.
+
 ## Known limitations of what is delivered
 
 - Pulled Google and Microsoft contacts and Google calendars are **read-only** in Inboxora: REST and
