@@ -459,6 +459,22 @@ it against the implementation gives a mixed but definite picture:
 So the provider-facing half of the contract holds, and the half that does not exist is the mail half — which is the
 same boundary the W-list draws, stated once here in the plan's own vocabulary.
 
+## A coverage audit of the service layer, and the two mistakes it made first
+
+Looking for modules with no test of any kind — the search that found `encryption.ts` last round — the whole service layer
+was walked mechanically. The first pass reported **79 of 122** modules unreferenced, which was **wrong and worth
+recording as wrong**: the tests inside `src/services/` import their siblings as `./name.js`, and the pattern only looked
+for `services/name.js`. `conversationEngine.ts` appeared on that list and is referenced by three test files. With the
+pattern corrected the figure is **16 of 122**.
+
+The sixteen are a **candidate list, not a finding**: no direct test reference is not the same as untested, and the
+conversation engine is the proof of that in the same audit. What the corrected run does establish, and it is the useful
+part, is a negative about the sensitive surface: **no module matching auth, token, password, secret, session, encrypt,
+permission, tenant or security is unreferenced by any test.** `encryption.ts` was the exception last round, found by a
+different route — a row demanding the evidence — and it is now tested. The remaining sixteen are ordinary application
+modules (`aiHttp`, `archiveInbox`, `carddavClient`, `composeFormat` and their neighbours), and each should be judged by
+reading it rather than by this list.
+
 ## Observability: what the plan asks for and what exists (§25.2)
 
 A chapter-level reading rather than a table one, and it found a scope item my per-package status never mentioned.
