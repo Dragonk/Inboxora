@@ -477,7 +477,7 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   response in memory with no cap, the same shape as the DAV body fixed above; the provider is configured
   by the operator and answers in kilobytes, but a compromised or misconfigured one could have made the
   process buffer an arbitrary reply. The response is now capped at 1 MB and a larger one is refused
-  rather than held.
+  rather than held, with a case that serves an oversized reply and asserts the refusal.
 
 
 ## [4.0.4] - 2026-09-18

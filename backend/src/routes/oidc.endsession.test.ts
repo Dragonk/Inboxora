@@ -1,3 +1,4 @@
+import { createServer } from 'node:http';
 import { describe, it, expect, beforeAll, afterAll, afterEach, beforeEach, vi } from 'vitest';
 
 // buildEndSessionUrl is the core of RP-initiated (end-session) logout (#310). It must:
@@ -15,7 +16,7 @@ vi.mock('../services/authEvents.js', () => ({ logAuthEvent: vi.fn() }));
 vi.mock('../services/hostValidation.js', () => ({ validateHost: vi.fn(async () => null) }));
 
 import { query as __mock_query } from '../services/db.js';
-import { buildEndSessionUrl } from './oidc.js';
+import { makeInsecureFetch, buildEndSessionUrl } from './oidc.js';
 let fetchMock: ReturnType<typeof vi.fn>;
 
 // Cast mocked module exports so their vitest mock helpers type-check.
@@ -108,5 +109,40 @@ describe('buildEndSessionUrl', () => {
     query.mockResolvedValue({ rows: [{ issuer_url: issuer, client_id: 'cid', allow_insecure: false, rp_initiated_logout: true }] });
     fetchMock.mockImplementationOnce(async () => { throw new Error('network down'); });
     expect(await buildEndSessionUrl({ providerId: 'p1', idToken: 'tok' })).toBeNull();
+  });
+});
+
+describe('the insecure fetch bounds the provider response', () => {
+  const servers: import('node:http').Server[] = [];
+
+  afterAll(async () => {
+    await Promise.all(servers.map(server => new Promise<void>(resolve => server.close(() => resolve()))));
+  });
+
+  /** A local server answering with a body of the given size. */
+  const serve = async (bytes: number): Promise<string> => {
+    const server = createServer((_req, res) => {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ padding: 'x'.repeat(bytes) }));
+    });
+    servers.push(server);
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', () => resolve()));
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('no port');
+    return `http://127.0.0.1:${address.port}/jwks`;
+  };
+
+  it('returns a normal discovery document unchanged', async () => {
+    const url = await serve(1_000);
+    const response = await makeInsecureFetch()(url);
+    expect(response.status).toBe(200);
+    expect((await response.json() as { padding: string }).padding).toHaveLength(1_000);
+  });
+
+  it('refuses a response larger than the cap instead of buffering it', async () => {
+    // The cap is what stops a compromised or misconfigured provider from making the process hold an
+    // arbitrary reply. Without this case the branch was true only by construction.
+    const url = await serve(2_000_000);
+    await expect(makeInsecureFetch()(url)).rejects.toThrow(/too large/i);
   });
 });

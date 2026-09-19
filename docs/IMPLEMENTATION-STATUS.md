@@ -214,10 +214,10 @@ cap. Sweeping the backend for `on('data')` found two more, and they belong to di
   durable send ledger with separated file, total, MIME and HTTP limits — so it is recorded as part of
   that package rather than as a new defect.
 - **`oidc.ts:100`** accumulated a *response* from the identity provider with no cap. **Now fixed**: the
-  response is capped at 1 MB and a larger one is refused rather than buffered. The new branch is
-  **not directly tested** — the existing OIDC suites pass unchanged (17 tests), which shows normal
-  responses are unaffected, but no test sends an oversized response, so this is "true by construction"
-  rather than proven. A test would need a local server answering with more than the cap.
+  response is capped at 1 MB and a larger one is refused rather than buffered. **Tested directly**:
+  `makeInsecureFetch` is exported so a local server can answer with 2 MB, and the case asserts the
+  refusal; a second case asserts a normal response is returned unchanged. The earlier version of this
+  note said the branch was true only by construction — it no longer is.
 
 What is *not* affected: the import routes (JSON, already under the 1 MB parser limit), the DAV routes
 (capped), and the request-side readers in the mail ingestion path, which stream to disk.

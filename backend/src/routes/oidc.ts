@@ -87,7 +87,8 @@ function toNodeHeaders(headers: RequestInit['headers']): Record<string, string |
 }
 
 // Fetch that skips TLS certificate verification — only used when allow_insecure is set.
-function makeInsecureFetch(signal?: AbortSignal): typeof fetch {
+/** Exported so its response cap can be tested directly rather than assumed. */
+export function makeInsecureFetch(signal?: AbortSignal): typeof fetch {
   return function insecureFetch(input: string | URL | Request, init: RequestInit = {}): Promise<Response> {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
     return new Promise<Response>((resolve, reject) => {
