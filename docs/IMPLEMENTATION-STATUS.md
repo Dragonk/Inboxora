@@ -599,6 +599,31 @@ endpoint is visible rather than only available over the API.
 Entry points and constraints discovered while building what exists. They are recorded so the next
 session does not have to rediscover them, not as a design that has been agreed.
 
+### Conventions this work settled on, worth reusing
+
+Each of these cost a defect or a round to learn, and each applies to whatever comes next:
+
+- **Gate a provider feature where the readiness report already looks.** `services/providerSwitches.ts` is the
+  one place that answers "may this run?", and both the flows and the card read it. The property to preserve
+  is that **the interface must not offer what a flow would refuse**; adding a feature means adding its
+  precondition there, not beside it.
+- **An actionable failure needs a code the UI maps, and the mapping must survive the provider's spelling.**
+  `providerFailure.ts` compares upper-cased, because `invalid_grant` arrives from a token endpoint exactly as
+  the provider writes it, while `PROVIDER_AUTH_REQUIRED` arrives from our own code. The connectors record the
+  code they are given; a new error type must be added to **every** recording site, which is four places.
+- **A test that catches a rule should assert the rule, not the shape.** The DAV refusals, the invitation
+  guard and the reconnect cycle each have a case that would fail if the behaviour changed rather than if the
+  SQL text changed; copies of SQL fragments are the weaker form and rot silently.
+- **Integration suites that reconstruct state belong in their own database and their own command.** The
+  upgrade case creates and drops one; the shared suites deliberately share one. Both are documented, and the
+  gate recipe lists every suite, because coverage the command does not run is not coverage.
+- **`runMigrations()` takes no argument**, so anything needing a partial chain must apply files itself and
+  honour the `-- no-transaction` marker the way the runner does — `CREATE INDEX CONCURRENTLY` cannot run
+  inside a transaction.
+- **Records drift faster than code.** Every quantitative claim in this document is dated and re-measured
+  rather than remembered; ten verdicts were corrected in one session, all in the direction of *more* work
+  remaining. Assume the same of anything written here after this note.
+
 ### State when this was written (measured at `157ad415` on `dev`, the last commit to change code or tests; the documentation commits after it change no behaviour)
 
 Everything below was green at that commit: backend **2269** unit tests, frontend **2655** plus a
