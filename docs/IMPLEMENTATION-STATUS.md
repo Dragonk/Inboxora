@@ -17,7 +17,7 @@ rows. It is kept because its lessons are load-bearing, and it must never be read
 present. Earlier revisions mixed the two inside the table itself, which is how a reader could take a
 four-attempt saga — or a superseded delivery report — for a current status.
 
-Last re-measured on `dev` at `1962f519`: backend typecheck, lint and **2445** unit tests
+Last re-measured on `dev` at `3e9b0054`: backend typecheck, lint and **2450** unit tests
 (**116 skipped** across 14 files); frontend typecheck, lint, production build and **2685** tests;
 **188** database integration tests across **18** suites on a fresh PostgreSQL 16 with the full
 **112**-migration chain — and, since the CI slice, verified the same way a new installation would
@@ -1657,7 +1657,10 @@ started" row suggests, so the slice is a seam rather than a rewrite:
      nodemailer's documented behaviour rather than something measured here, and the note says which is
      which.
 
-     **And `keepBcc: false` does not fix it, measured:** creating the stream composition with
+     **Fixed** (`3e9b0054`): the header is stripped from the composed buffer by
+     `stripHeaderFromMessage` (`services/mimeHeaders.ts`), so the artefact is safe to share and the
+     accounting counts what would actually be sent. The constraint was originally recorded as:
+     **`keepBcc: false` does not fix it, measured:** creating the stream composition with
      `{ streamTransport: true, newline: 'windows', keepBcc: false }` still produces the `Bcc:` header and
      the same byte count as the default (231 bytes both ways) in this nodemailer version — so the option is
      not the mechanism that controls it here. The artefact therefore has to be handled another way: compose
