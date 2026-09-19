@@ -32,6 +32,18 @@ release is never claimed before it has happened.
 
 ### Added
 
+- **Microsoft Graph drafts (P07b).** Saving a draft from a native Microsoft Graph account now creates
+  the draft **at Microsoft** rather than appending MIME over IMAP, and re-saving **patches the same
+  provider object** so the mailbox never holds two versions of one draft. Because Graph's JSON keeps
+  `bccRecipients` out of band, a draft with a blind recipient keeps it across a reload and across
+  clients. The local mirror is keyed by the immutable provider id (the same identity the message sync
+  uses), so a later delta updates that row instead of inserting a second one, and the composer reopens
+  the saved composition from it. Deleting a draft removes it at the provider first and only then drops
+  the local row; a draft the provider no longer has is treated as already removed. The draft's identity
+  no longer requires an IMAP `UIDVALIDITY` from the interface — a provider draft has none — and the
+  numeric-string form the interface actually receives for a `BIGINT` `uid` is now accepted, which
+  corrects a latent defect that turned every autosave of an existing draft into a new one.
+
 - **Microsoft Graph send (P07b, the send pipeline).** A native Microsoft Graph account can now
   **send** mail. The message is composed once into a transport-independent model and handed to the
   single send seam, which binds the account to Graph rather than SMTP; the seam — not the route —

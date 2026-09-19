@@ -190,6 +190,29 @@ describe('POST /api/mail/draft — local row persistence', () => {
     expect(localDelete?.[1]).toEqual([ACCOUNT_ID, 5, 'Drafts', 42]);
   });
 
+  it('accepts the string uid and UIDVALIDITY the interface actually receives from a BIGINT column', async () => {
+    // `messages.uid` is BIGINT and the driver returns it as a string, so the composer sends back a
+    // string. Rejecting that form silently turned every autosave into a new draft instead of a replace.
+    query.mockReset().mockImplementation(async (statement: string) => {
+      if (statement.includes('SELECT id FROM email_accounts')) return { rows: [{ id: ACCOUNT_ID }] };
+      if (statement.includes('SELECT * FROM email_accounts WHERE id = $1')) return { rows: [ACCOUNT_ROW] };
+      if (statement.includes('SELECT draft_uid_validity FROM messages')) return { rows: [{ draft_uid_validity: '42' }] };
+      if (statement.includes('FROM folders')) return { rows: [{ path: 'Drafts' }] };
+      return { rows: [] };
+    });
+    imapManager.appendToFolder.mockResolvedValueOnce({ uid: 11, folder: 'Drafts', uidValidity: 42 });
+    const res = await fetch(`${base}/api/mail/draft`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        accountId: ACCOUNT_ID, to: ['a@b.com'], subject: 'replacement', body: 'body',
+        existingDraft: { accountId: ACCOUNT_ID, uid: '5', folder: 'Drafts', uidValidity: '42' },
+      }),
+    });
+    expect(res.status).toBe(200);
+    expect(imapManager.permanentDeleteMessage).toHaveBeenCalledWith(expect.objectContaining({ id: ACCOUNT_ID }), 5, 'Drafts', 42);
+  });
+
   it('retains a replaced draft when its cached UIDVALIDITY differs from the historical identity (V8-01)', async () => {
     query.mockReset().mockImplementation(async (statement: string, _params?: unknown[]) => {
       if (statement.includes('SELECT id FROM email_accounts')) return { rows: [{ id: ACCOUNT_ID }] };

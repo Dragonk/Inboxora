@@ -791,8 +791,11 @@ export default function ComposeModal() {
 
   const handleSend = async ({ skipSubjectWarn = false, skipAttachWarn = false } = {}) => {
     if (sending) return; // guard against a rapid double-submit (e.g. double Ctrl/Cmd+Enter)
-    const sentDraftIdentity = draftUid != null && draftFolder != null && draftAccountId && draftUidValidity != null
-      ? { accountId: draftAccountId, uid: draftUid, folder: draftFolder, uidValidity: draftUidValidity }
+    // A saved draft is identified by its account, folder and compatibility number. `uidValidity` is the
+    // IMAP guard that confirms the identity; a provider account's draft has none (its identity is the
+    // provider's immutable id, held server-side), so requiring it here would strand every provider draft.
+    const sentDraftIdentity = draftUid != null && draftFolder != null && draftAccountId
+      ? { accountId: draftAccountId, uid: draftUid, folder: draftFolder, ...(draftUidValidity != null ? { uidValidity: draftUidValidity } : {}) }
       : null;
     const { accountId, aliasId } = resolveFrom(fromValue);
     const toFinal = [...toChips, ...(toInput.trim() ? [toInput.trim()] : [])];
@@ -891,7 +894,7 @@ export default function ComposeModal() {
       const replyThreadCacheId = isReply ? (composeData?.threadCacheId || replyThreadId) : null;
       closeCompose();
       if (sentDraftIdentity) {
-        api.deleteDraft(sentDraftIdentity.accountId, sentDraftIdentity.uid, sentDraftIdentity.folder, sentDraftIdentity.uidValidity).catch(() => {});
+        api.deleteDraft(sentDraftIdentity.accountId, sentDraftIdentity.uid, sentDraftIdentity.folder, sentDraftIdentity.uidValidity ?? null).catch(() => {});
       }
       // Prefer the Sent folder the backend actually resolved to; fall back to the account's
       // mapping only if the response didn't carry one. Avoids navigating "View" to a stale
@@ -1010,8 +1013,8 @@ export default function ComposeModal() {
       editedSignature: plaintextCompose ? plainSig : signatureContentRef.current,
       inReplyTo: composeData?.inReplyTo || null,
       references: composeData?.references || null,
-      existingDraft: draftUid != null && draftFolder != null && draftAccountId && draftUidValidity != null
-        ? { accountId: draftAccountId, uid: draftUid, folder: draftFolder, uidValidity: draftUidValidity }
+      existingDraft: draftUid != null && draftFolder != null && draftAccountId
+        ? { accountId: draftAccountId, uid: draftUid, folder: draftFolder, ...(draftUidValidity != null ? { uidValidity: draftUidValidity } : {}) }
         : null,
       attachmentCount: attachments.length + fwdAttachments.length,
     };
@@ -1689,8 +1692,8 @@ export default function ComposeModal() {
             <button
               onClick={() => {
                 setShowDiscardSheet(false);
-                if (draftUid != null && draftFolder != null && draftAccountId && draftUidValidity != null) {
-                  api.deleteDraft(draftAccountId, draftUid, draftFolder, draftUidValidity).catch(() => {});
+                if (draftUid != null && draftFolder != null && draftAccountId) {
+                  api.deleteDraft(draftAccountId, draftUid, draftFolder, draftUidValidity ?? null).catch(() => {});
                 }
                 closeCompose();
               }}
@@ -2443,8 +2446,8 @@ export default function ComposeModal() {
             <button
               onClick={() => {
                 setShowCloseDialog(false);
-                if (draftUid != null && draftFolder != null && draftAccountId && draftUidValidity != null) {
-                  api.deleteDraft(draftAccountId, draftUid, draftFolder, draftUidValidity).catch(() => {});
+                if (draftUid != null && draftFolder != null && draftAccountId) {
+                  api.deleteDraft(draftAccountId, draftUid, draftFolder, draftUidValidity ?? null).catch(() => {});
                 }
                 closeCompose();
               }}

@@ -115,9 +115,11 @@ and reconnecting re-links the same collections rather than duplicating them.
   account keeps reading mail over OAuth2 IMAP/SMTP. **Sending over Graph is implemented and wired**:
   a native account's send is created as a Graph draft, its attachments are uploaded, and only then is
   it sent, with an unknown outcome parked rather than retried; because no account is native yet, this
-  path is exercised by tests rather than by live accounts. **Graph drafts, provider-side search and
-  the reply/forward dependencies are not implemented.** The Gmail API mail transport is not in this
-  release either; Google mail continues with an app password.
+  path is exercised by tests rather than by live accounts. **Graph drafts are implemented**: saving a
+  draft for a native account creates the provider's own draft (blind recipients stay out of band),
+  re-saving patches that same object rather than leaving two, and deleting removes it at Microsoft
+  first. **Provider-side search and the reply/forward dependencies are not implemented.** The Gmail API
+  mail transport is not in this release either; Google mail continues with an app password.
 - **Provider data is read-only, and so are imported calendars and address books.** Write-back, the
   external CalDAV/CardDAV client and provider CRUD (calendar and contacts create/update/delete) are
   not in this release, so an imported collection cannot be edited, deleted or removed from Inboxora.
@@ -138,8 +140,8 @@ and reconnecting re-links the same collections rather than duplicating them.
 Measured on `dev` at `dbf6077b`, with each gate's own exit status read rather than inferred from a
 pipeline:
 
-- Backend: **2452 tests passed, 117 skipped** (199 files passed, 14 skipped), typecheck and lint clean.
-- Frontend: **2685 tests passed, 0 failed**, typecheck clean.
+- Backend: **2513 tests passed, 117 skipped** (206 files passed, 14 skipped), typecheck and lint clean.
+- Frontend: **2685 tests passed, 0 failed**, typecheck, lint and production build clean.
 - Database: **191 integration tests across 19 suites** on PostgreSQL 16, with the full migration chain
   (112 migrations) applied in order.
 

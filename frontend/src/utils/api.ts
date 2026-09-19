@@ -487,8 +487,12 @@ export const api = {
 
   // Drafts
   saveDraft:   (data: unknown)              => request('POST',   '/mail/draft', data),
-  deleteDraft: (accountId: string, uid: number, folder: string, uidValidity: number) =>
-    request('DELETE', `/mail/draft/${uid}?accountId=${encodeURIComponent(accountId)}&folder=${encodeURIComponent(folder)}&uidValidity=${encodeURIComponent(uidValidity)}`),
+  // `uidValidity` is the IMAP guard on the draft's identity. A provider-native draft has none — its
+  // identity is the provider's own id, held server-side — so the parameter is omitted rather than sent
+  // as a placeholder the server would have to ignore.
+  deleteDraft: (accountId: string, uid: number, folder: string, uidValidity: number | null) =>
+    request('DELETE', `/mail/draft/${uid}?accountId=${encodeURIComponent(accountId)}&folder=${encodeURIComponent(folder)}`
+      + (uidValidity != null ? `&uidValidity=${encodeURIComponent(uidValidity)}` : '')),
 
   // Block List
   getBlockList:          ()      => request('GET',    '/block-list'),

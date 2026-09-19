@@ -42,8 +42,10 @@ test('draft acknowledgement separates recipient and document edits from request 
 });
 
 test('draft replacement keeps the prior account, UID and folder as one request snapshot (V7-02)', () => {
-  assert.match(draftSave, /existingDraft: draftUid != null && draftFolder != null && draftAccountId && draftUidValidity != null/);
-  assert.match(draftSave, /\? \{ accountId: draftAccountId, uid: draftUid, folder: draftFolder, uidValidity: draftUidValidity \}/);
+  // `uidValidity` is carried when the draft has one and omitted for a provider-native draft, whose
+  // identity is the provider id held server-side — requiring it here would strand every provider draft.
+  assert.match(draftSave, /existingDraft: draftUid != null && draftFolder != null && draftAccountId/);
+  assert.match(draftSave, /\? \{ accountId: draftAccountId, uid: draftUid, folder: draftFolder, \.\.\.\(draftUidValidity != null \? \{ uidValidity: draftUidValidity \} : \{\}\) \}/);
   assert.match(draftSave, /draftSnapshot\.existingDraft \? \{ existingDraft: draftSnapshot\.existingDraft \}/);
   assert.doesNotMatch(draftSave, /existingUid:/);
 });
