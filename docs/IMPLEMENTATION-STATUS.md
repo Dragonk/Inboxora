@@ -1595,6 +1595,19 @@ started" row suggests, so the slice is a seam rather than a rewrite:
     mechanism, and it is why the interrupted/expired upload states in P06 have a home.
   - **`delivered` stays honest for free**: one POST either returned or did not, and there is no
     cross-transport fallback, so an uncertain Graph outcome parks rather than retrying over SMTP.
+
+  **And the seam is in the right file but the wrong position — the first step is an ordering change.**
+  `createAccountMailTransport` wraps transport *resolution* (line 656), but the composed message does not
+  exist there: the route composes it with a nodemailer stream transport at line 749, **ninety lines
+  later**, and that composition exists only for the size accounting. So a Graph branch at the seam today
+  has nothing to post. Worse, the route currently composes the message **twice** — once at 749 for the
+  accounting and again inside `nodemailer.sendMail`, which builds its own MIME from `mailOptions`.
+
+  The first step is therefore not "call Graph" but: **compose once, above the seam, and hand the same
+  artefact to both branches** — SMTP via nodemailer's `raw`, Graph as the request body. That removes the
+  double composition, gives the Graph branch the MIME it needs at the point where it needs it, and leaves
+  the `delivered` boundary where it is. Note also that the factory can return a **refreshed account**
+  (`account = smtp.account`), so anything moved above the seam must not depend on the refreshed row.
 - **idempotency already exists, and the division is decided** (both mechanisms read, not assumed).
   `claimSendIntent` / `markSendIntentUncertain` / `completeSendIntent` / `releaseSendIntent` write
   `send_idempotency`, a durable claim keyed by the **client's** `X-Idempotency-Key` with an intent token,
