@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import type { PoolClient } from 'pg';
 import { decrypt, encrypt } from './encryption.js';
+import { reactivateProviderConnection } from './providerConnectionService.js';
 
 /**
  * Server-side OAuth authorization flows (P04, plan §6.1/§6.3).
@@ -589,6 +590,10 @@ export async function upsertProviderConnection(client: PoolClient, input: {
         WHERE id = $1`,
       [found.id, input.tenantId ?? null, input.providerUserId ?? null, input.clientConfigId ?? null],
     );
+    // This is a re-authorization of a connection that already exists. A previous disconnect also
+    // disabled its collections, so they have to be re-enabled here or the connection comes back
+    // into the schedule with nothing to refresh — which looks like a connector that never worked.
+    await reactivateProviderConnection(client, found.id);
     return found.id;
   }
   const inserted = await client.query<{ id: string }>(

@@ -20,6 +20,30 @@ export interface DisconnectResult {
   collectionsDisabled: number;
 }
 
+/**
+ * Bring a connection back into service when its account is authorized again.
+ *
+ * A disconnect takes the connection out of service and disables its collections, so
+ * re-authorization has to undo both: otherwise the new grant is stored against a connection the
+ * status routes and the schedule both ignore, which looks exactly like a connection that never
+ * worked. Runs inside the caller's transaction so the grant and the reactivation land together.
+ */
+export async function reactivateProviderConnection(
+  client: Pick<PoolClient, 'query'>,
+  connectionId: string,
+): Promise<void> {
+  await client.query(
+    `UPDATE provider_connections SET status = 'active', updated_at = NOW()
+      WHERE id = $1 AND status <> 'active'`,
+    [connectionId],
+  );
+  await client.query(
+    `UPDATE integration_collections SET enabled = true, updated_at = NOW()
+      WHERE connection_id = $1 AND enabled = false`,
+    [connectionId],
+  );
+}
+
 /** Revoke one connection owned by `userId`. Returns null when the user has no such connection. */
 export async function disconnectProviderConnection(userId: string, connectionId: string): Promise<DisconnectResult | null> {
   return withTransaction(async (client: PoolClient) => {

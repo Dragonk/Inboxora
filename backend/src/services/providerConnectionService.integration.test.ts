@@ -131,6 +131,31 @@ describeOrSkip('disconnectProviderConnection (PostgreSQL)', () => {
     expect(calendars.rows[0]?.count).toBe('2');
   });
 
+  it('comes back into service when the account is authorized again', async () => {
+    // The pair matters: a disconnect takes the connection out of service and disables its
+    // collections, so re-authorization must undo both or the new grant belongs to a connection
+    // that the status routes and the schedule both ignore — indistinguishable from a connector
+    // that never worked.
+    const connectionId = await seedConnection(USER_ID, 'sub-reconnect');
+    await disconnectProviderConnection(USER_ID, connectionId);
+    expect((await listProviderSyncTargets()).filter(target => target.connectionId === connectionId)).toHaveLength(0);
+
+    // Re-authorizing the same identity is what the callback does.
+    await inTransaction(client => upsertProviderConnection(client, {
+      userId: USER_ID, provider: 'google', issuer: GOOGLE_ISSUER, subject: 'sub-reconnect',
+    }));
+
+    const connection = await autocommit(client => client.query<{ status: string }>(
+      'SELECT status FROM provider_connections WHERE id = $1', [connectionId],
+    ));
+    expect(connection.rows[0]?.status).toBe('active');
+    const collections = await autocommit(client => client.query<{ enabled: boolean }>(
+      'SELECT enabled FROM integration_collections WHERE connection_id = $1', [connectionId],
+    ));
+    expect(collections.rows[0]?.enabled).toBe(true);
+    expect((await listProviderSyncTargets()).filter(target => target.connectionId === connectionId)).toHaveLength(1);
+  });
+
   it('refuses a connection that belongs to another user, changing nothing', async () => {
     const mine = await seedConnection(USER_ID, 'sub-mine');
     const theirs = await seedConnection(OTHER_USER_ID, 'sub-theirs');

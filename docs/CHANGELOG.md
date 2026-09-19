@@ -448,6 +448,10 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   provider. The card now lists the signed-in user's own connections per provider and offers
   **Disconnect** for each, and the status endpoint reports them (ids only, never a credential,
   owner-scoped). Disconnecting keeps the imported data, as the endpoint documents.
+- Make reconnecting after a disconnect actually refresh again. Disconnecting disables a
+  connection's collections, and re-authorizing the same account re-enabled the connection but not
+  them — so the connector came back into service with nothing to refresh, which is indistinguishable
+  from a connector that never worked. Re-authorization now re-enables the collections as well.
 
 
 ## [4.0.4] - 2026-09-18
