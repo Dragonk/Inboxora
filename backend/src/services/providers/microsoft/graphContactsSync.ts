@@ -15,6 +15,7 @@ import { GraphApiError } from './graphApiClient.js';
 import type { GraphApiOptions } from './graphApiClient.js';
 import { contactUidForGraphContact, fetchContactsPage, graphContactToVCard } from './graphContacts.js';
 import type { GraphContact } from './graphContacts.js';
+import { ProviderAuthError } from '../../providerAuthService.js';
 import type { FetchLike } from '../../providerAuthService.js';
 
 /**
@@ -375,7 +376,7 @@ export async function syncGraphContacts(input: {
     await withTransaction(client => releaseSyncLease(client, { syncStateId, generation: lease.generation })).catch(() => {});
     return { addressBookId: ensured.addressBookId, ...totals, fullSync, cursor: finalCursor };
   } catch (caught) {
-    const code = caught instanceof GraphApiError ? caught.code : 'INTERNAL_ERROR';
+    const code = caught instanceof GraphApiError || caught instanceof ProviderAuthError ? caught.code : 'INTERNAL_ERROR';
     await withTransaction(client => failSyncRun(client, { syncStateId, generation: lease.generation, errorCode: code })).catch(() => {});
     throw caught;
   }

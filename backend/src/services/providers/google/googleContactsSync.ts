@@ -16,6 +16,7 @@ import { GoogleApiError } from './googleApiClient.js';
 import type { GoogleApiOptions } from './googleApiClient.js';
 import { fetchConnectionsPage, personToVCardContact } from './googlePeople.js';
 import type { GooglePerson } from './googlePeople.js';
+import { ProviderAuthError } from '../../providerAuthService.js';
 import type { FetchLike, GoogleConfig } from '../../providerAuthService.js';
 
 /**
@@ -359,7 +360,7 @@ export async function syncGoogleContacts(input: {
 
     return { addressBookId: ensured.addressBookId, ...totals, fullSync, cursor: finalCursor };
   } catch (caught) {
-    const code = caught instanceof GoogleApiError ? caught.code : 'INTERNAL_ERROR';
+    const code = caught instanceof GoogleApiError || caught instanceof ProviderAuthError ? caught.code : 'INTERNAL_ERROR';
     await withTransaction(client => failSyncRun(client, { syncStateId, generation: lease.generation, errorCode: code })).catch(() => {});
     throw caught;
   }

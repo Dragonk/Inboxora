@@ -67,7 +67,7 @@ async function inTransaction<T>(fn: (client: PoolClient) => Promise<T>): Promise
   }
 }
 
-async function seedConnection(): Promise<string> {
+async function seedConnection(input: { expiresAt?: Date } = {}): Promise<string> {
   return inTransaction(async client => {
     const connectionId = await upsertProviderConnection(client, {
       userId: USER_ID, provider: 'google', issuer: GOOGLE_ISSUER, subject: 'sub-contacts',
@@ -77,7 +77,7 @@ async function seedConnection(): Promise<string> {
       audience: GOOGLE_GRANT_AUDIENCE,
       accessToken: 'access-valid',
       refreshToken: 'refresh-1',
-      expiresAt: new Date(Date.now() + 3600_000),
+      expiresAt: input.expiresAt ?? new Date(Date.now() + 3600_000),
       scopes: ['https://www.googleapis.com/auth/contacts'],
       clientIdAtIssue: CONFIG.clientId,
     });
@@ -153,6 +153,25 @@ describeOrSkip('Google contacts sync (PostgreSQL)', () => {
     expect(second).toMatchObject({ created: 0, updated: 1, fullSync: false, cursor: 'sync-2' });
     expect(incremental.urls[0]).toContain('syncToken=sync-1');
     expect(incremental.urls[0]).not.toContain('requestSyncToken');
+  });
+
+  it('records the provider code for a revoked consent instead of an internal error', async () => {
+    // The token service throws its own error type, and the adapters used to record
+    // anything they did not recognise as INTERNAL_ERROR — so the one failure a user can
+    // act on (reconnect the account) was reported as an internal fault and the message
+    // written for it never appeared.
+    const connectionId = await seedConnection({ expiresAt: new Date(Date.now() - 60_000) });
+    const provider = fakeProvider([
+      () => json({ error: 'invalid_grant', error_description: 'Token has been expired or revoked.' }, 400),
+    ]);
+
+    await expect(syncGoogleContacts({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl: provider.fetchImpl }))
+      .rejects.toMatchObject({ code: 'invalid_grant' });
+
+    const state = await autocommit(client => client.query<{ last_error_code: string | null }>(
+      'SELECT last_error_code FROM sync_states WHERE user_id = $1 AND feature = $2', [USER_ID, 'contacts'],
+    ));
+    expect(state.rows[0]?.last_error_code).toBe('invalid_grant');
   });
 
   it('removes a person the provider reports as deleted, keeping the link as a tombstone', async () => {

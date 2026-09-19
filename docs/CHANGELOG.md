@@ -385,6 +385,12 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   Harmless where the provider keeps its refresh token, but a real risk where it rotates it — the
   second exchange can invalidate the first worker's result. The grant is now re-read under the lease
   and a token that has since become usable is returned instead of refreshing again.
+- Report a revoked authorization as what it is. The providers' token service throws its own error
+  type, which the connectors did not recognise, so the one failure a user can act on — reconnect the
+  account — was recorded as `INTERNAL_ERROR` and the message written for exactly that case never
+  appeared. Their codes are now recorded (and `invalid_grant`, `unauthorized_client` and a missing
+  refresh token are mapped to the "reconnect the account" sentence), so a revoked consent reads as
+  an action instead of an internal fault.
 
 
 ## [4.0.4] - 2026-09-18

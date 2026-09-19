@@ -4,7 +4,12 @@ import { providerFailureKey } from './providerFailure.ts';
 
 describe('providerFailureKey', () => {
   it('names the action for a grant that must be authorized again', () => {
-    for (const code of ['PROVIDER_AUTH_REQUIRED', 'REAUTH_REQUIRED', 'GRANT_NOT_FOUND', 'TOKEN_REFRESH_FAILED']) {
+    for (const code of [
+      'PROVIDER_AUTH_REQUIRED', 'REAUTH_REQUIRED', 'GRANT_NOT_FOUND', 'TOKEN_REFRESH_FAILED',
+      // The provider's own wording for a revoked consent, which is the case a user
+      // actually hits and the reason this mapping exists.
+      'invalid_grant', 'unauthorized_client', 'MISSING_REFRESH_TOKEN',
+    ]) {
       assert.equal(providerFailureKey(code), 'providers.syncFailedAuth', code);
     }
   });

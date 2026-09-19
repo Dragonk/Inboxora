@@ -17,10 +17,15 @@ export type ProviderFailureKey =
 export function providerFailureKey(code: string | null | undefined): ProviderFailureKey | null {
   switch ((code ?? '').trim().toUpperCase()) {
     // The grant is gone or was refused: the only fix is to authorize again.
+    // The last three are the provider's own wording for a consent that is gone; they
+    // arrive as written by the provider, which is why the comparison upper-cases.
     case 'PROVIDER_AUTH_REQUIRED':
     case 'REAUTH_REQUIRED':
     case 'GRANT_NOT_FOUND':
     case 'TOKEN_REFRESH_FAILED':
+    case 'INVALID_GRANT':
+    case 'UNAUTHORIZED_CLIENT':
+    case 'MISSING_REFRESH_TOKEN':
       return 'providers.syncFailedAuth';
     // The grant exists but is narrower than the feature needs.
     case 'INSUFFICIENT_SCOPES':

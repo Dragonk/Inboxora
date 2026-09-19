@@ -16,6 +16,7 @@ import type { GoogleApiOptions } from './googleApiClient.js';
 import { fetchCalendarEvents, fetchCalendarList, buildGoogleSeriesICalendar } from './googleCalendar.js';
 import type { GoogleCalendarEvent, GoogleCalendarListEntry } from './googleCalendar.js';
 import { mergeGoogleCalendarResource } from './googleCalendarMerge.js';
+import { ProviderAuthError } from '../../providerAuthService.js';
 import type { FetchLike, GoogleConfig } from '../../providerAuthService.js';
 
 /**
@@ -346,7 +347,7 @@ async function syncCollection(api: GoogleApiOptions, collection: CalendarCollect
     await withTransaction(client => releaseSyncLease(client, { syncStateId, generation: lease.generation })).catch(() => {});
     return totals;
   } catch (caught) {
-    const code = caught instanceof GoogleApiError ? caught.code : 'INTERNAL_ERROR';
+    const code = caught instanceof GoogleApiError || caught instanceof ProviderAuthError ? caught.code : 'INTERNAL_ERROR';
     await withTransaction(client => failSyncRun(client, { syncStateId, generation: lease.generation, errorCode: code })).catch(() => {});
     throw caught;
   }
@@ -409,7 +410,7 @@ export async function syncGoogleCalendar(input: {
     } catch (caught) {
       result.errors.push({
         calendarId: collection.remoteId,
-        code: caught instanceof GoogleApiError ? caught.code : 'INTERNAL_ERROR',
+        code: caught instanceof GoogleApiError || caught instanceof ProviderAuthError ? caught.code : 'INTERNAL_ERROR',
       });
     }
   }
