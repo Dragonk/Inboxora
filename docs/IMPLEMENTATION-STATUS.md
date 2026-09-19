@@ -210,6 +210,25 @@ those packages have not started. It does mean "delivered" in the table above sho
 "the code exists and its tests pass", not "the application exercises it" — which is what the
 per-package column now says for P01 and P03.
 
+## The integrations card has no browser coverage
+
+Checked while trying to drive it: **no end-to-end spec opens the integrations card** (nothing in
+`frontend/e2e/` references `/integrations/status`, the card, or its sub-tabs), so the browser
+suite's green result says nothing about the connector interface. Its coverage is the unit and
+contract tests plus the backend suites.
+
+An attempt to add that spec is not in the tree: it needed the mail-providers sub-tab and the
+card's own expand control to be driven, and could not be made to pass within the round, so it was
+removed rather than committed unverified. What it needs is written down here: open
+Settings → Integrations → *Dostawcy poczty e-mail*, expand a provider row, and the status payload
+`/api/integrations/status` is what the card renders from.
+
+One thing the attempt did establish, from the live DOM: the Google provider description **already**
+states the recommendation *and* asserts that an app-password route remains available. That matches
+`traditionalImapAvailableInInboxora` today only because the flag is a constant `true`. If the
+traditional route is ever removed, that description becomes wrong, and it — not a new note — is the
+text to make conditional.
+
 ## Reported flags that are constants
 
 Two readiness fields remain reported and unread, and both are constants rather than probes, so the

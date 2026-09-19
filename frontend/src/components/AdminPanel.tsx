@@ -3528,16 +3528,6 @@ function IntegrationsTab() {
                         >
                           {connectingGoogle ? t('admin.integrations.google.connecting') : t('admin.integrations.google.connect')}
                         </button>
-                        {googleStatus?.mailPolicy === 'recommended' && (
-                          <div
-                            data-testid="google-mail-policy"
-                            style={{ marginTop: 10, fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5 }}
-                          >
-                            {googleStatus?.traditionalImapAvailableInInboxora
-                              ? t('admin.integrations.google.mailPolicyRecommended')
-                              : t('admin.integrations.google.mailPolicyRecommendedNoAlternative')}
-                          </div>
-                        )}
                         {(googleStatus?.connections?.length ?? 0) > 0 && (
                           <div style={{ marginTop: 10, fontSize: 12 }}>
                             <div style={{ color: 'var(--text-secondary)' }}>{t('admin.integrations.connectedAccounts')}</div>

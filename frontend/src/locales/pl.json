@@ -846,9 +846,7 @@
         "connectHint": "Wybierz, co autoryzujesz: przycisk kontaktów prosi o kontakty, ten o kalendarze. Połącz dwa razy, aby mieć oba; poczta nie jest tu nigdy wymagana.",
         "connectUnavailable": "Administrator musi najpierw skonfigurować Google API, aby można było połączyć konto.",
         "connectedNote": "Konto Google połączone.",
-        "connectCalendars": "Połącz kalendarze Google",
-        "mailPolicyRecommended": "Google zaleca połączenie przez OAuth. Hasło aplikacji nadal działa, jeśli administrator na to pozwala.",
-        "mailPolicyRecommendedNoAlternative": "Google zaleca połączenie przez OAuth."
+        "connectCalendars": "Połącz kalendarze Google"
       },
       "connectedAccounts": "Połączone konta",
       "disconnect": "Odłącz"

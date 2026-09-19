@@ -407,9 +407,7 @@
         "connectHint": "Elige qué autorizas: el botón de contactos pide contactos y este, calendarios. Conecta dos veces para ambos; el correo nunca se solicita aquí.",
         "connectUnavailable": "Un administrador debe configurar la API de Google antes de poder conectar una cuenta.",
         "connectedNote": "Cuenta de Google conectada.",
-        "connectCalendars": "Conectar calendarios de Google",
-        "mailPolicyRecommended": "Google recomienda conectar con OAuth. Una contraseña de aplicación sigue funcionando si el administrador lo permite.",
-        "mailPolicyRecommendedNoAlternative": "Google recomienda conectar con OAuth."
+        "connectCalendars": "Conectar calendarios de Google"
       },
       "connectedAccounts": "Cuentas conectadas",
       "disconnect": "Desconectar"

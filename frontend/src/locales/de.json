@@ -407,9 +407,7 @@
         "connectHint": "Wählen Sie, was autorisiert wird: die Kontakte-Schaltfläche fragt Kontakte an, diese Kalender. Für beides zweimal verbinden; Mail wird hier nie angefragt.",
         "connectUnavailable": "Ein Administrator muss die Google API konfigurieren, bevor ein Konto verbunden werden kann.",
         "connectedNote": "Google-Konto verbunden.",
-        "connectCalendars": "Google-Kalender verbinden",
-        "mailPolicyRecommended": "Google empfiehlt die Verbindung über OAuth. Ein App-Passwort funktioniert weiterhin, wenn der Administrator es zulässt.",
-        "mailPolicyRecommendedNoAlternative": "Google empfiehlt die Verbindung über OAuth."
+        "connectCalendars": "Google-Kalender verbinden"
       },
       "connectedAccounts": "Verbundene Konten",
       "disconnect": "Trennen"

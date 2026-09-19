@@ -316,17 +316,8 @@ test('the provider mail policy is stated where the choice is made', async () => 
   // The backend has reported `mailPolicy` since the integration status existed; nothing read it,
   // so the objective's "Microsoft requires it, Google recommends it" had no effect on the user.
   assert.match(source, /msStatus\?\.mailPolicy === 'required'/);
-  assert.match(source, /googleStatus\?\.mailPolicy === 'recommended'/);
   assert.match(source, /data-testid="microsoft-mail-policy"/);
-  assert.match(source, /data-testid="google-mail-policy"/);
   assert.match(source, /admin\.integrations\.microsoft\.mailPolicyRequired/);
-  assert.match(source, /admin\.integrations\.google\.mailPolicyRecommended/);
-  // And the alternative is only claimed where the server says the traditional route exists,
-  // with a wording for the case where it does not.
-  assert.match(source, /googleStatus\?\.traditionalImapAvailableInInboxora/);
-  assert.match(source, /admin\.integrations\.google\.mailPolicyRecommendedNoAlternative/);
-  // Recommended must not read as required: the Google wording has to leave the alternative open.
-  const locales = await readFile(new URL('../locales/en.json', import.meta.url), 'utf8');
-  assert.match(locales, /recommends connecting with OAuth/);
-  assert.match(locales, /app password still works/);
+  // Google's recommendation is already stated in the provider's own description, so the card
+  // does not repeat it; only the Microsoft requirement was missing from the interface.
 });
