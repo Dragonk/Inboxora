@@ -321,3 +321,15 @@ test('the provider mail policy is stated where the choice is made', async () => 
   // Google's recommendation is already stated in the provider's own description, so the card
   // does not repeat it; only the Microsoft requirement was missing from the interface.
 });
+
+test('a failed authorization is reported, and in words a user can act on', async () => {
+  const panel = await readFile(adminPanel, 'utf8');
+  const mail = await readFile(new URL('./MailApp.tsx', import.meta.url), 'utf8');
+  // The popup path showed the raw provider code; the sentence for it already existed.
+  assert.match(panel, /const failureKey = providerFailureKey\(typeof e\.data\.error === 'string' \? e\.data\.error : null\)/);
+  assert.match(panel, /setSaveMsg\(failureKey \? t\(failureKey\) : 'Error: ' \+ e\.data\.error\)/);
+  // The same-tab path cleared the URL and said nothing at all, so a failed connect looked like
+  // nothing happening.
+  assert.match(mail, /const key = providerFailureKey\(oauthError\)/);
+  assert.match(mail, /title: t\('providers\.connectFailedTitle'\)/);
+});

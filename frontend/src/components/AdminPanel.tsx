@@ -44,6 +44,7 @@ import DiagnosticsReportModal from './DiagnosticsReportModal.tsx';
 import { getEffectiveShortcuts, getGroupedActions, ACTION_DEFS, SPECIAL_KEY_LABELS, parseModKey, modLabel } from '../utils/defaultShortcuts.ts';
 import { unifiedUnreadTotal } from '../utils/unifiedInbox.ts';
 import { toAppError } from '../utils/errors.ts';
+import { providerFailureKey } from '../utils/providerFailure.ts';
 import { isValidForwardAddress } from '../utils/ruleActions.ts';
 import type { CSSProperties, SVGProps } from 'react';
 import type { StoreState } from '../store/index.ts';
@@ -2768,7 +2769,12 @@ function IntegrationsTab() {
         // The popup does not report which provider failed, so the message stays in the
         // mailbox area and is not attributed. What must not happen is a button staying
         // disabled: every flow that could be pending is released here.
-        setSaveMsg('Error: ' + e.data.error);
+        //
+        // The code is mapped to the sentence written for it when there is one — a revoked consent
+        // arrives here as `invalid_grant` or `REAUTH_REQUIRED`, and "reconnect the account" is the
+        // action it calls for — and shown raw otherwise, so nothing is hidden.
+        const failureKey = providerFailureKey(typeof e.data.error === 'string' ? e.data.error : null);
+        setSaveMsg(failureKey ? t(failureKey) : 'Error: ' + e.data.error);
         setConnectingMs(false);
         setConnectingGoogle(false);
         setConnectingGraph(false);

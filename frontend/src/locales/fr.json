@@ -2112,6 +2112,7 @@
     "syncFailedScopes": "Il manque à la connexion une autorisation nécessaire à cette fonction. Reconnectez-la et accordez l’accès demandé.",
     "syncFailedRateLimited": "Le fournisseur limite actuellement les requêtes. Réessayez dans quelques minutes.",
     "connectGoogleHint": "Google est prêt à être connecté. Utilisez « Connecter un compte Google » dans Paramètres → Intégrations pour récupérer ses contacts ici.",
-    "connectMicrosoftHint": "Microsoft est prêt à être connecté. Utilisez « Connecter les contacts Microsoft » dans Paramètres → Intégrations pour récupérer ses contacts ici."
+    "connectMicrosoftHint": "Microsoft est prêt à être connecté. Utilisez « Connecter les contacts Microsoft » dans Paramètres → Intégrations pour récupérer ses contacts ici.",
+    "connectFailedTitle": "La connexion du compte a échoué"
   }
 }

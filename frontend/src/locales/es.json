@@ -2112,6 +2112,7 @@
     "syncFailedScopes": "A la conexión le falta un permiso que esta función necesita. Vuelve a conectarla y concede el acceso solicitado.",
     "syncFailedRateLimited": "El proveedor está limitando las solicitudes ahora mismo. Inténtalo de nuevo en unos minutos.",
     "connectGoogleHint": "Google está listo para conectarse. Usa «Conectar una cuenta de Google» en Ajustes → Integraciones para traer sus contactos aquí.",
-    "connectMicrosoftHint": "Microsoft está listo para conectarse. Usa «Conectar contactos de Microsoft» en Ajustes → Integraciones para traer sus contactos aquí."
+    "connectMicrosoftHint": "Microsoft está listo para conectarse. Usa «Conectar contactos de Microsoft» en Ajustes → Integraciones para traer sus contactos aquí.",
+    "connectFailedTitle": "No se pudo conectar la cuenta"
   }
 }

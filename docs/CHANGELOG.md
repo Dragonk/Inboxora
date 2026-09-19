@@ -494,6 +494,11 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   per-method switches to say which parts a *configured* installation offers. Unset means enabled, so an
   existing installation sees no change. The interfaces and the flows read the same switch, so the card
   cannot offer what a flow would refuse.
+- Say when connecting an account fails, and say what to do. A provider authorization that failed in the
+  same tab cleared the URL and reported nothing, so the only sign of it was that nothing happened; in the
+  popup it printed the raw provider code, `invalid_grant` included, when the sentence written for exactly
+  that case already existed. Both now map the code to that sentence — "the connection needs to be
+  reconnected" — and show the code itself when there is no wording for it, so nothing is hidden.
 
 
 ## [4.0.4] - 2026-09-18

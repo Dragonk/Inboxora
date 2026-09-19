@@ -33,6 +33,7 @@ import { desktopTitlebarHeight, isElectronShell } from '../utils/desktopShell.ts
 import { usePluginSlot, PluginRuntime } from '../plugins/PluginSlot.tsx';
 import type { StoreState } from '../store/index.ts';
 import { toAppError } from '../utils/errors.ts';
+import { providerFailureKey } from '../utils/providerFailure.ts';
 
 const ContactsPage = lazy(() => import('./ContactsPage.tsx'));
 const CalendarPage = lazy(() => import('./CalendarPage.tsx'));
@@ -837,7 +838,15 @@ export default function MailApp() {
         setShowAdmin(true);
       }
     } else if (oauthError) {
+      // A failed authorization used to clear the URL and say nothing, so the only sign of it was
+      // that nothing happened. The code is reported the way the connector's failures are.
       window.history.replaceState({}, '', '/');
+      const key = providerFailureKey(oauthError);
+      addNotification({
+        type: 'error',
+        title: t('providers.connectFailedTitle'),
+        body: key ? t(key) : oauthError,
+      });
     } else if (oidcSuccess) {
       window.history.replaceState({}, '', '/');
       if (oidcSuccess === 'linked') {

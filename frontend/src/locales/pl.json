@@ -2112,6 +2112,7 @@
     "syncFailedScopes": "Połączeniu brakuje uprawnienia wymaganego przez tę funkcję. Połącz je ponownie i zezwól na dostęp.",
     "syncFailedRateLimited": "Dostawca chwilowo ogranicza liczbę żądań. Spróbuj ponownie za kilka minut.",
     "connectGoogleHint": "Google jest gotowy do połączenia. Użyj opcji Połącz konto Google w Ustawieniach → Integracjach, aby pobrać tu kontakty.",
-    "connectMicrosoftHint": "Microsoft jest gotowy do połączenia. Użyj opcji Połącz kontakty Microsoft w Ustawieniach → Integracjach, aby pobrać tu kontakty."
+    "connectMicrosoftHint": "Microsoft jest gotowy do połączenia. Użyj opcji Połącz kontakty Microsoft w Ustawieniach → Integracjach, aby pobrać tu kontakty.",
+    "connectFailedTitle": "Nie udało się połączyć konta"
   }
 }

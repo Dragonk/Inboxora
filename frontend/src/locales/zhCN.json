@@ -2112,6 +2112,7 @@
     "syncFailedScopes": "该连接缺少此功能所需的权限。请重新连接并授予所请求的访问权限。",
     "syncFailedRateLimited": "服务提供方当前正在限制请求。请几分钟后重试。",
     "connectGoogleHint": "Google 已可连接。请在“设置 → 集成”中使用“连接 Google 账户”将联系人导入此处。",
-    "connectMicrosoftHint": "Microsoft 已可连接。请在“设置 → 集成”中使用“连接 Microsoft 联系人”将联系人导入此处。"
+    "connectMicrosoftHint": "Microsoft 已可连接。请在“设置 → 集成”中使用“连接 Microsoft 联系人”将联系人导入此处。",
+    "connectFailedTitle": "连接账户失败"
   }
 }
