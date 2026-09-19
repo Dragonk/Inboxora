@@ -1,4 +1,5 @@
 import { query } from './db.js';
+import { providerIntegrationsEnabled } from './providerSwitches.js';
 import {
   googleConfigFromEnv,
   isGoogleConfigured,
@@ -91,6 +92,10 @@ export interface ProviderSyncRunSummary {
 
 /** Refresh every already-pulled collection of every active provider connection. */
 export async function runProviderSyncs(): Promise<ProviderSyncRunSummary> {
+  // The installation switch reaches the schedule too: with the layer off, a run must not call a provider
+  // for collections that were pulled earlier. Reported as a run of nothing rather than an error, since the
+  // schedule is not a user action.
+  if (!providerIntegrationsEnabled()) return { ran: 0, failed: 0, connections: 0 };
   const targets = await listProviderSyncTargets();
   const googleConfig = googleConfigFromEnv();
   const microsoftConfig = microsoftConfigFromEnv();

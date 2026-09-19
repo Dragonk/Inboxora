@@ -499,6 +499,11 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   popup it printed the raw provider code, `invalid_grant` included, when the sentence written for exactly
   that case already existed. Both now map the code to that sentence — "the connection needs to be
   reconnected" — and show the code itself when there is no wording for it, so nothing is hidden.
+- Make `PROVIDER_INTEGRATIONS_ENABLED=0` reach the sync paths. The switch stopped the authorization flows
+  and the readiness report from offering anything, but the provider sync routes and the scheduled refresh
+  call the adapters directly — so an installation that had switched the layer off could still call out to a
+  provider for collections it had pulled earlier. Both now refuse: the routes answer `403`, and the schedule
+  reports a run of nothing rather than an error, since it is not a user action.
 
 
 ## [4.0.4] - 2026-09-18

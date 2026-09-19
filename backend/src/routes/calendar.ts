@@ -9,6 +9,7 @@ import { parseInboundCalendarInvitation } from '../services/inboundCalendarInvit
 import { parseCalendarEvent } from '../utils/ical.js';
 import { descriptionContentLines, normalizeDescription } from '../utils/richText.js';
 import { Router } from 'express';
+import { providerIntegrationsEnabled } from '../services/providerSwitches.js';
 import type { Request } from 'express';
 import crypto from 'crypto';
 import { query, withTransaction } from '../services/db.js';
@@ -1186,6 +1187,11 @@ router.get('/providers/google/status', async (req, res) => {
 // Pull the signed-in user's Google calendars and their events. The synced
 // calendars are read-only and hidden from DAV devices until the user enables them.
 router.post('/providers/google/sync', async (req, res) => {
+  // An installation that switched the provider layer off must not reach a provider from here either:
+  // the readiness report stops offering it, and this stops an existing collection from syncing.
+  if (!providerIntegrationsEnabled()) {
+    return res.status(403).json({ error: 'Provider integrations are disabled on this installation' });
+  }
   const userId = sessionUserId(req);
   const connections = await query<{ id: string }>(
     "SELECT id FROM provider_connections WHERE user_id = $1 AND provider = 'google' AND status = 'active' ORDER BY created_at ASC",

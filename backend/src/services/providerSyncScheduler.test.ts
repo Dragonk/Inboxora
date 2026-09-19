@@ -229,3 +229,17 @@ describe('startProviderSyncScheduler', () => {
     expect(mocks.query).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('the installation switch reaches the schedule', () => {
+  it('runs nothing when the provider layer is switched off', async () => {
+    // Otherwise an installation that switched the layer off would still call out for collections pulled
+    // earlier — the schedule reaches the adapters directly, not through the authorization flows.
+    process.env.PROVIDER_INTEGRATIONS_ENABLED = '0';
+    try {
+      const summary = await runProviderSyncs();
+      expect(summary).toEqual({ connections: 0, ran: 0, failed: 0 });
+    } finally {
+      delete process.env.PROVIDER_INTEGRATIONS_ENABLED;
+    }
+  });
+});

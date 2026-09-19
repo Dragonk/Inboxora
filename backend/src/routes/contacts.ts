@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import type { VCardContact } from '../utils/vcard.ts';
 import { query, withTransaction } from '../services/db.js';
+import { providerIntegrationsEnabled } from '../services/providerSwitches.js';
 import { requireAuth } from '../middleware/auth.js';
 import { generateVCard, mergeVCard, normalizeContactDateLabel, normalizeVCardDate, parseVCard, splitVCards } from '../utils/vcard.js';
 import { chooseDefined, normalizeRichContactFields } from '../utils/contactFields.js';
@@ -272,6 +273,11 @@ router.get('/providers/microsoft/status', async (req, res) => {
 });
 
 router.post('/providers/microsoft/sync', async (req, res) => {
+  // An installation that switched the provider layer off must not reach a provider from here either:
+  // the readiness report stops offering it, and this stops an existing collection from syncing.
+  if (!providerIntegrationsEnabled()) {
+    return res.status(403).json({ error: 'Provider integrations are disabled on this installation' });
+  }
   const userId = sessionUserId(req);
   const connections = await query<{ id: string }>(
     "SELECT id FROM provider_connections WHERE user_id = $1 AND provider = 'microsoft' AND status = 'active' ORDER BY created_at ASC",
@@ -306,6 +312,11 @@ router.post('/providers/microsoft/sync', async (req, res) => {
 // provider connection. The source stays the writer: the synced books are read-only
 // and are not published to DAV devices until the user enables them.
 router.post('/providers/google/sync', async (req, res) => {
+  // An installation that switched the provider layer off must not reach a provider from here either:
+  // the readiness report stops offering it, and this stops an existing collection from syncing.
+  if (!providerIntegrationsEnabled()) {
+    return res.status(403).json({ error: 'Provider integrations are disabled on this installation' });
+  }
   const userId = sessionUserId(req);
   const connections = await query<{ id: string }>(
     "SELECT id FROM provider_connections WHERE user_id = $1 AND provider = 'google' AND status = 'active' ORDER BY created_at ASC",
