@@ -1656,6 +1656,16 @@ started" row suggests, so the slice is a seam rather than a rewrite:
      What is measured is stream-versus-json. That the real SMTP path drops Bcc is the route's comment and
      nodemailer's documented behaviour rather than something measured here, and the note says which is
      which.
+
+     **And `keepBcc: false` does not fix it, measured:** creating the stream composition with
+     `{ streamTransport: true, newline: 'windows', keepBcc: false }` still produces the `Bcc:` header and
+     the same byte count as the default (231 bytes both ways) in this nodemailer version — so the option is
+     not the mechanism that controls it here. The artefact therefore has to be handled another way: compose
+     with a mechanism that does not write Bcc, or strip the header (including a folded continuation) from
+     the buffer. Note also that the size accounting currently counts the `Bcc:` header line, so removing it
+     changes the counted length by that much and puts the accounting on the side of what is actually sent.
+     This was measured the same way as the stream-versus-json difference and for the same reason: the
+     obvious switch was tried before it was written into the plan.
      Nodemailer "uses bcc for the SMTP envelope but omits it from generated MIME" (the route
      says so where it builds `mailOptions`, and refuses to synthesise a `To` header for a BCC-only
      retry). Passing `raw` therefore hands nodemailer a message with **no BCC header**, and its envelope
