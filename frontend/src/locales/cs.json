@@ -2107,7 +2107,7 @@
     },
     "syncFailedAuth": "Připojení je třeba obnovit. Otevřete kartu integrace a připojte účet znovu.",
     "syncFailedScopes": "Připojení postrádá oprávnění, které tato funkce vyžaduje. Připojte je znovu a povolte požadovaný přístup.",
-    "syncFailedRateLimited": "Poskytovatel nyní omezuje požadavky. Opakování proběhne automaticky.",
+    "syncFailedRateLimited": "Poskytovatel nyní omezuje požadavky. Zkuste to znovu za několik minut.",
     "connectGoogleHint": "Google je připraven k připojení. Použijte „Připojit účet Google“ v Nastavení → Integrace a načtěte kontakty sem.",
     "connectMicrosoftHint": "Microsoft je připraven k připojení. Použijte „Připojit kontakty Microsoft“ v Nastavení → Integrace a načtěte kontakty sem."
   }

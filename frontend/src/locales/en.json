@@ -2107,7 +2107,7 @@
     },
     "syncFailedAuth": "The connection needs to be reconnected. Open the integration card and connect the account again.",
     "syncFailedScopes": "The connection is missing a permission this feature needs. Reconnect it and allow the requested access.",
-    "syncFailedRateLimited": "The provider is limiting requests right now. It will be retried automatically.",
+    "syncFailedRateLimited": "The provider is limiting requests right now. Try again in a few minutes.",
     "connectGoogleHint": "Google is ready to connect. Use Connect a Google account in Settings → Integrations to pull its contacts here.",
     "connectMicrosoftHint": "Microsoft is ready to connect. Use Connect Microsoft contacts in Settings → Integrations to pull its contacts here."
   }

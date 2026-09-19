@@ -396,6 +396,12 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   off — which the refresh schedule honours — would be silently re-enabled by the next sync of that
   connection. The refresh now only links what is missing and leaves the settings it does not own
   alone.
+- Stop promising an automatic retry that may not happen. The message shown when a provider is
+  throttling said the sync "will be retried automatically", which is only true while the refresh
+  schedule is enabled — and the same documentation that describes this message documents setting
+  `PROVIDER_SYNC_INTERVAL_MINUTES=0` to disable that schedule. The wording now tells the user to try
+  again shortly, which is true either way, instead of describing behaviour the operator may have
+  turned off.
 
 
 ## [4.0.4] - 2026-09-18
