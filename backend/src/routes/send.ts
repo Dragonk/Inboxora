@@ -14,6 +14,7 @@ import type { EmailAccountRow } from '../services/imapManager.js';
 import { resolveSentFolder } from '../utils/mailUtils.js';
 import { generateVCard } from '../utils/vcard.js';
 import { createAccountSmtpTransport } from '../services/smtpTransport.js';
+import { SEND_ATTACHMENT_TOTAL_BYTES, sendLimits } from '../services/sendLimits.js';
 import { imapManager } from '../index.js';
 import { pluginRegistry } from '../plugins/registry.js';
 import { toAppError } from '../utils/errors.js';
@@ -399,6 +400,7 @@ router.use(requireAuth);
 
 
 router.post('/send', async (req, res) => {
+  const limits = sendLimits();
   const { accountId, aliasId, to, cc = [], bcc = [], subject, body, bodyIsHtml, quotedBody, quotedBodyHtml, inReplyTo, references, attachments, editedSignature, editedSignatureIsHtml, forwardedAttachments, priority }: SendRequestBody = req.body;
   const emailPriority = isEmailPriority(priority) ? priority : 'normal';
   if (!accountId) return res.status(400).json({ error: 'accountId required' });
@@ -418,10 +420,10 @@ router.post('/send', async (req, res) => {
     if (!Array.isArray(attachments)) return res.status(400).json({ error: 'attachments must be an array' });
     if (attachments.length > 100) return res.status(400).json({ error: 'Too many attachments (max 100)' });
     const totalBytes = attachments.reduce((sum, a) => sum + (typeof a.content === 'string' ? Math.ceil(a.content.length * 0.75) : 0), 0);
-    if (totalBytes > 26_214_400) {
+    if (totalBytes > SEND_ATTACHMENT_TOTAL_BYTES) {
       // §22.1 maps content that is too large to 413 with a domain code; this guard is the oldest of the size
       // checks and reported neither, so a client had to match English prose to know what happened.
-      return res.status(413).json({ code: 'ATTACHMENT_TOO_LARGE', actual: totalBytes, limit: 26_214_400, error: 'Total attachment size exceeds 25 MB' });
+      return res.status(413).json({ code: 'ATTACHMENT_TOO_LARGE', actual: totalBytes, limit: SEND_ATTACHMENT_TOTAL_BYTES, error: 'Total attachment size exceeds 25 MB' });
     }
     for (const [i, a] of attachments.entries()) {
       if (typeof a.filename !== 'string' || !a.filename.trim()) return res.status(400).json({ error: `attachments[${i}].filename is required` });
@@ -515,8 +517,10 @@ router.post('/send', async (req, res) => {
         declaredFwdBytes += Number(att.size) || 0;
         return { msg, att };
       });
-      if (uploadedBytes + declaredFwdBytes > 26_214_400) {
-        return res.status(413).json({ code: 'MESSAGE_TOO_LARGE', actual: uploadedBytes + declaredFwdBytes, limit: 26_214_400, error: 'Total attachment size exceeds 25 MB' });
+      // Attachments that were uploaded and attachments still on the server are one total:
+      // a forwarded attachment costs the same as an uploaded one.
+      if (uploadedBytes + declaredFwdBytes > SEND_ATTACHMENT_TOTAL_BYTES) {
+        return res.status(413).json({ code: 'MESSAGE_TOO_LARGE', actual: uploadedBytes + declaredFwdBytes, limit: SEND_ATTACHMENT_TOTAL_BYTES, error: 'Total attachment size exceeds 25 MB' });
       }
 
       // Load the owning accounts once, then fetch bodies with bounded concurrency so we never
@@ -545,9 +549,20 @@ router.post('/send', async (req, res) => {
       }
 
       // Exact backstop: declared sizes can under-report, so re-check against fetched bytes.
+      // It answers like its two siblings above — 413 with a domain code and the numbers —
+      // rather than the bare 400 with English prose it used to return. A client had to
+      // match that sentence to learn what happened, which is the reason the other two
+      // guards gained codes in the first place, and this one is the *last* line of defence
+      // so it is the one most likely to be reached.
       const fwdBytes = resolvedFwdAttachments.reduce((sum, a) => sum + (a.content?.length || 0), 0);
-      if (uploadedBytes + fwdBytes > 26_214_400) {
-        return res.status(400).json({ error: 'Total attachment size exceeds 25 MB' });
+      const forwardedTotal = uploadedBytes + fwdBytes;
+      if (forwardedTotal > SEND_ATTACHMENT_TOTAL_BYTES) {
+        return res.status(413).json({
+          code: 'MESSAGE_TOO_LARGE',
+          actual: forwardedTotal,
+          limit: SEND_ATTACHMENT_TOTAL_BYTES,
+          error: 'Total attachment size exceeds 25 MB',
+        });
       }
     } catch (caught) {
       const err = toAppError(caught);
@@ -701,7 +716,7 @@ router.post('/send', async (req, res) => {
     // rather than a declared size: these contents are the decoded ones, so this is measurement, not trust. The
     // total check below would refuse the same message, which is why this runs first — same policy, but the
     // administrator learns which file caused it.
-    const perAttachmentLimit = mailMaxMessageBytes();
+    const perAttachmentLimit = limits.attachmentBytes;
     const oversizedAttachment = allAttachments.find(
       a => Buffer.isBuffer(a.content) && a.content.length > perAttachmentLimit,
     );
@@ -748,7 +763,7 @@ router.post('/send', async (req, res) => {
     // §12.2: the interface's estimate is preliminary, and this is the message as actually compiled — headers,
     // base64 growth, separators and CRLF included — counted on the server side, before any dispatch. Nothing has
     // been claimed or handed to SMTP at this point, so refusing here leaves no uncertain send behind.
-    const messageLimit = mailMaxMessageBytes();
+    const messageLimit = limits.mimeBytes;
     if (rawMessage.length > messageLimit) {
       // §12.2 counts three figures, not one: the raw attachment bytes, the compiled MIME, and the transport
       // encoding. The first two are known here, and naming the attachment subtotal tells the user whether to
@@ -1054,14 +1069,8 @@ router.post('/send', async (req, res) => {
 export default router;
 
 /**
- * The ceiling on one composed message, in bytes.
- *
- * The default is Gmail's raw-message limit (25 MiB) because it is the lowest ceiling an installation is likely to
- * meet, and a provider's own limit can still be lower: passing this check means the installation accepted the
- * message, not that the provider will. `MAIL_MAX_MESSAGE_BYTES` raises it for servers that permit more.
+ * Re-exported so the name keep working for callers of this module, but defined once in
+ * `services/sendLimits.ts` — the limit belongs with the other size dimensions, and a
+ * second copy here is how the four values drifted apart in the first place.
  */
-export function mailMaxMessageBytes(env: NodeJS.ProcessEnv = process.env): number {
-  const configured = Number(env.MAIL_MAX_MESSAGE_BYTES);
-  if (Number.isFinite(configured) && configured > 0) return Math.floor(configured);
-  return 25 * 1024 * 1024;
-}
+export { mailMaxMessageBytes } from '../services/sendLimits.js';

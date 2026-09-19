@@ -13,7 +13,25 @@ limitations — read the matching page in the Wiki: [Release notes 4.1.0](wiki/R
 
 ## [Unreleased]
 
+### Fixed
+
+- **A too-large message rejected by the forwarded-attachment backstop now answers with a domain code
+  instead of prose.** The send route has three size guards, and the last of them — the exact re-check
+  against the **fetched** forwarded bytes, after the declared-size check that can under-report — returned
+  a bare `400` with an English sentence while its two siblings returned `413` with `ATTACHMENT_TOO_LARGE`
+  or `MESSAGE_TOO_LARGE` and the numbers. A client had to match that sentence to learn what happened,
+  which is the reason the other two guards gained codes in the first place — and this one is the last
+  line of defence, so it is the one most likely to be reached. It now answers like the others.
+
 ### Changed
+
+- **The four send size dimensions have one definition** (`services/sendLimits.ts`) instead of four
+  literals and locals spread through a 1067-line route, two of which were the same `26_214_400` written
+  twice. The relationship between them was accidental: raising the message ceiling did not raise the
+  attachment total, and nothing named which dimension a refusal belonged to. The module exports the
+  kinds, the derived values and the refusal shapes, and `mailMaxMessageBytes` is re-exported from the
+  route rather than defined there a second time. Behaviour is unchanged — the same numbers, one place —
+  which is what the P06 plan asked for before the shared send layer is built on top.
 
 - **Sending from a Microsoft Graph account says why it cannot, instead of failing like a credential
   problem** (P07b/P06 boundary). A native account has no SMTP credentials — its mail goes over Graph,
