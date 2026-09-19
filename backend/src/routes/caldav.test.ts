@@ -542,4 +542,38 @@ it('keeps client resource filenames independent of the embedded calendar UID', a
  const get = await fetch(`${base}/caldav/user-1/calendar-1/client-generated.ics`, { headers: { authorization: basic('sam@example.test','secret') } });
  expect(get.status).toBe(200); expect(queryParametersAt(0)[2]).toBe('client-generated.ics');
  expect(query.mock.calls[0][0]).toContain('COALESCE(e.dav_filename');
+
+});
+
+describe('a time-range query is decided by the projection', () => {
+  it('excludes a series that never occurs inside the window', async () => {
+    // `OR recurring` selects candidates; a series whose rule never lands in the window is one that matches
+    // nothing, and returning it hands the client resources it did not ask for.
+    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1', maxDavMode: 'read_write' });
+    const inside = [
+      'BEGIN:VCALENDAR', 'VERSION:2.0', 'BEGIN:VEVENT', 'UID:inside-window',
+      'DTSTART:20260901T090000Z', 'DTEND:20260901T100000Z',
+      'RRULE:FREQ=DAILY;COUNT=3', 'SUMMARY:Daily', 'END:VEVENT', 'END:VCALENDAR', '',
+    ].join('\r\n');
+    const outside = [
+      'BEGIN:VCALENDAR', 'VERSION:2.0', 'BEGIN:VEVENT', 'UID:outside-window',
+      'DTSTART:20200101T090000Z', 'DTEND:20200101T100000Z',
+      'RRULE:FREQ=DAILY;COUNT=3', 'SUMMARY:Long finished', 'END:VEVENT', 'END:VCALENDAR', '',
+    ].join('\r\n');
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'calendar-1', sync_token: 'sync-9', sync_version: 9 }] })
+      .mockResolvedValueOnce({ rows: [
+        { uid: 'inside-window', etag: 'etag-1', raw_ical: inside, dav_filename: null },
+        { uid: 'outside-window', etag: 'etag-2', raw_ical: outside, dav_filename: null },
+      ] });
+
+    const response = await fetch(`${base}/caldav/user-1/calendar-1/`, {
+      method: 'REPORT',
+      headers: { authorization: basic('sam@example.test', 'test-dav-password'), 'content-type': 'application/xml' },
+      body: '<C:calendar-query xmlns:C="urn:ietf:params:xml:ns:caldav"><C:filter><C:comp-filter name="VCALENDAR"><C:comp-filter name="VEVENT"><C:time-range start="20260901T000000Z" end="20260904T000000Z"/></C:comp-filter></C:comp-filter></C:filter></C:calendar-query>',
+    });
+    const xml = await response.text();
+    expect(xml).toContain('inside-window');
+    expect(xml).not.toContain('outside-window');
+  });
 });
