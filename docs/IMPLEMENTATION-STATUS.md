@@ -945,13 +945,15 @@ Each of these cost a defect or a round to learn, and each applies to whatever co
   rather than remembered; ten verdicts were corrected in one session, all in the direction of *more* work
   remaining. Assume the same of anything written here after this note.
 
-### State when this was written (measured at `1e8e3937` on `dev`, the last commit to change the interface)
+### State when this was written (measured again at `d0b93bf4`, after the 4.1.0 release)
 
-Everything below was green at that commit: backend **2271** unit tests, frontend **2655** plus a
-production build, **99** database integration tests across twelve suites on a fresh PostgreSQL 16 with the
-full 109-migration chain, and the browser projects re-run after the interface changes — **desktop 125 passed,
-0 failed** and **mobile 80 passed, 0 failed** in the same run (125 + 80 = 205 passed, 161 skipped across the
-two projects).
+Everything below was green at that commit, read from the **exit status** of each gate rather than from piped
+output: backend typecheck, lint and **2278** unit tests; frontend typecheck, lint, **2680** tests (0 failing) and a
+production build; **99** database integration tests across twelve suites on a fresh PostgreSQL 16 with the full
+109-migration chain; and the browser projects **205 passed, 0 failed** (desktop 125 + mobile 80, 161 skipped) from
+their last full run, which predates the release. The exit-status rule is stated because this document's author
+learned it the hard way one round earlier: a pipe to `tail` returns the pipe's status, and a failing suite went to
+`dev` behind one.
 
 The browser run is the point of dating this: the interface changed twice since it last ran in full, so it was
 re-run rather than assumed, which is the rule this work settled on and the reason the drawer regression was
