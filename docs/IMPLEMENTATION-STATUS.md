@@ -377,6 +377,24 @@ two missing pages are concrete, bounded deliverables. They were not attempted he
 three pages of operator instruction properly is more than the remaining session can verify, and a documentation
 page written without checking the code it describes would be worse than the gap.
 
+## The domain-error contract (§22.1), row by row
+
+The plan's table maps each domain code to an HTTP status and to the retry or user-facing consequence, and reading
+it against the implementation gives a mixed but definite picture:
+
+| Row | State |
+| --- | --- |
+| `ADMIN_CONFIGURATION_REQUIRED` | **Satisfied.** All three sync routes answer `409` with "…API is not configured by the administrator", which is the row's status and its meaning; there is no automatic OAuth loop to prevent. |
+| `PROVIDER_AUTH_REQUIRED`, `INSUFFICIENT_SCOPES`, `RESOURCE_NOT_FOUND`, `INVALID_SYNC_CURSOR`, `RATE_LIMITED`, `UPSTREAM_UNAVAILABLE`, `INTERNAL_ERROR` | **Satisfied.** These are the codes the connectors record in `last_error_code` and the UI maps — auth, scopes and rate limiting to actionable sentences, the rest shown with the provider's own code, and a rate limit distinguished from an auth failure. |
+| `COLLECTION_READ_ONLY` / `OPERATION_FORBIDDEN` | **Satisfied** as behaviour rather than as a code: writes to a source-owned collection are refused with `403` and a reason, and nothing is written locally, which is the row's consequence. |
+| `PERMISSION`, `MUTATION_OUTCOME_UNKNOWN` | **The code exists** where a lease is lost mid-mutation, and it is recorded rather than mapped to a sentence, which is honest for a state a user cannot act on. |
+| `VALIDATION_ERROR`, `SESSION_REQUIRED`, `VERSION_CONFLICT`, `IDEMPOTENCY_KEY_REUSED`, `STORAGE_*` | Route-level and narrower than the provider connectors; not audited row by row here. |
+| `ATTACHMENT_*`, `MESSAGE_TOO_LARGE`, `UPLOAD_SESSION_EXPIRED`, `SEND_OUTCOME_UNKNOWN`, `MAILBOX_QUOTA_EXCEEDED`, `SEND_LIMIT_REACHED`, `PARTIAL_SYNC` | **Belong to P06, P07b and P08**, which are not implemented — attachment and send semantics have no code path to classify yet. |
+| `ACCOUNT_MIGRATION_REQUIRED` | **Belongs to P12**, for the same reason; and the plan's own rule that **Google's recommendation never returns this code** is respected by having no such code path for Google at all. |
+
+So the provider-facing half of the contract holds, and the half that does not exist is the mail half — which is the
+same boundary the W-list draws, stated once here in the plan's own vocabulary.
+
 ## Observability: what the plan asks for and what exists (§25.2)
 
 A chapter-level reading rather than a table one, and it found a scope item my per-package status never mentioned.
