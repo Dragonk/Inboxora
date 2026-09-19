@@ -1267,8 +1267,9 @@ router.post('/calendars/:id/import/ics', async (req, res) => {
       }
     });
     if (!imported) return res.status(400).json({ error: 'No events found in the file' });
-    // Invalidate DAV clients: the collection changed by more than a file upload.
-    await query('UPDATE calendars SET sync_token = gen_random_uuid()::text, updated_at = NOW() WHERE id = $1', [calendar.id]);
+    // No manual token bump: the `calendar_events` trigger maintains `sync_version` and
+    // `sync_token` in the `sync-N` scheme the DAV endpoint advertises, and writing a
+    // random token here replaced it with a value that scheme never produces.
     res.status(201).json({ imported });
   } catch (err) {
     console.error('iCalendar import error:', err);

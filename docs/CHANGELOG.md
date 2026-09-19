@@ -344,6 +344,11 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   query could one day return two rows for one collection, and a fan-out would silently double the
   number the line reports. Relying on "only one row exists today" is fine for the query, not for a
   count the user reads.
+- Stop the iCalendar import replacing the calendar's DAV sync token. A `calendar_events` trigger
+  already maintains it in the `sync-N` scheme the DAV endpoint advertises, and the import wrote a
+  random UUID of its own on top — a value that scheme never produces. Removing it also removes a
+  redundant statement per import. Verified on a real database that inserting an event bumps the
+  token and that it stays in the advertised form, which is what the DAV clients depend on.
 
 ## [4.0.4] - 2026-09-18
 

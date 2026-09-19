@@ -82,8 +82,9 @@ describe('POST /api/calendar/calendars/:id/import/ics', () => {
     expect(params[5]).toBe('Standup');
     expect(params[11]).toBe('Room 1');
     expect(String(params[3])).toContain('UID:e1');
-    // DAV clients must see the collection as changed.
-    expect(queryCallsMatching('UPDATE calendars SET sync_token')).toHaveLength(1);
+    // The collection's DAV sync token is maintained by the calendar_events trigger, so
+    // the route must not write a second, differently shaped token of its own.
+    expect(queryCallsMatching('UPDATE calendars SET sync_token')).toHaveLength(0);
   });
 
   it('keeps a series and its override in one resource, as DAV requires', async () => {
