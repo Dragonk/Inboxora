@@ -377,6 +377,33 @@ two missing pages are concrete, bounded deliverables. They were not attempted he
 three pages of operator instruction properly is more than the remaining session can verify, and a documentation
 page written without checking the code it describes would be worse than the gap.
 
+## Retry and uncertain outcomes (§22.2–22.4): what holds, and the one thing that does not
+
+Reading these three subsections against the code gives one real gap and a set of requirements that are already
+met — several of them deliberately, which is worth recording because the plan names them as traps:
+
+- **`Retry-After` is respected in classification, not in scheduling.** `classifyGoogleError` and its Graph
+  counterpart parse the header and mark the error retryable with the delay attached, and `providerReason` is kept
+  for diagnostics. What does **not** exist is the **limited exponential backoff with jitter** the section asks
+  for: the refresh schedule runs at a fixed interval, so a throttled collection is retried on the same cadence as
+  a healthy one. That is the gap this reading found, and it belongs with the scheduler.
+- **A 403 is not treated as an auth error.** The classifier checks Google's own reason against a set of
+  rate/quota reasons and maps those to `RATE_LIMITED` — retryable, with the delay — keeping only genuine
+  permission failures as `INSUFFICIENT_SCOPES`. The plan names this as the mistake to avoid; the code carries a
+  comment saying so.
+- **A partial batch is not replayed wholesale.** Syncs are page-by-page with idempotent upserts and a cursor
+  advanced only after the pages are applied, so a retry re-reads (a safe read) without duplicating writes.
+- **Uncertain mutations are not retried automatically.** The providers' write paths do not exist yet, and the
+  one place an outcome can be uncertain — a lost lease mid-run — records `MUTATION_OUTCOME_UNKNOWN` rather than
+  retrying, which is the rule the section states.
+- **§22.4's mandatory protections are in place where their surfaces exist**: state/nonce/PKCE/audience/issuer and
+  the redirect and callback checks on the OAuth endpoints (verified in round 182), the DAV device password's own
+  scope, rate limit and revocation, HTML sanitisation for mail, SSRF controls on outbound fetches, and redaction
+  in diagnostics and logs. The webhook and attachment requirements have no code path yet, for the same reason the
+  mail half of §22.1 has none.
+
+So: one bounded gap — **scheduler backoff and jitter** — and a list of traps already avoided.
+
 ## The domain-error contract (§22.1), row by row
 
 The plan's table maps each domain code to an HTTP status and to the retry or user-facing consequence, and reading
