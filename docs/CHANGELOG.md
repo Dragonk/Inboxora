@@ -13,6 +13,21 @@ limitations — read the matching page in the Wiki: [Release notes 4.1.0](wiki/R
 
 ## [Unreleased]
 
+### Changed
+
+- **The PostgreSQL integration suites and the browser matrix are now part of the `dev` gate.** The two
+  layers that found this work's real defects — a lost lease, a two-worker token refresh, a cursor
+  advanced out of order, and the drawer that covered the page after a navigation — ran only by hand,
+  so a regression could reach `dev` while every gated check was green. `ci.yml` gains a
+  `backend-database` job (`postgres:16-alpine`, the migration chain applied to an **empty** database
+  with the application's own runner, then the provider and DAV suites), and
+  `conversation-v2-playwright.yml` now also triggers on `push: [dev]`. Both workflows set
+  `bash -euo pipefail`, so a pipeline's exit status is the real one rather than the last command's.
+  **Not verified:** neither job has run on a GitHub runner, so the action versions, cache paths and
+  service wiring are unproven; the commands inside them have been executed by hand against a database
+  created empty for the purpose, where the chain applied from zero and all 179 integration tests
+  passed.
+
 ### Added
 
 - **Microsoft Graph message delete (P07b, fifth slice).** Deleting a Graph message follows the same

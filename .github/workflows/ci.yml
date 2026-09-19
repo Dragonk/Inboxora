@@ -10,6 +10,14 @@ on:
 permissions:
   contents: read
 
+# Every pipeline must propagate its real exit status: `cmd | tail` returns *tail's*
+# status, which is how a failing suite once reached `dev` behind a green-looking
+# pipe. Single commands are unaffected; the default is here so a future `run:` that
+# adds a pipe cannot quietly stop being a gate.
+defaults:
+  run:
+    shell: bash -euo pipefail {0}
+
 jobs:
   backend:
     name: Backend
@@ -50,6 +58,85 @@ jobs:
       - name: Audit
         working-directory: backend
         run: npm audit --omit=dev --audit-level=high
+
+  # The provider layer's real defects — a lost lease, a cursor advanced out of
+  # order, a two-worker token refresh, the DAV preconditions — are only reachable
+  # against a real PostgreSQL, which is why this job exists rather than trusting the
+  # mocked suites. It also proves the whole migration chain applies to an empty
+  # database, which no other job does.
+  backend-database:
+    name: Backend (PostgreSQL integration)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: mailflow_test
+          POSTGRES_PASSWORD: mailflow_test
+          POSTGRES_DB: mailflow_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U mailflow_test -d mailflow_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Assert exact tested SHA
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: backend
+        run: npm ci
+
+      - name: Apply the migration chain to an empty database
+        working-directory: backend
+        env:
+          DB_HOST: 127.0.0.1
+          DB_PORT: "5432"
+          DB_NAME: mailflow_test
+          DB_USER: mailflow_test
+          DB_PASSWORD: mailflow_test
+        # The application's own runner, not a `psql` loop over the files: this is the
+        # path production startup takes, it is what the upgrade suite's checksums
+        # and `schema_migrations` bookkeeping belong to, and it honours the
+        # `-- no-transaction` marker that `CREATE INDEX CONCURRENTLY` needs. The
+        # by-file application is exercised separately, by
+        # `providerSchemaUpgrade.integration.test.ts`, so both paths are covered
+        # rather than only the one this step picks.
+        run: node --import tsx src/scripts/runMigrations.ts
+
+      - name: Integration suites
+        working-directory: backend
+        env:
+          DB_HOST: 127.0.0.1
+          DB_PORT: "5432"
+          DB_NAME: mailflow_test
+          DB_USER: mailflow_test
+          DB_PASSWORD: mailflow_test
+          REQUIRE_DAV_POSTGRES: "1"
+        # `providerSchemaUpgrade.integration.test.ts` creates and drops a database of
+        # its own, so the role needs CREATEDB (the service user has it) and this job
+        # must not share its database with another.
+        run: |
+          npx vitest run \
+            src/services/providerAuthService.integration.test.ts \
+            src/services/providerTokenService.integration.test.ts \
+            src/services/providerOperations.integration.test.ts \
+            src/services/providerMutationService.integration.test.ts \
+            src/services/providerConnectionService.integration.test.ts \
+            src/services/providerSchemaUpgrade.integration.test.ts \
+            src/services/providers/google src/services/providers/microsoft \
+            src/routes/davPg.integration.test.ts
 
   frontend:
     name: Frontend

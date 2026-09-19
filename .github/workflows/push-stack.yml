@@ -21,6 +21,13 @@ concurrency:
   group: push-stack-${{ github.ref }}
   cancel-in-progress: true
 
+# A pipeline's exit status is its last command's unless `pipefail` is set, so a
+# `docker exec … | head -1` in this workflow would let a broken container look like a
+# successful assertion. The same default is set in every workflow that pipes.
+defaults:
+  run:
+    shell: bash -euo pipefail {0}
+
 jobs:
   push-stack:
     name: Built-in ntfy behind /push

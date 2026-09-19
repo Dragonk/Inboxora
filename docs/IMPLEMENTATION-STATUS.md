@@ -36,7 +36,7 @@ run, so the number is load-sensitive — a timing assertion to fix, not a result
 
 | Package | Status | Delivered (commit) | Missing |
 | --- | --- | --- | --- |
-| P00 — preparation/audit, **CI repair** | **partial** | — | `ci.yml` runs `typecheck`, `build`, `lint` and the unit tests on every push. Coverage is **not** repaired: the database integration suites and the browser matrix — the two layers that found this work's real defects — run only by hand. The v4 continuation adds them as gated jobs; see P14. |
+| P00 — preparation/audit, **CI repair** | **delivered** | this work: `ci.yml` (`backend-database`, `pipefail` default), `conversation-v2-playwright.yml` (`push: [dev]`) | `ci.yml` runs `typecheck`, `build`, `lint` and the unit tests on every push, and now also a **`backend-database` job**: `postgres:16-alpine`, the migration chain applied to an empty database with the application's own runner, then the provider/DAV integration suites. The **browser matrix is on the `dev` gate** too, via a `push: [dev]` trigger. Every workflow that pipes sets `bash -euo pipefail`, so a pipeline's status is the real one — the failure mode that once put a red suite on `dev` behind a green-looking pipe. What is **not** verified is the GitHub plumbing itself: neither job has run on a runner, so action versions, cache paths and service wiring are unproven while the commands are exercised by hand. |
 | P01 — shared provider contracts | **mostly delivered** | `abbe2b9b`, this work: `b0381b77` | The contracts, the registry and the capability table now **decide every collection operation**: the REST and DAV write guards, the DAV advertised privileges, the calendar delete and the contacts read-only flag all ask `services/providerAccess.ts`, which combines the origin adapter's declared support with the collection's own access and the device password's ceiling. Two things remain: the interface still derives calendar-event editability from `source === 'local'` in `CalendarSidebar.tsx` and `CalendarEventPreview.tsx` even though the server now reports the correct `read_only`, and **no remote adapter declares `writeThrough` yet**, so the model's answer for a provider-owned collection is "refused" until P09/P10 implement those writes. |
 | P02 — additive schema (connections, grants, remote links, operation journal, outbox, notice preferences), **backfill of existing sources** | **partial** | `abbe2b9b` (connections/grants/remote links, `0101`), `78b8c182` (journal/outbox, `0103`–`0105`) | The schema is delivered, additive and preserves existing IDs. The **upgrade half is now covered**: `providerSchemaUpgrade.integration.test.ts` creates its own database, applies the chain up to the provider migrations, seeds existing rows, applies every migration from `0101` onwards (now `0101`–`0109`) and asserts those rows and their IDs survive — green inside the 161-test gate. Still missing: the **backfill** of existing sources, so today's ICS subscriptions, CardDAV accounts and IMAP accounts are still described only by their own older tables and the provider layer does not know about them; and `source_connections` has **no reader and no writer** in production code, so the external-source half of the schema is schema only. The four attempts that produced the upgrade case are in *History*. |
 | P03 — operation journal, sync leases, domain outbox, **common ingest and mutation services** | **mostly delivered** | `78b8c182`, this work: `d89c42a3` | Leases are wired — the Google and Microsoft connectors take them on every run. The journal is now on a **production write path**: `services/providerMutationService.ts` gives mail, calendar and contacts adapters one typed contract (`confirmed`, `accepted`, `pending`, `retryable`, `conflict`, `permanent`, `outcome_unknown`), commits the claim **before** the provider call, parks a recovered non-idempotent operation as `outcome_unknown` instead of re-running it, and reports `outcome_unknown` rather than success when it loses its claim. The first adapter is an IMAP flag write, used by the read and star endpoints. Remaining: the IMAP path still hands an unconfirmed change to the pre-existing in-memory reconciler rather than to the journal's own pool, there is no calendar/contacts/send adapter yet, and `domainOutbox.ts` still has **no production enqueuer**. The `pending` pool *is* read now — the Graph mail sync drains scheduled flag mutations through it (`7076f4e1`). |
@@ -900,14 +900,22 @@ manually during this work and passed; "gated" means a workflow runs it for a `de
 | Layer | Local default | CI on push to `dev` | CI on PR |
 | --- | --- | --- | --- |
 | Backend and frontend unit / contract tests | runs | **gated** (`ci.yml`) | gated |
-| Real-PostgreSQL integration (provider sync, token refresh, OAuth flow table, DAV) | skipped — needs `DB_*` | **not gated** (`ci.yml` has no database service; the PG workflow is PR-to-`main` and runs one specific file) | not gated |
-| Browser E2E, five projects | skipped unless run explicitly | **not gated** (`conversation-v2-playwright.yml` is `pull_request`-only) | gated |
+| Real-PostgreSQL integration (provider sync, token refresh, OAuth flow table, mutation layer, Graph mail, DAV) | runs with `DB_*` | **gated** (`ci.yml` → `backend-database`: `postgres:16-alpine`, the chain applied to an empty database, then the suites) | gated |
+| Browser E2E, five projects | skipped unless run explicitly | **gated** (`conversation-v2-playwright.yml`, now triggered on `push: [dev]` as well as on a pull request) | gated |
 
 So two of the three layers were verified but never gated, and the work was integrated by pushing
 directly to `dev`. That is the complete explanation for two real defects surviving many rounds of
 per-round verification: the verification was real, and narrower than it looked.
 
-Recipes to close the two gaps, left unapplied because CI cost is an operator decision:
+**Both gaps are now closed** (the CI slice that also carried this document's update): the database job and the browser
+trigger are in the workflows below. What remains unverified is the *GitHub plumbing*, not the
+commands: the job has never run on a runner, so the action versions, the cache path and the service
+wiring are unproven — while the commands inside it have been executed by hand against a database
+created empty for the purpose, where the chain applied from zero (112 migrations) and all 179
+integration tests passed. That distinction is the same one this document draws everywhere else, and
+it is stated rather than glossed because "the job is in the file" is not "the job is green".
+
+The recipes are kept below as the record of what was applied, with the job now living in `ci.yml`:
 
 - **Database suites** — add a job to `ci.yml` with a `postgres:16-alpine` service and the `DB_*`
   variables, then run the gated files, e.g.
@@ -977,11 +985,15 @@ suite creates and drops its own rows, so it needs nothing but an empty migrated 
 
 One requirement of the suite list: `providerSchemaUpgrade.integration.test.ts` creates and drops a database of its own, so the role it connects as needs `CREATEDB` — the `postgres` service user below has it — and it removes that database in `afterAll` even when its assertions fail.
 
-It is left unapplied because CI minutes are an operator decision, not because it is difficult. Two
-caveats, so nobody mistakes it for something it is not: the **commands inside it are the ones used by
-hand** throughout this work, but the **job itself has never been executed** — action versions and
-cache paths are unverified — and the suite creates and drops its own rows, so it must not share a
-database with another job.
+**This job is in `ci.yml` now** (`backend-database`), on every push to `dev` and every pull request,
+and it applies the chain with the application's own runner rather than a `psql` loop — the path
+production startup takes, and the one `schema_migrations` and the upgrade suite's checksums belong to.
+The by-file path is still exercised, by `providerSchemaUpgrade.integration.test.ts`, so both are
+covered rather than only the one the job picks. One caveat, so nobody mistakes it for something it is
+not: the **commands have been run by hand** against a database created empty for the purpose (112
+migrations applied from zero, 179 tests green), but the **job itself has never run on a GitHub
+runner** — action versions, cache paths and the service wiring are unverified — and the suite creates
+and drops its own database, so it must not share one with another job.
 
 What it buys beyond the tests: it proves the **migration chain applies to an empty database**, which
 no other job in this repository currently does for a fresh install.
