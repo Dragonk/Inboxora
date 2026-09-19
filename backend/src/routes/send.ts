@@ -421,7 +421,7 @@ router.post('/send', async (req, res) => {
     if (totalBytes > 26_214_400) {
       // §22.1 maps content that is too large to 413 with a domain code; this guard is the oldest of the size
       // checks and reported neither, so a client had to match English prose to know what happened.
-      return res.status(413).json({ code: 'ATTACHMENT_TOO_LARGE', error: 'Total attachment size exceeds 25 MB' });
+      return res.status(413).json({ code: 'ATTACHMENT_TOO_LARGE', actual: totalBytes, limit: 26_214_400, error: 'Total attachment size exceeds 25 MB' });
     }
     for (const [i, a] of attachments.entries()) {
       if (typeof a.filename !== 'string' || !a.filename.trim()) return res.status(400).json({ error: `attachments[${i}].filename is required` });
@@ -516,7 +516,7 @@ router.post('/send', async (req, res) => {
         return { msg, att };
       });
       if (uploadedBytes + declaredFwdBytes > 26_214_400) {
-        return res.status(413).json({ code: 'MESSAGE_TOO_LARGE', error: 'Total attachment size exceeds 25 MB' });
+        return res.status(413).json({ code: 'MESSAGE_TOO_LARGE', actual: uploadedBytes + declaredFwdBytes, limit: 26_214_400, error: 'Total attachment size exceeds 25 MB' });
       }
 
       // Load the owning accounts once, then fetch bodies with bounded concurrency so we never
@@ -708,6 +708,9 @@ router.post('/send', async (req, res) => {
     if (oversizedAttachment) {
       return res.status(413).json({
         code: 'ATTACHMENT_TOO_LARGE',
+        actual: (oversizedAttachment.content as Buffer).length,
+        limit: perAttachmentLimit,
+        filename: oversizedAttachment.filename,
         error: `The attachment "${oversizedAttachment.filename}" is ${(oversizedAttachment.content as Buffer).length} bytes, above this installation's limit of ${perAttachmentLimit}.`,
       });
     }
@@ -755,6 +758,8 @@ router.post('/send', async (req, res) => {
       );
       return res.status(413).json({
         code: 'MESSAGE_TOO_LARGE',
+        actual: rawMessage.length,
+        limit: messageLimit,
         error: `The composed message is ${rawMessage.length} bytes, above this installation's limit of ${messageLimit}.`
           + ` Attachments account for ${rawAttachmentBytes} of them.`,
       });

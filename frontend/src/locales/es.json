@@ -1073,7 +1073,10 @@
       "copyAll": "Copiar todas en este campo"
     },
     "sendUncertainTitle": "Resultado de envío desconocido",
-    "sendUncertainBody": "La conexión se perdió después de entregar este mensaje al servidor, así que Inboxora no puede saber si se envió —y no lo enviará de nuevo automáticamente. Revisa la carpeta Enviados de la cuenta: si está ahí, se envió."
+    "sendUncertainBody": "La conexión se perdió después de entregar este mensaje al servidor, así que Inboxora no puede saber si se envió —y no lo enviará de nuevo automáticamente. Revisa la carpeta Enviados de la cuenta: si está ahí, se envió.",
+    "attachmentTooLarge": "«{name}» ocupa {actual}; el límite es {limit}. El archivo no se adjuntó.",
+    "messageTooLarge": "El mensaje completo ocupa {actual}; el límite es {limit}. Quita archivos o acorta el mensaje.",
+    "attachmentFetchFailed": "No se pudo obtener el adjunto reenviado. El mensaje no se envió sin ese archivo."
   },
   "contacts": {
     "title": "Contactos",

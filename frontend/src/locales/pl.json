@@ -1073,7 +1073,10 @@
       "copyAll": "Kopiuj wszystkie adresy z tego pola"
     },
     "sendUncertainTitle": "Wynik wysyłki nieznany",
-    "sendUncertainBody": "Połączenie zostało utracone po przekazaniu wiadomości do serwera, więc Inboxora nie wie, czy została wysłana — i nie wyśle jej ponownie automatycznie. Sprawdź folder Wysłane tego konta: jeśli tam jest, została wysłana."
+    "sendUncertainBody": "Połączenie zostało utracone po przekazaniu wiadomości do serwera, więc Inboxora nie wie, czy została wysłana — i nie wyśle jej ponownie automatycznie. Sprawdź folder Wysłane tego konta: jeśli tam jest, została wysłana.",
+    "attachmentTooLarge": "Plik „{name}” ma {actual}; limit wynosi {limit}. Plik nie został dołączony.",
+    "messageTooLarge": "Cała wiadomość ma {actual}, a limit to {limit}. Usuń część plików lub skróć wiadomość.",
+    "attachmentFetchFailed": "Nie udało się pobrać przekazywanego załącznika. Wiadomość nie została wysłana bez tego pliku."
   },
   "contacts": {
     "title": "Kontakty",

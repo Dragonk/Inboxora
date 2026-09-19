@@ -1073,7 +1073,10 @@
       "copyAll": "Alle in diesem Feld kopieren"
     },
     "sendUncertainTitle": "Sendeergebnis unbekannt",
-    "sendUncertainBody": "Die Verbindung ging verloren, nachdem diese Nachricht an den Server übergeben wurde. Inboxora kann daher nicht wissen, ob sie gesendet wurde — und sendet sie nicht automatisch erneut. Prüfe den Ordner Gesendet des Kontos: ist sie dort, wurde sie gesendet."
+    "sendUncertainBody": "Die Verbindung ging verloren, nachdem diese Nachricht an den Server übergeben wurde. Inboxora kann daher nicht wissen, ob sie gesendet wurde — und sendet sie nicht automatisch erneut. Prüfe den Ordner Gesendet des Kontos: ist sie dort, wurde sie gesendet.",
+    "attachmentTooLarge": "„{name}“ ist {actual}; das Limit liegt bei {limit}. Die Datei wurde nicht angehängt.",
+    "messageTooLarge": "Die gesamte Nachricht ist {actual}; das Limit liegt bei {limit}. Entferne Dateien oder kürze die Nachricht.",
+    "attachmentFetchFailed": "Der weitergeleitete Anhang konnte nicht geladen werden. Die Nachricht wurde ohne diese Datei nicht gesendet."
   },
   "contacts": {
     "title": "Kontakte",

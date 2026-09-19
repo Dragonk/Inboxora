@@ -1073,7 +1073,10 @@
       "copyAll": "Tout copier dans ce champ"
     },
     "sendUncertainTitle": "Résultat d'envoi inconnu",
-    "sendUncertainBody": "La connexion a été perdue après la remise de ce message au serveur : Inboxora ne peut donc pas savoir s'il a été envoyé — et ne le renverra pas automatiquement. Vérifiez le dossier Éléments envoyés du compte : s'il y est, il a été envoyé."
+    "sendUncertainBody": "La connexion a été perdue après la remise de ce message au serveur : Inboxora ne peut donc pas savoir s'il a été envoyé — et ne le renverra pas automatiquement. Vérifiez le dossier Éléments envoyés du compte : s'il y est, il a été envoyé.",
+    "attachmentTooLarge": "« {name} » fait {actual} ; la limite est de {limit}. Le fichier n’a pas été joint.",
+    "messageTooLarge": "Le message entier fait {actual} ; la limite est de {limit}. Retirez des fichiers ou raccourcissez le message.",
+    "attachmentFetchFailed": "La pièce jointe transférée n’a pas pu être récupérée. Le message n’a pas été envoyé sans ce fichier."
   },
   "contacts": {
     "title": "Contacts",

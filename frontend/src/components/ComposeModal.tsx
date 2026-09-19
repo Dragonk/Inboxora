@@ -921,7 +921,18 @@ export default function ComposeModal() {
     } catch (err) {
       if (!isCurrentSession()) return;
       const appError = toAppError(err);
-      if (appError.code === 'SEND_OUTCOME_UNKNOWN') {
+      const figures = appError as { actual?: number; limit?: number; filename?: string };
+      if (appError.code === 'ATTACHMENT_TOO_LARGE' && typeof figures.actual === 'number') {
+        setError(t('compose.attachmentTooLarge', {
+          name: figures.filename ?? '', actual: byteSize(figures.actual), limit: byteSize(figures.limit ?? 0),
+        }));
+      } else if (appError.code === 'MESSAGE_TOO_LARGE' && typeof figures.actual === 'number') {
+        setError(t('compose.messageTooLarge', {
+          actual: byteSize(figures.actual), limit: byteSize(figures.limit ?? 0),
+        }));
+      } else if (appError.code === 'ATTACHMENT_FETCH_FAILED') {
+        setError(t('compose.attachmentFetchFailed'));
+      } else if (appError.code === 'SEND_OUTCOME_UNKNOWN') {
         // The message was handed over and the answer was lost. Saying so, and where to look, is all the interface
         // can honestly do — and it is more than the server's sentence in another language.
         setError(t('compose.sendUncertainBody'));
@@ -3447,3 +3458,9 @@ function ChipInput({ chips, onChipsChange, value, onChange, placeholder, autoFoc
   );
 }
 
+/** Bytes as a short human figure: a size message is for a person, not for a log. */
+function byteSize(bytes: number): string {
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
+  if (bytes >= 1024) return `${Math.round(bytes / 1024)} KiB`;
+  return `${bytes} B`;
+}
