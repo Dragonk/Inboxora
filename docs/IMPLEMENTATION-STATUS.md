@@ -232,6 +232,19 @@ cap. Sweeping the backend for `on('data')` found two more, and they belong to di
 What is *not* affected: the import routes (JSON, already under the 1 MB parser limit), the DAV routes
 (capped), and the request-side readers in the mail ingestion path, which stream to disk.
 
+## Contact-field additions: verified to reach the database, with one step left
+
+The anniversaries and instant-message handles added to both providers are mapped, and **the plumbing
+consumes them**: reading each adapter's upsert shows `anniversary` and `instant_messages` in the column
+list and `parsed.anniversary` / `parsed.instantMessages` among the parameters, for Google and for Graph.
+So neither change is inert, which was worth checking — a mapper that returns a field no statement writes
+is the same silence as a switch nothing reads.
+
+What is **not** yet done: no **database-level** assertion writes a provider payload with an anniversary
+or an IM handle and reads the row back. The unit cases cover the mapping, and the plumbing is verified by
+reading; the end-to-end proof would be one case in each provider's existing PostgreSQL integration suite,
+seeding a person/contact with those fields and asserting the stored row.
+
 ## Acceptance criteria W01–W19, as the plan requires them reported
 
 The plan states that the scope is not complete until every W item has associated code **and real test
