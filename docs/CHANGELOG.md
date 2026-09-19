@@ -21,6 +21,9 @@ limitations — read the matching page in the Wiki: [Release notes 4.1.0](wiki/R
   included — **before** anything is claimed or dispatched, and answers `413 MESSAGE_TOO_LARGE` with the real byte
   count and the limit. `MAIL_MAX_MESSAGE_BYTES` raises the limit from its 25 MiB default; passing this check means
   this installation accepted the message, **not** that the provider will.
+- An oversized **attachment** is named rather than only totalled: the message says which file is above the limit and
+  by how much, measured from the decoded contents rather than a declared size. The policy is unchanged — the total
+  would have refused the same message — but the administrator learns what to remove.
 
 
 ### Added

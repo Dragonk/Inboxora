@@ -238,4 +238,30 @@ describe('send failure semantics', () => {
       delete process.env.MAIL_MAX_MESSAGE_BYTES;
     }
   });
+
+  it('names an oversized attachment rather than only the total', async () => {
+    // §22.1: an oversized attachment is reported as such. The bytes are the decoded ones, so this is a
+    // measurement rather than trust in a declared size.
+    process.env.MAIL_MAX_MESSAGE_BYTES = '1000';
+    try {
+      const response = await fetch(`${base}/api/mail/send`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          accountId: 'a1',
+          to: ['you@example.com'],
+          subject: 'Big file',
+          body: 'Hello',
+          attachments: [{ filename: 'report.bin', content: Buffer.alloc(3000, 7).toString('base64') }],
+        }),
+      });
+      expect(response.status).toBe(413);
+      const body = await response.json() as { code?: string; error?: string };
+      expect(body.code).toBe('ATTACHMENT_TOO_LARGE');
+      expect(body.error).toContain('report.bin');
+      expect(sendMail).not.toHaveBeenCalled();
+    } finally {
+      delete process.env.MAIL_MAX_MESSAGE_BYTES;
+    }
+  });
 });

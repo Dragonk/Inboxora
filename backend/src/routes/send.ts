@@ -685,6 +685,21 @@ router.post('/send', async (req, res) => {
       mailOptions.attachments = allAttachments;
     }
 
+    // §22.1 wants an oversized attachment named rather than only totalled, and §12.2 requires the real bytes
+    // rather than a declared size: these contents are the decoded ones, so this is measurement, not trust. The
+    // total check below would refuse the same message, which is why this runs first — same policy, but the
+    // administrator learns which file caused it.
+    const perAttachmentLimit = mailMaxMessageBytes();
+    const oversizedAttachment = allAttachments.find(
+      a => Buffer.isBuffer(a.content) && a.content.length > perAttachmentLimit,
+    );
+    if (oversizedAttachment) {
+      return res.status(413).json({
+        code: 'ATTACHMENT_TOO_LARGE',
+        error: `The attachment "${oversizedAttachment.filename}" is ${(oversizedAttachment.content as Buffer).length} bytes, above this installation's limit of ${perAttachmentLimit}.`,
+      });
+    }
+
     // OAuth providers (Gmail, Microsoft) save sent mail to IMAP automatically via their
     // servers — skip APPEND and sync after a delay.  All other accounts use direct IMAP
     // APPEND so sent mail reliably appears regardless of what the SMTP server does.
