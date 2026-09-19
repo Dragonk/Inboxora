@@ -837,6 +837,28 @@ router.get('/messages/:id/attachments/:part', async (req, res) => {
 
 
 
+
+/**
+ * Folder management is IMAP-only, and says so.
+ *
+ * These four routes create, rename, delete and empty a folder on the mail server.
+ * A Microsoft Graph account has no IMAP session to do it with, so each of them used
+ * to attempt one and fail with a generic error — an unsupported operation that
+ * looked like a broken one. Graph *can* create a folder (the snooze slice needed
+ * that), so these are implementable rather than impossible; until they are, the
+ * refusal is explicit and names the workaround the user actually has.
+ *
+ * `empty` is the one without a direct Graph equivalent: it needs pagination over
+ * the folder's messages, which is a design decision rather than a call.
+ */
+function folderManagementRefusal(account: EmailAccountRow): { error: string; code: string } | null {
+  if (account.mail_transport !== 'microsoft_graph') return null;
+  return {
+    error: 'Managing folders is not supported on a Microsoft Graph account yet. Create or change the folder in Outlook and use "Sync folders" to bring it here.',
+    code: 'OPERATION_FORBIDDEN',
+  };
+}
+
 /**
  * Set `\Seen` on every unread Microsoft Graph message of a folder.
  *
@@ -1552,6 +1574,8 @@ router.post('/folders', async (req, res) => {
   if (parentPath && !isValidFolderName(parentPath)) return res.status(400).json({ error: 'Invalid parent path' });
   const check = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2', [accountId, req.session.userId]);
   if (!check.rows.length) return res.status(404).json({ error: 'Account not found' });
+  const folderRefusal = folderManagementRefusal(check.rows[0]);
+  if (folderRefusal) return res.status(501).json(folderRefusal);
 
   // Build path: if parentPath given, look up the delimiter used by this account's folders
   let path = name.trim();
@@ -1582,6 +1606,8 @@ router.post('/folders/delete', async (req, res) => {
   if (!isValidFolderName(path)) return res.status(400).json({ error: 'Invalid folder path' });
   const check = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2', [accountId, req.session.userId]);
   if (!check.rows.length) return res.status(404).json({ error: 'Account not found' });
+  const folderRefusal = folderManagementRefusal(check.rows[0]);
+  if (folderRefusal) return res.status(501).json(folderRefusal);
 
   try {
     await imapManager.deleteFolder(check.rows[0], path);
@@ -1603,6 +1629,8 @@ router.post('/folders/rename', async (req, res) => {
   if (!isValidFolderName(oldPath)) return res.status(400).json({ error: 'Invalid folder path' });
   const check = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2', [accountId, req.session.userId]);
   if (!check.rows.length) return res.status(404).json({ error: 'Account not found' });
+  const folderRefusal = folderManagementRefusal(check.rows[0]);
+  if (folderRefusal) return res.status(501).json(folderRefusal);
 
   // Build the new path by replacing only the last path component
   const delimResult = await query('SELECT delimiter FROM folders WHERE account_id = $1 AND path = $2', [accountId, oldPath]);
@@ -1676,6 +1704,8 @@ router.post('/folders/empty', async (req, res) => {
   if (!isValidFolderName(path)) return res.status(400).json({ error: 'Invalid folder path' });
   const check = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2', [accountId, req.session.userId]);
   if (!check.rows.length) return res.status(404).json({ error: 'Account not found' });
+  const folderRefusal = folderManagementRefusal(check.rows[0]);
+  if (folderRefusal) return res.status(501).json(folderRefusal);
   const account = check.rows[0];
 
   const inflightKey = `${accountId}:${path}`;

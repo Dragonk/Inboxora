@@ -15,6 +15,14 @@ limitations — read the matching page in the Wiki: [Release notes 4.1.0](wiki/R
 
 ### Changed
 
+- **Folder management on a Microsoft Graph account now refuses explicitly** (P07b, thirteenth slice).
+  Creating, renaming, deleting and emptying a folder are IMAP operations, so on a native account each
+  attempted an IMAP session and failed with a generic error — an unsupported operation that looked like
+  a broken one. Each answers `501` with a code and names the workaround the user actually has (create or
+  change the folder in Outlook, then "Sync folders"). Graph *can* create a folder — the snooze slice
+  needed that primitive — so these are implementable rather than impossible; until they are, the
+  failure says which one it is. The IMAP path is unchanged.
+
 - **Downloading all attachments as a ZIP works on a Microsoft Graph account** (P07b, twelfth slice). The
   route read every attachment through IMAP, so on a native account the single-attachment download worked
   while "download all" did not. Each file is now fetched from the provider under the same 50 MB per-file
