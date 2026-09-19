@@ -1630,10 +1630,15 @@ started" row suggests, so the slice is a seam rather than a rewrite:
 
   **Two constraints on that step, both from the route's own comments, and the second is a delivery bug if
   it is missed:**
-  1. **Error precedence.** The seam is early on purpose — a bad account is refused before any composition
-     work. Moving composition above it reorders a size refusal relative to an account refusal, and the
-     send suites pin that order. Either compose above the seam *after* resolving it, or keep the refusal
-     first and compose between the two.
+  1. **Error precedence — and the claim I first wrote here was too strong.** The seam is early on
+     purpose, so a bad account is refused before any composition work, and moving composition above it
+     changes which refusal a request that is *both* oversized and badly addressed receives. I wrote that
+     "the send suites pin that order"; checking says otherwise: the size cases use a valid account and the
+     account-error cases use valid sizes, so **each refusal is asserted in isolation and their relative
+     order is not asserted at all**. That matters in both directions — it means the reorder will not break
+     a green suite, and it also means the reorder would be *unverified*, so the slice that does it should
+     decide which refusal ought to win and assert that, rather than inheriting an accident.
+     The alternative that needs no decision remains available: resolve the transport first, compose after.
   2. ~~**BCC.**~~ **Resolved** (`1962f519`): the envelope is now stated explicitly — `from` plus
      `to`+`cc`+`bcc` from the same normalised lists — and **verified identical to nodemailer's derivation**
      by compiling three messages (to+cc+bcc, bcc alone, display-name `from`) and comparing both envelopes
