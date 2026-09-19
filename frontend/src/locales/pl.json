@@ -850,7 +850,15 @@
       },
       "connectedAccounts": "Połączone konta",
       "disconnect": "Odłącz",
-      "clientIdChangeConfirm": "Ten Client ID różni się od zapisanego, a zapisany sekret został wydany dla zapisanego klienta. Zostanie zachowany, jeśli nie podasz nowego sekretu. Kontynuować?"
+      "clientIdChangeConfirm": "Ten Client ID różni się od zapisanego, a zapisany sekret został wydany dla zapisanego klienta. Zostanie zachowany, jeśli nie podasz nowego sekretu. Kontynuować?",
+      "test": {
+        "button": "Sprawdź konfigurację",
+        "testing": "Sprawdzanie…",
+        "accepted": "Dostawca zaakceptował te dane uwierzytelniające.",
+        "rejected": "Dostawca odrzucił te dane uwierzytelniające — sprawdź identyfikator klienta i wartość sekretu.",
+        "missingClientId": "Przed sprawdzeniem zapisz identyfikator klienta.",
+        "unreachable": "Nie udało się połączyć z dostawcą."
+      }
     },
     "ssoLinked": {
       "title": "Połączono tożsamość SSO",

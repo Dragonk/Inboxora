@@ -411,7 +411,15 @@
       },
       "connectedAccounts": "已连接的账户",
       "disconnect": "断开连接",
-      "clientIdChangeConfirm": "此 Client ID 与已保存的不同，而已保存的密钥是为已保存的客户端签发的。如果未输入新密钥，它将保留。是否继续？"
+      "clientIdChangeConfirm": "此 Client ID 与已保存的不同，而已保存的密钥是为已保存的客户端签发的。如果未输入新密钥，它将保留。是否继续？",
+      "test": {
+        "button": "测试配置",
+        "testing": "正在测试…",
+        "accepted": "提供商已接受这些凭据。",
+        "rejected": "提供商拒绝了这些凭据 — 请检查客户端 ID 和密钥值。",
+        "missingClientId": "请先保存客户端 ID 再测试。",
+        "unreachable": "无法连接到提供商。"
+      }
     },
     "lock": {
       "title": "屏幕锁定",

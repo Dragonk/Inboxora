@@ -411,7 +411,15 @@
       },
       "connectedAccounts": "Comptes connectés",
       "disconnect": "Déconnecter",
-      "clientIdChangeConfirm": "Cet ID client diffère de celui enregistré, et le secret stocké a été émis pour le client enregistré. Il sera conservé si vous ne saisissez pas de nouveau secret. Continuer ?"
+      "clientIdChangeConfirm": "Cet ID client diffère de celui enregistré, et le secret stocké a été émis pour le client enregistré. Il sera conservé si vous ne saisissez pas de nouveau secret. Continuer ?",
+      "test": {
+        "button": "Tester la configuration",
+        "testing": "Test en cours…",
+        "accepted": "Le fournisseur a accepté ces identifiants.",
+        "rejected": "Le fournisseur a refusé ces identifiants — vérifiez l'identifiant client et la valeur du secret.",
+        "missingClientId": "Enregistrez un identifiant client avant de tester.",
+        "unreachable": "Le fournisseur n'a pas pu être joint."
+      }
     },
     "lock": {
       "title": "Verrouillage de l'écran",

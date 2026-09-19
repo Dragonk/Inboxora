@@ -411,7 +411,15 @@
       },
       "connectedAccounts": "Account connessi",
       "disconnect": "Disconnetti",
-      "clientIdChangeConfirm": "Questo ID client è diverso da quello salvato e il secret memorizzato è stato emesso per il client salvato. Verrà mantenuto se non inserisci un nuovo secret. Continuare?"
+      "clientIdChangeConfirm": "Questo ID client è diverso da quello salvato e il secret memorizzato è stato emesso per il client salvato. Verrà mantenuto se non inserisci un nuovo secret. Continuare?",
+      "test": {
+        "button": "Verifica la configurazione",
+        "testing": "Verifica in corso…",
+        "accepted": "Il provider ha accettato queste credenziali.",
+        "rejected": "Il provider ha rifiutato queste credenziali — controlla il client id e il valore del secret.",
+        "missingClientId": "Salva un client id prima di verificare.",
+        "unreachable": "Non è stato possibile raggiungere il provider."
+      }
     },
     "lock": {
       "title": "Blocco schermo",

@@ -842,7 +842,15 @@
       },
       "connectedAccounts": "Připojené účty",
       "disconnect": "Odpojit",
-      "clientIdChangeConfirm": "Toto Client ID se liší od uloženého a uložený secret byl vydán pro uloženého klienta. Zůstane zachován, pokud nezadáte nový secret. Pokračovat?"
+      "clientIdChangeConfirm": "Toto Client ID se liší od uloženého a uložený secret byl vydán pro uloženého klienta. Zůstane zachován, pokud nezadáte nový secret. Pokračovat?",
+      "test": {
+        "button": "Otestovat konfiguraci",
+        "testing": "Testování…",
+        "accepted": "Poskytovatel přijal tyto přihlašovací údaje.",
+        "rejected": "Poskytovatel tyto přihlašovací údaje odmítl — zkontrolujte client id a hodnotu secretu.",
+        "missingClientId": "Před testem uložte client id.",
+        "unreachable": "Poskytovatele se nepodařilo kontaktovat."
+      }
     },
     "ai": {
       "title": "Asistent AI",

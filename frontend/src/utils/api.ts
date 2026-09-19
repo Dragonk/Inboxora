@@ -325,6 +325,8 @@ export const api = {
   getIntegrationsStatus: () => request('GET', '/integrations/status'),
   // Disconnect a provider account the signed-in user connected. Imported data is kept.
   disconnectProviderConnection: (id: string) => request('POST', `/integrations/provider-connections/${encodeURIComponent(id)}/disconnect`),
+  testProviderConfiguration: (provider: 'google' | 'microsoft') =>
+    request('POST', `/integrations/${provider}/test`),
   saveIntegration: (provider: string, config: unknown) => request('POST', `/integrations/${provider}`, config),
   deleteIntegration: (provider: string) => request('DELETE', `/integrations/${provider}`),
   startMsDeviceFlow: async () => {

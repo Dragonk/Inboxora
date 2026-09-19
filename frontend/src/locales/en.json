@@ -411,7 +411,15 @@
       },
       "connectedAccounts": "Connected accounts",
       "disconnect": "Disconnect",
-      "clientIdChangeConfirm": "This Client ID is different from the saved one, and the stored secret was issued for the saved client. It will be kept unless you enter a new secret. Continue?"
+      "clientIdChangeConfirm": "This Client ID is different from the saved one, and the stored secret was issued for the saved client. It will be kept unless you enter a new secret. Continue?",
+      "test": {
+        "button": "Test configuration",
+        "testing": "Testing…",
+        "accepted": "The provider accepted these credentials.",
+        "rejected": "The provider rejected these credentials — check the client id and the secret value.",
+        "missingClientId": "Save a client id before testing.",
+        "unreachable": "The provider could not be reached."
+      }
     },
     "lock": {
       "title": "Screen lock",

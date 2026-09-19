@@ -3305,6 +3305,8 @@ function IntegrationsTab() {
                   )}
                 </div>
 
+                <ProviderConfigTest provider="microsoft" />
+
                 {/* Device code flow */}
                 <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--border-subtle)' }}>
                   <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>
@@ -3612,6 +3614,7 @@ function IntegrationsTab() {
                         }}>
                           {googleSaving ? t('common.saving') : t('admin.integrations.microsoft.save')}
                         </button>
+                        <ProviderConfigTest provider="google" />
                         {googleConfigured && (
                           <button onClick={handleRemoveGoogle} style={{
                             padding: '9px 12px', background: 'transparent',
@@ -9646,6 +9649,66 @@ export default function AdminPanel() {
           {searchResults !== null ? <SearchResultsView results={searchResults} query={searchQuery} onNavigate={navigateTo} t={t} /> : tabContent}
         </div>
       </div>
+    </div>
+  );
+}
+
+
+/**
+ * Check the saved provider credentials against the provider, and say which of the two it is.
+ *
+ * Readiness means the fields are present and the method is enabled; it does not mean the provider accepts them,
+ * so a client id with a stray space or a secret taken from the wrong column reads as ready until an authorization
+ * fails at the provider. This is the control for the endpoint that tells the difference.
+ */
+function ProviderConfigTest({ provider }: { provider: 'google' | 'microsoft' }) {
+  const { t } = useTranslation();
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
+
+  const run = async () => {
+    setBusy(true);
+    setResult(null);
+    try {
+      const answer = await api.testProviderConfiguration(provider) as { ok?: boolean; code?: string };
+      if (answer?.ok) {
+        setResult({ ok: true, message: t('admin.integrations.test.accepted') });
+      } else if (answer?.code === 'ADMIN_CONFIGURATION_REQUIRED') {
+        setResult({ ok: false, message: t('admin.integrations.test.missingClientId') });
+      } else if (answer?.code === 'UPSTREAM_UNAVAILABLE') {
+        setResult({ ok: false, message: t('admin.integrations.test.unreachable') });
+      } else {
+        setResult({ ok: false, message: t('admin.integrations.test.rejected') });
+      }
+    } catch {
+      setResult({ ok: false, message: t('admin.integrations.test.unreachable') });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div style={{ marginTop: 12 }}>
+      <button
+        onClick={run}
+        disabled={busy}
+        data-testid={`provider-test-${provider}`}
+        style={{
+          padding: '8px 14px', background: 'var(--bg-elevated)', border: '1px solid var(--border)',
+          borderRadius: 8, color: busy ? 'var(--text-tertiary)' : 'var(--text-primary)',
+          cursor: busy ? 'wait' : 'pointer', fontSize: 12, fontWeight: 500,
+        }}
+      >
+        {busy ? t('admin.integrations.test.testing') : t('admin.integrations.test.button')}
+      </button>
+      {result && (
+        <div
+          data-testid={`provider-test-result-${provider}`}
+          style={{ marginTop: 6, fontSize: 12, color: result.ok ? 'var(--green)' : 'var(--red, #f87171)' }}
+        >
+          {result.message}
+        </div>
+      )}
     </div>
   );
 }

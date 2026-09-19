@@ -213,8 +213,9 @@ means no client id is stored, and `UPSTREAM_UNAVAILABLE` means the provider coul
 
 The stored secret is decrypted for the call and is **never returned**; no user data and no user grant are touched,
 and the check costs the provider one refused token request. The same endpoint exists for `microsoft`
-(`/api/integrations/microsoft/test`), and a **button on the card for it is not part of this release** — until it
-is, this is how to tell a working configuration from a complete-looking one.
+(`/api/integrations/microsoft/test`). The card also carries a **Test configuration** button that calls the same
+endpoint and shows the answer in place, which is the way to tell a working configuration from a complete-looking
+one without leaving the interface.
 
 ## Disconnecting an account
 

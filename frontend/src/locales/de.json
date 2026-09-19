@@ -411,7 +411,15 @@
       },
       "connectedAccounts": "Verbundene Konten",
       "disconnect": "Trennen",
-      "clientIdChangeConfirm": "Diese Client-ID unterscheidet sich von der gespeicherten, und das gespeicherte Secret wurde für den gespeicherten Client ausgestellt. Es bleibt erhalten, wenn Sie kein neues Secret eingeben. Fortfahren?"
+      "clientIdChangeConfirm": "Diese Client-ID unterscheidet sich von der gespeicherten, und das gespeicherte Secret wurde für den gespeicherten Client ausgestellt. Es bleibt erhalten, wenn Sie kein neues Secret eingeben. Fortfahren?",
+      "test": {
+        "button": "Konfiguration testen",
+        "testing": "Wird getestet…",
+        "accepted": "Der Anbieter hat diese Anmeldedaten akzeptiert.",
+        "rejected": "Der Anbieter hat diese Anmeldedaten abgelehnt — prüfe Client-ID und Secret-Wert.",
+        "missingClientId": "Vor dem Test eine Client-ID speichern.",
+        "unreachable": "Der Anbieter war nicht erreichbar."
+      }
     },
     "lock": {
       "title": "Bildschirmsperre",

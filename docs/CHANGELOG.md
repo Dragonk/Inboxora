@@ -21,8 +21,8 @@ limitations — read the matching page in the Wiki: [Release notes 4.1.0](wiki/R
   whole test and costs the provider nothing. The secret is decrypted for the call and is never part of the answer,
   and no user data or grant is involved. Readiness reports that the fields are present; this reports whether they
   work, which is the difference an administrator with a mistyped secret notices at the provider instead of on the
-  card. **The card's button for it is not part of this change**: the endpoint exists and is documented, and the
-  interface half is outstanding.
+  card. Each provider card carries a **Test configuration** button for it, which reports which of the two it
+  is — accepted, rejected, no client id saved, or the provider unreachable — in place.
 
 ## [4.1.0] - 2026-09-19
 

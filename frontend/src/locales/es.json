@@ -411,7 +411,15 @@
       },
       "connectedAccounts": "Cuentas conectadas",
       "disconnect": "Desconectar",
-      "clientIdChangeConfirm": "Este ID de cliente es distinto del guardado, y el secreto almacenado se emitió para el cliente guardado. Se conservará si no introduces un secreto nuevo. ¿Continuar?"
+      "clientIdChangeConfirm": "Este ID de cliente es distinto del guardado, y el secreto almacenado se emitió para el cliente guardado. Se conservará si no introduces un secreto nuevo. ¿Continuar?",
+      "test": {
+        "button": "Probar la configuración",
+        "testing": "Probando…",
+        "accepted": "El proveedor ha aceptado estas credenciales.",
+        "rejected": "El proveedor ha rechazado estas credenciales: revisa el identificador de cliente y el valor del secreto.",
+        "missingClientId": "Guarda un identificador de cliente antes de probar.",
+        "unreachable": "No se pudo contactar con el proveedor."
+      }
     },
     "lock": {
       "title": "Bloqueo de pantalla",
