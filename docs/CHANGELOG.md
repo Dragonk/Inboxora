@@ -137,6 +137,16 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   updated and removed, once an account is connected. A new safe status endpoint
   (`GET /api/contacts/providers/google/status`) reports readiness, the connection count and each
   synced book's count and last-sync time without exposing any credential.
+- Add the Google Calendar mapping foundation (P09, internal; not yet wired to a route or screen).
+  The adapter preserves a recurring series instead of expanding it: a master event keeps its
+  `RRULE`/`EXDATE`, a modified instance becomes a `RECURRENCE-ID` override and a cancelled
+  instance a `CANCELLED` override, all-day events stay date-valued, and the wall time is written
+  with a real `VTIMEZONE` generated from the platform time-zone database, so a DST boundary cannot
+  shift a series. A first revision of the generator omitted the baseline component that expanding
+  clients need for a date before the first transition, which read such dates an hour wrong; the
+  suite now pins both the summer and winter instant. Provider text is escaped and lines folded per
+  RFC 5545, and an event without a usable zone falls back to the exact UTC instant rather than an
+  undefined floating time.
 
 ## [4.0.4] - 2026-09-18
 
