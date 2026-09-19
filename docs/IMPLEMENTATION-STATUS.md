@@ -276,21 +276,26 @@ those packages have not started. It does mean "delivered" in the table above sho
 "the code exists and its tests pass", not "the application exercises it" — which is what the
 per-package column now says for P01 and P03.
 
-## Open: PROPPATCH is answered without reaching a handler
+## Open: PROPPATCH is answered with an empty 403
 
 Clients such as Thunderbird and DAVx5 set a display name or colour on a collection with `PROPPATCH`.
-Neither router has a handler for it, so the request is answered with an empty `403` — and the reason
-it is empty is the interesting part: when a handler was added, its first line, the guard comparing
-the path's user id with the credential's, returned before the refusal body could be written, which
-means the DAV credential's user id is **not populated for that method**. The guard is doing its job;
-the request simply never gets far enough to be told what is wrong.
+Neither router has a handler for it, so the request is answered `403` with no body, which a client
+cannot tell apart from a permissions failure.
 
-That handler was removed rather than shipped, because a handler that can never write its body is
-inert. The real fix is one step earlier: have the DAV authentication resolve the credential for
-`PROPPATCH` the way it does for the other methods, then answer `403` with a `DAV:error` body naming
-the reason — properties are managed by Inboxora, and a provider-sourced collection is owned by its
-source. `MKCALENDAR` is deliberately unimplemented and documented as such in `caldav.ts`; the
-compliance classes that would imply are not advertised, which is correct.
+A handler was added to give it a reason, and it answered with an empty body anyway; it was removed
+rather than shipped, because a handler that cannot write its body is inert. **The explanation I first
+recorded for that was wrong**, and is corrected here: `davServerAuth.ts` sets `davUserId` for *every*
+authenticated request, before any method is considered, so the credential is resolved for
+`PROPPATCH` like anything else. The empty body therefore comes from somewhere else — most plausibly a
+fallback route answering before the new handler, which is **not** verified.
+
+What is verified: there is no `PROPPATCH` handler in either router; the response is `403` with no
+body; the DAV authentication populates the credential for any method. Reproducing it needs a request
+against a running server with a write-capable credential and the router's route order inspected —
+which is where the next attempt should start, not from the middleware.
+
+`MKCALENDAR` remains deliberately unimplemented and documented as such in `caldav.ts`, with the
+compliance classes that would imply unadvertised, which is correct.
 
 ## The integrations card now has browser coverage
 
