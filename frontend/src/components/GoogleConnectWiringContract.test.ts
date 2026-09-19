@@ -178,3 +178,12 @@ test('an actionable provider failure is explained instead of shown as a code', a
   assert.match(source, /actionable \?\? 'contacts\.addressBooks\.lastSyncFailed'/);
   assert.match(sidebar, /actionable \?\? 'calendar\.lastSyncFailed'/);
 });
+
+test('an import confirms what it added instead of refreshing silently', async () => {
+  const source = await readFile(contactsPage, 'utf8');
+  // Both importers report the count the server returns, through the same notice.
+  const reports = source.match(/setImportNotice\(t\('contacts\.addressBooks\.importDone'/g) ?? [];
+  assert.equal(reports.length, 2, 'both the CSV and vCard importers must confirm');
+  assert.match(source, /data-testid="contacts-import-result"/);
+  assert.match(source, /count: result\?\.imported \?\? 0/);
+});

@@ -1149,7 +1149,8 @@
       "microsoftSyncPartial": "Microsoft-Kontakte: {{created}} hinzugefügt, {{updated}} aktualisiert, {{deleted}} entfernt; {{failed}} Verbindung(en) fehlgeschlagen.",
       "importVCard": "vCard importieren",
       "lastSynced": "Zuletzt synchronisiert: {{date}}",
-      "lastSyncFailed": "Synchronisierung fehlgeschlagen: {{code}} ({{when}})"
+      "lastSyncFailed": "Synchronisierung fehlgeschlagen: {{code}} ({{when}})",
+      "importDone": "{{count}} Kontakt(e) importiert."
     },
     "googleConnected": {
       "title": "Google verbunden",

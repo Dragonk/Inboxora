@@ -221,6 +221,9 @@ export default function ContactsPage({ isActive = true }) {
   const [microsoftContacts, setMicrosoftContacts] = useState<ProviderContactsStatus | null>(null);
   const [providerSyncing, setProviderSyncing] = useState<'google' | 'microsoft' | null>(null);
   const [providerNotice, setProviderNotice] = useState<{ provider: 'google' | 'microsoft'; message: string } | null>(null);
+  // What the last file import added, so the user gets a confirmation instead of a
+  // silent list refresh.
+  const [importNotice, setImportNotice] = useState('');
   const isMobile = useCompactLayout();
 
   const [contacts, setContacts]     = useState<ContactRow[]>([]);
@@ -413,7 +416,8 @@ export default function ContactsPage({ isActive = true }) {
     const file = event.target.files?.[0];
     if (!file || !selectedAddressBookId) return;
     try {
-      await api.addressBooks.importVCard(selectedAddressBookId, await file.text());
+      const result = await api.addressBooks.importVCard(selectedAddressBookId, await file.text()) as { imported?: number };
+      setImportNotice(t('contacts.addressBooks.importDone', { count: result?.imported ?? 0 }));
       await load(search);
       await loadAddressBooks();
     } catch (err) { setListError(toAppError(err).message); }
@@ -424,7 +428,8 @@ export default function ContactsPage({ isActive = true }) {
     const file = event.target.files?.[0];
     if (!file || !selectedAddressBookId) return;
     try {
-      await api.addressBooks.importGoogleCsv(selectedAddressBookId, await file.text());
+      const result = await api.addressBooks.importGoogleCsv(selectedAddressBookId, await file.text()) as { imported?: number };
+      setImportNotice(t('contacts.addressBooks.importDone', { count: result?.imported ?? 0 }));
       await load(search);
       await loadAddressBooks();
     } catch (err) { setListError(toAppError(err).message); }
@@ -680,6 +685,7 @@ export default function ContactsPage({ isActive = true }) {
     </details>
     <input ref={importInputRef} type="file" accept=".csv,text/csv" onChange={importGoogleCsv} style={{ display: 'none' }} />
     <input ref={importVCardRef} type="file" accept=".vcf,text/vcard" onChange={importVCardFile} style={{ display: 'none' }} />
+    {importNotice && <p role="status" data-testid="contacts-import-result" style={{ margin: '6px 0 0', fontSize: 12, color: 'var(--text-tertiary)' }}>{importNotice}</p>}
     {providerNotice && <p role="status" data-testid={`contacts-${providerNotice.provider}-sync-result`} style={{ margin: '6px 0 0', fontSize: 12, color: 'var(--text-tertiary)' }}>{providerNotice.message}</p>}
   </div>;
   // Rendered by both layouts: the address-book menu is shared, so its dialog must be too.

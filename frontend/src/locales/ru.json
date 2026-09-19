@@ -1149,7 +1149,8 @@
       "microsoftSyncPartial": "Контакты Microsoft: добавлено {{created}}, обновлено {{updated}}, удалено {{deleted}}; не удалось для {{failed}} подключений.",
       "importVCard": "Импорт vCard",
       "lastSynced": "Последняя синхронизация: {{date}}",
-      "lastSyncFailed": "Сбой синхронизации: {{code}} ({{when}})"
+      "lastSyncFailed": "Сбой синхронизации: {{code}} ({{when}})",
+      "importDone": "Импортировано контактов: {{count}}."
     },
     "googleConnected": {
       "title": "Google подключён",

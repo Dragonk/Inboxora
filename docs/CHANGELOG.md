@@ -300,6 +300,10 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   that is throttling now each get a sentence naming the action, in all nine languages. A code with
   no action behind it still shows the raw code, because a friendly sentence for a fault we do not
   understand would be worse than the code itself.
+- Confirm what a contact import added. Importing a CSV or vCard file silently refreshed the list, so
+  a user could not tell a successful import of forty contacts from a file that matched nothing. Both
+  importers now report the count the server returns, in all nine languages, in the same place as the
+  sync notices.
 ## [4.0.4] - 2026-09-18
 
 ### Changed

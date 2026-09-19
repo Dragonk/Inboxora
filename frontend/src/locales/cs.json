@@ -1149,7 +1149,8 @@
       "microsoftSyncPartial": "Kontakty Microsoft: přidáno {{created}}, aktualizováno {{updated}}, odebráno {{deleted}}; {{failed}} připojení selhalo.",
       "importVCard": "Importovat vCard",
       "lastSynced": "Naposledy synchronizováno: {{date}}",
-      "lastSyncFailed": "Synchronizace selhala: {{code}} ({{when}})"
+      "lastSyncFailed": "Synchronizace selhala: {{code}} ({{when}})",
+      "importDone": "Importováno {{count}} kontakt(ů)."
     },
     "googleConnected": {
       "title": "Google připojen",

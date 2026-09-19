@@ -1149,7 +1149,8 @@
       "microsoftSyncPartial": "Microsoft 联系人：新增 {{created}}，更新 {{updated}}，删除 {{deleted}}；{{failed}} 个连接失败。",
       "importVCard": "导入 vCard",
       "lastSynced": "上次同步：{{date}}",
-      "lastSyncFailed": "同步失败：{{code}}（{{when}}）"
+      "lastSyncFailed": "同步失败：{{code}}（{{when}}）",
+      "importDone": "已导入 {{count}} 个联系人。"
     },
     "googleConnected": {
       "title": "Google 已连接",
