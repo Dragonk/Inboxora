@@ -1,6 +1,6 @@
 # External calendars
 
-Inboxora subscribes to **CalDAV** and **ICS/webcal** calendars as pull-only, read-only sources.
+Inboxora subscribes to **CalDAV** and **ICS/webcal** calendars as pull-only, read-only sources. These subscriptions are **independent of the provider integrations**: connecting a Google or Microsoft account neither migrates them nor changes how they sync, and nothing here is removed because a provider was configured. Conversely, a Google calendar pulled through the API is a separate calendar from a feed of the same events.
 Add one from **Settings → Calendar → Calendar subscriptions** or from the calendar panel under
 **Manage sources**, which is also where you sync, reschedule and remove them.
 

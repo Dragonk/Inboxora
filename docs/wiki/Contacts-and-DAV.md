@@ -8,6 +8,11 @@ CalDAV.
 
 ## Address books
 
+Local and remote address books, Google-pulled and CardDAV-synced ones, are **independent of each other**. The
+provider integrations do not migrate, adopt or remove a CardDAV account or a local book: they add their own
+read-only book beside them, and the CardDAV adapter keeps writing to its own. A Google account connected for
+contacts is likewise not a reason for anything else to change.
+
 - Create, rename, recolour, hide or delete local address books. At least one local book remains.
 - **Rename** a book from the book menu next to the book picker: it opens a dialog prefilled with
   the current name, so "Personal" can become "Prywatne" or anything else. Naming is a real dialog
