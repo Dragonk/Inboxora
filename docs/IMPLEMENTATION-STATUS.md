@@ -17,7 +17,7 @@ rows. It is kept because its lessons are load-bearing, and it must never be read
 present. Earlier revisions mixed the two inside the table itself, which is how a reader could take a
 four-attempt saga — or a superseded delivery report — for a current status.
 
-Last re-measured on `dev` at `0b93d799`: backend typecheck, lint and **2450** unit tests
+Last re-measured on `dev` at `8013449e`: backend typecheck, lint and **2452** unit tests
 (**116 skipped** across 14 files); frontend typecheck, lint, production build and **2685** tests;
 **188** database integration tests across **18** suites on a fresh PostgreSQL 16 with the full
 **112**-migration chain — and, since the CI slice, verified the same way a new installation would
@@ -1632,6 +1632,20 @@ started" row suggests, so the slice is a seam rather than a rewrite:
      report `accepted`/`rejected` from the envelope the route already built, since the route reads those.
   4. **Tests**: the adapter against a fake fetch; the seam returning a Graph transport rather than a `501`;
      and a route-level case that a native account's send reaches Graph and **not** nodemailer.
+
+  **Steps 1 and 2 are done and tested** (`8013449e`): `graphSend` carries a raw body, and `sendGraphMime`
+  posts the base64 MIME to `/me/sendMail` with the classified error on a non-2xx. They are **not reachable**
+  — the seam still refuses a native account — so nothing behaves differently yet; what is left is step 3
+  (return the transport-shaped object) and step 4 (the seam and route-level cases).
+
+  **And there is a defect in `docs/CHANGELOG.md` that a reader must know about**: `[Unreleased]` now appears
+  **twice** (lines 14 and 48), both sections holding real entries. It came from an insertion of mine that
+  prepended a block and kept the original heading, and it was committed because I checked category headings
+  at one point and not the section heading afterwards. Two attempts to merge the sections mechanically lost
+  entries or re-emitted a heading — both were caught by counting the section's bullets, and both were
+  reverted, so the file stands at `HEAD` with all 45 entries and the duplicate heading. The repair is
+  editorial and needs the same guard: **count the bullets before and after, and compare the non-heading
+  content as a multiset**, which is how the round-48 merge was proven.
 
   The original note on ordering is kept below, because it is still true if anyone does move composition
   above the seam — it simply is not the path this slice takes.
