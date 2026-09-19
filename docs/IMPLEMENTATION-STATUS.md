@@ -1514,10 +1514,19 @@ replacing that refusal with the transport.
 rejects more than 100 attachments and a total above 25 MB, and the HTTP body limit is 35 MB with a
 route-aware 413 message. A *per-file* limit on top of that would be redundant while it equals the
 total, and making it smaller is a product policy decision rather than something to infer — so the
-real remaining work is (a) the MIME/content-type dimension, (b) counting **forwarded** attachments
-against the same total, which today are validated by count only and whose sizes are known only after
-the IMAP fetch, and (c) the durable ledger with draft preservation. Those need a limit definition
-shared with the composer rather than a constant chosen inside the route.
+real remaining work is (a) the MIME/content-type dimension and (b) the durable ledger with draft
+preservation. Those need a limit definition shared with the composer rather than a constant chosen
+inside the route.
+
+> **Corrected while locating the send seam.** This paragraph used to name a third item — "counting
+> forwarded attachments against the same total, which today are validated by count only and whose sizes
+> are known only after the IMAP fetch". Reading the route shows that is **not** true: the forwarded path
+> sums the attachments' **declared** sizes and refuses with `413 MESSAGE_TOO_LARGE` *before* any IMAP
+> fetch (`send.ts`, `declaredFwdBytes`). It is also the better of the two orders, because it refuses
+> without paying for the download. The claim was written from the count-only guard two lines above it
+> rather than from the path, which is the same mistake this document keeps recording in its own text.
+> The composed-message ceiling is likewise real and enforced pre-dispatch (`mailMaxMessageBytes`, default
+> 25 MiB, `MAIL_MAX_MESSAGE_BYTES` to raise it).
 
 **P06 + the shared send layer — the seam is now located.** Stage 3 of the v4 continuation, read rather
 than planned in the abstract. `send.ts` is 1067 lines and already has more of the shape than its "not
