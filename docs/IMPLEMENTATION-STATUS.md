@@ -32,6 +32,20 @@ typecheck, lint, production build and **2635 tests**. `main` has not been touche
 | P13 — hardening, E2E, release notes | **partial** | `065b3f86` (provider setup procedure); i18n kept at nine locales throughout | End-to-end suite for the new flows, release notes for a chosen version. |
 | P14 — final integration, CI, publish images | **not started** | — | Publish both `:dev` images and smoke-test the pair. Needs a release version and registry authorization. |
 
+## Verification performed on a fresh database
+
+The whole chain was re-applied **from zero** on an empty PostgreSQL 16 and every gated integration
+suite was then run against that database, so the provider stack is proven on a schema a new
+installation would actually have rather than on one evolved in place:
+
+- all 109 migrations apply in order with no error, and the provider tables
+  (`provider_connections`, `oauth_grants`, `integration_collections`, `remote_object_links`,
+  `provider_operations`, `domain_outbox`, `sync_states`, `account_notice_preferences`) all exist
+  afterwards;
+- 44 integration tests pass across seven suites: the provider authorization-flow table, Google and
+  Microsoft token refresh (including the two-worker race), the operation journal and outbox, the
+  Google and Microsoft contact syncs, the Google calendar sync, and the DAV HTTP integration.
+
 ## Known limitations of what is delivered
 
 - Pulled Google and Microsoft contacts and Google calendars are **read-only** in Inboxora: REST and
