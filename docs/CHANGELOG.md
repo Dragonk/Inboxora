@@ -488,6 +488,12 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   were — the same columns sat empty for the same reason. Graph's anniversary uses the same timestamp
   shape as its birthday, and a bare IM address carries no protocol, so it is typed `other` rather than
   guessed at.
+- Add one switch for the whole provider layer. `PROVIDER_INTEGRATIONS_ENABLED=0` (or `false`, `off`,
+  `no`) makes an installation stop offering and stop accepting every provider authorization — no Google,
+  no Microsoft mailbox, no device method, no contacts connector — while leaving the per-provider and
+  per-method switches to say which parts a *configured* installation offers. Unset means enabled, so an
+  existing installation sees no change. The interfaces and the flows read the same switch, so the card
+  cannot offer what a flow would refuse.
 
 
 ## [4.0.4] - 2026-09-18

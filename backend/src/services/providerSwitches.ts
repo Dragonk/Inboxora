@@ -22,6 +22,23 @@ export interface ProviderSwitches {
 }
 
 const ALL_ON: ProviderSwitches = { enabled: true, webEnabled: true, deviceEnabled: true, apiEnabled: true };
+const ALL_OFF: ProviderSwitches = { enabled: false, webEnabled: false, deviceEnabled: false, apiEnabled: false };
+
+/**
+ * Whether the provider layer is available at all, as one operator switch.
+ *
+ * The per-provider and per-method switches say which parts a configured installation offers; this says
+ * whether to offer any of it, which is what an operator wants before configuring a client or on an
+ * installation that must not call out to a provider. Read here so that every consumer — four
+ * authorization flows and the readiness report — answers the same question from the same place.
+ *
+ * Unset or any value other than an explicit off counts as enabled, so an existing installation is
+ * unaffected by the flag's arrival.
+ */
+export function providerIntegrationsEnabled(): boolean {
+  const value = (process.env.PROVIDER_INTEGRATIONS_ENABLED ?? '').trim().toLowerCase();
+  return !['0', 'false', 'off', 'no'].includes(value);
+}
 
 interface StoredSwitchConfig {
   disabled?: boolean;
@@ -31,6 +48,8 @@ interface StoredSwitchConfig {
 }
 
 export async function readProviderSwitches(provider: ProviderSwitchName): Promise<ProviderSwitches> {
+  // Switched off wholesale: no query, and no flow may start or be offered.
+  if (!providerIntegrationsEnabled()) return ALL_OFF;
   try {
     const result = await query<{ config?: StoredSwitchConfig }>(
       'SELECT config FROM integration_config WHERE provider = $1',

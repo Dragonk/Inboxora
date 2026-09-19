@@ -155,6 +155,20 @@ describe('GET /oauth/google (start)', () => {
     expect(params[3]).toBeNull();
   });
 
+  it('refuses to start when the provider layer is switched off for the installation', async () => {
+    // One operator switch above the per-provider ones: an installation that must not call out to a
+    // provider should not be able to start this flow at all.
+    process.env.PROVIDER_INTEGRATIONS_ENABLED = '0';
+    try {
+      const response = await startFlow();
+      expect(response.status).toBe(302);
+      expect(response.headers.get('location')).toContain('oauth_error=');
+      expect(queryCallsMatching('INSERT INTO oauth_authorization_flows')).toHaveLength(0);
+    } finally {
+      delete process.env.PROVIDER_INTEGRATIONS_ENABLED;
+    }
+  });
+
   it('refuses to start when the administrator switched the API off', async () => {
     mocks.query.mockResolvedValueOnce({ rows: [{ config: { apiEnabled: false } }] });
     const apiOff = await startFlow();

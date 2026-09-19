@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { providerIntegrationsEnabled } from '../services/providerSwitches.js';
 import { disconnectProviderConnection } from '../services/providerConnectionService.js';
 import { microsoftConfigFromEnv } from '../services/providerAuthService.js';
 import { query } from '../services/db.js';
@@ -141,12 +142,12 @@ function microsoftReadiness(stored: ProviderConfig): IntegrationStatus['microsof
     configured: !!clientId,
     // A provider the administrator switched off is reported as not enabled, so the card stops
     // offering it at the same moment the flow stops accepting it.
-    enabled: !!clientId && stored.disabled !== true,
-    browser: { ready: missing.length === 0 && stored.webEnabled !== false && stored.disabled !== true, missing },
+    enabled: providerIntegrationsEnabled() && !!clientId && stored.disabled !== true,
+    browser: { ready: providerIntegrationsEnabled() && missing.length === 0 && stored.webEnabled !== false && stored.disabled !== true, missing },
     graph: { ready: graphMissing.length === 0, missing: graphMissing },
     deviceCode: {
       supported: true,
-      ready: deviceReady && stored.disabled !== true,
+      ready: providerIntegrationsEnabled() && deviceReady && stored.disabled !== true,
       ...(deviceReady ? {} : { reason: clientId ? 'device_disabled' : 'missing_client_id' }),
     },
     mailPolicy: 'required',
@@ -161,10 +162,10 @@ function googleReadiness(stored: ProviderConfig): IntegrationStatus['google'] {
   if (!process.env.GOOGLE_REDIRECT_URI) missing.push('redirectUri');
   return {
     configured: !!clientId,
-    enabled: !!clientId && stored.disabled !== true,
+    enabled: providerIntegrationsEnabled() && !!clientId && stored.disabled !== true,
     // The operator's API switch is part of readiness, so the card stops offering the
     // connector at the same moment the flow stops accepting it.
-    browser: { ready: missing.length === 0 && stored.disabled !== true && stored.apiEnabled !== false, missing },
+    browser: { ready: providerIntegrationsEnabled() && missing.length === 0 && stored.disabled !== true && stored.apiEnabled !== false, missing },
     // Google's limited-input device flow does not allow the Gmail, Calendar or
     // People scopes this integration needs, so it is never offered.
     deviceCode: { supported: false, ready: false, reason: 'not_supported' },

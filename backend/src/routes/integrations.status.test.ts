@@ -178,6 +178,26 @@ describe('GET /api/integrations/status (non-admin capability check)', () => {
     expect(body.microsoft.graph).toEqual({ ready: true, missing: [] });
   });
 
+  it('offers nothing when the provider layer is switched off for the installation', async () => {
+    process.env.MS_CLIENT_ID = 'some-client-id';
+    process.env.MS_CLIENT_SECRET = 'some-secret';
+    process.env.MS_REDIRECT_URI = 'https://inboxora.example/oauth/microsoft/callback';
+    process.env.GOOGLE_CLIENT_ID = 'google-client';
+    process.env.GOOGLE_CLIENT_SECRET = 'google-secret';
+    process.env.GOOGLE_REDIRECT_URI = 'https://inboxora.example/oauth/google/callback';
+    process.env.PROVIDER_INTEGRATIONS_ENABLED = '0';
+    try {
+      const body = await integrationStatusBody(await fetch(`${integrationBase()}/api/integrations/status`));
+      // The card must stop offering what the flows would refuse.
+      expect(body.microsoft.enabled).toBe(false);
+      expect(body.microsoft.browser.ready).toBe(false);
+      expect(body.google.enabled).toBe(false);
+      expect(body.google.browser.ready).toBe(false);
+    } finally {
+      delete process.env.PROVIDER_INTEGRATIONS_ENABLED;
+    }
+  });
+
   it('reports Microsoft web readiness only once every web field is present', async () => {
     process.env.MS_CLIENT_ID = 'some-client-id';
     process.env.MS_CLIENT_SECRET = 'some-secret';
