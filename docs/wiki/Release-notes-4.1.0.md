@@ -368,7 +368,7 @@ status read rather than inferred from a pipeline:
   and a `SERIALIZABLE` rebuild can hit a serialization failure. The two figures above are the separate,
   supported invocations.)
 
-**Images published from that exact SHA.** Workflow run
+**Images published from that exact SHA** (documentation-only commits follow it, so the published images are the current `dev` code). Workflow run
 [`35459869340`](https://github.com/Dragonk/Inboxora/actions/runs/35459869340) built and pushed the `:dev`
 tags from `43c15e91`; both resolve to OCI image indexes carrying `linux/amd64` **and** `linux/arm64`:
 
