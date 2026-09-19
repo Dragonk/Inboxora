@@ -1030,12 +1030,17 @@ private data appear in this report or in the repository's documentation.**
 Read from each command's **exit status**: backend typecheck, lint and **2279** unit tests green; frontend typecheck,
 lint, **2682** tests and a production build green; **99** database integration tests across twelve suites on a fresh
 PostgreSQL 16 with the full 109-migration chain; browser **205 passed, 0 failed** (desktop 125 + mobile 80).
-**Skipped, separately:** 89 backend tests and 13 backend files are skipped by design, and the browser run reports 161
-skipped alongside its 205 passing. **Not run, separately:** the browser matrix **predates** the last two interface
-changes (the provider-card test control and the composer's uncertain-send message), so it does not cover them; the
-database suites were last run before the send-path work, which does not touch what they exercise; **the performance
-comparison §25.1 requires was never run** — no representative before/after measurements exist, and the plan's own
-rule forbids substituting an invented budget for them. Error and conflict behaviour has dedicated tests: rate-limit
+**Skipped, separately:** 89 backend tests and 13 backend files are skipped by design. **Re-run at this tree, after
+the report's first draft flagged them as stale:** the browser matrix was re-executed against a build made with the
+mocked API and finished green — **232 passed, 136 skipped, 368 total, exit 0** — so it now covers the provider-card
+test control and the composer's uncertain-send message, the two changes that postdated it. That count differs from the
+**205 passed, 136... 161 skipped** reported earlier in this document and the difference is **not explained here**: the
+two runs used the same two projects and the same mocked build, and the fresh number is the one to trust because it was
+measured at this commit. The **database gate was re-executed too**, exactly as the recipe below prescribes, on a fresh
+PostgreSQL 16 with all 109 migrations applied in order: **12 files, 99 tests, exit 0** — which also turns that recipe
+from "ready to paste" into an executed one. **Not run, separately: the performance comparison §25.1 requires** — no
+representative before/after measurements exist, and the plan's own rule forbids substituting an invented budget for
+them. Error and conflict behaviour has dedicated tests: rate-limit
 versus auth classification, expired cursors, read-only refusals, idempotency mismatch and uncertainty, and the
 calendar conflict paths.
 
