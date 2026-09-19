@@ -21,7 +21,7 @@ typecheck, lint, production build and **2644 tests**. `main` has not been touche
 | P02 — additive schema (connections, grants, remote links, operation journal, outbox, notice preferences) | delivered | `abbe2b9b` (connections/grants/remote links, `0101`), `78b8c182` (journal/outbox, `0102`), `d4592756` (`0104`), `d7b8ceb9` (`0105`), `1a84536d` (`0106`) | `account_notice_preferences` exists but is unused until P12. |
 | P03 — operation journal, sync leases, domain outbox | **partial** | `78b8c182` | The leases are wired: the Google and Microsoft connectors take them on every run. The **operation journal and the domain outbox are delivered and tested (16 cases) but nothing in production calls them** — they are the intended vehicle for P10 write-back and the P12 cutover, so they are dormant until those land. |
 | P04 — OAuth flows and token service | mostly delivered | `ee788ca8` (Google web flow), `d4592756` (single-flight refresh + CAS), `524a5f00` (Microsoft refresh), `c30d13ba` (Microsoft Graph provider flow), `d4927e09` (Google flow in the UI), per-feature Google connect buttons | Provider **device-code** authorization (the mailbox device flow exists; the Graph provider flow is browser-only). |
-| P05 — mobile drawer gesture | delivered | `f76e1a40` | — |
+| P05 — mobile drawer gesture | delivered | `f76e1a40`, regression fixed in `143eca15` | Reachability verified and test-pinned: the pref defaults on, has a switch, persists through the server allow-list, and the hook's content/drawer/backdrop refs are attached to real elements, so the listeners cannot be attached to nothing. |
 | P06 — send/draft ledger, attachment and MIME limits | **not started** | — | Durable upload/send ledger, separated file/total/MIME/HTTP limits, draft preservation on failure. See the note below on what is already enforced. |
 | P07 — native Microsoft Graph adapters | **partial** | `524a5f00`, `c30d13ba`, `a9a3f975` (contacts), `d545ff45`, `c08fb7ae`, `f4d4fac1` | **Graph mail adapter** (blocks P12), Graph calendar adapter, provider device flow. |
 | P08 — Gmail API mail adapter | **not started** | — | Labels/folders, message and thread ingest, attachments. |
@@ -203,6 +203,15 @@ That is not a defect: they were built as the vehicle for P10 write-back and the 
 those packages have not started. It does mean "delivered" in the table above should be read as
 "the code exists and its tests pass", not "the application exercises it" — which is what the
 per-package column now says for P01 and P03.
+
+## Reachability check on the mobile gesture
+
+A preference-gated feature can pass every test and still be unreachable — off by default, with no
+switch, or with its listeners attached to refs that no element fills. Checked directly: the
+preference defaults to on, `AdminPanel` renders a switch bound to it, its value survives a reload
+through the server-side allow-list, and the gesture hook's content, drawer and backdrop refs are
+each attached to a real element. A contract test now pins those four facts, so removing the switch
+or the allow-list entry fails the suite rather than silently making the feature unconfigurable.
 
 ## Known limitations of what is delivered
 

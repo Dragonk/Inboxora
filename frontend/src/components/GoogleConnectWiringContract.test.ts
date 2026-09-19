@@ -265,3 +265,17 @@ test('the connect buttons ask for read access, which is all the connectors use',
   assert.equal(urls.length, 2, 'both connect actions must be covered');
   for (const url of urls) assert.match(url, /access=read_only/, url);
 });
+
+test('the drawer swipe gesture is reachable: default on, with a switch to turn it off', async () => {
+  const panel = await readFile(adminPanel, 'utf8');
+  const store = await readFile(new URL('../store/index.ts', import.meta.url), 'utf8');
+  // A gesture that is on by default but has no switch is a preference nobody can change,
+  // and one whose refs are unattached is dead code; both are pinned here.
+  assert.match(panel, /testId="mobile-sidebar-swipe-setting"/);
+  assert.match(panel, /onChange={setMobileSidebarSwipeEnabled}/);
+  assert.match(panel, /admin\.appearance\.mobileSidebarSwipe/);
+  assert.match(store, /mobileSidebarSwipeEnabled: true/);
+  // The preference reaches the server allow-list, so a saved choice survives a reload.
+  const auth = await readFile(new URL('../../../backend/src/routes/auth.ts', import.meta.url), 'utf8');
+  assert.match(auth, /mobileSidebarSwipeEnabled must be a boolean/);
+});
