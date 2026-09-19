@@ -15,6 +15,13 @@ limitations — read the matching page in the Wiki: [Release notes 4.1.0](wiki/R
 
 ### Changed
 
+- **Mark as spam / not spam works on a Microsoft Graph account** (P07b, seventh slice). Both actions
+  moved a message by calling IMAP directly, bypassing the transport dispatch every other action now
+  has — so on a native account they looked available and failed. They now use the same journal-backed
+  move as filing, and the training record and the user's verdict are written **only after the provider
+  confirms the move**, so a move that did not happen never becomes a training row. The IMAP path,
+  including its UIDPLUS cases and the spam folder mapping it learns, is unchanged.
+
 - **Microsoft Graph messages can be filed** (P07b, sixth slice): **Move to folder** and **Archive** now
   go to Microsoft through the shared provider-mutation layer, and the local row adopts the identity a
   Graph move returns — the mechanism single-message delete introduced, now shared by both bulk routes.

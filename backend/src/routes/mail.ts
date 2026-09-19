@@ -912,10 +912,11 @@ async function moveMessagesOverGraph(input: {
   /** Only what a move needs: the local id and the provider identity to address. */
   messages: ReadonlyArray<{ id: string; provider_message_id?: string | null }>;
   destinationPath: string;
-}): Promise<{ movedIds: string[]; failedIds: string[] }> {
+}): Promise<{ movedIds: string[]; failedIds: string[]; newUids: Record<string, string> }> {
   const movedIds: string[] = [];
   const failedIds: string[] = [];
-  if (!input.account.provider_connection_id) return { movedIds, failedIds: input.messages.map(message => message.id) };
+  const newUids: Record<string, string> = {};
+  if (!input.account.provider_connection_id) return { movedIds, failedIds: input.messages.map(message => message.id), newUids };
 
   const destinationFolderId = await graphFolderIdForPath({
     connectionId: input.account.provider_connection_id,
@@ -924,7 +925,7 @@ async function moveMessagesOverGraph(input: {
   });
   if (!destinationFolderId) {
     console.warn(`bulk-move: "${input.destinationPath}" is not a folder this Microsoft account discovered`);
-    return { movedIds, failedIds: input.messages.map(message => message.id) };
+    return { movedIds, failedIds: input.messages.map(message => message.id), newUids };
   }
 
   const api = {
@@ -969,8 +970,9 @@ async function moveMessagesOverGraph(input: {
       console.warn(`bulk-move: the local row ${message.id} was gone before it could be re-homed`);
     }
     movedIds.push(message.id);
+    newUids[message.id] = newUid;
   }
-  return { movedIds, failedIds };
+  return { movedIds, failedIds, newUids };
 }
 
 /**
@@ -2793,40 +2795,63 @@ async function moveForSpamLabel(messageId: string, userId: string, destinationFo
   const accountResult = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1', [message.account_id]);
   const account = accountResult.rows[0];
 
-  // Guard the source UID before the IMAP move so reconcileDeletes cannot
-  // delete the DB row if an EXPUNGE arrives while the move is in flight.
-  imapManager._guardMoveUid(account.id, message.folder, message.uid);
-  let newUid;
-  try {
+  // A native account moves through its provider and re-homes the row itself, so the
+  // IMAP branch below — with its UID guards and its two UIDPLUS cases — is skipped
+  // entirely. Everything after the move is shared: the training record, the
+  // auto-persisted spam mapping, the counts, the broadcast and the GTD refresh.
+  // Assigned by whichever branch runs; there is no useful default.
+  let newUid: number | string | null;
+  if (account.mail_transport === 'microsoft_graph') {
+    const move = await moveMessagesOverGraph({
+      userId, accountId: account.id, account, messages: [message], destinationPath: destinationFolder,
+    });
+    if (move.movedIds.length === 0) {
+      // The message stays where the user can see it; the verdict is not recorded,
+      // because a training row for a move that did not happen would be a lie.
+      return { ok: false, status: 502, error: 'Microsoft Graph did not confirm the move' };
+    }
+    newUid = move.newUids[messageId] ?? null;
+    // The move re-homed the row; the user's verdict is recorded separately, exactly
+    // as the IMAP branch records it alongside its own folder/uid update.
+    await query(
+      `UPDATE messages SET spam_user_override = $1, spam_verdict = $1, spam_analyzed_at = NOW() WHERE id = $2`,
+      [label, messageId]
+    );
+  } else {
+    // Guard the source UID before the IMAP move so reconcileDeletes cannot
+    // delete the DB row if an EXPUNGE arrives while the move is in flight.
+    imapManager._guardMoveUid(account.id, message.folder, message.uid);
     try {
-      newUid = await imapManager.moveMessage(account, message.uid, message.folder, destinationFolder);
-    } catch (caught) {
-      const err = toAppError(caught);
-      console.error(`IMAP move for /${label} failed:`, err.message);
-      return { ok: false, status: 502, error: `IMAP move failed: ${err.message}` };
+      try {
+        newUid = await imapManager.moveMessage(account, message.uid, message.folder, destinationFolder);
+      } catch (caught) {
+        const err = toAppError(caught);
+        console.error(`IMAP move for /${label} failed:`, err.message);
+        return { ok: false, status: 502, error: `IMAP move failed: ${err.message}` };
+      }
+      if (newUid != null) {
+        await query('DELETE FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3 AND id != $4',
+          [account.id, newUid, destinationFolder, messageId]);
+        await query(
+          `UPDATE messages SET folder = $1, uid = $2,
+              spam_user_override = $3, spam_verdict = $3, spam_analyzed_at = NOW()
+           WHERE id = $4`,
+          [destinationFolder, newUid, label, messageId]
+        );
+      } else {
+        // Non-UIDPLUS server: DB holds the stale source UID at the destination.
+        imapManager._guardMoveUid(account.id, destinationFolder, message.uid);
+        await query(
+          `UPDATE messages SET folder = $1,
+              spam_user_override = $2, spam_verdict = $2, spam_analyzed_at = NOW()
+           WHERE id = $3`,
+          [destinationFolder, label, messageId]
+        );
+        setTimeout(() => imapManager._unguardMoveUid(account.id, destinationFolder, message.uid), 10_000);
+      }
+    } finally {
+      imapManager._unguardMoveUid(account.id, message.folder, message.uid);
     }
-    if (newUid != null) {
-      await query('DELETE FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3 AND id != $4',
-        [account.id, newUid, destinationFolder, messageId]);
-      await query(
-        `UPDATE messages SET folder = $1, uid = $2,
-            spam_user_override = $3, spam_verdict = $3, spam_analyzed_at = NOW()
-         WHERE id = $4`,
-        [destinationFolder, newUid, label, messageId]
-      );
-    } else {
-      // Non-UIDPLUS server: DB holds the stale source UID at the destination.
-      imapManager._guardMoveUid(account.id, destinationFolder, message.uid);
-      await query(
-        `UPDATE messages SET folder = $1,
-            spam_user_override = $2, spam_verdict = $2, spam_analyzed_at = NOW()
-         WHERE id = $3`,
-        [destinationFolder, label, messageId]
-      );
-      setTimeout(() => imapManager._unguardMoveUid(account.id, destinationFolder, message.uid), 10_000);
-    }
-  } finally {
-    imapManager._unguardMoveUid(account.id, message.folder, message.uid);
   }
 
   // Adjust cached folder counts.
