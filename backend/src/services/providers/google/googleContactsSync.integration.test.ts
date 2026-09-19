@@ -136,10 +136,14 @@ describeOrSkip('Google contacts sync (PostgreSQL)', () => {
     expect(contacts.rows[0]?.uid).toBe('google-c1');
     expect(contacts.rows[0]?.vcard).toContain('UID:google-c1');
 
-    const state = await autocommit(client => client.query<{ cursor: string | null }>(
-      'SELECT cursor FROM sync_states WHERE user_id = $1 AND feature = $2', [USER_ID, 'contacts'],
+    const state = await autocommit(client => client.query<{ cursor: string | null; last_success_at: Date | null; last_error_code: string | null }>(
+      'SELECT cursor, last_success_at, last_error_code FROM sync_states WHERE user_id = $1 AND feature = $2', [USER_ID, 'contacts'],
     ));
     expect(state.rows[0]?.cursor).toBe('sync-1');
+    // The connector status the UI reads is this bookkeeping: a successful run must leave
+    // a success time and clear the error, or the status line silently shows nothing.
+    expect(state.rows[0]?.last_success_at).not.toBeNull();
+    expect(state.rows[0]?.last_error_code).toBeNull();
 
     // A second run reconciles against the stored cursor without asking for a new token.
     const incremental = fakeProvider([

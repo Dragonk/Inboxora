@@ -44,7 +44,10 @@ installation would actually have rather than on one evolved in place:
   afterwards;
 - 44 integration tests pass across seven suites: the provider authorization-flow table, Google and
   Microsoft token refresh (including the two-worker race), the operation journal and outbox, the
-  Google and Microsoft contact syncs, the Google calendar sync, and the DAV HTTP integration.
+  Google and Microsoft contact syncs, the Google calendar sync, and the DAV HTTP integration. The
+  contact suites also assert the `sync_states` bookkeeping the connector status line reads — a
+  success must leave a success time and clear the error — so that data source is regression-protected
+  rather than verified once by reading the code.
 
 ## Documentation verification
 

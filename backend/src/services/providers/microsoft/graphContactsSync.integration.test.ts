@@ -146,10 +146,13 @@ describeOrSkip('Microsoft Graph contacts sync (PostgreSQL)', () => {
     expect(contacts[0]?.vcard).toContain('UID:msgraph-c1');
     expect(contacts[0]?.vcard).toContain('ORG:Analytical Engines');
 
-    const state = await autocommit(client => client.query<{ cursor: string | null }>(
-      'SELECT cursor FROM sync_states WHERE user_id = $1 AND feature = $2', [USER_ID, 'contacts'],
+    const state = await autocommit(client => client.query<{ cursor: string | null; last_success_at: Date | null; last_error_code: string | null }>(
+      'SELECT cursor, last_success_at, last_error_code FROM sync_states WHERE user_id = $1 AND feature = $2', [USER_ID, 'contacts'],
     ));
     expect(state.rows[0]?.cursor).toBe(`${DELTA_BASE}?$deltatoken=baseline`);
+    // The connector status the UI reads is this bookkeeping.
+    expect(state.rows[0]?.last_success_at).not.toBeNull();
+    expect(state.rows[0]?.last_error_code).toBeNull();
 
     // The next run sends the stored delta link back, exactly as Graph issued it.
     const incremental = fakeProvider([
