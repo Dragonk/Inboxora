@@ -369,6 +369,23 @@ router.post('/folders/ensure', async (req: Request, res: Response) => {
   const account = await getOwnedAccount(sessionUserId(req), accountId);
   if (!account) return res.status(404).json({ error: 'Account not found' });
 
+  // The labels capability creates these folders over IMAP, and a native account has no
+  // IMAP session. This is the *setup* step for the whole GTD feature, so a generic
+  // failure here made GTD look broken rather than unavailable. Named instead, with the
+  // workaround the user has: the folders are ordinary mail folders, so creating them in
+  // Outlook and running "Sync folders" makes the rest of GTD work.
+  //
+  // Verified rather than assumed, which is what this file's parent package asked for:
+  // the transition path then calls `imapManager.removeMessageCopy`, so GTD is not
+  // merely missing its folder setup on a native account — its copy-removal is IMAP
+  // too. Both are named in the status document's GTD row.
+  if ((account as { mail_transport?: string | null }).mail_transport === 'microsoft_graph') {
+    return res.status(501).json({
+      error: 'GTD label folders cannot be created on a Microsoft Graph account yet. Create them in Outlook and use "Sync folders".',
+      code: 'OPERATION_FORBIDDEN',
+    });
+  }
+
   // Reject a form mapping onto a reserved system folder before creating anything — the same
   // /done permanent-delete hazard the account settings save path guards against.
   const { folders: formFolders, reserved } = sanitizeGtdFoldersDetailed(folders);

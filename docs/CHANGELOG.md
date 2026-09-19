@@ -15,6 +15,19 @@ limitations — read the matching page in the Wiki: [Release notes 4.1.0](wiki/R
 
 ### Changed
 
+- **GTD's folder setup refuses explicitly on a Microsoft Graph account** (P07b, eighteenth slice), and the
+  check that produced it found more than the refusal. `POST /gtd/folders/ensure` — the setup step for the
+  whole feature — creates its label folders through the labels capability, which goes over IMAP, so on a
+  native account it failed like a bug. It now answers `501` with a code and the workaround the user has
+  (create the folders in Outlook, then "Sync folders"), because those are ordinary mail folders and the
+  rest of GTD keys off their paths.
+
+  **What the same read found, and it is the point of the check**: the GTD transition path also calls
+  `imapManager.removeMessageCopy`, so this was not merely a missing folder setup on a native account.
+  That is recorded in the status document's GTD row rather than left as a second surprise, and it is why
+  "rules and GTD are local behaviours, so they should need no Graph-specific code" was written as
+  something to **verify** — snooze looked local too and was not.
+
 - **Emptying a folder works on a Microsoft Graph account** (P07b, seventeenth slice), which closes the
   audit of IMAP-only operations. The IMAP path answered what "empty" means — every message is **removed
   permanently**, not moved to deleted-items — so this mirrors it rather than inventing an answer. Graph
