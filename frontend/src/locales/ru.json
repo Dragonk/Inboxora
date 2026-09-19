@@ -1149,7 +1149,7 @@
       "microsoftSyncPartial": "Контакты Microsoft: добавлено {{created}}, обновлено {{updated}}, удалено {{deleted}}; не удалось для {{failed}} подключений.",
       "importVCard": "Импорт vCard",
       "lastSynced": "Последняя синхронизация: {{date}}",
-      "lastSyncFailed": "Сбой синхронизации: {{code}}"
+      "lastSyncFailed": "Сбой синхронизации: {{code}} ({{when}})"
     },
     "googleConnected": {
       "title": "Google подключён",
@@ -2018,7 +2018,7 @@
     "importIcs": "Импорт файла .ics",
     "importingIcs": "Импорт…",
     "lastSynced": "Последняя синхронизация: {{date}}",
-    "lastSyncFailed": "Сбой синхронизации: {{code}}"
+    "lastSyncFailed": "Сбой синхронизации: {{code}} ({{when}})"
   },
   "mailFolders": {
     "inbox": "Входящие",

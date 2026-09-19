@@ -28,7 +28,7 @@ interface GoogleCalendarStatus {
   configured?: boolean;
   connected?: boolean;
   connections?: number;
-  calendars?: Array<{ calendarId: string; name?: string | null; eventCount?: number; lastSyncedAt?: string | null; lastErrorCode?: string | null }>;
+  calendars?: Array<{ calendarId: string; name?: string | null; eventCount?: number; lastSyncedAt?: string | null; lastErrorCode?: string | null; lastErrorAt?: string | null }>;
 }
 
 /** One connection's outcome from POST /calendar/providers/google/sync. */
@@ -114,7 +114,10 @@ interface CalendarSidebarProps {
 function googleCalendarSyncSummary(status: GoogleCalendarStatus | null): { failed: boolean; values: Record<string, string> } | null {
   const calendars = Array.isArray(status?.calendars) ? status.calendars : [];
   const failed = calendars.find(calendar => calendar.lastErrorCode);
-  if (failed) return { failed: true, values: { code: String(failed.lastErrorCode) } };
+  if (failed) {
+    const when = failed.lastErrorAt ? new Date(failed.lastErrorAt).toLocaleString() : '';
+    return { failed: true, values: { code: String(failed.lastErrorCode), when } };
+  }
   const times = calendars.map(calendar => calendar.lastSyncedAt).filter((value): value is string => typeof value === 'string');
   if (!times.length) return null;
   const latest = [...times].sort().at(-1) as string;

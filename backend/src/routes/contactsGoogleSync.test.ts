@@ -59,7 +59,7 @@ describe('GET /api/contacts/providers/google/status', () => {
       .mockResolvedValueOnce({ rows: [{ id: 'connection-1' }] })
       .mockResolvedValueOnce({ rows: [{
         connection_id: 'connection-1', address_book_id: 'book-1', name: 'Google Contacts',
-        contact_count: 12, last_success_at: '2026-09-14T10:00:00.000Z', last_error_code: null,
+        contact_count: 12, last_success_at: '2026-09-14T10:00:00.000Z', last_error_code: null, last_error_at: null,
       }] });
 
     const response = await status();
@@ -70,7 +70,7 @@ describe('GET /api/contacts/providers/google/status', () => {
       connections: 1,
       books: [{
         connectionId: 'connection-1', addressBookId: 'book-1', name: 'Google Contacts',
-        contactCount: 12, lastSyncedAt: '2026-09-14T10:00:00.000Z', lastErrorCode: null,
+        contactCount: 12, lastSyncedAt: '2026-09-14T10:00:00.000Z', lastErrorCode: null, lastErrorAt: null,
       }],
     });
     // The status reads only counts/timestamps and the caller's own connections.

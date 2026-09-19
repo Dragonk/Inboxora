@@ -290,6 +290,10 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   is now chosen from the path: the 900 KB import limit for contact and calendar imports, the 5 MB
   spritesheet limit for the pet import, the attachment limit for sending or saving a draft, and a
   plain "request too large" elsewhere rather than a limit that does not apply.
+- Report **when** a connector last failed, not only its error code. A recorded failure now carries
+  its timestamp through the status endpoint, and the contacts page and the calendar sources dialog
+  show it beside the code, so "it failed" becomes "it failed at 09:12" and a failure that keeps
+  recurring is distinguishable from one that happened once during an outage.
 ## [4.0.4] - 2026-09-18
 
 ### Changed

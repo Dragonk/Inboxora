@@ -1149,7 +1149,7 @@
       "microsoftSyncPartial": "Kontakty Microsoft: dodano {{created}}, zaktualizowano {{updated}}, usunięto {{deleted}}; nie udało się dla {{failed}} połączeń.",
       "importVCard": "Importuj vCard",
       "lastSynced": "Ostatnia synchronizacja: {{date}}",
-      "lastSyncFailed": "Synchronizacja nie powiodła się: {{code}}"
+      "lastSyncFailed": "Synchronizacja nie powiodła się: {{code}} ({{when}})"
     },
     "googleConnected": {
       "title": "Google połączone",
@@ -2018,7 +2018,7 @@
     "importIcs": "Importuj plik .ics",
     "importingIcs": "Importowanie…",
     "lastSynced": "Ostatnia synchronizacja: {{date}}",
-    "lastSyncFailed": "Synchronizacja nie powiodła się: {{code}}"
+    "lastSyncFailed": "Synchronizacja nie powiodła się: {{code}} ({{when}})"
   },
   "mailFolders": {
     "inbox": "Odebrane",

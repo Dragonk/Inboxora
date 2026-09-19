@@ -56,7 +56,7 @@ describe('Microsoft contacts connector routes', () => {
       .mockResolvedValueOnce({ rows: [{ id: 'connection-1' }] })
       .mockResolvedValueOnce({ rows: [{
         connection_id: 'connection-1', address_book_id: 'book-1', name: 'Microsoft Contacts',
-        contact_count: 7, last_success_at: '2026-09-14T10:00:00.000Z', last_error_code: null,
+        contact_count: 7, last_success_at: '2026-09-14T10:00:00.000Z', last_error_code: null, last_error_at: null,
       }] });
 
     const response = await status();
@@ -67,7 +67,7 @@ describe('Microsoft contacts connector routes', () => {
       connections: 1,
       books: [{
         connectionId: 'connection-1', addressBookId: 'book-1', name: 'Microsoft Contacts',
-        contactCount: 7, lastSyncedAt: '2026-09-14T10:00:00.000Z', lastErrorCode: null,
+        contactCount: 7, lastSyncedAt: '2026-09-14T10:00:00.000Z', lastErrorCode: null, lastErrorAt: null,
       }],
     });
     const [connectionSql, connectionParams] = mocks.query.mock.calls[0] as [string, unknown[]];

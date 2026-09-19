@@ -1149,7 +1149,7 @@
       "microsoftSyncPartial": "Kontakty Microsoft: přidáno {{created}}, aktualizováno {{updated}}, odebráno {{deleted}}; {{failed}} připojení selhalo.",
       "importVCard": "Importovat vCard",
       "lastSynced": "Naposledy synchronizováno: {{date}}",
-      "lastSyncFailed": "Synchronizace selhala: {{code}}"
+      "lastSyncFailed": "Synchronizace selhala: {{code}} ({{when}})"
     },
     "googleConnected": {
       "title": "Google připojen",
@@ -2018,7 +2018,7 @@
     "importIcs": "Importovat soubor .ics",
     "importingIcs": "Importuji…",
     "lastSynced": "Naposledy synchronizováno: {{date}}",
-    "lastSyncFailed": "Synchronizace selhala: {{code}}"
+    "lastSyncFailed": "Synchronizace selhala: {{code}} ({{when}})"
   },
   "mailFolders": {
     "inbox": "Doručená pošta",

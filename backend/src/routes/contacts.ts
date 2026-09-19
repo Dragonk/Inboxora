@@ -188,11 +188,11 @@ router.get('/providers/google/status', async (req, res) => {
     ),
     query<{
       connection_id: string; address_book_id: string; name: string | null;
-      contact_count: number; last_success_at: string | Date | null; last_error_code: string | null;
+      contact_count: number; last_success_at: string | Date | null; last_error_code: string | null; last_error_at: string | Date | null;
     }>(
       `SELECT ic.connection_id, ab.id AS address_book_id, ab.name,
               (SELECT COUNT(*)::int FROM contacts c WHERE c.address_book_id = ab.id) AS contact_count,
-              s.last_success_at, s.last_error_code
+              s.last_success_at, s.last_error_code, s.last_error_at
          FROM integration_collections ic
          JOIN address_books ab ON ab.id = ic.local_address_book_id
          JOIN provider_connections pc ON pc.id = ic.connection_id AND pc.provider = 'google'
@@ -213,6 +213,7 @@ router.get('/providers/google/status', async (req, res) => {
       contactCount: row.contact_count,
       lastSyncedAt: row.last_success_at,
       lastErrorCode: row.last_error_code,
+      lastErrorAt: row.last_error_at,
     })),
   });
 });
@@ -229,11 +230,11 @@ router.get('/providers/microsoft/status', async (req, res) => {
     ),
     query<{
       connection_id: string; address_book_id: string; name: string | null;
-      contact_count: number; last_success_at: string | Date | null; last_error_code: string | null;
+      contact_count: number; last_success_at: string | Date | null; last_error_code: string | null; last_error_at: string | Date | null;
     }>(
       `SELECT ic.connection_id, ab.id AS address_book_id, ab.name,
               (SELECT COUNT(*)::int FROM contacts c WHERE c.address_book_id = ab.id) AS contact_count,
-              s.last_success_at, s.last_error_code
+              s.last_success_at, s.last_error_code, s.last_error_at
          FROM integration_collections ic
          JOIN address_books ab ON ab.id = ic.local_address_book_id
          JOIN provider_connections pc ON pc.id = ic.connection_id AND pc.provider = 'microsoft'
@@ -254,6 +255,7 @@ router.get('/providers/microsoft/status', async (req, res) => {
       contactCount: row.contact_count,
       lastSyncedAt: row.last_success_at,
       lastErrorCode: row.last_error_code,
+      lastErrorAt: row.last_error_at,
     })),
   });
 });

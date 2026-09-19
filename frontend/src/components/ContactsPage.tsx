@@ -168,14 +168,18 @@ interface ProviderContactsStatus {
   configured?: boolean;
   connected?: boolean;
   connections?: number;
-  books?: Array<{ addressBookId: string; contactCount?: number; lastSyncedAt?: string | null; lastErrorCode?: string | null }>;
+  books?: Array<{ addressBookId: string; contactCount?: number; lastSyncedAt?: string | null; lastErrorCode?: string | null; lastErrorAt?: string | null }>;
 }
 
 /** The freshest last-sync time of a provider, or its first recorded failure. */
 function providerSyncSummary(status: ProviderContactsStatus | null): { failed: boolean; values: Record<string, string> } | null {
   const books = Array.isArray(status?.books) ? status.books : [];
   const failed = books.find(book => book.lastErrorCode);
-  if (failed) return { failed: true, values: { code: String(failed.lastErrorCode) } };
+  if (failed) {
+    // A failure always records when it happened, so the message can say when.
+    const when = failed.lastErrorAt ? new Date(failed.lastErrorAt).toLocaleString() : '';
+    return { failed: true, values: { code: String(failed.lastErrorCode), when } };
+  }
   const times = books.map(book => book.lastSyncedAt).filter((value): value is string => typeof value === 'string');
   if (!times.length) return null;
   const latest = [...times].sort().at(-1) as string;
