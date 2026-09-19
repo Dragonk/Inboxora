@@ -287,6 +287,39 @@ test('contacts: details and the rich editor', async ({ page, fixtureApi }) => {
   ] });
 });
 
+test('settings: the provider card and its policy', async ({ page, fixtureApi }) => {
+  // The card is where the v4 provider policy is visible to an administrator: what each provider requires,
+  // which methods are ready, and the switches. It had no capture, so the documentation pages that describe
+  // it had no image of it.
+  await page.route('**/api/integrations/status', route => route.fulfill({ json: {
+    microsoft: {
+      configured: true, enabled: true, mailPolicy: 'required',
+      browser: { ready: true, missing: [] },
+      graph: { ready: true, missing: [] },
+      deviceCode: { supported: true, ready: true },
+      connections: [],
+    },
+    google: {
+      configured: true, enabled: true, mailPolicy: 'recommended',
+      browser: { ready: true, missing: [] },
+      deviceCode: { supported: false, ready: false, reason: 'not_supported' },
+      traditionalImapAvailableInInboxora: true,
+      connections: [],
+    },
+  } }));
+  await openMail(page, fixtureApi);
+  await openSettings(page);
+  await openSettingsTab(page, 'Integrations');
+  await openSettingsSubTab(page, 'Email providers');
+  // The provider rows are collapsed until they are clicked, and the policy notes live inside them.
+  await page.getByText('Microsoft 365 / Outlook.com', { exact: false }).first().click();
+  await expect(page.getByTestId('microsoft-mail-policy')).toBeVisible();
+  await capture(page, 'settings-integrations', { mode: 'workspace', require: [
+    page.getByTestId('microsoft-mail-policy'),
+    page.getByText('Microsoft 365 / Outlook.com', { exact: false }).first(),
+  ] });
+});
+
 test('settings: appearance, DAV access and about', async ({ page, fixtureApi }) => {
   await openMail(page, fixtureApi);
   await useDavDemoData(page);
