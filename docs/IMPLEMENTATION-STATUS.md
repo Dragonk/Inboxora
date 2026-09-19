@@ -17,7 +17,7 @@ rows. It is kept because its lessons are load-bearing, and it must never be read
 present. Earlier revisions mixed the two inside the table itself, which is how a reader could take a
 four-attempt saga — or a superseded delivery report — for a current status.
 
-Last re-measured on `dev` at `b2e1c70e`: backend typecheck, lint and **2444** unit tests
+Last re-measured on `dev` at `3917bfbc`: backend typecheck, lint and **2445** unit tests
 (**116 skipped** across 14 files); frontend typecheck, lint, production build and **2685** tests;
 **188** database integration tests across **18** suites on a fresh PostgreSQL 16 with the full
 **112**-migration chain — and, since the CI slice, verified the same way a new installation would
@@ -1632,7 +1632,10 @@ started" row suggests, so the slice is a seam rather than a rewrite:
      posted had no BCC header and no explicit envelope. The gap is not in the assertion's intent but in
      its layer, and it closes only once the envelope is part of the artefact: then the case can assert the
      delivered envelope — `to` plus `bcc`, and no BCC header — which is the property that actually
-     matters.
+     matters. **The gap is now partly closed from the other side** (`3917bfbc`): a case asserts a blind
+     recipient is carried in `bcc` and appears in neither `to` nor `cc` nor a headers bag, which holds
+     today and still holds after the change, so the compose-once slice extends it to the envelope rather
+     than replacing it.
 - **idempotency already exists, and the division is decided** (both mechanisms read, not assumed).
   `claimSendIntent` / `markSendIntentUncertain` / `completeSendIntent` / `releaseSendIntent` write
   `send_idempotency`, a durable claim keyed by the **client's** `X-Idempotency-Key` with an intent token,
