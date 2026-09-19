@@ -15,6 +15,17 @@ limitations — read the matching page in the Wiki: [Release notes 4.1.0](wiki/R
 
 ### Changed
 
+- **Microsoft Graph messages can be filed** (P07b, sixth slice): **Move to folder** and **Archive** now
+  go to Microsoft through the shared provider-mutation layer, and the local row adopts the identity a
+  Graph move returns — the mechanism single-message delete introduced, now shared by both bulk routes.
+  One destination is resolved per account, once, through the collection link the folder slice created;
+  a message the provider refuses is left where it is and reported as not moved, so the interface never
+  claims a file that did not happen. A Graph row is deliberately kept out of the IMAP
+  delete-and-re-insert statement the bulk routes use: a Graph move re-identifies the message, so that
+  statement would delete the row and re-insert it under a UID the provider does not have. **Not yet
+  wired:** mark-as-spam and mark-as-ham still use IMAP for every account, so they are not available on
+  a native one.
+
 - **The PostgreSQL integration suites and the browser matrix are now part of the `dev` gate.** The two
   layers that found this work's real defects — a lost lease, a two-worker token refresh, a cursor
   advanced out of order, and the drawer that covered the page after a navigation — ran only by hand,

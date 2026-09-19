@@ -890,6 +890,89 @@ async function deleteMessageOverGraph(input: {
   };
 }
 
+
+/**
+ * Move several Microsoft Graph messages into one local folder.
+ *
+ * The bulk routes below were written around IMAP's per-UIDPLUS move: they guard
+ * source UIDs, then delete-and-re-insert rows in one CTE. A Graph move has different
+ * mechanics — it re-identifies the message — so it gets its own pass and the shared
+ * count/broadcast bookkeeping afterwards, rather than being threaded through a CTE
+ * that assumes UIDs survive a move.
+ *
+ * One destination is resolved per account, once, and every message then runs through
+ * the same journal-backed move the single-message delete uses. A message the
+ * provider refuses is reported as failed and left where it is; nothing is silently
+ * dropped.
+ */
+async function moveMessagesOverGraph(input: {
+  userId: string;
+  accountId: string;
+  account: EmailAccountRow;
+  /** Only what a move needs: the local id and the provider identity to address. */
+  messages: ReadonlyArray<{ id: string; provider_message_id?: string | null }>;
+  destinationPath: string;
+}): Promise<{ movedIds: string[]; failedIds: string[] }> {
+  const movedIds: string[] = [];
+  const failedIds: string[] = [];
+  if (!input.account.provider_connection_id) return { movedIds, failedIds: input.messages.map(message => message.id) };
+
+  const destinationFolderId = await graphFolderIdForPath({
+    connectionId: input.account.provider_connection_id,
+    accountId: input.accountId,
+    path: input.destinationPath,
+  });
+  if (!destinationFolderId) {
+    console.warn(`bulk-move: "${input.destinationPath}" is not a folder this Microsoft account discovered`);
+    return { movedIds, failedIds: input.messages.map(message => message.id) };
+  }
+
+  const api = {
+    userId: input.userId,
+    connectionId: input.account.provider_connection_id,
+    config: microsoftConfigFromEnv(),
+  };
+
+  for (const message of input.messages) {
+    if (!message.provider_message_id) {
+      failedIds.push(message.id);
+      continue;
+    }
+    const payload = {
+      providerMessageId: message.provider_message_id,
+      destinationFolderId,
+      intentAt: new Date().toISOString(),
+    };
+    const result = await runProviderMutation(
+      {
+        userId: input.userId, channel: 'web', operation: 'update', accountId: input.accountId,
+        resourceId: message.id, ...graphMoveIntent(payload), payload,
+        retry: { delaySeconds: 300 },
+      },
+      graphMoveMutationAdapter({ api }),
+    );
+    if (result.status !== 'confirmed' || !result.value?.id) {
+      console.error(`bulk-move: Graph refused or did not confirm the move of ${message.id} (${result.status})`);
+      failedIds.push(message.id);
+      continue;
+    }
+    const newUid = providerUidForGraphMessage(result.value.id);
+    // A stale row at the destination with the same derived number would collide.
+    await query('DELETE FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3 AND id != $4',
+      [input.accountId, newUid, input.destinationPath, message.id]);
+    const updated = await query(
+      'UPDATE messages SET folder = $1, uid = $2, provider_message_id = $3 WHERE id = $4',
+      [input.destinationPath, newUid, result.value.id, message.id],
+    );
+    if ((updated.rowCount ?? 0) === 0) {
+      // A concurrent sync removed the row; the destination's next delta re-ingests it.
+      console.warn(`bulk-move: the local row ${message.id} was gone before it could be re-homed`);
+    }
+    movedIds.push(message.id);
+  }
+  return { movedIds, failedIds };
+}
+
 /**
  * Serve and cache the body of a Microsoft Graph message.
  *
@@ -1964,6 +2047,9 @@ router.post('/messages/bulk-move', async (req, res) => {
     }
 
     const movedIds = [];
+    // Graph moves are already applied by the branch above; they belong in the count
+    // and broadcast pass, not in the CTE that re-inserts an IMAP row.
+    const graphMovedIds: string[] = [];
     const uidUpdates = [];
     const resyncAccounts = []; // accounts whose moved msgs lacked new UIDs (non-UIDPLUS)
     for (const [accountId, msgs] of Object.entries(byAccount)) {
@@ -1978,6 +2064,19 @@ router.post('/messages/bulk-move', async (req, res) => {
       }
       const accountResult = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
       const account = accountResult.rows[0];
+      // A native account moves through its provider and re-homes its own rows, so it
+      // is kept out of the UIDPLUS delete-and-re-insert below — which assumes the UID
+      // survives the move, and with Graph it does not.
+      if (account.mail_transport === 'microsoft_graph') {
+        const graphMove = await moveMessagesOverGraph({
+          userId: sessionUserId(req), accountId, account, messages: msgs, destinationPath: folder,
+        });
+        // Deliberately *not* `movedIds`: that list feeds the UIDPLUS delete-and-re-insert
+        // below, and a Graph move re-identifies the message, so the CTE would delete the
+        // row and re-insert it under a UID the provider does not have.
+        graphMovedIds.push(...graphMove.movedIds);
+        continue;
+      }
       const byFolder: Record<string, MailMessageRow[]> = {};
       for (const msg of msgs) {
         (byFolder[msg.folder] = byFolder[msg.folder] || []).push(msg);
@@ -1999,29 +2098,31 @@ router.post('/messages/bulk-move', async (req, res) => {
       if (accountMissingUid) resyncAccounts.push(account);
     }
 
-    if (movedIds.length > 0) {
-      // DELETE source rows and, when we have UIDPLUS-provided new UIDs, immediately
-      // re-INSERT at the destination in one atomic CTE statement. This avoids any
-      // transient folder/uid state that could collide with existing rows (UIDs are
-      // per-folder, so the same UID number is valid in two different folders).
-      // If IMAP IDLE already inserted the destination row, ON CONFLICT DO NOTHING
-      // keeps it intact. For messages without new UIDs the DELETE-only path relies
-      // on IMAP IDLE + the message_id pre-check in processMsg to re-insert them.
-      const uidUpdateMap = new Map(uidUpdates.map(u => [u.id, u.newUid]));
-      const withNewUid   = movedIds.filter(id =>  uidUpdateMap.has(id));
-      await query(`
-        WITH deleted AS (
-          DELETE FROM messages WHERE id = ANY($1::uuid[]) RETURNING *
-        ),
-        uid_map(src_id, new_uid) AS (
-          SELECT * FROM unnest($2::uuid[], $3::bigint[])
-        )
-        INSERT INTO messages (${RELOCATE_INSERT_COLS})
-        SELECT ${RELOCATE_SELECT_COLS}
-        FROM deleted d
-        JOIN uid_map u ON d.id = u.src_id
-        ON CONFLICT (account_id, uid, folder) DO NOTHING
-      `, [movedIds, withNewUid, withNewUid.map(id => uidUpdateMap.get(id)), folder]);
+    if (movedIds.length > 0 || graphMovedIds.length > 0) {
+      if (movedIds.length > 0) {
+        // DELETE source rows and, when we have UIDPLUS-provided new UIDs, immediately
+        // re-INSERT at the destination in one atomic CTE statement. This avoids any
+        // transient folder/uid state that could collide with existing rows (UIDs are
+        // per-folder, so the same UID number is valid in two different folders).
+        // If IMAP IDLE already inserted the destination row, ON CONFLICT DO NOTHING
+        // keeps it intact. For messages without new UIDs the DELETE-only path relies
+        // on IMAP IDLE + the message_id pre-check in processMsg to re-insert them.
+        const uidUpdateMap = new Map(uidUpdates.map(u => [u.id, u.newUid]));
+        const withNewUid   = movedIds.filter(id =>  uidUpdateMap.has(id));
+        await query(`
+          WITH deleted AS (
+            DELETE FROM messages WHERE id = ANY($1::uuid[]) RETURNING *
+          ),
+          uid_map(src_id, new_uid) AS (
+            SELECT * FROM unnest($2::uuid[], $3::bigint[])
+          )
+          INSERT INTO messages (${RELOCATE_INSERT_COLS})
+          SELECT ${RELOCATE_SELECT_COLS}
+          FROM deleted d
+          JOIN uid_map u ON d.id = u.src_id
+          ON CONFLICT (account_id, uid, folder) DO NOTHING
+        `, [movedIds, withNewUid, withNewUid.map(id => uidUpdateMap.get(id)), folder]);
+      }
       // Messages moved on a non-UIDPLUS server were deleted with no reinsert; pull the
       // destination folder now so they reappear promptly instead of waiting for IDLE.
       for (const acct of resyncAccounts) {
@@ -2029,7 +2130,9 @@ router.post('/messages/bulk-move', async (req, res) => {
           .catch(err => console.warn('post-move destination sync failed:', err.message));
       }
       // Adjust cached counts: decrement source folders, increment the destination.
-      const movedSet = new Set(movedIds);
+      // A Graph move re-homed its own row already, but the counts are the same
+      // bookkeeping either way.
+      const movedSet = new Set([...movedIds, ...graphMovedIds]);
       const srcTotals: Record<string, { accountId: string; path: string; total: number; unread: number }> = {};
       for (const msg of owned) {
         if (!movedSet.has(msg.id)) continue;
@@ -2053,7 +2156,7 @@ router.post('/messages/bulk-move', async (req, res) => {
     // Refresh GTD section data for any moved thread that still carries a GTD label sibling.
     notifyMailMutation(owned, sessionUserId(req));
 
-    res.json({ ok: true, moved: movedIds });
+    res.json({ ok: true, moved: [...movedIds, ...graphMovedIds] });
   } catch (err) {
     console.error('bulk-move error:', err);
     res.status(500).json({ error: 'Failed to move messages' });
@@ -2101,6 +2204,9 @@ router.post('/messages/bulk-archive', async (req, res) => {
     }
 
     const archivedIds = [];
+    // Graph archives were re-homed by the provider pass. They belong in the returned
+    // list and in the count bookkeeping, and they must stay out of the CTE.
+    const graphArchived: Array<{ id: string; accountId: string; folder: string }> = [];
     const noArchiveFolder = [];
     const accountsById: Record<string, EmailAccountRow> = {};
     // Archive-folder paths that resolved to Gmail's All Mail (special_use '\All').
@@ -2121,6 +2227,19 @@ router.post('/messages/bulk-archive', async (req, res) => {
       const accountResult = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
       const account = accountResult.rows[0];
       accountsById[accountId] = account;
+      // A native account archives through its provider, and the re-homing below is
+      // done by the move pass, so it does not go through the UIDPLUS CTE.
+      if (account.mail_transport === 'microsoft_graph') {
+        const graphMove = await moveMessagesOverGraph({
+          userId: sessionUserId(req), accountId, account, messages: msgs, destinationPath: archiveFolder,
+        });
+        // Deliberately *not* pushed into `archivedIds`: that list feeds the CTE below,
+        // which deletes each row and re-inserts it under a new UID. A Graph entry has
+        // no new UID to map, so it would be deleted with nothing put back.
+        for (const id of graphMove.movedIds) graphArchived.push({ id, accountId, folder: archiveFolder });
+        for (const id of graphMove.failedIds) console.error(`bulk-archive: Graph did not move ${id}`);
+        continue;
+      }
       const byFolder: Record<string, MailMessageRow[]> = {};
       for (const msg of msgs) {
         (byFolder[msg.folder] = byFolder[msg.folder] || []).push(msg);
@@ -2185,8 +2304,11 @@ router.post('/messages/bulk-archive', async (req, res) => {
     }
 
     // Adjust cached folder counts: use signed deltas so source and dest share one pass.
-    if (archivedIds.length > 0) {
-      const idToArchiveDest = new Map(archivedIds.map(({ id, folder: dest }) => [id, dest]));
+    if (archivedIds.length > 0 || graphArchived.length > 0) {
+      const idToArchiveDest = new Map([
+        ...archivedIds.map(({ id, folder: dest }) => [id, dest] as const),
+        ...graphArchived.map(({ id, folder: dest }) => [id, dest] as const),
+      ]);
       const folderDeltas: Record<string, { accountId: string; path: string; totalDelta: number; unreadDelta: number }> = {}; // key: `${accountId}:${path}` -> { accountId, path, totalDelta, unreadDelta }
       for (const msg of owned) {
         const dest = idToArchiveDest.get(msg.id);
@@ -2221,7 +2343,7 @@ router.post('/messages/bulk-archive', async (req, res) => {
     // Refresh GTD section data for any archived thread that still carries a GTD label sibling.
     notifyMailMutation(owned, sessionUserId(req));
 
-    res.json({ ok: true, archived: archivedIds.map(a => a.id), noArchiveFolder });
+    res.json({ ok: true, archived: [...archivedIds.map(a => a.id), ...graphArchived.map(a => a.id)], noArchiveFolder });
   } catch (err) {
     console.error('bulk-archive error:', err);
     res.status(500).json({ error: 'Failed to archive messages' });
