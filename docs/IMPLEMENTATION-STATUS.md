@@ -327,7 +327,7 @@ endpoint is visible rather than only available over the API.
 Entry points and constraints discovered while building what exists. They are recorded so the next
 session does not have to rediscover them, not as a design that has been agreed.
 
-### State when this was written (`ea5d0933` on `dev`)
+### State when this was written (measured at `ea5d0933` on `dev`, before the documentation commits that followed it)
 
 Everything below was green at that commit: backend **2255** unit tests, frontend **2655** plus a
 production build, **89** database integration tests on a fresh PostgreSQL 16 with the full
