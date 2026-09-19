@@ -222,7 +222,8 @@ describe('send failure semantics', () => {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          to: 'you@example.com',
+          accountId: 'a1',
+          to: ['you@example.com'],
           subject: 'Oversized',
           body: 'x'.repeat(4000),
         }),
