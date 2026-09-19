@@ -443,6 +443,11 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   service so no schedule touches it, and disables its collections so nothing refreshes. It deletes
   none of the imported data: that is the user's, it stays visible, and removing it is a separate
   decision rather than a side effect of disconnecting. Only the owner's own connection is affected.
+- Show what is connected and let it be disconnected. The integration card listed nothing about the
+  accounts a user had authorized, so a connection could only be undone through the API or at the
+  provider. The card now lists the signed-in user's own connections per provider and offers
+  **Disconnect** for each, and the status endpoint reports them (ids only, never a credential,
+  owner-scoped). Disconnecting keeps the imported data, as the endpoint documents.
 
 
 ## [4.0.4] - 2026-09-18

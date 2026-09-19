@@ -407,7 +407,9 @@
         "connectUnavailable": "Un administrateur doit configurer l’API Google avant de pouvoir connecter un compte.",
         "connectedNote": "Compte Google connecté.",
         "connectCalendars": "Connecter les agendas Google"
-      }
+      },
+      "connectedAccounts": "Comptes connectés",
+      "disconnect": "Déconnecter"
     },
     "lock": {
       "title": "Verrouillage de l'écran",

@@ -407,7 +407,9 @@
         "connectUnavailable": "Администратор должен настроить Google API, прежде чем можно будет подключить аккаунт.",
         "connectedNote": "Аккаунт Google подключён.",
         "connectCalendars": "Подключить календари Google"
-      }
+      },
+      "connectedAccounts": "Подключённые аккаунты",
+      "disconnect": "Отключить"
     },
     "lock": {
       "title": "Блокировка экрана",

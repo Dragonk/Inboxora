@@ -2645,7 +2645,7 @@ function IntegrationsTab() {
   const [configs, setConfigs] = useState<Record<string, { clientId?: string; [key: string]: unknown }>>({});
   // Non-admins can't read the full config (admin-only), but need to know whether
   // Microsoft OAuth is configured so the connect buttons enable. (#315)
-  const [msStatus, setMsStatus] = useState<{ configured?: boolean; browser?: { ready?: boolean; missing?: string[] }; graph?: { ready?: boolean; missing?: string[] }; deviceCode?: { ready?: boolean; reason?: string }; [key: string]: unknown } | null>(null); // { configured } for non-admins
+  const [msStatus, setMsStatus] = useState<{ configured?: boolean; browser?: { ready?: boolean; missing?: string[] }; graph?: { ready?: boolean; missing?: string[] }; deviceCode?: { ready?: boolean; reason?: string }; connections?: Array<{ id: string; providerUserId?: string | null }>; [key: string]: unknown } | null>(null); // { configured } for non-admins
   const [loading, setLoading] = useState(true);
   const [msForm, setMsForm] = useState({ clientId: '', clientSecret: '', tenantId: '', redirectUri: '' });
   const [msExpanded, setMsExpanded] = useState(false);
@@ -2654,7 +2654,7 @@ function IntegrationsTab() {
   // mail never depends on this configuration.
   const [googleForm, setGoogleForm] = useState({ clientId: '', clientSecret: '', redirectUri: '' });
   const [googleExpanded, setGoogleExpanded] = useState(false);
-  const [googleStatus, setGoogleStatus] = useState<{ configured?: boolean; browser?: { ready?: boolean; missing?: string[] }; [key: string]: unknown } | null>(null);
+  const [googleStatus, setGoogleStatus] = useState<{ configured?: boolean; browser?: { ready?: boolean; missing?: string[] }; connections?: Array<{ id: string; providerUserId?: string | null }>; [key: string]: unknown } | null>(null);
   const [googleSaving, setGoogleSaving] = useState(false);
   const [googleSaveMsg, setGoogleSaveMsg] = useState('');
   const [connectingGoogle, setConnectingGoogle] = useState(false);
@@ -2963,6 +2963,22 @@ function IntegrationsTab() {
   // configuration can switch it off, and the button must honour that or the switch is
   // decoration.
   const msDeviceReady = Boolean(msStatus?.deviceCode?.ready);
+  // The connected accounts, so a user can see what is connected and undo it. Imported data is
+  // kept by the endpoint; the wording says so rather than leaving it to be discovered.
+  const [disconnectingId, setDisconnectingId] = useState<string | null>(null);
+  const disconnectAccount = async (connectionId: string) => {
+    setDisconnectingId(connectionId);
+    try {
+      await api.disconnectProviderConnection(connectionId);
+      const data = await api.getIntegrationsStatus();
+      setMsStatus(data.microsoft || null);
+      setGoogleStatus(data.google || null);
+    } catch (error) {
+      setSaveMsg(toAppError(error).message);
+    } finally {
+      setDisconnectingId(null);
+    }
+  };
   // Google browser readiness comes from the backend so the UI never treats a
   // saved Client ID alone as a working OAuth client.
   const googleConfigured = (isAdmin ? configs.google?.clientId : null) || googleStatus?.configured;
@@ -3210,6 +3226,24 @@ function IntegrationsTab() {
                       >
                         {connectingGraph ? t('admin.integrations.microsoft.graphConnecting') : t('admin.integrations.microsoft.graphConnect')}
                       </button>
+                      {(msStatus?.connections?.length ?? 0) > 0 && (
+                        <div style={{ marginTop: 10, fontSize: 12 }}>
+                          <div style={{ color: 'var(--text-secondary)' }}>{t('admin.integrations.connectedAccounts')}</div>
+                          {msStatus?.connections?.map(connection => (
+                            <div key={connection.id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
+                              <span data-testid="microsoft-connected-account">{connection.providerUserId || connection.id}</span>
+                              <button
+                                data-testid="microsoft-disconnect-account"
+                                disabled={disconnectingId === connection.id}
+                                onClick={() => disconnectAccount(connection.id)}
+                                style={{ background: 'none', border: 0, color: 'var(--red)', cursor: 'pointer', fontSize: 12, padding: 0 }}
+                              >
+                                {t('admin.integrations.disconnect')}
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                       {graphSaveMsg && (
                         <div data-testid="microsoft-graph-connected" style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 6 }}>
                           {graphSaveMsg}
@@ -3486,6 +3520,24 @@ function IntegrationsTab() {
                         >
                           {connectingGoogle ? t('admin.integrations.google.connecting') : t('admin.integrations.google.connect')}
                         </button>
+                        {(googleStatus?.connections?.length ?? 0) > 0 && (
+                          <div style={{ marginTop: 10, fontSize: 12 }}>
+                            <div style={{ color: 'var(--text-secondary)' }}>{t('admin.integrations.connectedAccounts')}</div>
+                            {googleStatus?.connections?.map(connection => (
+                              <div key={connection.id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
+                                <span data-testid="google-connected-account">{connection.providerUserId || connection.id}</span>
+                                <button
+                                  data-testid="google-disconnect-account"
+                                  disabled={disconnectingId === connection.id}
+                                  onClick={() => disconnectAccount(connection.id)}
+                                  style={{ background: 'none', border: 0, color: 'var(--red)', cursor: 'pointer', fontSize: 12, padding: 0 }}
+                                >
+                                  {t('admin.integrations.disconnect')}
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                         {/* Calendars need their own grant: a contacts authorization does
                             not include the calendar scopes. */}
                         <button

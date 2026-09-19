@@ -241,19 +241,20 @@ card that offers it.
 - Covered by tests at every site: provider off and method off for each of the three Microsoft
   entry points and the Google one, plus the existing readiness cases.
 
-## Partly closed: disconnecting a connected provider account
+## Closed: disconnecting a connected provider account
 
-`POST /api/integrations/provider-connections/:id/disconnect` now exists, is owner-scoped, and does the
-conservative thing: revokes the grant, deletes the stored access and refresh tokens instead of leaving
-them encrypted at rest, marks the connection revoked so no schedule touches it, and disables its
+A provider account can now be disconnected from the interface. `POST
+/api/integrations/provider-connections/:id/disconnect` is owner-scoped and does the conservative
+thing: it revokes the grant, deletes the stored access and refresh tokens instead of leaving them
+encrypted at rest, takes the connection out of service so no schedule touches it, and disables its
 collections so nothing refreshes. **It deletes no imported data** — contacts, calendars and events
 stay visible, because removing them is a separate decision and not a side effect of disconnecting.
 Reconnecting the same account reactivates it through the normal flow and re-links the same
 collections by remote id.
 
-Still missing: **the interface control**. The integration card does not know whether an account is
-connected — only the contacts and calendar status endpoints do — so the next step is to feed that
-state into the card and add the button, with the retention wording the endpoint implements.
+`/api/integrations/status` reports the caller's own connections per provider — ids only, never a
+credential — and the card lists them with a **Disconnect** control, so the state needed to use the
+endpoint is visible rather than only available over the API.
 
 ## Known limitations of what is delivered
 

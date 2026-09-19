@@ -50,6 +50,8 @@ interface ProviderReadiness {
   deviceCode: { supported: boolean; ready: boolean; reason?: string };
   /** Only Microsoft reports it: the Graph connector has its own callback. */
   graph?: { ready: boolean; missing: string[] };
+  /** The caller's own connections, ids only. */
+  connections?: Array<{ id: string; providerUserId: string | null; status: string }>;
 }
 
 interface IntegrationStatus {
@@ -216,6 +218,15 @@ describe('GET /api/integrations/status (non-admin capability check)', () => {
       delete process.env.GOOGLE_CLIENT_SECRET;
       delete process.env.GOOGLE_REDIRECT_URI;
     }
+  });
+
+  it('reports only the caller own connections, and only their ids', async () => {
+    process.env.MS_CLIENT_ID = 'some-client-id';
+    const body = await integrationStatusBody(await fetch(`${integrationBase()}/api/integrations/status`));
+    // The field must exist even with nothing connected, so the card can distinguish
+    // "not connected" from "status not loaded".
+    expect(body.microsoft.connections).toEqual([]);
+    expect(body.google.connections).toEqual([]);
   });
 
   it('never leaks credentials in the response', async () => {

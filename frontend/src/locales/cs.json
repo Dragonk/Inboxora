@@ -838,7 +838,9 @@
         "connectUnavailable": "Správce musí nejprve nakonfigurovat Google API, než lze účet připojit.",
         "connectedNote": "Účet Google připojen.",
         "connectCalendars": "Připojit kalendáře Google"
-      }
+      },
+      "connectedAccounts": "Připojené účty",
+      "disconnect": "Odpojit"
     },
     "ai": {
       "title": "Asistent AI",

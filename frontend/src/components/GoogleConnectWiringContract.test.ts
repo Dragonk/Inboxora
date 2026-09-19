@@ -297,3 +297,16 @@ test('a connect button is offered only when its own flow can run', async () => {
   assert.match(source, /const msDeviceReady = Boolean\(msStatus\?\.deviceCode\?\.ready\)/);
   assert.match(source, /disabled=\{!msConfigured \|\| !msDeviceReady\}/);
 });
+
+test('a connected account can be seen and disconnected from the card', async () => {
+  const source = await readFile(adminPanel, 'utf8');
+  const api = await readFile(new URL('../utils/api.ts', import.meta.url), 'utf8');
+  assert.match(source, /const disconnectAccount = async \(connectionId: string\) => \{/);
+  assert.match(source, /await api\.disconnectProviderConnection\(connectionId\)/);
+  assert.match(source, /data-testid="google-disconnect-account"/);
+  assert.match(source, /data-testid="microsoft-disconnect-account"/);
+  // The list is per provider and only rendered when there is something to disconnect.
+  assert.match(source, /admin\.integrations\.connectedAccounts/);
+  assert.match(source, /admin\.integrations\.disconnect/);
+  assert.match(api, /disconnectProviderConnection: \(id: string\) => request\('POST', `\/integrations\/provider-connections\/\$\{encodeURIComponent\(id\)\}\/disconnect`\)/);
+});

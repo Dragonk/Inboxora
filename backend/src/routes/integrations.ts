@@ -99,6 +99,8 @@ function applyProviderConfig(provider: ProviderName, config: ProviderConfig): vo
 
 export interface ProviderReadiness {
   enabled: boolean;
+  /** The caller's own connections for this provider; ids only, no credential. */
+  connections?: Array<{ id: string; providerUserId: string | null; status: string }>;
   browser: { ready: boolean; missing: string[] };
   deviceCode: { supported: boolean; ready: boolean; reason?: string };
   /**
@@ -282,14 +284,26 @@ router.get('/', requireAdmin, async (_req: Request, res: Response) => {
 
 // Capability check for any authenticated user (non-admins included). Reports only
 // readiness per method — never a client ID, a secret or another account's data.
-router.get('/status', async (_req: Request, res: Response) => {
-  const [microsoftStored, googleStored] = await Promise.all([
+router.get('/status', async (req: Request, res: Response) => {
+  const userId = req.session?.userId;
+  const [microsoftStored, googleStored, connections] = await Promise.all([
     readStoredConfig('microsoft'),
     readStoredConfig('google'),
+    // Owner-scoped: a user sees their own connections, never another's.
+    userId
+      ? query<{ id: string; provider: string; provider_user_id: string | null; status: string }>(
+        `SELECT id, provider, provider_user_id, status FROM provider_connections
+          WHERE user_id = $1 ORDER BY created_at ASC`,
+        [userId],
+      )
+      : Promise.resolve({ rows: [] as Array<{ id: string; provider: string; provider_user_id: string | null; status: string }> }),
   ]);
+  const forProvider = (provider: string) => connections.rows
+    .filter(row => row.provider === provider)
+    .map(row => ({ id: row.id, providerUserId: row.provider_user_id, status: row.status }));
   const status: IntegrationStatus = {
-    microsoft: microsoftReadiness(microsoftStored),
-    google: googleReadiness(googleStored),
+    microsoft: { ...microsoftReadiness(microsoftStored), connections: forProvider('microsoft') },
+    google: { ...googleReadiness(googleStored), connections: forProvider('google') },
   };
   res.json(status);
 });

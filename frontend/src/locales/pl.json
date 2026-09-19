@@ -846,7 +846,9 @@
         "connectUnavailable": "Administrator musi najpierw skonfigurować Google API, aby można było połączyć konto.",
         "connectedNote": "Konto Google połączone.",
         "connectCalendars": "Połącz kalendarze Google"
-      }
+      },
+      "connectedAccounts": "Połączone konta",
+      "disconnect": "Odłącz"
     },
     "ssoLinked": {
       "title": "Połączono tożsamość SSO",
