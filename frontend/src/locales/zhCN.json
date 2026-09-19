@@ -1996,7 +1996,14 @@
     "davAccessOff": "已禁用",
     "davAccessReadOnly": "只读",
     "davAccessReadWrite": "读写",
-    "davAccessHint": "控制此日历是否发布到已连接的设备（CalDAV）。它绝不会授予超过日历本身允许的权限。"
+    "davAccessHint": "控制此日历是否发布到已连接的设备（CalDAV）。它绝不会授予超过日历本身允许的权限。",
+    "googleTitle": "Google 日历",
+    "googleHint": "导入已连接 Google 账户的日历。它们以只读方式加入，并且不会发布到您的设备。",
+    "googleSync": "同步 Google 日历",
+    "googleSyncing": "正在同步…",
+    "googleSyncDone": "Google 日历：{{calendars}} 个日历，新增 {{created}}，更新 {{updated}}，删除 {{deleted}}。",
+    "googleSyncPartial": "Google 日历：{{calendars}} 个日历，新增 {{created}}，更新 {{updated}}，删除 {{deleted}}；{{failed}} 个失败。",
+    "googleNotConnected": "请在“设置 → 集成”中连接 Google 账户以导入日历。"
   },
   "mailFolders": {
     "inbox": "收件箱",

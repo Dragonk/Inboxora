@@ -39,8 +39,12 @@ the Google one.
   a fresh baseline rather than failing.
 - One calendar failing does not stop the others; the failure is reported per calendar.
 
-The in-app control for this pull is still to come with the account-connection interface; until then
-it is triggered through the API and the imported calendars appear in the normal calendar list.
+The in-app control for this pull is **Sync Google calendars**, in the **Manage sources** dialog
+under **Settings → Calendar → Calendar subscriptions**. It appears once a Google account is
+connected, and reports what each run did — how many calendars were read and how many events were
+added, updated and removed — including a partial failure when one calendar could not be read. The
+imported calendars appear in the calendar list straight away. An automatic schedule is still to
+come, so today the pull runs when you ask for it.
 
 ### Holiday calendars
 

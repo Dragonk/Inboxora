@@ -5,6 +5,7 @@ import test from 'node:test';
 const adminPanel = new URL('./AdminPanel.tsx', import.meta.url);
 const mailApp = new URL('./MailApp.tsx', import.meta.url);
 const contactsPage = new URL('./ContactsPage.tsx', import.meta.url);
+const calendarSidebar = new URL('./CalendarSidebar.tsx', import.meta.url);
 const localesDir = new URL('../locales/', import.meta.url);
 
 test('the Google provider card offers an account connection once the browser flow is ready', async () => {
@@ -47,6 +48,7 @@ test('every locale translates the Google connect and sync controls', async () =>
   assert.equal(files.length, 9);
   const adminKeys = ['connect', 'connecting', 'connectHint', 'connectUnavailable', 'connectedNote'];
   const bookKeys = ['googleSync', 'googleSyncing', 'googleSyncDone', 'googleSyncPartial'];
+  const calendarKeys = ['googleTitle', 'googleHint', 'googleSync', 'googleSyncing', 'googleSyncDone', 'googleSyncPartial', 'googleNotConnected'];
   for (const name of files) {
     const strings = JSON.parse(await readFile(new URL(name, localesDir), 'utf8'));
     for (const key of adminKeys) {
@@ -57,9 +59,30 @@ test('every locale translates the Google connect and sync controls', async () =>
       assert.equal(typeof strings.contacts.addressBooks[key], 'string', `${name} is missing contacts.addressBooks.${key}`);
       assert.ok(strings.contacts.addressBooks[key].length > 0, `${name} has an empty ${key}`);
     }
+    for (const key of calendarKeys) {
+      assert.equal(typeof strings.calendar[key], 'string', `${name} is missing calendar.${key}`);
+      assert.ok(strings.calendar[key].length > 0, `${name} has an empty ${key}`);
+    }
     assert.equal(typeof strings.contacts.googleConnected.title, 'string', `${name} is missing contacts.googleConnected.title`);
     assert.equal(typeof strings.contacts.googleConnected.body, 'string', `${name} is missing contacts.googleConnected.body`);
-    // The sync summary interpolates with i18next syntax.
+    // The sync summaries interpolate with i18next syntax.
     assert.match(strings.contacts.addressBooks.googleSyncDone, /\{\{created\}\}/, `${name} googleSyncDone has no placeholders`);
+    assert.match(strings.calendar.googleSyncDone, /\{\{calendars\}\}/, `${name} calendar googleSyncDone has no placeholders`);
+    assert.match(strings.calendar.googleSyncPartial, /\{\{failed\}\}/, `${name} calendar googleSyncPartial has no placeholders`);
   }
+});
+
+test('the calendar sources dialog offers the Google pull once connected', async () => {
+  const source = await readFile(calendarSidebar, 'utf8');
+  assert.match(source, /api\.calendar\.googleCalendars\.status\(\)/);
+  assert.match(source, /await api\.calendar\.googleCalendars\.sync\(\)/);
+  assert.match(source, /data-testid="calendar-google-sync"/);
+  assert.match(source, /googleCalendars\?\.connected \?/);
+  assert.match(source, /calendar\.googleNotConnected/);
+  // A partial run counts a failed connection and a failed calendar, so it never
+  // looks like a complete one.
+  assert.match(source, /calendar\.googleSyncPartial/);
+  assert.match(source, /data-testid="calendar-google-sync-result"/);
+  // The imported calendars appear immediately after a run.
+  assert.match(source, /await loadGoogleCalendars\(\);\s*\n\s*await onSourcesChanged\(\);/);
 });

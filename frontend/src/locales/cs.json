@@ -1996,7 +1996,14 @@
     "davAccessOff": "Vypnuto",
     "davAccessReadOnly": "Pouze pro čtení",
     "davAccessReadWrite": "Čtení i zápis",
-    "davAccessHint": "Určuje, zda je tento kalendář zpřístupněn připojeným zařízením (CalDAV). Nikdy neuděluje více, než dovoluje samotný kalendář."
+    "davAccessHint": "Určuje, zda je tento kalendář zpřístupněn připojeným zařízením (CalDAV). Nikdy neuděluje více, než dovoluje samotný kalendář.",
+    "googleTitle": "Kalendáře Google",
+    "googleHint": "Importuje kalendáře připojeného účtu Google. Přicházejí pouze pro čtení a skryté před vašimi zařízeními.",
+    "googleSync": "Synchronizovat kalendáře Google",
+    "googleSyncing": "Synchronizace…",
+    "googleSyncDone": "Kalendáře Google: {{calendars}} kalendářů, přidáno {{created}}, aktualizováno {{updated}}, odebráno {{deleted}}.",
+    "googleSyncPartial": "Kalendáře Google: {{calendars}} kalendářů, přidáno {{created}}, aktualizováno {{updated}}, odebráno {{deleted}}; selhání: {{failed}}.",
+    "googleNotConnected": "Připojte účet Google v Nastavení → Integrace a importujte kalendáře."
   },
   "mailFolders": {
     "inbox": "Doručená pošta",

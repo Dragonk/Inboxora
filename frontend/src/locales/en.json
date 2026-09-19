@@ -1996,7 +1996,14 @@
     "davAccessOff": "Disabled",
     "davAccessReadOnly": "Read only",
     "davAccessReadWrite": "Read and write",
-    "davAccessHint": "Controls whether this calendar is published to connected devices (CalDAV). It never grants more than the calendar itself allows."
+    "davAccessHint": "Controls whether this calendar is published to connected devices (CalDAV). It never grants more than the calendar itself allows.",
+    "googleTitle": "Google calendars",
+    "googleHint": "Import the calendars of a connected Google account. They arrive read-only and hidden from your devices.",
+    "googleSync": "Sync Google calendars",
+    "googleSyncing": "Syncing…",
+    "googleSyncDone": "Google calendars: {{calendars}} calendar(s), {{created}} added, {{updated}} updated, {{deleted}} removed.",
+    "googleSyncPartial": "Google calendars: {{calendars}} calendar(s), {{created}} added, {{updated}} updated, {{deleted}} removed; {{failed}} failure(s).",
+    "googleNotConnected": "Connect a Google account in Settings → Integrations to import calendars."
   },
   "mailFolders": {
     "inbox": "Inbox",

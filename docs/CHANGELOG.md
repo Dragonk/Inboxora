@@ -161,6 +161,13 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   imported calendar's event count and last-sync time without exposing any credential. The in-app
   control and automatic schedule arrive with the account-connection interface; the calendar list
   itself already shows the imported calendars.
+- Surface the Google calendar pull in the interface. **Settings → Calendar → Manage sources** now
+  shows a **Google calendars** section: once an account is connected it offers **Sync Google
+  calendars** and reports what the run did (calendars, added, updated, removed, and a partial
+  failure when a connection or a single calendar fails); before that it explains where to connect
+  an account. The imported calendars appear in the calendar list as soon as the run finishes. With
+  this the whole Google slice — connect an account, pull contacts, pull calendars — is reachable
+  without calling the API by hand; the automatic schedule is still to come.
 
 ## [4.0.4] - 2026-09-18
 

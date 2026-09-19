@@ -432,6 +432,11 @@ export const api = {
     // which is also the path that notifies invited attendees.
     deleteEvent: (id: string, calendarId: string, recurrenceId: string | null | undefined = undefined, scope: string | null | undefined = undefined) =>recurrenceId ? request('DELETE', `/calendar/events/${encodeURIComponent(id)}/occurrence`, { calendarId, recurrenceId, ...(scope ? { scope } : {}) }) : request('DELETE', `/calendar/events/${encodeURIComponent(id)}?calendarId=${encodeURIComponent(calendarId)}`),
     listSources: () => request('GET', '/calendar/sources'),
+    // Google Calendar pull: status is safe for any user, sync is idempotent per cursor.
+    googleCalendars: {
+      status: () => request('GET', '/calendar/providers/google/status'),
+      sync: () => request('POST', '/calendar/providers/google/sync'),
+    },
     createSource: (data: unknown) => request('POST', '/calendar/sources', data),
     updateSource: (id: string, data: unknown) => request('PATCH', `/calendar/sources/${encodeURIComponent(id)}`, data),
     syncSource: (id: string) => request('POST', `/calendar/sources/${encodeURIComponent(id)}/sync`),

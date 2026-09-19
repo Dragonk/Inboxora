@@ -29,4 +29,22 @@ describe('Google contacts API client', () => {
     // The mutating call must carry the CSRF header like every other request.
     for (const [, init] of calls) assert.equal(init.headers[CSRF_HEADER], CSRF_VALUE);
   });
+
+  it('reads the calendar status and triggers the calendar sync through their routes', async () => {
+    const calls: RecordedCall[] = [];
+    const fetchStub = async (url: string, init: RecordedInit) => {
+      calls.push([url, init]);
+      return { ok: true, json: async () => ({ ok: true }) };
+    };
+    mock.method(globalThis, 'fetch', fetchStub);
+
+    await api.calendar.googleCalendars.status();
+    await api.calendar.googleCalendars.sync();
+
+    assert.deepEqual(calls.map(([url, init]) => [url, init.method]), [
+      ['/api/calendar/providers/google/status', 'GET'],
+      ['/api/calendar/providers/google/sync', 'POST'],
+    ]);
+    for (const [, init] of calls) assert.equal(init.headers[CSRF_HEADER], CSRF_VALUE);
+  });
 });

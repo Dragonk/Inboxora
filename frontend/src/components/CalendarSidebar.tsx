@@ -23,6 +23,25 @@ interface CalendarSourceList {
   sources?: CalendarSource[];
 }
 
+/** The Google Calendar pull status the sources dialog reads (no credential). */
+interface GoogleCalendarStatus {
+  configured?: boolean;
+  connected?: boolean;
+  connections?: number;
+  calendars?: Array<{ calendarId: string; name?: string | null; eventCount?: number; lastSyncedAt?: string | null; lastErrorCode?: string | null }>;
+}
+
+/** One connection's outcome from POST /calendar/providers/google/sync. */
+interface GoogleCalendarSyncOutcome {
+  collections?: number;
+  created?: number;
+  updated?: number;
+  deleted?: number;
+  skipped?: number;
+  errors?: Array<{ calendarId?: string; code?: string }>;
+  error?: { code?: string; message?: string };
+}
+
 /** A calendar row as the sidebar receives it (local rows carry ownership fields). */
 interface CalendarRow {
   id: string;
@@ -105,6 +124,11 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
   const [calendarEdit, setCalendarEdit] = useState<CalendarEditDraft | null>(null);
   const [editError, setEditError] = useState<string | null>(null);
   const [calendarSaving, setCalendarSaving] = useState(false);
+  // The Google Calendar pull: `connected` decides whether the action is offered,
+  // and the notice reports what the last run changed.
+  const [googleCalendars, setGoogleCalendars] = useState<GoogleCalendarStatus | null>(null);
+  const [googleSyncing, setGoogleSyncing] = useState(false);
+  const [googleSyncNotice, setGoogleSyncNotice] = useState('');
   useBackLayer(openCalendarMenu, () => { if (!calendarSaving) setOpenCalendarMenu(null); }, 4510);
   const cells = useMemo(() => monthCells(anchor, weekStartsOn), [anchor, weekStartsOn]);
   const weekdays = useMemo(() => Array.from({ length: 7 }, (_, index) => new Date(2026, 0, 4 + ((index + weekStartsOn) % 7)).toLocaleDateString(locale, { weekday: 'short' })), [locale, weekStartsOn]);
@@ -166,7 +190,7 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
     };
     poll();
   };
-  const openSources = async () => { setShowSources(true); await loadSources(); };
+  const openSources = async () => { setShowSources(true); await loadSources(); await loadGoogleCalendars(); };
   useEffect(() => {
     if (!sourcePanelRequest) return;
     let active = true;
@@ -197,6 +221,38 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
         try { await onSourcesChanged(); } catch { /* keep the persisted source visible even if refresh fails */ }
       }
       setSourceError(toAppError(error).message);
+    }
+  };
+  const loadGoogleCalendars = async () => {
+    try {
+      const result = await api.calendar.googleCalendars.status() as GoogleCalendarStatus;
+      if (mounted.current) setGoogleCalendars(result);
+    } catch {
+      // A server without the Google adapter must not break the sources dialog.
+      if (mounted.current) setGoogleCalendars(null);
+    }
+  };
+  const runGoogleCalendarSync = async () => {
+    setGoogleSyncing(true);
+    setGoogleSyncNotice('');
+    setSourceError(null);
+    try {
+      const result = await api.calendar.googleCalendars.sync() as { results?: GoogleCalendarSyncOutcome[] };
+      const outcomes = Array.isArray(result?.results) ? result.results : [];
+      const sum = (field: 'created' | 'updated' | 'deleted') => outcomes.reduce((total, outcome) => total + (outcome[field] ?? 0), 0);
+      const calendars = outcomes.reduce((total, outcome) => total + (outcome.collections ?? 0), 0);
+      // A failed connection and a failed calendar inside a successful connection
+      // both count as failures, so a partial run never looks complete.
+      const failed = outcomes.reduce((total, outcome) => total + (outcome.error ? 1 : 0) + (outcome.errors?.length ?? 0), 0);
+      setGoogleSyncNotice(failed
+        ? t('calendar.googleSyncPartial', { calendars, created: sum('created'), updated: sum('updated'), deleted: sum('deleted'), failed })
+        : t('calendar.googleSyncDone', { calendars, created: sum('created'), updated: sum('updated'), deleted: sum('deleted') }));
+      await loadGoogleCalendars();
+      await onSourcesChanged();
+    } catch (error) {
+      setSourceError(toAppError(error).message);
+    } finally {
+      if (mounted.current) setGoogleSyncing(false);
     }
   };
   const removeSource = async (id: string) => {
@@ -301,6 +357,16 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
         <button type="submit" style={primaryButton}>{t('calendar.addSource')}</button>
       </form>
       <div style={sourceList}>{sources.map(source => <div key={source.id} data-testid="calendar-source-row" style={sourceRow}><span style={sourceDetails}><strong>{source.displayName}</strong><small style={{ display: 'block' }}>{source.kind === 'caldav' ? t('calendar.caldav') : t('calendar.icsWebcal')}</small><SourceStatus source={source} pending={pendingSourceIds.current.has(source.id) || syncingSourceIds.has(source.id)} t={t} /><SourceIntervalSelect label={t('calendar.sourceSyncInterval')} value={source.intervalMin} onChange={value => changeSourceInterval(source, value)} t={t} /></span><span style={sourceActions}><button disabled={syncingSourceIds.has(source.id) || pendingSourceIds.current.has(source.id)} onClick={() => syncSource(source.id)} style={linkButton}>{t('calendar.syncSource')}</button><button onClick={() => removeSource(source.id)} style={dangerButton}>{t('calendar.delete')}</button></span></div>)}</div>
+      {/* The Google pull is offered once an account is connected; the imported
+          calendars arrive read-only and hidden from DAV devices. */}
+      <div style={{ marginTop: 18, borderTop: '1px solid var(--border)', paddingTop: 12 }}>
+        <strong>{t('calendar.googleTitle')}</strong>
+        {googleCalendars?.connected ? <>
+          <p style={{ margin: '6px 0', fontSize: 12, color: 'var(--text-tertiary)' }}>{t('calendar.googleHint')}</p>
+          <button data-testid="calendar-google-sync" disabled={googleSyncing} onClick={runGoogleCalendarSync} style={primaryButton}>{t(googleSyncing ? 'calendar.googleSyncing' : 'calendar.googleSync')}</button>
+          {googleSyncNotice && <p role="status" data-testid="calendar-google-sync-result" style={{ margin: '8px 0 0', fontSize: 12 }}>{googleSyncNotice}</p>}
+        </> : <p style={{ margin: '6px 0', fontSize: 12, color: 'var(--text-tertiary)' }}>{t('calendar.googleNotConnected')}</p>}
+      </div>
     </Dialog>}
   </aside>;
 }

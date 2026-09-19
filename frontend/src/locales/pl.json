@@ -1996,7 +1996,14 @@
     "davAccessOff": "Wyłączony",
     "davAccessReadOnly": "Tylko odczyt",
     "davAccessReadWrite": "Odczyt i zapis",
-    "davAccessHint": "Określa, czy ten kalendarz jest udostępniany podłączonym urządzeniom (CalDAV). Nigdy nie przyznaje więcej, niż pozwala sam kalendarz."
+    "davAccessHint": "Określa, czy ten kalendarz jest udostępniany podłączonym urządzeniom (CalDAV). Nigdy nie przyznaje więcej, niż pozwala sam kalendarz.",
+    "googleTitle": "Kalendarze Google",
+    "googleHint": "Zaimportuj kalendarze połączonego konta Google. Trafiają tu tylko do odczytu i ukryte przed Twoimi urządzeniami.",
+    "googleSync": "Synchronizuj kalendarze Google",
+    "googleSyncing": "Synchronizowanie…",
+    "googleSyncDone": "Kalendarze Google: {{calendars}} kalendarzy, dodano {{created}}, zaktualizowano {{updated}}, usunięto {{deleted}}.",
+    "googleSyncPartial": "Kalendarze Google: {{calendars}} kalendarzy, dodano {{created}}, zaktualizowano {{updated}}, usunięto {{deleted}}; niepowodzenia: {{failed}}.",
+    "googleNotConnected": "Połącz konto Google w Ustawieniach → Integracjach, aby zaimportować kalendarze."
   },
   "mailFolders": {
     "inbox": "Odebrane",

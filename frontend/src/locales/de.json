@@ -1996,7 +1996,14 @@
     "davAccessOff": "Deaktiviert",
     "davAccessReadOnly": "Nur Lesen",
     "davAccessReadWrite": "Lesen und Schreiben",
-    "davAccessHint": "Legt fest, ob dieser Kalender für verbundene Geräte (CalDAV) bereitgestellt wird. Er gewährt nie mehr, als der Kalender selbst erlaubt."
+    "davAccessHint": "Legt fest, ob dieser Kalender für verbundene Geräte (CalDAV) bereitgestellt wird. Er gewährt nie mehr, als der Kalender selbst erlaubt.",
+    "googleTitle": "Google-Kalender",
+    "googleHint": "Importiert die Kalender eines verbundenen Google-Kontos. Sie kommen schreibgeschützt und vor Ihren Geräten verborgen an.",
+    "googleSync": "Google-Kalender synchronisieren",
+    "googleSyncing": "Synchronisierung…",
+    "googleSyncDone": "Google-Kalender: {{calendars}} Kalender, {{created}} hinzugefügt, {{updated}} aktualisiert, {{deleted}} entfernt.",
+    "googleSyncPartial": "Google-Kalender: {{calendars}} Kalender, {{created}} hinzugefügt, {{updated}} aktualisiert, {{deleted}} entfernt; {{failed}} Fehler.",
+    "googleNotConnected": "Verbinden Sie ein Google-Konto unter Einstellungen → Integrationen, um Kalender zu importieren."
   },
   "mailFolders": {
     "inbox": "Posteingang",
