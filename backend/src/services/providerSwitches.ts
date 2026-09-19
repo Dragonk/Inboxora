@@ -28,9 +28,15 @@ const ALL_OFF: ProviderSwitches = { enabled: false, webEnabled: false, deviceEna
  * Whether the provider layer is available at all, as one operator switch.
  *
  * The per-provider and per-method switches say which parts a configured installation offers; this says
- * whether to offer any of it, which is what an operator wants before configuring a client or on an
- * installation that must not call out to a provider. Read here so that every consumer — four
- * authorization flows and the readiness report — answers the same question from the same place.
+ * whether to offer any of it, which is what an operator wants before configuring a client.
+ *
+ * Read here so that the four authorization flows and the readiness report answer the same question from
+ * the same place. **It does not yet cover every path that reaches a provider**: the three provider sync
+ * routes and the scheduled refresh call the adapters directly, so an installation that switches the layer
+ * off can still make a scheduled or manual sync call out for collections it already has. Closing that means
+ * checking this function in those four places — the two route groups and `runProviderSyncs` — which is
+ * recorded here rather than implied, because a switch whose documentation overstates its reach is worse
+ * than one that admits the hole.
  *
  * Unset or any value other than an explicit off counts as enabled, so an existing installation is
  * unaffected by the flag's arrival.
