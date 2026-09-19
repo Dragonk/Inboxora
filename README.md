@@ -194,7 +194,10 @@ mail into conversations afterwards, is in
 ## Connecting your accounts
 
 - **IMAP/SMTP** — any provider, with Gmail, Yahoo, iCloud and custom presets.
-- **Gmail** — connect with a Google **app password**; Inboxora uses IMAP/SMTP with it.
+- **Gmail — two methods, neither forced.** Mail works with a Google **app password** over IMAP/SMTP, and an
+  administrator can additionally register a Google OAuth client to pull that account's **contacts and
+  calendars** read-only. Connecting the API does not migrate mail and does not ask for Gmail permissions;
+  see [Configuration](docs/wiki/Configuration.md) and [Connecting Google and Microsoft accounts](docs/wiki/Provider-setup.md).
 - **Microsoft 365 / Outlook.com** — OAuth2 (authorization code or device code). An administrator
   registers one Azure application under **Settings → Integrations**.
 - **Contacts and calendars on your devices** — generate an application password under
