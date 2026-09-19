@@ -13,6 +13,14 @@ limitations — read the matching page in the Wiki: [Release notes 4.1.0](wiki/R
 
 ## [Unreleased]
 
+### Added
+
+- Refusals on the forwarded-attachment path now carry **domain codes** rather than only sentences:
+  `ATTACHMENT_FETCH_FAILED` when a part cannot be read from the source mailbox — §22.1's rule, which is also §12.9's
+  sentence: a retry of the read is possible, and the message is not sent without the file — and `RESOURCE_NOT_FOUND`
+  for a referenced message, part or account that is not there. The behaviour is unchanged; what is new is that an
+  interface has something to branch on instead of matching English text.
+
 ### Changed
 
 - Two size guards on the send path now answer **`413`** with a domain code instead of `400` with prose only. §22.1 maps

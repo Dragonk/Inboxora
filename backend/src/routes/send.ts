@@ -506,12 +506,12 @@ router.post('/send', async (req, res) => {
       let declaredFwdBytes = 0;
       const fetchPlan = forwardedAttachments.map((fa) => {
         const msg = msgById.get(fa.messageId);
-        if (!msg) throw Object.assign(new Error('Forwarded message not found'), { status: 404 });
+        if (!msg) throw Object.assign(new Error('Forwarded message not found'), { status: 404, code: 'RESOURCE_NOT_FOUND' });
         const storedAtts: StoredAttachment[] = typeof msg.attachments === 'string'
           ? JSON.parse(msg.attachments || '[]')
           : (msg.attachments || []);
         const att = storedAtts.find(a => a.part === fa.part);
-        if (!att) throw Object.assign(new Error('Attachment not found in message'), { status: 404 });
+        if (!att) throw Object.assign(new Error('Attachment not found in message'), { status: 404, code: 'RESOURCE_NOT_FOUND' });
         declaredFwdBytes += Number(att.size) || 0;
         return { msg, att };
       });
@@ -530,9 +530,11 @@ router.post('/send', async (req, res) => {
         const batch = fetchPlan.slice(i, i + FWD_FETCH_CONCURRENCY);
         const fetched = await Promise.all(batch.map(async ({ msg, att }) => {
           const acct = acctById.get(msg.account_id);
-          if (!acct) throw Object.assign(new Error('Account not found'), { status: 404 });
+          if (!acct) throw Object.assign(new Error('Account not found'), { status: 404, code: 'RESOURCE_NOT_FOUND' });
           const buffer = await imapManager.fetchAttachment(acct, msg.uid, msg.folder, att.part);
-          if (!buffer) throw Object.assign(new Error(`Could not fetch attachment: ${att.filename}`), { status: 502 });
+          if (!buffer) // §22.1 names this outcome, and its rule is §12.9's sentence: a retry of the read is possible, and the
+            // message is not sent without the file.
+            throw Object.assign(new Error(`Could not fetch attachment: ${att.filename}`), { status: 502, code: 'ATTACHMENT_FETCH_FAILED' });
           return {
             filename: sanitizeHeaderValue(att.filename || 'attachment'),
             content: buffer,
@@ -549,7 +551,13 @@ router.post('/send', async (req, res) => {
       }
     } catch (caught) {
       const err = toAppError(caught);
-      return res.status(err.status || 500).json({ error: err.message || 'Failed to fetch forwarded attachments' });
+      // Carry the domain code through, so the interface can answer in the user's language instead of echoing
+      // this sentence — the same reason the uncertainty and size refusals gained codes.
+      const failure = err as Error & { status?: number; code?: string };
+      return res.status(failure.status || 500).json({
+        ...(failure.code ? { code: failure.code } : {}),
+        error: failure.message || 'Failed to fetch forwarded attachments',
+      });
     }
   }
 
