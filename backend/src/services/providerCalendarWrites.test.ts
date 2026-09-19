@@ -90,6 +90,19 @@ describe('running a calendar write through the journal', () => {
     expect((request.payload as { transactionId?: string }).transactionId).toBe('intent-1');
   });
 
+  it('journals Inboxora’s own resource id, never the provider’s', async () => {
+    // `provider_operations.resource_id` is a UUID column; the provider's `AAMkAD-…` id travels in the
+    // payload. Binding it in that column fails the INSERT before any provider call, which the mocked
+    // mutation layer cannot show — this pins the value the service passes.
+    await writeGraphCalendarEvent({
+      userId: 'user-1', target, operation: 'update', providerEventId: 'AAMkAD-evt-1',
+      localResourceId: '11111111-2222-4333-8444-555555555555', event,
+    });
+    const [request] = mocks.runProviderMutation.mock.calls[0] as [Record<string, unknown>];
+    expect(request.resourceId).toBe('11111111-2222-4333-8444-555555555555');
+    expect((request.payload as { eventId?: string }).eventId).toBe('AAMkAD-evt-1');
+  });
+
   it('maps a refusal onto the shared write failure vocabulary', async () => {
     mocks.runProviderMutation.mockResolvedValueOnce({ status: 'outcome_unknown', operationId: 'op-1', replayed: false });
     const outcome = await writeGraphCalendarEvent({ userId: 'user-1', target, operation: 'update', providerEventId: 'AAMkAD-evt-1', event });

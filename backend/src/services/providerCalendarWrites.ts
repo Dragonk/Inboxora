@@ -8,7 +8,12 @@ import {
   type GraphCalendarEventWritePayload,
   type LocalEventWriteInput,
 } from './providers/microsoft/graphCalendarWrites.js';
-import type { GraphEvent } from './providers/microsoft/graphCalendar.js';
+import {
+  createGraphEvent,
+  deleteGraphEvent,
+  patchGraphEvent,
+  type GraphEvent,
+} from './providers/microsoft/graphCalendar.js';
 import type { ParsedRecurrence } from '../utils/calendarRecurrenceRule.js';
 
 /**
@@ -69,8 +74,19 @@ export async function writeGraphCalendarEvent(input: {
   target: Extract<CalendarWriteTarget, { kind: 'graph' }>;
   operation: 'create' | 'update' | 'delete';
   providerEventId?: string | null;
+  /**
+   * The **local** `calendar_events.id` this operation belongs to.
+   *
+   * `provider_operations.resource_id` is a UUID column, and the journal is about Inboxora's own resource:
+   * the provider's id (`AAMkAD-…`) travels in the payload and in `remote_object_links`, never in that
+   * column — binding it there fails the INSERT with `invalid input syntax for type uuid` before any
+   * provider call. A create has no local row yet and passes null.
+   */
+  localResourceId?: string | null;
   event?: LocalEventWriteInput;
   idempotencyKey?: string | null;
+  /** Injected in tests, so the journal and the local writes can be exercised without a provider. */
+  providerCalls?: { create?: typeof createGraphEvent; patch?: typeof patchGraphEvent; remove?: typeof deleteGraphEvent };
 }): Promise<CalendarWriteOutcome> {
   const api = {
     userId: input.userId,
@@ -91,12 +107,12 @@ export async function writeGraphCalendarEvent(input: {
       operation: input.operation,
       connectionId: input.target.connectionId,
       collectionId: input.target.collectionId,
-      resourceId: input.providerEventId ?? null,
+      resourceId: input.localResourceId ?? null,
       ...(input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : {}),
       payload,
       timeoutMs: 20_000,
     },
-    graphCalendarEventMutationAdapter({ api }),
+    graphCalendarEventMutationAdapter({ api, ...(input.providerCalls ?? {}) }),
   );
   if (result.status !== 'confirmed') return { status: 'failed', failure: providerWriteFailure(result) };
   const event = result.value?.event ?? null;

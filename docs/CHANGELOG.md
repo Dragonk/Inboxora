@@ -1091,6 +1091,14 @@ release is never claimed before it has happened.
   passed.
 
 ### Fixed
+- **A Microsoft contact or calendar-event write could not be journalled at all.** `provider_operations.resource_id`
+  is a `UUID` column — it names Inboxora's own resource — but the two write paths bound the **provider's**
+  id (`AAMkAD-…`) there, so PostgreSQL rejected the INSERT before any provider call and every update and
+  delete answered `500`. The local `contacts.id` / `calendar_events.id` is journalled instead, with the
+  provider's id travelling where it belongs, in the payload and in `remote_object_links`. The defect was
+  invisible to the unit tests because they mock the mutation layer, so it is now pinned by a
+  real-PostgreSQL suite that drives the actual journal and asserts what it stored.
+
 
 - **Bulk read/unread on a native mail account opened an IMAP connection.** `/messages/bulk-read`
   grouped the selected messages by account and then called the IMAP flag write for every group, so a

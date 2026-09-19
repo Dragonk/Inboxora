@@ -4,6 +4,7 @@ import { runProviderMutation } from './providerMutationService.js';
 import { providerWriteFailure, type ProviderWriteFailure } from './providerWriteFailure.js';
 import { microsoftConfigFromEnv } from './providerAuthService.js';
 import { graphContactMutationAdapter, graphContactPayloadFor } from './providers/microsoft/graphContactWrites.js';
+import { createGraphContact, deleteGraphContact, patchGraphContact } from './providers/microsoft/graphContacts.js';
 import { contactUidForGraphContact, type GraphContact } from './providers/microsoft/graphContacts.js';
 import type { VCardContact } from '../utils/vcard.js';
 
@@ -78,9 +79,16 @@ export async function writeGraphContact(input: {
   target: Extract<ContactWriteTarget, { kind: 'graph' }>;
   operation: 'create' | 'update' | 'delete';
   providerContactId?: string | null;
+  /**
+   * The **local** `contacts.id` this operation belongs to — what `provider_operations.resource_id` is for.
+   * The provider's own id goes in the payload and `remote_object_links`; a UUID column cannot hold it.
+   */
+  localResourceId?: string | null;
   contact?: VCardContact;
   /** Stable key of one logical intent; a distinct autosave is a distinct call. */
   idempotencyKey?: string | null;
+  /** Injected in tests, so the journal and the local writes can be exercised without a provider. */
+  providerCalls?: { create?: typeof createGraphContact; patch?: typeof patchGraphContact; remove?: typeof deleteGraphContact };
 }): Promise<ContactWriteOutcome> {
   const api = {
     userId: input.userId,
@@ -94,7 +102,7 @@ export async function writeGraphContact(input: {
       operation: input.operation,
       connectionId: input.target.connectionId,
       collectionId: input.target.collectionId,
-      resourceId: input.providerContactId ?? null,
+      resourceId: input.localResourceId ?? null,
       ...(input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : {}),
       payload: {
         operation: input.operation,
@@ -104,7 +112,7 @@ export async function writeGraphContact(input: {
       },
       timeoutMs: 20_000,
     },
-    graphContactMutationAdapter({ api }),
+    graphContactMutationAdapter({ api, ...(input.providerCalls ?? {}) }),
   );
   if (result.status !== 'confirmed') return { status: 'failed', failure: providerWriteFailure(result) };
   const contact = result.value?.contact ?? null;

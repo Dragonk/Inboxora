@@ -105,6 +105,16 @@ describe('running a contact write through the journal', () => {
     expect(adapter).toMatchObject({ resourceType: 'contact', idempotent: false });
   });
 
+  it('journals Inboxora’s own resource id, never the provider’s', async () => {
+    await writeGraphContact({
+      userId: 'user-1', target, operation: 'update', providerContactId: 'AAMkAD-contact-1',
+      localResourceId: '66666666-7777-4888-8999-000000000000', contact: { displayName: 'Ada' },
+    });
+    const [request] = mocks.runProviderMutation.mock.calls[0] as [Record<string, unknown>];
+    expect(request.resourceId).toBe('66666666-7777-4888-8999-000000000000');
+    expect((request.payload as { contactId?: string }).contactId).toBe('AAMkAD-contact-1');
+  });
+
   it('does not report success when the provider refused', async () => {
     mocks.runProviderMutation.mockResolvedValueOnce({ status: 'retryable', operationId: 'op-1', replayed: false, code: 'RATE_LIMITED' });
     const outcome = await writeGraphContact({ userId: 'user-1', target, operation: 'update', providerContactId: 'contact-7' });
