@@ -599,11 +599,11 @@ endpoint is visible rather than only available over the API.
 Entry points and constraints discovered while building what exists. They are recorded so the next
 session does not have to rediscover them, not as a design that has been agreed.
 
-### State when this was written (measured at `9e2b1ddb` on `dev`, before the documentation commits that followed it)
+### State when this was written (measured at `157ad415` on `dev`, the last commit to change code or tests; the documentation commits after it change no behaviour)
 
-Everything below was green at that commit: backend **2267** unit tests, frontend **2655** plus a
-production build, **99** database integration tests on a fresh PostgreSQL 16 with the full
-109-migration chain, and the browser matrix at **124** (desktop) and **189** (two mobile viewports).
+Everything below was green at that commit: backend **2269** unit tests, frontend **2655** plus a
+production build, **99** database integration tests across twelve suites on a fresh PostgreSQL 16 with the
+full 109-migration chain, and the browser matrix at **124** (desktop) and **189** (two mobile viewports).
 
 The counts grew while the section below was being written, which is the point of dating them: each
 `docs:` commit that follows adds no tests, so a reader can trust the numbers against that commit and
