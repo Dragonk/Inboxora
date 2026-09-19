@@ -94,10 +94,11 @@ database triggers rather than on the routes, so it was verified directly against
   notifies collection-sync clients; that is now documented at the helper so it is neither
   relied on nor removed by mistake.
 
-## Known failing end-to-end tests (open, must be fixed before release)
+## What running the end-to-end suite found, and what happened to it
 
-The Playwright suite is not part of the gates that were run during this work, and running it
-found two things the unit and contract tests could not:
+The Playwright suite was not among the gates run while this work was built, and running it found two
+things the unit and contract tests could not. Both are now resolved, and the suite has been run
+repeatedly since (see the matrix below), so nothing here is outstanding:
 
 1. **Fixed:** `contacts-address-books.spec.ts` asserted that renaming an address book sends
    `{ name }` only. The rename dialog deliberately sends the book's DAV access as well, so the
