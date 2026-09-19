@@ -17,7 +17,7 @@ import {
   upsertProviderConnection,
 } from '../../providerAuthService.js';
 import { acquireSyncLease, ensureSyncState } from '../../syncCoordinator.js';
-import { syncGraphMailFolders, syncGraphMailFoldersForAccount, syncGraphMailMessagesForAccount } from './graphMailSync.js';
+import { graphFolderIdForPath, syncGraphMailFolders, syncGraphMailFoldersForAccount, syncGraphMailMessagesForAccount } from './graphMailSync.js';
 import { graphFlagIntent } from './graphMailMutations.js';
 
 const hasPg = process.env.DB_HOST && process.env.DB_NAME;
@@ -537,5 +537,34 @@ describeOrSkip('Microsoft Graph mail flag mutations (PostgreSQL)', () => {
       "SELECT status FROM provider_operations WHERE idempotency_key = 'no-payload-key'",
     ));
     expect(operation.rows[0]?.status).toBe('pending');
+  });
+});
+
+describeOrSkip('resolving a local folder path back to its Graph folder id (PostgreSQL)', () => {
+  beforeAll(async () => {
+    if (!process.env.ENCRYPTION_KEY) process.env.ENCRYPTION_KEY = crypto.randomBytes(32).toString('hex');
+    await autocommit(client => client.query(
+      `INSERT INTO users (id, username) VALUES ($1, 'graph-mail-path-user') ON CONFLICT (id) DO NOTHING`,
+      [USER_ID],
+    ));
+  });
+
+  beforeEach(async () => {
+    await autocommit(async client => {
+      await client.query('DELETE FROM provider_connections WHERE user_id = $1', [USER_ID]);
+      await client.query('DELETE FROM email_accounts WHERE user_id = $1', [USER_ID]);
+    });
+  });
+
+  it('reads the collection link backwards, and refuses a path it never discovered', async () => {
+    const connectionId = await seedConnection();
+    await syncGraphMailFolders({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl: fakeFolders([TREE, CHILDREN, WORK_CHILDREN]).fetchImpl });
+
+    // A move addresses the destination by the provider's folder id, so the local
+    // path a route holds has to resolve through the link the folder slice created.
+    await expect(graphFolderIdForPath({ connectionId, accountId: ACCOUNT_ID, path: 'INBOX/Work/Projects' }))
+      .resolves.toBe('graph-projects');
+    await expect(graphFolderIdForPath({ connectionId, accountId: ACCOUNT_ID, path: 'Trash' })).resolves.toBeNull();
+    await expect(graphFolderIdForPath({ connectionId, accountId: ACCOUNT_ID, path: 'INBOX' })).resolves.toBe('graph-inbox');
   });
 });

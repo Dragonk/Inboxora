@@ -2,6 +2,10 @@ import { describe, expect, it, vi } from 'vitest';
 import { GraphApiError } from './graphApiClient.js';
 import {
   classifyGraphMailMutationFailure,
+  graphDeleteIntent,
+  graphDeleteMutationAdapter,
+  graphMoveIntent,
+  graphMoveMutationAdapter,
   graphFlagIntent,
   graphFlagMutationAdapter,
   graphMessagePatchForFlag,
@@ -97,5 +101,64 @@ describe('the Graph flag adapter on the mutation layer', () => {
     const adapter = graphFlagMutationAdapter({ api: API, patch: patch as never });
     await expect(adapter.perform(payload, { operationId: 'op-1', signal: new AbortController().signal }))
       .resolves.toEqual({ status: 'permanent', code: 'RESOURCE_NOT_FOUND' });
+  });
+});
+
+describe('moving and removing a message', () => {
+  it('declares both non-idempotent, because a Graph move re-identifies the message', () => {
+    // A second attempt addresses an id that no longer exists and answers 404, which
+    // cannot be told apart from "gone for another reason" — so a recovered claim is
+    // parked rather than re-run.
+    expect(graphMoveMutationAdapter({ api: API }).idempotent).toBe(false);
+    expect(graphDeleteMutationAdapter({ api: API }).idempotent).toBe(false);
+  });
+
+  it('moves the message and hands back its new identity', async () => {
+    const move = vi.fn(async () => ({ id: 'AAMkAD-2', parentFolderId: 'graph-trash' }));
+    const adapter = graphMoveMutationAdapter({ api: API, move: move as never });
+    await expect(adapter.perform(
+      { providerMessageId: 'AAMkAD-1', destinationFolderId: 'graph-trash', intentAt: '2026-03-04T09:00:00.000Z' },
+      { operationId: 'op-1', signal: new AbortController().signal },
+    )).resolves.toEqual({ status: 'committed', value: { id: 'AAMkAD-2', parentFolderId: 'graph-trash' } });
+    expect(move).toHaveBeenCalledWith(API, 'AAMkAD-1', 'graph-trash');
+  });
+
+  it('does not claim success when Graph answers a move without an identity', async () => {
+    // Adopting nothing would strand the local row on an id the provider no longer has.
+    const adapter = graphMoveMutationAdapter({ api: API, move: (async () => ({})) as never });
+    await expect(adapter.perform(
+      { providerMessageId: 'AAMkAD-1', destinationFolderId: 'graph-trash', intentAt: '2026-03-04T09:00:00.000Z' },
+      { operationId: 'op-1', signal: new AbortController().signal },
+    )).resolves.toEqual({ status: 'outcome_unknown', code: 'MUTATION_OUTCOME_UNKNOWN' });
+  });
+
+  it('reports a refused move as permanent', async () => {
+    const adapter = graphMoveMutationAdapter({
+      api: API,
+      move: (async () => { throw new GraphApiError({ code: 'RESOURCE_NOT_FOUND', message: 'gone', status: 404 }); }) as never,
+    });
+    await expect(adapter.perform(
+      { providerMessageId: 'AAMkAD-1', destinationFolderId: 'graph-trash', intentAt: '2026-03-04T09:00:00.000Z' },
+      { operationId: 'op-1', signal: new AbortController().signal },
+    )).resolves.toEqual({ status: 'permanent', code: 'RESOURCE_NOT_FOUND' });
+  });
+
+  it('removes the message permanently and reports it committed', async () => {
+    const remove = vi.fn(async () => undefined);
+    const adapter = graphDeleteMutationAdapter({ api: API, remove: remove as never });
+    await expect(adapter.perform(
+      { providerMessageId: 'AAMkAD-1', intentAt: '2026-03-04T09:00:00.000Z' },
+      { operationId: 'op-1', signal: new AbortController().signal },
+    )).resolves.toEqual({ status: 'committed' });
+    expect(remove).toHaveBeenCalledWith(API, 'AAMkAD-1');
+  });
+
+  it('gives a move and a delete distinct intent identities, including the destination', () => {
+    const move = graphMoveIntent({ providerMessageId: 'm1', destinationFolderId: 'trash', intentAt: 'T1' });
+    const other = graphMoveIntent({ providerMessageId: 'm1', destinationFolderId: 'archive', intentAt: 'T1' });
+    const remove = graphDeleteIntent({ providerMessageId: 'm1', intentAt: 'T1' });
+    expect(move.idempotencyKey).not.toBe(other.idempotencyKey);
+    expect(move.idempotencyKey).not.toBe(remove.idempotencyKey);
+    expect(graphMoveIntent({ providerMessageId: 'm1', destinationFolderId: 'trash', intentAt: 'T1' })).toEqual(move);
   });
 });

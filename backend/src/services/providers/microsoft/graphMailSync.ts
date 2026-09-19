@@ -1,5 +1,5 @@
 import type { PoolClient } from 'pg';
-import { withTransaction } from '../../db.js';
+import { query, withTransaction } from '../../db.js';
 import { toAppError } from '../../../utils/errors.js';
 import {
   acquireSyncLease,
@@ -573,4 +573,25 @@ export async function syncGraphMailMessagesForFolder(input: {
     await withTransaction(client => failSyncRun(client, { syncStateId, generation: lease.generation, errorCode: code })).catch(() => {});
     throw caught;
   }
+}
+
+/**
+ * The provider folder id a local path projects from.
+ *
+ * A move addresses the destination by the provider's folder id, and everything
+ * above this layer addresses a folder by its local path, so the link the folder
+ * slice created (`integration_collections.local_folder_id` ↔ `remote_id`) is read
+ * backwards here. `null` means the path is not a folder this connection discovered,
+ * which is a refusal rather than an invitation to guess.
+ */
+export async function graphFolderIdForPath(input: { connectionId: string; accountId: string; path: string }): Promise<string | null> {
+  const result = await query<{ remote_id: string }>(
+    `SELECT ic.remote_id
+       FROM integration_collections ic
+       JOIN folders f ON f.id = ic.local_folder_id
+      WHERE ic.connection_id = $1 AND ic.account_id = $2 AND ic.kind = 'mail_folder' AND f.path = $3
+      LIMIT 1`,
+    [input.connectionId, input.accountId, input.path],
+  );
+  return result.rows[0]?.remote_id ?? null;
 }

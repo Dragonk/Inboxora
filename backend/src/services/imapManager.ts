@@ -5373,8 +5373,11 @@ export class ImapManager {
     });
   }
 
-  async moveMessage(account: EmailAccountRow, uid: number | string, fromFolder: string, toFolder: string) {
-    let newUid = null;
+  async moveMessage(account: EmailAccountRow, uid: number | string, fromFolder: string, toFolder: string): Promise<number | null> {
+    // Annotated rather than inferred from `null`: the UIDPLUS answer arrives as
+    // `any`, so the inferred type was `null`, which made the caller's
+    // `if (newUid != null)` branch look unreachable to the compiler.
+    let newUid: number | null = null;
     try {
       await withFreshClient(account, async (client) => {
         const lock = await client.getMailboxLock(fromFolder);

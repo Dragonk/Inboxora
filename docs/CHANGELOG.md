@@ -15,6 +15,18 @@ limitations — read the matching page in the Wiki: [Release notes 4.1.0](wiki/R
 
 ### Added
 
+- **Microsoft Graph message delete (P07b, fifth slice).** Deleting a Graph message follows the same
+  product decision the IMAP path already makes — a **draft** and a message **already in Trash** are
+  removed for good, anything else is **moved to Trash** — carried out through the shared
+  provider-mutation layer. A Graph move **re-identifies the message**, so the local row adopts the new
+  provider id and compatibility number rather than being left on a dead one. The provider call runs
+  before the local row changes, as it does for IMAP: a row that claims a message is in Trash when the
+  provider never moved it is worse than a slower delete. A refused or unconfirmed delete leaves the
+  row untouched and answers `409`/`502` rather than reporting success. Move and delete are declared
+  **non-idempotent** on purpose — a second attempt addresses an id that no longer exists and answers
+  `404`, which cannot be told apart from "gone for another reason" — so a recovered claim is parked as
+  `outcome_unknown` instead of being re-run automatically.
+
 - **Microsoft Graph message body and attachments (P07b, fourth slice).** Opening a Graph message now
   reads its body from Microsoft — fetched on demand, sanitised with the same HTML sanitiser the IMAP
   path uses, and cached in the same `body_html`/`body_text`/`attachments` columns, so the reading

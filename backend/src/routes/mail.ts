@@ -20,6 +20,14 @@ import { syncGraphMailFoldersForAccount, syncGraphMailMessagesForAccount } from 
 import type { EmailAccountRow } from '../services/imapManager.js';
 import { GraphApiError } from '../services/providers/microsoft/graphApiClient.js';
 import {
+  graphDeleteIntent,
+  graphDeleteMutationAdapter,
+  graphMoveIntent,
+  graphMoveMutationAdapter,
+} from '../services/providers/microsoft/graphMailMutations.js';
+import { graphFolderIdForPath } from '../services/providers/microsoft/graphMailSync.js';
+import { providerUidForGraphMessage } from '../services/providers/microsoft/graphMail.js';
+import {
   collectGraphInlineImages,
   embedGraphInlineImages,
   fetchGraphAttachmentBytes,
@@ -790,6 +798,97 @@ router.get('/messages/:id/attachments/:part', async (req, res) => {
   }
 });
 
+
+
+/**
+ * Delete (or move to Trash) a Microsoft Graph message.
+ *
+ * The provider call runs **before** the local row changes, exactly as the IMAP
+ * path does: a row that claims a message is in Trash when the provider never moved
+ * it is worse than a slower delete. `destinationPath` of `null` means a permanent
+ * delete, which is what a draft and an already-trashed message get.
+ *
+ * A Graph move re-identifies the message, so the new id is returned for the caller
+ * to adopt; a concurrent sync that removed the source row in the meantime is not
+ * fatal, because the destination's next delta lists the message under its new id
+ * and re-ingests it.
+ */
+async function deleteMessageOverGraph(input: {
+  userId: string;
+  account: EmailAccountRow;
+  message: ReadMessageRow;
+  destinationPath: string | null;
+}): Promise<
+  | { ok: true; moved: false }
+  | { ok: true; moved: true; newProviderMessageId: string; newUid: string }
+  | { ok: false; status: number; error: string; code?: string }
+> {
+  const { account, message } = input;
+  if (!account.provider_connection_id || !message.provider_message_id) {
+    return { ok: false, status: 409, error: 'This message has no Microsoft Graph identity', code: 'RESOURCE_NOT_FOUND' };
+  }
+  const api = {
+    userId: input.userId,
+    connectionId: account.provider_connection_id,
+    config: microsoftConfigFromEnv(),
+  };
+
+  if (input.destinationPath === null) {
+    const payload = { providerMessageId: message.provider_message_id, intentAt: new Date().toISOString() };
+    const intent = graphDeleteIntent(payload);
+    const result = await runProviderMutation(
+      {
+        userId: input.userId, channel: 'web', operation: 'delete', accountId: message.account_id,
+        resourceId: message.id, ...intent, payload, retry: { delaySeconds: 300 },
+      },
+      graphDeleteMutationAdapter({ api }),
+    );
+    if (result.status === 'confirmed') return { ok: true, moved: false };
+    return {
+      ok: false,
+      status: result.status === 'permanent' ? 409 : 502,
+      error: result.status === 'permanent' ? 'Microsoft Graph refused to delete this message' : 'The delete could not be confirmed with Microsoft Graph',
+      ...(result.code ? { code: result.code } : {}),
+    };
+  }
+
+  const destinationFolderId = await graphFolderIdForPath({
+    connectionId: account.provider_connection_id,
+    accountId: message.account_id,
+    path: input.destinationPath,
+  });
+  if (!destinationFolderId) {
+    return { ok: false, status: 422, error: `The folder "${input.destinationPath}" is not a folder this Microsoft account discovered`, code: 'RESOURCE_NOT_FOUND' };
+  }
+
+  const payload = {
+    providerMessageId: message.provider_message_id,
+    destinationFolderId,
+    intentAt: new Date().toISOString(),
+  };
+  const intent = graphMoveIntent(payload);
+  const result = await runProviderMutation(
+    {
+      userId: input.userId, channel: 'web', operation: 'update', accountId: message.account_id,
+      resourceId: message.id, ...intent, payload, retry: { delaySeconds: 300 },
+    },
+    graphMoveMutationAdapter({ api }),
+  );
+  if (result.status === 'confirmed' && result.value?.id) {
+    return {
+      ok: true,
+      moved: true,
+      newProviderMessageId: result.value.id,
+      newUid: providerUidForGraphMessage(result.value.id),
+    };
+  }
+  return {
+    ok: false,
+    status: result.status === 'permanent' ? 409 : 502,
+    error: result.status === 'permanent' ? 'Microsoft Graph refused to move this message' : 'The move could not be confirmed with Microsoft Graph',
+    ...(result.code ? { code: result.code } : {}),
+  };
+}
 
 /**
  * Serve and cache the body of a Microsoft Graph message.
@@ -2346,7 +2445,55 @@ router.delete('/messages/:id', async (req, res) => {
 
   // Drafts bypass Trash and are permanently deleted (consistent with all major email clients).
   const allDraftsPaths = await resolveAllDraftsPaths(message.account_id, account.folder_mappings);
-  if (allDraftsPaths.has(message.folder)) {
+  const isDraft = allDraftsPaths.has(message.folder);
+
+  // A native account deletes through its provider, and the strategy that decides
+  // between Trash and a permanent removal is the same one the IMAP path uses —
+  // read from the same `special_use` values the folder discovery wrote.
+  if (account.mail_transport === 'microsoft_graph') {
+    const trashPath = await resolveTrashFolder(message.account_id, account.folder_mappings);
+    const allTrashPaths = await resolveAllTrashPaths(message.account_id, account.folder_mappings);
+    const strategy = getDeleteStrategy(message.folder, trashPath, allTrashPaths);
+    const permanent = isDraft || strategy.action === 'expunge';
+    if (!permanent && (!trashPath || strategy.action === 'no_trash')) {
+      return res.status(422).json({ error: 'No Trash folder configured for this account' });
+    }
+
+    const outcome = await deleteMessageOverGraph({
+      userId: sessionUserId(req),
+      account,
+      message,
+      destinationPath: permanent ? null : trashPath,
+    });
+    if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error, ...(outcome.code ? { code: outcome.code } : {}) });
+
+    if (outcome.moved && trashPath) {
+      // A Graph move re-identifies the message: the local row adopts the new id and
+      // the new compatibility number, so the next delta matches instead of
+      // re-inserting a second row.
+      await query('DELETE FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3 AND id != $4',
+        [message.account_id, outcome.newUid, trashPath, id]);
+      const updated = await query(
+        'UPDATE messages SET folder = $1, uid = $2, provider_message_id = $3 WHERE id = $4',
+        [trashPath, outcome.newUid, outcome.newProviderMessageId, id],
+      );
+      if ((updated.rowCount ?? 0) === 0) {
+        // A concurrent sync removed the source row. That is not a failure: the
+        // destination's next delta lists the message under its new id and re-ingests it.
+        console.warn('Graph move: the local row was gone before it could be re-homed; the next sync will re-ingest it');
+      }
+      adjustFolderCounts(message.account_id, message.folder, -1, -wasUnread);
+      adjustFolderCounts(message.account_id, trashPath, 1, wasUnread);
+    } else {
+      await query('DELETE FROM messages WHERE id = $1', [id]);
+      adjustFolderCounts(message.account_id, message.folder, -1, -wasUnread);
+    }
+    imapManager.broadcast({ type: 'folder_updated', folder: message.folder, accountId: message.account_id }, req.session.userId);
+    notifyMailMutation([message], sessionUserId(req));
+    return res.json({ ok: true });
+  }
+
+  if (isDraft) {
     try {
       await imapManager.permanentDeleteMessage(account, message.uid, message.folder);
     } catch (caught) {
