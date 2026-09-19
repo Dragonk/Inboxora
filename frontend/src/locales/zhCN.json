@@ -1145,7 +1145,8 @@
       "microsoftSync": "同步 Microsoft 联系人",
       "microsoftSyncing": "正在同步…",
       "microsoftSyncDone": "Microsoft 联系人：新增 {{created}}，更新 {{updated}}，删除 {{deleted}}。",
-      "microsoftSyncPartial": "Microsoft 联系人：新增 {{created}}，更新 {{updated}}，删除 {{deleted}}；{{failed}} 个连接失败。"
+      "microsoftSyncPartial": "Microsoft 联系人：新增 {{created}}，更新 {{updated}}，删除 {{deleted}}；{{failed}} 个连接失败。",
+      "importVCard": "导入 vCard"
     },
     "googleConnected": {
       "title": "Google 已连接",

@@ -1145,7 +1145,8 @@
       "microsoftSync": "Microsoft-Kontakte synchronisieren",
       "microsoftSyncing": "Synchronisierung…",
       "microsoftSyncDone": "Microsoft-Kontakte: {{created}} hinzugefügt, {{updated}} aktualisiert, {{deleted}} entfernt.",
-      "microsoftSyncPartial": "Microsoft-Kontakte: {{created}} hinzugefügt, {{updated}} aktualisiert, {{deleted}} entfernt; {{failed}} Verbindung(en) fehlgeschlagen."
+      "microsoftSyncPartial": "Microsoft-Kontakte: {{created}} hinzugefügt, {{updated}} aktualisiert, {{deleted}} entfernt; {{failed}} Verbindung(en) fehlgeschlagen.",
+      "importVCard": "vCard importieren"
     },
     "googleConnected": {
       "title": "Google verbunden",

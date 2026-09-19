@@ -50,6 +50,7 @@ Contacts support the standard vCard fields:
 | Direction | Format | Notes |
 | --- | --- | --- |
 | Import | Google CSV | Into a local book; re-importing updates matching contacts instead of duplicating them. |
+| Import | vCard (`.vcf`) | Into a local book; a file with many cards is supported, and re-importing updates the contacts that share a UID instead of duplicating them. |
 | Export | Google CSV | Per address book. |
 | Export | Outlook CSV | Per address book. |
 | Export | vCard 3.0 | Per address book. |

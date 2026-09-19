@@ -244,6 +244,14 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   Graph contact connector, how refresh and re-authorization behave, and a troubleshooting table
   covering the failures an operator actually sees. Every Inboxora-side name, path and variable in
   the page was checked against the code it describes.
+- Import contacts from a **vCard (`.vcf`) file** (P10). The address-book menu had a Google CSV
+  import; a `.vcf` export from any other client now imports too, including a file that concatenates
+  many cards (line endings and folded lines are handled). Unlike the CSV import, which has no
+  stable identity and therefore dedupes by e-mail address, a vCard carries a UID — the same value
+  DAV clients use — so the import keys on it and re-importing a file updates the existing contacts
+  instead of creating a second copy of each. A card without a UID is given one, a block with no
+  usable fields is skipped rather than stored blank, and an empty, oversized or card-less file is
+  reported instead of importing nothing quietly.
 
 ## [4.0.4] - 2026-09-18
 

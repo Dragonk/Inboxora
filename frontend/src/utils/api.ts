@@ -379,6 +379,8 @@ export const api = {
     update: (id: string, data: unknown) => request('PATCH', `/contacts/address-books/${encodeURIComponent(id)}`, data),
     remove: (id: string) => request('DELETE', `/contacts/address-books/${encodeURIComponent(id)}`),
     importGoogleCsv: (id: string, csv: string) => request('POST', `/contacts/address-books/${encodeURIComponent(id)}/import/google-csv`, { csv }),
+    // A .vcf file, keyed by the vCard UID so a re-import updates instead of duplicating.
+    importVCard: (id: string, vcard: string) => request('POST', `/contacts/address-books/${encodeURIComponent(id)}/import/vcard`, { vcard }),
     exportUrl: (id: string, format: string) =>`${BASE}/contacts/address-books/${encodeURIComponent(id)}/export?format=${encodeURIComponent(format)}`,
   },
   // Google People pull: status is safe for any user, sync is idempotent per cursor.

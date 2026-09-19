@@ -121,3 +121,14 @@ test('the calendar sources dialog offers the Google pull once connected', async 
   // The imported calendars appear immediately after a run.
   assert.match(source, /await loadGoogleCalendars\(\);\s*\n\s*await onSourcesChanged\(\);/);
 });
+
+test('the contacts screen can import a vCard file into a local book', async () => {
+  const source = await readFile(contactsPage, 'utf8');
+  assert.match(source, /api\.addressBooks\.importVCard\(selectedAddressBookId/);
+  assert.match(source, /data-testid="contacts-import-vcard"/);
+  assert.match(source, /accept="\.vcf,text\/vcard"/);
+  assert.match(source, /contacts\.addressBooks\.importVCard/);
+  // Only a local book can receive an import, like the CSV importer.
+  const localGuards = source.match(/selectedBook\?\.source === 'local' && <Button/);
+  assert.ok(localGuards, 'import actions must be limited to local books');
+});

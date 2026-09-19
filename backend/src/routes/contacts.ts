@@ -2,7 +2,7 @@ import { Router } from 'express';
 import type { VCardContact } from '../utils/vcard.ts';
 import { query, withTransaction } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
-import { generateVCard, mergeVCard, normalizeContactDateLabel, normalizeVCardDate, parseVCard } from '../utils/vcard.js';
+import { generateVCard, mergeVCard, normalizeContactDateLabel, normalizeVCardDate, parseVCard, splitVCards } from '../utils/vcard.js';
 import { chooseDefined, normalizeRichContactFields } from '../utils/contactFields.js';
 import { safeFetch } from '../services/safeFetch.js';
 import { contactsToGoogleCsv, contactsToOutlookCsv, contactsToVCard, parseGoogleCsv } from '../utils/contactTransfer.js';
@@ -525,6 +525,67 @@ router.post('/address-books/:id/import/google-csv', async (req, res) => {
     await bumpSyncToken(local.book.id);
     res.status(201).json({ imported: contacts.length });
   } catch (err) { console.error('Google CSV import error:', err); res.status(500).json({ error: 'Failed to import Google CSV' }); }
+});
+
+// Import a `.vcf` file. Unlike the CSV import, which dedupes by e-mail address
+// (a CSV has no stable identity), a vCard carries a UID, and that UID is also what
+// DAV clients use — so the import keys on it and a re-import updates in place
+// instead of creating a second copy of every contact.
+router.post('/address-books/:id/import/vcard', async (req, res) => {
+  const vcardFile = typeof req.body?.vcard === 'string' ? req.body.vcard : '';
+  if (!vcardFile || vcardFile.length > 900_000) return res.status(400).json({ error: 'vCard file must be a non-empty file smaller than 900 KB' });
+  try {
+    const local = await requireLocalAddressBook(sessionUserId(req), req.params.id);
+    if ('error' in local) return res.status(local.status).json({ error: local.error });
+    const cards = splitVCards(vcardFile);
+    if (!cards.length) return res.status(400).json({ error: 'No contacts found in the vCard file' });
+
+    const userId = sessionUserId(req);
+    let imported = 0;
+    await withTransaction(async client => {
+      for (const raw of cards) {
+        const parsed = parseVCard(raw);
+        // A card with no recognisable property at all is skipped rather than stored blank.
+        if (!parsed.displayName && !parsed.emails.length && !parsed.phones.length) continue;
+        // A card without a UID gets one, so it still has a stable identity afterwards.
+        const uid = parsed.uid?.trim() || crypto.randomUUID();
+        const text = generateVCard({ ...parsed, uid });
+        const etag = crypto.createHash('md5').update(text).digest('hex');
+        const primaryEmail = (parsed.emails.find(email => email.primary) || parsed.emails[0])?.value?.toLowerCase() || null;
+        await client.query(
+          `INSERT INTO contacts (
+             address_book_id, user_id, uid, vcard, etag, display_name, first_name, last_name, primary_email,
+             emails, phones, organization, notes, birthday, anniversary, contact_dates, photo_data,
+             title, role, nickname, urls, instant_messages, categories, addresses, google_fields, is_auto
+           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11::jsonb,$12,$13,$14,$15,$16::jsonb,$17,$18,$19,$20,$21::jsonb,$22::jsonb,$23::jsonb,$24::jsonb,'{}'::jsonb,false)
+           ON CONFLICT (address_book_id, uid) DO UPDATE SET
+             vcard = EXCLUDED.vcard, etag = EXCLUDED.etag, display_name = EXCLUDED.display_name,
+             first_name = EXCLUDED.first_name, last_name = EXCLUDED.last_name, primary_email = EXCLUDED.primary_email,
+             emails = EXCLUDED.emails, phones = EXCLUDED.phones, organization = EXCLUDED.organization,
+             notes = EXCLUDED.notes, birthday = EXCLUDED.birthday, anniversary = EXCLUDED.anniversary,
+             contact_dates = EXCLUDED.contact_dates, photo_data = EXCLUDED.photo_data, title = EXCLUDED.title,
+             role = EXCLUDED.role, nickname = EXCLUDED.nickname, urls = EXCLUDED.urls,
+             instant_messages = EXCLUDED.instant_messages, categories = EXCLUDED.categories,
+             addresses = EXCLUDED.addresses, is_auto = false, updated_at = NOW()`,
+          [
+            local.book.id, userId, uid, text, etag,
+            parsed.displayName, parsed.firstName, parsed.lastName, primaryEmail,
+            JSON.stringify(parsed.emails), JSON.stringify(parsed.phones), parsed.organization, parsed.notes,
+            parsed.birthday, parsed.anniversary, JSON.stringify(parsed.contactDates), parsed.photoData,
+            parsed.title, parsed.role, parsed.nickname, JSON.stringify(parsed.urls), JSON.stringify(parsed.instantMessages),
+            JSON.stringify(parsed.categories), JSON.stringify(parsed.addresses),
+          ],
+        );
+        imported += 1;
+      }
+    });
+    if (!imported) return res.status(400).json({ error: 'No contacts found in the vCard file' });
+    await bumpSyncToken(local.book.id);
+    res.status(201).json({ imported });
+  } catch (err) {
+    console.error('vCard import error:', err);
+    res.status(500).json({ error: 'Failed to import the vCard file' });
+  }
 });
 
 // GET /api/contacts/:id

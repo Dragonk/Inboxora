@@ -1145,7 +1145,8 @@
       "microsoftSync": "Synchronizovat kontakty Microsoft",
       "microsoftSyncing": "Synchronizace…",
       "microsoftSyncDone": "Kontakty Microsoft: přidáno {{created}}, aktualizováno {{updated}}, odebráno {{deleted}}.",
-      "microsoftSyncPartial": "Kontakty Microsoft: přidáno {{created}}, aktualizováno {{updated}}, odebráno {{deleted}}; {{failed}} připojení selhalo."
+      "microsoftSyncPartial": "Kontakty Microsoft: přidáno {{created}}, aktualizováno {{updated}}, odebráno {{deleted}}; {{failed}} připojení selhalo.",
+      "importVCard": "Importovat vCard"
     },
     "googleConnected": {
       "title": "Google připojen",

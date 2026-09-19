@@ -221,6 +221,7 @@ export default function ContactsPage({ isActive = true }) {
   const selectedRowIdRef            = useRef<string | null>(null);
   const mobileBackButtonRef         = useRef<HTMLButtonElement | null>(null);
   const importInputRef              = useRef<HTMLInputElement | null>(null);
+  const importVCardRef              = useRef<HTMLInputElement | null>(null);
   const contactSelectionRequestRef  = useRef(0);
   const listResizeRef               = useRef<(() => void) | null>(null);
 
@@ -382,6 +383,17 @@ export default function ContactsPage({ isActive = true }) {
     } finally {
       setProviderSyncing(null);
     }
+  };
+
+  const importVCardFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file || !selectedAddressBookId) return;
+    try {
+      await api.addressBooks.importVCard(selectedAddressBookId, await file.text());
+      await load(search);
+      await loadAddressBooks();
+    } catch (err) { setListError(toAppError(err).message); }
+    finally { event.target.value = ''; }
   };
 
   const importGoogleCsv = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -631,6 +643,7 @@ export default function ContactsPage({ isActive = true }) {
           {selectedBook?.source === 'local' && <Button data-testid="contacts-address-book-rename" onClick={() => openRenameBook(selectedBook)}>{t('contacts.addressBooks.rename')}</Button>}
           <Button onClick={toggleAddressBookVisibility}>{t(selectedBook?.visible ? 'contacts.addressBooks.hide' : 'contacts.addressBooks.show')}</Button>
           {selectedBook?.source === 'local' && <Button onClick={() => importInputRef.current?.click()}>{t('contacts.addressBooks.importGoogle')}</Button>}
+          {selectedBook?.source === 'local' && <Button data-testid="contacts-import-vcard" onClick={() => importVCardRef.current?.click()}>{t('contacts.addressBooks.importVCard')}</Button>}
           <a className="ui-button" href={api.addressBooks.exportUrl(selectedAddressBookId, 'google-csv')}>{t('contacts.addressBooks.exportGoogle')}</a>
           <a className="ui-button" href={api.addressBooks.exportUrl(selectedAddressBookId, 'outlook-csv')}>{t('contacts.addressBooks.exportOutlook')}</a>
           <a className="ui-button" href={api.addressBooks.exportUrl(selectedAddressBookId, 'vcard')}>vCard</a>
@@ -638,6 +651,7 @@ export default function ContactsPage({ isActive = true }) {
       </div>
     </details>
     <input ref={importInputRef} type="file" accept=".csv,text/csv" onChange={importGoogleCsv} style={{ display: 'none' }} />
+    <input ref={importVCardRef} type="file" accept=".vcf,text/vcard" onChange={importVCardFile} style={{ display: 'none' }} />
     {providerNotice && <p role="status" data-testid={`contacts-${providerNotice.provider}-sync-result`} style={{ margin: '6px 0 0', fontSize: 12, color: 'var(--text-tertiary)' }}>{providerNotice.message}</p>}
   </div>;
   // Rendered by both layouts: the address-book menu is shared, so its dialog must be too.

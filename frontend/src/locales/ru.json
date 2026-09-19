@@ -1145,7 +1145,8 @@
       "microsoftSync": "Синхронизировать контакты Microsoft",
       "microsoftSyncing": "Синхронизация…",
       "microsoftSyncDone": "Контакты Microsoft: добавлено {{created}}, обновлено {{updated}}, удалено {{deleted}}.",
-      "microsoftSyncPartial": "Контакты Microsoft: добавлено {{created}}, обновлено {{updated}}, удалено {{deleted}}; не удалось для {{failed}} подключений."
+      "microsoftSyncPartial": "Контакты Microsoft: добавлено {{created}}, обновлено {{updated}}, удалено {{deleted}}; не удалось для {{failed}} подключений.",
+      "importVCard": "Импорт vCard"
     },
     "googleConnected": {
       "title": "Google подключён",
