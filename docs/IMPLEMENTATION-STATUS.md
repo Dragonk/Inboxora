@@ -377,6 +377,26 @@ two missing pages are concrete, bounded deliverables. They were not attempted he
 three pages of operator instruction properly is more than the remaining session can verify, and a documentation
 page written without checking the code it describes would be worse than the gap.
 
+## Account settings and independent integrations (§19): three findings, one conditional whole
+
+The chapter describes a per-account model — provider and connection method shown instead of IMAP hosts, two
+independent calendar/contacts switches per account with their consent and last-success state, per-account
+authorization and discovery endpoints, per-account migration and notice preferences. **All of that is contingent
+on P07b and P08**, which are not implemented: there are no native mail accounts, so there is no per-account panel
+to carry it. Recorded once here rather than repeated in every row.
+
+Three items land on surfaces that *do* exist:
+
+| Item | State |
+| --- | --- |
+| **A "test configuration" action on each provider card** (§19.4: each card should offer validation, Save and a configuration test) | **Missing.** The card validates the fields and reports per-method readiness, and **readiness is not a test**: it checks that a client id, secret and callback are present, not that they work. An administrator with a mistyped secret sees a card that says the method is ready until the first authorization fails at the provider. A real test — a token request or a discovery call against the configured client — does not exist. |
+| **An explicit "delete local data for this integration" option** (§19.2: retention is explicit, keeping inactive mappings by default, with the option to remove local data without touching the source) | **Missing as a control; the default is right.** Disconnecting preserves imported data deliberately, and the wiki states that an imported collection cannot be deleted while its source can still write. There is no button that removes the local copy while the connection is off, which is what the row adds on top of the default. |
+| **Endpoint paths** (§19.3 proposes `/api/accounts/:id/integrations`, `/api/collections/:id`, `/api/operations/:id` and others) | **Deliberately different, and the read-first document permits it**: it says all new endpoint, table and page names must be **agreed with the final code** before release, the code being the authority. The collection settings live on the pages that own the collections — `PATCH /api/contacts/address-books/:id` and `PATCH /api/calendar/calendars/:id` — and the provider flows are provider-level rather than account-level, because there are no native accounts yet. The documentation and the code agree with each other; the plan's proposed paths are the part that differs, and a reader comparing the two should know that this was a decision rather than drift. |
+
+§19.5's requirements hold: `allowed` covers both providers, and the payloads are validated as a closed schema
+rather than arbitrary JSON — `validateProviderConfig` rejects unknown fields per provider, which is the property
+that keeps a typo from becoming configuration.
+
 ## Retry and uncertain outcomes (§22.2–22.4): what holds, and the one thing that does not
 
 Reading these three subsections against the code gives one real gap and a set of requirements that are already
