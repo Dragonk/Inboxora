@@ -41,6 +41,9 @@ limitations — read the matching page in the Wiki: [Release notes 4.1.0](wiki/R
 - An oversized **attachment** is named rather than only totalled: the message says which file is above the limit and
   by how much, measured from the decoded contents rather than a declared size. The policy is unchanged — the total
   would have refused the same message — but the administrator learns what to remove.
+- A message refused for its **composed size** now reports how much of it is attachments, measured as the raw bytes of
+  the decoded files. The third figure the plan asks for — the transport encoding — has no meaning while the only
+  transport is SMTP, so it is not reported rather than reported as a zero.
 
 
 ### Added

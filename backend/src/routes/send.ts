@@ -739,9 +739,16 @@ router.post('/send', async (req, res) => {
     // been claimed or handed to SMTP at this point, so refusing here leaves no uncertain send behind.
     const messageLimit = mailMaxMessageBytes();
     if (rawMessage.length > messageLimit) {
+      // §12.2 counts three figures, not one: the raw attachment bytes, the compiled MIME, and the transport
+      // encoding. The first two are known here, and naming the attachment subtotal tells the user whether to
+      // remove a file or shorten the message — the difference between advice and a number.
+      const rawAttachmentBytes = allAttachments.reduce(
+        (sum, a) => sum + (Buffer.isBuffer(a.content) ? a.content.length : 0), 0,
+      );
       return res.status(413).json({
         code: 'MESSAGE_TOO_LARGE',
-        error: `The composed message is ${rawMessage.length} bytes, above this installation's limit of ${messageLimit}.`,
+        error: `The composed message is ${rawMessage.length} bytes, above this installation's limit of ${messageLimit}.`
+          + ` Attachments account for ${rawAttachmentBytes} of them.`,
       });
     }
 

@@ -264,4 +264,30 @@ describe('send failure semantics', () => {
       delete process.env.MAIL_MAX_MESSAGE_BYTES;
     }
   });
+
+  it('says how much of an oversized message is attachments', async () => {
+    // §12.2's figures, reported where a user can act on them: the attachment subtotal is measured from decoded
+    // contents, and a file under the per-attachment limit still counts towards a message over it.
+    process.env.MAIL_MAX_MESSAGE_BYTES = '1000';
+    try {
+      const response = await fetch(`${base}/api/mail/send`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          accountId: 'a1',
+          to: ['you@example.com'],
+          subject: 'Mostly a file',
+          body: 'x'.repeat(4000),
+          attachments: [{ filename: 'small.bin', content: Buffer.alloc(700, 3).toString('base64') }],
+        }),
+      });
+      expect(response.status).toBe(413);
+      const body = await response.json() as { code?: string; error?: string };
+      expect(body.code).toBe('MESSAGE_TOO_LARGE');
+      expect(body.error).toContain('Attachments account for 700');
+      expect(sendMail).not.toHaveBeenCalled();
+    } finally {
+      delete process.env.MAIL_MAX_MESSAGE_BYTES;
+    }
+  });
 });
