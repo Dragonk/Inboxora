@@ -436,6 +436,13 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   themselves (both Microsoft authorizations, the device method and the Google authorization), the
   readiness report reflects them, and both halves are covered by tests, because a report that says
   "unavailable" over a route that still works is the same defect in the other direction.
+- Allow a connected provider account to be disconnected. An authorization could only be undone at
+  the provider: nothing wrote `revoked`, and no route existed to remove a connection. `POST
+  /api/integrations/provider-connections/:id/disconnect` now revokes the grant, **deletes the stored
+  access and refresh tokens** rather than leaving them encrypted at rest, takes the connection out of
+  service so no schedule touches it, and disables its collections so nothing refreshes. It deletes
+  none of the imported data: that is the user's, it stays visible, and removing it is a separate
+  decision rather than a side effect of disconnecting. Only the owner's own connection is affected.
 
 
 ## [4.0.4] - 2026-09-18

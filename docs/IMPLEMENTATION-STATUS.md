@@ -241,28 +241,19 @@ card that offers it.
 - Covered by tests at every site: provider off and method off for each of the three Microsoft
   entry points and the Google one, plus the existing readiness cases.
 
-## Open: a connected provider account cannot be disconnected
+## Partly closed: disconnecting a connected provider account
 
-Verified by reading rather than assumed: there is **no route for provider connections** (no
-`/provider-connections` handler anywhere), and **nothing writes `revoked`** to `oauth_grants.status`
-— the only statuses ever set are `active` and `reauth_required`. A user who authorizes Google or
-Microsoft therefore has no way to remove that connection in Inboxora, and no screen that even lists
-what is connected.
+`POST /api/integrations/provider-connections/:id/disconnect` now exists, is owner-scoped, and does the
+conservative thing: revokes the grant, deletes the stored access and refresh tokens instead of leaving
+them encrypted at rest, marks the connection revoked so no schedule touches it, and disables its
+collections so nothing refreshes. **It deletes no imported data** — contacts, calendars and events
+stay visible, because removing them is a separate decision and not a side effect of disconnecting.
+Reconnecting the same account reactivates it through the normal flow and re-links the same
+collections by remote id.
 
-What is missing, and what a disconnect should do when it is built:
-
-- list the connected provider accounts (the data is there: `provider_connections` joined to
-  `oauth_grants`), so the integration card can show what is connected rather than only that
-  *something* is;
-- revoke the grant — set `oauth_grants.status = 'revoked'`, which the token service already treats as
-  needing re-authorization — and delete the stored tokens rather than leaving them encrypted at rest;
-- decide deliberately what happens to the imported collections: they are marked read-only and their
-  source is their writer, so after a disconnect they would simply stop refreshing and stay frozen
-  unless the collections and their remote links are removed too. That choice belongs in the change,
-  not in a default.
-
-Not attempted here: it is a feature with a data-retention decision in it, and this round's remaining
-room was enough to verify and state the gap accurately, not to build it properly.
+Still missing: **the interface control**. The integration card does not know whether an account is
+connected — only the contacts and calendar status endpoints do — so the next step is to feed that
+state into the card and add the button, with the retention wording the endpoint implements.
 
 ## Known limitations of what is delivered
 

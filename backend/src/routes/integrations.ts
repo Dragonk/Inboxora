@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { disconnectProviderConnection } from '../services/providerConnectionService.js';
 import { microsoftConfigFromEnv } from '../services/providerAuthService.js';
 import { query } from '../services/db.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
@@ -248,6 +249,24 @@ function publicConfig(config: ProviderConfig): ProviderConfig {
 }
 
 // Get all integration configs (secrets redacted) — admin only (exposes OAuth client IDs)
+// Disconnect a provider account the signed-in user connected. Deliberately not admin-only:
+// the connection is theirs, and needing an administrator to undo an authorization would make
+// the consent weaker than it looks. Nothing imported is deleted — see the service.
+router.post('/provider-connections/:id/disconnect', async (req: Request, res: Response) => {
+  const userId = req.session?.userId;
+  if (!userId) return res.status(401).json({ error: 'Not authenticated' });
+  try {
+    // Express types a route parameter as string | string[]; a single segment is a string.
+    const connectionId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const result = await disconnectProviderConnection(userId, connectionId);
+    if (!result) return res.status(404).json({ error: 'Connection not found' });
+    res.json(result);
+  } catch (caught) {
+    console.error('Provider disconnect failed:', toAppError(caught).message);
+    res.status(500).json({ error: 'Failed to disconnect the provider account' });
+  }
+});
+
 router.get('/', requireAdmin, async (_req: Request, res: Response) => {
   const result = await query<{ provider: string; config: ProviderConfig; updated_at: string | Date | null }>(
     'SELECT provider, config, updated_at FROM integration_config'
