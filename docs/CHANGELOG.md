@@ -15,6 +15,15 @@ limitations — read the matching page in the Wiki: [Release notes 4.1.0](wiki/R
 
 ### Changed
 
+- **Deleting a folder works on a Microsoft Graph account** (P07b, sixteenth slice). The route removes the
+  folder on the provider and then Inboxora's copy of it — the same local cleanup the IMAP path already
+  did, so no new product decision was needed: the provider deletes the folder's contents with it, and the
+  local mirror follows. The `integration_collections` row that linked the folder to its Graph id is
+  removed too, so a later discovery does not resurrect a collection for a folder that is gone. A provider
+  refusal — Graph will not remove a well-known folder — is reported with its code and **nothing local is
+  deleted**, because a local delete after a refused provider delete is silent data loss. **Emptying a
+  folder still refuses** with its own explanation.
+
 - **The message list no longer opens an IMAP session for a Microsoft Graph account** (P07b, fifteenth
   slice). `GET /messages` fires a background body prefetch on every listing, and it had no transport
   check: on a native account each listing opened a connection that could only fail. The guard now lives

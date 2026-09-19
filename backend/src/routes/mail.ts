@@ -19,7 +19,7 @@ import { isMicrosoftConfigured, microsoftConfigFromEnv } from '../services/provi
 import { syncGraphMailFoldersForAccount, syncGraphMailMessagesForAccount } from '../services/providers/microsoft/graphMailSync.js';
 import type { EmailAccountRow } from '../services/imapManager.js';
 import { GraphApiError } from '../services/providers/microsoft/graphApiClient.js';
-import { graphCreateMailFolder, graphRenameMailFolder } from '../services/providers/microsoft/graphMailMutations.js';
+import { graphCreateMailFolder, graphDeleteMailFolder, graphRenameMailFolder } from '../services/providers/microsoft/graphMailMutations.js';
 import { graphFolderIdForPath } from '../services/providers/microsoft/graphMailSync.js';
 import { deleteGraphMessagePermanently, moveGraphMessageToFolder } from '../services/providers/microsoft/graphMailMove.js';
 import {
@@ -838,6 +838,27 @@ router.get('/messages/:id/attachments/:part', async (req, res) => {
 
 
 
+
+
+/** Delete a folder on the provider, then remove Inboxora's copy of it. */
+async function deleteGraphFolder(
+  userId: string,
+  account: EmailAccountRow,
+  path: string,
+): Promise<{ ok: true; remoteId: string } | { ok: false; status: number; error: string; code: string }> {
+  if (!account.provider_connection_id) return { ok: false, status: 409, error: 'This account is not linked to a Microsoft connection', code: 'PROVIDER_AUTH_REQUIRED' };
+  const folderId = await graphFolderIdForPath({ connectionId: account.provider_connection_id, accountId: account.id, path });
+  if (!folderId) return { ok: false, status: 404, error: `The folder "${path}" is not a folder this Microsoft account discovered`, code: 'RESOURCE_NOT_FOUND' };
+  try {
+    await graphDeleteMailFolder({ userId, connectionId: account.provider_connection_id, config: microsoftConfigFromEnv() }, folderId);
+  } catch (caught) {
+    // A well-known folder Graph refuses to remove lands here, and the provider's own
+    // code is what the user is told.
+    const problem = caught instanceof GraphApiError ? caught : null;
+    return { ok: false, status: problem?.code === 'RATE_LIMITED' ? 503 : 502, error: 'Microsoft Graph did not delete this folder', code: problem?.code ?? 'INTERNAL_ERROR' };
+  }
+  return { ok: true, remoteId: folderId };
+}
 
 /** Create a folder on the provider, then discover it. */
 async function createGraphFolder(
@@ -1664,6 +1685,18 @@ router.post('/folders/delete', async (req, res) => {
   if (!isValidFolderName(path)) return res.status(400).json({ error: 'Invalid folder path' });
   const check = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2', [accountId, req.session.userId]);
   if (!check.rows.length) return res.status(404).json({ error: 'Account not found' });
+  // A native account deletes on the provider. The local cleanup below then mirrors
+  // it, which is the behaviour the IMAP path already established — the provider
+  // removes the folder's contents with it, and so does Inboxora's copy.
+  if (check.rows[0].mail_transport === 'microsoft_graph') {
+    const removed = await deleteGraphFolder(sessionUserId(req), check.rows[0], path);
+    if (!removed.ok) return res.status(removed.status).json({ error: removed.error, code: removed.code });
+    await query('DELETE FROM folders WHERE account_id = $1 AND path = $2', [accountId, path]);
+    await query('DELETE FROM messages WHERE account_id = $1 AND folder = $2', [accountId, path]);
+    await query('DELETE FROM integration_collections WHERE connection_id = $1 AND kind = $2 AND remote_id = $3',
+      [check.rows[0].provider_connection_id, 'mail_folder', removed.remoteId]).catch(() => {});
+    return res.json({ ok: true });
+  }
   const folderRefusal = folderManagementRefusal(check.rows[0]);
   if (folderRefusal) return res.status(501).json(folderRefusal);
 

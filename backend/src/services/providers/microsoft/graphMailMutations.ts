@@ -318,3 +318,8 @@ export async function graphCreateMailFolder(api: GraphApiOptions, displayName: s
 export async function graphRenameMailFolder(api: GraphApiOptions, folderId: string, displayName: string): Promise<GraphMailFolder | null> {
   return graphPatch<GraphMailFolder>(api, `/me/mailFolders/${encodeURIComponent(folderId)}`, { displayName });
 }
+
+/** Delete a mail folder. The provider deletes its contents with it. */
+export async function graphDeleteMailFolder(api: GraphApiOptions, folderId: string): Promise<void> {
+  await graphDelete(api, `/me/mailFolders/${encodeURIComponent(folderId)}`);
+}

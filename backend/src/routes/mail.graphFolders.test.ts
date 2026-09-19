@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   query: vi.fn(),
   graphCreateMailFolder: vi.fn(),
   graphRenameMailFolder: vi.fn(),
+  graphDeleteMailFolder: vi.fn(),
   graphFolderIdForPath: vi.fn(),
   syncGraphMailFoldersForAccount: vi.fn(),
   createFolder: vi.fn(),
@@ -38,7 +39,12 @@ vi.mock('../services/providers/microsoft/graphMailSync.js', async (importOrigina
 });
 vi.mock('../services/providers/microsoft/graphMailMutations.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../services/providers/microsoft/graphMailMutations.js')>();
-  return { ...actual, graphCreateMailFolder: mocks.graphCreateMailFolder, graphRenameMailFolder: mocks.graphRenameMailFolder };
+  return {
+    ...actual,
+    graphCreateMailFolder: mocks.graphCreateMailFolder,
+    graphRenameMailFolder: mocks.graphRenameMailFolder,
+    graphDeleteMailFolder: mocks.graphDeleteMailFolder,
+  };
 });
 vi.mock('../services/providerAuthService.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../services/providerAuthService.js')>()),
@@ -81,7 +87,6 @@ describe('folder management on a native account refuses instead of failing like 
   // Create and rename are implemented for a native account now; delete and empty
   // still refuse, and the test says which is which rather than assuming all four.
   const cases: Array<[string, Record<string, unknown>]> = [
-    ['/folders/delete', { accountId: ACCOUNT_ID, path: 'A' }],
     ['/folders/empty', { accountId: ACCOUNT_ID, path: 'A' }],
   ];
 
@@ -149,5 +154,37 @@ describe('creating and renaming a folder on a native account', () => {
     expect(response.status).toBe(502);
     expect(await response.json()).toMatchObject({ code: 'INSUFFICIENT_SCOPES' });
     expect(mocks.syncGraphMailFoldersForAccount).not.toHaveBeenCalled();
+  });
+});
+
+describe('deleting a folder on a native account', () => {
+  it('removes it on the provider and then Inboxora\'s copy of it, as the IMAP path does', async () => {
+    mocks.query
+      .mockResolvedValueOnce({ rows: [{ id: ACCOUNT_ID, mail_transport: 'microsoft_graph', provider_connection_id: 'connection-1' }], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ remote_id: 'graph-projects' }], rowCount: 1 });   // graphFolderIdForPath
+    mocks.graphDeleteMailFolder.mockResolvedValue(undefined);
+
+    const response = await post('/folders/delete', { accountId: ACCOUNT_ID, path: 'Projects' });
+    expect(response.status).toBe(200);
+    expect(mocks.graphDeleteMailFolder).toHaveBeenCalledWith(expect.objectContaining({ connectionId: 'connection-1' }), 'graph-projects');
+    // The local cleanup mirrors the provider, exactly as the IMAP route does.
+    expect(mocks.query.mock.calls.some(([sql]) => String(sql).includes('DELETE FROM folders'))).toBe(true);
+    expect(mocks.query.mock.calls.some(([sql]) => String(sql).includes('DELETE FROM messages'))).toBe(true);
+    expect(mocks.deleteFolder).not.toHaveBeenCalled();
+  });
+
+  it('leaves the local copy alone when the provider refuses', async () => {
+    mocks.query
+      .mockResolvedValueOnce({ rows: [{ id: ACCOUNT_ID, mail_transport: 'microsoft_graph', provider_connection_id: 'connection-1' }], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ remote_id: 'graph-inbox' }], rowCount: 1 });
+    const { GraphApiError } = await import('../services/providers/microsoft/graphApiClient.js');
+    mocks.graphDeleteMailFolder.mockRejectedValue(new GraphApiError({ code: 'OPERATION_FORBIDDEN', message: 'well-known', status: 400 }));
+
+    const response = await post('/folders/delete', { accountId: ACCOUNT_ID, path: 'INBOX' });
+    expect(response.status).toBe(502);
+    expect(await response.json()).toMatchObject({ code: 'OPERATION_FORBIDDEN' });
+    // A local delete after a refused provider delete would be silent data loss.
+    expect(mocks.query.mock.calls.some(([sql]) => String(sql).includes('DELETE FROM folders'))).toBe(false);
+    expect(mocks.query.mock.calls.some(([sql]) => String(sql).includes('DELETE FROM messages'))).toBe(false);
   });
 });
