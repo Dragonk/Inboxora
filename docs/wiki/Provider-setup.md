@@ -174,6 +174,41 @@ switched off is no longer offered by the interface **and** no longer startable, 
 flow always agree. The Microsoft **device-code** method has its own switch, because it needs only a
 Client ID where the browser method needs a secret and the exact redirect URI.
 
+## What Inboxora does not do with a connected account
+
+Stated explicitly rather than left to be discovered, because a connector that silently ignores an
+operation is worse than one that says it will not perform it.
+
+**Both providers**
+
+- **No write-back.** Contacts, address books, calendars and events pulled from a provider are
+  read-only in Inboxora: editing or deleting them through the interface, through REST or through a
+  DAV client is refused. Changes made at the provider appear here on the next refresh; changes made
+  here are not sent there.
+- **No push notifications.** Refreshes are scheduled (`PROVIDER_SYNC_INTERVAL_MINUTES`) or
+  requested by hand. A change at the provider is not seen until then.
+- **No new remote collections.** Inboxora discovers what exists; it does not create an address book
+  or calendar at the provider.
+- **No remote sharing or permissions management**, and no contact-group or label management beyond
+  what the discovery returns.
+
+**Google**
+
+- Only the account's **personal** contacts are pulled (People API connections) — not the
+  organization directory and not "Other contacts".
+- A Google calendar is imported as a whole; its events, not the calendar's own settings (colour,
+  sharing, reminders), are represented.
+- **Gmail is not connected at all**: mail for a Google account continues over IMAP/SMTP with an app
+  password, and connecting Calendar or People does not change that and does not request Gmail
+  permissions.
+
+**Microsoft**
+
+- **The mailbox is not connected over Graph**: mail continues over IMAP/SMTP from the accounts
+  screen, and the connector covers contacts only. Microsoft calendars are not imported.
+- The two authorizations are separate — the mailbox sign-in and the contacts connector have their
+  own callbacks, their own readiness and their own switches.
+
 ## Troubleshooting
 
 | Symptom | Cause and fix |
