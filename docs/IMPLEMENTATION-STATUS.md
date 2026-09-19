@@ -45,6 +45,44 @@ typecheck, lint, production build and **2635 tests**. `main` has not been touche
 - Provider error codes surfaced in the UI are the recorded domain codes, not the providers' raw
   messages.
 
+## How to continue the remaining packages
+
+Entry points and constraints discovered while building what exists. They are recorded so the next
+session does not have to rediscover them, not as a design that has been agreed.
+
+**P07b — Microsoft Graph mail adapter.** Reuse `services/providers/microsoft/graphApiClient.ts` and
+take `graphContactsSync.ts` as the template: discovery, `integration_collections`, `remote_object_links`,
+a cursor in `sync_states` under the P03 lease, and per-object idempotent upserts. The open problem is
+**not** the Graph calls but the account model: messages, folders and threads are keyed to
+`email_accounts` (an IMAP account), while a provider grant belongs to a `provider_connection`, so the
+adapter has to target an account. The plan is explicit that this switch is an explicit migration with
+recorded intent, a configuration revision check and a checkpoint — **not** a silent transport change,
+and the old engine must be stopped before the new one writes. `provider_operations.ts` and the
+operation journal already exist for that work; read §12 of the plan before choosing the shape.
+
+**P07d — Microsoft Graph calendar adapter.** The client, `utils/icalTimezone.ts` and
+`utils/icalText.ts` already exist, and the Google calendar adapter
+(`googleCalendar.ts` + `googleCalendarSync.ts` + `googleCalendarMerge.ts`) is a close template,
+including the merge that keeps a series and its overrides in one resource. The hazard is time zones:
+Graph returns **Windows** zone names (`Central European Standard Time`), which `icalTimezone.ts`
+cannot resolve because it reads IANA ids. Decide deliberately between requesting
+`Prefer: outlook.timezone="UTC"` (exact instants, but a local-time recurring series would drift
+across DST unless the RRULE is converted) and adding a Windows→IANA table (keeps wall time, needs
+maintenance). Do not ship either without a test that pins a summer and a winter occurrence.
+
+**P08 — Gmail adapter.** `googleApiClient.ts` and `googleContactsSync.ts` are the templates; labels
+map to folders and Gmail threads to the local thread model. It shares the P06/P07b account-model
+question and should be designed together with it rather than twice.
+
+**P10 — external CalDAV/CardDAV write-back.** The read-only pieces and the `remote_object_links`
+rows are in place, and `provider_operations.ts` was written for exactly this: a write is an
+operation with a generation, a terminal state and a typed failure, and a conflict must surface as a
+domain code rather than an overwrite. The existing rule that a collection whose `source` is not
+local refuses writes is what keeps an unimplemented write-back from silently doing nothing.
+
+**P13/P14.** Needs the two decisions below before anything can be published: the release notes file
+is named after a version, and publishing the images needs registry authorization.
+
 ## Open questions for the maintainer
 
 1. **Release version** for `docs/wiki/Release-notes-<version>.md`. The repository requires release
