@@ -190,7 +190,8 @@ test('an import confirms what it added instead of refreshing silently', async ()
 
 test('a calendar import confirms its result and leaves the dialog open', async () => {
   const source = await readFile(calendarSidebar, 'utf8');
-  assert.match(source, /setImportNotice\(t\('calendar\.importDone', { count: result\?\.imported \?\? 0 }\)\)/);
+  assert.match(source, /setImportNotice\(protectedCount/);
+  assert.match(source, /calendar\.importProtected/);
   assert.match(source, /data-testid="calendar-import-result"/);
   // The confirmation is only useful if the dialog stays open to show it.
   const successPath = /importDone'[\s\S]{0,200}?await onSourcesChanged\(\)/.exec(source)?.[0] ?? '';

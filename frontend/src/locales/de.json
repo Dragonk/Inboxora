@@ -2021,7 +2021,8 @@
     "importingIcs": "Import läuft…",
     "lastSynced": "Zuletzt synchronisiert: {{date}} ({{count}} Termine insgesamt)",
     "lastSyncFailed": "Synchronisierung fehlgeschlagen: {{code}} ({{when}})",
-    "importDone": "{{count}} Termin(e) importiert."
+    "importDone": "{{count}} Termin(e) importiert.",
+    "importProtected": "{{count}} Termin(e) blieben unverändert, weil Inboxora deren Einladungen versendet hat."
   },
   "mailFolders": {
     "inbox": "Posteingang",

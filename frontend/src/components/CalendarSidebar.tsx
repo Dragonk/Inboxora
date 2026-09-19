@@ -276,9 +276,15 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
     setIcsImporting(true);
     setEditError(null);
     try {
-      const result = await api.calendar.importIcs(calendar.id, await file.text()) as { imported?: number };
+      const result = await api.calendar.importIcs(calendar.id, await file.text()) as { imported?: number; protected?: number };
       // The dialog stays open: the confirmation is the point, and another file may follow.
-      setImportNotice(t('calendar.importDone', { count: result?.imported ?? 0 }));
+      // Events left alone because Inboxora sent their invitations are reported rather than
+      // silently unchanged.
+      const imported = result?.imported ?? 0;
+      const protectedCount = result?.protected ?? 0;
+      setImportNotice(protectedCount
+        ? `${t('calendar.importDone', { count: imported })} ${t('calendar.importProtected', { count: protectedCount })}`
+        : t('calendar.importDone', { count: imported }));
       await onSourcesChanged();
     } catch (error) {
       setEditError(toAppError(error).message);

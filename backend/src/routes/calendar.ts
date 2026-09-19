@@ -1242,13 +1242,15 @@ router.post('/calendars/:id/import/ics', async (req, res) => {
     }
 
     let imported = 0;
+    // Events the file clashed with that Inboxora owns through a sent invitation.
+    let protectedEvents = 0;
     await withTransaction(async client => {
       for (const raw of resources) {
         const event = parseCalendarEvent(raw);
         // A resource the projection cannot read is skipped rather than stored broken.
         if (!event) continue;
         const etag = crypto.createHash('md5').update(raw).digest('hex');
-        await client.query(
+        const written = await client.query<{ id: string }>(
           `INSERT INTO calendar_events
              (calendar_id, user_id, uid, raw_ical, etag, summary, starts_at, ends_at, all_day, timezone, description, location, url, organizer, attendees)
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::jsonb)
@@ -1256,21 +1258,29 @@ router.post('/calendars/:id/import/ics', async (req, res) => {
              raw_ical = EXCLUDED.raw_ical, etag = EXCLUDED.etag, summary = EXCLUDED.summary,
              starts_at = EXCLUDED.starts_at, ends_at = EXCLUDED.ends_at, all_day = EXCLUDED.all_day,
              timezone = EXCLUDED.timezone, description = EXCLUDED.description, location = EXCLUDED.location,
-             url = EXCLUDED.url, organizer = EXCLUDED.organizer, attendees = EXCLUDED.attendees, updated_at = NOW()`,
+             url = EXCLUDED.url, organizer = EXCLUDED.organizer, attendees = EXCLUDED.attendees, updated_at = NOW()
+           -- An event Inboxora owns because invitations were sent for it is not the file's
+           -- to overwrite: the CalDAV write path refuses the same conflict, and an import
+           -- must not achieve silently what a DAV client is told it cannot do.
+           WHERE calendar_events.invite_account_id IS NULL
+           RETURNING id`,
           [
             calendar.id, userId, event.uid, raw, etag, event.summary, event.startsAt, event.endsAt,
             event.allDay, event.timeZone, event.description, event.location, event.url, event.organizer,
             JSON.stringify(event.attendees),
           ],
         );
-        imported += 1;
+        if (written.rows.length) imported += 1;
+        else protectedEvents += 1;
       }
     });
-    if (!imported) return res.status(400).json({ error: 'No events found in the file' });
+    // A file whose events were all left alone because Inboxora owns them did contain
+    // events; saying "none found" would misreport what happened.
+    if (!imported && !protectedEvents) return res.status(400).json({ error: 'No events found in the file' });
     // No manual token bump: the `calendar_events` trigger maintains `sync_version` and
     // `sync_token` in the `sync-N` scheme the DAV endpoint advertises, and writing a
     // random token here replaced it with a value that scheme never produces.
-    res.status(201).json({ imported });
+    res.status(201).json({ imported, protected: protectedEvents });
   } catch (err) {
     console.error('iCalendar import error:', err);
     res.status(500).json({ error: 'Failed to import the iCalendar file' });

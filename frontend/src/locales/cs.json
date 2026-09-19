@@ -2021,7 +2021,8 @@
     "importingIcs": "Importuji…",
     "lastSynced": "Naposledy synchronizováno: {{date}} (celkem {{count}} událostí)",
     "lastSyncFailed": "Synchronizace selhala: {{code}} ({{when}})",
-    "importDone": "Importováno {{count}} událostí."
+    "importDone": "Importováno {{count}} událostí.",
+    "importProtected": "{{count}} událostí zůstalo nezměněno, protože Inboxora rozeslala jejich pozvánky."
   },
   "mailFolders": {
     "inbox": "Doručená pošta",

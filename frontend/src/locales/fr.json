@@ -2021,7 +2021,8 @@
     "importingIcs": "Importation…",
     "lastSynced": "Dernière synchronisation : {{date}} ({{count}} événements au total)",
     "lastSyncFailed": "Échec de la synchronisation : {{code}} ({{when}})",
-    "importDone": "{{count}} événement(s) importé(s)."
+    "importDone": "{{count}} événement(s) importé(s).",
+    "importProtected": "{{count}} événement(s) sont restés inchangés car Inboxora a envoyé leurs invitations."
   },
   "mailFolders": {
     "inbox": "Boîte de réception",

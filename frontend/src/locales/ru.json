@@ -2021,7 +2021,8 @@
     "importingIcs": "Импорт…",
     "lastSynced": "Последняя синхронизация: {{date}} (всего событий: {{count}})",
     "lastSyncFailed": "Сбой синхронизации: {{code}} ({{when}})",
-    "importDone": "Импортировано событий: {{count}}."
+    "importDone": "Импортировано событий: {{count}}.",
+    "importProtected": "{{count}} событий остались без изменений, так как Inboxora отправила их приглашения."
   },
   "mailFolders": {
     "inbox": "Входящие",

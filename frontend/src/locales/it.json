@@ -2021,7 +2021,8 @@
     "importingIcs": "Importazione…",
     "lastSynced": "Ultima sincronizzazione: {{date}} ({{count}} eventi in totale)",
     "lastSyncFailed": "Sincronizzazione non riuscita: {{code}} ({{when}})",
-    "importDone": "{{count}} evento/i importato/i."
+    "importDone": "{{count}} evento/i importato/i.",
+    "importProtected": "{{count}} evento/i sono rimasti invariati perché Inboxora ha inviato i relativi inviti."
   },
   "mailFolders": {
     "inbox": "Posta in arrivo",

@@ -61,7 +61,8 @@ beforeEach(() => {
   mocks.query.mockImplementation(async (sql: string) => (
     String(sql).includes('FROM calendars')
       ? { rows: [{ id: 'cal-1', source: 'local' }], rowCount: 1 }
-      : { rows: [], rowCount: 1 }
+      // The upsert returns the row it wrote; a protected conflict returns none.
+      : { rows: [{ id: 'event-1' }], rowCount: 1 }
   ));
 });
 
@@ -71,7 +72,7 @@ describe('POST /api/calendar/calendars/:id/import/ics', () => {
       ics: wrap(EVENT('e1', 'Standup', '20260901T090000Z', '20260901T100000Z'), EVENT('e2', 'Dentist', '20260910T150000Z', '20260910T160000Z')),
     });
     expect(response.status).toBe(201);
-    expect(await response.json()).toEqual({ imported: 2 });
+    expect(await response.json()).toEqual({ imported: 2, protected: 0 });
 
     const inserts = queryCallsMatching('INSERT INTO calendar_events');
     expect(inserts).toHaveLength(2);
@@ -100,7 +101,7 @@ describe('POST /api/calendar/calendars/:id/import/ics', () => {
     const response = await importIcs({ ics: wrap(master, override) });
     expect(response.status).toBe(201);
     // One import for the UID, not two: splitting them would break the series.
-    expect(await response.json()).toEqual({ imported: 1 });
+    expect(await response.json()).toEqual({ imported: 1, protected: 0 });
     const [insert] = queryCallsMatching('INSERT INTO calendar_events');
     const raw = String((insert?.[1] as unknown[])[3]);
     expect(raw).toContain('RRULE:FREQ=WEEKLY;COUNT=4');
@@ -121,7 +122,7 @@ describe('POST /api/calendar/calendars/:id/import/ics', () => {
     const good = EVENT('good', 'Fine', '20260902T090000Z', '20260902T100000Z');
     const response = await importIcs({ ics: wrap(broken, good) });
     expect(response.status).toBe(201);
-    expect(await response.json()).toEqual({ imported: 1 });
+    expect(await response.json()).toEqual({ imported: 1, protected: 0 });
     expect((queryCallsMatching('INSERT INTO calendar_events')[0]?.[1] as unknown[])[2]).toBe('good');
   });
 
@@ -146,5 +147,28 @@ describe('POST /api/calendar/calendars/:id/import/ics', () => {
     const response = await importIcs({ ics: wrap(EVENT('e1', 'Standup', '20260901T090000Z', '20260901T100000Z')) });
     expect(response.status).toBe(403);
     expect(queryCallsMatching('INSERT INTO calendar_events')).toHaveLength(0);
+  });
+});
+
+describe('an .ics import must not overwrite an event Inboxora owns', () => {
+  const EVENT = (uid: string) => [
+    'BEGIN:VEVENT', `UID:${uid}`, 'DTSTAMP:20260801T000000Z',
+    'DTSTART:20260901T090000Z', 'DTEND:20260901T100000Z', 'SUMMARY:Changed', 'END:VEVENT',
+  ].join('\r\n');
+  const wrap = (...events: string[]) => ['BEGIN:VCALENDAR', 'VERSION:2.0', ...events, 'END:VCALENDAR', ''].join('\r\n');
+
+  it('leaves an invited event alone and reports it instead of counting it as imported', async () => {
+    // The CalDAV write path refuses this conflict with 409; an import must not achieve
+    // silently what a DAV client is told it cannot do.
+    mocks.query.mockImplementation(async (sql: string) => {
+      if (String(sql).includes('FROM calendars')) return { rows: [{ id: 'cal-1', source: 'local' }], rowCount: 1 };
+      // No row written: the ON CONFLICT guard matched an invitation-owned event.
+      return { rows: [], rowCount: 0 };
+    });
+
+    const response = await importIcs({ ics: wrap(EVENT('invited-1')) });
+    expect(response.status).toBe(201);
+    expect(await response.json()).toEqual({ imported: 0, protected: 1 });
+    expect(queryCallsMatching('invite_account_id IS NULL')).toHaveLength(1);
   });
 });

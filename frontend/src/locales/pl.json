@@ -2021,7 +2021,8 @@
     "importingIcs": "Importowanie…",
     "lastSynced": "Ostatnia synchronizacja: {{date}} (łącznie {{count}} wydarzeń)",
     "lastSyncFailed": "Synchronizacja nie powiodła się: {{code}} ({{when}})",
-    "importDone": "Zaimportowano {{count}} wydarzenie/ń."
+    "importDone": "Zaimportowano {{count}} wydarzenie/ń.",
+    "importProtected": "{{count}} wydarzeń pozostało bez zmian, ponieważ Inboxora wysłała ich zaproszenia."
   },
   "mailFolders": {
     "inbox": "Odebrane",

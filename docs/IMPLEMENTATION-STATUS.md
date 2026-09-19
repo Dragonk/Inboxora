@@ -145,7 +145,10 @@ navigation while every unit test passed.
 
 - Pulled Google and Microsoft contacts and Google calendars are **read-only** in Inboxora: REST and
   DAV refuse to edit a collection whose source is not local, and the source is the writer. The
-  authorization requests read-only scopes to match, so nothing asks for access it never uses. The DAV
+  authorization requests read-only scopes to match, so nothing asks for access it never uses.
+- An event Inboxora owns because invitations were sent for it is protected on every write path: the
+  CalDAV `PUT` refuses it, the invitation ingest respects its sequence, and the `.ics` import now
+  leaves it unchanged and reports the count rather than replacing it. The DAV
   side of that rule is pinned by tests for both protocols, including that a provider collection
   advertises read only even when its DAV mode says read-write.
 - Recurring Google events keep their timezone through a **generated VTIMEZONE**; the generator reads

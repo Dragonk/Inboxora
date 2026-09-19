@@ -2021,7 +2021,8 @@
     "importingIcs": "正在导入…",
     "lastSynced": "上次同步：{{date}}（共 {{count}} 个日程）",
     "lastSyncFailed": "同步失败：{{code}}（{{when}}）",
-    "importDone": "已导入 {{count}} 个日程。"
+    "importDone": "已导入 {{count}} 个日程。",
+    "importProtected": "{{count}} 个日程保持不变，因为 Inboxora 已发送其邀请。"
   },
   "mailFolders": {
     "inbox": "收件箱",
