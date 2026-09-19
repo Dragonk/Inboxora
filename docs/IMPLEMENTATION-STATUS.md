@@ -16,7 +16,7 @@ typecheck, lint, production build and **2644 tests**. `main` has not been touche
 
 | Package | Status | Delivered (commit) | Missing |
 | --- | --- | --- | --- |
-| P00 — preparation/audit | n/a | — | Prepared against the existing baseline; no code artefact. |
+| P00 — preparation/audit, **CI repair** | **partial** | — | The baseline was produced and `ci.yml` runs `typecheck`, `build`, `lint` and the unit tests on every push, which satisfies the plan's "correct typecheck/build in CI". What is **not** repaired is coverage: the database integration suites and the browser matrix — the two layers that found this work's real defects — are not gated and run only by hand. Ready-to-apply recipes for both are recorded above. |
 | P01 — shared provider contracts | **partial** | `abbe2b9b` | The contracts and the registry are wired (the registry is read by the mail paths). `providers/capabilities.ts` is imported only by its own tests, so the capability table is not yet consulted in production. |
 | P02 — additive schema (connections, grants, remote links, operation journal, outbox, notice preferences) | delivered | `abbe2b9b` (connections/grants/remote links, `0101`), `78b8c182` (journal/outbox, `0102`), `d4592756` (`0104`), `d7b8ceb9` (`0105`), `1a84536d` (`0106`) | `account_notice_preferences` exists but is unused until P12. |
 | P03 — operation journal, sync leases, domain outbox | **partial** | `78b8c182` | The leases are wired: the Google and Microsoft connectors take them on every run. The **operation journal and the domain outbox are delivered and tested (16 cases) but nothing in production calls them** — they are the intended vehicle for P10 write-back and the P12 cutover, so they are dormant until those land. |
