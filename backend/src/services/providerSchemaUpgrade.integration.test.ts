@@ -11,6 +11,10 @@
 // `-- no-transaction` marker is honoured the way the runner honours it, statement by statement, since
 // `CREATE INDEX CONCURRENTLY` cannot run inside a transaction block.
 //
+// It creates and drops a database of its own, so the role it connects as needs `CREATEDB` — the
+// `postgres` service user in the gate recipe has it — and it leaves nothing behind, dropping the
+// database in `afterAll` even when the assertions fail.
+//
 //   DB_HOST=localhost DB_PORT=5432 DB_NAME=mailflow_test DB_USER=… DB_PASSWORD=… \
 //     npx vitest run src/services/providerSchemaUpgrade.integration.test.ts
 

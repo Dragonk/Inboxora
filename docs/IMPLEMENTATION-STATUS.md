@@ -412,6 +412,8 @@ suite creates and drops its own rows, so it needs nothing but an empty migrated 
             src/routes/davPg.integration.test.ts
 ```
 
+One requirement of the suite list: `providerSchemaUpgrade.integration.test.ts` creates and drops a database of its own, so the role it connects as needs `CREATEDB` — the `postgres` service user below has it — and it removes that database in `afterAll` even when its assertions fail.
+
 It is left unapplied because CI minutes are an operator decision, not because it is difficult. Two
 caveats, so nobody mistakes it for something it is not: the **commands inside it are the ones used by
 hand** throughout this work, but the **job itself has never been executed** — action versions and
