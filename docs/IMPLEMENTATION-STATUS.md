@@ -17,9 +17,9 @@ rows. It is kept because its lessons are load-bearing, and it must never be read
 present. Earlier revisions mixed the two inside the table itself, which is how a reader could take a
 four-attempt saga — or a superseded delivery report — for a current status.
 
-Last re-measured on `dev` at `4ecd7601`: backend typecheck, lint and **2282** unit tests
-(**89 skipped** across 13 files); frontend typecheck, lint, production build and **2685** tests;
-**99** database integration tests across **12** suites on a fresh PostgreSQL 16 with the full
+Last re-measured on `dev` at `d89c42a3`: backend typecheck, lint and **2320** unit tests
+(**101 skipped** across 14 files); frontend typecheck, lint, production build and **2685** tests;
+**113** database integration tests across **13** suites on a fresh PostgreSQL 16 with the full
 **109**-migration chain. The browser matrix and the published-image smoke pair are deliberately
 **not** part of this measurement: they are reported where they belong, under P13 and P14.
 `main` has not been touched by this work.
@@ -34,9 +34,9 @@ Last re-measured on `dev` at `4ecd7601`: backend typecheck, lint and **2282** un
 | Package | Status | Delivered (commit) | Missing |
 | --- | --- | --- | --- |
 | P00 — preparation/audit, **CI repair** | **partial** | — | `ci.yml` runs `typecheck`, `build`, `lint` and the unit tests on every push. Coverage is **not** repaired: the database integration suites and the browser matrix — the two layers that found this work's real defects — run only by hand. The v4 continuation adds them as gated jobs; see P14. |
-| P01 — shared provider contracts | **partial** | `abbe2b9b` | The contracts, the registry and the capability table exist and are unit-tested, but **no production module imports the registry or the capability table** — verified: the only importer of `providers/registry.ts` and `providers/capabilities.ts` is `providers/providerLayer.test.ts`. Capability therefore decides nothing at runtime, and the request path still recognises provider ability through scattered checks (`source !== 'local'`, per-route `read_only`, `credentialCanWrite`). Wiring the capability model into the real request path is the first half of the v4 continuation. |
-| P02 — additive schema (connections, grants, remote links, operation journal, outbox, notice preferences), **backfill of existing sources** | **partial** | `abbe2b9b` (connections/grants/remote links, `0101`), `78b8c182` (journal/outbox, `0103`–`0105`) | The schema is delivered, additive and preserves existing IDs. The **upgrade half is now covered**: `providerSchemaUpgrade.integration.test.ts` creates its own database, applies the chain up to the provider migrations, seeds existing rows, applies `0101`–`0106` and asserts those rows and their IDs survive — green inside the 99-test gate. Still missing: the **backfill** of existing sources, so today's ICS subscriptions, CardDAV accounts and IMAP accounts are still described only by their own older tables and the provider layer does not know about them; and `source_connections` has **no reader and no writer** in production code, so the external-source half of the schema is schema only. The four attempts that produced the upgrade case are in *History*. |
-| P03 — operation journal, sync leases, domain outbox, **common ingest and mutation services** | **partial** | `78b8c182` | Leases are wired — the Google and Microsoft connectors take them on every run. The operation journal and domain outbox are delivered and tested (16 cases) but **nothing in production calls them**: `providerOperations.ts` has no production importer. There is no common **mutation** service at all: each adapter writes through its own upsert, and create/update/delete are refused rather than forwarded. The v4 continuation builds the typed mutation layer here and makes the journal the production write path. |
+| P01 — shared provider contracts | **mostly delivered** | `abbe2b9b`, this work: `b0381b77` | The contracts, the registry and the capability table now **decide every collection operation**: the REST and DAV write guards, the DAV advertised privileges, the calendar delete and the contacts read-only flag all ask `services/providerAccess.ts`, which combines the origin adapter's declared support with the collection's own access and the device password's ceiling. Two things remain: the interface still derives calendar-event editability from `source === 'local'` in `CalendarSidebar.tsx` and `CalendarEventPreview.tsx` even though the server now reports the correct `read_only`, and **no remote adapter declares `writeThrough` yet**, so the model's answer for a provider-owned collection is "refused" until P09/P10 implement those writes. |
+| P02 — additive schema (connections, grants, remote links, operation journal, outbox, notice preferences), **backfill of existing sources** | **partial** | `abbe2b9b` (connections/grants/remote links, `0101`), `78b8c182` (journal/outbox, `0103`–`0105`) | The schema is delivered, additive and preserves existing IDs. The **upgrade half is now covered**: `providerSchemaUpgrade.integration.test.ts` creates its own database, applies the chain up to the provider migrations, seeds existing rows, applies `0101`–`0106` and asserts those rows and their IDs survive — green inside the 113-test gate. Still missing: the **backfill** of existing sources, so today's ICS subscriptions, CardDAV accounts and IMAP accounts are still described only by their own older tables and the provider layer does not know about them; and `source_connections` has **no reader and no writer** in production code, so the external-source half of the schema is schema only. The four attempts that produced the upgrade case are in *History*. |
+| P03 — operation journal, sync leases, domain outbox, **common ingest and mutation services** | **mostly delivered** | `78b8c182`, this work: `d89c42a3` | Leases are wired — the Google and Microsoft connectors take them on every run. The journal is now on a **production write path**: `services/providerMutationService.ts` gives mail, calendar and contacts adapters one typed contract (`confirmed`, `accepted`, `pending`, `retryable`, `conflict`, `permanent`, `outcome_unknown`), commits the claim **before** the provider call, parks a recovered non-idempotent operation as `outcome_unknown` instead of re-running it, and reports `outcome_unknown` rather than success when it loses its claim. The first adapter is an IMAP flag write, used by the read and star endpoints. Remaining: nothing *reads* the `pending` pool the layer schedules retries into (the mail path still hands an unconfirmed change to the pre-existing in-memory reconciler), there is no calendar/contacts/send adapter yet, and `domainOutbox.ts` still has **no production enqueuer**. |
 | P04 — OAuth flows and token service | mostly delivered | `ee788ca8`, `d4592756`, `524a5f00`, `c30d13ba`, `d4927e09`, `940d629a`, `7dd0572d` + `3ed99007`, `bf9f340f` | **Provider device-code authorization**: the mailbox device flow exists, but the Graph provider flow is browser-only. |
 | P05 — mobile drawer gesture | delivered | `f76e1a40`, regression fixed in `143eca15` | Reachability verified and test-pinned: the pref defaults on, has a switch, persists through the server allow-list, and the hook's refs are attached to real elements. |
 | P06 — send/draft ledger, attachment and MIME limits | **not started** | — | Durable send/draft operation state, separately enforced file / total / MIME / HTTP limits, per-provider effective limits, Graph upload sessions and interrupted-upload recovery, and draft preservation across a failed upload. Partly enforced today and worth naming so the package is not read as untouched: `send.ts` refuses more than 100 attachments and a total above 25 MB, `MAIL_MAX_MESSAGE_BYTES` counts the **composed** message and refuses with `413 MESSAGE_TOO_LARGE` before dispatch (tested), and the HTTP body limit is 35 MB with a route-aware message. |
@@ -144,8 +144,10 @@ installation would actually have rather than on one evolved in place:
   macOS client, so client-specific behaviour — its exact `PROPFIND` bodies, its retry and error
   handling, its reaction to a refused `PROPPATCH` — is untested. That is the honest boundary of the
   DAV work, and it is the one acceptance criterion in P11 that remains open.
-- 99 integration tests pass across twelve suites: the provider authorization-flow table, Google and
+- 113 integration tests pass across thirteen suites: the provider authorization-flow table, Google and
   Microsoft token refresh (including the two-worker race), the operation journal and outbox, the
+  provider mutation layer (the claim committed before the provider call, recovery of a crashed claim,
+  replay, conflict, retry scheduling and claim fencing), the
   Google and Microsoft contact syncs, the Google calendar sync, the provider disconnect and its reconnect cycle, and the DAV HTTP
   integration. The
   contact suites also assert the `sync_states` bookkeeping the connector status line reads: a success
@@ -645,7 +647,7 @@ this document has been applying to itself throughout.
 
 | Rows | Verdict |
 | --- | --- |
-| RE01 | **Met.** The same functional schema is reached two ways and both were exercised: the state-reconstructing suite seeds a database, applies the chain and asserts the identifiers survive, and the database gate applies all 109 migrations to a fresh PostgreSQL 16 before running 99 tests. |
+| RE01 | **Met.** The same functional schema is reached two ways and both were exercised: the state-reconstructing suite seeds a database, applies the chain and asserts the identifiers survive, and the database gate applies all 109 migrations to a fresh PostgreSQL 16 before running 113 tests. |
 | RE03 | **Met at this commit**, from exit statuses: typecheck, lint, unit suites, the production build and the database integration set. |
 | RE04 | **Half met.** Both images are built for `linux/amd64` and `linux/arm64` and verified in the registry, with the release SHA as their source; **neither was run**, so "images exist for both platforms" is a registry fact and not a smoke test. |
 | RE02, RE06, RE07, RE08 | **Not verified, and each names a surface nobody looked at**: **RE02 is now met as the row is worded** — it asks for *documented* behaviour without destruction, and both halves are documented: `Upgrading.md` carries the rollback section it always had, and now the interrupted-migration procedure as well (the invalid-index query, dropping it, re-applying that one file, and the two things not to do). What is still unverified for RE02 is the *execution* of either: no migration was interrupted on purpose, and no rollback was performed, so the documented behaviour is a procedure rather than an observed one; **RE06 is met structurally, and not exercised.** The workflow publishes the pair from **one job** with two `Build and push` steps in sequence, no `continue-on-error` and no `always()` — so a failure in the second build fails the run — and **nothing in the repository declares a release ready automatically**: the readiness claim is in documentation, written by a person who can see both digests, which is the arrangement the row asks for. What it has not been is *tested by failing a publish on purpose*, and that is a deliberate choice rather than an omission: a failed production run leaves a misleading entry in the workflow history to prove something the structure already states. Recorded as met-structurally so the distinction is visible — the same one RE02 carries; a **backup and restore drill** in isolation, recovering tokens, mappings and operations with the right key; and the absence of secrets in **logs, build arguments, OCI labels, the frontend bundle, DTOs and test reports**. The **bundle was searched** and is clean — no secret-shaped assignment and no long high-entropy string literal in the built JavaScript assets, and no source maps are emitted to carry one — but the rest of that row is unchecked, and the absence of `import.meta.env.*` in the output is **not** evidence either way, because the bundler substitutes those at build time. **OCI labels were then fetched** from the registry — the index, the amd64 manifest and its config blob — and no secret-shaped label value is present. That negative is weaker than it looks and is recorded with its caveat: the config I read carried **no labels at all**, while the workflow does pass a label set to the build, so the labels may live in manifest annotations this check did not read. Logs, build arguments, DTOs and test reports remain unverified, and the last two are not reachable from a working checkout at all. |
@@ -1005,6 +1007,12 @@ to whoever owns them.
 
 ## Wired versus dormant
 
+> **Partly superseded.** This section was written when nothing imported the capability table or the
+> journal. Both were wired in `b0381b77` (the capability model decides collection access) and
+> `d89c42a3` (the mutation layer, on the mail flag path), so the paragraphs below are history for
+> P01/P03 — kept because the distinction they draw is the one that matters. What is still dormant is
+> named at the end of this section.
+
 Reading the import graph rather than trusting the package list corrects two rows above: some of
 this work is delivered and tested but not yet *called*. `syncCoordinator`'s leases run on every
 connector sync, and the provider registry is consulted by the mail paths — but
@@ -1015,6 +1023,13 @@ That is not a defect: they were built as the vehicle for P10 write-back and the 
 those packages have not started. It does mean "delivered" in the table above should be read as
 "the code exists and its tests pass", not "the application exercises it" — which is what the
 per-package column now says for P01 and P03.
+
+**Still dormant after the P01/P03 slices**, verified by reading the import graph again: the
+**domain outbox** (`domainOutbox.ts`) has no production enqueuer, so `domain_outbox` is still empty
+in a running installation; and `provider_operations` rows accumulate but nothing *reads* the
+`pending` pool the layer schedules retries into — the mail flag path still hands an unconfirmed
+change to the pre-existing in-memory reconciler. Both are deliberate at this point and are recorded
+under P03 as the remaining half.
 
 ## Closed: PROPPATCH is answered
 
