@@ -67,6 +67,8 @@ async function request(method: string, path: string, body: unknown = undefined, 
     const err = await res.json().catch(() => ({ error: 'Request failed' }));
     const error = new Error(err.error || 'Request failed');
     error.status = res.status;
+    // The domain code, so a caller can answer in the user's own language rather than matching the server's prose.
+    if (typeof err.code === 'string') (error as Error & { code?: string }).code = err.code;
     if (err.source) error.source = err.source;
     if (err.sync) error.sync = err.sync;
     throw error;

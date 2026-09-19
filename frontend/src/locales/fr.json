@@ -1071,7 +1071,9 @@
     "recipientMenu": {
       "copy": "Copier l'adresse",
       "copyAll": "Tout copier dans ce champ"
-    }
+    },
+    "sendUncertainTitle": "Résultat d'envoi inconnu",
+    "sendUncertainBody": "La connexion a été perdue après la remise de ce message au serveur : Inboxora ne peut donc pas savoir s'il a été envoyé — et ne le renverra pas automatiquement. Vérifiez le dossier Éléments envoyés du compte : s'il y est, il a été envoyé."
   },
   "contacts": {
     "title": "Contacts",

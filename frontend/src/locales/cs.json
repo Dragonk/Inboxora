@@ -1071,7 +1071,9 @@
     "recipientMenu": {
       "copy": "Kopírovat adresu",
       "copyAll": "Kopírovat všechny adresy v tomto poli"
-    }
+    },
+    "sendUncertainTitle": "Výsledek odeslání není znám",
+    "sendUncertainBody": "Spojení se přerušilo poté, co byla zpráva předána serveru, takže Inboxora nemůže vědět, zda byla odeslána — a znovu ji automaticky neodešle. Zkontrolujte složku Odeslaná tohoto účtu: je-li tam, byla odeslána."
   },
   "contacts": {
     "title": "Kontakty",

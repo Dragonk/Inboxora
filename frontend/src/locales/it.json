@@ -1071,7 +1071,9 @@
     "recipientMenu": {
       "copy": "Copia indirizzo",
       "copyAll": "Copia tutti in questo campo"
-    }
+    },
+    "sendUncertainTitle": "Esito dell'invio sconosciuto",
+    "sendUncertainBody": "La connessione è caduta dopo la consegna di questo messaggio al server, quindi Inboxora non può sapere se è stato inviato — e non lo invierà di nuovo automaticamente. Controlla la cartella Posta inviata dell'account: se è lì, è stato inviato."
   },
   "contacts": {
     "title": "Contatti",

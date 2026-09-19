@@ -1071,7 +1071,9 @@
     "recipientMenu": {
       "copy": "复制地址",
       "copyAll": "复制此栏全部"
-    }
+    },
+    "sendUncertainTitle": "发送结果未知",
+    "sendUncertainBody": "消息交给服务器后连接中断，因此 Inboxora 无法确认它是否已发送，也不会自动重发。请检查该账户的“已发送”文件夹：如果邮件在那里，说明已发送。"
   },
   "contacts": {
     "title": "联系人",

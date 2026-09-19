@@ -920,7 +920,15 @@ export default function ComposeModal() {
       });
     } catch (err) {
       if (!isCurrentSession()) return;
-      setError(toAppError(err).message);
+      const appError = toAppError(err);
+      if (appError.code === 'SEND_OUTCOME_UNKNOWN') {
+        // The message was handed over and the answer was lost. Saying so, and where to look, is all the interface
+        // can honestly do — and it is more than the server's sentence in another language.
+        setError(t('compose.sendUncertainBody'));
+        addNotification({ type: 'info', title: t('compose.sendUncertainTitle'), message: t('compose.sendUncertainBody') });
+      } else {
+        setError(appError.message);
+      }
       setSending(false);
     }
   };

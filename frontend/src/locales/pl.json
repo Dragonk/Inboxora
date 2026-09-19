@@ -1071,7 +1071,9 @@
     "recipientMenu": {
       "copy": "Kopiuj adres",
       "copyAll": "Kopiuj wszystkie adresy z tego pola"
-    }
+    },
+    "sendUncertainTitle": "Wynik wysyłki nieznany",
+    "sendUncertainBody": "Połączenie zostało utracone po przekazaniu wiadomości do serwera, więc Inboxora nie wie, czy została wysłana — i nie wyśle jej ponownie automatycznie. Sprawdź folder Wysłane tego konta: jeśli tam jest, została wysłana."
   },
   "contacts": {
     "title": "Kontakty",

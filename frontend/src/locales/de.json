@@ -1071,7 +1071,9 @@
     "recipientMenu": {
       "copy": "Adresse kopieren",
       "copyAll": "Alle in diesem Feld kopieren"
-    }
+    },
+    "sendUncertainTitle": "Sendeergebnis unbekannt",
+    "sendUncertainBody": "Die Verbindung ging verloren, nachdem diese Nachricht an den Server übergeben wurde. Inboxora kann daher nicht wissen, ob sie gesendet wurde — und sendet sie nicht automatisch erneut. Prüfe den Ordner Gesendet des Kontos: ist sie dort, wurde sie gesendet."
   },
   "contacts": {
     "title": "Kontakte",

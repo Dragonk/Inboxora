@@ -1071,7 +1071,9 @@
     "recipientMenu": {
       "copy": "Copy address",
       "copyAll": "Copy all in this field"
-    }
+    },
+    "sendUncertainTitle": "Send result unknown",
+    "sendUncertainBody": "The connection was lost after this message was handed to the server, so Inboxora cannot know whether it was sent — and will not send it again automatically. Check the account's Sent folder: if it is there, it was sent."
   },
   "contacts": {
     "title": "Contacts",
