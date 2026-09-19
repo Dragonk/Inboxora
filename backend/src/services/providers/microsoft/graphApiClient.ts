@@ -100,14 +100,24 @@ async function accessToken(options: GraphApiOptions, skewSeconds?: number): Prom
 }
 
 /**
- * Perform an authenticated GET against Graph. `url` may be a path (`/me/...`) or a
- * full URL, because Graph hands back absolute `@odata.nextLink` values.
+ * Perform an authenticated Graph request, with the one controlled refresh a 401
+ * earns. The raw response is returned so the caller decides how to read the body:
+ * a successful mutation may answer `204` with none.
+ *
+ * `url` may be a path (`/me/...`) or a full URL, because Graph hands back absolute
+ * `@odata.nextLink` values.
  */
-export async function graphGet<T>(options: GraphApiOptions, pathOrUrl: string): Promise<T> {
+async function graphSend(options: GraphApiOptions, pathOrUrl: string, init: { method: string; body?: unknown }): Promise<Response> {
   const fetchImpl = options.fetchImpl ?? fetch;
   const url = pathOrUrl.startsWith('http') ? pathOrUrl : `${GRAPH_API_BASE}${pathOrUrl}`;
   const send = async (token: string): Promise<Response> => fetchImpl(url, {
-    headers: { authorization: `Bearer ${token}`, accept: 'application/json' },
+    method: init.method,
+    headers: {
+      authorization: `Bearer ${token}`,
+      accept: 'application/json',
+      ...(init.body === undefined ? {} : { 'content-type': 'application/json' }),
+    },
+    ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
     signal: AbortSignal.timeout(GRAPH_TIMEOUT_MS),
   });
 
@@ -117,11 +127,42 @@ export async function graphGet<T>(options: GraphApiOptions, pathOrUrl: string): 
     // revoked between the validity check and the call.
     response = await send(await accessToken(options, 60 * 60 * 24 * 365));
   }
-  if (!response.ok) {
-    const body = await response.json().catch(() => null);
-    throw classifyGraphError(response.status, body, response.headers);
-  }
+  return response;
+}
+
+async function throwForStatus(response: Response): Promise<never> {
+  const body = await response.json().catch(() => null);
+  throw classifyGraphError(response.status, body, response.headers);
+}
+
+export async function graphGet<T>(options: GraphApiOptions, pathOrUrl: string): Promise<T> {
+  const response = await graphSend(options, pathOrUrl, { method: 'GET' });
+  if (!response.ok) await throwForStatus(response);
   return await response.json() as T;
+}
+
+/**
+ * PATCH a Graph resource. Graph answers `200` with the updated object or `204`
+ * with nothing, so a missing body is part of the contract rather than an error.
+ */
+export async function graphPatch<T>(options: GraphApiOptions, pathOrUrl: string, body: unknown): Promise<T | null> {
+  const response = await graphSend(options, pathOrUrl, { method: 'PATCH', body });
+  if (!response.ok) await throwForStatus(response);
+  if (response.status === 204) return null;
+  return await response.json().catch(() => null) as T | null;
+}
+
+/** POST to a Graph action. `202 Accepted` with an empty body is a success. */
+export async function graphPost<T>(options: GraphApiOptions, pathOrUrl: string, body: unknown): Promise<T | null> {
+  const response = await graphSend(options, pathOrUrl, { method: 'POST', body });
+  if (!response.ok) await throwForStatus(response);
+  if (response.status === 204 || response.status === 202) return null;
+  return await response.json().catch(() => null) as T | null;
+}
+
+export async function graphDelete(options: GraphApiOptions, pathOrUrl: string): Promise<void> {
+  const response = await graphSend(options, pathOrUrl, { method: 'DELETE' });
+  if (!response.ok) await throwForStatus(response);
 }
 
 /** Build a Graph URL with `$select`/`$top` and only the defined parameters. */

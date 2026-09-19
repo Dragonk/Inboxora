@@ -15,6 +15,21 @@ limitations — read the matching page in the Wiki: [Release notes 4.1.0](wiki/R
 
 ### Added
 
+- **Microsoft Graph message flags, and the pending-mutation drain (P07b, third slice).** Marking a
+  Graph message read/unread or starred now writes to Microsoft through the **shared provider-mutation
+  layer** — the same `confirmed`/`retryable`/`outcome_unknown` semantics, claim fencing and journal as
+  the IMAP flag write — instead of a Graph-only pipeline. A permanent provider refusal (a deleted
+  message, a lost scope) **undoes the optimistic local change and answers `409`** rather than leaving
+  a state the mailbox does not have; a `retryable` outcome is scheduled in the journal and drained by
+  the next message sync, which settles pending flags *before* reading the delta so the sync cannot
+  overwrite a change still in flight. This is the drainer the `pending` pool was missing. The IMAP
+  path is unchanged.
+
+- **Migration `0109_provider_operation_payload.sql`** adds `provider_operations.payload`, the adapter
+  parameters a scheduled retry is re-run with. Without it a `pending` row was unreadable, which is why
+  nothing drained the pool. It must be applied **in order, after `0108`, and before the application is
+  rolled out**; the column is nullable and no existing row is rewritten.
+
 - **Microsoft Graph mail message sync (P07b, second slice).** A Graph account's message **metadata** —
   subject, correspondents, To/Cc/Reply-To, received date, snippet, read/flagged state, attachment
   flag, and the Graph `conversationId` as the thread — is now ingested into the local `messages`

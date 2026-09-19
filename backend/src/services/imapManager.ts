@@ -1132,6 +1132,15 @@ export type EmailAccountRow = {
   enabled?: boolean;
   signature?: string | null;
   smtp_host?: string | null;
+  /**
+   * The account's authoritative mail transport (migration 0101). Absent or NULL on
+   * a pre-v4 row, which means IMAP/SMTP — the only thing it could have been.
+   */
+  mail_transport?: string | null;
+  /** The provider connection a native account is bound to, if any. */
+  provider_connection_id?: string | null;
+  /** The provider's own mailbox id, when the transport is native. */
+  provider_mailbox_id?: string | null;
   id: string;
   email_address?: string;
   imap_host?: string;

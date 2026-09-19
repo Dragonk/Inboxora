@@ -167,6 +167,9 @@ export async function runProviderMutation<TPayload, TResult = unknown>(
     resourceId: request.resourceId ?? null,
     idempotencyKey: request.idempotencyKey ?? null,
     payloadHash: request.payloadHash ?? null,
+    // Stored so a scheduled retry can be handed back to an adapter later; the
+    // pending pool is unreadable without it.
+    payload: request.payload,
     expectedVersions: request.expectedVersions,
     leaseSeconds: request.leaseSeconds,
     owner: request.owner ?? null,

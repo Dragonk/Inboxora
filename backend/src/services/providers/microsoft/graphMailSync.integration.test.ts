@@ -18,6 +18,7 @@ import {
 } from '../../providerAuthService.js';
 import { acquireSyncLease, ensureSyncState } from '../../syncCoordinator.js';
 import { syncGraphMailFolders, syncGraphMailFoldersForAccount, syncGraphMailMessagesForAccount } from './graphMailSync.js';
+import { graphFlagIntent } from './graphMailMutations.js';
 
 const hasPg = process.env.DB_HOST && process.env.DB_NAME;
 const describeOrSkip = hasPg ? describe : describe.skip;
@@ -443,5 +444,98 @@ describeOrSkip('Microsoft Graph mail message sync (PostgreSQL)', () => {
     });
     expect(second).toMatchObject({ created: 0, updated: 0, deleted: 0 });
     expect(await storedMessages()).toEqual(before);
+  });
+});
+
+// ── Drain of scheduled flag mutations (P07b, third slice) ────────────────────
+
+/** Records every request so the PATCH can be asserted, not only its effect. */
+function fakeRecordingProvider(deltaPages: unknown[]) {
+  const calls: Array<{ url: string; method: string; body: unknown }> = [];
+  const pages = [...deltaPages];
+  const fetchImpl = async (url: string, init?: RequestInit): Promise<Response> => {
+    const target = String(url);
+    calls.push({
+      url: target,
+      method: init?.method ?? 'GET',
+      body: typeof init?.body === 'string' ? JSON.parse(init.body) : null,
+    });
+    if (target.includes('/messages/delta')) return json(pages.shift() ?? { value: [], '@odata.deltaLink': `${DELTA_INBOX}-empty` });
+    if (target.includes('/childFolders')) return json({ value: [] });
+    if (target.includes('/me/messages/')) return json({ id: 'm1' });
+    return json(FLAT_TREE);
+  };
+  return { fetchImpl: fetchImpl as unknown as typeof fetch, calls };
+}
+
+describeOrSkip('Microsoft Graph mail flag mutations (PostgreSQL)', () => {
+  beforeAll(async () => {
+    if (!process.env.ENCRYPTION_KEY) process.env.ENCRYPTION_KEY = crypto.randomBytes(32).toString('hex');
+    await autocommit(client => client.query(
+      `INSERT INTO users (id, username) VALUES ($1, 'graph-mail-mutation-user') ON CONFLICT (id) DO NOTHING`,
+      [USER_ID],
+    ));
+  });
+
+  beforeEach(async () => {
+    await autocommit(async client => {
+      await client.query('DELETE FROM provider_operations WHERE user_id = $1', [USER_ID]);
+      await client.query('DELETE FROM provider_connections WHERE user_id = $1', [USER_ID]);
+      await client.query('DELETE FROM email_accounts WHERE user_id = $1', [USER_ID]);
+    });
+  });
+
+  it('drains a scheduled flag mutation before reading the delta', async () => {
+    const connectionId = await seedConnection();
+    await discoverFolders(connectionId);
+    // A baseline so a local message with the provider identity exists.
+    await syncGraphMailMessagesForAccount({
+      userId: USER_ID, connectionId, accountId: ACCOUNT_ID, config: CONFIG,
+      fetchImpl: fakeMailProvider({ inbox: [{ value: [graphMessage('m1')], '@odata.deltaLink': DELTA_INBOX }] }).fetchImpl,
+    });
+    const local = await autocommit(client => client.query<{ id: string }>(
+      "SELECT id FROM messages WHERE account_id = $1 AND provider_message_id = 'm1'", [ACCOUNT_ID],
+    ));
+    const localMessageId = local.rows[0].id;
+
+    // What a `retryable` outcome leaves behind: a pending row carrying its adapter
+    // parameters. Before this slice nothing could read it, so the change was lost.
+    const write = { providerMessageId: 'm1', flag: '\\Seen', value: true, intentAt: '2026-03-04T09:00:00.000Z' };
+    const intent = graphFlagIntent({ messageId: localMessageId, write });
+    await autocommit(client => client.query(
+      `INSERT INTO provider_operations (user_id, account_id, resource_type, operation, resource_id, idempotency_key, payload_hash, payload, status)
+       VALUES ($1,$2,'message','update',$3,$4,$5,$6::jsonb,'pending')`,
+      [USER_ID, ACCOUNT_ID, localMessageId, intent.idempotencyKey, intent.payloadHash, JSON.stringify(write)],
+    ));
+
+    const provider = fakeRecordingProvider([{ value: [], '@odata.deltaLink': `${DELTA_INBOX}-2` }]);
+    await syncGraphMailMessagesForAccount({ userId: USER_ID, connectionId, accountId: ACCOUNT_ID, config: CONFIG, fetchImpl: provider.fetchImpl });
+
+    const operation = await autocommit(client => client.query<{ status: string; result: unknown }>(
+      'SELECT status, result FROM provider_operations WHERE idempotency_key = $1', [intent.idempotencyKey],
+    ));
+    expect(operation.rows[0]?.status).toBe('committed');
+    const patch = provider.calls.find(call => call.method === 'PATCH');
+    expect(patch?.url).toContain('/me/messages/m1');
+    expect(patch?.body).toEqual({ isRead: true });
+  });
+
+  it('leaves a pending row the journal cannot re-run rather than dropping it', async () => {
+    const connectionId = await seedConnection();
+    await discoverFolders(connectionId);
+    await autocommit(client => client.query(
+      `INSERT INTO provider_operations (user_id, account_id, resource_type, operation, idempotency_key, payload_hash, payload, status)
+       VALUES ($1,$2,'message','update','no-payload-key','hash','{}'::jsonb,'pending')`,
+      [USER_ID, ACCOUNT_ID],
+    ));
+
+    const provider = fakeRecordingProvider([{ value: [], '@odata.deltaLink': DELTA_INBOX }]);
+    await syncGraphMailMessagesForAccount({ userId: USER_ID, connectionId, accountId: ACCOUNT_ID, config: CONFIG, fetchImpl: provider.fetchImpl });
+
+    // Honest and visible: a row with no adapter parameters stays pending for a human.
+    const operation = await autocommit(client => client.query<{ status: string }>(
+      "SELECT status FROM provider_operations WHERE idempotency_key = 'no-payload-key'",
+    ));
+    expect(operation.rows[0]?.status).toBe('pending');
   });
 });

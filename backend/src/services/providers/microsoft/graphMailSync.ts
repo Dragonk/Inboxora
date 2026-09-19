@@ -19,6 +19,7 @@ import {
   providerUidForGraphMessage,
 } from './graphMail.js';
 import type { GraphMessage, LocalMailFolder } from './graphMail.js';
+import { drainGraphMailFlagOperations } from './graphMailMutations.js';
 import type { FetchLike } from '../../providerAuthService.js';
 
 /**
@@ -438,6 +439,20 @@ export async function syncGraphMailMessagesForAccount(input: {
   fetchImpl?: FetchLike;
   owner?: string;
 }): Promise<GraphMailMessageSyncResult> {
+  // Settle any flag mutation the journal scheduled before reading the delta: a
+  // pending write would otherwise be overwritten by the very sync that is about to
+  // read the provider's older state.
+  const drained = await drainGraphMailFlagOperations({
+    userId: input.userId,
+    connectionId: input.connectionId,
+    accountId: input.accountId,
+    ...(input.config ? { config: input.config } : {}),
+    ...(input.fetchImpl ? { fetchImpl: input.fetchImpl } : {}),
+  });
+  if (drained.unresolved > 0) {
+    console.warn(`Graph mail: ${drained.unresolved} scheduled flag mutation(s) still unresolved for account ${input.accountId}`);
+  }
+
   const targets = await withTransaction(client => listGraphFolderTargets(client, input));
   const totals: GraphMailMessageSyncResult = {
     accountId: input.accountId, folders: 0, created: 0, updated: 0, deleted: 0, skipped: 0, fullSyncFolders: 0,

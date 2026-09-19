@@ -69,15 +69,21 @@ beforeEach(() => {
   runProviderMutation.mockReset();
   imapManager._resolveFlagPush.mockReset();
   imapManager._enqueueFlagPush.mockReset();
+  imapManager.broadcast.mockReset();
+  imapManager.setFlag.mockReset();
   query.mockReset();
   query.mockResolvedValue({ rows: [], rowCount: 0 });
 });
 
-function arrangeMessage() {
+function arrangeMessage(options: { message?: Record<string, unknown>; account?: Record<string, unknown> } = {}) {
   query
-    .mockResolvedValueOnce({ rows: [messageRow()], rowCount: 1 })          // message lookup
-    .mockResolvedValueOnce({ rows: [], rowCount: 1 })                      // UPDATE messages
-    .mockResolvedValueOnce({ rows: [{ id: ACCOUNT_ID }], rowCount: 1 });   // account lookup
+    .mockResolvedValueOnce({ rows: [{ ...messageRow(), ...options.message }], rowCount: 1 })   // message lookup
+    .mockResolvedValueOnce({ rows: [], rowCount: 1 })                                          // UPDATE messages
+    .mockResolvedValueOnce({ rows: [{ id: ACCOUNT_ID, ...options.account }], rowCount: 1 });   // account lookup
+}
+
+function graphAccount() {
+  return { mail_transport: 'microsoft_graph', provider_connection_id: 'connection-1' };
 }
 
 describe('a mail flag write goes through the provider mutation layer', () => {
@@ -141,5 +147,59 @@ describe('a mail flag write goes through the provider mutation layer', () => {
     expect(response.status).toBe(200);
     expect(runProviderMutation).toHaveBeenCalledTimes(1);
     expect(imapManager._resolveFlagPush).toHaveBeenCalledWith(ACCOUNT_ID, MESSAGE_ID, '\\Flagged');
+  });
+});
+
+describe('a Microsoft Graph account writes over Graph, not IMAP', () => {
+  it('routes the flag through the Graph adapter and never queues an IMAP push', async () => {
+    arrangeMessage({ message: { provider_message_id: 'AAMkAD-1' }, account: graphAccount() });
+    runProviderMutation.mockResolvedValue({ status: 'confirmed', operationId: 'op-g', replayed: false });
+
+    const response = await fetch(`${base}/api/mail/messages/${MESSAGE_ID}/read`, {
+      method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ read: true }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ ok: true, is_read: true });
+    const [request, adapter] = runProviderMutation.mock.calls[0];
+    // The Graph intent is identified per action and per value, so a scheduled retry
+    // can reclaim its own row while a later click is a new operation.
+    expect(String(request.idempotencyKey)).toContain('graph-mail-flag:');
+    expect(request.payload).toMatchObject({ providerMessageId: 'AAMkAD-1', flag: '\\Seen', value: true });
+    expect(adapter).toMatchObject({ resourceType: 'message', idempotent: true });
+    // The IMAP reconciler writes over IMAP, so it must not be involved at all.
+    expect(imapManager._enqueueFlagPush).not.toHaveBeenCalled();
+    expect(imapManager.setFlag).not.toHaveBeenCalled();
+  });
+
+  it('undoes the optimistic local change when the provider refuses it permanently', async () => {
+    arrangeMessage({ message: { provider_message_id: 'AAMkAD-1' }, account: graphAccount() });
+    runProviderMutation.mockResolvedValue({ status: 'permanent', operationId: 'op-g', code: 'RESOURCE_NOT_FOUND', replayed: false });
+
+    const response = await fetch(`${base}/api/mail/messages/${MESSAGE_ID}/read`, {
+      method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ read: true }),
+    });
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ code: 'RESOURCE_NOT_FOUND' });
+    // The row goes back to what the mailbox actually holds, rather than keeping a
+    // local state the provider does not have.
+    const revert = query.mock.calls.find(([sql]) => String(sql).includes('read_changed_at = NULL'));
+    expect(revert).toBeDefined();
+    expect(imapManager.broadcast).not.toHaveBeenCalled();
+    expect(imapManager._enqueueFlagPush).not.toHaveBeenCalled();
+  });
+
+  it('leaves the optimistic change in place for an unknown outcome, to be retried', async () => {
+    arrangeMessage({ message: { provider_message_id: 'AAMkAD-1' }, account: graphAccount() });
+    runProviderMutation.mockResolvedValue({ status: 'outcome_unknown', operationId: 'op-g', code: 'MUTATION_OUTCOME_UNKNOWN', replayed: false });
+
+    const response = await fetch(`${base}/api/mail/messages/${MESSAGE_ID}/star`, {
+      method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ starred: true }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(query.mock.calls.some(([sql]) => String(sql).includes('star_changed_at = NULL'))).toBe(false);
+    expect(imapManager._enqueueFlagPush).not.toHaveBeenCalled();
   });
 });

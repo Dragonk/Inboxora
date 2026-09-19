@@ -48,6 +48,11 @@ export interface BeginOperationInput {
   idempotencyKey?: string | null;
   /** Fingerprint of the intent; the same key with a different hash is a conflict. */
   payloadHash?: string | null;
+  /**
+   * The adapter's own parameters for this mutation, stored so a scheduled retry can
+   * be handed back to it. Never credentials — the adapter obtains those itself.
+   */
+  payload?: unknown;
   expectedVersions?: Record<string, unknown>;
   leaseSeconds?: number;
   /** Worker identity for diagnostics only. */
@@ -110,16 +115,18 @@ export async function beginOperation(client: PoolClient, input: BeginOperationIn
   const insert = await client.query<{ id: string; claim_token: string; generation: string | number }>(
     `INSERT INTO provider_operations
        (user_id, account_id, connection_id, collection_id, resource_type, operation, resource_id,
-        idempotency_key, payload_hash, status, expected_versions, claim_token, claimed_at,
+        idempotency_key, payload_hash, status, expected_versions, payload, claim_token, claimed_at,
         lease_expires_at, owner, attempts)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'in_flight',$10::jsonb,$11,NOW(),
-             NOW() + make_interval(secs => $12), $13, 1)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'in_flight',$10::jsonb,$11::jsonb,$12,NOW(),
+             NOW() + make_interval(secs => $13), $14, 1)
      ${idempotencyKey === null ? '' : 'ON CONFLICT DO NOTHING'}
      RETURNING id, claim_token, generation`,
     [
       input.userId, input.accountId ?? null, input.connectionId ?? null, input.collectionId ?? null,
       input.resourceType, input.operation, input.resourceId ?? null,
-      idempotencyKey, payloadHash, expectedVersions, crypto.randomUUID(), leaseSeconds, input.owner ?? null,
+      idempotencyKey, payloadHash, expectedVersions,
+      input.payload === undefined ? null : JSON.stringify(input.payload),
+      crypto.randomUUID(), leaseSeconds, input.owner ?? null,
     ],
   );
   const started = insert.rows[0];
@@ -245,11 +252,62 @@ export async function findOperationByKey(client: PoolClient, input: {
   userId: string;
   accountId?: string | null;
   idempotencyKey: string;
-}): Promise<{ id: string; status: ProviderOperationStatus; result?: unknown; attempts: number } | null> {
-  const result = await client.query<{ id: string; status: ProviderOperationStatus; result: unknown; attempts: number }>(
-    `SELECT id, status, result, attempts FROM provider_operations WHERE ${scopedIdempotencyPredicate()}`,
+}): Promise<{ id: string; status: ProviderOperationStatus; result?: unknown; payload?: unknown; attempts: number } | null> {
+  const result = await client.query<{ id: string; status: ProviderOperationStatus; result: unknown; payload: unknown; attempts: number }>(
+    `SELECT id, status, result, payload, attempts FROM provider_operations WHERE ${scopedIdempotencyPredicate()}`,
     [input.userId, input.accountId ?? null, input.idempotencyKey],
   );
   const row = result.rows[0];
-  return row ? { id: row.id, status: row.status, result: row.result, attempts: row.attempts } : null;
+  return row ? { id: row.id, status: row.status, result: row.result, payload: row.payload, attempts: row.attempts } : null;
+}
+
+/** A scheduled retry the adapter parameters make runnable again. */
+export interface PendingOperationRow {
+  id: string;
+  resourceType: string;
+  operation: string;
+  resourceId: string | null;
+  accountId: string | null;
+  collectionId: string | null;
+  idempotencyKey: string | null;
+  payloadHash: string | null;
+  payload: unknown;
+  attempts: number;
+}
+
+/**
+ * Claim-free read of the due retries for one scope. The caller re-runs each one
+ * through `beginOperation`, which takes the lease and fences any other worker, so
+ * this read is a candidate list rather than a reservation.
+ */
+export async function listDueOperations(client: PoolClient, input: {
+  userId: string;
+  accountId?: string | null;
+  resourceType?: string | null;
+  limit?: number;
+}): Promise<PendingOperationRow[]> {
+  const result = await client.query<PendingOperationRow & { resource_type: string; resource_id: string | null; account_id: string | null; collection_id: string | null; idempotency_key: string | null; payload_hash: string | null }>(
+    `SELECT id, resource_type, operation, resource_id, account_id, collection_id, idempotency_key, payload_hash, payload, attempts
+       FROM provider_operations
+      WHERE user_id = $1
+        AND status = 'pending'
+        AND (next_attempt_at IS NULL OR next_attempt_at <= NOW())
+        AND ($2::uuid IS NULL OR account_id = $2)
+        AND ($3::text IS NULL OR resource_type = $3)
+      ORDER BY next_attempt_at NULLS FIRST, created_at
+      LIMIT $4`,
+    [input.userId, input.accountId ?? null, input.resourceType ?? null, input.limit ?? 25],
+  );
+  return result.rows.map(row => ({
+    id: row.id,
+    resourceType: row.resource_type,
+    operation: row.operation,
+    resourceId: row.resource_id,
+    accountId: row.account_id,
+    collectionId: row.collection_id,
+    idempotencyKey: row.idempotency_key,
+    payloadHash: row.payload_hash,
+    payload: row.payload,
+    attempts: row.attempts,
+  }));
 }
