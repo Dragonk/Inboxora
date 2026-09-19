@@ -186,6 +186,36 @@ API integrations, or an app password for mail on accounts that permit one.
   user already pulled**: connecting an account never starts an import by itself. Change the cadence
   with `PROVIDER_SYNC_INTERVAL_MINUTES`, or set it to `0` to refresh only when a user asks.
 
+## Checking that the configuration works
+
+The card reports each method's **readiness**, and readiness means the fields are present and the method is
+enabled — it does **not** mean the provider accepts them. A client id that was copied with a trailing space, or a
+secret whose value was taken from the wrong column, reads as ready until an authorization fails at the provider.
+
+To find that out directly, an administrator can test the stored credentials:
+
+```bash
+curl -X POST https://inboxora.example.com/api/integrations/google/test \
+  -H 'Cookie: <an administrator session cookie>'
+```
+
+The answer says which of the two it is:
+
+```json
+{ "ok": true,  "code": "CREDENTIALS_ACCEPTED" }
+{ "ok": false, "code": "invalid_client" }
+```
+
+`ok: true` means the provider accepted the client id and secret — the provider refused only the deliberately
+unusable grant, which is all this check needs. `ok: false` with `invalid_client` or `unauthorized_client` means the
+credentials themselves are wrong, which is the case readiness cannot distinguish. `ADMIN_CONFIGURATION_REQUIRED`
+means no client id is stored, and `UPSTREAM_UNAVAILABLE` means the provider could not be reached at all.
+
+The stored secret is decrypted for the call and is **never returned**; no user data and no user grant are touched,
+and the check costs the provider one refused token request. The same endpoint exists for `microsoft`
+(`/api/integrations/microsoft/test`), and a **button on the card for it is not part of this release** — until it
+is, this is how to tell a working configuration from a complete-looking one.
+
 ## Disconnecting an account
 
 **Settings → Integrations** lists the accounts connected for each provider, with a **Disconnect**
