@@ -95,6 +95,21 @@ function rawBody(req: Request) {
   });
 }
 
+/**
+ * The report's root element name, with any namespace prefix removed.
+ *
+ * Dispatch used to be `body.includes('calendar-query')`, which the plan names as the wrong way: the string can
+ * appear inside an href, and a multiget naming such a resource was then read as a query. The root element is what
+ * the report actually is, and a declaration, comment or CDATA before it is skipped.
+ */
+function davReportName(body: string): string | null {
+  const withoutPreamble = body
+    .replace(/<\?xml[^>]*\?>/i, '')
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .trimStart();
+  return /^<\s*(?:[A-Za-z_][\w.-]*:)?([A-Za-z_][\w.-]*)\b/.exec(withoutPreamble)?.[1] ?? null;
+}
+
 function uidFromCalendarHref(href: string) {
   try {
     return decodeURIComponent(href.trim().replace(/^.*\//, '')) || null;
@@ -282,9 +297,12 @@ router.report('/:userId/:calendarId/', async (req: Request, res: Response) => {
   if (!calendar || davModeOf(calendar.dav_mode) === 'off') return res.status(404).end();
 
   const body = await rawBody(req);
-  const isSyncCollection = body.includes('sync-collection');
-  const isCalendarQuery = body.includes('calendar-query');
-  const isCalendarMultiget = body.includes('calendar-multiget');
+  // Dispatch on the report's root element, not on a substring of its body.
+  const reportName = davReportName(body);
+  const isSyncCollection = reportName === 'sync-collection';
+  const isCalendarQuery = reportName === 'calendar-query';
+  const isCalendarMultiget = reportName === 'calendar-multiget';
+  if (!reportName) return res.status(400).end();
   if (!isSyncCollection && !isCalendarQuery && !isCalendarMultiget) return res.status(400).end();
 
   const basePath = `/caldav/${req.caldavUserId}/${calendar.id}/`;

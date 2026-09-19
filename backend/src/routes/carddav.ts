@@ -33,6 +33,21 @@ function davRefusal(res: Response, reason: string): void {
     .send(`<?xml version="1.0" encoding="utf-8"?><D:error xmlns:D="DAV:"><D:responsedescription>${xmlEscape(reason)}</D:responsedescription></D:error>`);
 }
 
+/**
+ * The report's root element name, with any namespace prefix removed.
+ *
+ * Dispatch used to be `body.includes('calendar-query')`, which the plan names as the wrong way: the string can
+ * appear inside an href, and a multiget naming such a resource was then read as a query. The root element is what
+ * the report actually is, and a declaration, comment or CDATA before it is skipped.
+ */
+function davReportName(body: string): string | null {
+  const withoutPreamble = body
+    .replace(/<\?xml[^>]*\?>/i, '')
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .trimStart();
+  return /^<\s*(?:[A-Za-z_][\w.-]*:)?([A-Za-z_][\w.-]*)\b/.exec(withoutPreamble)?.[1] ?? null;
+}
+
 const router = Router();
 
 interface AddressBookRow {
@@ -356,10 +371,12 @@ router.report('/:userId/:bookId/', async (req, res) => {
   const bookPath = `/carddav/${userId}/${book.id}/`;
 
   const body = await rawBody(req);
-  const isSyncCollection = body.includes('sync-collection');
+  // The same rule as the calendar router: the root element decides, not a substring that an href can carry.
+  const reportName = davReportName(body);
+  const isSyncCollection = reportName === 'sync-collection';
 
-  const isMultiget = body.includes('addressbook-multiget');
-  if (!isSyncCollection && !isMultiget && !body.includes('addressbook-query')) return res.status(400).end();
+  const isMultiget = reportName === 'addressbook-multiget';
+  if (!isSyncCollection && !isMultiget && reportName !== 'addressbook-query') return res.status(400).end();
   let contacts: { rows: CarddavContactRow[] } | undefined;
   let filenames: string[] = [];
   if (isSyncCollection) {

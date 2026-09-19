@@ -528,6 +528,11 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   rule never lands inside the requested window came back anyway and the client received resources it had not asked
   for. Candidates are now filtered by their actual occurrences in the window, which is also what makes the filter
   correct across daylight-saving changes and overrides rather than approximately right.
+- Dispatch a DAV report by its root element, not by a substring of its body. The handlers recognised
+  `calendar-query`, `calendar-multiget`, `sync-collection` and their CardDAV counterparts with `body.includes`,
+  so a multiget naming a resource whose filename contains another report's name was read as that report. The root
+  element now decides, with the XML declaration and any comment skipped first, which is what the request actually
+  is.
 
 
 ## [4.0.4] - 2026-09-18

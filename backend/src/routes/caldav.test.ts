@@ -577,3 +577,23 @@ describe('a time-range query is decided by the projection', () => {
     expect(xml).not.toContain('outside-window');
   });
 });
+
+describe('a report is dispatched by its root element', () => {
+  it('reads a multiget as a multiget even when an href carries another report name', async () => {
+    // Dispatch used to be a substring search, so a client asking for a resource whose filename contains
+    // "calendar-query" had its request read as a query — the plan names this as the thing not to do.
+    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1', maxDavMode: 'read_write' });
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'calendar-1', sync_token: 'sync-4', sync_version: 4 }] })
+      .mockResolvedValueOnce({ rows: [{ uid: 'named-oddly', etag: 'etag-1', raw_ical: 'BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n', dav_filename: 'calendar-query.ics' }] });
+
+    const response = await fetch(`${base}/caldav/user-1/calendar-1/`, {
+      method: 'REPORT',
+      headers: { authorization: basic('sam@example.test', 'test-dav-password'), 'content-type': 'application/xml' },
+      body: '<C:calendar-multiget xmlns:C="urn:ietf:params:xml:ns:caldav" xmlns:D="DAV:"><D:prop><D:getetag/></D:prop><D:href>/caldav/user-1/calendar-1/calendar-query.ics</D:href></C:calendar-multiget>',
+    });
+    // A multiget answers 207 with the requested resource; being read as a query would have answered differently.
+    expect(response.status).toBe(207);
+    expect(await response.text()).toContain('calendar-query.ics');
+  });
+});
