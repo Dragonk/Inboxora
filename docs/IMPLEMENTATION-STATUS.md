@@ -1617,35 +1617,73 @@ started" row suggests, so the slice is a seam rather than a rewrite:
 
   **The remaining slice is smaller than this note first implied, and the structure is now known.** I had
 
-  **Step 1 of the continuation — the Bcc question — is answered locally, and it says do NOT wire
-  `sendGraphMime` as it stands. Confirming it against live Microsoft documentation was not possible in
-  this session (the search tool has no API key), so this is recorded as reasoning from the measured
-  behaviour plus the API shape, with the specific points to confirm named.**
-  - What is measured locally: the composed artefact has its `Bcc:` header **stripped** (deliberately —
-    4.1.0 note `3e9b0054`), and the envelope (`to` + `cc` + `bcc`) is carried **separately**, out of band.
-    That is exactly right for SMTP, where the envelope is a protocol parameter.
-  - `sendGraphMime` posts that artefact to `/me/sendMail` as `text/plain` + base64 MIME. Graph has **no
-    separate envelope parameter** in that shape: recipients are read from the message headers. So for a
-    message with a blind recipient the current adapter can only **lose** it (it is not in the headers) or
-    **disclose** it (put it back in the headers). Neither is acceptable, which is why the adapter must not
-    be wired before the shape changes.
-  - The likely-correct shapes, in the order I would confirm them:
-    **(C) draft-first, JSON message** — `POST /me/messages` with `toRecipients` / `ccRecipients` /
-    `bccRecipients` (blind recipients out of band, in the message body rather than the MIME), attachments
-    added to that draft (direct under the provider's small-attachment ceiling, upload session above it),
-    then `POST /me/messages/{id}/send`. One shape covers a plain send, Bcc, large attachments **and**
-    draft preservation, which is what P06 asks for anyway.
-    **(A) JSON `message` send** — `POST /me/sendMail` with the same recipient arrays: simpler, but no
-    draft to preserve on failure.
-    **(B) MIME** — usable only where **no** blind recipient exists, if `/me/sendMail` accepts a MIME body
-    at all; it is not a general path.
-  - To confirm against live documentation before any wiring: whether `/me/sendMail` accepts a MIME body
-    (the current adapter assumes so), the exact draft-attachment upload-session calls and the direct
-    attachment ceiling, and whether Graph accepts any recipient information outside the message.
-  - The transport-level acceptance list (To only, Cc, Bcc, all three, the artefact not disclosing Bcc where
-    it must not, the provider receiving the blind recipient, and the local result keeping the Bcc metadata
-    the composer and the Sent projection need) is written for the **chosen** shape; until the shape is
-    chosen those tests would certify the wrong thing.
+  **Step 1 — the send contract. Corrected: MIME *can* carry Bcc; our artefact deliberately does not.**
+  The first version of this note said MIME could not represent a blind recipient, which is wrong and is
+  corrected here. Confirmed against the Microsoft Graph v1.0 documentation:
+  - `POST /me/sendMail` accepts **JSON or base64 MIME**; for the MIME form the recipients — **including
+    Bcc** — are the Internet message headers. There is **no separate SMTP-style envelope** in either form.
+  - A draft is `POST /me/messages`; a completed draft is sent with `POST /me/messages/{id}/send`.
+  - A file attachment **under 3 MB** is added directly (`/me/messages/{id}/attachments`); **3–150 MB**
+    requires `/me/messages/{id}/attachments/createUploadSession`.
+  - **3 MB is the choice of how to add one attachment; 150 MB is the upload-session per-file ceiling.
+    Neither is the message ceiling** — they must not be modelled as send limits.
+
+  So the reason the current `sendGraphMime` must not be wired is **not** a limitation of MIME: it is that
+  the artefact we hand it has had its `Bcc:` header **removed on purpose** (`3e9b0054`, so that a buffer
+  sent as `raw` over SMTP cannot disclose blind recipients) while the recipients were moved out of band
+  into the envelope. Graph has no envelope to receive them, so the current pairing loses the Bcc — the
+  conclusion "do not wire it yet" stands, for that reason and not the false one.
+
+  **Accepted target model** (recorded before implementation, so the renderer boundary is not invented
+  while wiring): a single semantic composition, rendered per transport —
+  `canonical composed message → provider-specific renderer`.
+  - One typed model, e.g. `ComposedMail`: from, replyTo, to, cc, bcc, subject, plain body, HTML body,
+    safe/custom headers, attachments, inline attachments with `contentId`, `In-Reply-To`, `References`,
+    priority, and provider-independent operation metadata.
+  - **SMTP**: `ComposedMail → MIME without Bcc + SMTP envelope`.
+  - **Microsoft Graph**: `ComposedMail → JSON microsoft.graph.message`, **draft-first** (below).
+  - **Gmail (later)**: `ComposedMail →` Gmail's own representation.
+  - MIME is therefore **not** the canonical model: it is one transport's wire representation. The
+    composer must not compose twice — semantic composition happens once, and the renderer chooses the
+    wire form.
+
+  **Graph uses one draft-first pipeline for every size** — small and large attachments alike, because two
+  pipelines would mean two outcome semantics and two Bcc behaviours:
+  1. `POST /me/messages` with subject, body, `toRecipients`, `ccRecipients`, **`bccRecipients`**,
+     `replyTo` and the permitted custom Internet headers; keep the returned draft id.
+  2. Attachments on that draft: direct under 3 MB, `createUploadSession` from 3–150 MB, honouring
+     `nextExpectedRanges`, sending `Content-Range` as the API requires, handling resume, expiry and
+     cancel, and **never sending an `Authorization` header to the pre-authorized upload URL**.
+  3. `POST /me/messages/{id}/send` only once every attachment is confirmed.
+  Direct `/me/sendMail` is **not** the main pipeline; a helper left unused after the change is removed
+  rather than kept as a dead adapter.
+
+  **Staging draft versus user draft.** The provider draft this pipeline creates is a *send staging draft*
+  with its own lifecycle (`creating → uploading → ready → sending → sent`, plus `upload_failed`,
+  `send_outcome_unknown`, `cancelled`), distinct from a user draft the person saved and expects to see in
+  Drafts. The staging draft is not shown as a second draft unless that is intended, and if it survives a
+  failure at the provider, reconciliation/cleanup has to know it belongs to a specific Inboxora operation
+  — which is the purpose of the operation identifier below.
+
+  **Idempotency and uncertain outcomes keep the existing split, with no third system**: `send_idempotency`
+  for the HTTP/user intent and replay, `provider_operations` for the provider mutation. Per step: create
+  draft is a **create — treat as non-idempotent** unless a provider-side unambiguous lookup of the created
+  staging draft exists; an upload chunk is retried **only** per `nextExpectedRanges` and upload-session
+  semantics; the final send is non-idempotent and an uncertain outcome **never** triggers an automatic
+  second send. **An uncertain Graph send is never retried over SMTP.**
+
+  **Reconciliation.** The draft creation carries an operation identifier in a permitted custom Internet
+  header (e.g. `X-Inboxora-Operation-Id`, no secrets and no internal tokens) **if Graph allows it to be
+  read back reliably**; the purpose is to distinguish "no draft was created" from "the draft exists but
+  the response was lost". If the API does not allow a reliable lookup after an unknown create outcome,
+  the operation stays `outcome_unknown` rather than creating a second draft.
+
+  **What the acceptance tests must prove** (not merely compare objects): To only; Cc only and To+Cc; Bcc;
+  To+Cc+Bcc; Bcc present as `bccRecipients` in the Graph draft create; Bcc **absent** from the SMTP MIME
+  artefact; SMTP still carrying Bcc in its envelope; Graph never consulting an SMTP envelope; the local
+  Sent/composer model retaining what it needs to show the sender their own Bcc; and the recipient's
+  message never depending on a stored local `Bcc:` header. Test diagnostics must not log recipient
+  addresses.
   described it as needing the route's dispatch moved and an error-precedence decision; neither is
   necessary. The seam can return a **transport-shaped object** for a native account — an object with a
   `sendMail(options)` that posts `options.raw` — and the route's send site is then **untouched**, because
