@@ -989,7 +989,10 @@ settled and a verified image pair on the same commit, and the last section below
 
 ### 1. Code
 
-**Final SHA: `f12727f6` on `origin/dev`**, tree clean, no test containers left. The integrated work spans the packages
+**Final SHA: `f12727f6` on `origin/dev`**, tree clean. Every container this work started was named `inboxora-p…`
+and has been removed; two containers named **`inboxora-v3-redis`** and **`inboxora-v3-postgres`** are running in
+this environment and were **not** started here, so they were left alone — worth knowing before anyone reads a
+clean `docker ps` from this document. The integrated work spans the packages
 P00–P14 in the order the plan sets, with the largest pieces being the provider contract/registry layer and schema
 (`0101`–`0106`), the OAuth and token service for both providers, the complete Google vertical (contacts, calendars,
 People, discovery, scheduling, connector status, per-collection control), Microsoft Graph contacts and the device
