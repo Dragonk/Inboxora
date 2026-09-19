@@ -17,7 +17,7 @@ rows. It is kept because its lessons are load-bearing, and it must never be read
 present. Earlier revisions mixed the two inside the table itself, which is how a reader could take a
 four-attempt saga — or a superseded delivery report — for a current status.
 
-Last re-measured on `dev` at `8013449e`: backend typecheck, lint and **2452** unit tests
+Last re-measured on `dev` at `28f73af9`: backend typecheck, lint and **2452** unit tests
 (**116 skipped** across 14 files); frontend typecheck, lint, production build and **2685** tests;
 **188** database integration tests across **18** suites on a fresh PostgreSQL 16 with the full
 **112**-migration chain — and, since the CI slice, verified the same way a new installation would
@@ -1638,14 +1638,14 @@ started" row suggests, so the slice is a seam rather than a rewrite:
   — the seam still refuses a native account — so nothing behaves differently yet; what is left is step 3
   (return the transport-shaped object) and step 4 (the seam and route-level cases).
 
-  **And there is a defect in `docs/CHANGELOG.md` that a reader must know about**: `[Unreleased]` now appears
-  **twice** (lines 14 and 48), both sections holding real entries. It came from an insertion of mine that
-  prepended a block and kept the original heading, and it was committed because I checked category headings
-  at one point and not the section heading afterwards. Two attempts to merge the sections mechanically lost
-  entries or re-emitted a heading — both were caught by counting the section's bullets, and both were
-  reverted, so the file stands at `HEAD` with all 45 entries and the duplicate heading. The repair is
-  editorial and needs the same guard: **count the bullets before and after, and compare the non-heading
-  content as a multiset**, which is how the round-48 merge was proven.
+  **The `docs/CHANGELOG.md` duplicate is fixed, and by the smallest possible change** (`28f73af9`): the
+  second `## [Unreleased]` heading was deleted and **nothing moved**, so the diff is one deletion and the
+  section still holds its **45 bullets**. Two earlier attempts at a fuller repair moved content between
+  blocks and lost entries or re-emitted a heading; both were caught by counting the section's bullets. The
+  lesson is in the difference: the safe repair was the one that moved nothing, and the guard is what made
+  the unsafe ones visible instead of silent. What remains is ordering — the section holds two `### Changed`
+  blocks — which is editorial work for a session that can decide entry by entry, with the bullet count and
+  the content multiset as its guard.
 
   The original note on ordering is kept below, because it is still true if anyone does move composition
   above the seam — it simply is not the path this slice takes.
