@@ -266,6 +266,13 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   normal cadence, so a restart no longer delays freshness. The delay keeps the pass out of the way
   of start-up, the existing single-flight guard still prevents it from overlapping a running pass,
   and the timer does not hold the process open.
+- Show when each contact connector last synced, or that it failed. The contacts page fetched a
+  provider's status but only used whether an account was connected, so a connector that had been
+  failing — or one that had not run for days — looked exactly like a healthy one. Beside each
+  provider's sync action the page now shows the freshest last-sync time across that provider's
+  address books, or the recorded error code when a run failed, so a silent problem is visible
+  without opening the logs. The status line comes from the payload the page already loaded, so it
+  costs no extra request.
 
 ## [4.0.4] - 2026-09-18
 

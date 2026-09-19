@@ -141,3 +141,14 @@ test('a local calendar can import an .ics file from the appearance dialog', asyn
   assert.match(source, /calendar\.importIcs/);
   assert.match(source, /calendar\.importingIcs/);
 });
+
+test('each provider reports when it last synced, or that it failed', async () => {
+  const source = await readFile(contactsPage, 'utf8');
+  assert.match(source, /function providerSyncSummary\(status: ProviderContactsStatus \| null\)/);
+  // The freshest time wins, and a recorded failure is shown instead of a time.
+  assert.match(source, /books\.find\(book => book\.lastErrorCode\)/);
+  assert.match(source, /contacts\.addressBooks\.lastSynced/);
+  assert.match(source, /contacts\.addressBooks\.lastSyncFailed/);
+  assert.match(source, /data-testid="contacts-google-sync-status"/);
+  assert.match(source, /data-testid="contacts-microsoft-sync-status"/);
+});

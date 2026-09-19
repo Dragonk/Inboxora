@@ -171,6 +171,17 @@ interface ProviderContactsStatus {
   books?: Array<{ addressBookId: string; contactCount?: number; lastSyncedAt?: string | null; lastErrorCode?: string | null }>;
 }
 
+/** The freshest last-sync time of a provider, or its first recorded failure. */
+function providerSyncSummary(status: ProviderContactsStatus | null): { failed: boolean; values: Record<string, string> } | null {
+  const books = Array.isArray(status?.books) ? status.books : [];
+  const failed = books.find(book => book.lastErrorCode);
+  if (failed) return { failed: true, values: { code: String(failed.lastErrorCode) } };
+  const times = books.map(book => book.lastSyncedAt).filter((value): value is string => typeof value === 'string');
+  if (!times.length) return null;
+  const latest = [...times].sort().at(-1) as string;
+  return { failed: false, values: { date: new Date(latest).toLocaleString() } };
+}
+
 /** One connection's outcome from POST /contacts/providers/google/sync. */
 interface GoogleContactsSyncOutcome {
   created?: number;
@@ -179,6 +190,9 @@ interface GoogleContactsSyncOutcome {
   error?: { code?: string; message?: string; retryable?: boolean };
 }
 
+
+/** The last-sync line beside a provider's sync action. */
+const providerStatusStyle: React.CSSProperties = { marginTop: 4, fontSize: 11, color: 'var(--text-tertiary)' };
 
 export default function ContactsPage({ isActive = true }) {
   const { t } = useTranslation();
@@ -623,6 +637,8 @@ export default function ContactsPage({ isActive = true }) {
   });
   const setCategories = (value: string) => setForm(f => ({ ...f, categories: value.split(',').map(category => category.trim()).filter(Boolean) }));
 
+  const googleSummary = providerSyncSummary(googleContacts);
+  const microsoftSummary = providerSyncSummary(microsoftContacts);
   const selectedBook = addressBooks.find(book => book.id === selectedAddressBookId);
   const bookControls = <div className="contacts-book-controls">
     <div className="contacts-books" role="group" aria-label={t('contacts.addressBooks.label')}>
@@ -639,6 +655,8 @@ export default function ContactsPage({ isActive = true }) {
         <Button onClick={openCreateBook}>{t('contacts.addressBooks.create')}</Button>
         {googleContacts?.connected && <Button data-testid="contacts-google-sync" disabled={providerSyncing !== null} onClick={() => runProviderContactsSync('google')}>{providerSyncing === 'google' ? t('contacts.addressBooks.googleSyncing') : t('contacts.addressBooks.googleSync')}</Button>}
         {microsoftContacts?.connected && <Button data-testid="contacts-microsoft-sync" disabled={providerSyncing !== null} onClick={() => runProviderContactsSync('microsoft')}>{providerSyncing === 'microsoft' ? t('contacts.addressBooks.microsoftSyncing') : t('contacts.addressBooks.microsoftSync')}</Button>}
+        {googleSummary && <span data-testid="contacts-google-sync-status" style={providerStatusStyle}>{t(googleSummary.failed ? 'contacts.addressBooks.lastSyncFailed' : 'contacts.addressBooks.lastSynced', googleSummary.values)}</span>}
+        {microsoftSummary && <span data-testid="contacts-microsoft-sync-status" style={providerStatusStyle}>{t(microsoftSummary.failed ? 'contacts.addressBooks.lastSyncFailed' : 'contacts.addressBooks.lastSynced', microsoftSummary.values)}</span>}
         {selectedAddressBookId && <>
           {selectedBook?.source === 'local' && <Button data-testid="contacts-address-book-rename" onClick={() => openRenameBook(selectedBook)}>{t('contacts.addressBooks.rename')}</Button>}
           <Button onClick={toggleAddressBookVisibility}>{t(selectedBook?.visible ? 'contacts.addressBooks.hide' : 'contacts.addressBooks.show')}</Button>

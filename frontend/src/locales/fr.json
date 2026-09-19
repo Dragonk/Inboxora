@@ -1146,7 +1146,9 @@
       "microsoftSyncing": "Synchronisation…",
       "microsoftSyncDone": "Contacts Microsoft : {{created}} ajoutés, {{updated}} mis à jour, {{deleted}} supprimés.",
       "microsoftSyncPartial": "Contacts Microsoft : {{created}} ajoutés, {{updated}} mis à jour, {{deleted}} supprimés ; {{failed}} connexion(s) en échec.",
-      "importVCard": "Importer un vCard"
+      "importVCard": "Importer un vCard",
+      "lastSynced": "Dernière synchronisation : {{date}}",
+      "lastSyncFailed": "Échec de la synchronisation : {{code}}"
     },
     "googleConnected": {
       "title": "Google connecté",
