@@ -2100,6 +2100,9 @@
     "microsoftGraphConnected": {
       "title": "Account Microsoft connesso",
       "body": "Il tuo account Microsoft è connesso per le funzioni API. Nessuna casella è stata modificata."
-    }
+    },
+    "syncFailedAuth": "La connessione va ristabilita. Apri la scheda di integrazione e riconnetti l’account.",
+    "syncFailedScopes": "Alla connessione manca un’autorizzazione necessaria a questa funzione. Riconnettila e concedi l’accesso richiesto.",
+    "syncFailedRateLimited": "Il provider sta limitando le richieste in questo momento. Verrà ritentato automaticamente."
   }
 }

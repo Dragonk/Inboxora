@@ -2100,6 +2100,9 @@
     "microsoftGraphConnected": {
       "title": "Účet Microsoft připojen",
       "body": "Váš účet Microsoft je připojen pro funkce API. Žádná schránka nebyla změněna."
-    }
+    },
+    "syncFailedAuth": "Připojení je třeba obnovit. Otevřete kartu integrace a připojte účet znovu.",
+    "syncFailedScopes": "Připojení postrádá oprávnění, které tato funkce vyžaduje. Připojte je znovu a povolte požadovaný přístup.",
+    "syncFailedRateLimited": "Poskytovatel nyní omezuje požadavky. Opakování proběhne automaticky."
   }
 }

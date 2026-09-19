@@ -2100,6 +2100,9 @@
     "microsoftGraphConnected": {
       "title": "Microsoft account connected",
       "body": "Your Microsoft account is connected for the API-based features. No mailbox was changed."
-    }
+    },
+    "syncFailedAuth": "The connection needs to be reconnected. Open the integration card and connect the account again.",
+    "syncFailedScopes": "The connection is missing a permission this feature needs. Reconnect it and allow the requested access.",
+    "syncFailedRateLimited": "The provider is limiting requests right now. It will be retried automatically."
   }
 }

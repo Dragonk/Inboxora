@@ -2100,6 +2100,9 @@
     "microsoftGraphConnected": {
       "title": "Microsoft-Konto verbunden",
       "body": "Ihr Microsoft-Konto ist für die API-Funktionen verbunden. Kein Postfach wurde geändert."
-    }
+    },
+    "syncFailedAuth": "Die Verbindung muss erneut hergestellt werden. Öffnen Sie die Integrationskarte und verbinden Sie das Konto neu.",
+    "syncFailedScopes": "Der Verbindung fehlt eine Berechtigung, die diese Funktion benötigt. Verbinden Sie sie neu und erlauben Sie den Zugriff.",
+    "syncFailedRateLimited": "Der Anbieter begrenzt gerade die Anfragen. Es wird automatisch erneut versucht."
   }
 }

@@ -2100,6 +2100,9 @@
     "microsoftGraphConnected": {
       "title": "Cuenta de Microsoft conectada",
       "body": "Tu cuenta de Microsoft está conectada para las funciones de API. No se modificó ningún buzón."
-    }
+    },
+    "syncFailedAuth": "Hay que volver a conectar la cuenta. Abre la tarjeta de integración y conéctala de nuevo.",
+    "syncFailedScopes": "A la conexión le falta un permiso que esta función necesita. Vuelve a conectarla y concede el acceso solicitado.",
+    "syncFailedRateLimited": "El proveedor está limitando las solicitudes ahora mismo. Se reintentará automáticamente."
   }
 }

@@ -163,3 +163,18 @@ test('the calendar connector reports when it last synced, or that it failed', as
   assert.match(source, /calendar\.lastSyncFailed/);
   assert.match(source, /data-testid="calendar-google-sync-status"/);
 });
+
+test('an actionable provider failure is explained instead of shown as a code', async () => {
+  const source = await readFile(contactsPage, 'utf8');
+  const sidebar = await readFile(calendarSidebar, 'utf8');
+  const helper = await readFile(new URL('../utils/providerFailure.ts', import.meta.url), 'utf8');
+  // The helper owns the literal keys; both surfaces route through it.
+  assert.match(helper, /providers\.syncFailedAuth/);
+  assert.match(helper, /providers\.syncFailedScopes/);
+  assert.match(helper, /providers\.syncFailedRateLimited/);
+  assert.match(source, /providerFailureKey\(failed\.lastErrorCode\)/);
+  assert.match(sidebar, /providerFailureKey\(failed\.lastErrorCode\)/);
+  // A code with no known action keeps the raw code rather than a friendly guess.
+  assert.match(source, /actionable \?\? 'contacts\.addressBooks\.lastSyncFailed'/);
+  assert.match(sidebar, /actionable \?\? 'calendar\.lastSyncFailed'/);
+});

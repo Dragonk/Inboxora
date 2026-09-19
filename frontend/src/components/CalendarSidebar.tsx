@@ -5,6 +5,7 @@ import { api } from '../utils/api.ts';
 import { Button, Dialog } from './ui.tsx';
 import type { CSSProperties, FormEvent } from 'react';
 import { toAppError } from '../utils/errors.ts';
+import { providerFailureKey } from '../utils/providerFailure.ts';
 import type { TFunction } from 'i18next';
 
 /** A calendar source as GET /calendar/sources returns it. */
@@ -111,17 +112,22 @@ interface CalendarSidebarProps {
   t: TFunction;
 }
 /** The freshest last-sync time of the imported Google calendars, or a recorded failure. */
-function googleCalendarSyncSummary(status: GoogleCalendarStatus | null): { failed: boolean; values: Record<string, string> } | null {
+function googleCalendarSyncSummary(status: GoogleCalendarStatus | null): { key: string | null; values: Record<string, string> } | null {
   const calendars = Array.isArray(status?.calendars) ? status.calendars : [];
   const failed = calendars.find(calendar => calendar.lastErrorCode);
   if (failed) {
     const when = failed.lastErrorAt ? new Date(failed.lastErrorAt).toLocaleString() : '';
-    return { failed: true, values: { code: String(failed.lastErrorCode), when } };
+    // An actionable code gets a sentence; anything else keeps the raw code.
+    const actionable = providerFailureKey(failed.lastErrorCode);
+    return {
+      key: actionable ?? 'calendar.lastSyncFailed',
+      values: { code: String(failed.lastErrorCode), when },
+    };
   }
   const times = calendars.map(calendar => calendar.lastSyncedAt).filter((value): value is string => typeof value === 'string');
   if (!times.length) return null;
   const latest = [...times].sort().at(-1) as string;
-  return { failed: false, values: { date: new Date(latest).toLocaleString() } };
+  return { key: null, values: { date: new Date(latest).toLocaleString() } };
 }
 
 export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds, weekStartsOn = 1, locale, onSelectDate, onShiftMonth, onToggleCalendar, onSourcesChanged, onCalendarsChanged, onCreate, canCreate, sourcePanelRequest = 0, t }: CalendarSidebarProps) {
@@ -402,7 +408,7 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
         {googleCalendars?.connected ? <>
           <p style={{ margin: '6px 0', fontSize: 12, color: 'var(--text-tertiary)' }}>{t('calendar.googleHint')}</p>
           <button data-testid="calendar-google-sync" disabled={googleSyncing} onClick={runGoogleCalendarSync} style={primaryButton}>{t(googleSyncing ? 'calendar.googleSyncing' : 'calendar.googleSync')}</button>
-          {googleSummary && <p data-testid="calendar-google-sync-status" style={{ margin: '6px 0 0', fontSize: 11, color: 'var(--text-tertiary)' }}>{t(googleSummary.failed ? 'calendar.lastSyncFailed' : 'calendar.lastSynced', googleSummary.values)}</p>}
+          {googleSummary && <p data-testid="calendar-google-sync-status" style={{ margin: '6px 0 0', fontSize: 11, color: 'var(--text-tertiary)' }}>{t(googleSummary.key ?? 'calendar.lastSynced', googleSummary.values)}</p>}
           {googleSyncNotice && <p role="status" data-testid="calendar-google-sync-result" style={{ margin: '8px 0 0', fontSize: 12 }}>{googleSyncNotice}</p>}
         </> : <p style={{ margin: '6px 0', fontSize: 12, color: 'var(--text-tertiary)' }}>{t('calendar.googleNotConnected')}</p>}
       </div>

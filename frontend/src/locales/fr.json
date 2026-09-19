@@ -2100,6 +2100,9 @@
     "microsoftGraphConnected": {
       "title": "Compte Microsoft connecté",
       "body": "Votre compte Microsoft est connecté pour les fonctions API. Aucune boîte aux lettres n’a été modifiée."
-    }
+    },
+    "syncFailedAuth": "La connexion doit être rétablie. Ouvrez la fiche d’intégration et reconnectez le compte.",
+    "syncFailedScopes": "Il manque à la connexion une autorisation nécessaire à cette fonction. Reconnectez-la et accordez l’accès demandé.",
+    "syncFailedRateLimited": "Le fournisseur limite actuellement les requêtes. Une nouvelle tentative aura lieu automatiquement."
   }
 }

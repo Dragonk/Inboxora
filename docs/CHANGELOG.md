@@ -294,6 +294,12 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   its timestamp through the status endpoint, and the contacts page and the calendar sources dialog
   show it beside the code, so "it failed" becomes "it failed at 09:12" and a failure that keeps
   recurring is distinguishable from one that happened once during an outage.
+- Explain the provider failures a user can act on instead of showing the internal code. A recorded
+  failure was reported as its domain code, so a connector that simply needed re-authorizing read as
+  `PROVIDER_AUTH_REQUIRED`. A lost or refused authorization, a missing permission, and a provider
+  that is throttling now each get a sentence naming the action, in all nine languages. A code with
+  no action behind it still shows the raw code, because a friendly sentence for a fault we do not
+  understand would be worse than the code itself.
 ## [4.0.4] - 2026-09-18
 
 ### Changed

@@ -18,6 +18,7 @@ import { safeHttpUrl } from '../utils/contactLinks.ts';
 import type { CSSProperties } from 'react';
 import type { StoreState } from '../store/index.ts';
 import { toAppError } from '../utils/errors.ts';
+import { providerFailureKey } from '../utils/providerFailure.ts';
 
 // Deterministic avatar color from a string
 function avatarColor(str: string): string {
@@ -172,18 +173,23 @@ interface ProviderContactsStatus {
 }
 
 /** The freshest last-sync time of a provider, or its first recorded failure. */
-function providerSyncSummary(status: ProviderContactsStatus | null): { failed: boolean; values: Record<string, string> } | null {
+function providerSyncSummary(status: ProviderContactsStatus | null): { key: string | null; values: Record<string, string> } | null {
   const books = Array.isArray(status?.books) ? status.books : [];
   const failed = books.find(book => book.lastErrorCode);
   if (failed) {
     // A failure always records when it happened, so the message can say when.
     const when = failed.lastErrorAt ? new Date(failed.lastErrorAt).toLocaleString() : '';
-    return { failed: true, values: { code: String(failed.lastErrorCode), when } };
+    // An actionable code gets a sentence; anything else keeps the raw code.
+    const actionable = providerFailureKey(failed.lastErrorCode);
+    return {
+      key: actionable ?? 'contacts.addressBooks.lastSyncFailed',
+      values: { code: String(failed.lastErrorCode), when },
+    };
   }
   const times = books.map(book => book.lastSyncedAt).filter((value): value is string => typeof value === 'string');
   if (!times.length) return null;
   const latest = [...times].sort().at(-1) as string;
-  return { failed: false, values: { date: new Date(latest).toLocaleString() } };
+  return { key: null, values: { date: new Date(latest).toLocaleString() } };
 }
 
 /** One connection's outcome from POST /contacts/providers/google/sync. */
@@ -659,8 +665,8 @@ export default function ContactsPage({ isActive = true }) {
         <Button onClick={openCreateBook}>{t('contacts.addressBooks.create')}</Button>
         {googleContacts?.connected && <Button data-testid="contacts-google-sync" disabled={providerSyncing !== null} onClick={() => runProviderContactsSync('google')}>{providerSyncing === 'google' ? t('contacts.addressBooks.googleSyncing') : t('contacts.addressBooks.googleSync')}</Button>}
         {microsoftContacts?.connected && <Button data-testid="contacts-microsoft-sync" disabled={providerSyncing !== null} onClick={() => runProviderContactsSync('microsoft')}>{providerSyncing === 'microsoft' ? t('contacts.addressBooks.microsoftSyncing') : t('contacts.addressBooks.microsoftSync')}</Button>}
-        {googleSummary && <span data-testid="contacts-google-sync-status" style={providerStatusStyle}>{t(googleSummary.failed ? 'contacts.addressBooks.lastSyncFailed' : 'contacts.addressBooks.lastSynced', googleSummary.values)}</span>}
-        {microsoftSummary && <span data-testid="contacts-microsoft-sync-status" style={providerStatusStyle}>{t(microsoftSummary.failed ? 'contacts.addressBooks.lastSyncFailed' : 'contacts.addressBooks.lastSynced', microsoftSummary.values)}</span>}
+        {googleSummary && <span data-testid="contacts-google-sync-status" style={providerStatusStyle}>{t(googleSummary.key ?? 'contacts.addressBooks.lastSynced', googleSummary.values)}</span>}
+        {microsoftSummary && <span data-testid="contacts-microsoft-sync-status" style={providerStatusStyle}>{t(microsoftSummary.key ?? 'contacts.addressBooks.lastSynced', microsoftSummary.values)}</span>}
         {selectedAddressBookId && <>
           {selectedBook?.source === 'local' && <Button data-testid="contacts-address-book-rename" onClick={() => openRenameBook(selectedBook)}>{t('contacts.addressBooks.rename')}</Button>}
           <Button onClick={toggleAddressBookVisibility}>{t(selectedBook?.visible ? 'contacts.addressBooks.hide' : 'contacts.addressBooks.show')}</Button>

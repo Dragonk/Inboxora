@@ -9,7 +9,7 @@ Nothing here is aspirational: a package is only marked delivered when its behavi
 tests — including integration tests against a real PostgreSQL where persistence, leases or cursors
 are involved — and merged to `origin/dev`.
 
-Last verified on `dev` at `3371cd4e`: backend typecheck, lint and **2223 tests**; frontend
+Last verified on `dev` at `f3d96aa6`: backend typecheck, lint and **2223 tests**; frontend
 typecheck, lint, production build and **2635 tests**. `main` has not been touched by this work.
 
 ## Status
