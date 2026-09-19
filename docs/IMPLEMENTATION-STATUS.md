@@ -71,21 +71,28 @@ been run at all:
 Remaining v4 scope in dependency order; the send-layer facts, the Graph pipeline contract and the slice-A
 loci are in the send-layer notes below, so this list carries no narrative.
 
-1. **Slice A — `ComposedMail` + SMTP renderer** (refactor-only, no Graph). Implement the typed model and
-   `renderSmtpMessage(composed) → { raw, envelope, mailOptions }`, move `routes/send.ts` at the five
-   recorded loci, and prove zero behaviour change with renderer tests plus the existing send suites.
-2. **Slice B — `fetchSourceAttachment(account, message, attachment)`**: one provider-aware helper
-   dispatched on the **source** account (IMAP / Graph / Gmail later); matrix IMAP→IMAP, IMAP→Graph,
-   Graph→IMAP, Graph→Graph; a Graph source must never open an IMAP connection.
-3. **Slice C — remove or replace `sendGraphMime`** and implement the draft JSON: `POST /me/messages` with
-   `toRecipients`, `ccRecipients`, `bccRecipients`, replyTo, body, subject and permitted custom headers.
-4. **Slice D — attachment pipeline** on that draft: direct below 3 MB, `createUploadSession` from 3–150 MB
-   (`Content-Range`, `nextExpectedRanges`, resume, expiry, cancel, no `Authorization` on the pre-authorized
-   URL).
-5. **Slice E — staging draft lifecycle** bound to the send intent, the provider operation and the draft id.
-6. **Slice F — final send** `POST /me/messages/{id}/send`: non-idempotent, `202` accepted, lost response →
-   `outcome_unknown`, no automatic resend, **no Graph → SMTP fallback**; only then wire Graph into
-   `createAccountMailTransport()`, and never as an `if (microsoft)` inside `routes/send.ts`.
+**Slices A–E and the provider half of F are delivered** (each green: typecheck, lint, full suite):
+
+| Slice | Commit | What it delivered |
+| --- | --- | --- |
+| A | `a7cc148b` | `services/composedMail.ts`: the typed model + `renderSmtpMessage()` (the MIME, the explicit envelope, the `Bcc` strip); `routes/send.ts` moved onto it at the recorded loci. Refactor-only: the five send suites pass unchanged. |
+| B | `91ccc26b` | `services/sourceAttachments.ts`: `fetchSourceAttachment()` dispatching on the **source** account, with the IMAP fetcher injected; the route now selects `m.provider_message_id`, and a Graph source can no longer reach IMAP. |
+| C | `038f65ac` | `sendGraphMime` **removed** and replaced by `renderGraphMessage()` + `createGraphDraft()` (`POST /me/messages`, three recipient groups mapped separately, `bccRecipients` as data); the dead raw-body sender dropped from the API client. |
+| D | `d5c66ee0` | `graphMailAttachments.ts`: direct below 3 MB, `createUploadSession` from 3–150 MB, aligned chunks, `Content-Range`, resume from `nextExpectedRanges`, typed expiry, cancel, **no `Authorization`** on the pre-authorized URL, over-ceiling refusal with no provider call. |
+| E | `d38b53f5` | `services/stagingDraft.ts`: the staging lifecycle with `send_outcome_unknown` terminal (so an unknown outcome cannot be retried structurally), upload-failure recoverable, cancel only before hand-over, and the journal payload plus the opaque `X-Inboxora-Operation-Id`. No third durability mechanism. |
+| F (provider) | `b3018e56` | `sendGraphDraft()`: `202` accepted, a read 4xx refused with the provider's retryability, everything else `outcome_unknown`, and exactly one request so nothing retries on its own. |
+
+**What remains of F is the seam wiring, and it is the next commit.** The transport contract must carry the
+`ComposedMail` model — not only nodemailer's options and the rendered MIME — or a Graph transport cannot
+render `bccRecipients`; and `createAccountMailTransport()` must return a Graph transport for a native
+account, **never** an `if (microsoft)` inside `routes/send.ts`. The route's `delivered` flag is the
+boundary that maps onto `accepted` / `refused` / `outcome_unknown`, and the SMTP arm keeps its current
+behaviour unchanged. Only after that wiring are these acceptance cases meaningful, and they are the ones
+the status document already lists: plain, HTML, To / Cc / Bcc / To+Cc+Bcc, inline CID, small attachment,
+large attachment, mixed attachments, forwarded from an IMAP source, forwarded from a Graph source, reply,
+reply-all, forward, 4xx, 429, timeout before dispatch, timeout after possible dispatch → unknown,
+upload resume, expiry, cancel, deliberate resend as a new intent, and **zero SMTP calls for a native Graph
+account**. W06 stays FAIL until those pass.
 7. Then, in order: Graph user drafts · provider device-code · Graph calendar (discovery, sync, CRUD,
    recurrence, attendees, permission mapping) · Graph contacts CRUD · Gmail API (P08: labels, threads,
    history, send, drafts, attachments) · Google Calendar/People CRUD · Google migration recommendation with
