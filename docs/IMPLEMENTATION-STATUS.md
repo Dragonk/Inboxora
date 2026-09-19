@@ -115,6 +115,32 @@ found two things the unit and contract tests could not:
 Run the suite with:
 `PLAYWRIGHT_BROWSERS_PATH=$PWD/../.pw-browsers npx playwright test --project=chromium-desktop`
 
+## End-to-end verification across the viewport matrix
+
+The Playwright suite was run on every configured project after the drawer fix, because the
+regression it found was a mobile-layout bug that unit and contract tests had passed straight
+through:
+
+| Project | Result |
+| --- | --- |
+| `chromium-desktop` | 123 passed, 0 failed, 59 skipped |
+| `chromium-mobile` (Pixel 7) | 81 passed, 0 failed, 101 skipped |
+| `chromium-tablet`, `chromium-mobile-390`, `chromium-mobile-landscape` | 171 passed, 0 failed, 204 skipped |
+
+`chromium-tablet` runs only the `v3-*` specs by configuration, so its coverage is narrower than
+the others by design.
+
+Run it with:
+
+```
+cd frontend
+PLAYWRIGHT_BROWSERS_PATH=$PWD/../.pw-browsers npx playwright test --project=chromium-desktop
+```
+
+This is the gate that should run alongside the unit suites for anything touching layout,
+navigation or the drawer; it is the only one that caught the drawer covering the page after a
+navigation while every unit test passed.
+
 ## Known limitations of what is delivered
 
 - Pulled Google and Microsoft contacts and Google calendars are **read-only** in Inboxora: REST and
