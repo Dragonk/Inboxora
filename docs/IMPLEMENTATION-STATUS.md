@@ -141,21 +141,30 @@ This is the gate that should run alongside the unit suites for anything touching
 navigation or the drawer; it is the only one that caught the drawer covering the page after a
 navigation while every unit test passed.
 
-### Why it had not been running
+### What is gated, and what is only verified
 
-The browser suite exists in CI — `conversation-v2-playwright.yml` runs all five projects above —
-but its trigger is **`pull_request`**, while `ci.yml` (backend and frontend unit gates) also runs
-on **push to `dev`**. This work was integrated by pushing directly to `dev`, so the unit gates ran
-on every commit and the browser gate ran on none of them. That is the whole explanation for two
-real defects surviving many rounds of per-round verification: the verification was real, and
-narrower than it looked.
+Reading the workflows rather than assuming them gives this picture. "Verified" means it was run
+manually during this work and passed; "gated" means a workflow runs it for a `dev` push.
 
-Two ways to close it, and the choice is the maintainer's because it affects CI cost:
+| Layer | Local default | CI on push to `dev` | CI on PR |
+| --- | --- | --- | --- |
+| Backend and frontend unit / contract tests | runs | **gated** (`ci.yml`) | gated |
+| Real-PostgreSQL integration (provider sync, token refresh, OAuth flow table, DAV) | skipped — needs `DB_*` | **not gated** (`ci.yml` has no database service; the PG workflow is PR-to-`main` and runs one specific file) | not gated |
+| Browser E2E, five projects | skipped unless run explicitly | **not gated** (`conversation-v2-playwright.yml` is `pull_request`-only) | gated |
 
-- run the five projects locally before pushing, which is what the command above does and what was
-  done after the drawer fix; or
-- add `push: branches: [dev]` to the Playwright workflow so a direct integration is gated too
-  (this was **not** changed here, since CI minutes are an operator decision).
+So two of the three layers were verified but never gated, and the work was integrated by pushing
+directly to `dev`. That is the complete explanation for two real defects surviving many rounds of
+per-round verification: the verification was real, and narrower than it looked.
+
+Recipes to close the two gaps, left unapplied because CI cost is an operator decision:
+
+- **Database suites** — add a job to `ci.yml` with a `postgres:16-alpine` service and the `DB_*`
+  variables, then run the gated files, e.g.
+  `npx vitest run src/services/providerAuthService.integration.test.ts src/services/providerTokenService.integration.test.ts src/services/providerOperations.integration.test.ts src/services/providers/google src/services/providers/microsoft src/routes/davPg.integration.test.ts`
+  with `REQUIRE_DAV_POSTGRES=1`. These pass against a fresh database with the full migration chain,
+  so the job would also prove the migrations apply.
+- **Browser suite** — add `push: branches: [dev]` to `conversation-v2-playwright.yml`, or integrate
+  through a pull request so its existing trigger applies.
 
 ## Known limitations of what is delivered
 
