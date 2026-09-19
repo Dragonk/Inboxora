@@ -277,6 +277,13 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   freshest last-sync time of the imported Google calendars, or the recorded error code when a run
   failed, so a calendar that stopped updating is visible where the sync action is rather than only
   in the logs. It uses the status payload the dialog already loads.
+- Fix a gap in the Google connection card: its single connect button asked only for the contacts
+  scopes, so a user who connected from that card could not pull calendars — the calendar sync would
+  fail with a missing scope, which the status line above then reported rather than hiding. The card
+  now offers **Connect a Google account** (contacts) and **Connect Google calendars** as separate
+  authorizations, and its hint explains that each asks for its own feature and that mail is never
+  requested there. Google's incremental consent keeps the scopes of the earlier connection, so
+  connecting twice accumulates them rather than replacing them.
 ## [4.0.4] - 2026-09-18
 
 ### Changed
