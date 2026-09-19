@@ -668,11 +668,17 @@ Each of these cost a defect or a round to learn, and each applies to whatever co
   rather than remembered; ten verdicts were corrected in one session, all in the direction of *more* work
   remaining. Assume the same of anything written here after this note.
 
-### State when this was written (measured at `157ad415` on `dev`, the last commit to change code or tests; the documentation commits after it change no behaviour)
+### State when this was written (measured at `1e8e3937` on `dev`, the last commit to change the interface)
 
-Everything below was green at that commit: backend **2269** unit tests, frontend **2655** plus a
+Everything below was green at that commit: backend **2271** unit tests, frontend **2655** plus a
 production build, **99** database integration tests across twelve suites on a fresh PostgreSQL 16 with the
-full 109-migration chain, and the browser matrix at **124** (desktop) and **189** (two mobile viewports).
+full 109-migration chain, and the browser projects re-run after the interface changes — **desktop 125 passed,
+0 failed** and **mobile 80 passed, 0 failed** in the same run (125 + 80 = 205 passed, 161 skipped across the
+two projects).
+
+The browser run is the point of dating this: the interface changed twice since it last ran in full, so it was
+re-run rather than assumed, which is the rule this work settled on and the reason the drawer regression was
+caught at all.
 
 The counts grew while the section below was being written, which is the point of dating them: each
 `docs:` commit that follows adds no tests, so a reader can trust the numbers against that commit and
