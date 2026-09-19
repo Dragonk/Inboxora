@@ -42,6 +42,21 @@ themselves.
 
 ## Sending fails
 
+### "The result of this send is still being confirmed"
+
+This is the one send failure that is not a failure. It means the connection was lost after the message was handed
+to the server, so Inboxora **cannot know** whether it was sent — and it will **not** send it again automatically,
+because a second copy is worse than a delayed answer. Clicking send again does not override that: the record is
+deliberate and the click is refused.
+
+What to do: **look in the account's Sent folder.** If the message is there, it was sent and there is nothing to
+retry. If it is not, compose it again — that is a new message with its own record, which is exactly the deliberate
+step the automatic path is forbidden from taking. This is also why the composer keeps your text when the answer is
+uncertain: nothing you typed is lost while you check.
+
+The message you see is the server's own sentence and is not translated, which is the same for the other send
+failures below it.
+
 | Message | Meaning |
 | --- | --- |
 | *Sent, but not saved to your Sent folder* | The message was delivered. Only the Sent copy failed; do not resend. |
