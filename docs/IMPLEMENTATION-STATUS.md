@@ -487,6 +487,42 @@ What the same section asks for *is* met, and the distinction is worth keeping:
 Metrics are the kind of work that needs its own design (what is exported, in what format, and how cardinality is
 bounded), which is why it is recorded here rather than started at the end of a session.
 
+## Three series that were missing from the execution matrix: GN, DO and RE
+
+The matrix holds **176 rows across twelve series** (AT 20, DV 19, GN 18, AD 18, KC 17, ML 16, MG 16, GE 12, DC 12,
+AU 12, RE 8, DO 8). The execution matrix above covers nine of them; **GN, DO and RE were never reported**, and the
+checklist names GN explicitly — "AD/GN/DC/DO tests are required in the full matrix" — so their absence was a gap in the
+deliverable rather than in the code.
+
+### GN — the Google notice and migration behaviour (18 rows)
+
+| Rows | Verdict |
+| --- | --- |
+| GN01, GN02 | **Met.** The upgrade keeps accounts, passwords and metadata (the schema is additive and nothing rewrites a row), and a new Google account can be added and edited with an app password **without any global Google configuration** — which is the behaviour the app-password path has always had and this work verified rather than changed. |
+| GN11, GN12, GN13 | **Met.** Google IMAP keeps read, actions, forwarded attachments, compose, drafts, send, CE, GTD, rules, snooze and push with no Gmail API; enabling Calendar/People requests no Gmail scope and changes no transport; and disabling or revoking a PIM grant leaves the IMAP account and its password alone. The four switch combinations are covered by the per-collection and per-method switches and their tests. |
+| GN18 | **Met, in the documentation.** An account that cannot have an app password is told so — Advanced Protection, security keys, organisation policy — with the API as the alternative and no request for the main password. That is the sentence added to `Getting-started.md`, and no code path asks for a Google password. |
+| GN03–GN05, GN07–GN09, GN14–GN17 | **Not implemented: this is P12.** The *Ignore* control with and without its checkbox, the stored suppression with its revision handling, the restore action, the migration intent, its cancellation, and the cutover with the no-automatic-fallback rule all belong to the migration package. GN17's requirement — no automatic SMTP after a Gmail API cutover — is vacuously true today for the reason it will stop being true: there is no cutover and no API transport. |
+| GN06 | **Vacuously safe.** There is no endpoint that could write another account's preference or the Microsoft requirement, so the rejection the row asks for cannot be bypassed — because the write does not exist. |
+| GN10 | **Met where errors exist.** A hidden recommendation does not hide a real failure: the app-password, scope, API and sync errors are separate states with their own messages, and the suppression machinery that could conflate them does not exist yet. |
+
+### DO — acceptance on the final build (8 rows)
+
+**DO01–DO04, DO06 are NOT RUN**: they are the manual procedure against a real Entra registration and a real Google
+project, on accounts that permit each method, and no such application or account was available. That is the same
+NOT RUN as §8, recorded rather than inferred from the tests that fake the providers.
+
+**DO05, DO07 and DO08 are met**, and they are the rows this session's documentation work was actually about: the policy
+is consistent across the README, the wiki, the inline UI copy, the upgrade page, the release notes and `.env.example`
+(DO05); the local documentation links and the final field, callback and endpoint names match the implementation, and the
+historical release notes were left as history rather than rewritten to look current (DO07); and the evidence is
+anonymised with the missing live tests disclosed as **NOT RUN instead of passed from a mock** (DO08) — which is the rule
+this document has been applying to itself throughout.
+
+### RE — not yet read
+
+The eight RE rows have not been examined, and saying so is the point: a series that is missing from the matrix is a gap
+whether or not it turns out to be met, and the next session should read it before claiming the matrix is complete.
+
 ## The agent acceptance procedure (guide §8), reported as the guide requires
 
 The admin guide's §8 asks for the procedure to be performed in an isolated installation **as a new
