@@ -49,7 +49,7 @@ installation would actually have rather than on one evolved in place:
   macOS client, so client-specific behaviour — its exact `PROPFIND` bodies, its retry and error
   handling, its reaction to a refused `PROPPATCH` — is untested. That is the honest boundary of the
   DAV work, and it is the one acceptance criterion in P11 that remains open.
-- 89 integration tests pass across eleven suites: the provider authorization-flow table, Google and
+- 97 integration tests pass across eleven suites: the provider authorization-flow table, Google and
   Microsoft token refresh (including the two-worker race), the operation journal and outbox, the
   Google and Microsoft contact syncs, the Google calendar sync, the provider disconnect and its reconnect cycle, and the DAV HTTP
   integration. The
