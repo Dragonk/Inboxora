@@ -62,11 +62,35 @@ export type RecurrenceParseResult =
  * `{ frequency: 'none' }`) means "not recurring". `allDay` selects the UNTIL
  * value type, because a date-valued series rejects a DATE-TIME bound.
  */
-export function parseRecurrenceInput(value: unknown, options: { allDay: boolean }): RecurrenceParseResult {
-  if (value === undefined || value === null) return { ok: true, rrule: null };
+export interface ParsedRecurrence {
+  frequency: RecurrenceFrequency;
+  interval: number;
+  /** 0 = Sunday … 6 = Saturday. */
+  byWeekday: number[];
+  /** The caller's own `until` value, validated: an ISO instant or a `YYYY-MM-DD` date. */
+  until: string | null;
+  /** The iCalendar `UNTIL` value: a UTC date-time, or a date for an all-day series. */
+  untilIcal: string | null;
+  count: number | null;
+}
+
+export type RecurrenceStructureResult =
+  | { ok: true; recurrence: ParsedRecurrence | null }
+  | { ok: false; error: string };
+
+/**
+ * Validate an untrusted `recurrence` field into a **provider-neutral structure**.
+ *
+ * The iCalendar `RRULE` and Microsoft Graph's `pattern`/`range` are two renderings of the same rule, and
+ * both need the validated fields rather than each other's wire format — parsing an RRULE back would lose
+ * the guarantee that the input was validated in the first place. `allDay` selects the `UNTIL` value type,
+ * because a date-valued series rejects a DATE-TIME bound.
+ */
+export function parseRecurrenceStructure(value: unknown, options: { allDay: boolean }): RecurrenceStructureResult {
+  if (value === undefined || value === null) return { ok: true, recurrence: null };
   if (!isPlainObject(value)) return { ok: false, error: 'recurrence must be an object' };
   const rawFrequency = value.frequency;
-  if (rawFrequency === 'none' || rawFrequency === undefined) return { ok: true, rrule: null };
+  if (rawFrequency === 'none' || rawFrequency === undefined) return { ok: true, recurrence: null };
   if (!isRecurrenceFrequency(rawFrequency)) {
     return { ok: false, error: 'recurrence.frequency must be none, daily, weekly, monthly or yearly' };
   }
@@ -94,10 +118,12 @@ export function parseRecurrenceInput(value: unknown, options: { allDay: boolean 
   if (hasUntil && hasCount) return { ok: false, error: 'recurrence cannot set both until and count' };
 
   let until: string | null = null;
+  let untilIcal: string | null = null;
   if (hasUntil) {
     if (typeof value.until !== 'string') return { ok: false, error: 'recurrence.until must be a date string' };
-    until = options.allDay ? formatUntilDate(value.until) : formatUntilDateTime(value.until);
-    if (!until) return { ok: false, error: 'recurrence.until must be a valid date' };
+    untilIcal = options.allDay ? formatUntilDate(value.until) : formatUntilDateTime(value.until);
+    if (!untilIcal) return { ok: false, error: 'recurrence.until must be a valid date' };
+    until = value.until;
   }
 
   let count: number | null = null;
@@ -108,12 +134,25 @@ export function parseRecurrenceInput(value: unknown, options: { allDay: boolean 
     }
   }
 
-  const parts = [`FREQ=${rawFrequency.toUpperCase()}`];
-  if (interval !== 1) parts.push(`INTERVAL=${interval}`);
-  if (byWeekday.length) parts.push(`BYDAY=${byWeekday.map(day => WEEKDAY_CODES[day]).join(',')}`);
-  if (until) parts.push(`UNTIL=${until}`);
-  if (count) parts.push(`COUNT=${count}`);
-  return { ok: true, rrule: parts.join(';') };
+  return { ok: true, recurrence: { frequency: rawFrequency, interval, byWeekday, until, untilIcal, count } };
+}
+
+/** The iCalendar `RRULE` for a validated structure, or null when it does not recur. */
+export function recurrenceToRRule(recurrence: ParsedRecurrence | null): string | null {
+  if (!recurrence) return null;
+  const parts = [`FREQ=${recurrence.frequency.toUpperCase()}`];
+  if (recurrence.interval !== 1) parts.push(`INTERVAL=${recurrence.interval}`);
+  if (recurrence.byWeekday.length) parts.push(`BYDAY=${recurrence.byWeekday.map(day => WEEKDAY_CODES[day]).join(',')}`);
+  if (recurrence.untilIcal) parts.push(`UNTIL=${recurrence.untilIcal}`);
+  if (recurrence.count) parts.push(`COUNT=${recurrence.count}`);
+  return parts.join(';');
+}
+
+/** The iCalendar `RRULE` for an untrusted `recurrence` field. */
+export function parseRecurrenceInput(value: unknown, options: { allDay: boolean }): RecurrenceParseResult {
+  const parsed = parseRecurrenceStructure(value, options);
+  if (!parsed.ok) return parsed;
+  return { ok: true, rrule: recurrenceToRRule(parsed.recurrence) };
 }
 
 /** The rule shape returned to the editor when it opens an existing series. */

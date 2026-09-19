@@ -20,6 +20,14 @@ import {
   saveGraphUserDraft,
   upsertGraphDraftRecord,
 } from '../services/providers/microsoft/graphMailDrafts.js';
+import { gmailProviderNamespace } from '../services/providers/google/gmailMail.js';
+import {
+  deleteGmailUserDraft,
+  findGmailDraftIdForMessage,
+  gmailDraftMessageIdForLocalRow,
+  saveGmailUserDraft,
+  upsertGmailDraftRecord,
+} from '../services/providers/google/gmailMailDrafts.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -241,21 +249,34 @@ async function resolveDraftsFolder(account: EmailAccountRow) {
  * account that is gone, or no longer native, leaves the draft in place — the caller's local row is
  * retained and the situation is logged rather than guessed at.
  */
-async function deleteGraphDraftByIdentity(userId: string, identity: ExistingDraftIdentity): Promise<boolean> {
+async function deleteProviderDraftByIdentity(userId: string, identity: ExistingDraftIdentity): Promise<boolean> {
   const previousRows = await query<EmailAccountRow>(
     'SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2',
     [identity.accountId, userId],
   );
   const previous = previousRows.rows[0];
-  if (!previous || previous.mail_transport !== 'microsoft_graph') return false;
-  const providerId = await graphDraftIdForLocalRow(previous.id, identity.uid, identity.folder);
-  if (!providerId) return false;
+  if (!previous) return false;
+  if (previous.mail_transport !== 'microsoft_graph' && previous.mail_transport !== 'gmail_api') return false;
   const target = await resolveMailTransportForSync(userId, previous.id);
-  if (target.kind !== 'graph') return false;
-  await deleteGraphUserDraft(
-    { userId, connectionId: target.connectionId, config: target.config },
-    providerId,
-  );
+  if (target.kind === 'graph') {
+    const providerId = await graphDraftIdForLocalRow(previous.id, identity.uid, identity.folder);
+    if (!providerId) return false;
+    await deleteGraphUserDraft(
+      { userId, connectionId: target.connectionId, config: target.config },
+      providerId,
+    );
+  } else if (target.kind === 'gmail') {
+    // A Gmail draft is addressed by its draft id, which the local row does not carry:
+    // it is resolved from the message identity the row does hold.
+    const messageId = await gmailDraftMessageIdForLocalRow(previous.id, identity.uid, identity.folder);
+    if (!messageId) return false;
+    const api = { userId, connectionId: target.connectionId, config: target.config };
+    const draftId = await findGmailDraftIdForMessage(api, messageId);
+    if (!draftId) return false;
+    await deleteGmailUserDraft(api, draftId);
+  } else {
+    return false;
+  }
   await query(
     'DELETE FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3',
     [previous.id, identity.uid, identity.folder],
@@ -328,12 +349,65 @@ router.post('/draft', async (req, res) => {
           .catch(caught => console.error(`Draft: failed to remove superseded provider draft: ${toAppError(caught).message}`));
       }
       if (existingDraft && existingDraft.accountId !== account.id) {
-        await deleteGraphDraftByIdentity(req.session.userId!, existingDraft)
+        await deleteProviderDraftByIdentity(req.session.userId!, existingDraft)
           .catch(caught => console.error(`Draft: failed to remove the previous account's provider draft: ${toAppError(caught).message}`));
       }
 
       // No UIDVALIDITY: a provider draft's identity is its immutable provider id, which the local row
       // holds. `uid` is the compatibility number the rest of the application addresses rows by.
+      return res.json({ uid: record.uid, folder: draftsFolder, uidValidity: null, rowId: record.rowId });
+    }
+
+    // A Gmail API account saves the draft as Gmail's own `Draft` object. The local row is keyed on the
+    // **message** id the draft wraps — the identity the message sync reconciles on — while the draft id
+    // a patch or delete addresses is resolved from the provider at that moment, because the local model
+    // has no column for a second identity.
+    if (account.mail_transport === 'gmail_api') {
+      const target = await resolveMailTransportForSync(req.session.userId!, account.id);
+      if (target.kind === 'refused') return res.status(target.status).json({ error: target.error });
+      if (target.kind !== 'gmail') return res.status(409).json({ error: 'This account is not linked to a Google connection' });
+      const api = { userId: req.session.userId!, connectionId: target.connectionId, config: target.config };
+
+      const sameAccountDraft = existingDraft && existingDraft.accountId === account.id ? existingDraft : null;
+      const existingMessageId = sameAccountDraft
+        ? await gmailDraftMessageIdForLocalRow(account.id, sameAccountDraft.uid, sameAccountDraft.folder)
+        : null;
+      const existingDraftId = existingMessageId ? await findGmailDraftIdForMessage(api, existingMessageId) : null;
+      const saved = await saveGmailUserDraft(api, composed, { existingDraftId });
+
+      const record = await upsertGmailDraftRecord({
+        accountId: account.id,
+        folder: draftsFolder,
+        providerMessageId: saved.messageId,
+        threadId: saved.threadId,
+        providerNamespace: gmailProviderNamespace(account.id),
+        messageId: meta.messageId,
+        subject,
+        fromName: meta.fromName,
+        fromEmail: meta.fromEmail,
+        to: mapRecipientList(to),
+        cc: mapRecipientList(cc),
+        bcc: mapRecipientList(bcc),
+        aliasId: meta.aliasId,
+        inReplyTo: meta.inReplyTo,
+        references: meta.references,
+        snippet: meta.snippet,
+        bodyHtml: meta.bodyHtml,
+        bodyText: meta.bodyText,
+        draftComposition: meta.draftComposition,
+      });
+
+      // The provider object the composer held was replaced rather than updated (it was gone at Gmail),
+      // so remove the superseded one. A failure is logged, not fatal: the save itself succeeded.
+      if (saved.supersededId) {
+        await deleteGmailUserDraft(api, saved.supersededId)
+          .catch(caught => console.error(`Draft: failed to remove superseded Gmail draft: ${toAppError(caught).message}`));
+      }
+      if (existingDraft && existingDraft.accountId !== account.id) {
+        await deleteProviderDraftByIdentity(req.session.userId!, existingDraft)
+          .catch(caught => console.error(`Draft: failed to remove the previous account's provider draft: ${toAppError(caught).message}`));
+      }
+
       return res.json({ uid: record.uid, folder: draftsFolder, uidValidity: null, rowId: record.rowId });
     }
 
@@ -451,6 +525,24 @@ router.delete('/draft/:uid', async (req, res) => {
       await query(
         'DELETE FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3 AND provider_message_id = $4',
         [account.id, uid, folder, providerId],
+      );
+      return res.json({ ok: true });
+    }
+
+    if (account.mail_transport === 'gmail_api') {
+      const target = await resolveMailTransportForSync(req.session.userId!, account.id);
+      if (target.kind === 'refused') return res.status(target.status).json({ error: target.error });
+      if (target.kind !== 'gmail') return res.status(409).json({ error: 'This account is not linked to a Google connection' });
+      const api = { userId: req.session.userId!, connectionId: target.connectionId, config: target.config };
+      const messageId = await gmailDraftMessageIdForLocalRow(account.id, uid, folder);
+      if (!messageId) return res.status(409).json({ error: 'Draft identity cannot be confirmed' });
+      const draftId = await findGmailDraftIdForMessage(api, messageId);
+      // A draft the provider no longer holds is the end state the caller asked for, so
+      // the local row still goes; only a provider refusal stops the removal.
+      if (draftId) await deleteGmailUserDraft(api, draftId);
+      await query(
+        'DELETE FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3 AND provider_message_id = $4',
+        [account.id, uid, folder, messageId],
       );
       return res.json({ ok: true });
     }

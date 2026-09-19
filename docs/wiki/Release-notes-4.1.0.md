@@ -63,6 +63,12 @@ and reconnecting re-links the same collections rather than duplicating them.
   **typed provider-mutation layer** with an operation journal: a claim is committed before the
   provider call, so a recovered non-idempotent operation is parked as `outcome_unknown` rather than
   run a second time.
+- **Microsoft Graph calendar-event write-back**, on the same explicit per-collection switch: creating,
+  editing or deleting an event in a write-enabled Microsoft calendar writes to Graph first, a refusal
+  leaves the local copy untouched, a created event keeps the provider's identity (so the next sync updates
+  it rather than duplicating it), and Microsoft's own attendee notification is not duplicated by
+  Inboxora's invitation mail. Times are sent as the exact instant; a local recurrence is rendered into
+  Graph's own pattern/range from the same validated rule the local `RRULE` comes from.
 - **Microsoft Graph contact write-back, behind an explicit per-collection switch.** Creating, editing or
   deleting a contact in a pulled Microsoft address book writes to Graph first and only then to the local
   copy, through the same provider journal that fences every other provider mutation; a contact the
@@ -137,8 +143,12 @@ and reconnecting re-links the same collections rather than duplicating them.
   and Gmail's own documentation says the send delivers "to the recipients in the `To`, `Cc`, and `Bcc`
   headers". The Gmail arm therefore **keeps** the `Bcc:` header — removing it would silently drop every
   blind recipient — and relies on Gmail, like any submission agent, to keep that header off the copies it
-  delivers. The SMTP arm still removes it and relies on the envelope. Drafts are the **remaining P08
-  slice**.
+  delivers. The SMTP arm still removes it and relies on the envelope. **Saved drafts** are Gmail's own
+  `Draft` object: saving creates it, re-saving patches the same object, deleting removes it at Gmail
+  first, and the local mirror is keyed on the **message** id the draft wraps (the identity the sync
+  reconciles on) with the draft id resolved from the provider when it is needed. The Gmail API adapter is
+  therefore **complete** — what remains is the account cutover, which is what makes it reachable, and live
+  acceptance, which is NOT RUN.
 
 ## Fixed
 
@@ -194,7 +204,7 @@ and reconnecting re-links the same collections rather than duplicating them.
   first. **Provider-side search and the reply/forward dependencies are not implemented.**
   **Gmail API mail is a partial adapter, not yet a transport for anyone.** Its read path exists —
   label discovery and projection, message/thread ingest with a history cursor, body and attachments
-  on demand, the message mutations and send — but drafts are not implemented, and **no Google
+  on demand, the message mutations, drafts and send — but **no Google
   account is migrated to it**: `mail_transport` stays `imap_smtp` unless an explicit cutover sets it,
   so Google mail continues with an app password and the Gmail API code is unreachable for an existing
   account. When such an account is eventually cut over, one consequence of modelling Gmail's plural
@@ -202,12 +212,35 @@ and reconnecting re-links the same collections rather than duplicating them.
   labels appears **once**, in the inbox, with its additional labels retained in
   `messages.provider_labels`.
 - **Provider data is read-only by default, and imported collections stay that way until you enable
-  write-back for them.** What is *not* in this release: **calendar-event** create/update/delete (the
-  Microsoft contacts write path is; the calendar one is read-only), **Google** calendar/contacts
-  writes, the external CalDAV/CardDAV write-back client, and the mail migration/cutover. The
-  capability model is the single decision point, the interface reads the server's `read_only` rather
-  than re-deriving editability from a calendar's origin, and the write-back switch refuses rather than
-  accepting a change it cannot forward.
+  write-back for them** — per collection. What is *not* in this release: **Google** calendar/contacts
+  writes and the mail migration/cutover. The capability model is the single decision point, the
+  interface reads the server's `read_only` rather than re-deriving editability from a calendar's
+  origin, and the write-back switch refuses rather than accepting a change it cannot forward (a
+  calendar the provider marks `canEdit: false`, or a source whose write path does not exist yet). A
+  legacy CalDAV/CardDAV collection imported before this release has no write-back record yet, so it
+  stays read-only over DAV until one is created for it — the import paths create one for new imports.
+
+### Editing an imported CalDAV or CardDAV collection now reaches its server (P10)
+
+A calendar or address book that Inboxora imported from an external CalDAV or CardDAV server can be
+edited from a DAV client: a `PUT` or `DELETE` is forwarded to the server the collection came from
+rather than applied only to Inboxora's copy, which is what makes the collection genuinely read/write
+for DAVx⁵, Thunderbird and Apple Contacts once write-back is enabled for it.
+
+- The precondition the client sent is honoured at the source as well: a create is sent with
+  `If-None-Match: *`, an update or delete with the entity-tag Inboxora last read. If the source's copy
+  changed, the write is refused with `412` and the client re-reads instead of overwriting.
+- The local copy and the remote link are updated only after the source confirms. A refusal or an
+  ambiguous answer (a `5xx`, a timeout, a reset after the request left) leaves the local row untouched
+  and answers `502`/`503`; nothing is reported as saved unless it was, and an ambiguous one is never
+  retried automatically.
+- An ICS subscription has no write channel and stays read-only; an `.ics` file imported into a local
+  calendar remains locally editable.
+- **Validation.** Unit tests cover the source-status classification and the on-the-wire precondition
+  and entity-tag forwarding; a real-PostgreSQL integration suite covers the journal claim, the local
+  projection and the remote link against a local fake DAV server.
+- **NOT RUN.** Acceptance with real clients (DAVx⁵, Thunderbird, macOS Contacts/Calendar) has not been
+  run and remains manual acceptance.
 - **The migration prompt with *Ignore* and "do not show again" is not in this release.** What exists
   is the requirement stated on the Microsoft card, and the enforced provider/method/installation
   switches. The dismissal controls belong to the migration work.
@@ -258,6 +291,8 @@ Verified at the commit that delivered it, each gate's own exit status read:
   rebuild with reconciliation, the sync lease, and the paused-baseline resume from its checkpoint.
 - PostgreSQL integration suites for the Gmail label/message sync (9 tests) and the message mutations
   (5 tests), both green.
+- PostgreSQL integration for the draft mirror (2 tests), green.
 - **Real-provider acceptance is NOT RUN**: no live Gmail mailbox was used, so the Gmail REST calls — and
-  in particular Gmail's own handling of the `Bcc:` header on a delivered copy — are exercised only
-  against faked HTTP responses. That last point is the one an operator must not read as verified.
+  in particular Gmail's own handling of the `Bcc:` header on a delivered copy and the `Draft`/message
+  identity split — are exercised only against faked HTTP responses. That last point is the one an
+  operator must not read as verified.

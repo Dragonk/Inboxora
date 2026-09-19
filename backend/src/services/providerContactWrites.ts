@@ -1,6 +1,7 @@
 import { query } from './db.js';
 import { collectionIsWritable } from './providerAccess.js';
 import { runProviderMutation } from './providerMutationService.js';
+import { providerWriteFailure, type ProviderWriteFailure } from './providerWriteFailure.js';
 import { microsoftConfigFromEnv } from './providerAuthService.js';
 import { graphContactMutationAdapter, graphContactPayloadFor } from './providers/microsoft/graphContactWrites.js';
 import { contactUidForGraphContact, type GraphContact } from './providers/microsoft/graphContacts.js';
@@ -67,45 +68,9 @@ export async function resolveContactWriteTarget(userId: string, addressBookId: s
   return { kind: 'refused', status: 403, error: 'This contact is synced from an external source and is read-only' };
 }
 
-export interface ContactWriteFailure {
-  status: number;
-  error: string;
-  code?: string;
-  retryAfterSeconds?: number;
-}
-
-/** Map a mutation-layer status onto the response the REST route answers with. */
-export function contactWriteFailure(result: { status: string; code?: string; retryAfterSeconds?: number }): ContactWriteFailure {
-  if (result.status === 'conflict') {
-    return { status: 409, error: 'The provider has a newer version of this contact. Reload and try again.', ...(result.code ? { code: result.code } : {}) };
-  }
-  if (result.status === 'permanent') {
-    const notFound = result.code === 'RESOURCE_NOT_FOUND';
-    return {
-      status: notFound ? 404 : 403,
-      error: notFound ? 'This contact no longer exists at the provider' : 'The provider refused this change',
-      ...(result.code ? { code: result.code } : {}),
-    };
-  }
-  if (result.status === 'outcome_unknown') {
-    return {
-      status: 502,
-      error: 'The provider did not confirm this change. It will not be retried automatically; reload before trying again.',
-      code: 'MUTATION_OUTCOME_UNKNOWN',
-    };
-  }
-  // `retryable` and `pending`: the provider did not apply it, so a retry is safe and is advertised.
-  return {
-    status: 503,
-    error: 'The provider is temporarily unavailable. Please try again shortly.',
-    ...(result.code ? { code: result.code } : {}),
-    ...(result.retryAfterSeconds !== undefined ? { retryAfterSeconds: result.retryAfterSeconds } : {}),
-  };
-}
-
 export type ContactWriteOutcome =
   | { status: 'confirmed'; providerContactId: string; contact: GraphContact | null }
-  | { status: 'failed'; failure: ContactWriteFailure };
+  | { status: 'failed'; failure: ProviderWriteFailure };
 
 /** Run one contact write against Graph through the journal, and report what actually happened. */
 export async function writeGraphContact(input: {
@@ -141,7 +106,7 @@ export async function writeGraphContact(input: {
     },
     graphContactMutationAdapter({ api }),
   );
-  if (result.status !== 'confirmed') return { status: 'failed', failure: contactWriteFailure(result) };
+  if (result.status !== 'confirmed') return { status: 'failed', failure: providerWriteFailure(result) };
   const contact = result.value?.contact ?? null;
   const providerContactId = input.providerContactId ?? contact?.id ?? null;
   if (!providerContactId) {

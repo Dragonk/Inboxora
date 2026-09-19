@@ -18,12 +18,12 @@ vi.mock('./providers/microsoft/graphContactWrites.js', async (importOriginal) =>
 }));
 
 import {
-  contactWriteFailure,
   graphContactIdForLocalRow,
   localUidForGraphContact,
   resolveContactWriteTarget,
   writeGraphContact,
 } from './providerContactWrites.js';
+import { providerWriteFailure } from './providerWriteFailure.js';
 
 const book = (overrides: Record<string, unknown> = {}) => ({
   id: 'book-1', source: 'local', collection_id: null, remote_id: null, connection_id: null,
@@ -81,13 +81,13 @@ describe('which writer owns an address book', () => {
 
 describe('a provider answer becomes a response', () => {
   it('maps every mutation status honestly', () => {
-    expect(contactWriteFailure({ status: 'conflict', code: 'CONFLICT' })).toMatchObject({ status: 409, code: 'CONFLICT' });
-    expect(contactWriteFailure({ status: 'permanent', code: 'RESOURCE_NOT_FOUND' })).toMatchObject({ status: 404 });
-    expect(contactWriteFailure({ status: 'permanent', code: 'INSUFFICIENT_SCOPES' })).toMatchObject({ status: 403 });
-    expect(contactWriteFailure({ status: 'retryable', code: 'RATE_LIMITED', retryAfterSeconds: 30 }))
+    expect(providerWriteFailure({ status: 'conflict', code: 'CONFLICT' })).toMatchObject({ status: 409, code: 'CONFLICT' });
+    expect(providerWriteFailure({ status: 'permanent', code: 'RESOURCE_NOT_FOUND' })).toMatchObject({ status: 404 });
+    expect(providerWriteFailure({ status: 'permanent', code: 'INSUFFICIENT_SCOPES' })).toMatchObject({ status: 403 });
+    expect(providerWriteFailure({ status: 'retryable', code: 'RATE_LIMITED', retryAfterSeconds: 30 }))
       .toMatchObject({ status: 503, retryAfterSeconds: 30 });
-    expect(contactWriteFailure({ status: 'pending' })).toMatchObject({ status: 503 });
-    expect(contactWriteFailure({ status: 'outcome_unknown' })).toMatchObject({ status: 502, code: 'MUTATION_OUTCOME_UNKNOWN' });
+    expect(providerWriteFailure({ status: 'pending' })).toMatchObject({ status: 503 });
+    expect(providerWriteFailure({ status: 'outcome_unknown' })).toMatchObject({ status: 502, code: 'MUTATION_OUTCOME_UNKNOWN' });
   });
 });
 

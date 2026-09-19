@@ -1,10 +1,17 @@
 import { calendarResources, mergeCalendarResource, rruleFromCalendarResource, setSeriesRecurrence, truncateSeriesBefore } from '../utils/calendarRecurrence.js';
-import { parseRecurrenceInput, recurrenceViewFromRRule } from '../utils/calendarRecurrenceRule.js';
+import { parseRecurrenceStructure, recurrenceToRRule, recurrenceViewFromRRule } from '../utils/calendarRecurrenceRule.js';
 import { googleConfigFromEnv, isGoogleConfigured, isMicrosoftConfigured, microsoftConfigFromEnv } from '../services/providerAuthService.js';
 import { syncGoogleCalendar } from '../services/providers/google/googleCalendarSync.js';
 import { GoogleApiError } from '../services/providers/google/googleApiClient.js';
 import { syncGraphCalendar } from '../services/providers/microsoft/graphCalendarSync.js';
 import { GraphApiError } from '../services/providers/microsoft/graphApiClient.js';
+import {
+  graphEventIdForLocalRow,
+  recordGraphCalendarEventLink,
+  removeGraphCalendarEventLink,
+  resolveCalendarWriteTarget,
+  writeGraphCalendarEvent,
+} from '../services/providerCalendarWrites.js';
 import type { AttachmentRef, EmailAccountRow } from '../services/imapManager.js';
 import ICAL from 'ical.js';
 import { parseInboundCalendarInvitation } from '../services/inboundCalendarInvitation.js';
@@ -15,7 +22,7 @@ import { providerIntegrationsEnabled } from '../services/providerSwitches.js';
 import type { Request } from 'express';
 import crypto from 'crypto';
 import { query, withTransaction } from '../services/db.js';
-import { collectionIsWritable, resolveCollectionAccess } from '../services/providerAccess.js';
+import { collectionIsWritable } from '../services/providerAccess.js';
 import { requireAuth } from '../middleware/auth.js';
 import { decrypt, encrypt } from '../services/encryption.js';
 import { validateHost } from '../services/hostValidation.js';
@@ -302,19 +309,22 @@ async function updateInvitedEvent(req: Request, fields: InvitationFields) {
   });
 }
 
-async function writableCalendar(userId: string, calendarId: string) {
-  const result = await query(
-    'SELECT id, source, read_only FROM calendars WHERE id = $1 AND user_id = $2 AND owner_user_id = $2',
-    [calendarId, userId],
-  );
-  const calendar = result.rows[0];
-  if (!calendar) return { status: 404, error: 'Calendar not found' };
-  // Whether the calendar accepts a write is the capability model's answer — the
-  // origin's adapter, the collection's own access and (on DAV) the password's
-  // ceiling — not a comparison against `source` written out here.
-  const access = resolveCollectionAccess(calendar, { feature: 'calendars', operation: 'update' });
-  if (!access.allowed) return { status: 403, error: 'This calendar is read-only' };
-  return { calendar };
+/**
+ * Resolve which writer owns a calendar and whether it accepts a change.
+ *
+ * The answer comes from `resolveCalendarWriteTarget`, the same resolution the provider write paths use:
+ * the capability model (adapter, conflict protection, the origin's permission and the user's write-back
+ * choice) decides *whether*, and the returned target says *who*. A local calendar returns the local
+ * target; a write-enabled provider collection returns the connection and the provider's own calendar id.
+ */
+type WritableCalendar =
+  | { ok: false; status: number; error: string }
+  | { ok: true; target: ReturnType<typeof resolveCalendarWriteTarget> extends Promise<infer T> ? Exclude<T, { kind: 'refused' }> : never };
+
+async function writableCalendar(userId: string, calendarId: string): Promise<WritableCalendar> {
+  const target = await resolveCalendarWriteTarget(userId, calendarId);
+  if (target.kind === 'refused') return { ok: false, status: target.status, error: target.error };
+  return { ok: true, target };
 }
 
 async function contactCalendarAppearance(userId: string): Promise<{ name?: string | null; color?: string | null; [key: string]: unknown }> {
@@ -424,7 +434,7 @@ router.delete('/invitations/:messageId', async (req, res) => {
 router.post('/invitations/:messageId', async (req, res) => {
   if (!req.body?.calendarId) return res.status(400).json({ error: 'calendarId is required' });
   const access = await writableCalendar(sessionUserId(req), req.body.calendarId);
-  if (access.error) return res.status(access.status).json({ error: access.error });
+  if (!access.ok) return res.status(access.status).json({ error: access.error });
   const invitation = await readMessageInvitation(req.params.messageId, sessionUserId(req));
   if (!invitation) return res.status(404).json({ error: 'Calendar invitation not found' });
   if (invitation.method !== 'REQUEST' || !invitation.event) return res.status(409).json({ error: 'This invitation cannot be added' });
@@ -694,15 +704,48 @@ router.post('/events', async (req, res) => {
   }
   // The rule is rendered server-side from a validated structure; a bad rule is a
   // validation error, never a half-created series.
-  const recurrenceParse = parseRecurrenceInput((req.body || {}).recurrence, { allDay: Boolean(allDay) });
+  const recurrenceParse = parseRecurrenceStructure((req.body || {}).recurrence, { allDay: Boolean(allDay) });
   if (!recurrenceParse.ok) return res.status(400).json({ error: recurrenceParse.error });
-  const rrule = recurrenceParse.rrule;
+  // One validated structure, two renderings: the iCalendar RRULE the local resource stores and the
+  // Graph pattern/range the provider write sends.
+  const recurrence = recurrenceParse.recurrence;
+  const rrule = recurrenceToRRule(recurrence);
 
   const access = await writableCalendar(sessionUserId(req), calendarId);
-  if (access.error) return res.status(access.status).json({ error: access.error });
+  if (!access.ok) return res.status(access.status).json({ error: access.error });
+  const providerTarget = access.target.kind === 'graph' ? access.target : null;
+
+  // A provider-backed calendar is written at the provider **first**. Microsoft notifies attendees itself
+  // when an event carries them, so Inboxora's own invitation mail is skipped on this path rather than
+  // sending a second copy.
+  let providerEvent: { providerEventId: string; uid: string } | null = null;
+  if (providerTarget) {
+    const attempt = await writeGraphCalendarEvent({
+      userId: req.session.userId!,
+      target: providerTarget,
+      operation: 'create',
+      idempotencyKey: typeof req.headers['x-idempotency-key'] === 'string' ? req.headers['x-idempotency-key'].slice(0, 128) : null,
+      event: {
+        summary: summary || null, description, location, url, startsAt: times.startsAt, endsAt: times.endsAt,
+        allDay: Boolean(allDay), attendees: normalizedAttendees, recurrence,
+      },
+    });
+    if (attempt.status === 'failed') {
+      return res.status(attempt.failure.status).json({
+        ...(attempt.failure.code ? { code: attempt.failure.code } : {}),
+        error: attempt.failure.error,
+      });
+    }
+    providerEvent = {
+      providerEventId: attempt.providerEventId,
+      // The provider's own iCalUId keeps the local resource, the DAV view and the next sync on one identity.
+      uid: attempt.event?.iCalUId?.trim() || `msgrap-${attempt.providerEventId}`,
+    };
+  }
+  const invitesHandledByProvider = providerTarget !== null;
 
   let invitationAccount = null;
-  if (sendInvites) {
+  if (sendInvites && !invitesHandledByProvider) {
     const sender = await query<EmailAccountRow>(
       'SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2 AND enabled = true AND smtp_host IS NOT NULL',
       [inviteAccountId, req.session.userId],
@@ -711,7 +754,7 @@ router.post('/events', async (req, res) => {
     if (!invitationAccount) return res.status(400).json({ error: 'The selected sender account is unavailable' });
   }
 
-  if (sendInvites && invitationAccount) {
+  if (sendInvites && !invitesHandledByProvider && invitationAccount) {
     const idempotencyKey = invitationOperationKey(req);
     const fingerprint = invitationRequestFingerprint(req, { calendarId, normalizedAttendees, times, summary, description, location, url, organizer, allDay, timezone, invitationAccount });
     let outcome;
@@ -756,7 +799,7 @@ router.post('/events', async (req, res) => {
     return res.status(201).json(invitationDeliveryResponse(outcome.event, delivered));
   }
 
-  const uid = crypto.randomUUID();
+  const uid = providerEvent?.uid ?? crypto.randomUUID();
   const rawIcal = localEventIcal({ uid, summary, description, location, url, organizer, attendees: normalizedAttendees, allDay: Boolean(allDay), ...times, rrule });
   const result = await query<{ id: string; calendar_id: string; uid: string; etag?: string | null; summary?: string | null; description?: string | null; location?: string | null; url?: string | null; organizer?: string | null; starts_at?: string | Date | null; ends_at?: string | Date | null; all_day?: boolean | null; timezone?: string | null; attendees?: unknown; invite_account_id?: string | null; invitation_sequence?: number | null; created_at?: string | Date | null }>(
     `INSERT INTO calendar_events (
@@ -767,6 +810,16 @@ router.post('/events', async (req, res) => {
                starts_at, ends_at, all_day, timezone, attendees, invite_account_id, invitation_sequence, created_at, updated_at`,
     [calendarId, req.session.userId, uid, rawIcal, summary || null, description, location, url, organizer, times.startsAt, times.endsAt, Boolean(allDay), timezone, jsonbAttendees(normalizedAttendees), invitationAccount?.id || null],
   );
+  if (providerEvent && providerTarget) {
+    // The link is recorded after the local row exists, so the next delta updates this row instead of
+    // inserting a second copy of the event.
+    await recordGraphCalendarEventLink({
+      userId: req.session.userId!,
+      target: providerTarget,
+      providerEventId: providerEvent.providerEventId,
+      localId: result.rows[0].id,
+    });
+  }
   let invitationError = null;
   if (invitationAccount) {
     try {
@@ -790,7 +843,7 @@ router.all('/events/:eventId/occurrence', async (req, res) => {
   const scope = req.body?.scope === 'following' ? 'following' : 'single';
   if (scope !== 'single' && req.method !== 'DELETE') return res.status(400).json({ error: 'Only a cancellation can affect following occurrences' });
   const access = await writableCalendar(sessionUserId(req), calendarId);
-  if (access.error) return res.status(access.status).json({ error: access.error });
+  if (!access.ok) return res.status(access.status).json({ error: access.error });
   const cancel = req.method === 'DELETE';
   const times = cancel ? null : parseEventTimes(req.body);
   const attendees = normalizeAttendees(req.body.attendees || []);
@@ -890,23 +943,47 @@ router.patch('/events/:eventId', async (req, res) => {
   // A series-level edit carries `recurrence`; an occurrence edit never does. An
   // absent field keeps the stored rule, an explicit null clears it.
   const recurrenceProvided = Object.prototype.hasOwnProperty.call(req.body || {}, 'recurrence');
-  const recurrenceParse = parseRecurrenceInput((req.body || {}).recurrence, { allDay: Boolean(allDay) });
+  const recurrenceParse = parseRecurrenceStructure((req.body || {}).recurrence, { allDay: Boolean(allDay) });
   if (!recurrenceParse.ok) return res.status(400).json({ error: recurrenceParse.error });
-  const rrule = recurrenceParse.rrule;
+  const recurrence = recurrenceParse.recurrence;
+  const rrule = recurrenceToRRule(recurrence);
   const seriesRecurrence = recurrenceProvided ? { rrule } : undefined;
 
   const access = await writableCalendar(sessionUserId(req), calendarId);
-  if (access.error) return res.status(access.status).json({ error: access.error });
-
+  if (!access.ok) return res.status(access.status).json({ error: access.error });
+  const providerTarget = access.target.kind === 'graph' ? access.target : null;
+  if (providerTarget) {
+    // Provider first: an edit Microsoft refuses must not change the local copy, and Microsoft notifies
+    // attendees itself, so Inboxora's own invitation mail is skipped on this path.
+    const providerEventId = await graphEventIdForLocalRow(req.session.userId!, providerTarget.collectionId, req.params.eventId);
+    if (!providerEventId) return res.status(409).json({ error: 'This event is not linked to its provider copy yet' });
+    const attempt = await writeGraphCalendarEvent({
+      userId: req.session.userId!,
+      target: providerTarget,
+      operation: 'update',
+      providerEventId,
+      event: {
+        summary: summary || null, description, location, url, startsAt: times.startsAt, endsAt: times.endsAt,
+        allDay: Boolean(allDay), attendees: normalizedAttendees, recurrence: recurrenceProvided ? recurrence : null,
+      },
+    });
+    if (attempt.status === 'failed') {
+      return res.status(attempt.failure.status).json({
+        ...(attempt.failure.code ? { code: attempt.failure.code } : {}),
+        error: attempt.failure.error,
+      });
+    }
+  }
+  const invitesHandledByProvider = providerTarget !== null;
 
   let invitationAccount = null;
-  if (sendInvites) {
+  if (sendInvites && !invitesHandledByProvider) {
     const sender = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2 AND enabled = true AND smtp_host IS NOT NULL', [inviteAccountId, req.session.userId]);
     invitationAccount = sender.rows[0] || null;
     if (!invitationAccount) return res.status(400).json({ error: 'The selected sender account is unavailable' });
   }
 
-  if (sendInvites && invitationAccount) {
+  if (sendInvites && !invitesHandledByProvider && invitationAccount) {
     let outcome;
     try {
       outcome = await updateInvitedEvent(req, { calendarId, invitationAccount, normalizedAttendees, times, summary, description, location, url, organizer, allDay, timezone, rrule: seriesRecurrence ? rrule : undefined });
@@ -999,7 +1076,22 @@ router.delete('/events/:eventId', async (req, res) => {
   if (!calendarId) return res.status(400).json({ error: 'calendarId is required' });
 
   const access = await writableCalendar(sessionUserId(req), calendarId);
-  if (access.error) return res.status(access.status).json({ error: access.error });
+  if (!access.ok) return res.status(access.status).json({ error: access.error });
+  if (access.target.kind === 'graph') {
+    // Provider first, and Microsoft notifies attendees itself. An event Microsoft no longer has is the end
+    // state the caller asked for, so the local row is still removed and the link tombstoned.
+    const providerTarget = access.target;
+    const providerEventId = await graphEventIdForLocalRow(req.session.userId!, providerTarget.collectionId, req.params.eventId);
+    if (!providerEventId) return res.status(409).json({ error: 'This event is not linked to its provider copy yet' });
+    const attempt = await writeGraphCalendarEvent({ userId: req.session.userId!, target: providerTarget, operation: 'delete', providerEventId });
+    if (attempt.status === 'failed' && attempt.failure.code !== 'RESOURCE_NOT_FOUND') {
+      return res.status(attempt.failure.status).json({
+        ...(attempt.failure.code ? { code: attempt.failure.code } : {}),
+        error: attempt.failure.error,
+      });
+    }
+    await removeGraphCalendarEventLink({ userId: req.session.userId!, target: providerTarget, providerEventId });
+  }
 
   const outcome = await withTransaction(async client => {
     const existing = await client.query(`SELECT uid, raw_ical, ${READ_ATTENDEES}, invite_account_id, invitation_sequence, summary, description, location, starts_at, ends_at, all_day FROM calendar_events WHERE id = $1 AND calendar_id = $2 AND user_id = $3 FOR UPDATE`, [req.params.eventId, calendarId, req.session.userId]);

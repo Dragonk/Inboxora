@@ -31,6 +31,30 @@ release is never claimed before it has happened.
 ## [4.1.0]
 
 ### Added
+- **External CalDAV/CardDAV write-back (P10).** A `PUT` or `DELETE` on a calendar or address book whose
+  source is an external CalDAV/CardDAV server is now forwarded to that server instead of being refused,
+  so an edit made in DAVx⁵, Thunderbird or Apple Contacts reaches the server the collection was imported
+  from. The client's `If-Match`/`If-None-Match` preconditions are forwarded to the source, a changed
+  object answers `412` so the client re-reads instead of overwriting, and an ambiguous source answer — a
+  `5xx`, a timeout or a connection reset after the request left — is parked as `outcome_unknown` and
+  never retried. The local copy and the remote link are updated only after the source confirms; an ICS
+  subscription has no write channel and stays read-only, and an `.ics` file imported into a local
+  calendar stays locally editable. Write-back still needs the per-collection switch, and a collection
+  that is written by a source whose adapter cannot forward the change keeps the refusal path.
+
+- **Microsoft Graph calendar-event writes (P09).** Creating, editing and deleting an event in a
+  write-enabled Microsoft calendar now writes to Graph first and only then to the local copy, through the
+  same provider journal as every other mutation: a refusal leaves the local row untouched, an ambiguous
+  answer is parked rather than retried, and an event Microsoft no longer has counts as removed. A created
+  event keeps the provider's own `iCalUId` as its local identity and is linked in `remote_object_links`,
+  so the next delta updates that row instead of inserting a second copy. Because Microsoft notifies
+  attendees itself when an event carries them, Inboxora's own invitation mail is **not** sent a second
+  time for a provider calendar. A local recurrence is validated once and rendered twice — the `RRULE` the
+  local resource stores and Graph's `pattern`/`range` — with times sent as the exact instant in UTC rather
+  than a zone-specific wall time guessed from metadata. The same per-collection write-back switch gates
+  it: a calendar Microsoft marks `canEdit: false` can never be written, and a pulled calendar stays
+  read-only until the user enables it.
+
 - **Microsoft Graph contact writes, behind an explicit write-back switch (P09).** Creating, editing and
   deleting a contact in a pulled Microsoft address book now writes to **Graph first** and only then to
   the local copy: the mutation goes through the shared provider journal (a durable claim before the
@@ -89,7 +113,15 @@ release is never claimed before it has happened.
   `Bcc:` header, because stripping it would silently drop every blind recipient; Gmail derives the
   delivery envelope from the headers and, like any submission agent, does not expose that header on the
   copies it delivers. The SMTP arm still removes it and relies on the envelope, and the two renders
-  differ only in that one respect. Drafts are the remaining P08 slice.
+  differ only in that one respect. **Saved drafts** are Gmail's own `Draft` object: saving creates it,
+  re-saving patches the same object rather than leaving two, and deleting removes it at Gmail first. The
+  local mirror is keyed on the **message** id the draft wraps — the identity the message sync reconciles
+  on — so a later sync updates the draft rather than inserting a second row; the draft id a patch or
+  delete addresses is resolved from the provider when it is needed, because the local model has no column
+  for a second identity and this package may not add a later migration. With this the Gmail API mail
+  adapter is **complete** (labels, ingest, body and attachments, mutations, drafts and send); what remains
+  is the account cutover (P12), which is what makes it reachable, and live acceptance, which is **NOT
+  RUN**.
 
 - **Microsoft Graph calendars (P07d, read path).** A Microsoft connection's calendars are now
   discovered and pulled with their events, next to the contacts that already were. Each calendar
