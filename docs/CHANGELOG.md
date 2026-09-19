@@ -23,6 +23,12 @@ limitations — read the matching page in the Wiki: [Release notes 4.1.0](wiki/R
 
 ### Changed
 
+- **Mail flag changes (read/unread, star) now go through the shared provider-mutation layer**, so the IMAP write and
+  its outcome are recorded durably in the operation journal before the local bookkeeping runs. Nothing changes for the
+  user: a failed or unconfirmed write still leaves the change queued for the background reconciler, and an unavailable
+  journal degrades to the previous behaviour rather than failing the action. What is new is that a process stopping
+  between the IMAP write and the database no longer leaves the change without evidence.
+
 - **Collection access is now decided by the provider capability model** rather than by comparisons written out at each
   call site. The REST and DAV write guards, the DAV advertised privileges and the contacts list's read-only flag all ask
   one resolver, which combines the origin adapter's declared support with the collection's own access and the device

@@ -55,8 +55,20 @@ export interface BeginOperationInput {
 }
 
 export type BeginOperationResult =
-  | { outcome: 'started'; operationId: string; claimToken: string; generation: number }
-  | { outcome: 'duplicate'; operationId: string; status: ProviderOperationStatus; result?: unknown }
+  | {
+    outcome: 'started';
+    operationId: string;
+    claimToken: string;
+    generation: number;
+    /**
+     * True when this claim took over an existing `in_flight` operation whose lease
+     * had expired, rather than beginning a new one. A caller must not re-run a
+     * non-idempotent provider call in that case: the previous owner may have
+     * dispatched it before it stopped.
+     */
+    reclaimed: boolean;
+  }
+  | { outcome: 'duplicate'; operationId: string; status: ProviderOperationStatus; result?: unknown; errorCode?: string | null }
   | { outcome: 'in_progress'; operationId: string; status: ProviderOperationStatus }
   | { outcome: 'conflict'; reason: 'idempotency_key_reused' };
 
@@ -65,6 +77,7 @@ interface OperationRow {
   status: ProviderOperationStatus;
   payload_hash: string | null;
   result: unknown;
+  error_code: string | null;
   claim_token: string | null;
   generation: string | number;
   lease_expires_at: string | Date | null;
@@ -111,13 +124,13 @@ export async function beginOperation(client: PoolClient, input: BeginOperationIn
   );
   const started = insert.rows[0];
   if (started) {
-    return { outcome: 'started', operationId: started.id, claimToken: started.claim_token, generation: Number(started.generation) };
+    return { outcome: 'started', operationId: started.id, claimToken: started.claim_token, generation: Number(started.generation), reclaimed: false };
   }
 
   // The row already exists for this key. Lock it so two concurrent retries cannot
   // both decide to reclaim the same expired claim.
   const existing = await client.query<OperationRow>(
-    `SELECT id, status, payload_hash, result, claim_token, generation, lease_expires_at, attempts
+    `SELECT id, status, payload_hash, result, error_code, claim_token, generation, lease_expires_at, attempts
        FROM provider_operations
       WHERE ${scopedIdempotencyPredicate()}
       FOR UPDATE`,
@@ -132,11 +145,11 @@ export async function beginOperation(client: PoolClient, input: BeginOperationIn
     return { outcome: 'conflict', reason: 'idempotency_key_reused' };
   }
   if (REPLAYABLE_STATUSES.includes(row.status)) {
-    return { outcome: 'duplicate', operationId: row.id, status: row.status, result: row.result };
+    return { outcome: 'duplicate', operationId: row.id, status: row.status, result: row.result, errorCode: row.error_code };
   }
   if (UNRESOLVED_STATUSES.includes(row.status)) {
     // Never retry an unconfirmed or conflicting mutation; the caller reconciles.
-    return { outcome: 'duplicate', operationId: row.id, status: row.status, result: row.result };
+    return { outcome: 'duplicate', operationId: row.id, status: row.status, result: row.result, errorCode: row.error_code };
   }
   if (row.status === 'in_flight' && !leaseExpired(row.lease_expires_at)) {
     return { outcome: 'in_progress', operationId: row.id, status: row.status };
@@ -155,7 +168,7 @@ export async function beginOperation(client: PoolClient, input: BeginOperationIn
   );
   const claimed = reclaim.rows[0];
   if (!claimed) return { outcome: 'in_progress', operationId: row.id, status: 'in_flight' };
-  return { outcome: 'started', operationId: claimed.id, claimToken: claimed.claim_token, generation: Number(claimed.generation) };
+  return { outcome: 'started', operationId: claimed.id, claimToken: claimed.claim_token, generation: Number(claimed.generation), reclaimed: true };
 }
 
 export interface CompleteOperationInput {

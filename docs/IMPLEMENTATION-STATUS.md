@@ -903,7 +903,7 @@ Recipes to close the two gaps, left unapplied because CI cost is an operator dec
 
 - **Database suites** — add a job to `ci.yml` with a `postgres:16-alpine` service and the `DB_*`
   variables, then run the gated files, e.g.
-  `npx vitest run src/services/providerAuthService.integration.test.ts src/services/providerTokenService.integration.test.ts src/services/providerOperations.integration.test.ts src/services/providers/google src/services/providers/microsoft src/routes/davPg.integration.test.ts`
+  `npx vitest run src/services/providerAuthService.integration.test.ts src/services/providerTokenService.integration.test.ts src/services/providerOperations.integration.test.ts src/services/providerMutationService.integration.test.ts src/services/providers/google src/services/providers/microsoft src/routes/davPg.integration.test.ts`
   with `REQUIRE_DAV_POSTGRES=1`. These pass against a fresh database with the full migration chain,
   so the job would also prove the migrations apply.
 - **Browser suite** — add `push: branches: [dev]` to `conversation-v2-playwright.yml`, or integrate
@@ -960,6 +960,7 @@ suite creates and drops its own rows, so it needs nothing but an empty migrated 
             src/services/providerAuthService.integration.test.ts \
             src/services/providerTokenService.integration.test.ts \
             src/services/providerOperations.integration.test.ts \
+            src/services/providerMutationService.integration.test.ts \
             src/services/providerConnectionService.integration.test.ts \
             src/services/providerSchemaUpgrade.integration.test.ts \
             src/services/providers/google src/services/providers/microsoft \
@@ -1358,6 +1359,7 @@ DB_HOST=127.0.0.1 DB_PORT=55432 DB_NAME=… DB_USER=… DB_PASSWORD=… REQUIRE_
   npx vitest run src/services/providerAuthService.integration.test.ts \
   src/services/providerTokenService.integration.test.ts \
   src/services/providerOperations.integration.test.ts \
+  src/services/providerMutationService.integration.test.ts \
   src/services/providerConnectionService.integration.test.ts \
   src/services/providerSchemaUpgrade.integration.test.ts \
   src/services/providers/google src/services/providers/microsoft \

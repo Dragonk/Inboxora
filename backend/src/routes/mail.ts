@@ -6,6 +6,8 @@ const archiver = require('archiver');
 import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { imapManager } from '../index.js';
+import { runProviderMutation } from '../services/providerMutationService.js';
+import { imapFlagMutationAdapter } from '../services/providers/imapFlagMutation.js';
 import type { EmailAccountRow } from '../services/imapManager.js';
 /** Attachment metadata as stored in messages.attachments (JSON) and fetched from IMAP. */
 interface AttachmentMeta {
@@ -744,6 +746,65 @@ router.get('/messages/:id/attachments/:part', async (req, res) => {
   }
 });
 
+/**
+ * Push a flag change through the shared provider-mutation layer (P03).
+ *
+ * The journal records the intent and its outcome durably, so a process that dies
+ * between the IMAP write and the local bookkeeping leaves evidence rather than a
+ * silently lost change. The in-memory flag-push reconciler is still the retry
+ * vehicle for anything the layer does not confirm — it existed before the layer
+ * and is not replaced here; a later slice can hand that job to the journal's own
+ * `pending` state.
+ *
+ * No idempotency key is sent: each click is a new intent to set the flag, and the
+ * journal's replay answers a retry of the *same* intent, which this interface does
+ * not send. A journal that is unavailable degrades to the previous behaviour
+ * (queue for the reconciler) rather than failing the user's action.
+ */
+async function pushFlagMutation(options: {
+  userId: string;
+  account: EmailAccountRow;
+  accountId: string;
+  messageId: string;
+  uid: number | string;
+  folder: string;
+  flag: string;
+  value: boolean;
+}): Promise<void> {
+  const { account, accountId, messageId, uid, folder, flag, value } = options;
+  try {
+    const mutation = await runProviderMutation<void, void>(
+      {
+        userId: options.userId,
+        channel: 'web',
+        operation: 'update',
+        accountId,
+        resourceId: messageId,
+        payload: undefined,
+      },
+      imapFlagMutationAdapter({
+        account,
+        write: { uid, folder, flag, value },
+        setFlag: (target, targetUid, targetFolder, targetFlag, targetValue) =>
+          imapManager.setFlag(target, targetUid, targetFolder, targetFlag, targetValue),
+      }),
+    );
+    if (mutation.status === 'confirmed') {
+      imapManager._resolveFlagPush(accountId, messageId, flag); // confirmed — drop any stale queued op
+      return;
+    }
+    console.error(`IMAP flag update not confirmed (${mutation.status}${mutation.code ? `, ${mutation.code}` : ''})`);
+  } catch (caught) {
+    // The claim itself could not be written (migration missing, database down).
+    // That must not lose the user's change, so fall through to the reconciler.
+    console.error('Provider mutation journal unavailable for a flag write:', toAppError(caught).message);
+  }
+  // Push failed or was not confirmed — queue a durable retry so a later flag-sync
+  // pull can't silently revert the user's change once the 30s local-wins window
+  // lapses.
+  imapManager._enqueueFlagPush(accountId, messageId, flag, value);
+}
+
 // Mark read/unread
 router.patch('/messages/:id/read', async (req, res) => {
   const { id } = req.params;
@@ -791,17 +852,16 @@ router.patch('/messages/:id/read', async (req, res) => {
     await fanOutReadToSiblings(message.account_id, message.message_id, read);
   }
 
-  try {
-    await imapManager.setFlag(accountResult.rows[0], message.uid, message.folder, '\\Seen', read);
-    imapManager._resolveFlagPush(message.account_id, id, '\\Seen'); // confirmed — drop any stale queued op
-  } catch (caught) {
-    const err = toAppError(caught);
-    console.error('IMAP flag update failed:', err.message);
-    // Push failed — queue a durable retry so a later flag-sync pull can't silently revert
-    // the user's change once the 30s local-wins window lapses.
-    imapManager._enqueueFlagPush(message.account_id, id, '\\Seen', read);
-  }
-
+  await pushFlagMutation({
+    userId: sessionUserId(req),
+    account: accountResult.rows[0],
+    accountId: message.account_id,
+    messageId: id,
+    uid: message.uid,
+    folder: message.folder,
+    flag: '\\Seen',
+    value: read,
+  });
   // Refresh GTD section data if this message's thread carries a GTD label (its head shows read state).
   notifyMailMutation([message], sessionUserId(req));
 
@@ -843,15 +903,16 @@ router.patch('/messages/:id/star', async (req, res) => {
     await fanOutStarToSiblings(message.account_id, message.message_id, starred);
   }
 
-  try {
-    await imapManager.setFlag(accountResult.rows[0], message.uid, message.folder, '\\Flagged', starred);
-    imapManager._resolveFlagPush(message.account_id, id, '\\Flagged'); // confirmed — drop any stale queued op
-  } catch (caught) {
-    const err = toAppError(caught);
-    console.error('IMAP star update failed:', err.message);
-    // Push failed — queue a durable retry so a later flag-sync pull can't silently revert it.
-    imapManager._enqueueFlagPush(message.account_id, id, '\\Flagged', starred);
-  }
+  await pushFlagMutation({
+    userId: sessionUserId(req),
+    account: accountResult.rows[0],
+    accountId: message.account_id,
+    messageId: id,
+    uid: message.uid,
+    folder: message.folder,
+    flag: '\\Flagged',
+    value: starred,
+  });
 
   // Refresh GTD section data if this message's thread carries a GTD label (its head shows star state).
   notifyMailMutation([message], sessionUserId(req));
