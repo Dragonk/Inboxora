@@ -17,7 +17,7 @@ rows. It is kept because its lessons are load-bearing, and it must never be read
 present. Earlier revisions mixed the two inside the table itself, which is how a reader could take a
 four-attempt saga — or a superseded delivery report — for a current status.
 
-Last re-measured on `dev` at `3917bfbc`: backend typecheck, lint and **2445** unit tests
+Last re-measured on `dev` at `1962f519`: backend typecheck, lint and **2445** unit tests
 (**116 skipped** across 14 files); frontend typecheck, lint, production build and **2685** tests;
 **188** database integration tests across **18** suites on a fresh PostgreSQL 16 with the full
 **112**-migration chain — and, since the CI slice, verified the same way a new installation would
@@ -1634,7 +1634,12 @@ started" row suggests, so the slice is a seam rather than a rewrite:
      work. Moving composition above it reorders a size refusal relative to an account refusal, and the
      send suites pin that order. Either compose above the seam *after* resolving it, or keep the refusal
      first and compose between the two.
-  2. **BCC.** Nodemailer "uses bcc for the SMTP envelope but omits it from generated MIME" (the route
+  2. ~~**BCC.**~~ **Resolved** (`1962f519`): the envelope is now stated explicitly — `from` plus
+     `to`+`cc`+`bcc` from the same normalised lists — and **verified identical to nodemailer's derivation**
+     by compiling three messages (to+cc+bcc, bcc alone, display-name `from`) and comparing both envelopes
+     before touching the path. The BCC case asserts the delivered envelope now, so the compose-once slice
+     cannot pass while blind recipients are dropped. The original risk recorded here was:
+     Nodemailer "uses bcc for the SMTP envelope but omits it from generated MIME" (the route
      says so where it builds `mailOptions`, and refuses to synthesise a `To` header for a BCC-only
      retry). Passing `raw` therefore hands nodemailer a message with **no BCC header**, and its envelope
      is derived from the headers unless one is supplied — so a raw send without an explicit
