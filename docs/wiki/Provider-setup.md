@@ -196,6 +196,9 @@ operation is worse than one that says it will not perform it.
 
 - Only the account's **personal** contacts are pulled (People API connections) — not the
   organization directory and not "Other contacts".
+- **Google contact groups are not carried over.** A contact that belongs to several groups is stored
+  once, as it should be, but its memberships are not represented locally — the connector does not read
+  them. Group-based organisation therefore exists only in Google.
 - A Google calendar is imported as a whole; its events, not the calendar's own settings (colour,
   sharing, reminders), are represented.
 - **Gmail is not connected at all**: mail for a Google account continues over IMAP/SMTP with an app
