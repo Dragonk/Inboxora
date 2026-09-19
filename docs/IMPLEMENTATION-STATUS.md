@@ -376,6 +376,28 @@ two missing pages are concrete, bounded deliverables. They were not attempted he
 three pages of operator instruction properly is more than the remaining session can verify, and a documentation
 page written without checking the code it describes would be worse than the gap.
 
+## The agent acceptance procedure (guide §8), reported as the guide requires
+
+The admin guide's §8 asks for the procedure to be performed in an isolated installation **as a new
+administrator**, once per configuration, with test accounts — and it states the reporting rule explicitly:
+**lack of access to real accounts is marked NOT RUN, never PASS.** No Google or Microsoft applications were
+registered and no real accounts were used, so the five configurations stand as follows. What is *not* an excuse
+for the NOT RUN is recorded beside each: the code paths, switches and readiness have their own tests and are
+listed so the boundary is visible rather than implied.
+
+| Configuration | Real sign-in | What is verified without an account |
+| --- | --- | --- |
+| Microsoft, browser method | **NOT RUN** | The flow's authorization URL, PKCE (verifier stored encrypted), state and nonce, the `SESSION_MISMATCH`/`CONFIG_CHANGED` refusals, and the readiness that requires id, secret, callback and the method switch together (round 181, 182). |
+| Microsoft, **device-only**, no secret and no callback | **NOT RUN** | The whole path around it: the switch and its separate readiness (rounds 69–70), the flow id and ownership check (rounds 176–177), the **`PUBLIC_CLIENT`/secret separation** in the refresh, and the ability to enforce the method server-side. |
+| Google API | **NOT RUN** | Scope requests, the calendar and People adapters against a faked provider on a real database, the read-only enforcement, and the reference validation that refuses non-HTTPS or credential-bearing URLs. |
+| Google IMAP with **no** OAuth configured | **NOT RUN** | Documented and unaffected by the provider layer: the transport is untouched, the API card reports not-ready with an explanation (AD03), and `PROVIDER_INTEGRATIONS_ENABLED=0` proves the layer is optional. |
+| Google IMAP **with** only Calendar/People OAuth | **NOT RUN** | The scopes requested are People and Calendar read-only; no Gmail scope is requested anywhere, and the policy tests assert that connecting the API does not migrate mail (W18). |
+| Updating an existing registration | **NOT RUN** | Documented in `Upgrading.md` with the behaviours the code enforces: the confirmation before keeping a secret across a client-id change (AD07), the tombstone that stops a restart resurrecting old configuration (AD08), and disconnect preserving data (rounds 174–176). |
+| New screens match the documentation | **Verified as far as it can be here** | The new provider-card capture asserts the documented elements are on the screen — the Microsoft requirement note and the provider rows — before it will take the image, and the card spec asserts the connected-account list and the disconnect control. A human comparison against a live administrator session is **NOT RUN**. |
+
+**None of these may be reported as PASS**, which is the guide's point: a verified code path is not a verified
+connection. The distinction is the same one the W-list already carries for W06, W07 and W10.
+
 ## Acceptance criteria W01–W19, as the plan requires them reported
 
 The plan states that the scope is not complete until every W item has associated code **and real test
