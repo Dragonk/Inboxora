@@ -124,6 +124,39 @@ repeatedly since (see the matrix below), so nothing here is outstanding:
 Run the suite with:
 `PLAYWRIGHT_BROWSERS_PATH=$PWD/../.pw-browsers npx playwright test --project=chromium-desktop`
 
+## Acceptance criteria W01–W19, as the plan requires them reported
+
+The plan states that the scope is not complete until every W item has associated code **and real test
+results**, that missing test accounts or devices are **not** proof of operation, and that the report
+must separate **PASS, FAIL, SKIPPED and NOT RUN** and must not call the implementation fully accepted.
+That is what this table is; "code ✓" never means PASS on its own.
+
+| W | Requirement (abbreviated) | Verdict | Evidence and what is missing |
+| --- | --- | --- | --- |
+| W01 | Menu follows the finger; the gesture starts in the left quarter | **PASS with NOT RUN** | Gesture machine, arbiter and hook are implemented and unit-tested; **no real touch device was used**, so device behaviour is NOT RUN. |
+| W02 | Gesture switch beside the mobile panel setting, persisted | **PASS** | Switch rendered next to the navigation-position setting, value persistent through the server allow-list; pinned by a contract test. |
+| W03 | Scroll, row action, long-press, calendar and menu do not run competing operations | **PASS with NOT RUN** | The arbitration layer and its guard tests cover this; **not exercised on a device**. |
+| W04 | External calendars/books work in the UI and over DAV as RO/RW per real rights; **the write reaches the source** | **FAIL** | Read-only by design today: REST and DAV refuse writes to a source-owned collection. Write-back is the open P10 client; the plan's own check for it is P10. |
+| W05 | DAV sharing independent of UI use; off / RO / RW limited by the source's rights | **PASS** | Per-collection `dav_mode`, per-password ceiling, provider collections refused writes; covered by `davVisibility` and the DAV database suite. |
+| W06 | Microsoft: full mail over Graph plus that account's calendars and contacts | **FAIL** | Contacts are delivered; **Graph mail and the Graph calendar adapter are not implemented** (P07b, P07d). |
+| W07 | Google: Gmail/Calendar/People recommended, free choice of transport, one transport after cutover | **FAIL** | Calendar and People are delivered; **Gmail is not implemented and no cutover exists** (P08, P12). |
+| W08 | Independent calendar and contact switches per Microsoft/Google account, with collection discovery | **PASS** | Per-provider connect buttons, discovery on sync, per-collection enable/disable; the switch enforcement is tested. |
+| W09 | Do not remove configuration or force migration of other IMAP/SMTP, DAV or ICS accounts | **PASS** | Nothing migrates or deletes on its own; the only deletion path is an explicit, owner-scoped disconnect that keeps imported data. |
+| W10 | Keep the account and its links; Microsoft migrates automatically with sufficient consent, Google only on explicit choice | **FAIL** | No migration exists at all (P12 not started). |
+| W11 | Microsoft: required notice per entry, not permanently hidden. Google: voluntary recommendation until migration or "don't show again"; always an "Ignore" | **SKIPPED** | The Microsoft requirement is stated, but there is no per-entry dismissal, no "don't show again" and no "Ignore" — the requirement is tied to the P12 notice policy, which is blocked on P07b/P08. |
+| W12 | Large attachments, whole-message limit, MIME errors, forbidden files and interrupted sends explicitly handled | **FAIL** | P06 has not been started; only the provider-layer upload-limit message exists. |
+| W13 | Keep threads, rules, plugins, notifications, search, aliases and invitations, or name the unsupported provider operation | **PARTIAL** | Nothing is removed by this work; the unsupported provider operations are **not** enumerated per provider as the requirement asks. |
+| W14 | Integration to `dev`, push, tests, **both `:dev` images from one SHA** | **PARTIAL / NOT RUN** | `dev` is pushed and tested (see the counts above); **both images have not been built or smoke-tested** — that needs registry authorization. |
+| W15 | No leakage between users, grants, accounts and DAV passwords; no silent data loss | **PASS** | Owner-scoped queries and 403 guards on every provider route; DAV credentials isolate users; refusals write nothing; integration tests assert the isolation. No independent audit was performed. |
+| W16 | The "email providers" screen: instructions, configuration and per-method diagnostics | **PASS** | The integrations card states each provider's requirement and readiness, with the Graph/device/browser methods separated. |
+| W17 | Microsoft web and device code have correct separate requirements and refresh; no Google device flow for mail/calendar/contacts | **PASS** | Separate readiness and switches, enforced in the flows; Google reports `deviceCode.supported: false`. |
+| W18 | Google IMAP works without an OAuth project; attaching Calendar/People does not migrate mail or request Gmail scopes | **PASS** | The authorization requests read-only People/Calendar scopes only; no Gmail scope, no transport change, and IMAP is untouched. |
+| W19 | Complete admin instructions, updated documentation and translations, and tests of all variants as the publication gate | **PARTIAL** | Wiki, nine locales and this document are updated; release notes for a version, tests of every variant, and the real-client DAV run are outstanding. |
+
+The three FAIL verdicts on W04, W06 and W07 are the packages that remain (P10 write-back, P07b/P07d,
+P08), and W10/W11 follow from P12. No item is marked PASS on the strength of code alone, and the three
+"NOT RUN" entries are exactly the places where only a real device, account or registry could decide.
+
 ## End-to-end verification across the viewport matrix
 
 The Playwright suite was run on every configured project after the drawer fix, because the
