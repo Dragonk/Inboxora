@@ -76,14 +76,30 @@ reader does not re-open the same question.
 ## API contract check
 
 The endpoints added in this work were re-checked against the fields the frontend actually reads,
-field by field, rather than assumed: the three connector status payloads
-(`configured`/`connected`/`connections` plus `books[]` or `calendars[]` and their five per-row
-fields), the per-connection sync results, the three import payloads (`{ imported }`), and the route
-error shape, which `api.ts` turns into the thrown message the UI displays.
+field by field, rather than assumed: the connector status payloads
+(`configured`/`connected` plus `books[]` or `calendars[]` and their per-row fields), the
+per-connection sync results, the import payloads, and the route error shape, which `api.ts` turns
+into the thrown message the UI displays.
 
-The check is recorded because it is cheap and it found a real defect the previous round — the
-calendar status endpoint was missing `lastErrorAt`, so the dialog rendered an empty
-`… ( )`. On this pass every field matched. Re-run it after touching any of these endpoints.
+The check is recorded because it is cheap and it found a real defect at the time — the calendar
+status endpoint was missing `lastErrorAt`, so the dialog rendered an empty `… ( )`.
+
+**What it covered then is not what those payloads are now**, so the scope is restated rather than
+left implied:
+
+- the import payloads gained a **`protected` count** with the invitation guard, and the card renders
+  it;
+- `connections` is no longer a count but the **array of the caller's own connections**, added for the
+  disconnect control, and that control uses each entry's `id`;
+- the status payloads gained **`graph`** (the connector's own readiness), **`mailPolicy`** and
+  **`traditionalImapAvailableInInboxora`**, each of which the card reads;
+- the disconnect endpoint answers **`{ connectionId, collectionsDisabled }`**, which the card
+  discards by design — it refreshes the status instead;
+- the DAV refusals and the request-too-large answer are **XML and `413` bodies**, not JSON, and are
+  asserted where they live (P11) rather than here.
+
+Each of those was checked as it was added, which is why the list is longer than the check; re-running
+the whole set after touching any of these endpoints is still the right habit.
 
 ## DAV visibility of imported data (verified, not assumed)
 
