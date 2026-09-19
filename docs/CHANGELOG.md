@@ -31,6 +31,14 @@ release is never claimed before it has happened.
 ## [4.1.0]
 
 ### Added
+- **Published `:dev` images from the frozen v4 SHA, and smoked them.** The `:dev` tags now correspond to
+  `43c15e91` — the tip of `dev` after every v4 package closed — and were built by workflow run
+  `35459869340` as OCI image indexes carrying `linux/amd64` and `linux/arm64`. The published pair was then
+  pulled and started as a stack from a fresh volume: the backend applied the whole migration chain and
+  became healthy, `/api/health` answered `ok`, **`/api/version` reported the frozen SHA**, the first user
+  was registered, a fresh session logged in, the account list answered, and the interface served. `main`
+  is untouched: 4.1.0 is still released only by merging `dev` to it through a pull request.
+
 - **Google Calendar and Google Contacts write through the provider journal (P09).** An event or a
   contact created, edited or deleted in Inboxora and belonging to a write-enabled Google collection is
   now written to Google first (`events.insert`/`patch`/`delete`,

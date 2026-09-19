@@ -355,6 +355,46 @@ for DAVx⁵, Thunderbird and Apple Contacts once write-back is enabled for it.
 
 ## Verification
 
+Measured on the frozen `dev` SHA **`43c15e91e83532a4bcd50ed3b1ad4806fa70c4ce`**, with each gate's own exit
+status read rather than inferred from a pipeline:
+
+- Backend: typecheck clean, lint clean, **2828 unit tests passed, 179 skipped** (234 files passed, 23
+  skipped).
+- Frontend: typecheck clean, lint clean, **2699 tests passed, 0 failed**, production build clean.
+- Database: a database created empty for the purpose, the **whole 115-migration chain applied from zero**
+  by the application's own runner, then **383 integration tests across 40 suites** on PostgreSQL 16 —
+  exit 0. (Running the unit suite *and* the integration suites against one database in a single process is
+  not a supported combination: independent integration files then contend on the same conversation tables
+  and a `SERIALIZABLE` rebuild can hit a serialization failure. The two figures above are the separate,
+  supported invocations.)
+
+**Images published from that exact SHA.** Workflow run
+[`35459869340`](https://github.com/Dragonk/Inboxora/actions/runs/35459869340) built and pushed the `:dev`
+tags from `43c15e91`; both resolve to OCI image indexes carrying `linux/amd64` **and** `linux/arm64`:
+
+- `ghcr.io/dragonk/inboxora-backend:dev` — `sha256:fdf967e5cba7b6a6fde4c8a0e5aa1f65b86f9344ccc1c9364bcda93477c9eaa9`
+- `ghcr.io/dragonk/inboxora-frontend:dev` — `sha256:3c3efc78b40ad0e82f064044f41f85c2b193a2bfbbadb20cd5bdc32b26e8c15f`
+
+**Runtime smoke of that published pair — RUN, and passed.** The pair was pulled and started as a stack
+(PostgreSQL, Redis, ntfy, backend, frontend) from a fresh volume: the backend applied the migration chain
+and became healthy, `/api/health` answered `{"status":"ok"}`, **`/api/version` answered
+`{"version":"dev","sha":"43c15e91e83532a4bcd50ed3b1ad4806fa70c4ce"}`** — the published image is the frozen
+revision — the first user was registered (admin), a fresh cookie jar logged in through
+`POST /api/auth/login`, `/api/auth/me` returned that user, `/api/accounts` returned `[]`, and the UI root
+served the application. No container restarted and no migration failed.
+
+Not run for this revision, and therefore **NOT RUN** rather than passing:
+
+- The **browser suite** and the documentation screenshots — last measured on the earlier 4.1.0 cut (205
+  browser tests across the desktop and phone projects; 30 screenshots referenced and non-empty).
+- The **CI jobs on a GitHub runner**: the workflow definitions and every path they reference were checked
+  statically and the database job's commands were run by hand against a real PostgreSQL, but the jobs
+  themselves have not executed on a runner.
+- **Live provider acceptance**: no real Google or Microsoft application is registered, so authorization
+  and every provider call against the live services is **NOT RUN**. The DAV server has not been exercised
+  with **DAVx⁵**, Thunderbird or a macOS client, and no real mailbox has been cut over to Graph or the
+  Gmail API.
+
 Measured on `dev` at `dbf6077b`, with each gate's own exit status read rather than inferred from a
 pipeline:
 

@@ -17,12 +17,15 @@ rows. It is kept because its lessons are load-bearing, and it must never be read
 present. Earlier revisions mixed the two inside the table itself, which is how a reader could take a
 four-attempt saga — or a superseded delivery report — for a current status.
 
-Last re-measured on `dev` after the send and draft work: backend typecheck, lint and **2523** unit
-tests passed (**117 skipped** across 14 files, 206 files passed of 220); frontend tests and typecheck (**2685**
-passed, 0 failed); **191** database integration tests across **19** suites on a fresh PostgreSQL 16 with the full
-**112**-migration chain — and, since the CI slice, verified the same way a new installation would
-experience it: a database created empty for the purpose, the chain applied from zero, the suites run
-against it, then dropped. That suite's one load-sensitive assertion has since been
+Last re-measured on the frozen `dev` SHA `43c15e91`: backend typecheck and lint clean, **2828 unit
+tests passed** (**179 skipped** across 23 files, 234 files passed of 257); frontend typecheck, lint,
+production build and **2699 tests passed** (0 failed); **383 database integration tests across 40 suites**
+on PostgreSQL 16 with the full **115-migration chain**, verified the way a new installation experiences it —
+a database created empty for the purpose, the chain applied from zero by the application's own runner, the
+suites run against it, then dropped. The unit figure and the integration figure are separate invocations:
+running both against one database in a single process lets independent integration files contend on the
+same conversation tables, where a `SERIALIZABLE` rebuild can fail with a serialization error — a harness
+artifact, not a product defect, and the reason CI separates the two jobs. That suite's one load-sensitive assertion has since been
 **fixed rather than discounted**: `calendarResponsiveness.test.ts` bounded the pooled expansion's
 event-loop lag at an absolute 100 ms and was observed failing at 162 ms on a machine that was busy
 running another gate, with the pool working exactly as designed. Its bounds are now relative to the
@@ -62,9 +65,9 @@ been run at all:
 
 | P14 part | State | Evidence |
 | --- | --- | --- |
-| image build + registry verification | **done** | Published from one commit, `035f60ab1843a4a60c1d6379a0d5dbaec9304324` (the 4.1.0 release), by dispatched workflow run `35425837287`. Both `ghcr.io/dragonk/inboxora-backend:dev` and `ghcr.io/dragonk/inboxora-frontend:dev` resolve to OCI image indexes carrying `linux/amd64` **and** `linux/arm64`; digests are recorded under *Release 4.1.0 and the image publication*. |
-| runtime smoke pair | **NOT RUN** | No container was ever started from the published pair: `/api/health`, `/api/version` and a basic login/UI check on those exact digests are unverified. The digests and platforms are registry facts, not a smoke test. |
-| final v4 publication | **not done** | The published images correspond to `035f60ab` (the 4.1.0 release), **not** to the tip of `dev`, and v4 still has open packages (P06, P07b, P08, P09 CRUD, P10, P12). A final publish must wait for the exact final SHA after the scope closes, and then be followed by the smoke pair above. |
+| image build + registry verification | **done, from the frozen SHA** | Dispatched workflow run [`35459869340`](https://github.com/Dragonk/Inboxora/actions/runs/35459869340) built from `source_sha=43c15e91e83532a4bcd50ed3b1ad4806fa70c4ce` and pushed the `:dev` tags. Both resolve to OCI image indexes carrying `linux/amd64` **and** `linux/arm64`: backend `sha256:fdf967e5cba7b6a6fde4c8a0e5aa1f65b86f9344ccc1c9364bcda93477c9eaa9`, frontend `sha256:3c3efc78b40ad0e82f064044f41f85c2b193a2bfbbadb20cd5bdc32b26e8c15f`. |
+| runtime smoke pair | **RUN — passed** | The published pair was pulled and started as a stack from a fresh volume. `/api/health` answered `{"status":"ok"}`; `/api/version` answered `{"version":"dev","sha":"43c15e91e83532a4bcd50ed3b1ad4806fa70c4ce"}`, so the running image is the frozen revision; the first user was registered (admin), a fresh cookie jar logged in through `POST /api/auth/login`, `/api/auth/me` returned that user, `/api/accounts` returned `[]`, and the UI root served the application. The backend applied the 115-migration chain on the way up and no container restarted. |
+| final v4 publication | **done** | The `:dev` images now correspond to `43c15e91`, the tip of `dev` after every v4 package closed — the send seam and its Graph transport, Graph drafts, the provider device-code flow, the Graph calendar read and write paths, Graph contact writes, the Gmail API adapter, the Google write paths and recommendation, the frontend capability cleanup, P10 DAV write-back, P12 in-place cutover, provider-side search and the rule-forwarder transport fix — and the smoke above ran on exactly those digests. `main` is untouched: 4.1.0 is still released only when `dev` is merged to it through a pull request. |
 
 ## Next actions (handoff)
 
