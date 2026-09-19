@@ -210,6 +210,15 @@ it needs its own tests — a request just over the limit, one that lies about it
 existing DAV suites still green. Starting it at the end of this session and stopping half-way would
 leave the endpoints in a state nobody could trust.
 
+**An attempt was made and reverted, and the reason is the first thing to know about the fix.** Adding
+the cap as a router-level middleware that also watched the stream broke **30 existing DAV tests**:
+attaching a `data` listener there starts the request flowing *before* the route handler runs, so the
+handlers' own `rawBody` reader received nothing and every body arrived empty. The cap belongs inside
+`rawBody`, where the stream is legitimately consumed, with the rejection carrying body-parser's
+`entity.too.large` marker so the existing `413` handler in `index.ts` answers with the same
+route-aware message it already gives for oversized JSON uploads. The revert left all 76 DAV tests
+green, and no part of the attempt is in the tree.
+
 ## Acceptance criteria W01–W19, as the plan requires them reported
 
 The plan states that the scope is not complete until every W item has associated code **and real test
