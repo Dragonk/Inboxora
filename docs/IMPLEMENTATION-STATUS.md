@@ -509,6 +509,37 @@ listed so the boundary is visible rather than implied.
 **None of these may be reported as PASS**, which is the guide's point: a verified code path is not a verified
 connection. The distinction is the same one the W-list already carries for W06, W07 and W10.
 
+## The send and attachment specification (§12), as the task list for P06, P07b and P08
+
+Reading this chapter turns "P06 and P07b are package-scale" into a specification, and two of its numbers are traps
+worth recording so they are not rediscovered by hitting them:
+
+- **Three different sizes, and only one of them is the one users think in.** `rawAttachmentBytes`
+  (plain + forwarded + inline + generated), `mimeBytes` (the actually compiled MIME, which includes base64 growth,
+  headers, separators, CRLF and signature images) and `httpBodyBytes` (the API transport's chosen encoding, which
+  base64url can inflate again). The interface's estimate is preliminary; **the backend counts the real stream
+  before the send step**, and neither a `size` field nor the length of undecoded base64 may be trusted. A reverse
+  proxy can stop a request before the application ever sees it.
+- **Microsoft: direct add under 3 MB, upload session for the range it documents as 3–150 MB** — and being able to
+  upload a file does **not** make it sendable, because the message, mailbox and tenant limits and the blocked file
+  types are separate. When the tenant's policy cannot be read, the interface must say the provider's limit may be
+  lower and still handle a refusal.
+- **Gmail's `mediaUpload.maxSize=36700160` is 35 MiB of *media upload*, not a permitted 35 MiB raw attachment** —
+  and it must not be confused with the larger limit of a different endpoint such as import.
+
+Beyond the numbers, the chapter requires: composition separated from transport, with one shared layer producing
+HTML, text, quoting, signature, alias, To/Cc/Bcc, Reply-To, reply headers, priority and files, so that an adapter
+using the provider's JSON instead of MIME **passes the same user-level tests**; no new provider's limits leaking
+onto other accounts, and a changed account in the editor recomputing limits and alias/attachment availability
+**without discarding the user's text or files**; upload without holding the whole message in memory; a send state
+machine; draft autosave; and provider errors surfaced in the editor.
+
+**What exists today:** the IMAP/SMTP composition and send path, which composes MIME and streams attachments. What
+does **not** exist: any byte accounting against these three sizes, the provider upload paths, the state machine, and
+the two API transports — the same boundary as the mail half of §22.1. The two named unbounded readers
+(`draft.ts`, `send.ts`) are where a size limit would have to be enforced first, and the chapter's requirement that
+the *backend* do the final check on the real stream is the reason a UI-only estimate would not satisfy it.
+
 ## Release 4.1.0 and the image publication
 
 The release version was **sanctioned as 4.1.0** and applied: both package manifests and their lockfiles carry it,
