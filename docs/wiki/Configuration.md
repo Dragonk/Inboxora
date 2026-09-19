@@ -41,6 +41,12 @@ meet. A message above it is refused with `413 MESSAGE_TOO_LARGE` and the real by
 dispatched. Raising it raises no provider's own limit: passing this check means the installation accepted the
 message, not that the provider will.
 
+It also does not raise the **attachment upload** guard, which is a different quantity: the request that carries
+attachments is base64 and therefore about a third larger than the files, so that guard measures the **wire** size
+(25 MB of attachments, around 34 MB encoded, with headroom for the rest of the payload) and refuses with `400`
+before any attachment is read from a mailbox. Raising `MAIL_MAX_MESSAGE_BYTES` without raising that one changes
+nothing for a large attachment; the two are separate on purpose, and neither replaces the other.
+
 Two switches govern the provider layer:
 
 - `PROVIDER_SYNC_INTERVAL_MINUTES` — how often already-pulled collections are refreshed (15 by

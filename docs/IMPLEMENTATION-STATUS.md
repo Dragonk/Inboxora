@@ -509,6 +509,19 @@ listed so the boundary is visible rather than implied.
 **None of these may be reported as PASS**, which is the guide's point: a verified code path is not a verified
 connection. The distinction is the same one the W-list already carries for W06, W07 and W10.
 
+**Two limits around the same number, measuring different things — deliberately.** Reading the forwarded-attachment
+path for §12.2 found the rule already honoured: each referenced message's **own account** is loaded, so bytes come
+from the source mailbox even when the sender uses a different transport, ownership-scoped in one query and fetched
+with bounded concurrency. It also found that the application has a pre-existing 25 MB attachment policy enforced at
+several points — the request guard, a pre-fetch guard on forwarded bytes, and `ruleForwarder` — and that these
+measure the **wire** size (base64 is about a third larger, with headroom for the rest of the payload, as `index.ts`
+explains) while `MAIL_MAX_MESSAGE_BYTES` measures the **composed message**. They are separate quantities and neither
+replaces the other, which is worth recording because "unify the two 25s" is the obvious-looking change that would
+break both.
+
+That reading also corrected my own text: the configuration page implied the variable could raise the ceiling for a
+large attachment, and it cannot, because the upload guard refuses first. Both it and `.env.example` now say so.
+
 **A documentation claim that preceded its code.** `Email-and-threading.md` described attachments "with a combined
 size limit" — and there was no limit in the composer or on the server, only whatever a reverse proxy happened to
 impose. This session has spent most of its effort finding documentation that overstated **implemented** scope; this
