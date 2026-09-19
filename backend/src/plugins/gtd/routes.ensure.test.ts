@@ -200,25 +200,3 @@ describe('POST /api/gtd/folders/ensure — persist effective paths', () => {
   });
 });
 
-// GTD's setup step is a folder-creation step, and the labels capability that performs it
-// goes over IMAP. A native account has no IMAP session, so this used to fail like a bug;
-// it refuses with a name and a workaround instead, and the rest of GTD's transport
-// dependence is recorded in the status document rather than left to be discovered.
-describe('GTD folder setup on a native account', () => {
-  it('refuses with a code and a workaround instead of failing like a bug', async () => {
-    stubQuery();
-    const previous = (account as { mail_transport?: string }).mail_transport;
-    (account as { mail_transport?: string }).mail_transport = 'microsoft_graph';
-    try {
-      const response = await ensure({ todo: 'Todo' });
-      expect(response.status).toBe(501);
-      const payload = await response.json() as GtdEnsureResponse;
-      expect(payload.code).toBe('OPERATION_FORBIDDEN');
-      expect(payload.error).toContain('Sync folders');
-      // Nothing is created over IMAP for an account that has no IMAP session.
-      expect(imapManager.ensureFolder).not.toHaveBeenCalled();
-    } finally {
-      (account as { mail_transport?: string }).mail_transport = previous;
-    }
-  });
-});

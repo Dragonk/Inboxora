@@ -23,6 +23,8 @@ import { generateVCard } from '../utils/vcard.js';
 import { randomUUID } from 'crypto';
 import { upsertConversationCopy } from './conversationPersistence.js';
 import { deleteGraphMessagePermanently } from './providers/microsoft/graphMailMove.js';
+import { graphFolderIdForPath, syncGraphMailFoldersForAccount } from './providers/microsoft/graphMailSync.js';
+import { graphCreateMailFolder } from './providers/microsoft/graphMailMutations.js';
 import { moveGraphMessageToFolder } from './providers/microsoft/graphMailMove.js';
 import { graphFlagIntent, graphFlagMutationAdapter } from './providers/microsoft/graphMailMutations.js';
 import { runProviderMutation } from './providerMutationService.js';
@@ -5249,6 +5251,22 @@ export class ImapManager {
   // folders" action reports both so the settings UI can show the real path and whether it
   // pre-existed. Namespace/delimiter/already-exists handling lives in ensureMailbox.
   async ensureFolder(account: EmailAccountRow, path: string, opts = {}) {
+    // A native account has no IMAP session, so the folder is ensured at the provider
+    // and then discovered — the discovery run is what produces the local `folders` row
+    // and its `mail_folder` collection, which is why this does not write them itself.
+    // The branch lives here rather than at each caller because the callers are the
+    // labels capability, the folder routes and GTD, and every one of them would
+    // otherwise need its own copy of the rule.
+    if (account.mail_transport && account.mail_transport !== 'imap_smtp') {
+      if (!account.provider_connection_id) throw new Error(`ensureFolder: account ${account.id} has no Microsoft connection`);
+      const connectionId = account.provider_connection_id;
+      const resolve = () => graphFolderIdForPath({ connectionId, accountId: account.id, path });
+      if (await resolve()) return { path, created: false };
+      await graphCreateMailFolder({ userId: account.user_id, connectionId, config: microsoftConfigFromEnv() }, path);
+      await syncGraphMailFoldersForAccount({ userId: account.user_id, connectionId, accountId: account.id, config: microsoftConfigFromEnv() });
+      if (!(await resolve())) throw new Error(`ensureFolder: Microsoft Graph did not create or discover "${path}"`);
+      return { path, created: true };
+    }
     return withFreshClient(account, (client) => ensureMailbox(client, path, opts));
   }
 

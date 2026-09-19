@@ -15,6 +15,15 @@ limitations — read the matching page in the Wiki: [Release notes 4.1.0](wiki/R
 
 ### Changed
 
+- **Ensuring a folder works on a Microsoft Graph account, which completes GTD's setup step** (P07b,
+  twentieth slice). `ensureFolder` opened an IMAP session, and three callers reach it — the labels
+  capability, the folder routes and GTD — so the branch lives there rather than being copied into each
+  one. A native account resolves the path through the collection link, creates the folder at the
+  provider when it is missing, and runs discovery, because discovery is what produces the local
+  `folders` row and its `mail_folder` collection. This supersedes the `501` refusal added to
+  `POST /gtd/folders/ensure` two slices ago: that refusal was correct while the capability could not do
+  the work, and it is now removed along with its test rather than left standing over a working feature.
+
 - **GTD label copies are removed through the provider on a Microsoft Graph account** (P07b, nineteenth
   slice). The transition path reaches `removeMessageCopy` to drop a copy, and that method called
   `permanentDeleteMessage` — IMAP — so a native account would have built label copies and then failed to

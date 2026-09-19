@@ -2809,6 +2809,18 @@ describe('folder body prefetch and the account transport', () => {
 // instead — the same path that would otherwise build label copies and then fail to
 // remove them.
 vi.mock('./providers/microsoft/graphMailMove.js', () => ({ deleteGraphMessagePermanently: vi.fn(async () => ({ deleted: true })) }));
+vi.mock('./providers/microsoft/graphMailSync.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./providers/microsoft/graphMailSync.js')>();
+  return {
+    ...actual,
+    graphFolderIdForPath: vi.fn(async () => 'graph-todo'),
+    syncGraphMailFoldersForAccount: vi.fn(async () => []),
+  };
+});
+vi.mock('./providers/microsoft/graphMailMutations.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./providers/microsoft/graphMailMutations.js')>();
+  return { ...actual, graphCreateMailFolder: vi.fn(async () => ({ id: 'graph-todo' })) };
+});
 
 describe('removing a message copy on a native account', () => {
   it('asks the provider rather than IMAP', async () => {
@@ -2833,5 +2845,32 @@ describe('removing a message copy on a native account', () => {
     expect(vi.mocked(deleteGraphMessagePermanently)).toHaveBeenCalledWith(expect.objectContaining({
       accountId: 'acct-1', resourceId: 'msg-1', providerMessageId: 'AAMkAD-1',
     }));
+  });
+});
+
+// GTD's setup step and the labels capability both ensure a folder, and the branch for a
+// native account lives in `ensureFolder` so neither of them needs its own copy of the rule.
+describe('ensuring a folder on a native account', () => {
+  it('creates and discovers it at the provider instead of opening an IMAP session', async () => {
+    const { query } = await import('./db.js');
+    vi.mocked(query).mockReset();
+    // Not discovered before the create, discovered after it — which is what makes the
+    // difference between "already there" and "created now".
+    const { graphFolderIdForPath } = await import('./providers/microsoft/graphMailSync.js');
+    vi.mocked(graphFolderIdForPath).mockReset().mockResolvedValueOnce(null as never).mockResolvedValue('graph-todo' as never);
+    const { ImapManager } = await import('./imapManager.js');
+    const manager = new ImapManager({} as never);
+
+    const result = await manager.ensureFolder(
+      { id: 'acct-1', user_id: 'user-1', mail_transport: 'microsoft_graph', provider_connection_id: 'connection-1' } as never,
+      'GTD/Todo',
+    );
+
+    const { graphCreateMailFolder } = await import('./providers/microsoft/graphMailMutations.js');
+    const { syncGraphMailFoldersForAccount } = await import('./providers/microsoft/graphMailSync.js');
+    expect(vi.mocked(graphCreateMailFolder)).toHaveBeenCalledWith(expect.objectContaining({ connectionId: 'connection-1' }), 'GTD/Todo');
+    // Discovery is what produces the local row and collection, so it must run.
+    expect(vi.mocked(syncGraphMailFoldersForAccount)).toHaveBeenCalledWith(expect.objectContaining({ accountId: 'acct-1' }));
+    expect(result).toEqual({ path: 'GTD/Todo', created: true });
   });
 });
