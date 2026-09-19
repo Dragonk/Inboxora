@@ -240,28 +240,16 @@ and reconnecting re-links the same collections rather than duplicating them.
 
 ## Known safe limitations
 
-- **Provider data is read-only.** Write-back, mutation journalling and the external CalDAV/CardDAV
-  client are not in this release, so an imported collection cannot be edited, deleted or removed
-  from Inboxora.
-- **Graph mail is an adapter, not yet a transport for anyone.** The code paths above are exercised by
-  tests and reachable for an account marked as a native Graph account, but **no account is migrated to
-  it in this release** — the in-place cutover (P12) is not part of 4.1.0 — so an existing Microsoft
-  account keeps reading mail over OAuth2 IMAP/SMTP. **Sending over Graph is implemented and wired**:
-  a native account's send is created as a Graph draft, its attachments are uploaded, and only then is
-  it sent, with an unknown outcome parked rather than retried; because no account is native yet, this
-  path is exercised by tests rather than by live accounts. **Graph drafts are implemented**: saving a
-  draft for a native account creates the provider's own draft (blind recipients stay out of band),
-  re-saving patches that same object rather than leaving two, and deleting removes it at Microsoft
-  first. **Provider-side search and the reply/forward dependencies are not implemented.**
-  **Gmail API mail is a partial adapter, not yet a transport for anyone.** Its read path exists —
-  label discovery and projection, message/thread ingest with a history cursor, body and attachments
-  on demand, the message mutations, drafts and send — but **no Google
-  account is migrated to it**: `mail_transport` stays `imap_smtp` unless an explicit cutover sets it,
-  so Google mail continues with an app password and the Gmail API code is unreachable for an existing
-  account. When such an account is eventually cut over, one consequence of modelling Gmail's plural
-  labels on a single `messages` row is already decided: a message in the inbox that also carries user
-  labels appears **once**, in the inbox, with its additional labels retained in
-  `messages.provider_labels`.
+- **A provider account is moved only when an operator moves it.** Microsoft Graph and the Gmail API are
+  transports, not defaults: `mail_transport` stays `imap_smtp` (or `NULL`) until
+  `POST /api/accounts/:id/migrate` cuts one account over, in place and without adding a second account,
+  so an existing mailbox keeps reading and sending over IMAP/SMTP until that explicit action. Because
+  the cutover is per account and deliberate, the native paths — Graph and Gmail send, drafts, search,
+  folders, flags, mutations, attachments and the rule forwarder — are exercised by tests and by any
+  account an operator has cut over, rather than by every account automatically.
+- **One consequence of modelling Gmail's plural labels on a single `messages` row is decided** rather
+  than left to the first cutover: a message in the inbox that also carries user labels appears **once**,
+  in the inbox, with its additional labels retained in `messages.provider_labels`.
 - **Provider data is read-only by default, and imported collections stay that way until you enable
   write-back for them** — per collection. Microsoft Graph and Google collections can be written **over
   the web interface** once enabled; **over DAV a provider collection stays read-only**, because the DAV
@@ -352,6 +340,42 @@ for DAVx⁵, Thunderbird and Apple Contacts once write-back is enabled for it.
 - Device-code, browser and API paths are verified by tests against faked providers and a real
   database; **no real Google or Microsoft application was registered**, so the end-to-end
   authorization against the live providers is **NOT RUN** rather than passing.
+
+### Send and attachment limits belong to the transport (P06)
+
+A send used to be measured against one 25 MB total whatever the transport was, which refused a Microsoft Graph
+attachment that Graph carries happily through its resumable upload session. The limit that now applies is the
+transport's own, computed as `min(installation ceiling, provider ceiling, operation ceiling)`:
+
+- **Microsoft Graph** — one file up to **150 MB** through a resumable upload session (above **3 MB** a file stops
+  travelling inline, which is a choice of method rather than a ceiling), and a whole message up to 150 MB. A file
+  above the SMTP-era 25 MB is no longer refused, and an interrupted session resumes rather than restarting.
+- **Gmail API** — the **raw RFC-822 message** must fit in 25 MB, so the *encoded* message is measured, not the sum
+  of the files; a message whose attachments fit but whose encoded form does not is refused as such.
+- **SMTP** — no universal limit exists, so the installation's `MAIL_MAX_MESSAGE_BYTES` fallback applies.
+- **`MAIL_MAX_ATTACHMENT_BYTES`** — the installation's **hard** ceiling on one attachment and on their total,
+  applied whatever a provider would accept; it defaults to the largest file a supported provider carries, so
+  configuring nothing does not cap Graph.
+
+Dimensions are kept apart because each names a different refusal — one attachment, their total, the inline images
+the composer creates, the composed RFC-822 message, Gmail's raw message, a Graph upload-session file, or the HTTP
+request body — and every refusal carries `code`, `dimension`, `actualBytes`, `limitBytes` and `transport` (with the
+file name when one caused it), so no client has to match English text. A provider-measured refusal is decided
+**before** the durable send intent is claimed: it leaves no uncertain intent and no provider operation behind, and
+the same idempotency key retries a smaller message. The composer asks the server for the sending account's limits
+and refuses a file it already knows cannot be sent, without closing the composer or discarding the draft. Sending
+semantics are otherwise unchanged: one composition, the same durable claim, and an unknown outcome still parked
+rather than retried.
+
+**Verification.** `sendLimits.test.ts` (the model, every dimension and the two environment ceilings),
+`sendTransport.preflight.test.ts` (Graph accepts above 25 MB; Graph refuses above its own ceiling; Gmail refuses on
+the raw message; the render is measured once), `send.limits.test.ts` (the route, end to end, including a 26 MiB
+Graph attachment that reaches the provider and a Gmail message refused for its raw size), a real-PostgreSQL case
+that a size refusal leaves no `send_idempotency` row and no `provider_operations` row and that the same key retries
+successfully, the forwarded cross-transport case (accounted on the sending transport, read from the source
+transport), the existing SMTP and Graph suites, and the composer's own contract test across all nine locales. Real
+provider acceptance remains **NOT RUN**: every provider call in these suites is faked at the HTTP boundary or the
+module boundary against a real PostgreSQL.
 
 ## Verification
 

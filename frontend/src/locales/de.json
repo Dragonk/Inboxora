@@ -1080,8 +1080,11 @@
     },
     "sendUncertainTitle": "Sendeergebnis unbekannt",
     "sendUncertainBody": "Die Verbindung ging verloren, nachdem diese Nachricht an den Server übergeben wurde. Inboxora kann daher nicht wissen, ob sie gesendet wurde — und sendet sie nicht automatisch erneut. Prüfe den Ordner Gesendet des Kontos: ist sie dort, wurde sie gesendet.",
-    "attachmentTooLarge": "„{name}“ ist {actual}; das Limit liegt bei {limit}. Die Datei wurde nicht angehängt.",
-    "messageTooLarge": "Die gesamte Nachricht ist {actual}; das Limit liegt bei {limit}. Entferne Dateien oder kürze die Nachricht.",
+    "limitAttachmentTooLarge": "„{name}“ ist {actual} und überschreitet das Limit von {limit} für {transport}. Die Datei wurde nicht angehängt.",
+    "limitTooLarge": "Diese Nachricht ist {actual} und überschreitet das Limit von {limit} für {transport}. Entfernen Sie Dateien oder kürzen Sie den Text.",
+    "limitTransportSmtp": "den Mailserver dieses Kontos",
+    "limitTransportGraph": "Microsoft Graph",
+    "limitTransportGmail": "Gmail",
     "attachmentFetchFailed": "Der weitergeleitete Anhang konnte nicht geladen werden. Die Nachricht wurde ohne diese Datei nicht gesendet."
   },
   "contacts": {

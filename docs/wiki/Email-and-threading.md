@@ -163,9 +163,13 @@ walkthrough and the scripted alternative.
   links, tables and images.
 - To, Cc and Bcc with per-address copy, plus header-injection validation.
 - Attachments and inline images. The composer warns when the body mentions an attachment but none is attached,
-  and asks for confirmation when the subject is empty. It does **not** pre-check the size: the server counts the
-  composed message when you send — headers, base64 growth and separators included — and refuses one above
-  `MAIL_MAX_MESSAGE_BYTES` (25 MiB by default) with the byte count and the attachment subtotal, naming the file if one is over the limit on its own. Passing that check means this installation accepted the message, not that the provider will.
+  and asks for confirmation when the subject is empty. It asks the server what the sending account's transport
+  accepts and refuses a file that is already over that limit, before reading or uploading it; the server repeats
+  every check and remains authoritative. The limits belong to the transport — a Microsoft Graph account carries a
+  file up to 150 MB through a resumable upload session, Gmail bounds the encoded raw message at 25 MB, and an SMTP
+  account is bounded by `MAIL_MAX_MESSAGE_BYTES` (25 MiB by default) — and a refusal names the dimension, the real
+  byte count and the limit, so removing the file it names and sending again is the whole recovery. Passing those
+  checks means the transport accepted the message, not that the recipient's server will.
 - Drafts autosave to the account's IMAP **Drafts** folder. Attachments are **not** stored in
   drafts, and the interface says so.
 - Sending is idempotent: a retry after a lost response returns the first result instead of

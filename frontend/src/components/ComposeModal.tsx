@@ -263,6 +263,14 @@ export default function ComposeModal() {
   const draftSaveVersionRef = useRef(0);
   const [attachments, setAttachmentsState] = useState<Array<{ name?: string; size?: number; [key: string]: unknown }>>([]);
   const setAttachments = (value: React.SetStateAction<Array<{ name?: string; size?: number; [key: string]: unknown }>>) => { recordDraftEdit(); setAttachmentsState(value); };
+  /**
+   * The limits the sending account's transport is measured against, asked of the server (P06).
+   *
+   * The server stays authoritative — every refusal it answers still carries the same domain code — but a file
+   * the server would refuse does not have to be read into memory and uploaded first to learn that. A limit
+   * reported as `null` is one the transport does not have, which is not the same as zero.
+   */
+  const [sendLimits, setSendLimits] = useState<{ transport?: string; limits?: { singleAttachmentBytes?: number | null; totalAttachmentBytes?: number | null; inlineImageBytes?: number | null } } | null>(null);
   const [fwdAttachments, setFwdAttachmentsState] = useState(() => composeData?.forwardedAttachments || []);
   const setFwdAttachments = (value: React.SetStateAction<typeof fwdAttachments>) => { recordDraftEdit(); setFwdAttachmentsState(value); };
 
@@ -324,6 +332,25 @@ export default function ComposeModal() {
 
   const fromResolved = resolveFrom(fromValue);
   const fromAccount = accounts.find(a => a.id === fromResolved.accountId);
+
+  const sendingAccountId = fromResolved.accountId;
+  // Ask once per sending account; a late answer must not apply to a later session or another account.
+  useEffect(() => {
+    if (!sendingAccountId) { setSendLimits(null); return; }
+    let cancelled = false;
+    api.getSendLimits(sendingAccountId)
+      .then((data: { transport?: string; limits?: { singleAttachmentBytes?: number | null; totalAttachmentBytes?: number | null; inlineImageBytes?: number | null } }) => {
+        if (!cancelled) setSendLimits(data ?? null);
+      })
+      .catch(() => { if (!cancelled) setSendLimits(null); });
+    return () => { cancelled = true; };
+  }, [sendingAccountId]);
+
+  const limitTransportName = (transport?: string) => transport === 'microsoft_graph'
+    ? t('compose.limitTransportGraph')
+    : transport === 'gmail_api'
+      ? t('compose.limitTransportGmail')
+      : t('compose.limitTransportSmtp');
   const fromAlias = fromResolved.aliasId
     ? fromAccount?.aliases?.find(al => al.id === fromResolved.aliasId)
     : null;
@@ -713,6 +740,26 @@ export default function ComposeModal() {
     const files = Array.from(e.target.files || []);
     if (!files.length) return;
     files.forEach(file => {
+      // Known-limit pre-check: refuse locally what the server would refuse anyway, so the user is not made to
+      // upload a file to be told its size. The server repeats the check and remains authoritative.
+      const single = sendLimits?.limits?.singleAttachmentBytes ?? null;
+      if (single !== null && file.size > single) {
+        setError(t('compose.limitAttachmentTooLarge', {
+          name: file.name, actual: byteSize(file.size), limit: byteSize(single), transport: limitTransportName(sendLimits?.transport),
+        }));
+        return;
+      }
+      const total = sendLimits?.limits?.totalAttachmentBytes ?? null;
+      if (total !== null) {
+        const already = attachments.reduce((sum, a) => sum + (a.size || 0), 0)
+          + fwdAttachments.reduce((sum, a) => sum + (Number(a.size) || 0), 0);
+        if (already + file.size > total) {
+          setError(t('compose.limitTooLarge', {
+            actual: byteSize(already + file.size), limit: byteSize(total), transport: limitTransportName(sendLimits?.transport),
+          }));
+          return;
+        }
+      }
       const reader = new FileReader();
       reader.onload = (ev) => {
         const result = ev.target?.result;
@@ -924,15 +971,22 @@ export default function ComposeModal() {
     } catch (err) {
       if (!isCurrentSession()) return;
       const appError = toAppError(err);
-      const figures = appError as { actual?: number; limit?: number; filename?: string };
-      if (appError.code === 'ATTACHMENT_TOO_LARGE' && typeof figures.actual === 'number') {
-        setError(t('compose.attachmentTooLarge', {
-          name: figures.filename ?? '', actual: byteSize(figures.actual), limit: byteSize(figures.limit ?? 0),
-        }));
-      } else if (appError.code === 'MESSAGE_TOO_LARGE' && typeof figures.actual === 'number') {
-        setError(t('compose.messageTooLarge', {
-          actual: byteSize(figures.actual), limit: byteSize(figures.limit ?? 0),
-        }));
+      // The server answers a size refusal with a domain code, the dimension it refused on and the two byte
+      // figures — never with English prose a client would have to match.
+      const figures = appError as { actualBytes?: number; limitBytes?: number; filename?: string; transport?: string };
+      const limitRequested = ['ATTACHMENT_TOO_LARGE', 'ATTACHMENTS_TOO_LARGE', 'INLINE_IMAGES_TOO_LARGE',
+        'MESSAGE_TOO_LARGE', 'PROVIDER_MESSAGE_TOO_LARGE', 'PROVIDER_UPLOAD_TOO_LARGE', 'REQUEST_TOO_LARGE'].includes(appError.code ?? '');
+      if (limitRequested && typeof figures.actualBytes === 'number') {
+        const values = {
+          actual: byteSize(figures.actualBytes),
+          limit: byteSize(figures.limitBytes ?? 0),
+          transport: limitTransportName(figures.transport),
+        };
+        if (appError.code === 'ATTACHMENT_TOO_LARGE' || appError.code === 'PROVIDER_UPLOAD_TOO_LARGE') {
+          setError(t('compose.limitAttachmentTooLarge', { ...values, name: figures.filename ?? '' }));
+        } else {
+          setError(t('compose.limitTooLarge', values));
+        }
       } else if (appError.code === 'ATTACHMENT_FETCH_FAILED') {
         setError(t('compose.attachmentFetchFailed'));
       } else if (appError.code === 'SEND_OUTCOME_UNKNOWN') {

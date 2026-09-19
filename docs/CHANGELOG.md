@@ -31,6 +31,22 @@ release is never claimed before it has happened.
 ## [4.1.0]
 
 ### Added
+- **The send and attachment limits are the transport's, not one global number (P06).** A send is now measured
+  against `min(installation ceiling, provider ceiling, operation ceiling)`, with the provider's numbers defined
+  once in code (`services/providers/mailCapabilities.ts`): **Microsoft Graph** carries one file up to 150 MB
+  through its resumable upload session (above 3 MB a file stops travelling inline — a choice of method, not a
+  ceiling) and a whole message up to 150 MB; **Gmail** bounds the raw RFC-822 message it is handed at 25 MB; and
+  **SMTP**, which declares no universal limit, is bounded by the installation's fallback. A native Graph account is
+  therefore no longer refused above the SMTP-era 25 MB attachment total. The dimensions are separate and each
+  refusal names the one it hit — one attachment, their total, the inline images the composer creates, the composed
+  RFC-822 message, Gmail's raw message, a Graph upload-session file, or the HTTP request body — and every refusal
+  carries `code`, `dimension`, `actualBytes`, `limitBytes` and `transport` (plus the file name where one caused it)
+  rather than English prose a client would have to match. A provider-measured refusal is decided **before** the
+  durable send intent is claimed, so it cannot be recorded as an unknown outcome or parked for reconciliation, and
+  the same idempotency key can retry a smaller message. The composer asks for the sending account's limits
+  (`GET /api/mail/send-limits`) and refuses a file it already knows cannot be sent, without closing the composer or
+  discarding the draft.
+
 - **Published `:dev` images from the frozen v4 SHA, and smoked them.** The `:dev` tags now correspond to
   `43c15e91` — the tip of `dev` after every v4 package closed — and were built by workflow run
   `35459869340` as OCI image indexes carrying `linux/amd64` and `linux/arm64`. The published pair was then
@@ -869,6 +885,14 @@ release is never claimed before it has happened.
   is.
 
 ### Changed
+- **`MAIL_MAX_MESSAGE_BYTES` is documented and implemented as a fallback, and a hard installation ceiling joins
+  it.** The variable no longer reads as a cap on every transport: it applies to a transport that declares no
+  message ceiling of its own (SMTP), and a provider's own limit is never shrunk by it. `MAIL_MAX_ATTACHMENT_BYTES`
+  is the installation's **hard** ceiling on one attachment and on their total, applied whatever a provider would
+  accept; it defaults to the largest file a supported provider carries, so an installation that configures nothing
+  does not silently cap Graph. The send route's HTTP body window is derived from that ceiling instead of a literal
+  ("35mb"), so a provider-sized attachment can actually reach the route that decides about it.
+
 - **A collection's write permission now needs both the origin's consent and the user's.** The capability
   model read only the collection's `read_only` flag, which meant an adapter that learned to write would
   have made every pulled collection writable without anyone asking. It now also reads

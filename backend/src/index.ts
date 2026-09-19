@@ -63,6 +63,7 @@ import { startOccurrenceScheduler } from './services/calendarOccurrences.js';
 import { start as startSpamRetrainScheduler } from './services/spamScheduler.js';
 import { createBrowserCors } from './middleware/browserCors.js';
 import {toAppError, requestTooLargeMessage } from './utils/errors.js';
+import { sendHttpBodyWindowBytes } from './services/sendLimits.js';
 
 const packageMeta = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf-8'));
 let buildMeta: { version?: string } = {};
@@ -163,16 +164,31 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   res.setHeader('Referrer-Policy', 'same-origin');
   next();
 });
-// 25 MB attachment limit → ~34 MB base64 on the wire; add headroom for the rest of the payload.
-app.use('/api/mail/send', express.json({ limit: '35mb' }));
+// The body window is the *transport-aware* hard attachment ceiling carried as base64, plus headroom for the
+// rest of the payload (P06). It has to be wide enough for the largest file a supported provider accepts — a
+// Graph upload session takes 150 MB — because the JSON body carries those bytes before the route can apply
+// the per-transport limits; a body over this window is still refused (`REQUEST_TOO_LARGE`), and a body inside
+// it but above the transport's own ceiling is refused by the route with the dimension that was hit.
+app.use('/api/mail/send', express.json({ limit: sendHttpBodyWindowBytes() }));
 app.use('/api/mail/draft', express.json({ limit: '35mb' }));
 // A pet-import body carries a base64 spritesheet (~33% larger than the 5 MB sheet cap
 // enforced after decode in gtdPet.importPet), so it needs more than the global 1 MB.
 app.use('/api/gtd/pet/import', express.json({ limit: '8mb' }));
 app.use(express.json({ limit: '1mb' }));
-// Return a clean JSON error when the body parser rejects an oversized payload.
-app.use((err: Error & { type?: string }, req: Request, res: Response, next: NextFunction) => {
+// Return a clean JSON error when the body parser rejects an oversized payload. The send route answers with
+// the same domain shape its own guards use (`REQUEST_TOO_LARGE` on the `http_body` dimension), so a client
+// does not have to treat the parser's refusal as a different kind of failure from the route's.
+app.use((err: Error & { type?: string; limit?: number; length?: number }, req: Request, res: Response, next: NextFunction) => {
   if (err.type === 'entity.too.large') {
+    if (req.path.startsWith('/api/mail/send')) {
+      return res.status(413).json({
+        code: 'REQUEST_TOO_LARGE',
+        dimension: 'http_body',
+        ...(Number.isFinite(err.length) ? { actualBytes: Number(err.length) } : {}),
+        limitBytes: sendHttpBodyWindowBytes(),
+        error: requestTooLargeMessage(req.path),
+      });
+    }
     return res.status(413).json({ error: requestTooLargeMessage(req.path) });
   }
   next(err);

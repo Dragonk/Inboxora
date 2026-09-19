@@ -10,9 +10,16 @@ describe('requestTooLargeMessage', () => {
     expect(requestTooLargeMessage('/api/calendar/calendars/cal-1/import/ics')).toContain('900 KB');
   });
 
-  it('keeps the attachment wording where attachments are what is being sent', () => {
-    expect(requestTooLargeMessage('/api/mail/send')).toContain('attachment');
-    expect(requestTooLargeMessage('/api/mail/draft')).toContain('attachment');
+  it('states the send route’s own window rather than a transport’s attachment limit', () => {
+    // The send route's window is the installation's hard attachment ceiling carried as base64; which transport
+    // ceiling applies is decided later, per account, and reported by the route with its own domain code. Naming
+    // "25 MB of attachments" here would be the old global number that no longer bounds every transport.
+    const send = requestTooLargeMessage('/api/mail/send');
+    expect(send).toMatch(/\d+ MB/);
+    expect(Number(send.match(/(\d+) MB/)?.[1])).toBeGreaterThanOrEqual(150);
+    expect(send).not.toContain('25 MB');
+    // A draft carries no attachments, so this one names the draft rather than an attachment limit.
+    expect(requestTooLargeMessage('/api/mail/draft')).toContain('draft');
   });
 
   it('stays generic everywhere else instead of naming the wrong thing', () => {

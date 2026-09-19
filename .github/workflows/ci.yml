@@ -124,6 +124,9 @@ jobs:
           DB_USER: mailflow_test
           DB_PASSWORD: mailflow_test
           REQUIRE_DAV_POSTGRES: "1"
+          # The send-ledger suite is skipped without this flag, so a job that omits it
+          # would report the durable send intent as covered while never running it.
+          REQUIRE_SEND_POSTGRES: "1"
         # `providerSchemaUpgrade.integration.test.ts` creates and drops a database of
         # its own, so the role needs CREATEDB (the service user has it) and this job
         # must not share its database with another.
@@ -134,6 +137,7 @@ jobs:
             src/services/providerOperations.integration.test.ts \
             src/services/providerMutationService.integration.test.ts \
             src/services/providerWritesJournal.integration.test.ts \
+            src/routes/send.limits.integration.test.ts \
             src/services/providerConnectionService.integration.test.ts \
             src/services/providerSchemaUpgrade.integration.test.ts \
             src/services/providers/google src/services/providers/microsoft \

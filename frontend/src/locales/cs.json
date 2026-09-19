@@ -1080,8 +1080,11 @@
     },
     "sendUncertainTitle": "Výsledek odeslání není znám",
     "sendUncertainBody": "Spojení se přerušilo poté, co byla zpráva předána serveru, takže Inboxora nemůže vědět, zda byla odeslána — a znovu ji automaticky neodešle. Zkontrolujte složku Odeslaná tohoto účtu: je-li tam, byla odeslána.",
-    "attachmentTooLarge": "Soubor „{name}“ má {actual}; limit je {limit}. Soubor nebyl přiložen.",
-    "messageTooLarge": "Celá zpráva má {actual}, limit je {limit}. Odeberte část souborů nebo zprávu zkraťte.",
+    "limitAttachmentTooLarge": "„{name}“ má {actual}, což překračuje limit {limit} pro {transport}. Soubor nebyl přiložen.",
+    "limitTooLarge": "Tato zpráva má {actual}, což překračuje limit {limit} pro {transport}. Odeberte část příloh nebo zprávu zkraťte.",
+    "limitTransportSmtp": "poštovní server tohoto účtu",
+    "limitTransportGraph": "Microsoft Graph",
+    "limitTransportGmail": "Gmail",
     "attachmentFetchFailed": "Přeposílanou přílohu se nepodařilo načíst. Zpráva nebyla bez tohoto souboru odeslána."
   },
   "contacts": {

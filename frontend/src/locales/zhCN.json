@@ -1080,8 +1080,11 @@
     },
     "sendUncertainTitle": "发送结果未知",
     "sendUncertainBody": "消息交给服务器后连接中断，因此 Inboxora 无法确认它是否已发送，也不会自动重发。请检查该账户的“已发送”文件夹：如果邮件在那里，说明已发送。",
-    "attachmentTooLarge": "“{name}”为 {actual}，上限为 {limit}。该文件未被添加。",
-    "messageTooLarge": "整封邮件为 {actual}，上限为 {limit}。请移除部分文件或缩短邮件。",
+    "limitAttachmentTooLarge": "“{name}”为 {actual}，超过 {transport} 的 {limit} 上限。该文件未附加。",
+    "limitTooLarge": "此邮件为 {actual}，超过 {transport} 的 {limit} 上限。请移除部分文件或缩短邮件正文。",
+    "limitTransportSmtp": "此账户的邮件服务器",
+    "limitTransportGraph": "Microsoft Graph",
+    "limitTransportGmail": "Gmail",
     "attachmentFetchFailed": "无法获取转发的附件。邮件未在没有该文件的情况下发送。"
   },
   "contacts": {

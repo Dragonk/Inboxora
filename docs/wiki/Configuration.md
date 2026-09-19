@@ -34,19 +34,38 @@ than a requirement.
 **Microsoft is the other way round**: Outlook.com and Microsoft 365 no longer accept a mailbox
 password, so mail for those accounts needs the API connection, and the card says so.
 
-One further limit belongs here because it is about sending rather than about providers:
-`MAIL_MAX_MESSAGE_BYTES` caps one **composed** message, counted on the server with headers, base64 growth and
-separators included, and defaults to 25 MiB — Gmail's raw-message limit, the lowest an installation is likely to
-meet. A message above it is refused with `413 MESSAGE_TOO_LARGE` and the real byte count **before** anything is
-dispatched. Raising it raises no provider's own limit: passing this check means the installation accepted the
-message, not that the provider will.
+### Send and attachment limits
 
-It also does not raise the **attachment upload** guard, which is a different quantity: the request that carries
-attachments is base64 and therefore about a third larger than the files, so that guard measures the **wire** size
-(25 MB of attachments, around 34 MB encoded, with headroom for the rest of the payload) and refuses with
-`413 ATTACHMENT_TOO_LARGE` before any attachment is read from a mailbox; the uploads-plus-forwarded total refuses as
-`413 MESSAGE_TOO_LARGE`. Raising `MAIL_MAX_MESSAGE_BYTES` without raising that one changes
-nothing for a large attachment; the two are separate on purpose, and neither replaces the other.
+The ceiling that applies to a send is the **transport's**, computed as
+`min(installation ceiling, provider ceiling, operation ceiling)`. The provider's own numbers live in one place in
+the code (`backend/src/services/providers/mailCapabilities.ts`), so they cannot drift between the adapter that hits
+them and the guard that reports them:
+
+| Transport | One attachment | Whole message | Notes |
+| --- | --- | --- | --- |
+| SMTP | fallback ceiling | fallback ceiling (`MAIL_MAX_MESSAGE_BYTES`) | No universal SMTP limit exists, so the installation's fallback is what applies. |
+| Microsoft Graph | **150 MB** through a resumable upload session | 150 MB | Above **3 MB** a file stops travelling inline and becomes an upload session (a choice of method, not a ceiling), with resume, chunk alignment, expiry and cancel. |
+| Gmail API | the raw-message ceiling | **25 MB** raw RFC-822 | Gmail bounds the message it is handed, so the *encoded* size is what is measured, not the sum of the files. |
+
+Two environment values adjust the installation's side of that minimum:
+
+- `MAIL_MAX_MESSAGE_BYTES` — the **fallback** composed-message ceiling, used only for a transport that declares no
+  ceiling of its own (SMTP). It defaults to 25 MiB. It never shrinks a provider that declares a larger limit, so it
+  does not cap a Graph account at 25 MB.
+- `MAIL_MAX_ATTACHMENT_BYTES` — the **hard** installation ceiling, applied to one attachment and to their total on
+  every transport whatever a provider would accept. It defaults to Graph's own 150 MB, so leaving it unset does not
+  cap Graph; set it lower to bound the installation as a whole (for example to match a reverse proxy's body limit).
+
+A refusal names the dimension it hit — `ATTACHMENT_TOO_LARGE` (one file), `ATTACHMENTS_TOO_LARGE` (their total),
+`INLINE_IMAGES_TOO_LARGE` (the images the composer turns `data:` URIs into), `MESSAGE_TOO_LARGE` (the composed
+RFC-822 message on SMTP), `PROVIDER_MESSAGE_TOO_LARGE` (Gmail's raw message), `PROVIDER_UPLOAD_TOO_LARGE` (a Graph
+upload-session file) or `REQUEST_TOO_LARGE` (the HTTP body) — and carries `actualBytes`, `limitBytes`, the
+`dimension` and the `transport`, so a client never has to read English prose. Provider-measured refusals are decided
+**before** anything is dispatched, so they cannot be mistaken for an unknown outcome.
+
+The composer asks the server for the sending account's limits (`GET /api/mail/send-limits?accountId=…`) and refuses
+a file it already knows cannot be sent, before that file is read or uploaded; the server remains authoritative and
+repeats every check.
 
 Two switches govern the provider layer:
 

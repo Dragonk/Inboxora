@@ -10,8 +10,16 @@ import { redactEmail } from '../utils/redact.js';
 import type { EmailAccountRow } from '../services/imapManager.js';
 import { resolveSentFolder } from '../utils/mailUtils.js';
 import { generateVCard } from '../utils/vcard.js';
-import { createAccountMailTransport, type MailTransport } from '../services/sendTransport.js';
-import { SEND_ATTACHMENT_TOTAL_BYTES, sendLimits } from '../services/sendLimits.js';
+import { createAccountMailTransport, transportKindForAccount, type MailTransport } from '../services/sendTransport.js';
+import {
+  attachmentRefusal,
+  attachmentsRefusal,
+  decodedBase64Bytes,
+  effectiveSendLimits,
+  inlineImagesRefusal,
+  messageSizeRefusal,
+  sendLimitRefusalBody,
+} from '../services/sendLimits.js';
 import { parseMailbox, renderSmtpMessage, type ComposedMail } from '../services/composedMail.js';
 import { fetchSourceAttachment, SourceAttachmentError } from '../services/sourceAttachments.js';
 import { imapManager } from '../index.js';
@@ -400,8 +408,42 @@ const router = Router();
 router.use(requireAuth);
 
 
+/**
+ * The limits one account's next send is measured against.
+ *
+ * The interface uses this to refuse a file it already knows cannot be sent, before the user waits for an
+ * upload; the server remains authoritative, and every refusal still carries the same domain code from
+ * `POST /send`. A limit the transport does not have is reported as `null` rather than as a number, because
+ * `Infinity` is not JSON and "no ceiling" is a different fact from "zero".
+ */
+router.get('/send-limits', async (req, res) => {
+  const accountId = typeof req.query.accountId === 'string' ? req.query.accountId : '';
+  if (!accountId) return res.status(400).json({ error: 'accountId required' });
+  const result = await query<{ id: string; mail_transport: string | null }>(
+    'SELECT id, mail_transport FROM email_accounts WHERE id = $1 AND user_id = $2',
+    [accountId, req.session.userId],
+  );
+  if (!result.rows.length) return res.status(404).json({ error: 'Account not found' });
+
+  const transport = transportKindForAccount(result.rows[0]);
+  const limits = effectiveSendLimits(transport);
+  const orNull = (value: number) => (Number.isFinite(value) ? value : null);
+  res.json({
+    transport,
+    limits: {
+      singleAttachmentBytes: orNull(limits.singleAttachmentBytes),
+      totalAttachmentBytes: orNull(limits.totalAttachmentBytes),
+      inlineImageBytes: orNull(limits.inlineImageBytes),
+      composedMessageBytes: orNull(limits.composedMessageBytes),
+      providerRawMessageBytes: orNull(limits.providerRawMessageBytes),
+      providerUploadFileBytes: orNull(limits.providerUploadFileBytes),
+      uploadSessionThresholdBytes: orNull(limits.uploadSessionThresholdBytes),
+      httpRequestBodyBytes: orNull(limits.httpRequestBodyBytes),
+    },
+  });
+});
+
 router.post('/send', async (req, res) => {
-  const limits = sendLimits();
   const { accountId, aliasId, to, cc = [], bcc = [], subject, body, bodyIsHtml, quotedBody, quotedBodyHtml, inReplyTo, references, attachments, editedSignature, editedSignatureIsHtml, forwardedAttachments, priority }: SendRequestBody = req.body;
   const emailPriority = isEmailPriority(priority) ? priority : 'normal';
   if (!accountId) return res.status(400).json({ error: 'accountId required' });
@@ -420,12 +462,8 @@ router.post('/send', async (req, res) => {
   if (attachments !== undefined) {
     if (!Array.isArray(attachments)) return res.status(400).json({ error: 'attachments must be an array' });
     if (attachments.length > 100) return res.status(400).json({ error: 'Too many attachments (max 100)' });
-    const totalBytes = attachments.reduce((sum, a) => sum + (typeof a.content === 'string' ? Math.ceil(a.content.length * 0.75) : 0), 0);
-    if (totalBytes > SEND_ATTACHMENT_TOTAL_BYTES) {
-      // §22.1 maps content that is too large to 413 with a domain code; this guard is the oldest of the size
-      // checks and reported neither, so a client had to match English prose to know what happened.
-      return res.status(413).json({ code: 'ATTACHMENT_TOO_LARGE', actual: totalBytes, limit: SEND_ATTACHMENT_TOTAL_BYTES, error: 'Total attachment size exceeds 25 MB' });
-    }
+    // The size of these attachments is checked below, once the account's transport is known: 25 MB is one
+    // transport's ceiling, not a ceiling on the message (P06).
     for (const [i, a] of attachments.entries()) {
       if (typeof a.filename !== 'string' || !a.filename.trim()) return res.status(400).json({ error: `attachments[${i}].filename is required` });
       if (typeof a.content !== 'string') return res.status(400).json({ error: `attachments[${i}].content must be a base64 string` });
@@ -466,6 +504,22 @@ router.post('/send', async (req, res) => {
   const inputBodyIsHtml = resolveIncomingBodyIsHtml(bodyIsHtml);
   const outputBodyIsHtml = resolveOutgoingBodyIsHtml(bodyIsHtml, plaintextEmail);
   let account = result.rows[0];
+  // The limits this send is measured against belong to its **transport**, not to the installation alone: a
+  // Graph account carries a file above 25 MB through an upload session, while an SMTP account is bounded by
+  // the server's own ceiling. Resolved from the account row by the same rule the seam binds the transport
+  // with, and before any attachment is fetched, so an impossible message is refused before the work.
+  const transportKind = transportKindForAccount(account);
+  const limits = effectiveSendLimits(transportKind);
+  if (attachments?.length) {
+    for (const a of attachments) {
+      const bytes = decodedBase64Bytes(a.content);
+      const tooLarge = attachmentRefusal(bytes, limits, sanitizeHeaderValue(a.filename));
+      if (tooLarge) return res.status(413).json(sendLimitRefusalBody(tooLarge));
+    }
+    const uploadedTotal = attachments.reduce((sum, a) => sum + decodedBase64Bytes(a.content), 0);
+    const totalRefusal = attachmentsRefusal(uploadedTotal, limits);
+    if (totalRefusal) return res.status(413).json(sendLimitRefusalBody(totalRefusal));
+  }
   let sender;
   try {
     sender = await resolveSenderIdentity(account, aliasId);
@@ -520,9 +574,8 @@ router.post('/send', async (req, res) => {
       });
       // Attachments that were uploaded and attachments still on the server are one total:
       // a forwarded attachment costs the same as an uploaded one.
-      if (uploadedBytes + declaredFwdBytes > SEND_ATTACHMENT_TOTAL_BYTES) {
-        return res.status(413).json({ code: 'MESSAGE_TOO_LARGE', actual: uploadedBytes + declaredFwdBytes, limit: SEND_ATTACHMENT_TOTAL_BYTES, error: 'Total attachment size exceeds 25 MB' });
-      }
+      const declaredRefusal = attachmentsRefusal(uploadedBytes + declaredFwdBytes, limits);
+      if (declaredRefusal) return res.status(413).json(sendLimitRefusalBody(declaredRefusal));
 
       // Load the owning accounts once, then fetch bodies with bounded concurrency so we never
       // open a burst of fresh IMAP connections (fetchAttachment opens a connection per call).
@@ -546,7 +599,7 @@ router.post('/send', async (req, res) => {
             attachment: { part: att.part, filename: att.filename },
             imap: (sourceAccount, uid, folder, part) =>
               imapManager.fetchAttachment(sourceAccount as EmailAccountRow, uid as number, folder, part),
-            maxBytes: limits.attachmentBytes,
+            maxBytes: limits.singleAttachmentBytes,
           }).catch((caught: unknown) => {
             if (caught instanceof SourceAttachmentError) {
               throw Object.assign(new Error(caught.message), { status: caught.status, code: caught.code });
@@ -570,14 +623,8 @@ router.post('/send', async (req, res) => {
       // so it is the one most likely to be reached.
       const fwdBytes = resolvedFwdAttachments.reduce((sum, a) => sum + (a.content?.length || 0), 0);
       const forwardedTotal = uploadedBytes + fwdBytes;
-      if (forwardedTotal > SEND_ATTACHMENT_TOTAL_BYTES) {
-        return res.status(413).json({
-          code: 'MESSAGE_TOO_LARGE',
-          actual: forwardedTotal,
-          limit: SEND_ATTACHMENT_TOTAL_BYTES,
-          error: 'Total attachment size exceeds 25 MB',
-        });
-      }
+      const exactRefusal = attachmentsRefusal(forwardedTotal, limits);
+      if (exactRefusal) return res.status(413).json(sendLimitRefusalBody(exactRefusal));
     } catch (caught) {
       const err = toAppError(caught);
       // Carry the domain code through, so the interface can answer in the user's language instead of echoing
@@ -725,18 +772,17 @@ router.post('/send', async (req, res) => {
     // rather than a declared size: these contents are the decoded ones, so this is measurement, not trust. The
     // total check below would refuse the same message, which is why this runs first — same policy, but the
     // administrator learns which file caused it.
-    const perAttachmentLimit = limits.attachmentBytes;
-    const oversizedAttachment = allAttachments.find(
-      a => Buffer.isBuffer(a.content) && a.content.length > perAttachmentLimit,
-    );
-    if (oversizedAttachment) {
-      return res.status(413).json({
-        code: 'ATTACHMENT_TOO_LARGE',
-        actual: (oversizedAttachment.content as Buffer).length,
-        limit: perAttachmentLimit,
-        filename: oversizedAttachment.filename,
-        error: `The attachment "${oversizedAttachment.filename}" is ${(oversizedAttachment.content as Buffer).length} bytes, above this installation's limit of ${perAttachmentLimit}.`,
-      });
+    // The inline images the composer created from `data:` URIs have their own budget: they are attachments
+    // too, but a body full of pasted screenshots is a different problem from one oversized file, and the
+    // dimension is what lets the interface say which it is.
+    const inlineBytes = inlineImageAttachments.reduce((sum, a) => sum + (a.content?.length || 0), 0);
+    const inlineRefusal = inlineImagesRefusal(inlineBytes, limits);
+    if (inlineRefusal) return res.status(413).json(sendLimitRefusalBody(inlineRefusal));
+
+    for (const candidate of allAttachments) {
+      if (!Buffer.isBuffer(candidate.content)) continue;
+      const refusal = attachmentRefusal(candidate.content.length, limits, candidate.filename);
+      if (refusal) return res.status(413).json(sendLimitRefusalBody(refusal));
     }
 
     // OAuth providers (Gmail, Microsoft) save sent mail to IMAP automatically via their
@@ -789,22 +835,31 @@ router.post('/send', async (req, res) => {
     // base64 growth, separators and CRLF included — counted on the server side, before any dispatch. Nothing has
     // been claimed or handed to the transport at this point, so refusing here leaves no uncertain send behind.
     if (rendered) {
-      const messageLimit = limits.mimeBytes;
-      if (rendered.raw.length > messageLimit) {
+      // §12.2 counts three figures, not one: the raw attachment bytes, the compiled MIME, and the transport
+      // encoding. The first two are known here, and the refusal carries all of them so the interface can tell
+      // the user whether to remove a file or shorten the message.
+      const renderedRefusal = messageSizeRefusal(rendered.raw.length, limits);
+      if (renderedRefusal) {
         // §12.2 counts three figures, not one: the raw attachment bytes, the compiled MIME, and the transport
         // encoding. The first two are known here, and naming the attachment subtotal tells the user whether to
         // remove a file or shorten the message — the difference between advice and a number.
         const rawAttachmentBytes = allAttachments.reduce(
           (sum, a) => sum + (Buffer.isBuffer(a.content) ? a.content.length : 0), 0,
         );
-        return res.status(413).json({
-          code: 'MESSAGE_TOO_LARGE',
-          actual: rendered.raw.length,
-          limit: messageLimit,
-          error: `The composed message is ${rendered.raw.length} bytes, above this installation's limit of ${messageLimit}.`
-            + ` Attachments account for ${rawAttachmentBytes} of them.`,
-        });
+        const body = sendLimitRefusalBody(renderedRefusal);
+        return res.status(413).json({ ...body, error: `${body.error} Attachments account for ${rawAttachmentBytes} of them.` });
       }
+    }
+
+    // A transport that can decide its own size question decides it here — **before** the durable intent is
+    // claimed. That ordering is the point: an over-limit message then leaves no intent to reconcile, no
+    // `provider_operations` row, and no room for the answer to be mistaken for an unknown outcome.
+    const preflightRefusal = transport.preflight ? await transport.preflight(composed) : null;
+    if (preflightRefusal) {
+      return res.status(preflightRefusal.statusCode).json({
+        ...sendLimitRefusalBody(preflightRefusal),
+        error: preflightRefusal.error,
+      });
     }
 
     // A database-backed intent is the final, cross-process gate immediately before SMTP.

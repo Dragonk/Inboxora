@@ -1,3 +1,4 @@
+import { sendHttpBodyWindowBytes } from '../services/sendLimits.js';
 /** A throwable with the optional fields this codebase reads (Postgres codes, HTTP status). */
 export interface AppError extends Error {
   code?: string;
@@ -43,8 +44,13 @@ export function requestTooLargeMessage(path: string): string {
     // A spritesheet is uploaded as a base64 body, so its decoded cap is 5 MB.
     return 'The image is too large. The spritesheet must be smaller than 5 MB.';
   }
-  if (target.startsWith('/api/mail/send') || target.startsWith('/api/mail/draft')) {
-    return 'Request too large. Total attachment size must not exceed 25 MB.';
+  if (target.startsWith('/api/mail/send')) {
+    // The send route's window is the hard attachment ceiling carried as base64; which *transport* ceiling
+    // applies is decided later, per account, and reported with its own domain code.
+    return `Request too large. A send request may carry at most ${Math.floor(sendHttpBodyWindowBytes() / (1024 * 1024))} MB in one piece.`;
+  }
+  if (target.startsWith('/api/mail/draft')) {
+    return 'Request too large. The draft is bigger than this installation accepts.';
   }
   return 'Request too large.';
 }

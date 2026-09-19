@@ -1080,8 +1080,11 @@
     },
     "sendUncertainTitle": "Résultat d'envoi inconnu",
     "sendUncertainBody": "La connexion a été perdue après la remise de ce message au serveur : Inboxora ne peut donc pas savoir s'il a été envoyé — et ne le renverra pas automatiquement. Vérifiez le dossier Éléments envoyés du compte : s'il y est, il a été envoyé.",
-    "attachmentTooLarge": "« {name} » fait {actual} ; la limite est de {limit}. Le fichier n’a pas été joint.",
-    "messageTooLarge": "Le message entier fait {actual} ; la limite est de {limit}. Retirez des fichiers ou raccourcissez le message.",
+    "limitAttachmentTooLarge": "« {name} » fait {actual}, au-delà de la limite de {limit} pour {transport}. Le fichier n’a pas été joint.",
+    "limitTooLarge": "Ce message fait {actual}, au-delà de la limite de {limit} pour {transport}. Retirez des fichiers ou raccourcissez le message.",
+    "limitTransportSmtp": "le serveur de messagerie de ce compte",
+    "limitTransportGraph": "Microsoft Graph",
+    "limitTransportGmail": "Gmail",
     "attachmentFetchFailed": "La pièce jointe transférée n’a pas pu être récupérée. Le message n’a pas été envoyé sans ce fichier."
   },
   "contacts": {

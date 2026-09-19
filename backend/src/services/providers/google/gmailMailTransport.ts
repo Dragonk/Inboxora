@@ -26,12 +26,23 @@ export interface GmailTransportApi {
 }
 
 export function gmailMailTransport(api: GmailTransportApi) {
+  /**
+   * The render the seam measured, kept so the send that follows composes the message once.
+   *
+   * The transport instance is per request (the seam builds it for one account), so this is a single-use cache
+   * rather than shared state, and it is cleared by the send that uses it.
+   */
+  let measuredRaw: Buffer | null = null;
   return {
     kind: 'gmail_api' as const,
+    /** Render the raw message this transport would post. */
+    render: (composed: ComposedMail) => renderGmailRawMessage(composed),
+    /** Keep the render a preflight measured, for the send that follows. */
+    rememberRaw: (raw: Buffer) => { measuredRaw = raw; },
     async send(input: { composed: ComposedMail }): Promise<TransportSendResult> {
       let raw: Buffer;
       try {
-        raw = await renderGmailRawMessage(input.composed);
+        raw = measuredRaw ?? await renderGmailRawMessage(input.composed);
       } catch (caught) {
         // Composing failed before anything left: retryable, not unknown.
         return {
@@ -43,6 +54,8 @@ export function gmailMailTransport(api: GmailTransportApi) {
         };
       }
 
+      // Measure once: the preflight already measured this exact buffer when it ran.
+      measuredRaw = null;
       const refusal = gmailMessageSizeRefusal(raw.length);
       if (refusal) {
         return {

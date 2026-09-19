@@ -1,4 +1,5 @@
 import { googleApiJson, googleApiRequest, googleApiVoid, googleUrl } from './googleApiClient.js';
+import { GMAIL_RAW_MESSAGE_MAX_BYTES } from '../mailCapabilities.js';
 import type { GoogleApiOptions } from './googleApiClient.js';
 
 /**
@@ -22,7 +23,9 @@ export const GMAIL_API_BASE = 'https://gmail.googleapis.com/gmail/v1';
 export const GMAIL_USER = 'me';
 
 /** Gmail's own limits, kept in the provider's terms rather than invented. */
-export const GMAIL_MAX_RAW_MESSAGE_BYTES = 25 * 1024 * 1024;
+// The value lives in the mail-capability definition (one provider fact, one place); this module keeps the
+// name its callers already import.
+export const GMAIL_MAX_RAW_MESSAGE_BYTES = GMAIL_RAW_MESSAGE_MAX_BYTES;
 export const GMAIL_MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 
 /** Build a Gmail URL with only the defined query parameters. */

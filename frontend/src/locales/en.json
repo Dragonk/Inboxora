@@ -1080,8 +1080,11 @@
     },
     "sendUncertainTitle": "Send result unknown",
     "sendUncertainBody": "The connection was lost after this message was handed to the server, so Inboxora cannot know whether it was sent — and will not send it again automatically. Check the account's Sent folder: if it is there, it was sent.",
-    "attachmentTooLarge": "“{name}” is {actual}; the limit is {limit}. The file was not attached.",
-    "messageTooLarge": "The whole message is {actual}; the limit is {limit}. Remove some files or shorten the message.",
+    "limitAttachmentTooLarge": "“{name}” is {actual}, above the {limit} limit for {transport}. The file was not attached.",
+    "limitTooLarge": "This message is {actual}, above the {limit} limit for {transport}. Remove some files or shorten the message.",
+    "limitTransportSmtp": "this account’s mail server",
+    "limitTransportGraph": "Microsoft Graph",
+    "limitTransportGmail": "Gmail",
     "attachmentFetchFailed": "The forwarded attachment could not be fetched. The message was not sent without that file."
   },
   "contacts": {

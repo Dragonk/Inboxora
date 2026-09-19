@@ -478,6 +478,9 @@ type SameValueRule = 'any' | string[][];
 
 const SAME_VALUE_ALLOWED: Record<string, SameValueRule> = {
   'calendar.contactDateEvent': 'any', // Interpolation-only title template.
+  // Product names: the same in every language by design (P06's transport names in a size refusal).
+  'compose.limitTransportGraph': 'any',
+  'compose.limitTransportGmail': 'any',
   'calendar.unnamedContact': [['en', 'fr'], ['cs', 'de', 'pl']],
   'layouts.compact.label': [['en', 'fr']],
   'mailFolders.archive': [['cs', 'de']],

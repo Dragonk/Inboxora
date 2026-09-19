@@ -328,6 +328,9 @@ export const api = {
   // The Google mail migration recommendation for the signed-in user's own mailboxes, and its durable
   // per-user-per-account suppression. The wording is the interface's; the server sends identity only.
   getNotices: () => request('GET', '/integrations/notices'),
+  // The size limits the sending account's transport is measured against (P06). The server answers with the
+  // effective numbers; `null` means the transport declares no such ceiling.
+  getSendLimits: (accountId: string) => request('GET', `/mail/send-limits?accountId=${encodeURIComponent(accountId)}`),
   suppressNotice: (accountId: string) => request('POST', `/integrations/notices/${encodeURIComponent(accountId)}/suppress`, {}),
   // Disconnect a provider account the signed-in user connected. Imported data is kept.
   disconnectProviderConnection: (id: string) => request('POST', `/integrations/provider-connections/${encodeURIComponent(id)}/disconnect`),

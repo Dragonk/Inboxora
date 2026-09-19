@@ -1,4 +1,5 @@
 import { GRAPH_API_BASE, classifyGraphError, graphPost, type GraphApiOptions } from './graphApiClient.js';
+import { GRAPH_INLINE_ATTACHMENT_MAX_BYTES, GRAPH_UPLOAD_SESSION_FILE_MAX_BYTES } from '../mailCapabilities.js';
 import type { ComposedAttachment } from '../../composedMail.js';
 
 /**
@@ -8,8 +9,12 @@ import type { ComposedAttachment } from '../../composedMail.js';
  * requires an upload session — a choice of *method*, not a ceiling. `150 MB` is the largest single file an
  * upload session accepts. Neither of them is a limit on the message, and neither may be used as one.
  */
-export const GRAPH_DIRECT_ATTACHMENT_MAX_BYTES = 3 * 1024 * 1024;
-export const GRAPH_UPLOAD_SESSION_FILE_MAX_BYTES = 150 * 1024 * 1024;
+// The numbers themselves live in the mail-capability definition, so the send limit model and this adapter
+// cannot disagree about what Graph accepts. The `DIRECT` name is this module's historical spelling of the
+// inline threshold; the value is not repeated here.
+export const GRAPH_DIRECT_ATTACHMENT_MAX_BYTES = GRAPH_INLINE_ATTACHMENT_MAX_BYTES;
+// `GRAPH_UPLOAD_SESSION_FILE_MAX_BYTES` is re-exported for the callers that already import it from here.
+export { GRAPH_UPLOAD_SESSION_FILE_MAX_BYTES };
 /** Graph requires every chunk except the last to be a multiple of 320 KiB. */
 export const GRAPH_UPLOAD_CHUNK_ALIGNMENT = 320 * 1024;
 const CHUNK_BYTES = GRAPH_UPLOAD_CHUNK_ALIGNMENT * 4;
