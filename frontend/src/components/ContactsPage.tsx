@@ -303,6 +303,9 @@ export default function ContactsPage({ isActive = true }) {
   const listRequestRef = useRef(0);
 
   useEffect(() => { contactsRef.current = contacts; }, [contacts]);
+  // A previous book's import confirmation must not follow the user to the next one:
+  // it is rendered outside the address-book menu, so a stale one would be visible.
+  useEffect(() => { setImportNotice(''); }, [selectedAddressBookId]);
   useEffect(() => { totalRef.current = total; }, [total]);
 
   const loadAddressBooks = useCallback(async () => {

@@ -319,6 +319,9 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   contacts; it now names the total across that provider's books or calendars. The date stays the
   freshest sync, so the message says "in total" rather than implying the count belongs to that one
   time — they are different aggregations over the same set.
+- Clear a contact import's confirmation when you switch address books. It is shown outside the
+  address-book menu, so the previous book's result stayed visible over the next one — the same stale
+  confirmation the calendar import no longer shows.
 
 ## [4.0.4] - 2026-09-18
 

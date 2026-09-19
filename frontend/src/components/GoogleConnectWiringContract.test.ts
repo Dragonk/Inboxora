@@ -224,3 +224,9 @@ test('the last-sync line reports the total the connector holds', async () => {
   assert.match(strings.calendar.lastSynced, /\{\{count\}\}/);
   assert.match(strings.calendar.lastSynced, /in total/);
 });
+
+test('an import confirmation does not follow the user to another address book', async () => {
+  const source = await readFile(contactsPage, 'utf8');
+  // The notice renders outside the address-book menu, so a stale one is visible.
+  assert.match(source, /useEffect\(\(\) => \{ setImportNotice\(''\); \}, \[selectedAddressBookId\]\)/);
+});
