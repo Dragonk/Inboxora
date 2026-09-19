@@ -204,6 +204,24 @@ production behaviour was never in question — only my ability to observe it.
 The lesson is narrower than "test more": when a handler rejects and the client sees nothing, the
 question is whether the rejection is *forwarded*, not what the handler did.
 
+## Other unbounded body readers, found by sweeping for the DAV defect's shape
+
+The DAV fix closed one instance of a general shape: code that accumulates a stream into memory with no
+cap. Sweeping the backend for `on('data')` found two more, and they belong to different owners:
+
+- **`draft.ts:143` and `send.ts:712`** read an IMAP message stream into memory with no cap. A message
+  with a large attachment is buffered whole. This is **P06's territory** — the package is defined as the
+  durable send ledger with separated file, total, MIME and HTTP limits — so it is recorded as part of
+  that package rather than as a new defect.
+- **`oidc.ts:100`** accumulates a *response* from the identity provider (`res.on('data')`) with no cap.
+  The endpoint is configured by the operator and the response is normally a few kilobytes, so the risk is
+  lower than the DAV case, but it is the same shape: a compromised or misconfigured provider could make
+  the process buffer an arbitrary response. A cap here is a small, self-contained hardening change and is
+  the cheapest of the three to close.
+
+What is *not* affected: the import routes (JSON, already under the 1 MB parser limit), the DAV routes
+(capped), and the request-side readers in the mail ingestion path, which stream to disk.
+
 ## Acceptance criteria W01–W19, as the plan requires them reported
 
 The plan states that the scope is not complete until every W item has associated code **and real test
