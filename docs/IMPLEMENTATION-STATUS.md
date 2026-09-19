@@ -173,6 +173,66 @@ Recipes to close the two gaps, left unapplied because CI cost is an operator dec
 - **Browser suite** — add `push: branches: [dev]` to `conversation-v2-playwright.yml`, or integrate
   through a pull request so its existing trigger applies.
 
+The database recipe as a job, ready to paste into `ci.yml` beside the existing `backend` job (the
+suite creates and drops its own rows, so it needs nothing but an empty migrated database):
+
+```yaml
+  backend-database:
+    name: Backend (PostgreSQL integration)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: mailflow_test
+          POSTGRES_PASSWORD: mailflow_test
+          POSTGRES_DB: mailflow_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U mailflow_test -d mailflow_test"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm, cache-dependency-path: backend/package-lock.json }
+      - run: npm ci
+        working-directory: backend
+      - name: Apply migrations (transactional, then the ones marked -- no-transaction)
+        working-directory: backend
+        env:
+          PGPASSWORD: mailflow_test
+        run: |
+          set -euo pipefail
+          for f in $(ls migrations/*.sql | sort); do
+            if grep -qE '^--\s*no-transaction' "$f"; then
+              psql -h 127.0.0.1 -U mailflow_test -d mailflow_test -v ON_ERROR_STOP=1 -q < "$f"
+            else
+              psql -h 127.0.0.1 -U mailflow_test -d mailflow_test -1 -v ON_ERROR_STOP=1 -q < "$f"
+            fi
+          done
+      - name: Integration suites
+        working-directory: backend
+        env:
+          DB_HOST: 127.0.0.1
+          DB_PORT: '5432'
+          DB_NAME: mailflow_test
+          DB_USER: mailflow_test
+          DB_PASSWORD: mailflow_test
+          REQUIRE_DAV_POSTGRES: '1'
+        run: |
+          npx vitest run \
+            src/services/providerAuthService.integration.test.ts \
+            src/services/providerTokenService.integration.test.ts \
+            src/services/providerOperations.integration.test.ts \
+            src/services/providerConnectionService.integration.test.ts \
+            src/services/providers/google src/services/providers/microsoft \
+            src/routes/davPg.integration.test.ts
+```
+
+It is left unapplied because CI minutes are an operator decision, not because it is difficult. Note
+what it buys beyond the tests: it proves the **migration chain applies to an empty database**, which
+no other job in this repository currently does for a fresh install.
+
 ## Concurrency note on the refresh lease
 
 A successful token store releases the refresh lease as part of writing the new token. That leaves
