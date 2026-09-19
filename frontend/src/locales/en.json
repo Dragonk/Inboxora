@@ -344,7 +344,8 @@
         "deviceCodeCancel": "Cancel",
         "graphConnect": "Connect Microsoft contacts",
         "graphConnecting": "Opening Microsoft…",
-        "graphHint": "Authorizes Microsoft Graph for contacts only. It does not change or migrate your mailbox."
+        "graphHint": "Authorizes Microsoft Graph for contacts only. It does not change or migrate your mailbox.",
+        "graphConnectedNote": "Microsoft contacts connected. Use Sync Microsoft contacts on the Contacts page."
       },
       "todoist": {
         "title": "Todoist",

@@ -344,7 +344,8 @@
         "deviceCodeCancel": "Abbrechen",
         "graphConnect": "Microsoft-Kontakte verbinden",
         "graphConnecting": "Microsoft wird geöffnet…",
-        "graphHint": "Autorisiert Microsoft Graph nur für Kontakte. Ihr Postfach wird nicht geändert oder migriert."
+        "graphHint": "Autorisiert Microsoft Graph nur für Kontakte. Ihr Postfach wird nicht geändert oder migriert.",
+        "graphConnectedNote": "Microsoft-Kontakte verbunden. Nutzen Sie „Microsoft-Kontakte synchronisieren“ auf der Seite Kontakte."
       },
       "todoist": {
         "title": "Todoist",

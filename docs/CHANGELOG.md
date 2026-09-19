@@ -327,6 +327,12 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   showed a failure as `… ( )` instead of when it happened. Both surfaces now carry it, and a
   real-database case covers the other half of the contract: a run that fails after taking the lease
   records both the code and the time the status line reads.
+- Acknowledge the Microsoft Graph connection in the tab that started it. The connect button opens a
+  popup, and the popup reports the provider it was redirected with — `microsoft_graph` — which the
+  opener had no branch for, so completing **Connect Microsoft contacts** left the card unchanged, the
+  button stuck until its timeout, and the Contacts page unaware that an account had just become
+  connectable. The Graph connector now gets its own confirmation, distinct from the mailbox sign-in
+  because they are different grants.
 
 ## [4.0.4] - 2026-09-18
 

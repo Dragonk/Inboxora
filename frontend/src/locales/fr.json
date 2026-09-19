@@ -344,7 +344,8 @@
         "deviceCodeCancel": "Annuler",
         "graphConnect": "Connecter les contacts Microsoft",
         "graphConnecting": "Ouverture de Microsoft…",
-        "graphHint": "Autorise Microsoft Graph pour les contacts uniquement. Votre boîte aux lettres n’est ni modifiée ni migrée."
+        "graphHint": "Autorise Microsoft Graph pour les contacts uniquement. Votre boîte aux lettres n’est ni modifiée ni migrée.",
+        "graphConnectedNote": "Contacts Microsoft connectés. Utilisez « Synchroniser les contacts Microsoft » sur la page Contacts."
       },
       "todoist": {
         "title": "Todoist",

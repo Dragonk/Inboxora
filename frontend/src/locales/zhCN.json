@@ -344,7 +344,8 @@
         "deviceCodeCancel": "取消",
         "graphConnect": "连接 Microsoft 联系人",
         "graphConnecting": "正在打开 Microsoft…",
-        "graphHint": "仅授权 Microsoft Graph 访问联系人。不会更改或迁移您的邮箱。"
+        "graphHint": "仅授权 Microsoft Graph 访问联系人。不会更改或迁移您的邮箱。",
+        "graphConnectedNote": "Microsoft 联系人已连接。请在“联系人”页面使用“同步 Microsoft 联系人”。"
       },
       "todoist": {
         "title": "Todoist",

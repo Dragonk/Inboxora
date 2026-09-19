@@ -2659,6 +2659,7 @@ function IntegrationsTab() {
   const [googleSaveMsg, setGoogleSaveMsg] = useState('');
   const [connectingGoogle, setConnectingGoogle] = useState(false);
   const [connectingGraph, setConnectingGraph] = useState(false);
+  const [graphSaveMsg, setGraphSaveMsg] = useState('');
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState('');
   const [connectingMs, setConnectingMs] = useState(false);
@@ -2750,6 +2751,12 @@ function IntegrationsTab() {
         if (isAdmin) api.getIntegrations().then(setConfigs).catch(console.error);
         // The contacts page reads this status to offer the pull.
         api.getAccounts().then(setAccounts).catch(console.error);
+      } else if (e.data?.type === 'oauth_success' && e.data?.provider === 'microsoft_graph') {
+        // The Graph connector is a different grant from the mailbox sign-in, so it gets
+        // its own confirmation rather than borrowing the mailbox one.
+        setGraphSaveMsg(t('admin.integrations.microsoft.graphConnectedNote'));
+        setConnectingGraph(false);
+        api.getIntegrationsStatus().then(data => setMsStatus(data.microsoft || null)).catch(console.error);
       } else if (e.data?.type === 'oauth_success' && e.data?.provider === 'microsoft') {
         setSaveMsg(t('admin.integrations.microsoft.connectedNote'));
         setConnectingMs(false);
@@ -3186,6 +3193,11 @@ function IntegrationsTab() {
                       >
                         {connectingGraph ? t('admin.integrations.microsoft.graphConnecting') : t('admin.integrations.microsoft.graphConnect')}
                       </button>
+                      {graphSaveMsg && (
+                        <div data-testid="microsoft-graph-connected" style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 6 }}>
+                          {graphSaveMsg}
+                        </div>
+                      )}
                       <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 6 }}>
                         {t('admin.integrations.microsoft.graphHint')}
                       </div>

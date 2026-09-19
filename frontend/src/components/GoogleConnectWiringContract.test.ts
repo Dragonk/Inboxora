@@ -230,3 +230,19 @@ test('an import confirmation does not follow the user to another address book', 
   // The notice renders outside the address-book menu, so a stale one is visible.
   assert.match(source, /useEffect\(\(\) => \{ setImportNotice\(''\); \}, \[selectedAddressBookId\]\)/);
 });
+
+test('the opener acknowledges the Graph connector popup, which posts its own provider', async () => {
+  const source = await readFile(adminPanel, 'utf8');
+  // The popup posts `oauth_success=<provider>`; the Graph flow posts 'microsoft_graph',
+  // which no branch handled, so the connection went unacknowledged in the opener.
+  assert.match(source, /e\.data\?\.provider === 'microsoft_graph'/);
+  assert.match(source, /admin\.integrations\.microsoft\.graphConnectedNote/);
+  assert.match(source, /data-testid="microsoft-graph-connected"/);
+  // It must be its own confirmation, not the mailbox one: they are different grants.
+  assert.match(source, /setGraphSaveMsg\(t\('admin\.integrations\.microsoft\.graphConnectedNote'\)\)/);
+  assert.match(source, /setConnectingGraph\(false\)/);
+  // Every provider the flows redirect with must have a branch.
+  for (const provider of ['google', 'microsoft', 'microsoft_graph']) {
+    assert.match(source, new RegExp(`provider === '${provider}'`), `no opener branch for ${provider}`);
+  }
+});

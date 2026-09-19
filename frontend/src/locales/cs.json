@@ -775,7 +775,8 @@
         "deviceCodeCancel": "Zrušit",
         "graphConnect": "Připojit kontakty Microsoft",
         "graphConnecting": "Otevírání Microsoft…",
-        "graphHint": "Autorizuje Microsoft Graph pouze pro kontakty. Vaše schránka se nemění ani nepřesouvá."
+        "graphHint": "Autorizuje Microsoft Graph pouze pro kontakty. Vaše schránka se nemění ani nepřesouvá.",
+        "graphConnectedNote": "Kontakty Microsoft připojeny. Použijte „Synchronizovat kontakty Microsoft“ na stránce Kontakty."
       },
       "todoist": {
         "title": "Todoist",

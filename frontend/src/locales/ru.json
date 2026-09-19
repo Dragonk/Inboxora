@@ -344,7 +344,8 @@
         "deviceCodeCancel": "Отмена",
         "graphConnect": "Подключить контакты Microsoft",
         "graphConnecting": "Открытие Microsoft…",
-        "graphHint": "Авторизует Microsoft Graph только для контактов. Почтовый ящик не изменяется и не переносится."
+        "graphHint": "Авторизует Microsoft Graph только для контактов. Почтовый ящик не изменяется и не переносится.",
+        "graphConnectedNote": "Контакты Microsoft подключены. Используйте «Синхронизировать контакты Microsoft» на странице «Контакты»."
       },
       "todoist": {
         "title": "Todoist",

@@ -783,7 +783,8 @@
         "deviceCodeCancel": "Anuluj",
         "graphConnect": "Połącz kontakty Microsoft",
         "graphConnecting": "Otwieranie Microsoft…",
-        "graphHint": "Autoryzuje Microsoft Graph tylko dla kontaktów. Nie zmienia ani nie migruje Twojej skrzynki."
+        "graphHint": "Autoryzuje Microsoft Graph tylko dla kontaktów. Nie zmienia ani nie migruje Twojej skrzynki.",
+        "graphConnectedNote": "Kontakty Microsoft połączone. Użyj opcji Synchronizuj kontakty Microsoft na stronie Kontakty."
       },
       "todoist": {
         "title": "Todoist",
