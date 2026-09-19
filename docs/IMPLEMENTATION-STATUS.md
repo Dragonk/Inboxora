@@ -314,6 +314,27 @@ its entries are unmet.
 | Help UI, card copy, tooltips and `aria-label`s matching the same policy | **Not checked.** |
 | Screenshots refreshed from the real preview and anonymised | **Not done**, and the checklist forbids edited images that imitate a working interface. |
 
+**Where the admin guide's sections belong**, which is worth settling before anyone writes the two "missing"
+pages: the guide has eight sections and they map onto different surfaces, so the requirement is not two pages of
+procedure but a set of touchpoints — and the checklist itself says the list means required touchpoints rather
+than copying the whole instruction everywhere.
+
+| Admin guide section | Belongs in | State |
+| --- | --- | --- |
+| §1 method choice and who configures versus who authorizes | `Getting-started.md` | not compared |
+| §2 before configuring | `Installation.md`, `.env.example` | partly met: the env values are documented in both |
+| §3 Microsoft registration, Graph permissions, browser variant, **device-code variant**, updating an existing installation | `Provider-setup.md` for the registration and permissions (**covered**); the **device variant is not documented** anywhere as a procedure, only as a button and its UI copy; §3.5 belongs in `Upgrading.md` |
+| §4 Google API setup, consent screen, client, scopes, testing versus public, why no Google device flow | `Provider-setup.md` — the first five are covered; "why there is no Google device flow" is stated in the card and in code, not as documentation |
+| §5 Google IMAP/SMTP with an app password | `Email-and-threading.md` / `Getting-started.md` | not compared; this is the half the policy says must stay available |
+| §6 what a user sees after the upgrade | `Upgrading.md` | not compared |
+| §7 diagnostics and rotation | `Troubleshooting.md` | the page has a Troubleshooting section; whether it covers secret/callback/consent errors and rotation is unverified |
+| §8 how the instruction is received by the agent | this document | met |
+
+So the concrete documentation gaps are narrower than "two pages": a **device-code procedure** (Microsoft's
+variant B) has no home, the **app-password** path is not compared against §5, and the diagnostics and upgrade
+sections are unverified. Writing `Microsoft-provider.md`/`Google-provider.md` as new pages would **duplicate**
+`Provider-setup.md`, which the checklist explicitly does not require.
+
 The document also states two rules this work already follows and one it must not break: **do not claim that
 writing to `docs/wiki` updated an external wiki without proof** (the status document describes the publish
 script without claiming a publication), and **do not announce the scope complete with an undocumented account
