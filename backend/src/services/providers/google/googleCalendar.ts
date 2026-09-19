@@ -243,26 +243,30 @@ export function buildGoogleEventICalendar(event: GoogleCalendarEvent, input: { d
 /**
  * One VCALENDAR holding a series: the master event plus its instance overrides.
  * Shared VTIMEZONEs are emitted once, covering the years the series can reach.
+ * An override-only batch (an incremental sync that skipped the master) is allowed
+ * and is meant to be merged into the stored resource.
  */
 export function buildGoogleSeriesICalendar(input: {
-  master: GoogleCalendarEvent;
+  master?: GoogleCalendarEvent | null;
   overrides?: readonly GoogleCalendarEvent[];
   defaultTimeZone?: string | null;
 }): string | null {
   const defaultTimeZone = isValidTimeZone(input.defaultTimeZone) ? input.defaultTimeZone : null;
-  const master = buildVEventLines(input.master, { defaultTimeZone, override: false });
-  if (!master) return null;
+  const master = input.master ? buildVEventLines(input.master, { defaultTimeZone, override: false }) : null;
+  if (input.master && !master) return null;
   const overrides = (input.overrides ?? [])
     .map(event => buildVEventLines(event, { defaultTimeZone, override: true }))
     .filter((built): built is VEventBuild => built !== null);
+  if (!master && overrides.length === 0) return null;
 
-  const zones = new Set<string>(master.zones);
+  const zones = new Set<string>(master?.zones ?? []);
   for (const built of overrides) for (const zone of built.zones) zones.add(zone);
 
-  const startYear = master.startYear ?? new Date().getUTCFullYear();
+  const startYear = master?.startYear ?? overrides[0]?.startYear ?? new Date().getUTCFullYear();
   // A series can run indefinitely, so cover a decade of transitions; a single
-  // event only needs the years around it.
-  const yearWindow = master.recurring ? [startYear - 1, startYear + 10] : [startYear - 1, startYear + 1];
+  // event (or an override batch) only needs the years around it.
+  const recurring = master?.recurring ?? false;
+  const yearWindow = recurring ? [startYear - 1, startYear + 10] : [startYear - 1, startYear + 1];
   const timezones: string[] = [];
   for (const zone of zones) {
     const block = buildVTimezone(zone, yearWindow[0], yearWindow[1]);
@@ -274,7 +278,7 @@ export function buildGoogleSeriesICalendar(input: {
     'VERSION:2.0',
     'PRODID:-//Inboxora//Google Calendar adapter//EN',
     ...timezones.flatMap(block => block.split('\r\n')),
-    ...master.lines,
+    ...(master?.lines ?? []),
     ...overrides.flatMap(built => built.lines),
     'END:VCALENDAR',
     '',

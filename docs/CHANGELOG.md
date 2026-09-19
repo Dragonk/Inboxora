@@ -147,6 +147,20 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   suite now pins both the summer and winter instant. Provider text is escaped and lines folded per
   RFC 5545, and an event without a usable zone falls back to the exact UTC instant rather than an
   undefined floating time.
+- Add the Google Calendar read sync (P09). `POST /api/calendar/providers/google/sync` reads the
+  signed-in user's Google calendars through the Calendar API and creates one local calendar per
+  Google calendar, read-only and with DAV access *Disabled* so nothing is published to a device
+  until the user enables it. A recurring event stays one event with one rule and one local
+  resource: a modified instance is merged in as a `RECURRENCE-ID` override and a cancelled instance
+  as a `CANCELLED` override, while an incremental batch that carries only an override updates that
+  component and leaves the rest of the series untouched. Each calendar's cursor is stored under the
+  P03 lease, so only one sync runs per calendar and a restarted worker cannot advance it out of
+  order; a cursor Google rejects (HTTP 410) rebuilds that calendar from a fresh baseline without
+  deleting the local projection first, and one calendar failing does not stop the others. The new
+  `GET /api/calendar/providers/google/status` reports readiness, the connection count and each
+  imported calendar's event count and last-sync time without exposing any credential. The in-app
+  control and automatic schedule arrive with the account-connection interface; the calendar list
+  itself already shows the imported calendars.
 
 ## [4.0.4] - 2026-09-18
 

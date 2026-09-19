@@ -21,6 +21,27 @@ straight away and appears as a read-only calendar named after the entry you adde
 The same list is available from the calendar panel under **Manage sources**, which is also where you
 remove a subscription, run **Sync now**, inspect a failure and change its cadence.
 
+## Pulling calendars from Google
+
+Once a Google account is connected, Inboxora can read that account's calendars through the Google
+Calendar API instead of a feed URL. Each Google calendar becomes its own local calendar, named after
+the Google one.
+
+- Calendars arrive **read-only** and with **DAV access: Disabled**, so they are not published to your
+  phone or desktop until you enable them yourself.
+- A recurring event stays **one event with one rule**, exactly as in Google — it is never split into
+  separate copies. A single moved occurrence and a single cancelled occurrence are kept as
+  exceptions to that rule.
+- Wall-clock times are stored with the zone's own daylight-saving rules, so a weekly 09:00 meeting
+  stays at 09:00 after a DST change rather than drifting by an hour.
+- Synchronisation is incremental: the first pass reads everything and stores a cursor, and later
+  passes read only what changed. If Google rejects the stored cursor, that calendar is rebuilt from
+  a fresh baseline rather than failing.
+- One calendar failing does not stop the others; the failure is reported per calendar.
+
+The in-app control for this pull is still to come with the account-connection interface; until then
+it is triggered through the API and the imported calendars appear in the normal calendar list.
+
 ### Holiday calendars
 
 The **Public holidays** block in the same settings section adds a country's holidays as an ordinary
