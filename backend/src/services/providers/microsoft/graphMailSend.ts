@@ -1,4 +1,4 @@
-import { graphPost, type GraphApiOptions } from './graphApiClient.js';
+import { GraphApiError, graphPost, type GraphApiOptions } from './graphApiClient.js';
 import type { ComposedMail } from '../../composedMail.js';
 
 /**
@@ -80,4 +80,58 @@ export async function createGraphDraft(api: GraphApiOptions, composed: ComposedM
     throw new Error('Microsoft Graph did not return a draft id');
   }
   return created;
+}
+
+export type GraphSendResult =
+  /** The provider accepted the send. On Graph that is a `202`, and nothing more can be learned from it. */
+  | { status: 'accepted' }
+  /**
+   * The provider answered and refused, before acceptance. `retryable` is the provider's own class:
+   * throttling and its 5xx are worth another attempt, a permission or identity refusal is not.
+   */
+  | { status: 'refused'; code: string; message: string; retryable: boolean }
+  /**
+   * The outcome is **not known**: the request may or may not have reached the provider. This is the one
+   * answer that must never be treated as either success or failure, and it is never retried here.
+   */
+  | { status: 'outcome_unknown'; reason: string };
+
+/**
+ * Send the completed staging draft.
+ *
+ * This is the non-idempotent step: the message leaves for its recipients once, and a lost response cannot
+ * be repaired by asking again — asking again sends a second copy. The mapping is therefore conservative:
+ * a provider answer that refused the send is `refused` with the provider's own class, and anything that
+ * could have happened after the request left — a timeout, a connection loss, a 5xx with no body — is
+ * `outcome_unknown`, which the caller parks as `send_outcome_unknown` and never re-runs automatically.
+ *
+ * There is deliberately **no** fallback to another transport here. A send whose outcome is uncertain must
+ * not be re-attempted over SMTP: that is a cross-transport duplicate, not a recovery.
+ */
+export async function sendGraphDraft(
+  api: GraphApiOptions,
+  draftId: string,
+  options: { fetchImpl?: typeof fetch } = {},
+): Promise<GraphSendResult> {
+  const target: GraphApiOptions = options.fetchImpl ? { ...api, fetchImpl: options.fetchImpl } : api;
+  try {
+    await graphPost(target, `/me/messages/${encodeURIComponent(draftId)}/send`, {});
+    return { status: 'accepted' };
+  } catch (caught) {
+    if (caught instanceof GraphApiError) {
+      const status = caught.status ?? 0;
+      // A provider answer we could read: the send was refused rather than accepted.
+      if (status >= 400 && status < 500) {
+        return {
+          status: 'refused',
+          code: caught.code ?? 'PROVIDER_REFUSED',
+          message: caught.message,
+          retryable: status === 429,
+        };
+      }
+      // A 5xx could be a refusal or a lost dispatch, so it is not reported as either.
+      return { status: 'outcome_unknown', reason: caught.message };
+    }
+    return { status: 'outcome_unknown', reason: caught instanceof Error ? caught.message : String(caught) };
+  }
 }

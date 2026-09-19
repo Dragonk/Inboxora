@@ -9,7 +9,7 @@ const tokenMock = vi.hoisted(() => vi.fn(async () => ({
 vi.mock('../../providerTokenService.js', () => ({ getMicrosoftAccessToken: tokenMock }));
 
 import { GraphApiError } from './graphApiClient.js';
-import { createGraphDraft, renderGraphMessage } from './graphMailSend.js';
+import { createGraphDraft, renderGraphMessage, sendGraphDraft } from './graphMailSend.js';
 import type { ComposedMail } from '../../composedMail.js';
 
 const base: ComposedMail = {
@@ -97,5 +97,47 @@ describe('createGraphDraft', () => {
       { status: 403, headers: { 'content-type': 'application/json' } },
     ));
     await expect(createGraphDraft(api(fetchImpl), base)).rejects.toBeInstanceOf(GraphApiError);
+  });
+});
+
+// The final send is the non-idempotent step, so these cases are about which answers may be believed. A
+// refused send is a fact; a timeout or a 5xx is not, and must come back as unknown rather than as either.
+describe('sendGraphDraft', () => {
+  beforeEach(() => tokenMock.mockClear());
+
+  it('reports a 202 as accepted', async () => {
+    const fetchImpl = vi.fn(async () => new Response(null, { status: 202 }));
+    await expect(sendGraphDraft(api(fetchImpl), 'AAMkAD-draft-1')).resolves.toEqual({ status: 'accepted' });
+    const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toContain('/me/messages/AAMkAD-draft-1/send');
+    expect(init.method).toBe('POST');
+  });
+
+  it('reports a read refusal as refused, with retryability from the provider’s own class', async () => {
+    const denied = vi.fn(async () => new Response(
+      JSON.stringify({ error: { code: 'ErrorAccessDenied', message: 'no' } }),
+      { status: 403, headers: { 'content-type': 'application/json' } },
+    ));
+    await expect(sendGraphDraft(api(denied), 'draft-1')).resolves.toMatchObject({ status: 'refused', retryable: false });
+
+    const throttled = vi.fn(async () => new Response(
+      JSON.stringify({ error: { code: 'TooManyRequests', message: 'later' } }),
+      { status: 429, headers: { 'content-type': 'application/json' } },
+    ));
+    await expect(sendGraphDraft(api(throttled), 'draft-1')).resolves.toMatchObject({ status: 'refused', retryable: true });
+  });
+
+  it('never reports success or refusal when the outcome is genuinely unknown', async () => {
+    const broken = vi.fn(async () => { throw new Error('socket hang up'); });
+    await expect(sendGraphDraft(api(broken), 'draft-1')).resolves.toMatchObject({ status: 'outcome_unknown' });
+
+    const serverError = vi.fn(async () => new Response('oops', { status: 503 }));
+    await expect(sendGraphDraft(api(serverError), 'draft-1')).resolves.toMatchObject({ status: 'outcome_unknown' });
+  });
+
+  it('does not attempt a second send of its own accord', async () => {
+    const fetchImpl = vi.fn(async () => { throw new Error('timeout'); });
+    await sendGraphDraft(api(fetchImpl), 'draft-1');
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 });
