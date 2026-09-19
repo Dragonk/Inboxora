@@ -30,7 +30,7 @@ typecheck, lint, production build and **2644 tests**. `main` has not been touche
 | P11 — DAV server hardening | mostly delivered | `0afab53d` (discovery/classes), `58f2c809` (strong `If-Match`), `d7b8ceb9` (per-collection visibility/mode), `1a84536d` (per-password ceiling), `db97a1af` (WebDAV `If` header), `6c6584cb` + `811a50d8` (connector status visibility) | Any remaining `DAV:` classes the plan lists. (Write refusals now carry a `DAV:error` body naming the reason, so a client can tell a read-only collection from a permissions failure.) |
 | P12 — account migration/cutover, MS-required and Google-recommended notices | **not started** | `acd1bf78` + `35451f02` cover the notices | The **notices** exist: the Microsoft card states that Outlook.com and Microsoft 365 no longer accept a mailbox password, and Google's recommendation is stated in that provider's own description. The **migration/cutover** is not started and stays deliberately blocked: a migration flow must not point users at a mail transport that does not exist yet (needs P07b/P08). |
 | P13 — hardening, E2E, release notes | **partial** | `065b3f86` (provider setup procedure); i18n kept at nine locales throughout | End-to-end suite for the new flows, release notes for a chosen version. |
-| P14 — final integration, CI, publish images | **not started** | — | Publish both `:dev` images and smoke-test the pair. Needs a release version and registry authorization. |
+| P14 — final integration, CI, publish images | **not started** | — | Publish both `:dev` images **for both architectures** and smoke-test the pair, from one SHA, with the acceptance report. Needs a release version and registry authorization. |
 
 ## Verification performed on a fresh database
 
