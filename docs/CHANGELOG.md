@@ -31,6 +31,20 @@ release is never claimed before it has happened.
 ## [4.1.0]
 
 ### Added
+- **An existing Microsoft account can move to the native Graph transport in place (P12).**
+  `POST /api/accounts/:id/migrate` (optional body `{ connectionId }`) keeps the same `email_accounts.id`
+  and every local message, folder, draft, alias and conversation, and switches the account only when an
+  active Microsoft connection whose grant carries `Mail.ReadWrite` **and** `Mail.Send` resolves for it —
+  named explicitly or matched on the verified provider identity — with ownership enforced by the row
+  lock. The switch is one atomic update (`mail_transport`, `provider_connection_id`, `protocol`,
+  `migration_state = 'active_native'`, generation + 1), so a crash leaves either all of it or none, and a
+  retry on an already-switched account is a no-op. A refusal is recorded as `authorization_required` or
+  `admin_configuration_required` with the reason in `migration_error_code` and never changes the
+  transport; once switched, the account never falls back to Microsoft IMAP/SMTP. No new migration: it
+  uses the columns `0101` already declares. The IMAP loops and health checks now also filter on the
+  authoritative `mail_transport`, so a native account stays invisible to IMAP even if `protocol` is
+  ever reset.
+
 - **External CalDAV/CardDAV write-back (P10).** A `PUT` or `DELETE` on a calendar or address book whose
   source is an external CalDAV/CardDAV server is now forwarded to that server instead of being refused,
   so an edit made in DAVx⁵, Thunderbird or Apple Contacts reaches the server the collection was imported

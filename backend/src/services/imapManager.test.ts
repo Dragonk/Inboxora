@@ -2782,6 +2782,26 @@ describe('moveSpamCopy', () => {
   });
 });
 
+// The IMAP loops were written against the legacy `protocol` column, and the in-place Microsoft cutover
+// writes `protocol = 'microsoft_graph'` so they skip a native account. That makes the transport a
+// property of a different column than the one these queries filter on, so the authoritative
+// `mail_transport` is checked too: a native account must stay invisible to IMAP even if `protocol` is
+// ever reset by the reconnect route, a repair or an operator.
+describe('the IMAP account discovery is guarded on the authoritative transport', () => {
+  it('filters a native account out of the startup connect, whatever protocol says', async () => {
+    const { query } = await import('./db.js');
+    vi.mocked(query).mockReset().mockResolvedValue({ rows: [] });
+
+    const { ImapManager } = await import('./imapManager.js');
+    await new ImapManager({} as never).connectAllForUser('user-1');
+
+    const accountQuery = vi.mocked(query).mock.calls.map(call => String(call[0])).find(sql => sql.includes('FROM email_accounts'));
+    expect(accountQuery).toBeDefined();
+    expect(accountQuery).toContain('protocol');
+    expect(accountQuery).toContain("mail_transport IS NULL OR mail_transport = 'imap_smtp'");
+  });
+});
+
 // The message-list route fires a fire-and-forget body prefetch on every listing. A
 // native account has no IMAP session to prefetch over — its bodies are read on demand
 // by the transport-aware body route — so the guard lives inside the method and these

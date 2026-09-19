@@ -220,6 +220,31 @@ and reconnecting re-links the same collections rather than duplicating them.
   legacy CalDAV/CardDAV collection imported before this release has no write-back record yet, so it
   stays read-only over DAV until one is created for it — the import paths create one for new imports.
 
+### An existing Microsoft account moves to the native Graph transport in place (P12, Microsoft half)
+
+`POST /api/accounts/:id/migrate` (optional body `{ connectionId }`) moves an existing Microsoft account
+to the native Graph transport **without adding a second account**: the `email_accounts.id` is unchanged,
+and every local message, folder, draft, alias and conversation is left exactly as it was.
+
+- The switch succeeds only when an active Microsoft connection whose grant carries **`Mail.ReadWrite`
+  and `Mail.Send`** resolves for the account — either named explicitly or matched on the verified
+  provider identity — and only for an account the caller owns.
+- It is **one atomic update** under a row lock (`mail_transport`, `provider_connection_id`, `protocol`,
+  `migration_state = 'active_native'`, transport generation + 1), so a crash leaves either the whole
+  switch or none of it, and a retry on an already-switched account is a no-op rather than a second
+  migration.
+- A refusal is recorded in `migration_state`/`migration_error_code` (`authorization_required`,
+  `admin_configuration_required`) and **never changes the transport** — mail keeps flowing over
+  IMAP/SMTP until the connection is fixed. After the switch there is **no fallback** to Microsoft
+  IMAP/SMTP: every route dispatches on `mail_transport`, and the IMAP loops and health checks now filter
+  on that authoritative column too, so a native account cannot be reopened over IMAP even if the legacy
+  `protocol` field is ever reset.
+- The cutover moves the **transport, not the data**: the first Graph sync is a normal adapter ingest, and
+  the full inventory/backfill/reconcile state machine is not part of this slice, so an existing IMAP row
+  and its Graph counterpart can coexist until a reconcile. No new migration is required — `0101` already
+  declares every column used — so the order stays `0101`–`0112`.
+- **NOT RUN.** A real Microsoft mailbox has not been cut over; that stays manual acceptance.
+
 ### Editing an imported CalDAV or CardDAV collection now reaches its server (P10)
 
 A calendar or address book that Inboxora imported from an external CalDAV or CardDAV server can be

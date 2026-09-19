@@ -1128,6 +1128,19 @@ export type EmailAccountRow = {
   oauth_token_expiry?: string | Date | null;
 };
 
+/**
+ * The IMAP loops, health checks and startup connects must never see an account whose
+ * transport is native.
+ *
+ * The queries below were written against the legacy `protocol` column, and the
+ * in-place Microsoft cutover also writes `protocol = 'microsoft_graph'` so they skip
+ * a native account. This guard states the same rule against the **authoritative**
+ * `mail_transport` column as well, so a native account stays invisible to IMAP even if
+ * something later resets `protocol` (the reconnect route, a data repair, an operator).
+ * A pre-v4 row has `mail_transport IS NULL` and is IMAP, which is why NULL is allowed.
+ */
+const IMAP_TRANSPORT_GUARD = "(mail_transport IS NULL OR mail_transport = 'imap_smtp')";
+
 export interface ImapClientCfg {
   host: string;
   port: number;
@@ -1607,7 +1620,7 @@ export class ImapManager {
     this._healthCheckTimer = setInterval(async () => {
       try {
         const result = await query<{ id: string; email_address?: string }>(
-          "SELECT id, email_address FROM email_accounts WHERE enabled = true AND protocol = 'imap'"
+          `SELECT id, email_address FROM email_accounts WHERE enabled = true AND protocol = 'imap' AND ${IMAP_TRANSPORT_GUARD}`
         );
         for (const row of result.rows) {
           // A poll-only account (per-host budget) holds no persistent connection by design; while
@@ -2301,7 +2314,7 @@ export class ImapManager {
     const host = (account.imap_host || '').toLowerCase();
     if (!host) return true;
     const rows = await query<{ id: string }>(
-      "SELECT id FROM email_accounts WHERE enabled = true AND protocol = 'imap' AND lower(imap_host) = $1 ORDER BY created_at ASC NULLS FIRST, id ASC",
+      `SELECT id FROM email_accounts WHERE enabled = true AND protocol = 'imap' AND lower(imap_host) = $1 AND ${IMAP_TRANSPORT_GUARD} ORDER BY created_at ASC NULLS FIRST, id ASC`,
       [host]
     );
     return persistentEligible(rows.rows.map(r => r.id), account.id, cap);
@@ -2391,7 +2404,7 @@ export class ImapManager {
   async disconnectUser(userId: string) {
     try {
       const result = await query<{ id: string }>(
-        "SELECT id FROM email_accounts WHERE user_id = $1 AND protocol = 'imap'",
+        `SELECT id FROM email_accounts WHERE user_id = $1 AND protocol = 'imap' AND ${IMAP_TRANSPORT_GUARD}`,
         [userId]
       );
       await Promise.all(result.rows.map(a => this.disconnectAccount(a.id)));
@@ -3024,7 +3037,7 @@ export class ImapManager {
   async updateSyncIntervalForUser(userId: string, newMs: number) {
     this.userSyncIntervalMs.set(userId, newMs);
     const result = await query<EmailAccountRow>(
-      "SELECT * FROM email_accounts WHERE user_id = $1 AND enabled = true AND protocol = 'imap'",
+      `SELECT * FROM email_accounts WHERE user_id = $1 AND enabled = true AND protocol = 'imap' AND ${IMAP_TRANSPORT_GUARD}`,
       [userId]
     );
     for (const acc of result.rows) {
@@ -5713,7 +5726,7 @@ export class ImapManager {
 
   async syncNow(userId: string, accountId = null) {
     const result = await query<EmailAccountRow>(
-      'SELECT * FROM email_accounts WHERE user_id = $1 AND enabled = true AND protocol = $2',
+      `SELECT * FROM email_accounts WHERE user_id = $1 AND enabled = true AND protocol = $2 AND ${IMAP_TRANSPORT_GUARD}`,
       [userId, 'imap']
     );
     const accounts = accountId
@@ -5777,7 +5790,7 @@ export class ImapManager {
   // runs syncFolders as part of connectAccount's startup sequence.
   async syncFoldersNow(userId: string, accountId = null) {
     const result = await query<EmailAccountRow>(
-      'SELECT * FROM email_accounts WHERE user_id = $1 AND enabled = true AND protocol = $2',
+      `SELECT * FROM email_accounts WHERE user_id = $1 AND enabled = true AND protocol = $2 AND ${IMAP_TRANSPORT_GUARD}`,
       [userId, 'imap']
     );
     const accounts = accountId
@@ -6399,7 +6412,7 @@ export class ImapManager {
     }
 
     const result = await query<EmailAccountRow>(
-      'SELECT * FROM email_accounts WHERE user_id = $1 AND enabled = true AND protocol = $2',
+      `SELECT * FROM email_accounts WHERE user_id = $1 AND enabled = true AND protocol = $2 AND ${IMAP_TRANSPORT_GUARD}`,
       [userId, 'imap']
     );
     // Space out initial connects to stay under per-IP connection rate limits — wider for strict
