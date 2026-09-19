@@ -196,6 +196,27 @@ describe('deleting an event in a write-enabled Microsoft calendar', () => {
   });
 });
 
+describe('provider write paths that do not exist yet are refused, not written locally', () => {
+  beforeEach(() => { mocks.resolveTarget.mockResolvedValue(GRAPH_TARGET); });
+
+  it('refuses adding an invitation to a provider calendar', async () => {
+    const response = await call('POST', '/invitations/message-1', { calendarId: 'calendar-1' });
+    expect(response.status).toBe(501);
+    expect(response.body).toMatchObject({ code: 'OPERATION_FORBIDDEN' });
+    expect(ranQuery('INSERT INTO calendar_events')).toBe(false);
+  });
+
+  it('refuses changing one occurrence of a provider series', async () => {
+    const response = await call('PATCH', '/events/event-1/occurrence', {
+      calendarId: 'calendar-1', recurrenceId: '2026-09-15T09:00:00Z', scope: 'single',
+      startsAt: '2026-09-16T09:00:00.000Z', endsAt: '2026-09-16T09:30:00.000Z', attendees: ['a@example.test'],
+    });
+    expect(response.status).toBe(501);
+    expect(response.body).toMatchObject({ code: 'OPERATION_FORBIDDEN' });
+    expect(ranQuery('UPDATE calendar_events')).toBe(false);
+  });
+});
+
 describe('a local calendar keeps writing locally', () => {
   it('never calls the provider when the target is local', async () => {
     mocks.resolveTarget.mockResolvedValue({ kind: 'local' });

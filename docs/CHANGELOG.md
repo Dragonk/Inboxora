@@ -53,7 +53,10 @@ release is never claimed before it has happened.
   local resource stores and Graph's `pattern`/`range` — with times sent as the exact instant in UTC rather
   than a zone-specific wall time guessed from metadata. The same per-collection write-back switch gates
   it: a calendar Microsoft marks `canEdit: false` can never be written, and a pulled calendar stays
-  read-only until the user enables it.
+  read-only until the user enables it. Two paths that are resolved but not yet forwarded — adding a
+  received invitation to a provider calendar, and changing a single occurrence of a provider series —
+  now answer `501` with a reason instead of writing locally, where the change would be invisible to
+  every other client and undone by the next sync.
 
 - **Microsoft Graph contact writes, behind an explicit write-back switch (P09).** Creating, editing and
   deleting a contact in a pulled Microsoft address book now writes to **Graph first** and only then to

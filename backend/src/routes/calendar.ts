@@ -435,6 +435,15 @@ router.post('/invitations/:messageId', async (req, res) => {
   if (!req.body?.calendarId) return res.status(400).json({ error: 'calendarId is required' });
   const access = await writableCalendar(sessionUserId(req), req.body.calendarId);
   if (!access.ok) return res.status(access.status).json({ error: access.error });
+  if (access.target.kind !== 'local') {
+    // A provider calendar's events live at the provider. Adding the invitation only locally would put an
+    // event in Inboxora that no other client can see and that the provider never agreed to, so the write
+    // is refused with a reason instead of being accepted and then silently discarded.
+    return res.status(501).json({
+      code: 'OPERATION_FORBIDDEN',
+      error: 'Adding an invitation to a provider calendar is not available yet. Accept it in the provider and let it sync.',
+    });
+  }
   const invitation = await readMessageInvitation(req.params.messageId, sessionUserId(req));
   if (!invitation) return res.status(404).json({ error: 'Calendar invitation not found' });
   if (invitation.method !== 'REQUEST' || !invitation.event) return res.status(409).json({ error: 'This invitation cannot be added' });
@@ -844,6 +853,15 @@ router.all('/events/:eventId/occurrence', async (req, res) => {
   if (scope !== 'single' && req.method !== 'DELETE') return res.status(400).json({ error: 'Only a cancellation can affect following occurrences' });
   const access = await writableCalendar(sessionUserId(req), calendarId);
   if (!access.ok) return res.status(access.status).json({ error: access.error });
+  if (access.target.kind !== 'local') {
+    // A single occurrence of a provider series cannot be addressed yet: the local model has no provider
+    // id for an instance, so a local-only change would be undone by the next delta. Refusing is the
+    // honest answer until the instance identity is carried.
+    return res.status(501).json({
+      code: 'OPERATION_FORBIDDEN',
+      error: 'Changing a single occurrence of a series in a provider calendar is not available yet. Edit the series, or change the occurrence in the provider.',
+    });
+  }
   const cancel = req.method === 'DELETE';
   const times = cancel ? null : parseEventTimes(req.body);
   const attendees = normalizeAttendees(req.body.attendees || []);
