@@ -141,6 +141,22 @@ This is the gate that should run alongside the unit suites for anything touching
 navigation or the drawer; it is the only one that caught the drawer covering the page after a
 navigation while every unit test passed.
 
+### Why it had not been running
+
+The browser suite exists in CI — `conversation-v2-playwright.yml` runs all five projects above —
+but its trigger is **`pull_request`**, while `ci.yml` (backend and frontend unit gates) also runs
+on **push to `dev`**. This work was integrated by pushing directly to `dev`, so the unit gates ran
+on every commit and the browser gate ran on none of them. That is the whole explanation for two
+real defects surviving many rounds of per-round verification: the verification was real, and
+narrower than it looked.
+
+Two ways to close it, and the choice is the maintainer's because it affects CI cost:
+
+- run the five projects locally before pushing, which is what the command above does and what was
+  done after the drawer fix; or
+- add `push: branches: [dev]` to the Playwright workflow so a direct integration is gated too
+  (this was **not** changed here, since CI minutes are an operator decision).
+
 ## Known limitations of what is delivered
 
 - Pulled Google and Microsoft contacts and Google calendars are **read-only** in Inboxora: REST and
