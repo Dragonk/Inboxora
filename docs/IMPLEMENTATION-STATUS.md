@@ -229,8 +229,13 @@ suite creates and drops its own rows, so it needs nothing but an empty migrated 
             src/routes/davPg.integration.test.ts
 ```
 
-It is left unapplied because CI minutes are an operator decision, not because it is difficult. Note
-what it buys beyond the tests: it proves the **migration chain applies to an empty database**, which
+It is left unapplied because CI minutes are an operator decision, not because it is difficult. Two
+caveats, so nobody mistakes it for something it is not: the **commands inside it are the ones used by
+hand** throughout this work, but the **job itself has never been executed** — action versions and
+cache paths are unverified — and the suite creates and drops its own rows, so it must not share a
+database with another job.
+
+What it buys beyond the tests: it proves the **migration chain applies to an empty database**, which
 no other job in this repository currently does for a fresh install.
 
 ## Concurrency note on the refresh lease
