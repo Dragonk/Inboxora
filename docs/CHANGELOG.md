@@ -15,6 +15,13 @@ limitations — read the matching page in the Wiki: [Release notes 4.1.0](wiki/R
 
 ### Changed
 
+- **"View source headers" works on a Microsoft Graph account** (P07b, eleventh slice). The route asked IMAP
+  for the raw headers and, when that failed, synthesised them from the local row — so a native account got
+  a plausible-looking header block after a pointless IMAP attempt that could only time out. Graph retains
+  the real RFC headers, so they are now fetched from `internetMessageHeaders` and formatted the way the
+  route's parser expects. An empty answer is treated as a normal one: not every mailbox retains those
+  headers, and the existing fallback still covers that case rather than the route inventing them.
+
 - **"Mark all as read" reaches Microsoft Graph** (P07b, tenth slice). The route updated the local rows and
   then asked IMAP to set `\Seen`, so on a native account the interface looked right until the next sync
   brought the unread state back. It now sets the flag on each unread message through the same

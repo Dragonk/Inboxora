@@ -172,3 +172,36 @@ export async function collectGraphInlineImages(
   }
   return collected;
 }
+
+export interface GraphInternetHeader {
+  name?: string | null;
+  value?: string | null;
+}
+
+/**
+ * The message's real RFC headers, as Graph retains them.
+ *
+ * Graph exposes these through `internetMessageHeaders`, which is the honest answer
+ * to "show me the source headers" — better than synthesising them from the local
+ * row, and far better than the IMAP attempt the route used to make for a native
+ * account, which could only time out before falling back.
+ *
+ * `internetMessageHeaders` is **not** returned by every mailbox (it is absent for
+ * messages Graph has not indexed them for), so an empty result is a normal answer
+ * and the caller keeps its own fallback.
+ */
+export async function fetchGraphMessageHeaders(api: GraphApiOptions, providerMessageId: string): Promise<string> {
+  const message = await graphGet<{ internetMessageHeaders?: GraphInternetHeader[] | null }>(
+    api,
+    graphUrl(`/me/messages/${encodeURIComponent(providerMessageId)}`, { $select: 'internetMessageHeaders' }),
+  );
+  const lines: string[] = [];
+  for (const header of message.internetMessageHeaders ?? []) {
+    const name = header?.name?.trim();
+    if (!name) continue;
+    // A header value may contain folded whitespace; keep it on one line as the
+    // parser the route uses expects.
+    lines.push(`${name}: ${(header.value ?? '').replace(/\s+/g, ' ').trim()}`);
+  }
+  return lines.length > 0 ? `${lines.join('\r\n')}\r\n` : '';
+}

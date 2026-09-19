@@ -23,6 +23,7 @@ import { graphCreateMailFolder } from '../services/providers/microsoft/graphMail
 import { graphFolderIdForPath } from '../services/providers/microsoft/graphMailSync.js';
 import { deleteGraphMessagePermanently, moveGraphMessageToFolder } from '../services/providers/microsoft/graphMailMove.js';
 import {
+  fetchGraphMessageHeaders,
   collectGraphInlineImages,
   embedGraphInlineImages,
   fetchGraphAttachmentBytes,
@@ -604,6 +605,8 @@ router.get('/messages/:id/headers', async (req, res) => {
     from_email?: string | null;
     from_name?: string | null;
     date?: string | Date | null;
+    /** The provider's immutable id, on a natively-ingested message (migration 0108). */
+    provider_message_id?: string | null;
   }
   const message: MessageHeadersRow = result.rows[0];
 
@@ -612,11 +615,26 @@ router.get('/messages/:id/headers', async (req, res) => {
     const account = accountResult.rows[0];
 
     let headers = '';
-    try {
-      headers = await imapManager.fetchHeaders(account, message.uid, message.folder);
-    } catch (caught) {
-      const fetchErr = toAppError(caught);
-      console.warn('Headers IMAP fetch failed:', fetchErr.message);
+    if (account.mail_transport === 'microsoft_graph') {
+      // A native message has no IMAP headers to read, and asking IMAP first could
+      // only time out before the fallback below.
+      if (account.provider_connection_id && message.provider_message_id) {
+        try {
+          headers = await fetchGraphMessageHeaders(
+            { userId: account.user_id, connectionId: account.provider_connection_id, config: microsoftConfigFromEnv() },
+            message.provider_message_id,
+          );
+        } catch (caught) {
+          console.warn('Headers Graph fetch failed:', caught instanceof Error ? caught.message : caught);
+        }
+      }
+    } else {
+      try {
+        headers = await imapManager.fetchHeaders(account, message.uid, message.folder);
+      } catch (caught) {
+        const fetchErr = toAppError(caught);
+        console.warn('Headers IMAP fetch failed:', fetchErr.message);
+      }
     }
 
     if (!headers?.trim()) {

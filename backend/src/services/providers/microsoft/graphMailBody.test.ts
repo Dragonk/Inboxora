@@ -5,6 +5,7 @@ import {
   fetchGraphAttachmentBytes,
   fetchGraphAttachments,
   fetchGraphMessageBody,
+  fetchGraphMessageHeaders,
   localAttachmentsForGraph,
 } from './graphMailBody.js';
 import type { GraphAttachment } from './graphMailBody.js';
@@ -124,5 +125,26 @@ describe('embedding inline images', () => {
       .resolves.toEqual([]);
     expect(warn).toHaveBeenCalled();
     warn.mockRestore();
+  });
+});
+
+describe('reading the real headers from Graph', () => {
+  it('formats the retained RFC headers as the parser expects', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({
+      internetMessageHeaders: [
+        { name: 'Received', value: 'from contoso.test\r\n\tby mx.contoso.test' },
+        { name: 'Subject', value: 'Quarterly plan' },
+        { name: '', value: 'ignored' },
+      ],
+    })));
+
+    const headers = await fetchGraphMessageHeaders(OPTIONS, 'm1');
+    // Folded whitespace is collapsed: the route's parser expects one line per header.
+    expect(headers).toBe('Received: from contoso.test by mx.contoso.test\r\nSubject: Quarterly plan\r\n');
+  });
+
+  it('answers empty rather than inventing headers, because a mailbox may not retain them', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ internetMessageHeaders: null })));
+    await expect(fetchGraphMessageHeaders(OPTIONS, 'm1')).resolves.toBe('');
   });
 });
