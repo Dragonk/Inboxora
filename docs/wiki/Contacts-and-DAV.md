@@ -206,7 +206,9 @@ connection, named *Microsoft Contacts*.
   lists are removed locally, which a plain re-read would miss.
 - Like the Google book, it arrives with **DAV access: Disabled** and is read-only in the app.
 
-The connector is reachable through the API (`/api/contacts/providers/microsoft/status` and
-`/sync`) but is **not yet offered in the interface**, so today it is triggered there rather than
-from the Contacts page; the in-app control and the automatic refresh follow with the settings
-connection button.
+The connector is reachable from the interface: **Settings → Integrations → Email providers** on the
+Microsoft card offers **Connect Microsoft contacts**, which authorizes Microsoft Graph for contacts
+only and never changes or migrates your mailbox. Once connected, the Contacts page's address-book
+menu shows **Sync Microsoft contacts** next to **Sync Google contacts**, and each run reports what
+it changed for that account. An automatic refresh for this connector follows with the scheduled
+provider refresh.

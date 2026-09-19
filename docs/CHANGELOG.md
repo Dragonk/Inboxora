@@ -213,6 +213,14 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   while wiring this: both contacts status endpoints listed **every** address book of the user rather
   than the books of that provider, so a Google book could be reported by the Microsoft connector and
   vice versa; each is now scoped to its own connections.
+- Offer the Microsoft Graph connector in the interface. The Microsoft card under
+  **Settings → Integrations → Email providers** now has **Connect Microsoft contacts**, which
+  authorizes Microsoft Graph for contacts only and says so — it never changes or migrates the
+  mailbox, and the existing mailbox sign-in stays a separate action beside it. Once connected, the
+  Contacts page's address-book menu shows **Sync Microsoft contacts** alongside **Sync Google
+  contacts**; the two are offered and reported independently, so an account connected for one
+  provider never hides the other, and each run says which account it belongs to and what it added,
+  updated and removed.
 
 ## [4.0.4] - 2026-09-18
 

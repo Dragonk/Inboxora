@@ -341,7 +341,10 @@
         "deviceCodeExpired": "Codice scaduto. Riprova.",
         "deviceCodeDeclined": "L'autorizzazione è stata rifiutata.",
         "deviceCodeError": "Si è verificato un errore. Riprova.",
-        "deviceCodeCancel": "Annulla"
+        "deviceCodeCancel": "Annulla",
+        "graphConnect": "Connetti contatti Microsoft",
+        "graphConnecting": "Apertura di Microsoft…",
+        "graphHint": "Autorizza Microsoft Graph solo per i contatti. Non modifica né migra la tua casella."
       },
       "todoist": {
         "title": "Todoist",
@@ -1138,7 +1141,11 @@
       "googleSync": "Sincronizza contatti Google",
       "googleSyncing": "Sincronizzazione…",
       "googleSyncDone": "Contatti Google: {{created}} aggiunti, {{updated}} aggiornati, {{deleted}} rimossi.",
-      "googleSyncPartial": "Contatti Google: {{created}} aggiunti, {{updated}} aggiornati, {{deleted}} rimossi; {{failed}} connessioni non riuscite."
+      "googleSyncPartial": "Contatti Google: {{created}} aggiunti, {{updated}} aggiornati, {{deleted}} rimossi; {{failed}} connessioni non riuscite.",
+      "microsoftSync": "Sincronizza contatti Microsoft",
+      "microsoftSyncing": "Sincronizzazione…",
+      "microsoftSyncDone": "Contatti Microsoft: {{created}} aggiunti, {{updated}} aggiornati, {{deleted}} rimossi.",
+      "microsoftSyncPartial": "Contatti Microsoft: {{created}} aggiunti, {{updated}} aggiornati, {{deleted}} rimossi; {{failed}} connessioni non riuscite."
     },
     "googleConnected": {
       "title": "Google connesso",

@@ -38,20 +38,45 @@ test('the contacts screen offers the Google pull only when connected', async () 
   const source = await readFile(contactsPage, 'utf8');
   assert.match(source, /api\.googleContacts\.status\(\)/);
   assert.match(source, /data-testid="contacts-google-sync"/);
-  assert.match(source, /const runGoogleContactsSync = async \(\) => \{/);
+  assert.match(source, /const runProviderContactsSync = async \(provider: 'google' \| 'microsoft'\) => \{/);
   assert.match(source, /await api\.googleContacts\.sync\(\)/);
   assert.match(source, /googleContacts\?\.connected &&/);
   // The result is reported per run, including a partial failure.
   assert.match(source, /contacts\.addressBooks\.googleSyncDone/);
   assert.match(source, /contacts\.addressBooks\.googleSyncPartial/);
-  assert.match(source, /data-testid="contacts-google-sync-result"/);
+  assert.match(source, /contacts-\$\{providerNotice\.provider\}-sync-result/);
+});
+
+test('the contacts screen offers the Microsoft pull through the same control', async () => {
+  const source = await readFile(contactsPage, 'utf8');
+  assert.match(source, /api\.microsoftContacts\.status\(\)/);
+  assert.match(source, /await api\.microsoftContacts\.sync\(\)/);
+  assert.match(source, /data-testid="contacts-microsoft-sync"/);
+  assert.match(source, /microsoftContacts\?\.connected &&/);
+  assert.match(source, /contacts\.addressBooks\.microsoftSyncDone/);
+  assert.match(source, /contacts\.addressBooks\.microsoftSyncPartial/);
+  // Both providers must be loadable independently: one being absent cannot hide
+  // the other's control.
+  const statusCalls = source.match(/api\.(google|microsoft)Contacts\.status\(\)/g) ?? [];
+  assert.equal(statusCalls.length, 2);
+});
+
+test('the Microsoft card offers the Graph connection as its own action', async () => {
+  const source = await readFile(adminPanel, 'utf8');
+  assert.match(source, /data-testid="microsoft-graph-connect"/);
+  assert.match(source, /const handleConnectMicrosoftGraph = \(\) => \{/);
+  assert.match(source, /a\.href = '\/oauth\/provider\/microsoft\?purpose=contacts_enable'/);
+  // It is a separate authorisation: the mailbox sign-in above stays untouched.
+  assert.match(source, /admin\.integrations\.microsoft\.graphHint/);
+  assert.match(source, /msStatus\?\.browser\?\.ready && \(/);
 });
 
 test('every locale translates the Google connect and sync controls', async () => {
   const files = (await readdir(localesDir)).filter(name => name.endsWith('.json'));
   assert.equal(files.length, 9);
   const adminKeys = ['connect', 'connecting', 'connectHint', 'connectUnavailable', 'connectedNote'];
-  const bookKeys = ['googleSync', 'googleSyncing', 'googleSyncDone', 'googleSyncPartial'];
+  const bookKeys = ['googleSync', 'googleSyncing', 'googleSyncDone', 'googleSyncPartial', 'microsoftSync', 'microsoftSyncing', 'microsoftSyncDone', 'microsoftSyncPartial'];
+  const microsoftKeys = ['graphConnect', 'graphConnecting', 'graphHint'];
   const calendarKeys = ['googleTitle', 'googleHint', 'googleSync', 'googleSyncing', 'googleSyncDone', 'googleSyncPartial', 'googleNotConnected'];
   for (const name of files) {
     const strings = JSON.parse(await readFile(new URL(name, localesDir), 'utf8'));
@@ -66,6 +91,10 @@ test('every locale translates the Google connect and sync controls', async () =>
     for (const key of calendarKeys) {
       assert.equal(typeof strings.calendar[key], 'string', `${name} is missing calendar.${key}`);
       assert.ok(strings.calendar[key].length > 0, `${name} has an empty ${key}`);
+    }
+    for (const key of microsoftKeys) {
+      assert.equal(typeof strings.admin.integrations.microsoft[key], 'string', `${name} is missing admin.integrations.microsoft.${key}`);
+      assert.ok(strings.admin.integrations.microsoft[key].length > 0, `${name} has an empty ${key}`);
     }
     assert.equal(typeof strings.contacts.googleConnected.title, 'string', `${name} is missing contacts.googleConnected.title`);
     assert.equal(typeof strings.contacts.googleConnected.body, 'string', `${name} is missing contacts.googleConnected.body`);

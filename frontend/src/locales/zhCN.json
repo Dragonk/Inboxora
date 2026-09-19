@@ -341,7 +341,10 @@
         "deviceCodeExpired": "代码已过期，请重新开始。",
         "deviceCodeDeclined": "授权被拒绝。",
         "deviceCodeError": "发生错误，请重试。",
-        "deviceCodeCancel": "取消"
+        "deviceCodeCancel": "取消",
+        "graphConnect": "连接 Microsoft 联系人",
+        "graphConnecting": "正在打开 Microsoft…",
+        "graphHint": "仅授权 Microsoft Graph 访问联系人。不会更改或迁移您的邮箱。"
       },
       "todoist": {
         "title": "Todoist",
@@ -1138,7 +1141,11 @@
       "googleSync": "同步 Google 联系人",
       "googleSyncing": "正在同步…",
       "googleSyncDone": "Google 联系人：新增 {{created}}，更新 {{updated}}，删除 {{deleted}}。",
-      "googleSyncPartial": "Google 联系人：新增 {{created}}，更新 {{updated}}，删除 {{deleted}}；{{failed}} 个连接失败。"
+      "googleSyncPartial": "Google 联系人：新增 {{created}}，更新 {{updated}}，删除 {{deleted}}；{{failed}} 个连接失败。",
+      "microsoftSync": "同步 Microsoft 联系人",
+      "microsoftSyncing": "正在同步…",
+      "microsoftSyncDone": "Microsoft 联系人：新增 {{created}}，更新 {{updated}}，删除 {{deleted}}。",
+      "microsoftSyncPartial": "Microsoft 联系人：新增 {{created}}，更新 {{updated}}，删除 {{deleted}}；{{failed}} 个连接失败。"
     },
     "googleConnected": {
       "title": "Google 已连接",

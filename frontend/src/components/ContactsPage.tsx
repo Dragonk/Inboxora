@@ -163,8 +163,8 @@ function addressBookDavModeOf(value: unknown): AddressBookDavMode {
   return value === 'off' || value === 'read_only' || value === 'read_write' ? value : 'read_write';
 }
 
-/** The Google People status the sync control reads (no credential is exposed). */
-interface GoogleContactsStatus {
+/** The provider contact status the sync controls read (no credential is exposed). */
+interface ProviderContactsStatus {
   configured?: boolean;
   connected?: boolean;
   connections?: number;
@@ -191,11 +191,12 @@ export default function ContactsPage({ isActive = true }) {
   const [bookDialog, setBookDialog] = useState<BookDialogState | null>(null);
   const [bookSaving, setBookSaving] = useState(false);
   const [bookError, setBookError] = useState<string | null>(null);
-  // The Google People pull: `connected` decides whether the sync action is offered,
-  // and the notice reports what the last run changed.
-  const [googleContacts, setGoogleContacts] = useState<GoogleContactsStatus | null>(null);
-  const [googleSyncing, setGoogleSyncing] = useState(false);
-  const [googleSyncNotice, setGoogleSyncNotice] = useState('');
+  // The provider contact pulls: `connected` decides whether a sync action is offered,
+  // and the notice reports what the last run of either provider changed.
+  const [googleContacts, setGoogleContacts] = useState<ProviderContactsStatus | null>(null);
+  const [microsoftContacts, setMicrosoftContacts] = useState<ProviderContactsStatus | null>(null);
+  const [providerSyncing, setProviderSyncing] = useState<'google' | 'microsoft' | null>(null);
+  const [providerNotice, setProviderNotice] = useState<{ provider: 'google' | 'microsoft'; message: string } | null>(null);
   const isMobile = useCompactLayout();
 
   const [contacts, setContacts]     = useState<ContactRow[]>([]);
@@ -273,15 +274,17 @@ export default function ContactsPage({ isActive = true }) {
   useEffect(() => { totalRef.current = total; }, [total]);
 
   const loadAddressBooks = useCallback(async () => {
-    const [books, google] = await Promise.all([
+    const [books, google, microsoft] = await Promise.all([
       api.addressBooks.list(),
-      // A server without the Google adapter must not break the address books.
+      // A server without a provider adapter must not break the address books.
       api.googleContacts.status().catch(() => null),
+      api.microsoftContacts.status().catch(() => null),
     ]);
     // Older servers and test fixtures may not expose address books yet. Contacts
     // must remain usable while the client and API roll out independently.
     setAddressBooks(Array.isArray(books.addressBooks) ? books.addressBooks : []);
     setGoogleContacts(google ?? null);
+    setMicrosoftContacts(microsoft ?? null);
   }, []);
 
   const load = useCallback(async (q = '') => {
@@ -354,24 +357,30 @@ export default function ContactsPage({ isActive = true }) {
     } catch (err) { setListError(toAppError(err).message); }
   };
 
-  const runGoogleContactsSync = async () => {
-    setGoogleSyncing(true);
-    setGoogleSyncNotice('');
+  const runProviderContactsSync = async (provider: 'google' | 'microsoft') => {
+    setProviderSyncing(provider);
+    setProviderNotice(null);
     setListError(null);
     try {
-      const result = await api.googleContacts.sync() as { results?: GoogleContactsSyncOutcome[] };
+      const result = provider === 'google'
+        ? await api.googleContacts.sync() as { results?: GoogleContactsSyncOutcome[] }
+        : await api.microsoftContacts.sync() as { results?: GoogleContactsSyncOutcome[] };
       const outcomes = Array.isArray(result?.results) ? result.results : [];
       const sum = (field: 'created' | 'updated' | 'deleted') => outcomes.reduce((total, outcome) => total + (outcome[field] ?? 0), 0);
       const failed = outcomes.filter(outcome => outcome.error).length;
-      setGoogleSyncNotice(failed
-        ? t('contacts.addressBooks.googleSyncPartial', { created: sum('created'), updated: sum('updated'), deleted: sum('deleted'), failed })
-        : t('contacts.addressBooks.googleSyncDone', { created: sum('created'), updated: sum('updated'), deleted: sum('deleted') }));
+      const counts = { created: sum('created'), updated: sum('updated'), deleted: sum('deleted') };
+      // The two providers keep their own wording, so a user can tell which account
+      // a run belonged to without guessing.
+      const message = provider === 'google'
+        ? t(failed ? 'contacts.addressBooks.googleSyncPartial' : 'contacts.addressBooks.googleSyncDone', { ...counts, failed })
+        : t(failed ? 'contacts.addressBooks.microsoftSyncPartial' : 'contacts.addressBooks.microsoftSyncDone', { ...counts, failed });
+      setProviderNotice({ provider, message });
       await loadAddressBooks();
       await load(searchRef.current);
     } catch (err) {
       setListError(toAppError(err).message);
     } finally {
-      setGoogleSyncing(false);
+      setProviderSyncing(null);
     }
   };
 
@@ -616,7 +625,8 @@ export default function ContactsPage({ isActive = true }) {
           {addressBooks.map(book => <option key={book.id} value={book.id}>{book.visible ? '' : '○ '}{book.name}</option>)}
         </select>
         <Button onClick={openCreateBook}>{t('contacts.addressBooks.create')}</Button>
-        {googleContacts?.connected && <Button data-testid="contacts-google-sync" disabled={googleSyncing} onClick={runGoogleContactsSync}>{googleSyncing ? t('contacts.addressBooks.googleSyncing') : t('contacts.addressBooks.googleSync')}</Button>}
+        {googleContacts?.connected && <Button data-testid="contacts-google-sync" disabled={providerSyncing !== null} onClick={() => runProviderContactsSync('google')}>{providerSyncing === 'google' ? t('contacts.addressBooks.googleSyncing') : t('contacts.addressBooks.googleSync')}</Button>}
+        {microsoftContacts?.connected && <Button data-testid="contacts-microsoft-sync" disabled={providerSyncing !== null} onClick={() => runProviderContactsSync('microsoft')}>{providerSyncing === 'microsoft' ? t('contacts.addressBooks.microsoftSyncing') : t('contacts.addressBooks.microsoftSync')}</Button>}
         {selectedAddressBookId && <>
           {selectedBook?.source === 'local' && <Button data-testid="contacts-address-book-rename" onClick={() => openRenameBook(selectedBook)}>{t('contacts.addressBooks.rename')}</Button>}
           <Button onClick={toggleAddressBookVisibility}>{t(selectedBook?.visible ? 'contacts.addressBooks.hide' : 'contacts.addressBooks.show')}</Button>
@@ -628,7 +638,7 @@ export default function ContactsPage({ isActive = true }) {
       </div>
     </details>
     <input ref={importInputRef} type="file" accept=".csv,text/csv" onChange={importGoogleCsv} style={{ display: 'none' }} />
-    {googleSyncNotice && <p role="status" data-testid="contacts-google-sync-result" style={{ margin: '6px 0 0', fontSize: 12, color: 'var(--text-tertiary)' }}>{googleSyncNotice}</p>}
+    {providerNotice && <p role="status" data-testid={`contacts-${providerNotice.provider}-sync-result`} style={{ margin: '6px 0 0', fontSize: 12, color: 'var(--text-tertiary)' }}>{providerNotice.message}</p>}
   </div>;
   // Rendered by both layouts: the address-book menu is shared, so its dialog must be too.
   const bookNameDialog = bookDialog && <Dialog

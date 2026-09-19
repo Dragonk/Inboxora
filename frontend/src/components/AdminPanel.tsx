@@ -2645,7 +2645,7 @@ function IntegrationsTab() {
   const [configs, setConfigs] = useState<Record<string, { clientId?: string; [key: string]: unknown }>>({});
   // Non-admins can't read the full config (admin-only), but need to know whether
   // Microsoft OAuth is configured so the connect buttons enable. (#315)
-  const [msStatus, setMsStatus] = useState<{ configured?: boolean; [key: string]: unknown } | null>(null); // { configured } for non-admins
+  const [msStatus, setMsStatus] = useState<{ configured?: boolean; browser?: { ready?: boolean; missing?: string[] }; [key: string]: unknown } | null>(null); // { configured } for non-admins
   const [loading, setLoading] = useState(true);
   const [msForm, setMsForm] = useState({ clientId: '', clientSecret: '', tenantId: '', redirectUri: '' });
   const [msExpanded, setMsExpanded] = useState(false);
@@ -2658,6 +2658,7 @@ function IntegrationsTab() {
   const [googleSaving, setGoogleSaving] = useState(false);
   const [googleSaveMsg, setGoogleSaveMsg] = useState('');
   const [connectingGoogle, setConnectingGoogle] = useState(false);
+  const [connectingGraph, setConnectingGraph] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState('');
   const [connectingMs, setConnectingMs] = useState(false);
@@ -2877,8 +2878,21 @@ function IntegrationsTab() {
     setTimeout(() => setConnectingMs(false), 5000);
   };
 
-  const handleConnectGoogle = () => {
-    setConnectingGoogle(true);
+  const handleConnectMicrosoftGraph = () => {
+    setConnectingGraph(true);
+    // Contacts is the Graph feature that exists today; the purpose decides the
+    // scopes, so this never asks for the mailbox or the calendar.
+    const a = document.createElement('a');
+    a.href = '/oauth/provider/microsoft?purpose=contacts_enable';
+    a.target = '_blank';
+    a.rel = 'opener';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => setConnectingGraph(false), 5000);
+  };
+
+  const handleConnectGoogle = () => {    setConnectingGoogle(true);
     // Contacts is the Google feature that exists today; mail and calendar purposes
     // arrive with their own adapters, and each purpose asks only for its scopes.
     const a = document.createElement('a');
@@ -3151,6 +3165,29 @@ function IntegrationsTab() {
                     </svg>
                     {connectingMs ? t('admin.integrations.microsoft.redirecting') : t('admin.integrations.microsoft.connect')}
                   </button>
+
+                  {/* The Graph API connection is separate from the mailbox sign-in
+                      above: it never creates or migrates an account, so it is
+                      offered as its own, clearly named action. */}
+                  {msStatus?.browser?.ready && (
+                    <div style={{ marginTop: 10 }}>
+                      <button
+                        data-testid="microsoft-graph-connect"
+                        onClick={handleConnectMicrosoftGraph}
+                        disabled={connectingGraph}
+                        style={{
+                          padding: '9px 16px', background: 'var(--bg-elevated)', border: '1px solid var(--border)',
+                          borderRadius: 8, color: 'var(--text-primary)', cursor: connectingGraph ? 'not-allowed' : 'pointer',
+                          fontSize: 13, fontWeight: 500, opacity: connectingGraph ? 0.7 : 1,
+                        }}
+                      >
+                        {connectingGraph ? t('admin.integrations.microsoft.graphConnecting') : t('admin.integrations.microsoft.graphConnect')}
+                      </button>
+                      <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 6 }}>
+                        {t('admin.integrations.microsoft.graphHint')}
+                      </div>
+                    </div>
+                  )}
 
                   {isAdmin && msConfigured && (
                     <button onClick={async () => {

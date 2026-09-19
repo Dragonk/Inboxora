@@ -341,7 +341,10 @@
         "deviceCodeExpired": "Код истёк. Начните заново.",
         "deviceCodeDeclined": "Авторизация была отклонена.",
         "deviceCodeError": "Произошла ошибка. Повторите попытку.",
-        "deviceCodeCancel": "Отмена"
+        "deviceCodeCancel": "Отмена",
+        "graphConnect": "Подключить контакты Microsoft",
+        "graphConnecting": "Открытие Microsoft…",
+        "graphHint": "Авторизует Microsoft Graph только для контактов. Почтовый ящик не изменяется и не переносится."
       },
       "todoist": {
         "title": "Todoist",
@@ -1138,7 +1141,11 @@
       "googleSync": "Синхронизировать контакты Google",
       "googleSyncing": "Синхронизация…",
       "googleSyncDone": "Контакты Google: добавлено {{created}}, обновлено {{updated}}, удалено {{deleted}}.",
-      "googleSyncPartial": "Контакты Google: добавлено {{created}}, обновлено {{updated}}, удалено {{deleted}}; не удалось для {{failed}} подключений."
+      "googleSyncPartial": "Контакты Google: добавлено {{created}}, обновлено {{updated}}, удалено {{deleted}}; не удалось для {{failed}} подключений.",
+      "microsoftSync": "Синхронизировать контакты Microsoft",
+      "microsoftSyncing": "Синхронизация…",
+      "microsoftSyncDone": "Контакты Microsoft: добавлено {{created}}, обновлено {{updated}}, удалено {{deleted}}.",
+      "microsoftSyncPartial": "Контакты Microsoft: добавлено {{created}}, обновлено {{updated}}, удалено {{deleted}}; не удалось для {{failed}} подключений."
     },
     "googleConnected": {
       "title": "Google подключён",

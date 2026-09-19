@@ -772,7 +772,10 @@
         "deviceCodeExpired": "Platnost kódu vypršela. Spusťte proces znovu.",
         "deviceCodeDeclined": "Autorizace byla zamítnuta.",
         "deviceCodeError": "Došlo k chybě. Zkuste to znovu.",
-        "deviceCodeCancel": "Zrušit"
+        "deviceCodeCancel": "Zrušit",
+        "graphConnect": "Připojit kontakty Microsoft",
+        "graphConnecting": "Otevírání Microsoft…",
+        "graphHint": "Autorizuje Microsoft Graph pouze pro kontakty. Vaše schránka se nemění ani nepřesouvá."
       },
       "todoist": {
         "title": "Todoist",
@@ -1138,7 +1141,11 @@
       "googleSync": "Synchronizovat kontakty Google",
       "googleSyncing": "Synchronizace…",
       "googleSyncDone": "Kontakty Google: přidáno {{created}}, aktualizováno {{updated}}, odebráno {{deleted}}.",
-      "googleSyncPartial": "Kontakty Google: přidáno {{created}}, aktualizováno {{updated}}, odebráno {{deleted}}; {{failed}} připojení selhalo."
+      "googleSyncPartial": "Kontakty Google: přidáno {{created}}, aktualizováno {{updated}}, odebráno {{deleted}}; {{failed}} připojení selhalo.",
+      "microsoftSync": "Synchronizovat kontakty Microsoft",
+      "microsoftSyncing": "Synchronizace…",
+      "microsoftSyncDone": "Kontakty Microsoft: přidáno {{created}}, aktualizováno {{updated}}, odebráno {{deleted}}.",
+      "microsoftSyncPartial": "Kontakty Microsoft: přidáno {{created}}, aktualizováno {{updated}}, odebráno {{deleted}}; {{failed}} připojení selhalo."
     },
     "googleConnected": {
       "title": "Google připojen",

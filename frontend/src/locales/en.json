@@ -341,7 +341,10 @@
         "deviceCodeExpired": "Code expired. Click start again.",
         "deviceCodeDeclined": "Authorization was declined.",
         "deviceCodeError": "An error occurred. Please try again.",
-        "deviceCodeCancel": "Cancel"
+        "deviceCodeCancel": "Cancel",
+        "graphConnect": "Connect Microsoft contacts",
+        "graphConnecting": "Opening Microsoft…",
+        "graphHint": "Authorizes Microsoft Graph for contacts only. It does not change or migrate your mailbox."
       },
       "todoist": {
         "title": "Todoist",
@@ -1138,7 +1141,11 @@
       "googleSync": "Sync Google contacts",
       "googleSyncing": "Syncing…",
       "googleSyncDone": "Google contacts: {{created}} added, {{updated}} updated, {{deleted}} removed.",
-      "googleSyncPartial": "Google contacts: {{created}} added, {{updated}} updated, {{deleted}} removed; {{failed}} connection(s) failed."
+      "googleSyncPartial": "Google contacts: {{created}} added, {{updated}} updated, {{deleted}} removed; {{failed}} connection(s) failed.",
+      "microsoftSync": "Sync Microsoft contacts",
+      "microsoftSyncing": "Syncing…",
+      "microsoftSyncDone": "Microsoft contacts: {{created}} added, {{updated}} updated, {{deleted}} removed.",
+      "microsoftSyncPartial": "Microsoft contacts: {{created}} added, {{updated}} updated, {{deleted}} removed; {{failed}} connection(s) failed."
     },
     "googleConnected": {
       "title": "Google connected",

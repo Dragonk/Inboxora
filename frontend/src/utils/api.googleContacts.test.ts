@@ -47,4 +47,22 @@ describe('Google contacts API client', () => {
     ]);
     for (const [, init] of calls) assert.equal(init.headers[CSRF_HEADER], CSRF_VALUE);
   });
+
+  it('uses its own routes for the Microsoft contact connector', async () => {
+    const calls: RecordedCall[] = [];
+    const fetchStub = async (url: string, init: RecordedInit) => {
+      calls.push([url, init]);
+      return { ok: true, json: async () => ({ ok: true }) };
+    };
+    mock.method(globalThis, 'fetch', fetchStub);
+
+    await api.microsoftContacts.status();
+    await api.microsoftContacts.sync();
+
+    assert.deepEqual(calls.map(([url, init]) => [url, init.method]), [
+      ['/api/contacts/providers/microsoft/status', 'GET'],
+      ['/api/contacts/providers/microsoft/sync', 'POST'],
+    ]);
+    for (const [, init] of calls) assert.equal(init.headers[CSRF_HEADER], CSRF_VALUE);
+  });
 });

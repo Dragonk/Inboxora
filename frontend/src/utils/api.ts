@@ -386,6 +386,11 @@ export const api = {
     status: () => request('GET', '/contacts/providers/google/status'),
     sync: () => request('POST', '/contacts/providers/google/sync'),
   },
+  // The same pair for the Microsoft Graph connector; the providers are independent.
+  microsoftContacts: {
+    status: () => request('GET', '/contacts/providers/microsoft/status'),
+    sync: () => request('POST', '/contacts/providers/microsoft/sync'),
+  },
 
   // CardDAV contact sync (Nextcloud etc.)
   carddav: {
