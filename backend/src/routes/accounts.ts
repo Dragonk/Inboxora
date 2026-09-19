@@ -9,8 +9,10 @@ import { validateHost } from '../services/hostValidation.js';
 import { getConnectionPolicy } from '../services/connectionPolicy.js';
 import { pluginRegistry } from '../plugins/registry.js';
 import { createKeyedSerializer } from '../utils/keyedSerializer.js';
-import { uuidParam } from '../utils/uuid.js';
+import { isUuid, uuidParam } from '../utils/uuid.js';
 import { toAppError } from '../utils/errors.js';
+import { cutOverMicrosoftMailAccount } from '../services/providerMailCutover.js';
+import type { MicrosoftMailCutoverAccount } from '../services/providerMailCutover.js';
 
 // Serialize an account's reconnect triggers so a rapid settings change (e.g. a
 // gtd_enabled double-toggle) can't fire two overlapping disconnect→connect chains —
@@ -57,6 +59,9 @@ const SAFE_FIELDS = [
   'last_sync', 'sync_error', 'sort_order', 'folder_mappings',
   'signature', 'created_at', 'categorization_enabled',
   'antispam_enabled', 'trusted_authserv_id',
+  // v4 transport and migration state, so the account card can say which transport an account uses
+  // and why a migration it attempted did not complete. No credential or token is carried here.
+  'mail_transport', 'migration_state', 'migration_required', 'migration_error_code',
 ];
 function safeAccount(row: DbRow): Record<string, unknown> {
   const obj: Record<string, unknown> = Object.fromEntries(SAFE_FIELDS.map(k => [k, row[k]]));
@@ -86,7 +91,8 @@ router.get('/', async (req, res) => {
             smtp_host, smtp_port, smtp_tls, auth_user, smtp_auth_user, oauth_provider, enabled,
             include_in_unified_inbox,
             last_sync, sync_error, sort_order, folder_mappings, signature, created_at,
-            categorization_enabled, antispam_enabled, trusted_authserv_id
+            categorization_enabled, antispam_enabled, trusted_authserv_id,
+            mail_transport, migration_state, migration_required, migration_error_code
      FROM email_accounts WHERE user_id = $1 ORDER BY sort_order, created_at`,
     [req.session.userId]
   );
@@ -366,8 +372,107 @@ router.post('/:id/reconnect', async (req, res) => {
   const result = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2', [id, req.session.userId]);
   if (!result.rows.length) return res.status(404).json({ error: 'Account not found' });
 
-  imapManager.connectAccount(result.rows[0]).catch(console.error);
+  const account = result.rows[0];
+  // A native account has no IMAP session to rebuild. Opening one would be a silent fallback to the
+  // transport its cutover deliberately replaced, so this refuses instead; the provider sync is the
+  // way to refresh such an account.
+  if (account.mail_transport === 'microsoft_graph' || account.mail_transport === 'gmail_api') {
+    return res.status(409).json({
+      error: 'This account reads mail through its provider. Reconnect the provider instead of the IMAP session.',
+      code: 'PROVIDER_MANAGED_TRANSPORT',
+      transport: account.mail_transport,
+    });
+  }
+
+  imapManager.connectAccount(account).catch(console.error);
   res.json({ ok: true });
+});
+
+// ── In-place transport cutover (P12) ────────────────────────────────────────
+
+/** The account fields a cutover response returns; all of them are also on the account list. */
+function cutoverAccountPayload(account: MicrosoftMailCutoverAccount) {
+  return {
+    id: account.id,
+    email_address: account.email_address,
+    mail_transport: account.mail_transport,
+    protocol: account.protocol,
+    provider_connection_id: account.provider_connection_id,
+    provider_mailbox_id: account.provider_mailbox_id,
+    migration_state: account.migration_state,
+    migration_required: account.migration_required,
+    mail_method_preference: account.mail_method_preference,
+    transport_generation: account.transport_generation,
+  };
+}
+
+/**
+ * Move an existing Microsoft account onto the native Graph transport, in place.
+ *
+ * Deliberate and verifiable, not a background guess: the account keeps its id and all of its local
+ * data, the switch happens only against an active Graph connection whose grant carries the mail
+ * scopes, and a retry on an already-native account is a no-op. The body may name the connection
+ * explicitly; otherwise the mailbox's own connection is resolved. See `providerMailCutover.ts` for
+ * the state machine and the crash-safety argument.
+ */
+router.post('/:id/migrate', async (req, res) => {
+  const { id } = req.params;
+  const userId = req.session.userId;
+  if (!userId) return res.status(401).json({ error: 'Not authenticated' });
+  const requestedConnection = (req.body ?? {}).connectionId;
+  if (requestedConnection !== undefined && requestedConnection !== null && !isUuid(requestedConnection)) {
+    return res.status(400).json({ error: 'connectionId must be a UUID' });
+  }
+
+  try {
+    const result = await cutOverMicrosoftMailAccount({
+      userId,
+      accountId: id,
+      connectionId: requestedConnection ?? null,
+    });
+
+    switch (result.status) {
+      case 'not_found':
+        return res.status(404).json({ error: 'Account not found' });
+      case 'not_applicable':
+        return res.status(409).json({ error: result.reason, code: 'ACCOUNT_MIGRATION_NOT_APPLICABLE' });
+      case 'refused':
+        return res.status(result.httpStatus).json({
+          error: result.message,
+          code: result.code,
+          ...(result.missingScopes?.length ? { missingScopes: result.missingScopes } : {}),
+          ...(result.migrationState ? { migrationState: result.migrationState } : {}),
+        });
+      case 'already_native':
+        return res.json({
+          ok: true,
+          alreadyNative: true,
+          transport: 'microsoft_graph',
+          connectionId: result.connectionId,
+          account: cutoverAccountPayload(result.account),
+        });
+      case 'migrated':
+        // No IMAP session may outlive the switch; the transport, not the session, is authoritative
+        // now, and `protocol` keeps the legacy reconnect loops away from this account.
+        imapManager.disconnectAccount(id).catch(err =>
+          console.error(`Failed to disconnect account ${id} after the Graph cutover:`, err instanceof Error ? err.message : err)
+        );
+        return res.json({
+          ok: true,
+          alreadyNative: false,
+          transport: 'microsoft_graph',
+          connectionId: result.connectionId,
+          transitions: result.transitions,
+          foldersDiscovered: result.foldersDiscovered,
+          account: cutoverAccountPayload(result.account),
+        });
+    }
+    return res.status(500).json({ error: 'Unexpected cutover outcome' });
+  } catch (caught) {
+    const err = toAppError(caught);
+    console.error('Account Graph cutover error:', err.message);
+    return res.status(500).json({ error: 'Failed to migrate the account to Microsoft Graph' });
+  }
 });
 
 // ── Alias CRUD ─────────────────────────────────────────────────────────────
