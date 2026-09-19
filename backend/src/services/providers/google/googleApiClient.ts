@@ -106,10 +106,19 @@ async function parseBody(response: Response): Promise<unknown> {
 }
 
 /**
- * Perform an authenticated GET (or another method) against a Google API URL.
- * `init.body` must already be serialised; this helper only attaches auth.
+ * Perform an authenticated request against a Google API URL and hand back the raw
+ * response.
+ *
+ * This is the one place the token is attached, so every Google adapter — the
+ * Calendar/People reads and the Gmail REST calls — shares the same single-flight
+ * refresh and the same one controlled 401 retry. The raw form exists because not
+ * every answer carries a JSON body: Gmail's `labels.delete` and `messages.delete`
+ * answer `204`, and the base64url `raw` upload answers only on success.
+ *
+ * `init.body` must already be serialised; this helper only attaches auth and the
+ * timeout.
  */
-export async function googleApiFetch<T>(options: GoogleApiOptions, url: string, init: RequestInit = {}): Promise<T> {
+export async function googleApiRequest(options: GoogleApiOptions, url: string, init: RequestInit = {}): Promise<Response> {
   const fetchImpl = options.fetchImpl ?? fetch;
   const send = async (accessToken: string): Promise<Response> => fetchImpl(url, {
     ...init,
@@ -145,17 +154,61 @@ export async function googleApiFetch<T>(options: GoogleApiOptions, url: string, 
     response = await send(token.accessToken);
   }
 
-  if (!response.ok) {
-    throw classifyGoogleError(response.status, await parseBody(response), response.headers);
-  }
+  return response;
+}
+
+/** Throw the classified provider error for a failed response. */
+async function throwForGoogleStatus(response: Response): Promise<never> {
+  throw classifyGoogleError(response.status, await parseBody(response), response.headers);
+}
+
+/**
+ * Perform an authenticated request and decode its JSON body. A `204`/empty answer
+ * is a success with no body, so it decodes to `null` rather than failing.
+ */
+export async function googleApiJson<T>(options: GoogleApiOptions, url: string, init: RequestInit = {}): Promise<T | null> {
+  const response = await googleApiRequest(options, url, init);
+  if (!response.ok) await throwForGoogleStatus(response);
+  if (response.status === 204) return null;
+  return await response.json().catch(() => null) as T | null;
+}
+
+/** Perform an authenticated request whose success carries no body. */
+export async function googleApiVoid(options: GoogleApiOptions, url: string, init: RequestInit = {}): Promise<void> {
+  const response = await googleApiRequest(options, url, init);
+  if (!response.ok) await throwForGoogleStatus(response);
+}
+
+/**
+ * Perform an authenticated GET (or another method) against a Google API URL.
+ * `init.body` must already be serialised; this helper only attaches auth.
+ */
+export async function googleApiFetch<T>(options: GoogleApiOptions, url: string, init: RequestInit = {}): Promise<T> {
+  const response = await googleApiRequest(options, url, init);
+  if (!response.ok) await throwForGoogleStatus(response);
   return await response.json() as T;
 }
 
-/** Build a URL with only the defined query parameters. */
-export function googleUrl(base: string, path: string, params: Record<string, string | number | boolean | null | undefined>): string {
+/**
+ * Build a URL with only the defined query parameters. A value that is an array is
+ * appended once per element, which is how Google's `metadataHeaders[]` and similar
+ * repeated parameters are expressed.
+ */
+export function googleUrl(
+  base: string,
+  path: string,
+  params: Record<string, string | number | boolean | readonly string[] | null | undefined>,
+): string {
   const url = new URL(`${base}${path}`);
   for (const [key, value] of Object.entries(params)) {
-    if (value !== undefined && value !== null && value !== '') url.searchParams.set(key, String(value));
+    if (value === undefined || value === null || value === '') continue;
+    if (Array.isArray(value)) {
+      for (const entry of value) {
+        if (entry !== '') url.searchParams.append(key, String(entry));
+      }
+      continue;
+    }
+    url.searchParams.set(key, String(value));
   }
   return url.toString();
 }

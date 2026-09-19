@@ -90,6 +90,26 @@ and reconnecting re-links the same collections rather than duplicating them.
   rather than retried.
 - A `dev`-tagged image publication from the integrating branch. **The `dev` images are development
   builds, not this release**: 4.1.0 is released when `dev` is merged to `main`.
+- The **Gmail API mail adapter's read path** (`backend/src/services/providers/google/gmail*.ts`):
+  Gmail labels discovered as mail folders — the system mailboxes keep the canonical local paths and
+  `special_use` values, user labels keep Gmail's own names (and its own `/` hierarchy), and the labels
+  that are message attributes rather than mailboxes are deliberately not turned into folders — each
+  linked by its immutable label id through `integration_collections` (`kind = 'mail_label'`, a value
+  `0101` already declares). Messages are ingested through a **mailbox-wide history cursor**
+  (`users.history.list` from a stored `historyId`); a first run builds a **resumable** baseline that
+  records the mailbox's `historyId` before it lists anything, so a change arriving mid-run is replayed
+  afterwards instead of being skipped, and an expired history id (Gmail's `404`) or a delta larger than
+  one run's budget rebuilds from a baseline **and reconciles**. A Gmail message is in several places at
+  once; the row holds the **primary** folder its label set gives it and the complete label id set in
+  the new `messages.provider_labels`, and its thread id goes in the thread identity column in the same
+  `gmail:` form IMAP's `X-GM-THRID` uses, so conversations group through the existing engine. Label
+  create/rename/delete run through the shared **provider-mutation layer** with the same durability
+  rules as every other provider write. Requires migration **`0111`**.
+  **This does not change any existing Google account.** Nothing in this work sets
+  `mail_transport = 'gmail_api'`: the app-password IMAP/SMTP path stays the transport for every Google
+  account until an explicit in-place cutover (P12) implements the move, and the Gmail API code is
+  unreachable for an account that has not been cut over to it. Body and attachments on demand, message
+  mutations, drafts and send are the **remaining P08 slices**.
 
 ## Fixed
 
@@ -108,10 +128,12 @@ and reconnecting re-links the same collections rather than duplicating them.
 
 ## Configuration and migration requirements
 
-- Apply migrations **`0101`–`0110` in order, before rolling out the application**. They are
+- Apply migrations **`0101`–`0111` in order, before rolling out the application**. They are
   additive; no existing table, column or row is rewritten. `0110` adds three nullable columns to
   `oauth_authorization_flows` for the device authorization and must be applied before a device flow
-  is started, not merely before the application starts.
+  is started, not merely before the application starts. `0111` adds the nullable
+  `messages.provider_labels` array the Gmail API adapter writes; it must be applied before that
+  adapter runs, and an application version that predates it simply leaves the column `NULL`.
 - New optional variables: `PROVIDER_INTEGRATIONS_ENABLED` (`0` disables the whole provider layer,
   including the sync paths) and `PROVIDER_SYNC_INTERVAL_MINUTES` (refresh cadence; `0` leaves
   syncing to the user). Both are documented in `.env.example` and the wiki.
@@ -132,8 +154,16 @@ and reconnecting re-links the same collections rather than duplicating them.
   path is exercised by tests rather than by live accounts. **Graph drafts are implemented**: saving a
   draft for a native account creates the provider's own draft (blind recipients stay out of band),
   re-saving patches that same object rather than leaving two, and deleting removes it at Microsoft
-  first. **Provider-side search and the reply/forward dependencies are not implemented.** The Gmail API
-  mail transport is not in this release either; Google mail continues with an app password.
+  first. **Provider-side search and the reply/forward dependencies are not implemented.**
+  **Gmail API mail is a partial adapter, not yet a transport for anyone.** Its read path exists —
+  label discovery and projection, and message/thread ingest with a history cursor — but body and
+  attachments on demand, message mutations, drafts and send are not implemented, and **no Google
+  account is migrated to it**: `mail_transport` stays `imap_smtp` unless an explicit cutover sets it,
+  so Google mail continues with an app password and the Gmail API code is unreachable for an existing
+  account. When such an account is eventually cut over, one consequence of modelling Gmail's plural
+  labels on a single `messages` row is already decided: a message in the inbox that also carries user
+  labels appears **once**, in the inbox, with its additional labels retained in
+  `messages.provider_labels`.
 - **Provider data is read-only, and so are imported calendars and address books.** The provider
   **write** paths — provider CRUD (calendar and contacts create/update/delete), the external
   CalDAV/CardDAV write-back client and the mail migration/cutover — are not in this release, so an
@@ -174,3 +204,18 @@ Not re-run for this revision, and therefore **NOT RUN** rather than passing:
   login is **NOT RUN**.
 
 A static review or a mocked test does not stand in for any of the above.
+
+### Gmail API read path (P08, labels and ingest)
+
+Verified at the commit that delivered it, each gate's own exit status read:
+
+- Backend `npx tsc --noEmit` and `npx eslint src --max-warnings 0`: clean.
+- The full backend unit suite: green (the run includes 25 new Gmail unit tests across
+  `gmailLabels.test.ts` and `gmailMail.test.ts`).
+- PostgreSQL integration: a fresh database (`inboxora_gmail_gate`) with the full migration chain
+  applied, then `gmailMailSync.integration.test.ts` — **9 tests, green** — covering label projection
+  and its collection links, label rename and deletion with message re-homing, the baseline and its
+  stored `historyId`, an incremental run that applies a mailbox move and a deletion, the `404`
+  rebuild with reconciliation, the sync lease, and the paused-baseline resume from its checkpoint.
+- **Real-provider acceptance is NOT RUN**: no live Gmail mailbox was used, so the Gmail REST calls
+  are exercised only against faked HTTP responses.

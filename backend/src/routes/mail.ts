@@ -14,11 +14,21 @@ import {
   type GraphMailFlagPayload,
 } from '../services/providers/microsoft/graphMailMutations.js';
 import type { ProviderMutationStatus } from '../services/providerMutationService.js';
-import { microsoftConfigFromEnv } from '../services/providerAuthService.js';
+import { googleConfigFromEnv, microsoftConfigFromEnv } from '../services/providerAuthService.js';
 import { resolveMailTransportForSync } from '../services/mailTransportTarget.js';
 import { syncGraphMailFoldersForAccount, syncGraphMailMessagesForAccount } from '../services/providers/microsoft/graphMailSync.js';
 import type { EmailAccountRow } from '../services/imapManager.js';
 import { GraphApiError } from '../services/providers/microsoft/graphApiClient.js';
+import { gmailLabelIdForPath, syncGmailMailLabelsForAccount, syncGmailMailMessagesForAccount } from '../services/providers/google/gmailMailSync.js';
+import {
+  deleteGmailMessagePermanently,
+  gmailLabelCreateAdapter,
+  gmailLabelCreateIntent,
+  gmailLabelDeleteAdapter,
+  gmailLabelDeleteIntent,
+  gmailLabelRenameAdapter,
+  gmailLabelRenameIntent,
+} from '../services/providers/google/gmailMailMutations.js';
 import { graphCreateMailFolder, graphDeleteMailFolder, graphRenameMailFolder } from '../services/providers/microsoft/graphMailMutations.js';
 import { graphFolderIdForPath } from '../services/providers/microsoft/graphMailSync.js';
 import { deleteGraphMessagePermanently, moveGraphMessageToFolder } from '../services/providers/microsoft/graphMailMove.js';
@@ -945,19 +955,161 @@ async function renameGraphFolder(
 }
 
 /**
+ * Create a Gmail label, then discover it.
+ *
+ * Gmail nests a label by naming it `Parent/Child`, so a nested create is a label
+ * with a slash in its name rather than a parent id — the caller joins the path the
+ * local model carries and this posts the provider's own representation.
+ *
+ * The label is created **through the mutation layer**, so a recovered claim that may
+ * already have created it is parked rather than re-run: Gmail answers a duplicate
+ * name with `409`, which cannot be told apart from a label that already existed.
+ */
+async function createGmailLabelFolder(
+  userId: string,
+  account: EmailAccountRow,
+  labelName: string,
+): Promise<{ ok: true; path: string } | { ok: false; status: number; error: string; code: string }> {
+  if (!account.provider_connection_id) return { ok: false, status: 409, error: 'This account is not linked to a Google connection', code: 'PROVIDER_AUTH_REQUIRED' };
+  const api = { userId, connectionId: account.provider_connection_id, config: googleConfigFromEnv() };
+  const payload = { name: labelName, intentAt: new Date().toISOString() };
+  const created = await runProviderMutation(
+    {
+      userId, channel: 'web', operation: 'create', accountId: account.id,
+      ...gmailLabelCreateIntent(payload), payload,
+      retry: { delaySeconds: 300 },
+    },
+    gmailLabelCreateAdapter({ api }),
+  );
+  if (created.status !== 'confirmed' || !created.value?.id) {
+    return {
+      ok: false,
+      status: created.status === 'permanent' ? 409 : 502,
+      error: 'Gmail did not create this label',
+      code: created.code ?? 'INTERNAL_ERROR',
+    };
+  }
+  await syncGmailMailLabelsForAccount({ userId, connectionId: account.provider_connection_id, accountId: account.id, config: api.config });
+  const resolved = await gmailLabelIdForPath({ connectionId: account.provider_connection_id, accountId: account.id, path: labelName });
+  if (!resolved) return { ok: false, status: 502, error: 'The label was created but not discovered; sync folders and try again', code: 'RESOURCE_NOT_FOUND' };
+  return { ok: true, path: labelName };
+}
+
+/**
+ * Rename a Gmail label, then discover so the local path follows.
+ *
+ * Gmail identifies the label immutably and the display name is what changes, so the
+ * label sync sees the resulting path change and relocates the folder's messages —
+ * nothing here touches `messages`.
+ */
+async function renameGmailLabelFolder(
+  userId: string,
+  account: EmailAccountRow,
+  oldPath: string,
+  newName: string,
+): Promise<{ ok: true } | { ok: false; status: number; error: string; code: string }> {
+  if (!account.provider_connection_id) return { ok: false, status: 409, error: 'This account is not linked to a Google connection', code: 'PROVIDER_AUTH_REQUIRED' };
+  const labelId = await gmailLabelIdForPath({ connectionId: account.provider_connection_id, accountId: account.id, path: oldPath });
+  if (!labelId) return { ok: false, status: 404, error: `The label "${oldPath}" is not a label this Gmail account discovered`, code: 'RESOURCE_NOT_FOUND' };
+  const api = { userId, connectionId: account.provider_connection_id, config: googleConfigFromEnv() };
+  const payload = { labelId, name: newName, intentAt: new Date().toISOString() };
+  const renamed = await runProviderMutation(
+    {
+      userId, channel: 'web', operation: 'update', accountId: account.id, resourceId: labelId,
+      ...gmailLabelRenameIntent(payload), payload,
+      retry: { delaySeconds: 300 },
+    },
+    gmailLabelRenameAdapter({ api }),
+  );
+  if (renamed.status !== 'confirmed') {
+    return { ok: false, status: renamed.status === 'permanent' ? 409 : 502, error: 'Gmail did not rename this label', code: renamed.code ?? 'INTERNAL_ERROR' };
+  }
+  await syncGmailMailLabelsForAccount({ userId, connectionId: account.provider_connection_id, accountId: account.id, config: api.config });
+  return { ok: true };
+}
+
+/**
+ * Delete a Gmail label on the provider and let discovery reconcile the local copy.
+ *
+ * The label sync owns the local consequence: the label disappears from the next
+ * snapshot, its collection and folder go, and the messages it held are re-homed to
+ * another mailbox they still carry — or removed from the local view when the
+ * message is archived. Doing that here as well would be a second, weaker copy of
+ * the same rule.
+ */
+async function deleteGmailLabelFolder(
+  userId: string,
+  account: EmailAccountRow,
+  path: string,
+): Promise<{ ok: true } | { ok: false; status: number; error: string; code: string }> {
+  if (!account.provider_connection_id) return { ok: false, status: 409, error: 'This account is not linked to a Google connection', code: 'PROVIDER_AUTH_REQUIRED' };
+  const labelId = await gmailLabelIdForPath({ connectionId: account.provider_connection_id, accountId: account.id, path });
+  if (!labelId) return { ok: false, status: 404, error: `The label "${path}" is not a label this Gmail account discovered`, code: 'RESOURCE_NOT_FOUND' };
+  const api = { userId, connectionId: account.provider_connection_id, config: googleConfigFromEnv() };
+  const payload = { labelId, intentAt: new Date().toISOString() };
+  const removed = await runProviderMutation(
+    {
+      userId, channel: 'web', operation: 'delete', accountId: account.id, resourceId: labelId,
+      ...gmailLabelDeleteIntent(payload), payload,
+      retry: { delaySeconds: 300 },
+    },
+    gmailLabelDeleteAdapter({ api }),
+  );
+  if (removed.status !== 'confirmed') {
+    return { ok: false, status: removed.status === 'permanent' ? 409 : 502, error: 'Gmail did not delete this label', code: removed.code ?? 'INTERNAL_ERROR' };
+  }
+  await syncGmailMailLabelsForAccount({ userId, connectionId: account.provider_connection_id, accountId: account.id, config: api.config });
+  return { ok: true };
+}
+
+/**
+ * Empty a Gmail label folder.
+ *
+ * The IMAP path answers what "empty" means, so this mirrors it rather than
+ * inventing one: every message filed under the label is **removed permanently**
+ * (Gmail's `messages.delete`, which is what the Graph branch's `DELETE` is too),
+ * not moved to Trash. Gmail has no "empty this label" call, so this is one DELETE
+ * per message — bounded by the folder's size, and deliberately sequential so a
+ * large folder cannot open hundreds of requests at once.
+ *
+ * A refusal **throws**, which is what the caller's catch expects: the local cleanup
+ * is then skipped, so a folder the provider only partly emptied does not appear
+ * empty here. The next sync reconciles whatever did go.
+ */
+async function emptyGmailFolder(userId: string, account: EmailAccountRow, path: string): Promise<void> {
+  if (!account.provider_connection_id) throw new Error('This account is not linked to a Google connection');
+  const rows = await query<{ id: string; provider_message_id: string | null }>(
+    'SELECT id, provider_message_id FROM messages WHERE account_id = $1 AND folder = $2 AND provider_message_id IS NOT NULL',
+    [account.id, path],
+  );
+  let refused = 0;
+  for (const row of rows.rows) {
+    if (!row.provider_message_id) continue;
+    const removed = await deleteGmailMessagePermanently({
+      userId, accountId: account.id, connectionId: account.provider_connection_id,
+      config: googleConfigFromEnv(), resourceId: row.id, providerMessageId: row.provider_message_id,
+    });
+    if (!removed.deleted) {
+      refused += 1;
+      console.error(`empty-folder: Gmail did not confirm the removal of ${row.id} (${removed.code ?? 'unknown'})`);
+    }
+  }
+  if (refused > 0) throw new Error(`Gmail did not confirm ${refused} of ${rows.rows.length} removals`);
+}
+
+/**
  * The refusal for any transport whose folder management is not implemented.
  *
- * All four folder routes are implemented for a Microsoft Graph account now, each
- * with its own branch, so none of them reaches this for that transport. It stays as
- * the guarantee that a transport without a branch is **refused rather than handed to
- * IMAP** — the failure mode this whole set of slices existed to remove — and it is
- * still the answer for a *nested* create, which Graph handles by parent id while the
- * local model carries a path.
+ * Every folder route has its own branch for a Microsoft Graph account and for a
+ * Gmail API account, so neither reaches this. It stays as the guarantee that a
+ * transport without a branch is **refused rather than handed to IMAP** — the
+ * failure mode this whole set of slices existed to remove.
  */
 function folderManagementRefusal(account: EmailAccountRow): { error: string; code: string } | null {
-  if (account.mail_transport !== 'microsoft_graph') return null;
+  const transport = account.mail_transport ?? 'imap_smtp';
+  if (transport === 'imap_smtp') return null;
   return {
-    error: 'Managing folders is not supported on a Microsoft Graph account yet. Create or change the folder in Outlook and use "Sync folders" to bring it here.',
+    error: `Managing folders is not supported on a ${transport} account yet. Change it in the provider and use "Sync folders" to bring it here.`,
     code: 'OPERATION_FORBIDDEN',
   };
 }
@@ -1542,6 +1694,21 @@ router.post('/sync', async (req, res) => {
       })();
       return res.json({ ok: true, transport: 'microsoft_graph' });
     }
+    if (target.kind === 'gmail') {
+      const userId = sessionUserId(req);
+      // Labels first: the message cursors are per discovered label, and a message's
+      // primary folder is only resolvable once the label paths exist locally.
+      void (async () => {
+        try {
+          await syncGmailMailLabelsForAccount({ userId, connectionId: target.connectionId, accountId, config: target.config });
+          await syncGmailMailMessagesForAccount({ userId, connectionId: target.connectionId, accountId, config: target.config });
+          imapManager.broadcast({ type: 'sync_complete', accountId }, userId);
+        } catch (err) {
+          console.error('Gmail mail sync error:', err instanceof Error ? err.message : err);
+        }
+      })();
+      return res.json({ ok: true, transport: 'gmail_api' });
+    }
   }
   // Run sync in background so response returns immediately
   imapManager.syncNow(sessionUserId(req), accountId || null)
@@ -1570,6 +1737,15 @@ router.post('/sync-folders', async (req, res) => {
         .then(() => imapManager.broadcast({ type: 'folders_synced', accountId }, userId))
         .catch(err => console.error('Graph folder discovery error:', err.message));
       return res.json({ ok: true, transport: 'microsoft_graph' });
+    }
+    if (target.kind === 'gmail') {
+      const userId = sessionUserId(req);
+      // As for Graph: this is the trigger that creates the first label collection;
+      // without it the scheduled refresh has nothing to refresh.
+      syncGmailMailLabelsForAccount({ userId, connectionId: target.connectionId, accountId, config: target.config })
+        .then(() => imapManager.broadcast({ type: 'folders_synced', accountId }, userId))
+        .catch(err => console.error('Gmail label discovery error:', err.message));
+      return res.json({ ok: true, transport: 'gmail_api' });
     }
   }
   // Run in background so the response returns immediately; the folders_synced
@@ -1652,6 +1828,14 @@ router.post('/folders', async (req, res) => {
     if (!created.ok) return res.status(created.status).json({ error: created.error, code: created.code });
     return res.json({ ok: true, folder: created.path });
   }
+  // A Gmail label nests by carrying its parent in its own name, so a nested create
+  // is the same call with the provider's own path.
+  if (check.rows[0].mail_transport === 'gmail_api') {
+    const labelName = parentPath ? `${parentPath}/${name.trim()}` : name.trim();
+    const created = await createGmailLabelFolder(sessionUserId(req), check.rows[0], labelName);
+    if (!created.ok) return res.status(created.status).json({ error: created.error, code: created.code });
+    return res.json({ ok: true, folder: created.path });
+  }
   const folderRefusal = folderManagementRefusal(check.rows[0]);
   if (folderRefusal) return res.status(501).json(folderRefusal);
 
@@ -1696,6 +1880,14 @@ router.post('/folders/delete', async (req, res) => {
       [check.rows[0].provider_connection_id, 'mail_folder', removed.remoteId]).catch(() => {});
     return res.json({ ok: true });
   }
+  // A Gmail label delete is followed by discovery, which removes the label's
+  // collection and folder and re-homes the messages it held. Deleting them here as
+  // well would drop messages that are still in another mailbox.
+  if (check.rows[0].mail_transport === 'gmail_api') {
+    const removed = await deleteGmailLabelFolder(sessionUserId(req), check.rows[0], path);
+    if (!removed.ok) return res.status(removed.status).json({ error: removed.error, code: removed.code });
+    return res.json({ ok: true });
+  }
   const folderRefusal = folderManagementRefusal(check.rows[0]);
   if (folderRefusal) return res.status(501).json(folderRefusal);
 
@@ -1723,6 +1915,11 @@ router.post('/folders/rename', async (req, res) => {
   // already recognises the resulting path change and moves the folder's messages.
   if (check.rows[0].mail_transport === 'microsoft_graph') {
     const renamed = await renameGraphFolder(sessionUserId(req), check.rows[0], oldPath, newName.trim());
+    if (!renamed.ok) return res.status(renamed.status).json({ error: renamed.error, code: renamed.code });
+    return res.json({ ok: true });
+  }
+  if (check.rows[0].mail_transport === 'gmail_api') {
+    const renamed = await renameGmailLabelFolder(sessionUserId(req), check.rows[0], oldPath, newName.trim());
     if (!renamed.ok) return res.status(renamed.status).json({ error: renamed.error, code: renamed.code });
     return res.json({ ok: true });
   }
@@ -1815,6 +2012,8 @@ router.post('/folders/empty', async (req, res) => {
     try {
       if (account.mail_transport === 'microsoft_graph') {
         await emptyGraphFolder(sessionUserId(req), account, path);
+      } else if (account.mail_transport === 'gmail_api') {
+        await emptyGmailFolder(sessionUserId(req), account, path);
       } else {
         await imapManager.emptyFolder(account, path);
       }

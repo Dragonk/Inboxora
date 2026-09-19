@@ -32,6 +32,28 @@ release is never claimed before it has happened.
 
 ### Added
 
+- **Gmail API mail adapter, read path (P08): labels and message/thread ingest.** A Google account can
+  now read its mail through the **Gmail API** instead of IMAP: labels are discovered and projected onto
+  the local folder model (the system mailboxes `INBOX`, `SENT`, `DRAFT`, `TRASH` and `SPAM` with the
+  canonical local paths and `special_use` values the rest of the application already reads, every user
+  label as its own folder, and `STARRED`/`IMPORTANT`/`UNREAD`/`CHAT`/`CATEGORY_*` deliberately **not**
+  invented as folders), each linked by its immutable Gmail label id. Messages are ingested with a
+  mailbox-wide **history cursor** (`users.history.list` from a stored `historyId`): a first run builds a
+  resumable baseline and records the mailbox's `historyId` **before** it starts, so a change that lands
+  mid-run is replayed rather than lost; later runs re-read only the threads the history names. An
+  expired history id (Gmail answers `404`) rebuilds from a baseline **and reconciles**, and so does a
+  delta larger than one run's budget. A Gmail message is in several places at once, so the row holds the
+  **primary** folder its label set gives it and the complete label id set beside it
+  (`messages.provider_labels`), the Gmail thread id goes in the thread identity column in the same
+  `gmail:` form the IMAP path uses for `X-GM-THRID`, and a label deleted in Gmail re-homes the messages
+  it held to another label they still carry instead of dropping them. Label create/rename/delete are
+  performed **through the mutation layer** with the same durability rules (create and delete are
+  non-idempotent and never auto-retried; rename is a state set). Requires migration **`0111`**.
+  **No account is migrated:** `mail_transport` only becomes `gmail_api` through a later, explicit
+  cutover (P12), so every existing Google account keeps reading and sending over IMAP/SMTP exactly as
+  before, and the work above is unreachable for it. This slice is the read path only — body and
+  attachments on demand, message mutations, drafts and send are the remaining P08 slices.
+
 - **Microsoft Graph calendars (P07d, read path).** A Microsoft connection's calendars are now
   discovered and pulled with their events, next to the contacts that already were. Each calendar
   becomes a local calendar that starts **read-only and hidden from DAV devices**, linked by its
