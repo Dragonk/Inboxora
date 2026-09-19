@@ -513,6 +513,11 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   meant a new Client ID was silently paired with the old secret, and the mismatch appeared only when the
   provider refused it. Both cards now ask first, unless a new secret is being supplied, which resolves the
   pairing by itself.
+- Stop the device-code endpoint being a way to make the server hammer the provider. Every poll of that endpoint
+  is a call to Microsoft's token endpoint; the interface respects the interval Microsoft asks for, but nothing
+  enforced it, so any other caller could poll as fast as it liked. A poll that arrives before the interval has
+  passed is now answered from the flow's own state, without calling the provider — the same answer Microsoft
+  gives for `slow_down`, at no cost to it.
 
 
 ## [4.0.4] - 2026-09-18

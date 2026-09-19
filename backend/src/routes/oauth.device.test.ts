@@ -89,6 +89,27 @@ describe('POST /oauth/microsoft/device', () => {
     expect(vi.mocked(fetch)).not.toHaveBeenCalled();
   });
 
+  it('does not call Microsoft again before the interval it asked for', async () => {
+    // Each poll is a provider call, and the interface respects the interval while nothing stopped another
+    // caller from ignoring it.
+    const started = await (await startDevice()).json() as { flowId?: string };
+    // From here the token endpoint answers "pending", which is what a device grant returns until the user
+    // approves it.
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (String(url).startsWith(base)) return realFetch(url, init);
+      return { ok: true, status: 200, json: async () => ({ error: 'authorization_pending' }) } as Response;
+    }));
+    const first = await realFetch(`${base}/oauth/microsoft/device/poll?flowId=${started.flowId}`);
+    expect(first.status).toBe(200);
+    expect((await first.json() as { status: string }).status).toBe('pending');
+    const providerCallsAfterFirst = vi.mocked(fetch).mock.calls.length;
+
+    const second = await realFetch(`${base}/oauth/microsoft/device/poll?flowId=${started.flowId}`);
+    expect((await second.json() as { status: string }).status).toBe('pending');
+    // The second poll answered from the flow's own state: no further call reached the provider.
+    expect(vi.mocked(fetch).mock.calls.length).toBe(providerCallsAfterFirst);
+  });
+
   it('keeps a second flow for the same user separate from the first', async () => {
     // The map used to be keyed by the user, so a second start replaced the first: the first poll would
     // report the second flow's state and completing the first code would be invisible.

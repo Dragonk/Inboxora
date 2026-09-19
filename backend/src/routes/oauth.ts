@@ -323,6 +323,11 @@ router.post('/microsoft/device', async (req: Request, res: Response) => {
       deviceCode: dc.device_code,
       tenantId,
       clientId,
+      // The interval Microsoft asks for, and when this flow was last polled. Both are needed to keep a
+      // misbehaving client from turning each of its polls into a call to Microsoft: the interface respects
+      // the interval, but nothing stopped another caller from ignoring it.
+      intervalSeconds: dc.interval || 5,
+      lastPolledAt: 0,
       expiresAt: Date.now() + dc.expires_in * 1000,
     });
 
@@ -356,6 +361,15 @@ router.get('/microsoft/device/poll', async (req: Request, res: Response) => {
     deviceFlows.delete(flow.flowId);
     return res.json({ status: 'expired' });
   }
+
+  // The device grant is polled, and every poll here is a call to Microsoft. Microsoft's own answer to too
+  // frequent polling is `slow_down`; not calling at all until the interval has passed is the cheaper version,
+  // and it keeps this endpoint from being a way to make the server hammer the provider.
+  const intervalMs = Math.max(1, Number(flow.intervalSeconds) || 5) * 1000;
+  if (Date.now() - Number(flow.lastPolledAt ?? 0) < intervalMs) {
+    return res.json({ status: 'pending' });
+  }
+  flow.lastPolledAt = Date.now();
 
   try {
     const tokenRes = await fetch(`${MICROSOFT_AUTH_URL}/${flow.tenantId}/oauth2/v2.0/token`, {
