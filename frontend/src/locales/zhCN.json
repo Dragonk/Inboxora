@@ -2011,7 +2011,9 @@
     "googleSyncing": "正在同步…",
     "googleSyncDone": "Google 日历：{{calendars}} 个日历，新增 {{created}}，更新 {{updated}}，删除 {{deleted}}。",
     "googleSyncPartial": "Google 日历：{{calendars}} 个日历，新增 {{created}}，更新 {{updated}}，删除 {{deleted}}；{{failed}} 个失败。",
-    "googleNotConnected": "请在“设置 → 集成”中连接 Google 账户以导入日历。"
+    "googleNotConnected": "请在“设置 → 集成”中连接 Google 账户以导入日历。",
+    "importIcs": "导入 .ics 文件",
+    "importingIcs": "正在导入…"
   },
   "mailFolders": {
     "inbox": "收件箱",

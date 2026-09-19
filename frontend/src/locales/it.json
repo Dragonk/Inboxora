@@ -2011,7 +2011,9 @@
     "googleSyncing": "Sincronizzazione…",
     "googleSyncDone": "Calendari Google: {{calendars}} calendario/i, {{created}} aggiunti, {{updated}} aggiornati, {{deleted}} rimossi.",
     "googleSyncPartial": "Calendari Google: {{calendars}} calendario/i, {{created}} aggiunti, {{updated}} aggiornati, {{deleted}} rimossi; {{failed}} errori.",
-    "googleNotConnected": "Connetti un account Google in Impostazioni → Integrazioni per importare i calendari."
+    "googleNotConnected": "Connetti un account Google in Impostazioni → Integrazioni per importare i calendari.",
+    "importIcs": "Importa file .ics",
+    "importingIcs": "Importazione…"
   },
   "mailFolders": {
     "inbox": "Posta in arrivo",

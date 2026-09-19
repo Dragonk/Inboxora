@@ -65,6 +65,21 @@ updates. If a country is missing from the picker, add its `https://` or `webcal:
 the subscription form above. Holiday calendars are subject to the same connection and credential
 rules as every other source.
 
+## Importing an .ics file
+
+A local calendar can also be filled from a file: open the calendar's menu, choose its appearance
+dialog and pick **Import .ics file**. This is the way to bring in an export from another client
+without publishing it as a feed first.
+
+- A file containing a recurring event keeps the series and its moved or cancelled occurrences
+  together, exactly as DAV requires; they do not become separate events.
+- Identity is the event's UID, so importing the same file again updates the events the calendar
+  already has instead of duplicating them.
+- An event the calendar cannot read is skipped rather than stored broken, and it does not stop the
+  valid events beside it. A file that is not a calendar, or that holds no event, is reported.
+- Only a local calendar accepts an import: a subscribed feed or a connected Google or Microsoft
+  calendar is written by its source.
+
 ## Sync schedule
 
 Every source has its own interval, chosen when you add it and editable at any time from its row in

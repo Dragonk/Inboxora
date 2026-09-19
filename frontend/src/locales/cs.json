@@ -2011,7 +2011,9 @@
     "googleSyncing": "Synchronizace…",
     "googleSyncDone": "Kalendáře Google: {{calendars}} kalendářů, přidáno {{created}}, aktualizováno {{updated}}, odebráno {{deleted}}.",
     "googleSyncPartial": "Kalendáře Google: {{calendars}} kalendářů, přidáno {{created}}, aktualizováno {{updated}}, odebráno {{deleted}}; selhání: {{failed}}.",
-    "googleNotConnected": "Připojte účet Google v Nastavení → Integrace a importujte kalendáře."
+    "googleNotConnected": "Připojte účet Google v Nastavení → Integrace a importujte kalendáře.",
+    "importIcs": "Importovat soubor .ics",
+    "importingIcs": "Importuji…"
   },
   "mailFolders": {
     "inbox": "Doručená pošta",

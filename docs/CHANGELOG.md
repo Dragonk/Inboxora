@@ -252,6 +252,14 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   instead of creating a second copy of each. A card without a UID is given one, a block with no
   usable fields is skipped rather than stored blank, and an empty, oversized or card-less file is
   reported instead of importing nothing quietly.
+- Import an **iCalendar (`.ics`) file** into a local calendar (P10), from the calendar's appearance
+  dialog. The file is split into one resource per UID, so a series and its moved exceptions stay
+  together as DAV requires instead of becoming separate events, and the import keys on the UID, so
+  re-importing updates the events a calendar already has rather than duplicating every series. An
+  event the projection cannot read (for example one whose end precedes its start) is skipped
+  instead of stored broken and does not stop the valid events beside it; a file that is not a
+  calendar, or that contains no event at all, is reported as a `400`; and a calendar owned by a
+  provider or an imported feed refuses the write, because its source is its writer.
 
 ## [4.0.4] - 2026-09-18
 

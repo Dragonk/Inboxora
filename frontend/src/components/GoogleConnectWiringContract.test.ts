@@ -132,3 +132,12 @@ test('the contacts screen can import a vCard file into a local book', async () =
   const localGuards = source.match(/selectedBook\?\.source === 'local' && <Button/);
   assert.ok(localGuards, 'import actions must be limited to local books');
 });
+
+test('a local calendar can import an .ics file from the appearance dialog', async () => {
+  const source = await readFile(calendarSidebar, 'utf8');
+  assert.match(source, /api\.calendar\.importIcs\(calendar\.id/);
+  assert.match(source, /data-testid="calendar-import-ics"/);
+  assert.match(source, /accept="\.ics,text\/calendar"/);
+  assert.match(source, /calendar\.importIcs/);
+  assert.match(source, /calendar\.importingIcs/);
+});

@@ -129,6 +129,8 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
   const [googleCalendars, setGoogleCalendars] = useState<GoogleCalendarStatus | null>(null);
   const [googleSyncing, setGoogleSyncing] = useState(false);
   const [googleSyncNotice, setGoogleSyncNotice] = useState('');
+  const [icsImporting, setIcsImporting] = useState(false);
+  const importIcsRef = useRef<HTMLInputElement | null>(null);
   useBackLayer(openCalendarMenu, () => { if (!calendarSaving) setOpenCalendarMenu(null); }, 4510);
   const cells = useMemo(() => monthCells(anchor, weekStartsOn), [anchor, weekStartsOn]);
   const weekdays = useMemo(() => Array.from({ length: 7 }, (_, index) => new Date(2026, 0, 4 + ((index + weekStartsOn) % 7)).toLocaleDateString(locale, { weekday: 'short' })), [locale, weekStartsOn]);
@@ -255,6 +257,23 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
       if (mounted.current) setGoogleSyncing(false);
     }
   };
+  const importIcsFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    const calendar = calendarEdit?.calendar;
+    event.target.value = '';
+    if (!file || !calendar) return;
+    setIcsImporting(true);
+    setEditError(null);
+    try {
+      await api.calendar.importIcs(calendar.id, await file.text());
+      setCalendarEdit(null);
+      await onSourcesChanged();
+    } catch (error) {
+      setEditError(toAppError(error).message);
+    } finally {
+      if (mounted.current) setIcsImporting(false);
+    }
+  };
   const removeSource = async (id: string) => {
     sourceRequestGeneration.current += 1;
     try { await api.calendar.deleteSource(id); clearSourcePoll(id); await loadSources(); await onSourcesChanged(); }
@@ -339,8 +358,12 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
           </select>
         </label>
         <p style={{ margin: 0, fontSize: 11, color: 'var(--text-tertiary)' }}>{t('calendar.davAccessHint')}</p>
+        {/* An .ics file goes into one local calendar; a provider calendar is written
+            by its source, which is why this lives in the appearance dialog. */}
+        <button type="button" data-testid="calendar-import-ics" disabled={icsImporting} onClick={() => importIcsRef.current?.click()} style={linkButton}>{icsImporting ? t('calendar.importingIcs') : t('calendar.importIcs')}</button>
       </div>
     </Dialog>}
+    <input ref={importIcsRef} type="file" accept=".ics,text/calendar" onChange={importIcsFile} style={{ display: 'none' }} />
     {showSources && <Dialog title={t('calendar.manageSources')} closeLabel={t('calendar.close')} onClose={() => setShowSources(false)}>
       {sourceError && <p role="alert" style={error}>{sourceError}</p>}
       <form onSubmit={addSource} className="ui-form" style={formStyle}>

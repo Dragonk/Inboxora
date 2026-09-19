@@ -439,6 +439,8 @@ export const api = {
     // which is also the path that notifies invited attendees.
     deleteEvent: (id: string, calendarId: string, recurrenceId: string | null | undefined = undefined, scope: string | null | undefined = undefined) =>recurrenceId ? request('DELETE', `/calendar/events/${encodeURIComponent(id)}/occurrence`, { calendarId, recurrenceId, ...(scope ? { scope } : {}) }) : request('DELETE', `/calendar/events/${encodeURIComponent(id)}?calendarId=${encodeURIComponent(calendarId)}`),
     listSources: () => request('GET', '/calendar/sources'),
+    // A local .ics import into one calendar; keyed by UID server-side.
+    importIcs: (id: string, ics: string) => request('POST', `/calendar/calendars/${encodeURIComponent(id)}/import/ics`, { ics }),
     // Google Calendar pull: status is safe for any user, sync is idempotent per cursor.
     googleCalendars: {
       status: () => request('GET', '/calendar/providers/google/status'),

@@ -2011,7 +2011,9 @@
     "googleSyncing": "Synchronisation…",
     "googleSyncDone": "Agendas Google : {{calendars}} agenda(s), {{created}} ajoutés, {{updated}} mis à jour, {{deleted}} supprimés.",
     "googleSyncPartial": "Agendas Google : {{calendars}} agenda(s), {{created}} ajoutés, {{updated}} mis à jour, {{deleted}} supprimés ; {{failed}} échec(s).",
-    "googleNotConnected": "Connectez un compte Google dans Paramètres → Intégrations pour importer des agendas."
+    "googleNotConnected": "Connectez un compte Google dans Paramètres → Intégrations pour importer des agendas.",
+    "importIcs": "Importer un fichier .ics",
+    "importingIcs": "Importation…"
   },
   "mailFolders": {
     "inbox": "Boîte de réception",

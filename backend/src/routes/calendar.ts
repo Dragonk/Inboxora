@@ -1,4 +1,4 @@
-import { mergeCalendarResource, rruleFromCalendarResource, setSeriesRecurrence, truncateSeriesBefore } from '../utils/calendarRecurrence.js';
+import { calendarResources, mergeCalendarResource, rruleFromCalendarResource, setSeriesRecurrence, truncateSeriesBefore } from '../utils/calendarRecurrence.js';
 import { parseRecurrenceInput, recurrenceViewFromRRule } from '../utils/calendarRecurrenceRule.js';
 import { googleConfigFromEnv, isGoogleConfigured } from '../services/providerAuthService.js';
 import { syncGoogleCalendar } from '../services/providers/google/googleCalendarSync.js';
@@ -1213,6 +1213,66 @@ router.post('/providers/google/sync', async (req, res) => {
     }
   }
   res.json({ results });
+});
+
+
+// Import an .ics file into a local calendar. Identity is the event UID, exactly as
+// in the DAV and provider paths, so re-importing a file updates the events it
+// already has instead of creating a second copy of each series.
+router.post('/calendars/:id/import/ics', async (req, res) => {
+  const ics = typeof req.body?.ics === 'string' ? req.body.ics : '';
+  if (!ics || ics.length > 900_000) return res.status(400).json({ error: 'iCalendar file must be a non-empty file smaller than 900 KB' });
+  const userId = sessionUserId(req);
+  try {
+    const owned = await query<{ id: string; source?: string | null }>(
+      'SELECT id, source FROM calendars WHERE id = $1 AND user_id = $2',
+      [req.params.id, userId],
+    );
+    const calendar = owned.rows[0];
+    if (!calendar) return res.status(404).json({ error: 'Calendar not found' });
+    // An imported or provider calendar is written by its source, not by a file.
+    if ((calendar.source ?? 'local') !== 'local') return res.status(403).json({ error: 'This calendar is read-only' });
+
+    let resources: string[];
+    try {
+      resources = calendarResources(ics);
+    } catch {
+      return res.status(400).json({ error: 'The file is not a valid iCalendar document' });
+    }
+
+    let imported = 0;
+    await withTransaction(async client => {
+      for (const raw of resources) {
+        const event = parseCalendarEvent(raw);
+        // A resource the projection cannot read is skipped rather than stored broken.
+        if (!event) continue;
+        const etag = crypto.createHash('md5').update(raw).digest('hex');
+        await client.query(
+          `INSERT INTO calendar_events
+             (calendar_id, user_id, uid, raw_ical, etag, summary, starts_at, ends_at, all_day, timezone, description, location, url, organizer, attendees)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::jsonb)
+           ON CONFLICT (calendar_id, uid, recurrence_id) DO UPDATE SET
+             raw_ical = EXCLUDED.raw_ical, etag = EXCLUDED.etag, summary = EXCLUDED.summary,
+             starts_at = EXCLUDED.starts_at, ends_at = EXCLUDED.ends_at, all_day = EXCLUDED.all_day,
+             timezone = EXCLUDED.timezone, description = EXCLUDED.description, location = EXCLUDED.location,
+             url = EXCLUDED.url, organizer = EXCLUDED.organizer, attendees = EXCLUDED.attendees, updated_at = NOW()`,
+          [
+            calendar.id, userId, event.uid, raw, etag, event.summary, event.startsAt, event.endsAt,
+            event.allDay, event.timeZone, event.description, event.location, event.url, event.organizer,
+            JSON.stringify(event.attendees),
+          ],
+        );
+        imported += 1;
+      }
+    });
+    if (!imported) return res.status(400).json({ error: 'No events found in the file' });
+    // Invalidate DAV clients: the collection changed by more than a file upload.
+    await query('UPDATE calendars SET sync_token = gen_random_uuid()::text, updated_at = NOW() WHERE id = $1', [calendar.id]);
+    res.status(201).json({ imported });
+  } catch (err) {
+    console.error('iCalendar import error:', err);
+    res.status(500).json({ error: 'Failed to import the iCalendar file' });
+  }
 });
 
 export default router;
