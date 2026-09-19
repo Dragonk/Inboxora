@@ -26,7 +26,15 @@ const DEFAULT_INTERVAL_MINUTES = 15;
 const MAX_INTERVAL_MINUTES = 24 * 60;
 
 let timer: ReturnType<typeof setInterval> | null = null;
+let firstPass: ReturnType<typeof setTimeout> | null = null;
 let running = false;
+
+/**
+ * How long after start the first pass runs. A restart must not leave pulled data
+ * stale for a whole interval, but it also must not compete with the rest of
+ * start-up, so the first pass is delayed rather than immediate.
+ */
+export const FIRST_PASS_DELAY_MS = 30_000;
 
 /**
  * The refresh cadence. `0` disables the schedule (useful for tests and for an
@@ -140,17 +148,21 @@ async function tick(): Promise<void> {
   }
 }
 
-/** Arm (or re-arm) the schedule. Calling it again replaces the previous timer. */
+/** Arm (or re-arm) the schedule. Calling it again replaces the previous timers. */
 export function startProviderSyncScheduler(env: NodeJS.ProcessEnv = process.env): void {
   stopProviderSyncScheduler();
   const minutes = providerSyncIntervalMinutes(env);
   if (minutes === 0) return;
-  timer = setInterval(() => { void tick(); }, minutes * 60_000);
+  firstPass = setTimeout(() => { void tick(); }, FIRST_PASS_DELAY_MS);
   // Do not hold the process open just for a background refresh.
+  if (typeof firstPass.unref === 'function') firstPass.unref();
+  timer = setInterval(() => { void tick(); }, minutes * 60_000);
   if (typeof timer.unref === 'function') timer.unref();
 }
 
 export function stopProviderSyncScheduler(): void {
+  if (firstPass) clearTimeout(firstPass);
+  firstPass = null;
   if (timer) clearInterval(timer);
   timer = null;
 }

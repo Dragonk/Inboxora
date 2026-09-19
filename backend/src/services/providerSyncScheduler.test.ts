@@ -23,6 +23,7 @@ vi.mock('./providers/google/googleCalendarSync.js', () => ({ syncGoogleCalendar:
 vi.mock('./providers/microsoft/graphContactsSync.js', () => ({ syncGraphContacts: mocks.syncGraphContacts }));
 
 import {
+  FIRST_PASS_DELAY_MS,
   listProviderSyncTargets,
   providerSyncIntervalMinutes,
   runProviderSyncs,
@@ -172,9 +173,37 @@ describe('startProviderSyncScheduler', () => {
     vi.useFakeTimers();
     mocks.query.mockResolvedValue({ rows: [] });
     startProviderSyncScheduler({ PROVIDER_SYNC_INTERVAL_MINUTES: '30' });
-    expect(vi.getTimerCount()).toBe(1);
+    // The interval plus the delayed first pass.
+    expect(vi.getTimerCount()).toBe(2);
     stopProviderSyncScheduler();
     expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('runs one pass shortly after start, then on the normal cadence', async () => {
+    vi.useFakeTimers();
+    mocks.query.mockResolvedValue({ rows: [] });
+    startProviderSyncScheduler({ PROVIDER_SYNC_INTERVAL_MINUTES: '30' });
+
+    // Nothing happens immediately: start-up is not blocked or raced.
+    expect(mocks.query).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(FIRST_PASS_DELAY_MS - 1);
+    expect(mocks.query).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(mocks.query).toHaveBeenCalledTimes(1);
+
+    // The interval is still a full interval from start, not shortened by the first
+    // pass: measured from the first pass it is still one whole interval minus the
+    // delay away.
+    await vi.advanceTimersByTimeAsync(30 * 60_000 - FIRST_PASS_DELAY_MS - 1);
+    expect(mocks.query).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(mocks.query).toHaveBeenCalledTimes(2);
+
+    // A restart must not leave a pending first pass behind.
+    stopProviderSyncScheduler();
+    await vi.advanceTimersByTimeAsync(60 * 60_000);
+    expect(mocks.query).toHaveBeenCalledTimes(2);
   });
 
   it('arms nothing when the schedule is disabled', () => {
