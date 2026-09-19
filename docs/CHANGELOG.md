@@ -15,6 +15,14 @@ limitations — read the matching page in the Wiki: [Release notes 4.1.0](wiki/R
 
 ### Changed
 
+- Two size guards on the send path now answer **`413`** with a domain code instead of `400` with prose only. §22.1 maps
+  content that is too large to `413`, and these were the oldest of the checks: the attachment-upload guard reports
+  `ATTACHMENT_TOO_LARGE` and the uploads-plus-forwarded total reports `MESSAGE_TOO_LARGE`. The limits are unchanged —
+  they still measure the base64 wire size rather than the composed message — so nothing that used to be refused is now
+  accepted; a client simply no longer has to match English text to learn what happened.
+
+### Changed
+
 - An **uncertain send** is now reported with a code (`SEND_OUTCOME_UNKNOWN`, the name the plan gives it) rather than
   only an English sentence. The behaviour is unchanged and deliberately so — the message was handed to the server
   and the answer was lost, so Inboxora will not send it again automatically — but a code is what lets an interface
