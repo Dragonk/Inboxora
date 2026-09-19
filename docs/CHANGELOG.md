@@ -419,6 +419,10 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   exact redirect URI — and clicking with only a Client ID failed at Microsoft. A Client ID alone is
   enough for the device-code method, which keeps its own control; the browser button now requires
   the browser readiness the status already reports, so it is offered only where it can work.
+- Make the Microsoft device-code switch mean something where it is used. The device button was
+  enabled whenever a Client ID existed, so switching the method off in the saved configuration left
+  it fully usable — the readiness text said one thing and the control did another. The button now
+  follows the device method's own readiness, like the browser and connector controls do for theirs.
 
 
 ## [4.0.4] - 2026-09-18

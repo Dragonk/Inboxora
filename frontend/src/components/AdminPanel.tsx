@@ -2645,7 +2645,7 @@ function IntegrationsTab() {
   const [configs, setConfigs] = useState<Record<string, { clientId?: string; [key: string]: unknown }>>({});
   // Non-admins can't read the full config (admin-only), but need to know whether
   // Microsoft OAuth is configured so the connect buttons enable. (#315)
-  const [msStatus, setMsStatus] = useState<{ configured?: boolean; browser?: { ready?: boolean; missing?: string[] }; graph?: { ready?: boolean; missing?: string[] }; [key: string]: unknown } | null>(null); // { configured } for non-admins
+  const [msStatus, setMsStatus] = useState<{ configured?: boolean; browser?: { ready?: boolean; missing?: string[] }; graph?: { ready?: boolean; missing?: string[] }; deviceCode?: { ready?: boolean; reason?: string }; [key: string]: unknown } | null>(null); // { configured } for non-admins
   const [loading, setLoading] = useState(true);
   const [msForm, setMsForm] = useState({ clientId: '', clientSecret: '', tenantId: '', redirectUri: '' });
   const [msExpanded, setMsExpanded] = useState(false);
@@ -2959,6 +2959,10 @@ function IntegrationsTab() {
   // device method (which has its own control) but not for this button, so gating it on
   // `configured` offered a flow that fails at Microsoft.
   const msBrowserReady = Boolean(msStatus?.browser?.ready);
+  // The device method has its own readiness: a client id is enough for it, but the saved
+  // configuration can switch it off, and the button must honour that or the switch is
+  // decoration.
+  const msDeviceReady = Boolean(msStatus?.deviceCode?.ready);
   // Google browser readiness comes from the backend so the UI never treats a
   // saved Client ID alone as a working OAuth client.
   const googleConfigured = (isAdmin ? configs.google?.clientId : null) || googleStatus?.configured;
@@ -3250,14 +3254,14 @@ function IntegrationsTab() {
                   {!deviceFlow && (
                     <button
                       onClick={handleStartDeviceFlow}
-                      disabled={!msConfigured}
-                      title={!msConfigured ? t('admin.integrations.microsoft.save') : ''}
+                      disabled={!msConfigured || !msDeviceReady}
+                      title={!msConfigured || !msDeviceReady ? t('admin.integrations.microsoft.save') : ''}
                       style={{
                         padding: '8px 14px', background: 'var(--bg-elevated)',
                         border: '1px solid var(--border)', borderRadius: 8,
-                        color: msConfigured ? 'var(--text-primary)' : 'var(--text-tertiary)',
-                        cursor: msConfigured ? 'pointer' : 'not-allowed',
-                        fontSize: 12, fontWeight: 500, opacity: msConfigured ? 1 : 0.5,
+                        color: msConfigured && msDeviceReady ? 'var(--text-primary)' : 'var(--text-tertiary)',
+                        cursor: msConfigured && msDeviceReady ? 'pointer' : 'not-allowed',
+                        fontSize: 12, fontWeight: 500, opacity: msConfigured && msDeviceReady ? 1 : 0.5,
                       }}
                     >
                       {t('admin.integrations.microsoft.deviceCodeStart')}

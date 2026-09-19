@@ -213,6 +213,18 @@ through the server-side allow-list, and the gesture hook's content, drawer and b
 each attached to a real element. A contract test now pins those four facts, so removing the switch
 or the allow-list entry fails the suite rather than silently making the feature unconfigurable.
 
+## Open: the Microsoft device switch is not enforced server-side
+
+`deviceEnabled` in the saved Microsoft configuration is read only to *report* readiness
+(`integrations.ts`), and the UI now honours it. It is **not** enforced by
+`POST /microsoft/device` in `oauth.ts`, which checks only the client id and tenant id — so a caller
+that bypasses the interface can still start a device flow for a method the administrator switched
+off. The switch is therefore effective for users and decorative for the API.
+
+Closing it is small: read the stored configuration in that route the way `readStoredConfig` does and
+answer `403` when `deviceEnabled === false`. Left undone here rather than half-done, because it needs
+the route's own test mocks updated and this round could not verify that properly.
+
 ## Known limitations of what is delivered
 
 - Pulled Google and Microsoft contacts and Google calendars are **read-only** in Inboxora: REST and

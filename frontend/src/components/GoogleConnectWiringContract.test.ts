@@ -293,4 +293,7 @@ test('a connect button is offered only when its own flow can run', async () => {
   assert.match(source, /msStatus\?\.graph\?\.ready && \(/);
   // Google has a single flow, gated on the browser readiness for the same reason.
   assert.match(source, /googleStatus\?\.browser\?\.ready \? \(/);
+  // The device method's switch is honoured by its own button, not by the client-id flag.
+  assert.match(source, /const msDeviceReady = Boolean\(msStatus\?\.deviceCode\?\.ready\)/);
+  assert.match(source, /disabled=\{!msConfigured \|\| !msDeviceReady\}/);
 });
