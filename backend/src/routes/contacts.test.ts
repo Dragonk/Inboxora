@@ -325,3 +325,62 @@ describe('Address book DAV sharing (dav_mode)', () => {
     expect(query.mock.calls.some(([sql]) => sql.includes('UPDATE address_books'))).toBe(false);
   });
 });
+
+describe('a contact whose book is written by a source refuses REST edits', () => {
+  // The REST counterpart of the DAV rule pinned in davVisibility: the source is the
+  // writer, so a local edit would be an apparent change the next sync discards. The
+  // guard covers every non-local source, not only CardDAV, and that is what is pinned
+  // here — including the original CardDAV behaviour it generalised.
+  const contactRow = (bookSource: string) => ({
+    id: 'contact-1', uid: 'contact-1', display_name: 'Ada', first_name: null, last_name: null,
+    primary_email: null, emails: [], phones: [], organization: null, notes: null,
+    birthday: null, anniversary: null, contact_dates: [],
+    title: null, role: null, nickname: null, urls: [], instant_messages: [], categories: [], addresses: [],
+    vcard: existingVCard, book_source: bookSource, address_book_id: 'book-1',
+  });
+
+  for (const source of ['carddav', 'google', 'microsoft']) {
+    it(`refuses to edit a contact from a ${source} book, writing nothing`, async () => {
+      query
+        .mockResolvedValueOnce({ rows: [{ id: 'user-1' }] })
+        .mockResolvedValueOnce({ rows: [contactRow(source)] });
+
+      const server = createApp().listen(0);
+      const response = await fetch(`http://127.0.0.1:${listeningPort(server)}/api/contacts/contact-1`, {
+        method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ displayName: 'Changed' }),
+      });
+      await new Promise(resolve => server.close(resolve));
+
+      expect(response.status).toBe(403);
+      expect(query.mock.calls.some(([sql]) => String(sql).includes('UPDATE contacts SET'))).toBe(false);
+    });
+  }
+
+  for (const source of ['carddav', 'google', 'microsoft']) {
+    it(`refuses to delete a contact from a ${source} book, deleting nothing`, async () => {
+      query.mockReset();
+      // `requireAuth` performs the session lookup first, so the source row is second.
+      query
+        .mockResolvedValueOnce({ rows: [{ id: 'user-1' }] })
+        .mockResolvedValueOnce({ rows: [{ source }] });
+
+      const server = createApp().listen(0);
+      const response = await fetch(`http://127.0.0.1:${listeningPort(server)}/api/contacts/contact-1`, { method: 'DELETE' });
+      await new Promise(resolve => server.close(resolve));
+
+      expect(response.status).toBe(403);
+      expect(query.mock.calls.some(([sql]) => String(sql).includes('DELETE FROM contacts'))).toBe(false);
+    });
+  }
+
+  it('still allows editing a contact in a local book', async () => {
+    // The mirror image: the guard must not become a blanket refusal.
+    arrangeQuery([], updatedContact);
+    const server = createApp().listen(0);
+    const response = await fetch(`http://127.0.0.1:${listeningPort(server)}/api/contacts/contact-1`, {
+      method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ displayName: 'Ada' }),
+    });
+    await new Promise(resolve => server.close(resolve));
+    expect(response.status).toBe(200);
+  });
+});
