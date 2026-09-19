@@ -345,7 +345,8 @@
         "graphConnect": "Microsoft-Kontakte verbinden",
         "graphConnecting": "Microsoft wird geöffnet…",
         "graphHint": "Autorisiert Microsoft Graph nur für Kontakte. Ihr Postfach wird nicht geändert oder migriert.",
-        "graphConnectedNote": "Microsoft-Kontakte verbunden. Nutzen Sie „Microsoft-Kontakte synchronisieren“ auf der Seite Kontakte."
+        "graphConnectedNote": "Microsoft-Kontakte verbunden. Nutzen Sie „Microsoft-Kontakte synchronisieren“ auf der Seite Kontakte.",
+        "mailPolicyRequired": "Microsoft verlangt eine API-basierte Verbindung: Outlook.com und Microsoft 365 akzeptieren kein Postfachpasswort mehr — verbinden Sie das Konto unten."
       },
       "todoist": {
         "title": "Todoist",
@@ -406,7 +407,8 @@
         "connectHint": "Wählen Sie, was autorisiert wird: die Kontakte-Schaltfläche fragt Kontakte an, diese Kalender. Für beides zweimal verbinden; Mail wird hier nie angefragt.",
         "connectUnavailable": "Ein Administrator muss die Google API konfigurieren, bevor ein Konto verbunden werden kann.",
         "connectedNote": "Google-Konto verbunden.",
-        "connectCalendars": "Google-Kalender verbinden"
+        "connectCalendars": "Google-Kalender verbinden",
+        "mailPolicyRecommended": "Google empfiehlt die Verbindung über OAuth. Ein App-Passwort funktioniert weiterhin, wenn der Administrator es zulässt."
       },
       "connectedAccounts": "Verbundene Konten",
       "disconnect": "Trennen"

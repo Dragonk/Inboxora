@@ -452,6 +452,11 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   connection's collections, and re-authorizing the same account re-enabled the connection but not
   them — so the connector came back into service with nothing to refresh, which is indistinguishable
   from a connector that never worked. Re-authorization now re-enables the collections as well.
+- Say what each provider requires. The integration status has reported a mail policy since it
+  existed — Microsoft requires an API-based connection, Google recommends one — and nothing in the
+  interface read it, so the requirement was known to the server and invisible to the person making
+  the choice. The Microsoft card now states the requirement, and the Google card states the
+  recommendation while leaving the alternative open.
 
 
 ## [4.0.4] - 2026-09-18

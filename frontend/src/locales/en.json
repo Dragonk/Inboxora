@@ -345,7 +345,8 @@
         "graphConnect": "Connect Microsoft contacts",
         "graphConnecting": "Opening Microsoft…",
         "graphHint": "Authorizes Microsoft Graph for contacts only. It does not change or migrate your mailbox.",
-        "graphConnectedNote": "Microsoft contacts connected. Use Sync Microsoft contacts on the Contacts page."
+        "graphConnectedNote": "Microsoft contacts connected. Use Sync Microsoft contacts on the Contacts page.",
+        "mailPolicyRequired": "Microsoft requires an API-based connection: Outlook.com and Microsoft 365 no longer accept a mailbox password, so connect the account below."
       },
       "todoist": {
         "title": "Todoist",
@@ -406,7 +407,8 @@
         "connectHint": "Choose what to authorize: the contacts button asks for contacts, this one for calendars. Connect twice for both; mail is never requested here.",
         "connectUnavailable": "An administrator must configure the Google API before an account can be connected.",
         "connectedNote": "Google account connected.",
-        "connectCalendars": "Connect Google calendars"
+        "connectCalendars": "Connect Google calendars",
+        "mailPolicyRecommended": "Google recommends connecting with OAuth. An app password still works where the administrator allows it."
       },
       "connectedAccounts": "Connected accounts",
       "disconnect": "Disconnect"

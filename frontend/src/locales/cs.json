@@ -776,7 +776,8 @@
         "graphConnect": "Připojit kontakty Microsoft",
         "graphConnecting": "Otevírání Microsoft…",
         "graphHint": "Autorizuje Microsoft Graph pouze pro kontakty. Vaše schránka se nemění ani nepřesouvá.",
-        "graphConnectedNote": "Kontakty Microsoft připojeny. Použijte „Synchronizovat kontakty Microsoft“ na stránce Kontakty."
+        "graphConnectedNote": "Kontakty Microsoft připojeny. Použijte „Synchronizovat kontakty Microsoft“ na stránce Kontakty.",
+        "mailPolicyRequired": "Microsoft vyžaduje připojení přes API: Outlook.com a Microsoft 365 už nepřijímají heslo ke schránce, proto účet připojte níže."
       },
       "todoist": {
         "title": "Todoist",
@@ -837,7 +838,8 @@
         "connectHint": "Zvolte, co autorizujete: tlačítko kontaktů žádá kontakty, toto kalendáře. Pro obojí se připojte dvakrát; pošta se zde nikdy nevyžaduje.",
         "connectUnavailable": "Správce musí nejprve nakonfigurovat Google API, než lze účet připojit.",
         "connectedNote": "Účet Google připojen.",
-        "connectCalendars": "Připojit kalendáře Google"
+        "connectCalendars": "Připojit kalendáře Google",
+        "mailPolicyRecommended": "Google doporučuje připojení přes OAuth. Heslo aplikace stále funguje, pokud to administrátor povolí."
       },
       "connectedAccounts": "Připojené účty",
       "disconnect": "Odpojit"

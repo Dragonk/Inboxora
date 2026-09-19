@@ -345,7 +345,8 @@
         "graphConnect": "Connecter les contacts Microsoft",
         "graphConnecting": "Ouverture de Microsoft…",
         "graphHint": "Autorise Microsoft Graph pour les contacts uniquement. Votre boîte aux lettres n’est ni modifiée ni migrée.",
-        "graphConnectedNote": "Contacts Microsoft connectés. Utilisez « Synchroniser les contacts Microsoft » sur la page Contacts."
+        "graphConnectedNote": "Contacts Microsoft connectés. Utilisez « Synchroniser les contacts Microsoft » sur la page Contacts.",
+        "mailPolicyRequired": "Microsoft exige une connexion via API : Outlook.com et Microsoft 365 n'acceptent plus de mot de passe de boîte, connectez donc le compte ci-dessous."
       },
       "todoist": {
         "title": "Todoist",
@@ -406,7 +407,8 @@
         "connectHint": "Choisissez ce que vous autorisez : le bouton contacts demande les contacts, celui-ci les agendas. Connectez deux fois pour les deux ; la messagerie n’est jamais demandée ici.",
         "connectUnavailable": "Un administrateur doit configurer l’API Google avant de pouvoir connecter un compte.",
         "connectedNote": "Compte Google connecté.",
-        "connectCalendars": "Connecter les agendas Google"
+        "connectCalendars": "Connecter les agendas Google",
+        "mailPolicyRecommended": "Google recommande une connexion via OAuth. Un mot de passe d'application reste possible si l'administrateur l'autorise."
       },
       "connectedAccounts": "Comptes connectés",
       "disconnect": "Déconnecter"

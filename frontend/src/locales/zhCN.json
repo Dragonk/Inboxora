@@ -345,7 +345,8 @@
         "graphConnect": "连接 Microsoft 联系人",
         "graphConnecting": "正在打开 Microsoft…",
         "graphHint": "仅授权 Microsoft Graph 访问联系人。不会更改或迁移您的邮箱。",
-        "graphConnectedNote": "Microsoft 联系人已连接。请在“联系人”页面使用“同步 Microsoft 联系人”。"
+        "graphConnectedNote": "Microsoft 联系人已连接。请在“联系人”页面使用“同步 Microsoft 联系人”。",
+        "mailPolicyRequired": "Microsoft 要求通过 API 连接：Outlook.com 和 Microsoft 365 不再接受邮箱密码，请在下方连接账户。"
       },
       "todoist": {
         "title": "Todoist",
@@ -406,7 +407,8 @@
         "connectHint": "请选择要授权的项目：联系人按钮请求联系人，此按钮请求日历。两者都需要请连接两次；此处永不请求邮件权限。",
         "connectUnavailable": "管理员必须先配置 Google API，才能连接账户。",
         "connectedNote": "Google 账户已连接。",
-        "connectCalendars": "连接 Google 日历"
+        "connectCalendars": "连接 Google 日历",
+        "mailPolicyRecommended": "Google 建议使用 OAuth 连接。若管理员允许，应用专用密码仍然可用。"
       },
       "connectedAccounts": "已连接的账户",
       "disconnect": "断开连接"

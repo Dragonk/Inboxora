@@ -310,3 +310,19 @@ test('a connected account can be seen and disconnected from the card', async () 
   assert.match(source, /admin\.integrations\.disconnect/);
   assert.match(api, /disconnectProviderConnection: \(id: string\) => request\('POST', `\/integrations\/provider-connections\/\$\{encodeURIComponent\(id\)\}\/disconnect`\)/);
 });
+
+test('the provider mail policy is stated where the choice is made', async () => {
+  const source = await readFile(adminPanel, 'utf8');
+  // The backend has reported `mailPolicy` since the integration status existed; nothing read it,
+  // so the objective's "Microsoft requires it, Google recommends it" had no effect on the user.
+  assert.match(source, /msStatus\?\.mailPolicy === 'required'/);
+  assert.match(source, /googleStatus\?\.mailPolicy === 'recommended'/);
+  assert.match(source, /data-testid="microsoft-mail-policy"/);
+  assert.match(source, /data-testid="google-mail-policy"/);
+  assert.match(source, /admin\.integrations\.microsoft\.mailPolicyRequired/);
+  assert.match(source, /admin\.integrations\.google\.mailPolicyRecommended/);
+  // Recommended must not read as required: the Google wording has to leave the alternative open.
+  const locales = await readFile(new URL('../locales/en.json', import.meta.url), 'utf8');
+  assert.match(locales, /recommends connecting with OAuth/);
+  assert.match(locales, /app password still works/);
+});

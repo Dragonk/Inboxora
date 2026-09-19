@@ -2645,7 +2645,7 @@ function IntegrationsTab() {
   const [configs, setConfigs] = useState<Record<string, { clientId?: string; [key: string]: unknown }>>({});
   // Non-admins can't read the full config (admin-only), but need to know whether
   // Microsoft OAuth is configured so the connect buttons enable. (#315)
-  const [msStatus, setMsStatus] = useState<{ configured?: boolean; browser?: { ready?: boolean; missing?: string[] }; graph?: { ready?: boolean; missing?: string[] }; deviceCode?: { ready?: boolean; reason?: string }; connections?: Array<{ id: string; providerUserId?: string | null }>; [key: string]: unknown } | null>(null); // { configured } for non-admins
+  const [msStatus, setMsStatus] = useState<{ configured?: boolean; browser?: { ready?: boolean; missing?: string[] }; graph?: { ready?: boolean; missing?: string[] }; deviceCode?: { ready?: boolean; reason?: string }; connections?: Array<{ id: string; providerUserId?: string | null }>; mailPolicy?: string; [key: string]: unknown } | null>(null); // { configured } for non-admins
   const [loading, setLoading] = useState(true);
   const [msForm, setMsForm] = useState({ clientId: '', clientSecret: '', tenantId: '', redirectUri: '' });
   const [msExpanded, setMsExpanded] = useState(false);
@@ -2654,7 +2654,7 @@ function IntegrationsTab() {
   // mail never depends on this configuration.
   const [googleForm, setGoogleForm] = useState({ clientId: '', clientSecret: '', redirectUri: '' });
   const [googleExpanded, setGoogleExpanded] = useState(false);
-  const [googleStatus, setGoogleStatus] = useState<{ configured?: boolean; browser?: { ready?: boolean; missing?: string[] }; connections?: Array<{ id: string; providerUserId?: string | null }>; [key: string]: unknown } | null>(null);
+  const [googleStatus, setGoogleStatus] = useState<{ configured?: boolean; browser?: { ready?: boolean; missing?: string[] }; connections?: Array<{ id: string; providerUserId?: string | null }>; mailPolicy?: string; [key: string]: unknown } | null>(null);
   const [googleSaving, setGoogleSaving] = useState(false);
   const [googleSaveMsg, setGoogleSaveMsg] = useState('');
   const [connectingGoogle, setConnectingGoogle] = useState(false);
@@ -3244,6 +3244,14 @@ function IntegrationsTab() {
                           ))}
                         </div>
                       )}
+                      {msStatus?.mailPolicy === 'required' && (
+                        <div
+                          data-testid="microsoft-mail-policy"
+                          style={{ marginTop: 10, fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5 }}
+                        >
+                          {t('admin.integrations.microsoft.mailPolicyRequired')}
+                        </div>
+                      )}
                       {graphSaveMsg && (
                         <div data-testid="microsoft-graph-connected" style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 6 }}>
                           {graphSaveMsg}
@@ -3520,6 +3528,14 @@ function IntegrationsTab() {
                         >
                           {connectingGoogle ? t('admin.integrations.google.connecting') : t('admin.integrations.google.connect')}
                         </button>
+                        {googleStatus?.mailPolicy === 'recommended' && (
+                          <div
+                            data-testid="google-mail-policy"
+                            style={{ marginTop: 10, fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5 }}
+                          >
+                            {t('admin.integrations.google.mailPolicyRecommended')}
+                          </div>
+                        )}
                         {(googleStatus?.connections?.length ?? 0) > 0 && (
                           <div style={{ marginTop: 10, fontSize: 12 }}>
                             <div style={{ color: 'var(--text-secondary)' }}>{t('admin.integrations.connectedAccounts')}</div>

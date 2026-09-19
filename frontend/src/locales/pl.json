@@ -784,7 +784,8 @@
         "graphConnect": "Połącz kontakty Microsoft",
         "graphConnecting": "Otwieranie Microsoft…",
         "graphHint": "Autoryzuje Microsoft Graph tylko dla kontaktów. Nie zmienia ani nie migruje Twojej skrzynki.",
-        "graphConnectedNote": "Kontakty Microsoft połączone. Użyj opcji Synchronizuj kontakty Microsoft na stronie Kontakty."
+        "graphConnectedNote": "Kontakty Microsoft połączone. Użyj opcji Synchronizuj kontakty Microsoft na stronie Kontakty.",
+        "mailPolicyRequired": "Microsoft wymaga połączenia przez API: Outlook.com i Microsoft 365 nie akceptują już hasła do skrzynki, więc połącz konto poniżej."
       },
       "todoist": {
         "title": "Todoist",
@@ -845,7 +846,8 @@
         "connectHint": "Wybierz, co autoryzujesz: przycisk kontaktów prosi o kontakty, ten o kalendarze. Połącz dwa razy, aby mieć oba; poczta nie jest tu nigdy wymagana.",
         "connectUnavailable": "Administrator musi najpierw skonfigurować Google API, aby można było połączyć konto.",
         "connectedNote": "Konto Google połączone.",
-        "connectCalendars": "Połącz kalendarze Google"
+        "connectCalendars": "Połącz kalendarze Google",
+        "mailPolicyRecommended": "Google zaleca połączenie przez OAuth. Hasło aplikacji nadal działa, jeśli administrator na to pozwala."
       },
       "connectedAccounts": "Połączone konta",
       "disconnect": "Odłącz"
