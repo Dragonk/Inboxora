@@ -440,8 +440,11 @@ export async function listGraphFolderTargets(client: PoolClient, input: { connec
  * function rather than aborting the sync. The body of a Graph message is not needed
  * here: delivery and provider metadata come from the persisted row, which is what the
  * ingest paths share.
+ *
+ * Exported because provider-side search writes rows through the same projection and
+ * must run the same post-commit step, rather than a second copy of it.
  */
-async function persistConversations(rowIds: readonly string[], account: ConversationAccountRow): Promise<void> {
+export async function persistConversations(rowIds: readonly string[], account: ConversationAccountRow): Promise<void> {
   for (const rowId of rowIds) {
     await persistConversationCopyForRow(rowId, account, null).catch(error =>
       console.warn(`Graph conversation projection failed for ${rowId}:`, error instanceof Error ? error.message : error));

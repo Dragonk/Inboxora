@@ -217,7 +217,8 @@ export interface LocalGraphMessage {
 }
 
 export const GRAPH_MESSAGE_SELECT = 'id,internetMessageId,conversationId,subject,bodyPreview,receivedDateTime,sentDateTime,isRead,isDraft,hasAttachments,flag,from,toRecipients,ccRecipients,replyTo,changeKey,parentFolderId';
-const MESSAGE_PAGE_SIZE = 50;
+/** The page size the message delta sync uses; exported so provider-side search asks for the same shape. */
+export const MESSAGE_PAGE_SIZE = 50;
 
 export interface GraphMessagePage {
   value?: GraphMessage[];
