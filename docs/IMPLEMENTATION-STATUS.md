@@ -1580,8 +1580,21 @@ started" row suggests, so the slice is a seam rather than a rewrite:
   route now binds a send to a transport in one place instead of reaching the SMTP factory directly, so
   the Graph branch is a local change there. The `delivered` flag and the intent lifecycle did **not**
   move: that boundary already decides whether an outcome is knowable — *true once `sendMail` has actually
-  handed off* — and the transport only has to be pluggable behind it. What remains is the branch itself:
-  `POST /me/sendMail`, then drafts and the upload session.
+  handed off* — and the transport only has to be pluggable behind it. What remains is the branch itself,
+  and reading the route settles its **shape** rather than leaving it open:
+  - **Send the composed MIME, not a re-mapped message object.** The route already builds `rawMessage` —
+    the full RFC-822 message, composed by nodemailer and used for the size accounting — a few lines
+    before the seam. `POST /me/sendMail` accepts a MIME body, so the Graph branch posts **that**. The
+    alternative, mapping `mailOptions` (comma-joined `to`/`cc`/`bcc` strings, `replyTo`, inline images)
+    onto Graph's `message` JSON, would re-implement composition that is already correct and tested —
+    including the BCC-in-envelope handling the route comments on — which is the duplication this work
+    keeps removing.
+  - **Above Graph's 3 MB direct-attachment limit** the MIME is too large to post, and the path is
+    `POST /me/messages` (a draft) → `createUploadSession` on the message → `POST /me/messages/{id}/send`.
+    That draft is also what makes "preserve the draft on failure" achievable rather than a second
+    mechanism, and it is why the interrupted/expired upload states in P06 have a home.
+  - **`delivered` stays honest for free**: one POST either returned or did not, and there is no
+    cross-transport fallback, so an uncertain Graph outcome parks rather than retrying over SMTP.
 - **idempotency already exists, and the division is decided** (both mechanisms read, not assumed).
   `claimSendIntent` / `markSendIntentUncertain` / `completeSendIntent` / `releaseSendIntent` write
   `send_idempotency`, a durable claim keyed by the **client's** `X-Idempotency-Key` with an intent token,
