@@ -81,12 +81,9 @@ export async function ensureGoogleCalendarCollection(client: PoolClient, input: 
     [input.connectionId, input.entry.id],
   );
   if (existing.rows[0]?.local_calendar_id) {
-    await client.query(
-      `UPDATE integration_collections
-          SET enabled = true, source_access = 'read_only', user_access = 'source', dav_mode = 'off', updated_at = NOW()
-        WHERE id = $1`,
-      [existing.rows[0].id],
-    );
+    // Already linked: nothing to do. Re-asserting `enabled` here would switch a
+    // collection the user disabled back on at the next refresh, and the access columns
+    // belong to the link rather than to each run.
     return;
   }
 

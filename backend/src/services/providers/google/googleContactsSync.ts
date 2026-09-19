@@ -88,10 +88,11 @@ export async function ensureGoogleAddressBook(client: PoolClient, input: {
       if (!addressBookId) throw new Error('Could not create the Google address book');
 
       if (existing.rows[0]) {
+        // Link the book to the row that exists, without re-asserting `enabled`: a user who
+        // disabled this collection must not have a sync switch it back on.
         await client.query(
           `UPDATE integration_collections
-              SET local_address_book_id = $2, enabled = true, source_access = 'read_only', user_access = 'source',
-                  dav_mode = 'off', updated_at = NOW()
+              SET local_address_book_id = $2, updated_at = NOW()
             WHERE id = $1`,
           [existing.rows[0].id, addressBookId],
         );

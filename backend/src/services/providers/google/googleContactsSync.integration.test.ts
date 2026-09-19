@@ -155,6 +155,30 @@ describeOrSkip('Google contacts sync (PostgreSQL)', () => {
     expect(incremental.urls[0]).not.toContain('requestSyncToken');
   });
 
+  it('does not switch a disabled collection back on when it refreshes', async () => {
+    // Only the connector status and the schedule read `enabled`, and the schedule honours
+    // it. A refresh re-asserting it would silently undo a disable at the next run.
+    const connectionId = await seedConnection();
+    await syncGoogleContacts({
+      userId: USER_ID, connectionId, config: CONFIG,
+      fetchImpl: fakeProvider([() => json({ connections: [], nextSyncToken: 'sync-1' })]).fetchImpl,
+    });
+    await autocommit(client => client.query(
+      `UPDATE integration_collections SET enabled = false WHERE user_id = $1 AND kind = 'address_book'`, [USER_ID],
+    ));
+
+    const second = await syncGoogleContacts({
+      userId: USER_ID, connectionId, config: CONFIG,
+      fetchImpl: fakeProvider([() => json({ connections: [], nextSyncToken: 'sync-2' })]).fetchImpl,
+    });
+    expect(second.fullSync).toBe(false);
+
+    const state = await autocommit(client => client.query<{ enabled: boolean }>(
+      `SELECT enabled FROM integration_collections WHERE user_id = $1 AND kind = 'address_book'`, [USER_ID],
+    ));
+    expect(state.rows[0]?.enabled).toBe(false);
+  });
+
   it('records the provider code for a revoked consent instead of an internal error', async () => {
     // The token service throws its own error type, and the adapters used to record
     // anything they did not recognise as INTERNAL_ERROR — so the one failure a user can

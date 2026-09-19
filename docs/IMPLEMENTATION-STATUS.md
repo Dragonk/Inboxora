@@ -178,6 +178,19 @@ lease and a token that has become usable is returned instead of refreshing again
 Covered by the two-worker race test, which is the check that exposed the window: it failed once on
 a fresh database, and passes repeatedly after the fix.
 
+## Collection columns and their owners
+
+`integration_collections` carries `enabled`, `source_access`, `user_access` and `dav_mode`. Only the
+three connectors write them and **nothing reads them today**, so their values are inert: the
+effective permissions come from `address_books`/`calendars` (`source`, `read_only`, `dav_mode`),
+which the REST and DAV guards do read. `enabled` is the exception — the refresh schedule filters on
+it.
+
+That asymmetry is why a refresh no longer re-asserts any of them. Writing fields nothing reads looks
+harmless, but `enabled` is read, and re-asserting it meant a disabled collection was switched back
+on by the next sync. When P10/P12 give these columns readers, the sync must continue to leave them
+to whoever owns them.
+
 ## Known limitations of what is delivered
 
 - Pulled Google and Microsoft contacts and Google calendars are **read-only** in Inboxora: REST and

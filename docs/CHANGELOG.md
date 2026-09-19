@@ -391,6 +391,11 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   appeared. Their codes are now recorded (and `invalid_grant`, `unauthorized_client` and a missing
   refresh token are mapped to the "reconnect the account" sentence), so a revoked consent reads as
   an action instead of an internal fault.
+- Stop a provider refresh switching a disabled collection back on. Each connector re-asserted
+  `enabled`, its access columns and its DAV mode on every run, so a collection that had been turned
+  off — which the refresh schedule honours — would be silently re-enabled by the next sync of that
+  connection. The refresh now only links what is missing and leaves the settings it does not own
+  alone.
 
 
 ## [4.0.4] - 2026-09-18
