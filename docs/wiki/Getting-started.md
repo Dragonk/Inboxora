@@ -29,8 +29,23 @@ Administrators can enable two-factor authentication, a screen-lock PIN and SSO u
 
 Provider-specific notes:
 
-- **Gmail** is connected with a [Google app password](https://myaccount.google.com/apppasswords),
-  used as the IMAP and SMTP password.
+- **Gmail** has two ways in and neither is forced. Mail works with a [Google app
+  password](https://myaccount.google.com/apppasswords) over IMAP/SMTP, and an administrator can
+  additionally register a Google OAuth client to pull that account's contacts and calendars — see
+  [Connecting Google and Microsoft accounts](Provider-setup.md). Connecting the API does not change the
+  mail transport and does not ask for Gmail permissions.
+
+  For an app password, the account needs **2-Step Verification** and Google must offer app-password
+  creation. It may be unavailable — under Advanced Protection, with certain security-key setups, or by an
+  organisation's policy — and **those protections must not be switched off to force this method**; use the
+  browser method for the API integrations instead, or the account's permitted route. Create the password in
+  the account's own security settings, name it for this Inboxora instance, and enter it **on the mail
+  account**, not on the provider card. The Gmail preset fills in `imap.gmail.com:993` (TLS) and
+  `smtp.gmail.com:587` (STARTTLS); the account's ordinary password will not work.
+
+  Something worth knowing before it happens: **changing the main Google password revokes the app passwords
+  made with it**, so mail stops and each account needs a new app password. That is Google's behaviour, not a
+  setting here, and no preference about recommendations hides it.
 - **Microsoft 365, Outlook.com and Hotmail** use OAuth2 only, because Microsoft disabled basic
   authentication. An administrator registers one Azure application under **Settings →
   Integrations** first; each user then connects through the authorization-code or device-code
