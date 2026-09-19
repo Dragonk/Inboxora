@@ -13,6 +13,17 @@ limitations — read the matching page in the Wiki: [Release notes 4.1.0](wiki/R
 
 ## [Unreleased]
 
+### Security
+
+- **The composed message no longer carries a `Bcc:` header.** The send route composes the message for
+  size accounting with nodemailer's stream transport, and **that composition keeps a `Bcc:` header** while
+  the delivery transport omits it — measured, and the obvious switch does not help: `keepBcc: false` on the
+  stream transport still emits it, with the same byte count. Harmless while the buffer is only measured,
+  and a disclosure the moment a buffer is handed to a transport as `raw`, since a raw message is sent as
+  given. It is now stripped once, where the accounting and any future shared artefact read it, so blind
+  recipients live in the envelope only. The accounting consequently counts what would actually be sent
+  rather than the header that would be dropped.
+
 ### Changed
 
 - **A send now states its envelope instead of leaving it to be derived.** The three recipient options

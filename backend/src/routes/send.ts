@@ -15,6 +15,7 @@ import { resolveSentFolder } from '../utils/mailUtils.js';
 import { generateVCard } from '../utils/vcard.js';
 import { createAccountMailTransport } from '../services/sendTransport.js';
 import { SEND_ATTACHMENT_TOTAL_BYTES, sendLimits } from '../services/sendLimits.js';
+import { stripHeaderFromMessage } from '../services/mimeHeaders.js';
 import { imapManager } from '../index.js';
 import { pluginRegistry } from '../plugins/registry.js';
 import { toAppError } from '../utils/errors.js';
@@ -769,7 +770,11 @@ router.post('/send', async (req, res) => {
       messageStream.on('end', resolve);
       messageStream.on('error', reject);
     });
-    const rawMessage = Buffer.concat(chunks);
+    // The composer keeps a `Bcc:` header in this buffer (measured; `keepBcc: false` does not
+    // change it), and a buffer handed to a transport as `raw` is sent as given — so it is
+    // stripped here, once, where the accounting and any future shared artefact both read it.
+    // Blind recipients live in the envelope only.
+    const rawMessage = stripHeaderFromMessage(Buffer.concat(chunks), 'Bcc');
 
     // §12.2: the interface's estimate is preliminary, and this is the message as actually compiled — headers,
     // base64 growth, separators and CRLF included — counted on the server side, before any dispatch. Nothing has
