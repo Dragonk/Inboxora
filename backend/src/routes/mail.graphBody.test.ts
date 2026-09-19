@@ -184,3 +184,32 @@ describe('a Graph attachment downloads by its provider id', () => {
     expect(mocks.fetchGraphAttachmentBytes).not.toHaveBeenCalled();
   });
 });
+
+describe('the attachment zip asks the provider for each file', () => {
+  it('bundles the Graph attachments without touching IMAP', async () => {
+    mocks.query
+      .mockResolvedValueOnce({ rows: [messageRow()], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ id: ACCOUNT_ID, user_id: 'user-1', mail_transport: 'microsoft_graph', provider_connection_id: 'connection-1' }], rowCount: 1 });
+    mocks.fetchGraphAttachmentBytes.mockResolvedValue(Buffer.from('hello world', 'utf8'));
+
+    const response = await fetch(`${base}/api/mail/messages/${MESSAGE_ID}/attachments.zip`);
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toContain('zip');
+    const body = Buffer.from(await response.arrayBuffer());
+    // A zip starts with the local file header signature; that it is non-empty and
+    // well-formed is enough here — the naming and archive code is shared with IMAP.
+    expect(body.subarray(0, 2).toString('utf8')).toBe('PK');
+    expect(mocks.fetchGraphAttachmentBytes).toHaveBeenCalledWith(expect.anything(), 'AAMkAD-1', 'att-1', 50 * 1024 * 1024);
+    expect(mocks.fetchAttachment).not.toHaveBeenCalled();
+  });
+
+  it('refuses a Graph message that carries no provider identity', async () => {
+    mocks.query
+      .mockResolvedValueOnce({ rows: [messageRow({ provider_message_id: null })], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ id: ACCOUNT_ID, user_id: 'user-1', mail_transport: 'microsoft_graph', provider_connection_id: 'connection-1' }], rowCount: 1 });
+
+    const response = await fetch(`${base}/api/mail/messages/${MESSAGE_ID}/attachments.zip`);
+    expect(response.status).toBe(409);
+    expect(mocks.fetchGraphAttachmentBytes).not.toHaveBeenCalled();
+  });
+});

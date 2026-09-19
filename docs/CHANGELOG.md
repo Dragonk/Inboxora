@@ -15,6 +15,14 @@ limitations — read the matching page in the Wiki: [Release notes 4.1.0](wiki/R
 
 ### Changed
 
+- **Downloading all attachments as a ZIP works on a Microsoft Graph account** (P07b, twelfth slice). The
+  route read every attachment through IMAP, so on a native account the single-attachment download worked
+  while "download all" did not. Each file is now fetched from the provider under the same 50 MB per-file
+  ceiling, and everything after that — the filename deduplication, the archive and the response — is
+  shared with the IMAP path, so there is no second naming or ZIP implementation. One unreadable or
+  oversized attachment is skipped and logged rather than failing the whole archive, and a native message
+  that carries no provider identity is refused with a code instead of an empty archive.
+
 - **"View source headers" works on a Microsoft Graph account** (P07b, eleventh slice). The route asked IMAP
   for the raw headers and, when that failed, synthesised them from the local row — so a native account got
   a plausible-looking header block after a pointless IMAP attempt that could only time out. Graph retains

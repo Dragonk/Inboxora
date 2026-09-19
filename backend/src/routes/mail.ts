@@ -699,7 +699,27 @@ router.get('/messages/:id/attachments.zip', async (req, res) => {
     if (!accountResult.rows.length) return res.status(404).json({ error: 'Account not found' });
     const account = accountResult.rows[0];
 
-    const bufferMap = await imapManager.fetchMultipleAttachments(account, message.uid, message.folder, eligible);
+    // The provider is asked for each attachment; everything after this — the name
+    // deduplication, the archive and the response — is shared with the IMAP path.
+    let bufferMap: Map<string, Buffer>;
+    if (account.mail_transport === 'microsoft_graph') {
+      if (!account.provider_connection_id || !message.provider_message_id) {
+        return res.status(409).json({ error: 'This message has no Microsoft Graph identity', code: 'RESOURCE_NOT_FOUND' });
+      }
+      const api = { userId: account.user_id, connectionId: account.provider_connection_id, config: microsoftConfigFromEnv() };
+      bufferMap = new Map();
+      for (const att of eligible) {
+        try {
+          const bytes = await fetchGraphAttachmentBytes(api, message.provider_message_id, String(att.part), ZIP_MAX_FILE_BYTES);
+          if (bytes.length) bufferMap.set(att.part, bytes);
+        } catch (caught) {
+          // One unreadable or oversized attachment must not fail the whole archive.
+          console.warn(`Attachment zip: skipped ${att.part}:`, caught instanceof Error ? caught.message : caught);
+        }
+      }
+    } else {
+      bufferMap = await imapManager.fetchMultipleAttachments(account, message.uid, message.folder, eligible);
+    }
     if (bufferMap.size === 0) return res.status(404).json({ error: 'Could not fetch attachments' });
 
     // Deduplicate filenames: invoice.pdf → invoice (2).pdf
