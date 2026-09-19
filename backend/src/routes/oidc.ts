@@ -68,6 +68,9 @@ interface EndSessionInput {
 }
 
 // In-memory OIDC discovery cache keyed by issuerUrl
+/** The largest identity-provider response this route will hold in memory. */
+const OIDC_RESPONSE_LIMIT_BYTES = 1_048_576;
+
 const discoveryCache = new Map();
 const DISCOVERY_TTL_MS = 5 * 60 * 1000;
 
@@ -94,10 +97,23 @@ function makeInsecureFetch(signal?: AbortSignal): typeof fetch {
       const port = parsed.port ? parseInt(parsed.port) : (isHttps ? 443 : 80);
       const reqFn = isHttps ? httpsRequest : httpRequest;
       const chunks: Buffer[] = [];
+      // The identity provider's answers are small — a discovery document, a token, a JWKS — and this
+      // accumulates them in memory, so it is bounded the way the DAV routes are. A response beyond
+      // the cap is refused rather than buffered: a compromised or misconfigured provider must not be
+      // able to exhaust the process, and nothing here needs a larger reply.
+      let received = 0;
       const req = reqFn(
         { hostname: parsed.hostname, port, path: parsed.pathname + parsed.search, method: init.method ?? 'GET', headers: toNodeHeaders(init.headers), rejectUnauthorized: false },
         res => {
-          res.on('data', c => chunks.push(c));
+          res.on('data', (c: Buffer) => {
+            received += c.length;
+            if (received > OIDC_RESPONSE_LIMIT_BYTES) {
+              res.destroy();
+              reject(new Error('OIDC response is too large'));
+              return;
+            }
+            chunks.push(c);
+          });
           res.on('end', () => {
             const text = Buffer.concat(chunks).toString('utf8');
             resolve(new Response(text, { status: res.statusCode ?? 200 }));

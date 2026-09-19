@@ -473,6 +473,11 @@ limitations — read the matching page in the Wiki: [Release notes 4.0.4](wiki/R
   endpoints that serve everyone else. The body is now capped at 1 MB, excess is discarded rather than
   buffered, and an oversized request is refused with the same route-aware `413` message an oversized
   JSON upload already gets.
+- Bound the identity provider's response while signing in through OIDC. The route accumulated that
+  response in memory with no cap, the same shape as the DAV body fixed above; the provider is configured
+  by the operator and answers in kilobytes, but a compromised or misconfigured one could have made the
+  process buffer an arbitrary reply. The response is now capped at 1 MB and a larger one is refused
+  rather than held.
 
 
 ## [4.0.4] - 2026-09-18

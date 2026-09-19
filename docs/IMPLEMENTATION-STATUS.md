@@ -213,11 +213,11 @@ cap. Sweeping the backend for `on('data')` found two more, and they belong to di
   with a large attachment is buffered whole. This is **P06's territory** — the package is defined as the
   durable send ledger with separated file, total, MIME and HTTP limits — so it is recorded as part of
   that package rather than as a new defect.
-- **`oidc.ts:100`** accumulates a *response* from the identity provider (`res.on('data')`) with no cap.
-  The endpoint is configured by the operator and the response is normally a few kilobytes, so the risk is
-  lower than the DAV case, but it is the same shape: a compromised or misconfigured provider could make
-  the process buffer an arbitrary response. A cap here is a small, self-contained hardening change and is
-  the cheapest of the three to close.
+- **`oidc.ts:100`** accumulated a *response* from the identity provider with no cap. **Now fixed**: the
+  response is capped at 1 MB and a larger one is refused rather than buffered. The new branch is
+  **not directly tested** — the existing OIDC suites pass unchanged (17 tests), which shows normal
+  responses are unaffected, but no test sends an oversized response, so this is "true by construction"
+  rather than proven. A test would need a local server answering with more than the cap.
 
 What is *not* affected: the import routes (JSON, already under the 1 MB parser limit), the DAV routes
 (capped), and the request-side readers in the mail ingestion path, which stream to disk.
