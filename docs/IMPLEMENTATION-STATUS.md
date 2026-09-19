@@ -17,10 +17,10 @@ rows. It is kept because its lessons are load-bearing, and it must never be read
 present. Earlier revisions mixed the two inside the table itself, which is how a reader could take a
 four-attempt saga — or a superseded delivery report — for a current status.
 
-Last re-measured on `dev` at `705b13bc`: backend typecheck, lint and **2340** unit tests
-(**108 skipped** across 14 files); frontend typecheck, lint, production build and **2685** tests;
-**132** database integration tests across **15** suites on a fresh PostgreSQL 16 with the full
-**110**-migration chain. The browser matrix and the published-image smoke pair are deliberately
+Last re-measured on `dev` at `011b2251`: backend typecheck, lint and **2349** unit tests
+(**113 skipped** across 14 files); frontend typecheck, lint, production build and **2685** tests;
+**146** database integration tests across **15** suites on a fresh PostgreSQL 16 with the full
+**111**-migration chain. The browser matrix and the published-image smoke pair are deliberately
 **not** part of this measurement: they are reported where they belong, under P13 and P14.
 `main` has not been touched by this work.
 
@@ -35,12 +35,12 @@ Last re-measured on `dev` at `705b13bc`: backend typecheck, lint and **2340** un
 | --- | --- | --- | --- |
 | P00 — preparation/audit, **CI repair** | **partial** | — | `ci.yml` runs `typecheck`, `build`, `lint` and the unit tests on every push. Coverage is **not** repaired: the database integration suites and the browser matrix — the two layers that found this work's real defects — run only by hand. The v4 continuation adds them as gated jobs; see P14. |
 | P01 — shared provider contracts | **mostly delivered** | `abbe2b9b`, this work: `b0381b77` | The contracts, the registry and the capability table now **decide every collection operation**: the REST and DAV write guards, the DAV advertised privileges, the calendar delete and the contacts read-only flag all ask `services/providerAccess.ts`, which combines the origin adapter's declared support with the collection's own access and the device password's ceiling. Two things remain: the interface still derives calendar-event editability from `source === 'local'` in `CalendarSidebar.tsx` and `CalendarEventPreview.tsx` even though the server now reports the correct `read_only`, and **no remote adapter declares `writeThrough` yet**, so the model's answer for a provider-owned collection is "refused" until P09/P10 implement those writes. |
-| P02 — additive schema (connections, grants, remote links, operation journal, outbox, notice preferences), **backfill of existing sources** | **partial** | `abbe2b9b` (connections/grants/remote links, `0101`), `78b8c182` (journal/outbox, `0103`–`0105`) | The schema is delivered, additive and preserves existing IDs. The **upgrade half is now covered**: `providerSchemaUpgrade.integration.test.ts` creates its own database, applies the chain up to the provider migrations, seeds existing rows, applies every migration from `0101` onwards (now `0101`–`0107`) and asserts those rows and their IDs survive — green inside the 132-test gate. Still missing: the **backfill** of existing sources, so today's ICS subscriptions, CardDAV accounts and IMAP accounts are still described only by their own older tables and the provider layer does not know about them; and `source_connections` has **no reader and no writer** in production code, so the external-source half of the schema is schema only. The four attempts that produced the upgrade case are in *History*. |
+| P02 — additive schema (connections, grants, remote links, operation journal, outbox, notice preferences), **backfill of existing sources** | **partial** | `abbe2b9b` (connections/grants/remote links, `0101`), `78b8c182` (journal/outbox, `0103`–`0105`) | The schema is delivered, additive and preserves existing IDs. The **upgrade half is now covered**: `providerSchemaUpgrade.integration.test.ts` creates its own database, applies the chain up to the provider migrations, seeds existing rows, applies every migration from `0101` onwards (now `0101`–`0108`) and asserts those rows and their IDs survive — green inside the 146-test gate. Still missing: the **backfill** of existing sources, so today's ICS subscriptions, CardDAV accounts and IMAP accounts are still described only by their own older tables and the provider layer does not know about them; and `source_connections` has **no reader and no writer** in production code, so the external-source half of the schema is schema only. The four attempts that produced the upgrade case are in *History*. |
 | P03 — operation journal, sync leases, domain outbox, **common ingest and mutation services** | **mostly delivered** | `78b8c182`, this work: `d89c42a3` | Leases are wired — the Google and Microsoft connectors take them on every run. The journal is now on a **production write path**: `services/providerMutationService.ts` gives mail, calendar and contacts adapters one typed contract (`confirmed`, `accepted`, `pending`, `retryable`, `conflict`, `permanent`, `outcome_unknown`), commits the claim **before** the provider call, parks a recovered non-idempotent operation as `outcome_unknown` instead of re-running it, and reports `outcome_unknown` rather than success when it loses its claim. The first adapter is an IMAP flag write, used by the read and star endpoints. Remaining: nothing *reads* the `pending` pool the layer schedules retries into (the mail path still hands an unconfirmed change to the pre-existing in-memory reconciler), there is no calendar/contacts/send adapter yet, and `domainOutbox.ts` still has **no production enqueuer**. |
 | P04 — OAuth flows and token service | mostly delivered | `ee788ca8`, `d4592756`, `524a5f00`, `c30d13ba`, `d4927e09`, `940d629a`, `7dd0572d` + `3ed99007`, `bf9f340f` | **Provider device-code authorization**: the mailbox device flow exists, but the Graph provider flow is browser-only. |
 | P05 — mobile drawer gesture | delivered | `f76e1a40`, regression fixed in `143eca15` | Reachability verified and test-pinned: the pref defaults on, has a switch, persists through the server allow-list, and the hook's refs are attached to real elements. |
 | P06 — send/draft ledger, attachment and MIME limits | **not started** | — | Durable send/draft operation state, separately enforced file / total / MIME / HTTP limits, per-provider effective limits, Graph upload sessions and interrupted-upload recovery, and draft preservation across a failed upload. Partly enforced today and worth naming so the package is not read as untouched: `send.ts` refuses more than 100 attachments and a total above 25 MB, `MAIL_MAX_MESSAGE_BYTES` counts the **composed** message and refuses with `413 MESSAGE_TOO_LARGE` before dispatch (tested), and the HTTP body limit is 35 MB with a route-aware message. |
-| P07 — native Microsoft Graph adapters | **partial** | `524a5f00`, `c30d13ba`, `a9a3f975` (contacts), `d545ff45`, `c08fb7ae`, `f4d4fac1`, this work: `705b13bc` | Delivered: the Graph contacts adapter and sync, the mailbox device flow, and now the **first P07b slice** — mail folder discovery, projected onto the local `folders` model with canonical paths for Outlook's well-known folders, linked by the immutable Graph folder id (`0107` adds `integration_collections.local_folder_id`), with a rename moving the folder's messages instead of orphaning them. Missing: **message sync** (initial and delta, body, attachments), message mutations, drafts and send, the **Graph calendar adapter**, and the **provider device flow**. Graph is therefore **not yet a mail transport**: the account still reads mail over IMAP/SMTP. |
+| P07 — native Microsoft Graph adapters | **partial** | `524a5f00`, `c30d13ba`, `a9a3f975` (contacts), `d545ff45`, `c08fb7ae`, `f4d4fac1`, this work: `705b13bc` (folders), `011b2251` (messages) | Delivered: the Graph contacts adapter and sync, the mailbox device flow, and **two P07b slices** — (1) mail folder discovery, projected onto the local `folders` model with canonical paths for Outlook's well-known folders, linked by the immutable Graph folder id (`0107`); (2) **message metadata sync** with a per-folder delta cursor, identity in `messages.provider_message_id` (`0108`), the local-wins flag window and a `410` rebuild that reconciles. Missing: **body and attachments**, message mutations (read/star/move/archive/delete), drafts and send, the **Graph calendar adapter**, and the **provider device flow**. Graph is therefore **not yet a mail transport**: the account still reads mail over IMAP/SMTP. |
 | P08 — Gmail API mail adapter | **not started** | — | Labels rather than pretended folders, message/thread ingest, incremental history, body/attachments, mutations, drafts and send. Google keeps its supported IMAP/SMTP app-password path; the move to the API is **recommended, not required**, with an *Ignore* + "do not show again" suppression stored server-side per user **and** per account. |
 | P09 — Google Calendar/People + MS Graph calendar/contacts | **partial** | `29bf023e` (People), `71558193` + `c8ea8383` (Calendar with generated VTIMEZONE), `d4927e09` + `8aff1d1e` (UI), `a2973f94` (schedule); Microsoft contacts under P07 | Delivered: discovery with per-collection switches, read-only pulls for Google People, Google Calendar (VTIMEZONE included) and Microsoft contacts, and the refresh schedule. Missing: **all provider-side CRUD** — no adapter issues anything but `GET` (verified: no `POST`/`PATCH`/`DELETE` in `googlePeople.ts`, `googleCalendar.ts` or `graphContacts.ts`) — and **Microsoft calendars are not imported**. A read-only collection must stay read-only once writes exist. |
 | P10 — external CalDAV/CardDAV read-write, ICS/VCF/CSV import | **partial** | `6cf1a4bf` (vCard import), `6cccd470` (iCalendar import); Google CSV import pre-existed | The **external CalDAV/CardDAV write-back client**: `PUT`/`DELETE` on an imported collection is currently refused (correctly) instead of being forwarded to the source through the mutation layer. ICS-URL stays read-only; a locally imported ICS copy may be locally editable. |
@@ -133,7 +133,7 @@ The whole chain was re-applied **from zero** on an empty PostgreSQL 16 and every
 suite was then run against that database, so the provider stack is proven on a schema a new
 installation would actually have rather than on one evolved in place:
 
-- all 110 migrations apply in order with no error, and the provider tables
+- all 111 migrations apply in order with no error, and the provider tables
   (`provider_connections`, `oauth_grants`, `integration_collections`, `remote_object_links`,
   `provider_operations`, `domain_outbox`, `sync_states`, `account_notice_preferences`) all exist
   afterwards;
@@ -144,7 +144,7 @@ installation would actually have rather than on one evolved in place:
   macOS client, so client-specific behaviour — its exact `PROPFIND` bodies, its retry and error
   handling, its reaction to a refused `PROPPATCH` — is untested. That is the honest boundary of the
   DAV work, and it is the one acceptance criterion in P11 that remains open.
-- 132 integration tests pass across fifteen suites: the provider authorization-flow table, Google and
+- 146 integration tests pass across fifteen suites: the provider authorization-flow table, Google and
   Microsoft token refresh (including the two-worker race), the operation journal and outbox, the
   provider mutation layer (the claim committed before the provider call, recovery of a crashed claim,
   replay, conflict, retry scheduling and claim fencing), the
@@ -647,7 +647,7 @@ this document has been applying to itself throughout.
 
 | Rows | Verdict |
 | --- | --- |
-| RE01 | **Met.** The same functional schema is reached two ways and both were exercised: the state-reconstructing suite seeds a database, applies the chain and asserts the identifiers survive, and the database gate applies all 110 migrations to a fresh PostgreSQL 16 before running 132 tests. |
+| RE01 | **Met.** The same functional schema is reached two ways and both were exercised: the state-reconstructing suite seeds a database, applies the chain and asserts the identifiers survive, and the database gate applies all 111 migrations to a fresh PostgreSQL 16 before running 146 tests. |
 | RE03 | **Met at this commit**, from exit statuses: typecheck, lint, unit suites, the production build and the database integration set. |
 | RE04 | **Half met.** Both images are built for `linux/amd64` and `linux/arm64` and verified in the registry, with the release SHA as their source; **neither was run**, so "images exist for both platforms" is a registry fact and not a smoke test. |
 | RE02, RE06, RE07, RE08 | **Not verified, and each names a surface nobody looked at**: **RE02 is now met as the row is worded** — it asks for *documented* behaviour without destruction, and both halves are documented: `Upgrading.md` carries the rollback section it always had, and now the interrupted-migration procedure as well (the invalid-index query, dropping it, re-applying that one file, and the two things not to do). What is still unverified for RE02 is the *execution* of either: no migration was interrupted on purpose, and no rollback was performed, so the documented behaviour is a procedure rather than an observed one; **RE06 is met structurally, and not exercised.** The workflow publishes the pair from **one job** with two `Build and push` steps in sequence, no `continue-on-error` and no `always()` — so a failure in the second build fails the run — and **nothing in the repository declares a release ready automatically**: the readiness claim is in documentation, written by a person who can see both digests, which is the arrangement the row asks for. What it has not been is *tested by failing a publish on purpose*, and that is a deliberate choice rather than an omission: a failed production run leaves a misleading entry in the workflow history to prove something the structure already states. Recorded as met-structurally so the distinction is visible — the same one RE02 carries; a **backup and restore drill** in isolation, recovering tokens, mappings and operations with the right key; and the absence of secrets in **logs, build arguments, OCI labels, the frontend bundle, DTOs and test reports**. The **bundle was searched** and is clean — no secret-shaped assignment and no long high-entropy string literal in the built JavaScript assets, and no source maps are emitted to carry one — but the rest of that row is unchecked, and the absence of `import.meta.env.*` in the output is **not** evidence either way, because the bundler substitutes those at build time. **OCI labels were then fetched** from the registry — the index, the amd64 manifest and its config blob — and no secret-shaped label value is present. That negative is weaker than it looks and is recorded with its caveat: the config I read carried **no labels at all**, while the workflow does pass a label set to the build, so the labels may live in manifest annotations this check did not read. Logs, build arguments, DTOs and test reports remain unverified, and the last two are not reachable from a working checkout at all. |
@@ -836,7 +836,7 @@ That is what this table is; "code ✓" never means PASS on its own.
 | W03 | Scroll, row action, long-press, calendar and menu do not run competing operations | **PASS with NOT RUN** | The arbitration layer and its guard tests cover this; **not exercised on a device**. |
 | W04 | External calendars/books work in the UI and over DAV as RO/RW per real rights; **the write reaches the source** | **FAIL** on the second half, **delivered on the first** | The row has two clauses and the verdict hides one of them. Imported collections *do* work in the interface and over DAV, and they are reported as read-only precisely because their source is the only writer — so "RO/RW per real rights" is satisfied, with the RW case reachable for local collections and refused for imported ones. What fails is the clause the row emphasises: a write does not **reach the source**, because write-back is the open P10 client. A reader taking the bare FAIL would conclude imported collections do not work at all, which is not the case. |
 | W05 | DAV sharing independent of UI use; off / RO / RW limited by the source's rights | **PASS** | Per-collection `dav_mode`, per-password ceiling, provider collections refused writes; covered by `davVisibility` and the DAV database suite. |
-| W06 | Microsoft: full mail over Graph plus that account's calendars and contacts | **FAIL** | Contacts are delivered, and the mail **folder tree** is discovered (`705b13bc`), but the folder list is not mail: **message sync, mutations, drafts and send over Graph do not exist, and neither does the Graph calendar adapter** (P07b continues, P07d). The row asks for full mail, so it stays FAIL rather than partial. |
+| W06 | Microsoft: full mail over Graph plus that account's calendars and contacts | **FAIL** | Contacts are delivered; the mail **folder tree** (`705b13bc`) and **message metadata with a per-folder delta** (`011b2251`) are delivered too. What is not: message **bodies and attachments**, read/star/move/archive/delete mutations, drafts, send, and the **Graph calendar adapter** (P07b continues, P07d). The row asks for full mail, so it stays FAIL rather than partial — a mailbox you can list but not open is not mail. |
 | W07 | Google: Gmail/Calendar/People recommended, free choice of transport, one transport after cutover | **FAIL** | Calendar and People are delivered; **Gmail is not implemented and no cutover exists** (P08, P12). |
 | W08 | Independent calendar and contact switches per Microsoft/Google account, with collection discovery | **PASS** | Per-provider connect buttons, discovery on sync, per-collection enable/disable; the switch enforcement is tested. |
 | W09 | Do not remove configuration or force migration of other IMAP/SMTP, DAV or ICS accounts | **PASS** | Nothing migrates or deletes on its own; the only deletion path is an explicit, owner-scoped disconnect that keeps imported data. |
@@ -1159,9 +1159,10 @@ endpoint is visible rather than only available over the API.
   the platform time-zone database, so a rule change needs no code change.
 - Microsoft Graph calendar events are **not** imported yet, so they cannot hit the Windows→IANA
   timezone naming problem the plan warns about.
-- A Microsoft account's **mail folder tree is discovered, but its messages are not imported**: the
-  folder list works, the mailbox does not. Graph is not yet a mail transport, so the account still
-  reads mail over IMAP/SMTP and nothing migrates on its own.
+- A Microsoft account's **folder tree and message metadata** are imported, but **not the message
+  body, its attachments, or any mutation**: the list shows subject, correspondents, date, snippet and
+  flags, and opening a message has nothing to render. Graph is not yet a mail transport, so the
+  account still reads mail over IMAP/SMTP and nothing migrates on its own.
 - Mail folder discovery is a **full snapshot** per run rather than a Graph folder delta. A folder tree
   is small enough that a snapshot is the simpler correct answer; message sync is where the delta
   cursor belongs.
@@ -1397,29 +1398,27 @@ provider description asserts an app-password alternative unconditionally, and tw
 probes — if either capability becomes configurable, it must be computed before the text around it
 can be trusted.
 
-**P07b — Microsoft Graph mail adapter.** *Slice 1 (folder discovery) is delivered in `705b13bc`;
-this paragraph is the plan for what is left.* The account-model question it used to raise is
+**P07b — Microsoft Graph mail adapter.** *Slices 1 (folder discovery, `705b13bc`) and 2 (message
+metadata with a per-folder delta, `011b2251`) are delivered; this paragraph is the plan for what is
+left.* The account-model question it used to raise is
 **answered**: the schema already carries `email_accounts.mail_transport`, `provider_connection_id`,
 `provider_mailbox_id` and `transport_generation`, so the adapter targets an `email_accounts` row and
 the local message/folder/thread model is untouched. What remains, in order:
 
-1. **Message sync.** `graphMail.ts`/`graphMailSync.ts` are the home; `graphContactsSync.ts` remains
-   the template for the delta cursor, the `sync_states` lease and per-object idempotent upserts. The
-   key decision is already forced by the schema: `messages.uid BIGINT NOT NULL` with
-   `UNIQUE(account_id, uid, folder)` and Graph ids being opaque strings, so message identity needs an
-   **additive `provider_message_id` column** rather than a hash smuggled into `uid` — the plan's rule
-   is to use the provider's immutable identifier where Graph offers one, and it does (`id`, plus
-   `internetMessageId` for the RFC header, which is **not** an identity). Use
-   `/me/mailFolders/{id}/messages/delta` and re-read the folder on a `410`.
-2. **Body and attachments** through `$select`/`$value`, streamed rather than buffered.
-3. **Mutations** — read/unread, flag, move, archive, delete/trash — through
+1. **Body and attachments.** `graphMail.ts`/`graphMailSync.ts` are the home; fetch `body` and the
+   attachment list through `$select`/`$value` and **stream** them rather than buffering. The
+   message-list identity work is already done: `provider_message_id` (`0108`) is the key a body and an
+   attachment set hang on. Graph's direct-add limit is 3 MB with an upload session above it — that
+   accounting is P06's.
+2. **Mutations** — read/unread, flag, move, archive, delete/trash — through
    `providerMutationService.ts`, which exists for exactly this and already has the recovery decision
    the plan demands. `integration_collections.source_access` must flip to `read_write` and the
    registry's `microsoft_graph.writeThrough` to `true` in the same slice, or the capability model
-   will keep refusing the writes (that is P01 working, not a bug).
-4. **Conversation persistence** through `providerConversationMetadata.ts`, keyed on Graph's
+   will keep refusing the writes (that is P01 working, not a bug). The message sync's 30 s local-wins
+   window already protects a just-changed flag from being reverted.
+3. **Conversation persistence** through `providerConversationMetadata.ts`, keyed on Graph's
    `conversationId`, never on the RFC `Message-ID` alone.
-5. **Drafts and send** belong to P06 and the shared send layer — not a Graph-only pipeline.
+4. **Drafts and send** belong to P06 and the shared send layer — not a Graph-only pipeline.
 
 Read §12 of the plan before choosing the send shape; the three-size accounting and the upload-session
 rules live there.
