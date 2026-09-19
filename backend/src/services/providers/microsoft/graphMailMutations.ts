@@ -1,5 +1,5 @@
 import { createHash } from 'crypto';
-import { GraphApiError, graphPatch } from './graphApiClient.js';
+import { GraphApiError, graphDelete, graphPatch, graphPost } from './graphApiClient.js';
 import type { GraphApiOptions } from './graphApiClient.js';
 import { withTransaction } from '../../db.js';
 import { listDueOperations } from '../../providerOperations.js';
@@ -75,7 +75,7 @@ export function graphMessagePatchForFlag(flag: string, value: boolean): GraphMes
  * cannot tell us whether the request reached the server, and re-running a mutation
  * that may have been applied is the failure mode the layer exists to prevent.
  */
-export function classifyGraphMailMutationFailure(error: unknown): ProviderAdapterOutcome<void> {
+export function classifyGraphMailMutationFailure<T = void>(error: unknown): ProviderAdapterOutcome<T> {
   if (error instanceof GraphApiError) {
     if (error.retryable) {
       return {
@@ -182,4 +182,114 @@ export async function drainGraphMailFlagOperations(input: {
     else unresolved += 1;
   }
   return { due: due.length, confirmed, unresolved };
+}
+
+// ── Moving and removing a message ───────────────────────────────────────────
+
+/**
+ * A move, as the application models it: the message is addressed by its provider
+ * id and the destination is the provider's folder id.
+ */
+export interface GraphMailMovePayload {
+  providerMessageId: string;
+  destinationFolderId: string;
+  intentAt: string;
+}
+
+/** A permanent delete. Providers identify the message the same way a move does. */
+export interface GraphMailDeletePayload {
+  providerMessageId: string;
+  intentAt: string;
+}
+
+/** What a Graph move hands back: the message under its **new** id. */
+export interface GraphMoveResult {
+  id: string;
+  parentFolderId?: string | null;
+}
+
+/** Move a message to another Graph folder. Graph answers with the message, re-identified. */
+export async function graphMoveMessage(
+  api: GraphApiOptions,
+  providerMessageId: string,
+  destinationFolderId: string,
+): Promise<GraphMoveResult | null> {
+  return graphPost<GraphMoveResult>(
+    api,
+    `/me/messages/${encodeURIComponent(providerMessageId)}/move`,
+    { destinationId: destinationFolderId },
+  );
+}
+
+/** Remove a message permanently (not to the deleted-items folder — that is a move). */
+export async function graphDeleteMessage(api: GraphApiOptions, providerMessageId: string): Promise<void> {
+  await graphDelete(api, `/me/messages/${encodeURIComponent(providerMessageId)}`);
+}
+
+/**
+ * Move and delete are **not** declared idempotent, and the reason is worth stating.
+ *
+ * A move converges on the same end state, and a delete is a no-op the second time —
+ * but Graph re-identifies a moved message, so the provider id the operation was
+ * dispatched with stops existing. A second attempt therefore answers `404`, which
+ * is indistinguishable from "the message is gone for another reason". Declaring
+ * them non-idempotent makes the layer **park a recovered claim as
+ * `outcome_unknown`** instead of re-running it, which is the honest reading of a
+ * 404 after a crash. A `retryable` classification still schedules a retry, because
+ * the adapter is then explicitly saying nothing was applied.
+ */
+export function graphMoveMutationAdapter(options: {
+  api: GraphApiOptions;
+  move?: typeof graphMoveMessage;
+}): ProviderMutationAdapter<GraphMailMovePayload, GraphMoveResult> {
+  const move = options.move ?? graphMoveMessage;
+  return {
+    resourceType: 'message',
+    idempotent: false,
+    async perform(write) {
+      try {
+        const moved = await move(options.api, write.providerMessageId, write.destinationFolderId);
+        // A provider that answers without the new identity leaves nothing to adopt,
+        // and pretending otherwise would strand the local row on a dead id.
+        if (!moved?.id) return { status: 'outcome_unknown', code: 'MUTATION_OUTCOME_UNKNOWN' };
+        return { status: 'committed', value: moved };
+      } catch (error) {
+        return classifyGraphMailMutationFailure(error);
+      }
+    },
+  };
+}
+
+export function graphDeleteMutationAdapter(options: {
+  api: GraphApiOptions;
+  remove?: typeof graphDeleteMessage;
+}): ProviderMutationAdapter<GraphMailDeletePayload, void> {
+  const remove = options.remove ?? graphDeleteMessage;
+  return {
+    resourceType: 'message',
+    idempotent: false,
+    async perform(write) {
+      try {
+        await remove(options.api, write.providerMessageId);
+        return { status: 'committed' };
+      } catch (error) {
+        return classifyGraphMailMutationFailure(error);
+      }
+    },
+  };
+}
+
+/** The journal key and payload hash of one move or delete intent. */
+export function graphMoveIntent(payload: GraphMailMovePayload): { idempotencyKey: string; payloadHash: string } {
+  return {
+    idempotencyKey: `graph-mail-move:${payload.providerMessageId}:${payload.destinationFolderId}:${payload.intentAt}`,
+    payloadHash: createHash('sha256').update(JSON.stringify(payload)).digest('hex'),
+  };
+}
+
+export function graphDeleteIntent(payload: GraphMailDeletePayload): { idempotencyKey: string; payloadHash: string } {
+  return {
+    idempotencyKey: `graph-mail-delete:${payload.providerMessageId}:${payload.intentAt}`,
+    payloadHash: createHash('sha256').update(JSON.stringify(payload)).digest('hex'),
+  };
 }

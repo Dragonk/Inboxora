@@ -18,7 +18,8 @@ import type { GraphApiOptions } from './graphApiClient.js';
  */
 
 export interface GraphAttachment {
-  id: string;
+  /** Absent is possible in a malformed provider answer, and is handled rather than assumed away. */
+  id?: string | null;
   name?: string | null;
   contentType?: string | null;
   size?: number | null;
