@@ -22,7 +22,7 @@ typecheck, lint, production build and **2644 tests**. `main` has not been touche
 | P03 — operation journal, sync leases, domain outbox | delivered | `78b8c182` | — |
 | P04 — OAuth flows and token service | mostly delivered | `ee788ca8` (Google web flow), `d4592756` (single-flight refresh + CAS), `524a5f00` (Microsoft refresh), `c30d13ba` (Microsoft Graph provider flow), `d4927e09` (Google flow in the UI), per-feature Google connect buttons | Provider **device-code** authorization (the mailbox device flow exists; the Graph provider flow is browser-only). |
 | P05 — mobile drawer gesture | delivered | `f76e1a40` | — |
-| P06 — send/draft ledger, attachment and MIME limits | **not started** | — | Durable upload/send ledger, separated file/total/MIME/HTTP limits, draft preservation on failure. |
+| P06 — send/draft ledger, attachment and MIME limits | **not started** | — | Durable upload/send ledger, separated file/total/MIME/HTTP limits, draft preservation on failure. See the note below on what is already enforced. |
 | P07 — native Microsoft Graph adapters | **partial** | `524a5f00`, `c30d13ba`, `a9a3f975` (contacts), `d545ff45`, `c08fb7ae`, `f4d4fac1` | **Graph mail adapter** (blocks P12), Graph calendar adapter, provider device flow. |
 | P08 — Gmail API mail adapter | **not started** | — | Labels/folders, message and thread ingest, attachments. |
 | P09 — Google Calendar/People + MS Graph calendar/contacts | **partial** | `29bf023e` (People), `71558193` + `c8ea8383` (Calendar with generated VTIMEZONE), `d4927e09` + `8aff1d1e` (UI), `a2973f94` (schedule); Microsoft contacts under P07 | Microsoft Graph **calendar** adapter. |
@@ -104,6 +104,15 @@ maintenance). Do not ship either without a test that pins a summer and a winter 
 **P08 — Gmail adapter.** `googleApiClient.ts` and `googleContactsSync.ts` are the templates; labels
 map to folders and Gmail threads to the local thread model. It shares the P06/P07b account-model
 question and should be designed together with it rather than twice.
+
+**P06 — what is already enforced, and why the obvious slice is not one.** `send.ts` already
+rejects more than 100 attachments and a total above 25 MB, and the HTTP body limit is 35 MB with a
+route-aware 413 message. A *per-file* limit on top of that would be redundant while it equals the
+total, and making it smaller is a product policy decision rather than something to infer — so the
+real remaining work is (a) the MIME/content-type dimension, (b) counting **forwarded** attachments
+against the same total, which today are validated by count only and whose sizes are known only after
+the IMAP fetch, and (c) the durable ledger with draft preservation. Those need a limit definition
+shared with the composer rather than a constant chosen inside the route.
 
 **P10 — external CalDAV/CardDAV write-back.** The read-only pieces and the `remote_object_links`
 rows are in place, and `provider_operations.ts` was written for exactly this: a write is an
