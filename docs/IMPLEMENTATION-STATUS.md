@@ -276,6 +276,22 @@ those packages have not started. It does mean "delivered" in the table above sho
 "the code exists and its tests pass", not "the application exercises it" — which is what the
 per-package column now says for P01 and P03.
 
+## Open: PROPPATCH is answered without reaching a handler
+
+Clients such as Thunderbird and DAVx5 set a display name or colour on a collection with `PROPPATCH`.
+Neither router has a handler for it, so the request is answered with an empty `403` — and the reason
+it is empty is the interesting part: when a handler was added, its first line, the guard comparing
+the path's user id with the credential's, returned before the refusal body could be written, which
+means the DAV credential's user id is **not populated for that method**. The guard is doing its job;
+the request simply never gets far enough to be told what is wrong.
+
+That handler was removed rather than shipped, because a handler that can never write its body is
+inert. The real fix is one step earlier: have the DAV authentication resolve the credential for
+`PROPPATCH` the way it does for the other methods, then answer `403` with a `DAV:error` body naming
+the reason — properties are managed by Inboxora, and a provider-sourced collection is owned by its
+source. `MKCALENDAR` is deliberately unimplemented and documented as such in `caldav.ts`; the
+compliance classes that would imply are not advertised, which is correct.
+
 ## The integrations card now has browser coverage
 
 No spec referenced the integrations status, the card or its sub-tabs, so the browser suite's green
