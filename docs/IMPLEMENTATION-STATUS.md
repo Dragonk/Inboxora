@@ -544,6 +544,31 @@ claimed a green run. It was corrected in the next commit, and it is the **second
 this session — the screenshot verifier in round 198 was the first — and the first that put a red test on the branch.
 The corrective is mechanical and now stated: read the **exit status**, never the piped tail, before staging.
 
+### The *ignore and send anyway* affordance, specified down to the lines
+
+The last composer-side item, and it is now small enough to describe exactly rather than estimate. What already exists is
+the mechanism the plan requires it to use: `idempotencyKeyRef` holds **one key per logical send**, set on the first
+attempt, sent as `X-Idempotency-Key`, **cleared on success** and **deliberately kept on failure** — which is what makes
+an ordinary retry land on the same intent instead of creating a second message. A deliberate re-send is therefore a
+**new operation**, and the way to express that in code is to clear that ref and send again, from an explicit user
+action.
+
+Concretely, for the next session:
+
+1. a state flag set where the composer already recognises `SEND_OUTCOME_UNKNOWN` (the branch added this session);
+2. a control rendered beside the error text — the two sites are the mobile and desktop layouts at
+   `ComposeModal.tsx` lines **1611** and **2296** — whose handler clears `idempotencyKeyRef.current`, resets the flag and
+   calls the send handler again. **The send handler's name is the one thing not yet read**, which is why this is written
+   down instead of started: three edits, three locale sets and no component test is not a change to make with the
+   remaining budget, and this session has already paid twice for starting what it could not finish;
+3. three keys in nine locales — the control, the duplicate-risk warning it must show, and the confirmation — with the
+   warning carrying the plan's substance: sending again **may** create a duplicate, and the Sent folder is still the
+   authority.
+
+Note what must **not** happen: clearing the key without the explicit action. The ref is the only thing preventing an
+ordinary retry from duplicating a message whose outcome is unknown, so an automatic clear would be worse than the missing
+affordance.
+
 ### The editor's messages (§12.9): the behaviour exists, the translation does not
 
 The last unread subsection of §12 lists five messages it calls **mandatory and translated**. Read against the
