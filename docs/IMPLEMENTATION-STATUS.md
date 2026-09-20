@@ -43,16 +43,15 @@ Each package has exactly one current state:
 
 ### P14 evidence
 
-**Frozen code SHA: `af97ee5a1ddb6bd1ff0470ee6c8eebb1d577e334`** — the revision that fixes the 4.0.4 → 4.1.0
-upgrade path (0108 clears the legacy Conversation Engine provider ids before creating its unique index, and
-`0114` normalises them on databases from an earlier `:dev`), adds push-assisted synchronisation, and separates
-provider configuration (Settings → Integrations) from mailbox connection (Settings → Accounts). Commits after
-it are documentation only.
+**Frozen code SHA: `a8606b8e50e5da440e2403b1dbe718cfbe663898`** — the revision that fixes the 4.0.4 → 4.1.0 upgrade path (0108/0114), adds
+push-assisted synchronisation, separates provider configuration (Settings → Integrations) from mailbox
+connection (Settings → Accounts), and clears the IMAP/SMTP defaults a native account used to inherit. Commits
+after it are documentation only.
 
 | Part | State | Evidence |
 | --- | --- | --- |
-| image build + registry verification | **done** | Workflow run [`35515549348`](https://github.com/Dragonk/Inboxora/actions/runs/35515549348) built from `source_sha=af97ee5a1ddb6bd1ff0470ee6c8eebb1d577e334` and pushed `:dev`. Both resolve to OCI image indexes carrying `linux/amd64` **and** `linux/arm64`: backend `sha256:415c0c7e10778c574f91c21a4b43711795faf883bfd904086948d6c5d777a6ff`, frontend `sha256:eb9668376c5557fe724aab6ba917c5cc969f8a017b1f5a1ac8f339f8ee1f5cdf`. |
-| runtime smoke | **RUN — passed** | The published pair was pulled and started from a fresh volume: `/api/health` → `{"status":"ok"}`, `/api/version` → `{"version":"dev","sha":"af97ee5a1ddb6bd1ff0470ee6c8eebb1d577e334"}`, **117** migrations, first-user registration, a fresh login, `/api/auth/me`, the account list, the UI root and **0 restarts**. Earlier revisions of this document record the upgrade smokes from a 4.0.4-shaped database and from an earlier-`:dev` database. |
+| image build + registry verification | **done** | Workflow run [`35516891492`](https://github.com/Dragonk/Inboxora/actions/runs/35516891492) built from `source_sha=a8606b8e50e5da440e2403b1dbe718cfbe663898` and pushed `:dev`. Both resolve to OCI image indexes carrying `linux/amd64` **and** `linux/arm64`: backend `sha256:7ac82f5ad4ae2495f6e05d99020d4ad87ba71d41e37b85168ce32afc27a3477f`, frontend `sha256:ec0f4cafc99496dcb2efed002685fee91fda417652ec1db80b34b8d950c2bbdf`. |
+| runtime smoke | **RUN — passed** | The published pair was pulled and started from a fresh volume: `/api/health` → `{"status":"ok"}`, `/api/version` → `{"version":"dev","sha":"a8606b8e50e5da440e2403b1dbe718cfbe663898"}`, **117** migrations, first-user registration, a fresh login, `/api/auth/me`, the account list, the UI root and **0 restarts**. The upgrade smokes from a 4.0.4-shaped database and from an earlier-`:dev` database are recorded in the verification section below. |
 | `:dev` publication | **done** | The published images are the current `dev` code, including the audit's two fixes; `main` is untouched and 4.1.0 is not released. |
 
 ## Acceptance criteria W01–W19
@@ -137,10 +136,10 @@ Not release criteria; recorded so they are not lost:
 
 Measured on the frozen code SHA with each gate's own exit status read directly:
 
-- **Backend** — typecheck clean, lint clean, **2959 unit tests passed** (209 skipped; 245 files).
+- **Backend** — typecheck clean, lint clean, **2959 unit tests passed** (219 skipped; 245 files).
 - **Frontend** — typecheck clean, lint clean, **2782 tests passed** (0 failed), production build clean.
 - **Database** — a database created empty for the purpose, the **whole 117-migration chain applied from
-  zero** by the application's own runner, then **409 integration tests across 45 suites** on PostgreSQL 16
+  zero** by the application's own runner, then **419 integration tests across 46 suites** on PostgreSQL 16
   (exit 0), including the send-ledger and external-collection-link suites. The unit and integration
   figures are separate invocations on purpose: one process running both against one database lets
   independent integration files contend on the same conversation tables, where a `SERIALIZABLE` rebuild can
@@ -149,7 +148,7 @@ Measured on the frozen code SHA with each gate's own exit status read directly:
   runner (`runMigrations({ upTo: '0107' })`), seeded with the real shape of a legacy Gmail IMAP mailbox (one
   X-GM-MSGID in four label folders, a second duplicated twice, a third once, a non-Gmail account with no
   provider id, plus a rule, a snooze, a folder and Conversation Engine identity), then upgraded by running
-  the production runner again with no limit. **9 assertions passed**: the reproduction is real (7 rows, 3
+  the production runner again with no limit. **10 assertions passed**: the reproduction is real (7 rows, 3
   distinct provider ids), 0108 and everything after it are recorded, every `messages.id`, `uid`, `folder`,
   `thread_key`, `provider_thread_id` and Conversation Engine row is unchanged, the legacy provider ids are
   cleared, a duplicate native identity is still refused with `23505`, a database whose first 0108 attempt
