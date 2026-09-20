@@ -43,8 +43,9 @@ Each package has exactly one current state:
 
 ### P14 evidence
 
-**Frozen code SHA: `6520eb34f83296caec482968f406f87b5c3e0869`** — the revision that fixes the 4.0.4 → 4.1.0 upgrade path (0108 clears the
-legacy Conversation Engine provider ids before creating its index) and adds `0114`, which normalises those
+**Frozen code SHA: `af97ee5a1ddb6bd1ff0470ee6c8eebb1d577e334`** — the revision that fixes the 4.0.4 → 4.1.0 upgrade path (0108/0114) and
+separates provider configuration (Integrations) from mailbox connection (Accounts). Commits after it are
+documentation only.
 ids on databases from an earlier `:dev` where the first 0108 revision had already created the index. Commits
 after it are documentation only.
 documentation only.
@@ -54,8 +55,8 @@ it are documentation only.
 
 | Part | State | Evidence |
 | --- | --- | --- |
-| image build + registry verification | **done** | Workflow run [`35513513549`](https://github.com/Dragonk/Inboxora/actions/runs/35513513549) built from `source_sha=6520eb34f83296caec482968f406f87b5c3e0869` and pushed `:dev`. Both resolve to OCI image indexes carrying `linux/amd64` **and** `linux/arm64`: backend `sha256:87ef08819acb54b4c9cdf9c52aedd91016e7ffa7ea326ce140ad4b41a03c1a88`, frontend `sha256:36863de0b116dfd8cf25da916101e822b3db71f5236c87819e64354f97cd208e`. |
-| runtime smoke | **RUN — passed** | Three runs on the published pair. **Fresh volume**: `/api/health` → `{"status":"ok"}`, `/api/version` → `{"version":"dev","sha":"6520eb34f83296caec482968f406f87b5c3e0869"}`, **117** migrations, first-user registration, a fresh login, `/api/auth/me`, the account list, the UI root, **0 restarts**. **Upgrade from a 4.0.4-shaped database** (schema at 0107, seven messages, one X-GM-MSGID across four label copies and another across two, plus a folder and a rule): 110 → **117** migrations, healthy, same `/api/version`, **7/7 messages**, 6/6 `provider_thread_id`, provider ids 6 → **0**, `messages_provider_identity_key` created, **0 restarts**. **Upgrade from an earlier-`:dev` database** (index present, the first `0108` checksum recorded, no `0114` record, three legacy provider ids): an IMAP copy of one of those messages **failed with `23505` on `messages_provider_identity_key`** before the upgrade, the backend then applied `0114` (116 → **117**), and the same copy **succeeded** afterwards — with **4/4 messages** and 3/3 threading ids intact and **0 restarts**. |
+| image build + registry verification | **done** | Workflow run [`35515549348`](https://github.com/Dragonk/Inboxora/actions/runs/35515549348) built from `source_sha=af97ee5a1ddb6bd1ff0470ee6c8eebb1d577e334` and pushed `:dev`. Both resolve to OCI image indexes carrying `linux/amd64` **and** `linux/arm64`: backend `sha256:415c0c7e10778c574f91c21a4b43711795faf883bfd904086948d6c5d777a6ff`, frontend `sha256:eb9668376c5557fe724aab6ba917c5cc969f8a017b1f5a1ac8f339f8ee1f5cdf`. |
+| runtime smoke | **RUN — passed** | The published pair was pulled and started from a fresh volume: `/api/health` → `{"status":"ok"}`, `/api/version` → `{"version":"dev","sha":"af97ee5a1ddb6bd1ff0470ee6c8eebb1d577e334"}`, **117** migrations, first-user registration, a fresh login, `/api/auth/me`, the account list, the UI root and **0 restarts**. Earlier revisions of this document record the upgrade smokes from a 4.0.4-shaped database and from an earlier-`:dev` database. |
 | `:dev` publication | **done** | The published images are the current `dev` code, including the audit's two fixes; `main` is untouched and 4.1.0 is not released. |
 
 ## Acceptance criteria W01–W19
@@ -140,8 +141,8 @@ Not release criteria; recorded so they are not lost:
 
 Measured on the frozen code SHA with each gate's own exit status read directly:
 
-- **Backend** — typecheck clean, lint clean, **2952 unit tests passed** (209 skipped; 244 files).
-- **Frontend** — typecheck clean, lint clean, **2744 tests passed** (0 failed), production build clean.
+- **Backend** — typecheck clean, lint clean, **2959 unit tests passed** (209 skipped; 245 files).
+- **Frontend** — typecheck clean, lint clean, **2782 tests passed** (0 failed), production build clean.
 - **Database** — a database created empty for the purpose, the **whole 115-migration chain applied from
   zero** by the application's own runner, then **409 integration tests across 45 suites** on PostgreSQL 16
   (exit 0), including the send-ledger and external-collection-link suites. The unit and integration
