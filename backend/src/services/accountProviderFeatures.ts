@@ -104,7 +104,27 @@ export async function connectionForAccount(input: {
   userId: string;
   address: string | null;
   provider: ProviderAccountKind;
+  /** The connection the account itself records, when it has one. */
+  linkedConnectionId?: string | null;
 }): Promise<{ id: string; providerUserId: string | null } | null> {
+  // The account's own link wins. A mailbox that was moved to its provider transport records the connection it
+  // was moved with, and that is the identity the user authorized — the verified address is a *fallback*, for
+  // the legacy case where no link was ever recorded.
+  //
+  // Matching on the address alone is what made a live installation read "missing Calendars.ReadWrite" while
+  // the grant existed: Microsoft returns the mailbox's primary address as `providerUserId`, so a consent
+  // granted while signing in with an alias (or for a mailbox whose primary address differs from the one the
+  // account stores) resolved to no connection — or, worse, to a second connection with only that feature's
+  // scopes. The subject/issuer identity is the stable one, and the link is how this row refers to it.
+  if (input.linkedConnectionId) {
+    const linked = await query<{ id: string; provider_user_id: string | null }>(
+      `SELECT id, provider_user_id FROM provider_connections
+        WHERE id = $1 AND user_id = $2 AND provider = $3 AND status = 'active'`,
+      [input.linkedConnectionId, input.userId, input.provider],
+    );
+    if (linked.rows[0]) return { id: linked.rows[0].id, providerUserId: linked.rows[0].provider_user_id };
+  }
+
   const address = (input.address ?? '').trim();
   if (!address) return null;
   const result = await query<{ id: string; provider_user_id: string | null }>(
@@ -228,9 +248,9 @@ export async function describeAccountProviderFeatures(input: {
 }): Promise<AccountProviderFeatures | null> {
   const account = await query<{
     id: string; email_address: string | null; imap_host: string | null; oauth_provider: string | null;
-    mail_transport: string | null;
+    mail_transport: string | null; provider_connection_id: string | null;
   }>(
-    `SELECT id, email_address, imap_host, oauth_provider, mail_transport FROM email_accounts
+    `SELECT id, email_address, imap_host, oauth_provider, mail_transport, provider_connection_id FROM email_accounts
       WHERE id = $1 AND user_id = $2`,
     [input.accountId, input.userId],
   );
@@ -247,14 +267,20 @@ export async function describeAccountProviderFeatures(input: {
   const groups = {} as Record<ProviderAccountKind, AccountFeatureGroup>;
   const contactsAuth = {} as Partial<Record<ProviderAccountKind, ProviderFeatureAuthorization>>;
   const mailConnection = provider
-    ? await connectionForAccount({ userId: input.userId, address: row.email_address, provider })
+    ? await connectionForAccount({
+        userId: input.userId, address: row.email_address, provider,
+        linkedConnectionId: row.provider_connection_id,
+      })
     : null;
   const mailAuth = provider
     ? await readProviderFeatureAuthorization({ connectionId: mailConnection?.id ?? null, provider, feature: 'mail' })
     : { authorized: false, requiredScopes: [], grantedScopes: [], missingScopes: [] };
 
   for (const kind of ['google', 'microsoft'] as const) {
-    const connection = await connectionForAccount({ userId: input.userId, address: row.email_address, provider: kind });
+    const connection = await connectionForAccount({
+      userId: input.userId, address: row.email_address, provider: kind,
+      linkedConnectionId: row.provider_connection_id,
+    });
     const calendarAuth = await readProviderFeatureAuthorization({ connectionId: connection?.id ?? null, provider: kind, feature: 'calendar' });
     contactsAuth[kind] = await readProviderFeatureAuthorization({ connectionId: connection?.id ?? null, provider: kind, feature: 'contacts' });
     groups[kind] = {

@@ -275,6 +275,15 @@ None.
   IMAP loops, health checks, rule forwarder and send path no longer open IMAP or SMTP for it.
 
 ### Fixed
+- **An account resolves the connection it was actually moved with.** The account's provider features were
+  matched to a connection by comparing the mailbox address with the connection's `provider_user_id`. Microsoft
+  reports the mailbox's primary address there, so a consent granted while signed in with an alias — or for a
+  mailbox whose primary address differs from the one the account stores — resolved to no connection, or to a
+  second connection holding only that feature's scopes. The card then read "missing Calendars.ReadWrite" while
+  the grant existed. The connection the account records (`provider_connection_id`) is now authoritative and the
+  verified address is the fallback, so mail, calendar and contacts of one identity are read from one
+  connection.
+
 - **A message sent from an alias leaves as that alias, or fails visibly.** The Graph payload carried no `from`
   at all, so Graph sent as the mailbox's primary address: the composer showed `kamil.maciag@outlook.com` and the
   recipient saw the primary identity, with nothing in the interface to say the choice had been ignored. The

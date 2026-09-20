@@ -148,3 +148,31 @@ describeOrSkip('account provider diagnostics (PostgreSQL)', () => {
     await expect(providerSyncPreflight({ userId: USER_A, connectionId, provider: 'google', feature: 'mail' })).resolves.toBeNull();
   });
 });
+
+describeOrSkip('the account-to-connection link', () => {
+  it('reads the scopes of the connection the account is linked to, not of another one with the same address', async () => {
+    // The live symptom: Microsoft mail was authorized and a later calendar consent still read
+    // "missing Calendars.ReadWrite". The account was linked to the connection its cutover used, while Graph
+    // reported a different `providerUserId` for the same subject, so the address match resolved elsewhere.
+    // The link is authoritative; the address is the fallback.
+    const linked = await inTransaction(client => upsertProviderConnection(client, {
+      userId: USER_A, provider: 'google', issuer: 'https://accounts.google.com',
+      subject: 'linked-subject', providerUserId: 'other-address@gmail.test',
+    }));
+    await inTransaction(client => storeOAuthGrant(client, {
+      connectionId: linked, audience: GOOGLE_GRANT_AUDIENCE, accessToken: 'a', refreshToken: null,
+      expiresAt: new Date(Date.now() + 3600_000),
+      scopes: [`${GOOGLE}gmail.modify`, `${GOOGLE}calendar.events`, `${GOOGLE}calendar.calendarlist.readonly`],
+      clientIdAtIssue: 'client-1',
+    }));
+    await query('UPDATE email_accounts SET provider_connection_id = $2 WHERE id = $1', [accountId, linked]);
+
+    const features = await describeAccountProviderFeatures({ userId: USER_A, accountId });
+    // The linked connection's calendar grant is what the card reports, even though its address differs from
+    // the account's own — the identity, not the spelling of the address, decides.
+    expect(features!.calendar?.connectionId).toBe(linked);
+    expect(features!.calendar?.authorized).toBe(true);
+    expect(features!.diagnostics.calendar.authorized).toBe(true);
+    expect(features!.diagnostics.calendar.missingScopes).toEqual([]);
+  });
+});
