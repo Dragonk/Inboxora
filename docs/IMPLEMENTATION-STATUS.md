@@ -43,8 +43,10 @@ Each package has exactly one current state:
 
 ### P14 evidence
 
-**Frozen code SHA: `844cf3aa6ca9d09c6a13d64b57cfc628f7267566`** — the revision that fixes the 4.0.4 → 4.1.0 upgrade path (migration 0108
-cleared the legacy Conversation Engine provider ids before creating its unique index). Commits after it are
+**Frozen code SHA: `6520eb34f83296caec482968f406f87b5c3e0869`** — the revision that fixes the 4.0.4 → 4.1.0 upgrade path (0108 clears the
+legacy Conversation Engine provider ids before creating its index) and adds `0114`, which normalises those
+ids on databases from an earlier `:dev` where the first 0108 revision had already created the index. Commits
+after it are documentation only.
 documentation only.
 after it are documentation only.
 documentation only.
@@ -52,8 +54,8 @@ it are documentation only.
 
 | Part | State | Evidence |
 | --- | --- | --- |
-| image build + registry verification | **done** | Workflow run [`35510860139`](https://github.com/Dragonk/Inboxora/actions/runs/35510860139) built from `source_sha=844cf3aa6ca9d09c6a13d64b57cfc628f7267566` and pushed `:dev`. Both resolve to OCI image indexes carrying `linux/amd64` **and** `linux/arm64`: backend `sha256:69acd1144357f86a4793174caaba4759e38f728895daf9240ee80f2c29804a35`, frontend `sha256:730c26d614629cc7a1cdeef328fb057368fac96107961eba436f4c14c861d4c6`. |
-| runtime smoke | **RUN — passed** | Two runs on the published pair. **Fresh volume**: `/api/health` → `{"status":"ok"}`, `/api/version` → `{"version":"dev","sha":"844cf3aa6ca9d09c6a13d64b57cfc628f7267566"}`, all **116** migrations, first-user registration, a fresh login, `/api/auth/me`, the account list, the UI root, **0 restarts**. **Upgrade from a 4.0.4-shaped database** (schema at 0107 with seven messages — one X-GM-MSGID in four label copies, a second in two, one plain IMAP message — plus a folder, a rule and a conversation identity): the backend applied 0108–0113 at start-up (110 → **116** migrations), became healthy, reported the same `/api/version`, kept **7/7 messages** and 6/6 `provider_thread_id` values, cleared the 6 legacy provider ids to **0**, kept `inbox_rules` at 1, created `messages_provider_identity_key` as `UNIQUE (account_id, provider_message_id) WHERE provider_message_id IS NOT NULL`, and restarted **0** times. |
+| image build + registry verification | **done** | Workflow run [`35513513549`](https://github.com/Dragonk/Inboxora/actions/runs/35513513549) built from `source_sha=6520eb34f83296caec482968f406f87b5c3e0869` and pushed `:dev`. Both resolve to OCI image indexes carrying `linux/amd64` **and** `linux/arm64`: backend `sha256:87ef08819acb54b4c9cdf9c52aedd91016e7ffa7ea326ce140ad4b41a03c1a88`, frontend `sha256:36863de0b116dfd8cf25da916101e822b3db71f5236c87819e64354f97cd208e`. |
+| runtime smoke | **RUN — passed** | Three runs on the published pair. **Fresh volume**: `/api/health` → `{"status":"ok"}`, `/api/version` → `{"version":"dev","sha":"6520eb34f83296caec482968f406f87b5c3e0869"}`, **117** migrations, first-user registration, a fresh login, `/api/auth/me`, the account list, the UI root, **0 restarts**. **Upgrade from a 4.0.4-shaped database** (schema at 0107, seven messages, one X-GM-MSGID across four label copies and another across two, plus a folder and a rule): 110 → **117** migrations, healthy, same `/api/version`, **7/7 messages**, 6/6 `provider_thread_id`, provider ids 6 → **0**, `messages_provider_identity_key` created, **0 restarts**. **Upgrade from an earlier-`:dev` database** (index present, the first `0108` checksum recorded, no `0114` record, three legacy provider ids): an IMAP copy of one of those messages **failed with `23505` on `messages_provider_identity_key`** before the upgrade, the backend then applied `0114` (116 → **117**), and the same copy **succeeded** afterwards — with **4/4 messages** and 3/3 threading ids intact and **0 restarts**. |
 | `:dev` publication | **done** | The published images are the current `dev` code, including the audit's two fixes; `main` is untouched and 4.1.0 is not released. |
 
 ## Acceptance criteria W01–W19
@@ -130,7 +132,7 @@ Not release criteria; recorded so they are not lost:
 
 Measured on the frozen code SHA with each gate's own exit status read directly:
 
-- **Backend** — typecheck clean, lint clean, **2952 unit tests passed** (208 skipped; 244 files).
+- **Backend** — typecheck clean, lint clean, **2952 unit tests passed** (209 skipped; 244 files).
 - **Frontend** — typecheck clean, lint clean, **2744 tests passed** (0 failed), production build clean.
 - **Database** — a database created empty for the purpose, the **whole 115-migration chain applied from
   zero** by the application's own runner, then **409 integration tests across 45 suites** on PostgreSQL 16
