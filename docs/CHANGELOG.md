@@ -275,6 +275,24 @@ None.
   IMAP loops, health checks, rule forwarder and send path no longer open IMAP or SMTP for it.
 
 ### Fixed
+- **The contacts manager is a panel, not an ellipsis menu.** The `⋯` control held a dozen unrelated actions
+  with no way to tell which address book each applied to. It is replaced by a manager that lists the books with
+  their source, visibility and read/write state, and shows the selected book's settings in sections: general,
+  synchronisation, write-back, DAV, import/export formats (Google CSV, Outlook CSV, vCard) and a danger zone.
+  A provider collection no longer offers what only a local book can do — it cannot be renamed, imported into or
+  deleted here, and it says so — and the last local book cannot be deleted. Connecting Google or Microsoft
+  contacts is still done on the mailbox card in Settings → Accounts, never from this panel.
+- **A failed calendar or contacts synchronisation says what failed.** "1 failure" is replaced by the first
+  concrete reason: a missing scope names the scope and the service to reconnect, an authorization the provider
+  refused shows its code, a rate limit says to wait, and a provider error shows its status. When a run had more
+  than one failure, the count of further failures follows. The synchronisation is also refused before the
+  request when the grant cannot authorize it, so a certain 403 is not spent on a round trip.
+- **Each account shows its own provider diagnostics.** A collapsed section on the account card reports the
+  connection (provider, identity, status), and per feature — mail, calendar, contacts — whether it is
+  authorized, which scopes are missing, when it last succeeded, its last error code, whether a synchronisation
+  cursor exists, and its push and schedule state. It is read from the server for that account alone, and no
+  token, secret or provider payload is part of it.
+
 - **A sender's name is decoded with the charset its header declares.** Every RFC 2047 encoded word was decoded
   as UTF-8, so a message whose client used a legacy Polish charset — ISO-8859-2, or Windows-1250 as Outlook
   emits — produced replacement characters: `Kamil Maciąg` arrived as `Kamil Maci?g` in the message list, in the

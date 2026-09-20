@@ -43,7 +43,7 @@ Each package has exactly one current state:
 
 ### P14 evidence
 
-**Frozen code SHA: `ac6310f33ca74da4eddf0f34147cb87e808c77ee`** — the revision that fixes the 4.0.4 → 4.1.0 upgrade path (0108/0114), adds
+**Frozen code SHA: `cfbc254f391eb732d71d3f6755f1478089a47321`** — the revision that fixes the 4.0.4 → 4.1.0 upgrade path (0108/0114), adds
 push-assisted synchronisation, separates provider configuration (Settings → Integrations) from mailbox
 connection (Settings → Accounts), makes every OAuth callback canonical (`APP_URL + /oauth/<provider>/callback`,
 generated and read-only), evaluates authorization per account feature, baselines native mail after a cutover
@@ -170,10 +170,10 @@ Not release criteria; recorded so they are not lost:
 
 Measured on the frozen code SHA with each gate's own exit status read directly:
 
-- **Backend** — typecheck clean, lint clean, **3003 unit tests passed** (225 skipped; 249 files).
-- **Frontend** — typecheck clean, lint clean, **2779 tests passed** (0 failed), production build clean.
+- **Backend** — typecheck clean, lint clean, **3003 unit tests passed** (230 skipped; 249 files).
+- **Frontend** — typecheck clean, lint clean, **2850 tests passed** (0 failed), production build clean.
 - **Database** — a database created empty for the purpose, the **whole 117-migration chain applied from
-  zero** by the application's own runner, then **425 integration tests across 47 suites** on PostgreSQL 16
+  zero** by the application's own runner, then **438 integration tests across 49 suites** on PostgreSQL 16
   (exit 0), including the send-ledger and external-collection-link suites. The unit and integration
   figures are separate invocations on purpose: one process running both against one database lets
   independent integration files contend on the same conversation tables, where a `SERIALIZABLE` rebuild can

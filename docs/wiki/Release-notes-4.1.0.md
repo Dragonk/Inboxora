@@ -167,6 +167,27 @@ screen, labelled as such. When the administrator has not configured a provider y
 links to Integrations. A mailbox that is already added over IMAP is not added twice: Inboxora reports it and
 offers the migration to the native transport.
 
+## Managing address books, and diagnosing a provider
+
+**Settings → Contacts → Manage address books** opens a panel: the books on the left with their source, visibility
+and read/write state, and the selected book's settings on the right — general, synchronisation, write-back, DAV,
+import/export (Google CSV, Outlook CSV, vCard) and a danger zone. A book a provider owns is not a local book: it
+cannot be renamed, imported into or deleted from here, and the last local book is protected. On a phone the same
+panel opens as a sheet, with the list first and a Back action from the details. Provider authorization is
+deliberately absent from this panel: connecting Google or Microsoft contacts remains an account action
+(Settings → Accounts → the mailbox → Contacts).
+
+**A failed synchronisation now says why.** Instead of a failure count, the first concrete reason is shown — a
+missing scope names the scope and the service to reconnect, an authorization the provider refused shows its
+code, a rate limit asks for patience, and a provider error shows its HTTP status, with the number of further
+failures when there were several. A synchronisation the grant cannot authorize is refused before the provider is
+called.
+
+**Each account has a Diagnostics section** (collapsed by default) on its provider-services card: the connection
+and its status, and per feature whether it is authorized, which scopes are missing, when it last succeeded, its
+last error code, whether a cursor exists, and its push and schedule state. It contains no token, secret or
+provider payload.
+
 ## Known limitations
 
 - **Names already stored with replacement characters are not rewritten.** The fix applies when a header is
