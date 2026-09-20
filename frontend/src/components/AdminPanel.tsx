@@ -3354,11 +3354,7 @@ function IntegrationsTab() {
                       installation that has a working connector but no mailbox sign-in. The
                       device method is the same connector without a secret or callback, so it
                       keeps the section visible where only a public client is registered. */}
-                  {/* The Graph authorization is a per-user connection, so it is started from the mailbox it
-                      belongs to, in Settings → Accounts, rather than from the installation's configuration. */}
-                  <div data-testid="microsoft-accounts-only" style={{ marginTop: 10, fontSize: 12, color: 'var(--text-tertiary)' }}>
-                    {t('admin.integrations.microsoft.connectInAccounts')}
-                  </div>
+                  <ProviderConfigTest provider="microsoft" />
 
                   {isAdmin && msConfigured && (
                     <button onClick={async () => {
@@ -3381,7 +3377,11 @@ function IntegrationsTab() {
                   )}
                 </div>
 
-                <ProviderConfigTest provider="microsoft" />
+                {/* The Graph authorization is a per-user connection, so it is started from the mailbox it belongs
+                    to, in Settings → Accounts, rather than from the installation's configuration. */}
+                <div data-testid="microsoft-accounts-only" style={{ marginTop: 10, fontSize: 12, color: 'var(--text-tertiary)' }}>
+                  {t('admin.integrations.microsoft.connectInAccounts')}
+                </div>
 
                 {/* Device code flow */}
                 <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--border-subtle)' }}>
@@ -3642,7 +3642,7 @@ function IntegrationsTab() {
                           color: 'var(--text-primary)', cursor: googleSaving ? 'not-allowed' : 'pointer',
                           fontSize: 13, fontWeight: 500, opacity: googleSaving ? 0.7 : 1,
                         }}>
-                          {googleSaving ? t('common.saving') : t('admin.integrations.microsoft.save')}
+                          {googleSaving ? t('common.saving') : t('admin.integrations.google.save')}
                         </button>
                         <ProviderConfigTest provider="google" />
                         {googleConfigured && (

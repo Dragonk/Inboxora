@@ -483,7 +483,8 @@
         "userNoteNotConfigured": "管理员尚未配置 Google API 集成。通过现有 IMAP/SMTP 连接的邮件仍可正常使用。",
         "connect": "连接 Google 账户",
         "connectedNote": "Google 账户已连接。",
-        "connectInAccounts": "Google 账户及其日历/联系人授权在其邮箱下通过“设置 → 账户”管理。"
+        "connectInAccounts": "Google 账户及其日历/联系人授权在其邮箱下通过“设置 → 账户”管理。",
+        "save": "保存配置"
       },
       "push": {
         "title": "即时同步",

@@ -483,7 +483,8 @@
         "userNoteNotConfigured": "The administrator has not configured the Google API integration yet. Mail over the existing IMAP/SMTP connection keeps working.",
         "connect": "Connect a Google account",
         "connectedNote": "Google account connected.",
-        "connectInAccounts": "Google accounts and their calendar/contacts grants are managed in Settings → Accounts, on the mailbox they belong to."
+        "connectInAccounts": "Google accounts and their calendar/contacts grants are managed in Settings → Accounts, on the mailbox they belong to.",
+        "save": "Save configuration"
       },
       "push": {
         "title": "Instant synchronization",

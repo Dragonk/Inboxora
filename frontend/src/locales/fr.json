@@ -483,7 +483,8 @@
         "userNoteNotConfigured": "L'administrateur n'a pas encore configuré l'intégration API Google. Le courrier via la connexion IMAP/SMTP existante continue de fonctionner.",
         "connect": "Connecter un compte Google",
         "connectedNote": "Compte Google connecté.",
-        "connectInAccounts": "Les comptes Google et leurs autorisations agenda/contacts se gèrent dans Paramètres → Comptes, sur leur boîte."
+        "connectInAccounts": "Les comptes Google et leurs autorisations agenda/contacts se gèrent dans Paramètres → Comptes, sur leur boîte.",
+        "save": "Enregistrer la configuration"
       },
       "push": {
         "title": "Synchronisation instantanée",

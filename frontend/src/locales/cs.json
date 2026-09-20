@@ -914,7 +914,8 @@
         "userNoteNotConfigured": "Správce ještě nenakonfiguroval integraci Google API. Pošta přes stávající připojení IMAP/SMTP funguje dál.",
         "connect": "Připojit účet Google",
         "connectedNote": "Účet Google připojen.",
-        "connectInAccounts": "Účty Google a jejich oprávnění ke kalendáři/kontaktům se spravují v Nastavení → Účty u schránky."
+        "connectInAccounts": "Účty Google a jejich oprávnění ke kalendáři/kontaktům se spravují v Nastavení → Účty u schránky.",
+        "save": "Uložit konfiguraci"
       },
       "push": {
         "title": "Okamžitá synchronizace",

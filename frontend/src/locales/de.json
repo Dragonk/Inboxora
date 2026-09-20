@@ -483,7 +483,8 @@
         "userNoteNotConfigured": "Der Administrator hat die Google-API-Integration noch nicht konfiguriert. Mail über die bestehende IMAP/SMTP-Verbindung funktioniert weiterhin.",
         "connect": "Google-Konto verbinden",
         "connectedNote": "Google-Konto verbunden.",
-        "connectInAccounts": "Google-Konten und ihre Kalender-/Kontakt-Freigaben werden in den Einstellungen → Konten beim jeweiligen Postfach verwaltet."
+        "connectInAccounts": "Google-Konten und ihre Kalender-/Kontakt-Freigaben werden in den Einstellungen → Konten beim jeweiligen Postfach verwaltet.",
+        "save": "Konfiguration speichern"
       },
       "push": {
         "title": "Sofort-Synchronisierung",

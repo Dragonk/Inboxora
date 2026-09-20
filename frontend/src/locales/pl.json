@@ -922,7 +922,8 @@
         "userNoteNotConfigured": "Administrator nie skonfigurował jeszcze integracji Google API. Poczta przez istniejące połączenie IMAP/SMTP działa dalej.",
         "connect": "Połącz konto Google",
         "connectedNote": "Konto Google połączone.",
-        "connectInAccounts": "Konta Google i ich uprawnienia kalendarza/kontaktów są zarządzane w Ustawieniach → Konta, przy skrzynce."
+        "connectInAccounts": "Konta Google i ich uprawnienia kalendarza/kontaktów są zarządzane w Ustawieniach → Konta, przy skrzynce.",
+        "save": "Zapisz konfigurację"
       },
       "push": {
         "title": "Synchronizacja natychmiastowa",

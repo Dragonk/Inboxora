@@ -221,6 +221,12 @@ provider identity, `0109` provider-operation payload, `0110` device authorizatio
 reads the new columns; a mixed old/new deployment must not run with the new code before the migrations.
 
 ### Changed
+- **The two provider configuration cards are laid out the same way.** They hold the same two actions, so they
+  now sit in the same order in one action row — save, then the configuration test — with the same padding,
+  radius, font size and weight, and the result block below the row in both. The Google card had been labelled
+  with the Microsoft save key, and the Microsoft card kept its test action outside the row and a guidance line
+  inside it; both are corrected, and a contract test keeps the two cards from drifting apart again.
+
 - **A CardDAV contacts source is added from Contacts, where the books it pulls live.** A calendar's sources are
   managed on the calendar screen, and a contacts source belongs in the same place for the same reason: it is a
   source of the feature the user is looking at, not an installation setting. The address-book manager now has a
