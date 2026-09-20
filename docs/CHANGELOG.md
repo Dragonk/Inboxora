@@ -275,6 +275,14 @@ None.
   IMAP loops, health checks, rule forwarder and send path no longer open IMAP or SMTP for it.
 
 ### Fixed
+- **A sender's name is decoded with the charset its header declares.** Every RFC 2047 encoded word was decoded
+  as UTF-8, so a message whose client used a legacy Polish charset — ISO-8859-2, or Windows-1250 as Outlook
+  emits — produced replacement characters: `Kamil Maciąg` arrived as `Kamil Maci?g` in the message list, in the
+  reading pane and in a reply that reused the name. UTF-8 mail was unaffected, which is why the fault looked
+  intermittent. The declared charset is now honoured through the same decoder the body path already used, a
+  language tag on the label is ignored (`=?utf-8*en?Q?...?=`), and an unknown label falls back byte-for-byte
+  instead of decoding twice as UTF-8.
+
 - **Authorizing one Google (or Microsoft) feature no longer revokes another.** A provider connection keeps one
   grant per audience, and Gmail, Calendar and People share the Google audience (as Graph's mail, calendar and
   contacts share Microsoft's). Storing the newly granted scopes verbatim therefore replaced the whole list: a
