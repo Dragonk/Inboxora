@@ -147,7 +147,12 @@ Measured on the frozen code SHA with each gate's own exit status read directly:
   `thread_key`, `provider_thread_id` and Conversation Engine row is unchanged, the legacy provider ids are
   cleared, a duplicate native identity is still refused with `23505`, a database whose first 0108 attempt
   stopped after adding the column recovers, a database that recorded the earlier 0108 checksum still boots,
-  and a second run changes nothing. CI runs it as its own step against its own database.
+  and a second run changes nothing. It also covers the earlier-`:dev` state — the old `0108` checksum
+  recorded, the index present, no `0114` record and a legacy X-GM-MSGID on an IMAP account — where it first
+  **demonstrates** that an IMAP copy fails with `23505` on `messages_provider_identity_key`, then runs the
+  migrations, asserts every legacy id is cleared, and performs the same copy successfully while the message
+  keeps its `provider_thread_id` and the index still enforces native uniqueness. CI runs the gate as its own
+  step against its own database.
   **Upgrade from 4.0.4 databases containing legacy Gmail IMAP folder copies is covered by an integration
   test.**
 

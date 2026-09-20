@@ -308,6 +308,84 @@ describeOrSkip('4.0.4 → 4.1.0 upgrade', () => {
     expect(providers.providerIds.every(id => id === null)).toBe(true);
   }, 120_000);
 
+  it('repairs an earlier :dev database whose old 0108 already created the index', async () => {
+    // The state the corrected 0108 cannot reach: the index exists, 0108 is recorded under its first checksum
+    // (so the file is deliberately not re-run), and a legacy Gmail account still holds X-GM-MSGID values —
+    // one per label copy, because the old revision ran before there were duplicates to stop it. A later IMAP
+    // COPY then tries to insert a second physical row carrying an id the index already has.
+    const providerId = '1844796336676610716';
+    // A label the message is not in yet, so the only constraint a COPY can collide with is the provider
+    // identity index rather than the IMAP `(account_id, uid, folder)` key.
+    const copiedFolder = 'Archive-2026';
+    await autocommit(async client => {
+      await client.query(
+        `UPDATE schema_migrations SET sha256 = $1 WHERE version = '0108_message_provider_identity'`,
+        ['77f2c82c41e14ebb8a79e6f6a3d726e33b9217c6921cf5743c2088afbbae1ba2'],
+      );
+      // Such a database predates the corrective migration, so it has no 0114 record: that is the whole point,
+      // because a recorded migration is deliberately not re-run.
+      await client.query("DELETE FROM schema_migrations WHERE version = '0114_normalize_legacy_provider_message_identity'");
+      // The legacy rows the old revision left behind: the INBOX copy only, so the index tolerates them.
+      await client.query(
+        `UPDATE messages SET provider_message_id = $2 WHERE account_id = $1 AND uid = 101 AND folder = 'INBOX'`,
+        [GMAIL_ACCOUNT_ID, providerId],
+      );
+    });
+
+    // The risk, demonstrated: the COPY path (`relocateColumns.ts` carries the provider columns) cannot insert
+    // the second copy while the legacy value is there.
+    const copy = (client: PoolClient) => client.query(
+      `INSERT INTO messages (account_id, uid, folder, message_id, subject, from_email, date, is_read,
+                             provider_message_id, provider_thread_id, provider_namespace)
+       SELECT account_id, uid, $2::text, message_id, subject, from_email, date, is_read,
+              provider_message_id, provider_thread_id, provider_namespace
+         FROM messages WHERE account_id = $1 AND uid = 101 AND folder = 'INBOX'`,
+      [GMAIL_ACCOUNT_ID, copiedFolder],
+    );
+    await autocommit(async client => {
+      await expect(copy(client)).rejects.toMatchObject({
+        code: '23505',
+        constraint: 'messages_provider_identity_key',
+      });
+    });
+
+    // The corrective migration runs as part of the next start-up.
+    await runMigrations();
+
+    const normalised = await autocommit(client => client.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM messages m JOIN email_accounts a ON a.id = m.account_id
+        WHERE COALESCE(a.mail_transport, 'imap_smtp') = 'imap_smtp' AND m.provider_message_id IS NOT NULL`,
+    ));
+    expect(normalised.rows[0]?.count).toBe('0');
+    const applied = await autocommit(client => client.query(
+      "SELECT 1 FROM schema_migrations WHERE version = '0114_normalize_legacy_provider_message_identity'",
+    ));
+    expect(applied.rows).toHaveLength(1);
+
+    // And now the same COPY succeeds, because the legacy account no longer carries a native identity.
+    const rowsBefore = (await autocommit(client => client.query<{ count: string }>(
+      'SELECT COUNT(*)::text AS count FROM messages WHERE account_id = $1', [GMAIL_ACCOUNT_ID],
+    ))).rows[0]?.count;
+    await autocommit(async client => { await copy(client); });
+    const rowsAfter = (await autocommit(client => client.query<{ count: string }>(
+      'SELECT COUNT(*)::text AS count FROM messages WHERE account_id = $1', [GMAIL_ACCOUNT_ID],
+    ))).rows[0]?.count;
+    expect(Number(rowsAfter)).toBe(Number(rowsBefore) + 1);
+
+    // Nothing else moved: the message keeps its identity and its threading evidence, and the index still
+    // enforces native uniqueness.
+    const survived = await autocommit(client => client.query<{ uid: string; provider_thread_id: string | null }>(
+      `SELECT DISTINCT uid, provider_thread_id FROM messages WHERE account_id = $1 AND uid = 101`,
+      [GMAIL_ACCOUNT_ID],
+    ));
+    expect(survived.rows).toHaveLength(1);
+    expect(survived.rows[0]?.provider_thread_id).toBe('1844796336676610000');
+    const index = await autocommit(client => client.query(
+      "SELECT 1 FROM pg_indexes WHERE indexname = 'messages_provider_identity_key'",
+    ));
+    expect(index.rows).toHaveLength(1);
+  }, 120_000);
+
   it('is idempotent: running the runner again changes nothing', async () => {
     const beforeSecondRun = await snapshot();
     await runMigrations();

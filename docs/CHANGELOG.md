@@ -222,6 +222,15 @@ None.
   IMAP loops, health checks, rule forwarder and send path no longer open IMAP or SMTP for it.
 
 ### Fixed
+- **A database from an earlier `:dev` could still hold legacy provider ids behind the unique index.**
+  Correcting migration 0108 fixes an upgrade from 4.0.4, but a database that had already applied the *first*
+  revision of 0108 (recorded under its old checksum, so the corrected file is not re-run) kept the legacy
+  X-GM-MSGID values on its Gmail IMAP accounts while the index existed. A later IMAP COPY or a new label can
+  insert a second physical row for a message whose provider id is already present, which failed with `23505`.
+  New migration `0114` applies the same normalisation unconditionally, so the state no longer depends on which
+  revision of 0108 a database ran: it is a no-op on a clean 4.0.4 upgrade, clears the leftovers on an earlier
+  `:dev`, and never touches a native account. An `UPDATE … SET NULL` cannot violate the index, and no row,
+  `uid`, `folder`, `thread_key`, `provider_thread_id` or Conversation Engine value is changed.
 - **Upgrading an existing 4.0.4 database could stop at migration 0108.** The migration created a unique
   index on `messages (account_id, provider_message_id)` as if that column had always been a native provider
   identity. It had not: it arrived with Conversation Engine v2 as *threading evidence*, and on a Gmail IMAP

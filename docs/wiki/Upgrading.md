@@ -52,7 +52,7 @@ docker compose logs -f backend
 4.1.0 adds the native provider layer. Nothing about an existing installation stops working, and nothing is
 migrated, deleted or rewritten on its own.
 
-**Migrations.** Apply **`0101`–`0113` in order, before rolling out the application**. They are additive:
+**Migrations.** Apply **`0101`–`0114` in order, before rolling out the application**. They are additive:
 they add tables, columns and indexes, so an interrupted run is resumable and a rollback to 4.0.4 works (the
 older code ignores the new columns). Three matter for ordering beyond the application start: `0110` before
 any device authorization is started, `0111` before the Gmail API adapter runs, and `0112` before any
@@ -74,7 +74,9 @@ Upgrade from 4.0.4 databases containing legacy Gmail IMAP folder copies is cover
 (`backend/src/services/upgradeFrom404.integration.test.ts`), which builds the historical schema with the
 production migration runner, seeds that exact duplicate-copy shape, and then upgrades it the way the backend
 does at start-up. A `dev` database that already applied the first revision of `0108` keeps booting: its
-recorded checksum is accepted rather than treated as a mismatch.
+recorded checksum is accepted rather than treated as a mismatch, and **`0114` then performs the same
+normalisation unconditionally**, so a leftover legacy provider id cannot collide with the index during a
+later IMAP copy or a new Gmail label. Nothing is required from the operator in any of these states.
 
 **What changes without you doing anything**
 

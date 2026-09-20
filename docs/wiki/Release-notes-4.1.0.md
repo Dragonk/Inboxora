@@ -134,6 +134,15 @@ Three states are handled without intervention: a 4.0.4 database (0108 never appl
 already applied the first revision of 0108 (its recorded checksum is accepted, so it keeps booting), and a
 database whose 0108 attempt stopped after adding the column (the corrected migration runs from there).
 
+Two states are covered beyond the clean upgrade, because an installation may have run an earlier `dev`
+build:
+
+* a database whose `0108` attempt stopped after adding the column — the corrected migration runs from there;
+* a database that already applied the **first** revision of `0108` (its recorded checksum is accepted, so the
+  corrected file is deliberately not re-run) and therefore still holds legacy provider ids while the unique
+  index exists. Migration **`0114`** applies the same normalisation unconditionally, so a later IMAP copy or a
+  new Gmail label cannot collide with the index; on a clean 4.0.4 upgrade it is a no-op.
+
 > Upgrade from 4.0.4 databases containing legacy Gmail IMAP folder copies is covered by an integration test.
 
 ## Known limitations
