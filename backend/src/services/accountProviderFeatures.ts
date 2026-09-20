@@ -55,6 +55,14 @@ export interface AccountFeatureSyncState {
   lastErrorCode: string | null;
   lastErrorAt: string | null;
   cursorPresent: boolean;
+  /** The `sync_states.coverage` this feature's own pipeline writes, which is what the fields above describe. */
+  syncStateCoverage: string;
+  /**
+   * Whether the scheduler would pick this feature up: a connection reaches it through an enabled collection of
+   * the right kind linked to a local folder, calendar or address book. A feature that is authorized but not a
+   * target is refreshed only by a manual synchronisation, which is worth knowing without reading the database.
+   */
+  schedulerTarget: boolean;
 }
 
 /**
@@ -266,11 +274,38 @@ export function synchronizationStateOf(state: AccountFeatureSyncState | undefine
   };
 }
 
+/**
+ * Fill in the two facts that say how this state is arrived at: the coverage it was read from, and whether the
+ * scheduler would refresh the feature by itself.
+ *
+ * A feature can be authorized and not a scheduler target — its collection has no local link, or the provider
+ * has no collection for it at all — and then only a manual synchronisation refreshes it. Reporting that is what
+ * turns "last synchronised: never" into an answer instead of a mystery.
+ */
+function withSchedulerTarget(
+  state: AccountFeatureSyncState,
+  feature: 'mail' | 'calendar' | 'contacts',
+  schedulable: Set<string>,
+  authorized: boolean,
+): AccountFeatureSyncState & { synchronized: boolean; syncPending: boolean; syncErrorCode: string | null } {
+  const coverage = PIPELINE_COVERAGE[feature]!;
+  const kinds = feature === 'mail' ? ['mail_label', 'mail_folder'] : [feature];
+  return {
+    ...state,
+    // The pipeline's own coverage is what the fields above describe; discovery has its own row and is not it.
+    syncStateCoverage: coverage.google,
+    schedulerTarget: authorized && kinds.some(kind => schedulable.has(kind)),
+    ...synchronizationStateOf(state, authorized),
+  };
+}
+
 const EMPTY_SYNC_STATE: AccountFeatureSyncState = {
   lastSuccessfulSync: null,
   lastErrorCode: null,
   lastErrorAt: null,
   cursorPresent: false,
+  syncStateCoverage: '',
+  schedulerTarget: false,
 };
 
 /**
@@ -319,6 +354,8 @@ async function syncStatesForAccount(userId: string, accountId: string): Promise<
       lastErrorCode: row.last_error_code ?? null,
       lastErrorAt: row.last_error_at ? new Date(row.last_error_at).toISOString() : null,
       cursorPresent: Boolean(row.cursor_present),
+      syncStateCoverage: row.coverage,
+      schedulerTarget: false,
     };
     // Both providers can only have one of the two coverages, but a mailbox moved between them may have both;
     // the newest completed run wins, and a recorded error survives if the newer row has none.
@@ -379,6 +416,16 @@ export async function describeAccountProviderFeatures(input: {
 
   // Read once, before the groups are assembled: each group reports its own synchronization state.
   const syncStates = await syncStatesForAccount(input.userId, row.id);
+  // Which collection kinds the scheduler would pick up for this account's connection. The query the scheduler
+  // uses requires an enabled collection with a local link, so this asks the same question of the same table.
+  const schedulableKinds = await query<{ kind: string }>(
+    `SELECT DISTINCT ic.kind
+       FROM integration_collections ic
+      WHERE ic.user_id = $1 AND ic.account_id = $2 AND ic.enabled = true
+        AND (ic.local_calendar_id IS NOT NULL OR ic.local_address_book_id IS NOT NULL OR ic.local_folder_id IS NOT NULL)`,
+    [input.userId, row.id],
+  );
+  const schedulable = new Set(schedulableKinds.rows.map(entry => entry.kind));
   const groups = {} as Record<ProviderAccountKind, AccountFeatureGroup>;
   const contactsAuth = {} as Partial<Record<ProviderAccountKind, ProviderFeatureAuthorization>>;
   const mailConnection = provider
@@ -445,7 +492,7 @@ export async function describeAccountProviderFeatures(input: {
       }),
     },
     mail: {
-      ...(syncStates.mail ?? EMPTY_SYNC_STATE),
+      ...withSchedulerTarget(syncStates.mail ?? EMPTY_SYNC_STATE, 'mail', schedulable, native),
       transport,
       authorized: mailAuth.authorized,
       requiredScopes: mailAuth.requiredScopes,
@@ -456,7 +503,7 @@ export async function describeAccountProviderFeatures(input: {
       scheduler: native ? 'scheduled_and_push' : 'scheduled',
     },
     calendar: {
-      ...(syncStates.calendar ?? EMPTY_SYNC_STATE),
+      ...withSchedulerTarget(syncStates.calendar ?? EMPTY_SYNC_STATE, 'calendar', schedulable, provider !== null),
       authorized: provider ? groups[provider].authorized : false,
       requiredScopes: provider ? groups[provider].requiredScopes : [],
       missingScopes: provider ? groups[provider].missingScopes : [],
@@ -464,7 +511,7 @@ export async function describeAccountProviderFeatures(input: {
       push: push.calendar,
     },
     contacts: {
-      ...(syncStates.contacts ?? EMPTY_SYNC_STATE),
+      ...withSchedulerTarget(syncStates.contacts ?? EMPTY_SYNC_STATE, 'contacts', schedulable, provider !== null),
       authorized: provider ? contactsAuth[provider]?.authorized ?? false : false,
       requiredScopes: provider ? contactsAuth[provider]?.requiredScopes ?? [] : [],
       missingScopes: provider ? contactsAuth[provider]?.missingScopes ?? [] : [],

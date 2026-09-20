@@ -320,3 +320,38 @@ describeOrSkip('the push model', () => {
     await query("DELETE FROM provider_push_subscriptions WHERE provider_subscription_id = 'sub-1'");
   });
 });
+
+describeOrSkip('how a feature is refreshed', () => {
+  it('says which coverage it read and whether the scheduler would refresh it', async () => {
+    // "Last synchronised: never" is only useful with the reason beside it: a feature that is no scheduler
+    // target is refreshed by a manual run alone, and that is worth reporting rather than leaving to be guessed.
+    await query('DELETE FROM integration_collections WHERE user_id = $1', [USER_A]);
+    const unscheduled = await describeAccountProviderFeatures({ userId: USER_A, accountId });
+    expect(unscheduled!.diagnostics.mail.syncStateCoverage).toBe('history');
+    expect(unscheduled!.diagnostics.mail.schedulerTarget).toBe(false);
+
+    // A Gmail label collection linked to a local folder is what the scheduler query accepts.
+    const connection = await query<{ provider_connection_id: string | null }>(
+      'SELECT provider_connection_id FROM email_accounts WHERE id = $1', [accountId],
+    );
+    const folder = await query<{ id: string }>(
+      "INSERT INTO folders (account_id, name, path) VALUES ($1, 'INBOX', 'INBOX') RETURNING id", [accountId],
+    );
+    await query(
+      `INSERT INTO integration_collections (user_id, connection_id, account_id, kind, remote_id, local_folder_id, enabled, source_access, user_access, dav_mode)
+       VALUES ($1, $2, $3, 'mail_label', 'INBOX', $4, true, 'read_only', 'source', 'off')`,
+      [USER_A, connection.rows[0]!.provider_connection_id, accountId, folder.rows[0]!.id],
+    );
+
+    const scheduled = await describeAccountProviderFeatures({ userId: USER_A, accountId });
+    expect(scheduled!.diagnostics.mail.schedulerTarget).toBe(true);
+    // The coverage is the pipeline's, not the discovery row's, whatever collections exist.
+    expect(scheduled!.diagnostics.mail.syncStateCoverage).toBe('history');
+    expect(scheduled!.diagnostics.calendar.syncStateCoverage).toBe('events');
+    expect(scheduled!.diagnostics.contacts.syncStateCoverage).toBe('personal');
+    // Calendar has no collection of its own here, so it is authorized-but-unscheduled rather than assumed.
+    expect(scheduled!.diagnostics.calendar.schedulerTarget).toBe(false);
+
+    await query('DELETE FROM integration_collections WHERE user_id = $1', [USER_A]);
+  });
+});

@@ -221,6 +221,14 @@ provider identity, `0109` provider-operation payload, `0110` device authorizatio
 reads the new columns; a mixed old/new deployment must not run with the new code before the migrations.
 
 ### Changed
+- **The per-account diagnostics say how each feature is refreshed.** Every feature now reports the
+  `syncStateCoverage` its fields were read from (`history`/`messages`, `events`, `personal`) and whether it is a
+  `schedulerTarget` — an enabled collection of the right kind linked to a local folder, calendar or address
+  book, which is the question the scheduler's own query asks. A feature that is authorized but not a target is
+  refreshed by a manual run alone, and saying so turns "last synchronised: never" into an answer. Pinned on
+  PostgreSQL, together with the guarantee that the coverage reported is the pipeline's rather than the discovery
+  row's.
+
 - **The two provider configuration cards are laid out the same way.** They hold the same two actions, so they
   now sit in the same order in one action row — save, then the configuration test — with the same padding,
   radius, font size and weight, and the result block below the row in both. The Google card had been labelled
