@@ -46,10 +46,10 @@ interface ProviderReadiness {
   configured: boolean;
   enabled: boolean;
   mailPolicy: string;
-  browser: { ready: boolean; missing: string[] };
+  browser: { ready: boolean; missing: string[]; redirectUri?: string | null };
   deviceCode: { supported: boolean; ready: boolean; reason?: string };
   /** Only Microsoft reports it: the Graph connector has its own callback. */
-  graph?: { ready: boolean; missing: string[] };
+  graph?: { ready: boolean; missing: string[]; redirectUri?: string | null };
   /** The caller's own connections, ids only. */
   connections?: Array<{ id: string; providerUserId: string | null; status: string }>;
 }

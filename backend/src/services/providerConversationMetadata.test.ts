@@ -74,3 +74,65 @@ describe('Graph conversations', () => {
     expect(metadata.providerThreadId).toBeNull();
   });
 });
+
+describe('native Gmail API conversations', () => {
+  // A cutover account has no IMAP host to classify: `mail_transport` is the signal, and the Gmail threadId
+  // the sync stored is what keeps a conversation together. Without this override the provider was classified
+  // as `generic`, the thread id stopped being strong evidence, and a Gmail account re-grouped by subject.
+  const nativeAccount = { id: 'acct-gmail', imap_host: 'imap.gmail.com', mail_transport: 'gmail_api' };
+
+  it('takes the stored Gmail thread id as a strong provider thread', () => {
+    const metadata = providerMetadataForMessage(
+      { thread_id: 'thread-1', provider_thread_id: 'thread-1' } as never,
+      nativeAccount as never,
+    );
+    expect(metadata.provider).toBe('gmail');
+    expect(metadata.isStrong).toBe(true);
+    expect(metadata.providerThreadId).toBe('thread-1');
+    expect(metadata.source).toBe('provider-thread-id');
+  });
+
+  it('groups two messages of one Gmail thread even with different subjects and Message-IDs', () => {
+    const first = providerMetadataForMessage(
+      { thread_id: 'thread-1', provider_thread_id: 'thread-1', messageId: '<a@example.test>', subject: 'Project plan' } as never,
+      nativeAccount as never,
+    );
+    const reply = providerMetadataForMessage(
+      { thread_id: 'thread-1', provider_thread_id: 'thread-1', messageId: '<b@example.test>', subject: 'Re: Projektplan' } as never,
+      nativeAccount as never,
+    );
+    expect(reply.providerThreadId).toBe(first.providerThreadId);
+    expect(reply.isStrong).toBe(true);
+  });
+
+  it('keeps two different Gmail threads apart even when the subjects match', () => {
+    const one = providerMetadataForMessage(
+      { thread_id: 'thread-1', provider_thread_id: 'thread-1', subject: 'Status' } as never,
+      nativeAccount as never,
+    );
+    const two = providerMetadataForMessage(
+      { thread_id: 'thread-2', provider_thread_id: 'thread-2', subject: 'Status' } as never,
+      nativeAccount as never,
+    );
+    expect(one.providerThreadId).not.toBe(two.providerThreadId);
+  });
+
+  it('does not give a generic IMAP account a strong provider thread', () => {
+    const generic = providerMetadataForMessage(
+      { thread_id: 'thread-1', provider_thread_id: 'thread-1' } as never,
+      { id: 'acct-1', imap_host: 'imap.fastmail.test', mail_transport: null } as never,
+    );
+    expect(generic.isStrong).toBe(false);
+    expect(generic.provider).toBe('generic');
+  });
+
+  it('keeps legacy Gmail IMAP (X-GM-THRID) behaviour unchanged', () => {
+    const legacy = providerMetadataForMessage(
+      { xGmThrid: '1844796336676610000' } as never,
+      { id: 'acct-1', imap_host: 'imap.gmail.com', mail_transport: null } as never,
+    );
+    expect(legacy.provider).toBe('gmail');
+    expect(legacy.isStrong).toBe(true);
+    expect(legacy.source).toBe('x-gm-thread');
+  });
+});
