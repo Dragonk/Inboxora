@@ -43,7 +43,7 @@ Each package has exactly one current state:
 
 ### P14 evidence
 
-**Frozen code SHA: `cfbc254f391eb732d71d3f6755f1478089a47321`** — the revision that fixes the 4.0.4 → 4.1.0 upgrade path (0108/0114), adds
+**Frozen code SHA: `c7dfab7806818555cc1ddb4a6b4a05c34aa082db`** — the revision that fixes the 4.0.4 → 4.1.0 upgrade path (0108/0114), adds
 push-assisted synchronisation, separates provider configuration (Settings → Integrations) from mailbox
 connection (Settings → Accounts), makes every OAuth callback canonical (`APP_URL + /oauth/<provider>/callback`,
 generated and read-only), evaluates authorization per account feature, baselines native mail after a cutover
@@ -51,8 +51,8 @@ and treats a native Gmail thread id as strong evidence. Commits after it are doc
 
 | Part | State | Evidence |
 | --- | --- | --- |
-| image build + registry verification | **done** | Workflow run [`35526842914`](https://github.com/Dragonk/Inboxora/actions/runs/35526842914) built from `source_sha=cfbc254f391eb732d71d3f6755f1478089a47321` and pushed `:dev`. Both resolve to OCI image indexes carrying `linux/amd64` **and** `linux/arm64`: backend `sha256:dd111c0f16ede1ef5dbaf47adead4f59aa289c7f850c8c7e5d54dc1901ae04dc`, frontend `sha256:6099f5de768fb908ce939f191a7a2db5b2ededb3bd0a7ba2163c624c920ded41`. |
-| runtime smoke | **RUN — passed** | The published pair was pulled from GHCR and started from a fresh volume: `/api/health` → `{"status":"ok"}`, `/api/version` → `{"version":"dev","sha":"cfbc254f391eb732d71d3f6755f1478089a47321"}`, **117** migrations, first-user registration, a fresh login, `/api/auth/me`, the account list, the UI root and **0 restarts**. (`docker compose pull` hit a Docker Hub `429` on the third-party ntfy image, so the two Inboxora images were pulled explicitly and the stack started from the cached third-party ones; the upgrade smokes from a 4.0.4-shaped database and from an earlier-`:dev` database remain recorded below.) |
+| image build + registry verification | **done** | Workflow run [`35530908416`](https://github.com/Dragonk/Inboxora/actions/runs/35530908416) built from `source_sha=c7dfab7806818555cc1ddb4a6b4a05c34aa082db` and pushed `:dev`. Both resolve to OCI image indexes carrying `linux/amd64` **and** `linux/arm64`: backend `sha256:24cc3d0f8ec1f78a4a31717231200309ecf25265de9cd1e4cdda8d8af6ab7de8`, frontend `sha256:aa9829e05642fde3b83c7b540f51a024e12b9388c032f492a4dab4d8e93a8f76`. |
+| runtime smoke | **RUN — passed** | The published pair was pulled from GHCR and started from a fresh volume: `/api/health` → `{"status":"ok"}`, `/api/version` → `{"version":"dev","sha":"c7dfab7806818555cc1ddb4a6b4a05c34aa082db"}`, **117** migrations, first-user registration, a fresh login, `/api/auth/me`, the account list, the UI root and **0 restarts**. (`docker compose pull` hit a Docker Hub `429` on the third-party ntfy image, so the two Inboxora images were pulled explicitly and the stack started from the cached third-party ones; the upgrade smokes from a 4.0.4-shaped database and from an earlier-`:dev` database remain recorded below.) |
 | `:dev` publication | **done** | The published images are the current `dev` code, including the audit's two fixes; `main` is untouched and 4.1.0 is not released. |
 
 ## Acceptance criteria W01–W19
@@ -170,10 +170,10 @@ Not release criteria; recorded so they are not lost:
 
 Measured on the frozen code SHA with each gate's own exit status read directly:
 
-- **Backend** — typecheck clean, lint clean, **3003 unit tests passed** (230 skipped; 249 files).
-- **Frontend** — typecheck clean, lint clean, **2850 tests passed** (0 failed), production build clean.
+- **Backend** — typecheck clean, lint clean, **3011 unit tests passed** (230 skipped; 249 files).
+- **Frontend** — typecheck clean, lint clean, **2855 tests passed** (0 failed), production build clean.
 - **Database** — a database created empty for the purpose, the **whole 117-migration chain applied from
-  zero** by the application's own runner, then **438 integration tests across 49 suites** on PostgreSQL 16
+  zero** by the application's own runner, then **453 integration tests across 51 suites** on PostgreSQL 16
   (exit 0), including the send-ledger and external-collection-link suites. The unit and integration
   figures are separate invocations on purpose: one process running both against one database lets
   independent integration files contend on the same conversation tables, where a `SERIALIZABLE` rebuild can

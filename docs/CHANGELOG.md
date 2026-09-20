@@ -275,6 +275,11 @@ None.
   IMAP loops, health checks, rule forwarder and send path no longer open IMAP or SMTP for it.
 
 ### Fixed
+- **Published `:dev` revision.** The image now contains the fixes for the alias send, the contacts manager's
+  close and compact trigger, Gmail mail polling (`mail_label`), the diagnostics reading the message pipeline,
+  the account-to-connection resolution, and the per-feature `authorized`/`synchronized`/`syncPending`/
+  `syncErrorCode` state.
+
 - **The scheduler's target query is confirmed against the collections the providers actually create.** A native
   Gmail connection whose mail collection is a `mail_label` linked through `local_folder_id` reaches
   `listProviderSyncTargets()` and runs the Gmail message sync, a Graph `mail_folder` collection does the same,
