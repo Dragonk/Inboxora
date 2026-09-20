@@ -275,6 +275,13 @@ None.
   IMAP loops, health checks, rule forwarder and send path no longer open IMAP or SMTP for it.
 
 ### Fixed
+- **The account card updates itself when its authorization finishes.** The OAuth popup now hands the opener the
+  provider, the purpose, the account and whether the first synchronisation ran (never a token or a connection
+  id), and `AccountProviderServices` reacts only when the message comes from its own origin and names **its own**
+  account: it clears the "finish in the new tab" notice and refetches the features, the diagnostics and the
+  account list, so a calendar or contacts row changes without a page reload — and an authorization for another
+  mailbox cannot make this card claim a result it does not have.
+
 - **A consent now runs the synchronisation it implies, immediately.** Connecting a calendar or contacts left the
   feature authorized and empty until a scheduler tick: the live report was a Google calendar with six
   collections and "last synchronisation: never", and contacts authorized with no address book. Both provider

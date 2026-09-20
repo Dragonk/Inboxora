@@ -102,3 +102,35 @@ test('a service row separates authorization from synchronization', async () => {
   assert.match(source, /data-testid=\{`account-service-status-\$\{label\.toLowerCase\(\)\}`\}/);
   assert.match(source, /data-synchronized=\{connected && feature\?\.synchronized === true \? 'true' : 'false'\}/);
 });
+
+test('the card reacts only to its own account, from its own origin', async () => {
+  const source = await readFile(services, 'utf8');
+
+  // The listener exists, checks the origin, and matches the account before doing anything.
+  assert.match(source, /window\.addEventListener\('message', onMessage\)/);
+  assert.match(source, /if \(event\.origin !== window\.location\.origin\) return;/);
+  assert.match(source, /if \(typeof data\.accountId !== 'string' \|\| data\.accountId !== accountId\) return;/);
+  assert.match(source, /return \(\) => window\.removeEventListener\('message', onMessage\)/);
+
+  // On a success for this account: the notice is cleared and both reads are refreshed, so the row changes
+  // without a page reload.
+  assert.match(source, /setNotice\(null\);\s*\n\s*load\(\);\s*\n\s*reload\(\);/);
+});
+
+test('the popup hands the opener the result it needs, and no credential', async () => {
+  const app = await readFile(new URL('../App.tsx', import.meta.url), 'utf8');
+
+  assert.match(app, /type: 'oauth_success'/);
+  assert.match(app, /purpose: params\.get\('purpose'\)/);
+  assert.match(app, /accountId: params\.get\('accountId'\)/);
+  assert.match(app, /authorized: params\.get\('authorized'\) === '1'/);
+  assert.match(app, /synchronized: params\.get\('synchronized'\) === '1'/);
+  assert.match(app, /syncErrorCode: params\.get\('syncErrorCode'\)/);
+  // The message is addressed to this origin, so another window cannot receive it.
+  assert.match(app, /window\.location\.origin\);/);
+  // Nothing about a credential travels with it.
+  const block = app.slice(app.indexOf("type: 'oauth_success'"), app.indexOf('window.location.origin);', app.indexOf("type: 'oauth_success'")));
+  for (const forbidden of ['token', 'secret', 'connectionId']) {
+    assert.ok(!block.includes(forbidden), `the handoff carries ${forbidden}`);
+  }
+});

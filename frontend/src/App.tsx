@@ -78,7 +78,18 @@ export default function App() {
     const oauthError = params.get('oauth_error');
     if ((oauthSuccess || oauthError) && window.opener) {
       if (oauthSuccess) {
-        window.opener.postMessage({ type: 'oauth_success', provider: oauthSuccess }, window.location.origin);
+        // The result the opener needs to update the account card it started from: which provider, which
+        // purpose, which account, and whether the first synchronisation ran. No token, no secret, and the
+        // connection id is deliberately left on the server.
+        window.opener.postMessage({
+          type: 'oauth_success',
+          provider: oauthSuccess,
+          purpose: params.get('purpose'),
+          accountId: params.get('accountId'),
+          authorized: params.get('authorized') === '1',
+          synchronized: params.get('synchronized') === '1',
+          syncErrorCode: params.get('syncErrorCode'),
+        }, window.location.origin);
       } else {
         window.opener.postMessage({ type: 'oauth_error', error: oauthError }, window.location.origin);
       }

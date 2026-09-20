@@ -86,6 +86,32 @@ export default function AccountProviderServices({ accountId, reload, t }: Props)
   }, [accountId]);
   useEffect(() => { load(); }, [load]);
 
+  /**
+   * React to the OAuth window that was opened from this card.
+   *
+   * The provider callback hands the opener the provider, the purpose, the account and the outcome of the first
+   * synchronisation — never a token. The card refetches only when the result is about **its own** account and
+   * the message comes from this origin, so an authorization for another mailbox cannot make this card claim a
+   * success it does not have. The "finish in the new tab" notice is cleared at the same moment: the user is
+   * back, and the state they are looking at is now current.
+   */
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) return;
+      const data = event.data as {
+        type?: unknown; provider?: unknown; purpose?: unknown; accountId?: unknown;
+        authorized?: unknown; synchronized?: unknown; syncErrorCode?: unknown;
+      } | null;
+      if (!data || data.type !== 'oauth_success') return;
+      if (typeof data.accountId !== 'string' || data.accountId !== accountId) return;
+      setNotice(null);
+      load();
+      reload();
+    };
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, [accountId, load, reload]);
+
   const authorize = useCallback((provider: 'google' | 'microsoft', service: 'calendar' | 'contacts' | 'mail') => {
     const anchor = document.createElement('a');
     anchor.href = authorizationPath({ provider, service, accountId });
