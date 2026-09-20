@@ -1,7 +1,7 @@
 import { query, withTransaction } from './db.js';
 import type { PoolClient } from 'pg';
-import { syncGraphMailFoldersForAccount } from './providers/microsoft/graphMailSync.js';
-import { listGmailMailAccounts, syncGmailMailLabelsForAccount } from './providers/google/gmailMailSync.js';
+import { syncGraphMailFoldersForAccount, syncGraphMailMessagesForAccount } from './providers/microsoft/graphMailSync.js';
+import { listGmailMailAccounts, syncGmailMailLabelsForAccount, syncGmailMailMessagesForAccount } from './providers/google/gmailMailSync.js';
 import { googleConfigFromEnv, microsoftConfigFromEnv } from './providerAuthService.js';
 import { providerIntegrationsEnabled } from './providerSwitches.js';
 import type { FetchLike } from './providerAuthService.js';
@@ -218,10 +218,24 @@ export async function createNativeMailAccount(input: NativeAccountInput): Promis
         accountId: outcome.account.id,
         ...(input.fetchImpl ? { fetchImpl: input.fetchImpl } : {}),
       });
+      await syncGraphMailMessagesForAccount({
+        userId: input.userId,
+        connectionId: outcome.connectionId,
+        accountId: outcome.account.id,
+        config: microsoftConfigFromEnv(),
+        ...(input.fetchImpl ? { fetchImpl: input.fetchImpl } : {}),
+      });
       return { ...outcome, discovered: true, folders: discovery.folders };
     }
     // Gmail labels are per mailbox; the account was just created, so its id is the only one to discover.
     const discovery = await syncGmailMailLabelsForAccount({
+      userId: input.userId,
+      connectionId: outcome.connectionId,
+      accountId: outcome.account.id,
+      config: googleConfigFromEnv(),
+      ...(input.fetchImpl ? { fetchImpl: input.fetchImpl } : {}),
+    });
+    await syncGmailMailMessagesForAccount({
       userId: input.userId,
       connectionId: outcome.connectionId,
       accountId: outcome.account.id,

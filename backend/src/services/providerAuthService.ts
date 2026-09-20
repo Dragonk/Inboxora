@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import type { PoolClient } from 'pg';
 import { decrypt, encrypt } from './encryption.js';
 import { reactivateProviderConnection } from './providerConnectionService.js';
+import { providerCallbackUrls } from './providerCallbackUrls.js';
 
 /**
  * Server-side OAuth authorization flows (P04, plan §6.1/§6.3).
@@ -99,12 +100,13 @@ export function isGoogleConfigured(config: Partial<GoogleConfig>): config is Goo
   return Boolean(config.clientId && config.clientSecret && config.redirectUri);
 }
 
-/** The effective Google client configuration (the admin UI/DB values land in env). */
+/** Effective Google OAuth config. APP_URL owns the callback; legacy redirect env vars are ignored. */
 export function googleConfigFromEnv(env: NodeJS.ProcessEnv = process.env): GoogleConfig {
+  const callbacks = providerCallbackUrls(env);
   return {
     clientId: env.GOOGLE_CLIENT_ID || '',
     clientSecret: env.GOOGLE_CLIENT_SECRET || '',
-    redirectUri: env.GOOGLE_REDIRECT_URI || '',
+    redirectUri: callbacks.googleCallback,
   };
 }
 
@@ -112,14 +114,9 @@ export interface MicrosoftConfig {
   clientId: string;
   /** Empty for a public client, which is how the device flow is registered. */
   clientSecret: string;
-  /** The mailbox sign-in callback (`/oauth/microsoft/callback`). */
+  /** Canonical Microsoft Graph callback, derived from APP_URL. */
   redirectUri: string;
-  /**
-   * The Graph provider flow's own callback (`/oauth/provider/microsoft/callback`).
-   * It must differ from `redirectUri`: both flows exist on separate routes, so sending
-   * the mailbox URI to Microsoft delivers the provider flow's code to the legacy
-   * callback, which knows nothing about its state.
-   */
+  /** Compatibility alias kept in the type while callers converge; equals redirectUri. */
   providerRedirectUri: string;
   tenantId: string;
 }
@@ -133,17 +130,14 @@ function safeTenantId(value: unknown): string {
   return /^[A-Za-z0-9.-]+$/.test(tenant) ? tenant : 'common';
 }
 
-/** The effective Microsoft client configuration (MS_* environment variables). */
+/** Effective Microsoft Graph OAuth config. APP_URL owns the callback. */
 export function microsoftConfigFromEnv(env: NodeJS.ProcessEnv = process.env): MicrosoftConfig {
-  const appUrl = typeof env.APP_URL === 'string' ? env.APP_URL.trim().replace(/\/+$/, '') : '';
+  const callbacks = providerCallbackUrls(env);
   return {
     clientId: env.MS_CLIENT_ID || '',
     clientSecret: env.MS_CLIENT_SECRET || '',
-    redirectUri: env.MS_REDIRECT_URI || '',
-    // Derived from the trusted APP_URL rather than from the mailbox callback, so an
-    // installation cannot accidentally point the provider flow at the wrong route.
-    providerRedirectUri: (env.MS_PROVIDER_REDIRECT_URI || '').trim()
-      || (appUrl ? `${appUrl}/oauth/provider/microsoft/callback` : ''),
+    redirectUri: callbacks.microsoftCallback,
+    providerRedirectUri: callbacks.microsoftCallback,
     tenantId: safeTenantId(env.MS_TENANT_ID),
   };
 }

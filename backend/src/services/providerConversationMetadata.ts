@@ -88,6 +88,10 @@ export function providerMetadataForMessage(parsed: ConversationMetadataInput | n
     ? (parsed as { thread_id?: unknown } | null | undefined)?.thread_id
     : null;
   const graphThreadId = typeof rawGraphThread === 'string' && rawGraphThread.trim() !== '' ? rawGraphThread.trim() : null;
+  const nativeGmailThreadId = account?.mail_transport === 'gmail_api' && metadata.providerThreadId
+    ? String(metadata.providerThreadId).trim() || null
+    : null;
+  const effectiveProvider = graphThreadId !== null ? 'graph' : nativeGmailThreadId !== null ? 'gmail' : metadata.provider;
   const conversationRoot = metadata.providerThreadId === null ? outlookConversationRoot(threadIndex) : null;
   const references = parsed === null || parsed === undefined ? undefined : parsed.references;
   const inReplyTo = parsed === null || parsed === undefined ? undefined : parsed.inReplyTo;
@@ -97,12 +101,12 @@ export function providerMetadataForMessage(parsed: ConversationMetadataInput | n
 
   return {
     ...metadata,
-    ...(graphThreadId === null ? {} : { provider: 'graph' as const }),
-    namespace: providerNamespace({ provider: graphThreadId === null ? metadata.provider : 'graph', accountId, host }),
+    provider: effectiveProvider,
+    namespace: providerNamespace({ provider: effectiveProvider, accountId, host }),
     threadIndex: threadIndex === null || threadIndex === undefined ? null : String(threadIndex),
     threadTopic: threadTopic === null || threadTopic === undefined ? null : String(threadTopic),
-    providerThreadId: graphThreadId ?? (metadata.providerThreadId === null && metadata.provider === 'outlook' ? conversationRoot : metadata.providerThreadId),
-    isStrong: graphThreadId !== null || (metadata.provider === 'gmail' && metadata.providerThreadId !== null),
+    providerThreadId: graphThreadId ?? nativeGmailThreadId ?? (metadata.providerThreadId === null && metadata.provider === 'outlook' ? conversationRoot : metadata.providerThreadId),
+    isStrong: graphThreadId !== null || nativeGmailThreadId !== null || (metadata.provider === 'gmail' && metadata.providerThreadId !== null),
     source: graphThreadId !== null
       ? 'provider-thread-id'
       : metadata.providerThreadId !== null

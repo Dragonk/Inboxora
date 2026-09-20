@@ -264,7 +264,7 @@ router.post('/provider/microsoft/device/poll', requireAuth, async (req: Request,
 });
 
 // Callback: exchange the code for tokens, read the identity and store the grant.
-router.get('/provider/microsoft/callback', async (req: Request, res: Response) => {
+router.get('/microsoft/callback', async (req: Request, res: Response) => {
   const config = microsoftConfigFromEnv();
   const state = typeof req.query.state === 'string' ? req.query.state : '';
   const code = typeof req.query.code === 'string' ? req.query.code : '';
