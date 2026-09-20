@@ -263,6 +263,12 @@ router.post('/provider/microsoft/device/poll', requireAuth, async (req: Request,
   }
 });
 
+// Compatibility alias for unreleased dev revisions that registered the older provider callback.
+router.get('/provider/microsoft/callback', (req: Request, res: Response) => {
+  const query = req.originalUrl.includes('?') ? req.originalUrl.slice(req.originalUrl.indexOf('?')) : '';
+  return res.redirect(302, `/oauth/microsoft/callback${query}`);
+});
+
 // Callback: exchange the code for tokens, read the identity and store the grant.
 router.get('/microsoft/callback', async (req: Request, res: Response) => {
   const config = microsoftConfigFromEnv();
