@@ -14,6 +14,16 @@ invitation from an administrator (**Settings → Users**).
 Administrators can enable two-factor authentication, a screen-lock PIN and SSO under
 **Settings → Security**.
 
+
+## Adding a mailbox
+
+**Integrations configure provider applications. Accounts connect individual mailboxes.** Your administrator
+registers the provider client under **Settings → Integrations**; you add your own mailbox under **Settings →
+Accounts → Add account**, where you choose Microsoft, Google or another provider over IMAP/SMTP. A Microsoft or
+Google account signs in with the provider and is created natively — you never type an IMAP host or a password
+for those. Gmail over IMAP with an app password stays available on the same screen. If the provider has not
+been configured yet, the screen says so and (for an administrator) links to Integrations.
+
 ## 2. Add a mail account
 
 **Settings → Accounts → Add account**. Choose a preset (**Gmail**, **Yahoo Mail**, **iCloud**,

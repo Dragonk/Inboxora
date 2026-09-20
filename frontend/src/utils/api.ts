@@ -332,6 +332,13 @@ export const api = {
   // effective numbers; `null` means the transport declares no such ceiling.
   getSendLimits: (accountId: string) => request('GET', `/mail/send-limits?accountId=${encodeURIComponent(accountId)}`),
   suppressNotice: (accountId: string) => request('POST', `/integrations/notices/${encodeURIComponent(accountId)}/suppress`, {}),
+  // Add a native mailbox for a provider authorization the user already gave (Settings -> Accounts). The
+  // identity comes from the provider; an existing account for that address answers ACCOUNT_EXISTS with its id
+  // so the interface offers the migration instead of duplicating the mailbox.
+  addNativeAccount: (body: { provider: 'microsoft' | 'google'; connectionId?: string; name?: string }) =>
+    request('POST', '/accounts/native', body),
+  nativeAccountCandidates: (provider: 'microsoft' | 'google') =>
+    request('GET', `/accounts/native/candidates?provider=${provider}`),
   // Move one existing account onto its provider's native transport, in place. The server decides whether
   // that is Google or Microsoft from the account itself and refuses with a code when it cannot.
   migrateAccount: (accountId: string, body: Record<string, unknown> = {}) =>

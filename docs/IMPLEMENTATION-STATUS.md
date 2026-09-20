@@ -101,6 +101,14 @@ otherwise:
   were run by hand against a real PostgreSQL);
 - **a real touch device** for the drawer gesture.
 
+## Settings separation
+
+Integrations configure provider applications; Accounts connect individual mailboxes. Settings → Accounts →
+**Add account** offers Microsoft, Google or IMAP/SMTP, creates a Microsoft or Google mailbox **natively** from
+the provider authorization (identity from the provider, no IMAP credentials, discovery started), and answers an
+already-added mailbox with the existing migration rather than a duplicate account. No account-adding action
+remains in Integrations.
+
 ## Known limitations
 
 Deliberate product limitations, not missing work:

@@ -14,6 +14,7 @@ import { isUuid, uuidParam } from '../utils/uuid.js';
 import { toAppError } from '../utils/errors.js';
 import { cutOverMicrosoftMailAccount } from '../services/providerMailCutover.js';
 import { releaseProviderPushForConnection } from '../services/providerPushLifecycle.js';
+import { createNativeMailAccount, describeNativeCandidates, nativeProviderReadiness } from '../services/nativeAccountService.js';
 import { clearSyncHintsForConnection } from '../services/providerSyncHints.js';
 import type { MicrosoftMailCutoverAccount } from '../services/providerMailCutover.js';
 import { cutOverGoogleMailAccount } from '../services/providerGoogleMailCutover.js';
@@ -391,6 +392,83 @@ router.delete('/:id', async (req, res) => {
     console.error('Account delete error:', err);
     res.status(500).json({ error: 'Failed to delete account' });
   }
+});
+
+/**
+ * Add a **native** mail account for a mailbox the user has already authorized.
+ *
+ * The split this route exists for: Settings → Integrations configures the provider application (client id,
+ * secret, tenant, redirect URI) and Settings → Accounts connects individual mailboxes. The OAuth flows record
+ * the connection and its grant; this turns one into an account whose identity comes from the provider, with
+ * no IMAP/SMTP configuration at all and no "create an IMAP account, then migrate it" detour.
+ *
+ * An existing account for the same address is never duplicated: the answer names it and its transport so the
+ * interface can offer the migration that already exists for that provider.
+ */
+router.post('/native', async (req, res) => {
+  const userId = req.session.userId;
+  if (!userId) return res.status(401).json({ error: 'Not authenticated' });
+  const provider = req.body?.provider;
+  if (provider !== 'microsoft' && provider !== 'google') {
+    return res.status(400).json({ error: 'provider must be microsoft or google' });
+  }
+  const connectionId = req.body?.connectionId;
+  if (connectionId !== undefined && connectionId !== null && !isUuid(connectionId)) {
+    return res.status(400).json({ error: 'connectionId must be a UUID' });
+  }
+  const name = req.body?.name;
+  if (name !== undefined && name !== null && typeof name !== 'string') {
+    return res.status(400).json({ error: 'name must be a string' });
+  }
+
+  try {
+    const result = await createNativeMailAccount({ userId, provider, connectionId: connectionId ?? null, name: name ?? null });
+    switch (result.status) {
+      case 'created':
+        return res.status(201).json({
+          ok: true,
+          created: true,
+          account: result.account,
+          connectionId: result.connectionId,
+          discovered: result.discovered,
+          folders: result.folders,
+        });
+      case 'exists_native':
+        // Idempotent: the mailbox is already added on this transport.
+        return res.json({ ok: true, created: false, account: result.account, connectionId: result.connectionId });
+      case 'exists_other_transport':
+        return res.status(result.httpStatus).json({
+          error: result.message,
+          code: result.code,
+          existingAccountId: result.existingAccountId,
+          existingTransport: result.existingTransport,
+          suggestion: result.suggestion,
+        });
+      case 'refused':
+        return res.status(result.httpStatus).json({ error: result.message, code: result.code });
+      case 'not_found':
+        return res.status(404).json({ error: 'Account not found' });
+    }
+    return res.status(500).json({ error: 'Unexpected account creation outcome' });
+  } catch (caught) {
+    const err = toAppError(caught);
+    console.error('Native account creation failed:', err.message);
+    return res.status(err.status || 500).json({ error: err.message || 'The account could not be added' });
+  }
+});
+
+/**
+ * What the caller's authorized mailboxes look like: the connection for each, and whether an account already
+ * exists for that address and on which transport. The Add-account flow uses it to offer "migrate this account"
+ * instead of "add it again".
+ */
+router.get('/native/candidates', async (req, res) => {
+  const userId = req.session.userId;
+  if (!userId) return res.status(401).json({ error: 'Not authenticated' });
+  const provider = req.query.provider === 'google' ? 'google' : req.query.provider === 'microsoft' ? 'microsoft' : null;
+  if (!provider) return res.status(400).json({ error: 'provider must be microsoft or google' });
+  const candidates = await describeNativeCandidates({ userId, provider });
+  res.json({ provider, candidates, readiness: nativeProviderReadiness()[provider] });
 });
 
 router.post('/:id/reconnect', async (req, res) => {

@@ -250,13 +250,16 @@ test('the opener acknowledges the Graph connector popup, which posts its own pro
   }
 });
 
-test('a failed authorization releases every connect button, not only the mailbox one', async () => {
+test('a failed authorization releases every connect button that still exists', async () => {
   const source = await readFile(adminPanel, 'utf8');
   const errorBranch = /e\.data\?\.type === 'oauth_error'\)\s*\{([\s\S]*?)\} else if/.exec(source)?.[1] ?? '';
   assert.ok(errorBranch, 'the oauth_error branch must exist');
-  for (const flag of ['setConnectingMs', 'setConnectingGoogle', 'setConnectingGraph']) {
+  // The mailbox sign-in no longer exists in Integrations (it belongs to Settings -> Accounts), so only the
+  // capability connectors are released here.
+  for (const flag of ['setConnectingGoogle', 'setConnectingGraph']) {
     assert.match(errorBranch, new RegExp(flag), `${flag} must be released on error`);
   }
+  assert.doesNotMatch(source, /setConnectingMs/);
 });
 
 test('the connect buttons ask for read access, which is all the connectors use', async () => {
@@ -286,9 +289,10 @@ test('a connect button is offered only when its own flow can run', async () => {
   const source = await readFile(adminPanel, 'utf8');
   // The mailbox method needs a confidential client, so a client id alone must not enable
   // it — while the device method, which has its own control, legitimately works with one.
-  assert.match(source, /const msBrowserReady = Boolean\(msStatus\?\.browser\?\.ready\)/);
-  assert.match(source, /disabled=\{!msConfigured \|\| !msBrowserReady \|\| connectingMs\}/);
-  assert.match(source, /cursor: msConfigured && msBrowserReady && !connectingMs \? 'pointer' : 'not-allowed'/);
+  // The mailbox sign-in button is gone from Integrations: the card only configures the application now.
+  assert.doesNotMatch(source, /handleConnectMs/);
+  assert.doesNotMatch(source, /\/oauth\/microsoft['"`]/);
+  assert.match(source, /admin\.integrations\.accountHint/);
   // The connector has a different callback again, and its own readiness.
   assert.match(source, /msStatus\?\.graph\?\.ready && \(/);
   // Google has a single flow, gated on the browser readiness for the same reason.

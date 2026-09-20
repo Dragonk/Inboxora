@@ -35,6 +35,28 @@ Nothing is being prepared beyond 4.1.0. Work whose version has not been chosen a
 ## [4.1.0]
 
 ### Added
+- **Settings → Integrations configures provider applications; Settings → Accounts connects mailboxes.** The
+  provider cards were starting a mailbox authorization ("Connect Microsoft account", the Microsoft API
+  device-code connect), which mixed an administrator's infrastructure job with a user's own account. Those
+  actions are gone from Integrations, which keeps what belongs to it — client id, tenant, secret, redirect
+  URI, browser/device-code readiness, scopes and capabilities, push/webhook/Pub-Sub configuration and the
+  configuration test — and now points to Accounts for mailboxes.
+- **"Add account" starts with the kind of mailbox.** The account screen offers **Microsoft**
+  (Outlook.com / Hotmail / Microsoft 365), **Google** (Gmail / Google Workspace) and **IMAP/SMTP** (another
+  provider or a manual setup); only the last opens the existing connection form, where the Gmail preset is
+  labelled as the app-password path. A provider that is not configured says so, with a link to Integrations for
+  an administrator, instead of failing after a sign-in attempt; client ids, secrets, tenants and redirect URIs
+  are never shown to a user.
+- **A mailbox added through its provider becomes a native account.** Signing in with Microsoft or Google
+  creates the account directly on **Microsoft Graph** or the **Gmail API** — `mail_transport` and `protocol`
+  set, the provider connection bound, the address and mailbox id taken from the provider rather than a typed
+  field, no IMAP/SMTP configuration, and folder/label discovery started. Adding an account no longer means
+  "create an IMAP account and migrate it afterwards"; the cutover stays the tool for accounts that already
+  exist.
+- **An existing mailbox is never duplicated.** Adding a mailbox that is already present over IMAP/SMTP answers
+  with the account that exists and the migration for that provider (Microsoft Graph, or the Gmail API) instead
+  of creating a second row for the same address.
+
 - **Push-assisted synchronisation for the native providers.** A mailbox no longer waits for the next
   scheduled pass to notice a change: Microsoft Graph change notifications (messages, events and personal
   contacts), the Gmail API `watch` over Cloud Pub/Sub, and Google Calendar push channels deliver a signal, and

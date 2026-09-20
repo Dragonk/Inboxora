@@ -496,6 +496,12 @@ const SAME_VALUE_ALLOWED: Record<string, SameValueRule> = {
   'calendar.icsWebcal': 'any',
   'calendar.sourceCalendar': [['en', 'fr']],
   'calendar.sourceUrl': 'any',
+  // Settings -> Accounts: the mailbox kind and the product names it covers are proper nouns.
+  'admin.accounts.addAccountFlow.microsoft': 'any',
+  'admin.accounts.addAccountFlow.google': 'any',
+  'admin.accounts.addAccountFlow.imap': 'any',
+  'admin.accounts.addAccountFlow.microsoftDescription': 'any',
+  'admin.accounts.addAccountFlow.googleDescription': 'any',
   // CE v2 candidate-only locale keys retained from the candidate branch.
   'admin.messageList.markReadDelaySeconds_few': 'any',
   'admin.messageList.markReadDelaySeconds_many': 'any',
@@ -943,6 +949,9 @@ const LOCALE_SPECIFIC_KEYS = new Set(
 // found by a plain text search of the source. Add here to suppress false
 // "unused key" failures.
 const DYNAMIC_KEYS = new Set([
+  // Settings -> Accounts: the setup hint is built from the provider name.
+  'admin.accounts.addAccountFlow.microsoftNotConfigured',
+  'admin.accounts.addAccountFlow.googleNotConfigured',
   // Calendar weekday labels and work-hours copy are selected from preference values.
   'calendar.day0', 'calendar.day1', 'calendar.day2', 'calendar.day3',
   'calendar.day4', 'calendar.day5', 'calendar.day6', 'calendar.workDays',

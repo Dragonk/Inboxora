@@ -145,6 +145,26 @@ build:
 
 > Upgrade from 4.0.4 databases containing legacy Gmail IMAP folder copies is covered by an integration test.
 
+## Where provider configuration happens, and where accounts do
+
+**Integrations configure provider applications. Accounts connect individual mailboxes.** This is the rule the
+settings are organised by:
+
+- **Settings → Integrations** (administrator) holds the Microsoft Entra and Google Cloud OAuth clients — client
+  id, tenant, secret, redirect URI — the browser/device-code readiness, the scopes each authorization asks for,
+  the push/webhook/Pub-Sub configuration and the configuration test. It no longer starts a sign-in for a
+  mailbox.
+- **Settings → Accounts** (user) is where a mailbox is added: **Add account** offers Microsoft, Google or
+  another provider over IMAP/SMTP, next to the existing accounts and their migration, reconnect, aliases,
+  folders, reindex and removal.
+
+A Microsoft or Google mailbox added there signs in with the provider and is created **natively** (Microsoft
+Graph, or the Gmail API) with the address the provider reports — no host, port or password is typed, and no
+IMAP account is created first. Gmail over IMAP/SMTP with an app password stays a supported choice on the same
+screen, labelled as such. When the administrator has not configured a provider yet, the screen says so and
+links to Integrations. A mailbox that is already added over IMAP is not added twice: Inboxora reports it and
+offers the migration to the native transport.
+
 ## Known limitations
 
 Deliberate product behaviour, not missing work:

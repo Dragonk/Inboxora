@@ -14,7 +14,7 @@ const apiPath = new URL('../utils/api.ts', import.meta.url);
 
 test('the accounts tab loads the server’s notice list and renders one per account', async () => {
   const source = await readFile(adminPanelPath, 'utf8');
-  const start = source.indexOf('function AccountsTab()');
+  const start = source.indexOf('function AccountsTab(');
   assert.notEqual(start, -1, 'the accounts tab is missing');
   const tab = source.slice(start, source.indexOf('\nfunction ', start + 1));
 
@@ -28,7 +28,7 @@ test('the accounts tab loads the server’s notice list and renders one per acco
 
 test('Ignore is session-scoped and do-not-show-again is the server call', async () => {
   const source = await readFile(adminPanelPath, 'utf8');
-  const start = source.indexOf('function AccountsTab()');
+  const start = source.indexOf('function AccountsTab(');
   const tab = source.slice(start, source.indexOf('\nfunction ', start + 1));
 
   // Ignore only remembers the account locally; it must not reach the API.

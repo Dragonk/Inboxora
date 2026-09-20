@@ -263,6 +263,26 @@ The same guarantees as the Microsoft cutover, for Google mail:
 - **Nothing changes if it fails.** The account stays on IMAP/SMTP, the recommendation stays visible, and a
   retry is idempotent: a second call on an already-migrated account is a no-op.
 
+## Who configures what
+
+**Integrations configure provider applications. Accounts connect individual mailboxes.** An administrator
+registers the OAuth client once, under **Settings → Integrations**: the Microsoft Entra application (client id,
+tenant, secret, redirect URI, browser and device-code readiness) and the Google Cloud OAuth client (client id,
+secret, redirect URI, API readiness, Pub/Sub for push). That page also carries the configuration test, the
+scopes and capabilities each authorization asks for, and the pointer to Accounts for adding mailboxes.
+
+Each user then adds their own mailboxes under **Settings → Accounts → Add account**, choosing Microsoft
+(*Outlook.com / Hotmail / Microsoft 365*), Google (*Gmail / Google Workspace*) or another provider over
+IMAP/SMTP. The first two sign in with the provider and create a **native** account (Microsoft Graph, or the
+Gmail API) whose address comes from the provider — no IMAP host, port, login or password is involved. Gmail
+over IMAP/SMTP with an app password remains a supported alternative, offered on the same screen. A provider the
+administrator has not configured yet says so, and points to Integrations instead of failing later; users never
+see a client id or a secret.
+
+If a mailbox is already added over IMAP and the user adds it again through the provider, Inboxora does not
+create a second account: it says the account already exists and offers the migration that turns it into a
+native one (Microsoft Graph, or the Gmail API).
+
 ## Instant synchronisation (push)
 
 Polling is the default and the safety net. Push shortens the delay between a change at the provider and its
