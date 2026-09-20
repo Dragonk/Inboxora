@@ -52,11 +52,29 @@ docker compose logs -f backend
 4.1.0 adds the native provider layer. Nothing about an existing installation stops working, and nothing is
 migrated, deleted or rewritten on its own.
 
-**Migrations.** Apply **`0101`–`0112` in order, before rolling out the application**. They are additive:
-they add tables, columns and indexes and rewrite no row, so an interrupted run is resumable and a rollback
-to 4.0.4 works (the older code ignores the new columns). Three matter for ordering beyond the application
-start: `0110` before any device authorization is started, `0111` before the Gmail API adapter runs, and
-`0112` before any collection write-back is enabled.
+**Migrations.** Apply **`0101`–`0113` in order, before rolling out the application**. They are additive:
+they add tables, columns and indexes, so an interrupted run is resumable and a rollback to 4.0.4 works (the
+older code ignores the new columns). Three matter for ordering beyond the application start: `0110` before
+any device authorization is started, `0111` before the Gmail API adapter runs, and `0112` before any
+collection write-back is enabled. `0113` adds the push-subscription tables and is only used when
+`PROVIDER_PUSH_ENABLED=true`.
+
+**No manual SQL is required, including for the one migration that needed a correction.** `0108` created a
+unique index on `messages (account_id, provider_message_id)` while assuming that column had always been the
+native provider identity. On a Gmail IMAP mailbox it is X-GM-MSGID instead, which is mailbox-wide: the same
+message legitimately carries the same value in every folder/label copy (INBOX, `[Gmail]/Important`,
+`[Gmail]/All Mail`, custom labels), so a real mailbox with duplicate values failed the index with `23505` and
+the backend stopped at that migration. The corrected `0108` clears that column for the accounts whose own
+transport is the legacy one (`mail_transport` NULL or `imap_smtp`) before creating the index and leaves it
+alone for native accounts. **No row is deleted**, and `uid`, `folder`, `message_id`, `thread_key`,
+`provider_thread_id` (X-GM-THRID) and every Conversation Engine value are preserved, so conversations, rules,
+snoozes and Gmail threading are unaffected.
+
+Upgrade from 4.0.4 databases containing legacy Gmail IMAP folder copies is covered by an integration test
+(`backend/src/services/upgradeFrom404.integration.test.ts`), which builds the historical schema with the
+production migration runner, seeds that exact duplicate-copy shape, and then upgrades it the way the backend
+does at start-up. A `dev` database that already applied the first revision of `0108` keeps booting: its
+recorded checksum is accepted rather than treated as a mismatch.
 
 **What changes without you doing anything**
 

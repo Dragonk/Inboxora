@@ -137,6 +137,18 @@ Measured on the frozen code SHA with each gate's own exit status read directly:
   figures are separate invocations on purpose: one process running both against one database lets
   independent integration files contend on the same conversation tables, where a `SERIALIZABLE` rebuild can
   fail — a harness property, and why CI has two jobs.
+- **Upgrade from 4.0.4** — a dedicated database built to the historical state with the production migration
+  runner (`runMigrations({ upTo: '0107' })`), seeded with the real shape of a legacy Gmail IMAP mailbox (one
+  X-GM-MSGID in four label folders, a second duplicated twice, a third once, a non-Gmail account with no
+  provider id, plus a rule, a snooze, a folder and Conversation Engine identity), then upgraded by running
+  the production runner again with no limit. **9 assertions passed**: the reproduction is real (7 rows, 3
+  distinct provider ids), 0108 and everything after it are recorded, every `messages.id`, `uid`, `folder`,
+  `thread_key`, `provider_thread_id` and Conversation Engine row is unchanged, the legacy provider ids are
+  cleared, a duplicate native identity is still refused with `23505`, a database whose first 0108 attempt
+  stopped after adding the column recovers, a database that recorded the earlier 0108 checksum still boots,
+  and a second run changes nothing. CI runs it as its own step against its own database.
+  **Upgrade from 4.0.4 databases containing legacy Gmail IMAP folder copies is covered by an integration
+  test.**
 
 ## Historical / superseded implementation notes
 

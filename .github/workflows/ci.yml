@@ -142,7 +142,26 @@ jobs:
             src/services/providerSchemaUpgrade.integration.test.ts \
             src/services/providers/google src/services/providers/microsoft \
             src/services/providers/externalCollectionLinks.integration.test.ts \
+            src/services/providerPushSubscriptions.integration.test.ts \
             src/routes/davPg.integration.test.ts
+
+      # The upgrade gate needs a database of its own: it builds the 4.0.4 state (migrations up to 0107, with
+      # real legacy Gmail data) and then runs the production runner again for the rest. Running it against the
+      # shared database above would fight the already-migrated suites, so it gets a fresh one and runs alone.
+      - name: 4.0.4 -> 4.1.0 upgrade gate
+        working-directory: backend
+        env:
+          DB_HOST: 127.0.0.1
+          DB_PORT: "5432"
+          DB_NAME: inboxora_upgrade_gate
+          DB_USER: mailflow_test
+          DB_PASSWORD: mailflow_test
+          UPGRADE_GATE: "1"
+        run: |
+          PGPASSWORD=mailflow_test psql -h 127.0.0.1 -U mailflow_test -d postgres \
+            -c 'DROP DATABASE IF EXISTS inboxora_upgrade_gate' \
+            -c 'CREATE DATABASE inboxora_upgrade_gate'
+          npx vitest run src/services/upgradeFrom404.integration.test.ts
 
   frontend:
     name: Frontend

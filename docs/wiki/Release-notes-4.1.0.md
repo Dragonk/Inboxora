@@ -112,6 +112,30 @@ The full procedure — fields, redirect URIs, scope names and console steps — 
 - **Turn the layer or a method off** per installation, per provider or per method — including
   `PROVIDER_INTEGRATIONS_ENABLED=0`, which stops the authorization flows and the sync paths.
 
+## Upgrade from 4.0.4
+
+**No manual SQL is needed.** The upgrade runs when the backend starts, exactly as any previous release's did.
+
+One migration had to be corrected for existing installations. `0108` created a unique index on
+`messages (account_id, provider_message_id)` on the assumption that the column had always been the native
+provider identity. It had not: it came from Conversation Engine v2 as threading evidence, and on a Gmail IMAP
+mailbox it holds X-GM-MSGID — an identifier that is mailbox-wide, so the same message legitimately has the
+same value in every folder/label copy (INBOX, `[Gmail]/Important`, `[Gmail]/All Mail`, custom labels) because
+moving or copying a message preserves it. On a real mailbox (19 231 rows, 7 445 distinct values) the index
+could not be created and the backend stopped at that migration.
+
+The corrected migration clears that column **only for accounts whose transport is the legacy one**
+(`mail_transport` NULL or `imap_smtp`) before it creates the index, and leaves it alone for accounts already
+on a native transport. Nothing else changes: **no message row is deleted**, and every id, `uid`, `folder`,
+`message_id`, `thread_key`, `provider_thread_id` (X-GM-THRID) and Conversation Engine value is preserved, so
+existing conversations, rules, snoozes and plugin links are untouched and Gmail threading keeps working.
+
+Three states are handled without intervention: a 4.0.4 database (0108 never applied), a `dev` database that
+already applied the first revision of 0108 (its recorded checksum is accepted, so it keeps booting), and a
+database whose 0108 attempt stopped after adding the column (the corrected migration runs from there).
+
+> Upgrade from 4.0.4 databases containing legacy Gmail IMAP folder copies is covered by an integration test.
+
 ## Known limitations
 
 Deliberate product behaviour, not missing work:

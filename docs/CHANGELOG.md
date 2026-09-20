@@ -222,6 +222,20 @@ None.
   IMAP loops, health checks, rule forwarder and send path no longer open IMAP or SMTP for it.
 
 ### Fixed
+- **Upgrading an existing 4.0.4 database could stop at migration 0108.** The migration created a unique
+  index on `messages (account_id, provider_message_id)` as if that column had always been a native provider
+  identity. It had not: it arrived with Conversation Engine v2 as *threading evidence*, and on a Gmail IMAP
+  mailbox it holds X-GM-MSGID, which is mailbox-wide — so the same message legitimately carried the same id
+  once per folder/label copy (INBOX, `[Gmail]/Important`, `[Gmail]/All Mail`, custom labels) because the
+  relocate/COPY path preserves it. A real mailbox with 19231 such rows and 7445 distinct ids failed the index
+  with `23505`, and the backend stopped there on every start. The migration now clears that column for the
+  accounts whose own transport is the legacy one (`mail_transport` NULL or `imap_smtp`) before creating the
+  index, leaves it untouched for accounts already on a native transport, and touches nothing else: no row is
+  deleted and `provider_thread_id` (X-GM-THRID), `thread_key`, `uid`, `folder`, `message_id` and every
+  Conversation Engine column keep their values. Gmail threading is unaffected. Covered by a 4.0.4 → 4.1.0
+  upgrade integration test that builds the historical schema with the production migration runner and
+  upgrades it the way the backend does at start-up.
+
 - **Google mail was not in the scheduled refresh.** The Microsoft side refreshed mail on the schedule and
   the Google side did not, so a Gmail mailbox was only synchronised when someone asked for it or when it had
   push. Both are refreshed now, which is also what makes polling a real fallback for Gmail.

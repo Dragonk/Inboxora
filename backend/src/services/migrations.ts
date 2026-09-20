@@ -15,6 +15,14 @@ const ACCEPTED_REPLACED_MIGRATION_CHECKSUMS = new Map([
   // on the checksum. Migration 0099 re-derives those rows with the shipped
   // rule, so accepting the old checksum leaves such a database correct.
   ['0098_spam_training_identity', new Set(['82716d8414acd5f2a26fad940165827df0e48cc676a38ac20fd1a96ccb5b0ded'])],
+  // 0108 shipped in the unreleased 4.1.0 dev cycle without clearing the legacy
+  // Conversation Engine provider ids first, so it could not create its unique index on a
+  // real 4.0.4 Gmail mailbox (the same X-GM-MSGID exists once per folder/label copy) and
+  // the installation stopped at that migration. The corrected revision clears those
+  // values for legacy transports before creating the index; a database that already ran
+  // the first revision has the index and therefore the constraint, so accepting the old
+  // checksum leaves it correct and lets it boot.
+  ['0108_message_provider_identity', new Set(['77f2c82c41e14ebb8a79e6f6a3d726e33b9217c6921cf5743c2088afbbae1ba2'])],
 ]);
 
 async function migrationHashes() {
@@ -25,7 +33,17 @@ async function migrationHashes() {
   }));
 }
 
-export async function runMigrations() {
+/**
+ * Apply the pending migrations, in order.
+ *
+ * `upTo` stops after the named version (inclusive). The upgrade gate uses it to reproduce the exact state an
+ * older release left behind — the historical schema plus real data — and then runs the production runner
+ * again for the remaining migrations, so both halves of an upgrade are exercised by the same code that runs
+ * in production rather than by a test-local copy of it.
+ */
+export async function runMigrations(options: { upTo?: string } = {}) {
+  const upToVersion = options.upTo ? Number(options.upTo.slice(0, 4)) : null;
+  if (options.upTo && !Number.isFinite(upToVersion)) throw new Error(`runMigrations: '${options.upTo}' is not a migration version`);
   const client = await pool.connect();
   try {
     await client.query('SELECT pg_advisory_lock(7418291834)');
@@ -33,7 +51,8 @@ export async function runMigrations() {
     await client.query(`CREATE TABLE IF NOT EXISTS schema_migrations (version VARCHAR(255) PRIMARY KEY, applied_at TIMESTAMPTZ DEFAULT NOW())`);
     await client.query('ALTER TABLE schema_migrations ADD COLUMN IF NOT EXISTS sha256 TEXT');
 
-    const migrations = await migrationHashes();
+    const migrations = (await migrationHashes())
+      .filter(migration => upToVersion === null || Number(migration.version.slice(0, 4)) <= upToVersion);
     const appliedRows = await client.query('SELECT version, sha256 FROM schema_migrations');
     const applied = new Map(appliedRows.rows.map(row => [row.version, row]));
     for (const migration of migrations) {
