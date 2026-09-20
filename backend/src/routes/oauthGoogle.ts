@@ -1,3 +1,4 @@
+import { authorizationResultQuery, finalizeProviderAuthorization, isFinalizablePurpose } from '../services/providerAuthorizationFinalizer.js';
 import { Router } from 'express';
 import { query, withTransaction } from '../services/db.js';
 import { readProviderSwitches } from '../services/providerSwitches.js';
@@ -157,7 +158,7 @@ router.get('/google/callback', async (req: Request, res: Response) => {
     });
     const identity = await fetchGoogleIdentity({ accessToken: tokens.accessToken });
 
-    await withTransaction(async client => {
+    const authorization = await withTransaction(async client => {
       const connectionId = await upsertProviderConnection(client, {
         userId: taken.userId,
         provider: 'google',
@@ -180,9 +181,26 @@ router.get('/google/callback', async (req: Request, res: Response) => {
         clientIdAtIssue: config.clientId,
       });
       await finishAuthorizationFlow(client, { flowId: taken.id, status: 'completed' });
+      return { connectionId, purpose: taken.purpose, targetAccountId: taken.targetAccountId };
     });
 
-    return res.redirect('/?oauth_success=google');
+    // The consent stored its grant; run the synchronisation the purpose implied **now**, rather than leaving
+    // the calendar or the address book empty until a scheduler tick. A failure here keeps the grant and is
+    // reported to the opener, which shows "connected, synchronisation failed" instead of "not connected".
+    // `new_account` only attaches the authorization, so it has no first run to make.
+    if (!isFinalizablePurpose(authorization.purpose)) {
+      return res.redirect('/?oauth_success=google');
+    }
+    const result = await finalizeProviderAuthorization({
+      userId: taken.userId,
+      provider: 'google',
+      purpose: authorization.purpose,
+      targetAccountId: authorization.targetAccountId,
+      connectionId: authorization.connectionId,
+      googleConfig: config,
+    });
+
+    return res.redirect(`/?oauth_success=google&${authorizationResultQuery(result)}`);
   } catch (caught) {
     const error = toAppError(caught);
     const code2 = caught instanceof ProviderAuthError ? caught.code : 'AUTH_FAILED';

@@ -268,8 +268,17 @@ describe('GET /oauth/microsoft/callback', () => {
   it('exchanges the code, reads the Graph identity and stores connection and grant', async () => {
     const response = await callback('?state=state-1&code=code-1');
     expect(response.status).toBe(302);
-    // The Graph connection is not an account sign-in, so it must not open Accounts.
-    expect(response.headers.get('location')).toBe('/?oauth_success=microsoft_graph');
+    // The Graph connection is not an account sign-in, so it must not open Accounts. The result the opener
+    // needs travels in the query, and none of it is a credential.
+    const location = new URL(String(response.headers.get('location')), 'https://inboxora.example');
+    expect(location.pathname).toBe('/');
+    expect(location.searchParams.get('oauth_success')).toBe('microsoft_graph');
+    expect(location.searchParams.get('provider')).toBe('microsoft');
+    expect(location.searchParams.get('authorized')).toBe('1');
+    expect(location.searchParams.get('purpose')).toBeTruthy();
+    for (const forbidden of ['token', 'secret', 'code=']) {
+      expect(String(response.headers.get('location'))).not.toContain(forbidden);
+    }
 
     const [[tokenUrl, tokenInit]] = providerCalls();
     expect(String(tokenUrl)).toBe('https://login.microsoftonline.com/consumers/oauth2/v2.0/token');
@@ -394,7 +403,15 @@ describe('POST /oauth/provider/microsoft/device/poll', () => {
   it('stores the Graph connection and grant when the user finishes, and completes the flow', async () => {
     const response = await pollDevice();
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ status: 'success' });
+    const completed = await response.json() as { status: string; result?: { provider?: string; authorized?: boolean; connectionId?: string } };
+    expect(completed.status).toBe('success');
+    // A flow with a finalizable purpose reports what its first synchronization did; one that only attaches the
+    // authorization reports the success alone. Either way the connection id stays on the server.
+    if (completed.result) {
+      expect(completed.result.provider).toBe('microsoft');
+      expect(completed.result.authorized).toBe(true);
+      expect(completed.result.connectionId).toBeUndefined();
+    }
 
     const [[tokenUrl, tokenInit]] = providerCalls();
     expect(String(tokenUrl)).toBe('https://login.microsoftonline.com/consumers/oauth2/v2.0/token');

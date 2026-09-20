@@ -1,3 +1,4 @@
+import { authorizationResultQuery, finalizeProviderAuthorization, isFinalizablePurpose } from '../services/providerAuthorizationFinalizer.js';
 import { Router } from 'express';
 import { query, withTransaction } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
@@ -229,7 +230,7 @@ router.post('/provider/microsoft/device/poll', requireAuth, async (req: Request,
     // Authorized: read the identity from Graph with the token we received server-to-server, then record
     // the connection and its grant. The identity is issuer + subject, never the address.
     const identity = await fetchMicrosoftIdentity({ accessToken: result.tokens.accessToken });
-    await withTransaction(async client => {
+    const authorization = await withTransaction(async client => {
       const connectionId = await upsertProviderConnection(client, {
         userId: flow.userId,
         provider: 'microsoft',
@@ -253,8 +254,22 @@ router.post('/provider/microsoft/device/poll', requireAuth, async (req: Request,
         clientIdAtIssue: config.clientId,
       });
       await finishAuthorizationFlow(client, { flowId: flow.id, status: 'completed' });
+      return { connectionId, purpose: flow.purpose, targetAccountId: flow.targetAccountId };
     });
-    return res.json({ status: 'success' });
+
+    // The consent is stored; run the synchronisation it implied now, so a calendar or address book is not left
+    // empty until a scheduler tick, and report the outcome to the page that started the flow.
+    const finalized = isFinalizablePurpose(authorization.purpose)
+      ? await finalizeProviderAuthorization({
+          userId: flow.userId,
+          provider: 'microsoft',
+          purpose: authorization.purpose,
+          targetAccountId: authorization.targetAccountId,
+          connectionId: authorization.connectionId,
+          microsoftConfig: config,
+        })
+      : null;
+    return res.json({ status: 'success', ...(finalized ? { result: { ...finalized, connectionId: undefined } } : {}) });
   } catch (caught) {
     const error = toAppError(caught);
     const code = caught instanceof ProviderAuthError ? caught.code : 'AUTH_FAILED';
@@ -317,7 +332,7 @@ router.get('/microsoft/callback', async (req: Request, res: Response) => {
     });
     const identity = await fetchMicrosoftIdentity({ accessToken: tokens.accessToken });
 
-    await withTransaction(async client => {
+    const browser = await withTransaction(async client => {
       const connectionId = await upsertProviderConnection(client, {
         userId: taken.userId,
         provider: 'microsoft',
@@ -343,9 +358,22 @@ router.get('/microsoft/callback', async (req: Request, res: Response) => {
         clientIdAtIssue: config.clientId,
       });
       await finishAuthorizationFlow(client, { flowId: taken.id, status: 'completed' });
+      return { connectionId, purpose: taken.purpose, targetAccountId: taken.targetAccountId };
     });
 
-    return res.redirect('/?oauth_success=microsoft_graph');
+    if (!isFinalizablePurpose(browser.purpose)) {
+      return res.redirect('/?oauth_success=microsoft_graph');
+    }
+    const finalizedBrowser = await finalizeProviderAuthorization({
+      userId: taken.userId,
+      provider: 'microsoft',
+      purpose: browser.purpose,
+      targetAccountId: browser.targetAccountId,
+      connectionId: browser.connectionId,
+      microsoftConfig: config,
+    });
+
+    return res.redirect(`/?oauth_success=microsoft_graph&${authorizationResultQuery(finalizedBrowser)}`);
   } catch (caught) {
     const error = toAppError(caught);
     const code2 = caught instanceof ProviderAuthError ? caught.code : 'AUTH_FAILED';

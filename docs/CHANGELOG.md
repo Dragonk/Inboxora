@@ -275,6 +275,15 @@ None.
   IMAP loops, health checks, rule forwarder and send path no longer open IMAP or SMTP for it.
 
 ### Fixed
+- **A consent now runs the synchronisation it implies, immediately.** Connecting a calendar or contacts left the
+  feature authorized and empty until a scheduler tick: the live report was a Google calendar with six
+  collections and "last synchronisation: never", and contacts authorized with no address book. Both provider
+  callbacks (Google, and Microsoft's browser sign-in and device code) now call one finalizer after storing the
+  grant, which runs the first calendar, contacts or mail-baseline synchronisation for the purpose the flow
+  carried. The grant is never rolled back because that run failed: the outcome is reported as `authorized` with
+  `synchronized`/`syncErrorCode`, and the callback hands the opener the provider, the purpose, the account and
+  those three facts — never a token — so the account card can update without a page reload.
+
 - **Published `:dev` revision.** The image now contains the fixes for the alias send, the contacts manager's
   close and compact trigger, Gmail mail polling (`mail_label`), the diagnostics reading the message pipeline,
   the account-to-connection resolution, and the per-feature `authorized`/`synchronized`/`syncPending`/
