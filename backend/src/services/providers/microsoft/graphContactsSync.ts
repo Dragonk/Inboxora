@@ -15,7 +15,9 @@ import { GraphApiError } from './graphApiClient.js';
 import type { GraphApiOptions } from './graphApiClient.js';
 import { contactUidForGraphContact, fetchContactsPage, graphContactToVCard } from './graphContacts.js';
 import type { GraphContact } from './graphContacts.js';
-import { ProviderAuthError } from '../../providerAuthService.js';
+import { ProviderAuthError, graphGrantCoversScope, REQUIRED_GRAPH_CONTACT_WRITE_SCOPE } from '../../providerAuthService.js';
+import { MICROSOFT_GRANT_AUDIENCE } from '../../providerAuthService.js';
+import { readGrantForUser } from '../../providerTokenService.js';
 import type { FetchLike } from '../../providerAuthService.js';
 
 /**
@@ -51,12 +53,35 @@ interface ApplyContext {
   collectionId: string;
 }
 
+/**
+ * What the granted Graph permission actually permits for this connection.
+ *
+ * A connection authorized for `Contacts.Read` can be read and nothing else, while `Contacts.ReadWrite`
+ * (or a variant of it) is the consent the write path needs. Recording this is what lets the per-collection
+ * write-back switch be offered at all: the capability model refuses to enable write-back on a collection
+ * whose source is marked read-only, and a blanket `read_only` here made every Microsoft address book
+ * unreachable for writing even when the grant allowed it. `user_access` still starts at `source`, so the
+ * user's own opt-in remains a separate decision.
+ */
+async function graphContactSourceAccess(client: PoolClient, userId: string, connectionId: string): Promise<'read_only' | 'read_write'> {
+  try {
+    // The caller's own client: this runs inside the transaction that creates or finds the link, and opening
+    // a second one for one `SELECT` would take a pool connection per sync for no reason.
+    const grant = await readGrantForUser(client, { userId, connectionId, audience: MICROSOFT_GRANT_AUDIENCE });
+    return grant && graphGrantCoversScope(grant.scopes, REQUIRED_GRAPH_CONTACT_WRITE_SCOPE) ? 'read_write' : 'read_only';
+  } catch {
+    // A transient read failure must not be recorded as a permission the connection may not have.
+    return 'read_only';
+  }
+}
+
 /** Find or create the local address book and collection link for a connection. */
 export async function ensureGraphAddressBook(client: PoolClient, input: {
   userId: string;
   connectionId: string;
   label?: string;
 }): Promise<{ addressBookId: string; collectionId: string }> {
+  const sourceAccess = await graphContactSourceAccess(client, input.userId, input.connectionId);
   const linkQuery = `SELECT id, local_address_book_id FROM integration_collections
      WHERE connection_id = $1 AND kind = 'address_book' AND remote_id = $2`;
   const existing = await client.query<{ id: string; local_address_book_id: string | null }>(
@@ -64,6 +89,13 @@ export async function ensureGraphAddressBook(client: PoolClient, input: {
     [input.connectionId, GRAPH_CONTACTS_FOLDER],
   );
   if (existing.rows[0]?.local_address_book_id) {
+    // Already linked: refresh the source's own permission, which is what repairs a collection created
+    // before this was recorded, and never touch `user_access` or `enabled` — those are the user's.
+    await client.query(
+      `UPDATE integration_collections SET source_access = $2, updated_at = NOW()
+        WHERE id = $1 AND source_access IS DISTINCT FROM $2`,
+      [existing.rows[0].id, sourceAccess],
+    );
     return { addressBookId: existing.rows[0].local_address_book_id, collectionId: existing.rows[0].id };
   }
 
@@ -84,9 +116,9 @@ export async function ensureGraphAddressBook(client: PoolClient, input: {
         // disabled this collection must not have a sync switch it back on.
         await client.query(
           `UPDATE integration_collections
-              SET local_address_book_id = $2, updated_at = NOW()
+              SET local_address_book_id = $2, source_access = $3, updated_at = NOW()
             WHERE id = $1`,
-          [existing.rows[0].id, addressBookId],
+          [existing.rows[0].id, addressBookId, sourceAccess],
         );
         return { addressBookId, collectionId: existing.rows[0].id };
       }
@@ -94,10 +126,10 @@ export async function ensureGraphAddressBook(client: PoolClient, input: {
       const collection = await client.query<{ id: string }>(
         `INSERT INTO integration_collections
            (user_id, connection_id, kind, remote_id, local_address_book_id, enabled, source_access, user_access, dav_mode)
-         VALUES ($1, $2, 'address_book', $3, $4, true, 'read_only', 'source', 'off')
+         VALUES ($1, $2, 'address_book', $3, $4, true, $5, 'source', 'off')
          ON CONFLICT DO NOTHING
          RETURNING id`,
-        [input.userId, input.connectionId, GRAPH_CONTACTS_FOLDER, addressBookId],
+        [input.userId, input.connectionId, GRAPH_CONTACTS_FOLDER, addressBookId, sourceAccess],
       );
       const collectionId = collection.rows[0]?.id
         ?? (await client.query<{ id: string }>(linkQuery, [input.connectionId, GRAPH_CONTACTS_FOLDER])).rows[0]?.id;

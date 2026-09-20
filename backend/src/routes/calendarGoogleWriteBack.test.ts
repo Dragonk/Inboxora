@@ -191,6 +191,26 @@ describe('editing an event in a write-enabled Google calendar', () => {
     expect(mocks.sendCalendarInvitation).not.toHaveBeenCalled();
   });
 
+  it('clears the series at Google when the edit makes the event a one-off', async () => {
+    // Recurring → non-recurring is the case a PATCH that simply omitted the field gets wrong: Google keeps
+    // repeating the event while the local copy becomes a one-off. The route must say "clear" explicitly.
+    const response = await call('PATCH', '/events/event-1', { ...eventBody, recurrence: null });
+
+    expect(response.status).toBe(200);
+    expect(mocks.writeEvent).toHaveBeenCalledWith(expect.objectContaining({
+      operation: 'update',
+      event: expect.objectContaining({ recurrence: null }),
+    }));
+  });
+
+  it('says nothing about the rule when the edit does not mention it', async () => {
+    await call('PATCH', '/events/event-1', eventBody);
+
+    // Absent means "keep the stored rule": sending a value here would silently drop a series on any edit.
+    const written = mocks.writeEvent.mock.calls[0]?.[0] as { event?: { recurrence?: unknown } } | undefined;
+    expect(written?.event).not.toHaveProperty('recurrence');
+  });
+
   it('refuses an event that is not linked to its provider copy yet', async () => {
     mocks.eventIdForRow.mockResolvedValueOnce(null);
     const response = await call('PATCH', '/events/event-1', eventBody);

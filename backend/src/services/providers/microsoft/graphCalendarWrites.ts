@@ -34,7 +34,13 @@ export interface LocalEventWriteInput {
   endsAt: Date;
   allDay: boolean;
   attendees: string[];
-  recurrence: ParsedRecurrence | null;
+  /**
+   * The series rule for this write. `undefined` means "this write says nothing about the rule" (an
+   * occurrence edit, or an update that only moves a one-off), `null` means "make the event a one-off", and
+   * an object sets the rule. The distinction matters: a PATCH that omitted the field would leave the
+   * provider's old series in place while the local copy became a single event.
+   */
+  recurrence?: ParsedRecurrence | null;
 }
 
 export interface GraphCalendarEventWritePayload {
@@ -113,7 +119,12 @@ export function graphEventPayloadFor(event: LocalEventWriteInput, transactionId?
   if (event.description) payload.body = { contentType: 'Text', content: event.description };
   if (event.location) payload.location = { displayName: event.location };
   if (event.attendees.length) payload.attendees = event.attendees.map(address => ({ emailAddress: { address }, type: 'required' }));
-  if (event.recurrence) payload.recurrence = graphRecurrenceFromStructure(event.recurrence, event.startsAt);
+  if (event.recurrence === null) {
+    // Graph clears a property when it is sent as `null`; omitting it leaves the series untouched.
+    payload.recurrence = null;
+  } else if (event.recurrence) {
+    payload.recurrence = graphRecurrenceFromStructure(event.recurrence, event.startsAt);
+  }
   if (transactionId) payload.transactionId = transactionId;
   return payload;
 }

@@ -139,6 +139,14 @@ describeOrSkip('Microsoft Graph contacts sync (PostgreSQL)', () => {
     ));
     expect(book.rows[0]).toMatchObject({ source: 'microsoft', dav_mode: 'off' });
 
+    // The collection records what the **grant** permits, not a blanket read-only: the connection above was
+    // authorized with `Contacts.ReadWrite`, so the write-back switch can be offered. `user_access` stays
+    // `source` — enabling it remains the user's own decision.
+    const collection = await autocommit(client => client.query<{ source_access: string; user_access: string }>(
+      'SELECT source_access, user_access FROM integration_collections WHERE user_id = $1', [USER_ID],
+    ));
+    expect(collection.rows[0]).toEqual({ source_access: 'read_write', user_access: 'source' });
+
     const contacts = await storedContacts();
     expect(contacts.map(row => row.uid)).toEqual(['msgraph-c1', 'msgraph-c2']);
     expect(contacts[0]?.display_name).toBe('Ada Lovelace');

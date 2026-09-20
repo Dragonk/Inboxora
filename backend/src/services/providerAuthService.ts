@@ -502,6 +502,28 @@ export async function fetchGoogleIdentity(input: {
 const MICROSOFT_IDENTITY_SCOPES = ['openid', 'profile', 'email', 'offline_access'];
 const GRAPH_SCOPE_BASE = 'https://graph.microsoft.com/';
 
+/** The delegated Graph scope a connection needs before its contacts can be written back. */
+export const REQUIRED_GRAPH_CONTACT_WRITE_SCOPE = 'Contacts.ReadWrite';
+
+/**
+ * Whether a granted scope set covers one Graph permission.
+ *
+ * Microsoft returns the full `https://graph.microsoft.com/Contacts.ReadWrite` form in the token response,
+ * while a stored grant may hold either form, and a tenant may have consented to a more specific variant
+ * (`Contacts.ReadWrite.All`, `Contacts.ReadWrite.Shared`). All three cover the requirement, so the check is
+ * prefix-aware rather than an equality test.
+ */
+export function graphGrantCoversScope(scopes: readonly string[], required: string): boolean {
+  const wanted = required.toLowerCase();
+  return scopes.some(scope => {
+    const trimmed = scope.trim().toLowerCase();
+    const normalised = trimmed.startsWith(GRAPH_SCOPE_BASE.toLowerCase())
+      ? trimmed.slice(GRAPH_SCOPE_BASE.length)
+      : trimmed;
+    return normalised === wanted || normalised.startsWith(`${wanted}.`);
+  });
+}
+
 /**
  * The Graph scopes one purpose asks for. Features never imply one another: asking
  * for calendars must not silently grant the mailbox. `User.Read` accompanies every

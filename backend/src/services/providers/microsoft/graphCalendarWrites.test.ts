@@ -26,7 +26,7 @@ const event = (overrides: Partial<LocalEventWriteInput> = {}): LocalEventWriteIn
   endsAt: new Date('2026-09-01T09:30:00.000Z'),
   allDay: false,
   attendees: ['a@example.test', 'b@example.test'],
-  recurrence: null,
+  recurrence: undefined,
   ...overrides,
 });
 
@@ -53,6 +53,13 @@ describe('a local event becomes a Graph event payload', () => {
       transactionId: 'intent-1',
     });
     expect(payload.attendees?.map(attendee => attendee.emailAddress?.address)).toEqual(['a@example.test', 'b@example.test']);
+  });
+
+  it('clears a series with an explicit null, and says nothing when the write does not mention it', () => {
+    // Graph removes a recurrence when the property is sent as `null`; omitting it leaves the series as it
+    // was, which would make the local copy a one-off while Graph kept repeating the event.
+    expect(graphEventPayloadFor(event({ recurrence: null }))).toHaveProperty('recurrence', null);
+    expect(graphEventPayloadFor(event({ recurrence: undefined }))).not.toHaveProperty('recurrence');
   });
 
   it('marks an all-day event and never invents a zone-specific wall time', () => {

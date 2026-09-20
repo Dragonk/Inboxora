@@ -104,7 +104,12 @@ export interface GoogleEventWriteInput {
   endsAt: Date;
   allDay: boolean;
   attendees: string[];
-  recurrence: ParsedRecurrence | null;
+  /**
+   * The series rule for this write. `undefined` says nothing about the rule, `null` makes the event a
+   * one-off, and an object sets it. Google removes a recurrence when it receives an **empty** list, so the
+   * clear must be an explicit `[]` rather than an omitted field.
+   */
+  recurrence?: ParsedRecurrence | null;
 }
 
 /** Google's `date` value: the calendar date of an all-day event, in the local UTC convention. */
@@ -127,9 +132,14 @@ export function googleEventPayloadFor(event: GoogleEventWriteInput): GoogleEvent
   if (event.description) payload.description = event.description;
   if (event.location) payload.location = event.location;
   if (event.attendees.length) payload.attendees = event.attendees.map(email => ({ email }));
-  const rrule = recurrenceToRRule(event.recurrence);
   // Google stores complete iCalendar lines; the local structure is the validated rule the route parsed.
-  if (rrule) payload.recurrence = [`RRULE:${rrule}`];
+  if (event.recurrence === null) {
+    // An empty list is Google's way of removing the recurrence; an omitted field would leave it in place.
+    payload.recurrence = [];
+  } else if (event.recurrence) {
+    const rrule = recurrenceToRRule(event.recurrence);
+    if (rrule) payload.recurrence = [`RRULE:${rrule}`];
+  }
   return payload;
 }
 

@@ -168,13 +168,14 @@ export const DEFAULT_PROVIDER_REGISTRATIONS: readonly ProviderRegistration[] = O
     key: 'google_api',
     source: 'google',
     features: ['calendars', 'contacts'],
-    // The People/Calendar adapters now forward create/update/delete (P09) through the shared mutation
-    // journal, so a mutation is sent to Google. As with Graph this does **not** make a pulled collection
-    // writable by itself: the collection must also say the origin permits writes (`source_access`) and
-    // the user must have opted in (`user_access`), which is the capability model's fourth layer. The
-    // Google sync records `source_access = 'read_only'` for every calendar and address book it links
-    // today, so no Google collection can be opted in until that read path stores the provider's own
-    // access role — the adapter is behind the gate, not around it.
+    // The People/Calendar adapters forward create/update/delete (P09) through the shared mutation journal,
+    // so a mutation is sent to Google. As with Graph this does **not** make a pulled collection writable by
+    // itself: the collection must also say the origin permits writes (`source_access`) and the user must have
+    // opted in (`user_access`), which is the capability model's fourth layer. The Google sync records the
+    // provider's own answer — a calendar's `accessRole` (`owner`/`writer` are writable) and, for contacts,
+    // the People API's permission for the user's own contacts — so the switch is offered exactly where Google
+    // permits a write and refused for a calendar shared read-only. The adapter is behind the gate, not around
+    // it.
     writeThrough: true,
     conflictProtection: protections({ rsvp: 'unsupported' }),
   },

@@ -760,7 +760,9 @@ router.post('/events', async (req, res) => {
   const providerIdempotencyKey = typeof req.headers['x-idempotency-key'] === 'string' ? req.headers['x-idempotency-key'].slice(0, 128) : null;
   const eventWrite = {
     summary: summary || null, description, location, url, startsAt: times.startsAt, endsAt: times.endsAt,
-    allDay: Boolean(allDay), attendees: normalizedAttendees, recurrence,
+    allDay: Boolean(allDay), attendees: normalizedAttendees,
+    // A create has nothing to clear: a missing rule is an **absent** field, not an explicit clear.
+    ...(recurrence ? { recurrence } : {}),
   };
   if (target.kind === 'graph') {
     const attempt = await writeGraphCalendarEvent({
@@ -1031,7 +1033,10 @@ router.patch('/events/:eventId', async (req, res) => {
     if (!providerEventId) return res.status(409).json({ error: 'This event is not linked to its provider copy yet' });
     const eventWrite = {
       summary: summary || null, description, location, url, startsAt: times.startsAt, endsAt: times.endsAt,
-      allDay: Boolean(allDay), attendees: normalizedAttendees, recurrence: recurrenceProvided ? recurrence : null,
+      allDay: Boolean(allDay), attendees: normalizedAttendees,
+      // Three states reach the provider: the key is **absent** to keep the stored rule, an explicit `null`
+      // makes the event a one-off (Graph `recurrence: null`, Google `recurrence: []`), and an object sets it.
+      ...(recurrenceProvided ? { recurrence } : {}),
     };
     if (target.kind === 'graph') {
       const attempt = await writeGraphCalendarEvent({ userId: req.session.userId!, target, operation: 'update', providerEventId, event: eventWrite, localResourceId: req.params.eventId });

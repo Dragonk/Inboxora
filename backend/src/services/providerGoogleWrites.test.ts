@@ -67,7 +67,7 @@ const event = (overrides: Partial<GoogleEventWriteInput> = {}): GoogleEventWrite
   endsAt: new Date('2026-09-01T09:30:00.000Z'),
   allDay: false,
   attendees: ['a@example.test'],
-  recurrence: null,
+  recurrence: undefined,
   ...overrides,
 });
 
@@ -212,6 +212,15 @@ describe('a local event becomes a Google event payload', () => {
 
   it('renders the validated recurrence as one complete RRULE line', () => {
     expect(googleEventPayloadFor(event({ recurrence: weekly })).recurrence).toEqual(['RRULE:FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,WE;COUNT=4']);
+  });
+
+  it('clears a series with an explicit empty list, and says nothing when the write does not mention it', () => {
+    // Recurring → one-off: Google removes the recurrence only when it receives `[]`; an omitted field leaves
+    // the old series in place, so the local event would become a one-off while Google kept repeating it.
+    expect(googleEventPayloadFor(event({ recurrence: null })).recurrence).toEqual([]);
+    // The rule was never mentioned (an occurrence edit, or an unrelated update): the payload must not carry
+    // the key at all, or every such update would silently drop the series.
+    expect(googleEventPayloadFor(event({ recurrence: undefined }))).not.toHaveProperty('recurrence');
   });
 
   it('omits the recurrence entirely when the local event has none', () => {
