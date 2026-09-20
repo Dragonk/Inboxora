@@ -68,7 +68,8 @@ describeOrSkip('provider push persistence (PostgreSQL)', () => {
       await client.query('DELETE FROM provider_connections WHERE id = $1', [CONNECTION_ID]);
       await client.query('DELETE FROM users WHERE id = $1', [USER_ID]);
     });
-    await pool.end();
+    // The pool is shared with every other suite in the process: ending it here would break the ones that run
+    // after this file (they simply stop seeing their own rows).
   });
 
   beforeEach(async () => {

@@ -263,6 +263,40 @@ The same guarantees as the Microsoft cutover, for Google mail:
 - **Nothing changes if it fails.** The account stays on IMAP/SMTP, the recommendation stays visible, and a
   retry is idempotent: a second call on an already-migrated account is a no-op.
 
+## Instant synchronisation (push)
+
+Polling is the default and the safety net. Push shortens the delay between a change at the provider and its
+appearance in Inboxora, and it needs a public HTTPS endpoint:
+
+1. Set `APP_URL` to the address users reach Inboxora on (HTTPS; `http://localhost` is accepted for local
+   development only) and `PROVIDER_PUSH_ENABLED=true`. The callback URLs are derived from `APP_URL` — they are
+   never typed per account — and are shown in the provider cards and by `GET /api/integrations/push-status`.
+2. **Microsoft** needs nothing else: Inboxora registers a Graph subscription per resource the connection
+   pulled (messages, events, personal contacts) and answers Graph's URL validation handshake. Each
+   subscription carries its own random `clientState`; only its hash is stored, and an inbound notification is
+   accepted only when it names a subscription Inboxora holds and presents the matching secret.
+3. **Gmail** uses Cloud Pub/Sub. Create a topic in the same Google Cloud project as the OAuth client, grant
+   `gmail-api-push@system.gserviceaccount.com` the **Publisher** role on it, and create a **push**
+   subscription whose endpoint is
+   `https://<APP_URL>/api/provider-webhooks/gmail?token=<GOOGLE_PUBSUB_VERIFICATION_TOKEN>`. Set
+   `GOOGLE_PUBSUB_TOPIC` and `GOOGLE_PUBSUB_VERIFICATION_TOKEN` (at least 16 characters). Inboxora calls
+   `users.watch` for the mailbox, stores the watch expiry, and renews it daily — Google requires at least one
+   renewal every seven days.
+4. **Google Calendar** needs no extra configuration beyond `APP_URL`: Inboxora opens one push channel per
+   calendar collection that is enabled and has been pulled, stores its expiry, renews it before it lapses and
+   stops the previous channel when it replaces one.
+
+Turn it on per connection from the provider card (**Instant synchronization → Turn on**), or with
+`POST /api/integrations/push/connections/{id}/enable`; `disable` stops and tombstones the subscriptions
+without touching the connection. Disconnecting a connection, deleting an account or removing a calendar stops
+the matching subscriptions — best effort at the provider, always locally — so nothing keeps being renewed for
+something that is gone.
+
+**If push is unavailable or misconfigured, nothing breaks.** Synchronisation continues on
+`PROVIDER_SYNC_INTERVAL_MINUTES`; an account is never reported as broken because a notification could not be
+delivered, and a missed notification (`missed`) is recovered by the ordinary delta sync rather than by
+replaying webhooks.
+
 ## Checking that the configuration works
 
 The card reports each method's **readiness**, and readiness means the fields are present and the method is

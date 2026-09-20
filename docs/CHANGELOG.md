@@ -35,6 +35,21 @@ Nothing is being prepared beyond 4.1.0. Work whose version has not been chosen a
 ## [4.1.0]
 
 ### Added
+- **Push-assisted synchronisation for the native providers.** A mailbox no longer waits for the next
+  scheduled pass to notice a change: Microsoft Graph change notifications (messages, events and personal
+  contacts), the Gmail API `watch` over Cloud Pub/Sub, and Google Calendar push channels deliver a signal, and
+  Inboxora turns it into **the sync it already had** — the same delta, history and sync-token cursors, the
+  same conversation engine, rules and notification pipeline. Push shortens the delay; it is never a second
+  source of truth and never a second synchronisation path.
+- **One push subscription model for all three mechanisms**, with the validation secret stored only as a hash,
+  per-scope uniqueness so a recreate cannot double the notification volume, expiry tracking, and a renewal
+  sweep that renews well before a subscription lapses (with jitter and backoff, and no renewal at all for a
+  provider that was switched off).
+- **Instant synchronization in the provider cards.** Each connection shows whether push is active (with its
+  expiry and last event), whether the installation is falling back to polling, whether a public HTTPS URL is
+  missing, or whether the last renewal failed — and can be turned on or off per connection. Turning it on
+  registers exactly the resources that connection pulled.
+
 - **An existing Google mailbox can move to the Gmail API in place.** A Google account that has been reading
   its mail over IMAP/SMTP with an app password now has a one-click migration to the native Gmail transport:
   the account keeps its id and **all** of its local data (messages, folders, conversations, aliases,
@@ -153,6 +168,14 @@ provider identity, `0109` provider-operation payload, `0110` device authorizatio
 reads the new columns; a mixed old/new deployment must not run with the new code before the migrations.
 
 ### Changed
+- **Polling remains the safety net.** The provider schedule is unchanged and still refreshes every pulled
+  collection; push only makes the common case fast. A missing public URL, a provider outage or a failed
+  renewal leaves synchronisation working, and an account is never reported as broken merely because push is
+  unavailable.
+- **`PROVIDER_SYNC_INTERVAL_MINUTES` stays the fallback cadence.** Push does not lengthen it: the schedule is
+  what guarantees self-healing when a notification is missed, so shortening the delay by push never widens
+  the window in which a missed change could hide.
+
 - **Microsoft Contacts records what the connection's grant actually permits.** The Graph contacts sync
   recorded every address book as read-only at its source, which made the per-collection write-back switch
   refuse to enable any of them — so the Graph create/update/delete adapters existed and could never be used.
@@ -199,6 +222,13 @@ None.
   IMAP loops, health checks, rule forwarder and send path no longer open IMAP or SMTP for it.
 
 ### Fixed
+- **Google mail was not in the scheduled refresh.** The Microsoft side refreshed mail on the schedule and
+  the Google side did not, so a Gmail mailbox was only synchronised when someone asked for it or when it had
+  push. Both are refreshed now, which is also what makes polling a real fallback for Gmail.
+- **"Sync this folder" opened an IMAP session for a native account.** The on-demand folder sync addressed its
+  account by id without asking which transport owned it; it now dispatches through the provider, and the IMAP
+  path refuses a native account as a second line of defence.
+
 - **An inbox rule can forward mail from a native Gmail account.** Forwarding a message from a
   Gmail-API account was refused ("Forwarding from a gmail_api source is not supported yet"), which made rule
   forwarding — one of the account's core features — regress on the transport the migration recommends. The

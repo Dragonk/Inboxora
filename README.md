@@ -130,6 +130,14 @@ it is native, and a retry after a failure is safe. *Ignore* or *do not show agai
 recommendation (durably, per user and per mailbox) without changing the account. Calendar and contacts work
 independently of the mail transport.
 
+**Instant synchronisation is available, and polling is the safety net.** With a public HTTPS URL
+(`APP_URL`) and `PROVIDER_PUSH_ENABLED=true`, Inboxora registers Microsoft Graph change notifications for
+messages, events and personal contacts, a Gmail `watch` over Cloud Pub/Sub, and push channels for the Google
+calendars you pulled. A notification only ever triggers the normal delta/history/sync-token sync, so push
+changes when a change is noticed, never what it means. The provider cards show whether it is active, when it
+is next renewed and when the last event arrived; without a reachable callback URL synchronisation continues
+on the regular schedule. Google Contacts stays polling-only, because the People API has no push for it.
+
 **Provider data can be written back.** Editing a calendar event or a contact in a pulled collection is
 forwarded to the provider first, and a write is enabled **per collection** — an imported collection
 stays read-only until you switch write-back on for it. The same applies to calendars and address books

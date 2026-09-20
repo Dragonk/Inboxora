@@ -88,6 +88,27 @@ Step-by-step registration for both providers — the exact redirect URIs, enviro
 permissions and a troubleshooting table — is in
 [Connecting Google and Microsoft accounts](Provider-setup.md).
 
+## Instant synchronisation (push)
+
+Push is an administrator-level setting, not a per-user one:
+
+| Variable | Meaning |
+| --- | --- |
+| `APP_URL` | The public address Inboxora is reached on. The provider callback URLs are derived from it (`/api/provider-webhooks/...`); HTTPS is required outside `localhost`. |
+| `PROVIDER_PUSH_ENABLED` | Off by default. With it off — or without a usable `APP_URL` — synchronisation is polling-only. |
+| `GOOGLE_PUBSUB_TOPIC` | `projects/{project}/topics/{name}`, the topic Gmail's `watch` publishes to. |
+| `GOOGLE_PUBSUB_VERIFICATION_TOKEN` | Shared secret (at least 16 characters) that authenticates a Pub/Sub push. |
+| `PROVIDER_PUSH_RENEW_AHEAD_MINUTES` | How far before expiry subscriptions are renewed (default 30). |
+| `PROVIDER_PUSH_SWEEP_MS` | How often the renewal sweep runs (default 10 minutes, jittered). |
+| `PROVIDER_SYNC_HINT_DEBOUNCE_MS` | The window a burst of notifications is coalesced into one sync (default 2000 ms). |
+| `PROVIDER_SYNC_HINT_POLL_MS` | How often queued sync hints are drained (default 15 s). |
+
+Push is an accelerator, never a requirement: `PROVIDER_SYNC_INTERVAL_MINUTES` still refreshes every pulled
+collection, a missed notification is recovered by the ordinary delta sync, and an account is never reported as
+broken because a notification could not be delivered. Each connection is switched on from its card in the
+provider settings, and `GET /api/integrations/push-status` reports what is registered, when it expires and
+when it last delivered.
+
 ## Appearance
 
 **Settings → Appearance** groups theme, layout and typography.

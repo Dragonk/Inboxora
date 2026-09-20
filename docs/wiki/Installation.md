@@ -168,6 +168,14 @@ All three are configured inside the application after startup:
 Never paste deployment secrets, app passwords or OAuth credentials into issue reports, Wiki
 pages or source control.
 
+## Instant synchronisation (optional)
+
+Push-assisted synchronisation is off by default. To use it, make Inboxora reachable over HTTPS at `APP_URL`
+and set `PROVIDER_PUSH_ENABLED=true`; for Gmail, also create a Cloud Pub/Sub topic and push subscription as
+described in **Provider setup**. Both the Graph and the Calendar callbacks are derived from `APP_URL`, so no
+per-account URL is ever configured. Without a public URL the installation synchronises by polling, which is
+the supported default — no account is treated as broken for lacking push.
+
 ## Upgrades and backups
 
 Back up the PostgreSQL volume and `.env` before every upgrade. Then update the pinned image

@@ -1,5 +1,15 @@
 # Security policy
 
+## Provider webhooks
+
+The provider notification endpoints (`/api/provider-webhooks/...`) are reachable from the internet and carry
+no session, so they authenticate the provider instead of the caller: Microsoft notifications must name a
+subscription Inboxora holds and present its `clientState`, Google Calendar notifications must present the
+channel token and the resource that channel was opened for, and a Gmail Pub/Sub push must present the shared
+verification token. The secrets are stored only as hashes, are never logged, and are never returned by an API.
+Requests are bounded in size, limited in rate, restricted in content type, and refused without revealing
+which check failed; a notification never carries state Inboxora trusts — it only triggers the ordinary sync.
+
 ## Reporting a vulnerability
 
 Please **do not** open a public issue containing exploit details, credentials, message content or

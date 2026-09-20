@@ -103,8 +103,10 @@ Deliberate product limitations, not missing work:
 - a provider collection is written **over the web interface** only; over DAV it stays read-only, because
   the DAV server forwards a write only to an external CalDAV/CardDAV source;
 - an external **ICS subscription** is read-only at the source and can never be written back;
-- **no push notifications** (no Google/Microsoft webhook or Graph subscription) — synchronisation is
-  scheduled or on demand;
+- **push requires a reachable public HTTPS endpoint** (`APP_URL`/`PROVIDER_PUSH_ENABLED`, and a Pub/Sub
+  topic for Gmail); without it synchronisation is polling-only, which is the default and a supported state;
+- **Google Contacts is polling-only** — the People API has no push channel for the synced resources, so its
+  sync token and the schedule remain the mechanism (documented, not faked);
 - **Google personal contacts only**, no shared directory, and no remote creation/sharing of collections;
 - a **legacy external CalDAV/CardDAV collection** gains its write-back link on the next sync pass of its
   source, not by a one-shot migration;

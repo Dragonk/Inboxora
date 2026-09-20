@@ -1,9 +1,9 @@
 import type { PoolClient } from 'pg';
 import { query, withTransaction } from './db.js';
-import { markSubscriptionsRemoved } from './providerPushSubscriptions.js';
-import { stopGoogleSubscriptionsForConnection } from './providerPushGoogle.js';
-import { stopGraphSubscriptionsForConnection } from './providerPushMicrosoft.js';
-import { clearSyncHintsForConnection } from './providerSyncHints.js';
+// The push modules are imported lazily inside `releasePushSubscriptions`, not here: this module is imported by
+// `providerAuthService`, which would otherwise form a cycle through the provider clients (auth → this →
+// Google/Graph push → API client → providerTokenService → auth), and a constant read during that cycle is
+// `undefined` — the failure mode was a Microsoft grant stored under one audience and looked up under another.
 
 /**
  * Disconnect a provider connection a user no longer wants.
@@ -64,14 +64,21 @@ async function releasePushSubscriptions(userId: string, connectionId: string): P
     );
     const row = provider.rows[0];
     if (!row) return;
-    const stopper = row.provider === 'microsoft' ? stopGraphSubscriptionsForConnection : stopGoogleSubscriptionsForConnection;
-    await stopper({ userId, connectionId });
+    if (row.provider === 'microsoft') {
+      const { stopGraphSubscriptionsForConnection } = await import('./providerPushMicrosoft.js');
+      await stopGraphSubscriptionsForConnection({ userId, connectionId });
+    } else if (row.provider === 'google') {
+      const { stopGoogleSubscriptionsForConnection } = await import('./providerPushGoogle.js');
+      await stopGoogleSubscriptionsForConnection({ userId, connectionId });
+    }
   } catch (error) {
     console.warn(`Push subscription cleanup for connection ${connectionId} failed:`, error instanceof Error ? error.message : error);
     // The local tombstone is the guarantee; leave it in place even when the remote call could not run.
+    const { markSubscriptionsRemoved } = await import('./providerPushSubscriptions.js');
     await markSubscriptionsRemoved({ connectionId }).catch(() => {});
   }
   // Whatever happened above, waiting hints for a disconnected connection must not run.
+  const { clearSyncHintsForConnection } = await import('./providerSyncHints.js');
   await clearSyncHintsForConnection(connectionId).catch(() => {});
 }
 

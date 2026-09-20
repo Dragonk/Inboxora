@@ -166,6 +166,18 @@ These are three different operations and only the first is routine:
   configuration writes a tombstone so a restart cannot resurrect it from the environment. Removing the API
   configuration does not remove Google IMAP accounts or any other source.
 
+## Push says "Needs a public HTTPS URL"
+
+`APP_URL` is unset, is not HTTPS (outside `localhost`), or `PROVIDER_PUSH_ENABLED` is off. This is not an
+error: synchronisation continues on the regular provider schedule. Set `APP_URL` to the public address and
+enable push, then turn it on per connection from the provider card.
+
+If push is on but the card shows a renewal error, the code names the reason (usually a throttled provider or a
+grant that needs re-authorization). Polling still covers the mailbox; `GET /api/integrations/push-status`
+lists each subscription with its expiry and last notification, and the renewal sweep retries with a widening
+backoff rather than in a loop. Google Contacts is polling-only by design — the People API has no push for the
+contact resources Inboxora syncs.
+
 ## Getting help
 
 Open an issue with:

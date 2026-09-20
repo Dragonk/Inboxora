@@ -25,6 +25,12 @@ without copying or losing anything local.
   Google mail still fully supported over IMAP/SMTP with an app password.
 - **Google Calendar and Google Contacts over the API**, with read/write collections once write-back is
   enabled per collection.
+- **Instant synchronisation, with polling as the safety net.** Microsoft Graph change notifications, Gmail's
+  `watch`/Pub/Sub push and Google Calendar push channels shorten the delay between a change at the provider
+  and its appearance in Inboxora. They are an accelerator: every notification runs the existing delta/history/
+  sync-token sync, the schedule still refreshes every pulled collection, and an administration whose callback
+  URL is unreachable keeps working exactly as before. Push needs a public HTTPS URL (derived from `APP_URL`)
+  and, for Gmail, a Cloud Pub/Sub topic; the provider cards report the state per connection.
 - **An existing Google mailbox can move to the Gmail API without being recreated.** The account keeps its id
   and every piece of its local data, exactly one account remains, and the switch is atomic and repeatable. The
   recommendation in the account settings now performs that migration, including the Gmail authorization when
@@ -113,8 +119,10 @@ Deliberate product behaviour, not missing work:
 - a **provider collection is written over the web interface**; over DAV it stays read-only, because the DAV
   server forwards a write only to an external CalDAV/CardDAV source;
 - an **ICS subscription** is read-only at its source and can never be written back;
-- **no push notifications** from Google or Microsoft (no webhook or Graph subscription) — synchronisation is
-  scheduled or on demand;
+- **push-assisted synchronisation needs a reachable HTTPS endpoint**: without a public `APP_URL` (or with
+  `PROVIDER_PUSH_ENABLED` off) Inboxora synchronises by polling alone, which is the supported default;
+- **Google Contacts stays polling-only**: the People API has no push channel for the contact resources
+  Inboxora syncs, so its sync token and the schedule remain the mechanism;
 - **Google personal contacts only**, no shared directory, and no remote creation or sharing of collections;
 - a **legacy external CalDAV/CardDAV collection** gains its write-back link on the next sync of its source
   rather than through a one-shot migration;
