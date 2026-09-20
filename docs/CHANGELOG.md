@@ -282,6 +282,13 @@ None.
   IMAP loops, health checks, rule forwarder and send path no longer open IMAP or SMTP for it.
 
 ### Fixed
+- **The automated-series mode cannot merge ordinary human mail.** `automated_series_mode = 'strict'` is the one
+  path that can place two messages in the same conversation without an RFC edge, because the ingest adopts the
+  previous series' conversation. Pinned on PostgreSQL, through the real ingest, for a generic IMAP account with
+  the mode enabled: two ordinary messages that share a subject and carry no authenticated sender evidence stay
+  two conversations. The decision itself already requires authenticated sender evidence on both sides, matching
+  sender and recipient signatures and a matching references anchor, so subject alone is never enough.
+
 - **One Microsoft identity keeps one connection across its consents.** Pinned on PostgreSQL: a mail consent, then
   a calendar consent, then a contacts consent all resolve to the same `provider_connection` (the subject and
   issuer identify it, and signing in with another alias of the same account does not fork it), the account's

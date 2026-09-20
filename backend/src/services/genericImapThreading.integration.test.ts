@@ -172,3 +172,60 @@ describeOrSkip('generic IMAP threading (PostgreSQL)', () => {
     expect(listed.messages.length).toBeGreaterThan(0);
   });
 });
+
+describeOrSkip('the automated-series mode cannot merge ordinary human mail', () => {
+  // `automated_series_mode = 'strict'` is the one path that can put two messages into the same conversation
+  // without an RFC edge (conversationPersistence adopts the previous series' conversation). It requires
+  // authenticated sender evidence on both sides, matching sender and recipient signatures, the same subject and
+  // a matching references anchor — so two ordinary messages that merely share a subject must stay apart.
+  const modeUserId = randomUUID();
+  const modeAccountId = randomUUID();
+
+  beforeAll(async () => {
+    if (!hasPg) return;
+    await query('INSERT INTO users(id, username, password_hash) VALUES($1,$2,$3)', [modeUserId, `series-${modeUserId}`, 'unused']);
+    await query(
+      `INSERT INTO email_accounts(id,user_id,name,email_address,protocol,imap_host,mail_transport,automated_series_mode)
+       VALUES($1,$2,'OVH series','me@ovh-series.example','imap','ssl0.ovh.net',NULL,'strict')`,
+      [modeAccountId, modeUserId],
+    );
+  });
+
+  afterAll(async () => {
+    if (!hasPg) return;
+    await query('DELETE FROM users WHERE id=$1', [modeUserId]);
+  });
+
+  it('keeps two same-subject human messages apart even with strict series mode enabled', async () => {
+    const ingestInto = async (messageId: string, subject: string, date: string) => {
+      const row = (await query(
+        `INSERT INTO messages(account_id, uid, folder, message_id, subject, from_email, to_addresses, date, snippet, is_read)
+         VALUES($1,$2,'INBOX',$3,$4,'human@ovh-series.example','[{"address":"me@ovh-series.example"}]',$5,'Synthetic message',false)
+         RETURNING *`,
+        [modeAccountId, Math.floor(Math.random() * 1_000_000), messageId, subject, new Date(date)],
+      )).rows[0];
+      const provider = providerMetadataForMessage(
+        { message_id: messageId, subject } as never,
+        { id: modeAccountId, imap_host: 'ssl0.ovh.net', mail_transport: null } as never,
+      );
+      await upsertConversationCopy({ ...row, user_id: modeUserId }, {
+        userId: modeUserId,
+        identities: ['me@ovh-series.example'],
+        provider: {
+          isStrong: Boolean(provider.isStrong),
+          source: provider.source == null ? null : String(provider.source),
+          providerThreadId: provider.providerThreadId == null ? null : String(provider.providerThreadId),
+        } as never,
+      });
+      const stored = await query<{ conversation_id: string }>('SELECT conversation_id FROM messages WHERE id = $1', [row.id]);
+      return String(stored.rows[0]!.conversation_id);
+    };
+
+    const first = await ingestInto('<series-a@ovh-series.example>', 'Faktura', '2026-12-01T09:00:00Z');
+    const second = await ingestInto('<series-b@ovh-series.example>', 'Faktura', '2026-12-02T09:00:00Z');
+
+    // No authenticated sender evidence, no references anchor: the strict decision declines, so these are two
+    // conversations even though the account has the feature enabled and the subjects are identical.
+    expect(second).not.toBe(first);
+  });
+});
