@@ -102,7 +102,11 @@ test("every documented runtime environment variable exists in .env.example", asy
   // A token that starts like configuration but is not a variable name: a domain error code, or a
   // compose-level variable the compose file derives from a documented one.
   const notRuntimeConfiguration = (name: string): boolean =>
-    name.endsWith("_TOO_LARGE") || name === "POSTGRES_DB";
+    name.endsWith("_TOO_LARGE")
+    // A provider domain error code, quoted in the changelog because it is what the interface shows:
+    // `PROVIDER_AUTH_REQUIRED` is a code, not a variable to set.
+    || name === "PROVIDER_AUTH_REQUIRED"
+    || name === "POSTGRES_DB";
   const prefixes = [
     "MAIL_", "MS_", "GOOGLE_", "PROVIDER_", "POSTGRES_", "DB_", "REDIS_", "APP_", "UPDATE_",
     "ENCRYPTION_", "SESSION_", "NTFY_", "VAPID_", "SMTP_", "IMAP_", "DAV_", "AI_", "OPENAI_",
