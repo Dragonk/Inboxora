@@ -25,6 +25,11 @@ without copying or losing anything local.
   Google mail still fully supported over IMAP/SMTP with an app password.
 - **Google Calendar and Google Contacts over the API**, with read/write collections once write-back is
   enabled per collection.
+- **An existing Google mailbox can move to the Gmail API without being recreated.** The account keeps its id
+  and every piece of its local data, exactly one account remains, and the switch is atomic and repeatable. The
+  recommendation in the account settings now performs that migration, including the Gmail authorization when
+  the mailbox does not have it yet; the IMAP/SMTP app-password setup keeps working whether or not you migrate,
+  and Inboxora never falls back to IMAP after a successful switch.
 - **DAV write-back, from Inboxora or a DAV client.** A calendar or address book imported from an external
   CalDAV/CardDAV server can be edited in Inboxora's own calendar or contacts page **and** from a DAV client,
   and the change is forwarded to that server — create, update, delete, recurring series and all three
@@ -111,8 +116,6 @@ Deliberate product behaviour, not missing work:
 - **no push notifications** from Google or Microsoft (no webhook or Graph subscription) — synchronisation is
   scheduled or on demand;
 - **Google personal contacts only**, no shared directory, and no remote creation or sharing of collections;
-- an automated **inbox-rule forward** from a native Gmail account is refused with a named error, because its
-  body reader is not written yet, rather than being read over IMAP;
 - a **legacy external CalDAV/CardDAV collection** gains its write-back link on the next sync of its source
   rather than through a one-shot migration;
 - **invitations are Inboxora's on a CalDAV collection**: a plain CalDAV server is not a scheduling service, so

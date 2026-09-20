@@ -238,7 +238,30 @@ made writable, and a refusal says which of the two it is.
   `PROVIDER_SYNC_INTERVAL_MINUTES`, or set it to `0` to refresh only when a user asks.
 - A mailbox still on IMAP/SMTP is recommended the API when it is a Gmail mailbox and the configuration
   allows it. The recommendation lives in the accounts settings, with *Ignore* (this session) and *do not
-  show again* (durable, per user and per mailbox). Nothing migrates on its own.
+  show again* (durable, per user and per mailbox). Nothing migrates on its own; **Migrate to the Google
+  API** is the action that does, and it runs the Gmail authorization first when the mailbox does not have
+  the Gmail scope yet.
+
+### Moving an existing Google account onto the Gmail API
+
+The same guarantees as the Microsoft cutover, for Google mail:
+
+- **Use the recommendation card** in the accounts settings, or `POST /api/accounts/:id/migrate`. Inboxora
+  switches the transport on the **same account row** — no second account, and every local message, folder,
+  draft, alias, signature, rule, conversation and preference is left exactly as it was.
+- **Gmail access is required, and it is not the same grant as Calendar/People.** The switch needs an active
+  Google connection whose grant covers `gmail.modify`; a calendar- or contacts-only authorization is
+  refused with `authorization_required` and the mailbox keeps working over IMAP/SMTP. The recommendation's
+  action asks for the Gmail scope when it is missing, then retries — no part of the transport is switched
+  by halves.
+- **The connection must be the same mailbox.** A connection that belongs to another address is refused
+  (`ACCOUNT_MIGRATION_IDENTITY_MISMATCH`) rather than silently moving the account onto a different mailbox;
+  `allowIdentityMismatch: true` exists for a deliberate alias and is never assumed.
+- **There is no fallback afterwards.** Once native, the account's mail, health checks, rules (including
+  **inbox-rule forwarding**, which reads the body and attachments through the Gmail API), folder syncs and
+  sends use the API; Inboxora will not silently reopen an IMAP session for it.
+- **Nothing changes if it fails.** The account stays on IMAP/SMTP, the recommendation stays visible, and a
+  retry is idempotent: a second call on an already-migrated account is a no-op.
 
 ## Checking that the configuration works
 

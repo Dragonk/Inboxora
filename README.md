@@ -123,8 +123,12 @@ no redirect URI.
 with an **app password**, exactly as before, and that is a supported long-term choice. Registering a
 Google OAuth client additionally enables the **Gmail API** for mail and the **Calendar and People
 APIs** for calendars and contacts; Inboxora then recommends the API for a Gmail mailbox but never
-performs the switch on its own, and *Ignore* or *do not show again* dismisses the recommendation
-(durably, per user and per mailbox). Calendar and contacts work independently of the mail transport.
+performs the switch on its own. The recommendation's **Migrate to the Google API** action performs it for
+you — running the Gmail authorization first when the mailbox does not have it yet — and the switch is
+**in place**: the same account row, no duplicate, nothing local copied or lost, no IMAP/SMTP fallback once
+it is native, and a retry after a failure is safe. *Ignore* or *do not show again* dismisses the
+recommendation (durably, per user and per mailbox) without changing the account. Calendar and contacts work
+independently of the mail transport.
 
 **Provider data can be written back.** Editing a calendar event or a contact in a pulled collection is
 forwarded to the provider first, and a write is enabled **per collection** — an imported collection

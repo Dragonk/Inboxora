@@ -35,6 +35,20 @@ Nothing is being prepared beyond 4.1.0. Work whose version has not been chosen a
 ## [4.1.0]
 
 ### Added
+- **An existing Google mailbox can move to the Gmail API in place.** A Google account that has been reading
+  its mail over IMAP/SMTP with an app password now has a one-click migration to the native Gmail transport:
+  the account keeps its id and **all** of its local data (messages, folders, conversations, aliases,
+  signatures, rules, drafts, plugins and preferences), exactly one account remains for that mailbox, the
+  provider connection and grant are recorded on it, and a retry after a failure is idempotent. The switch is
+  committed in a single transaction, so an interruption leaves either the whole switch or none of it — never a
+  half-migrated account. This is the same guarantee the Microsoft Graph cutover gives, applied to Gmail.
+- **The recommendation card can perform the migration it recommends.** "Migrate to the Google API"
+  authorizes Gmail when the mailbox has no Gmail-scoped grant yet, waits for that authorization, then
+  migrates the account; on success the account state is refreshed and the recommendation disappears, and on
+  failure the account stays on IMAP/SMTP and the recommendation stays visible. "Ignore" hides it for the
+  session and "Do not show again" stores the preference — a suppression is never a side effect of a failed or
+  successful migration.
+
 - **One occurrence, this-and-following, or the whole series — in every writable calendar.** A recurring
   event can now be changed or cancelled for **just the occurrence you picked**, for **that occurrence and
   every later one**, or for the entire series, in a local calendar, a Google calendar, a Microsoft Graph
@@ -185,6 +199,17 @@ None.
   IMAP loops, health checks, rule forwarder and send path no longer open IMAP or SMTP for it.
 
 ### Fixed
+- **An inbox rule can forward mail from a native Gmail account.** Forwarding a message from a
+  Gmail-API account was refused ("Forwarding from a gmail_api source is not supported yet"), which made rule
+  forwarding — one of the account's core features — regress on the transport the migration recommends. The
+  forwarder now reads the body through the same Gmail reader the message view uses, reads attachments through
+  the shared source dispatcher, and sends through the account's own transport seam: no IMAP session is opened
+  and no SMTP fallback exists for a native account. Microsoft Graph and IMAP/SMTP keep their behaviour.
+- **"Sync this folder" on a native account no longer tries IMAP.** The on-demand folder sync addressed its
+  account by id without asking which transport owned it, so a Graph or Gmail account would have been read over
+  IMAP. It now dispatches through the same provider target the manual sync uses, and the IMAP path refuses
+  loudly as a second line of defence.
+
 - **A truncated series could carry both `UNTIL` and `COUNT`.** Ending a series before an occurrence set the
   boundary but left the original occurrence count on the rule, and RFC 5545 forbids the pair; a client that
   validates the rule rejects it. The count is now dropped when the boundary is set, leaving one end.
