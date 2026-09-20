@@ -1,6 +1,7 @@
 import { query } from './db.js';
 import { classifyProviderAccount, providerConnectionSignals, type ProviderAccountKind } from './providerAccountClassifier.js';
 import { listSubscriptionDiagnostics } from './providerPushSubscriptions.js';
+import { readProviderFeatureAuthorization, type ProviderFeatureAuthorization } from './providerFeatureAuthorization.js';
 
 /**
  * What one **account** can do with its provider: the mail transport it uses and whether the native one is
@@ -12,7 +13,7 @@ import { listSubscriptionDiagnostics } from './providerPushSubscriptions.js';
  * "connect Google Calendar" appear on the Gmail account card rather than somewhere in Integrations.
  */
 
-export interface AccountMailFeatures {
+export interface AccountMailFeatures extends ProviderFeatureAuthorization {
   transport: string;
   /** The transport this account would move to, when a migration applies. */
   nativeTransport: 'gmail_api' | 'microsoft_graph' | null;
@@ -22,9 +23,8 @@ export interface AccountMailFeatures {
   migrationAvailable: boolean;
 }
 
-export interface AccountFeatureGroup {
+export interface AccountFeatureGroup extends ProviderFeatureAuthorization {
   provider: ProviderAccountKind;
-  authorized: boolean;
   connectionId: string | null;
   collections: Array<{ id: string; kind: string; name: string | null; enabled: boolean; sourceAccess: string; userAccess: string }>;
 }
@@ -141,13 +141,23 @@ export async function describeAccountProviderFeatures(input: {
   const subscriptions = await listSubscriptionDiagnostics();
 
   const groups = {} as Record<ProviderAccountKind, AccountFeatureGroup>;
+  const contactsAuth = {} as Partial<Record<ProviderAccountKind, ProviderFeatureAuthorization>>;
+  const mailConnection = provider
+    ? await connectionForAccount({ userId: input.userId, address: row.email_address, provider })
+    : null;
+  const mailAuth = provider
+    ? await readProviderFeatureAuthorization({ connectionId: mailConnection?.id ?? null, provider, feature: 'mail' })
+    : { authorized: false, requiredScopes: [], grantedScopes: [], missingScopes: [] };
+
   for (const kind of ['google', 'microsoft'] as const) {
     const connection = await connectionForAccount({ userId: input.userId, address: row.email_address, provider: kind });
+    const calendarAuth = await readProviderFeatureAuthorization({ connectionId: connection?.id ?? null, provider: kind, feature: 'calendar' });
+    contactsAuth[kind] = await readProviderFeatureAuthorization({ connectionId: connection?.id ?? null, provider: kind, feature: 'contacts' });
     groups[kind] = {
       provider: kind,
-      authorized: connection !== null,
       connectionId: connection?.id ?? null,
       collections: await collectionsFor(connection?.id ?? null),
+      ...calendarAuth,
     };
   }
 
@@ -158,11 +168,12 @@ export async function describeAccountProviderFeatures(input: {
       transport,
       nativeTransport,
       native,
+      ...mailAuth,
       // A migration is offered only for an account that classifies as the provider and is not already native.
       migrationAvailable: provider !== null && !native,
     },
     calendar: provider ? groups[provider] : null,
-    contacts: provider ? groups[provider] : null,
+    contacts: provider ? { ...groups[provider], ...(contactsAuth[provider] ?? { authorized: false, requiredScopes: [], grantedScopes: [], missingScopes: [] }) } : null,
     push: pushStateFor({
       provider: provider ?? 'google',
       connectionId: provider ? groups[provider].connectionId : null,

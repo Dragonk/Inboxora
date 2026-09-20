@@ -16,9 +16,9 @@ import { toAppError } from '../utils/errors.ts';
 export interface AccountProviderFeatures {
   accountId: string;
   provider: 'google' | 'microsoft' | null;
-  mail: { transport: string; nativeTransport: string | null; native: boolean; migrationAvailable: boolean };
-  calendar: { authorized: boolean; connectionId: string | null; collections: Array<{ id: string; kind: string; enabled: boolean }> } | null;
-  contacts: { authorized: boolean; connectionId: string | null; collections: Array<{ id: string; kind: string; enabled: boolean }> } | null;
+  mail: { transport: string; nativeTransport: string | null; native: boolean; migrationAvailable: boolean; authorized?: boolean; requiredScopes?: string[]; grantedScopes?: string[]; missingScopes?: string[] };
+  calendar: { authorized: boolean; connectionId: string | null; collections: Array<{ id: string; kind: string; enabled: boolean }>; requiredScopes?: string[]; grantedScopes?: string[]; missingScopes?: string[] } | null;
+  contacts: { authorized: boolean; connectionId: string | null; collections: Array<{ id: string; kind: string; enabled: boolean }>; requiredScopes?: string[]; grantedScopes?: string[]; missingScopes?: string[] } | null;
   push: { mail: string; calendar: string; contacts: string };
 }
 
@@ -37,11 +37,12 @@ export function transportLabel(transport: string): string {
 }
 
 /** The authorization a "connect this service" action starts, per provider and service. */
-export function authorizationPath(input: { provider: 'google' | 'microsoft'; service: 'mail' | 'calendar' | 'contacts' }): string {
+export function authorizationPath(input: { provider: 'google' | 'microsoft'; service: 'mail' | 'calendar' | 'contacts'; accountId?: string }): string {
   const purpose = input.service === 'mail' ? 'mail_migration' : input.service === 'calendar' ? 'calendar_enable' : 'contacts_enable';
+  const account = input.accountId ? `&accountId=${encodeURIComponent(input.accountId)}` : '';
   return input.provider === 'google'
-    ? `/oauth/google?purpose=${purpose}`
-    : `/oauth/provider/microsoft?purpose=${purpose}`;
+    ? `/oauth/google?purpose=${purpose}${account}`
+    : `/oauth/provider/microsoft?purpose=${purpose}${account}`;
 }
 
 export default function AccountProviderServices({ accountId, reload, t }: Props) {
@@ -59,7 +60,7 @@ export default function AccountProviderServices({ accountId, reload, t }: Props)
 
   const authorize = useCallback((provider: 'google' | 'microsoft', service: 'calendar' | 'contacts' | 'mail') => {
     const anchor = document.createElement('a');
-    anchor.href = authorizationPath({ provider, service });
+    anchor.href = authorizationPath({ provider, service, accountId });
     anchor.target = '_blank';
     anchor.rel = 'opener';
     document.body.appendChild(anchor);
