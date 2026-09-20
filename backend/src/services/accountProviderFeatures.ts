@@ -225,31 +225,61 @@ const EMPTY_SYNC_STATE: AccountFeatureSyncState = {
   cursorPresent: false,
 };
 
-/** The last recorded run per feature for one account, read from `sync_states`. */
+/**
+ * The `sync_states.coverage` that represents each feature's real pipeline.
+ *
+ * A feature writes more than one kind of run: Gmail's label discovery records `labels` and its message/history
+ * pipeline records `history`; Graph's folder discovery records `folders` and its messages record `messages`.
+ * Reading "the newest row for the feature" therefore let a *discovery* run be reported as a successful mail
+ * synchronisation — the live report was `lastSuccessfulSync` set with `cursorPresent = false`, which is
+ * exactly a label run with no history cursor behind it. The pipeline's own coverage is what the diagnostics
+ * read, so discovery can never stand in for synchronisation.
+ */
+const PIPELINE_COVERAGE: Record<string, { google: string; microsoft: string }> = {
+  mail: { google: 'history', microsoft: 'messages' },
+  calendar: { google: 'events', microsoft: 'events' },
+  contacts: { google: 'personal', microsoft: 'personal' },
+};
+
+/** The last recorded run of each feature's own pipeline for one account, read from `sync_states`. */
 async function syncStatesForAccount(userId: string, accountId: string): Promise<Record<string, AccountFeatureSyncState>> {
+  const pipelineCoverages = [...new Set(Object.values(PIPELINE_COVERAGE).flatMap(entry => [entry.google, entry.microsoft]))];
   const result = await query<{
-    feature: string; last_success_at: Date | string | null;
+    feature: string; coverage: string; last_success_at: Date | string | null;
     last_error_code: string | null; last_error_at: Date | string | null; cursor_present: boolean;
   }>(
     `SELECT feature,
+            coverage,
             max(last_success_at) AS last_success_at,
             (array_agg(last_error_code ORDER BY last_error_at DESC NULLS LAST))[1] AS last_error_code,
             max(last_error_at) AS last_error_at,
             bool_or(cursor IS NOT NULL) AS cursor_present
        FROM sync_states
-      WHERE user_id = $1 AND account_id = $2
-      GROUP BY feature`,
-    [userId, accountId],
+      WHERE user_id = $1 AND account_id = $2 AND coverage = ANY($3::text[])
+      GROUP BY feature, coverage`,
+    [userId, accountId, pipelineCoverages],
   );
   const states: Record<string, AccountFeatureSyncState> = {};
   for (const row of result.rows) {
-    states[row.feature] = {
+    const expected = PIPELINE_COVERAGE[row.feature];
+    // Only the pipeline's own coverage counts; a discovery row is deliberately ignored.
+    if (!expected || (row.coverage !== expected.google && row.coverage !== expected.microsoft)) continue;
+    const previous = states[row.feature];
+    const candidate: AccountFeatureSyncState = {
       // An absent time is reported as null rather than invented, so the interface can say "never".
       lastSuccessfulSync: row.last_success_at ? new Date(row.last_success_at).toISOString() : null,
       lastErrorCode: row.last_error_code ?? null,
       lastErrorAt: row.last_error_at ? new Date(row.last_error_at).toISOString() : null,
       cursorPresent: Boolean(row.cursor_present),
     };
+    // Both providers can only have one of the two coverages, but a mailbox moved between them may have both;
+    // the newest completed run wins, and a recorded error survives if the newer row has none.
+    if (!previous || (candidate.lastSuccessfulSync ?? '') > (previous.lastSuccessfulSync ?? '')) {
+      states[row.feature] = {
+        ...candidate,
+        lastErrorCode: candidate.lastErrorCode ?? previous?.lastErrorCode ?? null,
+      };
+    }
   }
   return states;
 }

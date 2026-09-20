@@ -110,7 +110,7 @@ describeOrSkip('account provider diagnostics (PostgreSQL)', () => {
   it('reports the last successful run, the last error and whether a cursor exists', async () => {
     const { syncStateId } = await inTransaction(async client => {
       const id = await ensureSyncState(client, {
-        userId: USER_A, connectionId: null, accountId, feature: 'mail', collectionId: null, coverage: 'default',
+        userId: USER_A, connectionId: null, accountId, feature: 'mail', collectionId: null, coverage: 'history',
       });
       const lease = await client.query<{ running_generation: string | number }>(
         'UPDATE sync_states SET running_generation = COALESCE(running_generation, 0) + 1, lease_expires_at = NOW() + interval \'5 minutes\' WHERE id = $1 RETURNING running_generation',
@@ -201,7 +201,7 @@ describeOrSkip('the feature state model', () => {
     // A failed run is reported as a failure with its code, still authorized.
     await inTransaction(async client => {
       const stateId = await ensureSyncState(client, {
-        userId: USER_A, connectionId: null, accountId, feature: 'mail', collectionId: null, coverage: 'message',
+        userId: USER_A, connectionId: null, accountId, feature: 'mail', collectionId: null, coverage: 'history',
       });
       const lease = await client.query<{ running_generation: string | number }>(
         'UPDATE sync_states SET running_generation = COALESCE(running_generation, 0) + 1, lease_expires_at = NOW() + interval \'5 minutes\' WHERE id = $1 RETURNING running_generation',
@@ -218,7 +218,7 @@ describeOrSkip('the feature state model', () => {
     // A successful run clears the failure and reports the feature as synchronized.
     await inTransaction(async client => {
       const stateId = await ensureSyncState(client, {
-        userId: USER_A, connectionId: null, accountId, feature: 'mail', collectionId: null, coverage: 'message',
+        userId: USER_A, connectionId: null, accountId, feature: 'mail', collectionId: null, coverage: 'history',
       });
       const lease = await client.query<{ running_generation: string | number }>(
         'UPDATE sync_states SET running_generation = COALESCE(running_generation, 0) + 1, lease_expires_at = NOW() + interval \'5 minutes\' WHERE id = $1 RETURNING running_generation',
@@ -238,5 +238,48 @@ describeOrSkip('the feature state model', () => {
         expect(group).toHaveProperty('syncErrorCode');
       }
     }
+  });
+});
+
+describeOrSkip('mail diagnostics read the message pipeline, not discovery', () => {
+  it('does not report a label discovery run as a successful mail synchronisation', async () => {
+    // The live state was `lastSuccessfulSync` set with `cursorPresent = false`. A Gmail label run records
+    // `coverage = 'labels'` and its message/history pipeline records `coverage = 'history'`; reading the newest
+    // row for the feature let the discovery run masquerade as synchronisation.
+    await query('DELETE FROM sync_states WHERE user_id = $1 AND account_id = $2', [USER_A, accountId]);
+    await inTransaction(async client => {
+      const labels = await ensureSyncState(client, {
+        userId: USER_A, connectionId: null, accountId, feature: 'mail', collectionId: null, coverage: 'labels',
+      });
+      const lease = await client.query<{ running_generation: string | number }>(
+        'UPDATE sync_states SET running_generation = COALESCE(running_generation, 0) + 1, lease_expires_at = NOW() + interval \'5 minutes\' WHERE id = $1 RETURNING running_generation',
+        [labels],
+      );
+      // A discovery run completes without any history cursor: it must not become "mail synchronised".
+      await commitSyncCheckpoint(client, { syncStateId: labels, generation: Number(lease.rows[0]!.running_generation) });
+    });
+
+    const afterDiscovery = await describeAccountProviderFeatures({ userId: USER_A, accountId });
+    expect(afterDiscovery!.diagnostics.mail.lastSuccessfulSync).toBeNull();
+    expect(afterDiscovery!.diagnostics.mail.cursorPresent).toBe(false);
+    expect(afterDiscovery!.mail.synchronized).toBe(false);
+
+    // The message/history pipeline, with its historyId cursor, is what makes mail synchronized.
+    await inTransaction(async client => {
+      const history = await ensureSyncState(client, {
+        userId: USER_A, connectionId: null, accountId, feature: 'mail', collectionId: null, coverage: 'history',
+      });
+      const lease = await client.query<{ running_generation: string | number }>(
+        'UPDATE sync_states SET running_generation = COALESCE(running_generation, 0) + 1, lease_expires_at = NOW() + interval \'5 minutes\' WHERE id = $1 RETURNING running_generation',
+        [history],
+      );
+      await commitSyncCheckpoint(client, { syncStateId: history, generation: Number(lease.rows[0]!.running_generation), cursor: 'history-98765' });
+    });
+
+    const afterHistory = await describeAccountProviderFeatures({ userId: USER_A, accountId });
+    expect(afterHistory!.diagnostics.mail.lastSuccessfulSync).not.toBeNull();
+    expect(afterHistory!.diagnostics.mail.cursorPresent).toBe(true);
+    expect(afterHistory!.mail.synchronized).toBe(true);
+    expect(afterHistory!.mail.syncPending).toBe(false);
   });
 });

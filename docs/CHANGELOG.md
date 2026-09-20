@@ -275,6 +275,15 @@ None.
   IMAP loops, health checks, rule forwarder and send path no longer open IMAP or SMTP for it.
 
 ### Fixed
+- **Mail diagnostics report the message pipeline, not the discovery step.** A feature writes more than one kind
+  of run: Gmail's label discovery records `labels` and its message/history pipeline records `history`, Graph's
+  folder discovery records `folders` and its messages record `messages`. The per-account diagnostics read the
+  newest row for the feature, so a discovery run was reported as a completed mail synchronisation — the live
+  symptom `lastSuccessfulSync` set with `cursorPresent = false`, which is a label run with no history cursor
+  behind it. The diagnostics now read each feature's own pipeline coverage (`history`/`messages`, `events`,
+  `personal`), so discovery can never stand in for synchronisation and `cursorPresent` answers the question it
+  claims to.
+
 - **Gmail mail is polled again.** Google's label discovery records its collection as `mail_label`, while the
   scheduler's dispatcher only recognised Graph's `mail_folder`. A native Gmail connection therefore had no
   scheduled message sync at all: new mail appeared only after a manual synchronisation or a push notification,
