@@ -1,6 +1,7 @@
 import type { PoolClient } from 'pg';
 import { query, withTransaction } from '../../db.js';
 import { toAppError } from '../../../utils/errors.js';
+import { ProviderAuthError } from '../../providerAuthService.js';
 import {
   acquireSyncLease,
   commitSyncCheckpoint,
@@ -335,7 +336,9 @@ export async function syncGmailMailLabelsForAccount(input: {
       relocatedMessages: applied.relocatedMessages,
     };
   } catch (caught) {
-    const code = caught instanceof GoogleApiError ? caught.code : 'INTERNAL_ERROR';
+    // See the Graph mail sync: an authorization failure is a `ProviderAuthError`, not a `GoogleApiError`, and
+    // reporting it as INTERNAL_ERROR hides the instruction the user needs.
+    const code = caught instanceof GoogleApiError || caught instanceof ProviderAuthError ? caught.code : 'INTERNAL_ERROR';
     await withTransaction(client => failSyncRun(client, { syncStateId, generation: lease.generation, errorCode: code })).catch(() => {});
     throw caught;
   }
@@ -794,7 +797,9 @@ export async function syncGmailMailMessagesForAccount(input: {
     await withTransaction(client => releaseSyncLease(client, { syncStateId, generation: lease.generation })).catch(() => {});
     return { accountId: input.accountId, labels: targets.length, ...totals, fullSync, incomplete, cursor, mode };
   } catch (caught) {
-    const code = caught instanceof GoogleApiError ? caught.code : 'INTERNAL_ERROR';
+    // See the Graph mail sync: an authorization failure is a `ProviderAuthError`, not a `GoogleApiError`, and
+    // reporting it as INTERNAL_ERROR hides the instruction the user needs.
+    const code = caught instanceof GoogleApiError || caught instanceof ProviderAuthError ? caught.code : 'INTERNAL_ERROR';
     await withTransaction(client => failSyncRun(client, { syncStateId, generation: lease.generation, errorCode: code })).catch(() => {});
     throw caught;
   }

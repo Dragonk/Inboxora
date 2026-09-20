@@ -296,6 +296,15 @@ None.
   IMAP loops, health checks, rule forwarder and send path no longer open IMAP or SMTP for it.
 
 ### Fixed
+- **A failed mail sync says why, instead of `INTERNAL_ERROR`.** Both mail syncs classified only their own
+  provider's API error, and an authorization failure — a missing scope, a revoked grant, a refresh that the
+  provider refused — arrives as a `ProviderAuthError`, which is neither. Every such failure was recorded as
+  `INTERNAL_ERROR`, which is the one code that tells a user nothing; the calendar and contacts syncs already
+  reported it correctly. Both mail syncs now classify `ProviderAuthError` by its own code at both failure sites
+  (folder discovery and the message page), so the diagnostics show `PROVIDER_AUTH_REQUIRED`,
+  `INSUFFICIENT_SCOPES` or `REAUTH_REQUIRED` and the action that follows from it. `INTERNAL_ERROR` is left for an
+  exception that is genuinely unexpected.
+
 - **The automated-series mode cannot merge ordinary human mail.** `automated_series_mode = 'strict'` is the one
   path that can place two messages in the same conversation without an RFC edge, because the ingest adopts the
   previous series' conversation. Pinned on PostgreSQL, through the real ingest, for a generic IMAP account with

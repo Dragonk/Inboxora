@@ -1,6 +1,7 @@
 import type { PoolClient } from 'pg';
 import { query, withTransaction } from '../../db.js';
 import { toAppError } from '../../../utils/errors.js';
+import { ProviderAuthError } from '../../providerAuthService.js';
 import {
   acquireSyncLease,
   commitSyncCheckpoint,
@@ -249,7 +250,11 @@ export async function syncGraphMailFoldersForAccount(input: {
     await withTransaction(client => releaseSyncLease(client, { syncStateId, generation: lease.generation })).catch(() => {});
     return { accountId: input.accountId, folders: mapped.size, ...applied };
   } catch (caught) {
-    const code = caught instanceof GraphApiError ? caught.code : 'INTERNAL_ERROR';
+    // `ProviderAuthError` is not a `GraphApiError`, and a token or grant problem is the most common reason a
+    // provider sync fails. Classifying it as INTERNAL_ERROR hid the one instruction that helps — reconnect or
+    // grant the scope — so the authorization failures are reported by their own code, as the calendar and
+    // contacts syncs already did.
+    const code = caught instanceof GraphApiError || caught instanceof ProviderAuthError ? caught.code : 'INTERNAL_ERROR';
     await withTransaction(client => failSyncRun(client, { syncStateId, generation: lease.generation, errorCode: code })).catch(() => {});
     throw caught;
   }
@@ -608,7 +613,11 @@ export async function syncGraphMailMessagesForFolder(input: {
     await withTransaction(client => releaseSyncLease(client, { syncStateId, generation: lease.generation })).catch(() => {});
     return { ...totals, fullSync };
   } catch (caught) {
-    const code = caught instanceof GraphApiError ? caught.code : 'INTERNAL_ERROR';
+    // `ProviderAuthError` is not a `GraphApiError`, and a token or grant problem is the most common reason a
+    // provider sync fails. Classifying it as INTERNAL_ERROR hid the one instruction that helps — reconnect or
+    // grant the scope — so the authorization failures are reported by their own code, as the calendar and
+    // contacts syncs already did.
+    const code = caught instanceof GraphApiError || caught instanceof ProviderAuthError ? caught.code : 'INTERNAL_ERROR';
     await withTransaction(client => failSyncRun(client, { syncStateId, generation: lease.generation, errorCode: code })).catch(() => {});
     throw caught;
   }
