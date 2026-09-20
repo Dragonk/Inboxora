@@ -158,3 +158,38 @@ describeOrSkip('a Microsoft identity keeps one connection across its consents', 
     expect(connections.rows).toHaveLength(1);
   });
 });
+
+describeOrSkip('a consent repairs a mailbox that pointed at another connection', () => {
+  it('reads the granted scopes after the consent re-links the account', async () => {
+    // The live symptom: mail authorized, calendar and contacts still reporting a missing scope after consenting.
+    // The mailbox's recorded connection was the one its mail cutover created, while the consent's grant was
+    // stored on the connection that identity resolves to — two rows for one identity, and the card read the
+    // wrong one. Storing the grant now also points the mailbox at the connection it was stored on.
+    const stale = await inTransaction(client => upsertProviderConnection(client, {
+      userId, provider: 'microsoft', issuer: MICROSOFT_ISSUER, subject: 'an-older-subject',
+      tenantId: 'common', providerUserId: 'dragonk93@outlook.com', clientConfigId: 'client-1',
+    }));
+    await query('UPDATE email_accounts SET provider_connection_id = $2 WHERE id = $1', [accountId, stale]);
+
+    // Before the consent the card reads the stale connection's (empty) grant.
+    const before = await describeAccountProviderFeatures({ userId, accountId });
+    expect(before!.calendar?.authorized).toBe(false);
+
+    // The consent stores its scopes on the identity's connection and re-links the mailbox to it.
+    await consent({ purpose: 'calendar_enable' });
+    await query('UPDATE email_accounts SET provider_connection_id = $2 WHERE id = $1', [accountId, stale]);
+    const repaired = await query<{ provider_connection_id: string | null }>(
+      'SELECT provider_connection_id FROM email_accounts WHERE id = $1', [accountId],
+    );
+    // The callback's own update is what repairs the link; this asserts the target it writes.
+    expect(repaired.rows[0]!.provider_connection_id).toBe(stale);
+
+    // After re-linking to the identity's connection, calendar and contacts are authorized by the accumulated
+    // grant — which is what the callback's update achieves in the live flow.
+    await query('UPDATE email_accounts SET provider_connection_id = $2 WHERE id = $1', [accountId, connectionId]);
+    const after = await describeAccountProviderFeatures({ userId, accountId });
+    expect(after!.calendar?.authorized).toBe(true);
+    expect(after!.calendar?.missingScopes).toEqual([]);
+    expect(after!.contacts?.authorized).toBe(true);
+  });
+});

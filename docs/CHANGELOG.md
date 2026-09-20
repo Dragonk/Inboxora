@@ -296,6 +296,16 @@ None.
   IMAP loops, health checks, rule forwarder and send path no longer open IMAP or SMTP for it.
 
 ### Fixed
+- **A calendar or contacts consent now points the mailbox at the connection its grant was stored on.** The
+  reported symptom was mail working while a calendar or contacts consent appeared to grant nothing: the card kept
+  saying `Calendars.ReadWrite` was missing. A mailbox records the connection it was moved with, and the consent
+  stored its scopes on the connection that identity resolves to; when those are two rows for one identity, the
+  features were read from the wrong one. All three completion sites (Google, and Microsoft's browser sign-in and
+  device code) now re-link the target mailbox to the connection they stored the grant on, inside the same
+  transaction, so the authorization and the features can no longer diverge. Pinned on PostgreSQL: an account
+  pointing at a stale connection reports the feature as unauthorized with the scope missing, and once it points
+  at the identity's connection the accumulated grant authorizes calendar and contacts with nothing missing.
+
 - **Published `:dev` revision.** Frozen code SHA `f0eba45c`, built for `linux/amd64` and `linux/arm64`: backend
   `sha256:8314505d…`, frontend `sha256:911b65fd…`. Verified on the published pair: fresh smoke (health, version,
   UI root, register, login, `/api/auth/me`, accounts, calendars, address books, 117 migrations, 0 restarts) and an

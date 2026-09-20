@@ -181,6 +181,17 @@ router.get('/google/callback', async (req: Request, res: Response) => {
         clientIdAtIssue: config.clientId,
       });
       await finishAuthorizationFlow(client, { flowId: taken.id, status: 'completed' });
+      // The mailbox this consent was started from now points at the connection the grant was stored on, so the
+      // features the card reads and the grant the syncs use can never diverge. Without this, a mailbox whose
+      // recorded connection was created earlier (at its mail cutover) kept reading that one, and a calendar or
+      // contacts consent appeared to have granted nothing: the card said "missing Calendars.ReadWrite" while the
+      // grant holding it sat on another connection of the same identity.
+      if (taken.targetAccountId) {
+        await client.query(
+          'UPDATE email_accounts SET provider_connection_id = $1 WHERE id = $2 AND user_id = $3',
+          [connectionId, taken.targetAccountId, taken.userId],
+        );
+      }
       return { connectionId, purpose: taken.purpose, targetAccountId: taken.targetAccountId };
     });
 
