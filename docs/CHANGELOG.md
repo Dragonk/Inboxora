@@ -296,6 +296,11 @@ None.
   IMAP loops, health checks, rule forwarder and send path no longer open IMAP or SMTP for it.
 
 ### Fixed
+- **Published `:dev` revision.** Frozen code SHA `f0eba45c`, built for `linux/amd64` and `linux/arm64`: backend
+  `sha256:8314505d…`, frontend `sha256:911b65fd…`. Verified on the published pair: fresh smoke (health, version,
+  UI root, register, login, `/api/auth/me`, accounts, calendars, address books, 117 migrations, 0 restarts) and an
+  upgrade smoke from a 4.0.4-state database (110 → 117 migrations, healthy, 0 restarts).
+
 - **A failed mail sync says why, instead of `INTERNAL_ERROR`.** Both mail syncs classified only their own
   provider's API error, and an authorization failure — a missing scope, a revoked grant, a refresh that the
   provider refused — arrives as a `ProviderAuthError`, which is neither. Every such failure was recorded as
