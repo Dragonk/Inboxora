@@ -42,14 +42,15 @@ Each package has exactly one current state:
 
 ### P14 evidence
 
-**Frozen code SHA: `2e505108d88c7e0500ed86db0f91cc687dc0159e`** — the revision that closes the R1 audit's release blockers (per-occurrence
-and this-and-following series mutations, the DAV web editor, Microsoft Contacts reachability). Commits after
+**Frozen code SHA: `0aab1b5db08b75b034cf35f07280fc908147bfc3`** — the revision that closes the R2 audit's last gap (the in-place Gmail
+migration, its recommendation action, and the provider-aware rule forward). Commits after it are
+documentation only.
 it are documentation only.
 
 | Part | State | Evidence |
 | --- | --- | --- |
-| image build + registry verification | **done** | Workflow run [`35498016199`](https://github.com/Dragonk/Inboxora/actions/runs/35498016199) built from `source_sha=2e505108d88c7e0500ed86db0f91cc687dc0159e` and pushed `:dev`. Both resolve to OCI image indexes carrying `linux/amd64` **and** `linux/arm64`: backend `sha256:78e45f2ec67c6e5c0b2af6c39475833478bd319376a5216533f942834a5d45cc`, frontend `sha256:dee85282b33f01bb56802e6e962fd082a0c999fbe6face4988d6abf5ad0c23cb`. |
-| runtime smoke | **RUN — passed** | The published pair was pulled and started from a fresh volume. `/api/health` → `{"status":"ok"}`; `/api/version` → `{"version":"dev","sha":"2e505108d88c7e0500ed86db0f91cc687dc0159e"}`, so the running image is the frozen revision; all **115** migrations applied (`schema_migrations` = 115); first-user registration (admin); a fresh login through `POST /api/auth/login`; `/api/auth/me`; `/api/accounts` → `[]`; the UI root served the application; `docker inspect` reported **0 restarts** for every container. |
+| image build + registry verification | **done** | Workflow run [`35505762758`](https://github.com/Dragonk/Inboxora/actions/runs/35505762758) built from `source_sha=0aab1b5db08b75b034cf35f07280fc908147bfc3` and pushed `:dev`. Both resolve to OCI image indexes carrying `linux/amd64` **and** `linux/arm64`: backend `sha256:d7164616ff5b235ff204e75d9c269474a8c3ff863b00f765b61b36e5a2a0ba43`, frontend `sha256:7628c57da539d62195cddf7a87f3cbf836abca4d79283047abf4a75f3fe86b99`. |
+| runtime smoke | **RUN — passed** | The published pair was pulled and started from a fresh volume. `/api/health` → `{"status":"ok"}`; `/api/version` → `{"version":"dev","sha":"0aab1b5db08b75b034cf35f07280fc908147bfc3"}`, so the running image is the frozen revision; all **115** migrations applied (`schema_migrations` = 115); first-user registration (admin); a fresh login through `POST /api/auth/login`; `/api/auth/me`; `/api/accounts` → `[]`; the UI root served the application; `docker inspect` reported **0 restarts** for every container. |
 | `:dev` publication | **done** | The published images are the current `dev` code, including the audit's two fixes; `main` is untouched and 4.1.0 is not released. |
 
 ## Acceptance criteria W01–W19
@@ -124,10 +125,10 @@ Not release criteria; recorded so they are not lost:
 
 Measured on the frozen code SHA with each gate's own exit status read directly:
 
-- **Backend** — typecheck clean, lint clean, **2906 unit tests passed** (183 skipped; 240 files).
-- **Frontend** — typecheck clean, lint clean, **2716 tests passed** (0 failed), production build clean.
+- **Backend** — typecheck clean, lint clean, **2915 unit tests passed** (191 skipped; 241 files).
+- **Frontend** — typecheck clean, lint clean, **2726 tests passed** (0 failed), production build clean.
 - **Database** — a database created empty for the purpose, the **whole 115-migration chain applied from
-  zero** by the application's own runner, then **388 integration tests across 42 suites** on PostgreSQL 16
+  zero** by the application's own runner, then **402 integration tests across 44 suites** on PostgreSQL 16
   (exit 0), including the send-ledger and external-collection-link suites. The unit and integration
   figures are separate invocations on purpose: one process running both against one database lets
   independent integration files contend on the same conversation tables, where a `SERIALIZABLE` rebuild can

@@ -136,14 +136,14 @@ These need a real provider, device or client. They are **NOT RUN**, not failures
 
 ## Verification
 
-Measured on the frozen `dev` SHA **`2e505108d88c7e0500ed86db0f91cc687dc0159e`**, with each gate's own exit
+Measured on the frozen `dev` SHA **`0aab1b5db08b75b034cf35f07280fc908147bfc3`**, with each gate's own exit
 status read rather than inferred from a pipeline:
 
-- Backend: typecheck clean, lint clean, **2906 unit tests passed, 183 skipped** (240 files passed, 25
+- Backend: typecheck clean, lint clean, **2915 unit tests passed, 191 skipped** (241 files passed, 25
   skipped).
-- Frontend: typecheck clean, lint clean, **2716 tests passed, 0 failed**, production build clean.
+- Frontend: typecheck clean, lint clean, **2726 tests passed, 0 failed**, production build clean.
 - Database: a database created empty for the purpose, the **whole 115-migration chain applied from zero**
-  by the application's own runner, then **388 integration tests across 42 suites** on PostgreSQL 16 —
+  by the application's own runner, then **402 integration tests across 44 suites** on PostgreSQL 16 —
   exit 0. (Running the unit suite *and* the integration suites against one database in a single process is
   not a supported combination: independent integration files then contend on the same conversation tables
   and a `SERIALIZABLE` rebuild can hit a serialization failure. The two figures above are the separate,
@@ -151,16 +151,16 @@ status read rather than inferred from a pipeline:
 
 **Images published from that exact SHA** (documentation-only commits follow it, so the published images are
 the current `dev` code). Workflow run
-[`35498016199`](https://github.com/Dragonk/Inboxora/actions/runs/35498016199) built and pushed the `:dev` tags
-from `2e505108d88c`; both resolve to OCI image indexes carrying `linux/amd64` **and** `linux/arm64`:
+[`35505762758`](https://github.com/Dragonk/Inboxora/actions/runs/35505762758) built and pushed the `:dev` tags
+from `0aab1b5db08b`; both resolve to OCI image indexes carrying `linux/amd64` **and** `linux/arm64`:
 
-- `ghcr.io/dragonk/inboxora-backend:dev` — `sha256:78e45f2ec67c6e5c0b2af6c39475833478bd319376a5216533f942834a5d45cc`
-- `ghcr.io/dragonk/inboxora-frontend:dev` — `sha256:dee85282b33f01bb56802e6e962fd082a0c999fbe6face4988d6abf5ad0c23cb`
+- `ghcr.io/dragonk/inboxora-backend:dev` — `sha256:d7164616ff5b235ff204e75d9c269474a8c3ff863b00f765b61b36e5a2a0ba43`
+- `ghcr.io/dragonk/inboxora-frontend:dev` — `sha256:7628c57da539d62195cddf7a87f3cbf836abca4d79283047abf4a75f3fe86b99`
 
 **Runtime smoke of that published pair — RUN, and passed.** The pair was pulled and started as a stack
 (PostgreSQL, Redis, ntfy, backend, frontend) from a fresh volume: the backend applied the migration chain
 and became healthy, `/api/health` answered `{"status":"ok"}`, **`/api/version` answered
-`{"version":"dev","sha":"2e505108d88c7e0500ed86db0f91cc687dc0159e"}`** — the published image is the frozen
+`{"version":"dev","sha":"0aab1b5db08b75b034cf35f07280fc908147bfc3"}`** — the published image is the frozen
 revision — `schema_migrations` held all **115** rows, the first user was registered (admin), a fresh cookie
 jar logged in through `POST /api/auth/login`, `/api/auth/me` returned that user, `/api/accounts` returned
 `[]`, and the UI root served the application. `docker inspect` reported **0 restarts** for every container
