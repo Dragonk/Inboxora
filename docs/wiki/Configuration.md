@@ -32,7 +32,9 @@ configuring it leaves the app-password path fully available. The card states the
 than a requirement.
 
 **Microsoft is the other way round**: Outlook.com and Microsoft 365 no longer accept a mailbox
-password, so mail for those accounts needs the API connection, and the card says so.
+password, so those accounts need an authorized connection (browser flow or device code). Mail can then run
+over OAuth2 IMAP/SMTP or, after an in-place migration, over **Microsoft Graph** — with calendars and
+contacts on the same connection — and the card says so.
 
 ### Send and attachment limits
 

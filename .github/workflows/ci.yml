@@ -141,6 +141,7 @@ jobs:
             src/services/providerConnectionService.integration.test.ts \
             src/services/providerSchemaUpgrade.integration.test.ts \
             src/services/providers/google src/services/providers/microsoft \
+            src/services/providers/externalCollectionLinks.integration.test.ts \
             src/routes/davPg.integration.test.ts
 
   frontend:

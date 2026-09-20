@@ -1,6 +1,6 @@
 # External calendars
 
-Inboxora subscribes to **CalDAV** and **ICS/webcal** calendars as pull-only, read-only sources. These subscriptions are **independent of the provider integrations**: connecting a Google or Microsoft account neither migrates them nor changes how they sync, and nothing here is removed because a provider was configured. Conversely, a Google calendar pulled through the API is a separate calendar from a feed of the same events.
+Inboxora subscribes to **CalDAV** and **ICS/webcal** calendars. An **ICS/webcal** feed is pull-only and read-only by nature: it has no write channel. A **CalDAV** source can additionally be written back to the server it came from, once you enable write-back for that calendar — both from Inboxora and from a DAV client, keeping the client's `If-Match` precondition (see [Contacts and DAV → Writing changes back](Contacts-and-DAV.md#writing-changes-back)). These subscriptions are **independent of the provider integrations**: connecting a Google or Microsoft account neither migrates them nor changes how they sync, and nothing here is removed because a provider was configured. Conversely, a Google calendar pulled through the API is a separate calendar from a feed of the same events.
 Add one from **Settings → Calendar → Calendar subscriptions** or from the calendar panel under
 **Manage sources**, which is also where you sync, reschedule and remove them.
 
@@ -27,7 +27,7 @@ Once a Google account is connected, Inboxora can read that account's calendars t
 Calendar API instead of a feed URL. Each Google calendar becomes its own local calendar, named after
 the Google one.
 
-- Calendars arrive **read-only** and with **DAV access: Disabled**, so they are not published to your
+- Calendars arrive with write-back **off** and with **DAV access: Disabled**, so they are not published to your
   phone or desktop until you enable them yourself.
 - A recurring event stays **one event with one rule**, exactly as in Google — it is never split into
   separate copies. A single moved occurrence and a single cancelled occurrence are kept as
@@ -100,7 +100,7 @@ single source straight away.
 - Sources are **pull-only**. Inboxora never writes to the remote calendar.
 - Each source keeps its own sync schedule (15 minutes to 24 hours, default hourly), and one source
   failing never blocks the others.
-- Removing a source removes only the local read-only copy; the remote calendar is untouched.
+- Removing a source removes only the local copy; the remote calendar is untouched.
 - Events removed from the remote feed are removed locally as well, so the local copy tracks the
   source.
 - If a source returns something unusable, Inboxora keeps the last healthy copy and reports the

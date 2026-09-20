@@ -28,1219 +28,180 @@ migration and configuration requirements, the **known safe limitations**, and wh
 (including anything left **NOT RUN**). A version is never inferred from the size of the section, and a
 release is never claimed before it has happened.
 
+## [Unreleased]
+
+Nothing is being prepared beyond 4.1.0. Work whose version has not been chosen accumulates here.
+
 ## [4.1.0]
 
 ### Added
-- **The send and attachment limits are the transport's, not one global number (P06).** A send is now measured
-  against `min(installation ceiling, provider ceiling, operation ceiling)`, with the provider's numbers defined
-  once in code (`services/providers/mailCapabilities.ts`): **Microsoft Graph** carries one file up to 150 MB
-  through its resumable upload session (above 3 MB a file stops travelling inline — a choice of method, not a
-  ceiling) and a whole message up to 150 MB; **Gmail** bounds the raw RFC-822 message it is handed at 25 MB; and
-  **SMTP**, which declares no universal limit, is bounded by the installation's fallback. A native Graph account is
-  therefore no longer refused above the SMTP-era 25 MB attachment total. The dimensions are separate and each
-  refusal names the one it hit — one attachment, their total, the inline images the composer creates, the composed
-  RFC-822 message, Gmail's raw message, a Graph upload-session file, or the HTTP request body — and every refusal
-  carries `code`, `dimension`, `actualBytes`, `limitBytes` and `transport` (plus the file name where one caused it)
-  rather than English prose a client would have to match. A provider-measured refusal is decided **before** the
-  durable send intent is claimed, so it cannot be recorded as an unknown outcome or parked for reconciliation, and
-  the same idempotency key can retry a smaller message. The composer asks for the sending account's limits
-  (`GET /api/mail/send-limits`) and refuses a file it already knows cannot be sent, without closing the composer or
-  discarding the draft.
 
-- **Published `:dev` images from the frozen v4 SHA, and smoked them.** The `:dev` tags now correspond to
-  `f2b0dbf1` — the tip of `dev` after every v4 package, P06 included, closed — and were built by workflow run
-  `35471043131` as OCI image indexes carrying `linux/amd64` and `linux/arm64`. The published pair was then
-  pulled and started as a stack from a fresh volume: the backend applied the whole migration chain and
-  became healthy, `/api/health` answered `ok`, **`/api/version` reported the frozen SHA**, the first user
-  was registered, a fresh session logged in, the account list answered, and the interface served. `main`
-  is untouched: 4.1.0 is still released only by merging `dev` to it through a pull request.
+- **Native Microsoft Graph mail.** A Microsoft account can run its whole mailbox over Graph instead of
+  IMAP/SMTP: folder discovery with canonical paths for Outlook's well-known folders, message metadata with a
+  per-folder delta cursor and a `410` rebuild that reconciles rather than losing rows, read/star flags through
+  the shared mutation journal, message bodies and attachments read on demand (inline images included), delete,
+  move and archive, spam/ham marking, snooze in both directions, bulk delete, mark-all-read, source headers,
+  the attachment ZIP, drafts (save, reopen, replace in place, delete at the provider), and sending — with
+  provider-side search that asks Graph's own index for anything the local projection has not pulled. The
+  conversation engine is fed from Graph, and the IMAP loops, health checks and the automated rule forwarder
+  all follow the account's own transport, so a native account never opens an IMAP or SMTP connection.
+- **An existing Microsoft account moves to Graph in place.** `POST /api/accounts/:id/migrate` switches the
+  transport on the **same** `email_accounts.id`: no second account, no duplicate mail, and every local message,
+  folder, draft, alias, signature, rule and conversation is left exactly as it was. The switch is one atomic
+  update under a row lock, is idempotent on retry, records `authorization_required` or
+  `admin_configuration_required` instead of failing when the grant or configuration is missing, refuses an
+  account/connection mismatch by name, and has **no fallback** to Microsoft IMAP/SMTP afterwards.
+- **Microsoft Graph calendars and contacts.** Calendar discovery and delta sync with structured recurrence
+  rendered to `RRULE` and a generated `VTIMEZONE`, plus creating, editing and deleting calendar events and
+  contacts through the provider journal — the provider is written first, the local copy changes only on
+  confirmation, and the provider's own attendee notifications are not duplicated by Inboxora.
+- **Microsoft authorization by device code.** For tenants and deployments where a client secret or a redirect
+  URI is not wanted: the device-code flow authorizes a Graph connection as a public client, holding the device
+  code encrypted on the flow row together with the provider's polling interval, so a restart does not strand a
+  pending authorization.
+- **The Gmail API as an optional mail transport.** Label discovery and projection onto the local folder model,
+  message and thread ingest on a resumable mailbox history cursor, bodies and attachments read on demand,
+  message mutations (flags, move, archive, trash, spam/ham, snooze, permanent delete, mark-all-read) through
+  the journal, drafts, and sending — each dispatched on the account's transport, so a Gmail message is never
+  read over IMAP. **Google mail keeps working over IMAP/SMTP with an app password**; the API is recommended,
+  never forced.
+- **Google Calendar and Google Contacts.** Discovery, per-collection switches, delta sync with a rebuild that
+  reconciles, and creating, editing and deleting events and contacts through the same provider journal, with
+  the provider's identity linked so the next sync updates rather than duplicates.
+- **A migration recommendation for Google mailboxes.** `GET /api/integrations/notices` lists the
+  recommendation for the caller's own Google mailboxes still on IMAP/SMTP — only while the provider layer, the
+  method and an OAuth client are configured — and the accounts settings show it per mailbox with *Ignore*
+  (this session) and *do not show again* (durable, per user and per mailbox). The Microsoft requirement notice
+  cannot be suppressed.
+- **Write-back for external CalDAV and CardDAV sources.** A `PUT` or `DELETE` on a calendar or address book
+  imported from an external DAV server is forwarded to that server through the provider journal, keeping the
+  client's `If-Match`/`If-None-Match` precondition, answering `412` on a changed object, parking an ambiguous
+  source answer instead of retrying it, and updating the local copy only after the source confirms. Every
+  imported collection gets the link the write-back switch needs — including collections imported before this
+  release, on their next sync.
+- **Provider data can be written back per collection.** An imported collection is read-only until write-back
+  is enabled for it, and the switch is offered only for a collection the source itself allows to change:
+  Microsoft Graph and Google collections over the web interface, external CalDAV/CardDAV collections over DAV,
+  and never an ICS subscription.
+- **Send and attachment limits that follow the transport.** The composer, the API and the transports share one
+  model: the effective limit is `min(installation, provider, operation)`, and each refusal names the dimension
+  it hit — one attachment, their total, the inline images the composer creates, the composed RFC-822 message,
+  Gmail's raw message, a Graph upload-session file, or the HTTP request body — with the real byte count and
+  the limit. A Microsoft Graph account carries a single file up to its own upload-session ceiling through a
+  resumable upload (above 3 MB the file stops travelling inline), Gmail is bounded by the raw message it
+  accepts, and an SMTP account by the installation's ceiling. `GET /api/mail/send-limits` publishes the
+  effective numbers, and the composer refuses a file it already knows cannot be sent without closing or
+  clearing the draft.
+- **The menu-follows-your-finger mobile drawer gesture**, with a switch beside the navigation-position setting
+  and arbitration against scrolling, long-press and row actions.
+- **A hardened CalDAV/CardDAV server.** Discovery, strong entity-tags for `If-Match`, per-collection visibility
+  and access mode, a per-password ceiling that can only narrow what a collection allows, WebDAV `If`
+  handling, `403 DAV:valid-sync-token` on an expired sync token, report dispatch on the XML root element, and
+  `DAV:error` bodies on refusals.
+- **A database CI job and the browser matrix on the `dev` gate.** The database job applies the whole migration
+  chain to an empty database with the application's own runner and then runs the provider, DAV and send
+  integration suites; every piping workflow fails on a real pipeline error.
 
-- **Google Calendar and Google Contacts write through the provider journal (P09).** An event or a
-  contact created, edited or deleted in Inboxora and belonging to a write-enabled Google collection is
-  now written to Google first (`events.insert`/`patch`/`delete`,
-  `people.createContact`/`updateContact`/`deleteContact`), through the same journal and the same
-  provider-first order the Microsoft paths use: a refusal leaves the local copy untouched, an ambiguous
-  answer is parked rather than retried, a created resource keeps the provider's own identity and is
-  linked in `remote_object_links` so the next sync updates it instead of duplicating it, and the local
-  resource id — never the provider's — is what the journal's `resource_id` column records. Google sends
-  the attendee notifications itself (`sendUpdates`), so Inboxora does not send a second invitation on a
-  provider calendar. Write-back remains an explicit per-collection opt-in.
-- **The Google mail migration recommendation, with a durable "do not show again" (P09).**
-  `GET /api/integrations/notices` lists the active recommendation for the caller's own Google mailboxes
-  that are still on IMAP/SMTP — and only when the provider layer is enabled, the Google method is on and
-  an OAuth client is configured, because recommending a destination that does not exist is a dead end.
-  `POST /api/integrations/notices/:accountId/suppress` records a per-user, per-account suppression in
-  `account_notice_preferences` (the table `0101` already declares, so no migration). The **accounts
-  settings show the recommendation for each affected mailbox** with *Ignore* — a dismissal this session
-  only — and *do not show again*, which is the durable server-side suppression. The **Microsoft
-  requirement notice cannot be suppressed**: the table's closed `notice_type` check admits only the Google
-  recommendation, which is what keeps a requirement from becoming optional.
-
-- **A native Microsoft Graph account's search reaches the mailbox, not only Inboxora's own rows (P07b).**
-  `GET /api/search` keeps its response shape, but when the search is scoped to a `microsoft_graph`
-  account — or spans all accounts and the local page came up short of the limit — the route asks Graph's
-  own index once (`GET /me/messages?$search="…"`, with the message sync's `$select` and page size), groups
-  the hits by the local folder path their `parentFolderId` resolves to, upserts them through the
-  message-sync projection in one transaction and runs the sync's post-commit conversation projection.
-  Mail the delta cursor never pulled — old messages, folders the sync never visited, anything outside its
-  recent window — is found and openable, and a repeated search updates in place because identity is
-  `provider_message_id`. The `$search` literal escapes backslashes and double quotes and is capped at 500
-  characters; a hit whose folder cannot be resolved is skipped and counted rather than filed into a
-  guessed folder; a provider failure is reported as `providerErrors` beside the local results and never
-  fails them; `PROVIDER_INTEGRATIONS_ENABLED=0` stops the outbound call; and the account's
-  `mail_transport` — never `source` — decides the branch, so a Google account still searches locally.
-  Search is a read into the local model, not a sync: it never touches a delta cursor, and no migration is
-  needed.
-
-- **An existing Microsoft account can move to the native Graph transport in place (P12).**
-  `POST /api/accounts/:id/migrate` (optional body `{ connectionId }`) keeps the same `email_accounts.id`
-  and every local message, folder, draft, alias and conversation, and switches the account only when an
-  active Microsoft connection whose grant carries `Mail.ReadWrite` **and** `Mail.Send` resolves for it —
-  named explicitly or matched on the verified provider identity — with ownership enforced by the row
-  lock. The switch is one atomic update (`mail_transport`, `provider_connection_id`, `protocol`,
-  `migration_state = 'active_native'`, generation + 1), so a crash leaves either all of it or none, and a
-  retry on an already-switched account is a no-op. A refusal is recorded as `authorization_required` or
-  `admin_configuration_required` with the reason in `migration_error_code` and never changes the
-  transport; once switched, the account never falls back to Microsoft IMAP/SMTP. No new migration: it
-  uses the columns `0101` already declares. The IMAP loops and health checks now also filter on the
-  authoritative `mail_transport`, so a native account stays invisible to IMAP even if `protocol` is
-  ever reset.
-
-- **External CalDAV/CardDAV write-back (P10).** A `PUT` or `DELETE` on a calendar or address book whose
-  source is an external CalDAV/CardDAV server is now forwarded to that server instead of being refused,
-  so an edit made in DAVx⁵, Thunderbird or Apple Contacts reaches the server the collection was imported
-  from. The client's `If-Match`/`If-None-Match` preconditions are forwarded to the source, a changed
-  object answers `412` so the client re-reads instead of overwriting, and an ambiguous source answer — a
-  `5xx`, a timeout or a connection reset after the request left — is parked as `outcome_unknown` and
-  never retried. The local copy and the remote link are updated only after the source confirms; an ICS
-  subscription has no write channel and stays read-only, and an `.ics` file imported into a local
-  calendar stays locally editable. Write-back still needs the per-collection switch, and a collection
-  that is written by a source whose adapter cannot forward the change keeps the refusal path.
-
-- **Microsoft Graph calendar-event writes (P09).** Creating, editing and deleting an event in a
-  write-enabled Microsoft calendar now writes to Graph first and only then to the local copy, through the
-  same provider journal as every other mutation: a refusal leaves the local row untouched, an ambiguous
-  answer is parked rather than retried, and an event Microsoft no longer has counts as removed. A created
-  event keeps the provider's own `iCalUId` as its local identity and is linked in `remote_object_links`,
-  so the next delta updates that row instead of inserting a second copy. Because Microsoft notifies
-  attendees itself when an event carries them, Inboxora's own invitation mail is **not** sent a second
-  time for a provider calendar. A local recurrence is validated once and rendered twice — the `RRULE` the
-  local resource stores and Graph's `pattern`/`range` — with times sent as the exact instant in UTC rather
-  than a zone-specific wall time guessed from metadata. The same per-collection write-back switch gates
-  it: a calendar Microsoft marks `canEdit: false` can never be written, and a pulled calendar stays
-  read-only until the user enables it. Two paths that are resolved but not yet forwarded — adding a
-  received invitation to a provider calendar, and changing a single occurrence of a provider series —
-  now answer `501` with a reason instead of writing locally, where the change would be invisible to
-  every other client and undone by the next sync.
-
-- **Microsoft Graph contact writes, behind an explicit write-back switch (P09).** Creating, editing and
-  deleting a contact in a pulled Microsoft address book now writes to **Graph first** and only then to
-  the local copy: the mutation goes through the shared provider journal (a durable claim before the
-  provider call, an ambiguous answer parked rather than retried, a refusal reported rather than
-  swallowed), and a contact the provider no longer has counts as removed. A newly created contact is
-  stored under the provider's own identity, so the next delta updates that row instead of inserting a
-  second copy. Nothing becomes writable on its own: a pulled collection stays read-only until the user
-  turns write-back on for **that collection**, and the switch refuses when the provider itself does not
-  permit writes (`canEdit: false` on a calendar) or when no adapter forwards that kind of write yet. The
-  provider's own permission (`source_access`) and the user's choice (`user_access`, migration `0112`) are
-  now both read by the capability model, so a read-only collection stays read-only even though its
-  adapter can write — which is what the plan requires.
-
-
-- **Gmail API mail adapter, read path (P08): labels and message/thread ingest.** A Google account can
-  now read its mail through the **Gmail API** instead of IMAP: labels are discovered and projected onto
-  the local folder model (the system mailboxes `INBOX`, `SENT`, `DRAFT`, `TRASH` and `SPAM` with the
-  canonical local paths and `special_use` values the rest of the application already reads, every user
-  label as its own folder, and `STARRED`/`IMPORTANT`/`UNREAD`/`CHAT`/`CATEGORY_*` deliberately **not**
-  invented as folders), each linked by its immutable Gmail label id. Messages are ingested with a
-  mailbox-wide **history cursor** (`users.history.list` from a stored `historyId`): a first run builds a
-  resumable baseline and records the mailbox's `historyId` **before** it starts, so a change that lands
-  mid-run is replayed rather than lost; later runs re-read only the threads the history names. An
-  expired history id (Gmail answers `404`) rebuilds from a baseline **and reconciles**, and so does a
-  delta larger than one run's budget. A Gmail message is in several places at once, so the row holds the
-  **primary** folder its label set gives it and the complete label id set beside it
-  (`messages.provider_labels`), the Gmail thread id goes in the thread identity column in the same
-  `gmail:` form the IMAP path uses for `X-GM-THRID`, and a label deleted in Gmail re-homes the messages
-  it held to another label they still carry instead of dropping them. Label create/rename/delete are
-  performed **through the mutation layer** with the same durability rules (create and delete are
-  non-idempotent and never auto-retried; rename is a state set). Requires migration **`0111`**.
-  **No account is migrated:** `mail_transport` only becomes `gmail_api` through a later, explicit
-  cutover (P12), so every existing Google account keeps reading and sending over IMAP/SMTP exactly as
-  before, and the work above is unreachable for it. **Body and attachments** are read on demand
-  through the provider: one `format=full` read answers the MIME tree, the body and the attachment list
-  together, the HTML is sanitised and cached in the same `body_html`/`body_text`/`attachments` columns
-  the IMAP path uses, inline `cid:` images are embedded as data URIs under a bounded count and byte
-  budget, and a download addresses Gmail's own attachment id under the same per-file ceiling the IMAP
-  and Graph paths enforce — including when a forward reads its bytes from a Gmail source account.
-  **Message mutations** go through the shared provider-mutation layer, where Gmail's own semantics
-  decide each operation: a flag is a label (`\Seen` is the absence of `UNREAD`, `\Flagged` is
-  `STARRED`), a move adds the destination label and removes the mailbox the message leaves, trash and
-  spam/ham are the same label move, archiving is **removing `INBOX`** (Gmail has no Archive label, so
-  the row moves to whichever label remains or leaves the local view), a permanent delete is
-  `messages.delete`, and mark-all-read is one journal-backed flag write per unread message. Every one
-  of those is a **state set on labels**, so it converges and is declared idempotent — a recovered claim
-  is safe to re-run — which is the opposite of the delete, and the reason the two are declared
-  differently. **Send** is a branch of the existing send seam rather than a second pipeline in the
-  route: a Gmail account renders the canonical model once into the RFC-822 buffer `raw` takes, and the
-  provider's own answer is mapped onto `accepted` / refused-before-acceptance / unknown-outcome, so an
-  uncertain send is parked and never retried. The size ceiling is checked in Gmail's terms — the decoded
-  message against Gmail's own 25 MiB raw-message limit — before anything is dispatched. One provider
-  fact is recorded because it **changes the Bcc rule**: the Gmail API's `Message` resource has **no
-  envelope field** (checked against the API discovery document), and Gmail's own documentation says the
-  send delivers "to the recipients in the `To`, `Cc`, and `Bcc` headers". So the Gmail arm **keeps** the
-  `Bcc:` header, because stripping it would silently drop every blind recipient; Gmail derives the
-  delivery envelope from the headers and, like any submission agent, does not expose that header on the
-  copies it delivers. The SMTP arm still removes it and relies on the envelope, and the two renders
-  differ only in that one respect. **Saved drafts** are Gmail's own `Draft` object: saving creates it,
-  re-saving patches the same object rather than leaving two, and deleting removes it at Gmail first. The
-  local mirror is keyed on the **message** id the draft wraps — the identity the message sync reconciles
-  on — so a later sync updates the draft rather than inserting a second row; the draft id a patch or
-  delete addresses is resolved from the provider when it is needed, because the local model has no column
-  for a second identity and this package may not add a later migration. With this the Gmail API mail
-  adapter is **complete** (labels, ingest, body and attachments, mutations, drafts and send); what remains
-  is the account cutover (P12), which is what makes it reachable, and live acceptance, which is **NOT
-  RUN**.
-
-- **Microsoft Graph calendars (P07d, read path).** A Microsoft connection's calendars are now
-  discovered and pulled with their events, next to the contacts that already were. Each calendar
-  becomes a local calendar that starts **read-only and hidden from DAV devices**, linked by its
-  immutable Graph id, and refreshed on the same schedule as the other provider collections. A
-  recurring event stays **one resource**: Graph's structured `recurrence` is rendered into an `RRULE`
-  (every pattern type it defines, with `COUNT` or an inclusive UTC `UNTIL`), the wall time keeps its
-  zone with a generated `VTIMEZONE`, an all-day event stays date-valued, and a moved or cancelled
-  instance travels as a `RECURRENCE-ID` override inside its master's resource. A delta link Graph
-  rejects rebuilds the calendar from a baseline, and the provider's own permission (`canEdit`) is
-  recorded on the collection so a calendar Microsoft refuses to edit can never be offered as
-  writable. No new migration is required for this package.
-
-- **Microsoft Graph provider authorization by device code (P04).** The Graph connector — the provider
-  connection that calendars and contacts sync through — can now be authorized without a client secret
-  and without a registered callback, by the same device-code grant the mailbox flow uses. The operator
-  registers a **public client**, the card shows a code, and the poll that completes it is held on the
-  **flow row in the database** (the device code encrypted, the interval the provider asked for, the last
-  poll time), so a server restart no longer strands a pending authorization. The provider's own pending
-  /declined/expired answers are reported as the flow's states rather than as errors, a poll arriving
-  before the requested interval is answered from the stored state instead of becoming a call to
-  Microsoft, and a `slow_down` stores the provider's new interval. Identity is still read server-to-server
-  from Graph, and the recorded grant is marked as a **public client's**, so its refresh omits the secret.
-  Requires migration **`0110`**.
-
-- **Microsoft Graph drafts (P07b).** Saving a draft from a native Microsoft Graph account now creates
-  the draft **at Microsoft** rather than appending MIME over IMAP, and re-saving **patches the same
-  provider object** so the mailbox never holds two versions of one draft. Because Graph's JSON keeps
-  `bccRecipients` out of band, a draft with a blind recipient keeps it across a reload and across
-  clients. The local mirror is keyed by the immutable provider id (the same identity the message sync
-  uses), so a later delta updates that row instead of inserting a second one, and the composer reopens
-  the saved composition from it. Deleting a draft removes it at the provider first and only then drops
-  the local row; a draft the provider no longer has is treated as already removed. The draft's identity
-  no longer requires an IMAP `UIDVALIDITY` from the interface — a provider draft has none — and the
-  numeric-string form the interface actually receives for a `BIGINT` `uid` is now accepted, which
-  corrects a latent defect that turned every autosave of an existing draft into a new one.
-
-- **Microsoft Graph send (P07b, the send pipeline).** A native Microsoft Graph account can now
-  **send** mail. The message is composed once into a transport-independent model and handed to the
-  single send seam, which binds the account to Graph rather than SMTP; the seam — not the route —
-  decides which transports exist, and a native account never opens an SMTP connection. Graph sends
-  **draft-first**: the message is created as Graph JSON so blind recipients travel out of band as
-  `bccRecipients` (the composed MIME deliberately has no `Bcc:` header), every attachment is added to
-  that draft — inline below 3 MB, through a resumable upload session from 3 MB up to 150 MB — and
-  only then is it sent. The three answers the provider can give are told apart: **accepted**, a
-  **refusal read before acceptance** (nothing has left, so the idempotency claim is released and the
-  same key can retry deliberately), and an **unknown outcome**, which is parked as
-  `send_outcome_unknown` and is never re-sent automatically. The sent copy is Microsoft's own — the
-  mail sync ingests it from Sent Items — so no IMAP APPEND runs for a native account. IMAP/SMTP
-  accounts keep their existing behaviour unchanged: same route, same rendered message, same envelope
-  and blind-recipient guarantees.
-
-- **Microsoft Graph message delete (P07b, fifth slice).** Deleting a Graph message follows the same
-  product decision the IMAP path already makes — a **draft** and a message **already in Trash** are
-  removed for good, anything else is **moved to Trash** — carried out through the shared
-  provider-mutation layer. A Graph move **re-identifies the message**, so the local row adopts the new
-  provider id and compatibility number rather than being left on a dead one. The provider call runs
-  before the local row changes, as it does for IMAP: a row that claims a message is in Trash when the
-  provider never moved it is worse than a slower delete. A refused or unconfirmed delete leaves the
-  row untouched and answers `409`/`502` rather than reporting success. Move and delete are declared
-  **non-idempotent** on purpose — a second attempt addresses an id that no longer exists and answers
-  `404`, which cannot be told apart from "gone for another reason" — so a recovered claim is parked as
-  `outcome_unknown` instead of being re-run automatically.
-
-- **Microsoft Graph message body and attachments (P07b, fourth slice).** Opening a Graph message now
-  reads its body from Microsoft — fetched on demand, sanitised with the same HTML sanitiser the IMAP
-  path uses, and cached in the same `body_html`/`body_text`/`attachments` columns, so the reading
-  interface needs no branch and later views are served from the cache. **Attachments** are listed with
-  their provider metadata and download by their Graph attachment id, under the same 50 MB ceiling the
-  IMAP path enforces; a download is refused before the bytes are decoded. **Inline images are
-  embedded** as data URIs from their `contentId`, bounded in count and size, which is what keeps the
-  cached HTML out of the "unresolved `cid:`" rule that would otherwise re-fetch the body on every view.
-  A single unreadable inline image is skipped rather than failing the whole message. The message body
-  cache, the remote-image blocking preference and the calendar-invitation marker all behave as they do
-  for IMAP.
-
-- **Microsoft Graph message flags, and the pending-mutation drain (P07b, third slice).** Marking a
-  Graph message read/unread or starred now writes to Microsoft through the **shared provider-mutation
-  layer** — the same `confirmed`/`retryable`/`outcome_unknown` semantics, claim fencing and journal as
-  the IMAP flag write — instead of a Graph-only pipeline. A permanent provider refusal (a deleted
-  message, a lost scope) **undoes the optimistic local change and answers `409`** rather than leaving
-  a state the mailbox does not have; a `retryable` outcome is scheduled in the journal and drained by
-  the next message sync, which settles pending flags *before* reading the delta so the sync cannot
-  overwrite a change still in flight. This is the drainer the `pending` pool was missing. The IMAP
-  path is unchanged.
-
-- **Migration `0109_provider_operation_payload.sql`** adds `provider_operations.payload`, the adapter
-  parameters a scheduled retry is re-run with. Without it a `pending` row was unreadable, which is why
-  nothing drained the pool. It must be applied **in order, after `0108`, and before the application is
-  rolled out**; the column is nullable and no existing row is rewritten.
-
-- **Microsoft Graph mail message sync (P07b, second slice).** A Graph account's message **metadata** —
-  subject, correspondents, To/Cc/Reply-To, received date, snippet, read/flagged state, attachment
-  flag, and the Graph `conversationId` as the thread — is now ingested into the local `messages`
-  table, one delta cursor per folder, refreshed on the provider schedule and by "Sync now". Identity
-  is the provider's **immutable message id** (`messages.provider_message_id`), never the RFC
-  `Message-ID` and never a hash of it; a `410` from Graph rebuilds the folder from a baseline **and
-  reconciles**, so a message deleted while the cursor was unusable does not stay behind for ever. A
-  flag the user just changed is not reverted by a sync that read the server earlier (the same 30 s
-  local-wins window the IMAP path uses). **Body, attachments and message mutations are not in this
-  slice**, and Graph is still not a mail transport: the account continues to read mail over IMAP/SMTP.
-
-- **Migration `0108_message_provider_identity.sql`** adds `messages.provider_message_id` with a
-  partial unique index on `(account_id, provider_message_id)` and an index on
-  `(account_id, folder)`. It must be applied **in order, after `0107`, and before the application is
-  rolled out**; every pre-v4 IMAP row has a NULL provider id and is untouched.
-
-- **Microsoft Graph mail folder discovery (P07b, first slice).** A Microsoft account whose
-  `mail_transport` is `microsoft_graph` can now have its mailbox folder tree imported: Outlook's
-  well-known folders map onto Inboxora's canonical paths (`INBOX`, `Sent`, `Drafts`, `Trash`, `Spam`,
-  `Archive`) with their IMAP-style `special_use`, ordinary folders derive a nested path, and each
-  folder is linked to its **immutable Graph folder id** in `integration_collections.remote_id`. A
-  folder renamed at the provider is recognised as the same folder: its local path follows and its
-  messages are moved with it instead of being orphaned. The folder list is refreshed on the existing
-  provider schedule, and "Sync folders" on a Graph account triggers the first discovery.
-  This is **folder discovery only** — messages are not imported yet and Graph is not yet a mail
-  transport, so the account still reads its mail over IMAP/SMTP.
-
-- **Migration `0107_mail_folder_collection_link.sql`** adds `integration_collections.local_folder_id`
-  (nullable, `REFERENCES folders(id) ON DELETE SET NULL`) and a partial index on it. It must be
-  applied **in order, after `0106`, and before the application is rolled out**; a collection whose
-  value is NULL behaves exactly as before.
-
-- A test for **stored credential encryption**, which was exercised only through mocks: it round-trips with the same key,
-  produces ciphertext that does not contain the plaintext, and — the property a backup depends on — is **unreadable with a
-  different key** rather than returning the plaintext or silent garbage. It also pins two contracts that were implicit:
-  encrypting without a valid `ENCRYPTION_KEY` throws rather than storing plaintext, and `decrypt` throws on a non-string
-  instead of returning null.
-
-
-- A provider configuration can be **tested**, not only reported ready. `POST /api/integrations/:provider/test`
-  checks the stored client id and secret against the provider using a deliberately unusable grant: the provider
-  answers `invalid_client` when the credentials are wrong and `invalid_grant` when it accepts them, which is the
-  whole test and costs the provider nothing. The secret is decrypted for the call and is never part of the answer,
-  and no user data or grant is involved. Readiness reports that the fields are present; this reports whether they
-  work, which is the difference an administrator with a mistyped secret notices at the provider instead of on the
-  card. Each provider card carries a **Test configuration** button for it, which reports which of the two it
-  is — accepted, rejected, no client id saved, or the provider unreachable — in place.
-
-
-- A **message-size ceiling on the send path**, counted on the composed message. The interface's estimate was the
-  only check there was, so an oversized message travelled to the SMTP server and failed there with whatever that
-  server said. The server now counts the message as actually compiled — headers, base64 growth, separators and CRLF
-  included — **before** anything is claimed or dispatched, and answers `413 MESSAGE_TOO_LARGE` with the real byte
-  count and the limit. `MAIL_MAX_MESSAGE_BYTES` raises the limit from its 25 MiB default; passing this check means
-  this installation accepted the message, **not** that the provider will.
-- An oversized **attachment** is named rather than only totalled: the message says which file is above the limit and
-  by how much, measured from the decoded contents rather than a declared size. The policy is unchanged — the total
-  would have refused the same message — but the administrator learns what to remove.
-- A message refused for its **composed size** now reports how much of it is attachments, measured as the raw bytes of
-  the decoded files. The third figure the plan asks for — the transport encoding — has no meaning while the only
-  transport is SMTP, so it is not reported rather than reported as a zero.
-
-
-
-- Refusals on the forwarded-attachment path now carry **domain codes** rather than only sentences:
-  `ATTACHMENT_FETCH_FAILED` when a part cannot be read from the source mailbox — §22.1's rule, which is also §12.9's
-  sentence: a retry of the read is possible, and the message is not sent without the file — and `RESOURCE_NOT_FOUND`
-  for a referenced message, part or account that is not there. The behaviour is unchanged; what is new is that an
-  interface has something to branch on instead of matching English text. The composer now does branch on them and
-  renders **translated** sentences with the server's figures — the file name, the actual size and the limit, in units a
-  person reads — in all nine languages, rather than showing the server's English.
-
-
-- Mobile: open the navigation drawer by dragging right from the left quarter of the visible
-  surface. A single gesture owner arbitrates between the drawer, a message-row swipe and
-  scrolling, so a partly opened drawer cannot also archive a message. A new
-  **Settings → Appearance → "Open the menu with a swipe from the left"** switch (on by default)
-  sits directly next to the top/bottom navigation choice and is saved per user; when it is off
-  the gesture reserves no start zone. The message reader keeps native text selection.
-- Add the v4 provider-layer schema (migration `0101_provider_layer.sql`): provider connections,
-  OAuth grants, the per-account calendars/contacts integration switches, the per-account Google
-  API recommendation preference, standalone CalDAV/CardDAV/ICS source connections, collection
-  metadata, remote object links, a durable provider-operation journal and sync checkpoints. The
-  change is expand-only — it creates tables and nullable/defaulted columns and widens the calendar
-  and address-book `source` checks without rewriting any existing value, and it never switches a
-  transport — so it must be applied before a build that reads the new columns is rolled out; the
-  current build continues to work and ignore the new tables. Existing accounts and sources are
-  unaffected.
-- Add a Google card to the existing **Settings → Integrations → Email providers** screen, next to
-  Microsoft and with the same layout (description and setup steps above the fields). It stores the
-  Google Cloud Web-application Client ID, client secret and redirect URI, and states explicitly
-  that IMAP/SMTP with an app password does not depend on it. There is no Google device-code
-  option: Google does not allow a device flow for the Gmail, Calendar and People scopes this
-  integration needs. `GET /api/integrations/status` now reports per-method readiness
-  (`browser.ready` with the missing field names, and `deviceCode` support) for both providers
-  without exposing any credential, so the UI no longer treats a saved Client ID alone as a
-  working OAuth client. Config writes are validated against a closed schema, a blank or omitted
-  secret preserves the stored one, an explicit clear removes it, and deleting a provider writes a
-  tombstone so a restart can no longer resurrect the previous environment values.
-- Add recurring events to the calendar. The event dialog can create a daily, weekly, monthly or
-  yearly series (interval, selected weekdays, and an end of never / on a date / after a number of
-  occurrences); the rule is stored as a standard `RRULE` and included in invitations sent to
-  attendees. Editing a recurring event now asks whether the change applies to the occurrence you
-  opened or the whole series: the series editor is populated from the series' own start, end and
-  rule, and saving applies to every occurrence without disturbing existing exceptions. A foreign
-  rule the editor cannot represent is shown as custom and kept untouched unless you explicitly
-  replace it. Cancelling already offered *this occurrence / this and following / the whole series*
-  and is unchanged. New `GET /api/calendar/events/:id` returns one event's stored representation
-  (including its rule) for the series editor, and the `recurrence` field is validated and rendered
-  into iCalendar by the server, so a client cannot inject arbitrary iCalendar properties.
-- Harden the built-in CalDAV/CardDAV server's discovery and capability surface. CalDAV now
-  reports `calendar-home-set` as the calendar home collection instead of pointing at the first
-  calendar, so a client (for example DAVx⁵) discovers every calendar instead of only one, and a
-  `Depth: 1` PROPFIND on the home lists the member calendars while `Depth: 0` returns only the
-  home. Calendar and address-book collections now advertise `current-user-privilege-set` (write
-  privileges only for a local, non-read-only collection — a collection synced from an external
-  source is advertised read-only, matching what the DAV write handlers accept) and
-  `supported-report-set` for exactly the reports implemented. An unrecognised or expired sync token
-  now answers `403` with
-  `DAV:valid-sync-token` (RFC 6578) instead of `409`, and the `DAV` header no longer advertises
-  class 2/3 (LOCK, extended MKCOL), which were never implemented. CalDAV and CardDAV `If-Match`
-  now use strong entity-tag comparison (RFC 9110): a weak `W/"…"` validator is rejected with
-  `412` even when its value matches, instead of being stripped to a strong comparison.
-- Add the v4 sync/operation foundation (migration `0102_operation_journal_and_outbox.sql`, applied
-  after `0101`): provider-operation claims with a monotonic generation and lease, sync-run leases
-  and ownership columns on `sync_states`, and a `domain_outbox` for idempotent delivery after a
-  local commit. New services `providerOperations`, `syncCoordinator` and `domainOutbox` implement
-  the journal, lease/fencing and outbox contracts. A restarted or superseded worker can no longer
-  complete an operation it no longer owns; an identical retry replays the stored result instead of
-  calling the provider again; the same key with different content is a conflict; and an
-  unconfirmed outcome is parked for reconciliation rather than retried automatically. Outbox
-  delivery is at-least-once with a per-event identity and a bounded retry budget, so a delivery
-  retry cannot duplicate a local effect. The migration is expand-only and must be applied before a
-  build that reads the new columns.
-- Add the server-side Google web OAuth flow (P04 foundation, migration
-  `0103_oauth_authorization_flows.sql`, applied after `0102`). `GET /oauth/google` starts an
-  authorization-code + PKCE (S256) flow for a chosen purpose — new account, mail migration,
-  calendars or contacts — and requests only that purpose's scopes, so adding a mailbox never
-  silently enables calendars/contacts. `GET /oauth/google/callback` exchanges the code, resolves
-  the Google identity as issuer + subject (never the e-mail address) and stores the provider
-  connection plus the encrypted grant. Flow state is stored hashed and single-use in the database,
-  so several flows can run in parallel, a restart does not lose a pending flow, a replayed
-  callback is rejected, a callback delivered into another session attaches nothing, and a flow
-  started under a different Client ID/redirect is not completed. A token response that omits the
-  refresh token keeps the stored one, and each grant write bumps its generation. Google device
-  authorization is deliberately not offered because Google does not allow these scopes in that
-  flow. Selecting the Gmail API as the mail transport remains a separate, explicit migration step.
-- Add single-flight OAuth grant refresh (migration `0104_oauth_grant_refresh_lease.sql`, applied
-  after `0103`). A short refresh lease names the one worker allowed to call the provider for a
-  grant, and every stored token bumps the grant generation, so the write is a compare-and-swap:
-  two workers cannot rotate the same refresh token, a worker that lost the race re-reads the newer
-  token instead of overwriting it, and a response without a refresh token keeps the stored one.
-  A revoked or expired consent (`invalid_grant`) parks the grant as `reauth_required` and stops
-  automatic refresh instead of looping. The provider call is never made inside a database
-  transaction.
-- Add per-collection DAV visibility and mode (migration `0105_collection_dav_mode.sql`, applied
-  after `0104`). Each calendar and address book now has a **DAV access** setting — *Disabled*,
-  *Read only* or *Read and write* — editable in the calendar's name/colour dialog and the
-  address-book dialog. A disabled collection is absent from discovery and answers `404` on every
-  direct URL, so knowing an old link does not bypass it; a read-only collection serves reads but
-  refuses DAV writes with `403`. The mode is a ceiling: it can only narrow the collection's own
-  rights, never widen them, and the advertised `current-user-privilege-set` matches what the
-  handlers enforce. Existing collections default to *Read and write*, so an upgrade changes
-  nothing, while a collection created by connecting an external CalDAV/CardDAV source starts
-  *Disabled* so it is not published implicitly.
-- Add a per-application-password DAV ceiling (migration `0106_dav_credential_max_mode.sql`, applied
-  after `0105`). When creating a DAV application password under **Settings → DAV access** you now
-  choose **Read and write** or **Read only**, and the active list shows each credential's ceiling.
-  The credential's mode travels with the request and is intersected with the collection's own
-  mode: a read-only password cannot write even to a read-write calendar or address book, it never
-  widens one, and the advertised `current-user-privilege-set` reflects the intersection. Existing
-  passwords default to *Read and write*, so an upgrade changes nothing.
-- Add the Google People contacts read adapter (P09, first slice). `POST
-  /api/contacts/providers/google/sync` pulls the signed-in user's personal Google contacts for every
-  active Google connection and projects them into one local address book per connection, created
-  with `source = 'google'` and DAV access *Disabled*. Contacts are linked by the People resource
-  name, never by e-mail, so a renamed contact, a shared address or a contact without an address
-  never merges or duplicates; a person the provider reports as deleted is removed locally and its
-  link kept as a tombstone. The sync cursor is stored per connection/collection under the P03 lease,
-  so only one sync runs at a time and a restarted worker cannot advance it out of order; a cursor
-  the provider rejects (HTTP 410) rebuilds the collection from a fresh baseline instead of failing.
-  Provider failures are classified (401 → re-authorize, 403 quota versus missing scope, 410 →
-  rebuild, 429/5xx → retryable) and one failing connection does not hide the others' results. The
-  synced books stay read-only in the app: REST and DAV writes to a non-local contact are refused,
-  so no write-back is pretended before it exists. The in-app sync control and the automatic
-  schedule arrive with the account-connection UI.
-- Wire the Google authorization flow into the interface (P04). The Google card in
-  **Settings → Integrations → Email providers** now offers **Connect a Google account** to any
-  signed-in user as soon as the browser flow is ready, and explains what an administrator still has
-  to configure otherwise; the flow asks only for Google Contacts, because mail and calendars are
-  added separately with their own adapters. A completed popup or same-tab callback reports the
-  connection instead of opening the Accounts screen (no mailbox is created or migrated), and the
-  Contacts page shows a **Sync Google contacts** action, plus a per-run summary of what was added,
-  updated and removed, once an account is connected. A new safe status endpoint
-  (`GET /api/contacts/providers/google/status`) reports readiness, the connection count and each
-  synced book's count and last-sync time without exposing any credential.
-- Add the Google Calendar mapping foundation (P09, internal; not yet wired to a route or screen).
-  The adapter preserves a recurring series instead of expanding it: a master event keeps its
-  `RRULE`/`EXDATE`, a modified instance becomes a `RECURRENCE-ID` override and a cancelled
-  instance a `CANCELLED` override, all-day events stay date-valued, and the wall time is written
-  with a real `VTIMEZONE` generated from the platform time-zone database, so a DST boundary cannot
-  shift a series. A first revision of the generator omitted the baseline component that expanding
-  clients need for a date before the first transition, which read such dates an hour wrong; the
-  suite now pins both the summer and winter instant. Provider text is escaped and lines folded per
-  RFC 5545, and an event without a usable zone falls back to the exact UTC instant rather than an
-  undefined floating time.
-- Add the Google Calendar read sync (P09). `POST /api/calendar/providers/google/sync` reads the
-  signed-in user's Google calendars through the Calendar API and creates one local calendar per
-  Google calendar, read-only and with DAV access *Disabled* so nothing is published to a device
-  until the user enables it. A recurring event stays one event with one rule and one local
-  resource: a modified instance is merged in as a `RECURRENCE-ID` override and a cancelled instance
-  as a `CANCELLED` override, while an incremental batch that carries only an override updates that
-  component and leaves the rest of the series untouched. Each calendar's cursor is stored under the
-  P03 lease, so only one sync runs per calendar and a restarted worker cannot advance it out of
-  order; a cursor Google rejects (HTTP 410) rebuilds that calendar from a fresh baseline without
-  deleting the local projection first, and one calendar failing does not stop the others. The new
-  `GET /api/calendar/providers/google/status` reports readiness, the connection count and each
-  imported calendar's event count and last-sync time without exposing any credential. The in-app
-  control and automatic schedule arrive with the account-connection interface; the calendar list
-  itself already shows the imported calendars.
-- Surface the Google calendar pull in the interface. **Settings → Calendar → Manage sources** now
-  shows a **Google calendars** section: once an account is connected it offers **Sync Google
-  calendars** and reports what the run did (calendars, added, updated, removed, and a partial
-  failure when a connection or a single calendar fails); before that it explains where to connect
-  an account. The imported calendars appear in the calendar list as soon as the run finishes. With
-  this the whole Google slice — connect an account, pull contacts, pull calendars — is reachable
-  without calling the API by hand; the automatic schedule is still to come.
-- Refresh the Google collections a user has already pulled on a schedule (default every 15
-  minutes, `PROVIDER_SYNC_INTERVAL_MINUTES`, `0` disables it). Only collections that already
-  exist are refreshed, so connecting an account never starts an import by itself — the schedule
-  keeps what you chose to pull up to date instead. Every run is lease-protected, so a scheduled
-  pass, a restart and a manual sync cannot run at the same time or advance a cursor out of order;
-  a slow pass is never overlapped, and a failure on one connection is logged and retried on the
-  next tick without stopping the others.
-- Add a Microsoft Graph access-token service (P04/P07 foundation, internal; no user-visible change
-  yet). Google and Microsoft now share one refresh path — the single-flight lease, the generation
-  compare-and-swap and the re-auth parking — with only the token exchange differing, so the parts
-  that must not diverge cannot. Microsoft rotates refresh tokens on most refreshes, so a returned
-  token replaces the stored one while an omitted one keeps it; a public client (the device flow)
-  sends no client secret, and the tenant id is validated before it is interpolated into the token
-  URL so a malformed value can never retarget the request. A revoked consent (`invalid_grant`) parks
-  the grant as needing re-authorization instead of retrying in a loop. The `.env.example` no longer
-  claims Microsoft Graph is already required for mailboxes: the Graph transport is still to come, and
-  Microsoft mail continues to use the existing OAuth2 IMAP/SMTP path until it lands.
-- Add the Microsoft Graph provider authorization flow (P07, reachable at
-  `/oauth/provider/microsoft`; not yet exposed in the settings screen). Authorization-code + PKCE
-  against the configured Entra tenant, with the same protections as the Google flow: the one-time
-  state is stored only as a hash and is single-use, the callback is bound to the session that
-  started it, a configuration change mid-flow is rejected, and a declined consent or a replayed
-  callback cannot complete a flow later. Scopes are per purpose — `mail_migration`,
-  `calendar_enable` and `contacts_enable` never imply one another, and a read-only request asks for
-  `.Read` rather than `.ReadWrite` — plus `User.Read`, the lowest-privilege Graph scope, which is
-  what identifies the account that was just authorized. The identity is read from Graph with the
-  token Microsoft returned server-to-server, never from anything the browser supplied. The route is
-  deliberately separate from `/oauth/microsoft`, which keeps handling mailbox sign-in unchanged; the
-  returned connection is reported as a connection, not as a new account, and creates or migrates no
-  mailbox.
-- Add the Microsoft Graph contacts connector (P07/P09, reachable at
-  `/api/contacts/providers/microsoft/status` and `/sync`; not yet offered in the interface).
-  Outlook's default contact folder is read through Graph and projected into one local address book
-  per connection, created read-only with DAV access *Disabled*. Contacts are linked by the Outlook
-  contact id, never by e-mail; a contact deleted in Outlook is removed locally with a tombstone link.
-  Synchronisation uses Graph's delta feed — a baseline first, then changes only — and a delta link
-  Graph rejects (HTTP 410) rebuilds the book from a baseline **and reconciles** it, removing what the
-  baseline no longer lists, which a plain re-read would silently leave behind. Each connection's
-  cursor is stored under the P03 lease, so only one sync runs at a time and a restarted worker cannot
-  advance it out of order. Graph failures are classified (401 → re-authorize, 403 → missing scope,
-  404, 410 → rebuild, 429/5xx → retryable with Retry-After, after one controlled token refresh on a
-  401), and one failing connection does not hide the others' results. Also fixes a real defect found
-  while wiring this: both contacts status endpoints listed **every** address book of the user rather
-  than the books of that provider, so a Google book could be reported by the Microsoft connector and
-  vice versa; each is now scoped to its own connections.
-- Offer the Microsoft Graph connector in the interface. The Microsoft card under
-  **Settings → Integrations → Email providers** now has **Connect Microsoft contacts**, which
-  authorizes Microsoft Graph for contacts only and says so — it never changes or migrates the
-  mailbox, and the existing mailbox sign-in stays a separate action beside it. Once connected, the
-  Contacts page's address-book menu shows **Sync Microsoft contacts** alongside **Sync Google
-  contacts**; the two are offered and reported independently, so an account connected for one
-  provider never hides the other, and each run says which account it belongs to and what it added,
-  updated and removed.
-- Refresh the Microsoft contacts a user has already pulled on the same schedule as the Google ones.
-  Until now only Google was refreshed automatically, so a Microsoft book went stale unless the user
-  asked again. Readiness is now decided per provider, so an unconfigured Google can no longer stop a
-  Microsoft refresh (or the reverse), a provider/collection pair without an adapter yet is skipped
-  rather than attempted, and a failure on either side is logged and retried on the next tick without
-  affecting the other.
-- Honour the WebDAV `If` header on CalDAV and CardDAV writes (P11 hardening, DV19). It is a
-  precondition, not a hint, so a syntactically valid condition the server cannot evaluate now
-  **fails** instead of being treated as absent — previously an ignored `If` silently stopped
-  protecting a client's optimistic-concurrency guard. Entity-tag conditions (`["etag"]`) use strong
-  comparison exactly like `If-Match`, state-token conditions (`(<token>)`) are compared against the
-  collection's sync token, `Not` negates a condition, conditions inside one pair are AND-ed and
-  pairs are OR-ed, and a repeated header is treated as one. A malformed header is a `400`; a
-  well-formed condition that is not met, or a valid form not evaluated here (a tagged list, which
-  can name another resource), is a `412`.
-- Add an operator procedure for the provider APIs (`docs/wiki/Provider-setup.md`, linked from the
-  sidebar and the configuration page). It documents what each connector actually reads, the exact
-  redirect URIs (`/oauth/google/callback`, `/oauth/microsoft/callback`,
-  `/oauth/provider/microsoft/callback`), the environment variables and their fallbacks, the
-  delegated permissions per feature, the difference between the Microsoft mailbox sign-in and the
-  Graph contact connector, how refresh and re-authorization behave, and a troubleshooting table
-  covering the failures an operator actually sees. Every Inboxora-side name, path and variable in
-  the page was checked against the code it describes.
-- Import contacts from a **vCard (`.vcf`) file** (P10). The address-book menu had a Google CSV
-  import; a `.vcf` export from any other client now imports too, including a file that concatenates
-  many cards (line endings and folded lines are handled). Unlike the CSV import, which has no
-  stable identity and therefore dedupes by e-mail address, a vCard carries a UID — the same value
-  DAV clients use — so the import keys on it and re-importing a file updates the existing contacts
-  instead of creating a second copy of each. A card without a UID is given one, a block with no
-  usable fields is skipped rather than stored blank, and an empty, oversized or card-less file is
-  reported instead of importing nothing quietly.
-- Import an **iCalendar (`.ics`) file** into a local calendar (P10), from the calendar's appearance
-  dialog. The file is split into one resource per UID, so a series and its moved exceptions stay
-  together as DAV requires instead of becoming separate events, and the import keys on the UID, so
-  re-importing updates the events a calendar already has rather than duplicating every series. An
-  event the projection cannot read (for example one whose end precedes its start) is skipped
-  instead of stored broken and does not stop the valid events beside it; a file that is not a
-  calendar, or that contains no event at all, is reported as a `400`; and a calendar owned by a
-  provider or an imported feed refuses the write, because its source is its writer.
-- Run one provider refresh shortly after start instead of waiting a whole interval. A restart used
-  to leave already-pulled contacts and calendars stale for up to the refresh interval (15 minutes by
-  default); the schedule now performs a first pass 30 seconds after start and then keeps to the
-  normal cadence, so a restart no longer delays freshness. The delay keeps the pass out of the way
-  of start-up, the existing single-flight guard still prevents it from overlapping a running pass,
-  and the timer does not hold the process open.
-- Show when each contact connector last synced, or that it failed. The contacts page fetched a
-  provider's status but only used whether an account was connected, so a connector that had been
-  failing — or one that had not run for days — looked exactly like a healthy one. Beside each
-  provider's sync action the page now shows the freshest last-sync time across that provider's
-  address books, or the recorded error code when a run failed, so a silent problem is visible
-  without opening the logs. The status line comes from the payload the page already loaded, so it
-  costs no extra request.
-- The same for the calendar connector: **Settings → Calendar → Manage sources** now shows the
-  freshest last-sync time of the imported Google calendars, or the recorded error code when a run
-  failed, so a calendar that stopped updating is visible where the sync action is rather than only
-  in the logs. It uses the status payload the dialog already loads.
-- Fix a gap in the Google connection card: its single connect button asked only for the contacts
-  scopes, so a user who connected from that card could not pull calendars — the calendar sync would
-  fail with a missing scope, which the status line above then reported rather than hiding. The card
-  now offers **Connect a Google account** (contacts) and **Connect Google calendars** as separate
-  authorizations, and its hint explains that each asks for its own feature and that mail is never
-  requested there. Google's incremental consent keeps the scopes of the earlier connection, so
-  connecting twice accumulates them rather than replacing them.
-- Report the right limit when an upload is rejected as too large. The body parser rejects an
-  oversized request before any route runs, and its single message named the 25 MB attachment limit
-  even for a contacts or calendar import, describing something the user was not doing. The message
-  is now chosen from the path: the 900 KB import limit for contact and calendar imports, the 5 MB
-  spritesheet limit for the pet import, the attachment limit for sending or saving a draft, and a
-  plain "request too large" elsewhere rather than a limit that does not apply.
-- Report **when** a connector last failed, not only its error code. A recorded failure now carries
-  its timestamp through the status endpoint, and the contacts page and the calendar sources dialog
-  show it beside the code, so "it failed" becomes "it failed at 09:12" and a failure that keeps
-  recurring is distinguishable from one that happened once during an outage.
-- Explain the provider failures a user can act on instead of showing the internal code. A recorded
-  failure was reported as its domain code, so a connector that simply needed re-authorizing read as
-  `PROVIDER_AUTH_REQUIRED`. A lost or refused authorization, a missing permission, and a provider
-  that is throttling now each get a sentence naming the action, in all nine languages. A code with
-  no action behind it still shows the raw code, because a friendly sentence for a fault we do not
-  understand would be worse than the code itself.
-- Confirm what a contact import added. Importing a CSV or vCard file silently refreshed the list, so
-  a user could not tell a successful import of forty contacts from a file that matched nothing. Both
-  importers now report the count the server returns, in all nine languages, in the same place as the
-  sync notices.
-- Confirm what a calendar import added, and keep the dialog open to show it. Importing an `.ics`
-  file closed the appearance dialog immediately, so the only feedback was the event count changing
-  somewhere in the calendar behind it; the dialog now stays open with the count the server returns,
-  which also lets a second file follow without reopening it. A previous file's confirmation no
-  longer greets the next calendar you open.
-- Say when a provider is ready to connect. The contacts page showed nothing for a provider an
-  administrator had already configured, so a user could not tell that contact import was available
-  to them; it now names the provider and the button to use under **Settings → Integrations**. It
-  appears only in the not-connected case and never replaces the sync control for an account that is
-  connected.
-- Report how much each connector is holding on its last-sync line. The line showed only a time, so
-  a connector that had synced but imported nothing looked the same as one holding hundreds of
-  contacts; it now names the total across that provider's books or calendars. The date stays the
-  freshest sync, so the message says "in total" rather than implying the count belongs to that one
-  time — they are different aggregations over the same set.
-- Clear a contact import's confirmation when you switch address books. It is shown outside the
-  address-book menu, so the previous book's result stayed visible over the next one — the same stale
-  confirmation the calendar import no longer shows.
-- Return the failure timestamp from the **calendar** status endpoint too. It was added to the
-  contacts endpoints only, so the calendar sources dialog had the time interpolated as empty and
-  showed a failure as `… ( )` instead of when it happened. Both surfaces now carry it, and a
-  real-database case covers the other half of the contract: a run that fails after taking the lease
-  records both the code and the time the status line reads.
-- Acknowledge the Microsoft Graph connection in the tab that started it. The connect button opens a
-  popup, and the popup reports the provider it was redirected with — `microsoft_graph` — which the
-  opener had no branch for, so completing **Connect Microsoft contacts** left the card unchanged, the
-  button stuck until its timeout, and the Contacts page unaware that an account had just become
-  connectable. The Graph connector now gets its own confirmation, distinct from the mailbox sign-in
-  because they are different grants.
-- Release every connect button when an authorization fails. A failed Google or Microsoft Graph
-  consent left that button disabled until its five-second timeout, because only the mailbox button
-  was released. The error text still appears in the mailbox area: the popup does not report which
-  provider failed, and attributing it to a guess would be worse than leaving it unattributed.
-- Make the connector status line's arithmetic robust and tested. The four aggregations (freshest
-  sync, total, failure precedence, the action sentence) existed twice, once per surface and only as
-  component code that no test could reach. They now live in one helper with unit tests, and it
-  de-duplicates rows by collection: the `sync_states` unique key includes `coverage`, so the status
-  query could one day return two rows for one collection, and a fan-out would silently double the
-  number the line reports. Relying on "only one row exists today" is fine for the query, not for a
-  count the user reads.
-- Stop the iCalendar import replacing the calendar's DAV sync token. A `calendar_events` trigger
-  already maintains it in the `sync-N` scheme the DAV endpoint advertises, and the import wrote a
-  random UUID of its own on top — a value that scheme never produces. Removing it also removes a
-  redundant statement per import. Verified on a real database that inserting an event bumps the
-  token and that it stays in the advertised form, which is what the DAV clients depend on.
-- Make the Microsoft connector's readiness mean what the hint promises. The contacts status
-  reported *configured* when only a client id existed, which is enough to refresh a stored token but
-  not to run the browser authorization — so a user could be invited to connect an account through a
-  card that would fail at Microsoft. The status now uses a browser-flow predicate (client id, secret
-  and redirect URI), while the **sync** action keeps the looser one, because refreshing a grant needs
-  no secret. Both predicates are pinned by tests so the distinction cannot collapse.
-- Give the Microsoft Graph authorization its own callback. Both Microsoft flows read
-  `MS_REDIRECT_URI`, which belongs to the mailbox sign-in, so the connector asked Microsoft to
-  return its authorization code to `/oauth/microsoft/callback` — a route that knows nothing about
-  the connector's state. The connection could therefore never complete in a real installation. The
-  connector now uses `/oauth/provider/microsoft/callback`, derived from the trusted `APP_URL` (or
-  from `MS_PROVIDER_REDIRECT_URI` when set), and the readiness flag that offers the connect action
-  requires that callback rather than the mailbox one.
-- Ask only for the access these connectors use. Both connect buttons requested write scopes —
-  `contacts`/`calendar.events` on Google, `Contacts.ReadWrite` on Microsoft — while every adapter
-  reads. A permission the software never exercises is one the user cannot see a reason for, and it
-  widens what a leaked grant can do. The buttons now send `access=read_only`, which the server
-  already honours by narrowing the scope, and both ends are pinned by tests so the consent screen
-  cannot silently widen again.
-- Fix the mobile drawer staying open over the page after navigating. Handing styling back to React
-  cleared the drawer's inline `transform` instead of restoring it, and React does not re-apply a
-  style it has already committed — so after a navigation click (which also fires `blur` and aborts
-  the gesture sequence) the drawer rendered at its layout position, covering the content it had just
-  navigated to, even though the state said closed. Found by running the end-to-end suite, which had
-  not been part of the gates.
-- Stop an `.ics` import overwriting an event Inboxora owns. The import upserts by UID, and it
-  lacked the guard the CalDAV write path applies: an event kept in sync because Inboxora sent its
-  invitations could have been replaced by a file — organizer, attendees and all — silently, which
-  a DAV client is explicitly refused. Those conflicts are now left unchanged and reported, and a
-  file whose events are all protected is no longer described as containing none.
-- Close a window in which a grant could be refreshed twice. A successful store releases the refresh
-  lease, so a worker that had read an expired token *before* another worker stored a fresh one could
-  still acquire the now-free lease and call the provider again with the token it read earlier.
-  Harmless where the provider keeps its refresh token, but a real risk where it rotates it — the
-  second exchange can invalidate the first worker's result. The grant is now re-read under the lease
-  and a token that has since become usable is returned instead of refreshing again.
-- Report a revoked authorization as what it is. The providers' token service throws its own error
-  type, which the connectors did not recognise, so the one failure a user can act on — reconnect the
-  account — was recorded as `INTERNAL_ERROR` and the message written for exactly that case never
-  appeared. Their codes are now recorded (and `invalid_grant`, `unauthorized_client` and a missing
-  refresh token are mapped to the "reconnect the account" sentence), so a revoked consent reads as
-  an action instead of an internal fault.
-- Stop a provider refresh switching a disabled collection back on. Each connector re-asserted
-  `enabled`, its access columns and its DAV mode on every run, so a collection that had been turned
-  off — which the refresh schedule honours — would be silently re-enabled by the next sync of that
-  connection. The refresh now only links what is missing and leaves the settings it does not own
-  alone.
-- Stop promising an automatic retry that may not happen. The message shown when a provider is
-  throttling said the sync "will be retried automatically", which is only true while the refresh
-  schedule is enabled — and the same documentation that describes this message documents setting
-  `PROVIDER_SYNC_INTERVAL_MINUTES=0` to disable that schedule. The wording now tells the user to try
-  again shortly, which is true either way, instead of describing behaviour the operator may have
-  turned off.
-- Stop telling a user who connected Google calendars to sync their contacts. The same confirmation
-  is shown after authorizing either Google purpose, and it named the contacts page specifically, so
-  the instruction was wrong for the calendar button. It now states what happened; each surface
-  already offers its own sync action, so naming one was both redundant and, half the time,
-  incorrect.
-- Offer the Microsoft contacts connector wherever it can actually run. The button was gated on the
-  mailbox sign-in's readiness, which needs `MS_REDIRECT_URI` — a callback the connector does not use,
-  because it authorizes on `/oauth/provider/microsoft/callback` derived from `APP_URL`. An
-  installation that had a working connector but no mailbox sign-in therefore hid the button, while
-  the Contacts page's hint (which uses the connector's own readiness) invited the user to press it.
-  The status now reports the connector's readiness separately and the card uses it, so the hint and
-  the button agree.
-- Stop offering the *Connect* button for a Microsoft sign-in that cannot complete. It was enabled as
-  soon as a Client ID existed, but the browser method needs a confidential client — a secret and the
-  exact redirect URI — and clicking with only a Client ID failed at Microsoft. A Client ID alone is
-  enough for the device-code method, which keeps its own control; the browser button now requires
-  the browser readiness the status already reports, so it is offered only where it can work.
-- Make the Microsoft device-code switch mean something where it is used. The device button was
-  enabled whenever a Client ID existed, so switching the method off in the saved configuration left
-  it fully usable — the readiness text said one thing and the control did another. The button now
-  follows the device method's own readiness, like the browser and connector controls do for theirs.
-- Enforce the Microsoft device-code switch on the server, not only in the interface. The method's
-  readiness was reported and the button honoured it, but `POST /oauth/microsoft/device` still started
-  the flow for a method an administrator had switched off — so the setting was effective for users and
-  decorative for any caller that bypassed the interface. The route now answers `403` with a clear
-  message, and a configuration that cannot be read leaves the method enabled rather than failing
-  closed.
-- Make the provider and per-method switches real. `enabled` per provider and `webEnabled` /
-  `apiEnabled` per method were stored and partly displayed, but nothing enforced them: switching
-  Google or Microsoft — or one of their methods — off left every flow startable, and the readiness
-  card still reported the provider as enabled. The stored switches are now read by the flows
-  themselves (both Microsoft authorizations, the device method and the Google authorization), the
-  readiness report reflects them, and both halves are covered by tests, because a report that says
-  "unavailable" over a route that still works is the same defect in the other direction.
-- Allow a connected provider account to be disconnected. An authorization could only be undone at
-  the provider: nothing wrote `revoked`, and no route existed to remove a connection. `POST
-  /api/integrations/provider-connections/:id/disconnect` now revokes the grant, **deletes the stored
-  access and refresh tokens** rather than leaving them encrypted at rest, takes the connection out of
-  service so no schedule touches it, and disables its collections so nothing refreshes. It deletes
-  none of the imported data: that is the user's, it stays visible, and removing it is a separate
-  decision rather than a side effect of disconnecting. Only the owner's own connection is affected.
-- Show what is connected and let it be disconnected. The integration card listed nothing about the
-  accounts a user had authorized, so a connection could only be undone through the API or at the
-  provider. The card now lists the signed-in user's own connections per provider and offers
-  **Disconnect** for each, and the status endpoint reports them (ids only, never a credential,
-  owner-scoped). Disconnecting keeps the imported data, as the endpoint documents.
-- Make reconnecting after a disconnect actually refresh again. Disconnecting disables a
-  connection's collections, and re-authorizing the same account re-enabled the connection but not
-  them — so the connector came back into service with nothing to refresh, which is indistinguishable
-  from a connector that never worked. Re-authorization now re-enables the collections as well.
-- Say what Microsoft requires. The integration status has reported a mail policy since it existed —
-  Microsoft requires an API-based connection, Google recommends one — and the Google recommendation
-  was already stated in that provider's own description, but nothing in the interface said that
-  Outlook.com and Microsoft 365 no longer accept a mailbox password. The Microsoft card now states
-  that requirement, so the person choosing knows the connection is the only option.
-- Tell a DAV client why a write was refused. A collection Inboxora keeps read-only — because its
-  source writes it, or because its DAV mode says so — answered `403` with no body, which a client
-  cannot tell apart from a permissions failure and a user cannot read in a log. The refusal now
-  carries a `DAV:error` body naming the reason, on both protocols and on the create/update and delete
-  paths.
-- Answer a `PROPPATCH` instead of falling through. Clients such as Thunderbird and DAVx5 set a
-  collection's display name or colour that way, and nothing handled it, so the request reached the
-  framework default — which a client receiving it on a collection that exists has every reason to
-  read as "the collection is gone". Both protocols now refuse it with a `DAV:error` body saying that
-  properties are managed by Inboxora, and the refusal writes nothing.
-- Bound the CalDAV and CardDAV request body. Those routes read their own bodies, and nothing capped
-  them: the application's JSON body limit does not apply to XML, calendar and vCard content types, so a
-  client with a device password could make the process hold an arbitrary body in memory on the
-  endpoints that serve everyone else. The body is now capped at 1 MB, excess is discarded rather than
-  buffered, and an oversized request is refused with the same route-aware `413` message an oversized
-  JSON upload already gets.
-- Bound the identity provider's response while signing in through OIDC. The route accumulated that
-  response in memory with no cap, the same shape as the DAV body fixed above; the provider is configured
-  by the operator and answers in kilobytes, but a compromised or misconfigured one could have made the
-  process buffer an arbitrary reply. The response is now capped at 1 MB and a larger one is refused
-  rather than held, with a case that serves an oversized reply and asserts the refusal.
-- Carry anniversaries and instant-message handles from Google contacts. The connector asked the People
-  API for neither, so both were discarded even though the contacts table has had columns for them — and
-  for the vCard import — all along. The request now includes `events` and `imClients` and both are
-  mapped, so a Google contact arrives with what it holds. Photos and group memberships are still not
-  carried, and the wiki says why.
-- Carry anniversaries and instant-message addresses from Microsoft contacts too. The Graph connector
-  never asked for `anniversary` or `imAddresses`, so both were discarded like their Google counterparts
-  were — the same columns sat empty for the same reason. Graph's anniversary uses the same timestamp
-  shape as its birthday, and a bare IM address carries no protocol, so it is typed `other` rather than
-  guessed at.
-- Add one switch for the whole provider layer. `PROVIDER_INTEGRATIONS_ENABLED=0` (or `false`, `off`,
-  `no`) makes an installation stop offering and stop accepting every provider authorization — no Google,
-  no Microsoft mailbox, no device method, no contacts connector — while leaving the per-provider and
-  per-method switches to say which parts a *configured* installation offers. Unset means enabled, so an
-  existing installation sees no change. The interfaces and the flows read the same switch, so the card
-  cannot offer what a flow would refuse.
-- Say when connecting an account fails, and say what to do. A provider authorization that failed in the
-  same tab cleared the URL and reported nothing, so the only sign of it was that nothing happened; in the
-  popup it printed the raw provider code, `invalid_grant` included, when the sentence written for exactly
-  that case already existed. Both now map the code to that sentence — "the connection needs to be
-  reconnected" — and show the code itself when there is no wording for it, so nothing is hidden.
-- Make `PROVIDER_INTEGRATIONS_ENABLED=0` reach the sync paths. The switch stopped the authorization flows
-  and the readiness report from offering anything, but the provider sync routes and the scheduled refresh
-  call the adapters directly — so an installation that had switched the layer off could still call out to a
-  provider for collections it had pulled earlier. Both now refuse: the routes answer `403`, and the schedule
-  reports a run of nothing rather than an error, since it is not a user action.
-- Keep two Microsoft device-code flows apart. They were stored under the signed-in user, so starting a
-  second one — another mailbox, while the first was still pending — silently replaced the first: its poll
-  reported the second flow's state and completing its code was invisible. Each flow now has an id, the
-  client polls with it, and the entry records its owner so another session still cannot reach it.
-- Warn before changing a provider's Client ID. The stored secret belongs to the client it was issued for, and
-  the API deliberately keeps an omitted secret so that editing a redirect URI does not mean retyping it — which
-  meant a new Client ID was silently paired with the old secret, and the mismatch appeared only when the
-  provider refused it. Both cards now ask first, unless a new secret is being supplied, which resolves the
-  pairing by itself.
-- Stop the device-code endpoint being a way to make the server hammer the provider. Every poll of that endpoint
-  is a call to Microsoft's token endpoint; the interface respects the interval Microsoft asks for, but nothing
-  enforced it, so any other caller could poll as fast as it liked. A poll that arrives before the interval has
-  passed is now answered from the flow's own state, without calling the provider — the same answer Microsoft
-  gives for `slow_down`, at no cost to it.
-- Back the refresh schedule off when a provider throttles. `Retry-After` was parsed and recorded by the
-  classifiers, but the schedule ran at a fixed interval, so a throttled collection was retried on the same
-  cadence as a healthy one — which is the behaviour a provider is least willing to forgive. A throttled pass now
-  doubles the wait towards a thirty-minute ceiling with jitter, so a fleet of installations does not retry in
-  lockstep, and a healthy pass returns to the normal cadence.
-- Let the recurrence projection decide a CalDAV time-range query. The query used `OR recurring` to select
-  candidates — an indexed form of the old raw-text check — and then returned every candidate, so a series whose
-  rule never lands inside the requested window came back anyway and the client received resources it had not asked
-  for. Candidates are now filtered by their actual occurrences in the window, which is also what makes the filter
-  correct across daylight-saving changes and overrides rather than approximately right.
-- Dispatch a DAV report by its root element, not by a substring of its body. The handlers recognised
-  `calendar-query`, `calendar-multiget`, `sync-collection` and their CardDAV counterparts with `body.includes`,
-  so a multiget naming a resource whose filename contains another report's name was read as that report. The root
-  element now decides, with the XML declaration and any comment skipped first, which is what the request actually
-  is.
+**Migrations `0101`–`0112`, in order and before rollout.** They are additive and no existing row is
+rewritten: `0101` provider layer (connections, grants, remote links, collections, journal, notice
+preferences), `0102` operation journal and outbox, `0103` authorization flows, `0104` grant refresh lease,
+`0105` collection DAV mode, `0106` DAV credential ceiling, `0107` mail-folder collection link, `0108` message
+provider identity, `0109` provider-operation payload, `0110` device authorization, `0111` Gmail API
+(`messages.provider_labels`), `0112` collection write-back. Apply them **before** rolling out a build that
+reads the new columns; a mixed old/new deployment must not run with the new code before the migrations.
 
 ### Changed
-- **`MAIL_MAX_MESSAGE_BYTES` is documented and implemented as a fallback, and a hard installation ceiling joins
-  it.** The variable no longer reads as a cap on every transport: it applies to a transport that declares no
-  message ceiling of its own (SMTP), and a provider's own limit is never shrunk by it. `MAIL_MAX_ATTACHMENT_BYTES`
-  is the installation's **hard** ceiling on one attachment and on their total, applied whatever a provider would
-  accept; it defaults to the largest file a supported provider carries, so an installation that configures nothing
-  does not silently cap Graph. The send route's HTTP body window is derived from that ceiling instead of a literal
-  ("35mb"), so a provider-sized attachment can actually reach the route that decides about it.
 
-- **A collection's write permission now needs both the origin's consent and the user's.** The capability
-  model read only the collection's `read_only` flag, which meant an adapter that learned to write would
-  have made every pulled collection writable without anyone asking. It now also reads
-  `integration_collections.source_access` (what the provider permits) and `user_access` (the user's
-  choice, whose new `read_write` value arrives with migration `0112`). Both default to read-only, so
-  this changes nothing until write-back is switched on per collection.
+- **A collection's write permission now needs both the origin's consent and the user's.** Every REST and DAV
+  write guard, the DAV advertised privileges and the interface's editability read one capability model that
+  combines the origin adapter, the collection's own access, the user's opt-in and the DAV password's ceiling.
+  The interface reads the server's `read_only` instead of re-deriving editability from a calendar's origin.
+- **The send path composes the message once.** The route builds the canonical message model, renders it for
+  the transport that needs a wire format (SMTP) or hands the model over (Graph, Gmail), and measures the
+  artefact it will actually send. The envelope (`to`, `cc`, `bcc`) is explicit rather than derived.
+- **`MAIL_MAX_MESSAGE_BYTES` is a fallback, not a universal cap.** It applies to a transport that declares no
+  message ceiling of its own (SMTP) and never shrinks a provider that declares a larger one.
+  **`MAIL_MAX_ATTACHMENT_BYTES`** is new: the hard installation ceiling on one attachment and on their total,
+  applied to every transport, defaulting to the largest file a supported provider carries.
+- **Mail flag changes go through the shared provider-mutation journal**, so a native account's flag write is
+  claimed durably, retried by the next sync when a transient failure is recoverable, and undone locally when
+  the provider permanently refuses it.
+- **Provider synchronisation is licensed per collection**, so two workers cannot sync the same collection at
+  the same time, and `PROVIDER_INTEGRATIONS_ENABLED=0` disables the whole provider layer at the authorization
+  flows and the sync routes.
 
+### Deprecated
 
-- **The message is composed once, not twice.** The send route composed the message for its size
-  accounting and then handed the options to nodemailer, which composed it again for delivery. The
-  transport now receives the buffer that was already built and measured. It is the same change that makes
-  the artefact shareable with a second transport later, and it was measured before it was made: a
-  pre-composed buffer delivered through `raw` is **byte-identical** to one the transport composes itself,
-  and the envelope is identical either way, so this removes a composition rather than moving one. The
-  buffer carries no `Bcc:` header — the previous slice strips it — which is what makes it safe to send
-  verbatim, since a raw message is sent as given.
+None.
 
+### Removed
 
-- **A send now states its envelope instead of leaving it to be derived.** The three recipient options
-  stayed the input and nodemailer derived `RCPT TO` from them, which is fine while it composes the
-  message — and becomes a delivery bug the moment the message is composed once and handed over as `raw`,
-  because a blind recipient is by definition not in a header. The envelope is now built from the same
-  normalised lists (`to` + `cc` + `bcc`) and passed explicitly, **verified to be identical to what
-  nodemailer derives** rather than assumed: to+cc+bcc, bcc alone, and a display-name `from` all produce
-  the same envelope either way. The BCC case now asserts the delivered envelope, not just the option.
-
-
-
-- **A send is now bound to a transport in one place** (`services/sendTransport.ts`), which is the seam the
-  shared send layer needs. The route reached `createAccountSmtpTransport` directly, making "how mail
-  leaves this installation" an SMTP question by construction; it now goes through a named seam, so the
-  Microsoft Graph transport becomes a branch there rather than a second pipeline inside a 1067-line route.
-  Nothing else moved: the `delivered` flag, the intent claim and the uncertain-outcome handling stay where
-  they are, because that boundary already decides whether an outcome is knowable and the transport only
-  has to be pluggable behind it. A native account is still refused, deliberately once — by the SMTP
-  factory, so no caller can hand it a Microsoft Graph account, rather than by a second copy of the check.
-
-
-- An **uncertain send** is now reported with a code (`SEND_OUTCOME_UNKNOWN`, the name the plan gives it) rather than
-  only an English sentence. The behaviour is unchanged and deliberately so — the message was handed to the server
-  and the answer was lost, so Inboxora will not send it again automatically — but a code is what lets an interface
-  answer in the user's own language instead of showing the server's text. The composer now does exactly that: it
-  recognises the code and says — in all nine languages, as a notification and beside the composer — that the result is
-  unknown, that the message will not be sent again automatically, and that the account's Sent folder is the authority.
-
-
-- Two size guards on the send path now answer **`413`** with a domain code instead of `400` with prose only. §22.1 maps
-  content that is too large to `413`, and these were the oldest of the checks: the attachment-upload guard reports
-  `ATTACHMENT_TOO_LARGE` and the uploads-plus-forwarded total reports `MESSAGE_TOO_LARGE`. The limits are unchanged —
-  they still measure the base64 wire size rather than the composed message — so nothing that used to be refused is now
-  accepted; a client simply no longer has to match English text to learn what happened.
-
-
-- **Mail flag changes (read/unread, star) now go through the shared provider-mutation layer**, so the IMAP write and
-  its outcome are recorded durably in the operation journal before the local bookkeeping runs. Nothing changes for the
-  user: a failed or unconfirmed write still leaves the change queued for the background reconciler, and an unavailable
-  journal degrades to the previous behaviour rather than failing the action. What is new is that a process stopping
-  between the IMAP write and the database no longer leaves the change without evidence.
-
-- **Collection access is now decided by the provider capability model** rather than by comparisons written out at each
-  call site. The REST and DAV write guards, the DAV advertised privileges and the contacts list's read-only flag all ask
-  one resolver, which combines the origin adapter's declared support with the collection's own access and the device
-  password's ceiling. The visible fix is that a **Google or Microsoft address book is now reported read-only** in the
-  interface; previously only CardDAV books were, so a synced book looked editable until the server refused the write.
-  Behaviour is otherwise unchanged: writes to a provider-owned collection are still refused, because no remote write path
-  exists yet, and a read-only collection or a read-only device password still only narrows access.
-
-- After an **uncertain send**, the composer releases its idempotency key, so the user's next deliberate Send is a
-  **new operation** rather than a refusal — which is what the plan asks for, together with the duplicate-risk warning
-  that is already shown. Nothing sends on its own: this composer dispatches only from a click, and the key exists to
-  stop an *automatic* duplicate, so releasing it once the user has been told the outcome is unknown removes no
-  protection. Checking the Sent folder remains the first advice, because a duplicate is worse than a delay.
-
-
-- **The four send size dimensions have one definition** (`services/sendLimits.ts`) instead of four
-  literals and locals spread through a 1067-line route, two of which were the same `26_214_400` written
-  twice. The relationship between them was accidental: raising the message ceiling did not raise the
-  attachment total, and nothing named which dimension a refusal belonged to. The module exports the
-  kinds, the derived values and the refusal shapes, and `mailMaxMessageBytes` is re-exported from the
-  route rather than defined there a second time. Behaviour is unchanged — the same numbers, one place —
-  which is what the P06 plan asked for before the shared send layer is built on top.
-
-- **Sending from a Microsoft Graph account says why it cannot, instead of failing like a credential
-  problem** (P07b/P06 boundary). A native account has no SMTP credentials — its mail goes over Graph,
-  and that transport is Stage 3 work that does not exist yet — so `createAccountSmtpTransport` fell
-  through to the separate-credentials branch and returned an error that described neither the cause nor
-  the missing feature. It now answers `501` with `OPERATION_FORBIDDEN` and a sentence naming the gap.
-  The guard sits in the factory rather than at a call site, so every caller is covered, and it is the
-  fourth time this pattern has been applied (folder management, GTD setup, the body prefetch): name the
-  unsupported operation where the work would happen. When the shared send layer lands, this refusal is
-  replaced by the adapter rather than left standing over it.
-
-- **Graph messages now reach the conversation engine** (P07b, twenty-second slice, completing the
-  twenty-first). The message sync projects each row it wrote into the conversation engine, so threads
-  group on Graph's `conversationId` rather than being absent from the engine entirely. Two ordering
-  rules are load-bearing and are both tested: the projection runs **after** the page's transaction
-  commits — the engine opens its own, and nesting them was the specific mistake the plan warned about —
-  and the row ids it needs are returned by the page function rather than inferred. The shared
-  `persistConversationCopyForRow` moved out of the mail manager into `conversationRowIngest.ts`
-  unchanged, so the Graph adapter can call it without importing the mail manager and creating a cycle;
-  the IMAP ingest calls the same function, so both transports share one projection rather than two.
-  A real-PostgreSQL case asserts the grouping end to end: two messages sharing a conversation id land
-  in one conversation, a third in its own, and every message carries the provider thread id the mapping
-  derived.
-
-- **Graph conversations are identified correctly, and the engine read them from the next slice**
-  (P07b, twenty-first slice — one half of a pair, completed above). `providerMetadataForMessage` now recognises a
-  Microsoft Graph account and takes its `conversationId` (stored as `thread_id`) as a **strong** provider
-  thread id. That matters because the previous behaviour was not "wrong grouping" but **silent loss**:
-  with the account typed as an ordinary Outlook mailbox, the id went through the Thread-Index path,
-  which expects a 22-byte hex root and answers `null` for a base64 conversation id, so the thread key
-  was dropped. The namespace now carries the account too, so two Graph mailboxes cannot share a thread.
-  **What is not done: the message sync does not call the conversation engine yet**, so this is a
-  verified mapping with no production caller. It is committed as half rather than as a finished feature
-  because the second half — exporting `persistConversationCopyForRow`, returning the row ids the page
-  wrote, and persisting them *after* the page's transaction commits — is scoped in the status document
-  and was not safe to attempt with the remaining budget of the session.
-
-- **Ensuring a folder works on a Microsoft Graph account, which completes GTD's setup step** (P07b,
-  twentieth slice). `ensureFolder` opened an IMAP session, and three callers reach it — the labels
-  capability, the folder routes and GTD — so the branch lives there rather than being copied into each
-  one. A native account resolves the path through the collection link, creates the folder at the
-  provider when it is missing, and runs discovery, because discovery is what produces the local
-  `folders` row and its `mail_folder` collection. This supersedes the `501` refusal added to
-  `POST /gtd/folders/ensure` two slices ago: that refusal was correct while the capability could not do
-  the work, and it is now removed along with its test rather than left standing over a working feature.
-
-- **GTD label copies are removed through the provider on a Microsoft Graph account** (P07b, nineteenth
-  slice). The transition path reaches `removeMessageCopy` to drop a copy, and that method called
-  `permanentDeleteMessage` — IMAP — so a native account would have built label copies and then failed to
-  remove them. It now asks the provider for the copy's own identity, using the same permanent-removal
-  helper as every other Graph delete, and deletes the local row only when the removal is confirmed: an
-  unconfirmed removal throws, so the row survives and the next delta reconciles instead of Inboxora
-  forgetting a copy the mailbox still holds. This was the second of GTD's two transport dependencies
-  found by last round's check, and it is fixed before the folder setup is made to work, so GTD cannot
-  start and then fail a layer deeper.
-
-- **GTD's folder setup refuses explicitly on a Microsoft Graph account** (P07b, eighteenth slice), and the
-  check that produced it found more than the refusal. `POST /gtd/folders/ensure` — the setup step for the
-  whole feature — creates its label folders through the labels capability, which goes over IMAP, so on a
-  native account it failed like a bug. It now answers `501` with a code and the workaround the user has
-  (create the folders in Outlook, then "Sync folders"), because those are ordinary mail folders and the
-  rest of GTD keys off their paths.
-
-  **What the same read found, and it is the point of the check**: the GTD transition path also calls
-  `imapManager.removeMessageCopy`, so this was not merely a missing folder setup on a native account.
-  That is recorded in the status document's GTD row rather than left as a second surprise, and it is why
-  "rules and GTD are local behaviours, so they should need no Graph-specific code" was written as
-  something to **verify** — snooze looked local too and was not.
-
-- **Emptying a folder works on a Microsoft Graph account** (P07b, seventeenth slice), which closes the
-  audit of IMAP-only operations. The IMAP path answered what "empty" means — every message is **removed
-  permanently**, not moved to deleted-items — so this mirrors it rather than inventing an answer. Graph
-  has no "empty this folder" call, so it is one removal per message, sequential on purpose so a large
-  folder cannot open hundreds of requests at once. A refusal **throws**, so the local rows are left
-  alone: a folder the provider only partly emptied must not look empty here, and the next delta
-  reconciles what did go. All four folder routes now have a provider branch, and the shared refusal
-  remains only as the guarantee that a transport without one is refused rather than handed to IMAP.
-
-- **Deleting a folder works on a Microsoft Graph account** (P07b, sixteenth slice). The route removes the
-  folder on the provider and then Inboxora's copy of it — the same local cleanup the IMAP path already
-  did, so no new product decision was needed: the provider deletes the folder's contents with it, and the
-  local mirror follows. The `integration_collections` row that linked the folder to its Graph id is
-  removed too, so a later discovery does not resurrect a collection for a folder that is gone. A provider
-  refusal — Graph will not remove a well-known folder — is reported with its code and **nothing local is
-  deleted**, because a local delete after a refused provider delete is silent data loss. **Emptying a
-  folder still refuses** with its own explanation.
-
-- **The message list no longer opens an IMAP session for a Microsoft Graph account** (P07b, fifteenth
-  slice). `GET /messages` fires a background body prefetch on every listing, and it had no transport
-  check: on a native account each listing opened a connection that could only fail. The guard now lives
-  inside `prefetchFolderBodies`, where the account is already loaded, so every caller is covered rather
-  than the one call site that was looked at. A native account's bodies are read on demand by the
-  transport-aware body route, so nothing is lost. This was found by **re-verifying the audit's own
-  negative claim** — the paragraph saying which IMAP calls a native account cannot reach — which is the
-  first time that claim has been checked since it was written.
-
-- **Creating and renaming a folder work on a Microsoft Graph account** (P07b, fourteenth slice). `POST /folders`
-  and `/folders/rename` now act on the provider: the folder is created or its display name changed, and the
-  discovery run that follows produces the local row, its `mail_folder` collection and — for a rename — the
-  path change the folder sync already knows how to follow, moving the folder's messages with it. The route
-  deliberately does **not** write the local row itself, because discovery is what owns that model and two
-  writers would drift. A **nested** folder is still refused with a clear `501`: Graph nests by parent id and
-  the local path model would have to guess. **Delete and empty still refuse** and say so.
-
-- **Folder management on a Microsoft Graph account now refuses explicitly** (P07b, thirteenth slice).
-  Creating, renaming, deleting and emptying a folder are IMAP operations, so on a native account each
-  attempted an IMAP session and failed with a generic error — an unsupported operation that looked like
-  a broken one. Each answers `501` with a code and names the workaround the user actually has (create or
-  change the folder in Outlook, then "Sync folders"). Graph *can* create a folder — the snooze slice
-  needed that primitive — so these are implementable rather than impossible; until they are, the
-  failure says which one it is. The IMAP path is unchanged.
-
-- **Downloading all attachments as a ZIP works on a Microsoft Graph account** (P07b, twelfth slice). The
-  route read every attachment through IMAP, so on a native account the single-attachment download worked
-  while "download all" did not. Each file is now fetched from the provider under the same 50 MB per-file
-  ceiling, and everything after that — the filename deduplication, the archive and the response — is
-  shared with the IMAP path, so there is no second naming or ZIP implementation. One unreadable or
-  oversized attachment is skipped and logged rather than failing the whole archive, and a native message
-  that carries no provider identity is refused with a code instead of an empty archive.
-
-- **"View source headers" works on a Microsoft Graph account** (P07b, eleventh slice). The route asked IMAP
-  for the raw headers and, when that failed, synthesised them from the local row — so a native account got
-  a plausible-looking header block after a pointless IMAP attempt that could only time out. Graph retains
-  the real RFC headers, so they are now fetched from `internetMessageHeaders` and formatted the way the
-  route's parser expects. An empty answer is treated as a normal one: not every mailbox retains those
-  headers, and the existing fallback still covers that case rather than the route inventing them.
-
-- **"Mark all as read" reaches Microsoft Graph** (P07b, tenth slice). The route updated the local rows and
-  then asked IMAP to set `\Seen`, so on a native account the interface looked right until the next sync
-  brought the unread state back. It now sets the flag on each unread message through the same
-  journal-backed write the single read/unread route uses — one mutation per message, since Graph has no
-  "mark folder read" call — and the list of messages is taken **before** the local update flips them,
-  or it would find nothing. An outcome the provider does not confirm is logged with how many it did
-  confirm rather than reported as success.
-
-- **Deleting several Microsoft Graph messages at once works** (P07b, ninth slice). `POST /messages/bulk-delete`
-  — the multi-select delete — still called IMAP for both halves: the permanent removal of a draft or an
-  already-trashed message, and the move to Trash for everything else. Both now go to the provider, on the
-  same shared helpers single-message delete, filing, spam/ham and snooze use, so the rule that a Graph
-  move re-identifies the message is still implemented once. The rule that Graph rows must stay out of the
-  IMAP delete-and-re-insert statement applies here too, and the counts and the response include them.
-  A removal or a move the provider does not confirm is logged and left alone rather than reported as
-  done.
-
-- **Snooze works on a Microsoft Graph account, in both directions** (P07b, eighth slice). `/messages/:id/snooze`
-  called IMAP's folder creation and move directly, so it failed on a native account; the wakeup half was
-  worse, because it lives inside the mail manager and would have sent the message *into* Snoozed and never
-  brought it back. Both halves now go through one shared Graph move helper — the same one the bulk routes
-  and spam/ham use — so the rule that a Graph move **re-identifies the message** is implemented once. The
-  `Snoozed` folder is created on the provider and then discovered, because a Graph account only has the
-  folders it has discovered and a move needs a local path to address. A wakeup the provider does not
-  confirm throws, so the snooze record survives and the next cycle retries rather than dropping the
-  message. The IMAP path, including its UIDPLUS cases, is unchanged.
-
-- **Mark as spam / not spam works on a Microsoft Graph account** (P07b, seventh slice). Both actions
-  moved a message by calling IMAP directly, bypassing the transport dispatch every other action now
-  has — so on a native account they looked available and failed. They now use the same journal-backed
-  move as filing, and the training record and the user's verdict are written **only after the provider
-  confirms the move**, so a move that did not happen never becomes a training row. The IMAP path,
-  including its UIDPLUS cases and the spam folder mapping it learns, is unchanged.
-
-- **Microsoft Graph messages can be filed** (P07b, sixth slice): **Move to folder** and **Archive** now
-  go to Microsoft through the shared provider-mutation layer, and the local row adopts the identity a
-  Graph move returns — the mechanism single-message delete introduced, now shared by both bulk routes.
-  One destination is resolved per account, once, through the collection link the folder slice created;
-  a message the provider refuses is left where it is and reported as not moved, so the interface never
-  claims a file that did not happen. A Graph row is deliberately kept out of the IMAP
-  delete-and-re-insert statement the bulk routes use: a Graph move re-identifies the message, so that
-  statement would delete the row and re-insert it under a UID the provider does not have. **Not yet
-  wired:** mark-as-spam and mark-as-ham still use IMAP for every account, so they are not available on
-  a native one.
-
-- **The PostgreSQL integration suites and the browser matrix are now part of the `dev` gate.** The two
-  layers that found this work's real defects — a lost lease, a two-worker token refresh, a cursor
-  advanced out of order, and the drawer that covered the page after a navigation — ran only by hand,
-  so a regression could reach `dev` while every gated check was green. `ci.yml` gains a
-  `backend-database` job (`postgres:16-alpine`, the migration chain applied to an **empty** database
-  with the application's own runner, then the provider and DAV suites), and
-  `conversation-v2-playwright.yml` now also triggers on `push: [dev]`. Both workflows set
-  `bash -euo pipefail`, so a pipeline's exit status is the real one rather than the last command's.
-  **Not verified:** neither job has run on a GitHub runner, so the action versions, cache paths and
-  service wiring are unproven; the commands inside them have been executed by hand against a database
-  created empty for the purpose, where the chain applied from zero and all 179 integration tests
-  passed.
+- **The single global attachment ceiling.** A 25 MB total no longer refuses a Microsoft Graph message that
+  Graph carries through its upload session; the limit applied is the sending transport's own.
+- **IMAP/SMTP as a fallback for a native account.** Once an account is moved to Graph or the Gmail API, the
+  IMAP loops, health checks, rule forwarder and send path no longer open IMAP or SMTP for it.
 
 ### Fixed
-- **An inbox rule that forwards from a native Microsoft Graph account now works, and reads and sends
-  over Graph.** The rule forwarder was provider-blind: it read the forwarded message's body and
-  attachments over IMAP and delivered through the SMTP factory, so a native account opened a mailbox it
-  does not have and then hit SMTP's deliberate `501` refusal — the forward could not work at all. The
-  body and attachments are now read over Graph, through the same Graph reader and the shared attachment
-  dispatcher the body and send routes use, and the forward is dispatched through the send seam. A forward
-  the provider accepts is recorded as `sent` (the only path that reports success); a definite refusal — or
-  an SMTP protocol failure, unchanged — releases the pending reservation for a deliberate retry; an
-  unknown provider outcome leaves it **pending**, so a later rule run reconciles instead of sending a
-  second copy. A source account with no reader here (native Gmail, whose body reader is not written yet)
-  is refused by name rather than silently read over IMAP. No migration.
 
-- **A Google collection could never actually be opted in for write-back.** The Calendar and People
-  syncs recorded `source_access = 'read_only'` unconditionally, so the per-collection write-back switch
-  refused every Google collection with `SOURCE_READ_ONLY` — the new Google write paths were unreachable
-  in production because of a column the adapter's own capability had moved past. The Google calendar sync
-  now records what Google says (`accessRole` `owner`/`writer` means writable, `reader`/`freeBusyReader`
-  does not) and the contacts sync records the People API's answer for the user's own contacts, refreshing
-  that fact on each discovery **without** touching `enabled` or `user_access` — the user's choices are not
-  a discovery pass's to change. A share upgraded from reader to writer is therefore picked up, and a shared
-  read-only calendar still cannot be made writable.
-- **A provider collection was advertised as DAV-writable when the DAV handlers cannot write it.** The
-  DAV ceiling was computed from the adapter's write-through flag, but `routes/caldav.ts` and
-  `routes/carddav.ts` forward only for the external CalDAV/CardDAV client (and accept a write for the
-  local store); a Microsoft Graph or Google collection would have been accepted over DAV and applied to
-  the local copy, which the next provider sync discards. The DAV mode now requires the DAV channel to be
-  able to forward, so a provider collection is DAV read-only while staying writable over the web channel,
-  and the advertised privileges agree with what the handlers do.
-
-- **A Microsoft contact or calendar-event write could not be journalled at all.** `provider_operations.resource_id`
-  is a `UUID` column — it names Inboxora's own resource — but the two write paths bound the **provider's**
-  id (`AAMkAD-…`) there, so PostgreSQL rejected the INSERT before any provider call and every update and
-  delete answered `500`. The local `contacts.id` / `calendar_events.id` is journalled instead, with the
-  provider's id travelling where it belongs, in the payload and in `remote_object_links`. The defect was
-  invisible to the unit tests because they mock the mutation layer, so it is now pinned by a
-  real-PostgreSQL suite that drives the actual journal and asserts what it stored.
-
-
-- **Bulk read/unread on a native mail account opened an IMAP connection.** `/messages/bulk-read`
-  grouped the selected messages by account and then called the IMAP flag write for every group, so a
-  Microsoft Graph or Gmail API account — which has no IMAP session at all — had one opened on its
-  behalf, and the response reported the change as applied whether or not the provider ever received it.
-  The write now dispatches on the account's transport through the shared journal on every path, both
-  native transports included, with a route test pinning that an IMAP account still uses the IMAP write
-  while a native account never does.
-- **A provider calendar rebuild now reconciles.** When a provider rejects the sync cursor, the calendar
-  is rebuilt from a complete baseline — but a resource that baseline no longer lists was previously left
-  in place, so an event deleted at the provider while the cursor was unusable would have stayed visible
-  forever (an incremental delta cannot repair it, because it only carries what changed). The rebuild now
-  removes the local events of that collection which the baseline omits, keeping the remote link as a
-  tombstone. It runs **only** on a rebuild: in an incremental batch, an omitted event means "unchanged".
-  The Google and Microsoft calendar paths share this through one projection module.
-
-
-- **A too-large message rejected by the forwarded-attachment backstop now answers with a domain code
-  instead of prose.** The send route has three size guards, and the last of them — the exact re-check
-  against the **fetched** forwarded bytes, after the declared-size check that can under-report — returned
-  a bare `400` with an English sentence while its two siblings returned `413` with `ATTACHMENT_TOO_LARGE`
-  or `MESSAGE_TOO_LARGE` and the numbers. A client had to match that sentence to learn what happened,
-  which is the reason the other two guards gained codes in the first place — and this one is the last
-  line of defence, so it is the one most likely to be reached. It now answers like the others.
+- **A provider contact or calendar-event write could not be journalled at all.** The provider-operations
+  journal stores Inboxora's local resource id, but the Microsoft write paths wrote the *provider's* id into
+  it, so every contact and calendar-event update or delete failed at the database before reaching Microsoft.
+  The journal now records the local id and the provider id travels in the payload and the remote-object link.
+- **A Google collection could never actually be opted in for write-back.** The Calendar and People syncs
+  recorded the collection as read-only at the source, which made the write-back switch refuse every Google
+  collection. They now record what the provider reports (a calendar's `accessRole`, the People API's answer
+  for the user's own contacts) and refresh that fact without touching the user's choice.
+- **Contacts had no write-back switch.** The per-collection opt-in existed on the calendar surface only: the
+  address-book list did not return the collection a book belongs to, and the address-book menu had no control,
+  so writing a pulled Google, Microsoft or external CardDAV book back to its source was reachable only through
+  the API. The list now reports each book's collection and the capability model's read-only verdict, and the
+  menu offers the same switch the calendar sidebar does.
+- **An external CalDAV/CardDAV collection had no link for the write-back switch**, so the write-back could not
+  be enabled for any real collection even though the client was implemented. The external syncs now create
+  the source connection and collection link for every collection they import, and a real-PostgreSQL suite
+  proves the link, its idempotency and the writable/read-only decision per source kind.
+- **A provider collection was advertised as DAV-writable when the DAV handlers cannot write it.** The DAV
+  access mode was computed from the adapter's write-through flag, so an opted-in Graph or Google collection
+  could be written over DAV and applied locally, where the next provider sync discards it. The DAV mode now
+  requires the DAV channel to be able to forward the write, so a provider collection is DAV read-only while
+  remaining writable over the web interface.
+- **A Microsoft account could be silently switched by a cutover that named another mailbox's connection.** A
+  migration whose explicit connection does not belong to the account's own address is now refused by name
+  unless the operator deliberately overrides it.
+- **An inbox rule that forwards mail opened IMAP for a native account** and then hit the transport's
+  deliberate refusal, so the forward could not work. It now reads the source message over the account's own
+  transport and dispatches through the send seam; an accepted forward is recorded as sent, a definite refusal
+  releases the reservation for a deliberate retry, and an unknown outcome stays pending so a later run
+  reconciles instead of sending twice.
+- **Bulk read/unread opened an IMAP connection for a native account** and reported success regardless of the
+  outcome; every message-mutating route now dispatches on the account's transport.
+- **The message list opened an IMAP session for a Microsoft Graph account** on every listing; body prefetch
+  now follows the account's transport.
+- **A provider calendar rebuild did not reconcile.** When the provider rejects the sync cursor, the rebuild
+  now removes what the provider no longer reports instead of leaving stale events behind.
+- **An oversized message rejected by the forwarded-attachment backstop answered without a domain code**, so a
+  client had to match English text; every size refusal now carries its code, dimension and byte figures.
+- **A blind recipient could have been dropped from the delivered copy.** The composed artefact no longer
+  carries a `Bcc:` header, so the accounting counts what is actually sent and blind recipients live in the
+  delivery envelope only.
+- **A draft whose identity is a large numeric id could not be reopened.** The draft identity parser now
+  accepts the numeric-string form the database returns.
 
 ### Security
 
-- **The composed message no longer carries a `Bcc:` header.** The send route composes the message for
-  size accounting with nodemailer's stream transport, and **that composition keeps a `Bcc:` header** while
-  the delivery transport omits it — measured, and the obvious switch does not help: `keepBcc: false` on the
-  stream transport still emits it, with the same byte count. Harmless while the buffer is only measured,
-  and a disclosure the moment a buffer is handed to a transport as `raw`, since a raw message is sent as
-  given. It is now stripped once, where the accounting and any future shared artefact read it, so blind
-  recipients live in the envelope only. The accounting consequently counts what would actually be sent
-  rather than the header that would be dropped.
-
-
-- **A blind recipient is asserted never to reach a visible field.** The suite's BCC case only checked that
-  `bcc` was passed to the transport, which stays true even if the recipient is later dropped from the
-  envelope — so a change that composed the message once and sent it as `raw` could lose every BCC
-  recipient while the test stayed green. The new case sends to a visible recipient, a copy recipient and a
-  blind one, and asserts the blind address is carried in `bcc` and appears in **neither** `to` nor `cc`
-  nor a headers bag. It is written against what the route controls today so that it still holds once the
-  envelope becomes explicit and the assertion can be extended to it.
+- **Blind recipients never travel in a composed artefact.** The `Bcc:` header is stripped where the message is
+  composed and measured, so a buffer handed to a transport cannot disclose the blind recipient list. The
+  Gmail API is the documented exception in the other direction: its message resource has no envelope field and
+  its send delivers to the addresses in the headers, so that arm keeps `Bcc:` and relies on Gmail to keep it
+  off delivered copies; a test asserts a blind address appears in no visible field.
+- **DAV application passwords can only narrow access.** A password's ceiling is combined with the collection's
+  own mode so it can never widen what a collection or its source allows, and a provider-sourced collection
+  refuses writes whatever the password permits.
+- **External DAV and ICS sources are validated and their credentials encrypted.** Server URLs are checked
+  against the connection policy (public hosts require HTTPS; plaintext is allowed only for a private address
+  when the administrator enables it), and stored credentials remain encrypted at rest.
+- **Provider routes are ownership-scoped.** Collection lookups, notice suppression and migration all filter by
+  the signed-in user, and a foreign account or collection is answered as not found.
 
 ## [4.0.4] - 2026-09-18
 
@@ -1343,7 +304,6 @@ release is never claimed before it has happened.
   and Windows material was re-created from the local signing archive in `.toolchain/release-signing/`
   (gitignored) and the GPG key was generated for this purpose.
 
-### Added
 
 - Signed release artifacts: every publish run attaches a GPG-signed `SHA256SUMS` manifest covering
   the Linux `.deb`/`.rpm`, Windows `.exe` and Android `.apk`/`.aab` files, together with the public

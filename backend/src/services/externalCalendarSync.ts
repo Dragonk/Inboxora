@@ -10,6 +10,7 @@ import { safeFetch } from './safeFetch.js';
 import { getConnectionPolicy } from './connectionPolicy.js';
 import { parseCalendarEvent } from '../utils/ical.js';
 import { toAppError } from '../utils/errors.js';
+import { ensureExternalCollectionLink, type ExternalSourceKind } from './providers/externalCollectionLinks.js';
 
 /** A decrypted external calendar source row. */
 interface CalendarSyncState { removed?: boolean; promise?: Promise<unknown>; controller?: AbortController }
@@ -30,6 +31,11 @@ type ExternalCalendarPolicy = { allowPrivateHosts?: boolean; [key: string]: unkn
 
 /** Fetch options with plain-string headers (this module owns every header it sends). */
 type ExternalFetchOptions = Omit<RequestInit, 'headers'> & { headers?: Record<string, string> };
+
+/** The three external source kinds the schema admits; anything else is treated as a read-only ICS feed. */
+function externalSourceKind(kind: unknown): ExternalSourceKind {
+  return kind === 'caldav' || kind === 'carddav' ? kind : 'ical_url';
+}
 
 const parser = new XMLParser({ ignoreAttributes: false, removeNSPrefix: true, trimValues: false });
 const syncing = new Set<string>();
@@ -103,20 +109,24 @@ function throwIfRemoved(state: CalendarSyncState): void {
 
 async function calendarFor(source: ExternalCalendarSource, state: CalendarSyncState) {
   const externalUrl = `source:${source.id}`;
-  const found = await query('SELECT id FROM calendars WHERE user_id = $1 AND owner_user_id = $1 AND external_url = $2', [source.user_id, externalUrl]);
+  const found = await query<{ id: string }>('SELECT id FROM calendars WHERE user_id = $1 AND owner_user_id = $1 AND external_url = $2', [source.user_id, externalUrl]);
   throwIfRemoved(state);
-  if (found.rows[0]) return found.rows[0].id;
+  if (found.rows[0]) {
+    await linkExternalCollection(source, found.rows[0].id);
+    return found.rows[0].id;
+  }
   for (let attempt = 0; attempt < 20; attempt++) {
     throwIfRemoved(state);
     const name = attempt ? `${source.display_name} (${attempt + 1})` : source.display_name;
     try {
-      const inserted = await query(
+      const inserted = await query<{ id: string }>(
         // A newly connected external calendar is not published to DAV devices
         // until the user explicitly enables it (plan §17.1).
         `INSERT INTO calendars (user_id, owner_user_id, name, color, source, external_url, read_only, dav_mode)
          VALUES ($1, $1, $2, $3, $4, $5, true, 'off') RETURNING id`,
         [source.user_id, name, source.color, source.kind, externalUrl],
       );
+      await linkExternalCollection(source, inserted.rows[0].id);
       return inserted.rows[0].id;
     } catch (caught) {
       const error = toAppError(caught);
@@ -124,6 +134,29 @@ async function calendarFor(source: ExternalCalendarSource, state: CalendarSyncSt
     }
   }
   throw new Error(`Could not create a calendar for "${source.display_name}"`);
+}
+
+/**
+ * Link the external collection to its source connection so the per-collection write-back switch has
+ * something to enable (P02's backfill, P10's reachability).
+ *
+ * The link is not what this sync is for, so a failure here is reported and does not fail the import —
+ * losing the events would be worse than a collection that has to be relinked on the next pass. An ICS
+ * subscription is linked as `read_only`, which is what the capability model will keep refusing.
+ */
+async function linkExternalCollection(source: ExternalCalendarSource, calendarId: string): Promise<void> {
+  try {
+    await ensureExternalCollectionLink({
+      userId: String(source.user_id ?? ''),
+      kind: externalSourceKind(source.kind),
+      url: typeof source.url === 'string' && source.url ? source.url : `source:${source.id}`,
+      remoteId: `source:${source.id}`,
+      label: typeof source.display_name === 'string' ? source.display_name : null,
+      localCalendarId: calendarId,
+    });
+  } catch (caught) {
+    console.warn('Linking an external calendar to its source connection failed:', toAppError(caught).message);
+  }
 }
 
 async function syncSource(source: ExternalCalendarSource) {

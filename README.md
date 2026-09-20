@@ -14,18 +14,18 @@ Inboxora brings mail, contacts and calendars into one self-hosted application. I
 standard protocols — IMAP, SMTP, CardDAV, CalDAV — so your data stays on your server and
 your existing devices keep working.
 
-This release is a large step beyond the upstream MailFlow fork it started from: Inboxora
-adds a real conversation engine for email threading, a full calendar with invitations,
-first-party contacts with CardDAV/CalDAV access, and a rebuilt interface. See
-[What's new in 4.1](#whats-new-in-41) for the current release and
-[What's new in 4.0](#whats-new-in-40) for the rest. **Version 4.1.0 is the current release**:
-it adds the native provider integration layer, so Google and Microsoft accounts can be
-connected and their **contacts and calendars pulled directly** instead of through a feed URL
-or a CSV export, plus recurring events and a hardened DAV server. Provider data is pulled
-**read-only**. Microsoft mail still travels over OAuth2 IMAP/SMTP — the Graph mail transport is
-**not** part of 4.1.0. See the
-[4.1.0 release notes](docs/wiki/Release-notes-4.1.0.md) for the migration steps and the known
-limitations.
+Inboxora is a large step beyond the upstream MailFlow fork it started from: it adds a real
+conversation engine for email threading, a full calendar with invitations, first-party contacts
+with CardDAV/CalDAV access, and a rebuilt interface. See [What's new in 4.1](#whats-new-in-41) for
+what 4.1 adds on top and [What's new in 4.0](#whats-new-in-40) for the rest.
+
+4.1 adds a **native provider layer**: a Microsoft account can run its mail, calendars and contacts
+over **Microsoft Graph** and a Google account can use the **Gmail, Calendar and People APIs**, while
+every account that prefers it keeps working over plain IMAP/SMTP — including Google with an app
+password. Provider data pulled from an API can be written back once you enable it per collection, and
+the send/attachment limits follow the transport you actually send over. **4.1.0 is prepared on `dev`
+and is not released yet**; the [4.1.0 release notes](docs/wiki/Release-notes-4.1.0.md) state what was
+verified on the published `:dev` images and which acceptance still has to be done by hand.
 
 <p align="center">
   <img src="media/screenshots/mail-inbox-desktop.png" width="820" alt="Inboxora: the unified inbox with an expanded conversation and an open message">
@@ -42,13 +42,19 @@ limitations.
   like message bodies, invitations sent by email with retry, and invitations received by mail
   added to a calendar in one click.
 - **Contacts with real interoperability.** Rich vCard fields, Google CSV import, Google CSV /
-  Outlook CSV / vCard export, and read-only CardDAV address books.
+  Outlook CSV / vCard export, CardDAV address books and calendars read from and written back to
+  their source, and the Google People and Microsoft Graph APIs as first-class sources.
 - **CalDAV and CardDAV access through application passwords.** Dedicated, revocable app
   passwords — never your login password — so DAVx5, Thunderbird and iOS/Android clients sync
   contacts and calendars even on accounts protected by TOTP or SSO.
 - **A rebuilt interface for desktop and phone.** Ink and its new Dark ink counterpart, separate
   default themes for the light and dark appearance, self-hosted fonts, resizable panels,
-  drawer navigation, safe-area-aware mobile layout and system Back handling.
+  drawer navigation with a menu-follows-your-finger gesture, safe-area-aware mobile layout and
+  system Back handling.
+- **Sending that knows its transport.** One composer for every account, with attachment and
+  message limits resolved per transport — a Microsoft Graph account carries a large file through a
+  resumable upload, Gmail is bounded by its own raw-message limit, and an SMTP account by the
+  server's.
 
 ## Screenshots
 
@@ -101,30 +107,47 @@ The same mailbox on a phone (390×844):
 
 ## What's new in 4.1
 
-**4.1.0 is the current release.** It adds the **native provider integration layer**: an
-administrator configures Google and/or Microsoft once under **Settings → Integrations → Email
-providers**, each user then authorizes their own account, and Inboxora pulls that account's
-**contacts and calendars** directly. The two providers are deliberately not treated the same way:
+4.1 adds a **native provider layer** and makes the send limits transport-aware. An administrator
+configures Google and/or Microsoft once under **Settings → Integrations → Email providers**, each user
+authorizes their own account, and that account's mail, contacts and calendars can then run over the
+provider's API instead of IMAP/SMTP.
 
-- **Google is optional.** Mail keeps working over IMAP/SMTP with an **app password**, exactly as
-  before. Adding a Google OAuth client adds the contacts and calendars pull; it does not migrate
-  mail and does not ask for Gmail permissions.
-- **Microsoft needs a connection for mail.** Outlook.com and Microsoft 365 no longer accept a
-  mailbox password, so those accounts need an authorized connection — either the browser flow or
-  the **device code**, which needs no client secret and no redirect URI. Microsoft mail still
-  travels over OAuth2 IMAP/SMTP in this release.
+**Microsoft — Graph.** A Microsoft account can read, file, flag, search, draft and send over
+**Microsoft Graph**, and its calendars and contacts come through the same connection. An existing
+account is **moved in place**: the same account row, no duplicate, nothing local is copied or lost,
+and no IMAP/SMTP fallback once it is native. Outlook.com and Microsoft 365 accounts need an authorized
+connection for this — either the browser flow or the **device code**, which needs no client secret and
+no redirect URI.
 
-Imported provider data is **read-only in Inboxora**: comparing, filtering and DAV access work,
-while editing an imported collection is refused with a reason instead of being silently undone at
-the next refresh. The release also adds **recurring events** with invitation support and hardens
-the built-in CalDAV/CardDAV discovery and capability surface.
+**Google — the API is recommended, IMAP/SMTP is still supported.** Mail keeps working over IMAP/SMTP
+with an **app password**, exactly as before, and that is a supported long-term choice. Registering a
+Google OAuth client additionally enables the **Gmail API** for mail and the **Calendar and People
+APIs** for calendars and contacts; Inboxora then recommends the API for a Gmail mailbox but never
+performs the switch on its own, and *Ignore* or *do not show again* dismisses the recommendation
+(durably, per user and per mailbox). Calendar and contacts work independently of the mail transport.
 
-Apply migrations **`0101`–`0106` in order before rolling out** a build that reads the new columns;
-they are additive and no existing row is rewritten. `PROVIDER_INTEGRATIONS_ENABLED=0` disables the
-whole provider layer, and with no provider configured mail, contacts, calendars and DAV behave as
-in 4.0.4. The **Graph mail transport and the Gmail API mail transport are not part of 4.1.0**. See
-the [4.1.0 release notes](docs/wiki/Release-notes-4.1.0.md) for the full list and the known safe
-limitations.
+**Provider data can be written back.** Editing a calendar event or a contact in a pulled collection is
+forwarded to the provider first, and a write is enabled **per collection** — an imported collection
+stays read-only until you switch write-back on for it. The same applies to calendars and address books
+imported from an external **CalDAV/CardDAV** server: a change made in Inboxora (or over DAV from a
+phone) is sent back to that server, with the client's `If-Match` precondition kept intact. An ICS
+subscription is read-only by nature and stays read-only.
+
+**Send and attachment limits follow the transport.** One composer, and the applicable limit is the
+transport's: Graph carries a single file up to its own upload-session ceiling through a resumable
+upload, Gmail is bounded by the raw message it accepts, and an SMTP account by the installation's
+ceiling. A refusal names the file and the exact dimension it hit rather than one global number.
+
+4.1 also adds **recurring events** with invitation support, the **menu-follows-your-finger** mobile
+gesture, and hardens the built-in CalDAV/CardDAV discovery and capability surface.
+
+Apply migrations **`0101`–`0112` in order before rolling out** a build that reads the new columns; they
+are additive and no existing row is rewritten. `PROVIDER_INTEGRATIONS_ENABLED=0` disables the whole
+provider layer, and with no provider configured mail, contacts, calendars and DAV behave as in 4.0.4.
+See the [4.1.0 release notes](docs/wiki/Release-notes-4.1.0.md) for the upgrade impact, the
+administrator steps, the known limitations and what is still manual acceptance, and
+[Connecting Google and Microsoft accounts](docs/wiki/Provider-setup.md) for the registration
+procedure.
 
 ## What's new in 4.0
 
@@ -225,12 +248,16 @@ mail into conversations afterwards, is in
 ## Connecting your accounts
 
 - **IMAP/SMTP** — any provider, with Gmail, Yahoo, iCloud and custom presets.
-- **Gmail — two methods, neither forced.** Mail works with a Google **app password** over IMAP/SMTP, and an
-  administrator can additionally register a Google OAuth client to pull that account's **contacts and
-  calendars** read-only. Connecting the API does not migrate mail and does not ask for Gmail permissions;
-  see [Configuration](docs/wiki/Configuration.md) and [Connecting Google and Microsoft accounts](docs/wiki/Provider-setup.md).
+- **Gmail — two methods, neither forced.** Mail works with a Google **app password** over IMAP/SMTP, and
+  that remains supported. An administrator can additionally register a Google OAuth client to enable the
+  **Gmail API** for mail and the **Calendar/People APIs** for calendars and contacts; Inboxora recommends
+  the API for a Gmail mailbox but never switches it by itself. See
+  [Configuration](docs/wiki/Configuration.md) and
+  [Connecting Google and Microsoft accounts](docs/wiki/Provider-setup.md).
 - **Microsoft 365 / Outlook.com** — OAuth2 (authorization code or device code). An administrator
-  registers one Azure application under **Settings → Integrations**.
+  registers one Entra application under **Settings → Integrations**. Mail can run over OAuth2 IMAP/SMTP
+  or, after an in-place migration, over **Microsoft Graph** — including calendars, contacts, drafts and
+  sending.
 - **Contacts and calendars on your devices** — generate an application password under
   **Settings → DAV access** and point DAVx5, Thunderbird or a native client at your Inboxora URL.
   Use your Inboxora username with that app password; login passwords and TOTP codes are never
@@ -329,7 +356,8 @@ release.
 | [Installation](docs/wiki/Installation.md) | Deployment modes, secrets, reverse proxy, upgrades. |
 | [Getting started](docs/wiki/Getting-started.md) | First account, first mail account, first calendar and contacts. |
 | [Email and threading](docs/wiki/Email-and-threading.md) | Conversation engine, threaded list, reader, actions, search. |
-| [Configuration](docs/wiki/Configuration.md) | Accounts, preferences, themes, notifications, admin tabs. |
+| [Configuration](docs/wiki/Configuration.md) | Accounts, preferences, themes, notifications, admin tabs, send limits. |
+| [Connecting Google and Microsoft accounts](docs/wiki/Provider-setup.md) | Entra and Google Cloud registration, browser and device code, scopes, switches. |
 | [Calendar](docs/wiki/Calendar.md) | Views, recurrence, invitations, visibility, sharing. |
 | [Contacts and DAV](docs/wiki/Contacts-and-DAV.md) | Address books, imports/exports, CardDAV, DAVx5, app passwords. |
 | [External calendars](docs/wiki/External-calendars.md) | CalDAV and ICS/webcal sources and secret feeds. |
@@ -339,12 +367,18 @@ release.
 | [Migrating from MailFlow](docs/wiki/Migrating-from-MailFlow.md) | Moving a MailFlow 3.3.0 deployment to Inboxora. |
 | [Troubleshooting](docs/wiki/Troubleshooting.md) | Diagnostic paths and common failures. |
 | [Development](docs/wiki/Development.md) | Local verification, browser tests, documentation policy. |
-| [Release notes 4.0.4](docs/wiki/Release-notes-4.0.4.md) | Current release: desktop changes, rollout requirements and known limitations. |
+| [Release notes 4.1.0](docs/wiki/Release-notes-4.1.0.md) | 4.1.0 as prepared on `dev`: highlights, upgrade impact, administrator steps, limitations, verification. |
+| [Release notes 4.0.4](docs/wiki/Release-notes-4.0.4.md) | Previous release: desktop changes, rollout requirements and known limitations. |
 | [Release notes 4.0.3](docs/wiki/Release-notes-4.0.3.md) | Previous release: sync, IDLE, antispam and migration requirements. |
 | [Release notes 4.0.2](docs/wiki/Release-notes-4.0.2.md) | Earlier release: reliability and data-isolation patch. |
 | [Release notes 4.0.0](docs/wiki/Release-notes-4.0.0.md) | Why this is a major release and what changed. |
 
 ## Development
+
+**4.1.0 is prepared on the `dev` branch and is not released yet.** Published `:dev` images are built
+from it by the `Publish to GHCR` workflow; [`docs/IMPLEMENTATION-STATUS.md`](docs/IMPLEMENTATION-STATUS.md)
+records the per-package delivery status, the frozen code SHA and the manual acceptance that is still
+outstanding. `main` receives a release only through a pull request from `dev`.
 
 ```bash
 # frontend

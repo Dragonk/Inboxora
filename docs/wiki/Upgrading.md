@@ -47,6 +47,40 @@ Watch the backend logs for migrations on the first start after an upgrade:
 docker compose logs -f backend
 ```
 
+## Upgrading to 4.1.0
+
+4.1.0 adds the native provider layer. Nothing about an existing installation stops working, and nothing is
+migrated, deleted or rewritten on its own.
+
+**Migrations.** Apply **`0101`–`0112` in order, before rolling out the application**. They are additive:
+they add tables, columns and indexes and rewrite no row, so an interrupted run is resumable and a rollback
+to 4.0.4 works (the older code ignores the new columns). Three matter for ordering beyond the application
+start: `0110` before any device authorization is started, `0111` before the Gmail API adapter runs, and
+`0112` before any collection write-back is enabled.
+
+**What changes without you doing anything**
+
+| Area | After the upgrade |
+| --- | --- |
+| Mail | Unchanged transports. An account with `mail_transport` unset or `imap_smtp` keeps using IMAP/SMTP exactly as before. |
+| Google accounts | Unchanged. The app-password path keeps working and is a supported long-term choice; if the API is configured, the accounts settings show a recommendation you may *Ignore* or dismiss with *do not show again* (durable, per user and per mailbox). Nothing migrates on its own. |
+| Microsoft accounts | Unchanged until you authorize a connection. Once the Graph connection exists you can **migrate the account in place**: the same account row, no duplicate, no local data copied or lost, and no IMAP/SMTP fallback afterwards. |
+| Imported collections | Still read-only, now with a per-collection **write-back** switch where the source allows it. |
+| DAV | The endpoints are unchanged. An external CalDAV/CardDAV collection becomes writable back to its server once you enable write-back for it — its link is created on the next sync of that source. |
+| Send limits | `MAIL_MAX_MESSAGE_BYTES` is now the **fallback** ceiling for SMTP only, and the new `MAIL_MAX_ATTACHMENT_BYTES` is the hard installation ceiling. A Microsoft Graph account is no longer bounded by the SMTP-era 25 MB total. |
+
+**Recommended post-upgrade steps**
+
+1. Apply the migrations and start the new version; confirm folders, mail and DAV still work.
+2. Configure a provider as [Connecting Google and Microsoft accounts](Provider-setup.md) describes, if you
+   intend to use the APIs.
+3. For each Microsoft account you want on Graph: connect the Graph authorization (browser or device code),
+   then migrate the account from the accounts settings.
+4. Decide write-back per collection: leave pulled collections read-only unless you want edits forwarded to
+   the source.
+5. If your server or reverse proxy bounds request bodies, review `MAIL_MAX_ATTACHMENT_BYTES` so the two
+   agree.
+
 ## Upgrading to 4.0.0
 
 4.0.0 is a major release: it adds calendars, contacts, DAV and the conversation engine. Most of
@@ -71,7 +105,7 @@ straightforward — but note the following.
 | Contacts | New empty address books. Import a Google CSV, or connect a CardDAV account to pull existing contacts. |
 | Google accounts | **Nothing is removed and nothing is forced.** An existing mail account keeps working with its Google app password, and an administrator can *optionally* register a Google OAuth client to pull that account's contacts and calendars read-only. Connecting the API does not change the mail transport and does not ask for Gmail permissions. |
 | Microsoft accounts | Mail needs the API connection, because Outlook.com and Microsoft 365 no longer accept a mailbox password. An administrator registers one Azure application — with either the browser or the device-code method — and each user then authorizes their own account. Existing accounts and their local history stay in place; they simply cannot reach the mailbox until that authorization happens. |
-| Imported collections | Contacts and calendars pulled from a provider are **read-only** here: the provider is their writer. Editing, deleting or removing them through Inboxora is refused rather than silently undone at the next refresh. |
+| Imported collections | Contacts and calendars pulled from a provider are **read-only** here until write-back is enabled for a collection (4.1 adds that per-collection switch): the provider is their writer, so an edit made before enabling it is refused rather than silently undone at the next refresh. |
 | DAV | CardDAV and CalDAV endpoints become available. Existing devices need an **application password** from Settings → DAV access. |
 | Docker stack | A new **ntfy** service and a new `ntfy_data` volume are added for Android instant notifications. They are independent of PostgreSQL and Redis, so no mail, calendar or contact data is touched. Refresh the published `docker-compose.yml` from the release before pulling. |
 | Notifications (Android) | Set the **ntfy** app's **Default server** to `https://<your-domain>` — the origin, **no `/push` path** (the ntfy app rejects a base URL with a path). Inboxora proxies the UnifiedPush topic namespace at that origin. PWA Web Push is unchanged. |
@@ -108,12 +142,12 @@ When an administrator does configure one:
 
 ### About the provider notices
 
-This release does **not** include the per-account migration prompt with an *Ignore* action and a
-"do not show again" checkbox. What exists is the requirement itself, stated on the Microsoft card: mail for
-those accounts needs the API connection. An administrator can switch a provider or one of its methods off,
-which is enforced, and the whole provider layer can be switched off for an installation with
-`PROVIDER_INTEGRATIONS_ENABLED=0`. The dismissal controls are part of the migration work and are not to be
-expected here — worth knowing so that their absence is not read as a missing setting.
+The **Microsoft requirement** is stated on the provider card whenever it is opened, and it deliberately has
+no dismissal: a requirement that can be permanently hidden is a requirement that gets lost. The **Google
+recommendation** appears in the accounts settings for a Gmail mailbox that could use the API, with *Ignore*
+(which the interface forgets) and *do not show again* (a durable, per-user, per-mailbox suppression stored
+on the server). An administrator can switch a provider or one of its methods off, which is enforced, and the
+whole provider layer can be switched off for an installation with `PROVIDER_INTEGRATIONS_ENABLED=0`.
 
 ## If a migration is interrupted
 

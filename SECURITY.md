@@ -47,4 +47,4 @@ The project cares especially about these boundaries, and reports about them are 
 
 Never include real credentials in a report. Reproduce with a test account and redact addresses,
 tokens, connection strings and message bodies. The built-in diagnostics report is already
-redacted and is safe to attach; see [Troubleshooting](wiki/Troubleshooting.md).
+redacted and is safe to attach; see [Troubleshooting](docs/wiki/Troubleshooting.md).

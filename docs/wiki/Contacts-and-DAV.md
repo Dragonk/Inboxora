@@ -10,8 +10,11 @@ CalDAV.
 
 Local and remote address books, Google-pulled and CardDAV-synced ones, are **independent of each other**. The
 provider integrations do not migrate, adopt or remove a CardDAV account or a local book: they add their own
-read-only book beside them, and the CardDAV adapter keeps writing to its own. A Google account connected for
-contacts is likewise not a reason for anything else to change.
+book beside them, and the CardDAV adapter keeps writing to its own. A Google account connected for contacts
+is likewise not a reason for anything else to change. A book pulled from a provider **or from an external
+CardDAV server** arrives read-only and can be made editable per book by enabling write-back for it (see
+[Writing changes back](#writing-changes-back)); an account you only *imported* from never becomes the local
+book's writer, and the local book stays yours.
 
 - Create, rename, recolour, hide or delete local address books. At least one local book remains.
 - **Rename** a book from the book menu next to the book picker: it opens a dialog prefilled with
@@ -23,8 +26,8 @@ contacts is likewise not a reason for anything else to change.
 - Switching books keeps your current search; results from a previous book can never replace the
   ones you are looking at.
 - Contacts discovered automatically from received mail are marked **auto**.
-- Read-only books (CardDAV imports) cannot be edited locally, so they offer no rename: their name
-  belongs to the server they sync from.
+- A pulled book (a CardDAV import or a provider collection) cannot be renamed or edited locally until
+  write-back is enabled for it, because its name and contents belong to the server it syncs from.
 
 The book menu holds book creation, visibility, **Google CSV import** into local books, and
 **Google CSV / Outlook CSV / vCard export**.
@@ -76,7 +79,8 @@ selecting a contact opens its details with an in-app Back action.
 - Selecting an email address opens the composer with that recipient already filled in.
 - **Edit** opens the full editor with all rich fields, including multiple emails, phones,
   addresses and dates.
-- Contacts in a read-only CardDAV book cannot be edited or deleted locally.
+- A contact in a pulled book is edited or deleted locally only once write-back is enabled for that book;
+  before that, the change is refused with a reason rather than reverted by the next sync.
 
 | Contacts on a phone | Editor on a phone |
 | --- | --- |
@@ -104,6 +108,24 @@ Events that Inboxora owns because invitations were sent for them are protected f
 silently modified by a DAV client.
 
 ## Choosing what is shared with DAV
+
+## Writing changes back
+
+A pulled calendar or address book — from Google, Microsoft or an external CalDAV/CardDAV server — is
+**read-only until you enable write-back for that specific collection**. Enabling it is a per-collection
+decision, taken in the collection's own menu, and it is offered only where a write can actually reach the
+source:
+
+- a **Google or Microsoft** collection can then be edited over the web interface;
+- an **external CalDAV/CardDAV** collection can be edited over the web interface **and from a DAV client**:
+  a `PUT` or `DELETE` is forwarded to the server the collection came from, keeping the client's
+  `If-Match`/`If-None-Match` precondition, so a change made on a phone is no longer only local;
+- a collection the provider reports as read-only (a calendar shared with you as a reader) cannot be made
+  writable, and the switch says so;
+- an **ICS subscription** has no write channel and stays read-only.
+
+The local copy changes only after the source confirms. A refusal leaves it untouched, and an ambiguous
+source answer is parked rather than retried, so nothing is reported as saved unless it was.
 
 Sharing is decided **per calendar and per address book**, not globally. Open a calendar's actions
 menu in the calendar sidebar (name/colour dialog) and set **DAV access**:
@@ -190,8 +212,9 @@ projected into one local address book per connection, named *Google Contacts*.
   duplicates a record.
 - A contact removed in Google is removed here too; the link is kept as a tombstone so it is not
   re-created by a later sync.
-- The book starts with **DAV access: Disabled** and is read-only, so it is not published to your
-  devices and edits here are refused rather than silently reverted by the next sync.
+- The book starts with **DAV access: Disabled** and with write-back off, so it is not published to
+  your devices and edits are refused rather than silently reverted by the next sync. Enabling
+  write-back for the book sends changes to Google first (see [Writing changes back](#writing-changes-back)).
 - Synchronisation is incremental: the first pass reads everything and stores a cursor, later passes
   only read what changed. If Google rejects the stored cursor, the next pass rebuilds the book from
   a fresh baseline instead of failing.
@@ -216,7 +239,8 @@ connection, named *Microsoft Contacts*.
 - If Outlook rejects the stored delta link (it expires when the mailbox goes untouched for long
   enough), that book is **rebuilt from a baseline and reconciled**: contacts the baseline no longer
   lists are removed locally, which a plain re-read would miss.
-- Like the Google book, it arrives with **DAV access: Disabled** and is read-only in the app.
+- Like the Google book, it arrives with **DAV access: Disabled** and with write-back off; enabling
+  write-back for it sends changes to Outlook first.
 
 The connector is reachable from the interface: **Settings → Integrations → Email providers** on the
 Microsoft card offers **Connect Microsoft contacts**, which authorizes Microsoft Graph for contacts

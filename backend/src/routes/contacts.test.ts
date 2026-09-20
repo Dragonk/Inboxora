@@ -87,6 +87,32 @@ beforeEach(() => {
   withTransaction.mockClear();
 });
 
+describe('the address-book list exposes the write-back switch', () => {
+  it('reports the collection id and the capability model’s read-only verdict per book', async () => {
+    // A pulled book: the capability model refuses a write until the user opts in, so `read_only` is true —
+    // and the `collection_id` is what the interface addresses the opt-in by. Without both, a contacts
+    // write-back switch had nothing to offer.
+    query.mockResolvedValueOnce({ rows: [{ id: 'user-1' }] });
+    query.mockResolvedValueOnce({
+      rows: [
+        { id: 'book-pulled', name: 'Contacts', source: 'carddav', visible: true, dav_mode: 'off', contact_count: 3, collection_id: 'collection-1', source_access: 'read_write', user_access: 'source' },
+        { id: 'book-local', name: 'Personal', source: 'local', visible: true, dav_mode: 'off', contact_count: 1, collection_id: null, source_access: null, user_access: null },
+      ],
+    });
+    const server = createApp().listen(0);
+    try {
+      const response = await fetch(`http://127.0.0.1:${listeningPort(server)}/api/contacts/address-books`);
+      expect(response.status).toBe(200);
+      const body = await response.json() as { addressBooks: Array<{ id: string; collection_id: string | null; read_only: boolean }> };
+      expect(body.addressBooks.find(book => book.id === 'book-pulled')).toMatchObject({ collection_id: 'collection-1', read_only: true });
+      // A local book has no collection and is writable, so it offers no write-back switch at all.
+      expect(body.addressBooks.find(book => book.id === 'book-local')).toMatchObject({ collection_id: null, read_only: false });
+    } finally {
+      await new Promise(resolve => server.close(resolve));
+    }
+  });
+});
+
 describe('Contact REST PATCH legacy date synchronization', () => {
   it('clearing birthday removes its legacy labelled date while preserving custom dates', async () => {
     arrangeQuery([

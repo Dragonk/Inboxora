@@ -197,8 +197,31 @@ function contactWriteRefusal(res: Response, failure: { status: number; error: st
 
 router.get('/address-books', async (req, res) => {
   try {
-    const result = await query(`SELECT ab.id, ab.name, ab.source, ab.visible, ab.dav_mode, COUNT(c.id)::int AS contact_count FROM address_books ab LEFT JOIN contacts c ON c.address_book_id = ab.id WHERE ab.user_id = $1 GROUP BY ab.id ORDER BY ab.created_at ASC`, [req.session.userId]);
-    res.json({ addressBooks: result.rows });
+    // `collection_id` is what the write-back opt-in is addressed by, and `read_only` is the capability
+    // model's answer for the book as it stands — the same pair the calendar list exposes, so a pulled book
+    // can be switched the same way a pulled calendar can. Without them the switch had nothing to address
+    // and the write-back was unreachable for every address book.
+    const result = await query<{ id: string; source?: string | null; source_access?: string | null; user_access?: string | null; [key: string]: unknown }>(
+      `SELECT ab.id, ab.name, ab.source, ab.visible, ab.dav_mode, COUNT(c.id)::int AS contact_count,
+              ic.id AS collection_id, ic.source_access, ic.user_access
+         FROM address_books ab
+         LEFT JOIN contacts c ON c.address_book_id = ab.id
+         LEFT JOIN integration_collections ic
+                ON ic.local_address_book_id = ab.id AND ic.kind = 'address_book' AND ic.user_id = ab.user_id
+        WHERE ab.user_id = $1
+        GROUP BY ab.id, ic.id
+        ORDER BY ab.created_at ASC`,
+      [req.session.userId],
+    );
+    const addressBooks = result.rows.map(row => ({
+      ...row,
+      read_only: !collectionIsWritable({
+        source: typeof row.source === 'string' ? row.source : null,
+        source_access: typeof row.source_access === 'string' ? row.source_access : null,
+        user_access: typeof row.user_access === 'string' ? row.user_access : null,
+      }, 'contacts'),
+    }));
+    res.json({ addressBooks });
   } catch (err) { console.error('Address book list error:', err); res.status(500).json({ error: 'Failed to fetch address books' }); }
 });
 

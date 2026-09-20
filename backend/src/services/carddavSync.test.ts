@@ -17,7 +17,7 @@ const { query, discoverAddressBooks, fetchAddressBookCards, getConnectionPolicy 
 vi.mock('./db.js', () => ({ query }));
 vi.mock('./carddavClient.js', () => ({ discoverAddressBooks, fetchAddressBookCards }));
 vi.mock('./connectionPolicy.js', () => ({ getConnectionPolicy }));
-vi.mock('./encryption.js', () => ({ decrypt: (value: string) => value }));
+vi.mock('./encryption.js', () => ({ decrypt: (value: string) => value, encrypt: (value: string) => `enc:v1:${value}` }));
 
 import { syncUser } from './carddavSync.js';
 
@@ -37,6 +37,10 @@ function configureSync() {
   query.mockImplementation(async (sql: string) => {
     if (sql.includes('SELECT config FROM user_integrations')) return { rows: [{ config: { serverUrl: 'https://dav.example', username: 'user', password: 'password' } }] };
     if (sql.includes('SELECT id FROM address_books')) return { rows: [{ id: 'book-1' }] };
+    // The external-collection link (P02/P10): the helper asks for the source connection and then for the
+    // collection, and a real database returns the new ids.
+    if (sql.includes('INSERT INTO source_connections')) return { rows: [{ id: 'source-conn-1' }] };
+    if (sql.includes('INSERT INTO integration_collections')) return { rows: [{ id: 'collection-1' }] };
     return { rows: [] };
   });
   getConnectionPolicy.mockResolvedValue({ allowPrivateHosts: false });
@@ -51,6 +55,26 @@ describe('remote CardDAV contact-date persistence', () => {
   beforeEach(() => {
     query.mockReset(); discoverAddressBooks.mockReset(); fetchAddressBookCards.mockReset(); getConnectionPolicy.mockReset();
     configureSync();
+  });
+
+  it('links the external address book to its source connection so write-back has something to enable', async () => {
+    // P02/P10: a CardDAV book belongs to the user and is addressed with the user's own credentials, so the
+    // link records the source's permission as writable while the user's choice stays read-only until they
+    // opt in. Without the link the write-back switch has no collection id and is never offered.
+    await expect(syncUser('user-1')).resolves.toMatchObject({ ok: true });
+
+    const link = query.mock.calls.find(([sql]) => String(sql).includes('INSERT INTO integration_collections'));
+    expect(link).toBeDefined();
+    const sql = String(link?.[0]);
+    expect(sql).toContain('INSERT INTO integration_collections');
+    expect(sql).toContain("'source', 'off'");
+    expect(link?.[1]).toEqual([
+      'user-1', expect.any(String), 'address_book', 'https://dav.example/contacts', null, 'book-1', 'read_write',
+    ]);
+
+    // Idempotency is a database property (the helper's SELECT finds the row a previous pass wrote), so it is
+    // proven against a real PostgreSQL by `providers/externalCollectionLinks.integration.test.ts` rather than
+    // by a mock that would have to remember its own inserts.
   });
 
   it('binds Apple and Android labelled dates to contact_dates and updates them idempotently', async () => {

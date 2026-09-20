@@ -30,10 +30,11 @@ Administrators can enable two-factor authentication, a screen-lock PIN and SSO u
 Provider-specific notes:
 
 - **Gmail** has two ways in and neither is forced. Mail works with a [Google app
-  password](https://myaccount.google.com/apppasswords) over IMAP/SMTP, and an administrator can
-  additionally register a Google OAuth client to pull that account's contacts and calendars — see
-  [Connecting Google and Microsoft accounts](Provider-setup.md). Connecting the API does not change the
-  mail transport and does not ask for Gmail permissions.
+  password](https://myaccount.google.com/apppasswords) over IMAP/SMTP, and that stays supported. An
+  administrator can additionally register a Google OAuth client to enable the **Gmail API** for mail and
+  the **Calendar and People APIs** for calendars and contacts — see
+  [Connecting Google and Microsoft accounts](Provider-setup.md). Inboxora then *recommends* the API in the
+  accounts settings, with *Ignore* and *do not show again*, but never switches an account by itself.
 
   For an app password, the account needs **2-Step Verification** and Google must offer app-password
   creation. It may be unavailable — under Advanced Protection, with certain security-key setups, or by an

@@ -143,9 +143,12 @@ any other calendar. See [Contacts and DAV](Contacts-and-DAV.md).
 
 ## Imported calendars
 
-Read-only calendars come from **CalDAV** or **ICS/webcal** subscriptions — see
-[External calendars](External-calendars.md) — or from a CardDAV-synced account. They are never
-modified by Inboxora: imported events open in a preview without editing controls.
+Calendars that come from another server — **CalDAV** (writable back to that server once enabled),
+**ICS/webcal** (read-only by nature) or a connected provider — see
+[External calendars](External-calendars.md) — are **read-only until you enable write-back for that
+calendar**. With write-back off, an imported event opens in a preview without editing controls; with it
+on, an edit is sent to the source first and the local copy changes only after the source confirms. An
+ICS/webcal feed stays read-only whatever you select, because it has no write channel.
 
 Add a subscription by URL, or add a country's public holidays as a ready-made Thunderbird ICS
 feed, from **Settings → Calendar → Calendar subscriptions**. The same sources can be synced,

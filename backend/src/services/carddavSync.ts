@@ -9,6 +9,7 @@ import { decrypt } from './encryption.js';
 import { parseVCard } from '../utils/vcard.js';
 import { getConnectionPolicy } from './connectionPolicy.js';
 import { discoverAddressBooks, fetchAddressBookCards } from './carddavClient.js';
+import { ensureExternalCollectionLink } from './providers/externalCollectionLinks.js';
 import { toAppError } from '../utils/errors.js';
 
 const DEFAULT_INTERVAL_MIN = 60;
@@ -139,6 +140,21 @@ async function syncBook(userId: string, book: CardavBook, dupMode: string, creds
     throw new Error('Remote CardDAV vCard contains an invalid contact date');
   }
   const bookId = await ensureCardavBook(userId, book);
+  // Link the collection to its source connection so the per-collection write-back switch has something to
+  // enable (P02's backfill, P10's reachability). Not this sync's purpose: a failure is reported and the
+  // contacts still import, because losing them would be worse than a link that is retried next pass.
+  try {
+    await ensureExternalCollectionLink({
+      userId,
+      kind: 'carddav',
+      url: book.url,
+      remoteId: book.url,
+      label: book.displayName ?? null,
+      localAddressBookId: bookId,
+    });
+  } catch (caught) {
+    console.warn('Linking an external address book to its source connection failed:', toAppError(caught).message);
+  }
 
   // Emails present in the user's OTHER books, for cross-book duplicate handling.
   const otherEmail = new Map<string, string>(); // email -> existing contact id

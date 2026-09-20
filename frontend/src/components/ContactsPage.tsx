@@ -149,7 +149,20 @@ interface ContactRow {
 }
 
 /** An address book as the contacts API returns it. */
-interface AddressBookRow { id: string; name?: string | null; [key: string]: unknown }
+interface AddressBookRow {
+  id: string;
+  name?: string | null;
+  /**
+   * The pulled collection this book belongs to, when it has one, and the server's verdict on whether the
+   * book currently accepts a write. Both come from the same capability model the calendars use, so the
+   * write-back switch is addressed and labelled the same way in both places.
+   */
+  collection_id?: string | null;
+  read_only?: boolean;
+  source?: string | null;
+  visible?: boolean;
+  [key: string]: unknown;
+}
 
 /** The address-book name dialog: null when closed, otherwise the mode and the value
  * being edited. A real dialog rather than window.prompt, so naming a book looks like
@@ -196,6 +209,7 @@ export default function ContactsPage({ isActive = true }) {
   // the rest of the app and can show the server's validation error in place.
   const [bookDialog, setBookDialog] = useState<BookDialogState | null>(null);
   const [bookSaving, setBookSaving] = useState(false);
+  const [writingBack, setWritingBack] = useState(false);
   const [bookError, setBookError] = useState<string | null>(null);
   // The provider contact pulls: `connected` decides whether a sync action is offered,
   // and the notice reports what the last run of either provider changed.
@@ -368,6 +382,24 @@ export default function ContactsPage({ isActive = true }) {
       await api.addressBooks.update(book.id, { visible: !book.visible });
       await loadAddressBooks();
     } catch (err) { setListError(toAppError(err).message); }
+  };
+
+  /**
+   * Enable or disable write-back for the selected pulled address book.
+   *
+   * The switch is offered only for a book that has a collection, and the server decides whether the change
+   * is allowed: a book whose source reports it as read-only answers `SOURCE_READ_ONLY` and the message is
+   * shown rather than the row being flipped locally.
+   */
+  const toggleAddressBookWriteBack = async () => {
+    const book = addressBooks.find(item => item.id === selectedAddressBookId);
+    if (!book?.collection_id) return;
+    setWritingBack(true);
+    try {
+      await api.setCollectionWriteBack(String(book.collection_id), book.read_only !== false);
+      await loadAddressBooks();
+    } catch (err) { setListError(toAppError(err).message); }
+    finally { setWritingBack(false); }
   };
 
   const runProviderContactsSync = async (provider: 'google' | 'microsoft') => {
@@ -672,6 +704,9 @@ export default function ContactsPage({ isActive = true }) {
         {selectedAddressBookId && <>
           {selectedBook?.source === 'local' && <Button data-testid="contacts-address-book-rename" onClick={() => openRenameBook(selectedBook)}>{t('contacts.addressBooks.rename')}</Button>}
           <Button onClick={toggleAddressBookVisibility}>{t(selectedBook?.visible ? 'contacts.addressBooks.hide' : 'contacts.addressBooks.show')}</Button>
+          {/* The same per-collection opt-in the calendar sidebar offers; the labels are the shared
+              write-back strings, because the concept is the same on both surfaces. */}
+          {selectedBook?.collection_id && <Button data-testid="contacts-write-back" disabled={writingBack} onClick={toggleAddressBookWriteBack}>{t(selectedBook.read_only === false ? 'calendar.disableWriteBack' : 'calendar.enableWriteBack')}</Button>}
           {selectedBook?.source === 'local' && <Button onClick={() => importInputRef.current?.click()}>{t('contacts.addressBooks.importGoogle')}</Button>}
           {selectedBook?.source === 'local' && <Button data-testid="contacts-import-vcard" onClick={() => importVCardRef.current?.click()}>{t('contacts.addressBooks.importVCard')}</Button>}
           <a className="ui-button" href={api.addressBooks.exportUrl(selectedAddressBookId, 'google-csv')}>{t('contacts.addressBooks.exportGoogle')}</a>
