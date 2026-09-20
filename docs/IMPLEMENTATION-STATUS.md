@@ -43,14 +43,16 @@ Each package has exactly one current state:
 
 ### P14 evidence
 
-**Frozen code SHA: `1432981f0f680a51e96986033104bcc5b565bd91`** — the revision that fixes the 4.0.4 → 4.1.0 upgrade path (0108/0114), puts one
-classifier behind both legacy migrations and the account card, and removes every user-level authorization from
-Settings → Integrations. Commits after it are documentation only.
+**Frozen code SHA: `561262b4cb3b554fb8e9a2821224d49ee7206f36`** — the revision that fixes the 4.0.4 → 4.1.0 upgrade path (0108/0114), adds
+push-assisted synchronisation, separates provider configuration (Settings → Integrations) from mailbox
+connection (Settings → Accounts), makes every OAuth callback canonical (`APP_URL + /oauth/<provider>/callback`,
+generated and read-only), evaluates authorization per account feature, baselines native mail after a cutover
+and treats a native Gmail thread id as strong evidence. Commits after it are documentation only.
 
 | Part | State | Evidence |
 | --- | --- | --- |
-| image build + registry verification | **done** | Workflow run [`35519124758`](https://github.com/Dragonk/Inboxora/actions/runs/35519124758) built from `source_sha=1432981f0f680a51e96986033104bcc5b565bd91` and pushed `:dev`. Both resolve to OCI image indexes carrying `linux/amd64` **and** `linux/arm64`: backend `sha256:dae1b8f13023ce1e26c150d7f2bc5b9f2b57d12c04cba775d1f9ef4ac450156d`, frontend `sha256:ff7f841a1f14301500548f5bb5decc941a606e1f90eebcd2165dd28691c1e69a`. |
-| runtime smoke | **RUN — passed** | The published pair was pulled and started from a fresh volume: `/api/health` → `{"status":"ok"}`, `/api/version` → `{"version":"dev","sha":"1432981f0f680a51e96986033104bcc5b565bd91"}`, **117** migrations, first-user registration, a fresh login, `/api/auth/me`, the account list, the UI root and **0 restarts**. The upgrade smokes from a 4.0.4-shaped database and from an earlier-`:dev` database are recorded in the verification section below. |
+| image build + registry verification | **done** | Workflow run [`35524144582`](https://github.com/Dragonk/Inboxora/actions/runs/35524144582) built from `source_sha=561262b4cb3b554fb8e9a2821224d49ee7206f36` and pushed `:dev`. Both resolve to OCI image indexes carrying `linux/amd64` **and** `linux/arm64`: backend `sha256:f99fbb892b2adf600186474a12166aadfc8a504b6879ef5924466c09e97c9f46`, frontend `sha256:88ea7c949c816f14d590c4ff8ad582992719ab8f06a58a49d4b5dd45a36809fc`. |
+| runtime smoke | **RUN — passed** | The published pair was pulled from GHCR and started from a fresh volume: `/api/health` → `{"status":"ok"}`, `/api/version` → `{"version":"dev","sha":"561262b4cb3b554fb8e9a2821224d49ee7206f36"}`, **117** migrations, first-user registration, a fresh login, `/api/auth/me`, the account list, the UI root and **0 restarts**. (`docker compose pull` hit a Docker Hub `429` on the third-party ntfy image, so the two Inboxora images were pulled explicitly and the stack started from the cached third-party ones; the upgrade smokes from a 4.0.4-shaped database and from an earlier-`:dev` database remain recorded below.) |
 | `:dev` publication | **done** | The published images are the current `dev` code, including the audit's two fixes; `main` is untouched and 4.1.0 is not released. |
 
 ## Acceptance criteria W01–W19
@@ -168,10 +170,10 @@ Not release criteria; recorded so they are not lost:
 
 Measured on the frozen code SHA with each gate's own exit status read directly:
 
-- **Backend** — typecheck clean, lint clean, **2970 unit tests passed** (221 skipped; 246 files).
+- **Backend** — typecheck clean, lint clean, **2983 unit tests passed** (225 skipped; 247 files).
 - **Frontend** — typecheck clean, lint clean, **2779 tests passed** (0 failed), production build clean.
 - **Database** — a database created empty for the purpose, the **whole 117-migration chain applied from
-  zero** by the application's own runner, then **432 integration tests across 47 suites** on PostgreSQL 16
+  zero** by the application's own runner, then **425 integration tests across 47 suites** on PostgreSQL 16
   (exit 0), including the send-ledger and external-collection-link suites. The unit and integration
   figures are separate invocations on purpose: one process running both against one database lets
   independent integration files contend on the same conversation tables, where a `SERIALIZABLE` rebuild can
