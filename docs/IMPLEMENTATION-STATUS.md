@@ -43,7 +43,7 @@ Each package has exactly one current state:
 
 ### P14 evidence
 
-**Frozen code SHA: `561262b4cb3b554fb8e9a2821224d49ee7206f36`** — the revision that fixes the 4.0.4 → 4.1.0 upgrade path (0108/0114), adds
+**Frozen code SHA: `ac6310f33ca74da4eddf0f34147cb87e808c77ee`** — the revision that fixes the 4.0.4 → 4.1.0 upgrade path (0108/0114), adds
 push-assisted synchronisation, separates provider configuration (Settings → Integrations) from mailbox
 connection (Settings → Accounts), makes every OAuth callback canonical (`APP_URL + /oauth/<provider>/callback`,
 generated and read-only), evaluates authorization per account feature, baselines native mail after a cutover
@@ -51,8 +51,8 @@ and treats a native Gmail thread id as strong evidence. Commits after it are doc
 
 | Part | State | Evidence |
 | --- | --- | --- |
-| image build + registry verification | **done** | Workflow run [`35524144582`](https://github.com/Dragonk/Inboxora/actions/runs/35524144582) built from `source_sha=561262b4cb3b554fb8e9a2821224d49ee7206f36` and pushed `:dev`. Both resolve to OCI image indexes carrying `linux/amd64` **and** `linux/arm64`: backend `sha256:f99fbb892b2adf600186474a12166aadfc8a504b6879ef5924466c09e97c9f46`, frontend `sha256:88ea7c949c816f14d590c4ff8ad582992719ab8f06a58a49d4b5dd45a36809fc`. |
-| runtime smoke | **RUN — passed** | The published pair was pulled from GHCR and started from a fresh volume: `/api/health` → `{"status":"ok"}`, `/api/version` → `{"version":"dev","sha":"561262b4cb3b554fb8e9a2821224d49ee7206f36"}`, **117** migrations, first-user registration, a fresh login, `/api/auth/me`, the account list, the UI root and **0 restarts**. (`docker compose pull` hit a Docker Hub `429` on the third-party ntfy image, so the two Inboxora images were pulled explicitly and the stack started from the cached third-party ones; the upgrade smokes from a 4.0.4-shaped database and from an earlier-`:dev` database remain recorded below.) |
+| image build + registry verification | **done** | Workflow run [`35525645329`](https://github.com/Dragonk/Inboxora/actions/runs/35525645329) built from `source_sha=ac6310f33ca74da4eddf0f34147cb87e808c77ee` and pushed `:dev`. Both resolve to OCI image indexes carrying `linux/amd64` **and** `linux/arm64`: backend `sha256:e05bb718566fea79d86e66e29d2805f50e8db4d9ee79630fbe3937aaf7890f58`, frontend `sha256:ede01906f14cf6d7278a07eb37021b7e56fef14443317c28edab72bcbae583f3`. |
+| runtime smoke | **RUN — passed** | The published pair was pulled from GHCR and started from a fresh volume: `/api/health` → `{"status":"ok"}`, `/api/version` → `{"version":"dev","sha":"ac6310f33ca74da4eddf0f34147cb87e808c77ee"}`, **117** migrations, first-user registration, a fresh login, `/api/auth/me`, the account list, the UI root and **0 restarts**. (`docker compose pull` hit a Docker Hub `429` on the third-party ntfy image, so the two Inboxora images were pulled explicitly and the stack started from the cached third-party ones; the upgrade smokes from a 4.0.4-shaped database and from an earlier-`:dev` database remain recorded below.) |
 | `:dev` publication | **done** | The published images are the current `dev` code, including the audit's two fixes; `main` is untouched and 4.1.0 is not released. |
 
 ## Acceptance criteria W01–W19
@@ -170,7 +170,7 @@ Not release criteria; recorded so they are not lost:
 
 Measured on the frozen code SHA with each gate's own exit status read directly:
 
-- **Backend** — typecheck clean, lint clean, **2983 unit tests passed** (225 skipped; 247 files).
+- **Backend** — typecheck clean, lint clean, **3003 unit tests passed** (225 skipped; 249 files).
 - **Frontend** — typecheck clean, lint clean, **2779 tests passed** (0 failed), production build clean.
 - **Database** — a database created empty for the purpose, the **whole 117-migration chain applied from
   zero** by the application's own runner, then **425 integration tests across 47 suites** on PostgreSQL 16
