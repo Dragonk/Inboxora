@@ -15,6 +15,9 @@ import { readProviderFeatureAuthorization, type ProviderFeatureAuthorization } f
 
 export interface AccountMailFeatures extends ProviderFeatureAuthorization {
   transport: string;
+  synchronized: boolean;
+  syncPending: boolean;
+  syncErrorCode: string | null;
   /** The transport this account would move to, when a migration applies. */
   nativeTransport: 'gmail_api' | 'microsoft_graph' | null;
   /** Whether the account is already on it. */
@@ -27,6 +30,12 @@ export interface AccountFeatureGroup extends ProviderFeatureAuthorization {
   provider: ProviderAccountKind;
   connectionId: string | null;
   collections: Array<{ id: string; kind: string; name: string | null; enabled: boolean; sourceAccess: string; userAccess: string }>;
+  /** A run has completed for this feature. */
+  synchronized: boolean;
+  /** Authorized, but no completed run yet or the newest result is an error. */
+  syncPending: boolean;
+  /** The last recorded failure, so the interface can distinguish it from "not connected". */
+  syncErrorCode: string | null;
 }
 
 export interface AccountPushFeatures {
@@ -183,6 +192,32 @@ function pushStateFor(input: {
   };
 }
 
+/**
+ * The synchronization half of a feature's state, derived once and used by both the feature groups and the
+ * diagnostics.
+ *
+ * Authorization and synchronization are separate facts, and conflating them is what made a card say "not
+ * connected" for an account whose grant was stored and whose first sync had failed. `synchronized` means a run
+ * completed, `syncPending` means one is due or in flight (a grant exists but nothing has been recorded yet),
+ * and `syncErrorCode` carries the last failure so the interface can say "connected, synchronisation failed"
+ * rather than either lie.
+ */
+export function synchronizationStateOf(state: AccountFeatureSyncState | undefined, authorized: boolean): {
+  synchronized: boolean;
+  syncPending: boolean;
+  syncErrorCode: string | null;
+} {
+  const sync = state ?? EMPTY_SYNC_STATE;
+  const synchronized = sync.lastSuccessfulSync !== null;
+  return {
+    synchronized,
+    // Pending means: authorized, and either no run has finished or the newest result is an error that has not
+    // been superseded by a success. A feature that is not authorized is simply not connected.
+    syncPending: authorized && (!synchronized || sync.lastErrorCode !== null),
+    syncErrorCode: sync.lastErrorCode ?? null,
+  };
+}
+
 const EMPTY_SYNC_STATE: AccountFeatureSyncState = {
   lastSuccessfulSync: null,
   lastErrorCode: null,
@@ -264,6 +299,8 @@ export async function describeAccountProviderFeatures(input: {
   const native = nativeTransport !== null && transport === nativeTransport;
   const subscriptions = await listSubscriptionDiagnostics();
 
+  // Read once, before the groups are assembled: each group reports its own synchronization state.
+  const syncStates = await syncStatesForAccount(input.userId, row.id);
   const groups = {} as Record<ProviderAccountKind, AccountFeatureGroup>;
   const contactsAuth = {} as Partial<Record<ProviderAccountKind, ProviderFeatureAuthorization>>;
   const mailConnection = provider
@@ -283,15 +320,20 @@ export async function describeAccountProviderFeatures(input: {
     });
     const calendarAuth = await readProviderFeatureAuthorization({ connectionId: connection?.id ?? null, provider: kind, feature: 'calendar' });
     contactsAuth[kind] = await readProviderFeatureAuthorization({ connectionId: connection?.id ?? null, provider: kind, feature: 'contacts' });
+    const collections = await collectionsFor(connection?.id ?? null);
     groups[kind] = {
       provider: kind,
       connectionId: connection?.id ?? null,
-      collections: await collectionsFor(connection?.id ?? null),
+      collections,
       ...calendarAuth,
+      // Authorization and synchronization are separate: an authorized feature with a recorded failure reports
+      // the failure, never "not connected". A feature with no authorization has no run to report.
+      ...(kind === provider
+        ? synchronizationStateOf(syncStates.calendar, calendarAuth.authorized)
+        : { synchronized: false, syncPending: false, syncErrorCode: null }),
     };
   }
 
-  const syncStates = await syncStatesForAccount(input.userId, row.id);
   const connectionDiagnostic = provider
     ? await connectionDiagnosticForAccount({ userId: input.userId, address: row.email_address, provider })
     : null;
@@ -344,11 +386,18 @@ export async function describeAccountProviderFeatures(input: {
       nativeTransport,
       native,
       ...mailAuth,
+      ...synchronizationStateOf(syncStates.mail, mailAuth.authorized),
       // A migration is offered only for an account that classifies as the provider and is not already native.
       migrationAvailable: provider !== null && !native,
     },
     calendar: provider ? groups[provider] : null,
-    contacts: provider ? { ...groups[provider], ...(contactsAuth[provider] ?? { authorized: false, requiredScopes: [], grantedScopes: [], missingScopes: [] }) } : null,
+    contacts: provider
+      ? {
+          ...groups[provider],
+          ...(contactsAuth[provider] ?? { authorized: false, requiredScopes: [], grantedScopes: [], missingScopes: [] }),
+          ...synchronizationStateOf(syncStates.contacts, contactsAuth[provider]?.authorized ?? false),
+        }
+      : null,
     push,
     diagnostics,
   };

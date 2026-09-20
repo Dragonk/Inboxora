@@ -69,7 +69,9 @@
         "migrateGoogle": "Passer à l’API Gmail",
         "migrateMicrosoft": "Passer à Microsoft Graph",
         "finishInTab": "Terminez la connexion dans l’onglet ouvert, puis revenez à cette fiche.",
-        "migrated": "Le compte utilise désormais l’API du fournisseur."
+        "migrated": "Le compte utilise désormais l’API du fournisseur.",
+        "syncPending": "Synchronisation…",
+        "syncFailed": "{{code}} — connecté, la synchronisation a échoué"
       },
       "addAccountFlow": {
         "nativeTransport": "Ce compte lit et envoie via {{transport}} ; il n’y a aucune configuration IMAP/SMTP à modifier. Utilisez « Reconnecter » si l’autorisation doit être renouvelée.",

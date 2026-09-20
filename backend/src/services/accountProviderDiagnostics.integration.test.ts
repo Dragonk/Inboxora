@@ -176,3 +176,67 @@ describeOrSkip('the account-to-connection link', () => {
     expect(features!.diagnostics.calendar.missingScopes).toEqual([]);
   });
 });
+
+describeOrSkip('the feature state model', () => {
+  it('separates authorization from synchronization, so a failed run is never "not connected"', async () => {
+    // The lie the state model removes: a grant exists and the first run failed, and the card said the feature
+    // was not connected — which sends the user to reconnect an account that is already authorized.
+    const connection = await query<{ id: string }>('SELECT id FROM provider_connections WHERE user_id = $1 LIMIT 1', [USER_A]);
+    const connectionId = connection.rows[0]!.id;
+    // Start from no recorded run, so "nothing synchronized yet" is the state under test rather than a
+    // leftover of the cases above.
+    await query('DELETE FROM sync_states WHERE user_id = $1 AND account_id = $2', [USER_A, accountId]);
+    await inTransaction(client => storeOAuthGrant(client, {
+      connectionId, audience: GOOGLE_GRANT_AUDIENCE, accessToken: 'a', refreshToken: null,
+      expiresAt: new Date(Date.now() + 3600_000), scopes: [`${GOOGLE}gmail.modify`], clientIdAtIssue: 'client-1',
+    }));
+
+    // Authorized, nothing synchronized yet: pending, not disconnected.
+    const beforeRun = await describeAccountProviderFeatures({ userId: USER_A, accountId });
+    expect(beforeRun!.mail.authorized).toBe(true);
+    expect(beforeRun!.mail.synchronized).toBe(false);
+    expect(beforeRun!.mail.syncPending).toBe(true);
+    expect(beforeRun!.mail.syncErrorCode).toBeNull();
+
+    // A failed run is reported as a failure with its code, still authorized.
+    await inTransaction(async client => {
+      const stateId = await ensureSyncState(client, {
+        userId: USER_A, connectionId: null, accountId, feature: 'mail', collectionId: null, coverage: 'message',
+      });
+      const lease = await client.query<{ running_generation: string | number }>(
+        'UPDATE sync_states SET running_generation = COALESCE(running_generation, 0) + 1, lease_expires_at = NOW() + interval \'5 minutes\' WHERE id = $1 RETURNING running_generation',
+        [stateId],
+      );
+      await failSyncRun(client, { syncStateId: stateId, generation: Number(lease.rows[0]!.running_generation), errorCode: 'RATE_LIMITED' });
+    });
+    const failed = await describeAccountProviderFeatures({ userId: USER_A, accountId });
+    expect(failed!.mail.authorized).toBe(true);
+    expect(failed!.mail.synchronized).toBe(false);
+    expect(failed!.mail.syncPending).toBe(true);
+    expect(failed!.mail.syncErrorCode).toBe('RATE_LIMITED');
+
+    // A successful run clears the failure and reports the feature as synchronized.
+    await inTransaction(async client => {
+      const stateId = await ensureSyncState(client, {
+        userId: USER_A, connectionId: null, accountId, feature: 'mail', collectionId: null, coverage: 'message',
+      });
+      const lease = await client.query<{ running_generation: string | number }>(
+        'UPDATE sync_states SET running_generation = COALESCE(running_generation, 0) + 1, lease_expires_at = NOW() + interval \'5 minutes\' WHERE id = $1 RETURNING running_generation',
+        [stateId],
+      );
+      await commitSyncCheckpoint(client, { syncStateId: stateId, generation: Number(lease.rows[0]!.running_generation), cursor: 'history-7' });
+    });
+    const succeeded = await describeAccountProviderFeatures({ userId: USER_A, accountId });
+    expect(succeeded!.mail.synchronized).toBe(true);
+    expect(succeeded!.mail.syncPending).toBe(false);
+    expect(succeeded!.mail.syncErrorCode).toBeNull();
+    // The same three fields exist for the feature groups the interface renders.
+    for (const group of [succeeded!.calendar, succeeded!.contacts]) {
+      if (group) {
+        expect(group).toHaveProperty('synchronized');
+        expect(group).toHaveProperty('syncPending');
+        expect(group).toHaveProperty('syncErrorCode');
+      }
+    }
+  });
+});

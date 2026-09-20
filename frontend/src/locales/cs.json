@@ -189,7 +189,9 @@
         "migrateGoogle": "Přejít na Gmail API",
         "migrateMicrosoft": "Přejít na Microsoft Graph",
         "finishInTab": "Dokončete přihlášení v otevřené kartě a vraťte se sem.",
-        "migrated": "Účet nyní používá API poskytovatele."
+        "migrated": "Účet nyní používá API poskytovatele.",
+        "syncPending": "Synchronizace…",
+        "syncFailed": "{{code}} — připojeno, synchronizace selhala"
       },
       "addAccountFlow": {
         "nativeTransport": "Tento účet čte a odesílá přes {{transport}}; žádné nastavení IMAP/SMTP k úpravě zde není. Pokud je třeba obnovit autorizaci, použijte „Znovu připojit“.",

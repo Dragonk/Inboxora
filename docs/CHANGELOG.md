@@ -275,6 +275,13 @@ None.
   IMAP loops, health checks, rule forwarder and send path no longer open IMAP or SMTP for it.
 
 ### Fixed
+- **Authorization and synchronization are reported as the two separate facts they are.** A service row knew
+  only whether a grant existed, so a mailbox whose provider authorization had succeeded but whose first
+  synchronization had failed was shown as "not connected" — which sends the user to reconnect an account that
+  is already authorized. Each feature now carries `synchronized`, `syncPending` and `syncErrorCode` beside
+  `authorized`, and the account card renders four states: not connected, connected, connected with a
+  synchronization in progress, and connected with a synchronization failure (which names the code).
+
 - **An account resolves the connection it was actually moved with.** The account's provider features were
   matched to a connection by comparing the mailbox address with the connection's `provider_user_id`. Microsoft
   reports the mailbox's primary address there, so a consent granted while signed in with an alias — or for a

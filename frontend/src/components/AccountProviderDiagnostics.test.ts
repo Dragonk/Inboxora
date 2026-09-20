@@ -78,3 +78,27 @@ test('the client calls the per-account diagnostics endpoint', async () => {
   assert.match(source, /accountProviderDiagnostics: \(accountId: string\) =>/);
   assert.match(source, /\/accounts\/\$\{encodeURIComponent\(accountId\)\}\/provider-diagnostics/);
 });
+
+test('a service row separates authorization from synchronization', async () => {
+  const source = await readFile(services, 'utf8');
+
+  // The four states, in the order they are decided: not connected, connected, pending, failed.
+  assert.match(source, /if \(!feature\?\.authorized\) return t\('admin\.accounts\.services\.notConnected'\)/);
+  assert.match(source, /if \(feature\.synchronized === true\) return t\('admin\.accounts\.services\.connected'\)/);
+  assert.match(source, /if \(feature\.syncErrorCode\) return t\('admin\.accounts\.services\.syncFailed', \{ code: feature\.syncErrorCode \}\)/);
+  assert.match(source, /return t\('admin\.accounts\.services\.syncPending'\)/);
+
+  // A grant with a failed run can never render as "not connected": the failure branch is reached before the
+  // pending one and only after authorization has been established.
+  const notConnectedAt = source.indexOf("admin.accounts.services.notConnected");
+  const failedAt = source.indexOf("admin.accounts.services.syncFailed");
+  assert.ok(notConnectedAt !== -1 && failedAt !== -1 && notConnectedAt < failedAt);
+
+  // The model carries the three synchronisation fields, and the row exposes them for the tests and for a
+  // reader that wants to know whether a run has completed.
+  for (const field of ['synchronized', 'syncPending', 'syncErrorCode']) {
+    assert.ok(source.includes(`${field}?:`), `the feature model does not declare ${field}`);
+  }
+  assert.match(source, /data-testid=\{`account-service-status-\$\{label\.toLowerCase\(\)\}`\}/);
+  assert.match(source, /data-synchronized=\{connected && feature\?\.synchronized === true \? 'true' : 'false'\}/);
+});

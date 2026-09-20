@@ -69,7 +69,9 @@
         "migrateGoogle": "Cambiar a la API de Gmail",
         "migrateMicrosoft": "Cambiar a Microsoft Graph",
         "finishInTab": "Complete el inicio de sesión en la pestaña abierta y vuelva a esta tarjeta.",
-        "migrated": "La cuenta ahora usa la API del proveedor."
+        "migrated": "La cuenta ahora usa la API del proveedor.",
+        "syncPending": "Sincronizando…",
+        "syncFailed": "{{code}} — conectado, la sincronización falló"
       },
       "addAccountFlow": {
         "nativeTransport": "Esta cuenta lee y envía mediante {{transport}}; no hay configuración IMAP/SMTP que editar. Use «Reconectar» si la autorización debe renovarse.",

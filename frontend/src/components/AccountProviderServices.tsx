@@ -17,9 +17,9 @@ import { toAppError } from '../utils/errors.ts';
 export interface AccountProviderFeatures {
   accountId: string;
   provider: 'google' | 'microsoft' | null;
-  mail: { transport: string; nativeTransport: string | null; native: boolean; migrationAvailable: boolean; authorized?: boolean; requiredScopes?: string[]; grantedScopes?: string[]; missingScopes?: string[] };
-  calendar: { authorized: boolean; connectionId: string | null; collections: Array<{ id: string; kind: string; enabled: boolean }>; requiredScopes?: string[]; grantedScopes?: string[]; missingScopes?: string[] } | null;
-  contacts: { authorized: boolean; connectionId: string | null; collections: Array<{ id: string; kind: string; enabled: boolean }>; requiredScopes?: string[]; grantedScopes?: string[]; missingScopes?: string[] } | null;
+  mail: { transport: string; nativeTransport: string | null; native: boolean; migrationAvailable: boolean; authorized?: boolean; requiredScopes?: string[]; grantedScopes?: string[]; missingScopes?: string[]; synchronized?: boolean; syncPending?: boolean; syncErrorCode?: string | null };
+  calendar: { authorized: boolean; connectionId: string | null; collections: Array<{ id: string; kind: string; enabled: boolean }>; requiredScopes?: string[]; grantedScopes?: string[]; missingScopes?: string[]; synchronized?: boolean; syncPending?: boolean; syncErrorCode?: string | null } | null;
+  contacts: { authorized: boolean; connectionId: string | null; collections: Array<{ id: string; kind: string; enabled: boolean }>; requiredScopes?: string[]; grantedScopes?: string[]; missingScopes?: string[]; synchronized?: boolean; syncPending?: boolean; syncErrorCode?: string | null } | null;
   push: { mail: string; calendar: string; contacts: string };
 }
 
@@ -122,11 +122,29 @@ export default function AccountProviderServices({ accountId, reload, t }: Props)
   const provider = features.provider;
   const providerName = provider === 'google' ? t('admin.accounts.services.google') : t('admin.accounts.services.microsoft');
 
-  const serviceRow = (label: string, connected: boolean, onConnect: () => void, extra?: string) => (
+  /**
+   * The four states a service row can be in.
+   *
+   * Authorization and synchronization are separate facts, and the row must not collapse them: a feature whose
+   * grant is stored but whose first run failed is **connected with a synchronization failure**, not
+   * "not connected" — that wording sends the user to reconnect an account that is already authorized.
+   */
+  const serviceStatus = (feature: { authorized: boolean; synchronized?: boolean; syncPending?: boolean; syncErrorCode?: string | null } | null | undefined): string => {
+    if (!feature?.authorized) return t('admin.accounts.services.notConnected');
+    if (feature.synchronized === true) return t('admin.accounts.services.connected');
+    if (feature.syncErrorCode) return t('admin.accounts.services.syncFailed', { code: feature.syncErrorCode });
+    return t('admin.accounts.services.syncPending');
+  };
+
+  const serviceRow = (label: string, connected: boolean, onConnect: () => void, extra?: string, feature?: { authorized: boolean; synchronized?: boolean; syncPending?: boolean; syncErrorCode?: string | null } | null) => (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
       <span style={{ minWidth: 92, color: 'var(--text-secondary)' }}>{label}</span>
-      <span style={{ color: connected ? 'var(--green)' : 'var(--text-tertiary)' }}>
-        {connected ? t('admin.accounts.services.connected') : t('admin.accounts.services.notConnected')}
+      <span
+        data-testid={`account-service-status-${label.toLowerCase()}`}
+        data-synchronized={connected && feature?.synchronized === true ? 'true' : 'false'}
+        style={{ color: connected ? (feature?.syncErrorCode ? 'var(--red, #f87171)' : 'var(--green)') : 'var(--text-tertiary)' }}
+      >
+        {serviceStatus(feature ?? { authorized: connected })}
       </span>
       {!connected && (
         <button
@@ -193,9 +211,12 @@ export default function AccountProviderServices({ accountId, reload, t }: Props)
 
       {serviceRow(t('admin.accounts.services.calendar'), features.calendar?.authorized === true,
         () => authorize(provider, 'calendar'),
-        features.calendar?.authorized ? t('admin.accounts.services.collections', { count: features.calendar.collections.length }) : undefined)}
+        features.calendar?.authorized ? t('admin.accounts.services.collections', { count: features.calendar.collections.length }) : undefined,
+        features.calendar)}
       {serviceRow(t('admin.accounts.services.contacts'), features.contacts?.authorized === true,
-        () => authorize(provider, 'contacts'))}
+        () => authorize(provider, 'contacts'),
+        undefined,
+        features.contacts)}
 
       <div style={{ marginTop: 6, color: 'var(--text-tertiary)' }}>
         {t('admin.accounts.services.instantSync')}: {t('admin.accounts.services.mail')} {features.push.mail} · {t('admin.accounts.services.calendar')} {features.push.calendar} · {t('admin.accounts.services.contacts')} {features.push.contacts}

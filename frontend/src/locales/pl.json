@@ -181,7 +181,9 @@
         "migrateGoogle": "Przejdź na Gmail API",
         "migrateMicrosoft": "Przejdź na Microsoft Graph",
         "finishInTab": "Dokończ logowanie w otwartej karcie i wróć do tej karty konta.",
-        "migrated": "Konto korzysta teraz z API providera."
+        "migrated": "Konto korzysta teraz z API providera.",
+        "syncPending": "Synchronizacja…",
+        "syncFailed": "{{code}} — połączone, synchronizacja nie powiodła się"
       },
       "addAccountFlow": {
         "nativeTransport": "To konto czyta i wysyła przez {{transport}}; nie ma tu konfiguracji IMAP/SMTP do edycji. Użyj „Połącz ponownie”, jeśli autoryzacja wymaga odnowienia.",
