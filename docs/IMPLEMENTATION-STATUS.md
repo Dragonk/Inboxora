@@ -43,16 +43,17 @@ Each package has exactly one current state:
 
 ### P14 evidence
 
-**Frozen code SHA: `bc40f45d987e48efcbb7807633791d60b08bb573`** — the revision that adds push-assisted synchronisation (Graph change
-notifications, Gmail watch over Pub/Sub, Google Calendar channels) on top of the R2 cutover work. Commits
+**Frozen code SHA: `844cf3aa6ca9d09c6a13d64b57cfc628f7267566`** — the revision that fixes the 4.0.4 → 4.1.0 upgrade path (migration 0108
+cleared the legacy Conversation Engine provider ids before creating its unique index). Commits after it are
+documentation only.
 after it are documentation only.
 documentation only.
 it are documentation only.
 
 | Part | State | Evidence |
 | --- | --- | --- |
-| image build + registry verification | **done** | Workflow run [`35507548457`](https://github.com/Dragonk/Inboxora/actions/runs/35507548457) built from `source_sha=bc40f45d987e48efcbb7807633791d60b08bb573` and pushed `:dev`. Both resolve to OCI image indexes carrying `linux/amd64` **and** `linux/arm64`: backend `sha256:fd529699911e5104d85e66cf9116089ae6f8d615bff44aaf6e00f7a12d181548`, frontend `sha256:6fb7eb6356b1a0598c0cf888e814b8ad2cccf0b2d579e6ed7fe0d491fee608fc`. |
-| runtime smoke | **RUN — passed** | The published pair was pulled and started from a fresh volume. `/api/health` → `{"status":"ok"}`; `/api/version` → `{"version":"dev","sha":"bc40f45d987e48efcbb7807633791d60b08bb573"}`; all **116** migrations applied; first-user registration (admin); a fresh login; `/api/auth/me`; the account list; the UI root served the application; `docker inspect` reported **0 restarts** for every container. |
+| image build + registry verification | **done** | Workflow run [`35510860139`](https://github.com/Dragonk/Inboxora/actions/runs/35510860139) built from `source_sha=844cf3aa6ca9d09c6a13d64b57cfc628f7267566` and pushed `:dev`. Both resolve to OCI image indexes carrying `linux/amd64` **and** `linux/arm64`: backend `sha256:69acd1144357f86a4793174caaba4759e38f728895daf9240ee80f2c29804a35`, frontend `sha256:730c26d614629cc7a1cdeef328fb057368fac96107961eba436f4c14c861d4c6`. |
+| runtime smoke | **RUN — passed** | Two runs on the published pair. **Fresh volume**: `/api/health` → `{"status":"ok"}`, `/api/version` → `{"version":"dev","sha":"844cf3aa6ca9d09c6a13d64b57cfc628f7267566"}`, all **116** migrations, first-user registration, a fresh login, `/api/auth/me`, the account list, the UI root, **0 restarts**. **Upgrade from a 4.0.4-shaped database** (schema at 0107 with seven messages — one X-GM-MSGID in four label copies, a second in two, one plain IMAP message — plus a folder, a rule and a conversation identity): the backend applied 0108–0113 at start-up (110 → **116** migrations), became healthy, reported the same `/api/version`, kept **7/7 messages** and 6/6 `provider_thread_id` values, cleared the 6 legacy provider ids to **0**, kept `inbox_rules` at 1, created `messages_provider_identity_key` as `UNIQUE (account_id, provider_message_id) WHERE provider_message_id IS NOT NULL`, and restarted **0** times. |
 | `:dev` publication | **done** | The published images are the current `dev` code, including the audit's two fixes; `main` is untouched and 4.1.0 is not released. |
 
 ## Acceptance criteria W01–W19
@@ -129,7 +130,7 @@ Not release criteria; recorded so they are not lost:
 
 Measured on the frozen code SHA with each gate's own exit status read directly:
 
-- **Backend** — typecheck clean, lint clean, **2952 unit tests passed** (199 skipped; 244 files).
+- **Backend** — typecheck clean, lint clean, **2952 unit tests passed** (208 skipped; 244 files).
 - **Frontend** — typecheck clean, lint clean, **2744 tests passed** (0 failed), production build clean.
 - **Database** — a database created empty for the purpose, the **whole 115-migration chain applied from
   zero** by the application's own runner, then **409 integration tests across 45 suites** on PostgreSQL 16

@@ -168,10 +168,10 @@ These need a real provider, device or client. They are **NOT RUN**, not failures
 
 ## Verification
 
-Measured on the frozen `dev` SHA **`bc40f45d987e48efcbb7807633791d60b08bb573`**, with each gate's own exit
+Measured on the frozen `dev` SHA **`844cf3aa6ca9d09c6a13d64b57cfc628f7267566`**, with each gate's own exit
 status read rather than inferred from a pipeline:
 
-- Backend: typecheck clean, lint clean, **2952 unit tests passed, 199 skipped** (244 files passed, 25
+- Backend: typecheck clean, lint clean, **2952 unit tests passed, 208 skipped** (244 files passed, 25
   skipped).
 - Frontend: typecheck clean, lint clean, **2744 tests passed, 0 failed**, production build clean.
 - Database: a database created empty for the purpose, the **whole 116-migration chain applied from zero**
@@ -183,16 +183,16 @@ status read rather than inferred from a pipeline:
 
 **Images published from that exact SHA** (documentation-only commits follow it, so the published images are
 the current `dev` code). Workflow run
-[`35507548457`](https://github.com/Dragonk/Inboxora/actions/runs/35507548457) built and pushed the `:dev` tags
-from `bc40f45d987e`; both resolve to OCI image indexes carrying `linux/amd64` **and** `linux/arm64`:
+[`35510860139`](https://github.com/Dragonk/Inboxora/actions/runs/35510860139) built and pushed the `:dev` tags
+from `844cf3aa6ca9`; both resolve to OCI image indexes carrying `linux/amd64` **and** `linux/arm64`:
 
-- `ghcr.io/dragonk/inboxora-backend:dev` — `sha256:fd529699911e5104d85e66cf9116089ae6f8d615bff44aaf6e00f7a12d181548`
-- `ghcr.io/dragonk/inboxora-frontend:dev` — `sha256:6fb7eb6356b1a0598c0cf888e814b8ad2cccf0b2d579e6ed7fe0d491fee608fc`
+- `ghcr.io/dragonk/inboxora-backend:dev` — `sha256:69acd1144357f86a4793174caaba4759e38f728895daf9240ee80f2c29804a35`
+- `ghcr.io/dragonk/inboxora-frontend:dev` — `sha256:730c26d614629cc7a1cdeef328fb057368fac96107961eba436f4c14c861d4c6`
 
 **Runtime smoke of that published pair — RUN, and passed.** The pair was pulled and started as a stack
 (PostgreSQL, Redis, ntfy, backend, frontend) from a fresh volume: the backend applied the migration chain
 and became healthy, `/api/health` answered `{"status":"ok"}`, **`/api/version` answered
-`{"version":"dev","sha":"bc40f45d987e48efcbb7807633791d60b08bb573"}`** — the published image is the frozen
+`{"version":"dev","sha":"844cf3aa6ca9d09c6a13d64b57cfc628f7267566"}`** — the published image is the frozen
 revision — `schema_migrations` held all **115** rows, the first user was registered (admin), a fresh cookie
 jar logged in through `POST /api/auth/login`, `/api/auth/me` returned that user, `/api/accounts` returned
 `[]`, and the UI root served the application. `docker inspect` reported **0 restarts** for every container
