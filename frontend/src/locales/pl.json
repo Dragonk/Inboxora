@@ -1987,6 +1987,7 @@
     "sourceSyncHours": "{{count}} godz.",
     "invitationLoadFailed": "Nie udało się odczytać lub zapisać zaproszenia.",
     "editOccurrence": "Edytujesz tylko to wystąpienie wydarzenia.",
+    "editFollowing": "Edytujesz to i wszystkie następne wystąpienia.",
     "deleteRecurringTitle": "Usuń wydarzenie cykliczne",
     "deleteRecurringBody": "To wydarzenie należy do serii. Co chcesz usunąć?",
     "deleteScopeSingle": "Tylko to wystąpienie",

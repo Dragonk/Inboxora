@@ -112,25 +112,27 @@ test('the event dialog offers a recurrence rule for new events and series edits'
   assert.match(source, /weekdayFormatter\.format/);
 });
 
-test('editing a recurring event chooses between one occurrence and the whole series', async () => {
+test('editing a recurring event chooses between one occurrence, the following ones, and the series', async () => {
   const source = await readFile(calendarPath, 'utf8');
   assert.match(source, /data-testid="calendar-edit-scope"/);
   // The master (with its rule) is fetched because a list row only carries an occurrence.
   assert.match(source, /api\.calendar\.getEvent\(String\(event\.series_id\)\)/);
   assert.match(source, /recurrenceFormFromStored\(/);
-  assert.match(source, /const changeEditScope = \(scope: 'single' \| 'series'\)/);
+  assert.match(source, /const changeEditScope = \(scope: 'single' \| 'following' \| 'series'\)/);
   assert.match(source, /onEditScopeChange=\{changeEditScope\}/);
-  // Both answers come from the existing localized delete-scope strings.
-  assert.match(source, /role="radio" aria-checked=\{form\.editScope !== 'series'\}/);
+  // Three answers, each from the existing localized delete-scope strings, and each naming its own scope.
+  assert.match(source, /role="radio" aria-checked=\{form\.editScope === 'single'\}/);
+  assert.match(source, /role="radio" aria-checked=\{form\.editScope === 'following'\}/);
   assert.match(source, /role="radio" aria-checked=\{form\.editScope === 'series'\}/);
 });
 
-test('a series edit states the rule while an occurrence edit never touches it', async () => {
+test('a series or following edit states the rule while a single-occurrence edit never touches it', async () => {
   const view = await readFile(new URL('./calendarView.ts', import.meta.url), 'utf8');
-  // The payload keeps recurrenceId only for the occurrence scope, and lets the series
-  // edit carry `recurrence` (including null to clear it).
+  // The payload keeps recurrenceId only for the occurrence scopes, and lets the scopes that describe a
+  // remaining series carry `recurrence` (including null to clear it). A single-occurrence edit must not.
   assert.match(view, /form\.recurrenceId && form\.editScope !== 'series'/);
-  assert.match(view, /form\.editScope === 'series' && !form\.recurrencePreserve/);
+  assert.match(view, /form\.editScope === 'series' \|\| form\.editScope === 'following'\) && !form\.recurrencePreserve/);
+  assert.match(view, /form\.editScope === 'following' \? \{ scope: 'following' \} : \{\}/);
   assert.match(view, /form\.mode === 'create'/);
 });
 

@@ -1987,6 +1987,7 @@
     "sourceSyncHours": "{{count}} h",
     "invitationLoadFailed": "Impossible de charger ou d’enregistrer l’invitation.",
     "editOccurrence": "Vous modifiez uniquement cette occurrence.",
+    "editFollowing": "Vous modifiez cette occurrence et toutes les suivantes.",
     "deleteRecurringTitle": "Supprimer un événement récurrent",
     "deleteRecurringBody": "Cet événement fait partie d'une série. Que faut-il supprimer ?",
     "deleteScopeSingle": "Uniquement cette occurrence",

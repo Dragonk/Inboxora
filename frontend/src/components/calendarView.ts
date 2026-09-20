@@ -188,7 +188,8 @@ export interface CalendarEventForm {
   sendInvites?: boolean;
   mode?: 'create' | 'edit';
   /** Which occurrence of a series the edit applies to. */
-  editScope?: 'single' | 'series';
+  /** Which part of a series the editor is changing: the occurrence, it and the rest, or the whole series. */
+  editScope?: 'single' | 'following' | 'series';
   /** The master event id of a series (the list row carries its occurrence id). */
   seriesId?: string;
   recurrence?: RecurrenceForm;
@@ -323,11 +324,14 @@ export function eventPayload(form: CalendarEventForm): Record<string, unknown> |
   // Create sends a rule only when one was chosen. A series edit always states the
   // intended rule (null clears it) unless it is preserving a foreign rule the
   // editor cannot represent. Any other edit must not touch the series rule.
+  // "This and following" states the rule the remainder keeps, exactly as a whole-series edit does; a
+  // single-occurrence edit must not touch the rule at all.
   const includeRecurrence = form.mode === 'create'
     ? recurrenceBuild.recurrence !== null
-    : form.editScope === 'series' && !form.recurrencePreserve;
+    : (form.editScope === 'series' || form.editScope === 'following') && !form.recurrencePreserve;
   return {
     ...(form.recurrenceId && form.editScope !== 'series' ? { recurrenceId: form.recurrenceId } : {}),
+    ...(form.editScope === 'following' ? { scope: 'following' } : {}),
     ...(includeRecurrence ? { recurrence: recurrenceBuild.recurrence } : {}),
     calendarId: form.calendarId,
     summary: String(form.summary ?? '').trim(),

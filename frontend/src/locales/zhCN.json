@@ -1987,6 +1987,7 @@
     "sourceSyncHours": "{{count}} 小时",
     "invitationLoadFailed": "无法加载或保存邀请。",
     "editOccurrence": "您仅在编辑此次活动。",
+    "editFollowing": "您正在编辑此次及之后的所有重复。",
     "deleteRecurringTitle": "删除重复事件",
     "deleteRecurringBody": "此事件属于一个系列。要删除什么？",
     "deleteScopeSingle": "仅此次",

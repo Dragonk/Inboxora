@@ -1987,6 +1987,7 @@
     "sourceSyncHours": "{{count}} h",
     "invitationLoadFailed": "Impossibile caricare o salvare l’invito.",
     "editOccurrence": "Stai modificando solo questa occorrenza.",
+    "editFollowing": "Stai modificando questa e tutte le occorrenze successive.",
     "deleteRecurringTitle": "Elimina evento ricorrente",
     "deleteRecurringBody": "Questo evento fa parte di una serie. Cosa vuoi eliminare?",
     "deleteScopeSingle": "Solo questa occorrenza",

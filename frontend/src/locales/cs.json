@@ -1987,6 +1987,7 @@
     "sourceSyncHours": "{{count}} h",
     "invitationLoadFailed": "Pozvánku se nepodařilo načíst nebo uložit.",
     "editOccurrence": "Upravujete pouze tento výskyt události.",
+    "editFollowing": "Upravujete tento a všechny následující výskyty.",
     "deleteRecurringTitle": "Smazat opakovanou událost",
     "deleteRecurringBody": "Tato událost je součástí série. Co se má smazat?",
     "deleteScopeSingle": "Pouze tento výskyt",

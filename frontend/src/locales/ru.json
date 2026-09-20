@@ -1987,6 +1987,7 @@
     "sourceSyncHours": "{{count}} ч",
     "invitationLoadFailed": "Не удалось загрузить или сохранить приглашение.",
     "editOccurrence": "Вы изменяете только этот экземпляр события.",
+    "editFollowing": "Вы изменяете это и все последующие повторения.",
     "deleteRecurringTitle": "Удалить повторяющееся событие",
     "deleteRecurringBody": "Это событие входит в серию. Что удалить?",
     "deleteScopeSingle": "Только этот повтор",

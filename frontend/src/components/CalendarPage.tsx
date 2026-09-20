@@ -317,9 +317,17 @@ export default function CalendarPage({ isActive = true }) {
     sendInvites: Boolean(source.sendInvites), inviteAccountId: source.inviteAccountId ?? '',
     allDay: Boolean(source.allDay), startsAt: source.startsAt ?? '', endsAt: source.endsAt ?? '',
   });
-  const changeEditScope = (scope: 'single' | 'series') => {
+  const changeEditScope = (scope: 'single' | 'following' | 'series') => {
     if (!form) return;
-    const snapshot = scope === 'series' ? seriesSnapshot : occurrenceSnapshot;
+    // "This and following" keeps the occurrence's own time (the remainder starts there) but takes the
+    // series' rule fields, so the editor can state what the rest of the series will repeat as.
+    const snapshot = scope === 'series'
+      ? seriesSnapshot
+      : scope === 'following'
+        ? (occurrenceSnapshot && seriesSnapshot
+          ? { ...occurrenceSnapshot, recurrence: seriesSnapshot.recurrence, recurrencePreserve: seriesSnapshot.recurrencePreserve }
+          : occurrenceSnapshot)
+        : occurrenceSnapshot;
     if (!snapshot) return;
     invitation.reset();
     setForm(current => current ? { ...current, ...snapshot, editScope: scope } : current);
@@ -570,7 +578,7 @@ interface EventDialogProps {
   accounts: Array<{ id: string; email_address?: string | null; name?: string | null; [key: string]: unknown }>;
   saving: boolean;
   onChange: (field: string, value: unknown) => void;
-  onEditScopeChange: (scope: 'single' | 'series') => void;
+  onEditScopeChange: (scope: 'single' | 'following' | 'series') => void;
   /** The series master (including its rule) has been fetched for this edit. */
   seriesReady: boolean;
   onAllDayChange: (allDay: boolean) => void;
@@ -688,7 +696,7 @@ function EventDialog({ form, error, calendars, accounts, saving, seriesReady, on
   const attendeeValue = form.attendees.join(', ');
   // A new event may be recurring, and a series edit must be able to change the
   // rule. Editing one occurrence never touches the series rule.
-  const recurrenceMode = form.mode === 'create' || form.editScope === 'series';
+  const recurrenceMode = form.mode === 'create' || form.editScope === 'series' || form.editScope === 'following';
   const recurrence = form.recurrence ?? { frequency: 'none' as const, interval: 1, byWeekday: [] as number[], end: 'never' as const, until: '', count: 1 };
   const setRecurrence = (patch: Partial<typeof recurrence>) => onChange('recurrence', { ...recurrence, ...patch });
   const weekdayOrder = [1, 2, 3, 4, 5, 6, 0];
@@ -707,10 +715,12 @@ function EventDialog({ form, error, calendars, accounts, saving, seriesReady, on
         <div className="calendar-edit-scope" data-testid="calendar-edit-scope">
           <span className="calendar-edit-scope-label">{t('calendar.recurrenceScope')}</span>
           <div role="radiogroup" aria-label={t('calendar.recurrenceScope')} className="calendar-edit-scope-options">
-            <button type="button" role="radio" aria-checked={form.editScope !== 'series'} disabled={!form.editScope} onClick={() => onEditScopeChange('single')}>{t('calendar.deleteScopeSingle')}</button>
-            <button type="button" role="radio" aria-checked={form.editScope === 'series'} disabled={!seriesReady} onClick={() => onEditScopeChange('series')}>{t('calendar.deleteScopeAll')}</button>
+            <button type="button" role="radio" aria-checked={form.editScope === 'single'} disabled={!form.editScope} data-testid="calendar-edit-scope-single" onClick={() => onEditScopeChange('single')}>{t('calendar.deleteScopeSingle')}</button>
+            <button type="button" role="radio" aria-checked={form.editScope === 'following'} disabled={!seriesReady} data-testid="calendar-edit-scope-following" onClick={() => onEditScopeChange('following')}>{t('calendar.deleteScopeFollowing')}</button>
+            <button type="button" role="radio" aria-checked={form.editScope === 'series'} disabled={!seriesReady} data-testid="calendar-edit-scope-series" onClick={() => onEditScopeChange('series')}>{t('calendar.deleteScopeAll')}</button>
           </div>
-          {form.editScope !== 'series' && <p className="calendar-edit-scope-hint">{t('calendar.editOccurrence')}</p>}
+          {form.editScope === 'single' && <p className="calendar-edit-scope-hint">{t('calendar.editOccurrence')}</p>}
+          {form.editScope === 'following' && <p className="calendar-edit-scope-hint">{t('calendar.editFollowing')}</p>}
         </div>
       )}
       <label>{t('calendar.titleField')}<input autoFocus value={form.summary} onChange={e => onChange('summary', e.target.value)} /></label>

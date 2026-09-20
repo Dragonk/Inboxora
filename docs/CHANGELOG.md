@@ -46,6 +46,10 @@ Nothing is being prepared beyond 4.1.0. Work whose version has not been chosen a
   occurrence (`UNTIL` for Google, `endDate` for Graph, the stored rule for CalDAV) and, for an edit, the
   remainder becomes a new series carrying the same attendees and the client's values. The whole series keeps
   working as before.
+- **The event editor offers the same three scopes.** Editing a recurring event now asks whether the change
+  applies to *this occurrence*, *this and every following one*, or the *whole series* — the delete dialog
+  already asked, and the edit dialog previously offered only the first and the last, so the middle one the
+  server supports could not be requested from the interface.
 - **Invited series can be changed per occurrence.** Editing or cancelling one occurrence of a series you
   organised, or the rest of it, now sends the matching iTIP message — a `REQUEST` or `CANCEL` carrying
   `RECURRENCE-ID` for a single occurrence, and an updated rule for "this and following" — with the sequence

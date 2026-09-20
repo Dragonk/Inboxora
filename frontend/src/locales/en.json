@@ -1987,6 +1987,7 @@
     "sourceSyncHours": "{{count}} h",
     "invitationLoadFailed": "Could not load or save the invitation.",
     "editOccurrence": "You are editing only this occurrence.",
+    "editFollowing": "You are editing this and every following occurrence.",
     "deleteRecurringTitle": "Delete recurring event",
     "deleteRecurringBody": "This event is part of a series. What should be deleted?",
     "deleteScopeSingle": "Only this occurrence",
