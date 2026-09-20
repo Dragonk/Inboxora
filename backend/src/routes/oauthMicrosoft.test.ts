@@ -27,9 +27,9 @@ const CONFIG = {
   clientId: '11111111-2222-3333-4444-555555555555',
   clientSecret: 'ms-secret',
   redirectUri: 'https://inboxora.example/oauth/microsoft/callback',
-  // The provider flow has its own callback; using the mailbox one sent its code to the
-  // legacy route, which knows nothing about this flow's state.
-  providerRedirectUri: 'https://inboxora.example/oauth/provider/microsoft/callback',
+  // The provider flow answers on the canonical Microsoft callback: one value for the authorize URL, the token
+  // exchange and the settings page. `/oauth/provider/microsoft/callback` is only a redirect alias now.
+  providerRedirectUri: 'https://inboxora.example/oauth/microsoft/callback',
   tenantId: 'consumers',
 };
 
@@ -156,7 +156,9 @@ afterEach(() => {
 });
 
 const startFlow = (query = '') => realFetch(`${base}/oauth/provider/microsoft${query}`, { redirect: 'manual' });
-const callback = (query: string) => realFetch(`${base}/oauth/provider/microsoft/callback${query}`, { redirect: 'manual' });
+const callback = (query: string) => realFetch(`${base}/oauth/microsoft/callback${query}`, { redirect: 'manual' });
+/** The pre-cleanup path: it must redirect to the canonical callback so old registrations keep working. */
+const legacyCallback = (query: string) => realFetch(`${base}/oauth/provider/microsoft/callback${query}`, { redirect: 'manual' });
 
 describe('GET /oauth/provider/microsoft (start)', () => {
   it('refuses to start when the administrator has not configured Microsoft', async () => {
@@ -175,8 +177,9 @@ describe('GET /oauth/provider/microsoft (start)', () => {
     expect(location.searchParams.get('client_id')).toBe(CONFIG.clientId);
     // The provider flow must send its own callback, not the mailbox one: the mailbox
     // route knows nothing about this flow's state, so the code would be lost there.
+    // One callback: what the flow sends is what the card displays and what the exchange presents.
     expect(location.searchParams.get('redirect_uri')).toBe(CONFIG.providerRedirectUri);
-    expect(location.searchParams.get('redirect_uri')).not.toBe(CONFIG.redirectUri);
+    expect(location.searchParams.get('redirect_uri')).toBe(CONFIG.redirectUri);
     expect(location.searchParams.get('code_challenge_method')).toBe('S256');
     expect(location.searchParams.get('response_mode')).toBe('query');
     // Never silently reuse the browser session.
@@ -230,7 +233,7 @@ describe('GET /oauth/provider/microsoft (start)', () => {
   });
 });
 
-describe('GET /oauth/provider/microsoft/callback', () => {
+describe('GET /oauth/microsoft/callback', () => {
   it('rejects an unknown or replayed state without contacting Microsoft', async () => {
     mocks.query.mockImplementation(async (sql: string) => {
       if (String(sql).includes("SET status = 'exchanging'")) return { rows: [], rowCount: 0 };
@@ -447,4 +450,10 @@ describe('POST /oauth/provider/microsoft/device/poll', () => {
     const finish = queryCallsMatching('UPDATE oauth_authorization_flows').find(([sql]) => String(sql).includes('SET status = $2'));
     expect(JSON.stringify(finish)).toContain('DEVICE_CODE_MISSING');
   });
+});
+
+it('redirects the pre-cleanup provider callback to the canonical one', async () => {
+  const response = await legacyCallback('?code=code-1&state=state-1');
+  expect(response.status).toBe(302);
+  expect(response.headers.get('location')).toBe('/oauth/microsoft/callback?code=code-1&state=state-1');
 });

@@ -42,7 +42,12 @@ test('the Google card never offers a device-code flow and keeps app-password mai
   // MUST: state that IMAP/SMTP with an app password does not depend on this config.
   assert.match(card, /t\('admin\.integrations\.google\.appPasswordNote'\)/);
   // The Google callback path used by the instruction and the placeholder.
-  assert.match(card, /oauth\/google\/callback/);
+  // The callback is generated on the server and displayed read-only, with a copy action: there is no input
+  // an administrator could mistype, and the value shown is the value the flow sends.
+  assert.match(card, /data-testid="google-generated-redirect-uri"/);
+  assert.match(card, /googleStatus\?\.browser\?\.redirectUri/);
+  assert.match(card, /navigator\.clipboard\?\.writeText/);
+  assert.doesNotMatch(card, /onChange=\{e => setGoogleForm\(f => \(\{ \.\.\.f, redirectUri/);
 });
 
 test('the Google card is admin-configurable but non-admins only see readiness', async () => {

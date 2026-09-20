@@ -157,25 +157,27 @@ describe('GET /api/integrations/status (non-admin capability check)', () => {
     const body = await integrationStatusBody(res);
     expect(body.microsoft.configured).toBe(true);
     expect(body.microsoft.enabled).toBe(true);
-    // Device code needs no redirect URI and no secret; web does.
+    // Device code needs no redirect URI and no secret; the web flow needs the secret. The callback itself is
+    // generated from APP_URL and is never a "missing field".
     expect(body.microsoft.deviceCode).toMatchObject({ supported: true, ready: true });
     expect(body.microsoft.browser.ready).toBe(false);
-    expect(body.microsoft.browser.missing).toEqual(['clientSecret', 'redirectUri']);
+    expect(body.microsoft.browser.missing).toEqual(['clientSecret']);
     expect(body.microsoft.mailPolicy).toBe('required');
   });
 
-  it('reports the Graph connector readiness separately from the mailbox sign-in', async () => {
-    // The connector authorizes on its own callback, derived from APP_URL, so it can be
-    // ready where the mailbox flow cannot run. Reporting one readiness for both tied the
-    // connector button to a callback it does not use, and hid it.
+  it('reports the Graph connector readiness and the canonical callback it uses', async () => {
     process.env.MS_CLIENT_ID = 'some-client-id';
     process.env.MS_CLIENT_SECRET = 'some-secret';
     process.env.APP_URL = 'https://inboxora.example';
-    delete process.env.MS_REDIRECT_URI;
+    // A legacy value is ignored: the callback is generated, so it cannot disagree with the flow.
+    process.env.MS_REDIRECT_URI = 'https://legacy.example/oauth/provider/microsoft/callback';
 
     const body = await integrationStatusBody(await fetch(`${integrationBase()}/api/integrations/status`));
-    expect(body.microsoft.browser.ready).toBe(false);
-    expect(body.microsoft.graph).toEqual({ ready: true, missing: [] });
+    expect(body.microsoft.browser.ready).toBe(true);
+    expect(body.microsoft.graph).toMatchObject({ ready: true, missing: [] });
+    // One callback, shown by the card, sent by the flow and used by the token exchange.
+    expect(body.microsoft.graph?.redirectUri).toBe('https://inboxora.example/oauth/microsoft/callback');
+    expect(body.microsoft.browser.redirectUri).toBe('https://inboxora.example/oauth/microsoft/callback');
   });
 
   it('offers nothing when the provider layer is switched off for the installation', async () => {
@@ -198,12 +200,12 @@ describe('GET /api/integrations/status (non-admin capability check)', () => {
     }
   });
 
-  it('reports Microsoft web readiness only once every web field is present', async () => {
+  it('reports Microsoft web readiness once the client and the secret are present', async () => {
     process.env.MS_CLIENT_ID = 'some-client-id';
     process.env.MS_CLIENT_SECRET = 'some-secret';
-    process.env.MS_REDIRECT_URI = 'https://inboxora.example/oauth/microsoft/callback';
     const body = await integrationStatusBody(await fetch(`${integrationBase()}/api/integrations/status`));
-    expect(body.microsoft.browser).toEqual({ ready: true, missing: [] });
+    expect(body.microsoft.browser).toMatchObject({ ready: true, missing: [] });
+    expect(body.microsoft.browser.redirectUri).toBe('https://inboxora.example/oauth/microsoft/callback');
   });
 
   it('reports configured=false when MS_CLIENT_ID is unset', async () => {
@@ -222,21 +224,20 @@ describe('GET /api/integrations/status (non-admin capability check)', () => {
     expect(body.google.traditionalImapAvailableInInboxora).toBe(true);
     expect(body.google.deviceCode).toEqual({ supported: false, ready: false, reason: 'not_supported' });
     expect(body.google.browser.ready).toBe(false);
-    expect(body.google.browser.missing).toEqual(['clientId', 'clientSecret', 'redirectUri']);
+    expect(body.google.browser.missing).toEqual(['clientId', 'clientSecret']);
   });
 
   it('reports Google browser readiness once the web fields are present', async () => {
     process.env.GOOGLE_CLIENT_ID = 'google-client';
     process.env.GOOGLE_CLIENT_SECRET = 'google-secret';
-    process.env.GOOGLE_REDIRECT_URI = 'https://inboxora.example/oauth/google/callback';
     try {
       const body = await integrationStatusBody(await fetch(`${integrationBase()}/api/integrations/status`));
-      expect(body.google.browser).toEqual({ ready: true, missing: [] });
+      expect(body.google.browser).toMatchObject({ ready: true, missing: [] });
+      expect(body.google.browser.redirectUri).toBe('https://inboxora.example/oauth/google/callback');
       expect(body.microsoft.configured).toBe(false);
     } finally {
       delete process.env.GOOGLE_CLIENT_ID;
       delete process.env.GOOGLE_CLIENT_SECRET;
-      delete process.env.GOOGLE_REDIRECT_URI;
     }
   });
 

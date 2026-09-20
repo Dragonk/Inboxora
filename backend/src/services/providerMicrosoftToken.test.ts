@@ -32,22 +32,28 @@ describe('microsoftConfigFromEnv / isMicrosoftConfigured', () => {
     expect(microsoftConfigFromEnv({ MS_CLIENT_ID: 'abc' } as NodeJS.ProcessEnv)).toEqual({
       clientId: 'abc', clientSecret: '', redirectUri: '', providerRedirectUri: '', tenantId: 'common',
     });
+    // The legacy environment redirect URI is ignored; APP_URL owns the callback.
     expect(microsoftConfigFromEnv({
-      MS_CLIENT_ID: 'abc', MS_CLIENT_SECRET: 's', MS_REDIRECT_URI: 'https://x/cb', MS_TENANT_ID: 'contoso.onmicrosoft.com',
+      MS_CLIENT_ID: 'abc', MS_CLIENT_SECRET: 's', MS_REDIRECT_URI: 'https://ignored.example/cb', MS_TENANT_ID: 'contoso.onmicrosoft.com',
+      APP_URL: 'https://inboxora.example',
     } as NodeJS.ProcessEnv)).toEqual({
-      clientId: 'abc', clientSecret: 's', redirectUri: 'https://x/cb', providerRedirectUri: '', tenantId: 'contoso.onmicrosoft.com',
+      clientId: 'abc', clientSecret: 's',
+      redirectUri: 'https://inboxora.example/oauth/microsoft/callback',
+      providerRedirectUri: 'https://inboxora.example/oauth/microsoft/callback',
+      tenantId: 'contoso.onmicrosoft.com',
     });
-    // The provider callback is derived from the trusted APP_URL, never from the mailbox one.
+    // One callback for the Graph flow: the authorize URL and the token exchange use the canonical path.
     expect(microsoftConfigFromEnv({
       MS_CLIENT_ID: 'abc', MS_REDIRECT_URI: 'https://mail.example/oauth/microsoft/callback', APP_URL: 'https://mail.example/',
     } as NodeJS.ProcessEnv)).toMatchObject({
       redirectUri: 'https://mail.example/oauth/microsoft/callback',
-      providerRedirectUri: 'https://mail.example/oauth/provider/microsoft/callback',
+      providerRedirectUri: 'https://mail.example/oauth/microsoft/callback',
     });
+    // The legacy provider-redirect override is ignored too.
     expect(microsoftConfigFromEnv({
       MS_CLIENT_ID: 'abc', APP_URL: 'https://mail.example',
       MS_PROVIDER_REDIRECT_URI: 'https://mail.example/custom/graph/callback',
-    } as NodeJS.ProcessEnv).providerRedirectUri).toBe('https://mail.example/custom/graph/callback');
+    } as NodeJS.ProcessEnv).providerRedirectUri).toBe('https://mail.example/oauth/microsoft/callback');
   });
 
   it('treats a client id as sufficient, because the device flow is a public client', () => {
