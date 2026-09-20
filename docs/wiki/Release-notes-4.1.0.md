@@ -169,6 +169,12 @@ offers the migration to the native transport.
 
 ## Known limitations
 
+- **Names already stored with replacement characters are not rewritten.** The fix applies when a header is
+  decoded, so newly received mail is correct. A message that was already parsed under the old decoder holds the
+  replacement character in the database, and the original octets are not recoverable from it — re-fetching or
+  re-parsing that message (a re-sync, or reopening it from the provider) is what repairs it. Nothing else is
+  affected, and no manual database work is required.
+
 Deliberate product behaviour, not missing work:
 
 - a **provider collection is written over the web interface**; over DAV it stays read-only, because the DAV
