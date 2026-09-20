@@ -236,6 +236,15 @@ Microsoft application is registered in this environment.
 
 ## Detailed changes
 
+### Fixed
+
+- **Polish and other non-ASCII sender names from legacy charsets are shown correctly.** A message whose client
+  encoded the `From`/`To` name or the subject in ISO-8859-2 or Windows-1250 — Outlook's charset for Polish — was
+  decoded as UTF-8, which turned `Kamil Maciąg` into `Kamil Maci?g`; only UTF-8 mail was right, so the problem
+  appeared to come and go. The charset declared in the encoded word is now used, an unknown label degrades to a
+  byte-for-byte single-byte mapping rather than to a second UTF-8 decode, and the address, subject and
+  list-unsubscribe paths that share the decoder all benefit.
+
 The area-by-area list — every feature, change, fix and security note — is in
 [`docs/CHANGELOG.md`](../CHANGELOG.md) under `[4.1.0]`. The per-package delivery status, the frozen code SHA
 and the manual acceptance that remains are recorded in
