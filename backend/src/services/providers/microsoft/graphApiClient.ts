@@ -108,11 +108,21 @@ async function accessToken(options: GraphApiOptions, skewSeconds?: number): Prom
  * `@odata.nextLink` values.
  */
 async function graphSend(options: GraphApiOptions, pathOrUrl: string, init: { method: string; body?: unknown }): Promise<Response> {
+  return graphSendWithHeaders(options, pathOrUrl, init, {});
+}
+
+async function graphSendWithHeaders(
+  options: GraphApiOptions,
+  pathOrUrl: string,
+  init: { method: string; body?: unknown },
+  extraHeaders: Record<string, string>,
+): Promise<Response> {
   const fetchImpl = options.fetchImpl ?? fetch;
   const url = pathOrUrl.startsWith('http') ? pathOrUrl : `${GRAPH_API_BASE}${pathOrUrl}`;
   const send = async (token: string): Promise<Response> => fetchImpl(url, {
     method: init.method,
     headers: {
+      ...extraHeaders,
       authorization: `Bearer ${token}`,
       accept: 'application/json',
       ...(init.body === undefined ? {} : { 'content-type': 'application/json' }),
@@ -137,6 +147,20 @@ async function throwForStatus(response: Response): Promise<never> {
 
 export async function graphGet<T>(options: GraphApiOptions, pathOrUrl: string): Promise<T> {
   const response = await graphSend(options, pathOrUrl, { method: 'GET' });
+  if (!response.ok) await throwForStatus(response);
+  return await response.json() as T;
+}
+
+/**
+ * A GET that needs a header Graph only honours per request.
+ *
+ * The one that matters here is `Prefer: outlook.timezone="UTC"`: without it Graph returns an event's
+ * start/end in the mailbox's own zone, and an occurrence's identity could then be compared in the wrong
+ * frame. The ordinary client sends no `Prefer` header, so this is a separate entry point rather than a
+ * change to every Graph call.
+ */
+export async function graphGetWithHeaders<T>(options: GraphApiOptions, pathOrUrl: string, headers: Record<string, string>): Promise<T> {
+  const response = await graphSendWithHeaders(options, pathOrUrl, { method: 'GET' }, headers);
   if (!response.ok) await throwForStatus(response);
   return await response.json() as T;
 }

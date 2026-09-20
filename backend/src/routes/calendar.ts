@@ -1,7 +1,11 @@
 import { calendarResources, mergeCalendarResource, rruleFromCalendarResource, setSeriesRecurrence, truncateSeriesBefore } from '../utils/calendarRecurrence.js';
-import { parseRecurrenceStructure, recurrenceToRRule, recurrenceViewFromRRule } from '../utils/calendarRecurrenceRule.js';
+import { parseRecurrenceStructure, recurrenceToRRule, recurrenceViewFromRRule, type ParsedRecurrence } from '../utils/calendarRecurrenceRule.js';
 import { googleConfigFromEnv, isGoogleConfigured, isMicrosoftConfigured, microsoftConfigFromEnv } from '../services/providerAuthService.js';
 import { syncGoogleCalendar } from '../services/providers/google/googleCalendarSync.js';
+import {
+  writeProviderCalendarOccurrence,
+  type OccurrenceScope,
+} from '../services/providerCalendarOccurrences.js';
 import { GoogleApiError } from '../services/providers/google/googleApiClient.js';
 import { syncGraphCalendar } from '../services/providers/microsoft/graphCalendarSync.js';
 import { GraphApiError } from '../services/providers/microsoft/graphApiClient.js';
@@ -897,29 +901,163 @@ router.post('/events', async (req, res) => {
 });
 
 
+/**
+ * Change or cancel one occurrence (or the rest of a series) in a provider calendar.
+ *
+ * The provider is written first and must confirm: the local projection is produced afterwards by the
+ * collection's own sync, so a scoped change is rendered by the same code the next scheduled run uses and a
+ * change the provider refused cannot look saved locally. A sync that fails here is reported, not hidden —
+ * the provider holds the change and the next run projects it.
+ *
+ * Notifications are the provider's on this path (`sendUpdates: 'all'` for Google; Graph notifies its own
+ * attendees), so no duplicate invitation is sent by Inboxora.
+ */
+/** The values one occurrence-scoped request carries, parsed once for both the provider and local paths. */
+interface OccurrenceRequestValues {
+  cancel: boolean;
+  times: { startsAt: Date; endsAt: Date } | null;
+  attendees: string[] | null;
+  summary: string | null;
+  description: string | null;
+  location: string | null;
+  url: string | null;
+  organizer: string | null;
+  allDay: boolean;
+  timezone: string | null;
+  recurrenceProvided: boolean;
+  recurrence: ParsedRecurrence | null;
+}
+
+/**
+ * Change or cancel one occurrence (or the rest of a series) in a provider calendar.
+ *
+ * The provider is written first and must confirm: the local projection is produced afterwards by the
+ * collection's own sync, so a scoped change is rendered by the same code the next scheduled run uses and a
+ * change the provider refused cannot look saved locally. A sync that fails here is reported, not hidden —
+ * the provider holds the change and the next run projects it.
+ *
+ * Notifications are the provider's on this path (`sendUpdates: 'all'` for Google; Graph notifies its own
+ * attendees), so Inboxora sends no duplicate invitation.
+ */
+async function handleProviderOccurrence(
+  req: Request,
+  res: Response,
+  input: {
+    calendarId: string;
+    recurrenceId: string;
+    scope: OccurrenceScope;
+    values: OccurrenceRequestValues;
+    /** Either provider target: both carry the same four fields the write needs. */
+    target: { kind: 'graph' | 'google'; connectionId: string; collectionId: string; providerCalendarId: string; calendarId: string };
+  },
+) {
+  const userId = sessionUserId(req)!;
+  const localEventId = String(req.params.eventId);
+  const providerEventId = input.target.kind === 'graph'
+    ? await graphEventIdForLocalRow(userId, input.target.collectionId, localEventId)
+    : await googleEventIdForLocalRow(userId, input.target.collectionId, localEventId);
+  if (!providerEventId) return res.status(409).json({ error: 'This event is not linked to its provider copy yet' });
+
+  // The occurrence's own start and all-day flag come from the stored row; the endpoint's `recurrenceId` is
+  // the `RECURRENCE-ID` the provider's instance carries as its original start.
+  const stored = await query<{ uid: string; all_day: boolean | null }>(
+    'SELECT uid, all_day FROM calendar_events WHERE id = $1 AND calendar_id = $2 AND user_id = $3',
+    [localEventId, input.calendarId, userId],
+  );
+  if (!stored.rows[0]) return res.status(404).json({ error: 'Event not found' });
+
+  const outcome = await writeProviderCalendarOccurrence({
+    target: {
+      kind: input.target.kind,
+      userId,
+      connectionId: input.target.connectionId,
+      collectionId: input.target.collectionId,
+      providerCalendarId: input.target.providerCalendarId,
+      calendarId: input.target.calendarId,
+      localEventId,
+      masterProviderId: providerEventId,
+      occurrenceStart: input.recurrenceId,
+      allDay: stored.rows[0].all_day === true,
+    },
+    scope: input.scope,
+    operation: input.values.cancel ? 'cancel' : 'update',
+    ...(input.values.cancel ? {} : {
+      values: {
+        summary: input.values.summary,
+        description: input.values.description,
+        location: input.values.location,
+        url: input.values.url,
+        startsAt: input.values.times!.startsAt,
+        endsAt: input.values.times!.endsAt,
+        allDay: input.values.allDay,
+        attendees: input.values.attendees!,
+        ...(input.values.recurrenceProvided ? { recurrence: input.values.recurrence } : {}),
+      },
+    }),
+    sendUpdates: 'all',
+  });
+  if (outcome.status !== 'confirmed') return providerWriteRefusal(res, outcome.failure);
+
+  let synced = false;
+  try {
+    if (input.target.kind === 'graph') {
+      await syncGraphCalendar({ userId, connectionId: input.target.connectionId, config: microsoftConfigFromEnv() });
+    } else {
+      await syncGoogleCalendar({ userId, connectionId: input.target.connectionId, config: googleConfigFromEnv() });
+    }
+    synced = true;
+  } catch (caught) {
+    // The provider accepted the change; the projection arrives on the next run, so this is reported rather
+    // than turned into a failure the user would read as "not saved".
+    console.error('Calendar projection after a scoped occurrence change failed:', toAppError(caught).message);
+  }
+  return res.json({
+    updated: true,
+    scope: input.scope,
+    providerEventId: outcome.providerOccurrenceId,
+    ...(outcome.createdSeriesId ? { createdSeriesId: outcome.createdSeriesId } : {}),
+    synced,
+  });
+}
+
 router.all('/events/:eventId/occurrence', async (req, res) => {
   if (!['PATCH', 'DELETE'].includes(req.method)) return res.status(405).end();
   const { calendarId, recurrenceId } = req.body || {};
   if (!calendarId || typeof recurrenceId !== 'string' || !/^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}:\d{2}Z?)?$/.test(recurrenceId)) return res.status(400).json({ error: 'A valid occurrence and calendar are required' });
-  // 'single' changes only the occurrence named; 'following' ends the series just before it.
-  // Deleting the whole series is the plain event DELETE, which already handles invitations.
-  const scope = req.body?.scope === 'following' ? 'following' : 'single';
-  if (scope !== 'single' && req.method !== 'DELETE') return res.status(400).json({ error: 'Only a cancellation can affect following occurrences' });
-  const access = await writableCalendar(sessionUserId(req), calendarId);
-  if (!access.ok) return res.status(access.status).json({ error: access.error });
-  if (access.target.kind !== 'local') {
-    // A single occurrence of a provider series cannot be addressed yet: the local model has no provider
-    // id for an instance, so a local-only change would be undone by the next delta. Refusing is the
-    // honest answer until the instance identity is carried.
-    return res.status(501).json({
-      code: 'OPERATION_FORBIDDEN',
-      error: 'Changing a single occurrence of a series in a provider calendar is not available yet. Edit the series, or change the occurrence in the provider.',
-    });
-  }
+  // 'single' changes only the occurrence named; 'following' changes it and every later one. Deleting the
+  // whole series is the plain event DELETE, which already handles invitations.
+  const scope: OccurrenceScope = req.body?.scope === 'following' ? 'following' : 'single';
   const cancel = req.method === 'DELETE';
   const times = cancel ? null : parseEventTimes(req.body);
   const attendees = normalizeAttendees(req.body.attendees || []);
   if (!cancel && (!times || !attendees)) return res.status(400).json({ error: 'Invalid event values' });
+  // A series-level edit may carry `recurrence`; a single-occurrence edit never does. An absent field means
+  // "leave the rule alone", an explicit null clears it, and an object sets it — the same three states the
+  // whole-series update uses.
+  const recurrenceProvided = Object.prototype.hasOwnProperty.call(req.body || {}, 'recurrence');
+  const recurrenceParse = recurrenceProvided ? parseRecurrenceStructure((req.body || {}).recurrence, { allDay: Boolean(req.body?.allDay) }) : null;
+  if (recurrenceParse && !recurrenceParse.ok) return res.status(400).json({ error: recurrenceParse.error });
+  const values: OccurrenceRequestValues = {
+    cancel,
+    times,
+    attendees,
+    summary: typeof req.body?.summary === 'string' ? req.body.summary : null,
+    description: normalizeDescription(req.body?.description),
+    location: typeof req.body?.location === 'string' ? req.body.location : null,
+    url: typeof req.body?.url === 'string' ? req.body.url : null,
+    organizer: typeof req.body?.organizer === 'string' ? req.body.organizer : null,
+    allDay: Boolean(req.body?.allDay),
+    timezone: typeof req.body?.timezone === 'string' ? req.body.timezone : null,
+    recurrenceProvided,
+    recurrence: recurrenceParse?.ok ? recurrenceParse.recurrence : null,
+  };
+
+  const access = await writableCalendar(sessionUserId(req), calendarId);
+  if (!access.ok) return res.status(access.status).json({ error: access.error });
+  if (access.target.kind === 'graph' || access.target.kind === 'google') {
+    return handleProviderOccurrence(req, res, { calendarId, recurrenceId, scope, values, target: access.target });
+  }
+
   const outcome = await withTransaction(async client => {
     const row = (await client.query('SELECT uid, raw_ical, invite_account_id FROM calendar_events WHERE id = $1 AND calendar_id = $2 AND user_id = $3 FOR UPDATE', [req.params.eventId, calendarId, req.session.userId])).rows[0];
     if (!row) return { status: 404 };
@@ -930,17 +1068,47 @@ router.all('/events/:eventId/occurrence', async (req, res) => {
       const truncated = truncateSeriesBefore(row.raw_ical, recurrenceId);
       if (!truncated) return { status: 409 };
       if (truncated.empty) {
-        // Cancelling from the series' own first occurrence leaves nothing, so remove the event
-        // rather than keep a series that produces no occurrences.
+        // Acting from the series' own first occurrence leaves nothing of it, so remove the event rather
+        // than keep a series that produces no occurrences.
         await client.query('DELETE FROM calendar_events WHERE id = $1 AND calendar_id = $2 AND user_id = $3', [req.params.eventId, calendarId, req.session.userId]);
         return { status: 200 };
       }
+      if (cancel) {
+        await client.query('UPDATE calendar_events SET raw_ical = $1, etag = gen_random_uuid()::text, updated_at = NOW() WHERE id = $2 AND calendar_id = $3 AND user_id = $4', [truncated.raw, req.params.eventId, calendarId, req.session.userId]);
+        return { status: 200 };
+      }
+      // An edit of "this and following": the earlier part keeps its occurrences and the remainder becomes a
+      // **new series** starting at the named occurrence, carrying the client's values and rule. The UID is
+      // derived from the master and the occurrence, so re-sending the same edit updates that remainder rather
+      // than creating a second one.
+      // The client's new rule when it sent one, otherwise the master's own rule verbatim — re-rendering it
+      // through the editor's structure would drop parts the editor cannot represent (a `custom` rule).
+      const remainderRrule = recurrenceProvided ? recurrenceToRRule(values.recurrence) : rruleFromCalendarResource(row.raw_ical);
+      const remainderUid = `${row.uid}#${recurrenceId.replace(/[^0-9A-Za-z]/g, '')}`;
+      const remainderRaw = localEventIcal({
+        uid: remainderUid, summary: values.summary, description: values.description, location: values.location,
+        url: values.url, organizer: values.organizer, attendees: values.attendees!, allDay: values.allDay,
+        ...values.times!, rrule: remainderRrule,
+      });
       await client.query('UPDATE calendar_events SET raw_ical = $1, etag = gen_random_uuid()::text, updated_at = NOW() WHERE id = $2 AND calendar_id = $3 AND user_id = $4', [truncated.raw, req.params.eventId, calendarId, req.session.userId]);
+      await client.query(
+        `INSERT INTO calendar_events (
+           calendar_id, user_id, uid, raw_ical, summary, description, location, url, organizer,
+           starts_at, ends_at, all_day, timezone, attendees
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+         ON CONFLICT (calendar_id, uid, recurrence_id) DO UPDATE SET
+           raw_ical = EXCLUDED.raw_ical, summary = EXCLUDED.summary, description = EXCLUDED.description,
+           location = EXCLUDED.location, url = EXCLUDED.url, organizer = EXCLUDED.organizer,
+           starts_at = EXCLUDED.starts_at, ends_at = EXCLUDED.ends_at, all_day = EXCLUDED.all_day,
+           timezone = EXCLUDED.timezone, attendees = EXCLUDED.attendees, etag = gen_random_uuid()::text,
+           updated_at = NOW()`,
+        [calendarId, req.session.userId, remainderUid, remainderRaw, values.summary, values.description, values.location, values.url, values.organizer, values.times!.startsAt, values.times!.endsAt, values.allDay, values.timezone, jsonbAttendees(values.attendees!)],
+      );
       return { status: 200 };
     }
     const event = parseCalendarEvent(row.raw_ical);
     if (!event) return { status: 409 };
-    const replacement = localEventIcal(cancel ? { ...event, allDay: event.allDay } : { ...req.body, description: normalizeDescription(req.body?.description), attendees, ...times, uid: row.uid });
+    const replacement = localEventIcal(cancel ? { ...event, allDay: event.allDay } : { ...req.body, description: values.description, attendees: values.attendees!, ...values.times!, uid: row.uid });
     const raw = mergeCalendarResource(row.raw_ical, replacement, recurrenceId, cancel);
     await client.query('UPDATE calendar_events SET raw_ical = $1, etag = gen_random_uuid()::text, updated_at = NOW() WHERE id = $2 AND calendar_id = $3 AND user_id = $4', [raw, req.params.eventId, calendarId, req.session.userId]);
     return { status: 200 };

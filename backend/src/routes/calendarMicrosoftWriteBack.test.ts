@@ -13,6 +13,9 @@ const mocks = vi.hoisted(() => {
     providerIdForEvent: vi.fn(async (): Promise<string | null> => 'AAMkAD-evt-1'),
     recordLink: vi.fn(async () => undefined),
     removeLink: vi.fn(async () => undefined),
+    writeOccurrence: vi.fn(async () => ({ status: 'confirmed' as const, providerOccurrenceId: 'AAMkAD-occ-1', createdSeriesId: null })),
+    syncGraph: vi.fn(async () => ({ ok: true })),
+    syncGoogle: vi.fn(async () => ({ ok: true })),
   };
 });
 
@@ -33,6 +36,20 @@ vi.mock('../middleware/auth.js', () => ({
 }));
 // The provider half and its target resolution are covered by their own suites; this one is about the
 // order the route writes in and what it does when the provider refuses.
+// The scoped-occurrence machinery has its own suite (`providerCalendarOccurrences.test.ts`); this one is
+// about the route: which scope it asks for, what it does with the answer, and what it never writes locally.
+vi.mock('../services/providerCalendarOccurrences.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../services/providerCalendarOccurrences.js')>()),
+  writeProviderCalendarOccurrence: mocks.writeOccurrence,
+}));
+vi.mock('../services/providers/microsoft/graphCalendarSync.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../services/providers/microsoft/graphCalendarSync.js')>()),
+  syncGraphCalendar: mocks.syncGraph,
+}));
+vi.mock('../services/providers/google/googleCalendarSync.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../services/providers/google/googleCalendarSync.js')>()),
+  syncGoogleCalendar: mocks.syncGoogle,
+}));
 vi.mock('../services/providerCalendarWrites.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../services/providerCalendarWrites.js')>()),
   resolveCalendarWriteTarget: mocks.resolveTarget,
@@ -206,13 +223,70 @@ describe('provider write paths that do not exist yet are refused, not written lo
     expect(ranQuery('INSERT INTO calendar_events')).toBe(false);
   });
 
-  it('refuses changing one occurrence of a provider series', async () => {
+  it('changes one occurrence at the provider and projects it, without writing the local row itself', async () => {
+    mocks.query.mockResolvedValue({ rows: [localEventRow] });
     const response = await call('PATCH', '/events/event-1/occurrence', {
       calendarId: 'calendar-1', recurrenceId: '2026-09-15T09:00:00Z', scope: 'single',
       startsAt: '2026-09-16T09:00:00.000Z', endsAt: '2026-09-16T09:30:00.000Z', attendees: ['a@example.test'],
     });
-    expect(response.status).toBe(501);
-    expect(response.body).toMatchObject({ code: 'OPERATION_FORBIDDEN' });
+
+    expect(response.status).toBe(200);
+    expect(mocks.writeOccurrence).toHaveBeenCalledWith(expect.objectContaining({
+      scope: 'single',
+      operation: 'update',
+      sendUpdates: 'all',
+      target: expect.objectContaining({ kind: 'graph', masterProviderId: 'AAMkAD-evt-1', occurrenceStart: '2026-09-15T09:00:00Z' }),
+      values: expect.objectContaining({ startsAt: new Date('2026-09-16T09:00:00.000Z'), attendees: ['a@example.test'] }),
+    }));
+    // Provider first: the projection comes from the collection's own sync, never from a local shortcut.
+    expect(mocks.syncGraph).toHaveBeenCalledWith(expect.objectContaining({ connectionId: 'connection-1' }));
+    expect(ranQuery('UPDATE calendar_events')).toBe(false);
+  });
+
+  it('cancels one occurrence, and this-and-following, with the scope the client asked for', async () => {
+    mocks.query.mockResolvedValue({ rows: [localEventRow] });
+
+    const single = await call('DELETE', '/events/event-1/occurrence', {
+      calendarId: 'calendar-1', recurrenceId: '2026-09-15T09:00:00Z', scope: 'single',
+    });
+    expect(single.status).toBe(200);
+    expect(mocks.writeOccurrence).toHaveBeenLastCalledWith(expect.objectContaining({ scope: 'single', operation: 'cancel' }));
+
+    const following = await call('DELETE', '/events/event-1/occurrence', {
+      calendarId: 'calendar-1', recurrenceId: '2026-09-15T09:00:00Z', scope: 'following',
+    });
+    expect(following.status).toBe(200);
+    expect(mocks.writeOccurrence).toHaveBeenLastCalledWith(expect.objectContaining({ scope: 'following', operation: 'cancel' }));
+    expect(ranQuery('UPDATE calendar_events')).toBe(false);
+  });
+
+  it('edits this-and-following, carrying the rule the remainder keeps', async () => {
+    mocks.query.mockResolvedValue({ rows: [localEventRow] });
+    const response = await call('PATCH', '/events/event-1/occurrence', {
+      calendarId: 'calendar-1', recurrenceId: '2026-09-15T09:00:00Z', scope: 'following',
+      startsAt: '2026-09-16T09:00:00.000Z', endsAt: '2026-09-16T09:30:00.000Z', attendees: ['a@example.test'],
+      recurrence: { frequency: 'weekly', interval: 1, byWeekday: [2] },
+    });
+
+    expect(response.status).toBe(200);
+    expect(mocks.writeOccurrence).toHaveBeenCalledWith(expect.objectContaining({
+      scope: 'following',
+      operation: 'update',
+      values: expect.objectContaining({ recurrence: expect.objectContaining({ frequency: 'weekly' }) }),
+    }));
+  });
+
+  it('reports a provider refusal and writes nothing locally', async () => {
+    mocks.query.mockResolvedValue({ rows: [localEventRow] });
+    mocks.writeOccurrence.mockResolvedValueOnce({
+      status: 'failed', failure: { status: 409, error: 'This occurrence is not in the provider\u2019s series yet. Refresh the calendar and try again.', code: 'OCCURRENCE_NOT_FOUND' },
+    } as never);
+
+    const response = await call('DELETE', '/events/event-1/occurrence', {
+      calendarId: 'calendar-1', recurrenceId: '2026-09-15T09:00:00Z', scope: 'single',
+    });
+    expect(response.status).toBe(409);
+    expect(response.body).toMatchObject({ code: 'OCCURRENCE_NOT_FOUND' });
     expect(ranQuery('UPDATE calendar_events')).toBe(false);
   });
 });

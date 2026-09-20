@@ -1,4 +1,4 @@
-import { graphDelete, graphGet, graphPatch, graphPost, graphUrl } from './graphApiClient.js';
+import { graphDelete, graphGet, graphPatch, graphPost, graphUrl, graphGetWithHeaders } from './graphApiClient.js';
 import type { GraphApiOptions } from './graphApiClient.js';
 import { buildVTimezone, isValidTimeZone } from '../../../utils/icalTimezone.js';
 import {
@@ -551,6 +551,40 @@ export async function patchGraphEvent(api: GraphApiOptions, calendarId: string, 
 
 export async function deleteGraphEvent(api: GraphApiOptions, calendarId: string, eventId: string): Promise<void> {
   await graphDelete(api, `${GRAPH_CALENDAR_PATH}/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`);
+}
+
+/**
+ * One series' **instances** in a window, which is how Graph addresses a single occurrence.
+ *
+ * A series' unmodified occurrences are not returned by the ordinary event listing — only the `seriesMaster`
+ * and its `exception` instances are — so an occurrence nobody has changed has no id of its own to patch or
+ * delete. `/instances` materialises them, each carrying the id a mutation needs and `originalStart`, the
+ * occurrence's own start that the local model stores as its `RECURRENCE-ID`. `Prefer: outlook.timezone="UTC"`
+ * is sent so the returned times are in one frame regardless of the mailbox's zone.
+ */
+export async function fetchGraphEventInstances(
+  api: GraphApiOptions,
+  calendarId: string,
+  masterId: string,
+  input: { startDateTime: string; endDateTime: string; top?: number },
+): Promise<GraphEvent[]> {
+  const events: GraphEvent[] = [];
+  let link: string | null = graphUrl(
+    `${GRAPH_CALENDAR_PATH}/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(masterId)}/instances`,
+    {
+      startDateTime: input.startDateTime,
+      endDateTime: input.endDateTime,
+      '$top': input.top ?? 100,
+      '$select': 'id,subject,start,end,isAllDay,type,seriesMasterId,originalStart,recurrence,attendees,isCancelled',
+    },
+  );
+  for (let page = 0; page < 20 && link; page++) {
+    const body: { value?: GraphEvent[] | null; '@odata.nextLink'?: string | null } =
+      await graphGetWithHeaders(api, link, { prefer: 'outlook.timezone="UTC"' });
+    events.push(...(body.value ?? []));
+    link = body['@odata.nextLink'] ?? null;
+  }
+  return events;
 }
 
 export async function fetchGraphEvent(api: GraphApiOptions, calendarId: string, eventId: string): Promise<GraphEvent | null> {

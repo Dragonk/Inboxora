@@ -664,12 +664,37 @@ describe('local calendar API', () => {
       expect(sendCalendarInvitation).not.toHaveBeenCalled();
     });
 
-    it('refuses a following-scope edit, which has no defined meaning', async () => {
+    it('edits this-and-following by truncating the series and starting a new one at the occurrence', async () => {
+      query.mockResolvedValue({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })
+        .mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })
+        .mockResolvedValueOnce({ rows: [{ uid: 'uid-1', raw_ical: daily(), invite_account_id: null }] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [] });
+
       const response = await fetch(`${base}/api/calendar/events/event-1/occurrence`, {
         method: 'PATCH', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ calendarId: 'calendar-1', recurrenceId: '2026-01-09T09:00:00', scope: 'following', startsAt: '2026-01-09T09:00:00.000Z', endsAt: '2026-01-09T10:00:00.000Z' }),
+        body: JSON.stringify({
+          calendarId: 'calendar-1', recurrenceId: '2026-01-09T09:00:00', scope: 'following',
+          summary: 'Daily (moved)', startsAt: '2026-01-09T11:00:00.000Z', endsAt: '2026-01-09T12:00:00.000Z',
+        }),
       });
-      expect(response.status).toBe(400);
+      expect(response.status).toBe(200);
+
+      // The earlier part is truncated, and the remainder becomes its own series whose UID is derived from the
+      // master and the occurrence — so the same edit twice updates that remainder instead of adding a second.
+      const [, truncateParameters] = queryCallContaining('UPDATE calendar_events SET raw_ical');
+      const truncated = truncateParameters[0];
+      if (typeof truncated !== 'string') throw new Error('Truncated calendar resource is not a string');
+      expect(startsOf(truncated)).toHaveLength(4);
+      expect(startsOf(truncated)).not.toContain('01-09T08:00');
+
+      const insert = query.mock.calls.find(([statement]) => String(statement).includes('INSERT INTO calendar_events'));
+      expect(insert).toBeDefined();
+      const parameters = insert?.[1] as unknown[];
+      expect(parameters[2]).toBe('uid-1#20260109T090000');
+      expect(String(parameters[3])).toContain('RRULE:FREQ=DAILY;COUNT=10');
+      expect(String(parameters[3])).toContain('SUMMARY:Daily (moved)');
+      expect(String(parameters[3])).toContain('UID:uid-1#20260109T090000');
     });
   });
 

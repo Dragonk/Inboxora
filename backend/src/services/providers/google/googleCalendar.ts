@@ -200,6 +200,55 @@ export async function deleteGoogleEvent(
   );
 }
 
+/** One event by its id — the series master, or an occurrence Google knows by its own id. */
+export async function fetchGoogleEvent(options: GoogleApiOptions, calendarId: string, eventId: string): Promise<GoogleCalendarEvent | null> {
+  const url = googleUrl(
+    GOOGLE_CALENDAR_API_BASE,
+    `/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
+    {},
+  );
+  return await googleApiJson<GoogleCalendarEvent>(options, url);
+}
+
+/**
+ * One series' **instances** in a window, which is how Google addresses a single occurrence.
+ *
+ * `singleEvents=false` on the ordinary listing returns the master and its modified instances, but not the
+ * unmodified occurrences of a series, so an occurrence that has never been changed has no event of its own to
+ * patch or delete. The instances endpoint is Google's own answer to that: it materialises every occurrence in
+ * the window (including cancelled ones when `showDeleted=true`) and each carries the id a mutation needs —
+ * `<masterId>_<originalStartUtc>` — together with `originalStartTime`, which is the value the local model
+ * stores as the occurrence's `RECURRENCE-ID`.
+ */
+export async function fetchGoogleEventInstances(
+  options: GoogleApiOptions,
+  calendarId: string,
+  masterId: string,
+  input: { timeMin: string; timeMax: string; maxResults?: number },
+): Promise<GoogleCalendarEvent[]> {
+  const events: GoogleCalendarEvent[] = [];
+  let pageToken: string | null = null;
+  for (let page = 0; page < 20; page++) {
+    const url = googleUrl(
+      GOOGLE_CALENDAR_API_BASE,
+      `/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(masterId)}/instances`,
+      {
+        timeMin: input.timeMin,
+        timeMax: input.timeMax,
+        maxResults: input.maxResults ?? 250,
+        showDeleted: true,
+        singleEvents: true,
+        pageToken,
+      },
+    );
+    const body = await googleApiJson<{ items?: GoogleCalendarEvent[] | null; nextPageToken?: string | null }>(options, url);
+    events.push(...(body?.items ?? []));
+    pageToken = body?.nextPageToken ?? null;
+    if (!pageToken) break;
+  }
+  return events;
+}
+
 /** The local wall-clock date-time of an RFC 3339 stamp (`2026-09-01T09:00:00+02:00`). */
 function wallClock(dateTime: string): string | null {
   const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})/.exec(dateTime);
