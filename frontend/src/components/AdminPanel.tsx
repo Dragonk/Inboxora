@@ -2848,7 +2848,7 @@ function IntegrationsTab() {
   const [configs, setConfigs] = useState<Record<string, { clientId?: string; [key: string]: unknown }>>({});
   // Non-admins can't read the full config (admin-only), but need to know whether
   // Microsoft OAuth is configured so the connect buttons enable. (#315)
-  const [msStatus, setMsStatus] = useState<{ configured?: boolean; browser?: { ready?: boolean; missing?: string[] }; graph?: { ready?: boolean; missing?: string[] }; deviceCode?: { ready?: boolean; reason?: string }; connections?: Array<{ id: string; providerUserId?: string | null }>; mailPolicy?: string; [key: string]: unknown } | null>(null); // { configured } for non-admins
+  const [msStatus, setMsStatus] = useState<{ configured?: boolean; browser?: { ready?: boolean; missing?: string[]; redirectUri?: string }; graph?: { ready?: boolean; missing?: string[]; redirectUri?: string }; deviceCode?: { ready?: boolean; reason?: string }; connections?: Array<{ id: string; providerUserId?: string | null }>; mailPolicy?: string; [key: string]: unknown } | null>(null); // { configured } for non-admins
   const [loading, setLoading] = useState(true);
   const [msForm, setMsForm] = useState({ clientId: '', clientSecret: '', tenantId: '', redirectUri: '' });
   const [msExpanded, setMsExpanded] = useState(false);
@@ -2857,7 +2857,7 @@ function IntegrationsTab() {
   // mail never depends on this configuration.
   const [googleForm, setGoogleForm] = useState({ clientId: '', clientSecret: '', redirectUri: '' });
   const [googleExpanded, setGoogleExpanded] = useState(false);
-  const [googleStatus, setGoogleStatus] = useState<{ configured?: boolean; browser?: { ready?: boolean; missing?: string[] }; connections?: Array<{ id: string; providerUserId?: string | null }>; mailPolicy?: string; traditionalImapAvailableInInboxora?: boolean; [key: string]: unknown } | null>(null);
+  const [googleStatus, setGoogleStatus] = useState<{ configured?: boolean; browser?: { ready?: boolean; missing?: string[]; redirectUri?: string }; connections?: Array<{ id: string; providerUserId?: string | null }>; mailPolicy?: string; traditionalImapAvailableInInboxora?: boolean; [key: string]: unknown } | null>(null);
   const [googleSaving, setGoogleSaving] = useState(false);
   const [googleSaveMsg, setGoogleSaveMsg] = useState('');
   const [saving, setSaving] = useState(false);
@@ -2993,12 +2993,12 @@ function IntegrationsTab() {
     setSaving(true);
     setSaveMsg('');
     try {
-      await api.saveIntegration('microsoft', msForm);
+      await api.saveIntegration('microsoft', { clientId: msForm.clientId, clientSecret: msForm.clientSecret, tenantId: msForm.tenantId });
       // Update local state so "Connect account" button enables immediately
       // without requiring a page reload.
       setConfigs(prev => ({
         ...prev,
-        microsoft: { clientId: msForm.clientId, tenantId: msForm.tenantId, redirectUri: msForm.redirectUri },
+        microsoft: { clientId: msForm.clientId, tenantId: msForm.tenantId },
       }));
       setSaveMsg(t('admin.integrations.microsoft.savedNote'));
     } catch (err) {
@@ -3009,8 +3009,8 @@ function IntegrationsTab() {
   };
 
   const handleSaveGoogle = async () => {
-    if (!googleForm.clientId || !googleForm.clientSecret || !googleForm.redirectUri) {
-      setGoogleSaveMsg('Client ID, Client Secret and Redirect URI are required');
+    if (!googleForm.clientId || !googleForm.clientSecret) {
+      setGoogleSaveMsg('Client ID and Client Secret are required');
       return;
     }
     // AD07, against AD05: the API keeps a stored secret when the edit omits a new one — that is what lets an
@@ -3025,12 +3025,12 @@ function IntegrationsTab() {
     setGoogleSaving(true);
     setGoogleSaveMsg('');
     try {
-      await api.saveIntegration('google', googleForm);
+      await api.saveIntegration('google', { clientId: googleForm.clientId, clientSecret: googleForm.clientSecret });
       // Keep the masked secret in local state so reopening the card does not
       // resubmit an empty value, which the API would treat as "keep existing".
       setConfigs(prev => ({
         ...prev,
-        google: { clientId: googleForm.clientId, redirectUri: googleForm.redirectUri, clientSecret: '••••••••' },
+        google: { clientId: googleForm.clientId, clientSecret: '••••••••' },
       }));
       setGoogleSaveMsg(t('admin.integrations.google.savedNote'));
     } catch (err) {
@@ -3293,14 +3293,16 @@ function IntegrationsTab() {
                 </Field>
 
                 <Field label={t('admin.integrations.microsoft.redirectUri')}>
-                  <input value={msForm.redirectUri}
-                    onChange={e => setMsForm(f => ({ ...f, redirectUri: e.target.value }))}
-                    placeholder={`http://${window.location.hostname}:8080/oauth/microsoft/callback`}
-                    style={inputStyle}
-                    onFocus={e => e.target.style.borderColor = 'var(--accent)'}
-                    onBlur={e => e.target.style.borderColor = 'var(--border)'} />
+                  <div data-testid="microsoft-generated-redirect-uri" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <code style={{ ...inputStyle, flex: 1, overflowWrap: 'anywhere', cursor: 'text' }}>{msStatus?.graph?.redirectUri || msStatus?.browser?.redirectUri || 'APP_URL required'}</code>
+                    <button type="button" onClick={() => navigator.clipboard?.writeText(msStatus?.graph?.redirectUri || msStatus?.browser?.redirectUri || '')}
+                      disabled={!(msStatus?.graph?.redirectUri || msStatus?.browser?.redirectUri)}
+                      style={{ padding: '8px 10px', border: '1px solid var(--border)', borderRadius: 7, background: 'var(--bg-elevated)', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+                      {t('common.copy')}
+                    </button>
+                  </div>
                   <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 5 }}>
-                    {t('admin.integrations.microsoft.redirectUriNote', { uri: `${window.location.protocol}//${window.location.hostname}${window.location.port ? ':' + window.location.port : ''}/oauth/microsoft/callback` })}
+                    {t('admin.integrations.microsoft.redirectUriNote', { uri: msStatus?.graph?.redirectUri || msStatus?.browser?.redirectUri || '' })}
                   </div>
                 </Field>
                 </>)}
@@ -3572,14 +3574,16 @@ function IntegrationsTab() {
                       </Field>
 
                       <Field label={t('admin.integrations.microsoft.redirectUri')} required>
-                        <input value={googleForm.redirectUri}
-                          onChange={e => setGoogleForm(f => ({ ...f, redirectUri: e.target.value }))}
-                          placeholder={`${window.location.protocol}//${window.location.hostname}${window.location.port ? ':' + window.location.port : ''}/oauth/google/callback`}
-                          style={inputStyle}
-                          onFocus={e => e.target.style.borderColor = 'var(--accent)'}
-                          onBlur={e => e.target.style.borderColor = 'var(--border)'} />
+                        <div data-testid="google-generated-redirect-uri" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                          <code style={{ ...inputStyle, flex: 1, overflowWrap: 'anywhere', cursor: 'text' }}>{googleStatus?.browser?.redirectUri || 'APP_URL required'}</code>
+                          <button type="button" onClick={() => navigator.clipboard?.writeText(googleStatus?.browser?.redirectUri || '')}
+                            disabled={!googleStatus?.browser?.redirectUri}
+                            style={{ padding: '8px 10px', border: '1px solid var(--border)', borderRadius: 7, background: 'var(--bg-elevated)', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+                            {t('common.copy')}
+                          </button>
+                        </div>
                         <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 5 }}>
-                          {t('admin.integrations.google.redirectUriNote', { uri: `${window.location.protocol}//${window.location.hostname}${window.location.port ? ':' + window.location.port : ''}/oauth/google/callback` })}
+                          {t('admin.integrations.google.redirectUriNote', { uri: googleStatus?.browser?.redirectUri || '' })}
                         </div>
                       </Field>
                     </>)}

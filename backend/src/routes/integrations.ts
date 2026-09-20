@@ -20,6 +20,7 @@ import { ensureGoogleSubscriptions, gmailPushAvailable, googleCalendarPushAvaila
 import { releaseProviderPushForConnection } from '../services/providerPushLifecycle.js';
 import { syncHintDiagnostics } from '../services/providerSyncHints.js';
 import { publicWebhookUrl } from '../services/providerPushConfig.js';
+import { providerCallbackUrls } from '../services/providerCallbackUrls.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -114,14 +115,14 @@ export interface ProviderReadiness {
   enabled: boolean;
   /** The caller's own connections for this provider; ids only, no credential. */
   connections?: Array<{ id: string; providerUserId: string | null; status: string }>;
-  browser: { ready: boolean; missing: string[] };
+  browser: { ready: boolean; missing: string[]; redirectUri?: string };
   deviceCode: { supported: boolean; ready: boolean; reason?: string };
   /**
    * The Graph connector's own flow, which authorizes on a different callback from the
    * mailbox sign-in. Reported separately so the card can offer the connector exactly
    * where it can run, rather than tying it to the mailbox flow's readiness.
    */
-  graph?: { ready: boolean; missing: string[] };
+  graph?: { ready: boolean; missing: string[]; redirectUri?: string };
 }
 
 export interface IntegrationStatus {
@@ -138,7 +139,8 @@ function microsoftReadiness(stored: ProviderConfig): IntegrationStatus['microsof
   const missing: string[] = [];
   if (!clientId) missing.push('clientId');
   if (!process.env.MS_CLIENT_SECRET) missing.push('clientSecret');
-  if (!process.env.MS_REDIRECT_URI) missing.push('redirectUri');
+  const callbacks = providerCallbackUrls();
+  if (!callbacks.microsoftCallback) missing.push('appUrl');
   // Device authorization needs only a registered client: no redirect URI and no
   // client secret. The saved row's explicit device disable is honoured.
   const deviceReady = !!clientId && stored.deviceEnabled !== false;
@@ -149,14 +151,14 @@ function microsoftReadiness(stored: ProviderConfig): IntegrationStatus['microsof
   const graphMissing: string[] = [];
   if (!config.clientId) graphMissing.push('clientId');
   if (!config.clientSecret) graphMissing.push('clientSecret');
-  if (!config.providerRedirectUri) graphMissing.push('providerRedirectUri');
+  if (!callbacks.microsoftCallback) graphMissing.push('appUrl');
   return {
     configured: !!clientId,
     // A provider the administrator switched off is reported as not enabled, so the card stops
     // offering it at the same moment the flow stops accepting it.
     enabled: providerIntegrationsEnabled() && !!clientId && stored.disabled !== true,
-    browser: { ready: providerIntegrationsEnabled() && missing.length === 0 && stored.webEnabled !== false && stored.disabled !== true, missing },
-    graph: { ready: graphMissing.length === 0, missing: graphMissing },
+    browser: { ready: providerIntegrationsEnabled() && missing.length === 0 && stored.webEnabled !== false && stored.disabled !== true, missing, redirectUri: callbacks.microsoftCallback },
+    graph: { ready: graphMissing.length === 0, missing: graphMissing, redirectUri: callbacks.microsoftCallback },
     deviceCode: {
       supported: true,
       ready: providerIntegrationsEnabled() && deviceReady && stored.disabled !== true,
@@ -171,13 +173,14 @@ function googleReadiness(stored: ProviderConfig): IntegrationStatus['google'] {
   const missing: string[] = [];
   if (!clientId) missing.push('clientId');
   if (!process.env.GOOGLE_CLIENT_SECRET) missing.push('clientSecret');
-  if (!process.env.GOOGLE_REDIRECT_URI) missing.push('redirectUri');
+  const callbacks = providerCallbackUrls();
+  if (!callbacks.googleCallback) missing.push('appUrl');
   return {
     configured: !!clientId,
     enabled: providerIntegrationsEnabled() && !!clientId && stored.disabled !== true,
     // The operator's API switch is part of readiness, so the card stops offering the
     // connector at the same moment the flow stops accepting it.
-    browser: { ready: providerIntegrationsEnabled() && missing.length === 0 && stored.disabled !== true && stored.apiEnabled !== false, missing },
+    browser: { ready: providerIntegrationsEnabled() && missing.length === 0 && stored.disabled !== true && stored.apiEnabled !== false, missing, redirectUri: callbacks.googleCallback },
     // Google's limited-input device flow does not allow the Gmail, Calendar or
     // People scopes this integration needs, so it is never offered.
     deviceCode: { supported: false, ready: false, reason: 'not_supported' },
@@ -294,7 +297,9 @@ router.post('/:provider/test', requireAdmin, async (req: Request, res: Response)
         code: 'inboxora-configuration-test',
         client_id: stored.clientId,
         ...(secret ? { client_secret: secret } : {}),
-        ...(stored.redirectUri ? { redirect_uri: stored.redirectUri } : {}),
+        ...(provider === 'google'
+          ? (providerCallbackUrls().googleCallback ? { redirect_uri: providerCallbackUrls().googleCallback } : {})
+          : (providerCallbackUrls().microsoftCallback ? { redirect_uri: providerCallbackUrls().microsoftCallback } : {})),
       }),
       signal: AbortSignal.timeout(10000),
     });
