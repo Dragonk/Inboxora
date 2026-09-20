@@ -222,7 +222,7 @@ from `af97ee5a1ddb`; both resolve to OCI image indexes carrying `linux/amd64` **
 (PostgreSQL, Redis, ntfy, backend, frontend) from a fresh volume: the backend applied the migration chain
 and became healthy, `/api/health` answered `{"status":"ok"}`, **`/api/version` answered
 `{"version":"dev","sha":"af97ee5a1ddb6bd1ff0470ee6c8eebb1d577e334"}`** — the published image is the frozen
-revision — `schema_migrations` held all **115** rows, the first user was registered (admin), a fresh cookie
+revision — `schema_migrations` held all **117** rows, the first user was registered (admin), a fresh cookie
 jar logged in through `POST /api/auth/login`, `/api/auth/me` returned that user, `/api/accounts` returned
 `[]`, and the UI root served the application. `docker inspect` reported **0 restarts** for every container
 and no migration failed.

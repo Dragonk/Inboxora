@@ -189,11 +189,16 @@ export async function createNativeMailAccount(input: NativeAccountInput): Promis
     }
 
     const mailboxId = connection.subject ?? connection.provider_user_id ?? address;
+    // `imap_port`/`smtp_port` carry column defaults (993/587), so a native account would otherwise claim an
+    // IMAP port it never uses; they are set explicitly to NULL with the rest of the connection fields, because
+    // "no IMAP/SMTP configuration" has to be true in the row, not only in the interface.
     const created = await client.query<NativeAccountRow>(
       `INSERT INTO email_accounts
          (user_id, name, email_address, protocol, mail_transport, provider_connection_id, provider_mailbox_id,
-          mail_method_preference, migration_state, migration_required, enabled)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$5,'active_native',false,true)
+          mail_method_preference, migration_state, migration_required, enabled,
+          imap_host, imap_port, smtp_host, smtp_port, auth_user, auth_pass)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$5,'active_native',false,true,
+               NULL, NULL, NULL, NULL, NULL, NULL)
        RETURNING id, email_address, name, mail_transport, protocol, provider_connection_id, provider_mailbox_id`,
       [input.userId, input.name?.trim() || address, address, protocol, transport, connection.id, mailboxId],
     );
