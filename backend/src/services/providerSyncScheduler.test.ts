@@ -351,3 +351,23 @@ describe('mail is polled for both native providers', () => {
     await expect(runProviderSyncs()).resolves.toEqual({ connections: 1, ran: 0, failed: 0 });
   });
 });
+
+describe('a connection with no mailbox under it', () => {
+  it('skips the Gmail mail sync instead of calling it with the connection id', async () => {
+    // The previous fallback passed a connection id where an account id belongs — identifiers of different
+    // kinds, so the sync could only fail later and less clearly than the condition deserves.
+    mocks.syncGmailMailLabelsForAccount.mockClear();
+    mocks.syncGmailMailMessagesForAccount.mockClear();
+    mocks.query.mockResolvedValueOnce({ rows: [target({ provider: 'google', features: ['mail_label'] })] });
+    mocks.listGmailMailAccounts.mockResolvedValueOnce([]);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      await expect(runProviderSyncs()).resolves.toEqual({ connections: 1, ran: 1, failed: 0 });
+      expect(mocks.syncGmailMailLabelsForAccount).not.toHaveBeenCalled();
+      expect(mocks.syncGmailMailMessagesForAccount).not.toHaveBeenCalled();
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('NO_ACCOUNT_FOR_CONNECTION'));
+    } finally {
+      warn.mockRestore();
+    }
+  });
+});

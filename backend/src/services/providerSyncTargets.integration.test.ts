@@ -22,13 +22,16 @@ const describeOrSkip = hasPg ? describe : describe.skip;
 const calls = vi.hoisted(() => ({
   gmailLabels: vi.fn(async () => ({ labels: 0 })),
   gmailMessages: vi.fn(async () => ({ messages: 0 })),
+  // Filled with the account the fixture really creates, so the mock cannot hide which mailbox the scheduler
+  // resolves from the connection.
+  gmailAccounts: { value: [] as string[] },
   graphFolders: vi.fn(async () => []),
   graphMessages: vi.fn(async () => ({ messages: 0 })),
 }));
 vi.mock('./providers/google/gmailMailSync.js', () => ({
   syncGmailMailLabelsForAccount: calls.gmailLabels,
   syncGmailMailMessagesForAccount: calls.gmailMessages,
-  listGmailMailAccounts: async () => ['account-1'],
+  listGmailMailAccounts: async () => calls.gmailAccounts.value,
 }));
 vi.mock('./providers/microsoft/graphMailSync.js', () => ({
   syncGraphMailFolders: calls.graphFolders,
@@ -75,6 +78,7 @@ beforeAll(async () => {
   );
 
   // Exactly what Gmail's label discovery writes: kind `mail_label`, linked through local_folder_id.
+  calls.gmailAccounts.value = [googleAccount];
   const googleFolder = await createFolder(googleAccount, 'INBOX');
   await query(
     `INSERT INTO integration_collections (user_id, connection_id, account_id, kind, remote_id, local_folder_id, enabled, source_access, user_access, dav_mode)
@@ -121,6 +125,15 @@ describeOrSkip('provider sync targets (PostgreSQL)', () => {
 
     expect(summary.failed, JSON.stringify(summary)).toBe(0);
     expect(calls.gmailLabels).toHaveBeenCalled();
-    expect(calls.gmailMessages).toHaveBeenCalledWith(expect.objectContaining({ connectionId: googleConnection }));
+    // The whole chain is pinned: the DB target's connection resolves to the real mailbox row, and the message
+    // sync is called for **that** account, not for a hard-coded one or for the connection id.
+    expect(calls.gmailMessages).toHaveBeenCalledWith(expect.objectContaining({
+      connectionId: googleConnection,
+      accountId: googleAccount,
+    }));
+    expect(calls.gmailLabels).toHaveBeenCalledWith(expect.objectContaining({
+      connectionId: googleConnection,
+      accountId: googleAccount,
+    }));
   });
 });

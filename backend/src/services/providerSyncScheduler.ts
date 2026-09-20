@@ -78,7 +78,8 @@ export async function listProviderSyncTargets(): Promise<ProviderSyncTarget[]> {
          ON ic.connection_id = pc.id
         AND ic.enabled = true
         AND (ic.local_calendar_id IS NOT NULL OR ic.local_address_book_id IS NOT NULL OR ic.local_folder_id IS NOT NULL)
-        -- A Gmail mailbox is represented by a mail folder collection like Graph's, so the schedule covers it.
+        -- Gmail's mailbox is represented by a mail_label collection and Graph's by a mail_folder one; both link
+        -- the local folder they pull into, which is the property this condition is about.
       WHERE pc.status = 'active' AND pc.provider IN ('google', 'microsoft')
       GROUP BY pc.user_id, pc.id, pc.provider
       ORDER BY pc.user_id, pc.id`,
@@ -171,7 +172,16 @@ function syncFor(provider: string, kind: string): ((target: ProviderSyncTarget, 
       // simply runs less often, and with push unavailable it is the only thing keeping the mailbox fresh.
       return async (target, google) => {
         const accounts = await withTransaction(client => listGmailMailAccounts(client, { userId: target.userId, connectionId: target.connectionId }));
-        const labels = await syncGmailMailLabelsForAccount({ userId: target.userId, connectionId: target.connectionId, accountId: accounts[0] ?? target.connectionId, config: google });
+        if (accounts.length === 0) {
+          // A connection with no mailbox under it has nothing to synchronise. Falling back to the connection id
+          // as the account id — which is a different kind of identifier — would call the Gmail sync with a value
+          // that cannot address a mailbox, and the failure would surface later and less clearly than this.
+          console.warn(`Skipping Gmail mail sync for connection ${target.connectionId}: NO_ACCOUNT_FOR_CONNECTION`);
+          return { skipped: 'NO_ACCOUNT_FOR_CONNECTION', connectionId: target.connectionId };
+        }
+        // Labels first, then every account the connection owns; the label sync needs a real mailbox to write
+        // its label paths against, and there is at least one by the check above.
+        const labels = await syncGmailMailLabelsForAccount({ userId: target.userId, connectionId: target.connectionId, accountId: accounts[0], config: google });
         const messages = [];
         for (const accountId of accounts) {
           messages.push(await syncGmailMailMessagesForAccount({ userId: target.userId, connectionId: target.connectionId, accountId, config: google }));
