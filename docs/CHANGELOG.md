@@ -35,6 +35,30 @@ Nothing is being prepared beyond 4.1.0. Work whose version has not been chosen a
 ## [4.1.0]
 
 ### Added
+- **One occurrence, this-and-following, or the whole series — in every writable calendar.** A recurring
+  event can now be changed or cancelled for **just the occurrence you picked**, for **that occurrence and
+  every later one**, or for the entire series, in a local calendar, a Google calendar, a Microsoft Graph
+  calendar and a write-enabled external CalDAV collection. Google and Microsoft previously answered `501` for
+  anything but the whole series: a series' unmodified occurrences have no id of their own in an ordinary
+  listing, so the occurrence is resolved against the provider's own **instance listing** (Google's
+  `instances`, Graph's `/instances`, matched on the occurrence's original start) before anything is written.
+  "This and following" is implemented the way the providers do it — the series is truncated before the
+  occurrence (`UNTIL` for Google, `endDate` for Graph, the stored rule for CalDAV) and, for an edit, the
+  remainder becomes a new series carrying the same attendees and the client's values. The whole series keeps
+  working as before.
+- **Invited series can be changed per occurrence.** Editing or cancelling one occurrence of a series you
+  organised, or the rest of it, now sends the matching iTIP message — a `REQUEST` or `CANCEL` carrying
+  `RECURRENCE-ID` for a single occurrence, and an updated rule for "this and following" — with the sequence
+  advanced, instead of refusing the change. Previously such a mutation was refused outright. A delivery
+  failure is reported without undoing the change, and no duplicate invitation is sent when the operation was
+  performed at Google or Microsoft, which notify attendees themselves.
+- **A write-enabled external CalDAV or CardDAV collection is editable from Inboxora's own interface.**
+  Creating, editing and deleting a calendar event or a contact in such a collection now goes to the source
+  server through the same write-back client a DAV client's request uses, including recurring series and the
+  three occurrence scopes. Before this, only a request arriving over DAV reached the source: the web editor
+  offered an edit that the server then refused. The entity-tag you loaded is forwarded as the precondition, so
+  an object changed at the source answers `409`/`412` instead of being overwritten.
+
 
 - **Native Microsoft Graph mail.** A Microsoft account can run its whole mailbox over Graph instead of
   IMAP/SMTP: folder discovery with canonical paths for Outlook's well-known folders, message metadata with a
@@ -111,6 +135,21 @@ provider identity, `0109` provider-operation payload, `0110` device authorizatio
 reads the new columns; a mixed old/new deployment must not run with the new code before the migrations.
 
 ### Changed
+- **Microsoft Contacts records what the connection's grant actually permits.** The Graph contacts sync
+  recorded every address book as read-only at its source, which made the per-collection write-back switch
+  refuse to enable any of them — so the Graph create/update/delete adapters existed and could never be used.
+  The sync now reads the grant: `Contacts.ReadWrite` (or a `.Shared`/`.All` variant) records `read_write`, a
+  read-only grant records `read_only`, and an existing collection is corrected on the next sync. The user's
+  own opt-in stays a separate decision.
+- **Recurring → non-recurring reaches the provider, and no longer leaves a stale rule.** A whole-series edit
+  that removes the repetition now sends an explicit clear (Graph `recurrence: null`, Google's empty
+  `recurrence` list) instead of omitting the field, which had left Google's or Graph's old series running
+  while the local copy became a one-off. The web editor's "repeat: none" therefore means the same thing at the
+  provider as it does locally.
+- **An external collection's write path is one path.** The web interface, the REST API and the DAV server now
+  answer whether a collection accepts a write from the same capability model and forward it through the same
+  client, so a collection cannot look editable in one place and be refused in another.
+
 
 - **A collection's write permission now needs both the origin's consent and the user's.** Every REST and DAV
   write guard, the DAV advertised privileges and the interface's editability read one capability model that
@@ -142,6 +181,17 @@ None.
   IMAP loops, health checks, rule forwarder and send path no longer open IMAP or SMTP for it.
 
 ### Fixed
+- **A truncated series could carry both `UNTIL` and `COUNT`.** Ending a series before an occurrence set the
+  boundary but left the original occurrence count on the rule, and RFC 5545 forbids the pair; a client that
+  validates the rule rejects it. The count is now dropped when the boundary is set, leaving one end.
+- **A provider collection write could not be journalled for contacts or calendar events** (the provider's
+  identifier was written into the journal's local-resource column); the local id is recorded and the provider
+  id travels in the payload and the remote-object link.
+- **A Google collection could never actually be opted in for write-back.** The Calendar and People syncs
+  recorded the collection as read-only at the source, which made the write-back switch refuse every Google
+  collection. They now record what the provider reports (a calendar's `accessRole`, the People API's answer
+  for the user's own contacts) and refresh that fact without touching the user's choice.
+
 
 - **A provider contact or calendar-event write could not be journalled at all.** The provider-operations
   journal stores Inboxora's local resource id, but the Microsoft write paths wrote the *provider's* id into

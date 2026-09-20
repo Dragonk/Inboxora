@@ -211,6 +211,19 @@ describe('editing an event in a write-enabled Google calendar', () => {
     expect(written?.event).not.toHaveProperty('recurrence');
   });
 
+  it.each([
+    ['changes the series end date', { frequency: 'weekly', interval: 1, byWeekday: [1], until: '2026-12-31' }, { until: '2026-12-31', count: null }],
+    ['removes the series end date', { frequency: 'weekly', interval: 1, byWeekday: [1], until: null }, { until: null, count: null }],
+    ['changes the occurrence count', { frequency: 'weekly', interval: 1, byWeekday: [1], count: 5 }, { until: null, count: 5 }],
+    ['turns a one-off event into a series', { frequency: 'daily', interval: 2 }, { until: null, count: null }],
+  ])('%s by sending the validated rule to Google', async (_label, recurrence, expected) => {
+    const response = await call('PATCH', '/events/event-1', { ...eventBody, recurrence });
+
+    expect(response.status).toBe(200);
+    const written = mocks.writeEvent.mock.calls[0]?.[0] as { event?: { recurrence?: Record<string, unknown> } } | undefined;
+    expect(written?.event?.recurrence).toMatchObject({ frequency: recurrence.frequency, interval: recurrence.interval, ...expected });
+  });
+
   it('refuses an event that is not linked to its provider copy yet', async () => {
     mocks.eventIdForRow.mockResolvedValueOnce(null);
     const response = await call('PATCH', '/events/event-1', eventBody);

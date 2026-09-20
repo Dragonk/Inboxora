@@ -25,10 +25,17 @@ without copying or losing anything local.
   Google mail still fully supported over IMAP/SMTP with an app password.
 - **Google Calendar and Google Contacts over the API**, with read/write collections once write-back is
   enabled per collection.
-- **DAV write-back.** A calendar or address book imported from an external CalDAV/CardDAV server can be
-  edited from Inboxora **or from a DAV client**, and the change is forwarded to that server. A provider
-  collection (Graph or Google) is written over the web interface, and per-collection write-back is an
-  explicit opt-in taken from the calendar sidebar or the address-book menu.
+- **DAV write-back, from Inboxora or a DAV client.** A calendar or address book imported from an external
+  CalDAV/CardDAV server can be edited in Inboxora's own calendar or contacts page **and** from a DAV client,
+  and the change is forwarded to that server — create, update, delete, recurring series and all three
+  occurrence scopes. A provider collection (Graph or Google) is written over the web interface, and
+  per-collection write-back is an explicit opt-in taken from the calendar sidebar or the address-book menu.
+- **Recurring events can be changed for one occurrence, for this-and-following, or for the whole series** —
+  in a local calendar, a Google calendar, a Microsoft Graph calendar and a write-enabled CalDAV collection.
+  "This and following" truncates the series at the split and, when you edited it, continues the rest as a new
+  series that keeps the attendees. An invited series behaves the same way: cancelling or moving one occurrence
+  notifies the attendees with the matching iTIP message (`RECURRENCE-ID` and an advanced sequence), and Google
+  and Microsoft notify them themselves when the change is made there.
 - **Send and attachment limits that follow the transport**, so a large file on a Microsoft Graph account
   travels through a resumable upload instead of being refused by another transport's ceiling.
 - **The menu-follows-your-finger mobile drawer gesture**, with arbitration against scrolling, long-press
@@ -52,6 +59,9 @@ without copying or losing anything local.
   work and is a supported long-term choice; the API is **recommended** in the accounts settings, and
   *Ignore* or *do not show again* dismisses the recommendation (the latter durably, per user and per
   mailbox).
+- **Recurring events and per-occurrence edits work in every writable calendar**, and a write-enabled
+  CalDAV/CardDAV collection is editable from Inboxora's own pages as well as from a DAV client — no
+  configuration change is needed for either.
 - **Nothing is deleted by an upgrade.** Imported data, mail, rules, aliases, signatures, preferences and
   DAV application passwords are untouched; the only deletion paths remain explicit and owner-scoped.
 - **Provider configuration is optional.** With no provider configured, mail, contacts, calendars and DAV
@@ -104,7 +114,9 @@ Deliberate product behaviour, not missing work:
 - an automated **inbox-rule forward** from a native Gmail account is refused with a named error, because its
   body reader is not written yet, rather than being read over IMAP;
 - a **legacy external CalDAV/CardDAV collection** gains its write-back link on the next sync of its source
-  rather than through a one-shot migration.
+  rather than through a one-shot migration;
+- **invitations are Inboxora's on a CalDAV collection**: a plain CalDAV server is not a scheduling service, so
+  an event with attendees created in such a collection is mailed by Inboxora rather than by the source.
 
 ## Manual acceptance not run
 
