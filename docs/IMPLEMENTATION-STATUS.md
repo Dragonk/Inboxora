@@ -42,16 +42,14 @@ Each package has exactly one current state:
 
 ### P14 evidence
 
-**Frozen code SHA: this final-audit revision** — the package work above was published from
-`f2b0dbf13594adc454e610d8aa458d581a83bdff`; the external-collection-link and contacts-write-back fixes from
-the audit change the code, so this revision is republished and its own SHA, digests and smoke are recorded
-in the table below as soon as the images exist.
+**Frozen code SHA: `88c63d1c303507f563f4438397d7b88f9264f445`** — the final-audit revision, whose two fixes (the external-collection link and
+the contacts write-back switch) changed code after `f2b0dbf1`. Commits after it are documentation only.
 
 | Part | State | Evidence |
 | --- | --- | --- |
-| image build + registry verification | **superseded by this revision** | The audit revision changes code, so the images are rebuilt from it and their SHA, run and digests are recorded here once published. The previous pair (run `35471043131`, from `f2b0dbf1`: backend `sha256:04512c44…`, frontend `sha256:87456ed5…`) covered the code before the audit's two fixes. |
-| runtime smoke | **RUN — passed on the previous pair; re-run for this revision** | The published pair was pulled and started from a fresh volume. `/api/health` → `{"status":"ok"}`; `/api/version` → `{"version":"dev","sha":"f2b0dbf13594adc454e610d8aa458d581a83bdff"}` (the previous revision's SHA; this revision reports its own after publication); all **115** migrations applied (`schema_migrations` = 115); first-user registration (admin); a fresh login through `POST /api/auth/login`; `/api/auth/me`; `/api/accounts` → `[]`; the UI root served the application; `docker inspect` reported **0 restarts** for every container. |
-| `:dev` publication | **done** | The published images are the current `dev` code; `main` is untouched and 4.1.0 is not released. |
+| image build + registry verification | **done** | Workflow run [`35495194721`](https://github.com/Dragonk/Inboxora/actions/runs/35495194721) built from `source_sha=88c63d1c303507f563f4438397d7b88f9264f445` and pushed `:dev`. Both resolve to OCI image indexes carrying `linux/amd64` **and** `linux/arm64`: backend `sha256:73afe954966d0a08f842467356b3d08dee27b825febbba6f257051f0782039db`, frontend `sha256:effae492f062b633221f71a9939254d092429e20fb950ca4844d675b4c43c98a`. The pair built from `f2b0dbf1` (run `35471043131`) is superseded. |
+| runtime smoke | **RUN — passed** | The published pair was pulled and started from a fresh volume. `/api/health` → `{"status":"ok"}`; `/api/version` → `{"version":"dev","sha":"88c63d1c303507f563f4438397d7b88f9264f445"}`, so the running image is the frozen revision; all **115** migrations applied (`schema_migrations` = 115); first-user registration (admin); a fresh login through `POST /api/auth/login`; `/api/auth/me`; `/api/accounts` → `[]`; the UI root served the application; `docker inspect` reported **0 restarts** for every container. |
+| `:dev` publication | **done** | The published images are the current `dev` code, including the audit's two fixes; `main` is untouched and 4.1.0 is not released. |
 
 ## Acceptance criteria W01–W19
 

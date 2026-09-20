@@ -121,7 +121,7 @@ These need a real provider, device or client. They are **NOT RUN**, not failures
 
 ## Verification
 
-Measured on the frozen `dev` SHA **`f2b0dbf13594adc454e610d8aa458d581a83bdff`**, with each gate's own exit
+Measured on the frozen `dev` SHA **`88c63d1c303507f563f4438397d7b88f9264f445`**, with each gate's own exit
 status read rather than inferred from a pipeline:
 
 - Backend: typecheck clean, lint clean, **2864 unit tests passed, 183 skipped** (237 files passed, 25
@@ -136,16 +136,16 @@ status read rather than inferred from a pipeline:
 
 **Images published from that exact SHA** (documentation-only commits follow it, so the published images are
 the current `dev` code). Workflow run
-[`35471043131`](https://github.com/Dragonk/Inboxora/actions/runs/35471043131) built and pushed the `:dev`
-tags from `f2b0dbf1`; both resolve to OCI image indexes carrying `linux/amd64` **and** `linux/arm64`:
+[`35495194721`](https://github.com/Dragonk/Inboxora/actions/runs/35495194721) built and pushed the `:dev` tags
+from `88c63d1c3035`; both resolve to OCI image indexes carrying `linux/amd64` **and** `linux/arm64`:
 
-- `ghcr.io/dragonk/inboxora-backend:dev` — `sha256:04512c4407e774fbb6d5fe956a6b74511a4755fb9451e8e79c245c2df4f4f20e`
-- `ghcr.io/dragonk/inboxora-frontend:dev` — `sha256:87456ed55c4591807a069869aef6e7db0cc4aa600da00cfae28355245fc3660b`
+- `ghcr.io/dragonk/inboxora-backend:dev` — `sha256:73afe954966d0a08f842467356b3d08dee27b825febbba6f257051f0782039db`
+- `ghcr.io/dragonk/inboxora-frontend:dev` — `sha256:effae492f062b633221f71a9939254d092429e20fb950ca4844d675b4c43c98a`
 
 **Runtime smoke of that published pair — RUN, and passed.** The pair was pulled and started as a stack
 (PostgreSQL, Redis, ntfy, backend, frontend) from a fresh volume: the backend applied the migration chain
 and became healthy, `/api/health` answered `{"status":"ok"}`, **`/api/version` answered
-`{"version":"dev","sha":"f2b0dbf13594adc454e610d8aa458d581a83bdff"}`** — the published image is the frozen
+`{"version":"dev","sha":"88c63d1c303507f563f4438397d7b88f9264f445"}`** — the published image is the frozen
 revision — `schema_migrations` held all **115** rows, the first user was registered (admin), a fresh cookie
 jar logged in through `POST /api/auth/login`, `/api/auth/me` returned that user, `/api/accounts` returned
 `[]`, and the UI root served the application. `docker inspect` reported **0 restarts** for every container
