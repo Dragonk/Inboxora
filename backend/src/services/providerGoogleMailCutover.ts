@@ -4,7 +4,7 @@ import { providerIntegrationsEnabled } from './providerSwitches.js';
 import { classifyProviderAccount, providerConnectionSignals } from './providerAccountClassifier.js';
 import { GOOGLE_GRANT_AUDIENCE, googleConfigFromEnv, isGoogleConfigured } from './providerAuthService.js';
 import type { FetchLike } from './providerAuthService.js';
-import { syncGmailMailLabelsForAccount } from './providers/google/gmailMailSync.js';
+import { syncGmailMailLabelsForAccount, syncGmailMailMessagesForAccount } from './providers/google/gmailMailSync.js';
 import type { GoogleConfig } from './providerAuthService.js';
 
 /**
@@ -428,6 +428,13 @@ export async function cutOverGoogleMailAccount(input: CutOverGoogleMailInput): P
   // anything — the transport is native and the next sync retries the discovery.
   try {
     const discovery = await syncGmailMailLabelsForAccount({
+      userId: input.userId,
+      connectionId: outcome.connectionId,
+      accountId: outcome.account.id,
+      config,
+      ...(input.fetchImpl ? { fetchImpl: input.fetchImpl } : {}),
+    });
+    await syncGmailMailMessagesForAccount({
       userId: input.userId,
       connectionId: outcome.connectionId,
       accountId: outcome.account.id,

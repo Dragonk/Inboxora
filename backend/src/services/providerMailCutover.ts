@@ -8,7 +8,7 @@ import {
   microsoftConfigFromEnv,
 } from './providerAuthService.js';
 import type { FetchLike } from './providerAuthService.js';
-import { syncGraphMailFoldersForAccount } from './providers/microsoft/graphMailSync.js';
+import { syncGraphMailFoldersForAccount, syncGraphMailMessagesForAccount } from './providers/microsoft/graphMailSync.js';
 import type { GraphApiOptions } from './providers/microsoft/graphApiClient.js';
 
 /**
@@ -493,6 +493,13 @@ export async function cutOverMicrosoftMailAccount(
   // not un-migrate anything — the transport is native, and the next sync retries the discovery.
   try {
     const discovery = await syncGraphMailFoldersForAccount({
+      userId: input.userId,
+      connectionId: outcome.connectionId,
+      accountId: outcome.account.id,
+      ...(input.config ? { config: input.config } : {}),
+      ...(input.fetchImpl ? { fetchImpl: input.fetchImpl } : {}),
+    });
+    await syncGraphMailMessagesForAccount({
       userId: input.userId,
       connectionId: outcome.connectionId,
       accountId: outcome.account.id,
