@@ -114,7 +114,7 @@ test('the card reacts only to its own account, from its own origin', async () =>
 
   // On a success for this account: the notice is cleared and both reads are refreshed, so the row changes
   // without a page reload.
-  assert.match(source, /setNotice\(null\);\s*\n\s*load\(\);\s*\n\s*reload\(\);/);
+  assert.match(source, /setNotice\(null\);\s*\n\s*setError\(null\);\s*\n\s*load\(\);\s*\n\s*reload\(\);/);
 });
 
 test('the popup hands the opener the result it needs, and no credential', async () => {
@@ -133,4 +133,17 @@ test('the popup hands the opener the result it needs, and no credential', async 
   for (const forbidden of ['token', 'secret', 'connectionId']) {
     assert.ok(!block.includes(forbidden), `the handoff carries ${forbidden}`);
   }
+});
+
+test('a failed consent says so on the card that started it', async () => {
+  const source = await readFile(services, 'utf8');
+
+  // The live report was "I click Connect, choose the account, and nothing happens": the popup posted
+  // `oauth_error`, the card only listened for success, and the notice stayed up with no reason shown.
+  assert.match(source, /if \(data\.type === 'oauth_error'\) \{/);
+  assert.match(source, /setError\(typeof data\.error === 'string'/);
+  assert.match(source, /setNotice\(null\);[\s\S]{0,200}setError\(/);
+  // And a successful consent clears a previous failure rather than leaving it on screen.
+  assert.match(source, /if \(data\.type !== 'oauth_success'\) return;/);
+  assert.match(source, /setNotice\(null\);\s*\n\s*setError\(null\);/);
 });

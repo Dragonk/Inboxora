@@ -73,7 +73,8 @@
         "finishInTab": "Schließen Sie die Anmeldung im geöffneten Tab ab und kehren Sie hierher zurück.",
         "migrated": "Das Konto nutzt jetzt die Anbieter-API.",
         "syncPending": "Synchronisierung…",
-        "syncFailed": "{{code}} — verbunden, Synchronisierung fehlgeschlagen"
+        "syncFailed": "{{code}} — verbunden, Synchronisierung fehlgeschlagen",
+        "authorizationFailed": "Die Autorisierung wurde nicht abgeschlossen. Versuchen Sie es erneut."
       },
       "addAccountFlow": {
         "nativeTransport": "Dieses Konto liest und sendet über {{transport}}; es gibt keine IMAP/SMTP-Konfiguration zu bearbeiten. Nutzen Sie „Neu verbinden“, wenn die Autorisierung erneuert werden muss.",

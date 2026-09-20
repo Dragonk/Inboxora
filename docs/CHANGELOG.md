@@ -296,6 +296,13 @@ None.
   IMAP loops, health checks, rule forwarder and send path no longer open IMAP or SMTP for it.
 
 ### Fixed
+- **A consent that fails now says so on the account card.** The popup posted `oauth_error` and only the settings
+  screen listened for it, while the account card listened for success alone — so a consent that Microsoft or
+  Google refused (a redirect URI that is not registered for that client, a denied consent) closed the tab, left
+  the "finish in the new tab" notice up and changed nothing else. It read as "I clicked Connect and nothing
+  happened". The card now clears that notice and shows the provider's own reason, and a successful consent
+  clears an earlier failure.
+
 - **A calendar or contacts consent now points the mailbox at the connection its grant was stored on.** The
   reported symptom was mail working while a calendar or contacts consent appeared to grant nothing: the card kept
   saying `Calendars.ReadWrite` was missing. A mailbox records the connection it was moved with, and the consent

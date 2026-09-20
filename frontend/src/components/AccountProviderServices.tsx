@@ -100,17 +100,28 @@ export default function AccountProviderServices({ accountId, reload, t }: Props)
       if (event.origin !== window.location.origin) return;
       const data = event.data as {
         type?: unknown; provider?: unknown; purpose?: unknown; accountId?: unknown;
-        authorized?: unknown; synchronized?: unknown; syncErrorCode?: unknown;
+        authorized?: unknown; synchronized?: unknown; syncErrorCode?: unknown; error?: unknown;
       } | null;
-      if (!data || data.type !== 'oauth_success') return;
+      if (!data) return;
+      if (data.type === 'oauth_error') {
+        // A consent that failed must say so on the card that started it. Without this the tab closed, the
+        // notice stayed up and nothing else changed, which reads as "I clicked Connect and nothing happened" —
+        // the provider's own reason (a redirect URI that is not registered, a denied consent) is what the user
+        // needs to see.
+        setNotice(null);
+        setError(typeof data.error === 'string' && data.error ? data.error : t('admin.accounts.services.authorizationFailed'));
+        return;
+      }
+      if (data.type !== 'oauth_success') return;
       if (typeof data.accountId !== 'string' || data.accountId !== accountId) return;
       setNotice(null);
+      setError(null);
       load();
       reload();
     };
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
-  }, [accountId, load, reload]);
+  }, [accountId, load, reload, t]);
 
   const authorize = useCallback((provider: 'google' | 'microsoft', service: 'calendar' | 'contacts' | 'mail') => {
     const anchor = document.createElement('a');
