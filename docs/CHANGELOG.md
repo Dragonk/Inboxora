@@ -275,6 +275,14 @@ None.
   IMAP loops, health checks, rule forwarder and send path no longer open IMAP or SMTP for it.
 
 ### Fixed
+- **One Microsoft identity keeps one connection across its consents.** Pinned on PostgreSQL: a mail consent, then
+  a calendar consent, then a contacts consent all resolve to the same `provider_connection` (the subject and
+  issuer identify it, and signing in with another alias of the same account does not fork it), the account's
+  `provider_connection_id` still points at it, one Graph grant holds `Mail.ReadWrite`, `Mail.Send`,
+  `Calendars.ReadWrite` and `Contacts.ReadWrite` together, a later consent that returns no refresh token does
+  not clear the first one, and the account card then reports mail, calendar and contacts as authorized with no
+  missing scopes.
+
 - **The account card updates itself when its authorization finishes.** The OAuth popup now hands the opener the
   provider, the purpose, the account and whether the first synchronisation ran (never a token or a connection
   id), and `AccountProviderServices` reacts only when the message comes from its own origin and names **its own**
