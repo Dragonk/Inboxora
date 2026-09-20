@@ -505,6 +505,8 @@ const SAME_VALUE_ALLOWED: Record<string, SameValueRule> = {
   'admin.accounts.services.contacts': [['en', 'fr'], ['cs', 'pl']],
   // The provider names, identical in every language by design.
   'admin.accounts.services.google': 'any',
+  // "Transport" is the same loanword in these languages, as it already is for other transport labels.
+  'admin.accounts.transport': 'any',
   'admin.accounts.services.microsoft': 'any',
   // Settings -> Accounts: the mailbox kind and the product names it covers are proper nouns.
   'admin.accounts.addAccountFlow.microsoft': 'any',

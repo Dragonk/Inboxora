@@ -127,7 +127,8 @@
       "categorizationSection": "邮件分类",
       "categorizationEnabled": "启用收件箱分类",
       "categorizationEnabledDesc": "将收到的邮件按类别选项卡分类。默认禁用。",
-      "enabledGlobally": "已全局启用"
+      "enabledGlobally": "已全局启用",
+      "transport": "传输方式"
     },
     "ai": {
       "title": "AI 助手",
@@ -401,13 +402,7 @@
         "deviceCodeDeclined": "授权被拒绝。",
         "deviceCodeError": "发生错误，请重试。",
         "deviceCodeCancel": "取消",
-        "graphConnect": "连接 Microsoft 联系人",
-        "graphDeviceConnect": "使用设备码连接 Microsoft API",
-        "graphDeviceHint": "只需一个允许公共客户端流的客户端 ID——无需密码和重定向 URI。仅授权 Microsoft Graph 访问联系人。",
-        "graphConnecting": "正在打开 Microsoft…",
-        "graphHint": "仅授权 Microsoft Graph 访问联系人。不会更改或迁移您的邮箱。",
-        "graphConnectedNote": "Microsoft 联系人已连接。请在“联系人”页面使用“同步 Microsoft 联系人”。",
-        "mailPolicyRequired": "Microsoft 要求通过 API 连接：Outlook.com 和 Microsoft 365 不再接受邮箱密码，请在下方连接账户。"
+        "connectInAccounts": "Microsoft 账户在其邮箱下通过“设置 → 账户”添加。"
       },
       "todoist": {
         "title": "Todoist",
@@ -464,14 +459,9 @@
         "userNoteConfigured": "Google API 已配置。请在账户设置中连接账户以授权所选服务。",
         "userNoteNotConfigured": "管理员尚未配置 Google API 集成。通过现有 IMAP/SMTP 连接的邮件仍可正常使用。",
         "connect": "连接 Google 账户",
-        "connecting": "正在打开 Google…",
-        "connectHint": "请选择要授权的项目：联系人按钮请求联系人，此按钮请求日历。两者都需要请连接两次；此处永不请求邮件权限。",
-        "connectUnavailable": "管理员必须先配置 Google API，才能连接账户。",
         "connectedNote": "Google 账户已连接。",
-        "connectCalendars": "连接 Google 日历"
+        "connectInAccounts": "Google 账户及其日历/联系人授权在其邮箱下通过“设置 → 账户”管理。"
       },
-      "connectedAccounts": "已连接的账户",
-      "disconnect": "断开连接",
       "push": {
         "title": "即时同步",
         "stateActive": "即时同步已启用",

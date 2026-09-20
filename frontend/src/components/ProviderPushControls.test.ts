@@ -60,13 +60,15 @@ test('the card enables, disables and reports the fallback through the server, ne
   assert.match(source, /data-testid=\{`provider-push-disable-\$\{provider\}`\}/);
 });
 
-test('both provider cards render the controls for each connection', async () => {
+test('the push controls are no longer rendered from Integrations', async () => {
   const panel = await readFile(new URL('./AdminPanel.tsx', import.meta.url), 'utf8');
-  assert.match(panel, /provider="microsoft"/);
-  assert.match(panel, /provider="google"/);
-  assert.match(panel, /reloadStatus=\{loadPushStatus\}/);
-  // The status is fetched once for the tab rather than per card.
-  assert.equal((panel.match(/api\.getProviderPushStatus\(\)/g) ?? []).length, 1);
+  // A subscription belongs to one authorised mailbox, so it is shown on that account's card: the Integrations
+  // tab keeps the global switch and the callback configuration, and no per-connection control.
+  assert.ok(!panel.includes('ProviderPushControls'));
+  assert.ok(!panel.includes('provider-push-microsoft'));
+  assert.ok(!panel.includes('provider-push-google'));
+  // The global push configuration is still there.
+  assert.match(panel, /admin\.integrations\.accountHint/);
 });
 
 test('the API client calls the endpoints the server exposes', async () => {

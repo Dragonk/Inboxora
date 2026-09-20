@@ -279,11 +279,18 @@ missing, the migration action starts the provider's flow first and continues aft
 
 ## Who configures what
 
-**Integrations configure provider applications. Accounts connect individual mailboxes.** An administrator
-registers the OAuth client once, under **Settings → Integrations**: the Microsoft Entra application (client id,
+**Integrations configure provider applications and global webhook infrastructure. Accounts manage each
+mailbox and its mail, calendar, contacts and per-account synchronisation.** An administrator registers the
+OAuth client once, under **Settings → Integrations**: the Microsoft Entra application (client id,
 tenant, secret, redirect URI, browser and device-code readiness) and the Google Cloud OAuth client (client id,
 secret, redirect URI, API readiness, Pub/Sub for push). That page also carries the configuration test, the
 scopes and capabilities each authorization asks for, and the pointer to Accounts for adding mailboxes.
+
+No authorization for a specific mailbox is started from **Integrations**: connecting a Microsoft or Google
+account, authorizing its calendar or contacts, migrating it to the provider API, disconnecting it or enabling
+instant synchronization for it are all actions on that account's own card. Integrations keeps the client
+credentials, the readiness of each method, the scopes, the global webhook and Pub/Sub configuration and the
+configuration test.
 
 Each user then adds their own mailboxes under **Settings → Accounts → Add account**, choosing Microsoft
 (*Outlook.com / Hotmail / Microsoft 365*), Google (*Gmail / Google Workspace*) or another provider over

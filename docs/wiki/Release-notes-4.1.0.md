@@ -152,8 +152,10 @@ settings are organised by:
 
 - **Settings → Integrations** (administrator) holds the Microsoft Entra and Google Cloud OAuth clients — client
   id, tenant, secret, redirect URI — the browser/device-code readiness, the scopes each authorization asks for,
-  the push/webhook/Pub-Sub configuration and the configuration test. It no longer starts a sign-in for a
-  mailbox.
+  the push/webhook/Pub-Sub configuration, the configuration test and the aggregate diagnostics. **It starts no
+  authorization at all**: no mailbox sign-in, no Graph connector, no device-code connect, no Google
+  calendar/contacts connect, no per-user connection list and no per-connection push switch. Those actions
+  belong to the mailbox they authorize and live on its card.
 - **Settings → Accounts** (user) is where a mailbox is added: **Add account** offers Microsoft, Google or
   another provider over IMAP/SMTP, next to the existing accounts and their migration, reconnect, aliases,
   folders, reindex and removal.

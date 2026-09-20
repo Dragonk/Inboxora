@@ -245,7 +245,8 @@
       "categorizationSection": "Kategorizace e-mailů",
       "categorizationEnabled": "Zapnout kategorizaci Doručené pošty",
       "categorizationEnabledDesc": "Třídit příchozí e-maily do karet kategorií. Ve výchozím nastavení je vypnuto.",
-      "enabledGlobally": "Globálně zapnuto"
+      "enabledGlobally": "Globálně zapnuto",
+      "transport": "Transport"
     },
     "folderMappings": {
       "title": "Mapování složek",
@@ -832,13 +833,7 @@
         "deviceCodeDeclined": "Autorizace byla zamítnuta.",
         "deviceCodeError": "Došlo k chybě. Zkuste to znovu.",
         "deviceCodeCancel": "Zrušit",
-        "graphConnect": "Připojit kontakty Microsoft",
-        "graphDeviceConnect": "Připojit API Microsoftu pomocí kódu zařízení",
-        "graphDeviceHint": "Vyžaduje pouze ID klienta s povolenými veřejnými toky klienta — bez tajného klíče a URI přesměrování. Autorizuje Microsoft Graph pouze pro kontakty.",
-        "graphConnecting": "Otevírání Microsoft…",
-        "graphHint": "Autorizuje Microsoft Graph pouze pro kontakty. Vaše schránka se nemění ani nepřesouvá.",
-        "graphConnectedNote": "Kontakty Microsoft připojeny. Použijte „Synchronizovat kontakty Microsoft“ na stránce Kontakty.",
-        "mailPolicyRequired": "Microsoft vyžaduje připojení přes API: Outlook.com a Microsoft 365 už nepřijímají heslo ke schránce, proto účet připojte níže."
+        "connectInAccounts": "Účty Microsoft se přidávají v Nastavení → Účty, u své schránky."
       },
       "todoist": {
         "title": "Todoist",
@@ -895,14 +890,9 @@
         "userNoteConfigured": "Google API je nakonfigurováno. Připojte účet v jeho nastavení a autorizujte vybrané služby.",
         "userNoteNotConfigured": "Správce ještě nenakonfiguroval integraci Google API. Pošta přes stávající připojení IMAP/SMTP funguje dál.",
         "connect": "Připojit účet Google",
-        "connecting": "Otevírání Google…",
-        "connectHint": "Zvolte, co autorizujete: tlačítko kontaktů žádá kontakty, toto kalendáře. Pro obojí se připojte dvakrát; pošta se zde nikdy nevyžaduje.",
-        "connectUnavailable": "Správce musí nejprve nakonfigurovat Google API, než lze účet připojit.",
         "connectedNote": "Účet Google připojen.",
-        "connectCalendars": "Připojit kalendáře Google"
+        "connectInAccounts": "Účty Google a jejich oprávnění ke kalendáři/kontaktům se spravují v Nastavení → Účty u schránky."
       },
-      "connectedAccounts": "Připojené účty",
-      "disconnect": "Odpojit",
       "push": {
         "title": "Okamžitá synchronizace",
         "stateActive": "Okamžitá synchronizace aktivní",

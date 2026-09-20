@@ -237,7 +237,8 @@
       "categorizationSection": "Kategoryzowanie poczty",
       "categorizationEnabled": "Włącz kategoryzowanie skrzynki odbiorczej",
       "categorizationEnabledDesc": "Sortuj przychodzące wiadomości do kart kategorii. Domyślnie wyłączone.",
-      "enabledGlobally": "Włączone globalnie"
+      "enabledGlobally": "Włączone globalnie",
+      "transport": "Transport"
     },
     "folderMappings": {
       "title": "Mapowania folderów",
@@ -840,13 +841,7 @@
         "deviceCodeDeclined": "Autoryzacja została odrzucona.",
         "deviceCodeError": "Wystąpił błąd. Spróbuj ponownie.",
         "deviceCodeCancel": "Anuluj",
-        "graphConnect": "Połącz kontakty Microsoft",
-        "graphDeviceConnect": "Połącz API Microsoftu kodem urządzenia",
-        "graphDeviceHint": "Wymaga tylko identyfikatora klienta z włączonymi publicznymi przepływami — bez sekretu i adresu przekierowania. Autoryzuje Microsoft Graph tylko dla kontaktów.",
-        "graphConnecting": "Otwieranie Microsoft…",
-        "graphHint": "Autoryzuje Microsoft Graph tylko dla kontaktów. Nie zmienia ani nie migruje Twojej skrzynki.",
-        "graphConnectedNote": "Kontakty Microsoft połączone. Użyj opcji Synchronizuj kontakty Microsoft na stronie Kontakty.",
-        "mailPolicyRequired": "Microsoft wymaga połączenia przez API: Outlook.com i Microsoft 365 nie akceptują już hasła do skrzynki, więc połącz konto poniżej."
+        "connectInAccounts": "Konta Microsoft dodajesz w Ustawieniach → Konta, przy ich skrzynce."
       },
       "todoist": {
         "title": "Todoist",
@@ -903,14 +898,9 @@
         "userNoteConfigured": "Google API jest skonfigurowane. Połącz konto w jego ustawieniach, aby autoryzować wybrane usługi.",
         "userNoteNotConfigured": "Administrator nie skonfigurował jeszcze integracji Google API. Poczta przez istniejące połączenie IMAP/SMTP działa dalej.",
         "connect": "Połącz konto Google",
-        "connecting": "Otwieranie Google…",
-        "connectHint": "Wybierz, co autoryzujesz: przycisk kontaktów prosi o kontakty, ten o kalendarze. Połącz dwa razy, aby mieć oba; poczta nie jest tu nigdy wymagana.",
-        "connectUnavailable": "Administrator musi najpierw skonfigurować Google API, aby można było połączyć konto.",
         "connectedNote": "Konto Google połączone.",
-        "connectCalendars": "Połącz kalendarze Google"
+        "connectInAccounts": "Konta Google i ich uprawnienia kalendarza/kontaktów są zarządzane w Ustawieniach → Konta, przy skrzynce."
       },
-      "connectedAccounts": "Połączone konta",
-      "disconnect": "Odłącz",
       "push": {
         "title": "Synchronizacja natychmiastowa",
         "stateActive": "Synchronizacja natychmiastowa aktywna",

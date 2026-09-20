@@ -127,7 +127,8 @@
       "categorizationSection": "Catégorisation des e-mails",
       "categorizationEnabled": "Activer la catégorisation",
       "categorizationEnabledDesc": "Classe les e-mails entrants dans des onglets de catégories. Désactivé par défaut.",
-      "enabledGlobally": "Activé globalement"
+      "enabledGlobally": "Activé globalement",
+      "transport": "Transport"
     },
     "ai": {
       "title": "Assistant IA",
@@ -401,13 +402,7 @@
         "deviceCodeDeclined": "L'autorisation a été refusée.",
         "deviceCodeError": "Une erreur s'est produite. Veuillez réessayer.",
         "deviceCodeCancel": "Annuler",
-        "graphConnect": "Connecter les contacts Microsoft",
-        "graphDeviceConnect": "Connecter l’API Microsoft par code d’appareil",
-        "graphDeviceHint": "Nécessite seulement un ID client avec les flux de client public autorisés — ni secret ni URI de redirection. Autorise Microsoft Graph pour les contacts uniquement.",
-        "graphConnecting": "Ouverture de Microsoft…",
-        "graphHint": "Autorise Microsoft Graph pour les contacts uniquement. Votre boîte aux lettres n’est ni modifiée ni migrée.",
-        "graphConnectedNote": "Contacts Microsoft connectés. Utilisez « Synchroniser les contacts Microsoft » sur la page Contacts.",
-        "mailPolicyRequired": "Microsoft exige une connexion via API : Outlook.com et Microsoft 365 n'acceptent plus de mot de passe de boîte, connectez donc le compte ci-dessous."
+        "connectInAccounts": "Les comptes Microsoft s’ajoutent dans Paramètres → Comptes, depuis leur boîte."
       },
       "todoist": {
         "title": "Todoist",
@@ -464,14 +459,9 @@
         "userNoteConfigured": "L'API Google est configurée. Connectez un compte depuis ses paramètres pour autoriser les services choisis.",
         "userNoteNotConfigured": "L'administrateur n'a pas encore configuré l'intégration API Google. Le courrier via la connexion IMAP/SMTP existante continue de fonctionner.",
         "connect": "Connecter un compte Google",
-        "connecting": "Ouverture de Google…",
-        "connectHint": "Choisissez ce que vous autorisez : le bouton contacts demande les contacts, celui-ci les agendas. Connectez deux fois pour les deux ; la messagerie n’est jamais demandée ici.",
-        "connectUnavailable": "Un administrateur doit configurer l’API Google avant de pouvoir connecter un compte.",
         "connectedNote": "Compte Google connecté.",
-        "connectCalendars": "Connecter les agendas Google"
+        "connectInAccounts": "Les comptes Google et leurs autorisations agenda/contacts se gèrent dans Paramètres → Comptes, sur leur boîte."
       },
-      "connectedAccounts": "Comptes connectés",
-      "disconnect": "Déconnecter",
       "push": {
         "title": "Synchronisation instantanée",
         "stateActive": "Synchro instantanée active",

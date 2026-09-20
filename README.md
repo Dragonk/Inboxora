@@ -139,6 +139,12 @@ offers Microsoft, Google or another provider over IMAP/SMTP — together with th
 migration, reconnect, aliases, folders, reindex and removal. A mailbox is never added from Integrations, and a
 user is never shown a client id or a secret.
 
+**No authorization starts in Integrations.** Every action that belongs to one mailbox — connecting a Microsoft
+or Google account, authorizing its calendar or contacts, migrating it to the provider API, renewing or
+disconnecting it, enabling instant synchronization for it — lives on that account's card under Settings →
+Accounts. Integrations keeps the client credentials, readiness, scopes, the global webhook/Pub-Sub
+configuration and the configuration test, and states that mailboxes are added in Accounts.
+
 **Each account shows its own provider services.** The account card names the transport the mailbox uses —
 **Microsoft Graph**, **Gmail API** or **IMAP/SMTP** — offers the migration when one applies (a legacy Gmail or
 Outlook account is recognised by the shared provider classifier, not by its address domain), and shows whether

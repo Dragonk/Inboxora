@@ -1,28 +1,12 @@
 import assert from 'node:assert/strict';
-import { readdir, readFile } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 const adminPanel = new URL('./AdminPanel.tsx', import.meta.url);
 const mailApp = new URL('./MailApp.tsx', import.meta.url);
 const contactsPage = new URL('./ContactsPage.tsx', import.meta.url);
 const calendarSidebar = new URL('./CalendarSidebar.tsx', import.meta.url);
-const localesDir = new URL('../locales/', import.meta.url);
 
-test('the Google provider card offers an account connection once the browser flow is ready', async () => {
-  const source = await readFile(adminPanel, 'utf8');
-  assert.match(source, /data-testid="google-connect"/);
-  // One authorization per feature: a contacts grant cannot read calendars.
-  assert.match(source, /const handleConnectGoogle = \(purpose: 'contacts_enable' \| 'calendar_enable'\) => \{/);
-  assert.match(source, /a\.href = `\/oauth\/google\?purpose=\$\{purpose\}&access=read_only`/);
-  assert.match(source, /data-testid="google-connect-calendars"/);
-  assert.match(source, /handleConnectGoogle\('calendar_enable'\)/);
-  assert.match(source, /googleStatus\?\.browser\?\.ready \? \(/);
-  assert.match(source, /admin\.integrations\.google\.connectUnavailable/);
-  // A completed popup flow updates the Google card (no mailbox is created).
-  assert.match(source, /e\.data\?\.provider === 'google'/);
-  assert.match(source, /admin\.integrations\.google\.connectedNote/);
-  assert.match(source, /setConnectingGoogle\(false\)/);
-});
 
 test('a same-tab Google callback reports the connection instead of opening the accounts screen', async () => {
   const source = await readFile(mailApp, 'utf8');
@@ -63,53 +47,7 @@ test('the contacts screen offers the Microsoft pull through the same control', a
   assert.equal(statusCalls.length, 2);
 });
 
-test('the Microsoft card offers the Graph connection as its own action', async () => {
-  const source = await readFile(adminPanel, 'utf8');
-  assert.match(source, /data-testid="microsoft-graph-connect"/);
-  assert.match(source, /const handleConnectMicrosoftGraph = \(\) => \{/);
-  assert.match(source, /a\.href = '\/oauth\/provider\/microsoft\?purpose=contacts_enable&access=read_only'/);
-  // It is a separate authorisation: the mailbox sign-in above stays untouched.
-  assert.match(source, /admin\.integrations\.microsoft\.graphHint/);
-  // Gated on the connector's own readiness: the mailbox flow has a different callback,
-  // and tying them together hid this button where the connector could actually run.
-  assert.match(source, /msStatus\?\.graph\?\.ready && \(/);
-});
 
-test('every locale translates the Google connect and sync controls', async () => {
-  const files = (await readdir(localesDir)).filter(name => name.endsWith('.json'));
-  assert.equal(files.length, 9);
-  const adminKeys = ['connect', 'connecting', 'connectHint', 'connectUnavailable', 'connectedNote'];
-  const bookKeys = ['googleSync', 'googleSyncing', 'googleSyncDone', 'googleSyncPartial', 'microsoftSync', 'microsoftSyncing', 'microsoftSyncDone', 'microsoftSyncPartial'];
-  const microsoftKeys = ['graphConnect', 'graphConnecting', 'graphHint'];
-  const calendarKeys = ['googleTitle', 'googleHint', 'googleSync', 'googleSyncing', 'googleSyncDone', 'googleSyncPartial', 'googleNotConnected'];
-  for (const name of files) {
-    const strings = JSON.parse(await readFile(new URL(name, localesDir), 'utf8'));
-    for (const key of adminKeys) {
-      assert.equal(typeof strings.admin.integrations.google[key], 'string', `${name} is missing admin.integrations.google.${key}`);
-      assert.ok(strings.admin.integrations.google[key].length > 0, `${name} has an empty ${key}`);
-    }
-    for (const key of bookKeys) {
-      assert.equal(typeof strings.contacts.addressBooks[key], 'string', `${name} is missing contacts.addressBooks.${key}`);
-      assert.ok(strings.contacts.addressBooks[key].length > 0, `${name} has an empty ${key}`);
-    }
-    for (const key of calendarKeys) {
-      assert.equal(typeof strings.calendar[key], 'string', `${name} is missing calendar.${key}`);
-      assert.ok(strings.calendar[key].length > 0, `${name} has an empty ${key}`);
-    }
-    for (const key of microsoftKeys) {
-      assert.equal(typeof strings.admin.integrations.microsoft[key], 'string', `${name} is missing admin.integrations.microsoft.${key}`);
-      assert.ok(strings.admin.integrations.microsoft[key].length > 0, `${name} has an empty ${key}`);
-    }
-    assert.equal(typeof strings.contacts.googleConnected.title, 'string', `${name} is missing contacts.googleConnected.title`);
-    assert.equal(typeof strings.contacts.googleConnected.body, 'string', `${name} is missing contacts.googleConnected.body`);
-    assert.equal(typeof strings.providers.microsoftGraphConnected.title, 'string', `${name} is missing providers.microsoftGraphConnected.title`);
-    assert.equal(typeof strings.providers.microsoftGraphConnected.body, 'string', `${name} is missing providers.microsoftGraphConnected.body`);
-    // The sync summaries interpolate with i18next syntax.
-    assert.match(strings.contacts.addressBooks.googleSyncDone, /\{\{created\}\}/, `${name} googleSyncDone has no placeholders`);
-    assert.match(strings.calendar.googleSyncDone, /\{\{calendars\}\}/, `${name} calendar googleSyncDone has no placeholders`);
-    assert.match(strings.calendar.googleSyncPartial, /\{\{failed\}\}/, `${name} calendar googleSyncPartial has no placeholders`);
-  }
-});
 
 test('the calendar sources dialog offers the Google pull once connected', async () => {
   const source = await readFile(calendarSidebar, 'utf8');
@@ -234,42 +172,8 @@ test('an import confirmation does not follow the user to another address book', 
   assert.match(source, /useEffect\(\(\) => \{ setImportNotice\(''\); \}, \[selectedAddressBookId\]\)/);
 });
 
-test('the opener acknowledges the Graph connector popup, which posts its own provider', async () => {
-  const source = await readFile(adminPanel, 'utf8');
-  // The popup posts `oauth_success=<provider>`; the Graph flow posts 'microsoft_graph',
-  // which no branch handled, so the connection went unacknowledged in the opener.
-  assert.match(source, /e\.data\?\.provider === 'microsoft_graph'/);
-  assert.match(source, /admin\.integrations\.microsoft\.graphConnectedNote/);
-  assert.match(source, /data-testid="microsoft-graph-connected"/);
-  // It must be its own confirmation, not the mailbox one: they are different grants.
-  assert.match(source, /setGraphSaveMsg\(t\('admin\.integrations\.microsoft\.graphConnectedNote'\)\)/);
-  assert.match(source, /setConnectingGraph\(false\)/);
-  // Every provider the flows redirect with must have a branch.
-  for (const provider of ['google', 'microsoft', 'microsoft_graph']) {
-    assert.match(source, new RegExp(`provider === '${provider}'`), `no opener branch for ${provider}`);
-  }
-});
 
-test('a failed authorization releases every connect button that still exists', async () => {
-  const source = await readFile(adminPanel, 'utf8');
-  const errorBranch = /e\.data\?\.type === 'oauth_error'\)\s*\{([\s\S]*?)\} else if/.exec(source)?.[1] ?? '';
-  assert.ok(errorBranch, 'the oauth_error branch must exist');
-  // The mailbox sign-in no longer exists in Integrations (it belongs to Settings -> Accounts), so only the
-  // capability connectors are released here.
-  for (const flag of ['setConnectingGoogle', 'setConnectingGraph']) {
-    assert.match(errorBranch, new RegExp(flag), `${flag} must be released on error`);
-  }
-  assert.doesNotMatch(source, /setConnectingMs/);
-});
 
-test('the connect buttons ask for read access, which is all the connectors use', async () => {
-  const source = await readFile(adminPanel, 'utf8');
-  // Both connectors only read, so a write scope would be a permission the user cannot see
-  // a reason for. The server honours `access=read_only` by narrowing the scope.
-  const urls = source.match(/a\.href = [^;]*purpose=[^;]*;/g) ?? [];
-  assert.equal(urls.length, 2, 'both connect actions must be covered');
-  for (const url of urls) assert.match(url, /access=read_only/, url);
-});
 
 test('the drawer swipe gesture is reachable: default on, with a switch to turn it off', async () => {
   const panel = await readFile(adminPanel, 'utf8');
@@ -285,46 +189,8 @@ test('the drawer swipe gesture is reachable: default on, with a switch to turn i
   assert.match(auth, /mobileSidebarSwipeEnabled must be a boolean/);
 });
 
-test('a connect button is offered only when its own flow can run', async () => {
-  const source = await readFile(adminPanel, 'utf8');
-  // The mailbox method needs a confidential client, so a client id alone must not enable
-  // it — while the device method, which has its own control, legitimately works with one.
-  // The mailbox sign-in button is gone from Integrations: the card only configures the application now.
-  assert.doesNotMatch(source, /handleConnectMs/);
-  assert.doesNotMatch(source, /\/oauth\/microsoft['"`]/);
-  assert.match(source, /admin\.integrations\.accountHint/);
-  // The connector has a different callback again, and its own readiness.
-  assert.match(source, /msStatus\?\.graph\?\.ready && \(/);
-  // Google has a single flow, gated on the browser readiness for the same reason.
-  assert.match(source, /googleStatus\?\.browser\?\.ready \? \(/);
-  // The device method's switch is honoured by its own button, not by the client-id flag.
-  assert.match(source, /const msDeviceReady = Boolean\(msStatus\?\.deviceCode\?\.ready\)/);
-  assert.match(source, /disabled=\{!msConfigured \|\| !msDeviceReady\}/);
-});
 
-test('a connected account can be seen and disconnected from the card', async () => {
-  const source = await readFile(adminPanel, 'utf8');
-  const api = await readFile(new URL('../utils/api.ts', import.meta.url), 'utf8');
-  assert.match(source, /const disconnectAccount = async \(connectionId: string\) => \{/);
-  assert.match(source, /await api\.disconnectProviderConnection\(connectionId\)/);
-  assert.match(source, /data-testid="google-disconnect-account"/);
-  assert.match(source, /data-testid="microsoft-disconnect-account"/);
-  // The list is per provider and only rendered when there is something to disconnect.
-  assert.match(source, /admin\.integrations\.connectedAccounts/);
-  assert.match(source, /admin\.integrations\.disconnect/);
-  assert.match(api, /disconnectProviderConnection: \(id: string\) => request\('POST', `\/integrations\/provider-connections\/\$\{encodeURIComponent\(id\)\}\/disconnect`\)/);
-});
 
-test('the provider mail policy is stated where the choice is made', async () => {
-  const source = await readFile(adminPanel, 'utf8');
-  // The backend has reported `mailPolicy` since the integration status existed; nothing read it,
-  // so the objective's "Microsoft requires it, Google recommends it" had no effect on the user.
-  assert.match(source, /msStatus\?\.mailPolicy === 'required'/);
-  assert.match(source, /data-testid="microsoft-mail-policy"/);
-  assert.match(source, /admin\.integrations\.microsoft\.mailPolicyRequired/);
-  // Google's recommendation is already stated in the provider's own description, so the card
-  // does not repeat it; only the Microsoft requirement was missing from the interface.
-});
 
 test('a failed authorization is reported, and in words a user can act on', async () => {
   const panel = await readFile(adminPanel, 'utf8');
@@ -346,4 +212,26 @@ test('changing the Client ID warns before saving, since the stored secret belong
   assert.match(source, /const googleSecretUntouched = !googleForm\.clientSecret \|\| googleForm\.clientSecret === storedGoogle\?\.clientSecret/);
   assert.match(source, /const msSecretUntouched = !msForm\.clientSecret \|\| msForm\.clientSecret === storedMs\?\.clientSecret/);
   assert.match(source, /if \(!window\.confirm\(t\('admin\.integrations\.clientIdChangeConfirm'\)\)\) return;/);
+});
+
+test('the provider cards start no authorization for a user, and say where mailboxes are added', async () => {
+  const source = await readFile(adminPanel, 'utf8');
+  // Every user-level action is gone from Integrations: no mailbox sign-in, no Graph connector, no
+  // device-code connect, no Google calendar/contacts connect, no per-user connection list, no per-connection
+  // push control. Those belong to the mailbox they authorise, on its card in Settings -> Accounts.
+  for (const testid of [
+    'google-connect', 'google-connect-calendars', 'microsoft-graph-connect',
+    'microsoft-graph-device-connect', 'google-connected-account', 'microsoft-connected-account',
+    'google-disconnect-account', 'microsoft-disconnect-account', 'provider-push-google', 'provider-push-microsoft',
+  ]) {
+    assert.ok(!source.includes(testid), `${testid} is still rendered in Integrations`);
+  }
+  assert.ok(!source.includes('handleConnectGoogle'));
+  assert.ok(!source.includes('handleConnectMicrosoftGraph'));
+  assert.ok(!source.includes('handleStartGraphDeviceFlow'));
+  // And each card points to the place that does manage them.
+  assert.match(source, /admin\.integrations\.microsoft\.connectInAccounts/);
+  assert.match(source, /admin\.integrations\.google\.connectInAccounts/);
+  assert.match(source, /data-testid="microsoft-accounts-only"/);
+  assert.match(source, /data-testid="google-accounts-only"/);
 });

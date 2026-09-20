@@ -127,7 +127,8 @@
       "categorizationSection": "E-Mail-Kategorisierung",
       "categorizationEnabled": "Posteingang-Kategorisierung aktivieren",
       "categorizationEnabledDesc": "Eingehende E-Mails in Kategorie-Tabs einteilen. Standardmäßig deaktiviert.",
-      "enabledGlobally": "Global aktiviert"
+      "enabledGlobally": "Global aktiviert",
+      "transport": "Transport"
     },
     "ai": {
       "title": "KI-Assistent",
@@ -401,13 +402,7 @@
         "deviceCodeDeclined": "Autorisierung wurde abgelehnt.",
         "deviceCodeError": "Ein Fehler ist aufgetreten. Bitte erneut versuchen.",
         "deviceCodeCancel": "Abbrechen",
-        "graphConnect": "Microsoft-Kontakte verbinden",
-        "graphDeviceConnect": "Microsoft-API mit Gerätecode verbinden",
-        "graphDeviceHint": "Benötigt nur eine Client-ID mit erlaubten öffentlichen Clientflows — kein Secret und keine Redirect-URI. Autorisiert Microsoft Graph nur für Kontakte.",
-        "graphConnecting": "Microsoft wird geöffnet…",
-        "graphHint": "Autorisiert Microsoft Graph nur für Kontakte. Ihr Postfach wird nicht geändert oder migriert.",
-        "graphConnectedNote": "Microsoft-Kontakte verbunden. Nutzen Sie „Microsoft-Kontakte synchronisieren“ auf der Seite Kontakte.",
-        "mailPolicyRequired": "Microsoft verlangt eine API-basierte Verbindung: Outlook.com und Microsoft 365 akzeptieren kein Postfachpasswort mehr — verbinden Sie das Konto unten."
+        "connectInAccounts": "Microsoft-Konten werden in den Einstellungen → Konten hinzugefügt, beim jeweiligen Postfach."
       },
       "todoist": {
         "title": "Todoist",
@@ -464,14 +459,9 @@
         "userNoteConfigured": "Die Google API ist konfiguriert. Verbinden Sie ein Konto in dessen Einstellungen, um die gewählten Dienste zu autorisieren.",
         "userNoteNotConfigured": "Der Administrator hat die Google-API-Integration noch nicht konfiguriert. Mail über die bestehende IMAP/SMTP-Verbindung funktioniert weiterhin.",
         "connect": "Google-Konto verbinden",
-        "connecting": "Google wird geöffnet…",
-        "connectHint": "Wählen Sie, was autorisiert wird: die Kontakte-Schaltfläche fragt Kontakte an, diese Kalender. Für beides zweimal verbinden; Mail wird hier nie angefragt.",
-        "connectUnavailable": "Ein Administrator muss die Google API konfigurieren, bevor ein Konto verbunden werden kann.",
         "connectedNote": "Google-Konto verbunden.",
-        "connectCalendars": "Google-Kalender verbinden"
+        "connectInAccounts": "Google-Konten und ihre Kalender-/Kontakt-Freigaben werden in den Einstellungen → Konten beim jeweiligen Postfach verwaltet."
       },
-      "connectedAccounts": "Verbundene Konten",
-      "disconnect": "Trennen",
       "push": {
         "title": "Sofort-Synchronisierung",
         "stateActive": "Sofort-Sync aktiv",

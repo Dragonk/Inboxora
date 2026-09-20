@@ -5,7 +5,6 @@ import { folderLabel } from '../utils/folderLabels.ts';
 import { inputStyle as sharedInputStyle } from './ui.tsx';
 import ConversationRebuild from './ConversationRebuild.tsx';
 import CalendarSubscriptionsSettings from './CalendarSubscriptionsSettings.tsx';
-import ProviderPushControls, { type ProviderPushStatus } from './ProviderPushControls.tsx';
 import AddAccountFlow, { type IntegrationStatus } from './AddAccountFlow.tsx';
 import AccountProviderServices from './AccountProviderServices.tsx';
 import { useCallback, useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
@@ -1313,8 +1312,11 @@ function AccountsTab({ onNavigate = undefined }: { onNavigate?: (tab: string) =>
                 ) : (
                   <>
                     <span style={{ color: 'var(--green)' }}>● {t('admin.accounts.connected')}</span>
-                    <span style={{ color: 'var(--text-tertiary)' }}>
-                      {account.imap_host}:{account.imap_port}
+                    {/* A native account has no active IMAP endpoint to show: the transport is the provider. */}
+                    <span data-testid="account-card-transport" style={{ color: 'var(--text-tertiary)' }}>
+                      {account.mail_transport === 'microsoft_graph' || account.mail_transport === 'gmail_api'
+                        ? `${t('admin.accounts.transport')}: ${account.mail_transport === 'microsoft_graph' ? 'Microsoft Graph' : 'Gmail API'}`
+                        : `${account.imap_host}:${account.imap_port} · ${t('admin.accounts.transport')}: IMAP/SMTP`}
                     </span>
                   </>
                 )}
@@ -2838,15 +2840,6 @@ function CardDavCard() {
 }
 
 function IntegrationsTab() {
-  // Push status is fetched once for the tab: every provider card reads the same answer, and the section is
-  // simply absent when the endpoint cannot be reached.
-  const [pushStatus, setPushStatus] = useState<ProviderPushStatus | null>(null);
-  const loadPushStatus = useCallback(() => {
-    api.getProviderPushStatus()
-      .then((data: ProviderPushStatus) => setPushStatus(data))
-      .catch(() => { /* push is optional: without it the cards show no instant-synchronisation section */ });
-  }, []);
-  useEffect(() => { loadPushStatus(); }, [loadPushStatus]);
 
   const { t } = useTranslation();
   const { setAccounts, setTodoistConnected, user } = useStore();
@@ -2867,9 +2860,6 @@ function IntegrationsTab() {
   const [googleStatus, setGoogleStatus] = useState<{ configured?: boolean; browser?: { ready?: boolean; missing?: string[] }; connections?: Array<{ id: string; providerUserId?: string | null }>; mailPolicy?: string; traditionalImapAvailableInInboxora?: boolean; [key: string]: unknown } | null>(null);
   const [googleSaving, setGoogleSaving] = useState(false);
   const [googleSaveMsg, setGoogleSaveMsg] = useState('');
-  const [connectingGoogle, setConnectingGoogle] = useState(false);
-  const [connectingGraph, setConnectingGraph] = useState(false);
-  const [graphSaveMsg, setGraphSaveMsg] = useState('');
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState('');
   const [deviceFlow, setDeviceFlow] = useState<{ userCode?: string; verificationUri?: string; interval?: number; [key: string]: unknown } | null>(null); // { userCode, verificationUri, interval }
@@ -2954,17 +2944,14 @@ function IntegrationsTab() {
         // A Google authorization stores a provider connection; nothing is added to
         // the account list, so the Google card reports it and its readiness refreshes.
         setGoogleSaveMsg(t('admin.integrations.google.connectedNote'));
-        setConnectingGoogle(false);
         setGoogleExpanded(true);
         api.getIntegrationsStatus().then(data => setGoogleStatus(data.google || null)).catch(console.error);
         if (isAdmin) api.getIntegrations().then(setConfigs).catch(console.error);
         // The contacts page reads this status to offer the pull.
         api.getAccounts().then(setAccounts).catch(console.error);
       } else if (e.data?.type === 'oauth_success' && e.data?.provider === 'microsoft_graph') {
-        // The Graph connector is a different grant from the mailbox sign-in, so it gets
-        // its own confirmation rather than borrowing the mailbox one.
-        setGraphSaveMsg(t('admin.integrations.microsoft.graphConnectedNote'));
-        setConnectingGraph(false);
+        // The Graph connector is a per-user connection now; the card that started it refreshes itself, and
+        // the installation's status is refreshed here so the Integrations summary stays accurate.
         api.getIntegrationsStatus().then(data => setMsStatus(data.microsoft || null)).catch(console.error);
       } else if (e.data?.type === 'oauth_success' && e.data?.provider === 'microsoft') {
         setSaveMsg(t('admin.integrations.microsoft.connectedNote'));
@@ -2982,8 +2969,6 @@ function IntegrationsTab() {
         // action it calls for — and shown raw otherwise, so nothing is hidden.
         const failureKey = providerFailureKey(typeof e.data.error === 'string' ? e.data.error : null);
         setSaveMsg(failureKey ? t(failureKey) : 'Error: ' + e.data.error);
-        setConnectingGoogle(false);
-        setConnectingGraph(false);
       }
     };
     window.addEventListener('message', handleMessage);
@@ -3103,77 +3088,7 @@ function IntegrationsTab() {
     }
   };
 
-  const handleConnectMicrosoftGraph = () => {
-    setConnectingGraph(true);
-    // Contacts is the Graph feature that exists today; the purpose decides the
-    // scopes, so this never asks for the mailbox or the calendar.
-    const a = document.createElement('a');
-    a.href = '/oauth/provider/microsoft?purpose=contacts_enable&access=read_only';
-    a.target = '_blank';
-    a.rel = 'opener';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(() => setConnectingGraph(false), 5000);
-  };
 
-  // The Graph connection through device code: the same provider connection as the browser link above,
-  // for an installation that registered a public client (no secret, no callback). It refreshes the
-  // connector status on success rather than the account list, because it creates no mailbox account.
-  const [graphDeviceFlow, setGraphDeviceFlow] = useState<{ flowId?: string; userCode?: string; verificationUri?: string; interval?: number; [key: string]: unknown } | null>(null);
-  const [graphDeviceStatus, setGraphDeviceStatus] = useState<string | null>(null);
-  const graphDevicePollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const stopGraphDeviceFlow = () => {
-    if (graphDevicePollRef.current) { clearInterval(graphDevicePollRef.current); graphDevicePollRef.current = null; }
-    setGraphDeviceFlow(null);
-    setGraphDeviceStatus(null);
-  };
-  const handleStartGraphDeviceFlow = async () => {
-    stopGraphDeviceFlow();
-    setGraphDeviceStatus('pending');
-    try {
-      const data = await api.startProviderMsDeviceFlow();
-      setGraphDeviceFlow(data);
-      graphDevicePollRef.current = setInterval(async () => {
-        try {
-          const result = await api.pollProviderMsDeviceFlow(String(data.flowId));
-          if (result.status === 'pending') return;
-          if (graphDevicePollRef.current !== null) clearInterval(graphDevicePollRef.current);
-          graphDevicePollRef.current = null;
-          setGraphDeviceStatus(result.status);
-          if (result.status === 'success') {
-            setGraphSaveMsg(t('admin.integrations.microsoft.graphConnectedNote'));
-            api.getIntegrationsStatus().then(status => setMsStatus(status.microsoft || null)).catch(console.error);
-            setTimeout(stopGraphDeviceFlow, 3000);
-          }
-        } catch {
-          if (graphDevicePollRef.current !== null) clearInterval(graphDevicePollRef.current);
-          graphDevicePollRef.current = null;
-          setGraphDeviceStatus('error');
-        }
-      }, (Number(data.interval) > 0 ? Number(data.interval) : 5) * 1000);
-    } catch (err) {
-      setGraphDeviceStatus('error');
-      setGraphSaveMsg('Error: ' + toAppError(err).message);
-    }
-  };
-
-  const handleConnectGoogle = (purpose: 'contacts_enable' | 'calendar_enable') => {
-    setConnectingGoogle(true);
-    // One authorization per feature: a contacts-only grant cannot read calendars, and
-    // asking for both at once would request scopes the user did not choose. Google's
-    // incremental consent keeps the scopes of the earlier connection, so connecting
-    // twice accumulates them instead of replacing them. `access=read_only` is honest:
-    // Inboxora only reads these collections, so it must not ask to write them.
-    const a = document.createElement('a');
-    a.href = `/oauth/google?purpose=${purpose}&access=read_only`;
-    a.target = '_blank';
-    a.rel = 'opener';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(() => setConnectingGoogle(false), 5000);
-  };
 
   const handleTdConnect = async () => {
     const trimmed = tdToken.trim();
@@ -3218,20 +3133,6 @@ function IntegrationsTab() {
   const msDeviceReady = Boolean(msStatus?.deviceCode?.ready);
   // The connected accounts, so a user can see what is connected and undo it. Imported data is
   // kept by the endpoint; the wording says so rather than leaving it to be discovered.
-  const [disconnectingId, setDisconnectingId] = useState<string | null>(null);
-  const disconnectAccount = async (connectionId: string) => {
-    setDisconnectingId(connectionId);
-    try {
-      await api.disconnectProviderConnection(connectionId);
-      const data = await api.getIntegrationsStatus();
-      setMsStatus(data.microsoft || null);
-      setGoogleStatus(data.google || null);
-    } catch (error) {
-      setSaveMsg(toAppError(error).message);
-    } finally {
-      setDisconnectingId(null);
-    }
-  };
   // Google browser readiness comes from the backend so the UI never treats a
   // saved Client ID alone as a working OAuth client.
   const googleConfigured = (isAdmin ? configs.google?.clientId : null) || googleStatus?.configured;
@@ -3451,127 +3352,11 @@ function IntegrationsTab() {
                       installation that has a working connector but no mailbox sign-in. The
                       device method is the same connector without a secret or callback, so it
                       keeps the section visible where only a public client is registered. */}
-                  {(msStatus?.graph?.ready || msDeviceReady) && (
-                    <div style={{ marginTop: 10 }}>
-                      {msStatus?.graph?.ready && (
-                        <button
-                          data-testid="microsoft-graph-connect"
-                          onClick={handleConnectMicrosoftGraph}
-                          disabled={connectingGraph}
-                          style={{
-                            padding: '9px 16px', background: 'var(--bg-elevated)', border: '1px solid var(--border)',
-                            borderRadius: 8, color: 'var(--text-primary)', cursor: connectingGraph ? 'not-allowed' : 'pointer',
-                            fontSize: 13, fontWeight: 500, opacity: connectingGraph ? 0.7 : 1,
-                          }}
-                        >
-                          {connectingGraph ? t('admin.integrations.microsoft.graphConnecting') : t('admin.integrations.microsoft.graphConnect')}
-                        </button>
-                      )}
-                      {msDeviceReady && (
-                        <div style={{ marginTop: msStatus?.graph?.ready ? 10 : 0 }}>
-                          {!graphDeviceFlow ? (
-                            <button
-                              data-testid="microsoft-graph-device-connect"
-                              onClick={handleStartGraphDeviceFlow}
-                              disabled={!msConfigured}
-                              style={{
-                                padding: '9px 16px', background: 'var(--bg-elevated)', border: '1px solid var(--border)',
-                                borderRadius: 8, color: 'var(--text-primary)', cursor: msConfigured ? 'pointer' : 'not-allowed',
-                                fontSize: 13, fontWeight: 500, opacity: msConfigured ? 1 : 0.5,
-                              }}
-                            >
-                              {t('admin.integrations.microsoft.graphDeviceConnect')}
-                            </button>
-                          ) : (
-                            <div style={{ padding: '12px 14px', borderRadius: 8, background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
-                              {graphDeviceStatus === 'success' ? (
-                                <div style={{ color: 'var(--green)', fontSize: 13, fontWeight: 500 }}>{t('admin.integrations.microsoft.connectedNote')}</div>
-                              ) : graphDeviceStatus === 'declined' ? (
-                                <div style={{ color: 'var(--red)', fontSize: 13 }}>{t('admin.integrations.microsoft.deviceCodeDeclined')}</div>
-                              ) : graphDeviceStatus === 'expired' ? (
-                                <div style={{ color: 'var(--text-tertiary)', fontSize: 13 }}>{t('admin.integrations.microsoft.deviceCodeExpired')}</div>
-                              ) : graphDeviceStatus === 'error' ? (
-                                <div style={{ color: 'var(--red)', fontSize: 13 }}>{t('admin.integrations.microsoft.deviceCodeError')}</div>
-                              ) : (
-                                <>
-                                  <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>
-                                    {t('admin.integrations.microsoft.deviceCodeInstructions')}
-                                  </div>
-                                  <div style={{ marginBottom: 8 }}>
-                                    <a href={String(graphDeviceFlow.verificationUri || '')} target="_blank" rel="noreferrer"
-                                      style={{ fontSize: 12, color: 'var(--accent)', fontWeight: 500 }}>
-                                      {String(graphDeviceFlow.verificationUri || '')}
-                                    </a>
-                                  </div>
-                                  <span style={{
-                                    fontFamily: 'JetBrains Mono, monospace', fontSize: 18, fontWeight: 700,
-                                    letterSpacing: '0.15em', color: 'var(--text-primary)',
-                                    padding: '5px 12px', background: 'var(--bg-tertiary)',
-                                    border: '1px solid var(--border)', borderRadius: 6,
-                                  }}>
-                                    {String(graphDeviceFlow.userCode || '')}
-                                  </span>
-                                </>
-                              )}
-                              {graphDeviceStatus !== 'success' && (
-                                <button onClick={stopGraphDeviceFlow} style={{
-                                  display: 'block', marginTop: 10, padding: '5px 10px', background: 'transparent',
-                                  border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-secondary)',
-                                  cursor: 'pointer', fontSize: 12,
-                                }}>
-                                  {t('admin.integrations.microsoft.deviceCodeCancel')}
-                                </button>
-                              )}
-                            </div>
-                          )}
-                          <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 6 }}>
-                            {t('admin.integrations.microsoft.graphDeviceHint')}
-                          </div>
-                        </div>
-                      )}
-                      {(msStatus?.connections?.length ?? 0) > 0 && (
-                        <div style={{ marginTop: 10, fontSize: 12 }}>
-                          <div style={{ color: 'var(--text-secondary)' }}>{t('admin.integrations.connectedAccounts')}</div>
-                          {msStatus?.connections?.map(connection => (
-                            <div key={connection.id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
-                              <span data-testid="microsoft-connected-account">{connection.providerUserId || connection.id}</span>
-                              <button
-                                data-testid="microsoft-disconnect-account"
-                                disabled={disconnectingId === connection.id}
-                                onClick={() => disconnectAccount(connection.id)}
-                                style={{ background: 'none', border: 0, color: 'var(--red)', cursor: 'pointer', fontSize: 12, padding: 0 }}
-                              >
-                                {t('admin.integrations.disconnect')}
-                              </button>
-                              <ProviderPushControls
-                                provider="microsoft"
-                                connectionId={connection.id}
-                                status={pushStatus}
-                                reloadStatus={loadPushStatus}
-                                t={t}
-                              />
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                      {msStatus?.mailPolicy === 'required' && (
-                        <div
-                          data-testid="microsoft-mail-policy"
-                          style={{ marginTop: 10, fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5 }}
-                        >
-                          {t('admin.integrations.microsoft.mailPolicyRequired')}
-                        </div>
-                      )}
-                      {graphSaveMsg && (
-                        <div data-testid="microsoft-graph-connected" style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 6 }}>
-                          {graphSaveMsg}
-                        </div>
-                      )}
-                      <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 6 }}>
-                        {t('admin.integrations.microsoft.graphHint')}
-                      </div>
-                    </div>
-                  )}
+                  {/* The Graph authorization is a per-user connection, so it is started from the mailbox it
+                      belongs to, in Settings → Accounts, rather than from the installation's configuration. */}
+                  <div data-testid="microsoft-accounts-only" style={{ marginTop: 10, fontSize: 12, color: 'var(--text-tertiary)' }}>
+                    {t('admin.integrations.microsoft.connectInAccounts')}
+                  </div>
 
                   {isAdmin && msConfigured && (
                     <button onClick={async () => {
@@ -3828,70 +3613,11 @@ function IntegrationsTab() {
                       {t('admin.integrations.google.deviceNotSupported')}
                     </div>
 
-                    {/* Any signed-in user may authorize their own Google account; the
-                        connect action is gated on the browser flow being ready. */}
-                    {googleStatus?.browser?.ready ? (
-                      <div style={{ marginBottom: 14 }}>
-                        <button
-                          data-testid="google-connect"
-                          disabled={connectingGoogle}
-                          onClick={() => handleConnectGoogle('contacts_enable')}
-                          style={{
-                            padding: '9px 16px', background: 'var(--bg-elevated)', border: '1px solid var(--border)',
-                            borderRadius: 8, color: 'var(--text-primary)', cursor: connectingGoogle ? 'not-allowed' : 'pointer',
-                            fontSize: 13, fontWeight: 500, opacity: connectingGoogle ? 0.7 : 1,
-                          }}
-                        >
-                          {connectingGoogle ? t('admin.integrations.google.connecting') : t('admin.integrations.google.connect')}
-                        </button>
-                        {(googleStatus?.connections?.length ?? 0) > 0 && (
-                          <div style={{ marginTop: 10, fontSize: 12 }}>
-                            <div style={{ color: 'var(--text-secondary)' }}>{t('admin.integrations.connectedAccounts')}</div>
-                            {googleStatus?.connections?.map(connection => (
-                              <div key={connection.id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
-                                <span data-testid="google-connected-account">{connection.providerUserId || connection.id}</span>
-                                <button
-                                  data-testid="google-disconnect-account"
-                                  disabled={disconnectingId === connection.id}
-                                  onClick={() => disconnectAccount(connection.id)}
-                                  style={{ background: 'none', border: 0, color: 'var(--red)', cursor: 'pointer', fontSize: 12, padding: 0 }}
-                                >
-                                  {t('admin.integrations.disconnect')}
-                                </button>
-                                <ProviderPushControls
-                                  provider="google"
-                                  connectionId={connection.id}
-                                  status={pushStatus}
-                                  reloadStatus={loadPushStatus}
-                                  t={t}
-                                />
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                        {/* Calendars need their own grant: a contacts authorization does
-                            not include the calendar scopes. */}
-                        <button
-                          data-testid="google-connect-calendars"
-                          disabled={connectingGoogle}
-                          onClick={() => handleConnectGoogle('calendar_enable')}
-                          style={{
-                            padding: '9px 16px', marginLeft: 8, background: 'var(--bg-elevated)', border: '1px solid var(--border)',
-                            borderRadius: 8, color: 'var(--text-primary)', cursor: connectingGoogle ? 'not-allowed' : 'pointer',
-                            fontSize: 13, fontWeight: 500, opacity: connectingGoogle ? 0.7 : 1,
-                          }}
-                        >
-                          {connectingGoogle ? t('admin.integrations.google.connecting') : t('admin.integrations.google.connectCalendars')}
-                        </button>
-                        <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 6 }}>
-                          {t('admin.integrations.google.connectHint')}
-                        </div>
-                      </div>
-                    ) : (
-                      <div style={{ marginBottom: 14, fontSize: 12, color: 'var(--text-tertiary)' }}>
-                        {t('admin.integrations.google.connectUnavailable')}
-                      </div>
-                    )}
+                    {/* A Google authorization belongs to one mailbox, so it is started from that account's card
+                        in Settings → Accounts, not from the installation's configuration. */}
+                    <div data-testid="google-accounts-only" style={{ marginBottom: 14, fontSize: 12, color: 'var(--text-tertiary)' }}>
+                      {t('admin.integrations.google.connectInAccounts')}
+                    </div>
 
                     {googleSaveMsg && (
                       <div style={{

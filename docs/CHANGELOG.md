@@ -47,6 +47,13 @@ Nothing is being prepared beyond 4.1.0. Work whose version has not been chosen a
   address on a custom domain). A classification only says "this account is a candidate": the switch still
   requires an active connection of that provider, owned by the user, with a matching verified identity and the
   scopes the transport needs, so no host name can move a mailbox on its own.
+- **Integrations no longer starts an authorization.** The Graph connector, its device-code variant, the
+  Google calendar/contacts connects, the per-user "connected accounts" list with its disconnect action and the
+  per-connection push switch are gone from Settings → Integrations. Each of them belongs to one mailbox and is
+  now on that account's card, next to the transport, the migration and the push state it affects. What remains
+  in Integrations is the installation: client id, tenant, secret, redirect URI, the readiness of each method,
+  the scopes and capabilities, the global webhook/Pub-Sub configuration, the configuration test and the
+  aggregate diagnostics.
 - **The account card is the account's provider centre.** Each mailbox now shows its own provider services:
   the mail transport it uses (Microsoft Graph, Gmail API or IMAP/SMTP) and the migration action when one
   applies, whether its calendar and contacts are connected with the number of pulled collections, and the

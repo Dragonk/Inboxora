@@ -99,7 +99,11 @@ otherwise:
 
 ## Settings separation
 
-Integrations configure provider applications; Accounts connect individual mailboxes. Settings → Accounts →
+Integrations configure provider applications and global webhook infrastructure; Accounts manage each mailbox
+and its mail, calendar, contacts and per-account synchronisation. **Integrations starts no authorization**: the
+Graph connector, its device-code variant, the Google calendar/contacts connects, the per-user connection list
+and the per-connection push switch were removed from it and live on the account card, which also names the
+transport, offers the migration that applies and reports the push state per service. Settings → Accounts →
 **Add account** offers Microsoft, Google or IMAP/SMTP, creates a Microsoft or Google mailbox **natively** from
 the provider authorization (identity from the provider, no IMAP credentials, discovery started), and answers an
 already-added mailbox with the existing migration rather than a duplicate account. No account-adding action
