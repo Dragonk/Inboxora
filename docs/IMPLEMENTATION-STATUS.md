@@ -43,15 +43,14 @@ Each package has exactly one current state:
 
 ### P14 evidence
 
-**Frozen code SHA: `82a8f4f7aba771791fefe40517a6813a09e33e4f`** — the revision that fixes the 4.0.4 → 4.1.0 upgrade path (0108/0114), adds
-push-assisted synchronisation, separates provider configuration (Settings → Integrations) from mailbox
-connection (Settings → Accounts), and puts legacy-account classification behind one shared service so the
-Google and Microsoft migrations run from the account card. Commits after it are documentation only.
+**Frozen code SHA: `1432981f0f680a51e96986033104bcc5b565bd91`** — the revision that fixes the 4.0.4 → 4.1.0 upgrade path (0108/0114), puts one
+classifier behind both legacy migrations and the account card, and removes every user-level authorization from
+Settings → Integrations. Commits after it are documentation only.
 
 | Part | State | Evidence |
 | --- | --- | --- |
-| image build + registry verification | **done** | Workflow run [`35517946452`](https://github.com/Dragonk/Inboxora/actions/runs/35517946452) built from `source_sha=82a8f4f7aba771791fefe40517a6813a09e33e4f` and pushed `:dev`. Both resolve to OCI image indexes carrying `linux/amd64` **and** `linux/arm64`: backend `sha256:bc71c0aec893ad95e1c42c3d2195496e6b697b0faac909953aab43e1995d1157`, frontend `sha256:053573873b5cab5aa5d7d519998e329b423bd9771b4b0dd8a9c2472c1c272d85`. |
-| runtime smoke | **RUN — passed** | The published pair was pulled and started from a fresh volume: `/api/health` → `{"status":"ok"}`, `/api/version` → `{"version":"dev","sha":"82a8f4f7aba771791fefe40517a6813a09e33e4f"}`, **117** migrations, first-user registration, a fresh login, `/api/auth/me`, the account list, the UI root and **0 restarts**. The upgrade smokes from a 4.0.4-shaped database and from an earlier-`:dev` database are recorded in the verification section below. |
+| image build + registry verification | **done** | Workflow run [`35519124758`](https://github.com/Dragonk/Inboxora/actions/runs/35519124758) built from `source_sha=1432981f0f680a51e96986033104bcc5b565bd91` and pushed `:dev`. Both resolve to OCI image indexes carrying `linux/amd64` **and** `linux/arm64`: backend `sha256:dae1b8f13023ce1e26c150d7f2bc5b9f2b57d12c04cba775d1f9ef4ac450156d`, frontend `sha256:ff7f841a1f14301500548f5bb5decc941a606e1f90eebcd2165dd28691c1e69a`. |
+| runtime smoke | **RUN — passed** | The published pair was pulled and started from a fresh volume: `/api/health` → `{"status":"ok"}`, `/api/version` → `{"version":"dev","sha":"1432981f0f680a51e96986033104bcc5b565bd91"}`, **117** migrations, first-user registration, a fresh login, `/api/auth/me`, the account list, the UI root and **0 restarts**. The upgrade smokes from a 4.0.4-shaped database and from an earlier-`:dev` database are recorded in the verification section below. |
 | `:dev` publication | **done** | The published images are the current `dev` code, including the audit's two fixes; `main` is untouched and 4.1.0 is not released. |
 
 ## Acceptance criteria W01–W19
@@ -141,7 +140,7 @@ Not release criteria; recorded so they are not lost:
 Measured on the frozen code SHA with each gate's own exit status read directly:
 
 - **Backend** — typecheck clean, lint clean, **2970 unit tests passed** (221 skipped; 246 files).
-- **Frontend** — typecheck clean, lint clean, **2798 tests passed** (0 failed), production build clean.
+- **Frontend** — typecheck clean, lint clean, **2779 tests passed** (0 failed), production build clean.
 - **Database** — a database created empty for the purpose, the **whole 117-migration chain applied from
   zero** by the application's own runner, then **432 integration tests across 47 suites** on PostgreSQL 16
   (exit 0), including the send-ledger and external-collection-link suites. The unit and integration
