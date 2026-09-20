@@ -160,7 +160,12 @@ function syncFor(provider: string, kind: string): ((target: ProviderSyncTarget, 
   if (provider === 'google') {
     if (kind === 'address_book') return (target, google) => syncGoogleContacts({ userId: target.userId, connectionId: target.connectionId, config: google });
     if (kind === 'calendar') return (target, google) => syncGoogleCalendar({ userId: target.userId, connectionId: target.connectionId, config: google });
-    if (kind === 'mail_folder') {
+    // Google's mail collection is `mail_label` — the value the Gmail label discovery writes and migration
+    // 0101 declares — while Graph's is `mail_folder`. Matching only the Graph spelling meant a native Gmail
+    // connection had no scheduled message sync at all: its only collection kind was unknown to this
+    // dispatcher, so new mail arrived only on a manual sync or a push notification, which is exactly the
+    // "mail does not appear by itself" the live round reported.
+    if (kind === 'mail_folder' || kind === 'mail_label') {
       // Labels first (a message's folder is only resolvable once the label paths exist), then the messages of
       // every account this connection owns. This is also Gmail's polling fallback: with push enabled it
       // simply runs less often, and with push unavailable it is the only thing keeping the mailbox fresh.

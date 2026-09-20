@@ -8,11 +8,17 @@ const mocks = vi.hoisted(() => ({
   syncGraphCalendar: vi.fn(),
   syncGraphMailFolders: vi.fn(),
   syncGraphMailMessagesForAccount: vi.fn(),
+  syncGmailMailLabelsForAccount: vi.fn(),
+  syncGmailMailMessagesForAccount: vi.fn(),
+  listGmailMailAccounts: vi.fn(),
   googleConfigured: { value: true },
   microsoftConfigured: { value: true },
 }));
 
-vi.mock('./db.js', () => ({ query: mocks.query }));
+vi.mock('./db.js', () => ({
+  query: mocks.query,
+  withTransaction: async (fn: (client: { query: typeof mocks.query }) => unknown) => fn({ query: mocks.query }),
+}));
 // Keep every real export and override only what this suite needs.
 vi.mock('./providerAuthService.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./providerAuthService.js')>()),
@@ -28,6 +34,11 @@ vi.mock('./providers/microsoft/graphCalendarSync.js', () => ({ syncGraphCalendar
 vi.mock('./providers/microsoft/graphMailSync.js', () => ({
   syncGraphMailFolders: mocks.syncGraphMailFolders,
   syncGraphMailMessagesForAccount: mocks.syncGraphMailMessagesForAccount,
+}));
+vi.mock('./providers/google/gmailMailSync.js', () => ({
+  syncGmailMailLabelsForAccount: mocks.syncGmailMailLabelsForAccount,
+  syncGmailMailMessagesForAccount: mocks.syncGmailMailMessagesForAccount,
+  listGmailMailAccounts: mocks.listGmailMailAccounts,
 }));
 
 import { nextSyncBackoffMs,
@@ -306,5 +317,37 @@ describe('the schedule backs off from a throttled run', () => {
     const jittered = nextSyncBackoffMs(0, true, () => 0.999);
     expect(jittered).toBeGreaterThan(60_000);
     expect(jittered).toBeLessThanOrEqual(60_000 + 15_000);
+  });
+});
+
+describe('mail is polled for both native providers', () => {
+  it('runs the Gmail message sync for the collection kind Gmail discovery actually writes', async () => {
+    // The live bug: the dispatcher only knew Graph's `mail_folder`, while Gmail's label discovery writes
+    // `mail_label`. A native Gmail connection therefore had no scheduled message sync, so new mail appeared
+    // only on a manual sync or a push notification.
+    mocks.query.mockResolvedValueOnce({ rows: [target({ provider: 'google', features: ['mail_label'] })] });
+    mocks.listGmailMailAccounts.mockResolvedValueOnce(['account-1']);
+    mocks.syncGmailMailLabelsForAccount.mockResolvedValueOnce({ labels: 3 });
+    mocks.syncGmailMailMessagesForAccount.mockResolvedValueOnce({ threads: 1 });
+
+    await expect(runProviderSyncs()).resolves.toEqual({ connections: 1, ran: 1, failed: 0 });
+    expect(mocks.syncGmailMailMessagesForAccount).toHaveBeenCalledWith(expect.objectContaining({
+      userId: 'user-1', connectionId: 'connection-1', accountId: 'account-1',
+    }));
+  });
+
+  it('runs the Graph message sync for a mail_folder collection', async () => {
+    mocks.query.mockResolvedValueOnce({ rows: [target({ provider: 'microsoft', features: ['mail_folder'] })] });
+    // Discovery returns the accounts whose folders it maintains; the message sync is then run per account.
+    mocks.syncGraphMailFolders.mockResolvedValueOnce([{ accountId: 'account-1' }]);
+    mocks.syncGraphMailMessagesForAccount.mockResolvedValueOnce({ messages: 1 });
+
+    await expect(runProviderSyncs()).resolves.toEqual({ connections: 1, ran: 1, failed: 0 });
+    expect(mocks.syncGraphMailMessagesForAccount).toHaveBeenCalled();
+  });
+
+  it('does not schedule a kind it does not know', async () => {
+    mocks.query.mockResolvedValueOnce({ rows: [target({ provider: 'google', features: ['mystery_kind'] })] });
+    await expect(runProviderSyncs()).resolves.toEqual({ connections: 1, ran: 0, failed: 0 });
   });
 });

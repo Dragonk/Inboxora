@@ -275,6 +275,12 @@ None.
   IMAP loops, health checks, rule forwarder and send path no longer open IMAP or SMTP for it.
 
 ### Fixed
+- **Gmail mail is polled again.** Google's label discovery records its collection as `mail_label`, while the
+  scheduler's dispatcher only recognised Graph's `mail_folder`. A native Gmail connection therefore had no
+  scheduled message sync at all: new mail appeared only after a manual synchronisation or a push notification,
+  which is the "mail does not arrive by itself" a live round reported. Both collection kinds now run the Gmail
+  label and message sync, so the polling fallback works with or without push.
+
 - **Authorization and synchronization are reported as the two separate facts they are.** A service row knew
   only whether a grant existed, so a mailbox whose provider authorization had succeeded but whose first
   synchronization had failed was shown as "not connected" — which sends the user to reconnect an account that
