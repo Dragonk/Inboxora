@@ -275,6 +275,12 @@ None.
   IMAP loops, health checks, rule forwarder and send path no longer open IMAP or SMTP for it.
 
 ### Fixed
+- **The scheduler's target query is confirmed against the collections the providers actually create.** A native
+  Gmail connection whose mail collection is a `mail_label` linked through `local_folder_id` reaches
+  `listProviderSyncTargets()` and runs the Gmail message sync, a Graph `mail_folder` collection does the same,
+  and a collection with no local link stays out of the list. Pinned on PostgreSQL, so the polling fallback
+  cannot silently lose a mailbox again.
+
 - **Mail diagnostics report the message pipeline, not the discovery step.** A feature writes more than one kind
   of run: Gmail's label discovery records `labels` and its message/history pipeline records `history`, Graph's
   folder discovery records `folders` and its messages record `messages`. The per-account diagnostics read the
