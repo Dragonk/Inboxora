@@ -139,6 +139,21 @@ symptom:
 - **Open — the contacts manager is still a popup** with every action in one menu, rather than the panel the
   calendar settings use.
 
+## Provider verification, as run
+
+The provider regressions from the final manual acceptance are covered by these suites, all run against a real
+PostgreSQL instance (the `*Real*` ones through `node --test`, which is how the repository runs them):
+
+| Behaviour | Suite | Result |
+|---|---|---|
+| Gmail mail baseline, history incremental (startHistoryId → changed threads → cursor) and rebuild when the stored history id is gone | `providers/google/gmailMailSync.integration.test.ts` | green |
+| Graph mail baseline, per-folder delta link, applied change and deletion, new delta link | `providers/microsoft/graphMailSync.integration.test.ts` | green |
+| One Microsoft identity across its mail, calendar and contacts consents: one connection, one grant, accumulated scopes | `microsoftConsentSequence.integration.test.ts` | green |
+| Generic IMAP: RFC reply chain, same subject without an edge, localized prefixes, `automated_series_mode` safety | `genericImapThreading.integration.test.ts` | green |
+| Legacy over-merge repaired by the account-level rebuild | `conversationRebuildIdempotencyReal.integration.ts` | green |
+| Mail diagnostics read the message pipeline, not discovery; coverage and scheduler target per feature | `accountProviderDiagnostics.integration.test.ts` | green |
+| The scheduler's target query admits Gmail's `mail_label` collections and runs their message sync | `providerSyncTargets.integration.test.ts` | green |
+
 ## Known limitations
 
 Deliberate product limitations, not missing work:
