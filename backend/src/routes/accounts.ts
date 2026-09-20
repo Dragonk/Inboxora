@@ -13,6 +13,8 @@ import { createKeyedSerializer } from '../utils/keyedSerializer.js';
 import { isUuid, uuidParam } from '../utils/uuid.js';
 import { toAppError } from '../utils/errors.js';
 import { cutOverMicrosoftMailAccount } from '../services/providerMailCutover.js';
+import { releaseProviderPushForConnection } from '../services/providerPushLifecycle.js';
+import { clearSyncHintsForConnection } from '../services/providerSyncHints.js';
 import type { MicrosoftMailCutoverAccount } from '../services/providerMailCutover.js';
 import { cutOverGoogleMailAccount } from '../services/providerGoogleMailCutover.js';
 import type { GoogleMailCutoverAccount } from '../services/providerGoogleMailCutover.js';
@@ -349,8 +351,29 @@ router.put('/:id', async (req, res) => {
 router.delete('/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const check = await query<{ id: string }>('SELECT id FROM email_accounts WHERE id = $1 AND user_id = $2', [id, req.session.userId]);
+    const check = await query<{ id: string; provider_connection_id: string | null }>(
+      'SELECT id, provider_connection_id FROM email_accounts WHERE id = $1 AND user_id = $2',
+      [id, req.session.userId],
+    );
     if (!check.rows.length) return res.status(404).json({ error: 'Account not found' });
+
+    // A deleted account must not leave a provider subscription being renewed for it. The connection is
+    // released only when no other account of this user still uses it, so deleting one of two mailboxes on a
+    // shared connection does not stop the other's notifications. Best effort, and never a reason to keep the
+    // account: the local tombstone is written either way.
+    const connectionId = check.rows[0].provider_connection_id;
+    if (connectionId) {
+      const remaining = await query<{ count: string }>(
+        'SELECT COUNT(*)::text AS count FROM email_accounts WHERE user_id = $1 AND provider_connection_id = $2 AND id <> $3',
+        [req.session.userId, connectionId, id],
+      );
+      if (Number(remaining.rows[0]?.count ?? 0) === 0) {
+        await releaseProviderPushForConnection({ userId: req.session.userId!, connectionId })
+          .catch(error => console.warn('Provider push cleanup after account delete failed:', error instanceof Error ? error.message : error));
+      } else {
+        await clearSyncHintsForConnection(connectionId).catch(() => {});
+      }
+    }
 
     // Delete from DB first (cascades to messages and folders immediately).
     // Disconnect IMAP afterward — fire-and-forget so a slow server logout

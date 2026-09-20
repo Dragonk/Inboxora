@@ -1,5 +1,9 @@
 import type { PoolClient } from 'pg';
-import { withTransaction } from './db.js';
+import { query, withTransaction } from './db.js';
+import { markSubscriptionsRemoved } from './providerPushSubscriptions.js';
+import { stopGoogleSubscriptionsForConnection } from './providerPushGoogle.js';
+import { stopGraphSubscriptionsForConnection } from './providerPushMicrosoft.js';
+import { clearSyncHintsForConnection } from './providerSyncHints.js';
 
 /**
  * Disconnect a provider connection a user no longer wants.
@@ -45,8 +49,34 @@ export async function reactivateProviderConnection(
 }
 
 /** Revoke one connection owned by `userId`. Returns null when the user has no such connection. */
+/**
+ * Provider-side push cleanup for a connection, best effort.
+ *
+ * A disconnect must complete even when the provider cannot be reached: the local rows are what stop the
+ * renewal sweep, so they are always tombstoned, and the remote stop is attempted first only so that a
+ * healthy provider does not keep a subscription alive for an account Inboxora no longer has.
+ */
+async function releasePushSubscriptions(userId: string, connectionId: string): Promise<void> {
+  try {
+    const provider = await query<{ provider: string }>(
+      'SELECT provider FROM provider_connections WHERE id = $1 AND user_id = $2',
+      [connectionId, userId],
+    );
+    const row = provider.rows[0];
+    if (!row) return;
+    const stopper = row.provider === 'microsoft' ? stopGraphSubscriptionsForConnection : stopGoogleSubscriptionsForConnection;
+    await stopper({ userId, connectionId });
+  } catch (error) {
+    console.warn(`Push subscription cleanup for connection ${connectionId} failed:`, error instanceof Error ? error.message : error);
+    // The local tombstone is the guarantee; leave it in place even when the remote call could not run.
+    await markSubscriptionsRemoved({ connectionId }).catch(() => {});
+  }
+  // Whatever happened above, waiting hints for a disconnected connection must not run.
+  await clearSyncHintsForConnection(connectionId).catch(() => {});
+}
+
 export async function disconnectProviderConnection(userId: string, connectionId: string): Promise<DisconnectResult | null> {
-  return withTransaction(async (client: PoolClient) => {
+  const result = await withTransaction(async (client: PoolClient) => {
     const owned = await client.query<{ id: string }>(
       'SELECT id FROM provider_connections WHERE id = $1 AND user_id = $2',
       [connectionId, userId],
@@ -74,4 +104,8 @@ export async function disconnectProviderConnection(userId: string, connectionId:
     );
     return { connectionId, collectionsDisabled: disabled.rowCount ?? 0 };
   });
+  // After the transaction commits: stop the provider-side subscriptions and drop any hint that was waiting.
+  // Best effort by design — a provider outage must not keep a user from disconnecting an account.
+  await releasePushSubscriptions(userId, connectionId);
+  return result;
 }

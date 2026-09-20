@@ -422,6 +422,22 @@
       },
       "connectedAccounts": "Connected accounts",
       "disconnect": "Disconnect",
+      "push": {
+        "title": "Instant synchronization",
+        "stateActive": "Instant sync active",
+        "stateAvailable": "Not enabled — polling",
+        "stateRenewalError": "Renewal error",
+        "stateNeedsUrl": "Needs a public HTTPS URL",
+        "statePollingFallback": "Polling fallback",
+        "expires": "expires {{when}}",
+        "lastEvent": "last event {{when}}",
+        "pollingFallback": "Changes still arrive on the regular provider schedule.",
+        "reason": "Push inactive: {{reason}}",
+        "renewalFailed": "The last renewal failed ({{code}}).",
+        "contactsPollingOnly": "Contacts: polling only — the People API has no push for these resources.",
+        "enable": "Turn on",
+        "disable": "Turn off"
+      },
       "clientIdChangeConfirm": "This Client ID is different from the saved one, and the stored secret was issued for the saved client. It will be kept unless you enter a new secret. Continue?",
       "test": {
         "button": "Test configuration",

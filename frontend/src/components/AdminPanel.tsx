@@ -5,6 +5,7 @@ import { folderLabel } from '../utils/folderLabels.ts';
 import { inputStyle as sharedInputStyle } from './ui.tsx';
 import ConversationRebuild from './ConversationRebuild.tsx';
 import CalendarSubscriptionsSettings from './CalendarSubscriptionsSettings.tsx';
+import ProviderPushControls, { type ProviderPushStatus } from './ProviderPushControls.tsx';
 import { useCallback, useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.ts';
@@ -2768,6 +2769,16 @@ function CardDavCard() {
 }
 
 function IntegrationsTab() {
+  // Push status is fetched once for the tab: every provider card reads the same answer, and the section is
+  // simply absent when the endpoint cannot be reached.
+  const [pushStatus, setPushStatus] = useState<ProviderPushStatus | null>(null);
+  const loadPushStatus = useCallback(() => {
+    api.getProviderPushStatus()
+      .then((data: ProviderPushStatus) => setPushStatus(data))
+      .catch(() => { /* push is optional: without it the cards show no instant-synchronisation section */ });
+  }, []);
+  useEffect(() => { loadPushStatus(); }, [loadPushStatus]);
+
   const { t } = useTranslation();
   const { setAccounts, setTodoistConnected, user } = useStore();
   const isAdmin = !!user?.isAdmin;
@@ -3497,6 +3508,13 @@ function IntegrationsTab() {
                               >
                                 {t('admin.integrations.disconnect')}
                               </button>
+                              <ProviderPushControls
+                                provider="microsoft"
+                                connectionId={connection.id}
+                                status={pushStatus}
+                                reloadStatus={loadPushStatus}
+                                t={t}
+                              />
                             </div>
                           ))}
                         </div>
@@ -3801,6 +3819,13 @@ function IntegrationsTab() {
                                 >
                                   {t('admin.integrations.disconnect')}
                                 </button>
+                                <ProviderPushControls
+                                  provider="google"
+                                  connectionId={connection.id}
+                                  status={pushStatus}
+                                  reloadStatus={loadPushStatus}
+                                  t={t}
+                                />
                               </div>
                             ))}
                           </div>

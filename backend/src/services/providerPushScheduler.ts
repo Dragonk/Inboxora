@@ -1,0 +1,228 @@
+import { query } from './db.js';
+import { providerIntegrationsEnabled, readProviderSwitches } from './providerSwitches.js';
+import { providerPushEnabled, renewAheadMinutes } from './providerPushConfig.js';
+import {
+  listSubscriptionsDueForRenewal,
+  markSubscriptionsRemoved,
+  recordSubscriptionFailure,
+  type ProviderPushSubscription,
+} from './providerPushSubscriptions.js';
+import {
+  createGraphSubscription,
+  recordGraphRenewalFailure,
+  renewGraphSubscription,
+} from './providerPushMicrosoft.js';
+import { recordGoogleRenewalFailure, renewCalendarChannel, renewGmailWatch } from './providerPushGoogle.js';
+
+/**
+ * The renewal sweep.
+ *
+ * Both providers expire the things Inboxora registers: a Graph subscription in about three days, a Gmail
+ * watch within seven, a Calendar channel within a week. The sweep renews them **before** they lapse, with a
+ * per-provider safety margin, and treats a subscription the provider no longer knows as something to
+ * recreate rather than to fail on.
+ *
+ * Three properties matter more than speed here:
+ *
+ * - **no duplicates** — renewal returns the same row and a recreate goes through the live-scope unique
+ *   index, so a retry cannot leave two subscriptions being delivered (or two renewals being paid for);
+ * - **no storm** — a failure sets a backoff with jitter; an unreachable provider is retried with a widening
+ *   gap, and a disabled installation does not renew at all;
+ * - **polling is untouched** — nothing here can stop the schedule, and if it never runs the mailboxes are
+ *   still synchronised, just with the polling latency push exists to remove.
+ */
+
+const DEFAULT_SWEEP_MS = 10 * 60_000;
+
+export function pushRenewSweepMs(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = Number(env.PROVIDER_PUSH_SWEEP_MS);
+  if (!Number.isFinite(raw) || raw <= 0) return DEFAULT_SWEEP_MS;
+  return Math.max(60_000, Math.min(60 * 60_000, Math.floor(raw)));
+}
+
+/** Spread a pass's own start, so a fleet of installations does not renew in lockstep. */
+export function renewalJitterMs(random: () => number = Math.random): number {
+  return Math.floor(random() * 60_000);
+}
+
+export interface PushRenewalSummary {
+  considered: number;
+  renewed: number;
+  recreated: number;
+  failed: number;
+  skipped: number;
+}
+
+/** The remote calendar id a channel is opened against, read from the collection it belongs to. */
+async function remoteCalendarIdForCollection(collectionId: string): Promise<string | null> {
+  const result = await query<{ remote_id: string | null }>(
+    'SELECT remote_id FROM integration_collections WHERE id = $1',
+    [collectionId],
+  );
+  return result.rows[0]?.remote_id ?? null;
+}
+
+/** A subscription the provider no longer has must be recreated, not renewed for ever. */
+export function shouldRecreate(error: unknown): boolean {
+  const code = (error as { code?: string } | null)?.code;
+  const status = Number((error as { status?: number } | null)?.status);
+  return code === 'RESOURCE_NOT_FOUND' || status === 404;
+}
+
+export async function runProviderPushRenewals(env: NodeJS.ProcessEnv = process.env): Promise<PushRenewalSummary> {
+  const summary: PushRenewalSummary = { considered: 0, renewed: 0, recreated: 0, failed: 0, skipped: 0 };
+  if (!providerPushEnabled(env)) return summary;
+  // A disabled provider layer means no provider calls at all, renewals included.
+  if (!providerIntegrationsEnabled()) return summary;
+
+  const due = await listSubscriptionsDueForRenewal({
+    aheadMinutes: renewAheadMinutes(env),
+    limit: 50,
+  });
+  summary.considered = due.length;
+
+  for (const subscription of due) {
+    if (subscription.status === 'disabled') {
+      summary.skipped += 1;
+      continue;
+    }
+    // A provider switched off for this installation must not be called at all: its subscriptions are marked
+    // disabled in place instead of being renewed, so turning the provider back on is what resumes them.
+    const switches = await readProviderSwitches(subscription.provider);
+    if (!switches.enabled || !switches.apiEnabled) {
+      await markSubscriptionsRemoved({ subscriptionIds: [subscription.id], status: 'disabled' });
+      summary.skipped += 1;
+      continue;
+    }
+    try {
+      if (subscription.provider === 'microsoft') {
+        const outcome = await renewSubscription(subscription);
+        if (outcome === 'recreated') summary.recreated += 1;
+        else summary.renewed += 1;
+      } else if (subscription.resource_type === 'mail') {
+        await renewGmailWatch({
+          userId: subscription.user_id,
+          connectionId: subscription.provider_connection_id,
+          subscription,
+        });
+        summary.renewed += 1;
+      } else if (subscription.resource_type === 'calendar') {
+        const remoteCalendarId = subscription.collection_id
+          ? await remoteCalendarIdForCollection(subscription.collection_id)
+          : null;
+        if (!remoteCalendarId) {
+          // The collection is gone; the channel has nothing left to follow.
+          await markSubscriptionsRemoved({ subscriptionIds: [subscription.id] });
+          summary.skipped += 1;
+          continue;
+        }
+        await renewCalendarChannel({
+          userId: subscription.user_id,
+          connectionId: subscription.provider_connection_id,
+          subscription,
+          remoteCalendarId,
+        });
+        summary.renewed += 1;
+      } else {
+        summary.skipped += 1;
+      }
+    } catch (error) {
+      if (shouldRecreate(error) && subscription.provider === 'microsoft') {
+        try {
+          await createGraphSubscription({
+            userId: subscription.user_id,
+            connectionId: subscription.provider_connection_id,
+            resourceType: subscription.resource_type,
+          });
+          await markSubscriptionsRemoved({ subscriptionIds: [subscription.id] });
+          summary.recreated += 1;
+          continue;
+        } catch (recreateError) {
+          await recordGraphRenewalFailure({ subscription, error: recreateError });
+          summary.failed += 1;
+          continue;
+        }
+      }
+      if (subscription.provider === 'microsoft') await recordGraphRenewalFailure({ subscription, error });
+      else await recordGoogleRenewalFailure({ subscription, error });
+      summary.failed += 1;
+    }
+  }
+  return summary;
+}
+
+/**
+ * Renew one Microsoft subscription, recreating it when Graph has forgotten it.
+ *
+ * A subscription Graph answers `404` for is not a failure to retry: the expiry it reported no longer exists,
+ * so a fresh one is registered for the same scope and the old row becomes a tombstone.
+ */
+async function renewSubscription(subscription: ProviderPushSubscription): Promise<'renewed' | 'recreated'> {
+  try {
+    await renewGraphSubscription({
+      userId: subscription.user_id,
+      connectionId: subscription.provider_connection_id,
+      subscription,
+    });
+    return 'renewed';
+  } catch (error) {
+    if (!shouldRecreate(error)) throw error;
+    await createGraphSubscription({
+      userId: subscription.user_id,
+      connectionId: subscription.provider_connection_id,
+      resourceType: subscription.resource_type,
+    });
+    await markSubscriptionsRemoved({ subscriptionIds: [subscription.id] });
+    return 'recreated';
+  }
+}
+
+let timer: ReturnType<typeof setInterval> | null = null;
+let firstPass: ReturnType<typeof setTimeout> | null = null;
+let running = false;
+
+async function tick(): Promise<void> {
+  if (running) return;
+  running = true;
+  try {
+    const summary = await runProviderPushRenewals();
+    if (summary.renewed || summary.recreated || summary.failed) {
+      console.log(
+        `Provider push renewals: considered=${summary.considered} renewed=${summary.renewed} `
+        + `recreated=${summary.recreated} failed=${summary.failed} skipped=${summary.skipped}`,
+      );
+    }
+  } catch (error) {
+    console.warn('Provider push renewal pass failed:', error instanceof Error ? error.message : error);
+  } finally {
+    running = false;
+  }
+}
+
+export function startProviderPushScheduler(env: NodeJS.ProcessEnv = process.env): void {
+  stopProviderPushScheduler();
+  if (!providerPushEnabled(env)) return;
+  const sweepMs = pushRenewSweepMs(env);
+  // The first pass waits a jittered minute: a restart must not renew every subscription at once, and it must
+  // not compete with start-up either.
+  firstPass = setTimeout(() => { void tick(); }, 30_000 + renewalJitterMs());
+  if (typeof firstPass.unref === 'function') firstPass.unref();
+  timer = setInterval(() => { void tick(); }, sweepMs);
+  if (typeof timer.unref === 'function') timer.unref();
+}
+
+export function stopProviderPushScheduler(): void {
+  if (firstPass) clearTimeout(firstPass);
+  firstPass = null;
+  if (timer) clearInterval(timer);
+  timer = null;
+  running = false;
+}
+
+/** Record a renewal failure without a subscription row (used by the admin-triggered setup path). */
+export async function recordOrphanRenewalFailure(code: string): Promise<void> {
+  console.warn(`Provider push renewal failed: ${code}`);
+}
+
+/** Exported for the diagnostics endpoint: how a failing renewal is described. */
+export { recordSubscriptionFailure };

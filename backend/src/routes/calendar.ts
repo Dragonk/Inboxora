@@ -2,6 +2,7 @@ import { calendarResources, mergeCalendarResource, rruleFromCalendarResource, se
 import { parseRecurrenceStructure, recurrenceToRRule, recurrenceViewFromRRule, type ParsedRecurrence } from '../utils/calendarRecurrenceRule.js';
 import { googleConfigFromEnv, isGoogleConfigured, isMicrosoftConfigured, microsoftConfigFromEnv } from '../services/providerAuthService.js';
 import { syncGoogleCalendar } from '../services/providers/google/googleCalendarSync.js';
+import { releaseCalendarChannelForCollection } from '../services/providerPushGoogle.js';
 import { deleteCaldavEvent, putCaldavEvent } from '../services/providers/caldavWriteBack.js';
 import { davWriteBackHttpStatus, type DavWriteBackRouteResult } from '../services/providers/davWriteBack.js';
 import {
@@ -681,6 +682,22 @@ router.delete('/calendars/:calendarId', async (req, res) => {
   );
   const candidate = current.rows[0];
   if (!candidate || !collectionIsWritable(candidate, 'calendars')) return res.status(404).json({ error: 'Calendar not found' });
+  // Stop the calendar's push channel before the collection row goes: the row's foreign key would remove the
+  // subscription record without telling Google, leaving a channel pushing at an endpoint that no longer
+  // recognises it. Best effort — the removal must not fail because Google is unreachable. A local calendar has
+  // no collection and no channel, so the lookup only happens for a provider-backed one.
+  const collection = candidate.source && candidate.source !== 'local'
+    ? await query<{ id: string }>(
+      'SELECT id FROM integration_collections WHERE local_calendar_id = $1 AND user_id = $2',
+      [req.params.calendarId, req.session.userId],
+    )
+    : { rows: [] as Array<{ id: string }> };
+  if (collection.rows[0]) {
+    await releaseCalendarChannelForCollection({
+      userId: req.session.userId!,
+      collectionId: collection.rows[0].id,
+    }).catch(error => console.warn('Calendar push channel cleanup failed:', error instanceof Error ? error.message : error));
+  }
   const result = await query(
     `DELETE FROM calendars
      WHERE id = $1 AND owner_user_id = $2 AND user_id = $2 AND name = $3

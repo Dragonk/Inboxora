@@ -199,6 +199,11 @@ describe('account alias mutation failures do not invalidate the cache', () => {
 describe('account deletion with calendar invitations', () => {
   it('returns a conflict when the account remains an invitation sender', async () => {
     query.mockImplementation(async (sql) => {
+      // The delete reads the account's connection too: push subscriptions are released with it, and a row
+      // without one (this account) releases nothing.
+      if (sql.startsWith('SELECT id, provider_connection_id FROM email_accounts')) {
+        return { rows: [{ id: URL_ACCOUNT_ID, provider_connection_id: null }] };
+      }
       if (sql.startsWith('SELECT id FROM email_accounts')) return { rows: [{ id: URL_ACCOUNT_ID }] };
       if (sql.startsWith('DELETE FROM email_accounts')) throw Object.assign(new Error('foreign key violation'), { code: '23503' });
       throw new Error(`Unexpected query: ${sql}`);

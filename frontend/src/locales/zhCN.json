@@ -422,6 +422,22 @@
       },
       "connectedAccounts": "已连接的账户",
       "disconnect": "断开连接",
+      "push": {
+        "title": "即时同步",
+        "stateActive": "即时同步已启用",
+        "stateAvailable": "未启用 — 轮询",
+        "stateRenewalError": "续订错误",
+        "stateNeedsUrl": "需要公共 HTTPS 地址",
+        "statePollingFallback": "轮询回退",
+        "expires": "到期 {{when}}",
+        "lastEvent": "最近事件 {{when}}",
+        "pollingFallback": "更改仍会按提供方的常规计划到达。",
+        "reason": "推送未启用：{{reason}}",
+        "renewalFailed": "上次续订失败（{{code}}）。",
+        "contactsPollingOnly": "联系人：仅轮询 — People API 不支持这些资源的推送。",
+        "enable": "开启",
+        "disable": "关闭"
+      },
       "clientIdChangeConfirm": "此 Client ID 与已保存的不同，而已保存的密钥是为已保存的客户端签发的。如果未输入新密钥，它将保留。是否继续？",
       "test": {
         "button": "测试配置",

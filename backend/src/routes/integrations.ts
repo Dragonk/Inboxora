@@ -10,6 +10,16 @@ import { encrypt, decrypt, isEncrypted } from '../services/encryption.js';
 import { routeParam } from '../utils/query.js';
 import { toAppError } from '../utils/errors.js';
 import type { Request, Response } from 'express';
+import { providerSyncIntervalMinutes } from '../services/providerSyncScheduler.js';
+import {
+  listSubscriptionDiagnostics,
+  pushAvailability,
+} from '../services/providerPushSubscriptions.js';
+import { ensureGraphSubscriptions, microsoftPushAvailable } from '../services/providerPushMicrosoft.js';
+import { ensureGoogleSubscriptions, gmailPushAvailable, googleCalendarPushAvailable } from '../services/providerPushGoogle.js';
+import { releaseProviderPushForConnection } from '../services/providerPushLifecycle.js';
+import { syncHintDiagnostics } from '../services/providerSyncHints.js';
+import { publicWebhookUrl } from '../services/providerPushConfig.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -475,6 +485,117 @@ router.get('/status', async (req: Request, res: Response) => {
     google: { ...googleReadiness(googleStored), connections: forProvider('google') },
   };
   res.json(status);
+});
+
+/**
+ * Instant-synchronisation status: what push needs, what is registered, and how it is doing.
+ *
+ * Administrator-level detail with no secrets in it: the callback URLs (derived from `APP_URL`, never typed
+ * per account), whether each provider's push is available and why not, the live subscriptions with their
+ * expiries and last notification, and how many hints are waiting. An installation without a public HTTPS URL
+ * reads as "not configured" here and keeps synchronising by polling — which is a state, not an error.
+ */
+router.get('/push-status', requireAdmin, async (_req: Request, res: Response) => {
+  const availability = pushAvailability();
+  const microsoft = microsoftPushAvailable();
+  const calendarPush = googleCalendarPushAvailable();
+  const gmail = gmailPushAvailable();
+  const [subscriptions, hints] = await Promise.all([listSubscriptionDiagnostics(), syncHintDiagnostics()]);
+  res.json({
+    enabled: availability.enabled,
+    webhookBaseUrl: availability.webhookBaseUrl,
+    reason: availability.reason,
+    endpoints: {
+      microsoft: publicWebhookUrl('/api/provider-webhooks/microsoft'),
+      gmail: publicWebhookUrl('/api/provider-webhooks/gmail'),
+      googleCalendar: publicWebhookUrl('/api/provider-webhooks/google-calendar'),
+    },
+    microsoft: {
+      available: microsoft.available,
+      reason: microsoft.reason,
+      resources: ['mail', 'calendar', 'contacts'],
+    },
+    google: {
+      gmailAvailable: gmail.available,
+      gmailReason: gmail.reason,
+      calendarAvailable: calendarPush.available,
+      calendarReason: calendarPush.reason,
+      // The People API has no push channel for the resources Inboxora syncs, so contacts stay on their sync
+      // token and the schedule. Documented rather than faked.
+      contacts: { push: false, strategy: 'polling' },
+    },
+    pollingFallback: { enabled: true, intervalMinutes: providerSyncIntervalMinutes() },
+    subscriptions,
+    hints,
+  });
+});
+
+/**
+ * Register (or refresh) the push subscriptions of one connection.
+ *
+ * Deliberate and per connection: the user or administrator asks for instant synchronisation of a mailbox or
+ * its calendars, and Inboxora registers exactly the resources that connection has pulled. A refusal from the
+ * provider is reported per resource; polling is unaffected either way.
+ */
+router.post('/push/connections/:id/enable', requireAdmin, async (req: Request, res: Response) => {
+  const connectionId = routeParam(req.params.id);
+  if (!connectionId) return res.status(400).json({ error: 'Invalid connection id' });
+  const connection = await query<{ id: string; user_id: string; provider: string }>(
+    'SELECT id, user_id, provider FROM provider_connections WHERE id = $1 AND status = $2',
+    [connectionId, 'active'],
+  );
+  const target = connection.rows[0];
+  if (!target) return res.status(404).json({ error: 'Connection not found' });
+
+  const collections = await query<{ id: string; kind: string; remote_id: string | null; local_calendar_id: string | null }>(
+    `SELECT id, kind, remote_id, local_calendar_id FROM integration_collections
+      WHERE connection_id = $1 AND enabled = true`,
+    [connectionId],
+  );
+  const kinds = new Set(collections.rows.map(row => row.kind));
+
+  try {
+    if (target.provider === 'microsoft') {
+      const resourceTypes: Array<'mail' | 'calendar' | 'contacts'> = [];
+      if (kinds.has('mail_folder')) resourceTypes.push('mail');
+      if (kinds.has('calendar')) resourceTypes.push('calendar');
+      if (kinds.has('address_book')) resourceTypes.push('contacts');
+      if (!resourceTypes.length) return res.status(409).json({ error: 'This connection has no pulled collections to watch', code: 'NO_COLLECTIONS' });
+      const outcome = await ensureGraphSubscriptions({ userId: target.user_id, connectionId, resourceTypes });
+      return res.json({ ok: true, provider: 'microsoft', created: outcome.created, failed: outcome.failed });
+    }
+    if (target.provider === 'google') {
+      const calendars = collections.rows
+        .filter(row => row.kind === 'calendar' && row.remote_id)
+        .map(row => ({ collectionId: row.id, remoteCalendarId: String(row.remote_id) }));
+      const outcome = await ensureGoogleSubscriptions({
+        userId: target.user_id,
+        connectionId,
+        calendars,
+        includeMail: kinds.has('mail_folder'),
+      });
+      return res.json({ ok: true, provider: 'google', created: outcome.created, failed: outcome.failed });
+    }
+    return res.status(400).json({ error: 'Unknown provider' });
+  } catch (caught) {
+    const error = toAppError(caught);
+    console.error('Push subscription setup failed:', error.message);
+    return res.status(502).json({ error: 'The provider refused the notification setup', code: error.code ?? 'PUSH_SETUP_FAILED' });
+  }
+});
+
+/** Stop and tombstone the push subscriptions of one connection, without touching the connection itself. */
+router.post('/push/connections/:id/disable', requireAdmin, async (req: Request, res: Response) => {
+  const connectionId = routeParam(req.params.id);
+  if (!connectionId) return res.status(400).json({ error: 'Invalid connection id' });
+  const connection = await query<{ id: string; user_id: string }>(
+    'SELECT id, user_id FROM provider_connections WHERE id = $1',
+    [connectionId],
+  );
+  const target = connection.rows[0];
+  if (!target) return res.status(404).json({ error: 'Connection not found' });
+  const outcome = await releaseProviderPushForConnection({ userId: target.user_id, connectionId });
+  res.json({ ok: true, ...outcome });
 });
 
 // Save/update integration config — admin only (writes affect global OAuth env vars)

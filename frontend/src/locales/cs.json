@@ -853,6 +853,22 @@
       },
       "connectedAccounts": "Připojené účty",
       "disconnect": "Odpojit",
+      "push": {
+        "title": "Okamžitá synchronizace",
+        "stateActive": "Okamžitá synchronizace aktivní",
+        "stateAvailable": "Není zapnuto – dotazování",
+        "stateRenewalError": "Chyba obnovení",
+        "stateNeedsUrl": "Vyžaduje veřejnou HTTPS adresu",
+        "statePollingFallback": "Záložní dotazování",
+        "expires": "vyprší {{when}}",
+        "lastEvent": "poslední událost {{when}}",
+        "pollingFallback": "Změny stále přicházejí podle běžného plánu poskytovatele.",
+        "reason": "Push neaktivní: {{reason}}",
+        "renewalFailed": "Poslední obnovení selhalo ({{code}}).",
+        "contactsPollingOnly": "Kontakty: pouze dotazování – People API pro tyto zdroje push nemá.",
+        "enable": "Zapnout",
+        "disable": "Vypnout"
+      },
       "clientIdChangeConfirm": "Toto Client ID se liší od uloženého a uložený secret byl vydán pro uloženého klienta. Zůstane zachován, pokud nezadáte nový secret. Pokračovat?",
       "test": {
         "button": "Otestovat konfiguraci",

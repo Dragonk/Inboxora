@@ -861,6 +861,22 @@
       },
       "connectedAccounts": "Połączone konta",
       "disconnect": "Odłącz",
+      "push": {
+        "title": "Synchronizacja natychmiastowa",
+        "stateActive": "Synchronizacja natychmiastowa aktywna",
+        "stateAvailable": "Nie włączona — odpytywanie",
+        "stateRenewalError": "Błąd odnowienia",
+        "stateNeedsUrl": "Wymaga publicznego adresu HTTPS",
+        "statePollingFallback": "Fallback przez odpytywanie",
+        "expires": "wygasa {{when}}",
+        "lastEvent": "ostatnie zdarzenie {{when}}",
+        "pollingFallback": "Zmiany nadal docierają zgodnie ze zwykłym harmonogramem providera.",
+        "reason": "Push nieaktywny: {{reason}}",
+        "renewalFailed": "Ostatnie odnowienie nie powiodło się ({{code}}).",
+        "contactsPollingOnly": "Kontakty: tylko odpytywanie — People API nie ma push dla tych zasobów.",
+        "enable": "Włącz",
+        "disable": "Wyłącz"
+      },
       "clientIdChangeConfirm": "Ten Client ID różni się od zapisanego, a zapisany sekret został wydany dla zapisanego klienta. Zostanie zachowany, jeśli nie podasz nowego sekretu. Kontynuować?",
       "test": {
         "button": "Sprawdź konfigurację",

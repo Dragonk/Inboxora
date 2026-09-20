@@ -16,6 +16,7 @@ import oauthRoutes from './routes/oauth.js';
 import oauthGoogleRoutes from './routes/oauthGoogle.js';
 import oauthMicrosoftRoutes from './routes/oauthMicrosoft.js';
 import integrationsRoutes, { loadIntegrationConfigs } from './routes/integrations.js';
+import providerWebhookRoutes from './routes/providerWebhooks.js';
 import authRoutes from './routes/auth.js';
 import accountRoutes from './routes/accounts.js';
 import mailRoutes from './routes/mail.js';
@@ -46,6 +47,8 @@ import calendarFeedRouter from './routes/calendarFeed.js';
 import { startCardavScheduler } from './services/carddavSync.js';
 import { startExternalCalendarScheduler } from './services/externalCalendarSync.js';
 import { startProviderSyncScheduler } from './services/providerSyncScheduler.js';
+import { startProviderSyncHintWorker } from './services/providerSyncHintWorker.js';
+import { startProviderPushScheduler } from './services/providerPushScheduler.js';
 import { encryptExistingCredentials, query } from './services/db.js';
 import { runMigrations } from './services/migrations.js';
 import { parseVCard } from './utils/vcard.js';
@@ -203,8 +206,12 @@ app.use(sessionMiddleware);
 // (/carddav) and OAuth flows (/oauth) are mounted outside /api and use their own
 // auth, so they are intentionally not gated here.
 const CSRF_SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+const CSRF_EXEMPT_PREFIXES = ['/provider-webhooks/'];
 app.use('/api', (req: Request, res: Response, next: NextFunction) => {
   if (CSRF_SAFE_METHODS.has(req.method)) return next();
+  // A provider webhook authenticates itself and cannot set a browser header; exempting the prefix here is
+  // what lets it through without weakening the gate on the cookie-authenticated surface.
+  if (CSRF_EXEMPT_PREFIXES.some(prefix => req.path.startsWith(prefix))) return next();
   if (req.get('X-Requested-With')) return next();
   return res.status(403).json({ error: 'Missing required X-Requested-With header' });
 });
@@ -215,6 +222,8 @@ app.use('/api', (req: Request, res: Response, next: NextFunction) => {
 // Matches the full path (minus query) so it can't fail open on mount-relative paths.
 const LOCK_ALLOWED = new Set(['/api/auth/unlock', '/api/auth/logout', '/api/auth/me', '/api/health', '/api/version']);
 app.use('/api', (req: Request, res: Response, next: NextFunction) => {
+  // A provider webhook has no session to lock, and a locked browser session must never stop synchronisation.
+  if (req.path.startsWith('/provider-webhooks/')) return next();
   if (req.session?.locked && !LOCK_ALLOWED.has(req.originalUrl.split('?')[0])) {
     return res.status(423).json({ error: 'Locked', locked: true });
   }
@@ -243,6 +252,9 @@ app.use('/oauth', oauthGoogleRoutes);
 // existing /oauth/microsoft account-connection flow untouched.
 app.use('/oauth', oauthMicrosoftRoutes);
 app.use('/api/integrations', integrationsRoutes);
+// Provider notifications are called by the provider, not by a browser: they carry no session and no CSRF
+// header, and they authenticate themselves (Graph's clientState, Google's channel or Pub/Sub token).
+app.use('/api/provider-webhooks', providerWebhookRoutes);
 app.use('/api/accounts', accountRoutes);
 app.use('/api/mail', mailRoutes);
 app.use('/api/mail', conversationsRoutes);
@@ -363,6 +375,11 @@ startExternalCalendarScheduler().catch(err => console.warn('External calendar sc
 // Refresh the Google collections a user already pulled (contacts, calendars) without
 // touching the ones they never asked for; PROVIDER_SYNC_INTERVAL_MINUTES=0 disables it.
 startProviderSyncScheduler();
+// Push-assisted synchronisation is additive: the worker turns a recorded notification into the same sync the
+// schedule runs, and the renewal sweep keeps the provider-side subscriptions alive. Both no-op when
+// PROVIDER_PUSH_ENABLED is off, and polling continues either way.
+startProviderSyncHintWorker();
+startProviderPushScheduler();
 // Retry conversation persistence failures without blocking IMAP synchronization.
 setInterval(() => retryConversationIngestFailures({ limit: 25 }).catch(err => console.warn('Conversation ingest retry failed:', err.message)), 5 * 60 * 1000);
 // Retry calendar invitations whose SMTP delivery failed, so a transient outage

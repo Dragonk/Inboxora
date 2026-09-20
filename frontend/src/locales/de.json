@@ -422,6 +422,22 @@
       },
       "connectedAccounts": "Verbundene Konten",
       "disconnect": "Trennen",
+      "push": {
+        "title": "Sofort-Synchronisierung",
+        "stateActive": "Sofort-Sync aktiv",
+        "stateAvailable": "Nicht aktiviert – Polling",
+        "stateRenewalError": "Erneuerungsfehler",
+        "stateNeedsUrl": "Öffentliche HTTPS-URL erforderlich",
+        "statePollingFallback": "Polling-Fallback",
+        "expires": "läuft ab {{when}}",
+        "lastEvent": "letztes Ereignis {{when}}",
+        "pollingFallback": "Änderungen kommen weiterhin über den regulären Provider-Zeitplan.",
+        "reason": "Push inaktiv: {{reason}}",
+        "renewalFailed": "Die letzte Erneuerung ist fehlgeschlagen ({{code}}).",
+        "contactsPollingOnly": "Kontakte: nur Polling – die People API hat dafür kein Push.",
+        "enable": "Aktivieren",
+        "disable": "Deaktivieren"
+      },
       "clientIdChangeConfirm": "Diese Client-ID unterscheidet sich von der gespeicherten, und das gespeicherte Secret wurde für den gespeicherten Client ausgestellt. Es bleibt erhalten, wenn Sie kein neues Secret eingeben. Fortfahren?",
       "test": {
         "button": "Konfiguration testen",

@@ -342,6 +342,11 @@ export const api = {
   // allow writes to it, so the interface does not need to guess.
   setCollectionWriteBack: (collectionId: string, writeBack: boolean) =>
     request('PATCH', `/integrations/collections/${encodeURIComponent(collectionId)}`, { writeBack }),
+  // Push-assisted synchronisation: whether it can be offered here, what is registered, and how it is doing.
+  // The server derives the callback URLs from APP_URL; a client never supplies one.
+  getProviderPushStatus: () => request('GET', '/integrations/push-status'),
+  enableConnectionPush: (connectionId: string) => request('POST', `/integrations/push/connections/${encodeURIComponent(connectionId)}/enable`, {}),
+  disableConnectionPush: (connectionId: string) => request('POST', `/integrations/push/connections/${encodeURIComponent(connectionId)}/disable`, {}),
   testProviderConfiguration: (provider: 'google' | 'microsoft') =>
     request('POST', `/integrations/${provider}/test`),
   saveIntegration: (provider: string, config: unknown) => request('POST', `/integrations/${provider}`, config),

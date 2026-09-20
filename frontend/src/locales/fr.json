@@ -422,6 +422,22 @@
       },
       "connectedAccounts": "Comptes connectés",
       "disconnect": "Déconnecter",
+      "push": {
+        "title": "Synchronisation instantanée",
+        "stateActive": "Synchro instantanée active",
+        "stateAvailable": "Non activée — interrogation",
+        "stateRenewalError": "Erreur de renouvellement",
+        "stateNeedsUrl": "Nécessite une URL HTTPS publique",
+        "statePollingFallback": "Repli par interrogation",
+        "expires": "expire {{when}}",
+        "lastEvent": "dernier événement {{when}}",
+        "pollingFallback": "Les changements arrivent toujours selon la planification normale du fournisseur.",
+        "reason": "Push inactif : {{reason}}",
+        "renewalFailed": "Le dernier renouvellement a échoué ({{code}}).",
+        "contactsPollingOnly": "Contacts : interrogation seule — l’API People n’a pas de push pour ces ressources.",
+        "enable": "Activer",
+        "disable": "Désactiver"
+      },
       "clientIdChangeConfirm": "Cet ID client diffère de celui enregistré, et le secret stocké a été émis pour le client enregistré. Il sera conservé si vous ne saisissez pas de nouveau secret. Continuer ?",
       "test": {
         "button": "Tester la configuration",

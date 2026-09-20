@@ -422,6 +422,22 @@
       },
       "connectedAccounts": "Cuentas conectadas",
       "disconnect": "Desconectar",
+      "push": {
+        "title": "Sincronización instantánea",
+        "stateActive": "Sincronización instantánea activa",
+        "stateAvailable": "No activada: sondeo",
+        "stateRenewalError": "Error de renovación",
+        "stateNeedsUrl": "Requiere una URL HTTPS pública",
+        "statePollingFallback": "Reserva por sondeo",
+        "expires": "caduca {{when}}",
+        "lastEvent": "último evento {{when}}",
+        "pollingFallback": "Los cambios siguen llegando con la programación normal del proveedor.",
+        "reason": "Push inactivo: {{reason}}",
+        "renewalFailed": "La última renovación falló ({{code}}).",
+        "contactsPollingOnly": "Contactos: solo sondeo; la API de People no tiene push para estos recursos.",
+        "enable": "Activar",
+        "disable": "Desactivar"
+      },
       "clientIdChangeConfirm": "Este ID de cliente es distinto del guardado, y el secreto almacenado se emitió para el cliente guardado. Se conservará si no introduces un secreto nuevo. ¿Continuar?",
       "test": {
         "button": "Probar la configuración",

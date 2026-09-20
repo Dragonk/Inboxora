@@ -1,4 +1,4 @@
-import { query } from './db.js';
+import { query, withTransaction } from './db.js';
 import { providerIntegrationsEnabled } from './providerSwitches.js';
 import {
   googleConfigFromEnv,
@@ -11,6 +11,7 @@ import { syncGoogleCalendar } from './providers/google/googleCalendarSync.js';
 import { syncGraphContacts } from './providers/microsoft/graphContactsSync.js';
 import { syncGraphCalendar } from './providers/microsoft/graphCalendarSync.js';
 import { syncGraphMailFolders, syncGraphMailMessagesForAccount } from './providers/microsoft/graphMailSync.js';
+import { listGmailMailAccounts, syncGmailMailLabelsForAccount, syncGmailMailMessagesForAccount } from './providers/google/gmailMailSync.js';
 
 /**
  * Periodic refresh of the provider collections a user has already pulled (P09).
@@ -77,6 +78,7 @@ export async function listProviderSyncTargets(): Promise<ProviderSyncTarget[]> {
          ON ic.connection_id = pc.id
         AND ic.enabled = true
         AND (ic.local_calendar_id IS NOT NULL OR ic.local_address_book_id IS NOT NULL OR ic.local_folder_id IS NOT NULL)
+        -- A Gmail mailbox is represented by a mail folder collection like Graph's, so the schedule covers it.
       WHERE pc.status = 'active' AND pc.provider IN ('google', 'microsoft')
       GROUP BY pc.user_id, pc.id, pc.provider
       ORDER BY pc.user_id, pc.id`,
@@ -158,6 +160,20 @@ function syncFor(provider: string, kind: string): ((target: ProviderSyncTarget, 
   if (provider === 'google') {
     if (kind === 'address_book') return (target, google) => syncGoogleContacts({ userId: target.userId, connectionId: target.connectionId, config: google });
     if (kind === 'calendar') return (target, google) => syncGoogleCalendar({ userId: target.userId, connectionId: target.connectionId, config: google });
+    if (kind === 'mail_folder') {
+      // Labels first (a message's folder is only resolvable once the label paths exist), then the messages of
+      // every account this connection owns. This is also Gmail's polling fallback: with push enabled it
+      // simply runs less often, and with push unavailable it is the only thing keeping the mailbox fresh.
+      return async (target, google) => {
+        const accounts = await withTransaction(client => listGmailMailAccounts(client, { userId: target.userId, connectionId: target.connectionId }));
+        const labels = await syncGmailMailLabelsForAccount({ userId: target.userId, connectionId: target.connectionId, accountId: accounts[0] ?? target.connectionId, config: google });
+        const messages = [];
+        for (const accountId of accounts) {
+          messages.push(await syncGmailMailMessagesForAccount({ userId: target.userId, connectionId: target.connectionId, accountId, config: google }));
+        }
+        return { labels, messages };
+      };
+    }
     return null;
   }
   if (provider === 'microsoft') {
@@ -183,6 +199,33 @@ function syncFor(provider: string, kind: string): ((target: ProviderSyncTarget, 
     return null;
   }
   return null;
+}
+
+/**
+ * Run the sync one resource type needs, for one connection.
+ *
+ * This is the same adapter the schedule calls, reached the same way: a push hint changes *when* a sync runs,
+ * never what it does, so a notification cannot introduce a second synchronisation path.
+ */
+export async function runProviderSyncForHint(input: {
+  userId: string;
+  connectionId: string;
+  provider: string;
+  resourceType: string;
+}): Promise<{ ran: boolean; reason?: string }> {
+  if (!providerIntegrationsEnabled()) return { ran: false, reason: 'PROVIDER_INTEGRATIONS_DISABLED' };
+  const googleConfig = googleConfigFromEnv();
+  const microsoftConfig = microsoftConfigFromEnv();
+  const ready = input.provider === 'google' ? isGoogleConfigured(googleConfig) : isMicrosoftConfigured(microsoftConfig);
+  if (!ready) return { ran: false, reason: 'PROVIDER_NOT_CONFIGURED' };
+  const sync = syncFor(input.provider, input.resourceType);
+  if (!sync) return { ran: false, reason: 'NO_SYNC_FOR_RESOURCE' };
+  await sync(
+    { userId: input.userId, connectionId: input.connectionId, provider: input.provider, features: [input.resourceType] },
+    googleConfig,
+    microsoftConfig,
+  );
+  return { ran: true };
 }
 
 async function tick(): Promise<void> {
