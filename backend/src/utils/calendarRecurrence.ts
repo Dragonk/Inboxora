@@ -239,6 +239,10 @@ export function truncateSeriesBefore(raw: string | null | undefined, recurrenceI
     ? ICAL.Time.fromString(new Date(startDate.getTime() - 1000).toISOString().slice(0, 10), undefined)
     : ICAL.Time.fromJSDate(new Date(startDate.getTime() - 1000), true);
   rule.until = until;
+  // RFC 5545 forbids `UNTIL` and `COUNT` on the same rule, and a stored series that carried a count would
+  // otherwise leave both on it: the count would keep describing the original series while `UNTIL` says where
+  // this one now ends. Every client that validates the rule (and ical.js itself) treats the pair as invalid.
+  rule.count = null;
   master.updatePropertyWithValue('rrule', rule);
 
   // Exceptions at or after the cut describe occurrences the series no longer produces.

@@ -119,6 +119,17 @@ describe('cancelling a series from an occurrence onward', () => {
       .toEqual(['01-05', '01-06', '01-07', '01-08']);
   });
 
+  it('drops COUNT when it sets UNTIL, because a rule may carry only one end', () => {
+    // RFC 5545 forbids UNTIL and COUNT together, and leaving both would tell a client that the series both
+    // ends at a boundary and produces the original number of occurrences.
+    const result = mustTruncate(seriesWith(), '2026-01-09T09:00:00');
+    const rule = result.raw.split('\r\n').find(line => line.startsWith('RRULE:'));
+    // The series starts at 09:00 Europe/Warsaw, so the instant before the 9 January occurrence is
+    // 07:59:59 UTC.
+    expect(rule).toContain('UNTIL=20260109T075959Z');
+    expect(rule).not.toContain('COUNT=');
+  });
+
   it('reports nothing to truncate for an event that does not recur', () => {
     expect(truncateSeriesBefore(seriesWith().replace('RRULE:FREQ=DAILY;COUNT=10\r\n', ''), '2026-01-09T09:00:00')).toBeNull();
   });

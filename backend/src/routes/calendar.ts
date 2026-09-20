@@ -2,6 +2,8 @@ import { calendarResources, mergeCalendarResource, rruleFromCalendarResource, se
 import { parseRecurrenceStructure, recurrenceToRRule, recurrenceViewFromRRule, type ParsedRecurrence } from '../utils/calendarRecurrenceRule.js';
 import { googleConfigFromEnv, isGoogleConfigured, isMicrosoftConfigured, microsoftConfigFromEnv } from '../services/providerAuthService.js';
 import { syncGoogleCalendar } from '../services/providers/google/googleCalendarSync.js';
+import { deleteCaldavEvent, putCaldavEvent } from '../services/providers/caldavWriteBack.js';
+import { davWriteBackHttpStatus, type DavWriteBackRouteResult } from '../services/providers/davWriteBack.js';
 import {
   writeProviderCalendarOccurrence,
   type OccurrenceScope,
@@ -358,6 +360,78 @@ function providerWriteRefusal(res: Response, failure: { status: number; error: s
     ...(failure.code ? { code: failure.code } : {}),
     error: failure.error,
   });
+}
+
+/**
+ * Answer a REST call with what the DAV source did.
+ *
+ * The same statuses the DAV handlers answer with (`davWriteBackHttpStatus`), because the web path and the DAV
+ * path are writing to the same source and must not disagree about what a conflict or an unknown outcome is.
+ */
+function respondCaldavWriteBack(res: Response, result: DavWriteBackRouteResult, body: Record<string, unknown> = {}): void {
+  if (result.retryAfterSeconds !== undefined) res.setHeader('Retry-After', String(result.retryAfterSeconds));
+  const status = davWriteBackHttpStatus(result);
+  if (status === 204 || status === 201) {
+    res.status(status).json({ ok: true, created: result.created, ...body });
+    return;
+  }
+  res.status(status).json({
+    ...(result.code ? { code: result.code } : {}),
+    error: status === 412
+      ? 'The calendar changed at its source since you loaded it. Reload and try again.'
+      : 'The calendar source refused this change.',
+    ...body,
+  });
+}
+
+/** A CalDAV collection the user enabled write-back for. */
+type CaldavWriteTarget = Extract<
+  Awaited<ReturnType<typeof resolveCalendarWriteTarget>>,
+  { kind: 'caldav' }
+>;
+
+/**
+ * Forward one local event resource to the external CalDAV source that owns the collection.
+ *
+ * The write-back client commits the local projection itself, only after the source confirms, so the caller
+ * must not also write the row: the projection and the source's answer are the same fact, and doing both would
+ * mean two writers for one event.
+ */
+async function writeCaldavEventResource(input: {
+  userId: string;
+  target: CaldavWriteTarget;
+  method: 'PUT' | 'DELETE';
+  filename: string;
+  uid: string;
+  raw: string;
+  exists: boolean;
+  localObjectId: string | null;
+  localRevision: string | null;
+}): Promise<DavWriteBackRouteResult> {
+  const calendar = { id: input.target.calendarId, external_url: input.target.externalUrl, source: 'caldav' };
+  if (input.method === 'DELETE') {
+    return await deleteCaldavEvent({
+      method: 'DELETE', userId: input.userId, calendar, filename: input.filename, uid: input.uid,
+      raw: '', parsed: null, exists: input.exists, localObjectId: input.localObjectId, localRevision: input.localRevision,
+    });
+  }
+  const parsed = parseCalendarEvent(input.raw);
+  if (!parsed) {
+    return { status: 'permanent', created: false, code: 'INVALID_REQUEST' };
+  }
+  return await putCaldavEvent({
+    method: 'PUT', userId: input.userId, calendar, filename: input.filename, uid: input.uid,
+    raw: input.raw, parsed, exists: input.exists, localObjectId: input.localObjectId, localRevision: input.localRevision,
+  });
+}
+
+/** The stored event a CalDAV write needs: its identity, its resource text and its entity-tag. */
+async function readCaldavEventRow(userId: string, calendarId: string, eventId: string) {
+  const result = await query<{ id: string; uid: string; raw_ical: string; etag: string; dav_filename: string | null }>(
+    'SELECT id, uid, raw_ical, etag, dav_filename FROM calendar_events WHERE id = $1 AND calendar_id = $2 AND user_id = $3',
+    [eventId, calendarId, userId],
+  );
+  return result.rows[0] ?? null;
 }
 
 async function contactCalendarAppearance(userId: string): Promise<{ name?: string | null; color?: string | null; [key: string]: unknown }> {
@@ -800,6 +874,42 @@ router.post('/events', async (req, res) => {
       uid: attempt.event?.iCalUID?.trim() || `${attempt.providerEventId}@google.com`,
     };
   }
+  if (target.kind === 'caldav') {
+    // The source owns the collection, so it is written first and the projection follows from that answer.
+    const caldavUid = crypto.randomUUID();
+    const caldavRaw = localEventIcal({ uid: caldavUid, summary, description, location, url, organizer, attendees: normalizedAttendees, allDay: Boolean(allDay), ...times, rrule });
+    const written = await writeCaldavEventResource({
+      userId: req.session.userId!, target, method: 'PUT', filename: `${caldavUid}.ics`, uid: caldavUid,
+      raw: caldavRaw, exists: false, localObjectId: null, localRevision: null,
+    });
+    if (written.status !== 'confirmed') return respondCaldavWriteBack(res, written);
+
+    const stored = await query<{ id: string }>(
+      'SELECT id FROM calendar_events WHERE calendar_id = $1 AND uid = $2 AND user_id = $3',
+      [calendarId, caldavUid, req.session.userId],
+    );
+    // Invitations are Inboxora's on this path: a plain CalDAV server is not a scheduling service, so the
+    // organiser's own mail client behaviour is reproduced here rather than assumed.
+    if (sendInvites && normalizedAttendees.length) {
+      const sender = await query<EmailAccountRow>(
+        'SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2 AND enabled = true AND smtp_host IS NOT NULL',
+        [inviteAccountId, req.session.userId],
+      );
+      if (!sender.rows[0]) return res.status(400).json({ error: 'The selected sender account is unavailable' });
+      try {
+        await sendCalendarInvitation({
+          account: sender.rows[0], attendees: normalizedAttendees, summary: summary || null, description,
+          location, uid: caldavUid, startsAt: times.startsAt, endsAt: times.endsAt, allDay: Boolean(allDay),
+          method: 'REQUEST', sequence: 0, rrule,
+        });
+      } catch (caught) {
+        console.error('Calendar invitation delivery failed:', toAppError(caught).message);
+        return res.status(201).json({ event: { id: stored.rows[0]?.id ?? null }, invitationError: 'The event was saved, but the invitation could not be sent.' });
+      }
+    }
+    return res.status(201).json({ event: { id: stored.rows[0]?.id ?? null } });
+  }
+
   const invitesHandledByProvider = target.kind !== 'local';
 
   let invitationAccount = null;
@@ -1020,6 +1130,91 @@ async function handleProviderOccurrence(
   });
 }
 
+/**
+ * Change or cancel one occurrence (or the rest of a series) in an external CalDAV collection.
+ *
+ * The same three scopes the provider path implements, expressed in the resource the source understands: a
+ * single-occurrence change is the master with one override merged in, "this and following" is the master
+ * truncated (and, for an edit, a new resource for the remainder). Each write is forwarded through the DAV
+ * write-back client, which commits the local projection only after the source confirms.
+ */
+async function handleCaldavOccurrence(
+  req: Request,
+  res: Response,
+  input: { calendarId: string; recurrenceId: string; scope: OccurrenceScope; values: OccurrenceRequestValues; target: CaldavWriteTarget },
+) {
+  const existing = await readCaldavEventRow(sessionUserId(req)!, input.calendarId, String(req.params.eventId));
+  if (!existing) return res.status(404).json({ error: 'Event not found' });
+  const { values } = input;
+  const filename = existing.dav_filename ?? `${existing.uid}.ics`;
+
+  if (input.scope === 'single') {
+    // A cancellation is the occurrence's own component with a cancelled status; the merge below keeps it as an
+    // override of the master rather than replacing the series.
+    const master = parseCalendarEvent(existing.raw_ical);
+    const replacement = localEventIcal(
+      values.cancel
+        ? {
+          uid: existing.uid, summary: master?.summary ?? null, description: master?.description ?? null,
+          location: master?.location ?? null, url: master?.url ?? null, organizer: master?.organizer ?? null,
+          attendees: master?.attendees ?? [], allDay: master?.allDay ?? values.allDay,
+          startsAt: master?.startsAt ?? new Date(), endsAt: master?.endsAt ?? new Date(),
+        }
+        : {
+          uid: existing.uid, summary: values.summary, description: values.description, location: values.location,
+          url: values.url, organizer: values.organizer, attendees: values.attendees!, allDay: values.allDay,
+          ...values.times!,
+        },
+    );
+    const raw = mergeCalendarResource(existing.raw_ical, replacement, input.recurrenceId, values.cancel);
+    const written = await writeCaldavEventResource({
+      userId: sessionUserId(req)!, target: input.target, method: 'PUT', filename, uid: existing.uid, raw,
+      exists: true, localObjectId: existing.id, localRevision: existing.etag,
+    });
+    if (written.status !== 'confirmed') return respondCaldavWriteBack(res, written);
+    return res.json({ updated: true, scope: 'single' });
+  }
+
+  const truncated = truncateSeriesBefore(existing.raw_ical, input.recurrenceId);
+  if (!truncated) return res.status(409).json({ error: 'This occurrence is not part of the stored series' });
+  if (truncated.empty) {
+    const written = await writeCaldavEventResource({
+      userId: sessionUserId(req)!, target: input.target, method: 'DELETE', filename, uid: existing.uid, raw: '',
+      exists: true, localObjectId: existing.id, localRevision: existing.etag,
+    });
+    if (written.status !== 'confirmed') return respondCaldavWriteBack(res, written);
+    return res.json({ updated: true, scope: 'following' });
+  }
+  if (values.cancel) {
+    const written = await writeCaldavEventResource({
+      userId: sessionUserId(req)!, target: input.target, method: 'PUT', filename, uid: existing.uid,
+      raw: truncated.raw, exists: true, localObjectId: existing.id, localRevision: existing.etag,
+    });
+    if (written.status !== 'confirmed') return respondCaldavWriteBack(res, written);
+    return res.json({ updated: true, scope: 'following' });
+  }
+
+  // An edit: the earlier part keeps its occurrences, the remainder becomes its own resource at the source.
+  const remainderRrule = values.recurrenceProvided ? recurrenceToRRule(values.recurrence) : rruleFromCalendarResource(existing.raw_ical);
+  const remainderUid = `${existing.uid}#${input.recurrenceId.replace(/[^0-9A-Za-z]/g, '')}`;
+  const remainderRaw = localEventIcal({
+    uid: remainderUid, summary: values.summary, description: values.description, location: values.location,
+    url: values.url, organizer: values.organizer, attendees: values.attendees!, allDay: values.allDay,
+    ...values.times!, rrule: remainderRrule,
+  });
+  const truncatedWrite = await writeCaldavEventResource({
+    userId: sessionUserId(req)!, target: input.target, method: 'PUT', filename, uid: existing.uid,
+    raw: truncated.raw, exists: true, localObjectId: existing.id, localRevision: existing.etag,
+  });
+  if (truncatedWrite.status !== 'confirmed') return respondCaldavWriteBack(res, truncatedWrite);
+  const remainderWrite = await writeCaldavEventResource({
+    userId: sessionUserId(req)!, target: input.target, method: 'PUT', filename: `${remainderUid}.ics`,
+    uid: remainderUid, raw: remainderRaw, exists: false, localObjectId: null, localRevision: null,
+  });
+  if (remainderWrite.status !== 'confirmed') return respondCaldavWriteBack(res, remainderWrite);
+  return res.json({ updated: true, scope: 'following' });
+}
+
 router.all('/events/:eventId/occurrence', async (req, res) => {
   if (!['PATCH', 'DELETE'].includes(req.method)) return res.status(405).end();
   const { calendarId, recurrenceId } = req.body || {};
@@ -1057,13 +1252,36 @@ router.all('/events/:eventId/occurrence', async (req, res) => {
   if (access.target.kind === 'graph' || access.target.kind === 'google') {
     return handleProviderOccurrence(req, res, { calendarId, recurrenceId, scope, values, target: access.target });
   }
+  if (access.target.kind === 'caldav') {
+    return handleCaldavOccurrence(req, res, { calendarId, recurrenceId, scope, values, target: access.target });
+  }
 
   const outcome = await withTransaction(async client => {
-    const row = (await client.query('SELECT uid, raw_ical, invite_account_id FROM calendar_events WHERE id = $1 AND calendar_id = $2 AND user_id = $3 FOR UPDATE', [req.params.eventId, calendarId, req.session.userId])).rows[0];
+    const row = (await client.query(
+      `SELECT uid, raw_ical, invite_account_id, invitation_sequence, summary, description, location,
+              starts_at, ends_at, all_day, ${READ_ATTENDEES}
+         FROM calendar_events WHERE id = $1 AND calendar_id = $2 AND user_id = $3 FOR UPDATE`,
+      [req.params.eventId, calendarId, req.session.userId],
+    )).rows[0];
     if (!row) return { status: 404 };
-    // A recurrence exception needs an RFC-compliant REQUEST/CANCEL sequence.
-    // Until durable per-occurrence delivery exists, do not mutate invited series.
-    if (row.invite_account_id) return { status: 409, invitedSeries: true };
+    // An invited series is mutated **and** its attendees are told, in one RFC-compliant sequence: each
+    // scoped change is an iTIP message (a REQUEST, or a CANCEL of the occurrence), sent with the sequence
+    // advanced, because an invitee's client ignores a message whose sequence it has already seen. The
+    // local change commits first and the messages go out after it, so a delivery failure cannot lose the
+    // edit and a retry has the same sequence to send.
+    let invitationPlan: {
+      account: EmailAccountRow;
+      messages: Array<Parameters<typeof sendCalendarInvitation>[0]>;
+    } | null = null;
+    if (row.invite_account_id && Array.isArray(row.attendees) && row.attendees.length) {
+      const sender = (await client.query<EmailAccountRow>(
+        'SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2 AND smtp_host IS NOT NULL',
+        [row.invite_account_id, req.session.userId],
+      )).rows[0];
+      if (!sender) return { status: 502, invitedFailure: true };
+      invitationPlan = { account: sender, messages: [] };
+    }
+    const sequence = Number(row.invitation_sequence || 0) + 1;
     if (scope === 'following') {
       const truncated = truncateSeriesBefore(row.raw_ical, recurrenceId);
       if (!truncated) return { status: 409 };
@@ -1074,8 +1292,17 @@ router.all('/events/:eventId/occurrence', async (req, res) => {
         return { status: 200 };
       }
       if (cancel) {
-        await client.query('UPDATE calendar_events SET raw_ical = $1, etag = gen_random_uuid()::text, updated_at = NOW() WHERE id = $2 AND calendar_id = $3 AND user_id = $4', [truncated.raw, req.params.eventId, calendarId, req.session.userId]);
-        return { status: 200 };
+        await client.query('UPDATE calendar_events SET raw_ical = $1, etag = gen_random_uuid()::text, invitation_sequence = invitation_sequence + 1, updated_at = NOW() WHERE id = $2 AND calendar_id = $3 AND user_id = $4', [truncated.raw, req.params.eventId, calendarId, req.session.userId]);
+        if (invitationPlan) {
+          // There is no iTIP "cancel the rest" primitive: the invitee's copy is corrected by an update that
+          // no longer contains those occurrences, which is what the truncated rule says.
+          invitationPlan.messages.push({
+            account: invitationPlan.account, attendees: row.attendees, summary: row.summary, description: row.description,
+            location: row.location, uid: row.uid, startsAt: row.starts_at, endsAt: row.ends_at, allDay: Boolean(row.all_day),
+            method: 'REQUEST', sequence, rrule: rruleFromCalendarResource(truncated.raw),
+          });
+        }
+        return { status: 200, invitationPlan };
       }
       // An edit of "this and following": the earlier part keeps its occurrences and the remainder becomes a
       // **new series** starting at the named occurrence, carrying the client's values and rule. The UID is
@@ -1090,7 +1317,21 @@ router.all('/events/:eventId/occurrence', async (req, res) => {
         url: values.url, organizer: values.organizer, attendees: values.attendees!, allDay: values.allDay,
         ...values.times!, rrule: remainderRrule,
       });
-      await client.query('UPDATE calendar_events SET raw_ical = $1, etag = gen_random_uuid()::text, updated_at = NOW() WHERE id = $2 AND calendar_id = $3 AND user_id = $4', [truncated.raw, req.params.eventId, calendarId, req.session.userId]);
+      await client.query('UPDATE calendar_events SET raw_ical = $1, etag = gen_random_uuid()::text, invitation_sequence = invitation_sequence + 1, updated_at = NOW() WHERE id = $2 AND calendar_id = $3 AND user_id = $4', [truncated.raw, req.params.eventId, calendarId, req.session.userId]);
+      if (invitationPlan) {
+        // The earlier part is an update that ends where the split is; the remainder is a new series, which
+        // the invitee learns from its own REQUEST.
+        invitationPlan.messages.push({
+          account: invitationPlan.account, attendees: row.attendees, summary: row.summary, description: row.description,
+          location: row.location, uid: row.uid, startsAt: row.starts_at, endsAt: row.ends_at, allDay: Boolean(row.all_day),
+          method: 'REQUEST', sequence, rrule: rruleFromCalendarResource(truncated.raw),
+        });
+        invitationPlan.messages.push({
+          account: invitationPlan.account, attendees: values.attendees!, summary: values.summary, description: values.description,
+          location: values.location, uid: remainderUid, startsAt: values.times!.startsAt, endsAt: values.times!.endsAt,
+          allDay: values.allDay, method: 'REQUEST', sequence: 0, rrule: remainderRrule,
+        });
+      }
       await client.query(
         `INSERT INTO calendar_events (
            calendar_id, user_id, uid, raw_ical, summary, description, location, url, organizer,
@@ -1104,16 +1345,54 @@ router.all('/events/:eventId/occurrence', async (req, res) => {
            updated_at = NOW()`,
         [calendarId, req.session.userId, remainderUid, remainderRaw, values.summary, values.description, values.location, values.url, values.organizer, values.times!.startsAt, values.times!.endsAt, values.allDay, values.timezone, jsonbAttendees(values.attendees!)],
       );
-      return { status: 200 };
+      return { status: 200, invitationPlan };
     }
     const event = parseCalendarEvent(row.raw_ical);
     if (!event) return { status: 409 };
     const replacement = localEventIcal(cancel ? { ...event, allDay: event.allDay } : { ...req.body, description: values.description, attendees: values.attendees!, ...values.times!, uid: row.uid });
     const raw = mergeCalendarResource(row.raw_ical, replacement, recurrenceId, cancel);
-    await client.query('UPDATE calendar_events SET raw_ical = $1, etag = gen_random_uuid()::text, updated_at = NOW() WHERE id = $2 AND calendar_id = $3 AND user_id = $4', [raw, req.params.eventId, calendarId, req.session.userId]);
-    return { status: 200 };
+    await client.query('UPDATE calendar_events SET raw_ical = $1, etag = gen_random_uuid()::text, invitation_sequence = invitation_sequence + 1, updated_at = NOW() WHERE id = $2 AND calendar_id = $3 AND user_id = $4', [raw, req.params.eventId, calendarId, req.session.userId]);
+    if (invitationPlan) {
+      const occurrenceTimes = cancel
+        ? { startsAt: event.startsAt, endsAt: event.endsAt }
+        : { startsAt: values.times!.startsAt, endsAt: values.times!.endsAt };
+      invitationPlan.messages.push({
+        account: invitationPlan.account,
+        attendees: cancel ? row.attendees : values.attendees!,
+        summary: cancel ? event.summary : values.summary,
+        description: cancel ? event.description : values.description,
+        location: cancel ? event.location : values.location,
+        uid: row.uid,
+        startsAt: occurrenceTimes.startsAt,
+        endsAt: occurrenceTimes.endsAt,
+        allDay: cancel ? event.allDay : values.allDay,
+        method: cancel ? 'CANCEL' : 'REQUEST',
+        sequence,
+        // The message is about one occurrence, which is exactly what `RECURRENCE-ID` tells the invitee.
+        recurrenceId,
+      });
+    }
+    return { status: 200, invitationPlan };
   });
-  if (outcome.status !== 200) return res.status(outcome.status).json({ error: outcome.invitedSeries ? 'Invited recurring occurrence mutations are not supported' : 'Calendar occurrence unavailable' });
+  if (outcome.status !== 200) {
+    return res.status(outcome.status).json({
+      error: outcome.invitedFailure
+        ? 'The invitation could not be prepared, so the occurrence was not changed.'
+        : 'Calendar occurrence unavailable',
+    });
+  }
+  if (outcome.invitationPlan?.messages.length) {
+    // The change is durable; the messages are the notification. A delivery failure is reported, not turned
+    // into a failed edit, and the sequence has already advanced so a retry cannot double-notify.
+    try {
+      for (const message of outcome.invitationPlan.messages) {
+        await sendCalendarInvitation(message);
+      }
+    } catch (caught) {
+      console.error('Calendar occurrence invitation delivery failed:', toAppError(caught).message);
+      return res.json({ updated: true, scope, invitationError: 'The occurrence was changed, but an invitation could not be sent.' });
+    }
+  }
   res.json({ updated: true, scope });
 });
 
@@ -1217,6 +1496,36 @@ router.patch('/events/:eventId', async (req, res) => {
       if (attempt.status === 'failed') return providerWriteRefusal(res, attempt.failure);
     }
   }
+  if (target.kind === 'caldav') {
+    const existing = await readCaldavEventRow(req.session.userId!, calendarId, req.params.eventId);
+    if (!existing) return res.status(404).json({ error: 'Event not found' });
+    const merged = mergeCalendarResource(existing.raw_ical, localEventIcal({ uid: existing.uid, summary, description, location, url, organizer, attendees: normalizedAttendees, allDay: Boolean(allDay), ...times }));
+    const raw = seriesRecurrence ? (setSeriesRecurrence(merged, rrule) ?? merged) : merged;
+    const written = await writeCaldavEventResource({
+      userId: req.session.userId!, target, method: 'PUT',
+      filename: existing.dav_filename ?? `${existing.uid}.ics`, uid: existing.uid, raw,
+      exists: true, localObjectId: req.params.eventId, localRevision: existing.etag,
+    });
+    if (written.status !== 'confirmed') return respondCaldavWriteBack(res, written);
+    if (sendInvites && normalizedAttendees.length) {
+      const sender = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2 AND enabled = true AND smtp_host IS NOT NULL', [inviteAccountId, req.session.userId]);
+      if (!sender.rows[0]) return res.status(400).json({ error: 'The selected sender account is unavailable' });
+      const stored = await query<{ invitation_sequence: number | null }>('SELECT invitation_sequence FROM calendar_events WHERE id = $1 AND user_id = $2', [req.params.eventId, req.session.userId]);
+      try {
+        await sendCalendarInvitation({
+          account: sender.rows[0], attendees: normalizedAttendees, summary: summary || null, description,
+          location, uid: existing.uid, startsAt: times.startsAt, endsAt: times.endsAt, allDay: Boolean(allDay),
+          method: 'REQUEST', sequence: Number(stored.rows[0]?.invitation_sequence ?? 0) + 1,
+          ...(seriesRecurrence ? { rrule } : {}),
+        });
+      } catch (caught) {
+        console.error('Calendar invitation delivery failed:', toAppError(caught).message);
+        return res.json({ updated: true, invitationError: 'The event was saved, but the invitation could not be sent.' });
+      }
+    }
+    return res.json({ updated: true });
+  }
+
   const invitesHandledByProvider = target.kind !== 'local';
 
   let invitationAccount = null;
@@ -1342,6 +1651,24 @@ router.delete('/events/:eventId', async (req, res) => {
       }
       await removeGoogleCalendarEventLink({ userId: req.session.userId!, target, providerEventId });
     }
+  }
+
+  if (target.kind === 'caldav') {
+    const existing = await readCaldavEventRow(req.session.userId!, calendarId, req.params.eventId);
+    if (!existing) return res.status(404).json({ error: 'Event not found' });
+    // An event the source no longer has is the end state the caller asked for, so the local row is removed
+    // by the projection and the caller is told the deletion happened.
+    const written = await writeCaldavEventResource({
+      userId: req.session.userId!, target, method: 'DELETE',
+      filename: existing.dav_filename ?? `${existing.uid}.ics`, uid: existing.uid, raw: '',
+      exists: true, localObjectId: req.params.eventId, localRevision: existing.etag,
+    });
+    if (written.status === 'permanent' && written.code === 'RESOURCE_NOT_FOUND') {
+      await query('DELETE FROM calendar_events WHERE id = $1 AND calendar_id = $2 AND user_id = $3', [req.params.eventId, calendarId, req.session.userId]);
+      return res.status(204).end();
+    }
+    if (written.status !== 'confirmed') return respondCaldavWriteBack(res, written);
+    return res.status(204).end();
   }
 
   const outcome = await withTransaction(async client => {

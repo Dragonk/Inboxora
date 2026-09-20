@@ -653,15 +653,47 @@ describe('local calendar API', () => {
       expect(startsOf(rawIcal)).toContain('01-14T08:00');
     });
 
-    it('fails closed instead of mutating an invited series occurrence (V3-09)', async () => {
+    it('mutates an invited series occurrence and tells the attendees, in one sequence', async () => {
       query.mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })
-        .mockResolvedValueOnce({ rows: [{ uid: 'uid-1', raw_ical: daily(), invite_account_id: 'account-1' }] });
+        .mockResolvedValueOnce({ rows: [{
+          uid: 'uid-1', raw_ical: daily(), invite_account_id: 'account-1', invitation_sequence: 2,
+          summary: 'Daily', description: null, location: null, starts_at: '2026-01-05T09:00:00.000Z',
+          ends_at: '2026-01-05T10:00:00.000Z', all_day: false, attendees: ['guest@example.test'],
+        }] })
+        .mockResolvedValueOnce({ rows: [{ id: 'account-1', email_address: 'me@example.test', smtp_host: 'smtp.example.test' }] })
+        .mockResolvedValueOnce({ rows: [] });
 
       const response = await cancel({ calendarId: 'calendar-1', recurrenceId: '2026-01-09T09:00:00', scope: 'following' });
-      expect(response.status).toBe(409);
-      expect(await response.json()).toEqual({ error: 'Invited recurring occurrence mutations are not supported' });
-      expect(query.mock.calls.some(([statement]) => String(statement).startsWith('UPDATE calendar_events SET raw_ical') || String(statement).startsWith('DELETE FROM calendar_events'))).toBe(false);
-      expect(sendCalendarInvitation).not.toHaveBeenCalled();
+
+      expect(response.status).toBe(200);
+      // The series is truncated locally and the sequence advanced, so the cancellation is not a second
+      // message a client would ignore as already seen.
+      const [, updateParameters] = queryCallContaining('UPDATE calendar_events SET raw_ical');
+      expect(String(updateParameters[0])).toContain('UNTIL=');
+      expect(String(queryCallContaining('UPDATE calendar_events SET raw_ical')[0])).toContain('invitation_sequence = invitation_sequence + 1');
+      // The attendees are told: an update whose rule no longer contains the removed occurrences.
+      expect(sendCalendarInvitation).toHaveBeenCalledWith(expect.objectContaining({
+        method: 'REQUEST', sequence: 3, attendees: ['guest@example.test'], uid: 'uid-1',
+      }));
+      expect(String((sendCalendarInvitation.mock.calls[0]?.[0] as { rrule?: string }).rrule)).toContain('UNTIL=');
+    });
+
+    it('cancels one occurrence of an invited series with a RECURRENCE-ID message', async () => {
+      query.mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })
+        .mockResolvedValueOnce({ rows: [{
+          uid: 'uid-1', raw_ical: daily(), invite_account_id: 'account-1', invitation_sequence: 0,
+          summary: 'Daily', description: null, location: null, starts_at: '2026-01-05T09:00:00.000Z',
+          ends_at: '2026-01-05T10:00:00.000Z', all_day: false, attendees: ['guest@example.test'],
+        }] })
+        .mockResolvedValueOnce({ rows: [{ id: 'account-1', email_address: 'me@example.test', smtp_host: 'smtp.example.test' }] })
+        .mockResolvedValueOnce({ rows: [] });
+
+      const response = await cancel({ calendarId: 'calendar-1', recurrenceId: '2026-01-09T09:00:00Z', scope: 'single' });
+
+      expect(response.status).toBe(200);
+      expect(sendCalendarInvitation).toHaveBeenCalledWith(expect.objectContaining({
+        method: 'CANCEL', sequence: 1, recurrenceId: '2026-01-09T09:00:00Z',
+      }));
     });
 
     it('edits this-and-following by truncating the series and starting a new one at the occurrence', async () => {

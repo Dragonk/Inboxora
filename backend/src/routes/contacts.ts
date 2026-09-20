@@ -15,6 +15,8 @@ import { toAppError } from '../utils/errors.js';
 import { googleConfigFromEnv, isGoogleConfigured, isMicrosoftBrowserFlowReady, isMicrosoftConfigured, microsoftConfigFromEnv } from '../services/providerAuthService.js';
 import { syncGoogleContacts } from '../services/providers/google/googleContactsSync.js';
 import { GoogleApiError } from '../services/providers/google/googleApiClient.js';
+import { deleteCarddavContact, putCarddavContact } from '../services/providers/carddavWriteBack.js';
+import { davWriteBackHttpStatus, type DavWriteBackRouteResult } from '../services/providers/davWriteBack.js';
 import { syncGraphContacts } from '../services/providers/microsoft/graphContactsSync.js';
 import {
   graphContactIdForLocalRow,
@@ -164,6 +166,60 @@ async function requireLocalAddressBook(userId: string, addressBookId: string): P
   // the adapter that owns its `source`, which is what the capability model answers.
   if (!collectionIsWritable(book, 'contacts')) return { error: 'This address book is read-only', status: 403 };
   return { book };
+}
+
+/** A CardDAV book the user enabled write-back for. */
+type CarddavWriteTarget = Extract<Awaited<ReturnType<typeof resolveContactWriteTarget>>, { kind: 'carddav' }>;
+
+/**
+ * Forward one local contact resource to the external CardDAV source that owns the book.
+ *
+ * The write-back client commits the local projection itself, only after the source confirms, so the caller
+ * must not write the row as well: the projection and the source's answer are the same fact.
+ */
+async function writeCarddavContactResource(input: {
+  userId: string;
+  target: CarddavWriteTarget;
+  method: 'PUT' | 'DELETE';
+  filename: string;
+  uid: string;
+  vcard: string;
+  exists: boolean;
+  localObjectId: string | null;
+  localRevision: string | null;
+}): Promise<DavWriteBackRouteResult> {
+  const book = { id: input.target.addressBookId, external_url: input.target.externalUrl, source: 'carddav' };
+  if (input.method === 'DELETE') {
+    return await deleteCarddavContact({
+      method: 'DELETE', userId: input.userId, book, filename: input.filename, uid: input.uid,
+      card: null, vcard: '', exists: input.exists, localObjectId: input.localObjectId, localRevision: input.localRevision,
+    });
+  }
+  const card = parseVCard(input.vcard);
+  if (!card.uid) {
+    return { status: 'permanent', created: false, code: 'INVALID_REQUEST' };
+  }
+  return await putCarddavContact({
+    method: 'PUT', userId: input.userId, book, filename: input.filename, uid: input.uid,
+    card, vcard: input.vcard, exists: input.exists, localObjectId: input.localObjectId, localRevision: input.localRevision,
+  });
+}
+
+/** Answer a REST call with what the CardDAV source did, in the same vocabulary the DAV path uses. */
+function respondCarddavWriteBack(res: Response, result: DavWriteBackRouteResult, body: Record<string, unknown> = {}): void {
+  if (result.retryAfterSeconds !== undefined) res.setHeader('Retry-After', String(result.retryAfterSeconds));
+  const status = davWriteBackHttpStatus(result);
+  if (status === 204 || status === 201) {
+    res.status(status).json({ ok: true, created: result.created, ...body });
+    return;
+  }
+  res.status(status).json({
+    ...(result.code ? { code: result.code } : {}),
+    error: status === 412
+      ? 'The contact changed at its source since you loaded it. Reload and try again.'
+      : 'The contact source refused this change.',
+    ...body,
+  });
 }
 
 /**
@@ -832,6 +888,23 @@ router.post('/', async (req, res) => {
     const vcard = generateVCard({ uid, displayName, firstName, lastName, emails, phones, organization, notes, birthday: storedBirthday, anniversary: storedAnniversary, contactDates: storedContactDates, ...rich });
     const etag = crypto.createHash('md5').update(vcard).digest('hex');
 
+    if (writeTarget.kind === 'carddav') {
+      // Source first, and the write-back client projects the confirmed answer — so the local insert below
+      // must not also run, or the same card would be written twice.
+      const written = await writeCarddavContactResource({
+        userId, target: writeTarget, method: 'PUT', filename: `${uid}.vcf`, uid, vcard,
+        exists: false, localObjectId: null, localRevision: null,
+      });
+      if (written.status !== 'confirmed') return respondCarddavWriteBack(res, written);
+      const stored = await query('SELECT * FROM contacts WHERE user_id = $1 AND uid = $2', [userId, uid]);
+      if (!stored.rows[0]) {
+        // The source confirmed the card but the projection did not produce a row: report it rather than
+        // answering with a success the interface cannot render.
+        return res.status(502).json({ error: 'The contact was saved at its source but could not be projected' });
+      }
+      return res.status(201).json({ contact: stored.rows[0] });
+    }
+
     const result = await query<{ id: string }>(`
       INSERT INTO contacts (
         address_book_id, user_id, uid, vcard, etag,
@@ -971,6 +1044,16 @@ router.patch('/:id', async (req, res) => {
         providerContactId: link.resourceName, contact: contactVCard, etag: link.etag, localResourceId: c.id,
       });
       if (attempt.status === 'failed') return contactWriteRefusal(res, attempt.failure);
+    } else if (writeTarget.kind === 'carddav') {
+      // The stored entity-tag is the version the caller's edit was based on, and the write-back forwards it
+      // as a precondition, so an edit of a card that changed at the source is refused instead of overwriting.
+      const written = await writeCarddavContactResource({
+        userId, target: writeTarget, method: 'PUT', filename: `${String(c.uid ?? c.id)}.vcf`,
+        uid: String(c.uid ?? c.id), vcard, exists: true, localObjectId: c.id, localRevision: String(c.etag ?? ''),
+      });
+      if (written.status !== 'confirmed') return respondCarddavWriteBack(res, written);
+      const stored = await query('SELECT * FROM contacts WHERE id = $1 AND user_id = $2', [c.id, userId]);
+      return res.json({ contact: stored.rows[0] ?? null });
     }
 
     const result = await query(`
@@ -1021,6 +1104,25 @@ router.delete('/:id', async (req, res) => {
     const access = await writableContactBook(userId, owner.rows[0].address_book_id);
     if (!access.ok) return res.status(access.status).json({ error: access.error });
     const writeTarget = access.target;
+
+    if (writeTarget.kind === 'carddav') {
+      const row = await query<{ uid: string | null; etag: string | null }>(
+        'SELECT uid, etag FROM contacts WHERE id = $1 AND user_id = $2', [req.params.id, userId],
+      );
+      if (!row.rows[0]) return res.status(404).json({ error: 'Contact not found' });
+      const uid = row.rows[0].uid ?? req.params.id;
+      const written = await writeCarddavContactResource({
+        userId, target: writeTarget, method: 'DELETE', filename: `${uid}.vcf`, uid, vcard: '',
+        exists: true, localObjectId: req.params.id, localRevision: row.rows[0].etag ?? null,
+      });
+      // A card the source no longer has is the end state the caller asked for.
+      if (written.status === 'permanent' && written.code === 'RESOURCE_NOT_FOUND') {
+        await query('DELETE FROM contacts WHERE id = $1 AND user_id = $2', [req.params.id, userId]);
+        return res.status(204).end();
+      }
+      if (written.status !== 'confirmed') return respondCarddavWriteBack(res, written);
+      return res.status(204).end();
+    }
 
     if (writeTarget.kind === 'graph' || writeTarget.kind === 'google') {
       const providerContactId = writeTarget.kind === 'graph'

@@ -25,14 +25,20 @@ import type { ParsedRecurrence } from '../utils/calendarRecurrenceRule.js';
 export type CalendarWriteTarget =
   | { kind: 'local' }
   | { kind: 'graph'; connectionId: string; collectionId: string; providerCalendarId: string; calendarId: string }
+  /**
+   * An external CalDAV collection the user enabled write-back for. The writer is the **source**, which
+   * `providers/caldavWriteBack.ts` forwards to; the target carries what that client needs to address it.
+   */
+  | { kind: 'caldav'; collectionId: string; calendarId: string; externalUrl: string | null }
   | { kind: 'refused'; status: number; error: string };
 
 export async function resolveCalendarWriteTarget(userId: string, calendarId: string): Promise<CalendarWriteTarget> {
   const result = await query<{
     id: string; source: string | null; collection_id: string | null; remote_id: string | null;
     connection_id: string | null; source_access: string | null; user_access: string | null;
+    external_url: string | null;
   }>(
-    `SELECT c.id, c.source, ic.id AS collection_id, ic.remote_id, ic.connection_id,
+    `SELECT c.id, c.source, c.external_url, ic.id AS collection_id, ic.remote_id, ic.connection_id,
             ic.source_access, ic.user_access
        FROM calendars c
        LEFT JOIN integration_collections ic
@@ -50,6 +56,18 @@ export async function resolveCalendarWriteTarget(userId: string, calendarId: str
     return { kind: 'refused', status: 403, error: 'This calendar is read-only' };
   }
   if ((row.source ?? 'local') === 'local') return { kind: 'local' };
+  if (row.source === 'caldav') {
+    // The capability model above already answered whether this collection may be written at all: its source
+    // must permit writes (recorded from the CalDAV server by the collection link) and the user must have
+    // enabled write-back for it. An ICS subscription never reaches here — its registration declares no
+    // write-through, so the model refuses it first.
+    return {
+      kind: 'caldav',
+      collectionId: row.collection_id ?? '',
+      calendarId: row.id,
+      externalUrl: row.external_url ?? null,
+    };
+  }
   if (row.source === 'microsoft') {
     if (!row.connection_id || !row.collection_id) {
       return { kind: 'refused', status: 409, error: 'This calendar is not linked to a Microsoft connection' };

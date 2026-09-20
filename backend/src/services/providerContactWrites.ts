@@ -22,6 +22,11 @@ import type { VCardContact } from '../utils/vcard.js';
 export type ContactWriteTarget =
   | { kind: 'local' }
   | { kind: 'graph'; connectionId: string; collectionId: string; folderId: string; addressBookId: string }
+  /**
+   * An external CardDAV address book the user enabled write-back for. The writer is the **source**, which
+   * `providers/carddavWriteBack.ts` forwards to.
+   */
+  | { kind: 'carddav'; collectionId: string; addressBookId: string; externalUrl: string | null }
   | { kind: 'refused'; status: number; error: string };
 
 interface ContactTargetRow {
@@ -32,11 +37,12 @@ interface ContactTargetRow {
   connection_id: string | null;
   source_access: string | null;
   user_access: string | null;
+  external_url: string | null;
 }
 
 export async function resolveContactWriteTarget(userId: string, addressBookId: string): Promise<ContactWriteTarget> {
   const result = await query<ContactTargetRow>(
-    `SELECT ab.id, ab.source, ic.id AS collection_id, ic.remote_id, ic.connection_id,
+    `SELECT ab.id, ab.source, ab.external_url, ic.id AS collection_id, ic.remote_id, ic.connection_id,
             ic.source_access, ic.user_access
        FROM address_books ab
        LEFT JOIN integration_collections ic
@@ -54,6 +60,16 @@ export async function resolveContactWriteTarget(userId: string, addressBookId: s
     return { kind: 'refused', status: 403, error: 'This address book is read-only' };
   }
   if ((row.source ?? 'local') === 'local') return { kind: 'local' };
+  if (row.source === 'carddav') {
+    // The capability model above already decided whether this book may be written at all: the CardDAV
+    // collection link records the source's own permission and the user must have enabled write-back.
+    return {
+      kind: 'carddav',
+      collectionId: row.collection_id ?? '',
+      addressBookId: row.id,
+      externalUrl: row.external_url ?? null,
+    };
+  }
   if (row.source === 'microsoft') {
     if (!row.connection_id || !row.collection_id) {
       return { kind: 'refused', status: 409, error: 'This address book is not linked to a Microsoft connection' };

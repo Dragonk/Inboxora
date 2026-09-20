@@ -69,12 +69,33 @@ describe('which writer owns an address book', () => {
     });
   });
 
-  it('refuses a source whose write path does not exist in this route', async () => {
-    // A CardDAV book with write-back enabled is written by the DAV route, not by a local edit here.
+  it('answers a write-enabled CardDAV book with its source, so the web and DAV paths agree', async () => {
     mocks.query.mockResolvedValueOnce({ rows: [book({
       source: 'carddav', collection_id: 'collection-1', remote_id: 'contacts',
       connection_id: 'connection-1', source_access: 'read_write', user_access: 'read_write',
+      external_url: 'https://dav.example.test/addressbooks/user/',
     })] });
+    await expect(resolveContactWriteTarget('user-1', 'book-1')).resolves.toMatchObject({
+      kind: 'carddav', collectionId: 'collection-1', addressBookId: 'book-1',
+      externalUrl: 'https://dav.example.test/addressbooks/user/',
+    });
+  });
+
+  it('refuses a CardDAV book the user has not enabled, and one the source reports read-only', async () => {
+    // The capability model is the single answer: the web editor and a DAV client agree about whether the
+    // collection accepts a write.
+    mocks.query.mockResolvedValueOnce({ rows: [book({
+      source: 'carddav', collection_id: 'collection-1', source_access: 'read_write', user_access: 'source',
+    })] });
+    await expect(resolveContactWriteTarget('user-1', 'book-1')).resolves.toMatchObject({ kind: 'refused', status: 403 });
+
+    mocks.query.mockResolvedValueOnce({ rows: [book({
+      source: 'carddav', collection_id: 'collection-1', source_access: 'read_only', user_access: 'read_write',
+    })] });
+    await expect(resolveContactWriteTarget('user-1', 'book-1')).resolves.toMatchObject({ kind: 'refused', status: 403 });
+
+    // An ICS-style import has no write path at all and stays refused whatever the collection says.
+    mocks.query.mockResolvedValueOnce({ rows: [book({ source: 'ical_url', collection_id: 'collection-1', source_access: null, user_access: null })] });
     await expect(resolveContactWriteTarget('user-1', 'book-1')).resolves.toMatchObject({ kind: 'refused', status: 403 });
   });
 });
