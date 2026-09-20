@@ -275,6 +275,14 @@ None.
   IMAP loops, health checks, rule forwarder and send path no longer open IMAP or SMTP for it.
 
 ### Fixed
+- **Authorizing one Google (or Microsoft) feature no longer revokes another.** A provider connection keeps one
+  grant per audience, and Gmail, Calendar and People share the Google audience (as Graph's mail, calendar and
+  contacts share Microsoft's). Storing the newly granted scopes verbatim therefore replaced the whole list: a
+  mailbox authorized for Gmail stopped being authorized for its calendar the moment the calendar consent
+  landed, which is exactly the shape a live acceptance round reported as "0 calendars, failures: 1". The
+  stored scopes are now the union of what the connection already held and what the authorization returned,
+  with an explicit `dropScopes` input for the case where the provider itself reports a revocation.
+
 - **A database from an earlier `:dev` could still hold legacy provider ids behind the unique index.**
   Correcting migration 0108 fixes an upgrade from 4.0.4, but a database that had already applied the *first*
   revision of 0108 (recorded under its old checksum, so the corrected file is not re-run) kept the legacy

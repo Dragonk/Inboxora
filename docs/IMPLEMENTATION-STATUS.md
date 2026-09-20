@@ -108,6 +108,35 @@ the provider authorization (identity from the provider, no IMAP credentials, dis
 already-added mailbox with the existing migration rather than a duplicate account. No account-adding action
 remains in Integrations.
 
+## Live acceptance, round 3
+
+A manual acceptance round on the published `:dev` found four release blockers. One is fixed and verified here;
+the other three are **open**, and are listed so the next round starts from the evidence rather than from the
+symptom:
+
+- **Fixed — scope accumulation across incremental authorizations.** `storeOAuthGrant` replaced the stored scope
+  list with the newly granted one. Because a connection holds one grant per audience, authorizing Calendar (or
+  Contacts) after Gmail removed `gmail.modify`, and the calendar sync then ran with the wrong scopes. The
+  stored scopes are now a union. `providerOAuthLiveShape.integration.test.ts` proves it on PostgreSQL for
+  Google (Gmail → Calendar → Contacts keeps every earlier scope), for Microsoft (Mail → Calendar → Contacts),
+  and for an explicit revocation.
+- **Open — the callback URI is not yet a single source of truth.** `microsoftConfigFromEnv()` prefers
+  `MS_PROVIDER_REDIRECT_URI` and the stored configuration, so an installation can hold one hostname in its
+  saved configuration and another in `APP_URL` — the live failure was
+  `redirect_uri is not valid` because the card displayed `/oauth/microsoft/callback` while the Graph flow sent
+  `/oauth/provider/microsoft/callback`. The intended fix (derive every callback from `APP_URL`, ignore stored
+  values, show them read-only with a copy button) changes the contract of `integrations.config`,
+  `integrations.providers`, `integrations.status`, `oauthGoogle` and `providerMicrosoftToken`, so it is a
+  deliberate change with its own test updates rather than a patch.
+- **Open — the Gmail native mail path is not verified end to end.** After a cutover the discover step
+  (`syncGmailMailLabelsForAccount`) runs but no initial message baseline is enqueued, so inbound mail has no
+  cursor to advance from; send has not been exercised against a live account either.
+- **Open — provider sync failures are reported as counts.** `failures: 1` carries no code, status or missing
+  scope, and `provider-features` reports a connection rather than a per-feature authorization, so the card
+  cannot tell "not connected" from "connected but missing a scope".
+- **Open — the contacts manager is still a popup** with every action in one menu, rather than the panel the
+  calendar settings use.
+
 ## Known limitations
 
 Deliberate product limitations, not missing work:

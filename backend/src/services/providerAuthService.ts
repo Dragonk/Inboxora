@@ -858,6 +858,8 @@ export interface StoreGrantInput {
   clientAuthMethod?: 'confidential' | 'public';
   clientConfigId?: string | null;
   clientIdAtIssue?: string | null;
+  /** Scopes the provider has explicitly revoked, if the caller learned that. Everything else accumulates. */
+  dropScopes?: readonly string[];
 }
 
 /**
@@ -875,7 +877,17 @@ export async function storeOAuthGrant(client: PoolClient, input: StoreGrantInput
        access_token_encrypted = EXCLUDED.access_token_encrypted,
        refresh_token_encrypted = COALESCE(EXCLUDED.refresh_token_encrypted, oauth_grants.refresh_token_encrypted),
        expires_at = EXCLUDED.expires_at,
-       scopes = EXCLUDED.scopes,
+       -- A provider connection holds one grant per audience, and Google's Calendar, People and Gmail
+       -- authorizations all share the Google audience (Graph's mail, calendar and contacts share Microsoft's).
+       -- Replacing the scope list would silently drop the scopes an earlier authorization earned: a mailbox
+       -- authorized for Gmail stopped being authorized for its calendar. The stored set is the union of what
+       -- was there and what this authorization granted; the dropScopes input is the explicit way to remove a
+       -- scope a caller saw the provider revoke.
+       scopes = (
+         SELECT COALESCE(array_agg(DISTINCT scope ORDER BY scope), ARRAY[]::text[])
+           FROM unnest(array_remove(oauth_grants.scopes || EXCLUDED.scopes, NULL)) AS scope
+          WHERE scope <> ALL (COALESCE($11::text[], ARRAY[]::text[]))
+       ),
        auth_flow = EXCLUDED.auth_flow,
        client_auth_method = EXCLUDED.client_auth_method,
        client_config_id = EXCLUDED.client_config_id,
@@ -888,6 +900,7 @@ export async function storeOAuthGrant(client: PoolClient, input: StoreGrantInput
       input.refreshToken ? encrypt(input.refreshToken) : null,
       input.expiresAt, [...input.scopes], input.authFlow ?? 'browser',
       input.clientAuthMethod ?? 'confidential', input.clientConfigId ?? null, input.clientIdAtIssue ?? null,
+      input.dropScopes ? [...input.dropScopes] : null,
     ],
   );
   const row = result.rows[0];
