@@ -42,13 +42,14 @@ Each package has exactly one current state:
 
 ### P14 evidence
 
-**Frozen code SHA: `88c63d1c303507f563f4438397d7b88f9264f445`** — the final-audit revision, whose two fixes (the external-collection link and
-the contacts write-back switch) changed code after `f2b0dbf1`. Commits after it are documentation only.
+**Frozen code SHA: `2e505108d88c7e0500ed86db0f91cc687dc0159e`** — the revision that closes the R1 audit's release blockers (per-occurrence
+and this-and-following series mutations, the DAV web editor, Microsoft Contacts reachability). Commits after
+it are documentation only.
 
 | Part | State | Evidence |
 | --- | --- | --- |
-| image build + registry verification | **done** | Workflow run [`35495194721`](https://github.com/Dragonk/Inboxora/actions/runs/35495194721) built from `source_sha=88c63d1c303507f563f4438397d7b88f9264f445` and pushed `:dev`. Both resolve to OCI image indexes carrying `linux/amd64` **and** `linux/arm64`: backend `sha256:73afe954966d0a08f842467356b3d08dee27b825febbba6f257051f0782039db`, frontend `sha256:effae492f062b633221f71a9939254d092429e20fb950ca4844d675b4c43c98a`. The pair built from `f2b0dbf1` (run `35471043131`) is superseded. |
-| runtime smoke | **RUN — passed** | The published pair was pulled and started from a fresh volume. `/api/health` → `{"status":"ok"}`; `/api/version` → `{"version":"dev","sha":"88c63d1c303507f563f4438397d7b88f9264f445"}`, so the running image is the frozen revision; all **115** migrations applied (`schema_migrations` = 115); first-user registration (admin); a fresh login through `POST /api/auth/login`; `/api/auth/me`; `/api/accounts` → `[]`; the UI root served the application; `docker inspect` reported **0 restarts** for every container. |
+| image build + registry verification | **done** | Workflow run [`35498016199`](https://github.com/Dragonk/Inboxora/actions/runs/35498016199) built from `source_sha=2e505108d88c7e0500ed86db0f91cc687dc0159e` and pushed `:dev`. Both resolve to OCI image indexes carrying `linux/amd64` **and** `linux/arm64`: backend `sha256:78e45f2ec67c6e5c0b2af6c39475833478bd319376a5216533f942834a5d45cc`, frontend `sha256:dee85282b33f01bb56802e6e962fd082a0c999fbe6face4988d6abf5ad0c23cb`. |
+| runtime smoke | **RUN — passed** | The published pair was pulled and started from a fresh volume. `/api/health` → `{"status":"ok"}`; `/api/version` → `{"version":"dev","sha":"2e505108d88c7e0500ed86db0f91cc687dc0159e"}`, so the running image is the frozen revision; all **115** migrations applied (`schema_migrations` = 115); first-user registration (admin); a fresh login through `POST /api/auth/login`; `/api/auth/me`; `/api/accounts` → `[]`; the UI root served the application; `docker inspect` reported **0 restarts** for every container. |
 | `:dev` publication | **done** | The published images are the current `dev` code, including the audit's two fixes; `main` is untouched and 4.1.0 is not released. |
 
 ## Acceptance criteria W01–W19
@@ -126,10 +127,10 @@ Not release criteria; recorded so they are not lost:
 
 Measured on the frozen code SHA with each gate's own exit status read directly:
 
-- **Backend** — typecheck clean, lint clean, **2864 unit tests passed** (183 skipped; 237 files).
-- **Frontend** — typecheck clean, lint clean, **2711 tests passed** (0 failed), production build clean.
+- **Backend** — typecheck clean, lint clean, **2906 unit tests passed** (183 skipped; 240 files).
+- **Frontend** — typecheck clean, lint clean, **2716 tests passed** (0 failed), production build clean.
 - **Database** — a database created empty for the purpose, the **whole 115-migration chain applied from
-  zero** by the application's own runner, then **387 integration tests across 42 suites** on PostgreSQL 16
+  zero** by the application's own runner, then **388 integration tests across 42 suites** on PostgreSQL 16
   (exit 0), including the send-ledger and external-collection-link suites. The unit and integration
   figures are separate invocations on purpose: one process running both against one database lets
   independent integration files contend on the same conversation tables, where a `SERIALIZABLE` rebuild can
