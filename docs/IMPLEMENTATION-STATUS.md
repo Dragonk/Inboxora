@@ -43,15 +43,15 @@ Each package has exactly one current state:
 
 ### P14 evidence
 
-**Frozen code SHA: `a8606b8e50e5da440e2403b1dbe718cfbe663898`** — the revision that fixes the 4.0.4 → 4.1.0 upgrade path (0108/0114), adds
+**Frozen code SHA: `82a8f4f7aba771791fefe40517a6813a09e33e4f`** — the revision that fixes the 4.0.4 → 4.1.0 upgrade path (0108/0114), adds
 push-assisted synchronisation, separates provider configuration (Settings → Integrations) from mailbox
-connection (Settings → Accounts), and clears the IMAP/SMTP defaults a native account used to inherit. Commits
-after it are documentation only.
+connection (Settings → Accounts), and puts legacy-account classification behind one shared service so the
+Google and Microsoft migrations run from the account card. Commits after it are documentation only.
 
 | Part | State | Evidence |
 | --- | --- | --- |
-| image build + registry verification | **done** | Workflow run [`35516891492`](https://github.com/Dragonk/Inboxora/actions/runs/35516891492) built from `source_sha=a8606b8e50e5da440e2403b1dbe718cfbe663898` and pushed `:dev`. Both resolve to OCI image indexes carrying `linux/amd64` **and** `linux/arm64`: backend `sha256:7ac82f5ad4ae2495f6e05d99020d4ad87ba71d41e37b85168ce32afc27a3477f`, frontend `sha256:ec0f4cafc99496dcb2efed002685fee91fda417652ec1db80b34b8d950c2bbdf`. |
-| runtime smoke | **RUN — passed** | The published pair was pulled and started from a fresh volume: `/api/health` → `{"status":"ok"}`, `/api/version` → `{"version":"dev","sha":"a8606b8e50e5da440e2403b1dbe718cfbe663898"}`, **117** migrations, first-user registration, a fresh login, `/api/auth/me`, the account list, the UI root and **0 restarts**. The upgrade smokes from a 4.0.4-shaped database and from an earlier-`:dev` database are recorded in the verification section below. |
+| image build + registry verification | **done** | Workflow run [`35517946452`](https://github.com/Dragonk/Inboxora/actions/runs/35517946452) built from `source_sha=82a8f4f7aba771791fefe40517a6813a09e33e4f` and pushed `:dev`. Both resolve to OCI image indexes carrying `linux/amd64` **and** `linux/arm64`: backend `sha256:bc71c0aec893ad95e1c42c3d2195496e6b697b0faac909953aab43e1995d1157`, frontend `sha256:053573873b5cab5aa5d7d519998e329b423bd9771b4b0dd8a9c2472c1c272d85`. |
+| runtime smoke | **RUN — passed** | The published pair was pulled and started from a fresh volume: `/api/health` → `{"status":"ok"}`, `/api/version` → `{"version":"dev","sha":"82a8f4f7aba771791fefe40517a6813a09e33e4f"}`, **117** migrations, first-user registration, a fresh login, `/api/auth/me`, the account list, the UI root and **0 restarts**. The upgrade smokes from a 4.0.4-shaped database and from an earlier-`:dev` database are recorded in the verification section below. |
 | `:dev` publication | **done** | The published images are the current `dev` code, including the audit's two fixes; `main` is untouched and 4.1.0 is not released. |
 
 ## Acceptance criteria W01–W19
@@ -136,10 +136,10 @@ Not release criteria; recorded so they are not lost:
 
 Measured on the frozen code SHA with each gate's own exit status read directly:
 
-- **Backend** — typecheck clean, lint clean, **2959 unit tests passed** (219 skipped; 245 files).
-- **Frontend** — typecheck clean, lint clean, **2782 tests passed** (0 failed), production build clean.
+- **Backend** — typecheck clean, lint clean, **2970 unit tests passed** (221 skipped; 246 files).
+- **Frontend** — typecheck clean, lint clean, **2798 tests passed** (0 failed), production build clean.
 - **Database** — a database created empty for the purpose, the **whole 117-migration chain applied from
-  zero** by the application's own runner, then **419 integration tests across 46 suites** on PostgreSQL 16
+  zero** by the application's own runner, then **432 integration tests across 47 suites** on PostgreSQL 16
   (exit 0), including the send-ledger and external-collection-link suites. The unit and integration
   figures are separate invocations on purpose: one process running both against one database lets
   independent integration files contend on the same conversation tables, where a `SERIALIZABLE` rebuild can
