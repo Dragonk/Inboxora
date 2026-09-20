@@ -61,7 +61,16 @@ export function classifyGraphError(status: number, body: unknown, headers: Heade
     return new GraphApiError({ code: 'PROVIDER_AUTH_REQUIRED', message, status, providerReason: reason });
   }
   if (status === 403) {
-    // Graph uses 403 both for a missing scope and for a policy/tenant restriction.
+    // Graph uses 403 for a missing scope, for a policy/tenant restriction **and** for a refusal to act as a
+    // chosen identity. Flattening all of them into "insufficient scopes" tells a user to reconnect an account
+    // that is already authorized and hides what the provider actually refused — the live case was a send-as
+    // alias denial (`ErrorSendAsDenied`) reported as a missing permission. The provider's own reason is kept
+    // as the domain code whenever Graph names one, and the scope code is the fallback for an unnamed 403.
+    // `ErrorSendAsDenied` is Graph's own name for "this mailbox may not send as that address", and it has its
+    // own domain code so the interface can say that instead of asking for a permission the account already has.
+    if (reason === 'ErrorSendAsDenied') {
+      return new GraphApiError({ code: 'SEND_AS_DENIED', message, status, providerReason: reason });
+    }
     return new GraphApiError({ code: 'INSUFFICIENT_SCOPES', message, status, providerReason: reason });
   }
   if (status === 404) return new GraphApiError({ code: 'RESOURCE_NOT_FOUND', message, status, providerReason: reason });

@@ -275,6 +275,19 @@ None.
   IMAP loops, health checks, rule forwarder and send path no longer open IMAP or SMTP for it.
 
 ### Fixed
+- **A message sent from an alias leaves as that alias, or fails visibly.** The Graph payload carried no `from`
+  at all, so Graph sent as the mailbox's primary address: the composer showed `kamil.maciag@outlook.com` and the
+  recipient saw the primary identity, with nothing in the interface to say the choice had been ignored. The
+  selected sender is now the payload's `from.emailAddress.address`, and a mailbox that may not send as it gets
+  Graph's own refusal reported as `SEND_AS_DENIED` instead of being flattened into "insufficient scopes" (which
+  sent users to re-authorize an account that was already authorized) and instead of a silent fall back to the
+  primary address.
+- **The contacts manager can be closed.** The panel was rendered unconditionally, so closing it changed the
+  state and left the dialog on screen — it opened and could not be dismissed. It now exists only while it is
+  open, which makes the X, Escape, the backdrop and the mobile Back action all work. Its trigger is a compact
+  icon button (34 px desktop, a 44 px touch target on mobile) with an accessible name and tooltip, instead of a
+  full-width labelled button competing with the address-book strip.
+
 - **The contacts manager is a panel, not an ellipsis menu.** The `⋯` control held a dozen unrelated actions
   with no way to tell which address book each applied to. It is replaced by a manager that lists the books with
   their source, visibility and read/write state, and shows the selected book's settings in sections: general,

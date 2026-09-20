@@ -166,3 +166,50 @@ describe('graph recipients are structured', () => {
     expect(payload.replyTo).toEqual([{ emailAddress: { address: 'replies@example.test', name: 'Replies' } }]);
   });
 });
+
+describe('sending from a chosen alias', () => {
+  it('puts the selected alias in the Graph payload instead of the primary address', () => {
+    // A personal Outlook account can hold aliases; Graph sends as the mailbox's primary address unless the
+    // message says otherwise, so an alias that is only a display name never reaches the wire. The live report
+    // was exactly that: the composer showed `kamil.maciag@outlook.com` and the recipient saw the primary.
+    const payload = renderGraphMessage({
+      ...base,
+      from: { email: 'kamil.maciag@outlook.com', name: 'Kamil Maciąg' },
+    });
+
+    expect(payload.from.emailAddress.address).toBe('kamil.maciag@outlook.com');
+    expect(payload.from.emailAddress.name).toBe('Kamil Maciąg');
+    // The primary identity must not appear anywhere in the payload as the sender.
+    expect(JSON.stringify(payload.from)).not.toContain('sam@contoso.test');
+  });
+
+  it('sends as the address alone when the alias has no display name', () => {
+    const payload = renderGraphMessage({ ...base, from: { email: 'alias@outlook.com' } });
+    expect(payload.from.emailAddress).toEqual({ address: 'alias@outlook.com' });
+  });
+
+  it('posts the alias in the draft the message is sent from', async () => {
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ id: 'draft-9' }), { status: 201 }));
+    await createGraphDraft(api(fetchImpl), { ...base, from: { email: 'alias@outlook.com', name: 'Alias' } });
+
+    const [, init] = fetchImpl.mock.calls[0] as unknown as [string, { body: string }];
+    const body = JSON.parse(init.body) as { from: { emailAddress: { address: string } } };
+    expect(body.from.emailAddress.address).toBe('alias@outlook.com');
+  });
+
+  it('reports a send-as refusal with the provider code, and never retries from the primary address', async () => {
+    const fetchImpl = vi.fn(async () => new Response(
+      JSON.stringify({ error: { code: 'ErrorSendAsDenied', message: 'The user is not allowed to send as this address' } }),
+      { status: 403 },
+    ));
+
+    const outcome = await sendGraphDraft(api(fetchImpl), 'draft-9');
+
+    expect(outcome.status).toBe('refused');
+    // The provider's own reason, in the domain's vocabulary: this is an identity refusal, not a missing scope.
+    expect((outcome as { code: string }).code).toBe('SEND_AS_DENIED');
+    expect((outcome as { retryable: boolean }).retryable).toBe(false);
+    // One request only: a refusal is the answer, not a reason to try the primary identity.
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+});

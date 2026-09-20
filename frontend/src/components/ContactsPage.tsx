@@ -734,11 +734,31 @@ export default function ContactsPage({ isActive = true }) {
       <button type="button" aria-pressed={!selectedAddressBookId} onClick={() => { setSelectedAddressBookId(''); setBooksOpen(false); }}>{t('contacts.addressBooks.allVisible')}</button>
       {addressBooks.map(book => <button type="button" key={book.id} aria-pressed={selectedAddressBookId === book.id} onClick={() => { setSelectedAddressBookId(book.id); setBooksOpen(false); }} title={book.name ?? undefined}>{book.visible ? '' : '○ '}{book.name}</button>)}
     </div>
-    {/* One entry point into the manager. The `⋯` menu that used to hold a dozen unrelated
-        actions is gone: a menu cannot say which book an action applies to. */}
-    <Button data-testid="contacts-manage-books" onClick={() => { setBookDeleteError(null); setBooksManagerOpen(true); }}>
-      {t('contacts.booksManager.manage')}
-    </Button>
+    {/* One entry point into the manager: a compact icon, because a labelled button competed with the book
+        strip for the little room the header has. The panel it opens is the full manager. */}
+    <button
+      type="button"
+      data-testid="contacts-manage-books"
+      aria-label={t('contacts.booksManager.manage')}
+      title={t('contacts.booksManager.manage')}
+      aria-haspopup="dialog"
+      onClick={() => { setBookDeleteError(null); setBooksManagerOpen(true); }}
+      style={{
+        flexShrink: 0,
+        width: isMobile ? 44 : 34,
+        height: isMobile ? 44 : 34,
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+        background: 'var(--bg-elevated)', border: '1px solid var(--border)',
+        borderRadius: 8, color: 'var(--text-secondary)', cursor: 'pointer', padding: 0,
+      }}
+    >
+      <svg width={isMobile ? 20 : 17} height={isMobile ? 20 : 17} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden="true">
+        {/* An address book with a bookmark, which is what the panel manages. */}
+        <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H19v15H6.5A2.5 2.5 0 0 0 4 20.5z" />
+        <path d="M4 20.5A2.5 2.5 0 0 1 6.5 18H19v3H6.5" />
+        <path d="M12 3v7l2.5-1.5L17 10V3" />
+      </svg>
+    </button>
     <input ref={importInputRef} type="file" accept=".csv,text/csv" onChange={importGoogleCsv} style={{ display: 'none' }} />
     <input ref={importVCardRef} type="file" accept=".vcf,text/vcard" onChange={importVCardFile} style={{ display: 'none' }} />
     {importNotice && <p role="status" data-testid="contacts-import-result" style={{ margin: '6px 0 0', fontSize: 12, color: 'var(--text-tertiary)' }}>{importNotice}</p>}

@@ -145,6 +145,10 @@ export type ApiProblemCode =
   | 'INVALID_DAV_RESPONSE'
   | 'INVALID_ICS'
   | 'INVALID_VCARD'
+  // The mailbox may not send as the identity the user chose. This is not a missing scope: reconnecting the
+  // account changes nothing, and reporting it as one sent the user to re-authorize an account that was already
+  // authorized, while the alias silently travelled as the primary address.
+  | 'SEND_AS_DENIED'
   | 'INTERNAL_ERROR';
 
 export type ApiProblemAction =

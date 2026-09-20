@@ -83,6 +83,11 @@ const metaStyle: React.CSSProperties = { fontSize: 12, color: 'var(--text-tertia
 export default function ContactsBooksManager(props: ContactsBooksManagerProps) {
   const { t, books, selectedBookId, isMobile } = props;
   const [mobileDetail, setMobileDetail] = React.useState(false);
+  // The panel exists only while it is open. Rendering the dialog unconditionally left it visible after
+  // `onClose` had set the state to closed, which is why the live report was "it opens and cannot be closed":
+  // the close action ran, the state changed, and the dialog stayed. The early return is what makes every
+  // close path — the X, Escape, the backdrop and the mobile Back action — actually dismiss it.
+  if (!props.open) return null;
   const selected = books.find(book => book.id === selectedBookId) ?? null;
   const localBooks = books.filter(book => book.source === 'local');
   const provider = selected ? (selected.source === 'microsoft' ? 'microsoft' : selected.source === 'google' ? 'google' : null) : null;

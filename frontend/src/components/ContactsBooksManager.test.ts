@@ -128,3 +128,43 @@ test('both layouts render the manager, so the mobile sheet can open it too', asy
   const mounts = (source.match(/\{booksManager\}/g) ?? []).length;
   assert.equal(mounts, 2, 'the manager must be mounted in both the mobile and the desktop layout');
 });
+
+test('the manager can be closed and reopened', async () => {
+  const source = await read(manager);
+  const page = await read(new URL('./ContactsPage.tsx', import.meta.url));
+
+  // The live bug: the dialog was rendered unconditionally, so `onClose` set the state to closed and the panel
+  // stayed on screen — it opened and could not be dismissed. The panel must exist only while it is open, and
+  // that early return is what makes every close path effective.
+  assert.match(source, /if \(!props\.open\) return null;/);
+  assert.match(source, /onClose=\{props\.onClose\}/);
+  // The hook runs before the early return, so the render order is stable.
+  const hookAt = source.indexOf('const [mobileDetail, setMobileDetail] = React.useState(false);');
+  const gateAt = source.indexOf('if (!props.open) return null;');
+  assert.ok(hookAt !== -1 && gateAt !== -1 && hookAt < gateAt, 'the state hook must precede the open gate');
+
+  // Every close path reaches the same setter, which flips the state the panel is gated on.
+  assert.match(source, /data-testid="contacts-manager-back"/);
+  assert.match(source, /<Button onClick=\{props\.onClose\}>/);
+  assert.match(page, /const \[booksManagerOpen, setBooksManagerOpen\] = useState\(false\)/);
+  assert.match(page, /onClose=\{\(\) => setBooksManagerOpen\(false\)\}/);
+  // Escape and the backdrop are the Dialog's own, and it is the only dialog the manager mounts.
+  assert.equal((source.match(/<Dialog/g) ?? []).length, 1);
+});
+
+test('the trigger is a compact icon with an accessible name', async () => {
+  const source = await read(new URL('./ContactsPage.tsx', import.meta.url));
+
+  assert.match(source, /data-testid="contacts-manage-books"/);
+  // An icon button, not a labelled one: a full-width button competed with the book strip for the header.
+  assert.ok(!/data-testid="contacts-manage-books"[^>]*>[\s\S]{0,80}\{t\('contacts\.booksManager\.manage'\)\}/.test(source),
+    'the trigger must not render its label as text');
+  // Accessible name and tooltip carry the meaning the icon cannot.
+  assert.match(source, /aria-label=\{t\('contacts\.booksManager\.manage'\)\}/);
+  assert.match(source, /title=\{t\('contacts\.booksManager\.manage'\)\}/);
+  assert.match(source, /aria-haspopup="dialog"/);
+  // Desktop compact, mobile a real touch target.
+  assert.match(source, /width: isMobile \? 44 : 34/);
+  assert.match(source, /height: isMobile \? 44 : 34/);
+  assert.match(source, /<svg width=\{isMobile \? 20 : 17\}/);
+});

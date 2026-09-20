@@ -19,6 +19,15 @@ export interface GraphRecipient {
 export interface GraphMessagePayload {
   subject: string;
   body: { contentType: 'HTML' | 'Text'; content: string };
+  /**
+   * The identity the message is sent as.
+   *
+   * Graph sends as the mailbox's primary address unless this is set, so a user who picked an alias would have
+   * their mail arrive from the primary identity — the alias would appear to work in the composer and silently
+   * not on the wire. It is always set to the sender the caller chose; if the mailbox may not send as it, Graph
+   * answers `ErrorSendAsDenied` and the send fails visibly rather than being retried from the primary address.
+   */
+  from: GraphRecipient;
   toRecipients: GraphRecipient[];
   ccRecipients: GraphRecipient[];
   bccRecipients: GraphRecipient[];
@@ -59,6 +68,9 @@ export function renderGraphMessage(composed: ComposedMail): GraphMessagePayload 
     body: composed.htmlBody
       ? { contentType: 'HTML', content: composed.htmlBody }
       : { contentType: 'Text', content: composed.plainBody },
+    // The chosen identity, not the mailbox's primary address and not merely its display name: an alias is an
+    // address, and Graph decides who the message is from by this field.
+    from: toRecipients([composed.from])[0],
     toRecipients: toRecipients(composed.to),
     ccRecipients: toRecipients(composed.cc),
     bccRecipients: toRecipients(composed.bcc),
