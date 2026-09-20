@@ -66,11 +66,26 @@ describe('when the Google mail recommendation may be shown', () => {
 });
 
 describe('listing the active recommendation', () => {
-  it('returns the account id, its address and the notice type, and never the copy', async () => {
-    mocks.query.mockResolvedValueOnce({ rows: [{ id: 'account-1', email_address: 'me@gmail.test' }] });
+  it('returns the account id, its address, the notice type and whether a Gmail grant exists, never the copy', async () => {
+    mocks.query.mockResolvedValueOnce({ rows: [{ id: 'account-1', email_address: 'me@gmail.test', has_gmail_grant: true }] });
     await expect(listActiveGoogleMailRecommendations('user-1')).resolves.toEqual([
-      { accountId: 'account-1', address: 'me@gmail.test', noticeType: GOOGLE_MAIL_RECOMMENDATION },
+      { accountId: 'account-1', address: 'me@gmail.test', noticeType: GOOGLE_MAIL_RECOMMENDATION, hasGmailGrant: true },
     ]);
+  });
+
+  it('answers that a mailbox without a Gmail-scoped grant still needs one', async () => {
+    // The interface cannot read grants, so the recommendation carries the fact it needs to decide between
+    // "authorize Gmail first" and "migrate now".
+    mocks.query.mockResolvedValueOnce({ rows: [{ id: 'account-1', email_address: 'me@gmail.test', has_gmail_grant: false }] });
+    const notices = await listActiveGoogleMailRecommendations('user-1');
+    expect(notices[0]?.hasGmailGrant).toBe(false);
+
+    const [sql, params] = mocks.query.mock.calls[0] as [string, unknown[]];
+    // One query answers both: the mailbox and the grant that matches it, on the Google audience.
+    expect(sql).toContain('oauth_grants');
+    expect(sql).toContain("c.provider = 'google'");
+    expect(sql).toContain('gmail.modify');
+    expect(params).toContain('https://www.googleapis.com/');
   });
 
   it('asks only for an enabled Google mailbox still on imap_smtp and not suppressed', async () => {
@@ -84,7 +99,8 @@ describe('listing the active recommendation', () => {
     expect(sql).toContain('%.gmail.com');
     expect(sql).toContain('%.googlemail.com');
     expect(sql).toContain("COALESCE(p.suppressed, false) = false");
-    expect(params).toEqual(['user-1', 'google_mail_api_recommendation']);
+    // The third parameter is the grant audience the Gmail-scope check reads.
+    expect(params).toEqual(['user-1', 'google_mail_api_recommendation', 'https://www.googleapis.com/']);
   });
 
   it('is user-scoped: the query filters on the caller’s own accounts', async () => {

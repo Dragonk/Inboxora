@@ -34,16 +34,23 @@ vi.mock('../services/connectionPolicy.js', () => ({
 vi.mock('../services/providerMailCutover.js', () => ({
   cutOverMicrosoftMailAccount: vi.fn(),
 }));
+// The route asks the other provider only when the first declines, so the Google half is stubbed here and
+// exercised by its own suite; without it the real service would run against this suite's db mock.
+vi.mock('../services/providerGoogleMailCutover.js', () => ({
+  cutOverGoogleMailAccount: vi.fn(),
+}));
 
 import express from 'express';
 import accountRoutes from './accounts.js';
 import { query as __mock_query } from '../services/db.js';
 import { imapManager as __mock_imapManager } from '../index.js';
 import { cutOverMicrosoftMailAccount as __mock_cutover } from '../services/providerMailCutover.js';
+import { cutOverGoogleMailAccount as __mock_googleCutover } from '../services/providerGoogleMailCutover.js';
 
 const query = vi.mocked(__mock_query);
 const imapManager = vi.mocked(__mock_imapManager, true);
 const cutover = vi.mocked(__mock_cutover);
+const googleCutover = vi.mocked(__mock_googleCutover);
 
 const ACCOUNT_ID = '22222222-2222-2222-2222-222222222222';
 const CONNECTION_ID = '33333333-3333-3333-3333-333333333333';
@@ -86,6 +93,9 @@ describe('POST /api/accounts/:id/migrate', () => {
   beforeEach(() => {
     query.mockReset();
     cutover.mockReset();
+    googleCutover.mockReset();
+    // The Google half is not the subject here: it declines, as it would for an account that is not Google.
+    googleCutover.mockResolvedValue({ status: 'not_applicable', reason: 'This account is not a Google account' });
     imapManager.connectAccount.mockClear();
     imapManager.disconnectAccount.mockClear();
   });

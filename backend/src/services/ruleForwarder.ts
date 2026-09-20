@@ -6,6 +6,13 @@ import type { AttachmentRef } from './imapManager.js';
 import { parseMailbox, renderSmtpMessage, type ComposedMail } from './composedMail.js';
 import { createAccountMailTransport, type TransportSendResult } from './sendTransport.js';
 import { fetchSourceAttachment } from './sourceAttachments.js';
+import { googleConfigFromEnv } from './providerAuthService.js';
+import {
+  collectGmailInlineImages,
+  embedGmailInlineImages,
+  fetchGmailMessageContent,
+  localAttachmentsForGmail,
+} from './providers/google/gmailMailBody.js';
 import { microsoftConfigFromEnv } from './providerAuthService.js';
 import type { GraphApiOptions } from './providers/microsoft/graphApiClient.js';
 import {
@@ -320,6 +327,17 @@ function graphApiForAccount(account: ForwardAccountLike): GraphApiOptions {
   };
 }
 
+function gmailApiForAccount(account: ForwardAccountLike) {
+  if (!account.provider_connection_id) {
+    throw new Error('This Google account is not linked to a Gmail connection. Reconnect the account to forward mail.');
+  }
+  return {
+    userId: account.user_id ?? '',
+    connectionId: account.provider_connection_id,
+    config: googleConfigFromEnv(),
+  };
+}
+
 function ensureAttachmentLimit(attachments: ReadonlyArray<{ content?: { length?: number } | null }>): void {
   const totalBytes = attachments.reduce(
     (sum, attachment) => sum + (attachment.content?.length ?? 0),
@@ -363,6 +381,24 @@ async function loadForwardContent({ row, account, imapManager }: {
       }
       // Only the files a person sees; an inline image belongs to the body and is embedded above.
       fetchedParts = localAttachmentsForGraph(graphAttachments);
+    } else if (transport === 'gmail_api') {
+      // The reading half of the Gmail adapter — the same reader the message-body route uses, so a native
+      // message is cached and forwarded from one implementation. Inline images are embedded as data URIs and
+      // later become CID parts in the shared pipeline, exactly as the other transports do.
+      if (!row.provider_message_id) {
+        throw new Error('This Gmail message has no Gmail API identity to read its body from');
+      }
+      const api = gmailApiForAccount(account);
+      const providerMessageId = row.provider_message_id;
+      const content = await fetchGmailMessageContent(api, providerMessageId);
+      if (content.html) {
+        const inline = await collectGmailInlineImages(api, providerMessageId, content.attachments);
+        html = embedGmailInlineImages(content.html, inline);
+      } else if (content.text) {
+        text = content.text;
+      }
+      // Only the files a person sees; an inline image belongs to the body and is embedded above.
+      fetchedParts = localAttachmentsForGmail(content.attachments);
     } else if (transport === 'imap_smtp') {
       const fetched = await imapManager.fetchMessageBody(
         account,
@@ -401,18 +437,19 @@ async function loadForwardContent({ row, account, imapManager }: {
   }
 
   let fetchedAttachments: ForwardAttachment[] = [];
-  if (storedParts.length && transport === 'microsoft_graph') {
-    // Read the bytes from the account that owns the message, through the shared dispatcher: a Graph
-    // attachment is addressed by its provider id, under the per-file ceiling. The IMAP callback exists
-    // only to satisfy the dispatcher's contract for other transports; it is never reached here and
-    // refuses loudly rather than silently opening a mailbox a native account does not have.
+  const nativeTransport = transport === 'microsoft_graph' || transport === 'gmail_api';
+  if (storedParts.length && nativeTransport) {
+    // Read the bytes from the account that owns the message, through the shared dispatcher: a native
+    // attachment is addressed by its provider id, under the per-file ceiling. The IMAP callback exists only
+    // to satisfy the dispatcher's contract for other transports; it is never reached here and refuses loudly
+    // rather than silently opening a mailbox a native account does not have.
     if (typeof account.id !== 'string' || typeof account.user_id !== 'string') {
       throw new Error('This account is missing the identity needed to read its attachments');
     }
     const sourceAccount = {
       id: account.id,
       user_id: account.user_id,
-      mail_transport: 'microsoft_graph',
+      mail_transport: transport,
       provider_connection_id: account.provider_connection_id ?? null,
     };
     for (const attachment of storedParts) {

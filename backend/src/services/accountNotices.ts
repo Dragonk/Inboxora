@@ -1,6 +1,6 @@
 import { query } from './db.js';
 import { providerIntegrationsEnabled, readProviderSwitches } from './providerSwitches.js';
-import { googleConfigFromEnv, isGoogleConfigured } from './providerAuthService.js';
+import { GOOGLE_GRANT_AUDIENCE, googleConfigFromEnv, isGoogleConfigured } from './providerAuthService.js';
 
 /**
  * The Google mail migration recommendation (P09, per user and per account).
@@ -26,6 +26,12 @@ export interface AccountNotice {
   accountId: string;
   address: string;
   noticeType: AccountNoticeType;
+  /**
+   * Whether a Google connection for this mailbox is already authorized with the Gmail scope, so the
+   * interface knows whether "migrate" needs an authorization first. The server answers it because the
+   * grant is not the interface's to read.
+   */
+  hasGmailGrant: boolean;
 }
 
 /**
@@ -53,8 +59,24 @@ export async function googleMailRecommendationAvailable(): Promise<boolean> {
  */
 export async function listActiveGoogleMailRecommendations(userId: string): Promise<AccountNotice[]> {
   if (!(await googleMailRecommendationAvailable())) return [];
-  const result = await query<{ id: string; email_address: string }>(
-    `SELECT a.id, a.email_address
+  const result = await query<{ id: string; email_address: string; has_gmail_grant: boolean }>(
+    // Whether the mailbox already has a Gmail-scoped grant is answered in the same query: the interface
+    // needs it to decide between "authorize first" and "migrate now", and it cannot read grants itself.
+    `SELECT a.id, a.email_address,
+            EXISTS (
+              SELECT 1
+                FROM provider_connections c
+                JOIN oauth_grants g ON g.connection_id = c.id AND g.status = 'active'
+               WHERE c.user_id = a.user_id AND c.provider = 'google' AND c.status = 'active'
+                 AND lower(COALESCE(c.provider_user_id, '')) = lower(COALESCE(a.email_address, ''))
+                 AND g.audience = $3
+                 AND EXISTS (
+                   SELECT 1 FROM unnest(COALESCE(g.scopes, ARRAY[]::text[])) AS s(scope)
+                    WHERE lower(s.scope) = 'gmail.modify'
+                       OR lower(s.scope) LIKE '%/auth/gmail.modify'
+                       OR lower(s.scope) LIKE '%gmail.modify.%'
+                 )
+            ) AS has_gmail_grant
        FROM email_accounts a
        LEFT JOIN account_notice_preferences p
               ON p.user_id = a.user_id AND p.account_id = a.id AND p.notice_type = $2
@@ -68,12 +90,13 @@ export async function listActiveGoogleMailRecommendations(userId: string): Promi
         )
         AND COALESCE(p.suppressed, false) = false
       ORDER BY a.email_address ASC`,
-    [userId, GOOGLE_MAIL_RECOMMENDATION],
+    [userId, GOOGLE_MAIL_RECOMMENDATION, GOOGLE_GRANT_AUDIENCE],
   );
   return result.rows.map(row => ({
     accountId: row.id,
     address: row.email_address,
     noticeType: GOOGLE_MAIL_RECOMMENDATION,
+    hasGmailGrant: row.has_gmail_grant === true,
   }));
 }
 

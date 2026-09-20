@@ -2175,6 +2175,30 @@ router.post('/sync-folder', async (req, res) => {
   if (!UUID_RE.test(accountId)) return res.status(400).json({ error: 'Invalid account id' });
   if (!isValidFolderName(folder)) return res.status(400).json({ error: 'Invalid folder name' });
 
+  // The account's own transport decides what "sync this folder" means. A native account has no IMAP
+  // session to open — doing so would be the silent fallback its cutover replaced — so it is refreshed
+  // through its provider, which projects every folder at once.
+  const target = await resolveMailTransportForSync(sessionUserId(req), accountId);
+  if (target.kind === 'refused') return res.status(target.status).json({ error: target.error });
+  if (target.kind === 'graph' || target.kind === 'gmail') {
+    const userId = sessionUserId(req);
+    void (async () => {
+      try {
+        if (target.kind === 'graph') {
+          await syncGraphMailFoldersForAccount({ userId, connectionId: target.connectionId, accountId, config: target.config });
+          await syncGraphMailMessagesForAccount({ userId, connectionId: target.connectionId, accountId, config: target.config });
+        } else {
+          await syncGmailMailLabelsForAccount({ userId, connectionId: target.connectionId, accountId, config: target.config });
+          await syncGmailMailMessagesForAccount({ userId, connectionId: target.connectionId, accountId, config: target.config });
+        }
+        imapManager.broadcast({ type: 'sync_complete', accountId }, userId);
+      } catch (err) {
+        console.error('Provider folder sync error:', err instanceof Error ? err.message : err);
+      }
+    })();
+    return res.json({ ok: true, transport: target.kind === 'graph' ? 'microsoft_graph' : 'gmail_api' });
+  }
+
   const check = await query<EmailAccountRow>(
     'SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2',
     [accountId, req.session.userId]

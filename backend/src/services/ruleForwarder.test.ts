@@ -9,12 +9,23 @@ vi.mock('./smtpTransport.js', () => ({
 // stubbed (never the seam): that is what lets these cases assert a native account both reads and sends
 // without ever touching the SMTP factory or the injected IMAP reader.
 const graphSend = vi.hoisted(() => vi.fn());
+const gmailSend = vi.hoisted(() => vi.fn());
 vi.mock('./providers/microsoft/graphMailTransport.js', () => ({
   graphMailTransport: vi.fn(() => ({ kind: 'microsoft_graph', send: graphSend })),
 }));
 vi.mock('./providers/google/gmailMailTransport.js', () => ({
-  gmailMailTransport: vi.fn(),
+  gmailMailTransport: vi.fn(() => ({ kind: 'gmail_api', sendsRenderedMessage: false, send: gmailSend })),
 }));
+// The Gmail readers are stubbed for the same reason, while the pure helpers stay real.
+vi.mock('./providers/google/gmailMailBody.js', async importOriginal => {
+  const actual = await importOriginal<typeof import('./providers/google/gmailMailBody.js')>();
+  return {
+    ...actual,
+    fetchGmailMessageContent: vi.fn(),
+    collectGmailInlineImages: vi.fn(),
+    fetchGmailAttachmentBytes: vi.fn(),
+  };
+});
 // Keep the pure Graph helpers real (they are the code under test's collaborators) and stub the readers.
 vi.mock('./providers/microsoft/graphMailBody.js', async importOriginal => {
   const actual = await importOriginal<typeof import('./providers/microsoft/graphMailBody.js')>();
@@ -36,6 +47,11 @@ import {
   fetchGraphMessageBody as __mock_fetchGraphMessageBody,
 } from './providers/microsoft/graphMailBody.js';
 import {
+  collectGmailInlineImages as __mock_collectGmailInlineImages,
+  fetchGmailAttachmentBytes as __mock_fetchGmailAttachmentBytes,
+  fetchGmailMessageContent as __mock_fetchGmailMessageContent,
+} from './providers/google/gmailMailBody.js';
+import {
   buildForwardComposedMail,
   buildForwardMessage,
   forwardRuleMessage,
@@ -48,6 +64,9 @@ const fetchGraphMessageBody = vi.mocked(__mock_fetchGraphMessageBody);
 const fetchGraphAttachments = vi.mocked(__mock_fetchGraphAttachments);
 const collectGraphInlineImages = vi.mocked(__mock_collectGraphInlineImages);
 const fetchGraphAttachmentBytes = vi.mocked(__mock_fetchGraphAttachmentBytes);
+const fetchGmailMessageContent = vi.mocked(__mock_fetchGmailMessageContent);
+const collectGmailInlineImages = vi.mocked(__mock_collectGmailInlineImages);
+const fetchGmailAttachmentBytes = vi.mocked(__mock_fetchGmailAttachmentBytes);
 
 const imapAccount = {
   id: 'account-1',
@@ -270,6 +289,13 @@ describe('forwardRuleMessage', () => {
     vi.clearAllMocks();
     query.mockReset();
     graphSend.mockReset();
+    gmailSend.mockReset();
+    gmailSend.mockResolvedValue({ status: 'accepted', accepted: ['recipient@example.com'], rejected: [] });
+    fetchGmailMessageContent.mockReset();
+    collectGmailInlineImages.mockReset();
+    fetchGmailAttachmentBytes.mockReset();
+    // The shared pipeline needs an iterable list of inline images; a case that has none says `[]`.
+    collectGmailInlineImages.mockResolvedValue([]);
     fetchGraphMessageBody.mockReset();
     fetchGraphAttachments.mockReset();
     collectGraphInlineImages.mockReset();
@@ -754,22 +780,79 @@ describe('forwardRuleMessage', () => {
     });
   });
 
-  it('refuses a native Gmail source rather than reading it over IMAP', async () => {
+  it('reads a native Gmail source through the Gmail reader and sends through the seam', async () => {
     input = {
       ...input,
       account: { ...imapAccount, mail_transport: 'gmail_api', provider_connection_id: 'connection-g' },
     };
-    const state = installDb({
+    installDb({
       ...messageRow,
+      provider_message_id: 'gmail-message-1',
+      body_text: null,
+      body_html: null,
+      attachments: [],
+    });
+    fetchGmailMessageContent.mockResolvedValue({
+      text: 'Forwarded from Gmail',
+      html: '<p>Forwarded from Gmail</p>',
+      attachments: [],
+    } as never);
+
+    const outcome = await forwardRuleMessage(input);
+
+    expect(outcome).toBe('sent');
+    // The body comes from the Gmail reader the body route uses, and never from IMAP.
+    expect(fetchGmailMessageContent).toHaveBeenCalledWith(
+      expect.objectContaining({ connectionId: 'connection-g' }),
+      'gmail-message-1',
+    );
+    expect(imapManager.fetchMessageBody).not.toHaveBeenCalled();
+    // The send goes through the shared seam, so the transport is the account's own — not the SMTP factory.
+    expect(gmailSend).toHaveBeenCalledOnce();
+    expect(createAccountSmtpTransport).not.toHaveBeenCalled();
+  });
+
+  it('reads a native Gmail source’s attachments through the shared dispatcher, not IMAP', async () => {
+    input = {
+      ...input,
+      account: { ...imapAccount, mail_transport: 'gmail_api', provider_connection_id: 'connection-g' },
+    };
+    installDb({
+      ...messageRow,
+      provider_message_id: 'gmail-message-1',
+      body_text: 'Already cached',
+      body_html: null,
+      attachments: [{ part: 'att-1', filename: 'report.pdf', size: 12, type: 'application/pdf' }],
+    });
+    fetchGmailAttachmentBytes.mockResolvedValue(Buffer.from('a pdf, truly'));
+    fetchGmailMessageContent.mockResolvedValue({ text: 'ignored', html: null, attachments: [] } as never);
+
+    const outcome = await forwardRuleMessage(input);
+
+    expect(outcome).toBe('sent');
+    expect(fetchGmailAttachmentBytes).toHaveBeenCalled();
+    expect(imapManager.fetchMultipleAttachments).not.toHaveBeenCalled();
+    expect(imapManager.fetchMessageBody).not.toHaveBeenCalled();
+    const sent = gmailSend.mock.calls[0]?.[0] as { composed?: { attachments?: Array<{ filename: string }> } } | undefined;
+    expect(sent?.composed?.attachments?.map(attachment => attachment.filename)).toEqual(['report.pdf']);
+  });
+
+  it('refuses a native Gmail source with no Gmail identity instead of reading it over IMAP', async () => {
+    input = {
+      ...input,
+      account: { ...imapAccount, mail_transport: 'gmail_api', provider_connection_id: 'connection-g' },
+    };
+    installDb({
+      ...messageRow,
+      provider_message_id: null,
       body_text: null,
       body_html: null,
       attachments: [],
     });
 
     await expect(forwardRuleMessage(input))
-      .rejects.toThrow('Forwarding from a gmail_api source is not supported yet');
+      .rejects.toThrow('This Gmail message has no Gmail API identity to read its body from');
     expect(imapManager.fetchMessageBody).not.toHaveBeenCalled();
     expect(createAccountSmtpTransport).not.toHaveBeenCalled();
-    expect(state.deletes).toBe(1);
   });
 });

@@ -581,17 +581,67 @@ function AccountsTab() {
    * session; "do not show again" is a server-side suppression that survives a reload and another
    * device. The server decides which accounts have an active notice, so the interface never invents one.
    */
-  const [notices, setNotices] = useState<Array<{ accountId: string; address: string; noticeType: string }>>([]);
+  const [notices, setNotices] = useState<Array<{ accountId: string; address: string; noticeType: string; hasGmailGrant?: boolean }>>([]);
   const [ignoredNotices, setIgnoredNotices] = useState<string[]>([]);
+  const [migratingNotice, setMigratingNotice] = useState<string | null>(null);
+  const loadNotices = () => api.getNotices()
+    .then((data: { notices?: Array<{ accountId: string; address: string; noticeType: string; hasGmailGrant?: boolean }> }) => {
+      setNotices(Array.isArray(data?.notices) ? data.notices : []);
+      return data;
+    })
+    .catch(() => null);
   useEffect(() => {
     let cancelled = false;
     api.getNotices()
-      .then((data: { notices?: Array<{ accountId: string; address: string; noticeType: string }> }) => {
+      .then((data: { notices?: Array<{ accountId: string; address: string; noticeType: string; hasGmailGrant?: boolean }> }) => {
         if (!cancelled) setNotices(Array.isArray(data?.notices) ? data.notices : []);
       })
       .catch(() => { /* a notice that cannot be loaded is simply not shown */ });
     return () => { cancelled = true; };
   }, []);
+  /**
+   * "Migrate to the Google API": authorize Gmail when the mailbox has no Gmail-scoped grant yet, then move
+   * the account onto the Gmail API transport.
+   *
+   * The authorization opens in its own tab (the flow owns the callback), and this waits for the grant to
+   * appear before asking the server to migrate — the server would refuse without it, and a refusal is not
+   * the outcome the user asked for. A failure leaves the account on IMAP/SMTP and keeps the recommendation:
+   * suppressing the notice is a separate decision the user makes, never a side effect of a failed migration.
+   */
+  const migrateNoticeAccount = async (notice: { accountId: string; hasGmailGrant?: boolean }) => {
+    setMigratingNotice(notice.accountId);
+    try {
+      let ready = notice.hasGmailGrant === true;
+      if (!ready) {
+        const tab = document.createElement('a');
+        tab.href = '/oauth/google?purpose=mail_migration';
+        tab.target = '_blank';
+        tab.rel = 'opener';
+        document.body.appendChild(tab);
+        tab.click();
+        document.body.removeChild(tab);
+        // The grant lands on the server when the flow completes; poll for it rather than guess a delay.
+        for (let attempt = 0; attempt < 30 && !ready; attempt += 1) {
+          await new Promise(resolve => setTimeout(resolve, 3000));
+          const data = await loadNotices();
+          ready = data?.notices?.find(item => item.accountId === notice.accountId)?.hasGmailGrant === true;
+        }
+        if (!ready) {
+          addNotification({ type: 'info', title: t('admin.accounts.googleMigrateTitle'), body: t('admin.accounts.googleMigrateAuthorize') });
+          return;
+        }
+      }
+      await api.migrateAccount(notice.accountId);
+      const accounts = await api.getAccounts();
+      setAccounts(accounts);
+      await loadNotices();
+      addNotification({ type: 'success', title: t('admin.accounts.googleMigrateTitle'), body: t('admin.accounts.googleMigrateSuccess') });
+    } catch (err) {
+      addNotification({ type: 'error', title: t('admin.accounts.googleMigrateTitle'), body: toAppError(err).message });
+    } finally {
+      setMigratingNotice(null);
+    }
+  };
   const suppressNotice = async (accountId: string) => {
     try {
       await api.suppressNotice(accountId);
@@ -1129,6 +1179,20 @@ function AccountsTab() {
             <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
               <button
                 type="button"
+                data-testid="google-recommendation-migrate"
+                disabled={migratingNotice === notice.accountId}
+                onClick={() => migrateNoticeAccount(notice)}
+                style={{
+                  padding: '6px 12px', background: 'var(--accent)', border: 'none',
+                  borderRadius: 7, color: 'var(--accent-text)', fontSize: 12,
+                  cursor: migratingNotice === notice.accountId ? 'not-allowed' : 'pointer',
+                  opacity: migratingNotice === notice.accountId ? 0.7 : 1,
+                }}
+              >
+                {migratingNotice === notice.accountId ? t('admin.accounts.googleMigratePending') : t('admin.accounts.googleMigrate')}
+              </button>
+              <button
+                type="button"
                 data-testid="google-recommendation-ignore"
                 onClick={() => setIgnoredNotices(current => [...current, notice.accountId])}
                 style={{
@@ -1143,8 +1207,8 @@ function AccountsTab() {
                 data-testid="google-recommendation-suppress"
                 onClick={() => suppressNotice(notice.accountId)}
                 style={{
-                  padding: '6px 12px', background: 'var(--accent)', border: 'none',
-                  borderRadius: 7, color: 'var(--accent-text)', fontSize: 12, cursor: 'pointer',
+                  padding: '6px 12px', background: 'var(--bg-elevated)', border: '1px solid var(--border)',
+                  borderRadius: 7, color: 'var(--text-secondary)', fontSize: 12, cursor: 'pointer',
                 }}
               >
                 {t('admin.accounts.noticeNever')}

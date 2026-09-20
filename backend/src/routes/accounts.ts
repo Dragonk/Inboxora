@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import type { Response } from 'express';
 import { query, type DbRow } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { imapManager } from '../index.js';
@@ -13,6 +14,8 @@ import { isUuid, uuidParam } from '../utils/uuid.js';
 import { toAppError } from '../utils/errors.js';
 import { cutOverMicrosoftMailAccount } from '../services/providerMailCutover.js';
 import type { MicrosoftMailCutoverAccount } from '../services/providerMailCutover.js';
+import { cutOverGoogleMailAccount } from '../services/providerGoogleMailCutover.js';
+import type { GoogleMailCutoverAccount } from '../services/providerGoogleMailCutover.js';
 
 // Serialize an account's reconnect triggers so a rapid settings change (e.g. a
 // gtd_enabled double-toggle) can't fire two overlapping disconnect→connect chains —
@@ -391,7 +394,7 @@ router.post('/:id/reconnect', async (req, res) => {
 // ── In-place transport cutover (P12) ────────────────────────────────────────
 
 /** The account fields a cutover response returns; all of them are also on the account list. */
-function cutoverAccountPayload(account: MicrosoftMailCutoverAccount) {
+function cutoverAccountPayload(account: MicrosoftMailCutoverAccount | GoogleMailCutoverAccount) {
   return {
     id: account.id,
     email_address: account.email_address,
@@ -406,15 +409,6 @@ function cutoverAccountPayload(account: MicrosoftMailCutoverAccount) {
   };
 }
 
-/**
- * Move an existing Microsoft account onto the native Graph transport, in place.
- *
- * Deliberate and verifiable, not a background guess: the account keeps its id and all of its local
- * data, the switch happens only against an active Graph connection whose grant carries the mail
- * scopes, and a retry on an already-native account is a no-op. The body may name the connection
- * explicitly; otherwise the mailbox's own connection is resolved. See `providerMailCutover.ts` for
- * the state machine and the crash-safety argument.
- */
 router.post('/:id/migrate', async (req, res) => {
   const { id } = req.params;
   const userId = req.session.userId;
@@ -428,57 +422,127 @@ router.post('/:id/migrate', async (req, res) => {
     return res.status(400).json({ error: 'allowIdentityMismatch must be a boolean' });
   }
 
+  // Which cutover applies is the account's own provider, never a client-supplied field: each cutover reads
+  // the account row and answers `not_applicable` for a provider it does not own, so the account decides. The
+  // other provider is asked only when the first declined for that reason, so a real refusal is never masked.
   try {
-    const result = await cutOverMicrosoftMailAccount({
+    const input = {
       userId,
       accountId: id,
       connectionId: requestedConnection ?? null,
       allowIdentityMismatch: allowIdentityMismatch === true,
-    });
-
-    switch (result.status) {
-      case 'not_found':
-        return res.status(404).json({ error: 'Account not found' });
-      case 'not_applicable':
-        return res.status(409).json({ error: result.reason, code: 'ACCOUNT_MIGRATION_NOT_APPLICABLE' });
-      case 'refused':
-        return res.status(result.httpStatus).json({
-          error: result.message,
-          code: result.code,
-          ...(result.missingScopes?.length ? { missingScopes: result.missingScopes } : {}),
-          ...(result.migrationState ? { migrationState: result.migrationState } : {}),
+    };
+    const microsoft = await cutOverMicrosoftMailAccount(input);
+    if (microsoft.status === 'not_applicable') {
+      const google = await cutOverGoogleMailAccount(input);
+      if (google.status !== 'not_applicable') return respondGoogleCutoverResult(res, id, google);
+      if (microsoft.reason.includes('not a Microsoft account')) {
+        return res.status(409).json({
+          code: 'ACCOUNT_MIGRATION_NOT_APPLICABLE',
+          error: 'This account has no native provider transport to migrate to',
         });
-      case 'already_native':
-        return res.json({
-          ok: true,
-          alreadyNative: true,
-          transport: 'microsoft_graph',
-          connectionId: result.connectionId,
-          account: cutoverAccountPayload(result.account),
-        });
-      case 'migrated':
-        // No IMAP session may outlive the switch; the transport, not the session, is authoritative
-        // now, and `protocol` keeps the legacy reconnect loops away from this account.
-        imapManager.disconnectAccount(id).catch(err =>
-          console.error(`Failed to disconnect account ${id} after the Graph cutover:`, err instanceof Error ? err.message : err)
-        );
-        return res.json({
-          ok: true,
-          alreadyNative: false,
-          transport: 'microsoft_graph',
-          connectionId: result.connectionId,
-          transitions: result.transitions,
-          foldersDiscovered: result.foldersDiscovered,
-          account: cutoverAccountPayload(result.account),
-        });
+      }
     }
-    return res.status(500).json({ error: 'Unexpected cutover outcome' });
+    return respondMicrosoftCutoverResult(res, id, microsoft);
   } catch (caught) {
     const err = toAppError(caught);
-    console.error('Account Graph cutover error:', err.message);
-    return res.status(500).json({ error: 'Failed to migrate the account to Microsoft Graph' });
+    console.error('Account cutover failed:', err.message);
+    return res.status(err.status || 500).json({ error: err.message || 'The account could not be migrated' });
   }
 });
+
+/** The HTTP answer for a Microsoft cutover outcome. */
+function respondMicrosoftCutoverResult(res: Response, id: string, result: Awaited<ReturnType<typeof cutOverMicrosoftMailAccount>>): void {
+  switch (result.status) {
+    case 'not_found':
+      res.status(404).json({ error: 'Account not found' });
+      return;
+    case 'not_applicable':
+      res.status(409).json({ error: result.reason, code: 'ACCOUNT_MIGRATION_NOT_APPLICABLE' });
+      return;
+    case 'refused':
+      res.status(result.httpStatus).json({
+        error: result.message,
+        code: result.code,
+        ...(result.missingScopes?.length ? { missingScopes: result.missingScopes } : {}),
+        ...(result.migrationState ? { migrationState: result.migrationState } : {}),
+      });
+      return;
+    case 'already_native':
+      res.json({
+        ok: true,
+        alreadyNative: true,
+        transport: 'microsoft_graph',
+        connectionId: result.connectionId,
+        account: cutoverAccountPayload(result.account),
+      });
+      return;
+    case 'migrated':
+      // No IMAP session may outlive the switch; the transport, not the session, is authoritative now, and
+      // `protocol` keeps the legacy reconnect loops away from this account.
+      imapManager.disconnectAccount(id).catch(err =>
+        console.error(`Failed to disconnect account ${id} after the Graph cutover:`, err instanceof Error ? err.message : err)
+      );
+      res.json({
+        ok: true,
+        alreadyNative: false,
+        transport: 'microsoft_graph',
+        connectionId: result.connectionId,
+        transitions: result.transitions,
+        foldersDiscovered: result.foldersDiscovered,
+        account: cutoverAccountPayload(result.account),
+      });
+      return;
+    default:
+      res.status(500).json({ error: 'Unexpected cutover outcome' });
+  }
+}
+
+/** The HTTP answer for a Gmail cutover outcome. */
+function respondGoogleCutoverResult(res: Response, accountId: string, result: Awaited<ReturnType<typeof cutOverGoogleMailAccount>>): void {
+  switch (result.status) {
+    case 'not_found':
+      res.status(404).json({ error: 'Account not found' });
+      return;
+    case 'not_applicable':
+      res.status(409).json({ error: result.reason, code: 'ACCOUNT_MIGRATION_NOT_APPLICABLE' });
+      return;
+    case 'refused':
+      res.status(result.httpStatus).json({
+        error: result.message,
+        code: result.code,
+        ...(result.missingScopes?.length ? { missingScopes: result.missingScopes } : {}),
+        ...(result.migrationState ? { migrationState: result.migrationState } : {}),
+      });
+      return;
+    case 'already_native':
+      res.json({
+        ok: true,
+        alreadyNative: true,
+        transport: 'gmail_api',
+        connectionId: result.connectionId,
+        account: cutoverAccountPayload(result.account),
+      });
+      return;
+    case 'migrated':
+      // No IMAP session may outlive the switch; the transport, not the session, is authoritative now.
+      imapManager.disconnectAccount(accountId).catch(err =>
+        console.error(`Failed to disconnect account ${accountId} after the Gmail cutover:`, err instanceof Error ? err.message : err)
+      );
+      res.json({
+        ok: true,
+        alreadyNative: false,
+        transport: 'gmail_api',
+        connectionId: result.connectionId,
+        transitions: result.transitions,
+        labelsDiscovered: result.labelsDiscovered,
+        account: cutoverAccountPayload(result.account),
+      });
+      return;
+    default:
+      res.status(500).json({ error: 'Unexpected cutover outcome' });
+  }
+}
 
 // ── Alias CRUD ─────────────────────────────────────────────────────────────
 

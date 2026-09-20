@@ -2956,6 +2956,11 @@ export class ImapManager {
   // UIDNEXT, message count, and unseen count all match the cache is skipped, so reopening an
   // already-current folder does not open an IMAP connection. Returns true when a sync ran.
   async syncFolderOnDemand(account: EmailAccountRow, folder: string): Promise<boolean> {
+    // Defence in depth: the routes dispatch native accounts to their provider first, and this refuses
+    // rather than opening an IMAP session for one — the fallback a cutover exists to prevent.
+    if (account.mail_transport === 'microsoft_graph' || account.mail_transport === 'gmail_api') {
+      throw new Error(`This account reads mail through ${account.mail_transport}; its provider sync refreshes folders`);
+    }
     const key = `${account.id}:${folder}`;
     const existing = this.folderSyncInflights.get(key);
     if (existing) return existing.then(() => true);

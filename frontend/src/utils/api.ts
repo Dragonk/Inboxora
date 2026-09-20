@@ -332,6 +332,10 @@ export const api = {
   // effective numbers; `null` means the transport declares no such ceiling.
   getSendLimits: (accountId: string) => request('GET', `/mail/send-limits?accountId=${encodeURIComponent(accountId)}`),
   suppressNotice: (accountId: string) => request('POST', `/integrations/notices/${encodeURIComponent(accountId)}/suppress`, {}),
+  // Move one existing account onto its provider's native transport, in place. The server decides whether
+  // that is Google or Microsoft from the account itself and refuses with a code when it cannot.
+  migrateAccount: (accountId: string, body: Record<string, unknown> = {}) =>
+    request('POST', `/accounts/${encodeURIComponent(accountId)}/migrate`, body),
   // Disconnect a provider account the signed-in user connected. Imported data is kept.
   disconnectProviderConnection: (id: string) => request('POST', `/integrations/provider-connections/${encodeURIComponent(id)}/disconnect`),
   // Enable or disable write-back for one pulled collection. The server refuses when the provider does not
