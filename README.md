@@ -130,13 +130,21 @@ it is native, and a retry after a failure is safe. *Ignore* or *do not show agai
 recommendation (durably, per user and per mailbox) without changing the account. Calendar and contacts work
 independently of the mail transport.
 
-**Integrations configure provider applications. Accounts connect individual mailboxes.** Settings →
-**Integrations** is the administrator's page: the Microsoft Entra and Google Cloud OAuth clients (client id,
+**Integrations configure provider applications and global webhook infrastructure. Accounts manage each
+mailbox and its mail, calendar, contacts and per-account synchronisation.** Settings → **Integrations** is the
+administrator's page: the Microsoft Entra and Google Cloud OAuth clients (client id,
 secret, tenant, redirect URI), browser/device-code readiness, scopes and capabilities, push/webhook/Pub-Sub
 configuration and the configuration test. Settings → **Accounts** is where a mailbox is added — **Add account**
 offers Microsoft, Google or another provider over IMAP/SMTP — together with the existing accounts, their
 migration, reconnect, aliases, folders, reindex and removal. A mailbox is never added from Integrations, and a
 user is never shown a client id or a secret.
+
+**Each account shows its own provider services.** The account card names the transport the mailbox uses —
+**Microsoft Graph**, **Gmail API** or **IMAP/SMTP** — offers the migration when one applies (a legacy Gmail or
+Outlook account is recognised by the shared provider classifier, not by its address domain), and shows whether
+its calendar and contacts are connected plus the instant-synchronisation state of each. Connecting a calendar
+or contacts grant starts the provider's flow for that service alone, so mail may stay on IMAP while the
+calendar is connected.
 
 **Instant synchronisation is available, and polling is the safety net.** With a public HTTPS URL
 (`APP_URL`) and `PROVIDER_PUSH_ENABLED=true`, Inboxora registers Microsoft Graph change notifications for

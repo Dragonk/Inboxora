@@ -31,6 +31,13 @@ vi.mock('../services/connectionPolicy.js', () => ({
     allowNonstandardPorts: false,
   }),
 }));
+// The route classifies the account first, with the same service the recommendation uses.
+vi.mock('../services/providerAccountClassifier.js', () => ({
+  classifyProviderAccount: vi.fn(() => 'microsoft'),
+  classifyProviderAccountById: vi.fn(async () => ({ kind: 'microsoft', account: { email_address: 'user@example.test' } })),
+  providerConnectionSignals: vi.fn(async () => []),
+}));
+
 vi.mock('../services/providerMailCutover.js', () => ({
   cutOverMicrosoftMailAccount: vi.fn(),
 }));

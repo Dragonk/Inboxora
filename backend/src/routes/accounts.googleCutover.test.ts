@@ -31,6 +31,13 @@ vi.mock('../services/connectionPolicy.js', () => ({
   }),
 }));
 // A Google account makes the Microsoft half decline, and the route then asks the Google one.
+// The route classifies the account first, with the same service the recommendation uses.
+vi.mock('../services/providerAccountClassifier.js', () => ({
+  classifyProviderAccount: vi.fn(() => 'google'),
+  classifyProviderAccountById: vi.fn(async () => ({ kind: 'google', account: { email_address: 'user@example.test' } })),
+  providerConnectionSignals: vi.fn(async () => []),
+}));
+
 vi.mock('../services/providerMailCutover.js', () => ({
   cutOverMicrosoftMailAccount: vi.fn(),
 }));

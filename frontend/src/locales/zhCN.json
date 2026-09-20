@@ -56,6 +56,23 @@
       "signatureSection": "签名",
       "saveChanges": "保存更改",
       "addAccount": "添加账户",
+      "services": {
+        "title": "{{provider}} 服务",
+        "google": "Google",
+        "microsoft": "Microsoft",
+        "mail": "邮件",
+        "calendar": "日历",
+        "contacts": "联系人",
+        "connected": "已连接",
+        "notConnected": "未连接",
+        "connect": "连接",
+        "collections": "{{count}} 个集合",
+        "instantSync": "即时同步",
+        "migrateGoogle": "迁移到 Gmail API",
+        "migrateMicrosoft": "迁移到 Microsoft Graph",
+        "finishInTab": "请在打开的标签页中完成登录，然后返回此卡片。",
+        "migrated": "该账户现在使用服务商 API。"
+      },
       "addAccountFlow": {
         "nativeTransport": "此账户通过 {{transport}} 收发邮件，没有可编辑的 IMAP/SMTP 配置。如需更新授权，请使用“重新连接”。",
         "title": "添加账户",

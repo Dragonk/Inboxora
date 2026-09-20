@@ -263,6 +263,20 @@ The same guarantees as the Microsoft cutover, for Google mail:
 - **Nothing changes if it fails.** The account stays on IMAP/SMTP, the recommendation stays visible, and a
   retry is idempotent: a second call on an already-migrated account is a no-op.
 
+## Provider classification, and what a migration needs
+
+A legacy mailbox is recognised as Google or Microsoft by one shared classifier, so the recommendation the
+interface shows and the migration it then runs can never disagree. It reads the stored provider column, the
+IMAP hosts Inboxora's own presets used (`imap.gmail.com`, `imap.googlemail.com`, `outlook.office365.com`,
+`imap-mail.outlook.com`), and an existing **active** provider connection whose verified `provider_user_id` is
+that mailbox — which is what recognises a Google Workspace address on a custom domain, where no host can tell.
+The address domain alone is never a signal.
+
+A classification is only a candidacy. The switch itself still requires an active provider connection of that
+provider, owned by the same user, whose verified identity matches the account's address, with the scopes the
+transport needs (`gmail.modify` for Gmail, `Mail.ReadWrite` + `Mail.Send` for Graph). If the authorization is
+missing, the migration action starts the provider's flow first and continues afterwards, from the account card.
+
 ## Who configures what
 
 **Integrations configure provider applications. Accounts connect individual mailboxes.** An administrator

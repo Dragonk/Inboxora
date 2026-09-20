@@ -54,6 +54,23 @@
       "signatureSection": "Подпись",
       "saveChanges": "Сохранить изменения",
       "addAccount": "Добавить аккаунт",
+      "services": {
+        "title": "Сервисы {{provider}}",
+        "google": "Google",
+        "microsoft": "Microsoft",
+        "mail": "Почта",
+        "calendar": "Календарь",
+        "contacts": "Контакты",
+        "connected": "Подключено",
+        "notConnected": "Не подключено",
+        "connect": "Подключить",
+        "collections": "Коллекций: {{count}}",
+        "instantSync": "Мгновенная синхронизация",
+        "migrateGoogle": "Перейти на Gmail API",
+        "migrateMicrosoft": "Перейти на Microsoft Graph",
+        "finishInTab": "Завершите вход во вкладке и вернитесь к этой карточке.",
+        "migrated": "Аккаунт теперь использует API провайдера."
+      },
       "addAccountFlow": {
         "nativeTransport": "Этот аккаунт читает и отправляет через {{transport}}; настройки IMAP/SMTP здесь не редактируются. Используйте «Переподключить», если авторизацию нужно обновить.",
         "title": "Добавить аккаунт",

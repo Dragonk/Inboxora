@@ -496,6 +496,16 @@ const SAME_VALUE_ALLOWED: Record<string, SameValueRule> = {
   'calendar.icsWebcal': 'any',
   'calendar.sourceCalendar': [['en', 'fr']],
   'calendar.sourceUrl': 'any',
+  // Settings -> Accounts: the account's provider services. The service names are the calendar/contacts words
+  // already used elsewhere ("Calendario" is the same in Spanish and Italian), and the collection count is an
+  // interpolation-only template.
+  'admin.accounts.services.calendar': [['es', 'it']],
+  'admin.accounts.services.collections': 'any',
+  // "Contacts" is the same word in these language groups, as it already is elsewhere in the file.
+  'admin.accounts.services.contacts': [['en', 'fr'], ['cs', 'pl']],
+  // The provider names, identical in every language by design.
+  'admin.accounts.services.google': 'any',
+  'admin.accounts.services.microsoft': 'any',
   // Settings -> Accounts: the mailbox kind and the product names it covers are proper nouns.
   'admin.accounts.addAccountFlow.microsoft': 'any',
   'admin.accounts.addAccountFlow.google': 'any',

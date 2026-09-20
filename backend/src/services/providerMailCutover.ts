@@ -1,6 +1,7 @@
 import type { PoolClient } from 'pg';
 import { withTransaction } from './db.js';
 import { providerIntegrationsEnabled } from './providerSwitches.js';
+import { classifyProviderAccount, providerConnectionSignals } from './providerAccountClassifier.js';
 import {
   MICROSOFT_GRANT_AUDIENCE,
   isMicrosoftConfigured,
@@ -365,6 +366,7 @@ export async function cutOverMicrosoftMailAccount(
     );
     const account = locked.rows[0];
     if (!account) return { status: 'not_found' };
+    const connections = await providerConnectionSignals(input.userId, client);
 
     // Already switched, with its connection recorded: a retry is a no-op, not a second migration.
     if (account.mail_transport === 'microsoft_graph' && account.provider_connection_id) {
@@ -376,7 +378,12 @@ export async function cutOverMicrosoftMailAccount(
       };
     }
 
-    if (account.oauth_provider !== 'microsoft') {
+    // Classified by the shared classifier rather than by `oauth_provider`: a legacy Outlook/Office 365
+    // account added over IMAP has the Microsoft host and a NULL `oauth_provider`, and it is the account the
+    // Graph migration is for. A candidate still has to pass the connection, ownership, identity and scope
+    // checks below before anything switches.
+    const kind = classifyProviderAccount({ ...account, connections });
+    if (kind !== 'microsoft') {
       return {
         status: 'not_applicable',
         reason: 'This account is not a Microsoft account, so there is no Graph transport to cut it over to',

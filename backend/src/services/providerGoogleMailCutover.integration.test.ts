@@ -215,6 +215,43 @@ describeOrSkip('cutOverGoogleMailAccount (PostgreSQL)', () => {
       .resolves.toEqual([ACCOUNT_ID]);
   });
 
+  it('migrates a legacy Gmail account added over IMAP with an app password', async () => {
+    // The real 4.0.4 shape: a Gmail IMAP host, an app-password account, `oauth_provider` NULL and no native
+    // transport. The recommendation card offers "Migrate to the Google API" for exactly this account, so the
+    // cutover must classify it as Google and perform the switch rather than answering "not applicable".
+    await inTransaction(async client => {
+      await upsertProviderConnection(client, {
+        userId: USER_ID, provider: 'google', issuer: GOOGLE_ISSUER, subject: 'legacy-gmail',
+        providerUserId: 'kmaciag93@gmail.com',
+      }).then(connectionId => storeOAuthGrant(client, {
+        connectionId,
+        audience: GOOGLE_GRANT_AUDIENCE,
+        accessToken: 'google-access-legacy',
+        refreshToken: 'google-refresh-legacy',
+        expiresAt: new Date(Date.now() + 3600_000),
+        scopes: ['https://www.googleapis.com/auth/gmail.modify'],
+        clientIdAtIssue: CONFIG.clientId,
+      }));
+      await client.query(
+        `INSERT INTO email_accounts (id, user_id, name, email_address, protocol, imap_host, oauth_provider, mail_transport, migration_state)
+         VALUES ($1, $2, 'Gmail (legacy)', 'kmaciag93@gmail.com', 'imap', 'imap.gmail.com', NULL, NULL, 'not_applicable')`,
+        [ACCOUNT_ID, USER_ID],
+      );
+    });
+
+    const result = await cutOverGoogleMailAccount({ userId: USER_ID, accountId: ACCOUNT_ID, discoverLabels: false });
+
+    expect(result.status).toBe('migrated');
+    if (result.status !== 'migrated') return;
+    expect(result.account.id).toBe(ACCOUNT_ID);
+    expect(result.account.mail_transport).toBe('gmail_api');
+    expect(result.account.protocol).toBe('gmail_api');
+    const rows = await autocommit(client => client.query<{ count: string }>(
+      'SELECT COUNT(*)::text AS count FROM email_accounts WHERE user_id = $1', [USER_ID],
+    ));
+    expect(rows.rows[0]?.count).toBe('1');
+  });
+
   it('is idempotent: a retry on a migrated account is a no-op', async () => {
     const { connectionId } = await seedGoogleAccount();
     const first = await cutOverGoogleMailAccount({ userId: USER_ID, accountId: ACCOUNT_ID, config: CONFIG, discoverLabels: false });

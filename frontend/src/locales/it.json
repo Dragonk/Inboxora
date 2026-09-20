@@ -54,6 +54,23 @@
       "signatureSection": "Firma",
       "saveChanges": "Salva modifiche",
       "addAccount": "Aggiungi account",
+      "services": {
+        "title": "Servizi {{provider}}",
+        "google": "Google",
+        "microsoft": "Microsoft",
+        "mail": "Posta",
+        "calendar": "Calendario",
+        "contacts": "Contatti",
+        "connected": "Connesso",
+        "notConnected": "Non connesso",
+        "connect": "Connetti",
+        "collections": "{{count}} raccolta/e",
+        "instantSync": "Sincronizzazione istantanea",
+        "migrateGoogle": "Passa all’API di Gmail",
+        "migrateMicrosoft": "Passa a Microsoft Graph",
+        "finishInTab": "Completa l’accesso nella scheda aperta, poi torna a questa scheda.",
+        "migrated": "L’account ora usa l’API del provider."
+      },
       "addAccountFlow": {
         "nativeTransport": "Questo account legge e invia tramite {{transport}}; non c’è alcuna configurazione IMAP/SMTP da modificare. Usa «Riconnetti» se l’autorizzazione va rinnovata.",
         "title": "Aggiungi account",

@@ -35,6 +35,30 @@ Nothing is being prepared beyond 4.1.0. Work whose version has not been chosen a
 ## [4.1.0]
 
 ### Added
+- **A legacy Gmail or Outlook account can now actually migrate.** The recommendation and the cutover were
+  answering the same question with different rules: the Google recommendation recognised a Gmail mailbox by
+  its IMAP host, while the Gmail cutover accepted only `oauth_provider = 'google'`. A real 4.0.4 account —
+  added over IMAP with an app password, so `oauth_provider` is NULL — was therefore offered "Migrate to the
+  Google API" and then answered `ACCOUNT_MIGRATION_NOT_APPLICABLE`. The same gap hid the Microsoft migration
+  entirely for an Outlook account with `imap_host = outlook.office365.com` and no recorded provider. One
+  shared classifier now answers the question for the recommendation, both cutovers, the migrate route and the
+  interface, using the stored provider, the IMAP hosts Inboxora's own presets shipped, and an existing active
+  provider connection whose verified identity is that mailbox (which is what recognises a Google Workspace
+  address on a custom domain). A classification only says "this account is a candidate": the switch still
+  requires an active connection of that provider, owned by the user, with a matching verified identity and the
+  scopes the transport needs, so no host name can move a mailbox on its own.
+- **The account card is the account's provider centre.** Each mailbox now shows its own provider services:
+  the mail transport it uses (Microsoft Graph, Gmail API or IMAP/SMTP) and the migration action when one
+  applies, whether its calendar and contacts are connected with the number of pulled collections, and the
+  instant-synchronisation state of mail, calendar and contacts. `GET /api/accounts/:id/provider-features`
+  answers it, resolving a connection by the verified identity (`provider_user_id` = the account's address)
+  rather than by creation order. Connecting a calendar or contacts grant starts the provider's flow with the
+  purpose that matches the service, so a user may keep mail on IMAP and connect only the calendar, or only
+  contacts.
+- **Google Calendar, Google Contacts, Microsoft Calendar and Microsoft Contacts keep their independent
+  grants**, unchanged: `mail_migration`, `calendar_enable` and `contacts_enable` stay separate purposes, and
+  nothing about one implies another.
+
 - **Settings → Integrations configures provider applications; Settings → Accounts connects mailboxes.** The
   provider cards were starting a mailbox authorization ("Connect Microsoft account", the Microsoft API
   device-code connect), which mixed an administrator's infrastructure job with a user's own account. Those

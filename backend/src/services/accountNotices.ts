@@ -83,10 +83,19 @@ export async function listActiveGoogleMailRecommendations(userId: string): Promi
       WHERE a.user_id = $1
         AND a.enabled = true
         AND COALESCE(a.mail_transport, 'imap_smtp') = 'imap_smtp'
+        -- The same signals the shared provider classifier reads, so a recommendation and a migration can never
+        -- disagree: the stored provider, the Gmail hosts the presets shipped, or an active Google connection
+        -- whose verified identity is this mailbox (a Workspace mailbox on a custom domain).
         AND (
-          a.oauth_provider = 'google'
+          lower(COALESCE(a.oauth_provider, '')) = 'google'
+          OR lower(COALESCE(a.imap_host, '')) IN ('imap.gmail.com', 'imap.googlemail.com')
           OR lower(COALESCE(a.imap_host, '')) LIKE '%.gmail.com'
           OR lower(COALESCE(a.imap_host, '')) LIKE '%.googlemail.com'
+          OR EXISTS (
+            SELECT 1 FROM provider_connections c2
+             WHERE c2.user_id = a.user_id AND c2.provider = 'google' AND c2.status = 'active'
+               AND lower(COALESCE(c2.provider_user_id, '')) = lower(COALESCE(a.email_address, ''))
+          )
         )
         AND COALESCE(p.suppressed, false) = false
       ORDER BY a.email_address ASC`,

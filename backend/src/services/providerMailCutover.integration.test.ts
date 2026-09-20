@@ -468,6 +468,44 @@ describeOrSkip('cutOverMicrosoftMailAccount (PostgreSQL)', () => {
     expect(target?.features).toContain('mail_folder');
   });
 
+  it('migrates a legacy Outlook account that has no oauth_provider recorded', async () => {
+    // Exactly what a 4.0.4 installation holds: the Microsoft host, a NULL `oauth_provider` (the column was
+    // not written for these accounts) and no native transport. The recommendation and the cutover have to
+    // agree that this is a Microsoft account, or the user is offered a migration that refuses to run.
+    await inTransaction(async client => {
+      await upsertProviderConnection(client, {
+        userId: USER_ID, provider: 'microsoft', issuer: MICROSOFT_ISSUER, subject: 'legacy-ms',
+        providerUserId: 'dragonk93@outlook.com',
+      }).then(connectionId => storeOAuthGrant(client, {
+        connectionId,
+        audience: MICROSOFT_GRANT_AUDIENCE,
+        accessToken: 'graph-access-legacy',
+        refreshToken: 'graph-refresh-legacy',
+        expiresAt: new Date(Date.now() + 3600_000),
+        scopes: ['https://graph.microsoft.com/Mail.ReadWrite', 'https://graph.microsoft.com/Mail.Send'],
+        clientIdAtIssue: CONFIG.clientId,
+      }));
+      await client.query(
+        `INSERT INTO email_accounts (id, user_id, name, email_address, protocol, imap_host, oauth_provider, migration_state)
+         VALUES ($1, $2, 'Outlook (legacy)', 'dragonk93@outlook.com', 'imap', 'outlook.office365.com', NULL, 'not_applicable')`,
+        [ACCOUNT_ID, USER_ID],
+      );
+    });
+
+    const result = await cutOverMicrosoftMailAccount({ userId: USER_ID, accountId: ACCOUNT_ID, discoverFolders: false });
+
+    expect(result.status).toBe('migrated');
+    if (result.status !== 'migrated') return;
+    // The same account, now native, and still exactly one row for that mailbox.
+    expect(result.account.id).toBe(ACCOUNT_ID);
+    expect(result.account.mail_transport).toBe('microsoft_graph');
+    expect(result.account.protocol).toBe('microsoft_graph');
+    const rows = await autocommit(client => client.query<{ count: string }>(
+      'SELECT COUNT(*)::text AS count FROM email_accounts WHERE user_id = $1', [USER_ID],
+    ));
+    expect(rows.rows[0]?.count).toBe('1');
+  });
+
   it('does not un-migrate when post-switch folder discovery fails', async () => {
     await seedMicrosoftAccount();
     const failing = fakeFolders([() => json({ error: { code: 'ErrorAccessDenied', message: 'no mailbox' } }, 403)]);

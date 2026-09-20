@@ -7,6 +7,7 @@ import ConversationRebuild from './ConversationRebuild.tsx';
 import CalendarSubscriptionsSettings from './CalendarSubscriptionsSettings.tsx';
 import ProviderPushControls, { type ProviderPushStatus } from './ProviderPushControls.tsx';
 import AddAccountFlow, { type IntegrationStatus } from './AddAccountFlow.tsx';
+import AccountProviderServices from './AccountProviderServices.tsx';
 import { useCallback, useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.ts';
@@ -1319,6 +1320,9 @@ function AccountsTab({ onNavigate = undefined }: { onNavigate?: (tab: string) =>
                 )}
               </div>
             </div>
+            {/* The account's own provider services: transport, migration, calendar, contacts and push. */}
+            <AccountProviderServices accountId={account.id} reload={loadAccounts} t={t} />
+
             <div style={{ display: 'flex', gap: 6, flexShrink: 0, marginLeft: 'auto' }}>
               {account.sync_error && (
                 <IconBtn onClick={() => handleReconnect(account.id)} title={t('sidebar.accountMenu.reconnect')}>

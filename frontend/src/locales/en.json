@@ -56,6 +56,23 @@
       "signatureSection": "Signature",
       "saveChanges": "Save changes",
       "addAccount": "Add account",
+      "services": {
+        "title": "{{provider}} services",
+        "google": "Google",
+        "microsoft": "Microsoft",
+        "mail": "Mail",
+        "calendar": "Calendar",
+        "contacts": "Contacts",
+        "connected": "Connected",
+        "notConnected": "Not connected",
+        "connect": "Connect",
+        "collections": "{{count}} collection(s)",
+        "instantSync": "Instant sync",
+        "migrateGoogle": "Move to the Gmail API",
+        "migrateMicrosoft": "Move to Microsoft Graph",
+        "finishInTab": "Finish signing in in the tab that opened, then return to this card.",
+        "migrated": "The account now uses the provider API."
+      },
       "addAccountFlow": {
         "nativeTransport": "This account reads and sends through {{transport}}; there is no IMAP/SMTP configuration to edit. Use “Reconnect” if the provider authorization needs renewing.",
         "title": "Add account",

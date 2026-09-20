@@ -15,6 +15,8 @@ import { toAppError } from '../utils/errors.js';
 import { cutOverMicrosoftMailAccount } from '../services/providerMailCutover.js';
 import { releaseProviderPushForConnection } from '../services/providerPushLifecycle.js';
 import { createNativeMailAccount, describeNativeCandidates, nativeProviderReadiness } from '../services/nativeAccountService.js';
+import { classifyProviderAccountById } from '../services/providerAccountClassifier.js';
+import { describeAccountProviderFeatures } from '../services/accountProviderFeatures.js';
 import { clearSyncHintsForConnection } from '../services/providerSyncHints.js';
 import type { MicrosoftMailCutoverAccount } from '../services/providerMailCutover.js';
 import { cutOverGoogleMailAccount } from '../services/providerGoogleMailCutover.js';
@@ -471,6 +473,21 @@ router.get('/native/candidates', async (req, res) => {
   res.json({ provider, candidates, readiness: nativeProviderReadiness()[provider] });
 });
 
+/**
+ * One account's provider services: its mail transport and whether the native one is available, and the state
+ * of its calendar, contacts and push.
+ *
+ * The account card is account-centric, so this is where a user sees "Gmail API", "connect Google Calendar",
+ * "contacts: polling" — not in Integrations, which only configures the installation.
+ */
+router.get('/:id/provider-features', async (req, res) => {
+  const userId = req.session.userId;
+  if (!userId) return res.status(401).json({ error: 'Not authenticated' });
+  const features = await describeAccountProviderFeatures({ userId, accountId: req.params.id });
+  if (!features) return res.status(404).json({ error: 'Account not found' });
+  res.json(features);
+});
+
 router.post('/:id/reconnect', async (req, res) => {
   const { id } = req.params;
   const result = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2', [id, req.session.userId]);
@@ -523,28 +540,39 @@ router.post('/:id/migrate', async (req, res) => {
     return res.status(400).json({ error: 'allowIdentityMismatch must be a boolean' });
   }
 
-  // Which cutover applies is the account's own provider, never a client-supplied field: each cutover reads
-  // the account row and answers `not_applicable` for a provider it does not own, so the account decides. The
-  // other provider is asked only when the first declined for that reason, so a real refusal is never masked.
+  // Which cutover applies is decided by the shared classifier, exactly as the interface decided to offer the
+  // migration. A caller may name the provider it believes the account has, but the classification is
+  // authoritative — a legacy Gmail mailbox with a NULL `oauth_provider` used to answer "not applicable" here
+  // while the recommendation card offered the very migration.
   try {
+    const classified = await classifyProviderAccountById({ userId, accountId: id });
+    if (!classified.account) return res.status(404).json({ error: 'Account not found' });
+    const claimed = req.body?.provider;
+    if (claimed !== undefined && claimed !== 'microsoft' && claimed !== 'google') {
+      return res.status(400).json({ error: 'provider must be microsoft or google' });
+    }
+    if (claimed && classified.kind && claimed !== classified.kind) {
+      return res.status(409).json({
+        code: 'ACCOUNT_PROVIDER_MISMATCH',
+        error: `This account is a ${classified.kind} account, not a ${claimed} one`,
+      });
+    }
     const input = {
       userId,
       accountId: id,
       connectionId: requestedConnection ?? null,
       allowIdentityMismatch: allowIdentityMismatch === true,
     };
-    const microsoft = await cutOverMicrosoftMailAccount(input);
-    if (microsoft.status === 'not_applicable') {
-      const google = await cutOverGoogleMailAccount(input);
-      if (google.status !== 'not_applicable') return respondGoogleCutoverResult(res, id, google);
-      if (microsoft.reason.includes('not a Microsoft account')) {
-        return res.status(409).json({
-          code: 'ACCOUNT_MIGRATION_NOT_APPLICABLE',
-          error: 'This account has no native provider transport to migrate to',
-        });
-      }
+    if (classified.kind === 'google') {
+      return respondGoogleCutoverResult(res, id, await cutOverGoogleMailAccount(input));
     }
-    return respondMicrosoftCutoverResult(res, id, microsoft);
+    if (classified.kind === 'microsoft') {
+      return respondMicrosoftCutoverResult(res, id, await cutOverMicrosoftMailAccount(input));
+    }
+    return res.status(409).json({
+      code: 'ACCOUNT_MIGRATION_NOT_APPLICABLE',
+      error: 'This account has no native provider transport to migrate to',
+    });
   } catch (caught) {
     const err = toAppError(caught);
     console.error('Account cutover failed:', err.message);

@@ -89,10 +89,37 @@ test('a native account is not edited as an IMAP account', async () => {
   assert.match(source, /admin\.accounts\.imapHost/);
 });
 
+test('the account card carries the provider services, and the classifier decides the migration', async () => {
+  const panel = await readFile(new URL('./AdminPanel.tsx', import.meta.url), 'utf8');
+  const services = await readFile(new URL('./AccountProviderServices.tsx', import.meta.url), 'utf8');
+  // Mounted on every account card, driven by the backend's account-centric feature view.
+  assert.match(panel, /<AccountProviderServices accountId=\{account\.id\} reload=\{loadAccounts\} t=\{t\} \/>/);
+  assert.match(services, /api\.accountProviderFeatures\(accountId\)/);
+  // The transport is named, and a migration is offered only when the backend says it applies.
+  assert.match(services, /data-testid="account-transport"/);
+  assert.match(services, /features\.mail\.migrationAvailable &&/);
+  assert.match(services, /data-testid="account-migrate-native"/);
+  // The migration names the provider, and a missing authorization starts the provider's flow first.
+  assert.match(services, /api\.migrateAccount\(accountId, \{ provider \}\)/);
+  assert.match(services, /failure\.code === 'PROVIDER_AUTH_REQUIRED'/);
+  assert.match(services, /\/oauth\/google\?purpose=\$\{purpose\}/);
+  assert.match(services, /\/oauth\/provider\/microsoft\?purpose=\$\{purpose\}/);
+  // Calendar and contacts are per-account services, and push is reported per service.
+  assert.match(services, /account-service-connect-/);
+  assert.match(services, /features\.push\.mail/);
+  assert.match(services, /features\.push\.contacts/);
+});
+
 test('the add-account screen survives a 360 px viewport', async () => {
   const component = await readFile(flow, 'utf8');
   // Every grid is content-sized and never wider than its container, so no fixed desktop grid can overflow.
   assert.doesNotMatch(component, /gridTemplateColumns: '\d+px/);
+  // The account services stack their actions with flexWrap, so Mail/Calendar/Contacts never force a
+  // horizontal scroll on a 360 px screen either.
+  const services = await readFile(new URL('./AccountProviderServices.tsx', import.meta.url), 'utf8');
+  assert.doesNotMatch(services, /gridTemplateColumns: '\d+px/);
+  assert.match(services, /flexWrap: 'wrap'/);
+  assert.match(services, /minWidth: 0/);
   assert.doesNotMatch(component, /minWidth: \d{3,}/);
   assert.match(component, /gridTemplateColumns: 'repeat\(auto-fit, minmax\(min\(220px, 100%\), 1fr\)\)'/);
   assert.match(component, /maxWidth: '100%', minWidth: 0/);

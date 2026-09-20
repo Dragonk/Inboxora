@@ -95,7 +95,10 @@ describe('listing the active recommendation', () => {
     const [sql, params] = mocks.query.mock.calls[0] as [string, unknown[]];
     expect(sql).toContain("COALESCE(a.mail_transport, 'imap_smtp') = 'imap_smtp'");
     expect(sql).toContain('a.enabled = true');
-    expect(sql).toContain("a.oauth_provider = 'google'");
+    // The query now reads the same signals as the shared classifier, so a recommendation can only exist for
+    // an account that classifier calls Google.
+    expect(sql).toContain("lower(COALESCE(a.oauth_provider, '')) = 'google'");
+    expect(sql).toContain("provider_connections c2");
     expect(sql).toContain('%.gmail.com');
     expect(sql).toContain('%.googlemail.com');
     expect(sql).toContain("COALESCE(p.suppressed, false) = false");

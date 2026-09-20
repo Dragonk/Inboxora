@@ -337,6 +337,10 @@ export const api = {
   // so the interface offers the migration instead of duplicating the mailbox.
   addNativeAccount: (body: { provider: 'microsoft' | 'google'; connectionId?: string; name?: string }) =>
     request('POST', '/accounts/native', body),
+  // One account's provider services: mail transport and whether the native one is available, plus its
+  // calendar, contacts and push state. Account-centric, so the card does not have to guess.
+  accountProviderFeatures: (accountId: string) =>
+    request('GET', `/accounts/${encodeURIComponent(accountId)}/provider-features`),
   nativeAccountCandidates: (provider: 'microsoft' | 'google') =>
     request('GET', `/accounts/native/candidates?provider=${provider}`),
   // Move one existing account onto its provider's native transport, in place. The server decides whether

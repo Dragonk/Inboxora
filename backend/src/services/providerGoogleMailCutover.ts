@@ -1,6 +1,7 @@
 import type { PoolClient } from 'pg';
 import { withTransaction } from './db.js';
 import { providerIntegrationsEnabled } from './providerSwitches.js';
+import { classifyProviderAccount, providerConnectionSignals } from './providerAccountClassifier.js';
 import { GOOGLE_GRANT_AUDIENCE, googleConfigFromEnv, isGoogleConfigured } from './providerAuthService.js';
 import type { FetchLike } from './providerAuthService.js';
 import { syncGmailMailLabelsForAccount } from './providers/google/gmailMailSync.js';
@@ -299,6 +300,7 @@ export async function cutOverGoogleMailAccount(input: CutOverGoogleMailInput): P
     );
     const account = locked.rows[0];
     if (!account) return { status: 'not_found' };
+    const connections = await providerConnectionSignals(input.userId, client);
 
     // Already switched, with its connection recorded: a retry is a no-op, not a second migration.
     if (account.mail_transport === 'gmail_api' && account.provider_connection_id) {
@@ -310,7 +312,12 @@ export async function cutOverGoogleMailAccount(input: CutOverGoogleMailInput): P
       };
     }
 
-    if (account.oauth_provider !== 'google') {
+    // The account's provider is decided by the shared classifier, not by `oauth_provider` alone: a mailbox
+    // added from a 4.0.4 preset over IMAP with an app password has a Gmail host and a NULL `oauth_provider`,
+    // and it is exactly the account this cutover exists for. The classification only says "candidate"; the
+    // connection, ownership, verified identity and scope checks below still decide whether a switch happens.
+    const kind = classifyProviderAccount({ ...account, connections });
+    if (kind !== 'google') {
       return {
         status: 'not_applicable',
         reason: 'This account is not a Google account, so there is no Gmail API transport to cut it over to',

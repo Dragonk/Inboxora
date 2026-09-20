@@ -54,6 +54,23 @@
       "signatureSection": "Signature",
       "saveChanges": "Enregistrer les modifications",
       "addAccount": "Ajouter un compte",
+      "services": {
+        "title": "Services {{provider}}",
+        "google": "Google",
+        "microsoft": "Microsoft",
+        "mail": "Courrier",
+        "calendar": "Agenda",
+        "contacts": "Contacts",
+        "connected": "Connecté",
+        "notConnected": "Non connecté",
+        "connect": "Connecter",
+        "collections": "{{count}} collection(s)",
+        "instantSync": "Synchro instantanée",
+        "migrateGoogle": "Passer à l’API Gmail",
+        "migrateMicrosoft": "Passer à Microsoft Graph",
+        "finishInTab": "Terminez la connexion dans l’onglet ouvert, puis revenez à cette fiche.",
+        "migrated": "Le compte utilise désormais l’API du fournisseur."
+      },
       "addAccountFlow": {
         "nativeTransport": "Ce compte lit et envoie via {{transport}} ; il n’y a aucune configuration IMAP/SMTP à modifier. Utilisez « Reconnecter » si l’autorisation doit être renouvelée.",
         "title": "Ajouter un compte",
