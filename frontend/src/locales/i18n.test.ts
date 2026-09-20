@@ -479,6 +479,7 @@ type SameValueRule = 'any' | string[][];
 const SAME_VALUE_ALLOWED: Record<string, SameValueRule> = {
   // Provider and protocol names are the same word in every language these files cover.
   'contacts.booksManager.sourceGoogle': 'any',
+  'contacts.booksManager.sources': 'any',
   'contacts.booksManager.sourceMicrosoft': 'any',
   'contacts.booksManager.sourceDav': 'any',
   'contacts.booksManager.dav': 'any',

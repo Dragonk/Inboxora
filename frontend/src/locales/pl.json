@@ -1299,7 +1299,9 @@
       "dangerZone": "Strefa ryzyka",
       "deleteBook": "Usuń tę lokalną książkę",
       "deleteNotAllowed": "Tej książki nie można tu usunąć. Ostatnia lokalna książka jest wymagana, a książka dostawcy należy do dostawcy.",
-      "selectBook": "Wybierz książkę kontaktów, aby zobaczyć jej ustawienia."
+      "selectBook": "Wybierz książkę kontaktów, aby zobaczyć jej ustawienia.",
+      "sources": "Źródła",
+      "sourcesHint": "Serwer CardDAV, np. Nextcloud, dodajesz tutaj — tak samo, jak źródło kalendarza dodaje się na ekranie kalendarza."
     }
   },
   "contextMenu": {

@@ -1299,7 +1299,9 @@
       "dangerZone": "Gefahrenzone",
       "deleteBook": "Dieses lokale Adressbuch löschen",
       "deleteNotAllowed": "Dieses Buch kann hier nicht gelöscht werden. Das letzte lokale Buch wird benötigt, und ein Anbieterbuch gehört seinem Anbieter.",
-      "selectBook": "Wählen Sie ein Adressbuch, um seine Einstellungen zu sehen."
+      "selectBook": "Wählen Sie ein Adressbuch, um seine Einstellungen zu sehen.",
+      "sources": "Quellen",
+      "sourcesHint": "Ein CardDAV-Server wie Nextcloud wird hier eingebunden — so wie eine Kalenderquelle im Kalender hinzugefügt wird."
     }
   },
   "contextMenu": {

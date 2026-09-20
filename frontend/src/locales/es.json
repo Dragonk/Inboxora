@@ -1299,7 +1299,9 @@
       "dangerZone": "Zona de riesgo",
       "deleteBook": "Eliminar esta libreta local",
       "deleteNotAllowed": "Esta libreta no se puede eliminar aquí. La última libreta local es necesaria y una libreta del proveedor pertenece a su proveedor.",
-      "selectBook": "Elige una libreta para ver su configuración."
+      "selectBook": "Elige una libreta para ver su configuración.",
+      "sources": "Orígenes",
+      "sourcesHint": "Un servidor CardDAV, como Nextcloud, se añade aquí, igual que una fuente de calendario desde el calendario."
     }
   },
   "contextMenu": {

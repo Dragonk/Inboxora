@@ -1299,7 +1299,9 @@
       "dangerZone": "Danger zone",
       "deleteBook": "Delete this local address book",
       "deleteNotAllowed": "This book cannot be deleted here. The last local book is required, and a provider book belongs to its provider.",
-      "selectBook": "Choose an address book to see its settings."
+      "selectBook": "Choose an address book to see its settings.",
+      "sources": "Sources",
+      "sourcesHint": "A CardDAV server, such as Nextcloud, is pulled here — the same way a calendar source is added from the calendar screen."
     }
   },
   "contextMenu": {

@@ -221,6 +221,13 @@ provider identity, `0109` provider-operation payload, `0110` device authorizatio
 reads the new columns; a mixed old/new deployment must not run with the new code before the migrations.
 
 ### Changed
+- **A CardDAV contacts source is added from Contacts, where the books it pulls live.** A calendar's sources are
+  managed on the calendar screen, and a contacts source belongs in the same place for the same reason: it is a
+  source of the feature the user is looking at, not an installation setting. The address-book manager now has a
+  **Sources** section that shows the CardDAV connection, lets a server, user and password be entered, and offers
+  synchronise and disconnect — with the same strings the settings screen used, so the concept is named
+  identically. The pull stays one-way and read-only, and the stored password is never rendered back.
+
 - **Polling remains the safety net.** The provider schedule is unchanged and still refreshes every pulled
   collection; push only makes the common case fast. A missing public URL, a provider outage or a failed
   renewal leaves synchronisation working, and an account is never reported as broken merely because push is

@@ -1,5 +1,6 @@
 import React from 'react';
 import { Button, Dialog } from './ui.tsx';
+import ContactsDavSource from './ContactsDavSource.tsx';
 
 /**
  * The address-book manager: one panel, the books on the left and the selected book's settings on the right.
@@ -213,6 +214,14 @@ export default function ContactsBooksManager(props: ContactsBooksManagerProps) {
         ) : (
           <p style={metaStyle} data-testid="contacts-manager-dav-unavailable">{t('contacts.booksManager.davProviderUnavailable')}</p>
         )}
+      </div>
+
+      {/* The CardDAV source is managed here, beside the books it pulls — the same place a calendar's sources
+          are managed from the calendar screen, and not an installation setting. */}
+      <div data-testid="contacts-manager-sources" style={sectionStyle}>
+        <p style={sectionTitleStyle}>{t('contacts.booksManager.sources')}</p>
+        <p style={metaStyle}>{t('contacts.booksManager.sourcesHint')}</p>
+        <ContactsDavSource t={t} />
       </div>
 
       <div data-testid="contacts-manager-import-export" style={sectionStyle}>

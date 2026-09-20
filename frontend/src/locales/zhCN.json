@@ -1299,7 +1299,9 @@
       "dangerZone": "危险区域",
       "deleteBook": "删除此本地通讯簿",
       "deleteNotAllowed": "无法在此删除此通讯簿。最后一个本地通讯簿是必需的，而提供商通讯簿属于其提供商。",
-      "selectBook": "选择一个通讯簿以查看其设置。"
+      "selectBook": "选择一个通讯簿以查看其设置。",
+      "sources": "来源",
+      "sourcesHint": "CardDAV 服务器（例如 Nextcloud）在此添加，与在日历页面添加日历来源的方式相同。"
     }
   },
   "contextMenu": {

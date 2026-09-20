@@ -57,8 +57,24 @@ export interface AccountFeatureSyncState {
   cursorPresent: boolean;
 }
 
+/**
+ * Push, in the three parts that are actually different things.
+ *
+ * `available` is a capability — the provider offers a notification channel for this resource. It says nothing
+ * about whether one is subscribed, which is what a user reads "Push: available" as. The subscription is its own
+ * state, and the effective mode is what the mailbox is really doing: push **and** polling, or polling alone.
+ * Polling is never disabled by an absent subscription, so an installation without Pub/Sub or a webhook still
+ * receives mail on the schedule.
+ */
+export interface AccountPushModel {
+  capability: 'available' | 'unavailable';
+  subscription: 'active' | 'disabled' | 'expired' | 'missing' | 'not_configured';
+  effectiveSyncMode: 'push_and_polling' | 'polling';
+}
+
 export interface AccountDiagnostics {
   connection: { provider: ProviderAccountKind; identity: string | null; status: string } | null;
+  push: { mail: AccountPushModel; calendar: AccountPushModel; contacts: AccountPushModel };
   mail: AccountFeatureSyncState & {
     transport: string;
     authorized: boolean;
@@ -169,6 +185,38 @@ async function collectionsFor(connectionId: string | null): Promise<AccountFeatu
     sourceAccess: row.source_access ?? 'read_only',
     userAccess: row.user_access ?? 'source',
   }));
+}
+
+/**
+ * The push model for one resource of one connection.
+ *
+ * `capability` is the provider's, not the account's: Gmail offers a Pub/Sub notification for mail, Graph offers
+ * change notifications for mail, calendars and contacts, and the People API offers none for the contacts this
+ * application syncs. `subscription` is read from the subscription row that belongs to this connection and
+ * resource, and `effectiveSyncMode` follows from it — an inactive subscription means polling is doing the work.
+ */
+function pushModelFor(input: {
+  capability: 'available' | 'unavailable';
+  subscriptions: Array<{ connectionId: string | null; resourceType: string; status: string }>;
+  connectionId: string | null;
+  resourceType: string;
+}): AccountPushModel {
+  if (input.capability === 'unavailable') {
+    return { capability: 'unavailable', subscription: 'not_configured', effectiveSyncMode: 'polling' };
+  }
+  const row = input.subscriptions.find(subscription =>
+    subscription.connectionId === input.connectionId && subscription.resourceType === input.resourceType);
+  const subscription: AccountPushModel['subscription'] = row
+    ? (row.status === 'active' ? 'active'
+      : row.status === 'expired' ? 'expired'
+        : row.status === 'disabled' ? 'disabled' : 'missing')
+    : 'missing';
+  return {
+    capability: 'available',
+    subscription,
+    // The schedule always runs; an active subscription adds the immediate notification on top of it.
+    effectiveSyncMode: subscription === 'active' ? 'push_and_polling' : 'polling',
+  };
 }
 
 /** The push state that belongs to this account's own subscriptions. */
@@ -377,8 +425,25 @@ export async function describeAccountProviderFeatures(input: {
       status: subscription.status,
     })),
   });
+  const subscriptionRows = subscriptions.map(subscription => ({
+    connectionId: subscription.connectionId,
+    resourceType: subscription.resourceType,
+    status: subscription.status,
+  }));
   const diagnostics: AccountDiagnostics = {
     connection: connectionDiagnostic,
+    push: {
+      // Mail push exists only with a native transport: the legacy IMAP/SMTP path has no provider notification.
+      mail: pushModelFor({ capability: native ? 'available' : 'unavailable', subscriptions: subscriptionRows, connectionId: provider ? groups[provider].connectionId : null, resourceType: 'mail' }),
+      calendar: pushModelFor({ capability: provider ? 'available' : 'unavailable', subscriptions: subscriptionRows, connectionId: provider ? groups[provider].connectionId : null, resourceType: 'calendar' }),
+      // The People API has no notification channel for the resources this application syncs.
+      contacts: pushModelFor({
+        capability: provider === 'microsoft' ? 'available' : 'unavailable',
+        subscriptions: subscriptionRows,
+        connectionId: provider ? groups[provider].connectionId : null,
+        resourceType: 'contacts',
+      }),
+    },
     mail: {
       ...(syncStates.mail ?? EMPTY_SYNC_STATE),
       transport,

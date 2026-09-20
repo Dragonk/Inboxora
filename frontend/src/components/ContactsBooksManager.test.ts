@@ -168,3 +168,25 @@ test('the trigger is a compact icon with an accessible name', async () => {
   assert.match(source, /height: isMobile \? 44 : 34/);
   assert.match(source, /<svg width=\{isMobile \? 20 : 17\}/);
 });
+
+test('the CardDAV source is managed from Contacts, like a calendar source', async () => {
+  const booksManager = await read(manager);
+  const davSource = await read(new URL('./ContactsDavSource.tsx', import.meta.url));
+
+  // The calendar screen adds its own sources from the calendar surface; the contacts source belongs here for
+  // the same reason, and the manager exposes it beside the books it pulls.
+  assert.match(booksManager, /data-testid="contacts-manager-sources"/);
+  assert.match(booksManager, /<ContactsDavSource t=\{t\} \/>/);
+
+  // It can be added, synchronised and removed — the three things the settings screen offered.
+  assert.match(davSource, /data-testid="contacts-manager-carddav-connect"/);
+  assert.match(davSource, /data-testid="contacts-manager-carddav-sync"/);
+  assert.match(davSource, /data-testid="contacts-manager-carddav-disconnect"/);
+  assert.match(davSource, /api\.carddav\.connect\(/);
+  assert.match(davSource, /api\.carddav\.sync\(\)/);
+  assert.match(davSource, /api\.carddav\.disconnect\(\)/);
+  // The credentials are the source's own, and the password is never rendered back.
+  assert.match(davSource, /type="password"/);
+  const rendered = davSource.slice(davSource.indexOf('return ('));
+  assert.ok(!/status\.password/.test(rendered), 'the stored password must not be rendered');
+});

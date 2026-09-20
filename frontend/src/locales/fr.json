@@ -1299,7 +1299,9 @@
       "dangerZone": "Zone sensible",
       "deleteBook": "Supprimer ce carnet local",
       "deleteNotAllowed": "Ce carnet ne peut pas être supprimé ici. Le dernier carnet local est nécessaire et un carnet de fournisseur appartient à son fournisseur.",
-      "selectBook": "Choisissez un carnet pour voir ses réglages."
+      "selectBook": "Choisissez un carnet pour voir ses réglages.",
+      "sources": "Sources",
+      "sourcesHint": "Un serveur CardDAV, comme Nextcloud, s’ajoute ici, comme une source d’agenda depuis l’agenda."
     }
   },
   "contextMenu": {

@@ -1299,7 +1299,9 @@
       "dangerZone": "Riziková zóna",
       "deleteBook": "Smazat tento místní adresář",
       "deleteNotAllowed": "Tento adresář zde nelze smazat. Poslední místní adresář je nutný a adresář poskytovatele patří poskytovateli.",
-      "selectBook": "Vyberte adresář a uvidíte jeho nastavení."
+      "selectBook": "Vyberte adresář a uvidíte jeho nastavení.",
+      "sources": "Zdroje",
+      "sourcesHint": "Server CardDAV, například Nextcloud, se přidává zde — stejně jako zdroj kalendáře v kalendáři."
     }
   },
   "contextMenu": {

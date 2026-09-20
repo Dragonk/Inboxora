@@ -283,3 +283,40 @@ describeOrSkip('mail diagnostics read the message pipeline, not discovery', () =
     expect(afterHistory!.mail.syncPending).toBe(false);
   });
 });
+
+describeOrSkip('the push model', () => {
+  it('separates capability from an active subscription, and never turns polling off', async () => {
+    // The live complaint: diagnostics said "Push: available" for a mailbox that was not pushing at all. The
+    // capability is the provider's; the subscription is what decides the effective mode.
+    const withoutSubscription = await describeAccountProviderFeatures({ userId: USER_A, accountId });
+    expect(withoutSubscription!.diagnostics.push.mail.capability).toBe('available');
+    expect(withoutSubscription!.diagnostics.push.mail.subscription).toBe('missing');
+    expect(withoutSubscription!.diagnostics.push.mail.effectiveSyncMode).toBe('polling');
+    // Gmail's contacts have no notification channel, so there is nothing to be subscribed to.
+    expect(withoutSubscription!.diagnostics.push.contacts.capability).toBe('unavailable');
+    expect(withoutSubscription!.diagnostics.push.contacts.effectiveSyncMode).toBe('polling');
+
+    // An active subscription is what makes it push-and-polling.
+    // Against the connection the account is actually linked to, which is the one the diagnostics read.
+    const connection = await query<{ provider_connection_id: string | null }>(
+      'SELECT provider_connection_id FROM email_accounts WHERE id = $1', [accountId],
+    );
+    await query(
+      `INSERT INTO provider_push_subscriptions
+         (user_id, provider_connection_id, provider, resource_type, provider_subscription_id, secret_kind, expires_at, status)
+       VALUES ($1, $2, 'google', 'mail', 'sub-1', 'channel_token', NOW() + interval '2 days', 'active')`,
+      [USER_A, connection.rows[0]!.provider_connection_id],
+    );
+    const withSubscription = await describeAccountProviderFeatures({ userId: USER_A, accountId });
+    expect(withSubscription!.diagnostics.push.mail.subscription).toBe('active');
+    expect(withSubscription!.diagnostics.push.mail.effectiveSyncMode).toBe('push_and_polling');
+
+    // An expired subscription falls back to polling rather than reporting a push that is not there.
+    await query("UPDATE provider_push_subscriptions SET status = 'expired' WHERE provider_subscription_id = 'sub-1'");
+    const expired = await describeAccountProviderFeatures({ userId: USER_A, accountId });
+    expect(expired!.diagnostics.push.mail.subscription).toBe('expired');
+    expect(expired!.diagnostics.push.mail.effectiveSyncMode).toBe('polling');
+
+    await query("DELETE FROM provider_push_subscriptions WHERE provider_subscription_id = 'sub-1'");
+  });
+});

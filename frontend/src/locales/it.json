@@ -1299,7 +1299,9 @@
       "dangerZone": "Zona a rischio",
       "deleteBook": "Elimina questa rubrica locale",
       "deleteNotAllowed": "Questa rubrica non può essere eliminata qui. L’ultima rubrica locale è necessaria e una rubrica del provider appartiene al provider.",
-      "selectBook": "Scegli una rubrica per vedere le sue impostazioni."
+      "selectBook": "Scegli una rubrica per vedere le sue impostazioni.",
+      "sources": "Origini",
+      "sourcesHint": "Un server CardDAV, come Nextcloud, si aggiunge qui, come una fonte di calendario dal calendario."
     }
   },
   "contextMenu": {
