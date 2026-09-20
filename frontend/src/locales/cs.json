@@ -246,7 +246,28 @@
       "categorizationEnabled": "Zapnout kategorizaci Doručené pošty",
       "categorizationEnabledDesc": "Třídit příchozí e-maily do karet kategorií. Ve výchozím nastavení je vypnuto.",
       "enabledGlobally": "Globálně zapnuto",
-      "transport": "Transport"
+      "transport": "Transport",
+      "diagnostics": {
+        "title": "Diagnostika",
+        "connection": "Připojení",
+        "provider": "Poskytovatel",
+        "identity": "Identita",
+        "status": "Stav",
+        "none": "žádné",
+        "transport": "Transport",
+        "cursor": "Kurzor synchronizace",
+        "push": "Push",
+        "scheduler": "Plán",
+        "collections": "Kolekce",
+        "addressBooks": "Adresáře",
+        "authorized": "Autorizováno",
+        "yes": "ano",
+        "no": "ne",
+        "missingScopes": "Chybějící oprávnění",
+        "lastSuccess": "Poslední úspěšná synchronizace",
+        "lastError": "Poslední chyba",
+        "never": "nikdy"
+      }
     },
     "folderMappings": {
       "title": "Mapování složek",
@@ -1228,11 +1249,9 @@
       "exportOutlook": "Export CSV pro Outlook",
       "davAccessHint": "Určuje, zda je tento adresář zpřístupněn připojeným zařízením (CardDAV). Nikdy neuděluje více, než dovoluje samotný adresář.",
       "googleSync": "Synchronizovat kontakty Google",
-      "googleSyncing": "Synchronizace…",
       "googleSyncDone": "Kontakty Google: přidáno {{created}}, aktualizováno {{updated}}, odebráno {{deleted}}.",
       "googleSyncPartial": "Kontakty Google: přidáno {{created}}, aktualizováno {{updated}}, odebráno {{deleted}}; {{failed}} připojení selhalo.",
       "microsoftSync": "Synchronizovat kontakty Microsoft",
-      "microsoftSyncing": "Synchronizace…",
       "microsoftSyncDone": "Kontakty Microsoft: přidáno {{created}}, aktualizováno {{updated}}, odebráno {{deleted}}.",
       "microsoftSyncPartial": "Kontakty Microsoft: přidáno {{created}}, aktualizováno {{updated}}, odebráno {{deleted}}; {{failed}} připojení selhalo.",
       "importVCard": "Importovat vCard",
@@ -1243,6 +1262,42 @@
     "googleConnected": {
       "title": "Google připojen",
       "body": "Váš účet Google je připojen. Načtěte kontakty na stránce Kontakty."
+    },
+    "booksManager": {
+      "title": "Správa adresářů",
+      "manage": "Spravovat adresáře",
+      "back": "Zpět na seznam",
+      "hiddenBadge": "skrytý",
+      "readOnly": "jen pro čtení",
+      "readWrite": "čtení i zápis",
+      "contactsCount": "{{count}} kontaktů",
+      "sourceLocal": "Místní",
+      "sourceGoogle": "Google",
+      "sourceMicrosoft": "Microsoft",
+      "sourceDav": "CardDAV",
+      "general": "Obecné",
+      "nameLabel": "Název",
+      "sourceLabel": "Zdroj",
+      "visibility": "Viditelnost",
+      "visible": "viditelný",
+      "hidden": "skrytý",
+      "sync": "Synchronizace",
+      "providerLabel": "Poskytovatel",
+      "neverSynced": "nikdy nesynchronizováno",
+      "syncNow": "Synchronizovat nyní",
+      "syncing": "Synchronizace…",
+      "writeBack": "Zpětný zápis",
+      "sourceAccess": "Přístup zdroje",
+      "userAccess": "Přístup uživatele",
+      "userAccessSource": "co zdroj povoluje",
+      "effectiveAccess": "Skutečný přístup",
+      "dav": "DAV",
+      "davProviderUnavailable": "Adresář poskytovatele se sdílí přes poskytovatele, ne přes DAV.",
+      "importExport": "Import / export",
+      "dangerZone": "Riziková zóna",
+      "deleteBook": "Smazat tento místní adresář",
+      "deleteNotAllowed": "Tento adresář zde nelze smazat. Poslední místní adresář je nutný a adresář poskytovatele patří poskytovateli.",
+      "selectBook": "Vyberte adresář a uvidíte jeho nastavení."
     }
   },
   "contextMenu": {
@@ -2200,6 +2255,19 @@
     "syncFailedRateLimited": "Poskytovatel nyní omezuje požadavky. Zkuste to znovu za několik minut.",
     "connectGoogleHint": "Google je připraven k připojení. Použijte „Připojit účet Google“ v Nastavení → Integrace a načtěte kontakty sem.",
     "connectMicrosoftHint": "Microsoft je připraven k připojení. Použijte „Připojit kontakty Microsoft“ v Nastavení → Integrace a načtěte kontakty sem.",
-    "connectFailedTitle": "Připojení účtu se nezdařilo"
+    "connectFailedTitle": "Připojení účtu se nezdařilo",
+    "syncError": {
+      "missingScopes": "{{provider}} {{service}}: chybí oprávnění {{scopes}}. Připojte {{service}} znovu.",
+      "auth": "{{provider}} odmítl autorizaci pro {{service}} ({{code}}). Připojte jej znovu.",
+      "rateLimited": "{{provider}} právě omezuje {{service}. Zkuste to za několik minut.",
+      "providerDown": "{{provider}} ohlásil chybu serveru pro {{service}} ({{status}}). Další běh to zopakuje.",
+      "generic": "{{provider}} {{service}} selhalo: {{code}}.",
+      "showDetails": "Zobrazit podrobnosti ({{count}})",
+      "service": {
+        "mail": "Pošta",
+        "calendar": "Kalendář",
+        "contacts": "Kontakty"
+      }
+    }
   }
 }

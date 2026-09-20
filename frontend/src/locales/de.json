@@ -128,7 +128,28 @@
       "categorizationEnabled": "Posteingang-Kategorisierung aktivieren",
       "categorizationEnabledDesc": "Eingehende E-Mails in Kategorie-Tabs einteilen. Standardmäßig deaktiviert.",
       "enabledGlobally": "Global aktiviert",
-      "transport": "Transport"
+      "transport": "Transport",
+      "diagnostics": {
+        "title": "Diagnose",
+        "connection": "Verbindung",
+        "provider": "Anbieter",
+        "identity": "Identität",
+        "status": "Status",
+        "none": "keine",
+        "transport": "Transport",
+        "cursor": "Synchronisierungscursor",
+        "push": "Push",
+        "scheduler": "Zeitplan",
+        "collections": "Sammlungen",
+        "addressBooks": "Adressbücher",
+        "authorized": "Autorisiert",
+        "yes": "ja",
+        "no": "nein",
+        "missingScopes": "Fehlende Berechtigungen",
+        "lastSuccess": "Letzte erfolgreiche Synchronisierung",
+        "lastError": "Letzter Fehler",
+        "never": "nie"
+      }
     },
     "ai": {
       "title": "KI-Assistent",
@@ -1228,11 +1249,9 @@
       "exportOutlook": "CSV für Outlook exportieren",
       "davAccessHint": "Legt fest, ob dieses Adressbuch für verbundene Geräte (CardDAV) bereitgestellt wird. Es gewährt nie mehr, als das Adressbuch selbst erlaubt.",
       "googleSync": "Google-Kontakte synchronisieren",
-      "googleSyncing": "Synchronisierung…",
       "googleSyncDone": "Google-Kontakte: {{created}} hinzugefügt, {{updated}} aktualisiert, {{deleted}} entfernt.",
       "googleSyncPartial": "Google-Kontakte: {{created}} hinzugefügt, {{updated}} aktualisiert, {{deleted}} entfernt; {{failed}} Verbindung(en) fehlgeschlagen.",
       "microsoftSync": "Microsoft-Kontakte synchronisieren",
-      "microsoftSyncing": "Synchronisierung…",
       "microsoftSyncDone": "Microsoft-Kontakte: {{created}} hinzugefügt, {{updated}} aktualisiert, {{deleted}} entfernt.",
       "microsoftSyncPartial": "Microsoft-Kontakte: {{created}} hinzugefügt, {{updated}} aktualisiert, {{deleted}} entfernt; {{failed}} Verbindung(en) fehlgeschlagen.",
       "importVCard": "vCard importieren",
@@ -1243,6 +1262,42 @@
     "googleConnected": {
       "title": "Google verbunden",
       "body": "Ihr Google-Konto ist verbunden. Rufen Sie Ihre Kontakte auf der Seite Kontakte ab."
+    },
+    "booksManager": {
+      "title": "Adressbücher verwalten",
+      "manage": "Adressbücher verwalten",
+      "back": "Zurück zur Liste",
+      "hiddenBadge": "ausgeblendet",
+      "readOnly": "schreibgeschützt",
+      "readWrite": "lesen und schreiben",
+      "contactsCount": "{{count}} Kontakte",
+      "sourceLocal": "Lokal",
+      "sourceGoogle": "Google",
+      "sourceMicrosoft": "Microsoft",
+      "sourceDav": "CardDAV",
+      "general": "Allgemein",
+      "nameLabel": "Name",
+      "sourceLabel": "Quelle",
+      "visibility": "Sichtbarkeit",
+      "visible": "sichtbar",
+      "hidden": "ausgeblendet",
+      "sync": "Synchronisierung",
+      "providerLabel": "Anbieter",
+      "neverSynced": "nie synchronisiert",
+      "syncNow": "Jetzt synchronisieren",
+      "syncing": "Synchronisierung…",
+      "writeBack": "Rückschreiben",
+      "sourceAccess": "Quellzugriff",
+      "userAccess": "Benutzerzugriff",
+      "userAccessSource": "was die Quelle erlaubt",
+      "effectiveAccess": "Effektiver Zugriff",
+      "dav": "DAV",
+      "davProviderUnavailable": "Ein Anbieter-Adressbuch wird über seinen Anbieter geteilt, nicht über DAV.",
+      "importExport": "Import / Export",
+      "dangerZone": "Gefahrenzone",
+      "deleteBook": "Dieses lokale Adressbuch löschen",
+      "deleteNotAllowed": "Dieses Buch kann hier nicht gelöscht werden. Das letzte lokale Buch wird benötigt, und ein Anbieterbuch gehört seinem Anbieter.",
+      "selectBook": "Wählen Sie ein Adressbuch, um seine Einstellungen zu sehen."
     }
   },
   "contextMenu": {
@@ -2200,6 +2255,19 @@
     "syncFailedRateLimited": "Der Anbieter begrenzt gerade die Anfragen. Versuchen Sie es in einigen Minuten erneut.",
     "connectGoogleHint": "Google kann verbunden werden. Nutzen Sie „Google-Konto verbinden“ unter Einstellungen → Integrationen, um die Kontakte hier abzurufen.",
     "connectMicrosoftHint": "Microsoft kann verbunden werden. Nutzen Sie „Microsoft-Kontakte verbinden“ unter Einstellungen → Integrationen, um die Kontakte hier abzurufen.",
-    "connectFailedTitle": "Verbindung des Kontos fehlgeschlagen"
+    "connectFailedTitle": "Verbindung des Kontos fehlgeschlagen",
+    "syncError": {
+      "missingScopes": "{{provider}} {{service}}: die Berechtigung {{scopes}} fehlt. Verbinden Sie {{service}} erneut.",
+      "auth": "{{provider}} hat die Autorisierung für {{service}} abgelehnt ({{code}}). Verbinden Sie es erneut.",
+      "rateLimited": "{{provider}} begrenzt {{service}} derzeit. Versuchen Sie es in einigen Minuten erneut.",
+      "providerDown": "{{provider}} meldete einen Serverfehler für {{service}} ({{status}}). Der nächste Lauf versucht es erneut.",
+      "generic": "{{provider}} {{service}} fehlgeschlagen: {{code}}.",
+      "showDetails": "Details anzeigen ({{count}})",
+      "service": {
+        "mail": "Post",
+        "calendar": "Kalender",
+        "contacts": "Kontakte"
+      }
+    }
   }
 }

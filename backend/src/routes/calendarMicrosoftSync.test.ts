@@ -37,6 +37,24 @@ vi.mock('../services/connectionPolicy.js', () => ({ getConnectionPolicy: vi.fn(a
 vi.mock('../services/inboundCalendarInvitation.js', () => ({ parseInboundCalendarInvitation: vi.fn() }));
 
 import calendarRouter from './calendar.js';
+// The preflight and the failure describer read the grant and the account; this suite is about the route's
+// per-connection fan-out, so they answer directly rather than through the database mock.
+vi.mock('../services/providerSyncDiagnostics.js', () => ({
+  providerSyncPreflight: vi.fn(async () => null),
+  describeProviderSyncFailure: vi.fn(async (input: { connectionId: string; feature: string; caught: unknown }) => {
+    const failure = input.caught as { code?: string; message?: string } | null;
+    return {
+      connectionId: input.connectionId,
+      accountId: null,
+      feature: input.feature,
+      code: failure?.code ?? 'PROVIDER_ERROR',
+      providerStatus: null,
+      message: failure?.message ?? 'failed',
+      retryable: false,
+    };
+  }),
+}));
+
 import { GraphApiError } from '../services/providers/microsoft/graphApiClient.js';
 
 let server: Server;
@@ -133,9 +151,13 @@ describe('POST /api/calendar/providers/microsoft/sync', () => {
     expect(response.status).toBe(200);
     const body = await response.json() as { results: Array<Record<string, unknown>> };
     expect(body.results[0]).toMatchObject({ connectionId: 'connection-1', collections: 2, created: 5, fullSync: true });
-    expect(body.results[1]).toEqual({
+    // The failure carries the feature it belongs to and the connection it came from, which is what the
+    // interface needs to say which service failed and what to do about it.
+    expect(body.results[1]).toMatchObject({
       connectionId: 'connection-2',
-      error: { code: 'PROVIDER_AUTH_REQUIRED', message: 'Invalid authentication token', retryable: false },
+      error: {
+        connectionId: 'connection-2', feature: 'calendar', code: 'PROVIDER_AUTH_REQUIRED', message: 'Invalid authentication token', retryable: false
+      },
     });
     const [sql, params] = mocks.query.mock.calls[0] as [string, unknown[]];
     expect(sql).toContain("provider = 'microsoft'");

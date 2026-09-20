@@ -12,16 +12,19 @@ import test from "node:test";
  */
 
 const page = new URL("./ContactsPage.tsx", import.meta.url);
+// The write-back switch is in the manager panel now.
+const manager = new URL("./ContactsBooksManager.tsx", import.meta.url);
 const api = new URL("../utils/api.ts", import.meta.url);
 
 test("the address-book menu offers the write-back switch for a pulled book", async () => {
-  const source = await readFile(page, "utf8");
+  const source = await readFile(manager, "utf8");
 
-  assert.match(source, /data-testid="contacts-write-back"/);
+  // The switch lives in the manager's Write-back section now, not in the `⋯` menu.
+  assert.match(source, /data-testid="contacts-manager-write-back"/);
   // Only a book with a collection can be switched; a local book has nothing to write back to.
-  assert.match(source, /selectedBook\?\.collection_id && <Button data-testid="contacts-write-back"/);
+  assert.match(source, /selected\.collectionId && \(\s*\n\s*<Button data-testid="contacts-manager-write-back"/);
   // The label states what the click will do, from the server's own verdict.
-  assert.match(source, /selectedBook\.read_only === false \? 'calendar\.disableWriteBack' : 'calendar\.enableWriteBack'/);
+  assert.match(source, /selected\.readOnly \? 'calendar\.enableWriteBack' : 'calendar\.disableWriteBack'/);
 });
 
 test("the switch calls the collection endpoint and reloads the list", async () => {

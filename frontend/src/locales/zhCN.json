@@ -128,7 +128,28 @@
       "categorizationEnabled": "启用收件箱分类",
       "categorizationEnabledDesc": "将收到的邮件按类别选项卡分类。默认禁用。",
       "enabledGlobally": "已全局启用",
-      "transport": "传输方式"
+      "transport": "传输方式",
+      "diagnostics": {
+        "title": "诊断",
+        "connection": "连接",
+        "provider": "提供商",
+        "identity": "身份",
+        "status": "状态",
+        "none": "无",
+        "transport": "传输",
+        "cursor": "同步游标",
+        "push": "推送",
+        "scheduler": "计划",
+        "collections": "集合",
+        "addressBooks": "通讯簿",
+        "authorized": "已授权",
+        "yes": "是",
+        "no": "否",
+        "missingScopes": "缺少的权限",
+        "lastSuccess": "上次成功同步",
+        "lastError": "上次错误",
+        "never": "从未"
+      }
     },
     "ai": {
       "title": "AI 助手",
@@ -1228,11 +1249,9 @@
       "exportOutlook": "导出 Outlook CSV 文件",
       "davAccessHint": "控制此通讯录是否发布到已连接的设备（CardDAV）。它绝不会授予超过通讯录本身允许的权限。",
       "googleSync": "同步 Google 联系人",
-      "googleSyncing": "正在同步…",
       "googleSyncDone": "Google 联系人：新增 {{created}}，更新 {{updated}}，删除 {{deleted}}。",
       "googleSyncPartial": "Google 联系人：新增 {{created}}，更新 {{updated}}，删除 {{deleted}}；{{failed}} 个连接失败。",
       "microsoftSync": "同步 Microsoft 联系人",
-      "microsoftSyncing": "正在同步…",
       "microsoftSyncDone": "Microsoft 联系人：新增 {{created}}，更新 {{updated}}，删除 {{deleted}}。",
       "microsoftSyncPartial": "Microsoft 联系人：新增 {{created}}，更新 {{updated}}，删除 {{deleted}}；{{failed}} 个连接失败。",
       "importVCard": "导入 vCard",
@@ -1243,6 +1262,42 @@
     "googleConnected": {
       "title": "Google 已连接",
       "body": "您的 Google 账户已连接。请在“联系人”页面获取联系人。"
+    },
+    "booksManager": {
+      "title": "管理通讯簿",
+      "manage": "管理通讯簿",
+      "back": "返回列表",
+      "hiddenBadge": "隐藏",
+      "readOnly": "只读",
+      "readWrite": "读写",
+      "contactsCount": "{{count}} 个联系人",
+      "sourceLocal": "本地",
+      "sourceGoogle": "Google",
+      "sourceMicrosoft": "Microsoft",
+      "sourceDav": "CardDAV",
+      "general": "常规",
+      "nameLabel": "名称",
+      "sourceLabel": "来源",
+      "visibility": "可见性",
+      "visible": "可见",
+      "hidden": "隐藏",
+      "sync": "同步",
+      "providerLabel": "提供商",
+      "neverSynced": "从未同步",
+      "syncNow": "立即同步",
+      "syncing": "正在同步…",
+      "writeBack": "回写",
+      "sourceAccess": "来源访问权限",
+      "userAccess": "用户访问权限",
+      "userAccessSource": "来源允许的范围",
+      "effectiveAccess": "实际访问权限",
+      "dav": "DAV",
+      "davProviderUnavailable": "提供商通讯簿通过其提供商共享，而不是通过 DAV。",
+      "importExport": "导入 / 导出",
+      "dangerZone": "危险区域",
+      "deleteBook": "删除此本地通讯簿",
+      "deleteNotAllowed": "无法在此删除此通讯簿。最后一个本地通讯簿是必需的，而提供商通讯簿属于其提供商。",
+      "selectBook": "选择一个通讯簿以查看其设置。"
     }
   },
   "contextMenu": {
@@ -2200,6 +2255,19 @@
     "syncFailedRateLimited": "服务提供方当前正在限制请求。请几分钟后重试。",
     "connectGoogleHint": "Google 已可连接。请在“设置 → 集成”中使用“连接 Google 账户”将联系人导入此处。",
     "connectMicrosoftHint": "Microsoft 已可连接。请在“设置 → 集成”中使用“连接 Microsoft 联系人”将联系人导入此处。",
-    "connectFailedTitle": "连接账户失败"
+    "connectFailedTitle": "连接账户失败",
+    "syncError": {
+      "missingScopes": "{{provider}} {{service}}：缺少 {{scopes}} 权限。请重新连接 {{service}}。",
+      "auth": "{{provider}} 拒绝了 {{service}} 的授权（{{code}}）。请重新连接。",
+      "rateLimited": "{{provider}} 正在限制 {{service}。请几分钟后重试。",
+      "providerDown": "{{provider}} 报告了 {{service}} 的服务器错误（{{status}}）。下次运行会重试。",
+      "generic": "{{provider}} {{service}} 失败：{{code}}。",
+      "showDetails": "显示详情（{{count}}）",
+      "service": {
+        "mail": "邮件",
+        "calendar": "日历",
+        "contacts": "联系人"
+      }
+    }
   }
 }

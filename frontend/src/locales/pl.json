@@ -238,7 +238,28 @@
       "categorizationEnabled": "Włącz kategoryzowanie skrzynki odbiorczej",
       "categorizationEnabledDesc": "Sortuj przychodzące wiadomości do kart kategorii. Domyślnie wyłączone.",
       "enabledGlobally": "Włączone globalnie",
-      "transport": "Transport"
+      "transport": "Transport",
+      "diagnostics": {
+        "title": "Diagnostyka",
+        "connection": "Połączenie",
+        "provider": "Dostawca",
+        "identity": "Tożsamość",
+        "status": "Status",
+        "none": "brak",
+        "transport": "Transport",
+        "cursor": "Kursor synchronizacji",
+        "push": "Push",
+        "scheduler": "Harmonogram",
+        "collections": "Kolekcje",
+        "addressBooks": "Książki adresowe",
+        "authorized": "Autoryzacja",
+        "yes": "tak",
+        "no": "nie",
+        "missingScopes": "Brakujące uprawnienia",
+        "lastSuccess": "Ostatnia udana synchronizacja",
+        "lastError": "Ostatni błąd",
+        "never": "nigdy"
+      }
     },
     "folderMappings": {
       "title": "Mapowania folderów",
@@ -1228,11 +1249,9 @@
       "exportOutlook": "Eksport CSV do Outlooka",
       "davAccessHint": "Określa, czy ta książka adresowa jest udostępniana podłączonym urządzeniom (CardDAV). Nigdy nie przyznaje więcej, niż pozwala sama książka.",
       "googleSync": "Synchronizuj kontakty Google",
-      "googleSyncing": "Synchronizowanie…",
       "googleSyncDone": "Kontakty Google: dodano {{created}}, zaktualizowano {{updated}}, usunięto {{deleted}}.",
       "googleSyncPartial": "Kontakty Google: dodano {{created}}, zaktualizowano {{updated}}, usunięto {{deleted}}; nie udało się dla {{failed}} połączeń.",
       "microsoftSync": "Synchronizuj kontakty Microsoft",
-      "microsoftSyncing": "Synchronizowanie…",
       "microsoftSyncDone": "Kontakty Microsoft: dodano {{created}}, zaktualizowano {{updated}}, usunięto {{deleted}}.",
       "microsoftSyncPartial": "Kontakty Microsoft: dodano {{created}}, zaktualizowano {{updated}}, usunięto {{deleted}}; nie udało się dla {{failed}} połączeń.",
       "importVCard": "Importuj vCard",
@@ -1243,6 +1262,42 @@
     "googleConnected": {
       "title": "Google połączone",
       "body": "Konto Google jest połączone. Pobierz kontakty na stronie Kontakty."
+    },
+    "booksManager": {
+      "title": "Zarządzaj książkami kontaktów",
+      "manage": "Zarządzaj książkami",
+      "back": "Wróć do listy",
+      "hiddenBadge": "ukryta",
+      "readOnly": "tylko odczyt",
+      "readWrite": "odczyt i zapis",
+      "contactsCount": "{{count}} kontaktów",
+      "sourceLocal": "Lokalna",
+      "sourceGoogle": "Google",
+      "sourceMicrosoft": "Microsoft",
+      "sourceDav": "CardDAV",
+      "general": "Ogólne",
+      "nameLabel": "Nazwa",
+      "sourceLabel": "Źródło",
+      "visibility": "Widoczność",
+      "visible": "widoczna",
+      "hidden": "ukryta",
+      "sync": "Synchronizacja",
+      "providerLabel": "Dostawca",
+      "neverSynced": "nigdy nie synchronizowano",
+      "syncNow": "Synchronizuj teraz",
+      "syncing": "Synchronizowanie…",
+      "writeBack": "Zapis zwrotny",
+      "sourceAccess": "Dostęp źródła",
+      "userAccess": "Dostęp użytkownika",
+      "userAccessSource": "to, na co pozwala źródło",
+      "effectiveAccess": "Dostęp efektywny",
+      "dav": "DAV",
+      "davProviderUnavailable": "Książka dostawcy jest udostępniana przez dostawcę, nie przez DAV.",
+      "importExport": "Import / eksport",
+      "dangerZone": "Strefa ryzyka",
+      "deleteBook": "Usuń tę lokalną książkę",
+      "deleteNotAllowed": "Tej książki nie można tu usunąć. Ostatnia lokalna książka jest wymagana, a książka dostawcy należy do dostawcy.",
+      "selectBook": "Wybierz książkę kontaktów, aby zobaczyć jej ustawienia."
     }
   },
   "contextMenu": {
@@ -2200,6 +2255,19 @@
     "syncFailedRateLimited": "Dostawca chwilowo ogranicza liczbę żądań. Spróbuj ponownie za kilka minut.",
     "connectGoogleHint": "Google jest gotowy do połączenia. Użyj opcji Połącz konto Google w Ustawieniach → Integracjach, aby pobrać tu kontakty.",
     "connectMicrosoftHint": "Microsoft jest gotowy do połączenia. Użyj opcji Połącz kontakty Microsoft w Ustawieniach → Integracjach, aby pobrać tu kontakty.",
-    "connectFailedTitle": "Nie udało się połączyć konta"
+    "connectFailedTitle": "Nie udało się połączyć konta",
+    "syncError": {
+      "missingScopes": "{{provider}} {{service}}: brakuje uprawnienia {{scopes}}. Połącz {{service}} ponownie.",
+      "auth": "{{provider}} odrzucił autoryzację dla {{service}} ({{code}}). Połącz ponownie.",
+      "rateLimited": "{{provider}} ogranicza teraz liczbę żądań dla {{service}}. Spróbuj za kilka minut.",
+      "providerDown": "{{provider}} zgłosił błąd serwera dla {{service}} ({{status}}). Kolejne uruchomienie ponowi próbę.",
+      "generic": "{{provider}} {{service}}: błąd {{code}}.",
+      "showDetails": "Pokaż szczegóły ({{count}})",
+      "service": {
+        "mail": "Poczta",
+        "calendar": "Kalendarz",
+        "contacts": "Kontakty"
+      }
+    }
   }
 }

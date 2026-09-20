@@ -1,3 +1,4 @@
+import type React from 'react';
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../utils/api.ts';
 import { toAppError } from '../utils/errors.ts';
@@ -20,6 +21,27 @@ export interface AccountProviderFeatures {
   calendar: { authorized: boolean; connectionId: string | null; collections: Array<{ id: string; kind: string; enabled: boolean }>; requiredScopes?: string[]; grantedScopes?: string[]; missingScopes?: string[] } | null;
   contacts: { authorized: boolean; connectionId: string | null; collections: Array<{ id: string; kind: string; enabled: boolean }>; requiredScopes?: string[]; grantedScopes?: string[]; missingScopes?: string[] } | null;
   push: { mail: string; calendar: string; contacts: string };
+}
+
+/** What the last recorded run of one feature did, as the diagnostics endpoint reports it. */
+export interface AccountFeatureDiagnostic {
+  lastSuccessfulSync: string | null;
+  lastErrorCode: string | null;
+  lastErrorAt: string | null;
+  cursorPresent: boolean;
+  authorized: boolean;
+  requiredScopes: string[];
+  missingScopes: string[];
+}
+
+export interface AccountProviderDiagnostics {
+  accountId: string;
+  provider: 'google' | 'microsoft' | null;
+  transport: string;
+  connection: { provider: 'google' | 'microsoft'; identity: string | null; status: string } | null;
+  mail: AccountFeatureDiagnostic & { transport: string; push: string; scheduler: string };
+  calendar: AccountFeatureDiagnostic & { collections: number; push: string };
+  contacts: AccountFeatureDiagnostic & { collections: number; push: string };
 }
 
 interface Props {
@@ -50,11 +72,17 @@ export default function AccountProviderServices({ accountId, reload, t }: Props)
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [diagnostics, setDiagnostics] = useState<AccountProviderDiagnostics | null>(null);
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
 
   const load = useCallback(() => {
     api.accountProviderFeatures(accountId)
       .then((data: AccountProviderFeatures) => setFeatures(data))
       .catch(() => { /* the card simply shows no services section when it cannot be read */ });
+    // Read with the features, so the section never shows a state the buttons above contradict.
+    api.accountProviderDiagnostics(accountId)
+      .then((data: AccountProviderDiagnostics) => setDiagnostics(data))
+      .catch(() => setDiagnostics(null));
   }, [accountId]);
   useEffect(() => { load(); }, [load]);
 
@@ -67,7 +95,7 @@ export default function AccountProviderServices({ accountId, reload, t }: Props)
     anchor.click();
     document.body.removeChild(anchor);
     setNotice(t('admin.accounts.services.finishInTab'));
-  }, [t]);
+  }, [t, accountId]);
 
   const migrate = useCallback(async (provider: 'google' | 'microsoft') => {
     setBusy(true);
@@ -114,6 +142,35 @@ export default function AccountProviderServices({ accountId, reload, t }: Props)
     </div>
   );
 
+  /**
+   * The diagnostics lines for one feature: whether it is authorized, what it is missing, when it last
+   * succeeded and what its last error was. Only names and times — the server sends no token.
+   */
+  const diagnosticsFeature = (
+    // An explicit slug, not the translated label: a test id has to be stable in every language.
+    slug: 'mail' | 'calendar' | 'contacts',
+    label: string,
+    feature: AccountFeatureDiagnostic,
+    extra?: React.ReactNode,
+  ) => (
+    <div data-testid={`account-diagnostics-${slug}`} style={{ marginTop: 6 }}>
+      <div style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>{label}</div>
+      <div>{t('admin.accounts.diagnostics.authorized')}: {feature.authorized ? t('admin.accounts.diagnostics.yes') : t('admin.accounts.diagnostics.no')}</div>
+      {!feature.authorized && feature.missingScopes.length > 0 && (
+        <div data-testid={`account-diagnostics-missing-${slug}`}>
+          {t('admin.accounts.diagnostics.missingScopes')}: {feature.missingScopes.join(', ')}
+        </div>
+      )}
+      <div>{t('admin.accounts.diagnostics.lastSuccess')}: {feature.lastSuccessfulSync ? new Date(feature.lastSuccessfulSync).toLocaleString() : t('admin.accounts.diagnostics.never')}</div>
+      {feature.lastErrorCode && (
+        <div data-testid={`account-diagnostics-error-${slug}`} style={{ color: 'var(--red, #f87171)' }}>
+          {t('admin.accounts.diagnostics.lastError')}: {feature.lastErrorCode}
+        </div>
+      )}
+      {extra}
+    </div>
+  );
+
   return (
     <div data-testid="account-provider-services" style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--border-subtle)', fontSize: 12, lineHeight: 1.7, minWidth: 0 }}>
       <div style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>{t('admin.accounts.services.title', { provider: providerName })}</div>
@@ -143,6 +200,54 @@ export default function AccountProviderServices({ accountId, reload, t }: Props)
       <div style={{ marginTop: 6, color: 'var(--text-tertiary)' }}>
         {t('admin.accounts.services.instantSync')}: {t('admin.accounts.services.mail')} {features.push.mail} · {t('admin.accounts.services.calendar')} {features.push.calendar} · {t('admin.accounts.services.contacts')} {features.push.contacts}
       </div>
+
+      {/* Diagnostics: collapsed by default, because the card's job is the actions. Everything here comes
+          from the server for this account, and nothing in it is a token or a secret. */}
+      {diagnostics && (
+        <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--border-subtle)' }}>
+          <button
+            type="button"
+            data-testid="account-diagnostics-toggle"
+            aria-expanded={diagnosticsOpen}
+            onClick={() => setDiagnosticsOpen(open => !open)}
+            style={{ background: 'none', border: 0, padding: 0, color: 'var(--text-secondary)', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+          >
+            {diagnosticsOpen ? '▾' : '▸'} {t('admin.accounts.diagnostics.title')}
+          </button>
+          {diagnosticsOpen && (
+            <div data-testid="account-diagnostics" style={{ marginTop: 6, color: 'var(--text-tertiary)', lineHeight: 1.7 }}>
+              <div data-testid="account-diagnostics-connection">
+                <div style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>{t('admin.accounts.diagnostics.connection')}</div>
+                <div>{t('admin.accounts.diagnostics.provider')}: {diagnostics.provider ?? t('admin.accounts.diagnostics.none')}</div>
+                <div>{t('admin.accounts.diagnostics.identity')}: {diagnostics.connection?.identity ?? t('admin.accounts.diagnostics.none')}</div>
+                <div data-testid="account-diagnostics-connection-status">
+                  {t('admin.accounts.diagnostics.status')}: {diagnostics.connection?.status ?? t('admin.accounts.diagnostics.none')}
+                </div>
+              </div>
+              {diagnosticsFeature('mail', t('admin.accounts.services.mail'), diagnostics.mail, (
+                <>
+                  <div>{t('admin.accounts.diagnostics.transport')}: {transportLabel(diagnostics.mail.transport)}</div>
+                  <div>{t('admin.accounts.diagnostics.cursor')}: {diagnostics.mail.cursorPresent ? t('admin.accounts.diagnostics.yes') : t('admin.accounts.diagnostics.no')}</div>
+                  <div>{t('admin.accounts.diagnostics.push')}: {diagnostics.mail.push}</div>
+                  <div>{t('admin.accounts.diagnostics.scheduler')}: {diagnostics.mail.scheduler}</div>
+                </>
+              ))}
+              {diagnosticsFeature('calendar', t('admin.accounts.services.calendar'), diagnostics.calendar, (
+                <>
+                  <div>{t('admin.accounts.diagnostics.collections')}: {diagnostics.calendar.collections}</div>
+                  <div>{t('admin.accounts.diagnostics.push')}: {diagnostics.calendar.push}</div>
+                </>
+              ))}
+              {diagnosticsFeature('contacts', t('admin.accounts.services.contacts'), diagnostics.contacts, (
+                <>
+                  <div>{t('admin.accounts.diagnostics.addressBooks')}: {diagnostics.contacts.collections}</div>
+                  <div>{t('admin.accounts.diagnostics.push')}: {diagnostics.contacts.push}</div>
+                </>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {notice && <div data-testid="account-services-notice" style={{ color: 'var(--text-secondary)' }}>{notice}</div>}
       {error && <div data-testid="account-services-error" style={{ color: 'var(--red)' }}>{error}</div>}

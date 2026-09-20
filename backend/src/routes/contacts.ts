@@ -14,6 +14,7 @@ import { queryInt, queryString, queryStringOr, routeParam, sessionUserId } from 
 import { toAppError } from '../utils/errors.js';
 import { googleConfigFromEnv, isGoogleConfigured, isMicrosoftBrowserFlowReady, isMicrosoftConfigured, microsoftConfigFromEnv } from '../services/providerAuthService.js';
 import { syncGoogleContacts } from '../services/providers/google/googleContactsSync.js';
+import { describeProviderSyncFailure, providerSyncPreflight } from '../services/providerSyncDiagnostics.js';
 import { GoogleApiError } from '../services/providers/google/googleApiClient.js';
 import { deleteCarddavContact, putCarddavContact } from '../services/providers/carddavWriteBack.js';
 import { davWriteBackHttpStatus, type DavWriteBackRouteResult } from '../services/providers/davWriteBack.js';
@@ -432,6 +433,11 @@ router.post('/providers/microsoft/sync', async (req, res) => {
   const results: Array<Record<string, unknown>> = [];
   for (const connection of connections.rows) {
     try {
+      const refusal = await providerSyncPreflight({ userId, connectionId: connection.id, provider: 'microsoft', feature: 'contacts' });
+      if (refusal) {
+        results.push({ connectionId: connection.id, error: refusal });
+        continue;
+      }
       results.push({ connectionId: connection.id, ...(await syncGraphContacts({ userId, connectionId: connection.id, config })) });
     } catch (caught) {
       const error = caught instanceof GraphApiError ? caught : null;
@@ -439,7 +445,7 @@ router.post('/providers/microsoft/sync', async (req, res) => {
         connectionId: connection.id,
         error: error
           ? { code: error.code, message: error.message, retryable: error.retryable }
-          : { code: 'INTERNAL_ERROR', message: toAppError(caught).message, retryable: false },
+          : await describeProviderSyncFailure({ userId, connectionId: connection.id, provider: 'microsoft', feature: 'contacts', caught }),
       });
     }
   }
@@ -471,15 +477,23 @@ router.post('/providers/google/sync', async (req, res) => {
   const results: Array<Record<string, unknown>> = [];
   for (const connection of connections.rows) {
     try {
+      // A grant that cannot authorize the call is refused here, with the scope that is missing, rather than
+      // sent to the provider to come back as a 403 the user cannot act on.
+      const refusal = await providerSyncPreflight({ userId, connectionId: connection.id, provider: 'google', feature: 'contacts' });
+      if (refusal) {
+        results.push({ connectionId: connection.id, error: refusal });
+        continue;
+      }
       results.push({ connectionId: connection.id, ...(await syncGoogleContacts({ userId, connectionId: connection.id, config })) });
     } catch (caught) {
       const error = caught instanceof GoogleApiError ? caught : null;
-      // One failing connection must not hide the others' results.
+      // One failing connection must not hide the others' results, and the failure carries enough for the
+      // interface to say what to do about it.
       results.push({
         connectionId: connection.id,
         error: error
           ? { code: error.code, message: error.message, retryable: error.retryable }
-          : { code: 'INTERNAL_ERROR', message: toAppError(caught).message, retryable: false },
+          : await describeProviderSyncFailure({ userId, connectionId: connection.id, provider: 'google', feature: 'contacts', caught }),
       });
     }
   }

@@ -128,7 +128,28 @@
       "categorizationEnabled": "Abilita categorizzazione",
       "categorizationEnabledDesc": "Ordina le email in arrivo in schede di categoria. Disabilitato per impostazione predefinita.",
       "enabledGlobally": "Abilitato globalmente",
-      "transport": "Trasporto"
+      "transport": "Trasporto",
+      "diagnostics": {
+        "title": "Diagnostica",
+        "connection": "Connessione",
+        "provider": "Provider",
+        "identity": "Identità",
+        "status": "Stato",
+        "none": "nessuno",
+        "transport": "Trasporto",
+        "cursor": "Cursore di sincronizzazione",
+        "push": "Push",
+        "scheduler": "Pianificazione",
+        "collections": "Collezioni",
+        "addressBooks": "Rubriche",
+        "authorized": "Autorizzato",
+        "yes": "sì",
+        "no": "no",
+        "missingScopes": "Autorizzazioni mancanti",
+        "lastSuccess": "Ultima sincronizzazione riuscita",
+        "lastError": "Ultimo errore",
+        "never": "mai"
+      }
     },
     "ai": {
       "title": "Assistente IA",
@@ -1228,11 +1249,9 @@
       "exportOutlook": "Esporta CSV per Outlook",
       "davAccessHint": "Indica se questa rubrica viene pubblicata sui dispositivi connessi (CardDAV). Non concede mai più di quanto consenta la rubrica stessa.",
       "googleSync": "Sincronizza contatti Google",
-      "googleSyncing": "Sincronizzazione…",
       "googleSyncDone": "Contatti Google: {{created}} aggiunti, {{updated}} aggiornati, {{deleted}} rimossi.",
       "googleSyncPartial": "Contatti Google: {{created}} aggiunti, {{updated}} aggiornati, {{deleted}} rimossi; {{failed}} connessioni non riuscite.",
       "microsoftSync": "Sincronizza contatti Microsoft",
-      "microsoftSyncing": "Sincronizzazione…",
       "microsoftSyncDone": "Contatti Microsoft: {{created}} aggiunti, {{updated}} aggiornati, {{deleted}} rimossi.",
       "microsoftSyncPartial": "Contatti Microsoft: {{created}} aggiunti, {{updated}} aggiornati, {{deleted}} rimossi; {{failed}} connessioni non riuscite.",
       "importVCard": "Importa vCard",
@@ -1243,6 +1262,42 @@
     "googleConnected": {
       "title": "Google connesso",
       "body": "Il tuo account Google è connesso. Recupera i contatti dalla pagina Contatti."
+    },
+    "booksManager": {
+      "title": "Gestisci rubriche",
+      "manage": "Gestisci rubriche",
+      "back": "Torna all’elenco",
+      "hiddenBadge": "nascosta",
+      "readOnly": "sola lettura",
+      "readWrite": "lettura e scrittura",
+      "contactsCount": "{{count}} contatti",
+      "sourceLocal": "Locale",
+      "sourceGoogle": "Google",
+      "sourceMicrosoft": "Microsoft",
+      "sourceDav": "CardDAV",
+      "general": "Generale",
+      "nameLabel": "Nome",
+      "sourceLabel": "Origine",
+      "visibility": "Visibilità",
+      "visible": "visibile",
+      "hidden": "nascosta",
+      "sync": "Sincronizzazione",
+      "providerLabel": "Provider",
+      "neverSynced": "mai sincronizzata",
+      "syncNow": "Sincronizza ora",
+      "syncing": "Sincronizzazione…",
+      "writeBack": "Scrittura inversa",
+      "sourceAccess": "Accesso origine",
+      "userAccess": "Accesso utente",
+      "userAccessSource": "ciò che l’origine consente",
+      "effectiveAccess": "Accesso effettivo",
+      "dav": "DAV",
+      "davProviderUnavailable": "Una rubrica del provider è condivisa tramite il provider, non tramite DAV.",
+      "importExport": "Importa / esporta",
+      "dangerZone": "Zona a rischio",
+      "deleteBook": "Elimina questa rubrica locale",
+      "deleteNotAllowed": "Questa rubrica non può essere eliminata qui. L’ultima rubrica locale è necessaria e una rubrica del provider appartiene al provider.",
+      "selectBook": "Scegli una rubrica per vedere le sue impostazioni."
     }
   },
   "contextMenu": {
@@ -2200,6 +2255,19 @@
     "syncFailedRateLimited": "Il provider sta limitando le richieste in questo momento. Riprova tra qualche minuto.",
     "connectGoogleHint": "Google è pronto per la connessione. Usa «Connetti un account Google» in Impostazioni → Integrazioni per portare qui i contatti.",
     "connectMicrosoftHint": "Microsoft è pronto per la connessione. Usa «Connetti contatti Microsoft» in Impostazioni → Integrazioni per portare qui i contatti.",
-    "connectFailedTitle": "Connessione dell’account non riuscita"
+    "connectFailedTitle": "Connessione dell’account non riuscita",
+    "syncError": {
+      "missingScopes": "{{provider}} {{service}}: manca l’autorizzazione {{scopes}}. Collega di nuovo {{service}}.",
+      "auth": "{{provider}} ha rifiutato l’autorizzazione per {{service}} ({{code}}). Collegalo di nuovo.",
+      "rateLimited": "{{provider}} sta limitando {{service} in questo momento. Riprova tra qualche minuto.",
+      "providerDown": "{{provider}} ha segnalato un errore del server per {{service}} ({{status}}). Il prossimo tentativo riproverà.",
+      "generic": "{{provider}} {{service}} non riuscito: {{code}}.",
+      "showDetails": "Mostra dettagli ({{count}})",
+      "service": {
+        "mail": "Posta",
+        "calendar": "Calendario",
+        "contacts": "Contatti"
+      }
+    }
   }
 }

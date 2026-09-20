@@ -26,6 +26,24 @@ vi.mock('../services/providerAuthService.js', async (importOriginal) => ({
 vi.mock('../services/providers/microsoft/graphContactsSync.js', () => ({ syncGraphContacts: mocks.syncGraphContacts }));
 
 import contactsRouter from './contacts.js';
+// The preflight and the failure describer read the grant and the account; this suite is about the route's
+// per-connection fan-out, so they answer directly rather than through the database mock.
+vi.mock('../services/providerSyncDiagnostics.js', () => ({
+  providerSyncPreflight: vi.fn(async () => null),
+  describeProviderSyncFailure: vi.fn(async (input: { connectionId: string; feature: string; caught: unknown }) => {
+    const failure = input.caught as { code?: string; message?: string } | null;
+    return {
+      connectionId: input.connectionId,
+      accountId: null,
+      feature: input.feature,
+      code: failure?.code ?? 'PROVIDER_ERROR',
+      providerStatus: null,
+      message: failure?.message ?? 'failed',
+      retryable: false,
+    };
+  }),
+}));
+
 import { GraphApiError } from '../services/providers/microsoft/graphApiClient.js';
 
 let server: Server;

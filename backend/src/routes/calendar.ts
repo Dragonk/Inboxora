@@ -2,6 +2,7 @@ import { calendarResources, mergeCalendarResource, rruleFromCalendarResource, se
 import { parseRecurrenceStructure, recurrenceToRRule, recurrenceViewFromRRule, type ParsedRecurrence } from '../utils/calendarRecurrenceRule.js';
 import { googleConfigFromEnv, isGoogleConfigured, isMicrosoftConfigured, microsoftConfigFromEnv } from '../services/providerAuthService.js';
 import { syncGoogleCalendar } from '../services/providers/google/googleCalendarSync.js';
+import { describeProviderSyncFailure, providerSyncPreflight } from '../services/providerSyncDiagnostics.js';
 import { releaseCalendarChannelForCollection } from '../services/providerPushGoogle.js';
 import { deleteCaldavEvent, putCaldavEvent } from '../services/providers/caldavWriteBack.js';
 import { davWriteBackHttpStatus, type DavWriteBackRouteResult } from '../services/providers/davWriteBack.js';
@@ -9,9 +10,7 @@ import {
   writeProviderCalendarOccurrence,
   type OccurrenceScope,
 } from '../services/providerCalendarOccurrences.js';
-import { GoogleApiError } from '../services/providers/google/googleApiClient.js';
 import { syncGraphCalendar } from '../services/providers/microsoft/graphCalendarSync.js';
-import { GraphApiError } from '../services/providers/microsoft/graphApiClient.js';
 import {
   graphEventIdForLocalRow,
   recordGraphCalendarEventLink,
@@ -1919,14 +1918,18 @@ router.post('/providers/google/sync', async (req, res) => {
   const results: Array<Record<string, unknown>> = [];
   for (const connection of connections.rows) {
     try {
+      // A missing calendar scope is refused here, with the scope named, rather than sent to Google to come
+      // back as a 403 the user cannot act on.
+      const refusal = await providerSyncPreflight({ userId, connectionId: connection.id, provider: 'google', feature: 'calendar' });
+      if (refusal) {
+        results.push({ connectionId: connection.id, error: refusal });
+        continue;
+      }
       results.push({ connectionId: connection.id, ...(await syncGoogleCalendar({ userId, connectionId: connection.id, config })) });
     } catch (caught) {
-      const error = caught instanceof GoogleApiError ? caught : null;
       results.push({
         connectionId: connection.id,
-        error: error
-          ? { code: error.code, message: error.message, retryable: error.retryable }
-          : { code: 'INTERNAL_ERROR', message: toAppError(caught).message, retryable: false },
+        error: await describeProviderSyncFailure({ userId, connectionId: connection.id, provider: 'google', feature: 'calendar', caught }),
       });
     }
   }
@@ -2000,14 +2003,16 @@ router.post('/providers/microsoft/sync', async (req, res) => {
   const results: Array<Record<string, unknown>> = [];
   for (const connection of connections.rows) {
     try {
+      const refusal = await providerSyncPreflight({ userId, connectionId: connection.id, provider: 'microsoft', feature: 'calendar' });
+      if (refusal) {
+        results.push({ connectionId: connection.id, error: refusal });
+        continue;
+      }
       results.push({ connectionId: connection.id, ...(await syncGraphCalendar({ userId, connectionId: connection.id, config })) });
     } catch (caught) {
-      const error = caught instanceof GraphApiError ? caught : null;
       results.push({
         connectionId: connection.id,
-        error: error
-          ? { code: error.code, message: error.message, retryable: error.retryable }
-          : { code: 'INTERNAL_ERROR', message: toAppError(caught).message, retryable: false },
+        error: await describeProviderSyncFailure({ userId, connectionId: connection.id, provider: 'microsoft', feature: 'calendar', caught }),
       });
     }
   }

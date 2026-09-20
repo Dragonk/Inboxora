@@ -128,7 +128,28 @@
       "categorizationEnabled": "Activer la catégorisation",
       "categorizationEnabledDesc": "Classe les e-mails entrants dans des onglets de catégories. Désactivé par défaut.",
       "enabledGlobally": "Activé globalement",
-      "transport": "Transport"
+      "transport": "Transport",
+      "diagnostics": {
+        "title": "Diagnostic",
+        "connection": "Connexion",
+        "provider": "Fournisseur",
+        "identity": "Identité",
+        "status": "État",
+        "none": "aucun",
+        "transport": "Transport",
+        "cursor": "Curseur de synchronisation",
+        "push": "Push",
+        "scheduler": "Planification",
+        "collections": "Collections",
+        "addressBooks": "Carnets",
+        "authorized": "Autorisé",
+        "yes": "oui",
+        "no": "non",
+        "missingScopes": "Autorisations manquantes",
+        "lastSuccess": "Dernière synchronisation réussie",
+        "lastError": "Dernière erreur",
+        "never": "jamais"
+      }
     },
     "ai": {
       "title": "Assistant IA",
@@ -1228,11 +1249,9 @@
       "exportOutlook": "Exporter au format CSV Outlook",
       "davAccessHint": "Indique si ce carnet d'adresses est publié vers les appareils connectés (CardDAV). Cela n'accorde jamais plus que ce que le carnet autorise.",
       "googleSync": "Synchroniser les contacts Google",
-      "googleSyncing": "Synchronisation…",
       "googleSyncDone": "Contacts Google : {{created}} ajoutés, {{updated}} mis à jour, {{deleted}} supprimés.",
       "googleSyncPartial": "Contacts Google : {{created}} ajoutés, {{updated}} mis à jour, {{deleted}} supprimés ; {{failed}} connexion(s) en échec.",
       "microsoftSync": "Synchroniser les contacts Microsoft",
-      "microsoftSyncing": "Synchronisation…",
       "microsoftSyncDone": "Contacts Microsoft : {{created}} ajoutés, {{updated}} mis à jour, {{deleted}} supprimés.",
       "microsoftSyncPartial": "Contacts Microsoft : {{created}} ajoutés, {{updated}} mis à jour, {{deleted}} supprimés ; {{failed}} connexion(s) en échec.",
       "importVCard": "Importer un vCard",
@@ -1243,6 +1262,42 @@
     "googleConnected": {
       "title": "Google connecté",
       "body": "Votre compte Google est connecté. Récupérez vos contacts depuis la page Contacts."
+    },
+    "booksManager": {
+      "title": "Gérer les carnets d’adresses",
+      "manage": "Gérer les carnets",
+      "back": "Retour à la liste",
+      "hiddenBadge": "masqué",
+      "readOnly": "lecture seule",
+      "readWrite": "lecture-écriture",
+      "contactsCount": "{{count}} contacts",
+      "sourceLocal": "Local",
+      "sourceGoogle": "Google",
+      "sourceMicrosoft": "Microsoft",
+      "sourceDav": "CardDAV",
+      "general": "Général",
+      "nameLabel": "Nom",
+      "sourceLabel": "Source",
+      "visibility": "Visibilité",
+      "visible": "visible",
+      "hidden": "masqué",
+      "sync": "Synchronisation",
+      "providerLabel": "Fournisseur",
+      "neverSynced": "jamais synchronisé",
+      "syncNow": "Synchroniser maintenant",
+      "syncing": "Synchronisation…",
+      "writeBack": "Écriture en retour",
+      "sourceAccess": "Accès source",
+      "userAccess": "Accès utilisateur",
+      "userAccessSource": "ce que la source autorise",
+      "effectiveAccess": "Accès effectif",
+      "dav": "DAV",
+      "davProviderUnavailable": "Un carnet de fournisseur est partagé via son fournisseur, pas via DAV.",
+      "importExport": "Import / export",
+      "dangerZone": "Zone sensible",
+      "deleteBook": "Supprimer ce carnet local",
+      "deleteNotAllowed": "Ce carnet ne peut pas être supprimé ici. Le dernier carnet local est nécessaire et un carnet de fournisseur appartient à son fournisseur.",
+      "selectBook": "Choisissez un carnet pour voir ses réglages."
     }
   },
   "contextMenu": {
@@ -2200,6 +2255,19 @@
     "syncFailedRateLimited": "Le fournisseur limite actuellement les requêtes. Réessayez dans quelques minutes.",
     "connectGoogleHint": "Google est prêt à être connecté. Utilisez « Connecter un compte Google » dans Paramètres → Intégrations pour récupérer ses contacts ici.",
     "connectMicrosoftHint": "Microsoft est prêt à être connecté. Utilisez « Connecter les contacts Microsoft » dans Paramètres → Intégrations pour récupérer ses contacts ici.",
-    "connectFailedTitle": "La connexion du compte a échoué"
+    "connectFailedTitle": "La connexion du compte a échoué",
+    "syncError": {
+      "missingScopes": "{{provider}} {{service}} : l’autorisation {{scopes}} manque. Reconnectez {{service}}.",
+      "auth": "{{provider}} a refusé l’autorisation pour {{service}} ({{code}}). Reconnectez-le.",
+      "rateLimited": "{{provider}} limite {{service} pour le moment. Réessayez dans quelques minutes.",
+      "providerDown": "{{provider}} a signalé une erreur serveur pour {{service}} ({{status}}). La prochaine exécution réessaiera.",
+      "generic": "{{provider}} {{service}} a échoué : {{code}}.",
+      "showDetails": "Afficher les détails ({{count}})",
+      "service": {
+        "mail": "Courrier",
+        "calendar": "Agenda",
+        "contacts": "Contacts"
+      }
+    }
   }
 }

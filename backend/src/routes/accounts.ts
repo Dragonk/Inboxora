@@ -488,6 +488,27 @@ router.get('/:id/provider-features', async (req, res) => {
   res.json(features);
 });
 
+/**
+ * The same capability view, plus what the last runs did, for the account's own diagnostics section.
+ *
+ * It is the same call rather than a second implementation: authorization is decided by the one capability
+ * evaluator, so a diagnostics screen can never disagree with the buttons beside it. No token, secret or raw
+ * provider payload is part of the answer — the evaluator reads only the granted scope names and the grant's
+ * status.
+ */
+router.get('/:id/provider-diagnostics', async (req, res) => {
+  const userId = req.session.userId;
+  if (!userId) return res.status(401).json({ error: 'Not authenticated' });
+  const features = await describeAccountProviderFeatures({ userId, accountId: req.params.id });
+  if (!features) return res.status(404).json({ error: 'Account not found' });
+  res.json({
+    accountId: features.accountId,
+    provider: features.provider,
+    transport: features.mail.transport,
+    ...features.diagnostics,
+  });
+});
+
 router.post('/:id/reconnect', async (req, res) => {
   const { id } = req.params;
   const result = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2', [id, req.session.userId]);

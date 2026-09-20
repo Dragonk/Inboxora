@@ -128,7 +128,28 @@
       "categorizationEnabled": "Включить категоризацию входящих",
       "categorizationEnabledDesc": "Сортирует входящие письма по вкладкам категорий. По умолчанию отключено.",
       "enabledGlobally": "Включено глобально",
-      "transport": "Транспорт"
+      "transport": "Транспорт",
+      "diagnostics": {
+        "title": "Диагностика",
+        "connection": "Подключение",
+        "provider": "Провайдер",
+        "identity": "Идентификатор",
+        "status": "Статус",
+        "none": "нет",
+        "transport": "Транспорт",
+        "cursor": "Курсор синхронизации",
+        "push": "Push",
+        "scheduler": "Расписание",
+        "collections": "Коллекции",
+        "addressBooks": "Адресные книги",
+        "authorized": "Авторизация",
+        "yes": "да",
+        "no": "нет",
+        "missingScopes": "Недостающие разрешения",
+        "lastSuccess": "Последняя успешная синхронизация",
+        "lastError": "Последняя ошибка",
+        "never": "никогда"
+      }
     },
     "ai": {
       "title": "ИИ-ассистент",
@@ -1228,11 +1249,9 @@
       "exportOutlook": "Экспорт CSV для Outlook",
       "davAccessHint": "Определяет, публикуется ли эта адресная книга на подключённых устройствах (CardDAV). Она никогда не даёт больше прав, чем сама книга.",
       "googleSync": "Синхронизировать контакты Google",
-      "googleSyncing": "Синхронизация…",
       "googleSyncDone": "Контакты Google: добавлено {{created}}, обновлено {{updated}}, удалено {{deleted}}.",
       "googleSyncPartial": "Контакты Google: добавлено {{created}}, обновлено {{updated}}, удалено {{deleted}}; не удалось для {{failed}} подключений.",
       "microsoftSync": "Синхронизировать контакты Microsoft",
-      "microsoftSyncing": "Синхронизация…",
       "microsoftSyncDone": "Контакты Microsoft: добавлено {{created}}, обновлено {{updated}}, удалено {{deleted}}.",
       "microsoftSyncPartial": "Контакты Microsoft: добавлено {{created}}, обновлено {{updated}}, удалено {{deleted}}; не удалось для {{failed}} подключений.",
       "importVCard": "Импорт vCard",
@@ -1243,6 +1262,42 @@
     "googleConnected": {
       "title": "Google подключён",
       "body": "Аккаунт Google подключён. Загрузите контакты на странице «Контакты»."
+    },
+    "booksManager": {
+      "title": "Управление адресными книгами",
+      "manage": "Управление книгами",
+      "back": "Назад к списку",
+      "hiddenBadge": "скрыта",
+      "readOnly": "только чтение",
+      "readWrite": "чтение и запись",
+      "contactsCount": "{{count}} контактов",
+      "sourceLocal": "Локальная",
+      "sourceGoogle": "Google",
+      "sourceMicrosoft": "Microsoft",
+      "sourceDav": "CardDAV",
+      "general": "Общие",
+      "nameLabel": "Название",
+      "sourceLabel": "Источник",
+      "visibility": "Видимость",
+      "visible": "видима",
+      "hidden": "скрыта",
+      "sync": "Синхронизация",
+      "providerLabel": "Провайдер",
+      "neverSynced": "никогда не синхронизировалась",
+      "syncNow": "Синхронизировать сейчас",
+      "syncing": "Синхронизация…",
+      "writeBack": "Обратная запись",
+      "sourceAccess": "Доступ источника",
+      "userAccess": "Доступ пользователя",
+      "userAccessSource": "то, что разрешает источник",
+      "effectiveAccess": "Действующий доступ",
+      "dav": "DAV",
+      "davProviderUnavailable": "Книга провайдера предоставляется через провайдера, а не через DAV.",
+      "importExport": "Импорт / экспорт",
+      "dangerZone": "Опасная зона",
+      "deleteBook": "Удалить эту локальную книгу",
+      "deleteNotAllowed": "Эту книгу нельзя удалить здесь. Последняя локальная книга обязательна, а книга провайдера принадлежит провайдеру.",
+      "selectBook": "Выберите адресную книгу, чтобы увидеть её настройки."
     }
   },
   "contextMenu": {
@@ -2200,6 +2255,19 @@
     "syncFailedRateLimited": "Поставщик сейчас ограничивает запросы. Повторите попытку через несколько минут.",
     "connectGoogleHint": "Google готов к подключению. Используйте «Подключить аккаунт Google» в «Настройки → Интеграции», чтобы загрузить контакты сюда.",
     "connectMicrosoftHint": "Microsoft готов к подключению. Используйте «Подключить контакты Microsoft» в «Настройки → Интеграции», чтобы загрузить контакты сюда.",
-    "connectFailedTitle": "Не удалось подключить аккаунт"
+    "connectFailedTitle": "Не удалось подключить аккаунт",
+    "syncError": {
+      "missingScopes": "{{provider}} {{service}}: не хватает разрешения {{scopes}}. Подключите {{service}} заново.",
+      "auth": "{{provider}} отклонил авторизацию для {{service}} ({{code}}). Подключите заново.",
+      "rateLimited": "{{provider}} сейчас ограничивает {{service}. Попробуйте через несколько минут.",
+      "providerDown": "{{provider}} сообщил об ошибке сервера для {{service}} ({{status}}). Следующий запуск повторит попытку.",
+      "generic": "{{provider}} {{service}}: ошибка {{code}}.",
+      "showDetails": "Показать подробности ({{count}})",
+      "service": {
+        "mail": "Почта",
+        "calendar": "Календарь",
+        "contacts": "Контакты"
+      }
+    }
   }
 }

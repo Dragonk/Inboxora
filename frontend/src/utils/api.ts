@@ -341,6 +341,10 @@ export const api = {
   // calendar, contacts and push state. Account-centric, so the card does not have to guess.
   accountProviderFeatures: (accountId: string) =>
     request('GET', `/accounts/${encodeURIComponent(accountId)}/provider-features`),
+  // The same capability view plus what the last runs did, for the account's own diagnostics section. The
+  // server never includes a token, a secret or a raw provider payload.
+  accountProviderDiagnostics: (accountId: string) =>
+    request('GET', `/accounts/${encodeURIComponent(accountId)}/provider-diagnostics`),
   nativeAccountCandidates: (provider: 'microsoft' | 'google') =>
     request('GET', `/accounts/native/candidates?provider=${provider}`),
   // Move one existing account onto its provider's native transport, in place. The server decides whether

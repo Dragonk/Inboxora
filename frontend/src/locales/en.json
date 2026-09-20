@@ -128,7 +128,28 @@
       "categorizationEnabled": "Enable inbox categorization",
       "categorizationEnabledDesc": "Sort incoming emails into category tabs. Disabled by default.",
       "enabledGlobally": "Enabled globally",
-      "transport": "Transport"
+      "transport": "Transport",
+      "diagnostics": {
+        "title": "Diagnostics",
+        "connection": "Connection",
+        "provider": "Provider",
+        "identity": "Identity",
+        "status": "Status",
+        "none": "none",
+        "transport": "Transport",
+        "cursor": "Synchronisation cursor",
+        "push": "Push",
+        "scheduler": "Schedule",
+        "collections": "Collections",
+        "addressBooks": "Address books",
+        "authorized": "Authorized",
+        "yes": "yes",
+        "no": "no",
+        "missingScopes": "Missing scopes",
+        "lastSuccess": "Last successful synchronisation",
+        "lastError": "Last error",
+        "never": "never"
+      }
     },
     "ai": {
       "title": "AI Assistant",
@@ -1228,11 +1249,9 @@
       "exportOutlook": "Outlook CSV",
       "davAccessHint": "Controls whether this address book is published to connected devices (CardDAV). It never grants more than the book itself allows.",
       "googleSync": "Sync Google contacts",
-      "googleSyncing": "Syncing…",
       "googleSyncDone": "Google contacts: {{created}} added, {{updated}} updated, {{deleted}} removed.",
       "googleSyncPartial": "Google contacts: {{created}} added, {{updated}} updated, {{deleted}} removed; {{failed}} connection(s) failed.",
       "microsoftSync": "Sync Microsoft contacts",
-      "microsoftSyncing": "Syncing…",
       "microsoftSyncDone": "Microsoft contacts: {{created}} added, {{updated}} updated, {{deleted}} removed.",
       "microsoftSyncPartial": "Microsoft contacts: {{created}} added, {{updated}} updated, {{deleted}} removed; {{failed}} connection(s) failed.",
       "importVCard": "Import vCard",
@@ -1243,6 +1262,42 @@
     "googleConnected": {
       "title": "Google connected",
       "body": "Your Google account is connected. Pull your contacts from the Contacts page."
+    },
+    "booksManager": {
+      "title": "Manage address books",
+      "manage": "Manage address books",
+      "back": "Back to list",
+      "hiddenBadge": "hidden",
+      "readOnly": "read-only",
+      "readWrite": "read-write",
+      "contactsCount": "{{count}} contacts",
+      "sourceLocal": "Local",
+      "sourceGoogle": "Google",
+      "sourceMicrosoft": "Microsoft",
+      "sourceDav": "CardDAV",
+      "general": "General",
+      "nameLabel": "Name",
+      "sourceLabel": "Source",
+      "visibility": "Visibility",
+      "visible": "visible",
+      "hidden": "hidden",
+      "sync": "Synchronisation",
+      "providerLabel": "Provider",
+      "neverSynced": "never synchronised",
+      "syncNow": "Synchronise now",
+      "syncing": "Synchronising…",
+      "writeBack": "Write-back",
+      "sourceAccess": "Source access",
+      "userAccess": "User access",
+      "userAccessSource": "what the source allows",
+      "effectiveAccess": "Effective access",
+      "dav": "DAV",
+      "davProviderUnavailable": "A provider address book is shared through its provider, not through DAV.",
+      "importExport": "Import / export",
+      "dangerZone": "Danger zone",
+      "deleteBook": "Delete this local address book",
+      "deleteNotAllowed": "This book cannot be deleted here. The last local book is required, and a provider book belongs to its provider.",
+      "selectBook": "Choose an address book to see its settings."
     }
   },
   "contextMenu": {
@@ -2200,6 +2255,19 @@
     "syncFailedRateLimited": "The provider is limiting requests right now. Try again in a few minutes.",
     "connectGoogleHint": "Google is ready to connect. Use Connect a Google account in Settings → Integrations to pull its contacts here.",
     "connectMicrosoftHint": "Microsoft is ready to connect. Use Connect Microsoft contacts in Settings → Integrations to pull its contacts here.",
-    "connectFailedTitle": "Connecting the account failed"
+    "connectFailedTitle": "Connecting the account failed",
+    "syncError": {
+      "missingScopes": "{{provider}} {{service}}: the {{scopes}} permission is missing. Connect {{service}} again.",
+      "auth": "{{provider}} refused the authorization for {{service}} ({{code}}). Connect it again.",
+      "rateLimited": "{{provider}} is rate limiting {{service}} right now. Try again in a few minutes.",
+      "providerDown": "{{provider}} reported a server error for {{service}} ({{status}}). The next run will retry.",
+      "generic": "{{provider}} {{service}} failed: {{code}}.",
+      "showDetails": "Show details ({{count}})",
+      "service": {
+        "mail": "Mail",
+        "calendar": "Calendar",
+        "contacts": "Contacts"
+      }
+    }
   }
 }

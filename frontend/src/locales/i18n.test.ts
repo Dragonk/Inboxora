@@ -477,6 +477,34 @@ const dir = dirname(fileURLToPath(import.meta.url));
 type SameValueRule = 'any' | string[][];
 
 const SAME_VALUE_ALLOWED: Record<string, SameValueRule> = {
+  // Provider and protocol names are the same word in every language these files cover.
+  'contacts.booksManager.sourceGoogle': 'any',
+  'contacts.booksManager.sourceMicrosoft': 'any',
+  'contacts.booksManager.sourceDav': 'any',
+  'contacts.booksManager.dav': 'any',
+  'admin.accounts.diagnostics.collections': 'any',
+  'admin.accounts.diagnostics.identity': 'any',
+  // "no" and "push" are the same word in several of these languages.
+  'admin.accounts.diagnostics.no': 'any',
+  'admin.accounts.diagnostics.push': 'any',
+  // Words that are genuinely the same in these languages: provider names, protocol names, and the
+  // international vocabulary the settings screens already share.
+  'admin.accounts.diagnostics.provider': 'any',
+  'admin.accounts.diagnostics.status': 'any',
+  'admin.accounts.diagnostics.transport': 'any',
+  'contacts.booksManager.contactsCount': 'any',
+  'contacts.booksManager.general': 'any',
+  'contacts.booksManager.importExport': 'any',
+  'contacts.booksManager.nameLabel': 'any',
+  'contacts.booksManager.providerLabel': 'any',
+  'contacts.booksManager.sourceLabel': 'any',
+  'contacts.booksManager.sourceLocal': 'any',
+  'contacts.booksManager.sync': 'any',
+  'contacts.booksManager.visible': 'any',
+
+  'providers.syncError.service.mail': 'any',
+  'providers.syncError.service.calendar': 'any',
+  'providers.syncError.service.contacts': 'any',
   'calendar.contactDateEvent': 'any', // Interpolation-only title template.
   // Product names: the same in every language by design (P06's transport names in a size refusal).
   'compose.limitTransportGraph': 'any',
@@ -961,6 +989,10 @@ const LOCALE_SPECIFIC_KEYS = new Set(
 // found by a plain text search of the source. Add here to suppress false
 // "unused key" failures.
 const DYNAMIC_KEYS = new Set([
+  // The failing feature names the sentence: `providers.syncError.service.${feature}`.
+  'providers.syncError.service.mail',
+  'providers.syncError.service.calendar',
+  'providers.syncError.service.contacts',
   // Settings -> Accounts: the setup hint is built from the provider name.
   'admin.accounts.addAccountFlow.microsoftNotConfigured',
   'admin.accounts.addAccountFlow.googleNotConfigured',

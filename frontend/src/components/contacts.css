@@ -8,12 +8,6 @@
 .contacts-books { display: flex; gap: 2px; padding: 2px; min-width: 0; overflow-x: auto; background: var(--bg-tertiary); border: 1px solid var(--border-subtle); border-radius: 8px; }
 .contacts-books button { border: 0; border-radius: 6px; padding: 5px 11px; font-size: 12px; color: var(--text-secondary); white-space: nowrap; background: transparent; cursor: pointer; }
 .contacts-books button[aria-pressed=true] { background: var(--bg-elevated); color: var(--text-primary); font-weight: 600; box-shadow: var(--shadow-soft); }
-.contacts-book-menu { flex-shrink: 0; }
-.contacts-book-menu summary { list-style: none; width: 28px; height: 30px; text-align: center; cursor: pointer; border-radius: 6px; font-size: 20px; }
-.contacts-book-menu summary::-webkit-details-marker { display: none; }
-.contacts-book-menu summary:hover { background: var(--bg-hover); }
-.contacts-book-actions { position: absolute; top: 100%; right: 0; z-index: 20; display: grid; gap: 5px; width: min(280px, 100%); padding: 10px; border: 1px solid var(--border-subtle); border-radius: 8px; background: var(--bg-elevated); box-shadow: var(--shadow-popover); }
-.contacts-book-actions a { text-decoration: none; }
 .contacts-page :is(h1, h2) { font-family: var(--font-display); }
 .contacts-page [data-contact-id] { min-width: 0; }
 .contacts-page [data-contact-id] span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }

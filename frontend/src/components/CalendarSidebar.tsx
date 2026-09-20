@@ -7,6 +7,7 @@ import type { CSSProperties, FormEvent } from 'react';
 import { toAppError } from '../utils/errors.ts';
 import { providerFailureKey } from '../utils/providerFailure.ts';
 import { providerConnectorSummary } from '../utils/providerSyncSummary.ts';
+import { summariseProviderSyncErrors } from '../utils/providerSyncError.ts';
 import type { TFunction } from 'i18next';
 
 /** A calendar source as GET /calendar/sources returns it. */
@@ -40,8 +41,8 @@ interface GoogleCalendarSyncOutcome {
   updated?: number;
   deleted?: number;
   skipped?: number;
-  errors?: Array<{ calendarId?: string; code?: string }>;
-  error?: { code?: string; message?: string };
+  errors?: Array<{ calendarId?: string; code?: string; message?: string; providerStatus?: number | null; missingScopes?: string[] | null }>;
+  error?: { code?: string; message?: string; providerStatus?: number | null; missingScopes?: string[] | null };
 }
 
 /** A calendar row as the sidebar receives it (local rows carry ownership fields). */
@@ -259,8 +260,17 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
       // A failed connection and a failed calendar inside a successful connection
       // both count as failures, so a partial run never looks complete.
       const failed = outcomes.reduce((total, outcome) => total + (outcome.error ? 1 : 0) + (outcome.errors?.length ?? 0), 0);
+      const failureSummary = summariseProviderSyncErrors({
+        t,
+        provider: 'google',
+        feature: 'calendar',
+        errors: [
+          ...outcomes.map(outcome => outcome.error),
+          ...outcomes.flatMap(outcome => outcome.errors ?? []),
+        ],
+      });
       setGoogleSyncNotice(failed
-        ? t('calendar.googleSyncPartial', { calendars, created: sum('created'), updated: sum('updated'), deleted: sum('deleted'), failed })
+        ? `${t('calendar.googleSyncPartial', { calendars, created: sum('created'), updated: sum('updated'), deleted: sum('deleted'), failed })} ${failureSummary?.first ?? ''}${failureSummary?.more ? ` ${t('providers.syncError.showDetails', { count: failureSummary.more })}` : ''}`.trim()
         : t('calendar.googleSyncDone', { calendars, created: sum('created'), updated: sum('updated'), deleted: sum('deleted') }));
       await loadGoogleCalendars();
       await onSourcesChanged();

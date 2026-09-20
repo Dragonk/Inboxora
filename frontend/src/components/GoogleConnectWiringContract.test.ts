@@ -5,6 +5,9 @@ import test from 'node:test';
 const adminPanel = new URL('./AdminPanel.tsx', import.meta.url);
 const mailApp = new URL('./MailApp.tsx', import.meta.url);
 const contactsPage = new URL('./ContactsPage.tsx', import.meta.url);
+// The address-book controls live in the manager panel now, so the contracts that used to match the
+// `⋯` menu read it as well.
+const contactsManager = new URL('./ContactsBooksManager.tsx', import.meta.url);
 const calendarSidebar = new URL('./CalendarSidebar.tsx', import.meta.url);
 
 
@@ -23,10 +26,12 @@ test('a same-tab Google callback reports the connection instead of opening the a
 test('the contacts screen offers the Google pull only when connected', async () => {
   const source = await readFile(contactsPage, 'utf8');
   assert.match(source, /api\.googleContacts\.status\(\)/);
-  assert.match(source, /data-testid="contacts-google-sync"/);
+  const manager = await readFile(contactsManager, 'utf8');
+  assert.match(manager, /data-testid={`contacts-manager-sync-\$\{provider\}`}/);
   assert.match(source, /const runProviderContactsSync = async \(provider: 'google' \| 'microsoft'\) => \{/);
   assert.match(source, /await api\.googleContacts\.sync\(\)/);
-  assert.match(source, /googleContacts\?\.connected &&/);
+  // The control is offered by the manager for the provider the books belong to.
+  assert.match(await readFile(contactsManager, 'utf8'), /providerState\?\.connected && provider && \(/);
   // The result is reported per run, including a partial failure.
   assert.match(source, /contacts\.addressBooks\.googleSyncDone/);
   assert.match(source, /contacts\.addressBooks\.googleSyncPartial/);
@@ -37,8 +42,9 @@ test('the contacts screen offers the Microsoft pull through the same control', a
   const source = await readFile(contactsPage, 'utf8');
   assert.match(source, /api\.microsoftContacts\.status\(\)/);
   assert.match(source, /await api\.microsoftContacts\.sync\(\)/);
-  assert.match(source, /data-testid="contacts-microsoft-sync"/);
-  assert.match(source, /microsoftContacts\?\.connected &&/);
+  const manager = await readFile(contactsManager, 'utf8');
+  assert.match(manager, /data-testid={`contacts-manager-sync-\$\{provider\}`}/);
+  assert.match(await readFile(contactsManager, 'utf8'), /providerState\?\.connected && provider && \(/);
   assert.match(source, /contacts\.addressBooks\.microsoftSyncDone/);
   assert.match(source, /contacts\.addressBooks\.microsoftSyncPartial/);
   // Both providers must be loadable independently: one being absent cannot hide
@@ -67,11 +73,12 @@ test('the calendar sources dialog offers the Google pull once connected', async 
 test('the contacts screen can import a vCard file into a local book', async () => {
   const source = await readFile(contactsPage, 'utf8');
   assert.match(source, /api\.addressBooks\.importVCard\(selectedAddressBookId/);
-  assert.match(source, /data-testid="contacts-import-vcard"/);
+  const manager = await readFile(contactsManager, 'utf8');
+  assert.match(manager, /data-testid="contacts-manager-import-vcard"/);
   assert.match(source, /accept="\.vcf,text\/vcard"/);
-  assert.match(source, /contacts\.addressBooks\.importVCard/);
+  assert.match(manager, /contacts\.addressBooks\.importVCard/);
   // Only a local book can receive an import, like the CSV importer.
-  const localGuards = source.match(/selectedBook\?\.source === 'local' && <Button/);
+  const localGuards = manager.match(/isLocal && <Button data-testid="contacts-manager-import-google"/);
   assert.ok(localGuards, 'import actions must be limited to local books');
 });
 
@@ -89,10 +96,10 @@ test('each provider reports when it last synced, or that it failed', async () =>
   assert.match(source, /providerConnectorSummary\(googleContacts\?\.books/);
   assert.match(source, /providerConnectorSummary\(microsoftContacts\?\.books/);
   // The freshest time wins, and a recorded failure is shown instead of a time.
-  assert.match(source, /contacts\.addressBooks\.lastSynced/);
   assert.match(source, /contacts\.addressBooks\.lastSyncFailed/);
-  assert.match(source, /data-testid="contacts-google-sync-status"/);
-  assert.match(source, /data-testid="contacts-microsoft-sync-status"/);
+  const manager = await readFile(contactsManager, 'utf8');
+  assert.match(manager, /contacts\.addressBooks\.lastSynced/);
+  assert.match(manager, /data-testid={`contacts-manager-book-status-\$\{book\.id\}`}/);
 });
 
 test('the calendar connector reports when it last synced, or that it failed', async () => {
@@ -144,12 +151,17 @@ test('a calendar import confirms its result and leaves the dialog open', async (
 test('a configured but unconnected provider says so on the contacts page', async () => {
   const source = await readFile(contactsPage, 'utf8');
   // Silence is the wrong answer when the administrator has already made it possible.
-  assert.match(source, /googleContacts\?\.configured && !googleContacts\?\.connected && <span data-testid="contacts-google-connect-hint"/);
-  assert.match(source, /microsoftContacts\?\.configured && !microsoftContacts\?\.connected && <span data-testid="contacts-microsoft-connect-hint"/);
-  assert.match(source, /providers\.connectGoogleHint/);
-  assert.match(source, /providers\.connectMicrosoftHint/);
+  // The flags the manager needs are taken from the provider status the page already loaded.
+  assert.match(source, /configured: !!googleContacts\?\.configured/);
+  assert.match(source, /connected: !!googleContacts\?\.connected/);
+  assert.match(source, /configured: !!microsoftContacts\?\.configured/);
+  assert.match(source, /connected: !!microsoftContacts\?\.connected/);
+  const manager = await readFile(contactsManager, 'utf8');
+  assert.match(manager, /data-testid="contacts-manager-connect-hint"/);
+  assert.match(manager, /providers\.connectGoogleHint/);
+  assert.match(manager, /providers\.connectMicrosoftHint/);
   // The hint must not replace the sync control for a provider that *is* connected.
-  assert.match(source, /googleContacts\?\.connected && <Button data-testid="contacts-google-sync"/);
+  assert.match(manager, /providerState\?\.connected && provider && \(/);
 });
 
 test('the last-sync line reports the total the connector holds', async () => {

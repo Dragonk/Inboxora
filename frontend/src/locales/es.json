@@ -128,7 +128,28 @@
       "categorizationEnabled": "Activar categorización del buzón",
       "categorizationEnabledDesc": "Clasifica los correos entrantes en pestañas de categorías. Desactivado por defecto.",
       "enabledGlobally": "Activado globalmente",
-      "transport": "Transporte"
+      "transport": "Transporte",
+      "diagnostics": {
+        "title": "Diagnóstico",
+        "connection": "Conexión",
+        "provider": "Proveedor",
+        "identity": "Identidad",
+        "status": "Estado",
+        "none": "ninguno",
+        "transport": "Transporte",
+        "cursor": "Cursor de sincronización",
+        "push": "Push",
+        "scheduler": "Programación",
+        "collections": "Colecciones",
+        "addressBooks": "Libretas",
+        "authorized": "Autorizado",
+        "yes": "sí",
+        "no": "no",
+        "missingScopes": "Permisos faltantes",
+        "lastSuccess": "Última sincronización correcta",
+        "lastError": "Último error",
+        "never": "nunca"
+      }
     },
     "ai": {
       "title": "Asistente IA",
@@ -1228,11 +1249,9 @@
       "exportOutlook": "Exportar CSV para Outlook",
       "davAccessHint": "Indica si esta libreta de direcciones se publica en los dispositivos conectados (CardDAV). Nunca concede más de lo que permite la propia libreta.",
       "googleSync": "Sincronizar contactos de Google",
-      "googleSyncing": "Sincronizando…",
       "googleSyncDone": "Contactos de Google: {{created}} añadidos, {{updated}} actualizados, {{deleted}} eliminados.",
       "googleSyncPartial": "Contactos de Google: {{created}} añadidos, {{updated}} actualizados, {{deleted}} eliminados; {{failed}} conexión(es) fallidas.",
       "microsoftSync": "Sincronizar contactos de Microsoft",
-      "microsoftSyncing": "Sincronizando…",
       "microsoftSyncDone": "Contactos de Microsoft: {{created}} añadidos, {{updated}} actualizados, {{deleted}} eliminados.",
       "microsoftSyncPartial": "Contactos de Microsoft: {{created}} añadidos, {{updated}} actualizados, {{deleted}} eliminados; {{failed}} conexión(es) fallidas.",
       "importVCard": "Importar vCard",
@@ -1243,6 +1262,42 @@
     "googleConnected": {
       "title": "Google conectado",
       "body": "Tu cuenta de Google está conectada. Obtén tus contactos desde la página Contactos."
+    },
+    "booksManager": {
+      "title": "Gestionar libretas de direcciones",
+      "manage": "Gestionar libretas",
+      "back": "Volver a la lista",
+      "hiddenBadge": "oculta",
+      "readOnly": "solo lectura",
+      "readWrite": "lectura y escritura",
+      "contactsCount": "{{count}} contactos",
+      "sourceLocal": "Local",
+      "sourceGoogle": "Google",
+      "sourceMicrosoft": "Microsoft",
+      "sourceDav": "CardDAV",
+      "general": "General",
+      "nameLabel": "Nombre",
+      "sourceLabel": "Origen",
+      "visibility": "Visibilidad",
+      "visible": "visible",
+      "hidden": "oculta",
+      "sync": "Sincronización",
+      "providerLabel": "Proveedor",
+      "neverSynced": "nunca sincronizada",
+      "syncNow": "Sincronizar ahora",
+      "syncing": "Sincronizando…",
+      "writeBack": "Escritura inversa",
+      "sourceAccess": "Acceso de origen",
+      "userAccess": "Acceso del usuario",
+      "userAccessSource": "lo que permite el origen",
+      "effectiveAccess": "Acceso efectivo",
+      "dav": "DAV",
+      "davProviderUnavailable": "Una libreta del proveedor se comparte a través de su proveedor, no de DAV.",
+      "importExport": "Importar / exportar",
+      "dangerZone": "Zona de riesgo",
+      "deleteBook": "Eliminar esta libreta local",
+      "deleteNotAllowed": "Esta libreta no se puede eliminar aquí. La última libreta local es necesaria y una libreta del proveedor pertenece a su proveedor.",
+      "selectBook": "Elige una libreta para ver su configuración."
     }
   },
   "contextMenu": {
@@ -2200,6 +2255,19 @@
     "syncFailedRateLimited": "El proveedor está limitando las solicitudes ahora mismo. Inténtalo de nuevo en unos minutos.",
     "connectGoogleHint": "Google está listo para conectarse. Usa «Conectar una cuenta de Google» en Ajustes → Integraciones para traer sus contactos aquí.",
     "connectMicrosoftHint": "Microsoft está listo para conectarse. Usa «Conectar contactos de Microsoft» en Ajustes → Integraciones para traer sus contactos aquí.",
-    "connectFailedTitle": "No se pudo conectar la cuenta"
+    "connectFailedTitle": "No se pudo conectar la cuenta",
+    "syncError": {
+      "missingScopes": "{{provider}} {{service}}: falta el permiso {{scopes}}. Conecta {{service}} de nuevo.",
+      "auth": "{{provider}} rechazó la autorización de {{service}} ({{code}}). Conéctalo de nuevo.",
+      "rateLimited": "{{provider}} está limitando {{service} ahora mismo. Inténtalo en unos minutos.",
+      "providerDown": "{{provider}} informó de un error de servidor para {{service}} ({{status}}). La próxima ejecución lo reintentará.",
+      "generic": "{{provider}} {{service}} falló: {{code}}.",
+      "showDetails": "Ver detalles ({{count}})",
+      "service": {
+        "mail": "Correo",
+        "calendar": "Calendario",
+        "contacts": "Contactos"
+      }
+    }
   }
 }
