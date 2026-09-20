@@ -97,9 +97,39 @@ describeOrSkip('Google mail migration recommendation (PostgreSQL)', () => {
 
     const notices = await listActiveGoogleMailRecommendations(USER_ID);
     expect(notices).toEqual([
-      { accountId: gmailHost, address: 'me@gmail.test', noticeType: GOOGLE_MAIL_RECOMMENDATION },
-      { accountId: googleOauth, address: 'me@workspace.test', noticeType: GOOGLE_MAIL_RECOMMENDATION },
+      { accountId: gmailHost, address: 'me@gmail.test', noticeType: GOOGLE_MAIL_RECOMMENDATION, hasGmailGrant: false },
+      { accountId: googleOauth, address: 'me@workspace.test', noticeType: GOOGLE_MAIL_RECOMMENDATION, hasGmailGrant: false },
     ]);
+  });
+
+  it('reports a Gmail-scoped grant as ready to migrate, and a Calendar-only grant as not', async () => {
+    const ready = await seedAccount({ address: 'ready@gmail.test', imapHost: 'imap.gmail.com' });
+    const calendarOnly = await seedAccount({ address: 'calendar@gmail.test', imapHost: 'imap.gmail.com' });
+    // Two real connections with real grants: one carrying gmail.modify, one carrying only a calendar scope.
+    await autocommit(async client => {
+      for (const [connectionId, address, scopes] of [
+        ['00000000-0000-0000-0000-00000000e001', 'ready@gmail.test', ['https://www.googleapis.com/auth/gmail.modify']],
+        ['00000000-0000-0000-0000-00000000e002', 'calendar@gmail.test', ['https://www.googleapis.com/auth/calendar.events']],
+      ] as const) {
+        await client.query(
+          `INSERT INTO provider_connections (id, user_id, provider, issuer, subject, provider_user_id, status)
+           VALUES ($1, $2, 'google', 'https://accounts.google.com', $3, $4, 'active')
+           ON CONFLICT (id) DO NOTHING`,
+          [connectionId, USER_ID, `subject-${connectionId}`, address],
+        );
+        await client.query(
+          `INSERT INTO oauth_grants (connection_id, audience, access_token_encrypted, refresh_token_encrypted, expires_at, scopes, status)
+           VALUES ($1, 'https://www.googleapis.com/', 'encrypted-token', 'encrypted-refresh', NOW() + INTERVAL '1 hour', $2::text[], 'active')`,
+          [connectionId, [...scopes]],
+        );
+      }
+    });
+
+    const notices = await listActiveGoogleMailRecommendations(USER_ID);
+    const byId = new Map(notices.map(notice => [notice.accountId, notice]));
+    // The interface's "authorize first" decision comes from this fact, and a calendar grant does not satisfy it.
+    expect(byId.get(ready)?.hasGmailGrant).toBe(true);
+    expect(byId.get(calendarOnly)?.hasGmailGrant).toBe(false);
   });
 
   it('shows nothing while the installation cannot offer the destination', async () => {
