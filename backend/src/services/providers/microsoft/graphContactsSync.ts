@@ -17,7 +17,7 @@ import {
 import { GraphApiError } from './graphApiClient.js';
 import type { GraphApiOptions } from './graphApiClient.js';
 import { contactUidForGraphContact, defaultGraphContactFolder, discoverGraphContactFolders, fetchContactsPage, graphContactToVCard } from './graphContacts.js';
-import type { GraphContact } from './graphContacts.js';
+import type { GraphContact, GraphContactFolder } from './graphContacts.js';
 import { ProviderAuthError, graphGrantCoversScope, REQUIRED_GRAPH_CONTACT_WRITE_SCOPE } from '../../providerAuthService.js';
 import { MICROSOFT_GRANT_AUDIENCE } from '../../providerAuthService.js';
 import { readGrantForUser } from '../../providerTokenService.js';
@@ -39,7 +39,25 @@ export const GRAPH_CONTACTS_FOLDER = 'contacts';
 const MAX_PAGES = 1000;
 const PAGE_SIZE = 200;
 
-export interface GraphContactsSyncResult {
+export interface GraphContactsSyncResult extends GraphContactsFolderResult {
+  /**
+   * Every contact folder this run synchronised, the mailbox's default folder first (GRAPH-03).
+   *
+   * A mailbox has more than one contact folder, and a contact in any of them is invisible while only the default
+   * one is pulled. Each folder becomes its own local address book, with its own cursor and its own `enabled` and
+   * write-back choices.
+   */
+  books: GraphContactsFolderResult[];
+  /**
+   * Additional folders whose run failed. The default folder's failure is thrown instead — it is the mailbox's
+   * own contacts and a silent success would report a mailbox that pulled nothing as healthy — while one extra
+   * folder must not stop the others (the rule GRAPH-06 established for mail folders).
+   */
+  errors: Array<{ folderId: string; code: string }>;
+}
+
+/** One folder's outcome. */
+export interface GraphContactsFolderResult {
   addressBookId: string;
   created: number;
   updated: number;
@@ -341,38 +359,16 @@ export async function reconcileGraphContacts(client: PoolClient, context: ApplyC
   return removed;
 }
 
-/** Synchronise the default Outlook contact folder of one connection. */
-export async function syncGraphContacts(input: {
+/** The per-folder half of the sync: one discovered contact folder into its own local address book. */
+async function syncGraphContactFolder(input: {
   userId: string;
   connectionId: string;
   config?: GraphApiOptions['config'];
   label?: string;
   fetchImpl?: FetchLike;
-  owner?: string;
   /** The page cap for one delta; injectable so the "limited run is not complete" path is provable. */
   maxPages?: number;
-}): Promise<GraphContactsSyncResult> {
-  const owner = input.owner ?? `graph-contacts:${input.connectionId}`;
-  const api: GraphApiOptions = {
-    userId: input.userId,
-    connectionId: input.connectionId,
-    owner,
-    ...(input.config ? { config: input.config } : {}),
-    ...(input.fetchImpl ? { fetchImpl: input.fetchImpl } : {}),
-  };
-  // GRAPH-03: the contact folder is **discovered**, not assumed. This call used to address the folder as the
-  // literal `contacts`, which is not a folder id Graph resolves — `contactFolder` has no well-known-name
-  // property, unlike the `mailFolder` whose similar assumption had to be removed under GRAPH-01. A mailbox whose
-  // folders cannot be listed is reported, because guessing an id is what produced the unusable request.
-  const folder = defaultGraphContactFolder(await discoverGraphContactFolders(api));
-  if (!folder) {
-    throw new GraphApiError({
-      code: 'UPSTREAM_UNAVAILABLE',
-      message: 'Microsoft Graph listed no contact folder for this mailbox',
-      status: 502,
-      retryable: true,
-    });
-  }
+}, folder: GraphContactFolder, owner: string, api: GraphApiOptions): Promise<GraphContactsFolderResult> {
   const ensured = await withTransaction(client => ensureGraphAddressBook(client, {
     userId: input.userId,
     connectionId: input.connectionId,
@@ -494,4 +490,94 @@ export async function syncGraphContacts(input: {
     await withTransaction(client => failSyncRun(client, { syncStateId, generation: lease.generation, errorCode: code })).catch(() => {});
     throw caught;
   }
+}
+
+/**
+ * Synchronise every contact folder of one connection.
+ *
+ * GRAPH-03: the folders are **discovered** — the sync used to address one as the literal `contacts`, which is not
+ * a folder id Graph resolves (`contactFolder` has no well-known-name property, unlike the `mailFolder` whose
+ * similar assumption had to be removed under GRAPH-01) — and each one is pulled into its own local address book,
+ * so a contact is visible wherever the mailbox keeps it.
+ *
+ * The default folder runs first and its failure is thrown: it holds the mailbox's own contacts, and reporting a
+ * mailbox that pulled nothing as healthy would be worse than the error. A failure in any **additional** folder is
+ * recorded in `errors` and the remaining folders still run, which is the isolation GRAPH-06 established for mail
+ * folders.
+ */
+export async function syncGraphContacts(input: {
+  userId: string;
+  connectionId: string;
+  config?: GraphApiOptions['config'];
+  label?: string;
+  fetchImpl?: FetchLike;
+  owner?: string;
+  /** The page cap for one delta; injectable so the "limited run is not complete" path is provable. */
+  maxPages?: number;
+}): Promise<GraphContactsSyncResult> {
+  const owner = input.owner ?? `graph-contacts:${input.connectionId}`;
+  const api: GraphApiOptions = {
+    userId: input.userId,
+    connectionId: input.connectionId,
+    owner,
+    ...(input.config ? { config: input.config } : {}),
+    ...(input.fetchImpl ? { fetchImpl: input.fetchImpl } : {}),
+  };
+  const discovered = await discoverGraphContactFolders(api);
+  const primary = defaultGraphContactFolder(discovered);
+  if (!primary) {
+    // Guessing an id is what produced the unusable literal, so a mailbox whose folders cannot be listed is
+    // reported instead.
+    throw new GraphApiError({
+      code: 'UPSTREAM_UNAVAILABLE',
+      message: 'Microsoft Graph listed no contact folder for this mailbox',
+      status: 502,
+      retryable: true,
+    });
+  }
+
+  // The default folder first, then the others in discovery order; a folder that is somehow listed twice runs once.
+  const ordered = [primary, ...discovered.filter(folder => folder.id !== primary.id)];
+  const books: GraphContactsFolderResult[] = [];
+  const errors: Array<{ folderId: string; code: string }> = [];
+  for (const folder of ordered) {
+    try {
+      const result = await syncGraphContactFolder(
+        folder.id === primary.id ? input : { ...input, label: undefined },
+        folder,
+        // A distinct owner per folder keeps the lease keyed to the collection's own sync state, so two folders of
+        // one connection cannot appear as each other's concurrent run.
+        `${owner}:${folder.id}`,
+        api,
+      );
+      books.push(result);
+    } catch (caught) {
+      const code = caught instanceof GraphApiError || caught instanceof ProviderAuthError || caught instanceof SyncLeaseLostError
+        ? caught.code
+        : 'INTERNAL_ERROR';
+      if (folder.id === primary.id) throw caught;
+      errors.push({ folderId: folder.id, code });
+      console.warn(`Microsoft contacts sync failed for folder ${folder.id} of connection ${input.connectionId}:`, code);
+    }
+  }
+
+  const totals = books.reduce((sum, book) => ({
+    created: sum.created + book.created,
+    updated: sum.updated + book.updated,
+    deleted: sum.deleted + book.deleted,
+    skipped: sum.skipped + book.skipped,
+  }), { created: 0, updated: 0, deleted: 0, skipped: 0 });
+  const primaryBook = books[0];
+  return {
+    addressBookId: primaryBook?.addressBookId ?? '',
+    ...totals,
+    // The run is complete when every folder that ran reached the end of its delta; a folder that failed is not
+    // a completed folder, so its book's state is not claimed as synchronised either.
+    fullSync: books.length > 0 && books.every(book => book.fullSync),
+    cursor: primaryBook?.cursor ?? null,
+    incomplete: books.some(book => book.incomplete) || errors.length > 0,
+    disabled: books.length > 0 && books.every(book => book.disabled),
+    books,
+    errors,
+  };
 }

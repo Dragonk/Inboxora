@@ -296,6 +296,12 @@ None.
   IMAP loops, health checks, rule forwarder and send path no longer open IMAP or SMTP for it.
 
 ### Fixed
+- **Every Microsoft contact folder is now synchronised, each into its own address book.** Only the default folder
+  was pulled, so a contact kept in a second (or nested) folder never appeared. The folders — including one level
+  of children, which is how contact folders nest — are discovered and each becomes its own local book with its own
+  delta cursor and its own enabled/write-back choices. The default folder runs first and its failure is still
+  reported, while a failure in an additional folder is recorded in the run's `errors` and the remaining folders
+  still synchronise, so one broken folder cannot hide the others.
 - **A CardDAV contact's address and version at its source are recorded while pulling it.** The write-back resolves
   a contact through `remote_object_links`, and the pull never wrote those rows: it fell back to scanning the whole
   address book for the UID and had no ETag to present as a precondition. Each card's own href and the ETag it was

@@ -205,19 +205,28 @@ describe('contact folder discovery', () => {
   const json = (body: unknown, status = 200): Response =>
     ({ ok: status >= 200 && status < 300, status, headers: new Headers(), json: async () => body }) as Response;
 
-  it('lists the mailbox’s folders instead of assuming an id', async () => {
+  it('lists the mailbox’s folders, including a level of children, instead of assuming an id', async () => {
     // GRAPH-03: `contactFolder` has no well-known-name property, so the folder id has to be discovered. The
-    // request asks only for properties the v1.0 resource has.
-    const fetchMock = vi.fn().mockResolvedValue(json({
-      value: [{ id: 'folder-1', displayName: 'Contacts', parentFolderId: null }],
-    }));
+    // request asks only for properties the v1.0 resource has, and a nested folder is enumerated as well — a
+    // contact in a child folder would otherwise stay invisible.
+    const fetchMock = vi.fn(async (url: string) => {
+      const target = String(url);
+      if (target.includes('/childFolders')) {
+        return json({ value: [{ id: 'child-1', displayName: 'Team', parentFolderId: 'folder-1' }] });
+      }
+      return json({ value: [{ id: 'folder-1', displayName: 'Contacts', parentFolderId: null }] });
+    });
     vi.stubGlobal('fetch', fetchMock);
 
     const folders = await discoverGraphContactFolders(OPTIONS);
-    expect(folders).toEqual([{ id: 'folder-1', displayName: 'Contacts', parentFolderId: null }]);
+    expect(folders).toEqual([
+      { id: 'folder-1', displayName: 'Contacts', parentFolderId: null },
+      { id: 'child-1', displayName: 'Team', parentFolderId: 'folder-1' },
+    ]);
     const url = decodeURIComponent(String(fetchMock.mock.calls[0][0]));
     expect(url).toContain('/me/contactFolders');
     expect(url).toContain('$select=id,displayName,parentFolderId');
+    expect(decodeURIComponent(String(fetchMock.mock.calls[1][0]))).toContain('/me/contactFolders/folder-1/childFolders');
   });
 
   it('picks a top-level folder as the default, and answers null rather than guessing', () => {

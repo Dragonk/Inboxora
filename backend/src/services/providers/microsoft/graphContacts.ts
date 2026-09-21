@@ -163,14 +163,27 @@ export interface GraphContactFolder {
  * folder's id is, so the request could not be answered (GRAPH-03). The real ids are discovered here instead.
  */
 export async function discoverGraphContactFolders(options: GraphApiOptions): Promise<GraphContactFolder[]> {
-  const folders: GraphContactFolder[] = [];
-  let url: string | null = graphUrl('/me/contactFolders', { $select: 'id,displayName,parentFolderId', $top: 100 });
-  for (let page = 0; page < 20 && url; page += 1) {
-    const body: GraphCollection<GraphContactFolder> = await graphGet<GraphCollection<GraphContactFolder>>(options, url);
-    for (const folder of body.value ?? []) {
-      if (folder?.id) folders.push(folder);
+  const list = async (url: string): Promise<GraphContactFolder[]> => {
+    const folders: GraphContactFolder[] = [];
+    let next: string | null = url;
+    for (let page = 0; page < 20 && next; page += 1) {
+      const body: GraphCollection<GraphContactFolder> = await graphGet<GraphCollection<GraphContactFolder>>(options, next);
+      for (const folder of body.value ?? []) {
+        if (folder?.id) folders.push(folder);
+      }
+      next = body['@odata.nextLink'] ?? null;
     }
-    url = body['@odata.nextLink'] ?? null;
+    return folders;
+  };
+  const top = await list(graphUrl('/me/contactFolders', { $select: 'id,displayName,parentFolderId', $top: 100 }));
+  const folders = [...top];
+  // A contact folder nests one level below a top-level folder, and a contact in a child folder is as invisible as
+  // one in an unlisted top-level folder, so the children are discovered too. Their `parentFolderId` keeps them
+  // out of the default-folder choice below.
+  for (const parent of top) {
+    folders.push(...await list(graphUrl(`/me/contactFolders/${encodeURIComponent(parent.id)}/childFolders`, {
+      $select: 'id,displayName,parentFolderId', $top: 100,
+    })));
   }
   return folders;
 }

@@ -265,6 +265,11 @@ Microsoft application is registered in this environment.
 
 ### Fixed
 
+- **Contacts in every Microsoft contact folder are imported.** Previously only the default folder was read, so
+  anything kept in another folder (or in a folder inside one) stayed invisible. Each of those folders now becomes
+  its own address book, which you can enable, disable and publish to devices separately, and a problem with one
+  folder no longer stops the others.
+
 - **Changes to a CardDAV contact are sent back with the version Inboxora read.** Each imported card now records
   where it lives on the server and the version it had at that moment, so an edit is sent as a change to that
   resource rather than being looked up by scanning the address book, and the server can reject the write if

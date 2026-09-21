@@ -35,6 +35,9 @@ const originalKey = process.env.ENCRYPTION_KEY;
  */
 const FOLDER_ID = 'AAMkAD-contact-folder-1';
 const DELTA_BASE = `https://graph.microsoft.com/v1.0/me/contactFolders/${FOLDER_ID}/contacts/delta`;
+/** The same delta endpoint for another folder, so a case with several folders can name each one. */
+const delataBaseFor = (folderId: string): string =>
+  `https://graph.microsoft.com/v1.0/me/contactFolders/${folderId}/contacts/delta`;
 
 const contact = (id: string, displayName: string, email: string): GraphContact => ({
   id,
@@ -50,7 +53,16 @@ function json(body: unknown, status = 200): Response {
   return { ok: status >= 200 && status < 300, status, headers: new Headers(), json: async () => body } as Response;
 }
 
-function fakeProvider(handlers: Array<(url: string) => Response | Promise<Response>>) {
+interface FakeFolder { id: string; displayName: string | null; parentFolderId: string | null }
+
+function fakeProvider(
+  handlers: Array<(url: string) => Response | Promise<Response>>,
+  /**
+   * The mailbox the fake lists. The default is one top-level folder with no children, which is what most cases
+   * need; a case about several folders passes its own.
+   */
+  folders: FakeFolder[] = [{ id: FOLDER_ID, displayName: 'Contacts', parentFolderId: null }],
+) {
   const urls: string[] = [];
   const discoveryUrls: string[] = [];
   let index = 0;
@@ -58,9 +70,14 @@ function fakeProvider(handlers: Array<(url: string) => Response | Promise<Respon
     const target = String(url);
     // The folder discovery is scaffolding for every case, so it is answered here and recorded separately: the
     // `urls` list stays the sequence of delta requests the case is about.
+    if (target.includes('/childFolders')) {
+      discoveryUrls.push(target);
+      const parentId = decodeURIComponent(/contactFolders\/([^/]+)\/childFolders/.exec(target)?.[1] ?? '');
+      return json({ value: folders.filter(folder => folder.parentFolderId === parentId) });
+    }
     if (target.includes('/me/contactFolders?')) {
       discoveryUrls.push(target);
-      return json({ value: [{ id: FOLDER_ID, displayName: 'Contacts', parentFolderId: null }] });
+      return json({ value: folders.filter(folder => !folder.parentFolderId) });
     }
     urls.push(target);
     const handler = handlers[Math.min(index, handlers.length - 1)];
@@ -148,9 +165,12 @@ describeOrSkip('Microsoft Graph contacts sync (PostgreSQL)', () => {
 
     const result = await syncGraphContacts({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl: provider.fetchImpl });
     expect(result).toMatchObject({ created: 2, updated: 0, deleted: 0, fullSync: true, cursor: `${DELTA_BASE}?$deltatoken=baseline` });
-    // The folder was discovered, and the delta named the **real** folder id it returned — the literal `contacts`
-    // this used to send is not a folder id Graph resolves (GRAPH-03).
-    expect(provider.discoveryUrls).toHaveLength(1);
+    // The folders were discovered — the top-level list and this mailbox's (empty) child list — and the delta
+    // named the **real** folder id it returned: the literal `contacts` this used to send is not a folder id Graph
+    // resolves (GRAPH-03).
+    expect(provider.discoveryUrls).toHaveLength(2);
+    expect(provider.discoveryUrls[0]).toContain('/me/contactFolders?');
+    expect(provider.discoveryUrls[1]).toContain(`/me/contactFolders/${FOLDER_ID}/childFolders`);
     expect(provider.urls[0]).toContain(`/me/contactFolders/${FOLDER_ID}/contacts/delta`);
 
     const book = await autocommit(client => client.query<{ source: string; dav_mode: string }>(
@@ -309,6 +329,60 @@ describeOrSkip('Microsoft Graph contacts sync (PostgreSQL)', () => {
     // Both fields, because the status line shows the code *and* when it happened.
     expect(state.rows[0]?.last_error_code).toBe('UPSTREAM_UNAVAILABLE');
     expect(state.rows[0]?.last_error_at).not.toBeNull();
+  });
+
+  it('pulls every contact folder into its own address book', async () => {
+    // GRAPH-03: a mailbox has more than one contact folder, and a contact is invisible while only the default one
+    // is pulled. Each discovered folder — including a nested one — becomes its own book, with its own delta.
+    const connectionId = await seedConnection();
+    const SECOND_ID = 'AAMkAD-contact-folder-2';
+    const CHILD_ID = 'AAMkAD-contact-folder-1-child';
+    const provider = fakeProvider([
+      () => json({ value: [contact('c1', 'Ada Lovelace', 'ada@contoso.test')], '@odata.deltaLink': `${delataBaseFor(FOLDER_ID)}?$deltatoken=default` }),
+      () => json({ value: [contact('c2', 'Grace Hopper', 'grace@contoso.test')], '@odata.deltaLink': `${delataBaseFor(SECOND_ID)}?$deltatoken=work` }),
+      () => json({ value: [contact('c3', 'Alan Turing', 'alan@contoso.test')], '@odata.deltaLink': `${delataBaseFor(CHILD_ID)}?$deltatoken=team` }),
+    ], [
+      { id: FOLDER_ID, displayName: 'Contacts', parentFolderId: null },
+      { id: SECOND_ID, displayName: 'Work', parentFolderId: null },
+      { id: CHILD_ID, displayName: 'Team', parentFolderId: FOLDER_ID },
+    ]);
+
+    const result = await syncGraphContacts({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl: provider.fetchImpl });
+
+    expect(result).toMatchObject({ created: 3, updated: 0, deleted: 0, errors: [] });
+    // The default folder ran first and is the run's reported book; each folder was read through its own id.
+    expect(result.books).toHaveLength(3);
+    expect(new Set(result.books.map(book => book.addressBookId)).size).toBe(3);
+    expect(provider.urls.map(url => decodeURIComponent(url))).toEqual([
+      expect.stringContaining(`/me/contactFolders/${FOLDER_ID}/contacts/delta`),
+      expect.stringContaining(`/me/contactFolders/${SECOND_ID}/contacts/delta`),
+      expect.stringContaining(`/me/contactFolders/${CHILD_ID}/contacts/delta`),
+    ]);
+
+    const books = await autocommit(client => client.query<{ name: string }>(
+      'SELECT name FROM address_books WHERE user_id = $1 ORDER BY name', [USER_ID],
+    ));
+    expect(books.rows.map(row => row.name)).toEqual(['Contacts', 'Team', 'Work']);
+  });
+
+  it('records an additional folder’s failure and still synchronises the rest', async () => {
+    // One extra folder must not stop the others (the isolation GRAPH-06 established for mail folders), while the
+    // default folder's own failure is thrown — a mailbox that pulled nothing must not look healthy.
+    const connectionId = await seedConnection();
+    const SECOND_ID = 'AAMkAD-contact-folder-2';
+    const provider = fakeProvider([
+      () => json({ value: [contact('c1', 'Ada Lovelace', 'ada@contoso.test')], '@odata.deltaLink': `${delataBaseFor(FOLDER_ID)}?$deltatoken=default` }),
+      () => json({ error: { code: 'ErrorInternalServerError', message: 'server error' } }, 500),
+    ], [
+      { id: FOLDER_ID, displayName: 'Contacts', parentFolderId: null },
+      { id: SECOND_ID, displayName: 'Work', parentFolderId: null },
+    ]);
+
+    const result = await syncGraphContacts({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl: provider.fetchImpl });
+
+    // The default folder's contact arrived, the failing folder is named, and the run is not claimed as complete.
+    expect(result).toMatchObject({ created: 1, incomplete: true, errors: [{ folderId: SECOND_ID, code: 'UPSTREAM_UNAVAILABLE' }] });
+    expect(result.books).toHaveLength(1);
   });
 
   it('refuses a second concurrent sync for the same connection', async () => {
