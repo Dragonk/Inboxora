@@ -81,6 +81,8 @@ const GRAPH_PROJECTION: CalendarResourceAdapters<GraphEvent> = {
   }),
   isCancelled: graphEventIsCancelled,
   fallbackUid: remoteId => `${remoteId}@microsoft.com`,
+  // Graph's own version of the item, not a local hash (CAL-05).
+  remoteVersion: group => group.master?.changeKey ?? null,
 };
 
 /**

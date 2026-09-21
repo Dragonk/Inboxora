@@ -30,6 +30,8 @@ const CALENDAR_LIST = {
 const master: GoogleCalendarEvent = {
   id: 'evt-master', iCalUID: 'standup@google.com', status: 'confirmed', summary: 'Standup',
   updated: '2026-08-30T10:00:00Z',
+  // Google's own version of the event; it is what the link must record (CAL-05).
+  etag: '"google-etag-1"',
   start: { dateTime: '2026-09-01T09:00:00+02:00', timeZone: 'Europe/Warsaw' },
   end: { dateTime: '2026-09-01T09:30:00+02:00', timeZone: 'Europe/Warsaw' },
   recurrence: ['RRULE:FREQ=WEEKLY;BYDAY=TU;COUNT=4'],
@@ -169,6 +171,16 @@ describeOrSkip('Google Calendar sync (PostgreSQL)', { timeout: PG_TEST_TIMEOUT_M
       'SELECT cursor FROM sync_states WHERE user_id = $1 AND feature = $2', [USER_ID, 'calendars'],
     ));
     expect(state.rows[0]?.cursor).toBe('sync-1');
+
+    // CAL-05: the link records the **provider's** version, not the hash of the locally merged iCalendar. The
+    // local hash covers local formatting too, so it could not be compared with a provider version.
+    const links = await autocommit(client => client.query<{ object_remote_id: string; remote_version: string | null }>(
+      `SELECT object_remote_id, remote_version FROM remote_object_links
+        WHERE user_id = $1 AND object_type = 'calendar_event' ORDER BY object_remote_id`, [USER_ID],
+    ));
+    expect(links.rows.find(row => row.object_remote_id === 'evt-master')?.remote_version).toBe('"google-etag-1"');
+    // A resource the provider gave no version for stores none, rather than a local hash standing in for one.
+    expect(links.rows.find(row => row.object_remote_id === 'evt-single')?.remote_version).toBeNull();
   });
 
   it('suffixes a duplicate local calendar name instead of aborting the transaction', async () => {

@@ -38,11 +38,21 @@ export interface CalendarResourceAdapters<Event> {
   isCancelled(event: Event): boolean;
   /** The UID to use when the rendered event carries none. */
   fallbackUid?(remoteId: string): string;
+  /**
+   * The **provider's own** version of the resource (`etag`, `changeKey`), or null when it does not expose one.
+   *
+   * This is what belongs in `remote_object_links.remote_version`. The projection used to write the hash of the
+   * locally merged iCalendar there, which is a *local* fingerprint: it changes when local formatting or local
+   * components change, so it cannot be compared with a provider version, and a DAV write-back that treated it
+   * as one could send a precondition the provider never issued (CAL-05).
+   */
+  remoteVersion?(group: CalendarEventGroup<Event>): string | null;
 }
 
 async function upsertLink(client: PoolClient, context: CalendarProjectionContext, remoteId: string, input: {
   localId: string | null;
-  etag: string | null;
+  /** The provider's own version, or null when it exposes none — never the local hash (CAL-05). */
+  remoteVersion: string | null;
   status: 'active' | 'deleted';
 }): Promise<void> {
   await client.query(
@@ -54,7 +64,7 @@ async function upsertLink(client: PoolClient, context: CalendarProjectionContext
        status = EXCLUDED.status, updated_at = NOW()`,
     [
       context.userId, context.connectionId, context.collectionId, input.localId,
-      context.remoteCalendarId, remoteId, context.remoteCalendarId, input.etag, input.status,
+      context.remoteCalendarId, remoteId, context.remoteCalendarId, input.remoteVersion, input.status,
     ],
   );
 }
@@ -78,7 +88,7 @@ export async function applyProviderCalendarEventGroup<Event>(
 
   if (group.master && adapters.isCancelled(group.master)) {
     if (localId) await client.query('DELETE FROM calendar_events WHERE id = $1 AND user_id = $2', [localId, context.userId]);
-    await upsertLink(client, context, remoteId, { localId: null, etag: null, status: 'deleted' });
+    await upsertLink(client, context, remoteId, { localId: null, remoteVersion: null, status: 'deleted' });
     return localId ? 'deleted' : 'skipped';
   }
 
@@ -141,7 +151,11 @@ export async function applyProviderCalendarEventGroup<Event>(
     outcome = link.rows[0] ? 'updated' : 'created';
   }
 
-  await upsertLink(client, context, remoteId, { localId, etag, status: 'active' });
+  await upsertLink(client, context, remoteId, {
+    localId,
+    remoteVersion: adapters.remoteVersion?.(group) ?? null,
+    status: 'active',
+  });
   return outcome;
 }
 

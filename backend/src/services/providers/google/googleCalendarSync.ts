@@ -71,6 +71,8 @@ const GOOGLE_PROJECTION: CalendarResourceAdapters<GoogleCalendarEvent> = {
   }),
   isCancelled: event => event.status === 'cancelled',
   fallbackUid: remoteId => `${remoteId}@google.com`,
+  // Google's own version of the event, not a local hash (CAL-05).
+  remoteVersion: group => group.master?.etag ?? null,
 };
 
 function calendarColor(entry: GoogleCalendarListEntry): string {

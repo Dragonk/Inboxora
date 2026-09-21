@@ -32,6 +32,8 @@ const CALENDAR_LIST = {
 
 const master: GraphEvent = {
   id: 'evt-master', iCalUId: 'standup@contoso.test', subject: 'Standup',
+  // Graph's own version of the item; it is what the link must record (CAL-05).
+  changeKey: 'graph-change-1',
   start: { dateTime: '2026-09-01T09:00:00.0000000', timeZone: 'Europe/Warsaw' },
   end: { dateTime: '2026-09-01T09:30:00.0000000', timeZone: 'Europe/Warsaw' },
   recurrence: { pattern: { type: 'weekly', daysOfWeek: ['tuesday'], interval: 1 }, range: { type: 'numbered', numberOfOccurrences: 4 } },
@@ -186,6 +188,14 @@ describeOrSkip('Microsoft Graph calendar sync (PostgreSQL)', { timeout: PG_TEST_
       'SELECT cursor FROM sync_states WHERE user_id = $1 AND feature = $2 ORDER BY created_at ASC', [USER_ID, 'calendars'],
     ));
     expect(state.rows[0]?.cursor).toBe(DELTA_LINK_1);
+
+    // CAL-05: the link records Graph's `changeKey` for the item, not the hash of the locally merged iCalendar.
+    const links = await autocommit(client => client.query<{ object_remote_id: string; remote_version: string | null }>(
+      `SELECT object_remote_id, remote_version FROM remote_object_links
+        WHERE user_id = $1 AND object_type = 'calendar_event' ORDER BY object_remote_id`, [USER_ID],
+    ));
+    expect(links.rows.find(row => row.object_remote_id === 'evt-master')?.remote_version).toBe('graph-change-1');
+    expect(links.rows.find(row => row.object_remote_id === 'evt-single')?.remote_version).toBeNull();
   });
 
   it('refreshes a revoked write permission without touching the user’s choices', async () => {

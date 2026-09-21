@@ -296,6 +296,12 @@ None.
   IMAP loops, health checks, rule forwarder and send path no longer open IMAP or SMTP for it.
 
 ### Fixed
+- **A calendar link records the provider's version instead of a local hash.** `remote_object_links.remote_version`
+  was filled with the SHA-256 of the locally merged iCalendar — a *local* fingerprint that also changes when
+  local formatting or local components change — and the only reader that treats that column as a remote ETag is
+  the CalDAV write-back, which could therefore send a precondition the provider never issued. Calendar links now
+  store the provider's own version (Google's `etag`, Graph's `changeKey`) and nothing when the provider exposes
+  none; the local hash stays where it belongs, on the local `calendar_events.etag`.
 - **Editing an occurrence that a provider moved far from its original date no longer fails.** Finding the
   provider's id for an occurrence listed a one-day window around the original start, so an exception moved by a
   week was never in the answer and the edit was refused as "occurrence not found". The narrow window is still

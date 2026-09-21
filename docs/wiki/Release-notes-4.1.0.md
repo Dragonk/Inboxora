@@ -265,6 +265,11 @@ Microsoft application is registered in this environment.
 
 ### Fixed
 
+- **Calendar links carry the provider's version, not a local fingerprint.** The stored "remote version" of a
+  synced event was a hash of the local copy, which changes for local reasons; a CalDAV write-back could then
+  send a precondition the provider never issued. It is now the provider's own version (Google `etag`, Microsoft
+  `changeKey`), and empty when the provider gives none.
+
 - **Editing a moved occurrence of a repeating event works again.** Inboxora looked for it in a one-day window
   around the original date, so an instance moved further than that was reported as missing; it now widens the
   search only when the first attempt finds nothing. The comparison also no longer confuses two timed occurrences
