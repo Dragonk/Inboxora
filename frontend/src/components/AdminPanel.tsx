@@ -6,6 +6,7 @@ import { inputStyle as sharedInputStyle } from './ui.tsx';
 import ConversationRebuild from './ConversationRebuild.tsx';
 import CalendarSubscriptionsSettings from './CalendarSubscriptionsSettings.tsx';
 import AddAccountFlow, { type IntegrationStatus } from './AddAccountFlow.tsx';
+import { transportLabel } from './AccountProviderServices.tsx';
 import AccountProviderServices from './AccountProviderServices.tsx';
 import { useCallback, useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -1378,8 +1379,14 @@ function AccountsTab({ onNavigate = undefined }: { onNavigate?: (tab: string) =>
             display: 'flex', gap: 20, flexWrap: 'wrap',
           }}>
             {[
-              ['IMAP', `${account.imap_host}:${account.imap_port}`],
-              ['SMTP', `${account.smtp_host}:${account.smtp_port}`],
+              // A native account has no IMAP or SMTP endpoint to show: its transport is the provider, and the
+              // settings said "IMAP imap.gmail.com:993" for an account that reads mail through the Gmail API.
+              ...(account.mail_transport === 'gmail_api' || account.mail_transport === 'microsoft_graph'
+                ? [[t('admin.accounts.transport'), transportLabel(account.mail_transport)]] as Array<[string, string]>
+                : [
+                    ['IMAP', `${account.imap_host}:${account.imap_port}`],
+                    ['SMTP', `${account.smtp_host}:${account.smtp_port}`],
+                  ] as Array<[string, string]>),
               [t('admin.accounts.lastSync'), account.last_sync ? new Date(account.last_sync).toLocaleTimeString() : t('common.never')],
             ].map(([label, val]) => (
               <div key={label} style={{ fontSize: 11 }}>

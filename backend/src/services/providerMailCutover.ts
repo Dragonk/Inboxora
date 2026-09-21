@@ -462,6 +462,15 @@ export async function cutOverMicrosoftMailAccount(
     const updated = await client.query<AccountRow>(
       `UPDATE email_accounts
           SET mail_transport = 'microsoft_graph',
+              -- A native account has no IMAP or SMTP endpoint: the provider carries the mail, and keeping the
+              -- host, port and stored app password would present them in the settings as if they were active —
+              -- and keep a credential the transport no longer uses.
+              imap_host = NULL,
+              imap_port = NULL,
+              smtp_host = NULL,
+              smtp_port = NULL,
+              auth_user = NULL,
+              auth_pass = NULL,
               protocol = 'microsoft_graph',
               provider_connection_id = $2,
               provider_mailbox_id = COALESCE(provider_mailbox_id, $3),

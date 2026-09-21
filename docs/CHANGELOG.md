@@ -296,6 +296,13 @@ None.
   IMAP loops, health checks, rule forwarder and send path no longer open IMAP or SMTP for it.
 
 ### Fixed
+- **A native account keeps no IMAP or SMTP endpoint.** Both cutovers moved the transport but left `imap_host`,
+  `imap_port`, `smtp_host`, `smtp_port`, `auth_user` and `auth_pass` on the row, so the settings showed
+  "IMAP imap.gmail.com:993 / SMTP smtp.gmail.com:587" for an account that reads and sends through the provider
+  API — fields the transport no longer uses and cannot be edited to any effect. The cutover now clears them, which
+  also removes a stored app password from a mailbox that authorizes through OAuth. The account details bar renders
+  `Transport: Gmail API` / `Transport: Microsoft Graph` instead of a host and port for those accounts.
+
 - **A reply always carries its threading edge, even when the client's payload does not.** The live case was every
   reply sent from the conversation view arriving with neither `In-Reply-To` nor `References`, so the Sent copy
   orphaned in a conversation of its own while the message it answered stayed alone: the query on the live database
