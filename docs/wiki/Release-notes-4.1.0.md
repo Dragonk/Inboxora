@@ -63,7 +63,9 @@ without copying or losing anything local.
   write-back switch needs and changes no row, so nothing becomes writable because of it; `0116` creates the
   `message_labels` membership table (MAIL-02), which is written by the Gmail synchronisation and **read by
   nothing yet** — an application version that does not know it leaves it empty, and one that knows it writes only
-  there. An application version older than these columns simply leaves them `NULL`.
+  there. A mailbox that was synchronised before `0116` therefore has no membership recorded; the new membership
+  report compares each message's own label set against its rows and names such accounts, so the gap is measurable
+  before anything depends on the table. An application version older than these columns simply leaves them `NULL`.
 - **Microsoft accounts are not migrated automatically.** An existing Microsoft account keeps reading and
   sending over OAuth2 IMAP/SMTP until an administrator (or the account's owner) invokes the in-place
   cutover for it. Migrating is what makes the Graph paths reachable for that mailbox; **no account is

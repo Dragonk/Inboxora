@@ -42,7 +42,10 @@ Nothing is being prepared beyond 4.1.0. Work whose version has not been chosen a
   same transaction as the message itself. **Nothing reads it yet**, deliberately: the reads (folder listings,
   counts, search) change together with the model, and recording the membership first is what makes that change
   verifiable. The migration is additive — it creates a table and rewrites nothing — and is named for the upgrade
-  order below.
+  order below. A mailbox's membership can be checked before anything depends on it: Inboxora can compare each
+  message's own label set against the rows recorded for it and report the accounts where the two disagree
+  (`labelMembershipReport`), which is how an account synchronised before migration `0116` is seen rather than
+  silently empty.
 - **A controlled way to move a Microsoft mailbox onto immutable message ids.** Graph has two kinds of message id:
   the default one, which can change when a message moves between folders, and the immutable one, which is stable and
   is what a local store should record. Asking for immutable ids is a per-request preference, and turning it on for a

@@ -19,6 +19,7 @@ import {
   upsertProviderConnection,
 } from '../../providerAuthService.js';
 import { acquireSyncLease, ensureSyncState } from '../../syncCoordinator.js';
+import { labelMembershipReport } from '../../providerLabelMembership.js';
 import {
   gmailLabelIdForPath,
   syncGmailMailLabels,
@@ -435,6 +436,40 @@ describeOrSkip('Gmail API label and message ingest (PostgreSQL)', () => {
     expect(stored, 'the blocked message was deleted instead of re-filed').toBeDefined();
     expect(stored?.folder).toBe('Trash');
     expect(result.deleted).toBe(0);
+  });
+
+  it('reports whether a mailbox’s label membership matches what the provider says (MAIL-02)', async () => {
+    // The membership table is written before anything reads it, so this check is what makes that safe: it compares
+    // each message's own label set against the rows recorded for it, and an account whose membership was never
+    // written (synchronised before migration `0116`) shows up instead of looking empty.
+    await seedConnection();
+
+    // A provider message with labels and no membership rows at all — the pre-migration state.
+    await autocommit(client => client.query(
+      `INSERT INTO messages (account_id, uid, folder, provider_message_id, provider_labels, subject)
+       VALUES ($1, 9001, 'INBOX', 'legacy-1', ARRAY['INBOX','UNREAD']::text[], 'Before the migration')`,
+      [ACCOUNT_ID],
+    ));
+    const before = await labelMembershipReport(ACCOUNT_ID);
+    expect(before).toMatchObject({ messages: 1, rows: 0, missingRows: 1, unrecorded: 1, extraRows: 0 });
+
+    // Records that carry exactly what the message says: complete.
+    const message = await autocommit(client => client.query<{ id: string }>(
+      `SELECT id FROM messages WHERE account_id = $1 AND provider_message_id = 'legacy-1'`, [ACCOUNT_ID],
+    ));
+    await autocommit(client => client.query(
+      `INSERT INTO message_labels (message_id, account_id, label_id, folder_path)
+       VALUES ($1, $2, 'INBOX', 'INBOX'), ($1, $2, 'UNREAD', NULL)`,
+      [message.rows[0]!.id, ACCOUNT_ID],
+    ));
+    expect(await labelMembershipReport(ACCOUNT_ID)).toMatchObject({ messages: 1, rows: 2, missingRows: 0, extraRows: 0, unrecorded: 0 });
+
+    // A row for a label the message no longer carries is a disagreement in the other direction.
+    await autocommit(client => client.query(
+      `INSERT INTO message_labels (message_id, account_id, label_id, folder_path) VALUES ($1, $2, 'STARRED', NULL)`,
+      [message.rows[0]!.id, ACCOUNT_ID],
+    ));
+    expect(await labelMembershipReport(ACCOUNT_ID)).toMatchObject({ rows: 3, missingRows: 0, extraRows: 1 });
   });
 
   it('applies an incremental run from the history cursor: a mailbox move and a deletion', async () => {
