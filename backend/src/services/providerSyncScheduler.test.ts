@@ -71,14 +71,15 @@ afterEach(() => {
 
 describe('providerSyncIntervalMinutes', () => {
   it('defaults when unset and keeps a usable custom value', () => {
-    expect(providerSyncIntervalMinutes({})).toBe(15);
+    // Two minutes, not fifteen: with no active push subscription the interval *is* the delivery latency.
+    expect(providerSyncIntervalMinutes({})).toBe(2);
     expect(providerSyncIntervalMinutes({ PROVIDER_SYNC_INTERVAL_MINUTES: '30' })).toBe(30);
   });
 
   it('treats 0 as disabled but garbage as the default, so a typo never stops the refresh', () => {
     expect(providerSyncIntervalMinutes({ PROVIDER_SYNC_INTERVAL_MINUTES: '0' })).toBe(0);
-    expect(providerSyncIntervalMinutes({ PROVIDER_SYNC_INTERVAL_MINUTES: 'soon' })).toBe(15);
-    expect(providerSyncIntervalMinutes({ PROVIDER_SYNC_INTERVAL_MINUTES: '-5' })).toBe(15);
+    expect(providerSyncIntervalMinutes({ PROVIDER_SYNC_INTERVAL_MINUTES: 'soon' })).toBe(2);
+    expect(providerSyncIntervalMinutes({ PROVIDER_SYNC_INTERVAL_MINUTES: '-5' })).toBe(2);
   });
 
   it('caps an absurd interval instead of scheduling a multi-year timer', () => {

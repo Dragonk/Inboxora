@@ -451,7 +451,13 @@
         "disconnect": "Disconnect",
         "syncing": "Syncing…",
         "lastSync": "Last sync: {{when}}",
-        "summary": "{{contacts}} contacts in {{books}} address books"
+        "summary": "{{contacts}} contacts in {{books}} address books",
+        "serverUrl": "Server address",
+        "username": "User name",
+        "password": "Password",
+        "sync": "Synchronise now",
+        "connecting": "Connecting…",
+        "disconnecting": "Disconnecting…"
       },
       "google": {
         "title": "Google (Gmail, Calendar, Contacts)",

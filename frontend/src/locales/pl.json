@@ -890,7 +890,13 @@
         "disconnect": "Rozłącz",
         "syncing": "Synchronizowanie…",
         "lastSync": "Ostatnia synchronizacja: {{when}}",
-        "summary": "{{contacts}} kontaktów w {{books}} książkach adresowych"
+        "summary": "{{contacts}} kontaktów w {{books}} książkach adresowych",
+        "serverUrl": "Adres serwera",
+        "username": "Nazwa użytkownika",
+        "password": "Hasło",
+        "sync": "Synchronizuj teraz",
+        "connecting": "Łączenie…",
+        "disconnecting": "Rozłączanie…"
       },
       "google": {
         "title": "Google (Gmail, Kalendarz, Kontakty)",

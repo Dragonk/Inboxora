@@ -296,6 +296,15 @@ None.
   IMAP loops, health checks, rule forwarder and send path no longer open IMAP or SMTP for it.
 
 ### Fixed
+- **The contacts CardDAV section shows words, not key names.** Six of the fourteen labels that section reads —
+  server address, user name, password, synchronise now, connecting, disconnecting — were never added to the locale
+  files, so the interface rendered `admin.integrations.carddav.serverUrl` and its siblings. All nine languages now
+  carry them.
+- **Provider mail is polled every two minutes, not every fifteen.** With no active push subscription the polling
+  interval *is* the delivery latency, and fifteen minutes replaced an IMAP fetch that ran every few seconds: a new
+  message took "kilkanaście minut" to appear unless the user refreshed by hand. The default is now two minutes;
+  `PROVIDER_SYNC_INTERVAL_MINUTES` overrides it and `0` still disables the schedule.
+
 - **A failed first synchronisation is recorded where the card reads it.** The live report was "authorized,
   last synchronisation: never" with no error anywhere: the first run of a calendar or contacts consent threw
   before the sync's own failure recorder was reached, or recorded its error under a coverage the diagnostics do

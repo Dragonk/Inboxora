@@ -451,7 +451,13 @@
         "disconnect": "断开连接",
         "syncing": "正在同步…",
         "lastSync": "上次同步：{{when}}",
-        "summary": "{{books}} 个通讯簿中的 {{contacts}} 个联系人"
+        "summary": "{{books}} 个通讯簿中的 {{contacts}} 个联系人",
+        "serverUrl": "服务器地址",
+        "username": "用户名",
+        "password": "密码",
+        "sync": "立即同步",
+        "connecting": "正在连接…",
+        "disconnecting": "正在断开…"
       },
       "google": {
         "title": "Google（Gmail、日历、联系人）",

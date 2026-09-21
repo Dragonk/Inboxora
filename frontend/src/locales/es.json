@@ -451,7 +451,13 @@
         "disconnect": "Desconectar",
         "syncing": "Sincronizando…",
         "lastSync": "Última sincronización: {{when}}",
-        "summary": "{{contacts}} contactos en {{books}} libretas"
+        "summary": "{{contacts}} contactos en {{books}} libretas",
+        "serverUrl": "Dirección del servidor",
+        "username": "Nombre de usuario",
+        "password": "Contraseña",
+        "sync": "Sincronizar ahora",
+        "connecting": "Conectando…",
+        "disconnecting": "Desconectando…"
       },
       "google": {
         "title": "Google (Gmail, Calendario, Contactos)",

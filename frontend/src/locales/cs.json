@@ -882,7 +882,13 @@
         "disconnect": "Odpojit",
         "syncing": "Synchronizace…",
         "lastSync": "Poslední synchronizace: {{when}}",
-        "summary": "{{contacts}} kontaktů v {{books}} adresářích"
+        "summary": "{{contacts}} kontaktů v {{books}} adresářích",
+        "serverUrl": "Adresa serveru",
+        "username": "Uživatelské jméno",
+        "password": "Heslo",
+        "sync": "Synchronizovat nyní",
+        "connecting": "Připojování…",
+        "disconnecting": "Odpojování…"
       },
       "google": {
         "title": "Google (Gmail, Kalendář, Kontakty)",

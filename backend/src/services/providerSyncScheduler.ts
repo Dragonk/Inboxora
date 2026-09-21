@@ -26,7 +26,16 @@ import { listGmailMailAccounts, syncGmailMailLabelsForAccount, syncGmailMailMess
  * the other connections.
  */
 
-const DEFAULT_INTERVAL_MINUTES = 15;
+/**
+ * How often the provider mail of an already-pulled collection is polled.
+ *
+ * Fifteen minutes was far behind the IMAP fetch it replaced (which ran every few seconds), and with no push
+ * subscription active the polling interval **is** the delivery latency: the live report was a new mail taking
+ * "kilkanaście minut" to appear unless the user refreshed by hand. Two minutes keeps the request volume modest
+ * while making the fallback behave like a mailbox. `PROVIDER_SYNC_INTERVAL_MINUTES` overrides it, and `0`
+ * disables the schedule.
+ */
+const DEFAULT_INTERVAL_MINUTES = 2;
 const MAX_INTERVAL_MINUTES = 24 * 60;
 
 let timer: ReturnType<typeof setInterval> | null = null;

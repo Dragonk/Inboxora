@@ -451,7 +451,13 @@
         "disconnect": "Отключить",
         "syncing": "Синхронизация…",
         "lastSync": "Последняя синхронизация: {{when}}",
-        "summary": "{{contacts}} контактов в {{books}} книгах"
+        "summary": "{{contacts}} контактов в {{books}} книгах",
+        "serverUrl": "Адрес сервера",
+        "username": "Имя пользователя",
+        "password": "Пароль",
+        "sync": "Синхронизировать сейчас",
+        "connecting": "Подключение…",
+        "disconnecting": "Отключение…"
       },
       "google": {
         "title": "Google (Gmail, Календарь, Контакты)",
