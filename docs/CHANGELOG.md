@@ -296,6 +296,11 @@ None.
   IMAP loops, health checks, rule forwarder and send path no longer open IMAP or SMTP for it.
 
 ### Fixed
+- **A CardDAV pull is applied as one transaction, so a failure can no longer leave a book half-written.** The
+  delete of the rows a snapshot no longer lists, the upserts, the merges and the new sync token ran as separate
+  statements. The delete has to come first — a uid or email freed this round must not collide with an incoming
+  card — but without a transaction it became visible on its own, so a failure halfway through left the address
+  book missing contacts until the next successful pass. All four now commit together or not at all.
 - **A CardDAV address book no longer reads "never synchronised" and now has a sync action.** The books manager
   knew only about Google and Microsoft: for a book whose source is CardDAV it computed no state and offered no
   action, so a source that had just run still showed "never", and the only way to synchronise it was the separate

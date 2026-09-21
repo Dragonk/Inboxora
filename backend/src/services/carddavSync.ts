@@ -4,7 +4,8 @@
 // books is chosen by the user: 'separate' | 'merge' | 'skip'.
 
 import crypto from 'crypto';
-import { query } from './db.js';
+import type { PoolClient } from 'pg';
+import { query, withTransaction } from './db.js';
 import { decrypt } from './encryption.js';
 import { parseVCard } from '../utils/vcard.js';
 import { getConnectionPolicy } from './connectionPolicy.js';
@@ -85,9 +86,9 @@ type CardavContact = ReturnType<typeof contactFromVCard>;
 type CardavBook = Awaited<ReturnType<typeof discoverAddressBooks>>[number];
 type CardavCredentials = { username: string; password: string; allowPrivate: boolean };
 
-async function upsertCardavContact(bookId: string, userId: string, c: CardavContact) {
+async function upsertCardavContact(client: PoolClient, bookId: string, userId: string, c: CardavContact) {
   const etag = crypto.createHash('md5').update(c.vcard).digest('hex');
-  await query(`
+  await client.query(`
     INSERT INTO contacts (
       address_book_id, user_id, uid, vcard, etag,
       display_name, first_name, last_name, primary_email,
@@ -118,9 +119,9 @@ async function upsertCardavContact(bookId: string, userId: string, c: CardavCont
 // Enrich an existing contact (in another book) with the vCard's descriptive
 // fields. We deliberately leave primary_email/emails untouched to avoid churning
 // that book's per-book email-uniqueness index.
-async function mergeIntoExisting(id: string, c: CardavContact) {
+async function mergeIntoExisting(client: PoolClient, id: string, c: CardavContact) {
   const etag = crypto.createHash('md5').update(c.vcard).digest('hex');
-  await query(`
+  await client.query(`
     UPDATE contacts SET
       display_name = $2, first_name = $3, last_name = $4,
       phones = $5::jsonb, organization = $6, notes = $7, birthday = $8, anniversary = $9,
@@ -188,19 +189,23 @@ async function syncBook(userId: string, book: CardavBook, dupMode: string, creds
   }
 
   const presentUids = toUpsert.map(c => c.uid);
-  // Delete stale rows BEFORE upserting so a uid/email freed this round can't collide
-  // with an incoming card (e.g. an email moving to a newly-created contact).
-  await query(
-    `DELETE FROM contacts WHERE address_book_id = $1 AND uid <> ALL($2::text[])`,
-    [bookId, presentUids.length ? presentUids : ['']],
-  );
-  for (const c of toUpsert) await upsertCardavContact(bookId, userId, c);
-  for (const m of toMerge) await mergeIntoExisting(m.id, m.contact);
+  // DAV-04: the whole pull is applied in **one transaction**. The delete of rows the snapshot no longer lists
+  // must happen before the upserts (a uid or email freed this round cannot then collide with an incoming card),
+  // but it must not be visible without them either: a failure halfway used to leave the book missing rows until
+  // the next successful pass. Delete, upsert, merge and the token now commit together or not at all.
+  await withTransaction(async client => {
+    await client.query(
+      `DELETE FROM contacts WHERE address_book_id = $1 AND uid <> ALL($2::text[])`,
+      [bookId, presentUids.length ? presentUids : ['']],
+    );
+    for (const c of toUpsert) await upsertCardavContact(client, bookId, userId, c);
+    for (const m of toMerge) await mergeIntoExisting(client, m.id, m.contact);
 
-  await query(
-    "UPDATE address_books SET sync_token = gen_random_uuid()::text, updated_at = NOW() WHERE id = $1",
-    [bookId],
-  );
+    await client.query(
+      "UPDATE address_books SET sync_token = gen_random_uuid()::text, updated_at = NOW() WHERE id = $1",
+      [bookId],
+    );
+  });
   return { bookId, count: presentUids.length };
 }
 

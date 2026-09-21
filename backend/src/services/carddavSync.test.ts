@@ -8,13 +8,19 @@ type AddressBook = { url: string; displayName: string };
 type AddressBookCard = { href: string; vcard: string };
 type ConnectionPolicy = { allowPrivateHosts: boolean };
 
-const { query, discoverAddressBooks, fetchAddressBookCards, getConnectionPolicy } = vi.hoisted(() => ({
+const { query, transactionQuery, discoverAddressBooks, fetchAddressBookCards, getConnectionPolicy } = vi.hoisted(() => ({
   query: vi.fn<Query>(),
+  transactionQuery: vi.fn<Query>(),
   discoverAddressBooks: vi.fn<() => Promise<AddressBook[]>>(),
   fetchAddressBookCards: vi.fn<() => Promise<AddressBookCard[]>>(),
   getConnectionPolicy: vi.fn<() => Promise<ConnectionPolicy>>(),
 }));
-vi.mock('./db.js', () => ({ query }));
+vi.mock('./db.js', () => ({
+  query,
+  // DAV-04: the pull's delete/upsert/merge/token phase runs in one transaction. The transaction client is a
+  // separate mock, so a case can prove those statements went through it rather than through the pool.
+  withTransaction: async (fn: (client: { query: Query }) => unknown) => fn({ query: transactionQuery }),
+}));
 vi.mock('./carddavClient.js', () => ({ discoverAddressBooks, fetchAddressBookCards }));
 vi.mock('./connectionPolicy.js', () => ({ getConnectionPolicy }));
 vi.mock('./encryption.js', () => ({ decrypt: (value: string) => value, encrypt: (value: string) => `enc:v1:${value}` }));
@@ -34,7 +40,7 @@ function parseJsonParameter(value: QueryParameter): unknown {
 }
 
 function configureSync() {
-  query.mockImplementation(async (sql: string) => {
+  const handler = async (sql: string) => {
     if (sql.includes('SELECT config FROM user_integrations')) return { rows: [{ config: { serverUrl: 'https://dav.example', username: 'user', password: 'password' } }] };
     if (sql.includes('SELECT id FROM address_books')) return { rows: [{ id: 'book-1' }] };
     // The external-collection link (P02/P10): the helper asks for the source connection and then for the
@@ -42,7 +48,10 @@ function configureSync() {
     if (sql.includes('INSERT INTO source_connections')) return { rows: [{ id: 'source-conn-1' }] };
     if (sql.includes('INSERT INTO integration_collections')) return { rows: [{ id: 'collection-1' }] };
     return { rows: [] };
-  });
+  };
+  query.mockImplementation(handler);
+  // The transaction client sees the same database (DAV-04).
+  transactionQuery.mockImplementation(handler);
   getConnectionPolicy.mockResolvedValue({ allowPrivateHosts: false });
   discoverAddressBooks.mockResolvedValue([{ url: 'https://dav.example/contacts', displayName: 'Contacts' }]);
   fetchAddressBookCards.mockResolvedValue([
@@ -53,8 +62,27 @@ function configureSync() {
 
 describe('remote CardDAV contact-date persistence', () => {
   beforeEach(() => {
-    query.mockReset(); discoverAddressBooks.mockReset(); fetchAddressBookCards.mockReset(); getConnectionPolicy.mockReset();
+    query.mockReset(); transactionQuery.mockReset();
+    discoverAddressBooks.mockReset(); fetchAddressBookCards.mockReset(); getConnectionPolicy.mockReset();
     configureSync();
+  });
+
+  it('applies the whole pull through one transaction', async () => {
+    // DAV-04: the delete of rows the snapshot no longer lists, the upserts, the merges and the new sync token
+    // used to run as separate statements, so a failure halfway left the book missing rows until the next
+    // successful pass. They are now issued through one transaction client.
+    await expect(syncUser('user-1')).resolves.toMatchObject({ ok: true });
+
+    const inTransaction = transactionQuery.mock.calls.map(([sql]) => String(sql));
+    expect(inTransaction.some(sql => sql.includes('DELETE FROM contacts'))).toBe(true);
+    expect(inTransaction.some(sql => sql.includes('INSERT INTO contacts'))).toBe(true);
+    expect(inTransaction.some(sql => sql.includes('UPDATE address_books SET sync_token'))).toBe(true);
+
+    // None of the apply statements ran outside it.
+    const outside = query.mock.calls.map(([sql]) => String(sql));
+    expect(outside.some(sql => sql.includes('DELETE FROM contacts'))).toBe(false);
+    expect(outside.some(sql => sql.includes('INSERT INTO contacts'))).toBe(false);
+    expect(outside.some(sql => sql.includes('UPDATE address_books SET sync_token'))).toBe(false);
   });
 
   it('links the external address book to its source connection so write-back has something to enable', async () => {
@@ -80,7 +108,7 @@ describe('remote CardDAV contact-date persistence', () => {
   it('binds Apple and Android labelled dates to contact_dates and updates them idempotently', async () => {
     await expect(syncUser('user-1')).resolves.toMatchObject({ ok: true, contactCount: 2 });
 
-    const upserts = query.mock.calls.filter(([sql]) => sql.includes('INSERT INTO contacts'));
+    const upserts = transactionQuery.mock.calls.filter(([sql]) => sql.includes('INSERT INTO contacts'));
     expect(upserts).toHaveLength(2);
     for (const [sql, params] of upserts) {
       expect(sql).toContain('anniversary, contact_dates, photo_data');
@@ -96,8 +124,9 @@ describe('remote CardDAV contact-date persistence', () => {
     }
 
     query.mockClear();
+    transactionQuery.mockClear();
     await expect(syncUser('user-1')).resolves.toMatchObject({ ok: true, contactCount: 2 });
-    const secondUpserts = query.mock.calls.filter(([sql]) => sql.includes('INSERT INTO contacts'));
+    const secondUpserts = transactionQuery.mock.calls.filter(([sql]) => sql.includes('INSERT INTO contacts'));
     expect(secondUpserts.map(([, params]) => params[15])).toEqual(upserts.map(([, params]) => params[15]));
   });
 
@@ -118,7 +147,7 @@ describe('remote CardDAV contact-date persistence', () => {
     fetchAddressBookCards.mockResolvedValue([{ href, vcard }]);
 
     await expect(syncUser('user-1')).resolves.toMatchObject({ ok: true, contactCount: 0 });
-    const mergeCall = query.mock.calls.find(([sql]) => sql.includes('UPDATE contacts SET'));
+    const mergeCall = transactionQuery.mock.calls.find(([sql]) => sql.includes('UPDATE contacts SET'));
     expect(mergeCall).toBeDefined();
     if (!mergeCall) throw new Error('Expected an existing-contact merge query');
     const [mergeSql, mergeParams] = mergeCall;
@@ -141,7 +170,7 @@ describe('remote CardDAV contact-date persistence', () => {
 
     query.mockClear();
     await expect(syncUser('user-1')).resolves.toMatchObject({ ok: true, contactCount: 0 });
-    const secondMergeCall = query.mock.calls.find(([sql]) => sql.includes('UPDATE contacts SET'));
+    const secondMergeCall = transactionQuery.mock.calls.find(([sql]) => sql.includes('UPDATE contacts SET'));
     expect(secondMergeCall).toBeDefined();
     if (!secondMergeCall) throw new Error('Expected a repeated existing-contact merge query');
     const [, secondMergeParams] = secondMergeCall;

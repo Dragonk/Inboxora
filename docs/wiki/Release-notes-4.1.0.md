@@ -265,6 +265,10 @@ Microsoft application is registered in this environment.
 
 ### Fixed
 
+- **A failed CardDAV synchronisation no longer leaves contacts missing.** The pull deletes the rows the server
+  no longer lists, then writes what it found; those steps are now one transaction, so an interrupted run leaves
+  the address book exactly as it was instead of missing entries until the next successful synchronisation.
+
 - **A CardDAV address book shows its real last sync and can be synchronised from its own panel.** The books
   manager only knew Google and Microsoft, so a CardDAV book always read "never synchronised" and had no sync
   button. It now reports the DAV source's last sync (or failure) and offers the action, next to the book it
