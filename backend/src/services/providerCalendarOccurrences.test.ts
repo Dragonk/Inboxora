@@ -345,6 +345,49 @@ describe('changing this and following', () => {
     expect(mocks.google.insert).not.toHaveBeenCalled();
   });
 
+  it('continues a count the client sent, because the composer sends the series’ own rule', async () => {
+    // CAL-02, client-supplied rule: "this and following" copies the **series'** recurrence into the editor, so the
+    // count that arrives with the edit is the whole series' count. Applied verbatim it restarts the series from
+    // the split; it has to lose the occurrences the earlier part keeps, exactly as the master's own rule does.
+    const clientRule = { frequency: 'weekly' as const, interval: 1, byWeekday: [1, 3], until: null, untilIcal: null, count: 12 };
+
+    mocks.google.instances.mockResolvedValue([{ id: `${GOOGLE_MASTER}_20260915T090000Z`, originalStartTime: { dateTime: '2026-09-15T09:00:00Z' } }]);
+    mocks.google.get.mockResolvedValue(GOOGLE_MASTER_EVENT);
+    await expect(writeProviderCalendarOccurrence({
+      target: googleTarget, scope: 'following', operation: 'update',
+      values: { ...values, recurrence: clientRule }, sendUpdates: 'all',
+    })).resolves.toMatchObject({ status: 'confirmed' });
+    const googleLines = ((mocks.google.insert.mock.calls.at(-1)?.[2] as { recurrence?: string[] }).recurrence ?? []).join('\n');
+    // 4 of the 12 occurrences precede the split, so the remainder keeps 8.
+    expect(googleLines).toContain('COUNT=8');
+    expect(googleLines).not.toContain('COUNT=12');
+
+    mocks.graph.instances.mockResolvedValue([{ id: `${GRAPH_MASTER}_20260915`, originalStart: '2026-09-15T09:00:00.0000000' }]);
+    mocks.graph.get.mockResolvedValue(GRAPH_MASTER_EVENT);
+    await expect(writeProviderCalendarOccurrence({
+      target: graphTarget, scope: 'following', operation: 'update',
+      values: { ...values, recurrence: clientRule }, sendUpdates: 'all',
+    })).resolves.toMatchObject({ status: 'confirmed' });
+    const graphRecurrence = (mocks.graph.create.mock.calls.at(-1)?.[2] as { recurrence?: { range?: { type?: string; numberOfOccurrences?: number } } }).recurrence;
+    expect(graphRecurrence?.range).toMatchObject({ type: 'numbered', numberOfOccurrences: 8 });
+  });
+
+  it('refuses a client count it cannot continue rather than restarting the series', async () => {
+    // The master's rule cannot be expanded (it carries no DTSTART), so the remainder's count cannot be derived.
+    // Nothing may be written: a remainder that restarted the count is worse than a refusal.
+    const clientRule = { frequency: 'weekly' as const, interval: 1, byWeekday: [1, 3], until: null, untilIcal: null, count: 12 };
+    mocks.google.instances.mockResolvedValue([{ id: `${GOOGLE_MASTER}_20260915T090000Z`, originalStartTime: { dateTime: '2026-09-15T09:00:00Z' } }]);
+    mocks.google.get.mockResolvedValue({ id: GOOGLE_MASTER, recurrence: ['RRULE:FREQ=WEEKLY;BYDAY=MO,WE;COUNT=12'] });
+
+    const outcome = await writeProviderCalendarOccurrence({
+      target: googleTarget, scope: 'following', operation: 'update',
+      values: { ...values, recurrence: clientRule }, sendUpdates: 'all',
+    });
+    expect(outcome).toMatchObject({ status: 'failed', failure: { code: 'RECURRENCE_CONTINUATION_UNSUPPORTED' } });
+    expect(mocks.google.patch).not.toHaveBeenCalled();
+    expect(mocks.google.insert).not.toHaveBeenCalled();
+  });
+
   it('ends the earlier part at the day before the split, for Graph, and creates the remainder', async () => {
     mocks.graph.instances.mockResolvedValue([{ id: `${GRAPH_MASTER}_20260915`, originalStart: '2026-09-15T09:00:00.0000000' }]);
     mocks.graph.get.mockResolvedValue(GRAPH_MASTER_EVENT);

@@ -265,6 +265,11 @@ Microsoft application is registered in this environment.
 
 ### Fixed
 
+- **Changing "this and following" on a repeating event no longer changes how many times it repeats — including
+  when the editor sends the rule.** The count that came with the edit belonged to the whole series, so the second
+  half used to start the count again. It now continues with only the occurrences that are left, and if that
+  cannot be worked out the change is refused instead of producing a series that disagrees with itself.
+
 - **An account whose first synchronisation failed now recovers on its own.** Inboxora only scheduled connections
   that already had collections, so a connection whose first run failed — or one interrupted by a restart — was
   never retried: the mailbox appeared connected and stayed empty. Connections that hold nothing are now picked up

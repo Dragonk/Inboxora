@@ -276,6 +276,34 @@ export function continueRruleAfterSplit(rrule: string, dtstart: string, before: 
   return continued.toString();
 }
 
+/**
+ * How many occurrences a series' own rule places strictly before the split (CAL-02), or null when the rule
+ * cannot be expanded safely.
+ */
+function occurrencesBeforeSplit(rule: string | null, dtstart: string | null, before: Date): number | null {
+  if (!rule || !dtstart) return null;
+  return occurrencesBeforeRule(rule.trim().replace(/^RRULE[;:]/i, ''), dtstart, before);
+}
+
+/**
+ * What a `COUNT` becomes on the remainder: unchanged when there is none, the reduced number when it can be
+ * derived, and `unsupported` when it cannot.
+ *
+ * The composer sends the **series'** rule for "this and following" — it copies the series' recurrence into the
+ * form — so a client-supplied `COUNT` is the whole series' count, not the remainder's. Creating the remainder
+ * with it verbatim restarts the series from the split, which is the CAL-02 defect reached from the client rather
+ * than from the master. An `UNTIL` is absolute and is already correct for the remainder.
+ */
+function continuedCount(total: number | null | undefined, consumed: number | null):
+  | { kind: 'unchanged' }
+  | { kind: 'count'; count: number }
+  | { kind: 'unsupported' } {
+  if (total === null || total === undefined) return { kind: 'unchanged' };
+  if (consumed === null) return { kind: 'unsupported' };
+  const remaining = total - consumed;
+  return remaining > 0 ? { kind: 'count', count: remaining } : { kind: 'unsupported' };
+}
+
 // ── Resolution of the provider's occurrence identity ─────────────────────────
 /**
  * The provider's id for one occurrence, or `null` when the provider does not know it.
@@ -392,20 +420,31 @@ function googleOccurrenceAdapter(api: Parameters<typeof insertGoogleEvent>[0]): 
         if (write.operation !== 'cancel' && !write.values) {
           return { status: 'permanent', code: 'INVALID_REQUEST' };
         }
-        const remainder = write.values ? googleEventPayloadFor(googleValueInput(write.values)) : null;
+        const masterRuleLine = existing.find(line => /^RRULE[;:]/i.test(line.trim())) ?? null;
+        const masterDtstart = master.start?.date ?? master.start?.dateTime ?? null;
+        // A client-supplied rule for the remainder is the **series'** rule (the composer copies it), so its COUNT
+        // is continued rather than restarted; an unrepresentable one refuses before anything is written (CAL-02).
+        let writeValues = write.values ?? null;
+        const clientRecurrence = writeValues?.recurrence ?? null;
+        if (clientRecurrence) {
+          const outcome = continuedCount(clientRecurrence.count, occurrencesBeforeSplit(masterRuleLine, masterDtstart, before));
+          if (outcome.kind === 'unsupported') return { status: 'permanent', code: 'RECURRENCE_CONTINUATION_UNSUPPORTED' };
+          if (outcome.kind === 'count' && writeValues) {
+            writeValues = { ...writeValues, recurrence: { ...clientRecurrence, count: outcome.count } };
+          }
+        }
+        const remainder = writeValues ? googleEventPayloadFor(googleValueInput(writeValues)) : null;
         // The remainder's rule is computed before any write. A `COUNT` copied verbatim would start the whole
         // count again from the split, so a series of 10 split at the 4th would end with 13 occurrences (CAL-02);
         // when the continuation cannot be represented the write refuses instead of truncating the master and
         // leaving a remainder that restarts the series.
-        const needsContinuation = write.operation !== 'cancel' && write.values?.recurrence === undefined;
+        const needsContinuation = write.operation !== 'cancel' && clientRecurrence === null;
         let remainderRecurrence: string[] | null = null;
         if (needsContinuation) {
-          const rruleLine = existing.find(line => /^RRULE[;:]/i.test(line.trim())) ?? null;
-          const dtstart = master.start?.date ?? master.start?.dateTime ?? null;
-          if (!rruleLine || !dtstart) return { status: 'permanent', code: 'RECURRENCE_CONTINUATION_UNSUPPORTED' };
-          const continued = continueRruleAfterSplit(rruleLine.trim().replace(/^RRULE:/i, ''), dtstart, before);
+          if (!masterRuleLine || !masterDtstart) return { status: 'permanent', code: 'RECURRENCE_CONTINUATION_UNSUPPORTED' };
+          const continued = continueRruleAfterSplit(masterRuleLine.trim().replace(/^RRULE:/i, ''), masterDtstart, before);
           if (!continued) return { status: 'permanent', code: 'RECURRENCE_CONTINUATION_UNSUPPORTED' };
-          remainderRecurrence = existing.map(line => (line === rruleLine ? `RRULE:${continued}` : line));
+          remainderRecurrence = existing.map(line => (line === masterRuleLine ? `RRULE:${continued}` : line));
         }
         await patchGoogleEvent(
           api,
@@ -492,6 +531,22 @@ function graphOccurrenceAdapter(api: Parameters<typeof patchGraphEvent>[0]): Pro
           payload = graphEventPayloadFor(graphValueInput(write.values));
           if (write.values.recurrence) {
             payload.recurrence = graphRecurrenceFromStructure(write.values.recurrence, write.values.startsAt);
+            // CAL-02: the client sends the **series'** rule for "this and following", so a numbered range it
+            // supplies is the series' count and must lose the occurrences the earlier part keeps; otherwise the
+            // remainder restarts the whole series from the split. An unrepresentable one refuses here, before the
+            // master is truncated, rather than leaving the two halves disagreeing about how many times it repeats.
+            const suppliedRange = payload.recurrence?.range ?? null;
+            if (suppliedRange?.type === 'numbered') {
+              const masterRange = master.recurrence?.range ?? null;
+              const consumed = masterRange
+                ? occurrencesBeforeSplit(graphRecurrenceRule(pattern, masterRange), master.start?.dateTime ?? null, before)
+                : null;
+              const outcome = continuedCount(suppliedRange.numberOfOccurrences ?? null, consumed);
+              if (outcome.kind === 'unsupported') return { status: 'permanent', code: 'RECURRENCE_CONTINUATION_UNSUPPORTED' };
+              if (outcome.kind === 'count') {
+                payload.recurrence = { ...payload.recurrence!, range: { ...suppliedRange, numberOfOccurrences: outcome.count } };
+              }
+            }
           } else if (write.values.recurrence === null) {
             payload.recurrence = null;
           } else if (master.recurrence) {

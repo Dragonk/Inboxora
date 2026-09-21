@@ -296,6 +296,13 @@ None.
   IMAP loops, health checks, rule forwarder and send path no longer open IMAP or SMTP for it.
 
 ### Fixed
+- **"This and following" no longer restarts the repeat count when the editor sends the rule.** The composer
+  copies the series' own recurrence into the editor for a "this and following" change, so the rule that arrives
+  with an edit carries the **series'** count, not the remainder's. It was applied verbatim, which restarted the
+  series from the split: editing a series of twelve occurrences at the fourth left the remainder repeating twelve
+  more times instead of the eight that were left. A supplied count now loses the occurrences the earlier part
+  keeps, matching the behaviour when no rule is sent, and a count that cannot be derived is refused before
+  anything is written rather than producing a series that disagrees with itself.
 - **A connected account whose first synchronisation failed is picked up again instead of staying empty.** The
   schedule selected connections through the collections they already held, so discovery was reachable only from a
   collection that already existed: a connection whose initial run failed — or a process that restarted before it
