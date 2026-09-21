@@ -8,11 +8,12 @@ type AddressBook = { url: string; displayName: string };
 type AddressBookCard = { href: string; vcard: string; etag?: string | null };
 type ConnectionPolicy = { allowPrivateHosts: boolean };
 
-const { query, transactionQuery, discoverAddressBooks, fetchAddressBookCards, getConnectionPolicy } = vi.hoisted(() => ({
+const { query, transactionQuery, discoverAddressBooks, fetchAddressBookCards, discoverDavWriteAccess, getConnectionPolicy } = vi.hoisted(() => ({
   query: vi.fn<Query>(),
   transactionQuery: vi.fn<Query>(),
   discoverAddressBooks: vi.fn<() => Promise<AddressBook[]>>(),
   fetchAddressBookCards: vi.fn<() => Promise<AddressBookCard[]>>(),
+  discoverDavWriteAccess: vi.fn<() => Promise<'read_write' | 'read_only' | null>>(),
   getConnectionPolicy: vi.fn<() => Promise<ConnectionPolicy>>(),
 }));
 vi.mock('./db.js', () => ({
@@ -21,7 +22,7 @@ vi.mock('./db.js', () => ({
   // separate mock, so a case can prove those statements went through it rather than through the pool.
   withTransaction: async (fn: (client: { query: Query }) => unknown) => fn({ query: transactionQuery }),
 }));
-vi.mock('./carddavClient.js', () => ({ discoverAddressBooks, fetchAddressBookCards }));
+vi.mock('./carddavClient.js', () => ({ discoverAddressBooks, fetchAddressBookCards, discoverDavWriteAccess }));
 vi.mock('./connectionPolicy.js', () => ({ getConnectionPolicy }));
 vi.mock('./encryption.js', () => ({ decrypt: (value: string) => value, encrypt: (value: string) => `enc:v1:${value}` }));
 
@@ -56,6 +57,7 @@ function configureSync() {
   // The transaction client sees the same database (DAV-04).
   transactionQuery.mockImplementation(handler);
   getConnectionPolicy.mockResolvedValue({ allowPrivateHosts: false });
+  discoverDavWriteAccess.mockResolvedValue(null);
   discoverAddressBooks.mockResolvedValue([{ url: 'https://dav.example/contacts', displayName: 'Contacts' }]);
   fetchAddressBookCards.mockResolvedValue([
     { href: '/apple.vcf', vcard: appleCard, etag: '"etag-apple"' },
@@ -206,6 +208,24 @@ describe('remote CardDAV contact-date persistence', () => {
     const retire = transactionQuery.mock.calls.find(([sql]) => sql.includes("status = 'deleted', local_id = NULL"));
     expect(retire, 'links of cards that left the snapshot are not retired').toBeDefined();
     expect(String(retire?.[0])).toContain('object_type = \'contact\'');
+  });
+
+  it('records what the collection itself says about writing, not an assumption (DAV-02)', async () => {
+    // The audit's DAV-02: the source's permission was asserted as `read_write` for every DAV collection, so the
+    // interface offered writes the server then refused. The server's own privilege list is now asked first, and a
+    // book that answers read-only is recorded as read-only.
+    discoverDavWriteAccess.mockResolvedValue('read_only');
+
+    await expect(syncUser('user-1')).resolves.toMatchObject({ ok: true, contactCount: 2 });
+
+    const link = query.mock.calls.find(([sql]) => String(sql).includes('INSERT INTO integration_collections'));
+    expect(link).toBeDefined();
+    // The link's `source_access` is the discovered value, not the assumed one.
+    expect((link?.[1] as unknown[])[6]).toBe('read_only');
+    // And the question was asked of the book's own URL, with the credentials the pull uses.
+    expect(discoverDavWriteAccess).toHaveBeenCalledWith(expect.objectContaining({
+      url: 'https://dav.example/contacts', username: 'user', password: 'password',
+    }));
   });
 
   it('never merges into a contact that another provider owns', async () => {

@@ -11,6 +11,7 @@ import { getConnectionPolicy } from './connectionPolicy.js';
 import { parseCalendarEvent } from '../utils/ical.js';
 import { toAppError } from '../utils/errors.js';
 import { ensureExternalCollectionLink, type ExternalSourceKind } from './providers/externalCollectionLinks.js';
+import { discoverDavWriteAccess } from './carddavClient.js';
 
 /** A decrypted external calendar source row. */
 interface CalendarSyncState { removed?: boolean; promise?: Promise<unknown>; controller?: AbortController }
@@ -146,13 +147,28 @@ async function calendarFor(source: ExternalCalendarSource, state: CalendarSyncSt
  */
 async function linkExternalCollection(source: ExternalCalendarSource, calendarId: string): Promise<void> {
   try {
+    const kind = externalSourceKind(source.kind);
+    // DAV-02: a CalDAV collection is asked what this user may do with it, so a collection the server keeps
+    // read-only is recorded as such rather than assumed writable. An ICS subscription has no DAV to ask and stays
+    // read-only by its kind; a server that will not answer leaves the assumption, which a refused write corrects.
+    const discoveredAccess = kind === 'caldav'
+      ? await discoverDavWriteAccess({
+        // The same decryption `remoteFetch` uses for the collection itself, so discovery addresses the URL the
+        // sync does and not the stored ciphertext.
+        url: String(decrypt(String(source.url ?? '')) ?? ''),
+        username: String(source.username ?? ''),
+        password: String(decrypt(String(source.password ?? '')) ?? ''),
+        allowPrivate: (await getConnectionPolicy()).allowPrivateHosts === true,
+      })
+      : null;
     await ensureExternalCollectionLink({
       userId: String(source.user_id ?? ''),
-      kind: externalSourceKind(source.kind),
+      kind,
       url: typeof source.url === 'string' && source.url ? source.url : `source:${source.id}`,
       remoteId: `source:${source.id}`,
       label: typeof source.display_name === 'string' ? source.display_name : null,
       localCalendarId: calendarId,
+      discoveredAccess,
     });
   } catch (caught) {
     console.warn('Linking an external calendar to its source connection failed:', toAppError(caught).message);

@@ -365,14 +365,16 @@ None.
   IMAP loops, health checks, rule forwarder and send path no longer open IMAP or SMTP for it.
 
 ### Fixed
-- **A DAV collection the server refuses to write to is no longer offered for writing.** The source's permission was
-  asserted as writable for every CalDAV and CardDAV collection, so the interface offered edits that the origin then
-  answered with `403` (or a `501`/`505`, meaning the verb is not supported). That answer is the source stating it
-  does not accept writes, and the collection now records it: the next attempt is refused locally as a read-only
-  collection instead of being sent again, while the collection's own source label and the user's setting are left
-  alone. Discovered permissions remain incomplete in the other direction — the collection is still assumed writable
-  until the origin refuses, because reading its privileges (`current-user-privilege-set`) needs a live DAV server to
-  validate, which is the remaining part of DAV-02.
+- **A DAV collection's write permission is discovered from the collection itself.** The source's permission was
+  asserted as writable for every CalDAV and CardDAV collection, so the interface offered edits the origin then
+  refused. Both pulls now ask the collection (`PROPFIND` with `current-user-privilege-set`) and record what it
+  answers: a set that grants `write`, `write-content`, `write-properties` or `bind`/`unbind` is writable, a set that
+  names only read privileges is read-only, and a server that does not answer leaves the assumption in place rather
+  than being guessed at — assuming read-only there would refuse writes that work. The refusal path remains as the
+  second line of defence: a `403` (or a `501`/`505`) from a write records the collection as read-only. **Not yet
+  validated against a live DAV server**: the interpretation is pinned by unit tests over server documents and the
+  wiring by the CardDAV pull's own test, but the shape a real Nextcloud/Radicale owner answers with has not been
+  observed here.
 - **A provider message's identity is no longer rounded when the ingest rules address it.** A provider row's
   derived `uid` can exceed what a JavaScript number holds exactly — the Gmail sync writes 19-digit values, and the
   value seen in the case that exposed this was `3724290043493249425`. The ingest path coerced it with `Number(...)`

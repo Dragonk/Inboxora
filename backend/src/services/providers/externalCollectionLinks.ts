@@ -59,6 +59,13 @@ export async function ensureExternalSourceConnection(input: {
   kind: ExternalSourceKind;
   url: string;
   label?: string | null;
+  /**
+   * What the origin's own privilege list says, when the caller was able to read it (`discoverDavWriteAccess`).
+   *
+   * Absent means the assumption stands: an ICS publication is read-only, and a CalDAV/CardDAV collection is
+   * assumed writable — which the write path corrects from a refusal.
+   */
+  discoveredAccess?: 'read_only' | 'read_write' | null;
 }): Promise<string | null> {
   const fingerprint = externalSourceFingerprint(input.url);
   const existing = await query<{ id: string }>(
@@ -109,6 +116,13 @@ export async function ensureExternalCollectionLink(input: {
   label?: string | null;
   localCalendarId?: string | null;
   localAddressBookId?: string | null;
+  /**
+   * What the origin's own privilege list says, when the caller was able to read it (`discoverDavWriteAccess`).
+   *
+   * Absent means the assumption stands: an ICS publication is read-only, and a CalDAV/CardDAV collection is
+   * assumed writable — which the write path corrects from a refusal.
+   */
+  discoveredAccess?: 'read_only' | 'read_write' | null;
 }): Promise<string | null> {
   const sourceConnectionId = await ensureExternalSourceConnection({
     userId: input.userId, kind: input.kind, url: input.url, label: input.label,
@@ -116,7 +130,9 @@ export async function ensureExternalCollectionLink(input: {
   if (!sourceConnectionId) return null;
 
   const collectionKind = externalCollectionKind(input.kind);
-  const sourceAccess = externalSourceAccess(input.kind);
+  // A caller that has asked the origin itself (DAV-02's privilege discovery) passes what it found; the assumed
+  // value is the fallback for a source that cannot be asked, not the answer.
+  const sourceAccess = input.discoveredAccess ?? externalSourceAccess(input.kind);
   const existing = await query<{ id: string; local_calendar_id: string | null; local_address_book_id: string | null }>(
     `SELECT id, local_calendar_id, local_address_book_id FROM integration_collections
       WHERE user_id = $1 AND source_connection_id = $2 AND kind = $3 AND remote_id = $4`,

@@ -9,7 +9,7 @@ import { query, withTransaction } from './db.js';
 import { decrypt } from './encryption.js';
 import { parseVCard } from '../utils/vcard.js';
 import { getConnectionPolicy } from './connectionPolicy.js';
-import { discoverAddressBooks, fetchAddressBookCards } from './carddavClient.js';
+import { discoverAddressBooks, discoverDavWriteAccess, fetchAddressBookCards } from './carddavClient.js';
 import { ensureExternalCollectionLink } from './providers/externalCollectionLinks.js';
 import { toAppError } from '../utils/errors.js';
 
@@ -187,6 +187,10 @@ async function syncBook(userId: string, book: CardavBook, dupMode: string, creds
   // Link the collection to its source connection so the per-collection write-back switch has something to
   // enable (P02's backfill, P10's reachability). Not this sync's purpose: a failure is reported and the
   // contacts still import, because losing them would be worse than a link that is retried next pass.
+  // DAV-02: ask the book itself what this user may do with it. A book that says read-only is recorded as such, so
+  // the interface stops offering writes and the capability model refuses them locally; a book that will not say
+  // leaves the assumption in place, and a refusal from a write still corrects it.
+  const discoveredAccess = await discoverDavWriteAccess({ ...book, ...creds });
   let collectionId: string | null = null;
   try {
     collectionId = await ensureExternalCollectionLink({
@@ -196,6 +200,7 @@ async function syncBook(userId: string, book: CardavBook, dupMode: string, creds
       remoteId: book.url,
       label: book.displayName ?? null,
       localAddressBookId: bookId,
+      discoveredAccess,
     });
   } catch (caught) {
     console.warn('Linking an external address book to its source connection failed:', toAppError(caught).message);

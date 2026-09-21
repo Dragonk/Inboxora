@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseAddressBooks, parseCards, extractHref } from './carddavClient.js';
+import { davWriteAccessFromPrivilegeSet, parseAddressBooks, parseCards, extractHref } from './carddavClient.js';
 import { parseVCard } from '../utils/vcard.js';
 
 const BASE = 'https://cloud.example.com/remote.php/dav/addressbooks/users/brmiller/';
@@ -30,6 +30,37 @@ describe('extractHref (discovery)', () => {
     const xml = `<d:multistatus xmlns:d="DAV:"><d:response><d:href>/x/</d:href>
       <d:propstat><d:prop/><d:status>HTTP/1.1 404 Not Found</d:status></d:propstat></d:response></d:multistatus>`;
     expect(extractHref(xml, 'current-user-principal', BASE)).toBeNull();
+  });
+});
+
+describe('davWriteAccessFromPrivilegeSet (DAV-02)', () => {
+  const propfind = (privileges: string): string => `<d:multistatus xmlns:d="DAV:">
+  <d:response><d:href>/remote.php/dav/calendars/sam/work/</d:href>
+    <d:propstat><d:prop><d:current-user-privilege-set>${privileges}</d:current-user-privilege-set></d:prop>
+      <d:status>HTTP/1.1 200 OK</d:status></d:propstat>
+  </d:response>
+</d:multistatus>`;
+
+  it('reads a granted write as writable, in each form a server may name it', () => {
+    // `write`, writing content, changing properties, and the collection-level bind all mean a write is accepted.
+    for (const privilege of ['<d:privilege><d:write/></d:privilege>',
+      '<d:privilege><d:write-content/></d:privilege>',
+      '<d:privilege><d:write-properties/></d:privilege>',
+      '<d:privilege><d:bind/></d:privilege>']) {
+      expect(davWriteAccessFromPrivilegeSet(propfind(privilege))).toBe('read_write');
+    }
+  });
+
+  it('reads a set that names only read privileges as read-only', () => {
+    const readOnly = '<d:privilege><d:read/></d:privilege><d:privilege><d:read-acl/></d:privilege>';
+    expect(davWriteAccessFromPrivilegeSet(propfind(readOnly))).toBe('read_only');
+  });
+
+  it('answers null when the server does not say, rather than guessing either way', () => {
+    // Assuming read-only here would refuse writes that work; assuming writable is what the audit objects to.
+    expect(davWriteAccessFromPrivilegeSet(propfind(''))).toBeNull();
+    expect(davWriteAccessFromPrivilegeSet(`<d:multistatus xmlns:d="DAV:"><d:response><d:propstat><d:prop><d:displayname>x</d:displayname></d:prop></d:propstat></d:response></d:multistatus>`)).toBeNull();
+    expect(davWriteAccessFromPrivilegeSet('<not-xml')).toBeNull();
   });
 });
 
