@@ -916,6 +916,11 @@ export default function ComposeModal() {
         ...(hasSignatureOverride ? { editedSignature: signatureToSend, editedSignatureIsHtml: !plaintextCompose } : {}),
         inReplyTo: composeData?.inReplyTo,
         references: composeData?.references || undefined,
+        // MAIL-03: what this send semantically is. A provider with its own reply action needs it to create the
+        // message as a reply rather than as a new message that merely carries RFC headers.
+        sendKind: fwdAttachments.length ? 'forward'
+          : (composeData?.replyToMessageId || composeData?.inReplyTo) ? (ccFinal.length ? 'reply_all' : 'reply')
+            : 'new',
         ...(composeData?.replyToMessageId ? { replyToMessageId: composeData.replyToMessageId } : {}),
         ...(priority !== 'normal' ? { priority } : {}),
         ...(attachments.length ? {

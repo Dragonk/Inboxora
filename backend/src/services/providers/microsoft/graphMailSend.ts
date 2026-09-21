@@ -1,4 +1,4 @@
-import { GraphApiError, graphPost, type GraphApiOptions } from './graphApiClient.js';
+import { GraphApiError, graphPatch, graphPost, type GraphApiOptions } from './graphApiClient.js';
 import type { ComposedMail, Mailbox } from '../../composedMail.js';
 
 /**
@@ -62,11 +62,11 @@ const toRecipients = (mailboxes: readonly Mailbox[]): GraphRecipient[] =>
  */
 export function renderGraphMessage(composed: ComposedMail): GraphMessagePayload {
   const headers: Array<{ name: string; value: string }> = [];
-  if (composed.inReplyTo) headers.push({ name: 'In-Reply-To', value: composed.inReplyTo });
-  if (composed.references) headers.push({ name: 'References', value: composed.references });
+  // `In-Reply-To` and `References` are deliberately **not** put here. Graph's JSON contract only accepts custom
+  // internet headers whose name starts with `x-`, so the two RFC headers were not honoured — the provider's own
+  // `createReply`/`createReplyAll`/`createForward` is what creates the threading edge (MAIL-03). The shared
+  // composer still carries them, and the SMTP and Gmail transports still send them.
   for (const [name, value] of Object.entries(composed.headers ?? {})) {
-    // A caller-supplied header must not shadow the two the message's own threading depends on.
-    if (headers.some(header => header.name.toLowerCase() === name.toLowerCase())) continue;
     headers.push({ name, value });
   }
 
@@ -108,6 +108,37 @@ export async function createGraphDraft(api: GraphApiOptions, composed: ComposedM
     throw new Error('Microsoft Graph did not return a draft id');
   }
   return created;
+}
+
+/**
+ * Create the provider's own reply/forward draft from the answered message.
+ *
+ * Graph's `createReply`/`createReplyAll`/`createForward` is what establishes the provider-side threading edge;
+ * the RFC `In-Reply-To`/`References` headers cannot be set through the JSON payload at all (a custom header must
+ * start with `x-`), so a JSON "reply" built as a new message has no relationship the provider recognises
+ * (MAIL-03). The draft is patched with the composed content afterwards.
+ */
+export async function createGraphReplyDraft(
+  api: GraphApiOptions,
+  providerMessageId: string,
+  kind: 'reply' | 'reply_all' | 'forward',
+): Promise<GraphDraft> {
+  const action = kind === 'reply_all' ? 'createReplyAll' : kind === 'forward' ? 'createForward' : 'createReply';
+  const created = await graphPost<GraphDraft>(
+    api,
+    `/me/messages/${encodeURIComponent(providerMessageId)}/${action}`,
+    {},
+  );
+  if (!created?.id) {
+    // A create that answers without an id cannot be resumed, so it is not reported as success.
+    throw new Error('Microsoft Graph did not return a reply draft id');
+  }
+  return created;
+}
+
+/** Replace the draft's content with the composed message, keeping the provider's own threading. */
+export async function patchGraphDraft(api: GraphApiOptions, draftId: string, composed: ComposedMail): Promise<void> {
+  await graphPatch(api, `/me/messages/${encodeURIComponent(draftId)}`, renderGraphMessage(composed));
 }
 
 export type GraphSendResult =

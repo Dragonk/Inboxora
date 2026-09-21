@@ -265,6 +265,12 @@ Microsoft application is registered in this environment.
 
 ### Fixed
 
+- **Replies sent from a Microsoft mailbox now thread correctly.** They used to be sent as new messages with
+  reply headers that Graph does not accept, so Outlook and Inboxora saw no relationship to the message being
+  answered. Inboxora now asks Microsoft to create the reply (or reply-all/forward) itself and fills in the
+  content, which is what gives the message its conversation. A reply to a message stored in another mailbox is
+  sent as a separate message, deliberately, rather than pretending to be a reply to something it is not.
+
 - **An address book you switched off is no longer synchronised by hand either.** It was already excluded from
   the automatic schedule, but a manual "sync contacts" still pulled it. Both providers now skip a disabled book
   and leave it and its contents alone.

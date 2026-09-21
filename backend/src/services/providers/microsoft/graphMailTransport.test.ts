@@ -3,9 +3,16 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // The transport is the composition of four already-tested pieces, so these cases are about the sequence
 // and the outcome it reports — in particular that a failure before the final send is NOT an unknown send.
 const draftMock = vi.hoisted(() => vi.fn(async () => ({ id: 'AAMkAD-draft-1' })));
+const replyDraftMock = vi.hoisted(() => vi.fn(async () => ({ id: 'AAMkAD-reply-1' })));
+const patchDraftMock = vi.hoisted(() => vi.fn(async () => undefined));
 const attachMock = vi.hoisted(() => vi.fn(async () => ({ id: 'att-1', strategy: 'direct' as const })));
 const sendMock = vi.hoisted(() => vi.fn(async () => ({ status: 'accepted' as const })));
-vi.mock('./graphMailSend.js', () => ({ createGraphDraft: draftMock, sendGraphDraft: sendMock }));
+vi.mock('./graphMailSend.js', () => ({
+  createGraphDraft: draftMock,
+  createGraphReplyDraft: replyDraftMock,
+  patchGraphDraft: patchDraftMock,
+  sendGraphDraft: sendMock,
+}));
 vi.mock('./graphMailAttachments.js', () => ({ addGraphAttachment: attachMock }));
 
 import { graphMailTransport } from './graphMailTransport.js';
@@ -23,9 +30,32 @@ const composed: ComposedMail = {
   plainBody: 'Body',
 };
 
-beforeEach(() => { draftMock.mockClear(); attachMock.mockClear(); sendMock.mockClear(); });
+beforeEach(() => {
+  draftMock.mockClear(); replyDraftMock.mockClear(); patchDraftMock.mockClear();
+  attachMock.mockClear(); sendMock.mockClear();
+});
 
 describe('the Graph send transport', () => {
+  it('stages a reply with the provider action and patches it before sending', async () => {
+    // MAIL-03: the provider's own reply action is what gives the message its threading edge; the JSON payload
+    // cannot carry the RFC headers. The composed content replaces the pre-filled draft content afterwards.
+    const calls: string[] = [];
+    replyDraftMock.mockImplementation(async () => { calls.push('reply'); return { id: 'reply-1' }; });
+    patchDraftMock.mockImplementation(async () => { calls.push('patch'); });
+    sendMock.mockImplementation(async () => { calls.push('send'); return { status: 'accepted' as const }; });
+
+    const result = await graphMailTransport(api).send({
+      composed,
+      replyContext: { kind: 'reply_all', providerMessageId: 'parent-1' },
+    });
+
+    expect(calls).toEqual(['reply', 'patch', 'send']);
+    expect(replyDraftMock).toHaveBeenCalledWith(expect.anything(), 'parent-1', 'reply_all');
+    // The ordinary create path is not used when the send answers a message.
+    expect(draftMock).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ status: 'accepted', providerMessageId: 'reply-1' });
+  });
+
   it('creates the draft, adds every attachment, then sends — in that order', async () => {
     const calls: string[] = [];
     draftMock.mockImplementation(async () => { calls.push('draft'); return { id: 'draft-1' }; });

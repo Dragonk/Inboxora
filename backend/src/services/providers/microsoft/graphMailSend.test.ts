@@ -9,7 +9,7 @@ const tokenMock = vi.hoisted(() => vi.fn(async () => ({
 vi.mock('../../providerTokenService.js', () => ({ getMicrosoftAccessToken: tokenMock }));
 
 import { GraphApiError } from './graphApiClient.js';
-import { createGraphDraft, renderGraphMessage, sendGraphDraft } from './graphMailSend.js';
+import { createGraphDraft, createGraphReplyDraft, renderGraphMessage, sendGraphDraft } from './graphMailSend.js';
 import type { ComposedMail } from '../../composedMail.js';
 
 const base: ComposedMail = {
@@ -54,7 +54,10 @@ describe('renderGraphMessage', () => {
     expect(payload.bccRecipients).toHaveLength(1);
   });
 
-  it('prefers the HTML body and carries threading as Internet message headers', () => {
+  it('prefers the HTML body and never claims RFC threading headers Graph rejects', () => {
+    // MAIL-03: Graph's JSON payload accepts only custom headers beginning with `x-`, so `In-Reply-To` and
+    // `References` were never honoured. Threading now comes from the provider's own reply action, and the shared
+    // composer keeps carrying those headers for the SMTP and Gmail transports.
     const payload = renderGraphMessage({
       ...base,
       htmlBody: '<p>Rich</p>',
@@ -64,16 +67,22 @@ describe('renderGraphMessage', () => {
     });
     expect(payload.body).toEqual({ contentType: 'HTML', content: '<p>Rich</p>' });
     expect(payload.internetMessageHeaders).toEqual([
-      { name: 'In-Reply-To', value: '<parent@example.test>' },
-      { name: 'References', value: '<root@example.test> <parent@example.test>' },
       { name: 'X-Inboxora-Operation-Id', value: 'op-1' },
     ]);
   });
 
-  it('does not let a caller-supplied header shadow the threading ones', () => {
-    const payload = renderGraphMessage({ ...base, inReplyTo: '<parent@example.test>', headers: { 'in-reply-to': '<other@example.test>' } });
-    const names = (payload.internetMessageHeaders ?? []).map(header => header.name.toLowerCase());
-    expect(names.filter(name => name === 'in-reply-to')).toHaveLength(1);
+  it('creates a reply draft through the provider action, per kind', async () => {
+    const fetchMock = vi.fn(async (_url: string) => ({ ok: true, status: 201, json: async () => ({ id: 'draft-1' }) }));
+    for (const [kind, action] of [['reply', 'createReply'], ['reply_all', 'createReplyAll'], ['forward', 'createForward']] as const) {
+      const draft = await createGraphReplyDraft(api(fetchMock), 'AAMkAD parent/1', kind);
+      expect(draft).toEqual({ id: 'draft-1' });
+      expect(String(fetchMock.mock.calls.at(-1)?.[0])).toContain(`/me/messages/AAMkAD%20parent%2F1/${action}`);
+    }
+  });
+
+  it('refuses a reply draft the provider answered without an id', async () => {
+    const fetchMock = vi.fn(async (_url: string) => ({ ok: true, status: 201, json: async () => ({}) }));
+    await expect(createGraphReplyDraft(api(fetchMock), 'parent-1', 'reply')).rejects.toThrow(/reply draft id/);
   });
 });
 

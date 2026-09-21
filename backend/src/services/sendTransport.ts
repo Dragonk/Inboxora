@@ -140,7 +140,20 @@ export interface MailTransport {
    * route's legacy classifier can tell a pre-DATA rejection from an indeterminate one — and a successful
    * hand-off is returned as `accepted` with nodemailer's recipient lists.
    */
-  send(input: { composed: ComposedMail; rendered?: RenderedSmtpMessage }): Promise<TransportSendResult>;
+  send(input: { composed: ComposedMail; rendered?: RenderedSmtpMessage; replyContext?: ReplyContext }): Promise<TransportSendResult>;
+}
+
+/**
+ * The message a send answers, when the answer must be created **as** a reply at the provider.
+ *
+ * Graph rejects the RFC `In-Reply-To`/`References` headers in its JSON payload (a custom internet header must
+ * start with `x-`), and the provider's own `createReply`/`createReplyAll`/`createForward` action is what gives
+ * the message its threading edge (MAIL-03). `providerMessageId` is the answered message's id in the **same
+ * mailbox**; a reply to a message that lives in another mailbox is not modelled as a provider reply.
+ */
+export interface ReplyContext {
+  kind: 'reply' | 'reply_all' | 'forward';
+  providerMessageId: string;
 }
 
 /** The account fields this seam reads to choose a transport; the row itself is carried through. */

@@ -1,6 +1,7 @@
-import { createGraphDraft, sendGraphDraft } from './graphMailSend.js';
+import { createGraphDraft, createGraphReplyDraft, patchGraphDraft, sendGraphDraft } from './graphMailSend.js';
 import { addGraphAttachment } from './graphMailAttachments.js';
 import type { GraphApiOptions } from './graphApiClient.js';
+import type { ReplyContext } from '../../sendTransport.js';
 import type { ComposedMail } from '../../composedMail.js';
 
 /**
@@ -34,11 +35,17 @@ export interface GraphTransportApi {
 export function graphMailTransport(api: GraphTransportApi) {
   return {
     kind: 'microsoft_graph' as const,
-    async send(input: { composed: ComposedMail }): Promise<TransportSendResult> {
+    async send(input: { composed: ComposedMail; replyContext?: ReplyContext }): Promise<TransportSendResult> {
       let draftId: string | null = null;
       try {
-        const draft = await createGraphDraft(api, input.composed);
+        // A reply or forward is staged with the provider's own action so the message carries the threading edge
+        // Graph recognises, and then patched with the composed content. Without the context the draft is a new
+        // message, which is what a reply to a message in **another** mailbox honestly is (MAIL-03).
+        const draft = input.replyContext
+          ? await createGraphReplyDraft(api, input.replyContext.providerMessageId, input.replyContext.kind)
+          : await createGraphDraft(api, input.composed);
         draftId = draft.id;
+        if (input.replyContext) await patchGraphDraft(api, draft.id, input.composed);
         for (const attachment of input.composed.attachments ?? []) {
           await addGraphAttachment(api, draft.id, attachment);
         }

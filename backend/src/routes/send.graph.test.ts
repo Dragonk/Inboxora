@@ -4,9 +4,16 @@ import type { JsonBody } from '../test/json.js';
 // A native Microsoft account answers the same POST /send, and the route must reach Graph for it: no SMTP
 // socket, no IMAP APPEND, and the three transport outcomes mapped onto the intent's lifecycle.
 const draftMock = vi.hoisted(() => vi.fn(async () => ({ id: 'AAMkAD-draft-1' })));
+const replyDraftMock = vi.hoisted(() => vi.fn(async () => ({ id: 'AAMkAD-reply-1' })));
+const patchDraftMock = vi.hoisted(() => vi.fn(async () => undefined));
 const sendMock = vi.hoisted(() => vi.fn(async () => ({ status: 'accepted' as const })));
 const attachMock = vi.hoisted(() => vi.fn(async () => ({ id: 'att-1', strategy: 'direct' as const })));
-vi.mock('../services/providers/microsoft/graphMailSend.js', () => ({ createGraphDraft: draftMock, sendGraphDraft: sendMock }));
+vi.mock('../services/providers/microsoft/graphMailSend.js', () => ({
+  createGraphDraft: draftMock,
+  createGraphReplyDraft: replyDraftMock,
+  patchGraphDraft: patchDraftMock,
+  sendGraphDraft: sendMock,
+}));
 vi.mock('../services/providers/microsoft/graphMailAttachments.js', () => ({ addGraphAttachment: attachMock }));
 
 vi.mock('../services/db.js', () => ({ query: vi.fn() }));
@@ -80,6 +87,36 @@ const post = (body: Record<string, unknown> = {}, idempotencyKey = 'graph-send-1
 });
 
 describe('sending from a native Microsoft Graph account', () => {
+  it('stages a reply through the provider action when the answered message is in this mailbox', async () => {
+    // MAIL-03: the RFC headers cannot be set in Graph's JSON payload, so the threading edge comes from the
+    // provider's own reply action. The answered message has to be in the sending mailbox for that to be valid.
+    query.mockImplementation(async sql => {
+      if (sql.includes('FROM email_accounts')) return { rows: [account] };
+      if (sql.includes('SELECT preferences FROM users')) return { rows: [{ preferences: {} }] };
+      if (sql.includes('FROM messages m JOIN email_accounts')) {
+        return {
+          rows: [{
+            message_id: '<parent@contoso.test>', canonical_message_id: null, in_reply_to: null,
+            thread_references: null, provider_message_id: 'AAMkAD-parent-1', account_id: 'a1',
+          }],
+        };
+      }
+      if (sql.includes('INSERT INTO send_idempotency')) return { rows: [{ status: 'pending' }] };
+      if (sql.includes('INSERT INTO address_books')) return { rows: [{ id: 'book1' }] };
+      if (sql.includes('INSERT INTO contacts')) return { rows: [{ address_book_id: 'book1' }] };
+      return { rows: [] };
+    });
+
+    const response = await post({ replyToMessageId: '11111111-1111-4111-8111-111111111111', sendKind: 'reply' });
+
+    expect(response.status).toBe(200);
+    // The ordinary "new message" draft is not used, and the reply action is the one that was taken.
+    expect(draftMock).not.toHaveBeenCalled();
+    expect(replyDraftMock).toHaveBeenCalledWith(expect.anything(), 'AAMkAD-parent-1', 'reply');
+    expect(patchDraftMock).toHaveBeenCalled();
+    expect(sendMock).toHaveBeenCalled();
+  });
+
   it('sends over Graph, with no SMTP transport and no IMAP APPEND', async () => {
     const response = await post({ cc: ['copy@example.com'], bcc: ['blind@example.com'] });
 

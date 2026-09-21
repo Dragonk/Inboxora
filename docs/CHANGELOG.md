@@ -296,6 +296,15 @@ None.
   IMAP loops, health checks, rule forwarder and send path no longer open IMAP or SMTP for it.
 
 ### Fixed
+- **A Microsoft reply is now created as a reply, not as a new message carrying headers Graph ignores.** Replies
+  were staged the same way as any new message, with `In-Reply-To` and `References` put into
+  `internetMessageHeaders` — but Graph's JSON contract accepts only custom headers whose name starts with `x-`,
+  so those two were never honoured and the message had no threading relationship the provider recognised. A send
+  now carries a semantic kind (new/reply/reply-all/forward, derived when the client omits it) and the answered
+  message's provider id when it belongs to the same mailbox; the transport stages those with the provider's own
+  `createReply`/`createReplyAll`/`createForward` and then patches the draft with the composed content. A reply to
+  a message that lives in another mailbox is deliberately not modelled as a provider reply rather than borrowing
+  an id from a different mailbox, and it no longer sends headers that would be dropped.
 - **A disabled address book is no longer pulled, on a manual run as well as on the schedule.** The calendar half
   of this was fixed earlier; contacts were still synchronised whenever the connection was, so a book the user
   had switched off was written to from a manual "sync contacts" and could be re-created locally. Both contacts

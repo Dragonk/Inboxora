@@ -90,6 +90,14 @@ interface SendRequestBody {
    * own Message-ID from it, so the header no longer depends on the client carrying the value through.
    */
   replyToMessageId?: string;
+  /**
+   * What this send *is*, semantically: a new message, a reply, a reply to all, or a forward.
+   *
+   * The transport needs it where the provider has its own reply action: Graph's `createReply` is what gives a
+   * message the threading edge it recognises, because the RFC headers cannot be set in its JSON payload
+   * (MAIL-03). Omitting it is allowed; the server derives it from the reply target and the recipients.
+   */
+  sendKind?: string;
   references?: string;
   attachments?: ComposerAttachment[];
   editedSignature?: string;
@@ -453,7 +461,7 @@ router.get('/send-limits', async (req, res) => {
 });
 
 router.post('/send', async (req, res) => {
-  const { accountId, aliasId, to, cc = [], bcc = [], subject, body, bodyIsHtml, quotedBody, quotedBodyHtml, inReplyTo, references, replyToMessageId, attachments, editedSignature, editedSignatureIsHtml, forwardedAttachments, priority }: SendRequestBody = req.body;
+  const { accountId, aliasId, to, cc = [], bcc = [], subject, body, bodyIsHtml, quotedBody, quotedBodyHtml, inReplyTo, references, replyToMessageId, sendKind, attachments, editedSignature, editedSignatureIsHtml, forwardedAttachments, priority }: SendRequestBody = req.body;
   const emailPriority = isEmailPriority(priority) ? priority : 'normal';
   if (!accountId) return res.status(400).json({ error: 'accountId required' });
   if (bodyIsHtml !== undefined && typeof bodyIsHtml !== 'boolean') return res.status(400).json({ error: 'bodyIsHtml must be a boolean' });
@@ -769,9 +777,16 @@ router.post('/send', async (req, res) => {
     // database, and its Message-ID is the value the header needs.
     let resolvedInReplyTo = typeof inReplyTo === 'string' && inReplyTo.trim() ? inReplyTo : null;
     let resolvedReferences = typeof references === 'string' && references.trim() ? references : null;
+    // The answered message's provider id, when it is in **this** mailbox: that is what a provider-native reply
+    // action needs (MAIL-03).
+    let parentProviderMessageId: string | null = null;
     if ((!resolvedInReplyTo || !resolvedReferences) && typeof replyToMessageId === 'string' && replyToMessageId) {
-      const parent = await query<{ message_id: string | null; canonical_message_id: string | null; in_reply_to: string | null; thread_references: string | null }>(
-        `SELECT m.message_id, m.canonical_message_id, m.in_reply_to, m.thread_references
+      const parent = await query<{
+        message_id: string | null; canonical_message_id: string | null; in_reply_to: string | null;
+        thread_references: string | null; provider_message_id: string | null; account_id: string;
+      }>(
+        `SELECT m.message_id, m.canonical_message_id, m.in_reply_to, m.thread_references,
+                m.provider_message_id, m.account_id
            FROM messages m JOIN email_accounts a ON a.id = m.account_id
           WHERE m.id = $1 AND a.user_id = $2`,
         [replyToMessageId, req.session.userId],
@@ -783,6 +798,7 @@ router.post('/send', async (req, res) => {
         // The chain is the parent's own references plus the parent, which is what RFC 5322 §3.6.4 asks for.
         const chain = [row.thread_references, row.in_reply_to, parentId].filter(Boolean).join(' ').trim();
         resolvedReferences = resolvedReferences || chain || null;
+        if (row.account_id === accountId) parentProviderMessageId = row.provider_message_id;
       }
     }
     if (resolvedInReplyTo) {
@@ -953,7 +969,20 @@ router.post('/send', async (req, res) => {
     // way; a definite refusal is released so the same key can retry, and an unknown outcome is parked and
     // never re-dispatched. SMTP still throws its protocol failures (the catch below classifies those), and
     // a successful hand-off arrives as `accepted` with nodemailer's recipient lists.
-    const outcome = await transport.send({ composed, ...(rendered ? { rendered } : {}) });
+    // MAIL-03: what this send is, and — for a provider with its own reply action — the answered message's id in
+    // this mailbox. The explicit `sendKind` wins when the client sent one; otherwise it follows the reply target
+    // and the recipients. A reply to a message that lives in another mailbox keeps the header-only path rather
+    // than borrowing an id from a different mailbox, which would address the wrong provider item.
+    const effectiveSendKind: 'new' | 'reply' | 'reply_all' | 'forward' = sendKind === 'reply' || sendKind === 'reply_all' || sendKind === 'forward'
+      ? sendKind
+      : forwardedAttachments?.length ? 'forward'
+        : (replyToMessageId || inReplyTo) ? (normalizedCc.length ? 'reply_all' : 'reply') : 'new';
+    const replyContext = parentProviderMessageId
+      && transportKind === 'microsoft_graph'
+      && (effectiveSendKind === 'reply' || effectiveSendKind === 'reply_all' || effectiveSendKind === 'forward')
+      ? { kind: effectiveSendKind, providerMessageId: parentProviderMessageId }
+      : undefined;
+    const outcome = await transport.send({ composed, ...(rendered ? { rendered } : {}), ...(replyContext ? { replyContext } : {}) });
     if (outcome.status === 'outcome_unknown') {
       // The provider may or may not have the message. Keep the durable uncertain intent and the Redis
       // lease: a retry must reconcile rather than send again.
