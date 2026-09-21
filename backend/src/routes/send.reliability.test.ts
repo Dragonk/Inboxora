@@ -54,6 +54,10 @@ function mockExistingIntent(status: 'pending' | 'uncertain' | 'completed', resul
   query.mockImplementation(async (sql, params: unknown[] = []) => {
     if (sql.includes('FROM email_accounts')) return { rows: [account] };
     if (sql.includes('SELECT preferences FROM users')) return { rows: [{ preferences: {} }] };
+    // Resolving the answered message: the composer sends its row id and the server reads the RFC Message-ID.
+    if (sql.includes('FROM messages m JOIN email_accounts')) {
+      return { rows: [{ message_id: '<parent@example.com>', canonical_message_id: null, in_reply_to: null, thread_references: null }] };
+    }
     // A prior successful send may still be auto-learning contacts when the next
     // duplicate-intent test replaces this mock. Keep that detached work harmless.
     if (sql.includes('INSERT INTO address_books')) return { rows: [{ id: 'book1' }] };
@@ -245,6 +249,50 @@ describe('send failure semantics', () => {
     expect(await response.json()).toEqual({ error: 'This idempotency key belongs to a different message.' });
     expect(sendMail).not.toHaveBeenCalled();
     expect(redisClient.set).not.toHaveBeenCalled();
+  });
+
+  it('rejects the same key used for a reply to a different message', async () => {
+    // MAIL-05: the fingerprint did not cover `replyToMessageId`, so two logically different replies with the
+    // same text shared it and the second replayed the first delivery instead of sending (or conflicting).
+    const fingerprints: string[] = [];
+    query.mockImplementation(async (sql, params: unknown[] = []) => {
+      if (sql.includes('FROM email_accounts')) return { rows: [account] };
+      if (sql.includes('SELECT preferences FROM users')) return { rows: [{ preferences: {} }] };
+      if (sql.includes('FROM messages m JOIN email_accounts')) {
+        return { rows: [{ message_id: '<parent@example.com>', canonical_message_id: null, in_reply_to: null, thread_references: null }] };
+      }
+      if (sql.includes('INSERT INTO send_idempotency')) {
+        fingerprints.push(String(params[2]));
+        return { rows: [] }; // the key is already known
+      }
+      if (sql.includes('SELECT status, request_fingerprint, result')) {
+        // The stored intent always belongs to the *first* request, so the second must not match it.
+        return { rows: [{ status: 'completed', request_fingerprint: fingerprints[0], result: { ok: true } }] };
+      }
+      if (sql.includes('INSERT INTO address_books')) return { rows: [{ id: 'book1' }] };
+      if (sql.includes('INSERT INTO contacts')) return { rows: [{ address_book_id: 'book1' }] };
+      if (sql.includes('UPDATE address_books')) return { rows: [] };
+      throw new Error(`Unexpected SQL: ${sql}`);
+    });
+
+    const first = await post({ ...defaultBody, replyToMessageId: 'message-one' });
+    expect(first.status).toBe(200);
+    const second = await post({ ...defaultBody, replyToMessageId: 'message-two' });
+
+    expect(second.status).toBe(409);
+    expect(await second.json()).toEqual({ error: 'This idempotency key belongs to a different message.' });
+    expect(fingerprints).toHaveLength(2);
+    expect(fingerprints[1]).not.toBe(fingerprints[0]);
+    expect(sendMail).not.toHaveBeenCalled();
+  });
+
+  it('still replays a resend of the very same reply', async () => {
+    // The other side of the same change: an identical reply under the same key must keep replaying.
+    mockExistingIntent('completed', { ok: true });
+    const response = await post({ ...defaultBody, replyToMessageId: 'message-one' });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true });
+    expect(sendMail).not.toHaveBeenCalled();
   });
 
   it('refuses a message above the installation limit before dispatch', async () => {

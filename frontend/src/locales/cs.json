@@ -1158,6 +1158,7 @@
     },
     "sendUncertainTitle": "Výsledek odeslání není znám",
     "sendUncertainBody": "Spojení se přerušilo poté, co byla zpráva předána serveru, takže Inboxora nemůže vědět, zda byla odeslána — a znovu ji automaticky neodešle. Zkontrolujte složku Odeslaná tohoto účtu: je-li tam, byla odeslána.",
+    "sendUncertainResend": "Přesto odeslat druhou kopii? První zpráva už mohla být doručena.",
     "limitAttachmentTooLarge": "„{name}“ má {actual}, což překračuje limit {limit} pro {transport}. Soubor nebyl přiložen.",
     "limitTooLarge": "Tato zpráva má {actual}, což překračuje limit {limit} pro {transport}. Odeberte část příloh nebo zprávu zkraťte.",
     "limitTransportSmtp": "poštovní server tohoto účtu",

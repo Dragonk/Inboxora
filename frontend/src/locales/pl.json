@@ -1158,6 +1158,7 @@
     },
     "sendUncertainTitle": "Wynik wysyłki nieznany",
     "sendUncertainBody": "Połączenie zostało utracone po przekazaniu wiadomości do serwera, więc Inboxora nie wie, czy została wysłana — i nie wyśle jej ponownie automatycznie. Sprawdź folder Wysłane tego konta: jeśli tam jest, została wysłana.",
+    "sendUncertainResend": "Wysłać drugą kopię mimo to? Pierwsza wiadomość mogła już zostać doręczona.",
     "limitAttachmentTooLarge": "„{name}” ma {actual}, powyżej limitu {limit} dla {transport}. Plik nie został załączony.",
     "limitTooLarge": "Ta wiadomość ma {actual}, powyżej limitu {limit} dla {transport}. Usuń część plików albo skróć wiadomość.",
     "limitTransportSmtp": "serwera poczty tego konta",

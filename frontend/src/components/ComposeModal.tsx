@@ -395,6 +395,15 @@ export default function ComposeModal() {
   // attempt, reused across retries (so a retry after a lost response dedupes rather than
   // double-sending), and cleared on success. Fixes audit finding [1].
   const idempotencyKeyRef = useRef<string | null>(null);
+  /**
+   * True once the server answered `SEND_OUTCOME_UNKNOWN` for the current key.
+   *
+   * The key is deliberately **kept** in that state: an ordinary click then lands on the same durable intent and
+   * the server refuses to dispatch a second message, so a lost answer cannot silently become a duplicate
+   * (MAIL-05). Sending again is an explicit action below, which names the duplicate risk and mints a new key so
+   * the server treats it as a genuinely new operation.
+   */
+  const sendOutcomeUnknownRef = useRef(false);
   const replyTypeRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const shouldPositionCursorRef = useRef(isReply || isForward);
@@ -872,6 +881,15 @@ export default function ComposeModal() {
     const requestAuthEpoch = useStore.getState().authEpoch;
     const isCurrentSession = () => useStore.getState().authEpoch === requestAuthEpoch;
     localStorage.setItem('mailflow_last_from_account', accountId);
+    // An earlier send whose outcome the server could not confirm. An ordinary click must not dispatch again:
+    // the kept key makes the server answer with the same uncertain state. Sending a second copy is a separate,
+    // deliberate action, and the question says what the risk is (MAIL-05).
+    if (sendOutcomeUnknownRef.current) {
+      const confirmed = window.confirm(`${t('compose.sendUncertainTitle')}\n\n${t('compose.sendUncertainBody')}\n\n${t('compose.sendUncertainResend')}`);
+      if (!confirmed) return;
+      idempotencyKeyRef.current = null;
+      sendOutcomeUnknownRef.current = false;
+    }
     setSending(true);
     setError('');
     const bodyToSend = plaintextCompose ? body : (htmlMode ? htmlSource : (editor?.getHTML() ?? ''));
@@ -995,12 +1013,11 @@ export default function ComposeModal() {
         // can honestly do — and it is more than the server's sentence in another language.
         setError(t('compose.sendUncertainBody'));
         addNotification({ type: 'info', title: t('compose.sendUncertainTitle'), message: t('compose.sendUncertainBody') });
-        // §12.7: a deliberate re-send must be a NEW operation, and the warning above is the one it requires. The
-        // key is what makes a retry land on the same intent, so clearing it here is what turns the user's next
-        // explicit Send into a fresh operation. Nothing sends on its own — this composer only dispatches from a
-        // click — so the protection the key provides is not lost by clearing it: it exists to stop an *automatic*
-        // duplicate, and there is no automatic path left once the user has been told the outcome is unknown.
-        idempotencyKeyRef.current = null;
+        // The key is **kept**: the durable intent it created is the record of the uncertain delivery, and the
+        // next click must find that intent (and be refused) rather than dispatch a second message. Clearing it
+        // here — which is what this used to do — turned the user's next ordinary click into a fresh send and
+        // lost the protection exactly when it was needed (MAIL-05). The explicit re-send lives above handleSend.
+        sendOutcomeUnknownRef.current = true;
       } else {
         setError(appError.message);
       }

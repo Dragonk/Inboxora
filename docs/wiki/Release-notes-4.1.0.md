@@ -265,6 +265,13 @@ Microsoft application is registered in this environment.
 
 ### Fixed
 
+- **An unconfirmed send can no longer turn into a silent duplicate.** Inboxora could not tell two replies with
+  the same text to different messages apart when checking an idempotency key, so the second could be treated as
+  a repeat of the first; and after a send whose answer was lost, the composer forgot its key, so the next
+  ordinary click started a fresh send. The answered message is now part of the identity check, and after an
+  unconfirmed send the key is kept — clicking Send again shows the same "result unknown" state instead of
+  sending a second copy. Sending another copy anyway is a separate action that asks first and says why.
+
 - **A throttled mailbox no longer holds up the rest.** The scheduler used one installation-wide backoff, so a
   single rate-limited collection delayed every other account and provider, and even a second worker refreshing
   the same collection triggered it. Backoff is now per collection and follows the provider's own Retry-After,

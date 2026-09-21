@@ -1158,6 +1158,7 @@
     },
     "sendUncertainTitle": "Esito dell'invio sconosciuto",
     "sendUncertainBody": "La connessione è caduta dopo la consegna di questo messaggio al server, quindi Inboxora non può sapere se è stato inviato — e non lo invierà di nuovo automaticamente. Controlla la cartella Posta inviata dell'account: se è lì, è stato inviato.",
+    "sendUncertainResend": "Inviare comunque una seconda copia? Il primo messaggio potrebbe essere già stato consegnato.",
     "limitAttachmentTooLarge": "«{name}» è {actual}, oltre il limite di {limit} per {transport}. Il file non è stato allegato.",
     "limitTooLarge": "Questo messaggio è {actual}, oltre il limite di {limit} per {transport}. Rimuovi dei file o accorcia il messaggio.",
     "limitTransportSmtp": "il server di posta di questo account",

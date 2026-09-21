@@ -650,9 +650,14 @@ router.post('/send', async (req, res) => {
   let reservationToken: string | null = null;
   let intentToken: string | null = null;
   let intentClaimed = false;
+  // The answered message is part of what makes this request *this* request. Two replies with identical text to
+  // two different messages are different sends, and without it in the fingerprint they collide and the second
+  // replays the first delivery (MAIL-05).
+  const normalizedReplyToMessageId = typeof replyToMessageId === 'string' && replyToMessageId ? replyToMessageId : null;
   const sendFingerprint = createHash('sha256').update(JSON.stringify({
     accountId, aliasId: aliasId || null, to: normalizedTo, cc: normalizedCc, bcc: normalizedBcc,
     subject: normalizedSubject, body, inputBodyIsHtml, outputBodyIsHtml, quotedBody, quotedBodyHtml, inReplyTo, references,
+    replyToMessageId: normalizedReplyToMessageId,
     attachments, forwardedAttachments, editedSignature,
     editedSignatureIsHtml: editedSignature === undefined ? null : editedSignatureIsHtml !== false,
     priority: emailPriority,
@@ -666,10 +671,13 @@ router.post('/send', async (req, res) => {
   })).digest('hex');
   // Only requests without the newer signature-format contract may match V1.
   // Otherwise a changed signature interpretation must conflict, not replay.
+  // The earlier fingerprints did not cover the answered message at all, so a reply must not match them — that is
+  // exactly the collision this field removes. They stay compatible for a send with no reply context, where they
+  // are still unambiguous, so an in-flight send from before the upgrade is not turned into a second delivery.
   const compatibleFingerprints = [sendFingerprint];
   // d7f514c3 used the two body-format flags but had no signature-format field.
   // It is unambiguous only when no signature override was supplied.
-  if (editedSignature === undefined) {
+  if (!normalizedReplyToMessageId && editedSignature === undefined) {
     const priorTwoFormatFingerprint = createHash('sha256').update(JSON.stringify({
       accountId, aliasId: aliasId || null, to: normalizedTo, cc: normalizedCc, bcc: normalizedBcc,
       subject: normalizedSubject, body, inputBodyIsHtml, outputBodyIsHtml, quotedBody, quotedBodyHtml, inReplyTo, references,
@@ -677,10 +685,10 @@ router.post('/send', async (req, res) => {
     })).digest('hex');
     compatibleFingerprints.push(priorTwoFormatFingerprint);
   }
-  if (editedSignatureIsHtml === undefined) compatibleFingerprints.push(legacyFingerprint);
+  if (!normalizedReplyToMessageId && editedSignatureIsHtml === undefined) compatibleFingerprints.push(legacyFingerprint);
   // 2b3d927e also used its profile-derived output flag as bodyIsHtml when the
   // field was omitted. Recognise that precise historical form, never broadly.
-  if (bodyIsHtml === undefined && editedSignatureIsHtml === undefined) {
+  if (!normalizedReplyToMessageId && bodyIsHtml === undefined && editedSignatureIsHtml === undefined) {
     const historicalFingerprint = createHash('sha256').update(JSON.stringify({
       accountId, aliasId: aliasId || null, to: normalizedTo, cc: normalizedCc, bcc: normalizedBcc,
       subject: normalizedSubject, body, bodyIsHtml: outputBodyIsHtml, quotedBody, quotedBodyHtml, inReplyTo, references,

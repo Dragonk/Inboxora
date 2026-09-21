@@ -296,6 +296,14 @@ None.
   IMAP loops, health checks, rule forwarder and send path no longer open IMAP or SMTP for it.
 
 ### Fixed
+- **An uncertain send can no longer become a silent duplicate.** Two gaps made the same mistake. The server's
+  idempotency fingerprint did not cover the message being answered, so two different replies with identical text
+  shared it and the second replayed the first delivery instead of being sent (or refused); the answered message
+  is part of the request now, and the older fingerprints stay compatible only for a send with no reply context,
+  where they are unambiguous. The composer, on its side, cleared its idempotency key as soon as the server
+  answered `SEND_OUTCOME_UNKNOWN`, which turned the user's next ordinary click into a fresh send; the key is kept
+  so that click lands on the same durable intent and is refused. Sending a second copy is now a separate,
+  explicit action that names the duplicate risk and only then mints a new key.
 - **One throttled mailbox no longer pauses every other synchronisation.** The schedule kept a single
   installation-wide "next allowed" timestamp: any rate-limited collection pushed the whole pass out for every
   user, provider and collection, and because every adapter reported its own lease conflict as `RATE_LIMITED`,
