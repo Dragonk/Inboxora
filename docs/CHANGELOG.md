@@ -296,6 +296,14 @@ None.
   IMAP loops, health checks, rule forwarder and send path no longer open IMAP or SMTP for it.
 
 ### Fixed
+- **A deleted Microsoft folder no longer stays a sync target or blocks the whole mailbox.** Folder discovery
+  updated the folders the provider listed and did nothing about the ones it no longer had, so a folder deleted
+  at the provider stayed a target, kept being synchronised and answered 404 — and because the account's folder
+  loop had no error boundary, that single 404 ended the run for every other folder too. A complete folder
+  snapshot now retracts the links it does not list (they stop being targets and the next discovery drops them),
+  and one folder that cannot be synchronised no longer aborts the others: the failure is counted and logged.
+  A lost lease or an unusable connection still stops the run, since those are not one folder's problem. The
+  folder walk also reports whether a guard cut it short, so a truncated list is never treated as authoritative.
 - **A synchronisation that lost its lease can no longer overwrite a newer one.** Every adapter writes provider
   data in page-sized transactions, but only Gmail renewed its lease and none of them re-checked the generation
   before writing. A run that was superseded — its lease expired while it waited on the network, and another

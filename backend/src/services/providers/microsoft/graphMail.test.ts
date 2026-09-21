@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  fetchMailFolderSnapshot,
   fetchMailFolders,
   fetchMessagesDeltaPage,
   fetchWellKnownFolderIds,
@@ -146,6 +147,24 @@ describe('reading the folder tree from Graph', () => {
   it('ignores a folder Graph returned without an id', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ value: [{ displayName: 'No id' }, { id: 'ok', displayName: 'OK' }] })));
     await expect(fetchMailFolders(OPTIONS)).resolves.toEqual([{ id: 'ok', displayName: 'OK' }]);
+  });
+
+  it('reports a snapshot cut short by the folder budget as incomplete', async () => {
+    // GRAPH-06: a prefix must never be treated as "these are all the folders", because the caller retracts the
+    // links of the folders a complete snapshot does not list.
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({
+      value: [{ id: 'a', displayName: 'A' }, { id: 'b', displayName: 'B' }, { id: 'c', displayName: 'C' }],
+    })));
+    const snapshot = await fetchMailFolderSnapshot(OPTIONS, { maxFolders: 2 });
+    expect(snapshot.folders).toHaveLength(2);
+    expect(snapshot.complete).toBe(false);
+  });
+
+  it('reports a full walk as complete', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ value: [{ id: 'a', displayName: 'A' }] })));
+    const snapshot = await fetchMailFolderSnapshot(OPTIONS);
+    expect(snapshot.folders).toHaveLength(1);
+    expect(snapshot.complete).toBe(true);
   });
 
   it('never selects the beta-only wellKnownName property from the v1.0 endpoint', async () => {

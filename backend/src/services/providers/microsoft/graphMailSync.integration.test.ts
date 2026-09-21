@@ -201,6 +201,34 @@ describeOrSkip('Microsoft Graph mail folder discovery (PostgreSQL)', () => {
     expect(await storedFolders()).toEqual(first);
   });
 
+  it('retracts the link of a folder a complete snapshot no longer lists', async () => {
+    // GRAPH-06: a folder deleted at the provider stayed a target, kept being synchronised and answered 404,
+    // which ended the whole mailbox's run. A complete snapshot now retracts the links it does not list.
+    const connectionId = await seedConnection();
+    await syncGraphMailFolders({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl: fakeFolders([FLAT_TREE]).fetchImpl });
+    const before = await autocommit(client => client.query<{ remote_id: string; enabled: boolean }>(
+      "SELECT remote_id, enabled FROM integration_collections WHERE user_id = $1 AND kind = 'mail_folder' ORDER BY remote_id", [USER_ID],
+    ));
+    expect(before.rows).toEqual([
+      { remote_id: 'graph-inbox', enabled: true },
+      { remote_id: 'graph-sent', enabled: true },
+    ]);
+
+    // The provider no longer has Sent Items.
+    const reduced = { value: [FLAT_TREE.value[0]] };
+    const result = await syncGraphMailFolders({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl: fakeFolders([reduced]).fetchImpl });
+    expect(result[0]).toMatchObject({ retracted: 1 });
+
+    const after = await autocommit(client => client.query<{ remote_id: string; enabled: boolean }>(
+      "SELECT remote_id, enabled FROM integration_collections WHERE user_id = $1 AND kind = 'mail_folder' ORDER BY remote_id", [USER_ID],
+    ));
+    // The vanished folder is no longer a target; the one that still exists is untouched.
+    expect(after.rows).toEqual([
+      { remote_id: 'graph-inbox', enabled: true },
+      { remote_id: 'graph-sent', enabled: false },
+    ]);
+  });
+
   it('moves a renamed folder and its messages instead of orphaning them', async () => {
     const connectionId = await seedConnection();
     await syncGraphMailFolders({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl: fakeFolders([TREE, CHILDREN, WORK_CHILDREN]).fetchImpl });
@@ -404,6 +432,34 @@ describeOrSkip('Microsoft Graph mail message sync (PostgreSQL)', () => {
     expect(messages[0]?.subject).toBe('Renamed');
     // The stored delta link is what the run resumes from, not the folder's first page.
     expect(delta.urls.some(url => url.includes('inbox') && url.includes('deltatoken'))).toBe(true);
+  });
+
+  it('keeps synchronising the other folders when one folder answers 404', async () => {
+    // GRAPH-06: a folder the provider no longer has must not end the account's run — every other folder still
+    // synchronises, the failure is counted, and the dead collection stops being a target.
+    const connectionId = await seedConnection();
+    await discoverFolders(connectionId);
+
+    const fetchImpl = async (url: string): Promise<Response> => {
+      const target = String(url);
+      if (target.includes('/childFolders')) return json({ value: [] });
+      if (target.includes('/messages/delta')) {
+        if (target.includes('graph-inbox')) return json({ error: { code: 'ErrorItemNotFound', message: 'The folder was not found.' } }, 404);
+        return json({ value: [graphMessage('m2')], '@odata.deltaLink': DELTA_SENT });
+      }
+      return json(FLAT_TREE);
+    };
+
+    const result = await syncGraphMailMessagesForAccount({
+      userId: USER_ID, connectionId, accountId: ACCOUNT_ID, config: CONFIG, fetchImpl: fetchImpl as never,
+    });
+    expect(result.failedFolders).toBe(1);
+    expect((await storedMessages()).map(row => [row.provider_message_id, row.folder])).toEqual([['m2', 'Sent']]);
+
+    const inbox = await autocommit(client => client.query<{ enabled: boolean }>(
+      "SELECT enabled FROM integration_collections WHERE user_id = $1 AND remote_id = 'graph-inbox' AND kind = 'mail_folder'", [USER_ID],
+    ));
+    expect(inbox.rows[0]?.enabled).toBe(false);
   });
 
   it('keeps a message that moved to another folder, whichever delta is applied first', async () => {

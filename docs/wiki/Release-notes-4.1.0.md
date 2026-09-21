@@ -265,6 +265,11 @@ Microsoft application is registered in this environment.
 
 ### Fixed
 
+- **A folder you deleted at Microsoft no longer blocks the mailbox.** Discovery kept treating a vanished folder
+  as a target, kept asking for it, and the 404 it got ended the synchronisation of every other folder in that
+  mailbox. A complete folder listing now retires the folders it no longer contains, and a folder that cannot be
+  synchronised no longer stops the rest — only a lost lease or an unusable connection does.
+
 - **A synchronisation that was taken over can no longer write over the newer one.** When a run lost its lease
   while waiting on the network and another worker took over, it could still store its page; only the cursor was
   protected. Every page is now written inside a transaction that re-checks ownership and locks the row first, so

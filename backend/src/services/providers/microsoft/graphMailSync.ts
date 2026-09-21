@@ -16,7 +16,7 @@ import {
 import { GraphApiError } from './graphApiClient.js';
 import type { GraphApiOptions } from './graphApiClient.js';
 import {
-  fetchMailFolders,
+  fetchMailFolderSnapshot,
   fetchWellKnownFolderIds,
   fetchMessagesDeltaPage,
   graphFolderPathMap,
@@ -172,14 +172,32 @@ export async function applyGraphMailFolders(
   client: PoolClient,
   context: FolderContext,
   folders: ReadonlyMap<string, LocalMailFolder>,
-): Promise<{ created: number; updated: number; renamed: number; relocatedMessages: number }> {
-  const totals = { created: 0, updated: 0, renamed: 0, relocatedMessages: 0 };
+  options: { complete?: boolean } = {},
+): Promise<{ created: number; updated: number; renamed: number; relocatedMessages: number; retracted: number }> {
+  const totals = { created: 0, updated: 0, renamed: 0, relocatedMessages: 0, retracted: 0 };
   for (const [remoteId, local] of folders) {
     const applied = await applyFolder(client, context, remoteId, local);
     if (applied.outcome === 'created') totals.created += 1;
     else totals.updated += 1;
     if (applied.renamed) totals.renamed += 1;
     totals.relocatedMessages += applied.movedMessages;
+  }
+  // A **complete** snapshot is authoritative, so a folder it does not list no longer exists at the provider.
+  // Its link is retracted rather than left as a target: a stale target kept being synced and answered 404,
+  // which ended the whole account's run (GRAPH-06). The local folder and its messages are kept — deleting them
+  // here would be destructive on the strength of a snapshot that could be wrong, and a message that moved is
+  // re-homed by the destination folder's own delta, which is the authority on where it now lives.
+  if (options.complete !== false) {
+    const remoteIds = [...folders.keys()];
+    const retracted = await client.query(
+      `UPDATE integration_collections
+          SET enabled = false, updated_at = NOW()
+        WHERE user_id = $1 AND connection_id = $2 AND account_id = $3 AND kind = 'mail_folder'
+          AND enabled = true AND remote_id <> ALL($4::text[])
+        RETURNING id`,
+      [context.userId, context.connectionId, context.accountId, remoteIds],
+    );
+    totals.retracted = retracted.rowCount ?? retracted.rows.length;
   }
   return totals;
 }
@@ -252,13 +270,14 @@ export async function syncGraphMailFoldersForAccount(input: {
 
   try {
     // The listing carries no role: `wellKnownName` is a beta-only property and requesting it from v1.0 can fail
-    // the whole request (GRAPH-01). Roles come from resolving each well-known alias to its real id instead.
-    const [folders, wellKnownById] = await Promise.all([
-      fetchMailFolders(api),
+    // the whole request (GRAPH-01). Roles come from resolving each well-known alias to its real id instead. The
+    // snapshot's completeness decides whether a folder that is absent may be retracted (GRAPH-06).
+    const [snapshot, wellKnownById] = await Promise.all([
+      fetchMailFolderSnapshot(api),
       fetchWellKnownFolderIds(api),
     ]);
-    const mapped = graphFolderPathMap(folders, wellKnownById);
-    const applied = await withFencedSyncLease({ syncStateId, generation: lease.generation, run: client => applyGraphMailFolders(client, context, mapped) });
+    const mapped = graphFolderPathMap(snapshot.folders, wellKnownById);
+    const applied = await withFencedSyncLease({ syncStateId, generation: lease.generation, run: client => applyGraphMailFolders(client, context, mapped, { complete: snapshot.complete }) });
     const committed = await withTransaction(async client => {
       const saved = await commitSyncCheckpoint(client, {
         syncStateId,
@@ -322,6 +341,8 @@ export interface GraphMailMessageSyncResult {
   fullSyncFolders: number;
   /** Folders whose delta did not reach its end within one run, so their snapshot is only a prefix (SYNC-04). */
   incompleteFolders: number;
+  /** Folders that could not be synchronised at all this run; the others still were (GRAPH-06). */
+  failedFolders: number;
 }
 
 /** One folder's outcome, so a caller can tell a baseline from an incremental run. */
@@ -538,22 +559,46 @@ export async function syncGraphMailMessagesForAccount(input: {
     [input.accountId],
   );
   const account = accountResult.rows[0];
-  if (!account) return { accountId: input.accountId, folders: 0, created: 0, updated: 0, deleted: 0, skipped: 0, fullSyncFolders: 0, incompleteFolders: 0 };
+  if (!account) return { accountId: input.accountId, folders: 0, created: 0, updated: 0, deleted: 0, skipped: 0, fullSyncFolders: 0, incompleteFolders: 0, failedFolders: 0 };
 
   const targets = await withTransaction(client => listGraphFolderTargets(client, input));
   const totals: GraphMailMessageSyncResult = {
-    accountId: input.accountId, folders: 0, created: 0, updated: 0, deleted: 0, skipped: 0, fullSyncFolders: 0, incompleteFolders: 0,
+    accountId: input.accountId, folders: 0, created: 0, updated: 0, deleted: 0, skipped: 0, fullSyncFolders: 0, incompleteFolders: 0, failedFolders: 0,
   };
 
   for (const target of targets) {
-    const result = await syncGraphMailMessagesForFolder({ ...input, account, target });
-    totals.folders += 1;
-    totals.created += result.created;
-    totals.updated += result.updated;
-    totals.deleted += result.deleted;
-    totals.skipped += result.skipped;
-    if (result.fullSync) totals.fullSyncFolders += 1;
-    if (result.incomplete) totals.incompleteFolders += 1;
+    try {
+      const result = await syncGraphMailMessagesForFolder({ ...input, account, target });
+      totals.folders += 1;
+      totals.created += result.created;
+      totals.updated += result.updated;
+      totals.deleted += result.deleted;
+      totals.skipped += result.skipped;
+      if (result.fullSync) totals.fullSyncFolders += 1;
+      if (result.incomplete) totals.incompleteFolders += 1;
+    } catch (caught) {
+      const code = caught instanceof GraphApiError || caught instanceof ProviderAuthError || caught instanceof SyncLeaseLostError
+        ? caught.code : 'INTERNAL_ERROR';
+      // One unusable folder must not end the whole mailbox's run (GRAPH-06), but an error that says the *run*
+      // or the *connection* is over must still stop it: a lost lease means another worker owns the collection,
+      // and a revoked grant or missing scope is not one folder's problem.
+      const fatal = caught instanceof SyncLeaseLostError
+        || caught instanceof ProviderAuthError
+        || (caught instanceof GraphApiError && (caught.code === 'PROVIDER_AUTH_REQUIRED' || caught.code === 'INSUFFICIENT_SCOPES'));
+      if (fatal) throw caught;
+
+      totals.failedFolders += 1;
+      console.warn(`Graph mail: folder ${target.remoteId} could not be synchronised (${code}):`, caught instanceof Error ? caught.message : caught);
+      // A folder the provider no longer has (404) is retracted from the targets so the next discovery drops
+      // it, instead of failing the same way on every run.
+      if (caught instanceof GraphApiError && caught.code === 'RESOURCE_NOT_FOUND') {
+        await withTransaction(client => client.query(
+          `UPDATE integration_collections SET enabled = false, updated_at = NOW()
+            WHERE id = $1 AND user_id = $2`,
+          [target.collectionId, input.userId],
+        )).catch(() => { /* the run's other folders are what matter here */ });
+      }
+    }
   }
   return totals;
 }

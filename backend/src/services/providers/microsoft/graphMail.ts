@@ -166,17 +166,33 @@ export function graphFolderPathMap(
  * children. `$top` pages and `@odata.nextLink` are followed explicitly rather than
  * relying on Graph's default page size.
  */
-export async function fetchMailFolders(
+export interface GraphMailFolderSnapshot {
+  folders: GraphMailFolder[];
+  /**
+   * False when a guard cut the walk short — the folder budget or the depth limit — so the list is a prefix and
+   * must never be treated as an authoritative "these are all the folders" (GRAPH-06, SYNC-04).
+   */
+  complete: boolean;
+}
+
+/**
+ * Read the whole mail-folder tree of the signed-in mailbox, parents before
+ * children. `$top` pages and `@odata.nextLink` are followed explicitly rather than
+ * relying on Graph's default page size.
+ */
+export async function fetchMailFolderSnapshot(
   api: GraphApiOptions,
   options: { maxFolders?: number } = {},
-): Promise<GraphMailFolder[]> {
+): Promise<GraphMailFolderSnapshot> {
   const maxFolders = options.maxFolders ?? MAX_MAIL_FOLDERS;
   const folders: GraphMailFolder[] = [];
   const queue: Array<{ id: string | null; depth: number }> = [{ id: null, depth: 0 }];
+  let complete = true;
 
   while (queue.length > 0) {
     const current = queue.shift();
-    if (!current || current.depth > MAX_FOLDER_DEPTH) continue;
+    if (!current) continue;
+    if (current.depth > MAX_FOLDER_DEPTH) { complete = false; continue; }
     let nextLink: string | null = null;
     do {
       const page: GraphFolderPage = nextLink
@@ -188,13 +204,21 @@ export async function fetchMailFolders(
       for (const folder of page.value ?? []) {
         if (!folder.id) continue;
         folders.push(folder);
-        if (folders.length >= maxFolders) return folders;
+        if (folders.length >= maxFolders) return { folders, complete: false };
         if ((folder.childFolderCount ?? 0) > 0) queue.push({ id: folder.id, depth: current.depth + 1 });
       }
       nextLink = page['@odata.nextLink'] ?? null;
     } while (nextLink);
   }
-  return folders;
+  return { folders, complete };
+}
+
+/** The folder list alone, for callers that only need the tree. */
+export async function fetchMailFolders(
+  api: GraphApiOptions,
+  options: { maxFolders?: number } = {},
+): Promise<GraphMailFolder[]> {
+  return (await fetchMailFolderSnapshot(api, options)).folders;
 }
 
 /**
