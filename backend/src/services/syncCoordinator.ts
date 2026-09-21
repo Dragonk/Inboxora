@@ -128,6 +128,14 @@ export async function syncLeaseHeld(client: PoolClient, input: {
 }
 
 export interface SyncCheckpoint {
+  /**
+   * Checkpoint fields use explicit patch semantics: a key that is **absent** leaves the stored value unchanged,
+   * a key that is **present with `null`** clears it, and a key present with a string sets it.
+   *
+   * The previous `COALESCE($n, column)` could not tell "no change" from "clear", so the baseline transition
+   * that means to drop a cursor Gmail has invalidated silently kept it and the next run re-read the expired
+   * cursor (SYNC-02).
+   */
   /** Opaque string; 64-bit provider history ids must not pass through a JS number. */
   cursor?: string | null;
   completedWatermark?: string | null;
@@ -136,10 +144,16 @@ export interface SyncCheckpoint {
   lastErrorCode?: string | null;
 }
 
+function has(input: object, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(input, key);
+}
+
 /**
- * Persist a checkpoint for the current generation only. Returns false when the
- * lease/generation guard rejected the write, which the caller must report as a
- * stale run rather than as success.
+ * Persist a progress checkpoint for the current generation only. Returns false when the lease/generation guard
+ * rejected the write, which the caller must report as a stale run rather than as success.
+ *
+ * This deliberately does **not** touch `last_success_at`: a checkpoint records where a run got to, not that the
+ * declared scope was completed. Use `finishSyncRun` for the latter.
  */
 export async function commitSyncCheckpoint(client: PoolClient, input: {
   syncStateId: string;
@@ -147,16 +161,44 @@ export async function commitSyncCheckpoint(client: PoolClient, input: {
 } & SyncCheckpoint): Promise<boolean> {
   const result = await client.query(
     `UPDATE sync_states
-        SET cursor = COALESCE($3, cursor),
-            completed_watermark = COALESCE($4, completed_watermark),
-            page_checkpoint = CASE WHEN $5::boolean THEN NULL ELSE COALESCE($6, page_checkpoint) END,
-            last_success_at = NOW(),
-            last_error_code = $7,
+        SET cursor = CASE WHEN $3::boolean THEN $4::text ELSE cursor END,
+            completed_watermark = CASE WHEN $5::boolean THEN $6::text ELSE completed_watermark END,
+            page_checkpoint = CASE
+                                WHEN $7::boolean THEN NULL
+                                WHEN $8::boolean THEN $9::text
+                                ELSE page_checkpoint
+                              END,
+            last_error_code = $10,
             updated_at = NOW()
       WHERE id = $1 AND running_generation = $2 AND lease_expires_at > NOW()
       RETURNING id`,
-    [input.syncStateId, input.generation, input.cursor ?? null, input.completedWatermark ?? null,
-      Boolean(input.clearPageCheckpoint), input.pageCheckpoint ?? null, input.lastErrorCode ?? null],
+    [input.syncStateId, input.generation,
+      has(input, 'cursor'), input.cursor ?? null,
+      has(input, 'completedWatermark'), input.completedWatermark ?? null,
+      Boolean(input.clearPageCheckpoint), has(input, 'pageCheckpoint'), input.pageCheckpoint ?? null,
+      input.lastErrorCode ?? null],
+  );
+  return (result.rowCount ?? result.rows.length) > 0;
+}
+
+/**
+ * Mark the run that owns this lease as having completed its declared scope.
+ *
+ * Separate from `commitSyncCheckpoint` because the two mean different things (SYNC-02): the old single
+ * statement stamped `last_success_at = NOW()` on **every** partial commit, so an interrupted baseline that had
+ * stored one page looked like a successful synchronisation and the interface had no way to tell the difference.
+ */
+export async function finishSyncRun(client: PoolClient, input: {
+  syncStateId: string;
+  generation: number;
+  lastErrorCode?: string | null;
+}): Promise<boolean> {
+  const result = await client.query(
+    `UPDATE sync_states
+        SET last_success_at = NOW(), last_error_code = $3, updated_at = NOW()
+      WHERE id = $1 AND running_generation = $2 AND lease_expires_at > NOW()
+      RETURNING id`,
+    [input.syncStateId, input.generation, input.lastErrorCode ?? null],
   );
   return (result.rowCount ?? result.rows.length) > 0;
 }

@@ -265,6 +265,13 @@ Microsoft application is registered in this environment.
 
 ### Fixed
 
+- **An interrupted synchronisation no longer looks finished, and a stale sync cursor is really dropped.**
+  Storing progress and declaring success were the same database write, so a first synchronisation cut short
+  after one page reported the mailbox as up to date; and because the cursor was written with a "keep the old
+  value if the new one is null" rule, the recovery path that means to discard a cursor the provider has
+  invalidated kept using it. Progress checkpoints and run completion are now separate operations with explicit
+  semantics, and only a run that applied its whole declared scope is recorded as successful.
+
 - **The account card tells the truth about calendars and contacts.** Calendar and address-book synchronisation
   state is stored per collection with no account id, and the calendar pipeline is recorded as `calendars`; the
   diagnostics looked for it by account id and under the name `calendar`, so it was invisible and the card said

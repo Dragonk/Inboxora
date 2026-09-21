@@ -17,7 +17,7 @@ import {
   beginOperation, completeOperation, findOperationByKey, renewOperationLease, scheduleOperationRetry,
 } from './providerOperations.js';
 import {
-  acquireSyncLease, commitSyncCheckpoint, ensureSyncState, failSyncRun, readSyncState, releaseSyncLease, renewSyncLease, syncLeaseHeld,
+  acquireSyncLease, commitSyncCheckpoint, ensureSyncState, failSyncRun, finishSyncRun, readSyncState, releaseSyncLease, renewSyncLease, syncLeaseHeld,
 } from './syncCoordinator.js';
 import {
   claimDueOutbox, completeOutbox, enqueueOutbox, failOutbox, recoverExpiredOutbox,
@@ -294,6 +294,52 @@ describeOrSkip('sync coordinator (PostgreSQL)', () => {
     const state = await autocommit(client => readSyncState(client, syncStateId));
     expect(state?.lastErrorCode).toBe('PARTIAL_SYNC');
     expect(state?.cursor).toBeNull();
+  });
+
+  it('tells "leave the cursor alone" apart from "clear the cursor", and only a finished run succeeds', async () => {
+    // SYNC-02: `cursor = COALESCE($3, cursor)` could not express a clear, so the baseline transition that means
+    // to drop a cursor the provider has invalidated silently kept it; and every partial page commit stamped
+    // `last_success_at`, so an interrupted baseline looked like a successful synchronisation.
+    const syncStateId = await inTransaction(client => ensureSyncState(client, scope));
+    const run = await inTransaction(client => acquireSyncLease(client, { syncStateId, owner: 'worker-a' }));
+    if (!run) throw new Error('expected the lease');
+
+    // A checkpoint with no cursor key leaves the stored cursor untouched.
+    await inTransaction(client => commitSyncCheckpoint(client, { syncStateId, generation: run.generation, cursor: 'history-1' }));
+    await inTransaction(client => commitSyncCheckpoint(client, { syncStateId, generation: run.generation, pageCheckpoint: 'page-2' }));
+    let state = await autocommit(client => readSyncState(client, syncStateId));
+    expect(state?.cursor).toBe('history-1');
+    expect(state?.pageCheckpoint).toBe('page-2');
+    // A progress checkpoint is not a success.
+    expect(state?.lastSuccessAt).toBeNull();
+
+    // An explicit null clears it.
+    await inTransaction(client => commitSyncCheckpoint(client, { syncStateId, generation: run.generation, cursor: null }));
+    state = await autocommit(client => readSyncState(client, syncStateId));
+    expect(state?.cursor).toBeNull();
+    // Clearing the page checkpoint is a separate, explicit operation too.
+    await inTransaction(client => commitSyncCheckpoint(client, { syncStateId, generation: run.generation, clearPageCheckpoint: true }));
+    state = await autocommit(client => readSyncState(client, syncStateId));
+    expect(state?.pageCheckpoint).toBeNull();
+
+    // Finishing the run is what claims the success.
+    expect(await inTransaction(client => finishSyncRun(client, { syncStateId, generation: run.generation }))).toBe(true);
+    state = await autocommit(client => readSyncState(client, syncStateId));
+    expect(state?.lastSuccessAt).not.toBeNull();
+  });
+
+  it('refuses to finish a run whose lease was superseded', async () => {
+    // A finished-run claim is guarded exactly like a checkpoint: a superseded worker cannot mark another
+    // worker's run successful.
+    const syncStateId = await inTransaction(client => ensureSyncState(client, scope));
+    const run = await inTransaction(client => acquireSyncLease(client, { syncStateId, owner: 'worker-a' }));
+    if (!run) throw new Error('expected the lease');
+    await expireSyncLease(syncStateId);
+    const takeover = await inTransaction(client => acquireSyncLease(client, { syncStateId, owner: 'worker-b' }));
+    expect(takeover?.generation).toBe(run.generation + 1);
+    expect(await inTransaction(client => finishSyncRun(client, { syncStateId, generation: run.generation }))).toBe(false);
+    const state = await autocommit(client => readSyncState(client, syncStateId));
+    expect(state?.lastSuccessAt).toBeNull();
   });
 });
 

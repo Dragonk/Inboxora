@@ -7,6 +7,7 @@ import {
   commitSyncCheckpoint,
   ensureSyncState,
   failSyncRun,
+  finishSyncRun,
   readSyncState,
   releaseSyncLease,
 } from '../../syncCoordinator.js';
@@ -256,12 +257,17 @@ export async function syncGraphMailFoldersForAccount(input: {
     ]);
     const mapped = graphFolderPathMap(folders, wellKnownById);
     const applied = await withTransaction(client => applyGraphMailFolders(client, context, mapped));
-    const committed = await withTransaction(client => commitSyncCheckpoint(client, {
-      syncStateId,
-      generation: lease.generation,
-      clearPageCheckpoint: true,
-      lastErrorCode: null,
-    }));
+    const committed = await withTransaction(async client => {
+      const saved = await commitSyncCheckpoint(client, {
+        syncStateId,
+        generation: lease.generation,
+        clearPageCheckpoint: true,
+        lastErrorCode: null,
+      });
+      if (!saved) return false;
+      // The folder snapshot is the whole declared scope of this run (SYNC-02).
+      return finishSyncRun(client, { syncStateId, generation: lease.generation, lastErrorCode: null });
+    });
     if (!committed) {
       throw new GraphApiError({
         code: 'MUTATION_OUTCOME_UNKNOWN',
@@ -618,13 +624,18 @@ export async function syncGraphMailMessagesForFolder(input: {
       totals.deleted += await withTransaction(client => reconcileGraphMailMessages(client, context, seen));
     }
 
-    const committed = await withTransaction(client => commitSyncCheckpoint(client, {
-      syncStateId,
-      generation: lease.generation,
-      cursor,
-      clearPageCheckpoint: true,
-      lastErrorCode: null,
-    }));
+    const committed = await withTransaction(async client => {
+      const saved = await commitSyncCheckpoint(client, {
+        syncStateId,
+        generation: lease.generation,
+        cursor,
+        clearPageCheckpoint: true,
+        lastErrorCode: null,
+      });
+      if (!saved) return false;
+      // The delta was read to its end, so the run may claim a successful synchronisation (SYNC-02).
+      return finishSyncRun(client, { syncStateId, generation: lease.generation, lastErrorCode: null });
+    });
     if (!committed) {
       throw new GraphApiError({
         code: 'MUTATION_OUTCOME_UNKNOWN',

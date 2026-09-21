@@ -3,7 +3,7 @@ import { pool, query } from './db.js';
 import { GOOGLE_GRANT_AUDIENCE, storeOAuthGrant, upsertProviderConnection } from './providerAuthService.js';
 import { describeAccountProviderFeatures } from './accountProviderFeatures.js';
 import { providerSyncPreflight } from './providerSyncDiagnostics.js';
-import { commitSyncCheckpoint, ensureSyncState, failSyncRun } from './syncCoordinator.js';
+import { commitSyncCheckpoint, ensureSyncState, failSyncRun, finishSyncRun } from './syncCoordinator.js';
 
 /**
  * Per-account provider diagnostics, on real PostgreSQL.
@@ -118,6 +118,8 @@ describeOrSkip('account provider diagnostics (PostgreSQL)', () => {
       );
       const leaseGeneration = Number(lease.rows[0]!.running_generation);
       await commitSyncCheckpoint(client, { syncStateId: id, generation: leaseGeneration, cursor: 'history-42' });
+      // A checkpoint records progress; only finishing the run claims a successful synchronisation (SYNC-02).
+      await finishSyncRun(client, { syncStateId: id, generation: leaseGeneration, lastErrorCode: null });
       await failSyncRun(client, { syncStateId: id, generation: leaseGeneration, errorCode: 'RATE_LIMITED' });
       return { syncStateId: id };
     });
@@ -225,6 +227,7 @@ describeOrSkip('the feature state model', () => {
         [stateId],
       );
       await commitSyncCheckpoint(client, { syncStateId: stateId, generation: Number(lease.rows[0]!.running_generation), cursor: 'history-7' });
+      await finishSyncRun(client, { syncStateId: stateId, generation: Number(lease.rows[0]!.running_generation), lastErrorCode: null });
     });
     const succeeded = await describeAccountProviderFeatures({ userId: USER_A, accountId });
     expect(succeeded!.mail.synchronized).toBe(true);
@@ -255,8 +258,10 @@ describeOrSkip('mail diagnostics read the message pipeline, not discovery', () =
         'UPDATE sync_states SET running_generation = COALESCE(running_generation, 0) + 1, lease_expires_at = NOW() + interval \'5 minutes\' WHERE id = $1 RETURNING running_generation',
         [labels],
       );
-      // A discovery run completes without any history cursor: it must not become "mail synchronised".
+      // A discovery run completes without any history cursor: even as a finished run it must not become "mail
+      // synchronised", because its coverage is `labels` and only the `history` pipeline counts.
       await commitSyncCheckpoint(client, { syncStateId: labels, generation: Number(lease.rows[0]!.running_generation) });
+      await finishSyncRun(client, { syncStateId: labels, generation: Number(lease.rows[0]!.running_generation), lastErrorCode: null });
     });
 
     const afterDiscovery = await describeAccountProviderFeatures({ userId: USER_A, accountId });
@@ -274,6 +279,7 @@ describeOrSkip('mail diagnostics read the message pipeline, not discovery', () =
         [history],
       );
       await commitSyncCheckpoint(client, { syncStateId: history, generation: Number(lease.rows[0]!.running_generation), cursor: 'history-98765' });
+      await finishSyncRun(client, { syncStateId: history, generation: Number(lease.rows[0]!.running_generation), lastErrorCode: null });
     });
 
     const afterHistory = await describeAccountProviderFeatures({ userId: USER_A, accountId });

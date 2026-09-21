@@ -296,6 +296,15 @@ None.
   IMAP loops, health checks, rule forwarder and send path no longer open IMAP or SMTP for it.
 
 ### Fixed
+- **A partial checkpoint is no longer recorded as a successful synchronisation, and a cleared cursor is actually
+  cleared.** Two meanings were collapsed into one statement: `commitSyncCheckpoint` both stored progress and
+  stamped `last_success_at`, and it wrote the cursor with `COALESCE($3, cursor)`, which cannot express "clear
+  it". An interrupted first synchronisation that had stored one page therefore looked complete, and the baseline
+  transition that means to drop a cursor the provider has invalidated silently kept the dead cursor and re-read
+  it on the next run. Checkpoint fields now use explicit patch semantics (absent leaves the value, `null`
+  clears, a string sets) and a separate `finishSyncRun` records completion; every provider pipeline calls it
+  only after the whole declared scope was applied. `completed_watermark` and the page checkpoint follow the same
+  rule.
 - **The account card no longer reports "never" for a calendar or address book that did synchronise.** The
   diagnostics read `sync_states` by `account_id` and by the raw feature name, but mail state is the only state
   stored that way: the calendar synchronizers record the feature as `calendars` and store it per collection with

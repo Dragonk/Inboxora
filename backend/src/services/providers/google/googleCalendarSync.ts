@@ -6,6 +6,7 @@ import {
   commitSyncCheckpoint,
   ensureSyncState,
   failSyncRun,
+  finishSyncRun,
   readSyncState,
   releaseSyncLease,
 } from '../../syncCoordinator.js';
@@ -268,13 +269,18 @@ async function syncCollection(api: GoogleApiOptions, collection: CalendarCollect
 
     // The cursor advances only after every group was applied, so a crash mid-run
     // re-reads from the previous cursor instead of skipping changes.
-    const committed = await withTransaction(client => commitSyncCheckpoint(client, {
-      syncStateId,
-      generation: lease.generation,
-      cursor: nextSyncToken ?? cursor,
-      clearPageCheckpoint: true,
-      lastErrorCode: null,
-    }));
+    const committed = await withTransaction(async client => {
+      const saved = await commitSyncCheckpoint(client, {
+        syncStateId,
+        generation: lease.generation,
+        cursor: nextSyncToken ?? cursor,
+        clearPageCheckpoint: true,
+        lastErrorCode: null,
+      });
+      if (!saved) return false;
+      // The run applied every group it was asked for, so it may claim a successful synchronisation (SYNC-02).
+      return finishSyncRun(client, { syncStateId, generation: lease.generation, lastErrorCode: null });
+    });
     if (!committed) {
       throw new GoogleApiError({
         code: 'MUTATION_OUTCOME_UNKNOWN',

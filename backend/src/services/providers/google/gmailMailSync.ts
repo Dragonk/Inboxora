@@ -7,6 +7,7 @@ import {
   commitSyncCheckpoint,
   ensureSyncState,
   failSyncRun,
+  finishSyncRun,
   readSyncState,
   releaseSyncLease,
   renewSyncLease,
@@ -328,12 +329,17 @@ export async function syncGmailMailLabelsForAccount(input: {
     const { labels, complete } = await fetchGmailLabels(api);
     const mapped = gmailFolderPathMap(labels);
     const applied = await withTransaction(client => applyGmailMailLabels(client, context, mapped, { complete }));
-    const committed = await withTransaction(client => commitSyncCheckpoint(client, {
-      syncStateId,
-      generation: lease.generation,
-      clearPageCheckpoint: true,
-      lastErrorCode: null,
-    }));
+    // The label snapshot completed its declared scope, so this is a finished run, not a progress checkpoint.
+    const committed = await withTransaction(async client => {
+      const saved = await commitSyncCheckpoint(client, {
+        syncStateId,
+        generation: lease.generation,
+        clearPageCheckpoint: true,
+        lastErrorCode: null,
+      });
+      if (!saved) return false;
+      return finishSyncRun(client, { syncStateId, generation: lease.generation, lastErrorCode: null });
+    });
     if (!committed) {
       throw new GoogleApiError({
         code: 'MUTATION_OUTCOME_UNKNOWN',
@@ -773,6 +779,17 @@ export async function syncGmailMailMessagesForAccount(input: {
       });
     }
   };
+  /** Mark the run finished. Only a run that completed its declared scope may claim a successful sync (SYNC-02). */
+  const finish = async (): Promise<void> => {
+    const done = await withTransaction(client => finishSyncRun(client, { syncStateId, generation: lease.generation, lastErrorCode: null }));
+    if (!done) {
+      throw new GoogleApiError({
+        code: 'MUTATION_OUTCOME_UNKNOWN',
+        message: 'The Gmail message sync lost its lease before it could record its completion',
+        status: 409,
+      });
+    }
+  };
 
   const maxThreadsPerRun = input.maxThreadsPerRun ?? GMAIL_MAX_THREADS_PER_RUN;
   const state = await withTransaction(client => readSyncState(client, syncStateId));
@@ -809,6 +826,7 @@ export async function syncGmailMailMessagesForAccount(input: {
 
     if (!incomplete) {
       await commit({ cursor, clearPageCheckpoint: true });
+      await finish();
     }
     await withTransaction(client => releaseSyncLease(client, { syncStateId, generation: lease.generation })).catch(() => {});
     return { accountId: input.accountId, labels: targets.length, ...totals, fullSync, incomplete, cursor, mode };

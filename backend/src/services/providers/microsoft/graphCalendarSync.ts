@@ -6,6 +6,7 @@ import {
   commitSyncCheckpoint,
   ensureSyncState,
   failSyncRun,
+  finishSyncRun,
   readSyncState,
   releaseSyncLease,
 } from '../../syncCoordinator.js';
@@ -245,13 +246,18 @@ async function syncCollection(api: GraphApiOptions, collection: CalendarCollecti
 
     // The cursor advances only after every group was applied, so a crash mid-run re-reads from the
     // previous link instead of skipping changes.
-    const committed = await withTransaction(client => commitSyncCheckpoint(client, {
-      syncStateId,
-      generation: lease.generation,
-      cursor,
-      clearPageCheckpoint: true,
-      lastErrorCode: null,
-    }));
+    const committed = await withTransaction(async client => {
+      const saved = await commitSyncCheckpoint(client, {
+        syncStateId,
+        generation: lease.generation,
+        cursor,
+        clearPageCheckpoint: true,
+        lastErrorCode: null,
+      });
+      if (!saved) return false;
+      // Every group was applied, so the run completed its declared scope (SYNC-02).
+      return finishSyncRun(client, { syncStateId, generation: lease.generation, lastErrorCode: null });
+    });
     if (!committed) {
       throw new GraphApiError({
         code: 'MUTATION_OUTCOME_UNKNOWN',
