@@ -32,6 +32,16 @@ vi.mock('./providers/microsoft/graphMailSync.js', () => ({
 vi.mock('./providers/microsoft/graphCalendarSync.js', () => ({ syncGraphCalendar: calls.syncGraphCalendar }));
 vi.mock('./providers/microsoft/graphContactsSync.js', () => ({ syncGraphContacts: calls.syncGraphContacts }));
 
+vi.mock('./db.js', () => ({
+  withTransaction: async (fn: (client: unknown) => unknown) => fn({ query: async () => ({ rows: [] }) }),
+  query: async () => ({ rows: [] }),
+}));
+vi.mock('./syncCoordinator.js', () => ({
+  ensureSyncState: vi.fn(async () => 'state-1'),
+  acquireSyncLease: vi.fn(async () => ({ generation: 1 })),
+  failSyncRun: vi.fn(async () => true),
+}));
+
 import { authorizationResultQuery, finalizeProviderAuthorization } from './providerAuthorizationFinalizer.js';
 
 const GOOGLE_CONFIG = { clientId: 'c', clientSecret: 's', redirectUri: 'https://inboxora.example/oauth/google/callback' };

@@ -11,6 +11,8 @@ import { syncGoogleContacts } from './providers/google/googleContactsSync.js';
 import { syncGraphMailFolders, syncGraphMailMessagesForAccount } from './providers/microsoft/graphMailSync.js';
 import { syncGraphCalendar } from './providers/microsoft/graphCalendarSync.js';
 import { syncGraphContacts } from './providers/microsoft/graphContactsSync.js';
+import { withTransaction } from './db.js';
+import { acquireSyncLease, ensureSyncState, failSyncRun } from './syncCoordinator.js';
 
 /**
  * Finish a provider authorization: run the first synchronization the purpose implies, right now.
@@ -126,6 +128,52 @@ async function runMailBaseline(input: FinalizeProviderAuthorizationInput): Promi
   await syncGraphMailMessagesForAccount({ userId: input.userId, connectionId: input.connectionId, accountId, config });
 }
 
+
+/**
+ * The `sync_states.coverage` each purpose's first run belongs to.
+ *
+ * A feature writes more than one kind of run (a calendar's discovery and its events, a mailbox's labels and its
+ * messages), and the diagnostics report the pipeline's own coverage. A failure recorded under a different one is
+ * invisible, so this writes the failure where the card reads.
+ */
+const PURPOSE_PIPELINE_COVERAGE: Record<string, { google: string; microsoft: string }> = {
+  mail_migration: { google: 'history', microsoft: 'messages' },
+  account_enable: { google: 'history', microsoft: 'messages' },
+  calendar_enable: { google: 'events', microsoft: 'events' },
+  contacts_enable: { google: 'personal', microsoft: 'personal' },
+};
+
+/**
+ * Record a failed first synchronisation where the account's diagnostics will show it.
+ *
+ * The live report was "authorized, last synchronisation: never" with no error anywhere: the run threw before the
+ * sync's own failure recorder was reached — or recorded it under a coverage the diagnostics do not read — so the
+ * card had nothing to show and the cause had to be guessed at. This persists the code against the feature's
+ * pipeline, which is what the diagnostics read.
+ */
+async function recordInitialSyncFailure(input: FinalizeProviderAuthorizationInput, code: string): Promise<void> {
+  if (!input.targetAccountId) return;
+  // `sync_states.feature` names a calendar as `calendars`, which is the value the calendar sync writes.
+  const feature = input.purpose === 'calendar_enable' ? 'calendars'
+    : input.purpose === 'contacts_enable' ? 'contacts'
+      : 'mail';
+  const coverage = PURPOSE_PIPELINE_COVERAGE[input.purpose]?.[input.provider] ?? null;
+  if (!coverage) return;
+  await withTransaction(async client => {
+    const syncStateId = await ensureSyncState(client, {
+      userId: input.userId,
+      connectionId: input.connectionId,
+      accountId: input.targetAccountId,
+      feature,
+      collectionId: null,
+      coverage,
+    });
+    const lease = await acquireSyncLease(client, { syncStateId, owner: 'provider-authorization-finalizer' });
+    if (!lease) return;
+    await failSyncRun(client, { syncStateId, generation: lease.generation, errorCode: code });
+  });
+}
+
 export async function finalizeProviderAuthorization(
   input: FinalizeProviderAuthorizationInput,
 ): Promise<ProviderAuthorizationResult> {
@@ -163,6 +211,7 @@ export async function finalizeProviderAuthorization(
     // "connected, synchronisation failed" instead of asking for a reconnection that changes nothing.
     const code = failureCodeOf(caught);
     console.warn(`Initial ${input.purpose} sync after authorization failed for ${input.provider}:`, code);
+    await recordInitialSyncFailure(input, code).catch(() => { /* the result is still reported below */ });
     return { ...base, synchronized: false, syncPending: false, syncErrorCode: code };
   }
 }

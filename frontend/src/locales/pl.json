@@ -883,31 +883,14 @@
         "help": "Znajdź swój token w Todoist: Ustawienia → Integracje → Deweloper"
       },
       "carddav": {
-        "title": "Kontakty CardDAV",
         "description": "Synchronizuj kontakty z serwerem CardDAV, takim jak Nextcloud.",
         "connected": "Połączono",
-        "notConnected": "Niepołączone",
-        "serverLabel": "Adres URL serwera",
-        "serverPh": "https://chmurowy.example.com",
-        "userLabel": "Nazwa użytkownika",
-        "userPh": "Nazwa użytkownika Nextcloud",
-        "passLabel": "Hasło aplikacji",
-        "passPh": "Hasło aplikacji (nie hasło logowania)",
-        "dupLabel": "Gdy kontakt już istnieje",
-        "dupSeparate": "Zachowaj oba (osobna książka adresowa)",
-        "dupMerge": "Scal — pierwszeństwo ma CardDAV",
-        "dupSkip": "Pomiń kontakt CardDAV",
-        "intervalLabel": "Częstotliwość synchronizacji (minuty)",
         "connect": "Połącz",
-        "connecting": "Łączenie…",
         "connectFailed": "Nie udało się połączyć",
         "disconnect": "Rozłącz",
-        "syncNow": "Synchronizuj teraz",
         "syncing": "Synchronizowanie…",
         "lastSync": "Ostatnia synchronizacja: {{when}}",
-        "summary": "{{contacts}} kontaktów w {{books}} książkach adresowych",
-        "syncFailed": "Ostatnia synchronizacja nie powiodła się: {{error}}",
-        "help": "Użyj hasła aplikacji Nextcloud, nie hasła logowania — użytkownicy SSO muszą utworzyć je w Ustawienia → Bezpieczeństwo. Kontakty są synchronizowane jednokierunkowo i są tylko do odczytu w Inboxora."
+        "summary": "{{contacts}} kontaktów w {{books}} książkach adresowych"
       },
       "google": {
         "title": "Google (Gmail, Kalendarz, Kontakty)",

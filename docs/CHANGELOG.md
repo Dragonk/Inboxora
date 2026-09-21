@@ -296,6 +296,17 @@ None.
   IMAP loops, health checks, rule forwarder and send path no longer open IMAP or SMTP for it.
 
 ### Fixed
+- **A failed first synchronisation is recorded where the card reads it.** The live report was "authorized,
+  last synchronisation: never" with no error anywhere: the first run of a calendar or contacts consent threw
+  before the sync's own failure recorder was reached, or recorded its error under a coverage the diagnostics do
+  not read, so the card showed nothing and the cause had to be guessed. The post-authorization finalizer now
+  writes the failure into the feature's own pipeline state (`events`, `personal`, `history`/`messages`), which is
+  what the account diagnostics read, and the provider's code is what appears there.
+- **CardDAV is managed only from Contacts.** The address-book manager has a Sources section that adds, syncs and
+  removes a CardDAV server, so the settings screen no longer carries a second, user-level copy of the same
+  connection — the same rule that puts a calendar's sources on the calendar screen. Its now-unused locale keys are
+  removed from all nine files.
+
 - **A native account keeps no IMAP or SMTP endpoint.** Both cutovers moved the transport but left `imap_host`,
   `imap_port`, `smtp_host`, `smtp_port`, `auth_user` and `auth_pass` on the row, so the settings showed
   "IMAP imap.gmail.com:993 / SMTP smtp.gmail.com:587" for an account that reads and sends through the provider

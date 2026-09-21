@@ -444,31 +444,14 @@
         "help": "Trouvez votre jeton dans Todoist Paramètres → Intégrations → Développeur"
       },
       "carddav": {
-        "title": "Contacts CardDAV",
         "description": "Synchronisez les contacts depuis un serveur CardDAV comme Nextcloud.",
         "connected": "Connecté",
-        "notConnected": "Non connecté",
-        "serverLabel": "URL du serveur",
-        "serverPh": "https://cloud.exemple.com",
-        "userLabel": "Nom d'utilisateur",
-        "userPh": "votre nom d'utilisateur Nextcloud",
-        "passLabel": "Mot de passe d'application",
-        "passPh": "mot de passe d'application (pas votre mot de passe de connexion)",
-        "dupLabel": "Lorsqu'un contact existe déjà",
-        "dupSeparate": "Garder les deux (carnet séparé)",
-        "dupMerge": "Fusionner — CardDAV l'emporte",
-        "dupSkip": "Ignorer le contact CardDAV",
-        "intervalLabel": "Intervalle de synchronisation (minutes)",
         "connect": "Connecter",
-        "connecting": "Connexion…",
         "connectFailed": "Échec de la connexion",
         "disconnect": "Déconnecter",
-        "syncNow": "Synchroniser maintenant",
         "syncing": "Synchronisation…",
         "lastSync": "Dernière synchro : {{when}}",
-        "summary": "{{contacts}} contacts dans {{books}} carnets",
-        "syncFailed": "Échec de la dernière synchro : {{error}}",
-        "help": "Utilisez un mot de passe d'application Nextcloud, pas votre mot de passe de connexion — les utilisateurs SSO doivent en créer un dans Paramètres → Sécurité. Les contacts sont synchronisés à sens unique et en lecture seule dans Inboxora."
+        "summary": "{{contacts}} contacts dans {{books}} carnets"
       },
       "google": {
         "title": "Google (Gmail, Agenda, Contacts)",

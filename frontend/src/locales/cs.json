@@ -875,31 +875,14 @@
         "help": "Token najdete v Todoist Nastavení → Integrace → Vývojář"
       },
       "carddav": {
-        "title": "Kontakty CardDAV",
         "description": "Synchronizujte kontakty ze serveru CardDAV, například Nextcloud.",
         "connected": "Připojeno",
-        "notConnected": "Nepřipojeno",
-        "serverLabel": "URL serveru",
-        "serverPh": "https://cloud.example.com",
-        "userLabel": "Uživatelské jméno",
-        "userPh": "vaše uživatelské jméno Nextcloud",
-        "passLabel": "Heslo pro aplikaci",
-        "passPh": "heslo pro aplikaci (nikoli přihlašovací heslo)",
-        "dupLabel": "Pokud kontakt už existuje",
-        "dupSeparate": "Ponechat oba (samostatný adresář)",
-        "dupMerge": "Sloučit — CardDAV má přednost",
-        "dupSkip": "Přeskočit kontakt CardDAV",
-        "intervalLabel": "Interval synchronizace (minuty)",
         "connect": "Připojit",
-        "connecting": "Připojování…",
         "connectFailed": "Připojení se nezdařilo",
         "disconnect": "Odpojit",
-        "syncNow": "Synchronizovat nyní",
         "syncing": "Synchronizace…",
         "lastSync": "Poslední synchronizace: {{when}}",
-        "summary": "{{contacts}} kontaktů v {{books}} adresářích",
-        "syncFailed": "Poslední synchronizace selhala: {{error}}",
-        "help": "Použijte heslo pro aplikaci Nextcloud, nikoli přihlašovací heslo — uživatelé SSO si je musí vytvořit v Nastavení → Zabezpečení. Kontakty se synchronizují jednosměrně a v Inboxora jsou jen pro čtení."
+        "summary": "{{contacts}} kontaktů v {{books}} adresářích"
       },
       "google": {
         "title": "Google (Gmail, Kalendář, Kontakty)",

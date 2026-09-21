@@ -444,31 +444,14 @@
         "help": "Find your token in Todoist Settings → Integrations → Developer"
       },
       "carddav": {
-        "title": "CardDAV Contacts",
         "description": "Sync contacts from a CardDAV server such as Nextcloud.",
         "connected": "Connected",
-        "notConnected": "Not connected",
-        "serverLabel": "Server URL",
-        "serverPh": "https://cloud.example.com",
-        "userLabel": "Username",
-        "userPh": "your Nextcloud username",
-        "passLabel": "App password",
-        "passPh": "app password (not your login password)",
-        "dupLabel": "When a contact already exists",
-        "dupSeparate": "Keep both (separate address book)",
-        "dupMerge": "Merge — CardDAV wins",
-        "dupSkip": "Skip the CardDAV contact",
-        "intervalLabel": "Sync interval (minutes)",
         "connect": "Connect",
-        "connecting": "Connecting…",
         "connectFailed": "Failed to connect",
         "disconnect": "Disconnect",
-        "syncNow": "Sync now",
         "syncing": "Syncing…",
         "lastSync": "Last sync: {{when}}",
-        "summary": "{{contacts}} contacts in {{books}} address books",
-        "syncFailed": "Last sync failed: {{error}}",
-        "help": "Use a Nextcloud app password, not your login password — SSO users must create one under Settings → Security. Contacts are synced one-way and are read-only in Inboxora."
+        "summary": "{{contacts}} contacts in {{books}} address books"
       },
       "google": {
         "title": "Google (Gmail, Calendar, Contacts)",

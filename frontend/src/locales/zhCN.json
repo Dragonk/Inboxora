@@ -444,31 +444,14 @@
         "help": "在 Todoist 设置 → 集成 → 开发者中找到您的令牌"
       },
       "carddav": {
-        "title": "CardDAV 联系人",
         "description": "从 Nextcloud 等 CardDAV 服务器同步联系人。",
         "connected": "已连接",
-        "notConnected": "未连接",
-        "serverLabel": "服务器地址",
-        "serverPh": "https://nextcloud.example.com",
-        "userLabel": "用户名",
-        "userPh": "你的 Nextcloud 用户名",
-        "passLabel": "应用专用密码",
-        "passPh": "应用专用密码（非登录密码）",
-        "dupLabel": "当联系人已存在时",
-        "dupSeparate": "保留两者（单独的通讯簿）",
-        "dupMerge": "合并 — 以 CardDAV 为准",
-        "dupSkip": "跳过该 CardDAV 联系人",
-        "intervalLabel": "同步间隔（分钟）",
         "connect": "连接",
-        "connecting": "正在连接…",
         "connectFailed": "连接失败",
         "disconnect": "断开连接",
-        "syncNow": "立即同步",
         "syncing": "正在同步…",
         "lastSync": "上次同步：{{when}}",
-        "summary": "{{books}} 个通讯簿中的 {{contacts}} 个联系人",
-        "syncFailed": "上次同步失败：{{error}}",
-        "help": "请使用 Nextcloud 应用专用密码，而非登录密码——SSO 用户需在“设置 → 安全”中创建。联系人为单向同步，在 Inboxora 中为只读。"
+        "summary": "{{books}} 个通讯簿中的 {{contacts}} 个联系人"
       },
       "google": {
         "title": "Google（Gmail、日历、联系人）",
