@@ -261,8 +261,15 @@ reads the new columns; a mixed old/new deployment must not run with the new code
   series is not truncated twice, the remainder is created from the snapshot the operation recorded, and an operation
   whose record already shows the remainder returns that result without touching the provider at all. An adapter that
   records nothing keeps the conservative park, so nothing is re-run on a guess. Still open: a create whose outcome
-  was never recorded is not resumed (no record, no resume), which is what keeps a lost response from becoming a
-  second series. That case is now **named** rather than generic: the dispatch of the create is recorded as its own
+  was never recorded used to be left alone, which kept a lost response from becoming a second series but left the
+  failure unexplained. It is now **reconciled**: the calendar is asked whether the remainder is already there, and
+  an exact, single match means it is — the operation records that result and creates nothing. Nothing found means
+  the create did not land, so it is dispatched; more than one match means two identical events exist, which is
+  possible legitimately, and that is reported as unknown rather than guessed at. The lookup uses an ordinary listing
+  on both providers (Google's `events.list`, Microsoft's `/events`) rather than a delta, because a recovery must not
+  consume a synchronisation's cursor. **Not validated against a live provider**: the comparison is pinned by unit
+  tests over the payload a create sends and the resource a provider answers with — which is how a real difference
+  was found: Microsoft pads fractional seconds, so the comparison is of instants and not of strings. That case is now **named** rather than generic: the dispatch of the create is recorded as its own
   stage, and an operation parked as an unknown outcome reports the stages it had recorded, so "the remainder was
   dispatched and the answer was lost" can be told apart from "the operation merely started". Reconciling it
   automatically — for Google, looking the series up before deciding — is the remaining part of CAL-01.

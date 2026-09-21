@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
     insert: vi.fn(),
     patch: vi.fn(),
     remove: vi.fn(),
+    listEvents: vi.fn(),
   },
   graph: {
     instances: vi.fn(),
@@ -23,14 +24,28 @@ const mocks = vi.hoisted(() => ({
     create: vi.fn(),
     patch: vi.fn(),
     remove: vi.fn(),
+    listEvents: vi.fn(),
   },
 }));
+
+/**
+ * The stages the journal would hand an adapter that is resuming a recovered operation (CAL-01).
+ *
+ * Set by the case that needs it; the production call site builds this inside `runProviderMutation` from the claim.
+ */
+const injected = { progress: [] as Array<{ stage: string; detail?: unknown }> };
+const recordProgress = vi.fn(async () => {});
 
 vi.mock('./providerMutationService.js', () => ({
   // Run the real adapter's `perform` and translate its outcome the way the journal does, so the engine's
   // classification is exercised without a database.
-  runProviderMutation: async (input: { payload: unknown }, adapter: { perform: (write: unknown) => Promise<{ status: string; value?: unknown; code?: string }> }) => {
-    const outcome = await adapter.perform(input.payload) as { status: string; value?: unknown; code?: string; retryAfterSeconds?: number };
+  runProviderMutation: async (input: { payload: unknown }, adapter: { perform: (write: unknown, context?: unknown) => Promise<{ status: string; value?: unknown; code?: string }> }) => {
+    const outcome = await adapter.perform(input.payload, {
+      operationId: 'op-1',
+      signal: new AbortController().signal,
+      recordProgress,
+      progress: injected.progress,
+    }) as { status: string; value?: unknown; code?: string; retryAfterSeconds?: number };
     return outcome.status === 'committed'
       ? { status: 'confirmed', value: outcome.value }
       : {
@@ -43,6 +58,7 @@ vi.mock('./providerMutationService.js', () => ({
 vi.mock('./providers/google/googleCalendar.js', async importOriginal => ({
   ...(await importOriginal<typeof import('./providers/google/googleCalendar.js')>()),
   fetchGoogleEventInstances: mocks.google.instances,
+  fetchCalendarEvents: mocks.google.listEvents,
   fetchGoogleEvent: mocks.google.get,
   insertGoogleEvent: mocks.google.insert,
   patchGoogleEvent: mocks.google.patch,
@@ -53,6 +69,7 @@ vi.mock('./providers/microsoft/graphCalendar.js', async importOriginal => ({
   fetchGraphEventInstances: mocks.graph.instances,
   fetchGraphEvent: mocks.graph.get,
   createGraphEvent: mocks.graph.create,
+  listGraphCalendarEvents: mocks.graph.listEvents,
   patchGraphEvent: mocks.graph.patch,
   deleteGraphEvent: mocks.graph.remove,
 }));
@@ -67,6 +84,10 @@ import {
   writeProviderCalendarOccurrence,
   type ProviderOccurrenceTarget,
 } from './providerCalendarOccurrences.js';
+
+// The stages a resumed adapter is handed are per-test state: a case that sets them must not leak the record into
+// the next one, which would make that case look like a resumed run and skip its writes.
+beforeEach(() => { injected.progress = []; });
 
 const GOOGLE_MASTER = 'google-master-1';
 const GRAPH_MASTER = 'AAMkAD-master-1';
@@ -370,6 +391,70 @@ describe('changing this and following', () => {
     })).resolves.toMatchObject({ status: 'confirmed' });
     const graphRecurrence = (mocks.graph.create.mock.calls.at(-1)?.[2] as { recurrence?: { range?: { type?: string; numberOfOccurrences?: number } } }).recurrence;
     expect(graphRecurrence?.range).toMatchObject({ type: 'numbered', numberOfOccurrences: 8 });
+  });
+
+  it('recognises a remainder a previous run already created, instead of creating a second series', async () => {
+    // CAL-01: the create goes straight to the provider, so a run that died after dispatching it left no record of
+    // whether it landed. A resumed run asks the calendar; an exact, single match means it did land.
+    const prepared = {
+      values: { ...values, recurrence: { frequency: 'weekly' as const, interval: 1, byWeekday: [1, 3], until: null, untilIcal: null, count: 8 } },
+      remainderRecurrence: null,
+    };
+    injected.progress = [
+      { stage: 'split_prepared', detail: prepared },
+      { stage: 'master_truncated', detail: {} },
+      { stage: 'remainder_create_dispatched', detail: {} },
+    ];
+    mocks.google.instances.mockResolvedValue([{ id: `${GOOGLE_MASTER}_20260915T090000Z`, originalStartTime: { dateTime: '2026-09-15T09:00:00Z' } }]);
+    mocks.google.get.mockResolvedValue(GOOGLE_MASTER_EVENT);
+    // The calendar already holds an event that carries exactly what the split was about to create.
+    mocks.google.listEvents.mockResolvedValue({
+      events: [{
+        id: 'remainder-1',
+        summary: 'Standup (moved)',
+        start: { dateTime: '2026-09-15T11:00:00.000Z' },
+        recurrence: ['RRULE:FREQ=WEEKLY;COUNT=8;BYDAY=MO,WE'],
+      }],
+    });
+
+    const outcome = await writeProviderCalendarOccurrence({
+      target: googleTarget, scope: 'following', operation: 'update', values: { ...values }, sendUpdates: 'all',
+    });
+
+    expect(outcome).toMatchObject({ status: 'confirmed', createdSeriesId: 'remainder-1' });
+    // Nothing was created a second time, and the master was not truncated again either.
+    expect(mocks.google.insert).not.toHaveBeenCalled();
+    expect(mocks.google.patch).not.toHaveBeenCalled();
+  });
+
+  it('recognises a Microsoft remainder a previous run already created, instead of creating a second series', async () => {
+    // The same recovery as on Google, over Graph's ordinary listing: the create has no journal of its own, so the
+    // calendar is asked what it holds before another one is dispatched.
+    injected.progress = [
+      { stage: 'split_prepared', detail: { values } },
+      { stage: 'master_truncated', detail: {} },
+      { stage: 'remainder_create_dispatched', detail: {} },
+    ];
+    mocks.graph.instances.mockResolvedValue([{ id: `${GRAPH_MASTER}_20260915`, originalStart: '2026-09-15T09:00:00.0000000' }]);
+    mocks.graph.get.mockResolvedValue(GRAPH_MASTER_EVENT);
+    mocks.graph.listEvents.mockResolvedValue([{
+      id: 'graph-remainder-1',
+      subject: 'Standup (moved)',
+      start: { dateTime: '2026-09-15T11:00:00.0000000', timeZone: 'UTC' },
+      recurrence: {
+        pattern: { type: 'weekly', interval: 1, daysOfWeek: ['monday', 'wednesday'] },
+        range: { type: 'numbered', startDate: '2026-09-15', numberOfOccurrences: 8 },
+      },
+    }]);
+
+    const outcome = await writeProviderCalendarOccurrence({
+      target: graphTarget, scope: 'following', operation: 'update', values, sendUpdates: 'all',
+    });
+
+    if (outcome.status !== 'confirmed') console.log('DIAG graph reconcile', JSON.stringify(outcome));
+    expect(outcome).toMatchObject({ status: 'confirmed', createdSeriesId: 'graph-remainder-1' });
+    expect(mocks.graph.create).not.toHaveBeenCalled();
+    expect(mocks.graph.patch).not.toHaveBeenCalled();
   });
 
   it('refuses a client count it cannot continue rather than restarting the series', async () => {

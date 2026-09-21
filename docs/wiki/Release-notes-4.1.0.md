@@ -284,10 +284,12 @@ Microsoft application is registered in this environment.
   Inboxora stops between the writes, the operation's own record now says which part completed and holds the
   information the second part needs, instead of leaving an unexplained unknown outcome. A change that was
   interrupted is now finished from that record rather than abandoned — the first write is not repeated, and the
-  second uses the snapshot the operation recorded. A write whose outcome was never recorded is still left alone
-  (that is what stops a lost response from creating a second series), so an interrupted split either completes
-  exactly or is reported as unknown, never silently duplicated — and the report now says **which** step it stopped
-  after, instead of leaving the operator to guess.
+  second uses the snapshot the operation recorded. When the outcome of the second write was never recorded,
+  Inboxora now looks for the second series before deciding: if exactly one event matching what it was about to
+  create is already there, that is the result and nothing is created again; if none is, it creates it; if more than
+  one matches, it reports that a person has to look rather than risk a duplicate. An interrupted split therefore
+  completes exactly or is reported, never silently duplicated. The lookup has been tested against what the
+  providers are documented to return, not against a live mailbox.
 
 - **Internal: the transport seam now has a Gmail and Microsoft implementation.** The actions the inbox rules
   perform — move, delete, read/starred — can now be carried out on a native account through the same services

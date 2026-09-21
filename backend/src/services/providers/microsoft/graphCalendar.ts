@@ -215,6 +215,31 @@ export async function fetchGraphCalendarEventsPage(api: GraphApiOptions, calenda
   };
 }
 
+/**
+ * The calendar's events, without delta semantics — used to look for one that a split may already have created.
+ *
+ * `events/delta` cannot answer that question: it answers from a cursor and advances it, and a recovery path must
+ * not consume a synchronisation's round. This is the ordinary listing (masters included, which a calendar view
+ * would not return), paged by its own `@odata.nextLink` and capped, because a recovery is rare and a bounded read
+ * is better than an unbounded one. No `$filter` is sent: the syntax of a filter on a nested date property is not
+ * something this codebase has validated against the service, and matching is done on what comes back.
+ */
+export async function listGraphCalendarEvents(api: GraphApiOptions, calendarId: string, input: { pageSize?: number; maxPages?: number } = {}): Promise<GraphEvent[]> {
+  const pageSize = Number.isFinite(input.pageSize) && Number(input.pageSize) > 0 ? Math.min(250, Math.floor(Number(input.pageSize))) : 100;
+  const events: GraphEvent[] = [];
+  let link: string | null = graphUrl(`${GRAPH_CALENDAR_PATH}/${encodeURIComponent(calendarId)}/events`, { $top: pageSize });
+  for (let page = 0; page < (input.maxPages ?? 5) && link; page += 1) {
+    const body: { value?: GraphEvent[] | null; '@odata.nextLink'?: string | null } = await graphGet<{
+      value?: GraphEvent[] | null; '@odata.nextLink'?: string | null;
+    }>(api, link);
+    for (const event of body.value ?? []) {
+      if (event?.id) events.push(event);
+    }
+    link = body['@odata.nextLink'] ?? null;
+  }
+  return events;
+}
+
 export function graphEventIsCancelled(event: GraphEvent): boolean {
   return event.isCancelled === true || event['@removed'] !== undefined;
 }

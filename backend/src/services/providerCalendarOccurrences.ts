@@ -3,6 +3,7 @@ import { googleConfigFromEnv, microsoftConfigFromEnv } from './providerAuthServi
 import { runProviderMutation } from './providerMutationService.js';
 import type { ProviderAdapterOutcome, ProviderMutationAdapter } from './providerMutationService.js';
 import type { OperationProgressEntry } from './providerOperations.js';
+import { fetchCalendarEvents } from './providers/google/googleCalendar.js';
 import { providerWriteFailure, type ProviderWriteFailure } from './providerWriteFailure.js';
 import type { GoogleEventWriteInput } from './providerGoogleWrites.js';
 import {
@@ -20,6 +21,7 @@ import {
   fetchGraphEvent,
   fetchGraphEventInstances,
   graphRecurrenceRule,
+  listGraphCalendarEvents,
   patchGraphEvent,
   type GraphEventPayload,
 } from './providers/microsoft/graphCalendar.js';
@@ -165,6 +167,27 @@ function sameInstant(candidate: string | null | undefined, wanted: Date): boolea
   return !Number.isNaN(parsed.getTime()) && parsed.getTime() === wanted.getTime();
 }
 
+/**
+ * Whether two provider stamps name the same moment.
+ *
+ * The payload a create sent and the resource the provider answers with are the same instant written differently —
+ * Graph pads fractional seconds (`…T11:00:00.0000000`) where the request carried `…T11:00:00` — so a comparison by
+ * string would never recognise the remainder a split had already created. A stamp without a zone designator is read
+ * as UTC, the frame the provider listing is requested in.
+ */
+function sameStamp(candidate: string | null | undefined, wanted: string | null | undefined): boolean {
+  const normalize = (value: string | null | undefined): number | null => {
+    if (typeof value !== 'string' || !value) return null;
+    const withZone = /(?:Z|[+-]\d{2}:?\d{2})$/.test(value) ? value : `${value}Z`;
+    const parsed = new Date(withZone);
+    return Number.isNaN(parsed.getTime()) ? null : parsed.getTime();
+  };
+  const left = normalize(candidate);
+  const right = normalize(wanted);
+  if (left !== null && right !== null) return left === right;
+  return (candidate ?? null) === (wanted ?? null);
+}
+
 /** `YYYYMMDDTHHMMSSZ`, the form Google writes both `UNTIL` and its instance ids with. */
 export function compactUtc(date: Date): string {
   return date.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
@@ -306,6 +329,43 @@ function continuedCount(total: number | null | undefined, consumed: number | nul
 }
 
 /**
+ * How many of a calendar's events look like the remainder a split dispatched (CAL-01).
+ *
+ * The create goes straight to the provider, so a run that died after dispatching it left no record of whether it
+ * landed — and creating it again would make a second series. This is how the ambiguity is resolved: look for an
+ * event that carries exactly what the split was about to create, and act on what is found.
+ *
+ * Only a single exact match counts. **Absent** means the create did not land (or the event was removed since), and
+ * **ambiguous** means more than one event matches — two identical events can legitimately exist, and linking the
+ * wrong one would be worse than reporting that a person has to look.
+ */
+export function matchSplitRemainder(
+  events: ReadonlyArray<{
+    id?: string | null;
+    summary?: string | null;
+    start?: { dateTime?: string | null; date?: string | null } | null;
+    recurrence?: string[] | null;
+  }>,
+  signature: { id: string; summary: string; start: { dateTime: string | null; date: string | null }; recurrence: string[] },
+): { verdict: 'found'; id: string } | { verdict: 'absent' } | { verdict: 'ambiguous' } {
+  const matches = events.filter(event => {
+    // The master itself is never the remainder, even when the two look alike.
+    if (!event.id || event.id === signature.id) return false;
+    if ((event.summary ?? null) !== signature.summary) return false;
+    if (!sameStamp(event.start?.dateTime ?? null, signature.start.dateTime)) return false;
+    // An all-day series has a date and no time, and its date is compared literally.
+    if ((event.start?.date ?? null) !== signature.start.date) return false;
+    const recurrence = Array.isArray(event.recurrence) ? event.recurrence : [];
+    return recurrence.length === signature.recurrence.length
+      && recurrence.every((line, index) => line === signature.recurrence[index]);
+  });
+  if (matches.length === 0) return { verdict: 'absent' };
+  // The matcher answers with the id it matched: re-finding the same event afterwards is how the two comparisons
+  // drift apart (the first compared instants, the second compared strings, and they disagreed).
+  return matches.length === 1 ? { verdict: 'found', id: matches[0]!.id as string } : { verdict: 'ambiguous' };
+}
+
+/**
  * The outcome a resumed run already reached, when its own record says the remainder exists.
  *
  * Returning it without touching the provider is what keeps a reclaimed operation from creating a second series.
@@ -317,11 +377,22 @@ function resumedOutcome(context: { progress?: OperationProgressEntry[] } | undef
 }
 
 /** What a resumed run must not repeat, and the snapshot the remainder is built from. */
-function resumedSplit(context: { progress?: OperationProgressEntry[] } | undefined): { masterTruncated: boolean; prepared: Record<string, unknown> | null } | null {
-  const truncated = context?.progress?.some(entry => entry.stage === 'master_truncated') ?? false;
+function resumedSplit(context: { progress?: OperationProgressEntry[] } | undefined): {
+  masterTruncated: boolean;
+  createDispatched: boolean;
+  remainderCreated: boolean;
+  prepared: Record<string, unknown> | null;
+} | null {
+  const stages = context?.progress ?? [];
+  const truncated = stages.some(entry => entry.stage === 'master_truncated');
   if (!truncated) return null;
-  const prepared = context?.progress?.find(entry => entry.stage === 'split_prepared')?.detail;
-  return { masterTruncated: true, prepared: (prepared as Record<string, unknown> | undefined) ?? null };
+  const prepared = stages.find(entry => entry.stage === 'split_prepared')?.detail;
+  return {
+    masterTruncated: true,
+    createDispatched: stages.some(entry => entry.stage === 'remainder_create_dispatched'),
+    remainderCreated: stages.some(entry => entry.stage === 'remainder_created'),
+    prepared: (prepared as Record<string, unknown> | undefined) ?? null,
+  };
 }
 
 // ── Resolution of the provider's occurrence identity ─────────────────────────
@@ -503,6 +574,32 @@ function googleOccurrenceAdapter(api: Parameters<typeof insertGoogleEvent>[0]): 
           // keeps — not the truncated one, and not the original count either (CAL-02).
           remainder.recurrence = remainderRecurrence;
         }
+        // CAL-01: a resumed run whose record shows the create was dispatched but not its answer must not dispatch a
+        // second one blindly. The calendar is asked whether the remainder is already there, and only an exact,
+        // single match is treated as landed; nothing found means the create did not land, and more than one means a
+        // person has to look — creating on that ambiguity could duplicate a series.
+        const reconcile = resumed?.createDispatched && !resumed.remainderCreated;
+        if (reconcile) {
+          const signature = {
+            id: write.masterId,
+            summary: remainder.summary ?? '',
+            start: { dateTime: remainder.start?.dateTime ?? null, date: remainder.start?.date ?? null },
+            recurrence: remainder.recurrence ?? [],
+          };
+          const page = await fetchCalendarEvents(api, write.providerCalendarId, {
+            timeMin: new Date(before.getTime() - 86_400_000).toISOString(),
+            timeMax: new Date(before.getTime() + 86_400_000).toISOString(),
+            maxResults: 250,
+          });
+          const match = matchSplitRemainder(page.events, signature);
+          if (match.verdict === 'ambiguous') {
+            return { status: 'outcome_unknown', code: 'MUTATION_OUTCOME_UNKNOWN' };
+          }
+          if (match.verdict === 'found') {
+            await context?.recordProgress?.('remainder_created', { createdSeriesId: match.id, reconciled: true });
+            return { status: 'committed', value: { createdSeriesId: match.id } };
+          }
+        }
         // The create goes straight to the API (no journal of its own), so this record is the only evidence that it
         // was dispatched. A run that dies here cannot be resumed safely — a second create would make a second
         // series — so the record exists to make that state explicit instead of a generic unknown (CAL-01).
@@ -605,6 +702,32 @@ function graphOccurrenceAdapter(api: Parameters<typeof patchGraphEvent>[0]): Pro
             payload.recurrence = null;
           } else if (master.recurrence) {
             payload.recurrence = { pattern, range: remainderRange ?? { ...(master.recurrence.range ?? { type: 'noEnd' }), startDate: splitDate } };
+          }
+        }
+        // CAL-01: a resumed run whose record shows the create was dispatched but not its answer asks the calendar
+        // first, exactly as the Google path does — an exact, single match means it landed.
+        const reconcile = resumed?.createDispatched && !resumed.remainderCreated;
+        if (reconcile && payload) {
+          const expected = payload;
+          const listed = await listGraphCalendarEvents(api, write.providerCalendarId);
+          const match = matchSplitRemainder(
+            listed.map(event => ({
+              id: event.id,
+              summary: event.subject ?? null,
+              start: { dateTime: event.start?.dateTime ?? null, date: null },
+              recurrence: event.recurrence ? graphRecurrenceRule(event.recurrence.pattern, event.recurrence.range) ? [graphRecurrenceRule(event.recurrence.pattern, event.recurrence.range) as string] : [] : [],
+            })),
+            {
+              id: write.masterId,
+              summary: expected.subject ?? '',
+              start: { dateTime: expected.start?.dateTime ?? null, date: null },
+              recurrence: expected.recurrence ? [graphRecurrenceRule(expected.recurrence.pattern, expected.recurrence.range) as string] : [],
+            },
+          );
+          if (match.verdict === 'ambiguous') return { status: 'outcome_unknown', code: 'MUTATION_OUTCOME_UNKNOWN' };
+          if (match.verdict === 'found') {
+            await context?.recordProgress?.('remainder_created', { createdSeriesId: match.id, reconciled: true });
+            return { status: 'committed', value: { createdSeriesId: match.id } };
           }
         }
         // CAL-01: as on Google, everything the remainder needs is recorded before the first write.
