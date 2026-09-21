@@ -296,6 +296,15 @@ None.
   IMAP loops, health checks, rule forwarder and send path no longer open IMAP or SMTP for it.
 
 ### Fixed
+- **A consent says which way it failed, and a repeated callback is no longer reported as one.** Every state that
+  was not accepted produced the same "Invalid or expired authorization state", which cannot distinguish a state
+  that was never issued from one that expired and from one that a **second** callback presented after the first
+  had already stored the grant. Browsers do hit a callback twice (a reload, back/forward, a provider retry), so a
+  consent that had succeeded showed an error the user could do nothing about. The callback now reports the
+  flow's own state: a repeated callback for a completed or in-flight authorization answers as the success it is,
+  an expired one says the authorization took too long, a declined one says so, and only a genuinely unknown state
+  asks the user to start again from the account card.
+
 - **A native mailbox is found through the connection that holds its collections, so mail is fetched again.**
   The mail syncs resolved their mailboxes with `email_accounts.provider_connection_id = <the connection being
   synced>`. An identity can have more than one connection row — the one its cutover created and the one a consent

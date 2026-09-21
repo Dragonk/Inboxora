@@ -19,6 +19,7 @@ import {
   providerConfigRevision,
   storeOAuthGrant,
   takeAuthorizationFlow,
+  inspectAuthorizationFlow,
   upsertProviderConnection,
 } from '../services/providerAuthService.js';
 import type { AuthorizationPurpose, GoogleConfig, RequestedAccess } from '../services/providerAuthService.js';
@@ -133,7 +134,16 @@ router.get('/google/callback', async (req: Request, res: Response) => {
     if (!state || !code) return failRedirect(res, 'Missing code or state');
 
     const taken = await withTransaction(client => takeAuthorizationFlow(client, { state, provider: 'google' }));
-    if (!taken) return failRedirect(res, 'Invalid or expired authorization state');
+    if (!taken) {
+      // A state is single-use. A second callback for a consent that already succeeded is not a failure: the
+      // grant is stored, and reporting "Invalid OAuth state" told the user their connection had not worked when
+      // it had. The remaining cases keep their own message so the cause is visible.
+      const status = await withTransaction(client => inspectAuthorizationFlow(client, { state, provider: 'google' }));
+      if (status === 'completed' || status === 'exchanging') return res.redirect('/?oauth_success=google');
+      if (status === 'expired') return failRedirect(res, 'The authorization took too long and expired. Start it again.');
+      if (status === 'failed' || status === 'cancelled') return failRedirect(res, 'That authorization was declined. Start it again.');
+      return failRedirect(res, 'Invalid OAuth state - please start from the account card again');
+    }
     flowId = taken.id;
 
     const sessionUserId = req.session.userId;

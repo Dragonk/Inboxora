@@ -24,6 +24,7 @@ import {
   storeDeviceAuthorization,
   storeOAuthGrant,
   takeAuthorizationFlow,
+  inspectAuthorizationFlow,
   upsertProviderConnection,
 } from '../services/providerAuthService.js';
 import type { AuthorizationPurpose, RequestedAccess } from '../services/providerAuthService.js';
@@ -318,7 +319,13 @@ router.get('/microsoft/callback', async (req: Request, res: Response) => {
     if (!state || !code) return failRedirect(res, 'Missing code or state');
 
     const taken = await withTransaction(client => takeAuthorizationFlow(client, { state, provider: 'microsoft' }));
-    if (!taken) return failRedirect(res, 'Invalid or expired authorization state');
+    if (!taken) {
+      const status = await withTransaction(client => inspectAuthorizationFlow(client, { state, provider: 'microsoft' }));
+      if (status === 'completed' || status === 'exchanging') return res.redirect('/?oauth_success=microsoft_graph');
+      if (status === 'expired') return failRedirect(res, 'The authorization took too long and expired. Start it again.');
+      if (status === 'failed' || status === 'cancelled') return failRedirect(res, 'That authorization was declined. Start it again.');
+      return failRedirect(res, 'Invalid OAuth state - please start from the account card again');
+    }
     flowId = taken.id;
 
     const sessionUserId = req.session.userId;

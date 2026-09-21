@@ -202,7 +202,7 @@ describe('GET /oauth/google/callback', () => {
     });
     const response = await callback('?code=code-1&state=replayed');
     expect(response.status).toBe(302);
-    expect(response.headers.get('location')).toBe('/?oauth_error=Invalid%20or%20expired%20authorization%20state');
+    expect(response.headers.get('location')).toBe('/?oauth_error=Invalid%20OAuth%20state%20-%20please%20start%20from%20the%20account%20card%20again');
     expect(providerCalls()).toHaveLength(0);
   });
 

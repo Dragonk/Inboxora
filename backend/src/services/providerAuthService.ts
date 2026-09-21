@@ -357,6 +357,32 @@ export interface TakenAuthorizationFlow {
  * statement that selects it, so a replayed callback finds nothing: single use is
  * enforced by the database, not by a check-then-write race.
  */
+/**
+ * Why a state was not accepted, when it was not.
+ *
+ * `takeAuthorizationFlow` answers "may I use this state", which is all a caller needs to proceed — but a bare
+ * `null` cannot tell "never issued", "already used" and "expired" apart, and the callback reported all three as
+ * "Invalid or expired authorization state". A browser that hits the callback twice (a reload, a back/forward, a
+ * provider that retries) therefore showed an error after a consent that had **succeeded**: the first callback
+ * consumed the state and stored the grant, and the second was reported as a failure the user could do nothing
+ * about. This reports the flow's own state so the caller can answer that case honestly.
+ */
+export async function inspectAuthorizationFlow(client: PoolClient, input: {
+  state: string;
+  provider: OAuthProvider;
+}): Promise<'pending' | 'exchanging' | 'completed' | 'failed' | 'expired' | 'cancelled' | null> {
+  const result = await client.query<{ status: string; expired: boolean }>(
+    `SELECT status, (expires_at <= NOW()) AS expired
+       FROM oauth_authorization_flows
+      WHERE state_hash = $1 AND provider = $2`,
+    [stateHashOf(input.state), input.provider],
+  );
+  const row = result.rows[0];
+  if (!row) return null;
+  if (row.expired && row.status === 'pending') return 'expired';
+  return row.status as 'pending' | 'exchanging' | 'completed' | 'failed' | 'expired' | 'cancelled';
+}
+
 export async function takeAuthorizationFlow(client: PoolClient, input: {
   state: string;
   provider: OAuthProvider;
