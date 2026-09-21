@@ -17,6 +17,7 @@ vi.mock('../utils/mailUtils.js', () => ({
 }));
 vi.mock('./providers/google/gmailMailMove.js', () => ({ moveGmailMessageToLabel: vi.fn() }));
 vi.mock('./providers/google/gmailMailMutations.js', () => ({ deleteGmailMessagePermanently: vi.fn() }));
+const { deleteGmailMessagePermanently } = vi.mocked(await import('./providers/google/gmailMailMutations.js'));
 vi.mock('./providers/microsoft/graphMailMove.js', () => ({
   moveGraphMessageToFolder: vi.fn(),
   deleteGraphMessagePermanently: vi.fn(),
@@ -57,7 +58,7 @@ describe('the provider ingest block list', () => {
       userId: 'user-1', connectionId: 'conn-1', account, folder: 'INBOX', rowIds: ['row-1'], providerName: 'Gmail',
     });
 
-    expect(outcome).toEqual({ considered: 1, blocked: 1, ruled: 0 });
+    expect(outcome).toEqual({ considered: 1, blocked: 1, ruled: 0, rulesSkipped: true });
     // The block list reached the provider: the message was moved to the account's trash by its provider id, which
     // the port resolved from the row the engine addressed by uid.
     expect(query).toHaveBeenCalledWith(expect.stringContaining('FROM messages'), [['row-1'], 'acc-1', 'INBOX']);
@@ -79,8 +80,32 @@ describe('the provider ingest block list', () => {
       userId: 'user-1', connectionId: 'conn-1', account, folder: 'INBOX', rowIds: ['row-1'], providerName: 'Gmail',
     });
 
-    expect(outcome).toEqual({ considered: 1, blocked: 0, ruled: 0 });
+    expect(outcome).toEqual({ considered: 1, blocked: 0, ruled: 0, rulesSkipped: true });
     expect(moveGmailMessageToLabel).not.toHaveBeenCalled();
+  });
+
+  it('does not run the rules while the installation has not turned them on for native accounts', async () => {
+    // MAIL-01: unlike the block list, the rules are opt-in here. A global rule can delete mail, and applying it to
+    // a native account for the first time after an upgrade is a destructive change nobody asked for.
+    delete process.env.PROVIDER_NATIVE_RULES;
+    query.mockImplementation(async (sql: string) => {
+      if (sql.includes('SELECT email_address FROM block_list')) return { rows: [] } as never;
+      if (sql.includes('SELECT id, uid, folder, from_email, is_read')) {
+        return { rows: [{ id: 'row-1', uid: 77, folder: 'INBOX', from_email: 'news@example.test', is_read: false }] } as never;
+      }
+      if (sql.includes('FROM inbox_rules')) {
+        return { rows: [{ id: 'rule-1', condition_logic: 'AND', conditions: [{ field: 'from', operator: 'contains', value: 'news@example.com' }], actions: [{ type: 'delete' }] }] } as never;
+      }
+      return { rows: [] } as never;
+    });
+
+    const outcome = await applyIngestRulesToRows({
+      userId: 'user-1', connectionId: 'conn-1', account, folder: 'INBOX', rowIds: ['row-1'], providerName: 'Gmail',
+    });
+
+    expect(outcome).toEqual({ considered: 1, blocked: 0, ruled: 0, rulesSkipped: true });
+    // The rule's delete never reached the provider.
+    expect(deleteGmailMessagePermanently).not.toHaveBeenCalled();
   });
 
   it('runs a user’s rule on the freshly stored inbox mail, through the provider', async () => {
@@ -101,11 +126,12 @@ describe('the provider ingest block list', () => {
     });
     moveGmailMessageToLabel.mockResolvedValue({ moved: true, folder: 'Archive' });
 
+    process.env.PROVIDER_NATIVE_RULES = '1';
     const outcome = await applyIngestRulesToRows({
       userId: 'user-1', connectionId: 'conn-1', account, folder: 'INBOX', rowIds: ['row-1'], providerName: 'Gmail',
     });
 
-    expect(outcome).toEqual({ considered: 1, blocked: 0, ruled: 1 });
+    expect(outcome).toEqual({ considered: 1, blocked: 0, ruled: 1, rulesSkipped: false });
     expect(moveGmailMessageToLabel).toHaveBeenCalledWith(expect.objectContaining({
       providerMessageId: 'provider-1', destinationPath: 'Archive',
     }));
@@ -115,7 +141,7 @@ describe('the provider ingest block list', () => {
     const outcome = await applyIngestRulesToRows({
       userId: 'user-1', connectionId: 'conn-1', account, folder: 'INBOX', rowIds: [], providerName: 'Gmail',
     });
-    expect(outcome).toEqual({ considered: 0, blocked: 0, ruled: 0 });
+    expect(outcome).toEqual({ considered: 0, blocked: 0, ruled: 0, rulesSkipped: false });
     expect(query).not.toHaveBeenCalled();
   });
 });

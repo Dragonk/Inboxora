@@ -1,5 +1,6 @@
 import { query } from './db.js';
 import { applyBlockList, applyInboxRules } from './inboxRules.js';
+import { providerNativeRulesEnabled } from './providerSwitches.js';
 import type { ConversationAccountRow } from './conversationRowIngest.js';
 import type { EmailAccountRow } from './imapManager.js';
 
@@ -26,14 +27,14 @@ export async function applyIngestRulesToRows(input: {
   rowIds: readonly string[];
   /** Named in the log so an operator can tell which provider's ingest failed. */
   providerName?: string;
-}): Promise<{ considered: number; blocked: number; ruled: number }> {
-  if (input.rowIds.length === 0) return { considered: 0, blocked: 0, ruled: 0 };
+}): Promise<{ considered: number; blocked: number; ruled: number; rulesSkipped: boolean }> {
+  if (input.rowIds.length === 0) return { considered: 0, blocked: 0, ruled: 0, rulesSkipped: false };
   const rows = await query<{ id: string; uid: number | string | null; folder: string; from_email: string | null; is_read: boolean | null }>(
     `SELECT id, uid, folder, from_email, is_read FROM messages
       WHERE id = ANY($1::uuid[]) AND account_id = $2 AND folder = $3 AND is_deleted = false`,
     [input.rowIds, input.account.id, input.folder],
   );
-  if (rows.rows.length === 0) return { considered: 0, blocked: 0, ruled: 0 };
+  if (rows.rows.length === 0) return { considered: 0, blocked: 0, ruled: 0, rulesSkipped: false };
 
   const messages = rows.rows.map(row => ({
     id: row.id,
@@ -71,13 +72,19 @@ export async function applyIngestRulesToRows(input: {
     // rule and a rule's own actions see the messages the block list left.
     const afterBlockList = await applyBlockList(messages, ruleAccount, port);
     const blocked = messages.length - afterBlockList.length;
+    // The rules are opt-in for a native account: a global rule can delete mail, and enabling them silently would
+    // change what an existing account does after an upgrade (see `providerNativeRulesEnabled`).
+    const rulesSkipped = !providerNativeRulesEnabled();
+    if (rulesSkipped) {
+      return { considered: messages.length, blocked, ruled: 0, rulesSkipped };
+    }
     const ruled = await applyInboxRules(afterBlockList, ruleAccount, port);
-    return { considered: messages.length, blocked, ruled: afterBlockList.length - ruled.remaining.length };
+    return { considered: messages.length, blocked, ruled: afterBlockList.length - ruled.remaining.length, rulesSkipped };
   } catch (caught) {
     console.warn(
       `Ingest rules failed for ${input.providerName ?? 'provider'} account ${input.account.id}:`,
       caught instanceof Error ? caught.message : caught,
     );
-    return { considered: messages.length, blocked: 0, ruled: 0 };
+    return { considered: messages.length, blocked: 0, ruled: 0, rulesSkipped: false };
   }
 }
