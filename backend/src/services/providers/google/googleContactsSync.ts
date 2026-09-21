@@ -340,7 +340,7 @@ export async function syncGoogleContacts(input: {
   const lease = await withTransaction(client => acquireSyncLease(client, { syncStateId, owner }));
   if (!lease) {
     throw new GoogleApiError({
-      code: 'RATE_LIMITED',
+      code: 'SYNC_ALREADY_RUNNING',
       message: 'Another Google contacts sync is already running for this connection',
       status: 409,
       retryable: true,

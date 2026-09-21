@@ -133,6 +133,12 @@ export type ApiProblemCode =
   | 'MAILBOX_QUOTA_EXCEEDED'
   | 'SEND_LIMIT_REACHED'
   | 'RATE_LIMITED'
+  /**
+   * Another worker already holds the synchronization lease for this collection. Distinct from `RATE_LIMITED`
+   * on purpose: it is this application's own concurrency guard, not the provider throttling us, so a scheduler
+   * must skip this collection without backing off the whole installation (SYNC-08).
+   */
+  | 'SYNC_ALREADY_RUNNING'
   | 'UPSTREAM_UNAVAILABLE'
   | 'SEND_OUTCOME_UNKNOWN'
   | 'MUTATION_OUTCOME_UNKNOWN'

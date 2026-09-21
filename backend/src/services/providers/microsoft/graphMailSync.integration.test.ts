@@ -272,7 +272,7 @@ describeOrSkip('Microsoft Graph mail folder discovery (PostgreSQL)', () => {
 
     await expect(syncGraphMailFoldersForAccount({
       userId: USER_ID, connectionId, accountId: ACCOUNT_ID, config: CONFIG, fetchImpl: fakeFolders([TREE]).fetchImpl,
-    })).rejects.toMatchObject({ code: 'RATE_LIMITED' });
+    })).rejects.toMatchObject({ code: 'SYNC_ALREADY_RUNNING' });
   });
 
   it('is a no-op for a connection with no Graph mail account', async () => {

@@ -265,6 +265,11 @@ Microsoft application is registered in this environment.
 
 ### Fixed
 
+- **A throttled mailbox no longer holds up the rest.** The scheduler used one installation-wide backoff, so a
+  single rate-limited collection delayed every other account and provider, and even a second worker refreshing
+  the same collection triggered it. Backoff is now per collection and follows the provider's own Retry-After,
+  and "another worker is already doing this" is reported as exactly that instead of as throttling.
+
 - **Google contacts deleted while a sync token had expired are gone for good.** Google reports an out-of-date
   token in a structured field that Inboxora did not read, so the rebuild it asks for could be missed; and the
   rebuild only added what it found, so a contact deleted in the meantime stayed in the address book. The signal

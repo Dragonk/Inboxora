@@ -487,7 +487,7 @@ describeOrSkip('Gmail API label and message ingest (PostgreSQL)', () => {
     await expect(syncGmailMailMessagesForAccount({
       userId: USER_ID, connectionId, accountId: ACCOUNT_ID, config: CONFIG,
       fetchImpl: fakeGmail([{ match: /.*/, handle: () => json({}) }]).fetchImpl,
-    })).rejects.toMatchObject({ code: 'RATE_LIMITED' });
+    })).rejects.toMatchObject({ code: 'SYNC_ALREADY_RUNNING' });
   });
 
   it('pauses a baseline at its budget and re-reads the interrupted page instead of skipping it', async () => {

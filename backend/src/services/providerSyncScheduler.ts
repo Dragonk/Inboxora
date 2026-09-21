@@ -41,9 +41,18 @@ const MAX_INTERVAL_MINUTES = 24 * 60;
 let timer: ReturnType<typeof setInterval> | null = null;
 let firstPass: ReturnType<typeof setTimeout> | null = null;
 let running = false;
-let backoffMs = 0;
-let nextAllowedAt = 0;
-let lastRunRateLimited = false;
+/**
+ * Delay before the next attempt of one collection, after the *provider* throttled it.
+ *
+ * Keyed by connection + collection kind, not held as one installation-wide timestamp: a single rate-limited
+ * mailbox used to push out every other user's and provider's refresh (SYNC-08). This application's own lease
+ * conflict never sets it, because another worker refreshing the collection is not the provider throttling us.
+ */
+const syncBackoffs = new Map<string, { ms: number; until: number }>();
+
+function scopeKey(target: ProviderSyncTarget, kind: string): string {
+  return `${target.connectionId}:${kind}`;
+}
 
 /**
  * How long after start the first pass runs. A restart must not leave pulled data
@@ -119,10 +128,18 @@ const RATE_LIMIT_BACKOFF_MAX_MS = 30 * 60_000;
  * asks not to do: `Retry-After` is parsed and stored by the classifiers, but the schedule ignored it. Doubling
  * with jitter avoids a fleet of installations retrying in lockstep, and a healthy pass resets the delay to zero.
  */
-export function nextSyncBackoffMs(previousMs: number, rateLimited: boolean, random: () => number = Math.random): number {
+export function nextSyncBackoffMs(
+  previousMs: number,
+  rateLimited: boolean,
+  random: () => number = Math.random,
+  retryAfterSeconds?: number,
+): number {
   if (!rateLimited) return 0;
+  // The provider's own Retry-After wins when it named one — it is the one value that says when calling again
+  // is acceptable — but it is still bounded, and jittered so a fleet does not retry in lockstep.
+  const requested = retryAfterSeconds && retryAfterSeconds > 0 ? retryAfterSeconds * 1000 : 0;
   const grown = previousMs > 0 ? previousMs * 2 : RATE_LIMIT_BACKOFF_BASE_MS;
-  const capped = Math.min(grown, RATE_LIMIT_BACKOFF_MAX_MS);
+  const capped = Math.min(Math.max(grown, requested), RATE_LIMIT_BACKOFF_MAX_MS);
   // Up to a quarter of the delay as jitter, so the retries spread out.
   return capped + Math.floor(random() * (capped / 4));
 }
@@ -142,26 +159,36 @@ export async function runProviderSyncs(): Promise<ProviderSyncRunSummary> {
   };
   let ran = 0;
   let failed = 0;
-  let rateLimited = false;
 
   for (const target of targets) {
     if (!ready[target.provider]) continue;
     for (const kind of target.features) {
       const sync = syncFor(target.provider, kind);
       if (!sync) continue;
+      const key = scopeKey(target, kind);
+      const backoff = syncBackoffs.get(key);
+      // Only this collection waits out its own backoff; every other connection and provider carries on.
+      if (backoff && Date.now() < backoff.until) continue;
       try {
         await sync(target, googleConfig, microsoftConfig);
+        syncBackoffs.delete(key);
         ran += 1;
       } catch (error) {
         failed += 1;
-        // A throttled run is the one worth backing off from; anything else keeps its cadence.
-        if ((error as { code?: string } | null)?.code === 'RATE_LIMITED') rateLimited = true;
+        const failure = error as { code?: string; retryAfterSeconds?: number } | null;
+        // A throttled run backs off **this collection**, honouring the provider's Retry-After when it named
+        // one. Anything else — including our own `SYNC_ALREADY_RUNNING`, where another worker is already
+        // refreshing this collection — keeps its cadence, and must never suppress the other connections.
+        if (failure?.code === 'RATE_LIMITED') {
+          const previous = syncBackoffs.get(key)?.ms ?? 0;
+          const ms = nextSyncBackoffMs(previous, true, Math.random, failure.retryAfterSeconds);
+          syncBackoffs.set(key, { ms, until: Date.now() + ms });
+        }
         // A revoked grant or a provider outage must not stop the other connections.
         console.warn(`Scheduled ${target.provider} ${kind} sync failed for connection ${target.connectionId}:`, error instanceof Error ? error.message : error);
       }
     }
   }
-  lastRunRateLimited = rateLimited;
   return { connections: targets.length, ran, failed };
 }
 
@@ -255,13 +282,11 @@ export async function runProviderSyncForHint(input: {
 async function tick(): Promise<void> {
   // A slow pass must not overlap itself; the next tick simply waits.
   if (running) return;
-  // And a throttled pass pushes the next one out, rather than retrying on the same cadence.
-  if (Date.now() < nextAllowedAt) return;
   running = true;
   try {
+    // No installation-wide gate: each collection's own backoff is applied inside the pass, so a throttled
+    // connection no longer postpones the healthy ones (SYNC-08).
     await runProviderSyncs();
-    backoffMs = nextSyncBackoffMs(backoffMs, lastRunRateLimited);
-    nextAllowedAt = Date.now() + backoffMs;
   } catch (error) {
     console.warn('Scheduled provider sync pass failed:', error instanceof Error ? error.message : error);
   } finally {
@@ -288,7 +313,5 @@ export function stopProviderSyncScheduler(): void {
   timer = null;
   // Stopping clears the scheduling state with the timers: a backoff left behind would silently suppress the
   // next start's first pass, which is how this leaked between tests when it was introduced.
-  backoffMs = 0;
-  nextAllowedAt = 0;
-  lastRunRateLimited = false;
+  syncBackoffs.clear();
 }

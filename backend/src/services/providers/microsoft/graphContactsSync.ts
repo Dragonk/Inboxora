@@ -339,7 +339,7 @@ export async function syncGraphContacts(input: {
   const lease = await withTransaction(client => acquireSyncLease(client, { syncStateId, owner }));
   if (!lease) {
     throw new GraphApiError({
-      code: 'RATE_LIMITED',
+      code: 'SYNC_ALREADY_RUNNING',
       message: 'Another Microsoft contacts sync is already running for this connection',
       status: 409,
       retryable: true,

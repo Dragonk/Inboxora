@@ -228,7 +228,7 @@ export async function syncGraphMailFoldersForAccount(input: {
   const lease = await withTransaction(client => acquireSyncLease(client, { syncStateId, owner }));
   if (!lease) {
     throw new GraphApiError({
-      code: 'RATE_LIMITED',
+      code: 'SYNC_ALREADY_RUNNING',
       message: 'Another Microsoft mail folder sync is already running for this account',
       status: 409,
       retryable: true,
@@ -583,7 +583,7 @@ export async function syncGraphMailMessagesForFolder(input: {
   const lease = await withTransaction(client => acquireSyncLease(client, { syncStateId, owner }));
   if (!lease) {
     throw new GraphApiError({
-      code: 'RATE_LIMITED',
+      code: 'SYNC_ALREADY_RUNNING',
       message: `Another Microsoft message sync is already running for folder ${input.target.remoteId}`,
       status: 409,
       retryable: true,

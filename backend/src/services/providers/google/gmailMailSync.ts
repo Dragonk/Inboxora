@@ -305,7 +305,7 @@ export async function syncGmailMailLabelsForAccount(input: {
   const lease = await withTransaction(client => acquireSyncLease(client, { syncStateId, owner }));
   if (!lease) {
     throw new GoogleApiError({
-      code: 'RATE_LIMITED',
+      code: 'SYNC_ALREADY_RUNNING',
       message: 'Another Gmail label sync is already running for this account',
       status: 409,
       retryable: true,
@@ -741,7 +741,7 @@ export async function syncGmailMailMessagesForAccount(input: {
   const lease = await withTransaction(client => acquireSyncLease(client, { syncStateId, owner }));
   if (!lease) {
     throw new GoogleApiError({
-      code: 'RATE_LIMITED',
+      code: 'SYNC_ALREADY_RUNNING',
       message: 'Another Gmail message sync is already running for this account',
       status: 409,
       retryable: true,

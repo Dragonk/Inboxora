@@ -296,6 +296,14 @@ None.
   IMAP loops, health checks, rule forwarder and send path no longer open IMAP or SMTP for it.
 
 ### Fixed
+- **One throttled mailbox no longer pauses every other synchronisation.** The schedule kept a single
+  installation-wide "next allowed" timestamp: any rate-limited collection pushed the whole pass out for every
+  user, provider and collection, and because every adapter reported its own lease conflict as `RATE_LIMITED`,
+  even two workers refreshing the *same* collection triggered it. The backoff is now per connection and
+  collection kind, honours the provider's own `Retry-After` (bounded and jittered), and clears when that
+  collection succeeds. A lease conflict is reported as its own `SYNC_ALREADY_RUNNING` code and is not treated as
+  throttling at all: another worker is already refreshing that collection, so the pass leaves it alone and
+  nothing else waits.
 - **Google contacts deleted while the sync token was invalid are removed again.** The People API reports an
   out-of-date token in the structured error details as `EXPIRED_SYNC_TOKEN`, which the client did not read — it
   recognised only HTTP 410, so a rebuild could be missed — and the rebuild itself only upserted whatever it read,

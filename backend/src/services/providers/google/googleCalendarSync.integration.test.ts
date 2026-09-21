@@ -367,6 +367,6 @@ describeOrSkip('Google Calendar sync (PostgreSQL)', { timeout: PG_TEST_TIMEOUT_M
       userId: USER_ID, connectionId, config: CONFIG,
       fetchImpl: fakeProvider([() => json(CALENDAR_LIST), () => json({ items: [] })]).fetchImpl,
     });
-    expect(result.errors).toEqual([{ calendarId: 'primary', code: 'RATE_LIMITED' }]);
+    expect(result.errors).toEqual([{ calendarId: 'primary', code: 'SYNC_ALREADY_RUNNING' }]);
   });
 });

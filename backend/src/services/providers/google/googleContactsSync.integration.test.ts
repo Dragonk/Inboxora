@@ -371,6 +371,6 @@ describeOrSkip('Google contacts sync (PostgreSQL)', () => {
     expect(held).not.toBeNull();
 
     await expect(syncGoogleContacts({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl: fakeProvider([() => json({})]).fetchImpl }))
-      .rejects.toMatchObject({ name: 'GoogleApiError', code: 'RATE_LIMITED' });
+      .rejects.toMatchObject({ name: 'GoogleApiError', code: 'SYNC_ALREADY_RUNNING' });
   });
 });

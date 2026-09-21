@@ -132,6 +132,44 @@ describe('runProviderSyncs', () => {
     expect(JSON.stringify(warn.mock.calls)).not.toContain('access-valid');
   });
 
+  it('backs off only the throttled collection, leaving other providers on their cadence', async () => {
+    // SYNC-08: one installation-wide `nextAllowedAt` meant a single rate-limited mailbox postponed every other
+    // user's and provider's refresh. The backoff is per connection+feature now.
+    mocks.query
+      .mockResolvedValueOnce({ rows: [target({ features: ['calendar'] }), target({ connection_id: 'connection-2', provider: 'microsoft', features: ['calendar'] })] })
+      .mockResolvedValueOnce({ rows: [target({ features: ['calendar'] }), target({ connection_id: 'connection-2', provider: 'microsoft', features: ['calendar'] })] });
+    mocks.syncGoogleCalendar.mockRejectedValue(Object.assign(new Error('throttled'), { code: 'RATE_LIMITED', retryAfterSeconds: 600 }));
+    mocks.syncGraphCalendar.mockResolvedValue({ collections: 1 });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await runProviderSyncs();
+    expect(mocks.syncGoogleCalendar).toHaveBeenCalledTimes(1);
+    expect(mocks.syncGraphCalendar).toHaveBeenCalledTimes(1);
+
+    // The second pass skips only the throttled Google collection; Microsoft is refreshed again.
+    await runProviderSyncs();
+    expect(mocks.syncGoogleCalendar).toHaveBeenCalledTimes(1);
+    expect(mocks.syncGraphCalendar).toHaveBeenCalledTimes(2);
+    warn.mockRestore();
+  });
+
+  it('treats its own lease conflict as a skip, not as provider throttling', async () => {
+    // `SYNC_ALREADY_RUNNING` means another worker holds this collection's lease. Backing the whole schedule off
+    // for it was both wrong and, because every adapter used `RATE_LIMITED` for it, common.
+    mocks.query
+      .mockResolvedValueOnce({ rows: [target({ features: ['calendar'] })] })
+      .mockResolvedValueOnce({ rows: [target({ features: ['calendar'] })] });
+    mocks.syncGoogleCalendar.mockRejectedValueOnce(Object.assign(new Error('already running'), { code: 'SYNC_ALREADY_RUNNING' }));
+    mocks.syncGoogleCalendar.mockResolvedValue({});
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await runProviderSyncs();
+    // The next pass still attempts it: a lease conflict does not suppress anything.
+    await runProviderSyncs();
+    expect(mocks.syncGoogleCalendar).toHaveBeenCalledTimes(2);
+    warn.mockRestore();
+  });
+
   it('does not touch a provider/collection pair that has no adapter yet', async () => {
     // Gmail labels are the pair with no adapter: the Microsoft calendar adapter landed with P07d, so the
     // assertion names a kind that is genuinely unhandled rather than the one that just gained a sync.

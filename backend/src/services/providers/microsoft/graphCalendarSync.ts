@@ -197,7 +197,7 @@ async function syncCollection(api: GraphApiOptions, collection: CalendarCollecti
   const lease = await withTransaction(client => acquireSyncLease(client, { syncStateId, owner }));
   if (!lease) {
     throw new GraphApiError({
-      code: 'RATE_LIMITED',
+      code: 'SYNC_ALREADY_RUNNING',
       message: 'Another Microsoft calendar sync is already running for this calendar',
       status: 409,
       retryable: true,

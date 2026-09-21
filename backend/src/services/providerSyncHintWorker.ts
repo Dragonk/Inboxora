@@ -47,7 +47,8 @@ export function isConcurrentSync(error: unknown): boolean {
   const code = (error as { code?: string } | null)?.code;
   const status = Number((error as { status?: number } | null)?.status);
   const message = error instanceof Error ? error.message : '';
-  return status === 409 || code === 'SYNC_IN_FLIGHT' || /already running|another .*sync/i.test(message);
+  // The explicit code is authoritative; the status and message checks remain for older throws.
+  return code === 'SYNC_ALREADY_RUNNING' || status === 409 || code === 'SYNC_IN_FLIGHT' || /already running|another .*sync/i.test(message);
 }
 
 export async function runOneSyncHint(hint: ClaimedSyncHint): Promise<'ran' | 'deferred' | 'failed'> {

@@ -215,7 +215,7 @@ async function syncCollection(api: GoogleApiOptions, collection: CalendarCollect
   const lease = await withTransaction(client => acquireSyncLease(client, { syncStateId, owner }));
   if (!lease) {
     throw new GoogleApiError({
-      code: 'RATE_LIMITED',
+      code: 'SYNC_ALREADY_RUNNING',
       message: 'Another Google calendar sync is already running for this calendar',
       status: 409,
       retryable: true,

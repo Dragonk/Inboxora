@@ -310,6 +310,6 @@ describeOrSkip('Microsoft Graph contacts sync (PostgreSQL)', () => {
     await expect(syncGraphContacts({
       userId: USER_ID, connectionId, config: CONFIG,
       fetchImpl: fakeProvider([() => json({ value: [] })]).fetchImpl,
-    })).rejects.toMatchObject({ name: 'GraphApiError', code: 'RATE_LIMITED' });
+    })).rejects.toMatchObject({ name: 'GraphApiError', code: 'SYNC_ALREADY_RUNNING' });
   });
 });
