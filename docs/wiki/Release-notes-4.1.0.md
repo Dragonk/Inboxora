@@ -265,6 +265,11 @@ Microsoft application is registered in this environment.
 
 ### Changed
 
+- **Internal: the provider flag write is now a service, not route-private code.** Setting read/starred on a Gmail
+  or Microsoft message was implemented inside the mail route because it needed the IMAP manager imported from the
+  application root. It now takes that side as a parameter and lives beside the provider adapters, so the inbox
+  rules can use it. No behaviour changed.
+
 - **Internal: the inbox rules and the block list now act through a transport seam.** They were written against
   the IMAP manager, which is why they only run for IMAP accounts; extracting the actions they perform is the
   prerequisite for running them on Gmail and Microsoft accounts. No behaviour changed for IMAP, and nothing

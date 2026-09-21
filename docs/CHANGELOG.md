@@ -221,6 +221,13 @@ provider identity, `0109` provider-operation payload, `0110` device authorizatio
 reads the new columns; a mixed old/new deployment must not run with the new code before the migrations.
 
 ### Changed
+- **The provider flag write moved out of the mail route into a service, with the IMAP side injected.** Setting
+  read/starred on a provider message lived as private helpers inside `routes/mail.ts` because the IMAP branch
+  needed the `imapManager` singleton imported from the application root, and a service importing the root would
+  close an import cycle. The three methods it actually needs are now a port, so the dispatcher and the Gmail and
+  Graph adapters live in `providerMailFlagWrite.ts` where the ingest rules can reach them — which is what the
+  transport seam above needs to run rules and the block list on a native account. Behaviour is unchanged: the
+  route tests for flag writes, bulk read, provider move and delete all pass on the extracted service.
 - **The inbox rules and block list now act through a message-action seam.** Both were written against
   `ImapManager` — moving and flagging a message by its IMAP `uid` and folder path — so they could only ever run
   for an IMAP account. What they actually do (move, flag, delete, read a message's bytes, keep two concurrent
