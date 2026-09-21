@@ -265,6 +265,9 @@ Microsoft application is registered in this environment.
 
 ### Fixed
 
+- **Connecting a CardDAV source shows its address books immediately.** The books it pulls used to appear only
+  after a manual page reload, so a freshly connected source looked like it had imported nothing.
+
 - **A failed CardDAV synchronisation no longer leaves contacts missing.** The pull deletes the rows the server
   no longer lists, then writes what it found; those steps are now one transaction, so an interrupted run leaves
   the address book exactly as it was instead of missing entries until the next successful synchronisation.

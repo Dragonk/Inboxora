@@ -296,6 +296,11 @@ None.
   IMAP loops, health checks, rule forwarder and send path no longer open IMAP or SMTP for it.
 
 ### Fixed
+- **The address books appear as soon as a CardDAV source is connected.** Connecting pulls the server's address
+  books, but the panel that did the connecting never told the screen, so the books the user had just connected
+  did not appear until the page was reloaded by hand — which is what made DAV look like an import rather than a
+  source. The source now reports connect, synchronise and disconnect, and the contacts screen reloads its books
+  and its list in response.
 - **A CardDAV pull is applied as one transaction, so a failure can no longer leave a book half-written.** The
   delete of the rows a snapshot no longer lists, the upserts, the merges and the new sync token ran as separate
   statements. The delete has to come first — a uid or email freed this round must not collide with an incoming

@@ -192,7 +192,14 @@ test('the CardDAV source is managed from Contacts, like a calendar source', asyn
   // The calendar screen adds its own sources from the calendar surface; the contacts source belongs here for
   // the same reason, and the manager exposes it beside the books it pulls.
   assert.match(booksManager, /data-testid="contacts-manager-sources"/);
-  assert.match(booksManager, /<ContactsDavSource t=\{t\} \/>/);
+  // The source also reports back when it changes what it holds, so the books list is reloaded after a connect or
+  // a sync instead of staying stale (DAV-01).
+  assert.match(booksManager, /<ContactsDavSource t=\{t\} onChanged=\{props\.onDavChanged\} \/>/);
+  assert.match(davSource, /onChanged\?: \(\) => void \| Promise<void>/);
+  assert.match(davSource, /await onChanged\?\.\(\)/);
+  // And the page reloads the books it shows when that happens.
+  assert.match(await read(page), /onDavChanged=\{async \(\) => \{/);
+  assert.match(await read(page), /await loadAddressBooks\(\);\s*\n\s*await load\(searchRef\.current\);/);
 
   // It can be added, synchronised and removed — the three things the settings screen offered.
   assert.match(davSource, /data-testid="contacts-manager-carddav-connect"/);

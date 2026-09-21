@@ -839,6 +839,12 @@ export default function ContactsPage({ isActive = true }) {
     googleSummary={googleSummary}
     microsoftSummary={microsoftSummary}
     dav={{ configured: true, connected: davStatus?.connected === true }}
+    onDavChanged={async () => {
+      // DAV-01: connecting or synchronising a DAV source changes the books, so the list on screen is reloaded
+      // rather than left showing the state from before the action.
+      await loadAddressBooks();
+      await load(searchRef.current);
+    }}
     onImportGoogleCsv={() => importInputRef.current?.click()}
     onImportVCard={() => importVCardRef.current?.click()}
     exportUrl={format => api.addressBooks.exportUrl(selectedAddressBookId, format)}

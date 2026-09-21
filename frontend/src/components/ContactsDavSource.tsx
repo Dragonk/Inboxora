@@ -34,7 +34,16 @@ const inputStyle: React.CSSProperties = {
   color: 'var(--text-primary)', fontSize: 13, outline: 'none', width: '100%', boxSizing: 'border-box',
 };
 
-export default function ContactsDavSource({ t }: { t: (key: string, values?: Record<string, unknown>) => string }) {
+export default function ContactsDavSource({ t, onChanged }: {
+  t: (key: string, values?: Record<string, unknown>) => string;
+  /**
+   * Called after an action that changes what the source holds — connecting, synchronising, disconnecting.
+   *
+   * DAV-01: connecting pulls the server's address books, so leaving the page's list untouched meant the books
+   * the user had just connected did not appear until a manual reload.
+   */
+  onChanged?: () => void | Promise<void>;
+}) {
   const [status, setStatus] = useState<DavStatus | null>(null);
   const [form, setForm] = useState({ serverUrl: '', username: '', password: '', intervalMin: 60 });
   const [busy, setBusy] = useState<'connect' | 'sync' | 'disconnect' | null>(null);
@@ -60,6 +69,7 @@ export default function ContactsDavSource({ t }: { t: (key: string, values?: Rec
       }) as DavStatus;
       setStatus(data);
       setForm(current => ({ ...current, password: '' }));
+      await onChanged?.();
     } catch (caught) {
       setError(toAppError(caught).message || t('admin.integrations.carddav.connectFailed'));
     } finally {
@@ -74,6 +84,7 @@ export default function ContactsDavSource({ t }: { t: (key: string, values?: Rec
       const result = await api.carddav.sync() as { ok?: boolean; error?: string; status?: DavStatus };
       if (result.status) setStatus(result.status);
       if (!result.ok && result.error) setError(result.error);
+      else await onChanged?.();
     } catch (caught) {
       setError(toAppError(caught).message);
     } finally {
@@ -87,6 +98,7 @@ export default function ContactsDavSource({ t }: { t: (key: string, values?: Rec
     try {
       await api.carddav.disconnect();
       setStatus({ connected: false });
+      await onChanged?.();
     } catch (caught) {
       setError(toAppError(caught).message);
     } finally {

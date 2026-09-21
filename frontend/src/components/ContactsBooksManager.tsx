@@ -54,6 +54,11 @@ export interface ContactsBooksManagerProps {
   microsoft: ManagerProviderState;
   /** The CardDAV source's own state: a DAV book is synchronised by it, not by a provider (DAV-05). */
   dav: ManagerProviderState;
+  /**
+   * The DAV source changed what it holds (connected, synchronised, disconnected), so the caller reloads the
+   * books instead of leaving a stale list on screen (DAV-01).
+   */
+  onDavChanged: () => void | Promise<void>;
   syncing: 'google' | 'microsoft' | 'dav' | null;
   onSync: (provider: 'google' | 'microsoft' | 'dav') => void;
   googleSummary: { key: string | null; values: Record<string, string> } | null;
@@ -231,7 +236,7 @@ export default function ContactsBooksManager(props: ContactsBooksManagerProps) {
       <div data-testid="contacts-manager-sources" style={sectionStyle}>
         <p style={sectionTitleStyle}>{t('contacts.booksManager.sources')}</p>
         <p style={metaStyle}>{t('contacts.booksManager.sourcesHint')}</p>
-        <ContactsDavSource t={t} />
+        <ContactsDavSource t={t} onChanged={props.onDavChanged} />
       </div>
 
       <div data-testid="contacts-manager-import-export" style={sectionStyle}>
