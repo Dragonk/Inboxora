@@ -296,6 +296,16 @@ None.
   IMAP loops, health checks, rule forwarder and send path no longer open IMAP or SMTP for it.
 
 ### Fixed
+- **A native mailbox is found through the connection that holds its collections, so mail is fetched again.**
+  The mail syncs resolved their mailboxes with `email_accounts.provider_connection_id = <the connection being
+  synced>`. An identity can have more than one connection row — the one its cutover created and the one a consent
+  stored scopes on — and the scheduler walks the connection holding the collections while the account records the
+  consent's. When those differed, the sync found **no mailbox at all**: it logged nothing a user could see, wrote
+  no error and fetched no mail, which is the reported "total silence" for Gmail and Microsoft. The lookup now
+  matches the account by its link **or** by the connection's verified identity, so a mailbox is synchronised
+  whichever of its identity's connections the scheduler is walking. Pinned on PostgreSQL: an account linked to a
+  different connection of the same identity is still listed for the connection that holds its collections.
+
 - **A consent that fails now says so on the account card.** The popup posted `oauth_error` and only the settings
   screen listened for it, while the account card listened for success alone — so a consent that Microsoft or
   Google refused (a redirect URI that is not registered for that client, a denied consent) closed the tab, left

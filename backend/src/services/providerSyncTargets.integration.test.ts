@@ -33,7 +33,9 @@ vi.mock('./providers/google/gmailMailSync.js', () => ({
   syncGmailMailMessagesForAccount: calls.gmailMessages,
   listGmailMailAccounts: async () => calls.gmailAccounts.value,
 }));
-vi.mock('./providers/microsoft/graphMailSync.js', () => ({
+// Keep the real helpers (the account lookup under test) and override only the two sync functions.
+vi.mock('./providers/microsoft/graphMailSync.js', async importOriginal => ({
+  ...(await importOriginal<typeof import('./providers/microsoft/graphMailSync.js')>()),
   syncGraphMailFolders: calls.graphFolders,
   syncGraphMailMessagesForAccount: calls.graphMessages,
 }));
@@ -45,6 +47,22 @@ const googleConnection = randomUUID();
 const microsoftConnection = randomUUID();
 const googleAccount = randomUUID();
 const microsoftAccount = randomUUID();
+
+async function inTransactionForTest<T>(fn: (client: import('pg').PoolClient) => Promise<T>): Promise<T> {
+  const client = (await import('./db.js')).pool.connect();
+  const connection = await client;
+  try {
+    await connection.query('BEGIN');
+    const result = await fn(connection);
+    await connection.query('COMMIT');
+    return result;
+  } catch (error) {
+    await connection.query('ROLLBACK').catch(() => {});
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
 
 async function createFolder(accountId: string, name: string): Promise<string> {
   const folder = await query<{ id: string }>(
@@ -135,5 +153,26 @@ describeOrSkip('provider sync targets (PostgreSQL)', () => {
       connectionId: googleConnection,
       accountId: googleAccount,
     }));
+  });
+});
+
+describeOrSkip('a mailbox is found through the connection that holds its collections', () => {
+  it('lists the account even when it is linked to another connection of the same identity', async () => {
+    // The identity can have more than one connection row: the one its cutover created and the one a consent
+    // stored scopes on. The scheduler walks the connection holding the collections, while the account records
+    // the consent's. Requiring those to be the same id returned no account at all, so the mailbox fetched
+    // nothing and reported no error — the "total silence" report.
+    const second = randomUUID();
+    await query(
+      `INSERT INTO provider_connections (id, user_id, provider, issuer, subject, provider_user_id, status)
+       VALUES ($1, $2, 'microsoft', 'https://login.microsoftonline.com/common/v2.0', 'graph-subject-2', 'sched@outlook.test', 'active')`,
+      [second, userId],
+    );
+    // The account keeps pointing at the *other* connection.
+    await query('UPDATE email_accounts SET provider_connection_id = $2 WHERE id = $1', [microsoftAccount, googleConnection]);
+
+    const { listGraphMailAccounts } = await import('./providers/microsoft/graphMailSync.js');
+    const accounts = await inTransactionForTest(client => listGraphMailAccounts(client, { userId, connectionId: second }));
+    expect(accounts).toContain(microsoftAccount);
   });
 });

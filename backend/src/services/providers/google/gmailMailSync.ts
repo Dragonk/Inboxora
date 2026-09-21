@@ -71,11 +71,27 @@ interface LabelContext {
 }
 
 /** The Gmail mail accounts of one connection belong to a single owner. */
+/**
+ * The mailboxes a connection's sync should cover.
+ *
+ * The account is matched by its own link **or** by the connection's verified identity, because an identity can
+ * have more than one connection row: the one its cutover created and the one a consent stored scopes on. The
+ * features are read through the account's link, while the scheduler walks the connection that holds the
+ * collections — and requiring the account's link to equal *that* id returned nothing at all, which is how a
+ * native mailbox reported as connected stopped fetching mail entirely ("total silence" with no error, because
+ * there was no account to synchronise).
+ */
 export async function listGmailMailAccounts(client: PoolClient, input: { userId: string; connectionId: string }): Promise<string[]> {
   const result = await client.query<{ id: string }>(
-    `SELECT id FROM email_accounts
-      WHERE user_id = $1 AND provider_connection_id = $2 AND mail_transport = 'gmail_api'
-      ORDER BY created_at ASC`,
+    `SELECT a.id FROM email_accounts a
+      WHERE a.user_id = $1 AND a.mail_transport = 'gmail_api'
+        AND (
+          a.provider_connection_id = $2
+          OR lower(a.email_address) = lower(COALESCE((
+            SELECT c.provider_user_id FROM provider_connections c WHERE c.id = $2 AND c.user_id = $1
+          ), ''))
+        )
+      ORDER BY a.created_at ASC`,
     [input.userId, input.connectionId],
   );
   return result.rows.map(row => row.id);
