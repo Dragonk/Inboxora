@@ -265,6 +265,12 @@ Microsoft application is registered in this environment.
 
 ### Fixed
 
+- **Microsoft contacts synchronise again, and keep your anniversaries.** The contact request asked Graph for an
+  `anniversary` property that the v1.0 API does not have (and the beta API names differently), which can fail
+  the whole request. It is no longer requested, and a provider sync no longer clears an anniversary you or
+  another source stored. Message priority chosen in the composer is also carried over to Microsoft mail now,
+  instead of silently arriving as normal.
+
 - **A calendar you switched off is really off.** Both calendar syncs ignored the per-collection enabled switch
   when choosing what to pull, so a disabled calendar kept being synchronised, and a refresh could turn a
   collection you disabled back on. Discovery now updates only the provider's own facts, the synchroniser reads

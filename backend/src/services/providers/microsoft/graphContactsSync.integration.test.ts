@@ -171,9 +171,10 @@ describeOrSkip('Microsoft Graph contacts sync (PostgreSQL)', () => {
     expect(incremental.urls[0]).toBe(`${DELTA_BASE}?$deltatoken=baseline`);
   });
 
-  it('stores the anniversary and IM addresses a Graph contact carries', async () => {
-    // The mirror of the Google case: the mapper's fields are verified by reading and by unit tests,
-    // and this is the proof that the columns are written.
+  it('stores the birthday and IM addresses a Graph contact carries, and leaves the anniversary unmapped', async () => {
+    // GRAPH-03: the v1.0 contact resource has no anniversary property (beta names a different one), so it is
+    // neither requested nor mapped. The local column is left alone rather than filled from a field the API
+    // does not return.
     const connectionId = await seedConnection();
     const provider = fakeProvider([
       () => json({
@@ -196,10 +197,28 @@ describeOrSkip('Microsoft Graph contacts sync (PostgreSQL)', () => {
     }>('SELECT birthday::text AS birthday, anniversary::text AS anniversary, instant_messages FROM contacts WHERE user_id = $1', [USER_ID]));
     expect(stored.rows[0]).toMatchObject({
       birthday: '1815-12-10',
-      anniversary: '1835-07-08',
+      anniversary: null,
       // A bare Graph IM address has no protocol, so it is typed `other`, and the empty entry is gone.
       instant_messages: [{ value: 'ada@jabber.example', type: 'other' }],
     });
+
+    // A locally stored anniversary is not Graph's to clear: a re-sync must leave it alone.
+    await autocommit(client => client.query(
+      "UPDATE contacts SET anniversary = '1835-07-08' WHERE user_id = $1", [USER_ID],
+    ));
+    await syncGraphContacts({
+      userId: USER_ID, connectionId, config: CONFIG,
+      fetchImpl: fakeProvider([
+        () => json({
+          value: [{ ...contact('c9', 'Ada Lovelace', 'ada@contoso.test'), birthday: '1815-12-10T00:00:00Z' }],
+          '@odata.deltaLink': `${DELTA_BASE}?$deltatoken=fields-2`,
+        }),
+      ]).fetchImpl,
+    });
+    const after = await autocommit(client => client.query<{ anniversary: string | null }>(
+      'SELECT anniversary::text AS anniversary FROM contacts WHERE user_id = $1', [USER_ID],
+    ));
+    expect(after.rows[0]?.anniversary).toBe('1835-07-08');
   });
 
   it('removes a contact the delta reports as deleted, keeping a tombstone link', async () => {

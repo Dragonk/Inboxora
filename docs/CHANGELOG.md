@@ -296,6 +296,15 @@ None.
   IMAP loops, health checks, rule forwarder and send path no longer open IMAP or SMTP for it.
 
 ### Fixed
+- **The Graph contact request no longer asks for a property the API does not have.** The v1.0 `contact`
+  resource has no `anniversary`, and the beta resource names it differently, so it was wrong in both versions
+  and can fail the whole `$select` — the same class of mistake that stopped Microsoft mail folder discovery.
+  Nothing is requested or sent for it now, and the local column is left untouched: a sync must not clear an
+  anniversary the user or another source stored. Graph contacts therefore carry their birthday and every other
+  supported field, without the anniversary.
+- **A message priority chosen in the composer now reaches Microsoft.** The shared model carries `priority` and
+  the SMTP renderer mapped it, but the Graph renderer dropped it, so a high or low priority message arrived as
+  normal on a Microsoft mailbox. It is mapped to Graph's own `importance`.
 - **A calendar the user disabled is no longer synchronised, and discovery no longer switches it back on.** Both
   calendar syncs selected the connection's calendars without an `enabled` filter — mail already had one — so a
   collection the user turned off kept being pulled and written to, and the "link repair" branch re-asserted

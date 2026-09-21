@@ -190,7 +190,7 @@ async function applyContact(client: PoolClient, context: ApplyContext, contact: 
       `UPDATE contacts SET
          vcard = $1, etag = $2, display_name = $3, first_name = $4, last_name = $5,
          primary_email = $6, emails = $7::jsonb, phones = $8::jsonb, organization = $9, notes = $10,
-         birthday = $11, anniversary = $12, contact_dates = $13::jsonb, photo_data = $14,
+         birthday = $11, anniversary = COALESCE($12, anniversary), contact_dates = $13::jsonb, photo_data = $14,
          title = $15, role = $16, nickname = $17, urls = $18::jsonb, instant_messages = $19::jsonb,
          categories = $20::jsonb, addresses = $21::jsonb, is_auto = false, updated_at = NOW()
        WHERE id = $22 AND user_id = $23
@@ -219,7 +219,10 @@ async function applyContact(client: PoolClient, context: ApplyContext, contact: 
          vcard = EXCLUDED.vcard, etag = EXCLUDED.etag, display_name = EXCLUDED.display_name,
          first_name = EXCLUDED.first_name, last_name = EXCLUDED.last_name, primary_email = EXCLUDED.primary_email,
          emails = EXCLUDED.emails, phones = EXCLUDED.phones, organization = EXCLUDED.organization,
-         notes = EXCLUDED.notes, birthday = EXCLUDED.birthday, anniversary = EXCLUDED.anniversary,
+         notes = EXCLUDED.notes, birthday = EXCLUDED.birthday,
+         -- Graph v1.0 has no anniversary property, so the sync has nothing to say about it; a value the user
+         -- or another source stored must survive the upsert rather than being cleared (GRAPH-03).
+         anniversary = COALESCE(EXCLUDED.anniversary, contacts.anniversary),
          contact_dates = EXCLUDED.contact_dates, photo_data = EXCLUDED.photo_data, title = EXCLUDED.title,
          role = EXCLUDED.role, nickname = EXCLUDED.nickname, urls = EXCLUDED.urls,
          instant_messages = EXCLUDED.instant_messages, categories = EXCLUDED.categories,

@@ -12,10 +12,14 @@ import type { VCardContact } from '../../../utils/vcard.js';
  */
 
 export const DEFAULT_CONTACT_FOLDER = 'contacts';
+// `anniversary` is deliberately absent. The v1.0 `contact` resource has no such property, and the beta resource
+// names it `weddingAnniversary` — so requesting it here was wrong in both versions and can fail the whole
+// `$select` (GRAPH-03). A local anniversary is therefore not mapped from Graph, which is stated rather than
+// guessed: nothing is requested and nothing is sent back.
 const CONTACT_SELECT = [
   'id', 'displayName', 'givenName', 'surname', 'nickName',
   'emailAddresses', 'businessPhones', 'homePhones', 'mobilePhone',
-  'companyName', 'jobTitle', 'department', 'personalNotes', 'birthday', 'anniversary',
+  'companyName', 'jobTitle', 'department', 'personalNotes', 'birthday',
   'businessHomePage', 'businessAddress', 'homeAddress', 'otherAddress', 'categories', 'imAddresses',
 ].join(',');
 
@@ -48,7 +52,6 @@ export interface GraphContact {
   department?: string | null;
   personalNotes?: string | null;
   birthday?: string | null;
-  anniversary?: string | null;
   imAddresses?: string[] | null;
   businessHomePage?: string | null;
   businessAddress?: GraphPhysicalAddress | null;
@@ -125,9 +128,10 @@ export function graphContactToVCard(contact: GraphContact, uid: string): VCardCo
     addresses,
     categories: (contact.categories ?? []).filter(Boolean),
     birthday: normalizeGraphBirthday(contact.birthday),
-    // Graph's anniversary is the same timestamp shape as its birthday, and an IM address is a bare
-    // string with no protocol, so it is typed `other` rather than guessed at.
-    anniversary: normalizeGraphBirthday(contact.anniversary),
+    // Graph v1.0 exposes no anniversary property (beta names a different one), so there is nothing to map. The
+    // local column keeps whatever the user or another source put there; it is not cleared by a provider sync.
+    anniversary: null,
+    // An IM address is a bare string with no protocol, so it is typed `other` rather than guessed at.
     instantMessages: (contact.imAddresses ?? []).filter(Boolean).map(value => ({ value, type: 'other' })),
   };
 }
@@ -198,7 +202,6 @@ export interface GraphContactPayload {
   categories?: string[];
   imAddresses?: string[];
   birthday?: string;
-  anniversary?: string;
 }
 
 /** The vCard address columns Graph uses, so a round trip through the sync is lossless. */
@@ -266,7 +269,8 @@ export function vCardToGraphContact(contact: VCardContact, options: { full: bool
     payload.imAddresses = (contact.instantMessages ?? []).map(entry => entry.value).filter((value): value is string => Boolean(value));
   }
   if (options.full || contact.birthday !== undefined) payload.birthday = graphDate(contact.birthday);
-  if (options.full || contact.anniversary !== undefined) payload.anniversary = graphDate(contact.anniversary);
+  // No anniversary: Graph v1.0 has no such property, so a local anniversary is deliberately not pushed rather
+  // than sent as a field the service rejects or ignores (GRAPH-03).
   return payload;
 }
 

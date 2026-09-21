@@ -39,6 +39,15 @@ describe('renderGraphMessage', () => {
     expect(payload.internetMessageHeaders ?? []).toHaveLength(0);
   });
 
+  it('carries the composer priority as Graph importance, and omits it when none was chosen', () => {
+    // MAIL-04: the shared model's priority was mapped by the SMTP renderer and dropped here, so a high or low
+    // priority message arrived as normal.
+    expect(renderGraphMessage({ ...base, priority: 'high' }).importance).toBe('high');
+    expect(renderGraphMessage({ ...base, priority: 'low' }).importance).toBe('low');
+    expect(renderGraphMessage({ ...base, priority: 'normal' }).importance).toBe('normal');
+    expect(renderGraphMessage(base).importance).toBeUndefined();
+  });
+
   it('needs no Bcc header: a blind recipient is representable as data', () => {
     const payload = renderGraphMessage({ ...base, to: [], bcc: [{ email: 'blind@example.test' }] });
     expect(payload.toRecipients).toHaveLength(0);

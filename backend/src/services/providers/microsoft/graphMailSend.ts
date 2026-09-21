@@ -33,6 +33,13 @@ export interface GraphMessagePayload {
   bccRecipients: GraphRecipient[];
   replyTo?: GraphRecipient[];
   internetMessageHeaders?: Array<{ name: string; value: string }>;
+  /**
+   * The message's importance, from the shared `ComposedMail.priority`.
+   *
+   * Without this the composer's choice was silently dropped on the Graph transport (MAIL-04): the SMTP renderer
+   * mapped it, Graph did not, and the recipient saw a normal-priority message whatever the user picked.
+   */
+  importance?: 'low' | 'normal' | 'high';
 }
 
 const toRecipients = (mailboxes: readonly Mailbox[]): GraphRecipient[] =>
@@ -76,6 +83,8 @@ export function renderGraphMessage(composed: ComposedMail): GraphMessagePayload 
     bccRecipients: toRecipients(composed.bcc),
   };
   if (composed.replyTo) payload.replyTo = toRecipients([composed.replyTo]);
+  // `low`/`normal`/`high` are Graph's own documented values, so the shared model maps across unchanged.
+  if (composed.priority) payload.importance = composed.priority;
   if (headers.length) payload.internetMessageHeaders = headers;
   return payload;
 }

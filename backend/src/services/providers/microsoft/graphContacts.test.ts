@@ -202,16 +202,17 @@ describe('fetchContactsPage', () => {
 });
 
 describe('the Graph mapper carries the fields with local columns', () => {
-  it('maps an anniversary and IM addresses', () => {
+  it('maps the birthday and IM addresses, and never invents an anniversary', () => {
     const parsed = graphContactToVCard({
       id: 'c1', displayName: 'Ada Lovelace',
       emailAddresses: [{ address: 'ada@example.test', name: 'Ada' }],
       birthday: '1815-12-10T00:00:00Z',
-      anniversary: '1835-07-08T00:00:00Z',
       imAddresses: ['ada@jabber.example', ''],
     }, 'book-1');
     expect(parsed.birthday).toBe('1815-12-10');
-    expect(parsed.anniversary).toBe('1835-07-08');
+    // GRAPH-03: the v1.0 contact resource has no anniversary property (beta names a different one), so the
+    // mapper has nothing to read and must not claim otherwise.
+    expect(parsed.anniversary).toBeNull();
     // A bare Graph IM address carries no protocol, so it is typed `other` rather than guessed, and
     // an empty entry is not an address.
     expect(parsed.instantMessages).toEqual([{ value: 'ada@jabber.example', type: 'other' }]);
@@ -221,5 +222,17 @@ describe('the Graph mapper carries the fields with local columns', () => {
     const parsed = graphContactToVCard({ id: 'c2', displayName: 'Anon' }, 'book-1');
     expect(parsed.anniversary).toBeNull();
     expect(parsed.instantMessages).toEqual([]);
+  });
+
+  it('never requests the anniversary from the v1.0 contact resource', async () => {
+    const calls: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      calls.push(String(url));
+      return new Response(JSON.stringify({ value: [] }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }));
+    await fetchContactsPage(OPTIONS, { top: 10 });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).not.toContain('anniversary');
+    expect(decodeURIComponent(calls[0]!)).toContain('birthday');
   });
 });
