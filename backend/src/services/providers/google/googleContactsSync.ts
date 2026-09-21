@@ -52,6 +52,8 @@ export interface GoogleContactsSyncResult {
   cursor: string | null;
   /** The listing did not reach its end within one run; the local book is a prefix, not the book (SYNC-04). */
   incomplete: boolean;
+  /** The collection is disabled by the user, so nothing was pulled (SYNC-09). */
+  disabled: boolean;
 }
 
 /** Stable local identity derived from the People resource name, never the e-mail. */
@@ -364,6 +366,17 @@ export async function syncGoogleContacts(input: {
   };
 
   try {
+    // SYNC-09: a collection the user disabled is not pulled. The scheduler already skips it; a manual run must
+    // too, or the switch would only affect the schedule and a disabled book would still be written to.
+    const collectionState = await withTransaction(client => client.query<{ enabled: boolean }>(
+      'SELECT enabled FROM integration_collections WHERE id = $1 AND user_id = $2',
+      [ensured.collectionId, input.userId],
+    ));
+    if (collectionState.rows[0]?.enabled === false) {
+      await withTransaction(client => releaseSyncLease(client, { syncStateId, generation: lease.generation })).catch(() => {});
+      return { addressBookId: ensured.addressBookId, created: 0, updated: 0, deleted: 0, skipped: 0, fullSync: false, cursor: null, incomplete: false, disabled: true };
+    }
+
     const state = await withTransaction(client => readSyncState(client, syncStateId));
     let cursor = state?.cursor ?? null;
     let fullSync = cursor === null;
@@ -407,7 +420,7 @@ export async function syncGoogleContacts(input: {
       // report success and must not advance the cursor: the next run re-reads from the stored token and finishes
       // (SYNC-04). `nextSyncToken` only arrives on the last page, which is exactly the page that was not read.
       await withTransaction(client => releaseSyncLease(client, { syncStateId, generation: lease.generation })).catch(() => {});
-      return { addressBookId: ensured.addressBookId, ...totals, fullSync, cursor, incomplete: true };
+      return { addressBookId: ensured.addressBookId, ...totals, fullSync, cursor, incomplete: true, disabled: false };
     }
 
     // A rebuilt baseline lists everything that still exists, so anything else was deleted at the provider while
@@ -441,7 +454,7 @@ export async function syncGoogleContacts(input: {
     }
     await withTransaction(client => releaseSyncLease(client, { syncStateId, generation: lease.generation })).catch(() => {});
 
-    return { addressBookId: ensured.addressBookId, ...totals, fullSync, cursor: finalCursor, incomplete: false };
+    return { addressBookId: ensured.addressBookId, ...totals, fullSync, cursor: finalCursor, incomplete: false, disabled: false };
   } catch (caught) {
     const code = caught instanceof GoogleApiError || caught instanceof ProviderAuthError || caught instanceof SyncLeaseLostError ? caught.code : 'INTERNAL_ERROR';
     await withTransaction(client => failSyncRun(client, { syncStateId, generation: lease.generation, errorCode: code })).catch(() => {});

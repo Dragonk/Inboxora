@@ -49,6 +49,8 @@ export interface GraphContactsSyncResult {
   cursor: string | null;
   /** The delta did not reach its end within one run; the local book is a prefix, not the book (SYNC-04). */
   incomplete: boolean;
+  /** The collection is disabled by the user, so nothing was pulled (SYNC-09). */
+  disabled: boolean;
 }
 
 interface ApplyContext {
@@ -363,6 +365,16 @@ export async function syncGraphContacts(input: {
   };
 
   try {
+    // SYNC-09: a collection the user disabled is not pulled, on a manual run as well as on the schedule.
+    const collectionState = await withTransaction(client => client.query<{ enabled: boolean }>(
+      'SELECT enabled FROM integration_collections WHERE id = $1 AND user_id = $2',
+      [ensured.collectionId, input.userId],
+    ));
+    if (collectionState.rows[0]?.enabled === false) {
+      await withTransaction(client => releaseSyncLease(client, { syncStateId, generation: lease.generation })).catch(() => {});
+      return { addressBookId: ensured.addressBookId, created: 0, updated: 0, deleted: 0, skipped: 0, fullSync: false, cursor: null, incomplete: false, disabled: true };
+    }
+
     const state = await withTransaction(client => readSyncState(client, syncStateId));
     let cursor = state?.cursor ?? null;
     let fullSync = cursor === null;
@@ -405,7 +417,7 @@ export async function syncGraphContacts(input: {
       // contacts that were merely not read yet, and storing a cursor would skip the rest for ever (SYNC-04). The
       // stored cursor is left as it is and the run does not claim a successful synchronisation.
       await withTransaction(client => releaseSyncLease(client, { syncStateId, generation: lease.generation })).catch(() => {});
-      return { addressBookId: ensured.addressBookId, ...totals, fullSync, cursor, incomplete: true };
+      return { addressBookId: ensured.addressBookId, ...totals, fullSync, cursor, incomplete: true, disabled: false };
     }
 
     if (fullSync) {
@@ -435,7 +447,7 @@ export async function syncGraphContacts(input: {
       });
     }
     await withTransaction(client => releaseSyncLease(client, { syncStateId, generation: lease.generation })).catch(() => {});
-    return { addressBookId: ensured.addressBookId, ...totals, fullSync, cursor: finalCursor, incomplete: false };
+    return { addressBookId: ensured.addressBookId, ...totals, fullSync, cursor: finalCursor, incomplete: false, disabled: false };
   } catch (caught) {
     const code = caught instanceof GraphApiError || caught instanceof ProviderAuthError || caught instanceof SyncLeaseLostError ? caught.code : 'INTERNAL_ERROR';
     await withTransaction(client => failSyncRun(client, { syncStateId, generation: lease.generation, errorCode: code })).catch(() => {});

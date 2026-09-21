@@ -241,7 +241,9 @@ describeOrSkip('Google contacts sync (PostgreSQL)', () => {
       userId: USER_ID, connectionId, config: CONFIG,
       fetchImpl: fakeProvider([() => json({ connections: [], nextSyncToken: 'sync-2' })]).fetchImpl,
     });
-    expect(second.fullSync).toBe(false);
+    // SYNC-09: a disabled collection is not pulled at all — not even by a manual run — and it stays disabled.
+    expect(second).toMatchObject({ disabled: true, created: 0, updated: 0 });
+    expect(second.cursor).toBeNull();
 
     const state = await autocommit(client => client.query<{ enabled: boolean }>(
       `SELECT enabled FROM integration_collections WHERE user_id = $1 AND kind = 'address_book'`, [USER_ID],
