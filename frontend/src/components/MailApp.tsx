@@ -137,6 +137,8 @@ export default function MailApp() {
       selectedCopyId,
       account_id: copy.accountId,
       message_id: copy.messageId || copy.canonicalMessageId,
+      // The stored row the reply answers, so the server can supply the edge when the client's payload lacks it.
+      replyToMessageId: copy.id,
       subject: copy.subject,
       from_email: copy.fromEmail,
       from_name: copy.fromName,

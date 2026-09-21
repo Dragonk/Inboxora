@@ -1538,6 +1538,8 @@ export default function MessageList() {
       body: '',
       quotedBody: '',
       inReplyTo: message.message_id,
+      // The row id travels too: if the list row had no Message-ID, the server reads it from the stored message.
+      replyToMessageId: message.id,
       references: referencesChain,
       accountId: message.account_id,
       aliasId: replyAliasId,

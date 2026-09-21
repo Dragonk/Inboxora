@@ -296,6 +296,15 @@ None.
   IMAP loops, health checks, rule forwarder and send path no longer open IMAP or SMTP for it.
 
 ### Fixed
+- **A reply always carries its threading edge, even when the client's payload does not.** The live case was every
+  reply sent from the conversation view arriving with neither `In-Reply-To` nor `References`, so the Sent copy
+  orphaned in a conversation of its own while the message it answered stayed alone: the query on the live database
+  showed every Inboxora-written `Sent` row with a `Message-ID` and an empty `in_reply_to`, and the raw headers
+  confirmed it. The composer now names the message it answers (`replyToMessageId`, the stored row), and the send
+  route reads that row's own `Message-ID` (and the References chain, parent's references plus the parent, per RFC
+  5322 §3.6.4) when the payload carries no edge — scoped to the caller's own account. The header no longer depends
+  on any single client path carrying the value through.
+
 - **The canonical Microsoft callback is served by the Graph flow again.** The legacy mailbox sign-in in
   `oauth.ts` still owned `GET /oauth/microsoft` and `GET /oauth/microsoft/callback`, and that router is mounted
   **before** the provider router — so it served the Graph flow's canonical callback. The Graph flow's own state

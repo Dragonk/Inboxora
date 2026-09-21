@@ -81,6 +81,15 @@ interface SendRequestBody {
   quotedBody?: string;
   quotedBodyHtml?: string;
   inReplyTo?: string;
+  /**
+   * The stored message this send answers, by its row id.
+   *
+   * The composer already sends `In-Reply-To`, but a client path can lose it — the live case was every reply sent
+   * from the conversation view arriving with neither `In-Reply-To` nor `References`, so the copy orphaned in its
+   * own conversation. The row id is the one thing the client always has, and the server can read the message's
+   * own Message-ID from it, so the header no longer depends on the client carrying the value through.
+   */
+  replyToMessageId?: string;
   references?: string;
   attachments?: ComposerAttachment[];
   editedSignature?: string;
@@ -444,7 +453,7 @@ router.get('/send-limits', async (req, res) => {
 });
 
 router.post('/send', async (req, res) => {
-  const { accountId, aliasId, to, cc = [], bcc = [], subject, body, bodyIsHtml, quotedBody, quotedBodyHtml, inReplyTo, references, attachments, editedSignature, editedSignatureIsHtml, forwardedAttachments, priority }: SendRequestBody = req.body;
+  const { accountId, aliasId, to, cc = [], bcc = [], subject, body, bodyIsHtml, quotedBody, quotedBodyHtml, inReplyTo, references, replyToMessageId, attachments, editedSignature, editedSignatureIsHtml, forwardedAttachments, priority }: SendRequestBody = req.body;
   const emailPriority = isEmailPriority(priority) ? priority : 'normal';
   if (!accountId) return res.status(400).json({ error: 'accountId required' });
   if (bodyIsHtml !== undefined && typeof bodyIsHtml !== 'boolean') return res.status(400).json({ error: 'bodyIsHtml must be a boolean' });
@@ -748,14 +757,34 @@ router.post('/send', async (req, res) => {
       inlineImageAttachments = embedded.attachments;
     }
 
-    if (inReplyTo) {
-      inReplyToHeader = sanitizeHeaderValue(inReplyTo);
+    // A reply always gets its edge, even when the client did not carry one: the row it answers is in this
+    // database, and its Message-ID is the value the header needs.
+    let resolvedInReplyTo = typeof inReplyTo === 'string' && inReplyTo.trim() ? inReplyTo : null;
+    let resolvedReferences = typeof references === 'string' && references.trim() ? references : null;
+    if ((!resolvedInReplyTo || !resolvedReferences) && typeof replyToMessageId === 'string' && replyToMessageId) {
+      const parent = await query<{ message_id: string | null; canonical_message_id: string | null; in_reply_to: string | null; thread_references: string | null }>(
+        `SELECT m.message_id, m.canonical_message_id, m.in_reply_to, m.thread_references
+           FROM messages m JOIN email_accounts a ON a.id = m.account_id
+          WHERE m.id = $1 AND a.user_id = $2`,
+        [replyToMessageId, req.session.userId],
+      );
+      const row = parent.rows[0];
+      if (row) {
+        const parentId = row.message_id || row.canonical_message_id || null;
+        resolvedInReplyTo = resolvedInReplyTo || parentId;
+        // The chain is the parent's own references plus the parent, which is what RFC 5322 §3.6.4 asks for.
+        const chain = [row.thread_references, row.in_reply_to, parentId].filter(Boolean).join(' ').trim();
+        resolvedReferences = resolvedReferences || chain || null;
+      }
+    }
+    if (resolvedInReplyTo) {
+      inReplyToHeader = sanitizeHeaderValue(resolvedInReplyTo);
     }
     // References is valid and useful even when In-Reply-To is absent. Preserve
     // the complete ordered chain independently so RFC-only References replies
     // remain attached to the existing Conversation after Sent ingest.
-    if (references || inReplyTo) {
-      referencesHeader = sanitizeHeaderValue(references || inReplyTo);
+    if (resolvedReferences || resolvedInReplyTo) {
+      referencesHeader = sanitizeHeaderValue(resolvedReferences || resolvedInReplyTo);
     }
     const allAttachments = [
       ...inlineImageAttachments,

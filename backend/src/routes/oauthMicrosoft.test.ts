@@ -493,3 +493,24 @@ it('the legacy mailbox sign-in no longer owns the canonical callback path', asyn
   // Its device-code routes remain: the legacy IMAP path still uses them.
   assert.ok(legacy.includes("router.post('/microsoft/device'"));
 });
+
+/**
+ * A reply always carries its threading edge.
+ *
+ * The live case: every reply sent from the conversation view arrived with neither `In-Reply-To` nor
+ * `References`, so the stored copy orphaned in a conversation of its own. The client now names the message it
+ * answers, and the route reads that message's Message-ID from the database when the payload does not carry it —
+ * which is what this pins, together with the ownership check that keeps the lookup to the caller's own mailbox.
+ */
+it('resolves the reply edge from the stored message when the payload omits it', async () => {
+  const source = await readFile(new URL('./send.ts', import.meta.url), 'utf8');
+  assert.match(source, /replyToMessageId\?: string;/);
+  assert.match(source, /if \(\(!resolvedInReplyTo \|\| !resolvedReferences\) && typeof replyToMessageId === 'string' && replyToMessageId\)/);
+  // The lookup is scoped to the caller's own account.
+  assert.match(source, /FROM messages m JOIN email_accounts a ON a\.id = m\.account_id\s*\n\s*WHERE m\.id = \$1 AND a\.user_id = \$2/);
+  assert.match(source, /const parentId = row\.message_id \|\| row\.canonical_message_id \|\| null;/);
+  // The chain is the parent's own References plus the parent, per RFC 5322 §3.6.4.
+  assert.match(source, /\[row\.thread_references, row\.in_reply_to, parentId\]\.filter\(Boolean\)\.join\(' '\)\.trim\(\)/);
+  assert.match(source, /inReplyToHeader = sanitizeHeaderValue\(resolvedInReplyTo\)/);
+  assert.match(source, /referencesHeader = sanitizeHeaderValue\(resolvedReferences \|\| resolvedInReplyTo\)/);
+});

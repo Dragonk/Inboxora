@@ -898,6 +898,7 @@ export default function ComposeModal() {
         ...(hasSignatureOverride ? { editedSignature: signatureToSend, editedSignatureIsHtml: !plaintextCompose } : {}),
         inReplyTo: composeData?.inReplyTo,
         references: composeData?.references || undefined,
+        ...(composeData?.replyToMessageId ? { replyToMessageId: composeData.replyToMessageId } : {}),
         ...(priority !== 'normal' ? { priority } : {}),
         ...(attachments.length ? {
           attachments: attachments.map(a => ({
