@@ -76,7 +76,8 @@ export default function App() {
     const params = new URLSearchParams(window.location.search);
     const oauthSuccess = params.get('oauth_success');
     const oauthError = params.get('oauth_error');
-    if ((oauthSuccess || oauthError) && window.opener) {
+    const oauthPending = params.get('oauth_pending');
+    if ((oauthSuccess || oauthError || oauthPending) && window.opener) {
       if (oauthSuccess) {
         // The result the opener needs to update the account card it started from: which provider, which
         // purpose, which account, and whether the first synchronisation ran. No token, no secret, and the
@@ -89,6 +90,15 @@ export default function App() {
           authorized: params.get('authorized') === '1',
           synchronized: params.get('synchronized') === '1',
           syncErrorCode: params.get('syncErrorCode'),
+        }, window.location.origin);
+      } else if (oauthPending) {
+        // A duplicate callback arrived while the first is still exchanging the code or finalizing the mailbox.
+        // Reporting success here would promise a result that has not happened yet, so the opener is told the
+        // work is still in progress and keeps its waiting state.
+        window.opener.postMessage({
+          type: 'oauth_pending',
+          provider: oauthPending,
+          accountId: params.get('accountId'),
         }, window.location.origin);
       } else {
         window.opener.postMessage({ type: 'oauth_error', error: oauthError }, window.location.origin);

@@ -383,20 +383,28 @@ export interface TakenAuthorizationFlow {
  * consumed the state and stored the grant, and the second was reported as a failure the user could do nothing
  * about. This reports the flow's own state so the caller can answer that case honestly.
  */
+export interface InspectedAuthorizationFlow {
+  status: 'pending' | 'exchanging' | 'completed' | 'failed' | 'expired' | 'cancelled';
+  targetAccountId: string | null;
+  errorCode: string | null;
+}
+
 export async function inspectAuthorizationFlow(client: PoolClient, input: {
   state: string;
   provider: OAuthProvider;
-}): Promise<'pending' | 'exchanging' | 'completed' | 'failed' | 'expired' | 'cancelled' | null> {
-  const result = await client.query<{ status: string; expired: boolean }>(
-    `SELECT status, (expires_at <= NOW()) AS expired
+}): Promise<InspectedAuthorizationFlow | null> {
+  const result = await client.query<{
+    status: string; expired: boolean; target_account_id: string | null; error_code: string | null;
+  }>(
+    `SELECT status, (expires_at <= NOW()) AS expired, target_account_id, error_code
        FROM oauth_authorization_flows
       WHERE state_hash = $1 AND provider = $2`,
     [stateHashOf(input.state), input.provider],
   );
   const row = result.rows[0];
   if (!row) return null;
-  if (row.expired && row.status === 'pending') return 'expired';
-  return row.status as 'pending' | 'exchanging' | 'completed' | 'failed' | 'expired' | 'cancelled';
+  const status = (row.expired && row.status === 'pending' ? 'expired' : row.status) as InspectedAuthorizationFlow['status'];
+  return { status, targetAccountId: row.target_account_id, errorCode: row.error_code };
 }
 
 export async function takeAuthorizationFlow(client: PoolClient, input: {
@@ -926,6 +934,47 @@ export async function upsertProviderConnection(client: PoolClient, input: {
   const row = raced.rows[0];
   if (!row) throw new ProviderAuthError('CONNECTION_NOT_STORED', 'Could not store the provider connection');
   return row.id;
+}
+
+export interface AccountConnectionIdentity {
+  provider: OAuthProvider;
+  issuer: string;
+  subject: string;
+  tenantId: string | null;
+}
+
+/**
+ * The connection a mailbox currently points at, or `null` when it has none yet.
+ *
+ * AUTH-02: reconnecting an existing mailbox writes `email_accounts.provider_connection_id`. That write must only
+ * ever move the mailbox between connections of the **same** provider identity. Selecting another account in the
+ * provider's own window is easy to do by accident, and the old code accepted it: mailbox A's local data was then
+ * bound to account B's token, with nothing to compare against.
+ */
+export async function loadAccountConnectionIdentity(client: PoolClient, input: {
+  userId: string;
+  accountId: string;
+}): Promise<AccountConnectionIdentity | null> {
+  const result = await client.query<{
+    provider: OAuthProvider; issuer: string; subject: string; tenant_id: string | null;
+  }>(
+    `SELECT pc.provider, pc.issuer, pc.subject, pc.tenant_id
+       FROM email_accounts a
+       JOIN provider_connections pc ON pc.id = a.provider_connection_id
+      WHERE a.id = $1 AND a.user_id = $2`,
+    [input.accountId, input.userId],
+  );
+  const row = result.rows[0];
+  if (!row) return null;
+  return { provider: row.provider, issuer: row.issuer, subject: row.subject, tenantId: row.tenant_id };
+}
+
+/** Stable identity comparison: issuer + subject, plus the Microsoft tenant. An e-mail alias is not an identity. */
+export function connectionIdentityMatches(current: AccountConnectionIdentity, next: AccountConnectionIdentity): boolean {
+  return current.provider === next.provider
+    && current.issuer === next.issuer
+    && current.subject === next.subject
+    && current.tenantId === next.tenantId;
 }
 
 export interface StoreGrantInput {

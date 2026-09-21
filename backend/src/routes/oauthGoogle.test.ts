@@ -298,6 +298,79 @@ describe('GET /oauth/google/callback', () => {
     expect(completed?.[1]).toEqual(['flow-1', 'completed', null]);
   });
 
+  it('does not announce success for a duplicate callback while the first is still exchanging', async () => {
+    // AUTH-03: the state is single-use and the first callback has already moved the flow to `exchanging`. A
+    // reload or a provider retry must not turn that into a terminal success the first callback may contradict.
+    mocks.query.mockImplementation(async (sql: string) => {
+      const text = String(sql);
+      if (text.includes("SET status = 'exchanging'")) return { rows: [], rowCount: 0 };
+      if (text.includes('FROM oauth_authorization_flows')) {
+        return { rows: [{ status: 'exchanging', expired: false, target_account_id: 'acct-9', error_code: null }], rowCount: 1 };
+      }
+      return { rows: [], rowCount: 0 };
+    });
+    const response = await callback('?code=code-1&state=state-1');
+    expect(response.status).toBe(302);
+    expect(response.headers.get('location')).toBe('/?oauth_pending=google&accountId=acct-9');
+  });
+
+  it('reports the terminal result with the account for a duplicate callback after success', async () => {
+    mocks.query.mockImplementation(async (sql: string) => {
+      const text = String(sql);
+      if (text.includes("SET status = 'exchanging'")) return { rows: [], rowCount: 0 };
+      if (text.includes('FROM oauth_authorization_flows')) {
+        return { rows: [{ status: 'completed', expired: false, target_account_id: 'acct-9', error_code: null }], rowCount: 1 };
+      }
+      return { rows: [], rowCount: 0 };
+    });
+    const response = await callback('?code=code-1&state=state-1');
+    expect(response.status).toBe(302);
+    expect(response.headers.get('location')).toBe('/?oauth_success=google&authorized=1&accountId=acct-9');
+  });
+
+  it('refuses to re-point a mailbox at a different Google identity', async () => {
+    // AUTH-02: choosing another Google account in the consent window must not bind this mailbox to it.
+    takenFlow.target_account_id = '11111111-1111-4111-8111-111111111111';
+    mocks.query.mockImplementation(async (sql: string) => {
+      const text = String(sql);
+      if (text.includes("SET status = 'exchanging'")) return { rows: [takenFlow], rowCount: 1 };
+      if (text.includes('JOIN provider_connections')) {
+        return { rows: [{ provider: 'google', issuer: 'https://accounts.google.com', subject: 'another-subject', tenant_id: null }], rowCount: 1 };
+      }
+      if (text.includes('UPDATE oauth_authorization_flows')) return { rows: [{ id: 'flow-1' }], rowCount: 1 };
+      return { rows: [], rowCount: 0 };
+    });
+    const response = await callback('?code=code-1&state=state-1');
+    expect(response.status).toBe(302);
+    expect(response.headers.get('location')).toContain('different%20Google%20account');
+    expect(queryCallsMatching('INSERT INTO provider_connections')).toHaveLength(0);
+    expect(queryCallsMatching('INSERT INTO oauth_grants')).toHaveLength(0);
+    expect(queryCallsMatching('UPDATE email_accounts')).toHaveLength(0);
+    const finish = queryCallsMatching('UPDATE oauth_authorization_flows').find(([sql]) => String(sql).includes('SET status = $2'));
+    expect(finish?.[1]).toEqual(['flow-1', 'failed', 'IDENTITY_MISMATCH']);
+  });
+
+  it('still re-points a mailbox at the connection of the same Google identity', async () => {
+    // The repair this must keep working: a mailbox whose recorded connection is the wrong row of the *same*
+    // identity is moved to the connection the grant was stored on.
+    takenFlow.target_account_id = '11111111-1111-4111-8111-111111111111';
+    mocks.query.mockImplementation(async (sql: string) => {
+      const text = String(sql);
+      if (text.includes("SET status = 'exchanging'")) return { rows: [takenFlow], rowCount: 1 };
+      if (text.includes('JOIN provider_connections')) {
+        return { rows: [{ provider: 'google', issuer: 'https://accounts.google.com', subject: 'google-sub-1', tenant_id: null }], rowCount: 1 };
+      }
+      if (text.includes('INSERT INTO provider_connections')) return { rows: [{ id: 'connection-1' }], rowCount: 1 };
+      if (text.includes('INSERT INTO oauth_grants')) return { rows: [{ id: 'grant-1', generation: '1' }], rowCount: 1 };
+      if (text.includes('UPDATE email_accounts SET provider_connection_id')) return { rows: [], rowCount: 1 };
+      if (text.includes('UPDATE oauth_authorization_flows')) return { rows: [{ id: 'flow-1' }], rowCount: 1 };
+      return { rows: [], rowCount: 0 };
+    });
+    const response = await callback('?code=code-1&state=state-1');
+    expect(response.status).toBe(302);
+    expect(queryCallsMatching('UPDATE email_accounts SET provider_connection_id')).toHaveLength(1);
+  });
+
   it('records a declined authorization as failed and redirects the user', async () => {
     const response = await callback('?error=access_denied&state=state-1');
     expect(response.status).toBe(302);

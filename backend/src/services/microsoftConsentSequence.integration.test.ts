@@ -5,6 +5,8 @@ import { pool, query } from './db.js';
 import {
   MICROSOFT_GRANT_AUDIENCE,
   MICROSOFT_ISSUER,
+  connectionIdentityMatches,
+  loadAccountConnectionIdentity,
   microsoftScopesForPurpose,
   storeOAuthGrant,
   upsertProviderConnection,
@@ -159,37 +161,45 @@ describeOrSkip('a Microsoft identity keeps one connection across its consents', 
   });
 });
 
-describeOrSkip('a consent repairs a mailbox that pointed at another connection', () => {
-  it('reads the granted scopes after the consent re-links the account', async () => {
-    // The live symptom: mail authorized, calendar and contacts still reporting a missing scope after consenting.
-    // The mailbox's recorded connection was the one its mail cutover created, while the consent's grant was
-    // stored on the connection that identity resolves to — two rows for one identity, and the card read the
-    // wrong one. Storing the grant now also points the mailbox at the connection it was stored on.
-    const stale = await inTransaction(client => upsertProviderConnection(client, {
-      userId, provider: 'microsoft', issuer: MICROSOFT_ISSUER, subject: 'an-older-subject',
-      tenantId: 'common', providerUserId: 'dragonk93@outlook.com', clientConfigId: 'client-1',
-    }));
-    await query('UPDATE email_accounts SET provider_connection_id = $2 WHERE id = $1', [accountId, stale]);
+describeOrSkip('a mailbox connection identity can be read back and compared', () => {
+  it('reports the mailbox identity and refuses a different subject, tenant or provider', async () => {
+    // AUTH-02: the OAuth callback validates the identity the provider returned against the identity the mailbox
+    // is already bound to before it rebinds `provider_connection_id`. That comparison reads the mailbox's current
+    // connection through this helper, so it is exercised here against real rows.
+    const current = await inTransaction(client => loadAccountConnectionIdentity(client, { userId, accountId }));
+    expect(current).toEqual({
+      provider: 'microsoft',
+      issuer: MICROSOFT_ISSUER,
+      subject: 'graph-subject-stable',
+      tenantId: 'common',
+    });
 
-    // Before the consent the card reads the stale connection's (empty) grant.
-    const before = await describeAccountProviderFeatures({ userId, accountId });
-    expect(before!.calendar?.authorized).toBe(false);
+    // The same identity — including a re-authorization that only changed the address — still matches.
+    expect(connectionIdentityMatches(current!, {
+      provider: 'microsoft', issuer: MICROSOFT_ISSUER, subject: 'graph-subject-stable', tenantId: 'common',
+    })).toBe(true);
 
-    // The consent stores its scopes on the identity's connection and re-links the mailbox to it.
-    await consent({ purpose: 'calendar_enable' });
-    await query('UPDATE email_accounts SET provider_connection_id = $2 WHERE id = $1', [accountId, stale]);
-    const repaired = await query<{ provider_connection_id: string | null }>(
-      'SELECT provider_connection_id FROM email_accounts WHERE id = $1', [accountId],
+    // A different account, a different tenant or a different provider must not be accepted as the same mailbox.
+    expect(connectionIdentityMatches(current!, {
+      provider: 'microsoft', issuer: MICROSOFT_ISSUER, subject: 'another-subject', tenantId: 'common',
+    })).toBe(false);
+    expect(connectionIdentityMatches(current!, {
+      provider: 'microsoft', issuer: MICROSOFT_ISSUER, subject: 'graph-subject-stable', tenantId: 'organizations',
+    })).toBe(false);
+    expect(connectionIdentityMatches(current!, {
+      provider: 'google', issuer: MICROSOFT_ISSUER, subject: 'graph-subject-stable', tenantId: 'common',
+    })).toBe(false);
+  });
+
+  it('returns null for a mailbox that has no connection yet', async () => {
+    const unbound = randomUUID();
+    await query(
+      `INSERT INTO email_accounts (id, user_id, name, email_address, protocol)
+       VALUES ($1, $2, 'Unbound', 'unbound@outlook.com', 'imap')`,
+      [unbound, userId],
     );
-    // The callback's own update is what repairs the link; this asserts the target it writes.
-    expect(repaired.rows[0]!.provider_connection_id).toBe(stale);
-
-    // After re-linking to the identity's connection, calendar and contacts are authorized by the accumulated
-    // grant — which is what the callback's update achieves in the live flow.
-    await query('UPDATE email_accounts SET provider_connection_id = $2 WHERE id = $1', [accountId, connectionId]);
-    const after = await describeAccountProviderFeatures({ userId, accountId });
-    expect(after!.calendar?.authorized).toBe(true);
-    expect(after!.calendar?.missingScopes).toEqual([]);
-    expect(after!.contacts?.authorized).toBe(true);
+    const identity = await inTransaction(client => loadAccountConnectionIdentity(client, { userId, accountId: unbound }));
+    expect(identity).toBeNull();
+    await query('DELETE FROM email_accounts WHERE id = $1', [unbound]);
   });
 });

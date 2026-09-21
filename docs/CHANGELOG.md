@@ -304,6 +304,19 @@ None.
   The purpose list is now one shared source of truth used by both providers, by the browser and the device flow;
   an explicitly unknown purpose is rejected with `400` instead of being reinterpreted; and migration
   `0115_oauth_account_enable_purpose` widens the database `CHECK` that rejected the value as well.
+- **Reconnecting a mailbox can no longer attach a different provider account.** The callback wrote
+  `email_accounts.provider_connection_id` without comparing the identity the provider had just returned with the
+  one the mailbox was already bound to, so choosing another account in the provider's own window silently bound
+  this mailbox's local data to that account's token. The write now happens in the same transaction as a check of
+  the stored issuer, subject and Microsoft tenant; a different identity is refused with its own message and the
+  mailbox is left untouched. A re-authorization of the *same* identity — a renamed or aliased address, the case
+  the relocation exists for — still works.
+- **A duplicated OAuth callback no longer reports success while the first is still working.** The callback reuses
+  the flow row when its one-time state has already been consumed, and treated both `completed` and `exchanging`
+  as success. A reload or a provider retry could therefore announce a finished connection while the first
+  callback was still exchanging the code, and a later failure had no way back to that message. Only a terminal
+  `completed` flow now reports success (naming the account), and an in-progress one reports a distinct
+  non-terminal state so the card keeps waiting instead of being told the wrong thing.
 - **The contacts CardDAV section shows words, not key names.** Six of the fourteen labels that section reads —
   server address, user name, password, synchronise now, connecting, disconnecting — were never added to the locale
   files, so the interface rendered `admin.integrations.carddav.serverUrl` and its siblings. All nine languages now

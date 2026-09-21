@@ -274,6 +274,16 @@ Microsoft application is registered in this environment.
   and migration `0115_oauth_account_enable_purpose` widens the database constraint that rejected the value.
   Apply the migration before rolling out the new backend.
 
+- **A reconnect cannot attach the wrong provider account.** Choosing a different account in the provider's
+  consent window no longer re-points the mailbox at that account's token: the callback compares the identity the
+  provider returned (issuer, subject and, for Microsoft, the tenant) with the identity the mailbox is already
+  bound to, and refuses a mismatch with a message that says so. Same-identity re-authorizations, including a
+  renamed or aliased address, continue to work.
+
+- **A repeated OAuth callback is honest about its state.** When the one-time state has already been consumed the
+  callback no longer treats "still exchanging the code" as success; a finished flow reports its terminal result,
+  an in-progress one reports that it is still in progress.
+
 - **Polish and other non-ASCII sender names from legacy charsets are shown correctly.** A message whose client
   encoded the `From`/`To` name or the subject in ISO-8859-2 or Windows-1250 — Outlook's charset for Polish — was
   decoded as UTF-8, which turned `Kamil Maciąg` into `Kamil Maci?g`; only UTF-8 mail was right, so the problem

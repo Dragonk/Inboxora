@@ -324,6 +324,42 @@ describe('GET /oauth/microsoft/callback', () => {
     expect(JSON.stringify(finish)).toContain('completed');
   });
 
+  it('does not announce success for a duplicate callback while the first is still exchanging', async () => {
+    mocks.query.mockImplementation(async (sql: string) => {
+      const text = String(sql);
+      if (text.includes("SET status = 'exchanging'")) return { rows: [], rowCount: 0 };
+      if (text.includes('FROM oauth_authorization_flows')) {
+        return { rows: [{ status: 'exchanging', expired: false, target_account_id: 'acct-9', error_code: null }], rowCount: 1 };
+      }
+      return { rows: [], rowCount: 0 };
+    });
+    const response = await callback('?state=state-1&code=code-1');
+    expect(response.status).toBe(302);
+    expect(response.headers.get('location')).toBe('/?oauth_pending=microsoft_graph&accountId=acct-9');
+  });
+
+  it('refuses to re-point a mailbox at a different Microsoft identity', async () => {
+    // AUTH-02: another account (or tenant) chosen in the Microsoft window must not be attached to this mailbox.
+    takenFlow.target_account_id = '11111111-1111-4111-8111-111111111111';
+    mocks.query.mockImplementation(async (sql: string) => {
+      const text = String(sql);
+      if (text.includes("SET status = 'exchanging'")) return { rows: [takenFlow], rowCount: 1 };
+      if (text.includes('JOIN provider_connections')) {
+        return { rows: [{ provider: 'microsoft', issuer: 'https://login.microsoftonline.com', subject: 'another-subject', tenant_id: 'common' }], rowCount: 1 };
+      }
+      if (text.includes('UPDATE oauth_authorization_flows')) return { rows: [{ id: 'flow-1' }], rowCount: 1 };
+      return { rows: [], rowCount: 0 };
+    });
+    const response = await callback('?state=state-1&code=code-1');
+    expect(response.status).toBe(302);
+    expect(response.headers.get('location')).toContain('different%20Microsoft%20account');
+    expect(queryCallsMatching('INSERT INTO provider_connections')).toHaveLength(0);
+    expect(queryCallsMatching('INSERT INTO oauth_grants')).toHaveLength(0);
+    expect(queryCallsMatching('UPDATE email_accounts')).toHaveLength(0);
+    const finish = queryCallsMatching('UPDATE oauth_authorization_flows').find(([sql]) => String(sql).includes('SET status = $2'));
+    expect(JSON.stringify(finish)).toContain('IDENTITY_MISMATCH');
+  });
+
   it('records a declined authorization as failed and redirects the user', async () => {
     const response = await callback('?error=access_denied&state=state-1');
     expect(response.status).toBe(302);
@@ -465,6 +501,26 @@ describe('POST /oauth/provider/microsoft/device/poll', () => {
     expect(grantParams).toContain('public');
     const finish = queryCallsMatching('UPDATE oauth_authorization_flows').find(([sql]) => String(sql).includes('SET status = $2'));
     expect(JSON.stringify(finish)).toContain('completed');
+  });
+
+  it('refuses to re-point a mailbox at a different Microsoft identity over the device flow', async () => {
+    deviceFlowRow = { ...deviceFlowRow, target_account_id: '22222222-2222-4222-8222-222222222222' };
+    mocks.query.mockImplementation(async (sql: string) => {
+      const text = String(sql);
+      if (text.includes("auth_flow = 'device_code'")) return { rows: [deviceFlowRow], rowCount: 1 };
+      if (text.includes('SET device_last_polled_at')) return { rows: [{ id: 'flow-1' }], rowCount: 1 };
+      if (text.includes('JOIN provider_connections')) {
+        return { rows: [{ provider: 'microsoft', issuer: 'https://login.microsoftonline.com', subject: 'another-subject', tenant_id: 'common' }], rowCount: 1 };
+      }
+      if (text.includes('UPDATE oauth_authorization_flows')) return { rows: [{ id: 'flow-1' }], rowCount: 1 };
+      return { rows: [], rowCount: 0 };
+    });
+    const response = await pollDevice();
+    const body = await response.json() as { status: string; error?: string };
+    expect(body.status).toBe('error');
+    expect(body.error).toContain('different Microsoft account');
+    expect(queryCallsMatching('INSERT INTO oauth_grants')).toHaveLength(0);
+    expect(queryCallsMatching('UPDATE email_accounts')).toHaveLength(0);
   });
 
   it('records a declined authorization as failed', async () => {

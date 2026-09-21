@@ -8,6 +8,7 @@ import {
   GOOGLE_GRANT_AUDIENCE,
   GOOGLE_ISSUER,
   ProviderAuthError,
+  connectionIdentityMatches,
   createAuthorizationFlow,
   exchangeGoogleAuthorizationCode,
   fetchGoogleIdentity,
@@ -17,6 +18,7 @@ import {
   googleScopesForPurpose,
   isAuthorizationPurpose,
   isGoogleConfigured,
+  loadAccountConnectionIdentity,
   providerConfigRevision,
   storeOAuthGrant,
   takeAuthorizationFlow,
@@ -144,10 +146,22 @@ router.get('/google/callback', async (req: Request, res: Response) => {
       // A state is single-use. A second callback for a consent that already succeeded is not a failure: the
       // grant is stored, and reporting "Invalid OAuth state" told the user their connection had not worked when
       // it had. The remaining cases keep their own message so the cause is visible.
-      const status = await withTransaction(client => inspectAuthorizationFlow(client, { state, provider: 'google' }));
-      if (status === 'completed' || status === 'exchanging') return res.redirect('/?oauth_success=google');
-      if (status === 'expired') return failRedirect(res, 'The authorization took too long and expired. Start it again.');
-      if (status === 'failed' || status === 'cancelled') return failRedirect(res, 'That authorization was declined. Start it again.');
+      const inspected = await withTransaction(client => inspectAuthorizationFlow(client, { state, provider: 'google' }));
+      if (!inspected) return failRedirect(res, 'Invalid OAuth state - please start from the account card again');
+      if (inspected.status === 'completed') {
+        // Terminal success, named for the account it belongs to so the card that started the flow recognises it.
+        const accountParam = inspected.targetAccountId ? `&accountId=${inspected.targetAccountId}` : '';
+        return res.redirect(`/?oauth_success=google&authorized=1${accountParam}`);
+      }
+      if (inspected.status === 'exchanging' || inspected.status === 'pending') {
+        // AUTH-03: the first callback is still exchanging the code or finalizing the mailbox. Reporting success
+        // here would promise a result that has not happened yet, and a later failure would only reach the tab
+        // that is still working. Say that it is still in progress instead of declaring it done.
+        const accountParam = inspected.targetAccountId ? `&accountId=${inspected.targetAccountId}` : '';
+        return res.redirect(`/?oauth_pending=google${accountParam}`);
+      }
+      if (inspected.status === 'expired') return failRedirect(res, 'The authorization took too long and expired. Start it again.');
+      if (inspected.status === 'failed' || inspected.status === 'cancelled') return failRedirect(res, 'That authorization was declined. Start it again.');
       return failRedirect(res, 'Invalid OAuth state - please start from the account card again');
     }
     flowId = taken.id;
@@ -175,6 +189,23 @@ router.get('/google/callback', async (req: Request, res: Response) => {
     const identity = await fetchGoogleIdentity({ accessToken: tokens.accessToken });
 
     const authorization = await withTransaction(async client => {
+      // AUTH-02: validate the identity the provider returned against the identity this mailbox is already bound
+      // to, inside the same transaction that rebinds it. Choosing a different Google account in the consent
+      // window must not move mailbox A's data onto account B's token.
+      if (taken.targetAccountId) {
+        const current = await loadAccountConnectionIdentity(client, { userId: taken.userId, accountId: taken.targetAccountId });
+        if (current && !connectionIdentityMatches(current, {
+          provider: 'google',
+          issuer: GOOGLE_ISSUER,
+          subject: identity.subject,
+          tenantId: null,
+        })) {
+          throw new ProviderAuthError(
+            'IDENTITY_MISMATCH',
+            'The authorized provider identity differs from the mailbox connection',
+          );
+        }
+      }
       const connectionId = await upsertProviderConnection(client, {
         userId: taken.userId,
         provider: 'google',
@@ -236,6 +267,9 @@ router.get('/google/callback', async (req: Request, res: Response) => {
       // Capture the id in a const: the closure below would otherwise widen it back.
       const failedFlowId = flowId;
       await withTransaction(client => finishAuthorizationFlow(client, { flowId: failedFlowId, status: 'failed', errorCode: code2 })).catch(() => {});
+    }
+    if (caught instanceof ProviderAuthError && caught.code === 'IDENTITY_MISMATCH') {
+      return failRedirect(res, 'A different Google account was chosen. Sign in with the account this mailbox belongs to, or add the other account as a separate mailbox.');
     }
     return failRedirect(res, 'Google authentication failed');
   }

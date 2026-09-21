@@ -8,12 +8,14 @@ import {
   MICROSOFT_GRANT_AUDIENCE,
   MICROSOFT_ISSUER,
   ProviderAuthError,
+  connectionIdentityMatches,
   createAuthorizationFlow,
   exchangeMicrosoftAuthorizationCode,
   fetchMicrosoftIdentity,
   finishAuthorizationFlow,
   isAuthorizationPurpose,
   isMicrosoftConfigured,
+  loadAccountConnectionIdentity,
   markDeviceAuthorizationPolled,
   microsoftAuthorizeUrl,
   microsoftConfigFromEnv,
@@ -238,6 +240,18 @@ router.post('/provider/microsoft/device/poll', requireAuth, async (req: Request,
     // the connection and its grant. The identity is issuer + subject, never the address.
     const identity = await fetchMicrosoftIdentity({ accessToken: result.tokens.accessToken });
     const authorization = await withTransaction(async client => {
+      // AUTH-02: never move an existing mailbox onto a different provider identity, even in the device flow.
+      if (flow.targetAccountId) {
+        const current = await loadAccountConnectionIdentity(client, { userId: flow.userId, accountId: flow.targetAccountId });
+        if (current && !connectionIdentityMatches(current, {
+          provider: 'microsoft',
+          issuer: MICROSOFT_ISSUER,
+          subject: identity.subject,
+          tenantId: config.tenantId,
+        })) {
+          throw new ProviderAuthError('IDENTITY_MISMATCH', 'The authorized provider identity differs from the mailbox connection');
+        }
+      }
       const connectionId = await upsertProviderConnection(client, {
         userId: flow.userId,
         provider: 'microsoft',
@@ -292,6 +306,9 @@ router.post('/provider/microsoft/device/poll', requireAuth, async (req: Request,
     const error = toAppError(caught);
     const code = caught instanceof ProviderAuthError ? caught.code : 'AUTH_FAILED';
     console.error('Microsoft Graph device poll error:', code, error.message);
+    if (caught instanceof ProviderAuthError && caught.code === 'IDENTITY_MISMATCH') {
+      return res.json({ status: 'error', error: 'A different Microsoft account was chosen. Sign in with the account this mailbox belongs to, or add the other account as a separate mailbox.' });
+    }
     return res.json({ status: 'error', error: 'Microsoft authentication failed' });
   }
 });
@@ -326,10 +343,20 @@ router.get('/microsoft/callback', async (req: Request, res: Response) => {
 
     const taken = await withTransaction(client => takeAuthorizationFlow(client, { state, provider: 'microsoft' }));
     if (!taken) {
-      const status = await withTransaction(client => inspectAuthorizationFlow(client, { state, provider: 'microsoft' }));
-      if (status === 'completed' || status === 'exchanging') return res.redirect('/?oauth_success=microsoft_graph');
-      if (status === 'expired') return failRedirect(res, 'The authorization took too long and expired. Start it again.');
-      if (status === 'failed' || status === 'cancelled') return failRedirect(res, 'That authorization was declined. Start it again.');
+      const inspected = await withTransaction(client => inspectAuthorizationFlow(client, { state, provider: 'microsoft' }));
+      if (!inspected) return failRedirect(res, 'Invalid OAuth state - please start from the account card again');
+      if (inspected.status === 'completed') {
+        const accountParam = inspected.targetAccountId ? `&accountId=${inspected.targetAccountId}` : '';
+        return res.redirect(`/?oauth_success=microsoft_graph&authorized=1${accountParam}`);
+      }
+      if (inspected.status === 'exchanging' || inspected.status === 'pending') {
+        // AUTH-03: still exchanging or finalizing. Do not announce a terminal success the first callback may
+        // still contradict; report that the work is in progress.
+        const accountParam = inspected.targetAccountId ? `&accountId=${inspected.targetAccountId}` : '';
+        return res.redirect(`/?oauth_pending=microsoft_graph${accountParam}`);
+      }
+      if (inspected.status === 'expired') return failRedirect(res, 'The authorization took too long and expired. Start it again.');
+      if (inspected.status === 'failed' || inspected.status === 'cancelled') return failRedirect(res, 'That authorization was declined. Start it again.');
       return failRedirect(res, 'Invalid OAuth state - please start from the account card again');
     }
     flowId = taken.id;
@@ -357,6 +384,19 @@ router.get('/microsoft/callback', async (req: Request, res: Response) => {
     const identity = await fetchMicrosoftIdentity({ accessToken: tokens.accessToken });
 
     const browser = await withTransaction(async client => {
+      // AUTH-02: validate the identity Graph returned against the one this mailbox is already bound to, inside
+      // the transaction that rebinds it. Picking another account in the Microsoft window must not attach it.
+      if (taken.targetAccountId) {
+        const current = await loadAccountConnectionIdentity(client, { userId: taken.userId, accountId: taken.targetAccountId });
+        if (current && !connectionIdentityMatches(current, {
+          provider: 'microsoft',
+          issuer: MICROSOFT_ISSUER,
+          subject: identity.subject,
+          tenantId: config.tenantId,
+        })) {
+          throw new ProviderAuthError('IDENTITY_MISMATCH', 'The authorized provider identity differs from the mailbox connection');
+        }
+      }
       const connectionId = await upsertProviderConnection(client, {
         userId: taken.userId,
         provider: 'microsoft',
@@ -417,6 +457,9 @@ router.get('/microsoft/callback', async (req: Request, res: Response) => {
       // Capture the id in a const: the closure below would otherwise widen it back.
       const failedFlowId = flowId;
       await withTransaction(client => finishAuthorizationFlow(client, { flowId: failedFlowId, status: 'failed', errorCode: code2 })).catch(() => {});
+    }
+    if (caught instanceof ProviderAuthError && caught.code === 'IDENTITY_MISMATCH') {
+      return failRedirect(res, 'A different Microsoft account was chosen. Sign in with the account this mailbox belongs to, or add the other account as a separate mailbox.');
     }
     return failRedirect(res, 'Microsoft authentication failed');
   }
