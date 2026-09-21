@@ -72,7 +72,10 @@
         "migrated": "Le compte utilise désormais l’API du fournisseur.",
         "syncPending": "Synchronisation…",
         "syncFailed": "{{code}} — connecté, la synchronisation a échoué",
-        "authorizationFailed": "L’autorisation ne s’est pas terminée. Réessayez."
+        "authorizationFailed": "L’autorisation ne s’est pas terminée. Réessayez.",
+        "reconnect": "Reconnecter",
+        "refresh": "Actualiser l’état",
+        "refreshed": "État actualisé."
       },
       "addAccountFlow": {
         "nativeTransport": "Ce compte lit et envoie via {{transport}} ; il n’y a aucune configuration IMAP/SMTP à modifier. Utilisez « Reconnecter » si l’autorisation doit être renouvelée.",

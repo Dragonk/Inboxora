@@ -105,7 +105,12 @@ test('the account card carries the provider services, and the classifier decides
   assert.match(services, /\/oauth\/google\?purpose=\$\{purpose\}/);
   assert.match(services, /\/oauth\/provider\/microsoft\?purpose=\$\{purpose\}/);
   // Calendar and contacts are per-account services, and push is reported per service.
-  assert.match(services, /account-service-connect-/);
+  // One authorization for the whole mailbox, not one per service: three consents for one account let the
+  // calendar be granted to a different mailbox than the mail it sits beside.
+  assert.match(services, /data-testid="account-connect"/);
+  assert.match(services, /authorize\(provider, 'account'\)/);
+  assert.match(services, /data-testid="account-refresh"/);
+  assert.ok(!/account-service-connect-/.test(services), 'a per-service connect action is still rendered');
   assert.match(services, /features\.push\.mail/);
   assert.match(services, /features\.push\.contacts/);
 });

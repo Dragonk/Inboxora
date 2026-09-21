@@ -29,11 +29,12 @@ import { syncGraphContacts } from './providers/microsoft/graphContactsSync.js';
  * The purposes the finalizer knows. `new_account` is the flow that creates a mailbox rather than attaching a
  * feature to one that exists, so it has nothing to synchronize and is not accepted here.
  */
-export type ProviderAuthorizationPurpose = 'mail_migration' | 'calendar_enable' | 'contacts_enable';
+export type ProviderAuthorizationPurpose = 'mail_migration' | 'calendar_enable' | 'contacts_enable' | 'account_enable';
 
 /** Narrow an authorization purpose to the ones that run a first synchronization. */
 export function isFinalizablePurpose(purpose: string): purpose is ProviderAuthorizationPurpose {
-  return purpose === 'mail_migration' || purpose === 'calendar_enable' || purpose === 'contacts_enable';
+  return purpose === 'mail_migration' || purpose === 'calendar_enable' || purpose === 'contacts_enable'
+    || purpose === 'account_enable';
 }
 
 export interface ProviderAuthorizationResult {
@@ -139,6 +140,22 @@ export async function finalizeProviderAuthorization(
   try {
     if (input.purpose === 'calendar_enable') await runCalendarSync(input);
     else if (input.purpose === 'contacts_enable') await runContactsSync(input);
+    else if (input.purpose === 'account_enable') {
+      // One consent covers the whole mailbox, so every feature it authorized is primed now. A failure in one of
+      // them must not stop the others: each feature records its own state, and the first failure is reported.
+      const failures: string[] = [];
+      for (const run of [runCalendarSync, runContactsSync]) {
+        try { await run(input); } catch (caught) { failures.push(failureCodeOf(caught)); }
+      }
+      // The mail baseline only applies to a mailbox the flow named; a bare consent reuses what syncs exist.
+      if (input.targetAccountId) {
+        try { await runMailBaseline(input); } catch (caught) { failures.push(failureCodeOf(caught)); }
+      }
+      if (failures.length) {
+        console.warn(`Initial sync after a single consent partly failed for ${input.provider}:`, failures.join(','));
+        return { ...base, synchronized: false, syncPending: false, syncErrorCode: failures[0]! };
+      }
+    }
     else await runMailBaseline(input);
     return { ...base, synchronized: true, syncPending: false, syncErrorCode: null };
   } catch (caught) {

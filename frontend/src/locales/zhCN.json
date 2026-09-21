@@ -74,7 +74,10 @@
         "migrated": "该账户现在使用服务商 API。",
         "syncPending": "正在同步…",
         "syncFailed": "{{code}} — 已连接，同步失败",
-        "authorizationFailed": "授权未完成。请重试。"
+        "authorizationFailed": "授权未完成。请重试。",
+        "reconnect": "重新连接",
+        "refresh": "刷新状态",
+        "refreshed": "状态已刷新。"
       },
       "addAccountFlow": {
         "nativeTransport": "此账户通过 {{transport}} 收发邮件，没有可编辑的 IMAP/SMTP 配置。如需更新授权，请使用“重新连接”。",

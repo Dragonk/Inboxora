@@ -74,7 +74,10 @@
         "migrated": "The account now uses the provider API.",
         "syncPending": "Synchronising…",
         "syncFailed": "{{code}} — connected, synchronisation failed",
-        "authorizationFailed": "The authorization did not finish. Try again."
+        "authorizationFailed": "The authorization did not finish. Try again.",
+        "reconnect": "Reconnect",
+        "refresh": "Refresh status",
+        "refreshed": "State refreshed."
       },
       "addAccountFlow": {
         "nativeTransport": "This account reads and sends through {{transport}}; there is no IMAP/SMTP configuration to edit. Use “Reconnect” if the provider authorization needs renewing.",

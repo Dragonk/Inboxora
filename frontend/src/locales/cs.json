@@ -192,7 +192,10 @@
         "migrated": "Účet nyní používá API poskytovatele.",
         "syncPending": "Synchronizace…",
         "syncFailed": "{{code}} — připojeno, synchronizace selhala",
-        "authorizationFailed": "Autorizace nedoběhla. Zkuste to znovu."
+        "authorizationFailed": "Autorizace nedoběhla. Zkuste to znovu.",
+        "reconnect": "Připojit znovu",
+        "refresh": "Aktualizovat stav",
+        "refreshed": "Stav aktualizován."
       },
       "addAccountFlow": {
         "nativeTransport": "Tento účet čte a odesílá přes {{transport}}; žádné nastavení IMAP/SMTP k úpravě zde není. Pokud je třeba obnovit autorizaci, použijte „Znovu připojit“.",

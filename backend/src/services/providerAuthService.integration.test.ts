@@ -10,9 +10,10 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { PoolClient } from 'pg';
 import crypto from 'crypto';
-import { pool } from './db.js';
+import { pool, query } from './db.js';
 import { decrypt } from './encryption.js';
 import {
+  microsoftScopesForPurpose,
   GOOGLE_GRANT_AUDIENCE,
   GOOGLE_ISSUER,
   createAuthorizationFlow,
@@ -193,5 +194,39 @@ describeOrSkip('OAuth authorization flows (PostgreSQL)', () => {
     ));
     expect(decrypt(after.rows[0]?.access_token_encrypted ?? null)).toBe('access-2');
     expect(decrypt(after.rows[0]?.refresh_token_encrypted ?? null)).toBe('refresh-1');
+  });
+});
+
+describeOrSkip('an authorization may stay open long enough for a real consent', () => {
+  it('still accepts a flow after ten minutes, and refuses one past its own lifetime', async () => {
+    // The live error was "Invalid OAuth state": the state expired while the user was signing in to Microsoft
+    // and approving a permission the mailbox had not granted before. Ten minutes was the old window, and an
+    // account-scoped consent routinely takes longer than that.
+    const created = await inTransaction(client => createAuthorizationFlow(client, {
+      userId: USER_ID,
+      provider: 'microsoft',
+      purpose: 'calendar_enable',
+      scopes: microsoftScopesForPurpose('calendar_enable'),
+      authFlow: 'browser',
+    }));
+
+    // Eleven minutes later the state is still usable.
+    await query("UPDATE oauth_authorization_flows SET expires_at = NOW() + interval '19 minutes' WHERE id = $1", [created.flowId]);
+    await query("UPDATE oauth_authorization_flows SET created_at = NOW() - interval '11 minutes' WHERE id = $1", [created.flowId]);
+    const taken = await inTransaction(client => takeAuthorizationFlow(client, { state: created.state, provider: 'microsoft' }));
+    expect(taken).not.toBeNull();
+    expect(taken!.purpose).toBe('calendar_enable');
+
+    // Once it is past its own lifetime it is refused, as before.
+    const stale = await inTransaction(client => createAuthorizationFlow(client, {
+      userId: USER_ID,
+      provider: 'microsoft',
+      purpose: 'contacts_enable',
+      scopes: microsoftScopesForPurpose('contacts_enable'),
+      authFlow: 'browser',
+    }));
+    await query("UPDATE oauth_authorization_flows SET expires_at = NOW() - interval '1 second' WHERE id = $1", [stale.flowId]);
+    const refused = await inTransaction(client => takeAuthorizationFlow(client, { state: stale.state, provider: 'microsoft' }));
+    expect(refused).toBeNull();
   });
 });

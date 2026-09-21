@@ -111,6 +111,40 @@ describe('finalizeProviderAuthorization', () => {
     }
   });
 
+  it('primes every feature from one consent, and keeps going when one of them fails', async () => {
+    // One authorization for the whole mailbox: calendar and contacts are both run, and the mail baseline too
+    // when the flow named a mailbox. A failure in one feature does not stop the others — each records its own
+    // state — and the first failure is what the caller reports.
+    const result = await finalizeProviderAuthorization(input({ purpose: 'account_enable' }));
+    expect(calls.syncGoogleCalendar).toHaveBeenCalled();
+    expect(calls.syncGoogleContacts).toHaveBeenCalled();
+    expect(calls.syncGmailMessages).toHaveBeenCalled();
+    expect(result).toMatchObject({ purpose: 'account_enable', authorized: true, synchronized: true, syncErrorCode: null });
+
+    calls.syncGoogleCalendar.mockRejectedValueOnce(Object.assign(new Error('forbidden'), { code: 'INSUFFICIENT_SCOPES' }));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const partial = await finalizeProviderAuthorization(input({ purpose: 'account_enable' }));
+      expect(partial).toMatchObject({ authorized: true, synchronized: false, syncErrorCode: 'INSUFFICIENT_SCOPES' });
+      // The contacts run still happened, so one refused feature does not leave the others unprimed.
+      expect(calls.syncGoogleContacts).toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('requests the whole mailbox in one consent', async () => {
+    const { googleScopesForPurpose, microsoftScopesForPurpose } = await import('./providerAuthService.js');
+    const google = googleScopesForPurpose('account_enable');
+    expect(google).toContain('https://www.googleapis.com/auth/gmail.modify');
+    expect(google).toContain('https://www.googleapis.com/auth/calendar.events');
+    expect(google).toContain('https://www.googleapis.com/auth/contacts');
+    const microsoft = microsoftScopesForPurpose('account_enable');
+    for (const scope of ['Mail.ReadWrite', 'Mail.Send', 'Calendars.ReadWrite', 'Contacts.ReadWrite']) {
+      expect(microsoft.some(entry => entry.endsWith(scope)), scope).toBe(true);
+    }
+  });
+
   it('refuses a mail baseline without the mailbox it belongs to', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     try {

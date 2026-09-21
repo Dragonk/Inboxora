@@ -59,8 +59,18 @@ export function transportLabel(transport: string): string {
 }
 
 /** The authorization a "connect this service" action starts, per provider and service. */
-export function authorizationPath(input: { provider: 'google' | 'microsoft'; service: 'mail' | 'calendar' | 'contacts'; accountId?: string }): string {
-  const purpose = input.service === 'mail' ? 'mail_migration' : input.service === 'calendar' ? 'calendar_enable' : 'contacts_enable';
+/**
+ * The authorization a connect action starts.
+ *
+ * `account_enable` asks for the whole mailbox in **one** consent — mail, calendar and contacts together — which
+ * is what the card offers. Three separate consents made the user sign in three times for one account, and let
+ * the second or third be granted to a different mailbox, so a calendar could belong to another account than the
+ * mail it sits beside. The narrower purposes remain available for an installation that wants them.
+ */
+export function authorizationPath(input: { provider: 'google' | 'microsoft'; service: 'mail' | 'calendar' | 'contacts' | 'account'; accountId?: string }): string {
+  const purpose = input.service === 'account' ? 'account_enable'
+    : input.service === 'mail' ? 'mail_migration'
+      : input.service === 'calendar' ? 'calendar_enable' : 'contacts_enable';
   const account = input.accountId ? `&accountId=${encodeURIComponent(input.accountId)}` : '';
   return input.provider === 'google'
     ? `/oauth/google?purpose=${purpose}${account}`
@@ -123,7 +133,7 @@ export default function AccountProviderServices({ accountId, reload, t }: Props)
     return () => window.removeEventListener('message', onMessage);
   }, [accountId, load, reload, t]);
 
-  const authorize = useCallback((provider: 'google' | 'microsoft', service: 'calendar' | 'contacts' | 'mail') => {
+  const authorize = useCallback((provider: 'google' | 'microsoft', service: 'calendar' | 'contacts' | 'mail' | 'account') => {
     const anchor = document.createElement('a');
     anchor.href = authorizationPath({ provider, service, accountId });
     anchor.target = '_blank';
@@ -158,6 +168,12 @@ export default function AccountProviderServices({ accountId, reload, t }: Props)
   if (!features?.provider) return null;
   const provider = features.provider;
   const providerName = provider === 'google' ? t('admin.accounts.services.google') : t('admin.accounts.services.microsoft');
+  // The mailbox is already connected to its provider when any of its features is authorized, or when its mail
+  // is native — then the button offers a reconnection rather than a first one.
+  const providerConnected = features.mail.native === true
+    || features.mail.authorized === true
+    || features.calendar?.authorized === true
+    || features.contacts?.authorized === true;
 
   /**
    * The four states a service row can be in.
@@ -173,7 +189,7 @@ export default function AccountProviderServices({ accountId, reload, t }: Props)
     return t('admin.accounts.services.syncPending');
   };
 
-  const serviceRow = (label: string, connected: boolean, onConnect: () => void, extra?: string, feature?: { authorized: boolean; synchronized?: boolean; syncPending?: boolean; syncErrorCode?: string | null } | null) => (
+  const serviceRow = (label: string, connected: boolean, extra?: string, feature?: { authorized: boolean; synchronized?: boolean; syncPending?: boolean; syncErrorCode?: string | null } | null) => (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
       <span style={{ minWidth: 92, color: 'var(--text-secondary)' }}>{label}</span>
       <span
@@ -183,16 +199,6 @@ export default function AccountProviderServices({ accountId, reload, t }: Props)
       >
         {serviceStatus(feature ?? { authorized: connected })}
       </span>
-      {!connected && (
-        <button
-          type="button"
-          data-testid={`account-service-connect-${label.toLowerCase()}`}
-          onClick={onConnect}
-          style={{ padding: '3px 10px', background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-secondary)', fontSize: 12, cursor: 'pointer' }}
-        >
-          {t('admin.accounts.services.connect')}
-        </button>
-      )}
       {extra && <span style={{ color: 'var(--text-tertiary)' }}>{extra}</span>}
     </div>
   );
@@ -247,13 +253,34 @@ export default function AccountProviderServices({ accountId, reload, t }: Props)
       </div>
 
       {serviceRow(t('admin.accounts.services.calendar'), features.calendar?.authorized === true,
-        () => authorize(provider, 'calendar'),
         features.calendar?.authorized ? t('admin.accounts.services.collections', { count: features.calendar.collections.length }) : undefined,
         features.calendar)}
       {serviceRow(t('admin.accounts.services.contacts'), features.contacts?.authorized === true,
-        () => authorize(provider, 'contacts'),
         undefined,
         features.contacts)}
+
+      {/* One authorization for the whole mailbox, and one action that re-reads its state. Reconnecting runs the
+          same single consent again, which is also how a grant that lost a scope is repaired. */}
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }} data-testid="account-provider-actions">
+        <button
+          type="button"
+          data-testid="account-connect"
+          data-reconnect={providerConnected ? 'true' : 'false'}
+          disabled={busy}
+          onClick={() => authorize(provider, 'account')}
+          style={{ padding: '6px 14px', background: 'var(--accent)', border: 'none', borderRadius: 8, color: 'var(--accent-text)', fontSize: 13, fontWeight: 500, cursor: busy ? 'not-allowed' : 'pointer', opacity: busy ? 0.7 : 1 }}
+        >
+          {providerConnected ? t('admin.accounts.services.reconnect') : t('admin.accounts.services.connect')}
+        </button>
+        <button
+          type="button"
+          data-testid="account-refresh"
+          onClick={() => { setNotice(t('admin.accounts.services.refreshed')); load(); }}
+          style={{ padding: '6px 14px', background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-secondary)', fontSize: 13, cursor: 'pointer' }}
+        >
+          {t('admin.accounts.services.refresh')}
+        </button>
+      </div>
 
       <div style={{ marginTop: 6, color: 'var(--text-tertiary)' }}>
         {t('admin.accounts.services.instantSync')}: {t('admin.accounts.services.mail')} {features.push.mail} · {t('admin.accounts.services.calendar')} {features.push.calendar} · {t('admin.accounts.services.contacts')} {features.push.contacts}

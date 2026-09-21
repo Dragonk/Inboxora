@@ -184,7 +184,10 @@
         "migrated": "Konto korzysta teraz z API providera.",
         "syncPending": "Synchronizacja…",
         "syncFailed": "{{code}} — połączone, synchronizacja nie powiodła się",
-        "authorizationFailed": "Autoryzacja nie została dokończona. Spróbuj ponownie."
+        "authorizationFailed": "Autoryzacja nie została dokończona. Spróbuj ponownie.",
+        "reconnect": "Połącz ponownie",
+        "refresh": "Odśwież status",
+        "refreshed": "Stan odświeżony."
       },
       "addAccountFlow": {
         "nativeTransport": "To konto czyta i wysyła przez {{transport}}; nie ma tu konfiguracji IMAP/SMTP do edycji. Użyj „Połącz ponownie”, jeśli autoryzacja wymaga odnowienia.",

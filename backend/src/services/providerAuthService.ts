@@ -19,7 +19,13 @@ import { providerCallbackUrls } from './providerCallbackUrls.js';
  */
 
 export type OAuthProvider = 'microsoft' | 'google';
-export type AuthorizationPurpose = 'new_account' | 'mail_migration' | 'calendar_enable' | 'contacts_enable';
+/**
+ * `account_enable` authorizes **everything one mailbox needs** in a single consent: its mail, its calendar and
+ * its contacts. Three separate consents made the user sign in three times for one account, and nothing stopped
+ * the second or third from being granted to a different mailbox — the exact mistake a single authorization
+ * removes. The per-feature purposes remain, because an installation may still want to narrow a consent.
+ */
+export type AuthorizationPurpose = 'new_account' | 'mail_migration' | 'calendar_enable' | 'contacts_enable' | 'account_enable';
 export type RequestedAccess = 'source' | 'read_only';
 export type AuthorizationFlowStatus = 'pending' | 'exchanging' | 'completed' | 'failed' | 'expired' | 'cancelled';
 
@@ -36,7 +42,31 @@ export const MICROSOFT_ISSUER = 'https://login.microsoftonline.com';
 const GOOGLE_AUTH_BASE = 'https://www.googleapis.com/auth/';
 const GOOGLE_IDENTITY_SCOPES = ['openid', 'email', 'profile'] as const;
 
-const DEFAULT_FLOW_TTL_SECONDS = 600;
+/**
+ * How long an authorization may stay open before its state stops being accepted.
+ *
+ * This is not the provider's code lifetime — it is how long the **user** has between clicking "connect" and
+ * the provider returning to the callback. Ten minutes was too short for an account-scoped consent: signing in
+ * to Microsoft (possibly choosing an account and completing a second factor) and then approving a permission
+ * the mailbox has not granted before routinely takes longer, and the callback then arrived to a state that had
+ * expired. The live report was exactly that — mail authorized once, while every calendar and contacts attempt
+ * ended in "Invalid OAuth state", because Google's flow (already signed in, one click) always finished inside
+ * the old window.
+ *
+ * The state is single-use, hashed at rest, bound to the user's session and consumed by the first callback that
+ * presents it, so a longer window does not widen what it protects. `PROVIDER_AUTH_FLOW_TTL_MINUTES` overrides it
+ * for an installation that wants its own value.
+ */
+const DEFAULT_FLOW_TTL_SECONDS = 1800;
+
+/** The configured flow lifetime, in seconds. */
+function configuredFlowTtlSeconds(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = env.PROVIDER_AUTH_FLOW_TTL_MINUTES;
+  const minutes = Number(raw);
+  if (raw === undefined || raw === '' || !Number.isFinite(minutes) || minutes <= 0) return DEFAULT_FLOW_TTL_SECONDS;
+  // Bounded: a state that outlives a day is a session that was abandoned, not a consent in progress.
+  return Math.min(Math.floor(minutes * 60), 24 * 60 * 60);
+}
 
 export class ProviderAuthError extends Error {
   readonly code: string;
@@ -61,6 +91,14 @@ export function googleScopesForPurpose(purpose: AuthorizationPurpose, access: Re
       scopes.add(`${GOOGLE_AUTH_BASE}${access === 'read_only' ? 'calendar.events.readonly' : 'calendar.events'}`);
       break;
     case 'contacts_enable':
+      scopes.add(`${GOOGLE_AUTH_BASE}${access === 'read_only' ? 'contacts.readonly' : 'contacts'}`);
+      break;
+    case 'account_enable':
+      // One consent for the whole mailbox. The Gmail scope is the mail one, and the calendar and contacts
+      // scopes are the same pair the narrower purposes ask for.
+      scopes.add(`${GOOGLE_AUTH_BASE}gmail.modify`);
+      scopes.add(`${GOOGLE_AUTH_BASE}calendar.calendarlist.readonly`);
+      scopes.add(`${GOOGLE_AUTH_BASE}calendar.events`);
       scopes.add(`${GOOGLE_AUTH_BASE}${access === 'read_only' ? 'contacts.readonly' : 'contacts'}`);
       break;
   }
@@ -283,7 +321,7 @@ export async function createAuthorizationFlow(client: PoolClient, input: CreateA
   const { verifier, challenge } = createPkcePair();
   const ttlSeconds = Number.isFinite(input.ttlSeconds) && Number(input.ttlSeconds) > 0
     ? Math.floor(Number(input.ttlSeconds))
-    : DEFAULT_FLOW_TTL_SECONDS;
+    : configuredFlowTtlSeconds();
   const result = await client.query<{ id: string; expires_at: Date }>(
     `INSERT INTO oauth_authorization_flows
        (user_id, provider, purpose, target_account_id, state_hash, code_verifier_enc, nonce,
@@ -537,6 +575,13 @@ export function microsoftScopesForPurpose(purpose: AuthorizationPurpose, access:
       scopes.add(`${GRAPH_SCOPE_BASE}Calendars.${suffix}`);
       break;
     case 'contacts_enable':
+      scopes.add(`${GRAPH_SCOPE_BASE}Contacts.${suffix}`);
+      break;
+    case 'account_enable':
+      // One consent for the whole mailbox: send, read and write mail, calendars and contacts together.
+      scopes.add(`${GRAPH_SCOPE_BASE}Mail.ReadWrite`);
+      scopes.add(`${GRAPH_SCOPE_BASE}Mail.Send`);
+      scopes.add(`${GRAPH_SCOPE_BASE}Calendars.${suffix}`);
       scopes.add(`${GRAPH_SCOPE_BASE}Contacts.${suffix}`);
       break;
   }
