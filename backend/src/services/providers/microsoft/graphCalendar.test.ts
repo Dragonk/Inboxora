@@ -190,10 +190,10 @@ describe('Graph calendar permissions and colour', () => {
 });
 
 describe('the Graph event delta page', () => {
-  it('asks the delta endpoint with the projection and follows an absolute link', async () => {
-    const calls: string[] = [];
-    const fetchImpl = (async (url: string) => {
-      calls.push(String(url));
+  it('asks the delta endpoint with only the parameters the delta function accepts, and follows an absolute link', async () => {
+    const calls: Array<{ url: string; prefer: string | null }> = [];
+    const fetchImpl = (async (url: string, init?: RequestInit) => {
+      calls.push({ url: String(url), prefer: new Headers(init?.headers).get('prefer') });
       return {
         ok: true, status: 200, headers: new Headers(),
         json: async () => ({
@@ -206,13 +206,20 @@ describe('the Graph event delta page', () => {
 
     const options = { ...api, fetchImpl };
     const page = await fetchGraphCalendarEventsPage(options, 'cal-1');
-    expect(calls[0]).toContain('/me/calendars/cal-1/events/delta');
-    expect(decodeURIComponent(calls[0])).toContain('$select=id,iCalUId');
+    expect(calls[0].url).toContain('/me/calendars/cal-1/events/delta');
+    // GRAPH-02: the delta function documents `$select`, `$expand`, `$filter`, `$orderby` and `$search` as
+    // unsupported, and pages with `odata.maxpagesize` rather than `$top`. Either parameter makes the request
+    // one the contract cannot answer, so neither is sent.
+    const asked = decodeURIComponent(calls[0].url);
+    expect(asked).not.toContain('$select');
+    expect(asked).not.toContain('$top');
+    expect(asked.toLowerCase()).not.toContain('maxpagesize=');
+    expect(calls[0].prefer).toBe('odata.maxpagesize=100, outlook.timezone="UTC"');
     expect(page.events.map(event => event.id)).toEqual(['AAMkAD-evt-1']);
     expect(page.nextLink).toContain('$skiptoken=abc');
     expect(page.deltaLink).toContain('$deltatoken=def');
 
     await fetchGraphCalendarEventsPage(options, 'cal-1', { link: page.nextLink });
-    expect(calls[1]).toBe(page.nextLink);
+    expect(calls[1].url).toBe(page.nextLink);
   });
 });

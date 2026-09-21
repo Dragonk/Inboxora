@@ -265,6 +265,13 @@ Microsoft application is registered in this environment.
 
 ### Fixed
 
+- **The Microsoft calendar change-tracking request now asks only for what Microsoft's contract allows.** It
+  previously combined the delta call with projection and paging parameters that delta does not support, so the
+  request could not be answered as written. The remaining question — the per-calendar delta form this
+  synchronisation relies on is documented as a preview capability while the stable version returns repeating
+  events in a shape that loses the series — needs validation against a real Microsoft mailbox before it is
+  changed, so it is deliberately not switched yet.
+
 - **A CardDAV synchronisation no longer changes your Google or Microsoft contacts.** With duplicate merging on,
   a matching email caused the imported card to be written over the provider-synced contact — a change Inboxora
   could not send back to that provider, so the next synchronisation undid it and the edit was lost. Merging now

@@ -181,19 +181,33 @@ export interface GraphEventPage {
 /**
  * One page of a calendar's events, delta-shaped.
  *
- * `events/delta` returns the full event resources — masters and their instances — plus `@removed`
- * tombstones, which is what makes a series reconcilable: a calendar view would expand instances and lose
- * the master. `link` carries an absolute `@odata.nextLink`/`@odata.deltaLink` forward, so a resumed run
- * continues exactly where the cursor said.
+ * `events/delta` returns the **masters** of recurring series plus `@removed` tombstones, which is what makes a
+ * series reconcilable: `calendarView/delta` returns occurrences and exceptions instead and loses the master.
+ * `link` carries an absolute `@odata.nextLink`/`@odata.deltaLink` forward, so a resumed run continues exactly
+ * where the cursor said.
+ *
+ * The delta function accepts **neither `$select` nor `$top`** — Microsoft documents `$select`, `$expand`,
+ * `$filter`, `$orderby` and `$search` as unsupported for the delta function on events and on a calendar view, and
+ * paging is controlled with `Prefer: odata.maxpagesize`. Both were sent here, and the parameter combination
+ * cannot work; the request now uses only what the contract allows.
+ *
+ * Still open (GRAPH-02): the item-delta form used here is documented as **beta-only**, while `calendarView/delta`
+ * is available on v1.0 but returns occurrences and exceptions rather than the series master this projection
+ * needs. Choosing between a beta read and a windowed redesign cannot be settled from the documentation alone and
+ * needs a live tenant to validate, so the API version is deliberately left as it is rather than switched blind.
  */
 export async function fetchGraphCalendarEventsPage(api: GraphApiOptions, calendarId: string, input: { link?: string | null; pageSize?: number } = {}): Promise<GraphEventPage> {
   const path = input.link
     ? input.link
-    : graphUrl(`${GRAPH_CALENDAR_PATH}/${encodeURIComponent(calendarId)}/events/delta`, {
-      $select: GRAPH_EVENT_SELECT,
-      $top: Number.isFinite(input.pageSize) && Number(input.pageSize) > 0 ? Math.min(250, Math.floor(Number(input.pageSize))) : 100,
-    });
-  const body = await graphGet<{ value?: GraphEvent[] | null; '@odata.nextLink'?: string | null; '@odata.deltaLink'?: string | null }>(api, path);
+    : graphUrl(`${GRAPH_CALENDAR_PATH}/${encodeURIComponent(calendarId)}/events/delta`, {});
+  const pageSize = Number.isFinite(input.pageSize) && Number(input.pageSize) > 0 ? Math.min(250, Math.floor(Number(input.pageSize))) : 100;
+  const body = await graphGetWithHeaders<{ value?: GraphEvent[] | null; '@odata.nextLink'?: string | null; '@odata.deltaLink'?: string | null }>(
+    api,
+    path,
+    // `odata.maxpagesize` is how a delta round is paged; the timezone preference keeps an occurrence's identity
+    // in the same frame the instances call uses.
+    { prefer: `odata.maxpagesize=${pageSize}, outlook.timezone="UTC"` },
+  );
   return {
     events: (Array.isArray(body.value) ? body.value : []).filter(event => Boolean(event?.id)),
     nextLink: body['@odata.nextLink'] ?? null,

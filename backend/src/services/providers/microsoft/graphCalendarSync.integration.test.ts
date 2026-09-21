@@ -153,7 +153,10 @@ describeOrSkip('Microsoft Graph calendar sync (PostgreSQL)', { timeout: PG_TEST_
     expect(result).toMatchObject({ collections: 2, created: 2, updated: 0, deleted: 0, errors: [] });
     expect(provider.urls[0]).toContain('/me/calendars');
     expect(decodeURIComponent(provider.urls[1])).toContain('/me/calendars/cal-1/events/delta');
-    expect(decodeURIComponent(provider.urls[1])).toContain('$select=id,iCalUId');
+    // GRAPH-02: the delta function does not accept `$select` (nor `$top`); the projection is requested by the
+    // resource's own default shape and paged with the `odata.maxpagesize` preference.
+    expect(decodeURIComponent(provider.urls[1])).not.toContain('$select');
+    expect(decodeURIComponent(provider.urls[1])).not.toContain('$top');
 
     const calendars = await autocommit(client => client.query<{ source: string; read_only: boolean; dav_mode: string; color: string }>(
       'SELECT source, read_only, dav_mode, color FROM calendars WHERE user_id = $1 ORDER BY name', [USER_ID],

@@ -296,6 +296,15 @@ None.
   IMAP loops, health checks, rule forwarder and send path no longer open IMAP or SMTP for it.
 
 ### Fixed
+- **The Microsoft calendar delta request no longer sends parameters the delta function rejects.** The page request
+  combined `events/delta` with `$select` and `$top`. Microsoft documents `$select`, `$expand`, `$filter`,
+  `$orderby` and `$search` as unsupported for the delta function (on events and on a calendar view), and pages a
+  delta round with `Prefer: odata.maxpagesize` rather than `$top`; the request was one the contract cannot
+  answer. It now sends only the documented preference, together with the UTC time-zone preference the instances
+  call already uses so an occurrence's identity is compared in one frame. This does **not** yet resolve the
+  remaining part of the finding: the item-delta form this projection needs (it returns series masters, where a
+  calendar view returns occurrences) is documented as beta-only on the pinned `v1.0` contract, and choosing
+  between a beta read and a windowed redesign needs validation against a live tenant rather than a blind switch.
 - **A CardDAV pull no longer overwrites contacts that belong to Google or Microsoft.** With duplicate handling set
   to "merge", a card whose email matched a contact in another book was written onto that contact with no check of
   who owned it. A Google or Microsoft contact is synchronized with its provider and this pull has no write-through
