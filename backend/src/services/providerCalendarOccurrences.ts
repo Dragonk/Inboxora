@@ -503,6 +503,10 @@ function googleOccurrenceAdapter(api: Parameters<typeof insertGoogleEvent>[0]): 
           // keeps — not the truncated one, and not the original count either (CAL-02).
           remainder.recurrence = remainderRecurrence;
         }
+        // The create goes straight to the API (no journal of its own), so this record is the only evidence that it
+        // was dispatched. A run that dies here cannot be resumed safely — a second create would make a second
+        // series — so the record exists to make that state explicit instead of a generic unknown (CAL-01).
+        await context?.recordProgress?.('remainder_create_dispatched', { occurrenceStart: write.occurrenceStart });
         const created = await insertGoogleEvent(api, write.providerCalendarId, remainder, { sendUpdates: write.sendUpdates });
         if (!created?.id) return { status: 'outcome_unknown', code: 'EVENT_ID_MISSING' };
         await context?.recordProgress?.('remainder_created', { createdSeriesId: created.id });
@@ -624,6 +628,7 @@ function graphOccurrenceAdapter(api: Parameters<typeof patchGraphEvent>[0]): Pro
         if (resumed?.masterTruncated && recordedPayload) payload = recordedPayload;
         if (write.operation === 'cancel' || !payload) return { status: 'committed', value: {} };
 
+        await context?.recordProgress?.('remainder_create_dispatched', { occurrenceStart: write.occurrenceStart });
         const created = await createGraphEvent(api, write.providerCalendarId, payload);
         if (!created?.id) return { status: 'outcome_unknown', code: 'EVENT_ID_MISSING' };
         await context?.recordProgress?.('remainder_created', { createdSeriesId: created.id });

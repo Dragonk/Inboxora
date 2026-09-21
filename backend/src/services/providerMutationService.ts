@@ -129,6 +129,14 @@ export interface ProviderMutationResult<T = unknown> {
   retryAfterSeconds?: number;
   /** True when the journal answered from a previous attempt instead of performing one. */
   replayed: boolean;
+  /**
+   * The stages this operation recorded, when any (CAL-01).
+   *
+   * An operation parked as an unknown outcome because its adapter cannot resume still reports what it knows here:
+   * "the remainder create was dispatched" is a different, actionable state from "the operation started", and this
+   * is what tells them apart without reading the journal by hand.
+   */
+  progress?: OperationProgressEntry[];
 }
 
 /** The statuses a finished operation can be in when it is read back. */
@@ -232,7 +240,13 @@ export async function runProviderMutation<TPayload, TResult = unknown>(
       status: 'outcome_unknown',
       errorCode: 'MUTATION_OUTCOME_UNKNOWN',
     }));
-    return { status: 'outcome_unknown', operationId: claim.operationId, code: 'MUTATION_OUTCOME_UNKNOWN', replayed: true };
+    return {
+      status: 'outcome_unknown',
+      operationId: claim.operationId,
+      code: 'MUTATION_OUTCOME_UNKNOWN',
+      replayed: true,
+      ...(claim.progress?.length ? { progress: claim.progress } : {}),
+    };
   }
 
   const controller = new AbortController();

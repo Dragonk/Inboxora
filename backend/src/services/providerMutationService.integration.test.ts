@@ -190,6 +190,31 @@ describeOrSkip('provider mutation layer (PostgreSQL)', () => {
     expect(seen).toContainEqual(expect.objectContaining({ stage: 'master_truncated' }));
   });
 
+  it('reports what a parked operation had recorded, so the ambiguity is named', async () => {
+    // CAL-01: an adapter that cannot resume is still parked — but "the remainder create was dispatched" is a
+    // different state from "nothing is known", and it is the one a person has to reconcile by hand.
+    const started = await autocommit(client => beginOperation(client, {
+      userId: USER_ID, resourceType: 'test_resource', operation: 'update',
+      idempotencyKey: 'key-crashed-ambiguous', payloadHash: 'hash-1', leaseSeconds: 300,
+    }));
+    if (started.outcome !== 'started') throw new Error('Expected a fresh operation');
+    await autocommit(client => recordOperationProgress(client, {
+      operationId: started.operationId, claimToken: started.claimToken, generation: started.generation,
+      stage: 'remainder_create_dispatched', detail: { occurrenceStart: '2026-09-15T09:00:00Z' },
+    }));
+    await expireOperationLease(started.operationId);
+
+    const result = await runProviderMutation(request('key-crashed-ambiguous'), adapter(async () => {
+      throw new Error('must not run');
+    }, false));
+
+    expect(result.status).toBe('outcome_unknown');
+    expect(result.replayed).toBe(true);
+    expect(result.progress).toEqual([
+      expect.objectContaining({ stage: 'remainder_create_dispatched' }),
+    ]);
+  });
+
   it('re-runs a recovered idempotent operation, because re-applying it converges', async () => {
     await autocommit(client => beginOperation(client, {
       userId: USER_ID, resourceType: 'test_resource', operation: 'update',

@@ -271,7 +271,8 @@ Microsoft application is registered in this environment.
   interrupted is now finished from that record rather than abandoned — the first write is not repeated, and the
   second uses the snapshot the operation recorded. A write whose outcome was never recorded is still left alone
   (that is what stops a lost response from creating a second series), so an interrupted split either completes
-  exactly or is reported as unknown, never silently duplicated.
+  exactly or is reported as unknown, never silently duplicated — and the report now says **which** step it stopped
+  after, instead of leaving the operator to guess.
 
 - **Internal: the transport seam now has a Gmail and Microsoft implementation.** The actions the inbox rules
   perform — move, delete, read/starred — can now be carried out on a native account through the same services

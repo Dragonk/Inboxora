@@ -233,7 +233,10 @@ reads the new columns; a mixed old/new deployment must not run with the new code
   whose record already shows the remainder returns that result without touching the provider at all. An adapter that
   records nothing keeps the conservative park, so nothing is re-run on a guess. Still open: a create whose outcome
   was never recorded is not resumed (no record, no resume), which is what keeps a lost response from becoming a
-  second series.
+  second series. That case is now **named** rather than generic: the dispatch of the create is recorded as its own
+  stage, and an operation parked as an unknown outcome reports the stages it had recorded, so "the remainder was
+  dispatched and the answer was lost" can be told apart from "the operation merely started". Reconciling it
+  automatically — for Google, looking the series up before deciding — is the remaining part of CAL-01.
 - **The message-action seam now has a provider implementation.** `MailActionPort` (above) is implemented for Gmail
   and Microsoft Graph: the port resolves the local message from the `uid`/folder the rules engine passes and then
   acts by the provider's own id, through the move, delete and flag services that already run on the mutation
