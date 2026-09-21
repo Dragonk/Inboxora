@@ -49,6 +49,22 @@ describe('classifyGraphError', () => {
   });
 });
 
+describe('immutable Graph id preference', () => {
+  it('adds the preference only when the caller has completed the translation', async () => {
+    const calls: Array<{ url: string; prefer: string | null }> = [];
+    vi.stubGlobal('fetch', (async (url: string, init?: RequestInit) => {
+      calls.push({ url: String(url), prefer: new Headers(init?.headers).get('prefer') });
+      return ({ ok: true, status: 200, headers: headers(), json: async () => ({ id: 'm-1' }) }) as Response;
+    }) as unknown as typeof fetch);
+
+    await graphGet({ ...OPTIONS, immutableIds: false }, '/me/messages/m-1');
+    await graphGet({ ...OPTIONS, immutableIds: true }, '/me/messages/m-1');
+
+    expect(calls[0]?.prefer).toBeNull();
+    expect(calls[1]?.prefer).toBe('IdType="ImmutableId"');
+  });
+});
+
 describe('graphUrl', () => {
   it('keeps the escaped select list and drops absent values', () => {
     const url = new URL(graphUrl('/me/contactFolders/folder-1/contacts/delta', {
