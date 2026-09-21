@@ -129,6 +129,40 @@ describe('resolving the provider’s occurrence id', () => {
     await expect(resolveProviderOccurrenceId({ target: graphTarget })).resolves.toBeNull();
   });
 
+  it('finds an exception moved beyond a day by widening the window', async () => {
+    // CAL-04: a listing is filtered by an instance's current start, so an exception moved by a week fell outside
+    // the old ±24 h window and the edit was answered OCCURRENCE_NOT_FOUND. The narrow window is tried first and
+    // the wider one only when it found nothing.
+    mocks.google.instances
+      .mockResolvedValueOnce([{ id: 'unrelated', originalStartTime: { dateTime: '2026-09-14T09:00:00Z' } }])
+      .mockResolvedValueOnce([{ id: 'moved-a-week', originalStartTime: { dateTime: '2026-09-15T09:00:00Z' } }]);
+
+    await expect(resolveProviderOccurrenceId({ target: googleTarget })).resolves.toEqual({ id: 'moved-a-week', cancelled: false });
+    expect(mocks.google.instances).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not match a timed occurrence to another instance on the same date', async () => {
+    // The date-only comparison blurred temporal identity: a timed occurrence at 09:00 matched an instance at
+    // 15:00 on the same day. It now applies to all-day occurrences only (CAL-04).
+    mocks.google.instances.mockResolvedValue([{ id: 'same-day-other-time', originalStartTime: { dateTime: '2026-09-15T15:00:00Z' } }]);
+    await expect(resolveProviderOccurrenceId({ target: googleTarget })).resolves.toBeNull();
+
+    mocks.graph.instances.mockResolvedValue([{ id: 'same-day-other-time', originalStart: '2026-09-15T15:00:00.0000000' }]);
+    await expect(resolveProviderOccurrenceId({ target: graphTarget })).resolves.toBeNull();
+
+    // The all-day case still matches by date.
+    mocks.google.instances.mockResolvedValue([{ id: 'all-day', originalStartTime: { date: '2026-09-15' } }]);
+    await expect(resolveProviderOccurrenceId({ target: { ...googleTarget, occurrenceStart: '2026-09-15', allDay: true } }))
+      .resolves.toMatchObject({ id: 'all-day' });
+  });
+
+  it('reads a Graph stamp without a zone as UTC rather than in the server zone', async () => {
+    // CAL-04: Graph's `originalStart` carries no offset. `new Date` parsed it in the server's local zone, so the
+    // comparison was wrong on any host that is not UTC.
+    mocks.graph.instances.mockResolvedValue([{ id: 'graph-exact', originalStart: '2026-09-15T09:00:00.0000000' }]);
+    await expect(resolveProviderOccurrenceId({ target: graphTarget })).resolves.toEqual({ id: 'graph-exact', cancelled: false });
+  });
+
   it('matches an all-day occurrence by its date', async () => {
     mocks.google.instances.mockResolvedValue([{ id: `${GOOGLE_MASTER}_20260915`, originalStartTime: { date: '2026-09-15' } }]);
     await expect(resolveProviderOccurrenceId({ target: { ...googleTarget, occurrenceStart: '2026-09-15', allDay: true } }))

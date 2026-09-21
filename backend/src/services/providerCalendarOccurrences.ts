@@ -98,6 +98,55 @@ interface OccurrenceWritePayload {
 }
 
 const OCCURRENCE_WINDOW_MS = 24 * 60 * 60 * 1000;
+/**
+ * The fallback window used when the narrow one lists no match (CAL-04).
+ *
+ * A listing is filtered by an instance's **current** start, and an exception can be moved arbitrarily far from
+ * the original occurrence; assuming a one-day displacement meant an exception moved by a week was never found
+ * and the edit was answered `OCCURRENCE_NOT_FOUND`. The wider window is bounded and only consulted after the
+ * narrow one found nothing, so ordinary edits still cost one request.
+ */
+const OCCURRENCE_WIDE_WINDOW_MS = 31 * 24 * 60 * 60 * 1000;
+
+/** Parse a Graph stamp with no offset as UTC instead of letting `new Date` assume the server's zone (CAL-04). */
+function graphInstant(value: string | null | undefined): Date | null {
+  if (typeof value !== 'string' || !value) return null;
+  const normalised = /(?:Z|[+-]\d{2}:?\d{2})$/.test(value) ? value : `${value}Z`;
+  const parsed = new Date(normalised);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+/** The instance whose `originalStartTime` is the occurrence the user acted on. */
+function googleInstanceMatches(
+  instance: { originalStartTime?: { date?: string | null; dateTime?: string | null } | null },
+  target: ProviderOccurrenceTarget,
+  wanted: Date,
+): boolean {
+  if (instance.originalStartTime?.date) {
+    // A date-only comparison is only meaningful for an all-day occurrence; applying it to a timed one matched
+    // any instance on the same day regardless of its time (CAL-04).
+    return target.allDay && instance.originalStartTime.date === target.occurrenceStart.slice(0, 10);
+  }
+  return sameInstant(instance.originalStartTime?.dateTime ?? null, wanted);
+}
+
+/** The Graph instance whose `originalStart` is the occurrence the user acted on. */
+function graphInstanceMatches(
+  instance: { originalStart?: string | null; start?: { dateTime?: string | null } | null },
+  target: ProviderOccurrenceTarget,
+  wanted: Date,
+): boolean {
+  const original = graphInstant(instance.originalStart ?? null);
+  if (original && original.getTime() === wanted.getTime()) return true;
+  if (!instance.originalStart && !target.allDay) {
+    // No `originalStart` means Graph returned the instance's own start; it carries no offset, so it is read as
+    // UTC rather than in the server's local zone.
+    return graphInstant(instance.start?.dateTime ?? null)?.getTime() === wanted.getTime();
+  }
+  // Date-only, and only for an all-day occurrence (CAL-04).
+  return target.allDay && typeof instance.originalStart === 'string'
+    && instance.originalStart.slice(0, 10) === target.occurrenceStart.slice(0, 10);
+}
 
 /** The instant an occurrence's `RECURRENCE-ID` names, or midnight UTC for an all-day date. */
 export function occurrenceInstant(occurrenceStart: string): Date | null {
@@ -241,26 +290,31 @@ export async function resolveProviderOccurrenceId(input: {
 }): Promise<{ id: string; cancelled: boolean } | null> {
   const wanted = occurrenceInstant(input.target.occurrenceStart);
   if (!wanted) return null;
-  const from = new Date(wanted.getTime() - OCCURRENCE_WINDOW_MS).toISOString();
-  const to = new Date(wanted.getTime() + OCCURRENCE_WINDOW_MS).toISOString();
   const base = input.fetchImpl ? { fetchImpl: input.fetchImpl } : {};
 
   if (input.target.kind === 'google') {
     const api = { userId: input.target.userId, connectionId: input.target.connectionId, config: googleConfigFromEnv(), ...base };
-    const instances = await fetchGoogleEventInstances(api, input.target.providerCalendarId, input.target.masterProviderId, { timeMin: from, timeMax: to });
-    const match = instances.find(instance => {
-      if (instance.originalStartTime?.date) return instance.originalStartTime.date === input.target.occurrenceStart.slice(0, 10);
-      return sameInstant(instance.originalStartTime?.dateTime ?? null, wanted);
+    const list = (windowMs: number) => fetchGoogleEventInstances(api, input.target.providerCalendarId, input.target.masterProviderId, {
+      timeMin: new Date(wanted.getTime() - windowMs).toISOString(),
+      timeMax: new Date(wanted.getTime() + windowMs).toISOString(),
     });
+    // The narrow window first; the wider one only when it found nothing, so an exception moved far from its
+    // original occurrence is still found (CAL-04).
+    const narrow = await list(OCCURRENCE_WINDOW_MS);
+    const match = narrow.find(instance => googleInstanceMatches(instance, input.target, wanted))
+      ?? (await list(OCCURRENCE_WIDE_WINDOW_MS)).find(instance => googleInstanceMatches(instance, input.target, wanted));
     if (!match) return null;
     return { id: match.id, cancelled: match.status === 'cancelled' };
   }
 
   const api = { userId: input.target.userId, connectionId: input.target.connectionId, config: microsoftConfigFromEnv(), ...base };
-  const instances = await fetchGraphEventInstances(api, input.target.providerCalendarId, input.target.masterProviderId, { startDateTime: from, endDateTime: to });
-  const match = instances.find(instance =>
-    sameInstant(instance.originalStart ?? instance.start?.dateTime ?? null, wanted)
-    || (typeof instance.originalStart === 'string' && instance.originalStart.slice(0, 10) === input.target.occurrenceStart.slice(0, 10)));
+  const list = (windowMs: number) => fetchGraphEventInstances(api, input.target.providerCalendarId, input.target.masterProviderId, {
+    startDateTime: new Date(wanted.getTime() - windowMs).toISOString(),
+    endDateTime: new Date(wanted.getTime() + windowMs).toISOString(),
+  });
+  const narrow = await list(OCCURRENCE_WINDOW_MS);
+  const match = narrow.find(instance => graphInstanceMatches(instance, input.target, wanted))
+    ?? (await list(OCCURRENCE_WIDE_WINDOW_MS)).find(instance => graphInstanceMatches(instance, input.target, wanted));
   if (!match) return null;
   return { id: match.id, cancelled: match.isCancelled === true || match['@removed'] !== undefined };
 }

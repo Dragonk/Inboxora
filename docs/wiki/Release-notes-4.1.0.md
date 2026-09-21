@@ -265,6 +265,11 @@ Microsoft application is registered in this environment.
 
 ### Fixed
 
+- **Editing a moved occurrence of a repeating event works again.** Inboxora looked for it in a one-day window
+  around the original date, so an instance moved further than that was reported as missing; it now widens the
+  search only when the first attempt finds nothing. The comparison also no longer confuses two timed occurrences
+  on the same day, and Microsoft timestamps without a time zone are read as UTC rather than in the server's zone.
+
 - **Changing "this and following" on a repeating event no longer changes how many times it repeats.** Splitting
   a series now continues with the remaining occurrences instead of restarting the original count, the end value
   of an all-day series is a date (as the calendar standard requires) rather than a date-time naming another day,

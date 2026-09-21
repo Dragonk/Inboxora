@@ -296,6 +296,13 @@ None.
   IMAP loops, health checks, rule forwarder and send path no longer open IMAP or SMTP for it.
 
 ### Fixed
+- **Editing an occurrence that a provider moved far from its original date no longer fails.** Finding the
+  provider's id for an occurrence listed a one-day window around the original start, so an exception moved by a
+  week was never in the answer and the edit was refused as "occurrence not found". The narrow window is still
+  tried first, and a wider (bounded) one only when it found nothing. Two related comparisons were also wrong: a
+  date-only match was accepted for *timed* occurrences, so any instance on the same day counted, and a Microsoft
+  `originalStart`, which carries no time-zone offset, was parsed in the server's local zone rather than as UTC,
+  which made the comparison depend on where Inboxora runs.
 - **Splitting a calendar series no longer restarts it or shifts it by a day.** Three defects met in the same
   path. A continued series copied the original rule verbatim, so splitting a series of ten occurrences at the
   fourth created a remainder with ten more instead of the seven that were left. The all-day case wrote the
