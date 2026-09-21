@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from 'crypto';
+import { randomUUID } from 'crypto';
 import type { EmailAccountRow } from '../services/imapManager.js';
 import { Router } from 'express';
 import { createRemoteJWKSet, jwtVerify } from 'jose';
@@ -83,96 +83,12 @@ function getMsConfig() {
   };
 }
 
-// Step 1: redirect user to Microsoft login
-router.get('/microsoft', async (req: Request, res: Response) => {
-  if (!req.session?.userId) return res.status(401).json({ error: 'Not authenticated' });
-  const switches = await readProviderSwitches('microsoft');
-  if (!switches.enabled || !switches.webEnabled) {
-    return res.status(403).json({ error: 'The Microsoft web sign-in is disabled in the Integrations settings.' });
-  }
+// The legacy browser mailbox sign-in (`/oauth/microsoft` and its callback) was removed. It is not offered
+// anywhere — Microsoft mail is Graph-native and the account card starts `/oauth/provider/microsoft` — and
+// because this router is mounted before the Graph one, keeping it meant that route served the Graph flow's
+// canonical callback: the flow's own state was never found and every consent failed with "Invalid OAuth state".
+// The device-code routes below remain for the legacy IMAP path.
 
-  const { clientId, tenantId, redirectUri } = getMsConfig();
-  if (!clientId || !tenantId || !redirectUri) {
-    return res.status(500).json({ error: 'Microsoft OAuth not configured. Set MS_CLIENT_ID, MS_CLIENT_SECRET, MS_TENANT_ID, MS_REDIRECT_URI in .env' });
-  }
-
-  // Generate a random CSRF nonce for the state parameter and store it alongside
-  // the userId so the callback can verify it without trusting the state value.
-  const oauthNonce = randomBytes(16).toString('hex');
-  req.session.oauthNonce  = oauthNonce;
-  req.session.oauthUserId = req.session.userId;
-
-  const params = new URLSearchParams({
-    client_id: clientId,
-    response_type: 'code',
-    redirect_uri: redirectUri,
-    response_mode: 'query',
-    scope: 'https://outlook.office.com/IMAP.AccessAsUser.All https://outlook.office.com/SMTP.Send offline_access openid email profile',
-    state: oauthNonce,
-    prompt: 'select_account',
-  });
-
-  // Save session before redirecting so the nonce is committed to the store
-  // before the external provider redirects back with the authorization code.
-  await new Promise<void>((resolve, reject) => req.session.save(err => err ? reject(err) : resolve()));
-  res.redirect(`${MICROSOFT_AUTH_URL}/${tenantId}/oauth2/v2.0/authorize?${params}`);
-});
-
-// Step 2: Microsoft redirects back here with auth code
-router.get('/microsoft/callback', async (req: Request, res: Response) => {
-  const code = queryString(req.query.code);
-  const state = queryString(req.query.state);
-  const error = queryString(req.query.error);
-  const error_description = queryString(req.query.error_description);
-
-  if (error) {
-    console.error('Microsoft OAuth error:', error, error_description);
-    return res.redirect(`/?oauth_error=${encodeURIComponent(error_description || error)}`);
-  }
-
-  // Validate CSRF nonce BEFORE making any external requests
-  if (!state || state !== req.session.oauthNonce) {
-    return res.redirect(`/?oauth_error=${encodeURIComponent('Invalid OAuth state — please try again')}`);
-  }
-  const userId = req.session.oauthUserId;
-  if (!userId) return res.redirect(`/?oauth_error=${encodeURIComponent('OAuth session expired — please try again')}`);
-  delete req.session.oauthNonce;
-  delete req.session.oauthUserId;
-
-  const { clientId, clientSecret, tenantId, redirectUri } = getMsConfig();
-
-  try {
-    // Exchange code for tokens
-    const tokenRes = await fetch(`${MICROSOFT_AUTH_URL}/${tenantId}/oauth2/v2.0/token`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: formBody({
-        client_id: clientId,
-        client_secret: clientSecret,
-        code,
-        redirect_uri: redirectUri,
-        grant_type: 'authorization_code',
-      }),
-      signal: AbortSignal.timeout(10000),
-    });
-
-    const tokens = (await tokenRes.json()) as OAuthTokenResponse;
-    if (!tokenRes.ok) {
-      throw new Error(tokens.error_description || tokens.error || 'Token exchange failed');
-    }
-
-    // Authorization-code flow uses the client secret → confidential client.
-    await processMicrosoftTokens(userId, tokens, { tenantId, clientId, publicClient: false });
-
-    // Redirect back to app with success
-    res.redirect('/?oauth_success=microsoft');
-  } catch (err) {
-    console.error('Microsoft OAuth callback error:', err);
-    res.redirect('/?oauth_error=Authentication+failed');
-  }
-});
-
-// Shared: validate tokens, upsert account, connect IMAP.
 async function processMicrosoftTokens(
   userId: string,
   tokens: OAuthTokenResponse,

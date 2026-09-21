@@ -1,3 +1,5 @@
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import express from 'express';
 import type { Server } from 'node:http';
@@ -473,4 +475,21 @@ it('redirects the pre-cleanup provider callback to the canonical one', async () 
   const response = await legacyCallback('?code=code-1&state=state-1');
   expect(response.status).toBe(302);
   expect(response.headers.get('location')).toBe('/oauth/microsoft/callback?code=code-1&state=state-1');
+});
+
+/**
+ * The canonical Microsoft callback must be served by **this** router.
+ *
+ * The legacy mailbox sign-in in `oauth.ts` used to own `/oauth/microsoft/callback`, and since that router is
+ * mounted first it served the Graph flow's canonical callback: the Graph flow's own state was never found, and
+ * every consent ended with "Invalid OAuth state — please try again" no matter what was fixed here. The routes
+ * are gone; this pins that the path is free for this handler.
+ */
+it('the legacy mailbox sign-in no longer owns the canonical callback path', async () => {
+  const legacy = await readFile(new URL('./oauth.ts', import.meta.url), 'utf8');
+  assert.ok(!legacy.includes("router.get('/microsoft'"), 'the legacy browser sign-in is back');
+  assert.ok(!legacy.includes("router.get('/microsoft/callback'"), 'the legacy callback is back and would shadow this one');
+  assert.ok(!legacy.includes('Invalid OAuth state — please try again'), 'the legacy state error is back');
+  // Its device-code routes remain: the legacy IMAP path still uses them.
+  assert.ok(legacy.includes("router.post('/microsoft/device'"));
 });

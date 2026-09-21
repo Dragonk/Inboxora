@@ -296,6 +296,16 @@ None.
   IMAP loops, health checks, rule forwarder and send path no longer open IMAP or SMTP for it.
 
 ### Fixed
+- **The canonical Microsoft callback is served by the Graph flow again.** The legacy mailbox sign-in in
+  `oauth.ts` still owned `GET /oauth/microsoft` and `GET /oauth/microsoft/callback`, and that router is mounted
+  **before** the provider router — so it served the Graph flow's canonical callback. The Graph flow's own state
+  was therefore never found, and every Microsoft calendar or contacts consent ended with "Invalid OAuth state —
+  please try again" regardless of what was fixed in the Graph handler: the code that stores the grant, runs the
+  first synchronisation and reports the outcome never ran. The two obsolete browser routes are removed (Microsoft
+  mail is Graph-native and the account card starts `/oauth/provider/microsoft`); the device-code routes remain for
+  the legacy IMAP path, with the token helper they use kept in place. A regression case pins that the path is free
+  and that the legacy state error cannot return.
+
 - **A consent says which way it failed, and a repeated callback is no longer reported as one.** Every state that
   was not accepted produced the same "Invalid or expired authorization state", which cannot distinguish a state
   that was never issued from one that expired and from one that a **second** callback presented after the first
