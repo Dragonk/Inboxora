@@ -117,6 +117,34 @@ describe('sending from a native Microsoft Graph account', () => {
     expect(sendMock).toHaveBeenCalled();
   });
 
+  it('does not claim a Graph-native reply for a parent in another mailbox (THREAD-01)', async () => {
+    // THREAD-01 diagnostic: an OVH/IMAP parent and a Gmail/Graph sending account are different provider
+    // authorities. We deliberately do not borrow the parent's provider id into `createReply`; the Graph JSON
+    // renderer also refuses the RFC headers Graph cannot accept. This test pins the current limitation rather than
+    // claiming cross-mailbox provider threading.
+    query.mockImplementation(async sql => {
+      if (sql.includes('FROM email_accounts')) return { rows: [account] };
+      if (sql.includes('SELECT preferences FROM users')) return { rows: [{ preferences: {} }] };
+      if (sql.includes('FROM messages m JOIN email_accounts')) return {
+        rows: [{
+          message_id: '<ovh-parent@example.test>', canonical_message_id: null, in_reply_to: null,
+          thread_references: null, provider_message_id: 'OVH-imap-message', account_id: 'ovh-account',
+        }],
+      };
+      if (sql.includes('INSERT INTO send_idempotency')) return { rows: [{ status: 'pending' }] };
+      if (sql.includes('INSERT INTO address_books')) return { rows: [{ id: 'book1' }] };
+      if (sql.includes('INSERT INTO contacts')) return { rows: [{ address_book_id: 'book1' }] };
+      return { rows: [] };
+    });
+
+    const response = await post({ replyToMessageId: '22222222-2222-4222-8222-222222222222', sendKind: 'reply' });
+
+    expect(response.status).toBe(200);
+    expect(replyDraftMock).not.toHaveBeenCalled();
+    expect(draftMock).toHaveBeenCalled();
+    expect(patchDraftMock).not.toHaveBeenCalled();
+  });
+
   it('sends over Graph, with no SMTP transport and no IMAP APPEND', async () => {
     const response = await post({ cc: ['copy@example.com'], bcc: ['blind@example.com'] });
 
