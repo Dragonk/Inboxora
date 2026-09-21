@@ -64,12 +64,15 @@ async function ensureCardavBook(userId: string, book: { url: string; displayName
   throw new Error(`Could not create a local address book for "${book.displayName}"`);
 }
 
-function contactFromVCard(vcard: string, href: string) {
+function contactFromVCard(vcard: string, href: string, etag: string | null = null) {
   const c = parseVCard(vcard);
   const uid = c.uid || crypto.createHash('md5').update(href).digest('hex');
   const primaryEmail = c.emails.find(e => e.primary)?.value || c.emails[0]?.value || null;
   return {
     uid,
+    /** The card's own address at the source, and its version — the identity a write-back needs (DAV-04). */
+    href,
+    etag,
     displayName: c.displayName || primaryEmail || null,
     firstName: c.firstName, lastName: c.lastName,
     primaryEmail: primaryEmail ? primaryEmail.toLowerCase().trim() : null,
@@ -97,9 +100,9 @@ function mergesIntoSource(ownerSource: string | null): boolean {
   return ownerSource !== 'google' && ownerSource !== 'microsoft';
 }
 
-async function upsertCardavContact(client: PoolClient, bookId: string, userId: string, c: CardavContact) {
+async function upsertCardavContact(client: PoolClient, bookId: string, userId: string, c: CardavContact): Promise<string | null> {
   const etag = crypto.createHash('md5').update(c.vcard).digest('hex');
-  await client.query(`
+  const inserted = await client.query<{ id: string }>(`
     INSERT INTO contacts (
       address_book_id, user_id, uid, vcard, etag,
       display_name, first_name, last_name, primary_email,
@@ -118,6 +121,7 @@ async function upsertCardavContact(client: PoolClient, bookId: string, userId: s
       urls = EXCLUDED.urls, instant_messages = EXCLUDED.instant_messages,
       categories = EXCLUDED.categories, addresses = EXCLUDED.addresses,
       photo_data = EXCLUDED.photo_data, updated_at = NOW()
+    RETURNING id
   `, [
     bookId, userId, c.uid, c.vcard, etag,
     c.displayName, c.firstName, c.lastName, c.primaryEmail,
@@ -125,6 +129,34 @@ async function upsertCardavContact(client: PoolClient, bookId: string, userId: s
     c.organization, c.notes, c.birthday, c.anniversary, JSON.stringify(c.contactDates), c.photoData,
     c.title, c.role, c.nickname, JSON.stringify(c.urls), JSON.stringify(c.instantMessages), JSON.stringify(c.categories), JSON.stringify(c.addresses),
   ]);
+  return inserted.rows[0]?.id ?? null;
+}
+
+/**
+ * Record where one card lives at its source, and the version it was read at (DAV-04).
+ *
+ * The CardDAV write-back resolves a contact through this table; without the row it had to scan the whole address
+ * book for the UID and could not present the ETag the source issued. The UID is the object identity — the same
+ * value the writer looks up — so the row is keyed by it and re-written on every pull.
+ */
+async function upsertCardavLink(client: PoolClient, input: {
+  userId: string;
+  collectionId: string;
+  collectionRemoteId: string;
+  uid: string;
+  localId: string;
+  href: string;
+  etag: string | null;
+}): Promise<void> {
+  await client.query(
+    `INSERT INTO remote_object_links
+       (user_id, collection_id, object_type, local_id, collection_remote_id, object_remote_id, remote_href, remote_version, status)
+     VALUES ($1,$2,'contact',$3,$4,$5,$6,$7,'active')
+     ON CONFLICT (collection_id, object_remote_id) DO UPDATE SET
+       local_id = EXCLUDED.local_id, remote_href = EXCLUDED.remote_href,
+       remote_version = EXCLUDED.remote_version, status = 'active', updated_at = NOW()`,
+    [input.userId, input.collectionId, input.localId, input.collectionRemoteId, input.uid, input.href, input.etag],
+  );
 }
 
 // Enrich an existing contact (in another book) with the vCard's descriptive
@@ -147,7 +179,7 @@ async function mergeIntoExisting(client: PoolClient, id: string, c: CardavContac
 
 async function syncBook(userId: string, book: CardavBook, dupMode: string, creds: CardavCredentials) {
   const rawCards = await fetchAddressBookCards({ ...book, ...creds });
-  const cards = rawCards.map(rc => contactFromVCard(rc.vcard, rc.href));
+  const cards = rawCards.map(rc => contactFromVCard(rc.vcard, rc.href, rc.etag));
   if (cards.some(card => card.invalidDates.length || card.invalidDateLabels.length)) {
     throw new Error('Remote CardDAV vCard contains an invalid contact date');
   }
@@ -155,8 +187,9 @@ async function syncBook(userId: string, book: CardavBook, dupMode: string, creds
   // Link the collection to its source connection so the per-collection write-back switch has something to
   // enable (P02's backfill, P10's reachability). Not this sync's purpose: a failure is reported and the
   // contacts still import, because losing them would be worse than a link that is retried next pass.
+  let collectionId: string | null = null;
   try {
-    await ensureExternalCollectionLink({
+    collectionId = await ensureExternalCollectionLink({
       userId,
       kind: 'carddav',
       url: book.url,
@@ -210,14 +243,36 @@ async function syncBook(userId: string, book: CardavBook, dupMode: string, creds
   // DAV-04: the whole pull is applied in **one transaction**. The delete of rows the snapshot no longer lists
   // must happen before the upserts (a uid or email freed this round cannot then collide with an incoming card),
   // but it must not be visible without them either: a failure halfway used to leave the book missing rows until
-  // the next successful pass. Delete, upsert, merge and the token now commit together or not at all.
+  // the next successful pass. Delete, upsert, merge, the links and the token now commit together or not at all.
   await withTransaction(async client => {
     await client.query(
       `DELETE FROM contacts WHERE address_book_id = $1 AND uid <> ALL($2::text[])`,
       [bookId, presentUids.length ? presentUids : ['']],
     );
-    for (const c of toUpsert) await upsertCardavContact(client, bookId, userId, c);
+    for (const c of toUpsert) {
+      const localId = await upsertCardavContact(client, bookId, userId, c);
+      // DAV-04: the card's own address at the source and the version it was read at are recorded with it, so a
+      // write-back resolves the resource from a stored identity instead of scanning the book for the UID and
+      // hoping to find it. Without the collection link there is nothing to anchor them to, so they are skipped
+      // rather than written against an unknown collection.
+      if (collectionId && localId) {
+        await upsertCardavLink(client, {
+          userId, collectionId, collectionRemoteId: book.url, uid: c.uid, localId, href: c.href, etag: c.etag,
+        });
+      }
+    }
     for (const m of toMerge) await mergeIntoExisting(client, m.id, m.contact);
+    if (collectionId) {
+      // The cards this snapshot no longer lists keep their rows only as tombstones: their links are retired so a
+      // write-back cannot address a resource this book no longer holds.
+      await client.query(
+        `UPDATE remote_object_links
+            SET status = 'deleted', local_id = NULL, updated_at = NOW()
+          WHERE collection_id = $1 AND object_type = 'contact' AND status = 'active'
+            AND object_remote_id <> ALL($2::text[])`,
+        [collectionId, presentUids.length ? presentUids : ['']],
+      );
+    }
 
     await client.query(
       "UPDATE address_books SET sync_token = gen_random_uuid()::text, updated_at = NOW() WHERE id = $1",

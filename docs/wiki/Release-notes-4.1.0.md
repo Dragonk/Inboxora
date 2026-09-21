@@ -265,6 +265,11 @@ Microsoft application is registered in this environment.
 
 ### Fixed
 
+- **Changes to a CardDAV contact are sent back with the version Inboxora read.** Each imported card now records
+  where it lives on the server and the version it had at that moment, so an edit is sent as a change to that
+  resource rather than being looked up by scanning the address book, and the server can reject the write if
+  someone else changed it first. Cards that disappear from the source have their records retired with them.
+
 - **Microsoft contacts now synchronise from the folder they actually live in.** Inboxora asked Microsoft for a
   contact folder named "contacts", which is not an identifier the service accepts, so the mailbox's contacts
   could not be read. The folder is looked up first and its real identifier used, both for reading and for writing

@@ -296,6 +296,12 @@ None.
   IMAP loops, health checks, rule forwarder and send path no longer open IMAP or SMTP for it.
 
 ### Fixed
+- **A CardDAV contact's address and version at its source are recorded while pulling it.** The write-back resolves
+  a contact through `remote_object_links`, and the pull never wrote those rows: it fell back to scanning the whole
+  address book for the UID and had no ETag to present as a precondition. Each card's own href and the ETag it was
+  read at are now stored with it, in the same transaction as the contact, and the links of cards that leave the
+  snapshot are retired, so a write cannot address a resource the book no longer holds. Together with the earlier
+  transaction fix, that closes DAV-04.
 - **Microsoft contacts are pulled from the mailbox's real contact folder.** The synchronisation addressed the
   folder as the literal `contacts` — `/me/contactFolders/contacts/contacts/delta` — which asked Graph for a folder
   whose id is the string "contacts" and which the service cannot resolve: unlike a mail folder, a contact folder

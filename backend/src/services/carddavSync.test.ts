@@ -5,7 +5,7 @@ type QueryResult = { rows: Record<string, unknown>[] };
 type QueryParameter = string | null;
 type Query = (sql: string, params: QueryParameter[]) => Promise<QueryResult>;
 type AddressBook = { url: string; displayName: string };
-type AddressBookCard = { href: string; vcard: string };
+type AddressBookCard = { href: string; vcard: string; etag?: string | null };
 type ConnectionPolicy = { allowPrivateHosts: boolean };
 
 const { query, transactionQuery, discoverAddressBooks, fetchAddressBookCards, getConnectionPolicy } = vi.hoisted(() => ({
@@ -40,13 +40,16 @@ function parseJsonParameter(value: QueryParameter): unknown {
 }
 
 function configureSync() {
-  const handler = async (sql: string) => {
+  const handler = async (sql: string, params?: unknown[]) => {
     if (sql.includes('SELECT config FROM user_integrations')) return { rows: [{ config: { serverUrl: 'https://dav.example', username: 'user', password: 'password' } }] };
     if (sql.includes('SELECT id FROM address_books')) return { rows: [{ id: 'book-1' }] };
     // The external-collection link (P02/P10): the helper asks for the source connection and then for the
     // collection, and a real database returns the new ids.
     if (sql.includes('INSERT INTO source_connections')) return { rows: [{ id: 'source-conn-1' }] };
     if (sql.includes('INSERT INTO integration_collections')) return { rows: [{ id: 'collection-1' }] };
+    // The contact upsert returns the row it wrote — the local id a link is anchored to (DAV-04). The uid is the
+    // third parameter, so the id is stable per card and an assertion can name it.
+    if (sql.includes('INSERT INTO contacts')) return { rows: [{ id: `contact-${String(params?.[2] ?? 'unknown')}` }] };
     return { rows: [] };
   };
   query.mockImplementation(handler);
@@ -55,8 +58,8 @@ function configureSync() {
   getConnectionPolicy.mockResolvedValue({ allowPrivateHosts: false });
   discoverAddressBooks.mockResolvedValue([{ url: 'https://dav.example/contacts', displayName: 'Contacts' }]);
   fetchAddressBookCards.mockResolvedValue([
-    { href: '/apple.vcf', vcard: appleCard },
-    { href: '/android.vcf', vcard: androidCard },
+    { href: '/apple.vcf', vcard: appleCard, etag: '"etag-apple"' },
+    { href: '/android.vcf', vcard: androidCard, etag: '"etag-android"' },
   ]);
 }
 
@@ -177,6 +180,32 @@ describe('remote CardDAV contact-date persistence', () => {
     if (!secondMergeCall) throw new Error('Expected a repeated existing-contact merge query');
     const [, secondMergeParams] = secondMergeCall;
     expect(secondMergeParams[9]).toBe(mergeParams[9]);
+  });
+
+  it('records each card’s href and ETag, and retires the links the snapshot no longer lists', async () => {
+    // DAV-04: the write-back resolves a contact through `remote_object_links`. Without a row it had to scan the
+    // whole book for the UID and had no ETag to present, so the pull now records where each card lives and the
+    // version it was read at, and retires the links of cards that left the snapshot.
+    await expect(syncUser('user-1')).resolves.toMatchObject({ ok: true, contactCount: 2 });
+
+    const links = transactionQuery.mock.calls.filter(([sql]) => sql.includes('INSERT INTO remote_object_links'));
+    expect(links).toHaveLength(2);
+    // The INSERT's parameters are user, collection, local id, collection remote id, uid, href, etag.
+    const params = links.map(([, values]) => values as unknown[]);
+    expect(params.map(row => row[4])).toEqual(['apple-1', 'android-1']);
+    for (const row of params) {
+      expect(row[0]).toBe('user-1');
+      expect(row[1]).toBe('collection-1');
+      expect(row[2]).toMatch(/^contact-/);
+      expect(row[3]).toBe('https://dav.example/contacts');
+      expect(row[5]).toMatch(/\.vcf$/);
+      // The ETag the source issued travels with the card, so a write-back can present it as a precondition.
+      expect(row[6]).toBe(row[5] === '/apple.vcf' ? '"etag-apple"' : '"etag-android"');
+    }
+
+    const retire = transactionQuery.mock.calls.find(([sql]) => sql.includes("status = 'deleted', local_id = NULL"));
+    expect(retire, 'links of cards that left the snapshot are not retired').toBeDefined();
+    expect(String(retire?.[0])).toContain('object_type = \'contact\'');
   });
 
   it('never merges into a contact that another provider owns', async () => {
