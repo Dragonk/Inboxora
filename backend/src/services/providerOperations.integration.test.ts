@@ -17,7 +17,7 @@ import {
   beginOperation, completeOperation, findOperationByKey, renewOperationLease, scheduleOperationRetry,
 } from './providerOperations.js';
 import {
-  acquireSyncLease, commitSyncCheckpoint, ensureSyncState, failSyncRun, finishSyncRun, readSyncState, releaseSyncLease, renewSyncLease, syncLeaseHeld,
+  acquireSyncLease, commitSyncCheckpoint, ensureSyncState, failSyncRun, finishSyncRun, readSyncState, releaseSyncLease, renewSyncLease, syncLeaseHeld, withFencedSyncLease,
 } from './syncCoordinator.js';
 import {
   claimDueOutbox, completeOutbox, enqueueOutbox, failOutbox, recoverExpiredOutbox,
@@ -326,6 +326,43 @@ describeOrSkip('sync coordinator (PostgreSQL)', () => {
     expect(await inTransaction(client => finishSyncRun(client, { syncStateId, generation: run.generation }))).toBe(true);
     state = await autocommit(client => readSyncState(client, syncStateId));
     expect(state?.lastSuccessAt).not.toBeNull();
+  });
+
+  it('fences a page write to the generation that owns the lease', async () => {
+    // SYNC-03: a worker whose lease expired and was superseded must not commit its page over the newer run's
+    // projection. The fence renews the lease and takes the row lock inside the writing transaction.
+    const syncStateId = await inTransaction(client => ensureSyncState(client, scope));
+    const run = await inTransaction(client => acquireSyncLease(client, { syncStateId, owner: 'worker-a' }));
+    if (!run) throw new Error('expected the lease');
+
+    const applied = await withFencedSyncLease({
+      syncStateId,
+      generation: run.generation,
+      run: async client => {
+        await client.query('UPDATE sync_states SET cursor = $2 WHERE id = $1', [syncStateId, 'page-1']);
+        return 'applied';
+      },
+    });
+    expect(applied).toBe('applied');
+
+    // Worker B takes over after A's lease expired, and records a newer cursor.
+    await expireSyncLease(syncStateId);
+    const takeover = await inTransaction(client => acquireSyncLease(client, { syncStateId, owner: 'worker-b' }));
+    expect(takeover?.generation).toBe(run.generation + 1);
+    await inTransaction(client => commitSyncCheckpoint(client, {
+      syncStateId, generation: takeover!.generation, cursor: 'newer-run',
+    }));
+
+    // A's next page must be refused, and it must not have written anything.
+    await expect(withFencedSyncLease({
+      syncStateId,
+      generation: run.generation,
+      run: async client => {
+        await client.query('UPDATE sync_states SET cursor = $2 WHERE id = $1', [syncStateId, 'stale-page']);
+      },
+    })).rejects.toMatchObject({ code: 'SYNC_LEASE_LOST' });
+    const state = await autocommit(client => readSyncState(client, syncStateId));
+    expect(state?.cursor).toBe('newer-run');
   });
 
   it('refuses to finish a run whose lease was superseded', async () => {

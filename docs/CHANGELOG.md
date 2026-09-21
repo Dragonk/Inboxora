@@ -296,6 +296,15 @@ None.
   IMAP loops, health checks, rule forwarder and send path no longer open IMAP or SMTP for it.
 
 ### Fixed
+- **A synchronisation that lost its lease can no longer overwrite a newer one.** Every adapter writes provider
+  data in page-sized transactions, but only Gmail renewed its lease and none of them re-checked the generation
+  before writing. A run that was superseded — its lease expired while it waited on the network, and another
+  worker took over — could still commit its page over the newer projection, and the generations only mattered
+  for the cursor. Each page application now runs through a fence: the same statement renews the lease and takes
+  the sync-state row lock, and the generation is re-checked inside the writing transaction, so a superseded
+  worker is refused and stops applying data. The network request stays outside the transaction, so no lock is
+  ever held across a provider call, and a lost lease is reported as `SYNC_LEASE_LOST` rather than as a provider
+  failure.
 - **An uncertain send can no longer become a silent duplicate.** Two gaps made the same mistake. The server's
   idempotency fingerprint did not cover the message being answered, so two different replies with identical text
   shared it and the second replayed the first delivery instead of being sent (or refused); the answered message

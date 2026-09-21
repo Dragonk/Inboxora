@@ -10,6 +10,8 @@ import {
   finishSyncRun,
   readSyncState,
   releaseSyncLease,
+  SyncLeaseLostError,
+  withFencedSyncLease,
 } from '../../syncCoordinator.js';
 import { GraphApiError } from './graphApiClient.js';
 import type { GraphApiOptions } from './graphApiClient.js';
@@ -256,7 +258,7 @@ export async function syncGraphMailFoldersForAccount(input: {
       fetchWellKnownFolderIds(api),
     ]);
     const mapped = graphFolderPathMap(folders, wellKnownById);
-    const applied = await withTransaction(client => applyGraphMailFolders(client, context, mapped));
+    const applied = await withFencedSyncLease({ syncStateId, generation: lease.generation, run: client => applyGraphMailFolders(client, context, mapped) });
     const committed = await withTransaction(async client => {
       const saved = await commitSyncCheckpoint(client, {
         syncStateId,
@@ -282,7 +284,7 @@ export async function syncGraphMailFoldersForAccount(input: {
     // provider sync fails. Classifying it as INTERNAL_ERROR hid the one instruction that helps — reconnect or
     // grant the scope — so the authorization failures are reported by their own code, as the calendar and
     // contacts syncs already did.
-    const code = caught instanceof GraphApiError || caught instanceof ProviderAuthError ? caught.code : 'INTERNAL_ERROR';
+    const code = caught instanceof GraphApiError || caught instanceof ProviderAuthError || caught instanceof SyncLeaseLostError ? caught.code : 'INTERNAL_ERROR';
     await withTransaction(client => failSyncRun(client, { syncStateId, generation: lease.generation, errorCode: code })).catch(() => {});
     throw caught;
   }
@@ -628,7 +630,7 @@ export async function syncGraphMailMessagesForFolder(input: {
         }
         throw caught;
       }
-      const applied = await withTransaction(client => applyGraphMailMessagesPage(client, context, fetched.messages, seen));
+      const applied = await withFencedSyncLease({ syncStateId, generation: lease.generation, run: client => applyGraphMailMessagesPage(client, context, fetched.messages, seen) });
       await persistConversations(applied.rowIds, input.account);
       totals.created += applied.created;
       totals.updated += applied.updated;
@@ -650,7 +652,7 @@ export async function syncGraphMailMessagesForFolder(input: {
 
     if (fullSync) {
       // A baseline lists everything that still exists, so anything else is gone.
-      totals.deleted += await withTransaction(client => reconcileGraphMailMessages(client, context, seen));
+      totals.deleted += await withFencedSyncLease({ syncStateId, generation: lease.generation, run: client => reconcileGraphMailMessages(client, context, seen) });
     }
 
     const committed = await withTransaction(async client => {
@@ -679,7 +681,7 @@ export async function syncGraphMailMessagesForFolder(input: {
     // provider sync fails. Classifying it as INTERNAL_ERROR hid the one instruction that helps — reconnect or
     // grant the scope — so the authorization failures are reported by their own code, as the calendar and
     // contacts syncs already did.
-    const code = caught instanceof GraphApiError || caught instanceof ProviderAuthError ? caught.code : 'INTERNAL_ERROR';
+    const code = caught instanceof GraphApiError || caught instanceof ProviderAuthError || caught instanceof SyncLeaseLostError ? caught.code : 'INTERNAL_ERROR';
     await withTransaction(client => failSyncRun(client, { syncStateId, generation: lease.generation, errorCode: code })).catch(() => {});
     throw caught;
   }

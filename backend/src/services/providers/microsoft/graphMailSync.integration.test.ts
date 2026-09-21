@@ -448,6 +448,44 @@ describeOrSkip('Microsoft Graph mail message sync (PostgreSQL)', () => {
     expect((await storedMessages()).map(row => [row.provider_message_id, row.folder])).toEqual([['m1', 'Sent']]);
   });
 
+  it('refuses to apply a page after another worker took the lease over', async () => {
+    // SYNC-03: the network request happens outside the writing transaction, so a run can lose its lease while
+    // it is waiting for a page. The fence re-checks the generation inside the transaction that would write the
+    // page, so the superseded worker cannot commit over the newer run's projection.
+    const connectionId = await seedConnection();
+    await discoverFolders(connectionId);
+    const collection = await autocommit(client => client.query<{ id: string }>(
+      `SELECT ic.id FROM integration_collections ic
+        WHERE ic.user_id = $1 AND ic.connection_id = $2 AND ic.remote_id = 'graph-inbox'`,
+      [USER_ID, connectionId],
+    ));
+    const syncStateId = await inTransaction(client => ensureSyncState(client, {
+      userId: USER_ID, connectionId, accountId: ACCOUNT_ID, feature: 'mail',
+      collectionId: collection.rows[0]!.id, coverage: 'messages',
+    }));
+
+    let superseded = false;
+    const base = fakeMailProvider({ inbox: [{ value: [graphMessage('m1')], '@odata.deltaLink': DELTA_INBOX }] });
+    const fetchImpl = async (url: string): Promise<Response> => {
+      if (!superseded && String(url).includes('/messages/delta')) {
+        superseded = true;
+        // Another worker takes over while this run is waiting on the network.
+        await autocommit(client => client.query(
+          "UPDATE sync_states SET lease_expires_at = NOW() - interval '1 second' WHERE id = $1", [syncStateId],
+        ));
+        await inTransaction(client => acquireSyncLease(client, { syncStateId, owner: 'other-worker', leaseSeconds: 300 }));
+      }
+      return base.fetchImpl(url as never);
+    };
+
+    await expect(syncGraphMailMessagesForAccount({
+      userId: USER_ID, connectionId, accountId: ACCOUNT_ID, config: CONFIG, fetchImpl: fetchImpl as never,
+    })).rejects.toMatchObject({ code: 'SYNC_LEASE_LOST' });
+
+    // The page was never applied: no message row exists for the superseded run.
+    expect(await storedMessages()).toHaveLength(0);
+  });
+
   it('does not reconcile deletions when a baseline stops at the page cap', async () => {
     // SYNC-04: a capped run read only a prefix of the folder. Reconciling against that prefix deletes every
     // message on the pages that were not read yet, and storing a cursor would skip them for ever.

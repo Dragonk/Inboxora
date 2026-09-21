@@ -265,6 +265,12 @@ Microsoft application is registered in this environment.
 
 ### Fixed
 
+- **A synchronisation that was taken over can no longer write over the newer one.** When a run lost its lease
+  while waiting on the network and another worker took over, it could still store its page; only the cursor was
+  protected. Every page is now written inside a transaction that re-checks ownership and locks the row first, so
+  the superseded run stops instead of overwriting. The provider request itself is never made while holding a
+  lock.
+
 - **An unconfirmed send can no longer turn into a silent duplicate.** Inboxora could not tell two replies with
   the same text to different messages apart when checking an idempotency key, so the second could be treated as
   a repeat of the first; and after a send whose answer was lost, the composer forgot its key, so the next

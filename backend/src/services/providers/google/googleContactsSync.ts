@@ -12,6 +12,8 @@ import {
   finishSyncRun,
   readSyncState,
   releaseSyncLease,
+  SyncLeaseLostError,
+  withFencedSyncLease,
 } from '../../syncCoordinator.js';
 import { GoogleApiError } from './googleApiClient.js';
 import type { GoogleApiOptions } from './googleApiClient.js';
@@ -389,7 +391,7 @@ export async function syncGoogleContacts(input: {
         throw caught;
       }
 
-      const applied = await withTransaction(client => applyGooglePeoplePage(client, context, fetched.people, seen));
+      const applied = await withFencedSyncLease({ syncStateId, generation: lease.generation, run: client => applyGooglePeoplePage(client, context, fetched.people, seen) });
       totals.created += applied.created;
       totals.updated += applied.updated;
       totals.deleted += applied.deleted;
@@ -412,7 +414,7 @@ export async function syncGoogleContacts(input: {
     // the token was unusable. An incremental feed must never be reconciled this way: there, omission means
     // "unchanged". The cap path returned above, so a partial baseline is never reconciled (SYNC-04, SYNC-07).
     if (fullSync) {
-      totals.deleted += await withTransaction(client => reconcileGoogleContacts(client, context, seen));
+      totals.deleted += await withFencedSyncLease({ syncStateId, generation: lease.generation, run: client => reconcileGoogleContacts(client, context, seen) });
     }
 
     // The cursor advances only after every page was applied, so a crash mid-run
@@ -441,7 +443,7 @@ export async function syncGoogleContacts(input: {
 
     return { addressBookId: ensured.addressBookId, ...totals, fullSync, cursor: finalCursor, incomplete: false };
   } catch (caught) {
-    const code = caught instanceof GoogleApiError || caught instanceof ProviderAuthError ? caught.code : 'INTERNAL_ERROR';
+    const code = caught instanceof GoogleApiError || caught instanceof ProviderAuthError || caught instanceof SyncLeaseLostError ? caught.code : 'INTERNAL_ERROR';
     await withTransaction(client => failSyncRun(client, { syncStateId, generation: lease.generation, errorCode: code })).catch(() => {});
     throw caught;
   }

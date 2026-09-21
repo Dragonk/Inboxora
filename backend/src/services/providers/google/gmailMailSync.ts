@@ -11,6 +11,8 @@ import {
   readSyncState,
   releaseSyncLease,
   renewSyncLease,
+  SyncLeaseLostError,
+  withFencedSyncLease,
 } from '../../syncCoordinator.js';
 import { GoogleApiError } from './googleApiClient.js';
 import type { GoogleApiOptions } from './googleApiClient.js';
@@ -328,7 +330,7 @@ export async function syncGmailMailLabelsForAccount(input: {
   try {
     const { labels, complete } = await fetchGmailLabels(api);
     const mapped = gmailFolderPathMap(labels);
-    const applied = await withTransaction(client => applyGmailMailLabels(client, context, mapped, { complete }));
+    const applied = await withFencedSyncLease({ syncStateId, generation: lease.generation, run: client => applyGmailMailLabels(client, context, mapped, { complete }) });
     // The label snapshot completed its declared scope, so this is a finished run, not a progress checkpoint.
     const committed = await withTransaction(async client => {
       const saved = await commitSyncCheckpoint(client, {
@@ -360,7 +362,7 @@ export async function syncGmailMailLabelsForAccount(input: {
   } catch (caught) {
     // See the Graph mail sync: an authorization failure is a `ProviderAuthError`, not a `GoogleApiError`, and
     // reporting it as INTERNAL_ERROR hides the instruction the user needs.
-    const code = caught instanceof GoogleApiError || caught instanceof ProviderAuthError ? caught.code : 'INTERNAL_ERROR';
+    const code = caught instanceof GoogleApiError || caught instanceof ProviderAuthError || caught instanceof SyncLeaseLostError ? caught.code : 'INTERNAL_ERROR';
     await withTransaction(client => failSyncRun(client, { syncStateId, generation: lease.generation, errorCode: code })).catch(() => {});
     throw caught;
   }
@@ -783,6 +785,12 @@ export async function syncGmailMailMessagesForAccount(input: {
       });
     }
   };
+  /**
+   * Apply one page/thread in a transaction fenced to this run's generation. A worker whose lease expired and
+   * was superseded cannot commit its projection over the newer run's (SYNC-03).
+   */
+  const fenced = <T>(run: (client: PoolClient) => Promise<T>): Promise<T> =>
+    withFencedSyncLease({ syncStateId, generation: lease.generation, run });
   /** Mark the run finished. Only a run that completed its declared scope may claim a successful sync (SYNC-02). */
   const finish = async (): Promise<void> => {
     const done = await withTransaction(client => finishSyncRun(client, { syncStateId, generation: lease.generation, lastErrorCode: null }));
@@ -806,7 +814,7 @@ export async function syncGmailMailMessagesForAccount(input: {
 
   try {
     if (mode === 'incremental' && cursor !== null) {
-      const applied = await runIncremental(api, context, account, cursor, totals, renew, maxThreadsPerRun);
+      const applied = await runIncremental(api, context, account, cursor, totals, renew, fenced, maxThreadsPerRun);
       if (applied === 'expired') {
         // Gmail answered `404` for the stored history id: it has aged out. A baseline
         // is the only honest recovery, and it reconciles.
@@ -820,7 +828,7 @@ export async function syncGmailMailMessagesForAccount(input: {
     }
 
     if (mode === 'baseline') {
-      const baseline = await runBaseline(api, context, account, targets, totals, pageCheckpoint, commit, renew, maxThreadsPerRun);
+      const baseline = await runBaseline(api, context, account, targets, totals, pageCheckpoint, commit, renew, fenced, maxThreadsPerRun);
       incomplete = baseline.incomplete;
       if (!incomplete) {
         cursor = baseline.startHistoryId ?? cursor;
@@ -837,7 +845,7 @@ export async function syncGmailMailMessagesForAccount(input: {
   } catch (caught) {
     // See the Graph mail sync: an authorization failure is a `ProviderAuthError`, not a `GoogleApiError`, and
     // reporting it as INTERNAL_ERROR hides the instruction the user needs.
-    const code = caught instanceof GoogleApiError || caught instanceof ProviderAuthError ? caught.code : 'INTERNAL_ERROR';
+    const code = caught instanceof GoogleApiError || caught instanceof ProviderAuthError || caught instanceof SyncLeaseLostError ? caught.code : 'INTERNAL_ERROR';
     await withTransaction(client => failSyncRun(client, { syncStateId, generation: lease.generation, errorCode: code })).catch(() => {});
     throw caught;
   }
@@ -858,6 +866,7 @@ async function runIncremental(
   cursor: string,
   totals: MessageTotals,
   renew: () => Promise<void>,
+  fenced: <T>(run: (client: PoolClient) => Promise<T>) => Promise<T>,
   maxThreadsPerRun: number,
 ): Promise<{ cursor: string } | 'expired'> {
   const threadIds = new Set<string>();
@@ -900,7 +909,7 @@ async function runIncremental(
   for (const threadId of threadIds) {
     const thread = await fetchGmailThread(api, threadId);
     if (!thread) continue;
-    const applied = await withTransaction(client => applyGmailThread(client, context, thread));
+    const applied = await fenced(client => applyGmailThread(client, context, thread));
     await persistConversations(applied.rowIds, account);
     addTotals(totals, applied);
   }
@@ -930,6 +939,7 @@ async function runBaseline(
   pageCheckpoint: string | null,
   commit: (checkpoint: { cursor?: string | null; pageCheckpoint?: string | null; clearPageCheckpoint?: boolean }) => Promise<void>,
   renew: () => Promise<void>,
+  fenced: <T>(run: (client: PoolClient) => Promise<T>) => Promise<T>,
   maxThreadsPerRun: number,
 ): Promise<{ incomplete: boolean; startHistoryId: string | null }> {
   const checkpoint = parseBaselineCheckpoint(pageCheckpoint) ?? { labelId: null, pageToken: null, startHistoryId: null };
@@ -970,7 +980,7 @@ async function runBaseline(
         const thread = await fetchGmailThread(api, threadId);
         budget -= 1;
         if (!thread) continue;
-        const applied = await withTransaction(client => applyGmailThread(client, context, thread, seen));
+        const applied = await fenced(client => applyGmailThread(client, context, thread, seen));
         await persistConversations(applied.rowIds, account);
         addTotals(totals, applied);
       }
@@ -1000,7 +1010,7 @@ async function runBaseline(
       if (!resumed) {
         // Only a label listed from its first page in this run can be reconciled: a
         // resumed listing has no record of the pages an earlier run already saw.
-        totals.deleted += await withTransaction(client => reconcileGmailFolder(client, context, target.folderPath, seen));
+        totals.deleted += await fenced(client => reconcileGmailFolder(client, context, target.folderPath, seen));
       }
     } else {
       await commit({

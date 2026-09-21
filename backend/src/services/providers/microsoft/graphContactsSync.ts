@@ -11,6 +11,8 @@ import {
   finishSyncRun,
   readSyncState,
   releaseSyncLease,
+  SyncLeaseLostError,
+  withFencedSyncLease,
 } from '../../syncCoordinator.js';
 import { GraphApiError } from './graphApiClient.js';
 import type { GraphApiOptions } from './graphApiClient.js';
@@ -387,7 +389,7 @@ export async function syncGraphContacts(input: {
         throw caught;
       }
       if (page === 0 && cursor === null) fullSync = true;
-      const applied = await withTransaction(client => applyGraphContactsPage(client, context, fetched.contacts, seen));
+      const applied = await withFencedSyncLease({ syncStateId, generation: lease.generation, run: client => applyGraphContactsPage(client, context, fetched.contacts, seen) });
       totals.created += applied.created;
       totals.updated += applied.updated;
       totals.deleted += applied.deleted;
@@ -408,7 +410,7 @@ export async function syncGraphContacts(input: {
 
     if (fullSync) {
       // A baseline lists everything that still exists, so anything else is gone.
-      const removed = await withTransaction(client => reconcileGraphContacts(client, context, seen));
+      const removed = await withFencedSyncLease({ syncStateId, generation: lease.generation, run: client => reconcileGraphContacts(client, context, seen) });
       totals.deleted += removed;
     }
 
@@ -435,7 +437,7 @@ export async function syncGraphContacts(input: {
     await withTransaction(client => releaseSyncLease(client, { syncStateId, generation: lease.generation })).catch(() => {});
     return { addressBookId: ensured.addressBookId, ...totals, fullSync, cursor: finalCursor, incomplete: false };
   } catch (caught) {
-    const code = caught instanceof GraphApiError || caught instanceof ProviderAuthError ? caught.code : 'INTERNAL_ERROR';
+    const code = caught instanceof GraphApiError || caught instanceof ProviderAuthError || caught instanceof SyncLeaseLostError ? caught.code : 'INTERNAL_ERROR';
     await withTransaction(client => failSyncRun(client, { syncStateId, generation: lease.generation, errorCode: code })).catch(() => {});
     throw caught;
   }

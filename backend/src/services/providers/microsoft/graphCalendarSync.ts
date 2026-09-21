@@ -9,6 +9,8 @@ import {
   finishSyncRun,
   readSyncState,
   releaseSyncLease,
+  SyncLeaseLostError,
+  withFencedSyncLease,
 } from '../../syncCoordinator.js';
 import { GraphApiError } from './graphApiClient.js';
 import type { GraphApiOptions } from './graphApiClient.js';
@@ -247,16 +249,16 @@ async function syncCollection(api: GraphApiOptions, collection: CalendarCollecti
     };
     const groups = groupGraphEvents(events);
     for (const [remoteId, group] of groups) {
-      const applied = await withTransaction(client => applyGraphEventGroup(client, applyContext, remoteId, group));
+      const applied = await withFencedSyncLease({ syncStateId, generation: lease.generation, run: client => applyGraphEventGroup(client, applyContext, remoteId, group) });
       totals[applied] += 1;
     }
     // A rebuild read a complete baseline, so anything it does not mention was deleted at the provider
     // while the cursor was unusable. An incremental batch must never be reconciled this way: there,
     // omission means "unchanged". A capped run read only a prefix, so it must not reconcile either (SYNC-04).
     if (rebuilt && complete) {
-      const removed = await withTransaction(client => reconcileProviderCalendarCollection(
+      const removed = await withFencedSyncLease({ syncStateId, generation: lease.generation, run: client => reconcileProviderCalendarCollection(
         client, { userId: context.userId, collectionId: collection.id }, new Set(groups.keys()),
-      ));
+      ) });
       totals.deleted += removed;
     }
 
@@ -291,7 +293,7 @@ async function syncCollection(api: GraphApiOptions, collection: CalendarCollecti
     await withTransaction(client => releaseSyncLease(client, { syncStateId, generation: lease.generation })).catch(() => {});
     return { ...totals, incomplete: false };
   } catch (caught) {
-    const code = caught instanceof GraphApiError || caught instanceof ProviderAuthError ? caught.code : 'INTERNAL_ERROR';
+    const code = caught instanceof GraphApiError || caught instanceof ProviderAuthError || caught instanceof SyncLeaseLostError ? caught.code : 'INTERNAL_ERROR';
     await withTransaction(client => failSyncRun(client, { syncStateId, generation: lease.generation, errorCode: code })).catch(() => {});
     throw caught;
   }
@@ -362,7 +364,7 @@ export async function syncGraphCalendar(input: {
     } catch (caught) {
       result.errors.push({
         calendarId: collection.remoteId,
-        code: caught instanceof GraphApiError || caught instanceof ProviderAuthError ? caught.code : 'INTERNAL_ERROR',
+        code: caught instanceof GraphApiError || caught instanceof ProviderAuthError || caught instanceof SyncLeaseLostError ? caught.code : 'INTERNAL_ERROR',
       });
     }
   }

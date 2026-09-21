@@ -1,4 +1,5 @@
 import type { PoolClient } from 'pg';
+import { withTransaction } from './db.js';
 
 /**
  * Sync-run lease and fencing (P03, plan §8.1).
@@ -125,6 +126,51 @@ export async function syncLeaseHeld(client: PoolClient, input: {
     [input.syncStateId, input.generation],
   );
   return result.rows.length > 0;
+}
+
+/** The run no longer owns the lease. The caller must stop applying data, not retry it as a provider failure. */
+export class SyncLeaseLostError extends Error {
+  readonly code = 'SYNC_LEASE_LOST';
+  constructor(message = 'The synchronization lease was lost, so this run must stop applying data') {
+    super(message);
+    this.name = 'SyncLeaseLostError';
+  }
+}
+
+/**
+ * Renew the lease **and** fence the surrounding transaction to the generation that owns it.
+ *
+ * The `UPDATE` extends the lease *and* takes the row lock, so inside one transaction the check and every write
+ * it protects cannot interleave with a takeover: a superseded worker sees the newer generation here and stops,
+ * while a takeover waits for the lock. Called at the start of each page-application transaction, this is the
+ * heartbeat and the fence in one statement (SYNC-03). Throws `SyncLeaseLostError`.
+ */
+export async function fenceSyncLease(client: PoolClient, input: {
+  syncStateId: string;
+  generation: number;
+  leaseSeconds?: number;
+}): Promise<void> {
+  const held = await renewSyncLease(client, input);
+  if (!held) throw new SyncLeaseLostError();
+}
+
+/**
+ * Apply one page of provider data in a transaction fenced to the owning generation.
+ *
+ * Every write that projects provider data goes through here: the lease is renewed (heartbeat) and the
+ * surrounding transaction is fenced to the generation before the write runs, so a worker whose lease expired
+ * and was superseded cannot commit its page over the newer run's projection (SYNC-03). The network request that
+ * produced the page happens **outside** this transaction, so no lock is ever held across a provider call.
+ */
+export async function withFencedSyncLease<T>(input: {
+  syncStateId: string;
+  generation: number;
+  run: (client: PoolClient) => Promise<T>;
+}): Promise<T> {
+  return withTransaction(async client => {
+    await fenceSyncLease(client, { syncStateId: input.syncStateId, generation: input.generation });
+    return input.run(client);
+  });
 }
 
 export interface SyncCheckpoint {

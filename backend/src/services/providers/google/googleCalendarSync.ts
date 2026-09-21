@@ -9,6 +9,8 @@ import {
   finishSyncRun,
   readSyncState,
   releaseSyncLease,
+  SyncLeaseLostError,
+  withFencedSyncLease,
 } from '../../syncCoordinator.js';
 import { GoogleApiError } from './googleApiClient.js';
 import type { GoogleApiOptions } from './googleApiClient.js';
@@ -263,16 +265,16 @@ async function syncCollection(api: GoogleApiOptions, collection: CalendarCollect
     };
     const groups = groupGoogleEvents(events);
     for (const [remoteId, group] of groups) {
-      const applied = await withTransaction(client => applyGoogleEventGroup(client, applyContext, remoteId, group));
+      const applied = await withFencedSyncLease({ syncStateId, generation: lease.generation, run: client => applyGoogleEventGroup(client, applyContext, remoteId, group) });
       totals[applied] += 1;
     }
     // A rebuild read a complete baseline, so a resource it omits was deleted while the cursor was
     // unusable; an incremental batch must never be reconciled this way. A capped run read only a prefix, so it
     // must not reconcile either (SYNC-04).
     if (rebuilt && complete) {
-      const removed = await withTransaction(client => reconcileProviderCalendarCollection(
+      const removed = await withFencedSyncLease({ syncStateId, generation: lease.generation, run: client => reconcileProviderCalendarCollection(
         client, { userId: context.userId, collectionId: collection.id }, new Set(groups.keys()),
-      ));
+      ) });
       totals.deleted += removed;
     }
 
@@ -307,7 +309,7 @@ async function syncCollection(api: GoogleApiOptions, collection: CalendarCollect
     await withTransaction(client => releaseSyncLease(client, { syncStateId, generation: lease.generation })).catch(() => {});
     return { ...totals, incomplete: false };
   } catch (caught) {
-    const code = caught instanceof GoogleApiError || caught instanceof ProviderAuthError ? caught.code : 'INTERNAL_ERROR';
+    const code = caught instanceof GoogleApiError || caught instanceof ProviderAuthError || caught instanceof SyncLeaseLostError ? caught.code : 'INTERNAL_ERROR';
     await withTransaction(client => failSyncRun(client, { syncStateId, generation: lease.generation, errorCode: code })).catch(() => {});
     throw caught;
   }
@@ -376,7 +378,7 @@ export async function syncGoogleCalendar(input: {
     } catch (caught) {
       result.errors.push({
         calendarId: collection.remoteId,
-        code: caught instanceof GoogleApiError || caught instanceof ProviderAuthError ? caught.code : 'INTERNAL_ERROR',
+        code: caught instanceof GoogleApiError || caught instanceof ProviderAuthError || caught instanceof SyncLeaseLostError ? caught.code : 'INTERNAL_ERROR',
       });
     }
   }
