@@ -109,6 +109,36 @@ export async function withTransaction<T>(
   throw new Error('Transaction retry limit exceeded');
 }
 
+/**
+ * Run `fn` inside a SAVEPOINT, so a statement that fails can be undone **without** aborting the surrounding
+ * transaction.
+ *
+ * PostgreSQL puts a transaction into the aborted state after any SQL error; every later statement then fails
+ * with `25P02` until the transaction is rolled back. Code that catches a `23505` and retries an INSERT on the
+ * same client inside the same transaction — the "the name is taken, try the next suffix" loops — therefore did
+ * not retry at all: the retry failed with `25P02` and the whole operation was lost (DB-01). Rolling back to a
+ * savepoint restores the transaction to a usable state, which is what makes such a retry real.
+ */
+export async function withSavepoint<T>(client: PoolClient, name: string, fn: () => Promise<T>): Promise<T> {
+  // Savepoint names are identifiers; the caller's counter keeps them unique within one transaction.
+  const savepoint = `sp_${name.replace(/[^A-Za-z0-9_]/g, '_')}`;
+  await client.query(`SAVEPOINT ${savepoint}`);
+  try {
+    const result = await fn();
+    await client.query(`RELEASE SAVEPOINT ${savepoint}`);
+    return result;
+  } catch (error) {
+    // Rolling back to the savepoint discards the failed statement but keeps everything before it. A failure of
+    // the rollback itself is not swallowed silently: it is reported alongside the original error.
+    try {
+      await client.query(`ROLLBACK TO SAVEPOINT ${savepoint}`);
+    } catch (rollbackError) {
+      console.warn(`ROLLBACK TO SAVEPOINT ${savepoint} failed:`, toAppError(rollbackError).message);
+    }
+    throw error;
+  }
+}
+
 // One-time startup migration: encrypt any plaintext credentials still in the DB.
 // Safe to run on every startup — already-encrypted values are skipped by isEncrypted().
 type EmailCredentialRow = {

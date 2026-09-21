@@ -171,6 +171,38 @@ describeOrSkip('Google Calendar sync (PostgreSQL)', { timeout: PG_TEST_TIMEOUT_M
     expect(state.rows[0]?.cursor).toBe('sync-1');
   });
 
+  it('suffixes a duplicate local calendar name instead of aborting the transaction', async () => {
+    // DB-01: two Google calendars can share a summary. The second local INSERT violates the owner+name unique
+    // index; without a savepoint PostgreSQL aborts the transaction and the retry fails with 25P02, so the whole
+    // calendar discovery is lost. The savepoint makes the retry real.
+    const connectionId = await seedConnection();
+    const duplicateNames = {
+      items: [
+        { id: 'cal-a', summary: 'Team', timeZone: 'Europe/Warsaw', accessRole: 'owner', backgroundColor: '#4a86e8' },
+        { id: 'cal-b', summary: 'Team', timeZone: 'Europe/Warsaw', accessRole: 'reader', backgroundColor: '#f83a22' },
+      ],
+    };
+    const provider = fakeProvider([
+      () => json(duplicateNames),
+      () => json({ items: [], nextSyncToken: 'sync-a' }),
+      () => json({ items: [], nextSyncToken: 'sync-b' }),
+    ]);
+
+    const result = await syncGoogleCalendar({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl: provider.fetchImpl });
+    expect(result.errors).toEqual([]);
+    expect(result.collections).toBe(2);
+
+    const names = await autocommit(client => client.query<{ name: string }>(
+      "SELECT name FROM calendars WHERE user_id = $1 AND source = 'google' ORDER BY name", [USER_ID],
+    ));
+    expect(names.rows.map(row => row.name)).toEqual(['Team', 'Team (2)']);
+    // Both remote calendars were linked, so nothing was orphaned by the retry.
+    const links = await autocommit(client => client.query<{ remote_id: string }>(
+      "SELECT remote_id FROM integration_collections WHERE user_id = $1 AND kind = 'calendar' ORDER BY remote_id", [USER_ID],
+    ));
+    expect(links.rows.map(row => row.remote_id)).toEqual(['cal-a', 'cal-b']);
+  });
+
   it('merges an incremental batch: a moved instance and a cancelled event', async () => {
     const connectionId = await seedConnection();
     await syncGoogleCalendar({

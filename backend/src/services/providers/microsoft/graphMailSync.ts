@@ -1,5 +1,5 @@
 import type { PoolClient } from 'pg';
-import { query, withTransaction } from '../../db.js';
+import { query, withSavepoint, withTransaction } from '../../db.js';
 import { toAppError } from '../../../utils/errors.js';
 import { ProviderAuthError } from '../../providerAuthService.js';
 import {
@@ -381,41 +381,45 @@ export async function applyGraphMailMessagesPage(
     for (let attempt = 0; attempt < 3 && !applied; attempt++) {
       const uid = attempt === 0 ? local.uid : providerUidForGraphMessage(local.providerMessageId, attempt);
       try {
-        const result = await client.query<{ id: string; inserted: boolean }>(
-          `INSERT INTO messages (
-             account_id, uid, folder, provider_message_id, message_id, thread_id, subject, from_name, from_email,
-             to_addresses, cc_addresses, reply_to, date, snippet, is_read, is_starred, has_attachments, synced_at
-           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11::jsonb,$12::jsonb,$13,$14,$15,$16,$17,NOW())
-           ON CONFLICT (account_id, provider_message_id) WHERE provider_message_id IS NOT NULL DO UPDATE SET
-             folder = EXCLUDED.folder,
-             uid = EXCLUDED.uid,
-             message_id = EXCLUDED.message_id,
-             thread_id = EXCLUDED.thread_id,
-             subject = EXCLUDED.subject,
-             from_name = EXCLUDED.from_name,
-             from_email = EXCLUDED.from_email,
-             to_addresses = EXCLUDED.to_addresses,
-             cc_addresses = EXCLUDED.cc_addresses,
-             reply_to = EXCLUDED.reply_to,
-             date = EXCLUDED.date,
-             snippet = EXCLUDED.snippet,
-             is_read = CASE
-               WHEN messages.read_changed_at IS NULL OR messages.read_changed_at < NOW() - make_interval(secs => $18)
-                 THEN EXCLUDED.is_read ELSE messages.is_read END,
-             is_starred = CASE
-               WHEN messages.star_changed_at IS NULL OR messages.star_changed_at < NOW() - make_interval(secs => $18)
-                 THEN EXCLUDED.is_starred ELSE messages.is_starred END,
-             has_attachments = EXCLUDED.has_attachments,
-             synced_at = NOW()
-           RETURNING id, (xmax = 0) AS inserted`,
-          [
-            context.accountId, uid, context.folderPath, local.providerMessageId, local.messageId, local.threadId,
-            local.subject, local.fromName, local.fromEmail,
-            JSON.stringify(local.toAddresses), JSON.stringify(local.ccAddresses), JSON.stringify(local.replyTo),
-            local.date, local.snippet, local.isRead, local.isStarred, local.hasAttachments, LOCAL_WINS_SECONDS,
-          ],
-        );
-        applied = result.rows[0] ?? null;
+        // The legacy (account_id, uid, folder) index can reject the derived number, and a failed statement
+        // aborts the transaction; the savepoint is what lets the next attempt run at all (DB-01).
+        applied = await withSavepoint(client, `graph_uid_${attempt}`, async () => {
+          const result = await client.query<{ id: string; inserted: boolean }>(
+            `INSERT INTO messages (
+               account_id, uid, folder, provider_message_id, message_id, thread_id, subject, from_name, from_email,
+               to_addresses, cc_addresses, reply_to, date, snippet, is_read, is_starred, has_attachments, synced_at
+             ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11::jsonb,$12::jsonb,$13,$14,$15,$16,$17,NOW())
+             ON CONFLICT (account_id, provider_message_id) WHERE provider_message_id IS NOT NULL DO UPDATE SET
+               folder = EXCLUDED.folder,
+               uid = EXCLUDED.uid,
+               message_id = EXCLUDED.message_id,
+               thread_id = EXCLUDED.thread_id,
+               subject = EXCLUDED.subject,
+               from_name = EXCLUDED.from_name,
+               from_email = EXCLUDED.from_email,
+               to_addresses = EXCLUDED.to_addresses,
+               cc_addresses = EXCLUDED.cc_addresses,
+               reply_to = EXCLUDED.reply_to,
+               date = EXCLUDED.date,
+               snippet = EXCLUDED.snippet,
+               is_read = CASE
+                 WHEN messages.read_changed_at IS NULL OR messages.read_changed_at < NOW() - make_interval(secs => $18)
+                   THEN EXCLUDED.is_read ELSE messages.is_read END,
+               is_starred = CASE
+                 WHEN messages.star_changed_at IS NULL OR messages.star_changed_at < NOW() - make_interval(secs => $18)
+                   THEN EXCLUDED.is_starred ELSE messages.is_starred END,
+               has_attachments = EXCLUDED.has_attachments,
+               synced_at = NOW()
+             RETURNING id, (xmax = 0) AS inserted`,
+            [
+              context.accountId, uid, context.folderPath, local.providerMessageId, local.messageId, local.threadId,
+              local.subject, local.fromName, local.fromEmail,
+              JSON.stringify(local.toAddresses), JSON.stringify(local.ccAddresses), JSON.stringify(local.replyTo),
+              local.date, local.snippet, local.isRead, local.isStarred, local.hasAttachments, LOCAL_WINS_SECONDS,
+            ],
+          );
+          return result.rows[0] ?? null;
+        });
         if (applied) {
           // The id is collected so the caller can run the conversation projection
           // **after** this transaction commits: the engine opens its own, and nesting

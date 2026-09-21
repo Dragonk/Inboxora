@@ -1,5 +1,5 @@
 import type { PoolClient } from 'pg';
-import { withTransaction } from '../../db.js';
+import { withSavepoint, withTransaction } from '../../db.js';
 import { toAppError } from '../../../utils/errors.js';
 import {
   acquireSyncLease,
@@ -117,37 +117,41 @@ export async function ensureGoogleCalendarCollection(client: PoolClient, input: 
   for (let attempt = 0; attempt < 20; attempt++) {
     const name = attempt === 0 ? label : `${label} (${attempt + 1})`;
     try {
-      const created = await client.query<{ id: string }>(
-        // A provider calendar starts read-only and hidden from DAV devices.
-        `INSERT INTO calendars (user_id, owner_user_id, name, color, source, read_only, dav_mode)
-         VALUES ($1, $1, $2, $3, 'google', true, 'off') RETURNING id`,
-        [input.userId, name, calendarColor(input.entry)],
-      );
-      const calendarId = created.rows[0]?.id;
-      if (!calendarId) throw new Error('Could not create the Google calendar');
-
-      if (existing.rows[0]) {
-        await client.query(
-          `UPDATE integration_collections
-              SET local_calendar_id = $2, enabled = true, source_access = $3, user_access = 'source',
-                  dav_mode = 'off', updated_at = NOW()
-            WHERE id = $1`,
-          [existing.rows[0].id, calendarId, sourceAccess],
+      // Each attempt runs under its own savepoint: a `23505` on the local name aborts the surrounding
+      // transaction, so retrying the INSERT on the same client could only have failed with `25P02` (DB-01).
+      await withSavepoint(client, `google_calendar_${attempt}`, async () => {
+        const calendar = await client.query<{ id: string }>(
+          // A provider calendar starts read-only and hidden from DAV devices.
+          `INSERT INTO calendars (user_id, owner_user_id, name, color, source, read_only, dav_mode)
+           VALUES ($1, $1, $2, $3, 'google', true, 'off') RETURNING id`,
+          [input.userId, name, calendarColor(input.entry)],
         );
-        return;
-      }
+        const calendarId = calendar.rows[0]?.id;
+        if (!calendarId) throw new Error('Could not create the Google calendar');
 
-      const collection = await client.query<{ id: string }>(
-        `INSERT INTO integration_collections
-           (user_id, connection_id, kind, remote_id, local_calendar_id, enabled, source_access, user_access, dav_mode)
-         VALUES ($1, $2, 'calendar', $3, $4, true, $5, 'source', 'off')
-         ON CONFLICT DO NOTHING
-         RETURNING id`,
-        [input.userId, input.connectionId, input.entry.id, calendarId, sourceAccess],
-      );
-      const collectionId = collection.rows[0]?.id
-        ?? (await client.query<{ id: string }>(linkQuery, [input.connectionId, input.entry.id])).rows[0]?.id;
-      if (!collectionId) throw new Error('Could not link the Google calendar');
+        if (existing.rows[0]) {
+          await client.query(
+            `UPDATE integration_collections
+                SET local_calendar_id = $2, enabled = true, source_access = $3, user_access = 'source',
+                    dav_mode = 'off', updated_at = NOW()
+              WHERE id = $1`,
+            [existing.rows[0].id, calendarId, sourceAccess],
+          );
+          return;
+        }
+
+        const collection = await client.query<{ id: string }>(
+          `INSERT INTO integration_collections
+             (user_id, connection_id, kind, remote_id, local_calendar_id, enabled, source_access, user_access, dav_mode)
+           VALUES ($1, $2, 'calendar', $3, $4, true, $5, 'source', 'off')
+           ON CONFLICT DO NOTHING
+           RETURNING id`,
+          [input.userId, input.connectionId, input.entry.id, calendarId, sourceAccess],
+        );
+        const collectionId = collection.rows[0]?.id
+          ?? (await client.query<{ id: string }>(linkQuery, [input.connectionId, input.entry.id])).rows[0]?.id;
+        if (!collectionId) throw new Error('Could not link the Google calendar');
+      });
       return;
     } catch (caught) {
       if (toAppError(caught).code === '23505') continue; // name taken — try the next suffix

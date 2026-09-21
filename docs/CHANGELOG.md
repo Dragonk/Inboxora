@@ -296,6 +296,12 @@ None.
   IMAP loops, health checks, rule forwarder and send path no longer open IMAP or SMTP for it.
 
 ### Fixed
+- **A name collision no longer loses the whole discovery.** Several "the local name is taken, try the next
+  suffix" loops caught PostgreSQL's `23505` and retried the INSERT on the same client inside the same
+  transaction. PostgreSQL aborts a transaction after any SQL error, so the retry could only fail with `25P02`
+  and the operation was lost — most reachably when a second provider calendar, address book or mailbox folder
+  carries a name a local one already uses. Each attempt now runs under its own `SAVEPOINT`, so the failed
+  statement is undone, the transaction stays usable and the suffixed retry actually runs.
 - **A partially failed first calendar synchronisation is reported as a failure.** The calendar synchronizers
   resolve successfully while listing the collections they could not read in `errors` — one shared calendar that
   refuses access must not fail the whole consent — but the post-authorization finalizer looked only at

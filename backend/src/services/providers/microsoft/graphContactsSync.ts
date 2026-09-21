@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import type { PoolClient } from 'pg';
-import { withTransaction } from '../../db.js';
+import { withSavepoint, withTransaction } from '../../db.js';
 import { toAppError } from '../../../utils/errors.js';
 import { generateVCard, parseVCard } from '../../../utils/vcard.js';
 import {
@@ -104,38 +104,42 @@ export async function ensureGraphAddressBook(client: PoolClient, input: {
   for (let attempt = 0; attempt < 20; attempt++) {
     const name = attempt === 0 ? label : `${label} (${attempt + 1})`;
     try {
-      const created = await client.query<{ id: string }>(
-        // A provider book starts hidden from DAV devices (plan §17.1).
-        `INSERT INTO address_books (user_id, name, source, dav_mode) VALUES ($1, $2, 'microsoft', 'off') RETURNING id`,
-        [input.userId, name],
-      );
-      const addressBookId = created.rows[0]?.id;
-      if (!addressBookId) throw new Error('Could not create the Microsoft address book');
-
-      if (existing.rows[0]) {
-        // Link the book to the row that exists, without re-asserting `enabled`: a user who
-        // disabled this collection must not have a sync switch it back on.
-        await client.query(
-          `UPDATE integration_collections
-              SET local_address_book_id = $2, source_access = $3, updated_at = NOW()
-            WHERE id = $1`,
-          [existing.rows[0].id, addressBookId, sourceAccess],
+      // Each attempt runs under its own savepoint, so a `23505` on the local book name can actually be retried
+      // instead of aborting the transaction with `25P02` (DB-01).
+      return await withSavepoint(client, `graph_book_${attempt}`, async () => {
+        const created = await client.query<{ id: string }>(
+          // A provider book starts hidden from DAV devices (plan §17.1).
+          `INSERT INTO address_books (user_id, name, source, dav_mode) VALUES ($1, $2, 'microsoft', 'off') RETURNING id`,
+          [input.userId, name],
         );
-        return { addressBookId, collectionId: existing.rows[0].id };
-      }
+        const addressBookId = created.rows[0]?.id;
+        if (!addressBookId) throw new Error('Could not create the Microsoft address book');
 
-      const collection = await client.query<{ id: string }>(
-        `INSERT INTO integration_collections
-           (user_id, connection_id, kind, remote_id, local_address_book_id, enabled, source_access, user_access, dav_mode)
-         VALUES ($1, $2, 'address_book', $3, $4, true, $5, 'source', 'off')
-         ON CONFLICT DO NOTHING
-         RETURNING id`,
-        [input.userId, input.connectionId, GRAPH_CONTACTS_FOLDER, addressBookId, sourceAccess],
-      );
-      const collectionId = collection.rows[0]?.id
-        ?? (await client.query<{ id: string }>(linkQuery, [input.connectionId, GRAPH_CONTACTS_FOLDER])).rows[0]?.id;
-      if (!collectionId) throw new Error('Could not link the Microsoft address book');
-      return { addressBookId, collectionId };
+        if (existing.rows[0]) {
+          // Link the book to the row that exists, without re-asserting `enabled`: a user who
+          // disabled this collection must not have a sync switch it back on.
+          await client.query(
+            `UPDATE integration_collections
+                SET local_address_book_id = $2, source_access = $3, updated_at = NOW()
+              WHERE id = $1`,
+            [existing.rows[0].id, addressBookId, sourceAccess],
+          );
+          return { addressBookId, collectionId: existing.rows[0].id };
+        }
+
+        const collection = await client.query<{ id: string }>(
+          `INSERT INTO integration_collections
+             (user_id, connection_id, kind, remote_id, local_address_book_id, enabled, source_access, user_access, dav_mode)
+           VALUES ($1, $2, 'address_book', $3, $4, true, $5, 'source', 'off')
+           ON CONFLICT DO NOTHING
+           RETURNING id`,
+          [input.userId, input.connectionId, GRAPH_CONTACTS_FOLDER, addressBookId, sourceAccess],
+        );
+        const collectionId = collection.rows[0]?.id
+          ?? (await client.query<{ id: string }>(linkQuery, [input.connectionId, GRAPH_CONTACTS_FOLDER])).rows[0]?.id;
+        if (!collectionId) throw new Error('Could not link the Microsoft address book');
+        return { addressBookId, collectionId };
+      });
     } catch (caught) {
       if (toAppError(caught).code === '23505') continue; // name taken — try the next suffix
       throw caught;

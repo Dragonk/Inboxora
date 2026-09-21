@@ -265,6 +265,11 @@ Microsoft application is registered in this environment.
 
 ### Fixed
 
+- **A duplicate name no longer loses a whole synchronisation.** When a second provider calendar, address book
+  or mailbox folder had a name a local one already used, the code retried with a suffix — but the retry ran
+  inside a transaction PostgreSQL had already aborted, so it failed and the discovery was lost. Each attempt now
+  runs in its own savepoint, so the retry works and both collections are created and linked.
+
 - **A partly failed synchronisation no longer looks successful.** A calendar run that could read some calendars
   but not others reported the failure in its result rather than by throwing, and the post-authorization step
   looked only for a thrown error — so the account card said the connection was synchronised when a calendar had
