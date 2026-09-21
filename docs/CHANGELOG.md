@@ -296,6 +296,15 @@ None.
   IMAP loops, health checks, rule forwarder and send path no longer open IMAP or SMTP for it.
 
 ### Fixed
+- **Microsoft contacts are pulled from the mailbox's real contact folder.** The synchronisation addressed the
+  folder as the literal `contacts` — `/me/contactFolders/contacts/contacts/delta` — which asked Graph for a folder
+  whose id is the string "contacts" and which the service cannot resolve: unlike a mail folder, a contact folder
+  has **no well-known-name property** (the same assumption that had to be removed from the mail-folder request
+  under GRAPH-01). The folder is now discovered from `/me/contactFolders`, its real id is used for the delta and
+  for every contact write, and the existing collection is re-pointed to that id rather than duplicated, so its
+  local book, delta cursor, enabled flag and write-back choice all survive. The literal is gone from the code
+  paths entirely: a folder id is required, and a caller without one is refused rather than sent a guessed path.
+  Still open: contacts in additional (non-default) folders are not yet pulled into their own address books.
 - **"This and following" no longer restarts the repeat count when the editor sends the rule.** The composer
   copies the series' own recurrence into the editor for a "this and following" change, so the rule that arrives
   with an edit carries the **series'** count, not the remainder's. It was applied verbatim, which restarted the

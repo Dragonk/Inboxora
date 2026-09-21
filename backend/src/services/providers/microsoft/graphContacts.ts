@@ -11,7 +11,6 @@ import type { VCardContact } from '../../../utils/vcard.js';
  * share one and a contact may have none.
  */
 
-export const DEFAULT_CONTACT_FOLDER = 'contacts';
 // `anniversary` is deliberately absent. The v1.0 `contact` resource has no such property, and the beta resource
 // names it `weddingAnniversary` — so requesting it here was wrong in both versions and can fail the whole
 // `$select` (GRAPH-03). A local anniversary is therefore not mapped from Graph, which is stated rather than
@@ -147,22 +146,68 @@ interface GraphCollection<T> {
   '@odata.deltaLink'?: string | null;
 }
 
+/** One contact folder of the mailbox. */
+export interface GraphContactFolder {
+  id: string;
+  displayName?: string | null;
+  /** Null for a top-level folder; the default "Contacts" folder is one of those. */
+  parentFolderId?: string | null;
+}
+
+/**
+ * The mailbox's contact folders.
+ *
+ * `contactFolder` has **no well-known-name property** — unlike `mailFolder`, whose `wellKnownName` this codebase
+ * already had to stop selecting (GRAPH-01). Addressing the default folder as `/me/contactFolders/contacts/...`
+ * therefore asked Graph for a folder whose id is the literal string "contacts", which is not what the default
+ * folder's id is, so the request could not be answered (GRAPH-03). The real ids are discovered here instead.
+ */
+export async function discoverGraphContactFolders(options: GraphApiOptions): Promise<GraphContactFolder[]> {
+  const folders: GraphContactFolder[] = [];
+  let url: string | null = graphUrl('/me/contactFolders', { $select: 'id,displayName,parentFolderId', $top: 100 });
+  for (let page = 0; page < 20 && url; page += 1) {
+    const body: GraphCollection<GraphContactFolder> = await graphGet<GraphCollection<GraphContactFolder>>(options, url);
+    for (const folder of body.value ?? []) {
+      if (folder?.id) folders.push(folder);
+    }
+    url = body['@odata.nextLink'] ?? null;
+  }
+  return folders;
+}
+
+/**
+ * The folder a mailbox's default contacts live in: a top-level folder, preferring the one Outlook names
+ * "Contacts". Returns null when discovery gave no usable top-level folder — the caller must then fail rather
+ * than guess an id, which is what produced the unusable literal before.
+ */
+export function defaultGraphContactFolder(folders: readonly GraphContactFolder[]): GraphContactFolder | null {
+  const topLevel = folders.filter(folder => !folder.parentFolderId);
+  return topLevel.find(folder => (folder.displayName ?? '').trim().toLowerCase() === 'contacts')
+    ?? topLevel.find(folder => (folder.displayName ?? '').trim().toLowerCase().startsWith('contact'))
+    ?? topLevel[0]
+    ?? null;
+}
+
 /**
  * One page of a contact folder. A delta page carries deletions as entries with an
  * `@removed` marker and ends with `@odata.deltaLink`, which the caller stores.
  */
 export async function fetchContactsPage(options: GraphApiOptions, input: {
+  /** The provider's own contact-folder id. Required unless a complete `nextLink`/`deltaLink` is supplied. */
   folderId?: string;
   nextLink?: string | null;
   deltaLink?: string | null;
   top?: number;
 } = {}): Promise<GraphContactsPage> {
   const top = Number.isFinite(input.top) && Number(input.top) > 0 ? Math.min(999, Math.floor(Number(input.top))) : 200;
+  const folderId = (input.folderId ?? '').trim();
   // A caller-provided link is already a complete, absolute Graph URL.
-  const url = input.nextLink ?? input.deltaLink ?? graphUrl(
-    `/me/contactFolders/${encodeURIComponent(input.folderId ?? DEFAULT_CONTACT_FOLDER)}/contacts/delta`,
-    { $select: CONTACT_SELECT, $top: top },
-  );
+  const url = input.nextLink ?? input.deltaLink
+    ?? (folderId
+      ? graphUrl(`/me/contactFolders/${encodeURIComponent(folderId)}/contacts/delta`, { $select: CONTACT_SELECT, $top: top })
+      // `contactFolder` has no well-known-name property, so there is no id to default to: the literal `contacts`
+      // this used to send addressed a folder Graph cannot resolve (GRAPH-03).
+      : (() => { throw new Error('A Microsoft contact folder id is required to read a contact delta'); })());
   const body = await graphGet<GraphCollection<GraphContact & { '@removed'?: { reason?: string } }>>(options, url);
   return {
     contacts: (Array.isArray(body.value) ? body.value : []).map(entry => {
@@ -274,9 +319,17 @@ export function vCardToGraphContact(contact: VCardContact, options: { full: bool
   return payload;
 }
 
-/** The Graph resource path for one contact folder's contacts. */
-export function graphContactsPath(folderId?: string | null): string {
-  return `/me/contactFolders/${encodeURIComponent(folderId || DEFAULT_CONTACT_FOLDER)}/contacts`;
+/**
+ * The Graph resource path for one contact folder's contacts.
+ *
+ * The folder id is **required**: `contactFolder` has no well-known-name property, so the literal `contacts` this
+ * once defaulted to is not a folder Graph can resolve (GRAPH-03). Callers hold the discovered id — the collection
+ * link's `remote_id` — and a missing one is a bug in the caller, not a request to send.
+ */
+export function graphContactsPath(folderId: string | null | undefined): string {
+  const id = typeof folderId === 'string' ? folderId.trim() : '';
+  if (!id) throw new Error('A Microsoft contact folder id is required to address a contact');
+  return `/me/contactFolders/${encodeURIComponent(id)}/contacts`;
 }
 
 export async function createGraphContact(api: GraphApiOptions, folderId: string | null | undefined, payload: GraphContactPayload): Promise<GraphContact | null> {

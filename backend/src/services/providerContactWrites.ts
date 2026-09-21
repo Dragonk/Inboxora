@@ -74,11 +74,18 @@ export async function resolveContactWriteTarget(userId: string, addressBookId: s
     if (!row.connection_id || !row.collection_id) {
       return { kind: 'refused', status: 409, error: 'This address book is not linked to a Microsoft connection' };
     }
+    // GRAPH-03: the folder id is the provider's own. Falling back to the literal `contacts` addressed a folder
+    // Graph cannot resolve, so a book whose link carries no folder id is refused rather than written to a
+    // guessed path. `remote_id` is the collection's identity key, so this only guards an inconsistent row.
+    const folderId = (row.remote_id ?? '').trim();
+    if (!folderId) {
+      return { kind: 'refused', status: 409, error: 'This address book has no Microsoft contact folder recorded' };
+    }
     return {
       kind: 'graph',
       connectionId: row.connection_id,
       collectionId: row.collection_id,
-      folderId: row.remote_id || 'contacts',
+      folderId,
       addressBookId: row.id,
     };
   }

@@ -265,6 +265,12 @@ Microsoft application is registered in this environment.
 
 ### Fixed
 
+- **Microsoft contacts now synchronise from the folder they actually live in.** Inboxora asked Microsoft for a
+  contact folder named "contacts", which is not an identifier the service accepts, so the mailbox's contacts
+  could not be read. The folder is looked up first and its real identifier used, both for reading and for writing
+  changes back. Already-connected mailboxes keep their address book, their synchronisation position and your
+  write-back setting. Contacts that live in extra folders beyond the default one are not pulled yet.
+
 - **Changing "this and following" on a repeating event no longer changes how many times it repeats — including
   when the editor sends the rule.** The count that came with the edit belonged to the whole series, so the second
   half used to start the count again. It now continues with only the occurrences that are left, and if that

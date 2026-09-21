@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { classifyGraphError, graphGet, graphUrl, GraphApiError } from './graphApiClient.js';
-import { contactUidForGraphContact, fetchContactsPage, graphContactToVCard, normalizeGraphBirthday } from './graphContacts.js';
+import { contactUidForGraphContact, defaultGraphContactFolder, discoverGraphContactFolders, fetchContactsPage, graphContactToVCard, normalizeGraphBirthday } from './graphContacts.js';
 import type { GraphContact } from './graphContacts.js';
 
 const tokenMock = vi.hoisted(() => vi.fn(async (_input: { skewSeconds?: number } = {}) => ({
@@ -51,7 +51,7 @@ describe('classifyGraphError', () => {
 
 describe('graphUrl', () => {
   it('keeps the escaped select list and drops absent values', () => {
-    const url = new URL(graphUrl('/me/contactFolders/contacts/contacts/delta', {
+    const url = new URL(graphUrl('/me/contactFolders/folder-1/contacts/delta', {
       $select: 'id,displayName', $top: 200, $skiptoken: undefined, $filter: null,
     }));
     expect(url.searchParams.get('$select')).toBe('id,displayName');
@@ -147,16 +147,16 @@ describe('fetchContactsPage', () => {
   it('reads the default folder delta with a select list and surfaces the delta link', async () => {
     const fetchMock = vi.fn().mockResolvedValue(json({
       value: [{ id: 'c1', displayName: 'Ada' }],
-      '@odata.deltaLink': 'https://graph.microsoft.com/v1.0/me/contactFolders/contacts/contacts/delta?$deltatoken=abc',
+      '@odata.deltaLink': 'https://graph.microsoft.com/v1.0/me/contactFolders/folder-1/contacts/delta?$deltatoken=abc',
     }));
     vi.stubGlobal('fetch', fetchMock);
 
-    const page = await fetchContactsPage(OPTIONS);
+    const page = await fetchContactsPage(OPTIONS, { folderId: 'folder-1' });
     expect(page.contacts).toHaveLength(1);
     expect(page.nextLink).toBeNull();
     expect(page.deltaLink).toContain('$deltatoken=abc');
     const url = String(fetchMock.mock.calls[0][0]);
-    expect(url).toContain('/me/contactFolders/contacts/contacts/delta');
+    expect(url).toContain('/me/contactFolders/folder-1/contacts/delta');
     expect(url).toContain('%24select=id');
     expect(url).toContain('%24top=200');
   });
@@ -166,12 +166,12 @@ describe('fetchContactsPage', () => {
       value: [{ id: 'gone', '@removed': { reason: 'deleted' } }],
       '@odata.deltaLink': 'https://graph.microsoft.com/v1.0/delta?$deltatoken=next',
     })));
-    const page = await fetchContactsPage(OPTIONS);
+    const page = await fetchContactsPage(OPTIONS, { folderId: 'folder-1' });
     expect(page.contacts[0]?.removed).toEqual({ reason: 'deleted' });
   });
 
   it('follows the absolute next link exactly as Graph provided it', async () => {
-    const next = 'https://graph.microsoft.com/v1.0/me/contactFolders/contacts/contacts/delta?$skiptoken=xyz';
+    const next = 'https://graph.microsoft.com/v1.0/me/contactFolders/folder-1/contacts/delta?$skiptoken=xyz';
     const fetchMock = vi.fn().mockResolvedValue(json({ value: [] }));
     vi.stubGlobal('fetch', fetchMock);
     await fetchContactsPage(OPTIONS, { nextLink: next });
@@ -187,7 +187,7 @@ describe('fetchContactsPage', () => {
       .mockResolvedValueOnce(json({ value: [{ id: 'c1' }] }));
     vi.stubGlobal('fetch', fetchMock);
 
-    const page = await fetchContactsPage(OPTIONS);
+    const page = await fetchContactsPage(OPTIONS, { folderId: 'folder-1' });
     expect(page.contacts).toHaveLength(1);
     expect(tokenMock).toHaveBeenCalledTimes(2);
     // The retry uses the refreshed token, and the second read forces a refresh.
@@ -197,7 +197,38 @@ describe('fetchContactsPage', () => {
 
   it('turns an expired delta token into the rebuild signal', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({ error: { code: 'syncStateNotFound', message: 'delta token expired' } }, 410)));
-    await expect(graphGet(OPTIONS, '/me/contactFolders/contacts/contacts/delta')).rejects.toMatchObject({ code: 'INVALID_SYNC_CURSOR' });
+    await expect(graphGet(OPTIONS, '/me/contactFolders/folder-1/contacts/delta')).rejects.toMatchObject({ code: 'INVALID_SYNC_CURSOR' });
+  });
+});
+
+describe('contact folder discovery', () => {
+  const json = (body: unknown, status = 200): Response =>
+    ({ ok: status >= 200 && status < 300, status, headers: new Headers(), json: async () => body }) as Response;
+
+  it('lists the mailbox’s folders instead of assuming an id', async () => {
+    // GRAPH-03: `contactFolder` has no well-known-name property, so the folder id has to be discovered. The
+    // request asks only for properties the v1.0 resource has.
+    const fetchMock = vi.fn().mockResolvedValue(json({
+      value: [{ id: 'folder-1', displayName: 'Contacts', parentFolderId: null }],
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const folders = await discoverGraphContactFolders(OPTIONS);
+    expect(folders).toEqual([{ id: 'folder-1', displayName: 'Contacts', parentFolderId: null }]);
+    const url = decodeURIComponent(String(fetchMock.mock.calls[0][0]));
+    expect(url).toContain('/me/contactFolders');
+    expect(url).toContain('$select=id,displayName,parentFolderId');
+  });
+
+  it('picks a top-level folder as the default, and answers null rather than guessing', () => {
+    expect(defaultGraphContactFolder([
+      { id: 'nested', displayName: 'Team', parentFolderId: 'root' },
+      { id: 'contacts', displayName: 'Contacts', parentFolderId: null },
+    ])?.id).toBe('contacts');
+    // A localized mailbox still has a top-level folder: the name is a hint, not the identity.
+    expect(defaultGraphContactFolder([{ id: 'kontakty', displayName: 'Kontakty', parentFolderId: null }])?.id).toBe('kontakty');
+    expect(defaultGraphContactFolder([{ id: 'nested', displayName: 'Team', parentFolderId: 'root' }])).toBeNull();
+    expect(defaultGraphContactFolder([])).toBeNull();
   });
 });
 
@@ -230,7 +261,7 @@ describe('the Graph mapper carries the fields with local columns', () => {
       calls.push(String(url));
       return new Response(JSON.stringify({ value: [] }), { status: 200, headers: { 'content-type': 'application/json' } });
     }));
-    await fetchContactsPage(OPTIONS, { top: 10 });
+    await fetchContactsPage(OPTIONS, { folderId: 'folder-1', top: 10 });
     expect(calls).toHaveLength(1);
     expect(calls[0]).not.toContain('anniversary');
     expect(decodeURIComponent(calls[0]!)).toContain('birthday');

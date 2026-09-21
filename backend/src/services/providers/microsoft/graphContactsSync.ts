@@ -16,7 +16,7 @@ import {
 } from '../../syncCoordinator.js';
 import { GraphApiError } from './graphApiClient.js';
 import type { GraphApiOptions } from './graphApiClient.js';
-import { contactUidForGraphContact, fetchContactsPage, graphContactToVCard } from './graphContacts.js';
+import { contactUidForGraphContact, defaultGraphContactFolder, discoverGraphContactFolders, fetchContactsPage, graphContactToVCard } from './graphContacts.js';
 import type { GraphContact } from './graphContacts.js';
 import { ProviderAuthError, graphGrantCoversScope, REQUIRED_GRAPH_CONTACT_WRITE_SCOPE } from '../../providerAuthService.js';
 import { MICROSOFT_GRANT_AUDIENCE } from '../../providerAuthService.js';
@@ -58,6 +58,8 @@ interface ApplyContext {
   connectionId: string;
   addressBookId: string;
   collectionId: string;
+  /** The provider's contact-folder id this collection mirrors, so a link names the folder it came from. */
+  collectionRemoteId: string;
 }
 
 /**
@@ -87,14 +89,38 @@ export async function ensureGraphAddressBook(client: PoolClient, input: {
   userId: string;
   connectionId: string;
   label?: string;
+  /**
+   * The provider's **real** contact-folder id (GRAPH-03). Falls back to the legacy literal only for callers that
+   * predate discovery; `syncGraphContacts` always passes the discovered id, because the literal is not a folder
+   * id Graph can resolve.
+   */
+  folderId?: string;
 }): Promise<{ addressBookId: string; collectionId: string }> {
   const sourceAccess = await graphContactSourceAccess(client, input.userId, input.connectionId);
+  const remoteId = input.folderId?.trim() || GRAPH_CONTACTS_FOLDER;
   const linkQuery = `SELECT id, local_address_book_id FROM integration_collections
      WHERE connection_id = $1 AND kind = 'address_book' AND remote_id = $2`;
-  const existing = await client.query<{ id: string; local_address_book_id: string | null }>(
+  let existing = await client.query<{ id: string; local_address_book_id: string | null }>(
     linkQuery,
-    [input.connectionId, GRAPH_CONTACTS_FOLDER],
+    [input.connectionId, remoteId],
   );
+  if (!existing.rows[0] && remoteId !== GRAPH_CONTACTS_FOLDER) {
+    // Adopt the row created before folder ids were discovered. Repointing it — rather than creating a second
+    // collection — keeps the local book, its delta cursor, its enabled flag and the user's write-back choice.
+    const legacy = await client.query<{ id: string; local_address_book_id: string | null }>(
+      `SELECT id, local_address_book_id FROM integration_collections
+        WHERE connection_id = $1 AND kind = 'address_book' AND remote_id = $2`,
+      [input.connectionId, GRAPH_CONTACTS_FOLDER],
+    );
+    if (legacy.rows[0]) {
+      const adopted = await client.query(
+        `UPDATE integration_collections SET remote_id = $2, updated_at = NOW()
+          WHERE id = $1 AND remote_id = $3`,
+        [legacy.rows[0].id, remoteId, GRAPH_CONTACTS_FOLDER],
+      );
+      if (adopted.rowCount === 1) existing = legacy as typeof existing;
+    }
+  }
   if (existing.rows[0]?.local_address_book_id) {
     // Already linked: refresh the source's own permission, which is what repairs a collection created
     // before this was recorded, and never touch `user_access` or `enabled` — those are the user's.
@@ -139,10 +165,10 @@ export async function ensureGraphAddressBook(client: PoolClient, input: {
            VALUES ($1, $2, 'address_book', $3, $4, true, $5, 'source', 'off')
            ON CONFLICT DO NOTHING
            RETURNING id`,
-          [input.userId, input.connectionId, GRAPH_CONTACTS_FOLDER, addressBookId, sourceAccess],
+          [input.userId, input.connectionId, remoteId, addressBookId, sourceAccess],
         );
         const collectionId = collection.rows[0]?.id
-          ?? (await client.query<{ id: string }>(linkQuery, [input.connectionId, GRAPH_CONTACTS_FOLDER])).rows[0]?.id;
+          ?? (await client.query<{ id: string }>(linkQuery, [input.connectionId, remoteId])).rows[0]?.id;
         if (!collectionId) throw new Error('Could not link the Microsoft address book');
         return { addressBookId, collectionId };
       });
@@ -168,7 +194,7 @@ async function upsertLink(client: PoolClient, context: ApplyContext, remoteId: s
        status = EXCLUDED.status, updated_at = NOW()`,
     [
       context.userId, context.connectionId, context.collectionId, input.localId,
-      GRAPH_CONTACTS_FOLDER, remoteId, GRAPH_CONTACTS_FOLDER, input.changeKey, input.status,
+      context.collectionRemoteId, remoteId, context.collectionRemoteId, input.changeKey, input.status,
     ],
   );
 }
@@ -326,10 +352,32 @@ export async function syncGraphContacts(input: {
   /** The page cap for one delta; injectable so the "limited run is not complete" path is provable. */
   maxPages?: number;
 }): Promise<GraphContactsSyncResult> {
+  const owner = input.owner ?? `graph-contacts:${input.connectionId}`;
+  const api: GraphApiOptions = {
+    userId: input.userId,
+    connectionId: input.connectionId,
+    owner,
+    ...(input.config ? { config: input.config } : {}),
+    ...(input.fetchImpl ? { fetchImpl: input.fetchImpl } : {}),
+  };
+  // GRAPH-03: the contact folder is **discovered**, not assumed. This call used to address the folder as the
+  // literal `contacts`, which is not a folder id Graph resolves — `contactFolder` has no well-known-name
+  // property, unlike the `mailFolder` whose similar assumption had to be removed under GRAPH-01. A mailbox whose
+  // folders cannot be listed is reported, because guessing an id is what produced the unusable request.
+  const folder = defaultGraphContactFolder(await discoverGraphContactFolders(api));
+  if (!folder) {
+    throw new GraphApiError({
+      code: 'UPSTREAM_UNAVAILABLE',
+      message: 'Microsoft Graph listed no contact folder for this mailbox',
+      status: 502,
+      retryable: true,
+    });
+  }
   const ensured = await withTransaction(client => ensureGraphAddressBook(client, {
     userId: input.userId,
     connectionId: input.connectionId,
-    label: input.label,
+    label: input.label ?? folder.displayName ?? undefined,
+    folderId: folder.id,
   }));
   const syncStateId = await withTransaction(client => ensureSyncState(client, {
     userId: input.userId,
@@ -339,7 +387,6 @@ export async function syncGraphContacts(input: {
     coverage: 'personal',
   }));
 
-  const owner = input.owner ?? `graph-contacts:${input.connectionId}`;
   const lease = await withTransaction(client => acquireSyncLease(client, { syncStateId, owner }));
   if (!lease) {
     throw new GraphApiError({
@@ -350,18 +397,12 @@ export async function syncGraphContacts(input: {
     });
   }
 
-  const api: GraphApiOptions = {
-    userId: input.userId,
-    connectionId: input.connectionId,
-    owner,
-    ...(input.config ? { config: input.config } : {}),
-    ...(input.fetchImpl ? { fetchImpl: input.fetchImpl } : {}),
-  };
   const context: ApplyContext = {
     userId: input.userId,
     connectionId: input.connectionId,
     addressBookId: ensured.addressBookId,
     collectionId: ensured.collectionId,
+    collectionRemoteId: folder.id,
   };
 
   try {
@@ -388,7 +429,7 @@ export async function syncGraphContacts(input: {
     for (let page = 0; page < (input.maxPages ?? MAX_PAGES); page++) {
       let fetched;
       try {
-        fetched = await fetchContactsPage(api, { nextLink, deltaLink: nextLink ? null : cursor, top: PAGE_SIZE });
+        fetched = await fetchContactsPage(api, { folderId: folder.id, nextLink, deltaLink: nextLink ? null : cursor, top: PAGE_SIZE });
       } catch (caught) {
         // The delta token expired: rebuild from a baseline instead of failing.
         if (caught instanceof GraphApiError && caught.code === 'INVALID_SYNC_CURSOR' && cursor) {

@@ -26,7 +26,15 @@ const describeOrSkip = hasPg ? describe : describe.skip;
 const USER_ID = '00000000-0000-0000-0000-0000000004a1';
 const CONFIG = { clientId: 'client-1', clientSecret: 'secret-1', redirectUri: 'https://x/cb', providerRedirectUri: 'https://x/oauth/provider/microsoft/callback', tenantId: 'common' };
 const originalKey = process.env.ENCRYPTION_KEY;
-const DELTA_BASE = 'https://graph.microsoft.com/v1.0/me/contactFolders/contacts/contacts/delta';
+/**
+ * The contact folder the fake provider lists, and the delta base built from its **real** id.
+ *
+ * GRAPH-03: the sync discovers the folder instead of addressing it as the literal `contacts`, so every case here
+ * needs the discovery answered. It is answered by the fake below rather than by a handler, so the handlers stay
+ * about the delta each case is exercising.
+ */
+const FOLDER_ID = 'AAMkAD-contact-folder-1';
+const DELTA_BASE = `https://graph.microsoft.com/v1.0/me/contactFolders/${FOLDER_ID}/contacts/delta`;
 
 const contact = (id: string, displayName: string, email: string): GraphContact => ({
   id,
@@ -44,14 +52,22 @@ function json(body: unknown, status = 200): Response {
 
 function fakeProvider(handlers: Array<(url: string) => Response | Promise<Response>>) {
   const urls: string[] = [];
+  const discoveryUrls: string[] = [];
   let index = 0;
   const fetchImpl = async (url: string): Promise<Response> => {
-    urls.push(url);
+    const target = String(url);
+    // The folder discovery is scaffolding for every case, so it is answered here and recorded separately: the
+    // `urls` list stays the sequence of delta requests the case is about.
+    if (target.includes('/me/contactFolders?')) {
+      discoveryUrls.push(target);
+      return json({ value: [{ id: FOLDER_ID, displayName: 'Contacts', parentFolderId: null }] });
+    }
+    urls.push(target);
     const handler = handlers[Math.min(index, handlers.length - 1)];
     index += 1;
-    return handler(url);
+    return handler(target);
   };
-  return { fetchImpl: fetchImpl as unknown as typeof fetch, urls };
+  return { fetchImpl: fetchImpl as unknown as typeof fetch, urls, discoveryUrls };
 }
 
 async function autocommit<T>(fn: (client: PoolClient) => Promise<T>): Promise<T> {
@@ -132,7 +148,10 @@ describeOrSkip('Microsoft Graph contacts sync (PostgreSQL)', () => {
 
     const result = await syncGraphContacts({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl: provider.fetchImpl });
     expect(result).toMatchObject({ created: 2, updated: 0, deleted: 0, fullSync: true, cursor: `${DELTA_BASE}?$deltatoken=baseline` });
-    expect(provider.urls[0]).toContain('/me/contactFolders/contacts/contacts/delta');
+    // The folder was discovered, and the delta named the **real** folder id it returned — the literal `contacts`
+    // this used to send is not a folder id Graph resolves (GRAPH-03).
+    expect(provider.discoveryUrls).toHaveLength(1);
+    expect(provider.urls[0]).toContain(`/me/contactFolders/${FOLDER_ID}/contacts/delta`);
 
     const book = await autocommit(client => client.query<{ source: string; dav_mode: string }>(
       'SELECT source, dav_mode FROM address_books WHERE user_id = $1', [USER_ID],
