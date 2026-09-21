@@ -320,6 +320,16 @@ None.
   IMAP loops, health checks, rule forwarder and send path no longer open IMAP or SMTP for it.
 
 ### Fixed
+- **A blocked sender's mail no longer stays in the inbox of a Gmail or Microsoft account.** Rules and the block
+  list only ran for IMAP accounts, because the engine acted through the IMAP manager; a native account stored its
+  mail and applied nothing, so a blocked address kept arriving. The block list now runs on the INBOX rows a native
+  synchronisation has just stored — the same engine the IMAP path runs, handed a port that speaks to that
+  provider — so a blocked sender's message is moved to the account's trash on Gmail and Microsoft Graph, or
+  deleted when the account has no trash. The engine's remaining actions (forward, archive, label, mark read) reach
+  that provider through the same port but are deliberately not enabled for native accounts in this release: they
+  each need exercising on a real transport first, and enabling them silently in one step would put every rule's
+  side effect on an untested path at once. A failure in the block list is logged and never fails the
+  synchronisation that stored the mail.
 - **Every Microsoft contact folder is now synchronised, each into its own address book.** Only the default folder
   was pulled, so a contact kept in a second (or nested) folder never appeared. The folders — including one level
   of children, which is how contact folders nest — are discovered and each becomes its own local book with its own

@@ -28,6 +28,7 @@ import {
   providerUidForGmailMessage,
 } from './gmailMail.js';
 import type { GmailThread, LocalGmailMessage } from './gmailMail.js';
+import { applyBlockListToIngestedRows } from '../../providerIngestBlockList.js';
 import { persistConversationCopyForRow } from '../../conversationRowIngest.js';
 import type { ConversationAccountRow } from '../../conversationRowIngest.js';
 import type { FetchLike, GoogleConfig } from '../../providerAuthService.js';
@@ -803,6 +804,20 @@ export async function syncGmailMailMessagesForAccount(input: {
     }
   };
 
+  // MAIL-01: the block list runs on the rows this sync just stored, exactly as the IMAP path runs it on the
+  // messages it fetched. It acts through the provider port, so a blocked sender's mail leaves the inbox on a
+  // native account too. The label the rows were stored under is the engine's `folder`, and only INBOX is a target.
+  const afterIngest = async (rowIds: readonly string[], labelPath: string): Promise<void> => {
+    await applyBlockListToIngestedRows({
+      userId: input.userId,
+      connectionId: input.connectionId,
+      account,
+      folder: labelPath,
+      rowIds,
+      providerName: 'Gmail',
+    }).catch((error: unknown) => console.warn('Gmail ingest block list failed:', error instanceof Error ? error.message : error));
+  };
+
   const maxThreadsPerRun = input.maxThreadsPerRun ?? GMAIL_MAX_THREADS_PER_RUN;
   const state = await withTransaction(client => readSyncState(client, syncStateId));
   let cursor = state?.cursor ?? null;
@@ -814,7 +829,7 @@ export async function syncGmailMailMessagesForAccount(input: {
 
   try {
     if (mode === 'incremental' && cursor !== null) {
-      const applied = await runIncremental(api, context, account, cursor, totals, renew, fenced, maxThreadsPerRun);
+      const applied = await runIncremental(api, context, account, cursor, totals, renew, fenced, maxThreadsPerRun, rowIds => afterIngest(rowIds, 'INBOX'));
       if (applied === 'expired') {
         // Gmail answered `404` for the stored history id: it has aged out. A baseline
         // is the only honest recovery, and it reconciles.
@@ -828,7 +843,7 @@ export async function syncGmailMailMessagesForAccount(input: {
     }
 
     if (mode === 'baseline') {
-      const baseline = await runBaseline(api, context, account, targets, totals, pageCheckpoint, commit, renew, fenced, maxThreadsPerRun);
+      const baseline = await runBaseline(api, context, account, targets, totals, pageCheckpoint, commit, renew, fenced, maxThreadsPerRun, (rowIds, labelPath) => afterIngest(rowIds, labelPath));
       incomplete = baseline.incomplete;
       if (!incomplete) {
         cursor = baseline.startHistoryId ?? cursor;
@@ -868,6 +883,7 @@ async function runIncremental(
   renew: () => Promise<void>,
   fenced: <T>(run: (client: PoolClient) => Promise<T>) => Promise<T>,
   maxThreadsPerRun: number,
+  afterIngest: (rowIds: readonly string[], labelPath: string) => Promise<void>,
 ): Promise<{ cursor: string } | 'expired'> {
   const threadIds = new Set<string>();
   const deletedMessageIds = new Set<string>();
@@ -911,6 +927,7 @@ async function runIncremental(
     if (!thread) continue;
     const applied = await fenced(client => applyGmailThread(client, context, thread));
     await persistConversations(applied.rowIds, account);
+    await afterIngest(applied.rowIds, 'INBOX');
     addTotals(totals, applied);
   }
 
@@ -941,6 +958,7 @@ async function runBaseline(
   renew: () => Promise<void>,
   fenced: <T>(run: (client: PoolClient) => Promise<T>) => Promise<T>,
   maxThreadsPerRun: number,
+  afterIngest: (rowIds: readonly string[], labelPath: string) => Promise<void>,
 ): Promise<{ incomplete: boolean; startHistoryId: string | null }> {
   const checkpoint = parseBaselineCheckpoint(pageCheckpoint) ?? { labelId: null, pageToken: null, startHistoryId: null };
   const startHistoryId = checkpoint.startHistoryId ?? await fetchGmailProfileHistoryId(api);
@@ -982,6 +1000,7 @@ async function runBaseline(
         if (!thread) continue;
         const applied = await fenced(client => applyGmailThread(client, context, thread, seen));
         await persistConversations(applied.rowIds, account);
+        await afterIngest(applied.rowIds, target.folderPath);
         addTotals(totals, applied);
       }
 

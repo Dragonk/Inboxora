@@ -19,6 +19,10 @@ export interface ConversationAccountRow {
   user_id: string;
   imap_host?: string | null;
   mail_transport?: string | null;
+  /** The provider connection this account is authorized through; absent for IMAP. */
+  provider_connection_id?: string | null;
+  /** The account's folder mappings, which the folder resolvers read (trash, archive, drafts). */
+  folder_mappings?: unknown;
 }
 
 /**
