@@ -156,6 +156,33 @@ describeOrSkip('provider sync targets (PostgreSQL)', () => {
   });
 });
 
+describeOrSkip('a connection that holds no collection is discovered', () => {
+  it('schedules the discovery its first run never completed', async () => {
+    // SYNC-01: the first discovery runs outside the schedule, so a connection whose initial run failed or was
+    // interrupted had no collection for the schedule to find and was skipped forever — the account stayed empty
+    // until the user acted. Holding nothing is now the durable signal to try again, and the run reuses the mail
+    // adapter (which discovers before it pulls) rather than a second discovery path.
+    const fresh = randomUUID();
+    await query(
+      `INSERT INTO provider_connections (id, user_id, provider, issuer, subject, provider_user_id, status)
+       VALUES ($1, $2, 'google', 'https://accounts.google.com', 'discovery-subject', 'fresh@gmail.test', 'active')`,
+      [fresh, userId],
+    );
+    try {
+      const target = (await listProviderSyncTargets()).find(candidate => candidate.connectionId === fresh);
+      expect(target, 'a connection holding no collection is not scheduled for discovery').toBeDefined();
+      expect(target!.discovery).toBe(true);
+      expect(target!.features).toEqual([]);
+
+      calls.gmailLabels.mockClear();
+      await runProviderSyncs();
+      expect(calls.gmailLabels).toHaveBeenCalledWith(expect.objectContaining({ connectionId: fresh }));
+    } finally {
+      await query('DELETE FROM provider_connections WHERE id = $1', [fresh]);
+    }
+  });
+});
+
 describeOrSkip('a mailbox is found through the connection that holds its collections', () => {
   it('lists the account even when it is linked to another connection of the same identity', async () => {
     // The identity can have more than one connection row: the one its cutover created and the one a consent

@@ -296,6 +296,19 @@ None.
   IMAP loops, health checks, rule forwarder and send path no longer open IMAP or SMTP for it.
 
 ### Fixed
+- **A connected account whose first synchronisation failed is picked up again instead of staying empty.** The
+  schedule selected connections through the collections they already held, so discovery was reachable only from a
+  collection that already existed: a connection whose initial run failed — or a process that restarted before it
+  finished — had nothing to be found by and was skipped forever, leaving the mailbox, calendar or address book
+  empty until the user acted. The target query now also selects active connections that hold **no collection at
+  all**, and the run refreshes them through the same mail adapter that discovers before it pulls (labels for
+  Gmail, folders for Microsoft), so there is still one discovery path. Holding nothing is the durable retry
+  signal — it survives a restart with no extra bookkeeping — and each attempt's outcome is recorded where every
+  other run's is, in `sync_states`, so a persistent failure is visible in diagnostics rather than silent. A
+  connection whose collections are all disabled or unlinked is still out of the schedule: the user's own choice
+  is what made them unusable, and re-running discovery must not overrule it. Calendar and address-book discovery
+  stay what they were — started by the user connecting those services — so this does not create collections
+  nobody asked for.
 - **The Microsoft calendar delta request no longer sends parameters the delta function rejects.** The page request
   combined `events/delta` with `$select` and `$top`. Microsoft documents `$select`, `$expand`, `$filter`,
   `$orderby` and `$search` as unsupported for the delta function (on events and on a calendar view), and pages a

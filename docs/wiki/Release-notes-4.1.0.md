@@ -265,6 +265,12 @@ Microsoft application is registered in this environment.
 
 ### Fixed
 
+- **An account whose first synchronisation failed now recovers on its own.** Inboxora only scheduled connections
+  that already had collections, so a connection whose first run failed — or one interrupted by a restart — was
+  never retried: the mailbox appeared connected and stayed empty. Connections that hold nothing are now picked up
+  and their discovery is retried, using the same discovery their first run used. A collection you disabled, or one
+  with no local link, is still left alone, and connecting calendars or address books remains an action you take.
+
 - **The Microsoft calendar change-tracking request now asks only for what Microsoft's contract allows.** It
   previously combined the delta call with projection and paging parameters that delta does not support, so the
   request could not be answered as written. The remaining question — the per-calendar delta form this

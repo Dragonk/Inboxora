@@ -81,33 +81,77 @@ export interface ProviderSyncTarget {
   provider: string;
   /** The collection kinds this connection has already pulled. */
   features: string[];
+  /**
+   * True when the connection holds **no** collection yet, so its first discovery still has to run (SYNC-01).
+   *
+   * Discovery used to be reachable only through a collection that already existed, so a connection whose initial
+   * discovery failed or was interrupted was never retried: the schedule skipped it forever and the account stayed
+   * empty until the user acted. The absence of collections is itself the durable retry signal — it survives a
+   * restart without any extra bookkeeping — and each attempt's outcome is recorded where every other sync's is,
+   * in `sync_states` for the feature it tried to discover.
+   */
+  discovery: boolean;
 }
 
 /**
- * Connections that have at least one linked collection. An account that was
- * connected but never pulled anything is deliberately absent.
+ * Connections that have at least one linked collection, plus those that have none yet and must be discovered.
+ *
+ * A connection with collections is scheduled per collection. A connection with none is scheduled for discovery:
+ * it is an active, authorized connection, so the user has asked for it and the only reason it holds nothing is
+ * that discovery has not succeeded yet.
  */
 export async function listProviderSyncTargets(): Promise<ProviderSyncTarget[]> {
-  const result = await query<{ user_id: string; connection_id: string; provider: string; features: string[] }>(
+  // One query, so the two cases cannot disagree about what a connection holds. A connection with usable
+  // collections is scheduled per collection; a connection with **no collection row at all** is scheduled for the
+  // discovery that creates the first one (SYNC-01). A connection whose only collections are unusable — disabled,
+  // or with no local link — is still absent, which is the rule the schedule has always had.
+  const result = await query<{ user_id: string; connection_id: string; provider: string; features: string[] | null; discovery: boolean }>(
     `SELECT pc.user_id, pc.id AS connection_id, pc.provider,
-            array_agg(DISTINCT ic.kind) AS features
+            array_agg(DISTINCT ic.kind) FILTER (
+              WHERE ic.id IS NOT NULL
+                AND ic.enabled = true
+                AND (ic.local_calendar_id IS NOT NULL OR ic.local_address_book_id IS NOT NULL OR ic.local_folder_id IS NOT NULL)
+            ) AS features,
+            (COUNT(ic.id) = 0) AS discovery
        FROM provider_connections pc
-       JOIN integration_collections ic
-         ON ic.connection_id = pc.id
-        AND ic.enabled = true
-        AND (ic.local_calendar_id IS NOT NULL OR ic.local_address_book_id IS NOT NULL OR ic.local_folder_id IS NOT NULL)
+       LEFT JOIN integration_collections ic ON ic.connection_id = pc.id
         -- Gmail's mailbox is represented by a mail_label collection and Graph's by a mail_folder one; both link
-        -- the local folder they pull into, which is the property this condition is about.
+        -- the local folder they pull into, which is the property the feature array is about.
       WHERE pc.status = 'active' AND pc.provider IN ('google', 'microsoft')
       GROUP BY pc.user_id, pc.id, pc.provider
       ORDER BY pc.user_id, pc.id`,
   );
-  return result.rows.map(row => ({
-    userId: row.user_id,
-    connectionId: row.connection_id,
-    provider: row.provider,
-    features: Array.isArray(row.features) ? row.features : [],
-  }));
+  const targets: ProviderSyncTarget[] = [];
+  for (const row of result.rows) {
+    const discovery = row.discovery === true;
+    // A driver that hands back no array at all is the pre-existing defensive case: the row is kept with no
+    // features rather than dropped.
+    const features = row.features === null || row.features === undefined
+      ? null
+      : (Array.isArray(row.features) ? row.features : []);
+    if (!discovery && features !== null && features.length === 0) continue;
+    targets.push({
+      userId: row.user_id,
+      connectionId: row.connection_id,
+      provider: row.provider,
+      features: features ?? [],
+      discovery,
+    });
+  }
+  return targets;
+}
+
+/**
+ * The collection kind whose sync *is* discovery for a provider.
+ *
+ * Google's mail discovery writes `mail_label` collections and Graph's writes `mail_folder` ones, and each of
+ * those adapters discovers before it pulls — which is why a discovery target reuses the mail adapter rather than
+ * a second discovery path that could drift from it.
+ */
+function discoveryKindFor(provider: string): string | null {
+  if (provider === 'google') return 'mail_label';
+  if (provider === 'microsoft') return 'mail_folder';
+  return null;
 }
 
 export interface ProviderSyncRunSummary {
@@ -162,7 +206,12 @@ export async function runProviderSyncs(): Promise<ProviderSyncRunSummary> {
 
   for (const target of targets) {
     if (!ready[target.provider]) continue;
-    for (const kind of target.features) {
+    // A connection holding nothing is scheduled for the one sync that discovers: a collection cannot be required
+    // for the run that creates the first collection (SYNC-01).
+    const discoveryKind = target.discovery ? discoveryKindFor(target.provider) : null;
+    if (target.discovery && !discoveryKind) continue;
+    const kinds = target.discovery ? [discoveryKind as string] : target.features;
+    for (const kind of kinds) {
       const sync = syncFor(target.provider, kind);
       if (!sync) continue;
       const key = scopeKey(target, kind);
@@ -173,6 +222,9 @@ export async function runProviderSyncs(): Promise<ProviderSyncRunSummary> {
         await sync(target, googleConfig, microsoftConfig);
         syncBackoffs.delete(key);
         ran += 1;
+        if (target.discovery) {
+          console.info(`Discovered the first collections of ${target.provider} connection ${target.connectionId}`);
+        }
       } catch (error) {
         failed += 1;
         const failure = error as { code?: string; retryAfterSeconds?: number } | null;
@@ -272,7 +324,7 @@ export async function runProviderSyncForHint(input: {
   const sync = syncFor(input.provider, input.resourceType);
   if (!sync) return { ran: false, reason: 'NO_SYNC_FOR_RESOURCE' };
   await sync(
-    { userId: input.userId, connectionId: input.connectionId, provider: input.provider, features: [input.resourceType] },
+    { userId: input.userId, connectionId: input.connectionId, provider: input.provider, features: [input.resourceType], discovery: false },
     googleConfig,
     microsoftConfig,
   );

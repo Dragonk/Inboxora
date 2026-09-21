@@ -88,22 +88,40 @@ describe('providerSyncIntervalMinutes', () => {
 });
 
 describe('listProviderSyncTargets', () => {
-  it('reads only active provider connections that already have a linked collection', async () => {
-    mocks.query.mockResolvedValueOnce({ rows: [target({ features: ['address_book', 'calendar'] })] });
+  it('reads active provider connections with a linked collection, and those that hold nothing yet', async () => {
+    mocks.query.mockResolvedValueOnce({ rows: [target({ features: ['address_book', 'calendar'], discovery: false })] });
     await expect(listProviderSyncTargets()).resolves.toEqual([
-      { userId: 'user-1', connectionId: 'connection-1', provider: 'google', features: ['address_book', 'calendar'] },
+      { userId: 'user-1', connectionId: 'connection-1', provider: 'google', features: ['address_book', 'calendar'], discovery: false },
     ]);
     const [sql] = mocks.query.mock.calls[0] as [string];
-    // An account that was connected but never pulled anything must not be selected.
+    // Only an active connection is considered, and a collection counts only when it is enabled and linked.
     expect(sql).toContain("pc.status = 'active'");
     expect(sql).toContain('ic.enabled = true');
     expect(sql).toContain('ic.local_calendar_id IS NOT NULL OR ic.local_address_book_id IS NOT NULL OR ic.local_folder_id IS NOT NULL');
+    // SYNC-01: a connection with no collection row at all is selected for discovery, in the same query, so a
+    // connection whose first discovery failed can be resumed instead of being skipped forever.
+    expect(sql).toContain('LEFT JOIN integration_collections');
+    expect(sql).toContain('(COUNT(ic.id) = 0) AS discovery');
+  });
+
+  it('offers a connection that holds no collection at all as a discovery target', async () => {
+    mocks.query.mockResolvedValueOnce({ rows: [target({ features: null, discovery: true })] });
+    await expect(listProviderSyncTargets()).resolves.toEqual([
+      { userId: 'user-1', connectionId: 'connection-1', provider: 'google', features: [], discovery: true },
+    ]);
+  });
+
+  it('keeps a connection whose collections are all unusable out of the schedule', async () => {
+    // A disabled collection, or one with no local link, is not a reason to re-run discovery: the user's choice
+    // is what made it unusable.
+    mocks.query.mockResolvedValueOnce({ rows: [target({ features: [], discovery: false })] });
+    await expect(listProviderSyncTargets()).resolves.toEqual([]);
   });
 
   it('tolerates a driver that returns no feature array', async () => {
     mocks.query.mockResolvedValueOnce({ rows: [target({ features: null })] });
     await expect(listProviderSyncTargets()).resolves.toEqual([
-      { userId: 'user-1', connectionId: 'connection-1', provider: 'google', features: [] },
+      { userId: 'user-1', connectionId: 'connection-1', provider: 'google', features: [], discovery: false },
     ]);
   });
 });
@@ -360,6 +378,22 @@ describe('the schedule backs off from a throttled run', () => {
 });
 
 describe('mail is polled for both native providers', () => {
+  it('discovers the first collections of a connection that holds none', async () => {
+    // SYNC-01: discovery used to be reachable only through a collection that already existed, so a connection
+    // whose first discovery failed was skipped forever. The absence of collections is now the retry signal, and
+    // the run reuses the mail adapter — the one that discovers before it pulls — rather than a second path.
+    mocks.query.mockResolvedValueOnce({ rows: [target({ provider: 'google', features: [], discovery: true })] });
+    mocks.listGmailMailAccounts.mockResolvedValueOnce(['account-1']);
+    mocks.syncGmailMailLabelsForAccount.mockResolvedValueOnce({ labels: 3 });
+    mocks.syncGmailMailMessagesForAccount.mockResolvedValueOnce({ threads: 1 });
+
+    await expect(runProviderSyncs()).resolves.toEqual({ connections: 1, ran: 1, failed: 0 });
+    expect(mocks.syncGmailMailLabelsForAccount).toHaveBeenCalledWith(expect.objectContaining({
+      userId: 'user-1', connectionId: 'connection-1', accountId: 'account-1',
+    }));
+    expect(mocks.syncGmailMailMessagesForAccount).toHaveBeenCalledWith(expect.objectContaining({ accountId: 'account-1' }));
+  });
+
   it('runs the Gmail message sync for the collection kind Gmail discovery actually writes', async () => {
     // The live bug: the dispatcher only knew Graph's `mail_folder`, while Gmail's label discovery writes
     // `mail_label`. A native Gmail connection therefore had no scheduled message sync, so new mail appeared
