@@ -579,6 +579,27 @@ export async function executeDavWriteBack(spec: DavWriteBackSpec, deps: DavWrite
       remoteVersion: value?.remoteVersion ?? null,
     };
   }
+  if (result.code === 'OPERATION_FORBIDDEN') {
+    // The source itself refused this write — `403`, or a `501`/`505` that means the verb is not supported. That is
+    // the provider telling us the collection's origin does not accept writes, which is exactly the fact DAV-02
+    // says was assumed instead of discovered: recording it here means the capability model refuses the next attempt
+    // with `COLLECTION_READ_ONLY` and the interface stops offering a write the server will reject. It is a fact
+    // learned from the origin's own answer, not a downgrade of the user's own setting, and it leaves the local
+    // source label untouched.
+    // `localCollectionId` is the caller's name for the collection it is writing through, which is a local calendar
+    // or address book id on some paths — so the row is matched by whichever of the three identifies it, rather than
+    // by an assumption about which one that is.
+    await withTransaction(client => client.query(
+      `UPDATE integration_collections
+          SET source_access = 'read_only', updated_at = NOW()
+        WHERE source_access IS DISTINCT FROM 'read_only'
+          AND (id = $1 OR local_calendar_id = $1 OR local_address_book_id = $1)`,
+      [spec.localCollectionId],
+    )).catch(error => console.warn(
+      'Could not record the source refusing writes:',
+      error instanceof Error ? error.message : error,
+    ));
+  }
   return { status, created: false, code: result.code, retryAfterSeconds: result.retryAfterSeconds };
 }
 

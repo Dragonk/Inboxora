@@ -291,6 +291,12 @@ Microsoft application is registered in this environment.
 
 ### Fixed
 
+- **Inboxora stops offering edits to a CalDAV or CardDAV collection whose server refuses them.** Previously it
+  assumed such a collection accepted writes, so an edit failed at the server with a permission error each time.
+  The refusal is now remembered for that collection, and Inboxora says the collection is read-only instead of
+  retrying. It is still assumed writable until the server answers once, because reading the server's own privilege
+  list has not been validated against a real server yet.
+
 - **Correction to an earlier note in this release:** a report that a blocked message disappeared during a Gmail
   account's first full synchronisation was traced to the test's own fake, which kept listing the message under
   INBOX after the move — so the synchronisation correctly treated the row it had just re-filed as one the provider

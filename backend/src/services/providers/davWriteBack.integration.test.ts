@@ -287,6 +287,37 @@ describeOrSkip('external DAV write-back with PostgreSQL', () => {
     expect(await latestOperation()).toEqual({ status: 'conflict', resource_type: 'calendar_event', operation: 'update' });
   });
 
+  it('learns from a source that refuses writes, instead of assuming it accepts them (DAV-02)', async () => {
+    // DAV-02: `source_access` was asserted as `read_write` for every CalDAV/CardDAV collection, so the interface
+    // offered writes the origin then refused. A `403` (or a verb the source does not support) is the origin saying
+    // it does not accept writes; the collection records that, and the next attempt is refused locally instead of
+    // being sent again.
+    const collectionUrl = `${sourceBase}/calendars/sam/readonly/`;
+    const calendarId = await seedCaldavCalendar(collectionUrl);
+    // The UID must be the one the body carries: the route refuses a PUT whose body and row disagree (409).
+    const { eventId } = await seedEventLink(calendarId, collectionUrl, { uid: 'e1', href: `${collectionUrl}e1.ics`, version: 'remote-1' });
+    const before = await query<{ source_access: string; id: string }>(
+      `SELECT ic.id, ic.source_access FROM integration_collections ic
+        JOIN calendars c ON c.id = ic.local_calendar_id WHERE c.id = $1`, [calendarId],
+    );
+    expect(before.rows[0]?.source_access).toBe('read_write');
+    dav.putStatus = 403;
+
+    const response = await fetch(`${davBase}/caldav/${userId}/${calendarId}/e1.ics`, {
+      method: 'PUT', headers: { ...headers(), 'content-type': 'text/calendar' }, body: EVENT_ICS.replace('SUMMARY:Planning', 'SUMMARY:Refused'),
+    });
+    expect(response.status).toBe(502);
+
+    // The source's own answer is recorded as the collection's capability…
+    const after = await query<{ source_access: string }>(
+      'SELECT source_access FROM integration_collections WHERE id = $1', [before.rows[0]!.id],
+    );
+    expect(after.rows[0]?.source_access).toBe('read_only');
+    // …and the local event is untouched, because nothing was applied.
+    const event = await query<{ raw_ical: string }>('SELECT raw_ical FROM calendar_events WHERE id = $1', [eventId]);
+    expect(event.rows[0].raw_ical).toBe(EVENT_ICS);
+  });
+
   it('parks an ambiguous source failure as outcome_unknown and touches nothing', async () => {
     const collectionUrl = `${sourceBase}/calendars/sam/work/`;
     const calendarId = await seedCaldavCalendar(collectionUrl);
