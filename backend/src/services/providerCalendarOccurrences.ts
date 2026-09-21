@@ -1,3 +1,4 @@
+import ICAL from 'ical.js';
 import { googleConfigFromEnv, microsoftConfigFromEnv } from './providerAuthService.js';
 import { runProviderMutation } from './providerMutationService.js';
 import type { ProviderAdapterOutcome, ProviderMutationAdapter } from './providerMutationService.js';
@@ -17,6 +18,7 @@ import {
   deleteGraphEvent,
   fetchGraphEvent,
   fetchGraphEventInstances,
+  graphRecurrenceRule,
   patchGraphEvent,
   type GraphEventPayload,
 } from './providers/microsoft/graphCalendar.js';
@@ -122,6 +124,25 @@ function isoDate(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
 
+/** The calendar date of an instant in a series' own time zone, as `YYYY-MM-DD` (CAL-03). */
+function localDateInZone(instant: Date, timeZone: string | null | undefined): string {
+  if (!timeZone) return isoDate(instant);
+  try {
+    // `en-CA` is the locale whose short date is already `YYYY-MM-DD`.
+    return new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(instant);
+  } catch {
+    // An unknown zone is not a reason to refuse: fall back to UTC, which is what the code did before.
+    return isoDate(instant);
+  }
+}
+
+/** The day before a `YYYY-MM-DD` date, by calendar arithmetic with no time-zone conversion. */
+function previousIsoDate(date: string): string {
+  const [year, month, day] = date.split('-').map(Number);
+  const utc = Date.UTC(year ?? 1970, (month ?? 1) - 1, day ?? 1) - 24 * 60 * 60 * 1000;
+  return new Date(utc).toISOString().slice(0, 10);
+}
+
 /**
  * The series rule with its end moved to just before one instant.
  *
@@ -129,19 +150,84 @@ function isoDate(date: Date): string {
  * second before the occurrence (inclusive, per RFC 5545) and any `COUNT` is dropped, because a count describes
  * the original series rather than the truncated one. Frequency, interval and by-day are preserved verbatim,
  * which is what keeps the earlier occurrences identical.
+ *
+ * The `UNTIL` **value type follows DTSTART** (CAL-03): an all-day series has a `DATE` DTSTART, and RFC 5545
+ * requires a `DATE` UNTIL for it — a UTC `DATE-TIME` there is invalid, and the day it names is the previous
+ * *date*, not the instant a second earlier.
  */
-export function truncateRRuleBefore(lines: readonly string[], before: Date): string[] {
-  const until = compactUtc(new Date(before.getTime() - 1000));
+export function truncateRRuleBefore(
+  lines: readonly string[],
+  before: Date,
+  options: { startIsDate?: boolean } = {},
+): string[] {
+  const until = options.startIsDate
+    ? `UNTIL=${previousIsoDate(isoDate(before)).replace(/-/g, '')}`
+    : `UNTIL=${compactUtc(new Date(before.getTime() - 1000))}`;
   return lines.map(line => {
     if (!/^RRULE[;:]/i.test(line.trim())) return line;
     const body = line.trim().replace(/^RRULE:/i, '');
     const kept = body.split(';').filter(part => part && !/^COUNT=/i.test(part) && !/^UNTIL=/i.test(part));
-    return `RRULE:${[...kept, `UNTIL=${until}`].join(';')}`;
+    return `RRULE:${[...kept, until].join(';')}`;
   });
 }
 
-// ── Resolution of the provider's occurrence identity ─────────────────────────
+/**
+ * How many occurrences a rule produces strictly before `before`, counted from `dtstart`.
+ *
+ * `null` when the rule cannot be expanded safely (unparseable, or more occurrences than the safety limit), so
+ * the caller refuses the split rather than guessing a count.
+ */
+export function occurrencesBeforeRule(rrule: string, dtstart: string, before: Date, limit = 500): number | null {
+  let rule: ICAL.Recur;
+  let start: ICAL.Time;
+  try {
+    rule = ICAL.Recur.fromString(rrule.replace(/^RRULE:/i, ''));
+    start = /^\d{4}-\d{2}-\d{2}$/.test(dtstart) ? ICAL.Time.fromDateString(dtstart) : ICAL.Time.fromString(dtstart, null);
+  } catch {
+    return null;
+  }
+  let iterator: ICAL.RecurIterator;
+  try {
+    iterator = rule.iterator(start);
+  } catch {
+    return null;
+  }
+  let count = 0;
+  for (let index = 0; index < limit; index += 1) {
+    const next = iterator.next();
+    if (!next) return count;
+    if (next.toJSDate().getTime() >= before.getTime()) return count;
+    count += 1;
+  }
+  return null;
+}
 
+/**
+ * The rule the remainder of a split series should carry.
+ *
+ * A `COUNT` copied verbatim restarts the whole series, so the remainder keeps only the occurrences the earlier
+ * part does not: a series of 10 split at the 4th keeps 3 behind and continues with 7 (CAL-02). An `UNTIL`-based
+ * or unbounded rule is already correct for the remainder and is returned unchanged. `null` means the
+ * continuation cannot be represented and the caller must refuse before writing anything.
+ */
+export function continueRruleAfterSplit(rrule: string, dtstart: string, before: Date): string | null {
+  let rule: ICAL.Recur;
+  try {
+    rule = ICAL.Recur.fromString(rrule.replace(/^RRULE:/i, ''));
+  } catch {
+    return null;
+  }
+  if (rule.count === null || rule.count === undefined) return rule.toString();
+  const consumed = occurrencesBeforeRule(rrule, dtstart, before);
+  if (consumed === null) return null;
+  const remaining = rule.count - consumed;
+  if (remaining <= 0) return null;
+  const continued = rule.clone();
+  continued.count = remaining;
+  return continued.toString();
+}
+
+// ── Resolution of the provider's occurrence identity ─────────────────────────
 /**
  * The provider's id for one occurrence, or `null` when the provider does not know it.
  *
@@ -236,23 +322,45 @@ function googleOccurrenceAdapter(api: Parameters<typeof insertGoogleEvent>[0]): 
         if (!master) return { status: 'permanent', code: 'RESOURCE_NOT_FOUND' };
         const before = occurrenceInstant(write.occurrenceStart);
         if (!before) return { status: 'permanent', code: 'INVALID_REQUEST' };
+        // A split at the first occurrence has an empty prefix, and RFC 5545 has no valid rule for it: the
+        // operation is the whole series. Refuse before writing rather than storing `UNTIL` before `DTSTART`
+        // (CAL-03).
+        const seriesStart = master.start ? occurrenceInstant(master.start.dateTime ?? master.start.date ?? '') : null;
+        if (seriesStart && before.getTime() <= seriesStart.getTime()) {
+          return { status: 'permanent', code: 'SPLIT_AT_FIRST_OCCURRENCE' };
+        }
         const existing = Array.isArray(master.recurrence) ? master.recurrence : [];
+        // An all-day series has a DATE DTSTART, so its UNTIL must be a DATE too (CAL-03).
+        const startIsDate = Boolean(master.start?.date && !master.start?.dateTime);
+        // The remainder's rule is computed **before** any write. A `COUNT` copied verbatim would start the
+        // whole count again from the split, so a series of 10 split at the 4th would end with 13 occurrences
+        // (CAL-02); when the continuation cannot be represented the write refuses instead of truncating the
+        // master and leaving a remainder that restarts the series.
+        const needsContinuation = write.operation !== 'cancel' && write.values?.recurrence === undefined;
+        let remainderRecurrence: string[] | null = null;
+        if (needsContinuation) {
+          const rruleLine = existing.find(line => /^RRULE[;:]/i.test(line.trim())) ?? null;
+          const dtstart = master.start?.date ?? master.start?.dateTime ?? null;
+          if (!rruleLine || !dtstart) return { status: 'permanent', code: 'RECURRENCE_CONTINUATION_UNSUPPORTED' };
+          const continued = continueRruleAfterSplit(rruleLine.trim().replace(/^RRULE:/i, ''), dtstart, before);
+          if (!continued) return { status: 'permanent', code: 'RECURRENCE_CONTINUATION_UNSUPPORTED' };
+          remainderRecurrence = existing.map(line => (line === rruleLine ? `RRULE:${continued}` : line));
+        }
         await patchGoogleEvent(
           api,
           write.providerCalendarId,
           write.masterId,
-          { recurrence: truncateRRuleBefore(existing, before) },
+          { recurrence: truncateRRuleBefore(existing, before, { startIsDate }) },
           { sendUpdates: write.sendUpdates },
         );
         if (write.operation === 'cancel') return { status: 'committed', value: {} };
         if (!write.values) return { status: 'permanent', code: 'INVALID_REQUEST' };
 
         const remainder = googleEventPayloadFor(googleValueInput(write.values));
-        if (write.values.recurrence === undefined) {
-          // The client changed only the occurrence and left the rule to the series: the remainder continues
-          // the series, so it starts with the master's own rule (not the truncated one — the truncation
-          // belongs to the part that stays behind).
-          remainder.recurrence = existing;
+        if (remainderRecurrence) {
+          // The remainder continues the series with the master's own rule adjusted for what the earlier part
+          // keeps — not the truncated one, and not the original count either (CAL-02).
+          remainder.recurrence = remainderRecurrence;
         }
         const created = await insertGoogleEvent(api, write.providerCalendarId, remainder, { sendUpdates: write.sendUpdates });
         if (!created?.id) return { status: 'outcome_unknown', code: 'EVENT_ID_MISSING' };
@@ -286,10 +394,35 @@ function graphOccurrenceAdapter(api: Parameters<typeof patchGraphEvent>[0]): Pro
         if (!before) return { status: 'permanent', code: 'INVALID_REQUEST' };
         const pattern = master.recurrence?.pattern ?? null;
         if (!pattern) return { status: 'permanent', code: 'NOT_RECURRING' };
-        const startDate = master.recurrence?.range?.startDate ?? isoDate(before);
-        // Graph ends a series on a date, not at an instant, so the day before the split is the last day the
-        // earlier part may produce.
-        const endDate = isoDate(new Date(before.getTime() - 24 * 60 * 60 * 1000));
+        const startDate = master.recurrence?.range?.startDate ?? localDateInZone(before, master.start?.timeZone);
+        // The earlier part may produce occurrences before the split, so it ends on the previous **calendar day
+        // in the series' own zone** — not on the previous UTC day, which is off by one for any series whose zone
+        // is ahead of UTC (a 00:30 Europe/Warsaw occurrence already sits on the previous UTC date) (CAL-03).
+        const splitDate = localDateInZone(before, master.start?.timeZone);
+        const endDate = previousIsoDate(splitDate);
+        // A split at the first occurrence has an empty prefix and Graph would reject the range (or, worse,
+        // accept a range that ends before it starts). Refuse before writing anything (CAL-03).
+        if (endDate < startDate) return { status: 'permanent', code: 'SPLIT_AT_FIRST_OCCURRENCE' };
+        // The remainder's range is computed **before** any write (CAL-02): it must start at the split and, for a
+        // numbered series, continue with only the occurrences the earlier part does not keep — otherwise the
+        // whole count restarts from the split. An unrepresentable continuation refuses instead of writing.
+        const needsContinuation = write.operation !== 'cancel' && write.values?.recurrence === undefined;
+        let remainderRange: NonNullable<GraphEventPayload['recurrence']>['range'] | null = null;
+        if (needsContinuation) {
+          const range = master.recurrence?.range;
+          if (range?.type === 'numbered') {
+            const dtstart = master.start?.dateTime ?? null;
+            const rule = graphRecurrenceRule(pattern, range);
+            const total = range.numberOfOccurrences ?? null;
+            const consumed = rule && dtstart ? occurrencesBeforeRule(rule, dtstart, before) : null;
+            if (consumed === null || total === null) return { status: 'permanent', code: 'RECURRENCE_CONTINUATION_UNSUPPORTED' };
+            const remaining = total - consumed;
+            if (remaining <= 0) return { status: 'permanent', code: 'RECURRENCE_CONTINUATION_UNSUPPORTED' };
+            remainderRange = { type: 'numbered', startDate: splitDate, numberOfOccurrences: remaining };
+          } else {
+            remainderRange = { ...(range ?? { type: 'noEnd' }), startDate: splitDate };
+          }
+        }
         await patchGraphEvent(api, write.providerCalendarId, write.masterId, {
           recurrence: { pattern, range: { type: 'endDate', startDate, endDate } },
         });
@@ -302,8 +435,7 @@ function graphOccurrenceAdapter(api: Parameters<typeof patchGraphEvent>[0]): Pro
         } else if (write.values.recurrence === null) {
           payload.recurrence = null;
         } else if (master.recurrence) {
-          // No rule from the client: the remainder continues the series with the master's own rule.
-          payload.recurrence = { pattern, range: master.recurrence.range ?? { type: 'noEnd', startDate } };
+          payload.recurrence = { pattern, range: remainderRange ?? { ...(master.recurrence.range ?? { type: 'noEnd' }), startDate: splitDate } };
         }
         const created = await createGraphEvent(api, write.providerCalendarId, payload);
         if (!created?.id) return { status: 'outcome_unknown', code: 'EVENT_ID_MISSING' };

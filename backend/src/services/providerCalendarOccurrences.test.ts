@@ -61,6 +61,8 @@ import { GoogleApiError } from './providers/google/googleApiClient.js';
 import {
   occurrenceInstant,
   resolveProviderOccurrenceId,
+  continueRruleAfterSplit,
+  occurrencesBeforeRule,
   truncateRRuleBefore,
   writeProviderCalendarOccurrence,
   type ProviderOccurrenceTarget,
@@ -83,9 +85,14 @@ const values = {
   allDay: false, attendees: ['a@example.test'],
 };
 
-const GOOGLE_MASTER_EVENT = { id: GOOGLE_MASTER, recurrence: ['RRULE:FREQ=WEEKLY;BYDAY=MO,WE;COUNT=12'] };
+const GOOGLE_MASTER_EVENT = {
+  id: GOOGLE_MASTER,
+  start: { dateTime: '2026-09-01T09:00:00Z', timeZone: 'UTC' },
+  recurrence: ['RRULE:FREQ=WEEKLY;BYDAY=MO,WE;COUNT=12'],
+};
 const GRAPH_MASTER_EVENT = {
   id: GRAPH_MASTER,
+  start: { dateTime: '2026-09-01T09:00:00.0000000', timeZone: 'UTC' },
   recurrence: {
     pattern: { type: 'weekly', interval: 1, daysOfWeek: ['monday', 'wednesday'] },
     range: { type: 'numbered', numberOfOccurrences: 12, startDate: '2026-09-01' },
@@ -194,14 +201,96 @@ describe('changing this and following', () => {
       { recurrence: ['RRULE:FREQ=WEEKLY;BYDAY=MO,WE;UNTIL=20260915T085959Z'] },
       { sendUpdates: 'all' },
     );
-    // The remainder keeps the client's values and the rule it was given.
-    // The remainder continues the series with the master's own rule: the truncation belongs to the part
-    // that stays behind, not to the part that moves forward.
+    // The remainder keeps the client's values and continues the series with the master's rule **adjusted for
+    // what the earlier part keeps**: COUNT=12 with 4 occurrences before the split continues with 8, not 12
+    // (CAL-02). The truncation belongs to the part that stays behind.
     expect(mocks.google.insert).toHaveBeenCalledWith(
       expect.anything(), 'primary',
-      expect.objectContaining({ summary: 'Standup (moved)', recurrence: ['RRULE:FREQ=WEEKLY;BYDAY=MO,WE;COUNT=12'] }),
+      expect.objectContaining({ summary: 'Standup (moved)', recurrence: ['RRULE:FREQ=WEEKLY;COUNT=8;BYDAY=MO,WE'] }),
       { sendUpdates: 'all' },
     );
+  });
+
+  it('writes UNTIL in the DTSTART value type: a DATE rule for an all-day series', () => {
+    // CAL-03: an all-day series has a DATE DTSTART, and RFC 5545 requires a DATE UNTIL for it. A UTC
+    // DATE-TIME was both an invalid value type and a day off.
+    expect(truncateRRuleBefore(['RRULE:FREQ=DAILY;COUNT=5'], new Date('2026-09-15T00:00:00.000Z'), { startIsDate: true }))
+      .toEqual(['RRULE:FREQ=DAILY;UNTIL=20260914']);
+    // The timed form is unchanged: UTC DATE-TIME, one second before the occurrence.
+    expect(truncateRRuleBefore(['RRULE:FREQ=DAILY;COUNT=5'], new Date('2026-09-15T09:00:00.000Z'))).toEqual(
+      ['RRULE:FREQ=DAILY;UNTIL=20260915T085959Z'],
+    );
+  });
+
+  it('ends a Graph series on the previous calendar day in the series zone, not the previous UTC day', async () => {
+    // CAL-03: a 00:30 Europe/Warsaw occurrence is already on the previous UTC date, so subtracting 24 hours
+    // from the instant and taking the UTC date ended the earlier part a day too early.
+    const warsawMaster = {
+      ...GRAPH_MASTER_EVENT,
+      start: { dateTime: '2026-09-15T00:30:00+02:00', timeZone: 'Europe/Warsaw' },
+    };
+    mocks.graph.instances.mockResolvedValue([{ id: `${GRAPH_MASTER}_20260915`, originalStart: '2026-09-14T22:30:00.0000000' }]);
+    mocks.graph.get.mockResolvedValue(warsawMaster);
+    mocks.graph.create.mockResolvedValue({ id: 'graph-remainder-2' });
+
+    const outcome = await writeProviderCalendarOccurrence({
+      target: { ...graphTarget, occurrenceStart: '2026-09-15T00:30:00+02:00' },
+      scope: 'following', operation: 'update', values, sendUpdates: 'all',
+    });
+
+    expect(outcome).toMatchObject({ status: 'confirmed' });
+    expect(mocks.graph.patch).toHaveBeenCalledWith(expect.anything(), 'primary', GRAPH_MASTER, {
+      recurrence: {
+        pattern: { type: 'weekly', interval: 1, daysOfWeek: ['monday', 'wednesday'] },
+        range: { type: 'endDate', startDate: '2026-09-01', endDate: '2026-09-14' },
+      },
+    });
+  });
+
+  it('refuses a split at the first occurrence instead of writing an empty prefix', async () => {
+    // The earlier part would contain no occurrence. Graph would reject the range (or accept one that ends
+    // before it starts); nothing may be written, and the caller must see it as unsupported rather than as a
+    // generic failure (CAL-03).
+    mocks.graph.instances.mockResolvedValue([{ id: `${GRAPH_MASTER}_20260901`, originalStart: '2026-09-01T09:00:00.0000000' }]);
+    mocks.graph.get.mockResolvedValue(GRAPH_MASTER_EVENT);
+
+    const outcome = await writeProviderCalendarOccurrence({
+      target: { ...graphTarget, occurrenceStart: '2026-09-01T09:00:00.000Z' },
+      scope: 'following', operation: 'update', values, sendUpdates: 'all',
+    });
+
+    expect(outcome).toMatchObject({ status: 'failed', failure: { code: 'SPLIT_AT_FIRST_OCCURRENCE' } });
+    expect(mocks.graph.patch).not.toHaveBeenCalled();
+    expect(mocks.graph.create).not.toHaveBeenCalled();
+  });
+
+  it('continues a counted series without restarting its count, and refuses when it cannot', () => {
+    // CAL-02: a COUNT rule copied verbatim restarts the whole series. With weekly Tuesdays from 2026-09-01 and
+    // a split at the 4th occurrence, three occurrences stay behind and the remainder continues with seven.
+    const rule = 'FREQ=WEEKLY;BYDAY=TU;COUNT=10';
+    expect(occurrencesBeforeRule(rule, '2026-09-01T09:00:00Z', new Date('2026-09-22T09:00:00Z'))).toBe(3);
+    expect(continueRruleAfterSplit(rule, '2026-09-01T09:00:00Z', new Date('2026-09-22T09:00:00Z'))).toContain('COUNT=7');
+
+    // An UNTIL-based rule already describes the remainder correctly.
+    expect(continueRruleAfterSplit('FREQ=DAILY;UNTIL=20261231T000000Z', '2026-09-01T09:00:00Z', new Date('2026-09-15T09:00:00Z')))
+      .toBe('FREQ=DAILY;UNTIL=20261231T000000Z');
+
+    // Cannot be expanded within the safety limit, or nothing is left: refuse rather than guess a count.
+    expect(occurrencesBeforeRule('FREQ=DAILY', '2026-01-01T09:00:00Z', new Date('2030-01-01T09:00:00Z'), 10)).toBeNull();
+    expect(continueRruleAfterSplit('FREQ=DAILY;COUNT=3', '2026-09-01T09:00:00Z', new Date('2026-09-10T09:00:00Z'))).toBeNull();
+  });
+
+  it('refuses a continuation it cannot compute instead of truncating the master first', async () => {
+    // The master carries a rule but no start, so the remaining count cannot be derived. Nothing may be written,
+    // and the caller must see it as unsupported (CAL-02).
+    mocks.google.instances.mockResolvedValue([{ id: `${GOOGLE_MASTER}_20260915T090000Z`, originalStartTime: { dateTime: '2026-09-15T09:00:00Z' } }]);
+    mocks.google.get.mockResolvedValue({ id: GOOGLE_MASTER, recurrence: ['RRULE:FREQ=WEEKLY;BYDAY=MO,WE;COUNT=12'] });
+
+    const outcome = await writeProviderCalendarOccurrence({ target: googleTarget, scope: 'following', operation: 'update', values, sendUpdates: 'all' });
+
+    expect(outcome).toMatchObject({ status: 'failed', failure: { code: 'RECURRENCE_CONTINUATION_UNSUPPORTED' } });
+    expect(mocks.google.patch).not.toHaveBeenCalled();
+    expect(mocks.google.insert).not.toHaveBeenCalled();
   });
 
   it('ends the earlier part at the day before the split, for Graph, and creates the remainder', async () => {
@@ -218,7 +307,15 @@ describe('changing this and following', () => {
         range: { type: 'endDate', startDate: '2026-09-01', endDate: '2026-09-14' },
       },
     });
-    expect(mocks.graph.create).toHaveBeenCalledWith(expect.anything(), 'primary', expect.objectContaining({ subject: 'Standup (moved)' }));
+    expect(mocks.graph.create).toHaveBeenCalledWith(expect.anything(), 'primary', expect.objectContaining({
+      subject: 'Standup (moved)',
+      // CAL-02: the remainder starts at the split and keeps only the occurrences the earlier part does not —
+      // 4 of the 12 are before it, so 8 remain. Copying the range verbatim restarted the whole series.
+      recurrence: {
+        pattern: { type: 'weekly', interval: 1, daysOfWeek: ['monday', 'wednesday'] },
+        range: { type: 'numbered', startDate: '2026-09-15', numberOfOccurrences: 8 },
+      },
+    }));
   });
 
   it('cancels this and following by truncating only, with no remainder', async () => {

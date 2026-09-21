@@ -265,6 +265,12 @@ Microsoft application is registered in this environment.
 
 ### Fixed
 
+- **Changing "this and following" on a repeating event no longer changes how many times it repeats.** Splitting
+  a series now continues with the remaining occurrences instead of restarting the original count, the end value
+  of an all-day series is a date (as the calendar standard requires) rather than a date-time naming another day,
+  and a Microsoft series ends on the correct day in its own time zone instead of the previous day in UTC. A
+  split that cannot be represented is refused before anything is changed.
+
 - **A folder you deleted at Microsoft no longer blocks the mailbox.** Discovery kept treating a vanished folder
   as a target, kept asking for it, and the 404 it got ended the synchronisation of every other folder in that
   mailbox. A complete folder listing now retires the folders it no longer contains, and a folder that cannot be

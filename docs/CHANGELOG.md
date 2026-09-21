@@ -296,6 +296,16 @@ None.
   IMAP loops, health checks, rule forwarder and send path no longer open IMAP or SMTP for it.
 
 ### Fixed
+- **Splitting a calendar series no longer restarts it or shifts it by a day.** Three defects met in the same
+  path. A continued series copied the original rule verbatim, so splitting a series of ten occurrences at the
+  fourth created a remainder with ten more instead of the seven that were left. The all-day case wrote the
+  series end as a UTC date-time even though an all-day series has a DATE start, which RFC 5545 forbids and which
+  named the wrong day. And a Microsoft series ended the earlier part on the previous *UTC* day, which is off by
+  one whenever the series' zone is ahead of UTC — a 00:30 Europe/Warsaw occurrence already sits on the previous
+  UTC date. The remainder now keeps only the occurrences the earlier part does not (counted by expanding the
+  rule), the end value follows the start's type, and the Microsoft end date is the previous calendar day in the
+  series' own time zone. A split at the first occurrence, or one whose remainder cannot be represented, is
+  refused **before** anything is written rather than leaving a truncated series behind.
 - **A deleted Microsoft folder no longer stays a sync target or blocks the whole mailbox.** Folder discovery
   updated the folders the provider listed and did nothing about the ones it no longer had, so a folder deleted
   at the provider stayed a target, kept being synchronised and answered 404 — and because the account's folder
