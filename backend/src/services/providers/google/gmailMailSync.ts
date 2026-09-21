@@ -864,6 +864,7 @@ async function runIncremental(
   const deletedMessageIds = new Set<string>();
   let pageToken: string | null = null;
   let nextHistoryId: string | null = null;
+  let historyComplete = false;
 
   for (let page = 0; page < MAX_HISTORY_PAGES; page++) {
     let fetched;
@@ -883,9 +884,15 @@ async function runIncremental(
     for (const messageId of changes.deletedMessageIds) deletedMessageIds.add(messageId);
     if (fetched.historyId) nextHistoryId = fetched.historyId;
     pageToken = fetched.nextPageToken ?? null;
-    if (!pageToken) break;
+    if (!pageToken) { historyComplete = true; break; }
     await renew();
   }
+
+  // The feed had more pages than one run may read. The cursor must not advance to the last page's history id:
+  // that would skip every change on the remaining pages for ever, silently (SYNC-06). The end of the loop is
+  // decided by `pageToken` alone, not by the number of distinct threads — many pages can describe few threads.
+  // Rebuilding from a baseline is the safe answer: it reconciles and captures a fresh history id.
+  if (!historyComplete) return 'expired';
 
   // Not a bounded delta: rebuild instead of applying an unbounded page of changes.
   if (threadIds.size > maxThreadsPerRun) return 'expired';
@@ -957,8 +964,9 @@ async function runBaseline(
           .filter((threadId): threadId is string => Boolean(threadId)),
       )];
 
+      let pageComplete = true;
       for (const threadId of threadIds) {
-        if (budget <= 0) break;
+        if (budget <= 0) { pageComplete = false; break; }
         const thread = await fetchGmailThread(api, threadId);
         budget -= 1;
         if (!thread) continue;
@@ -967,21 +975,22 @@ async function runBaseline(
         addTotals(totals, applied);
       }
 
-      if (budget <= 0) {
-        // Stop where the listing stopped. The page token is the *page's*, not the
-        // thread's, so the next run re-reads the page it was interrupted on; that is
-        // harmless because applying a thread upserts, and it keeps the checkpoint a
-        // provider value rather than an invented index. The cursor is deliberately
-        // **not** advanced: the mailbox's history id is already in the checkpoint, so
-        // the next run either finishes the baseline or the history feed replays what
-        // the baseline missed.
+      if (!pageComplete) {
+        // The budget ran out inside this page. Re-read the **whole label** from its first page next time
+        // (`pageToken: null`) rather than storing `listing.nextPageToken`: that token only ever moves forward, so
+        // it skipped every thread of this page that had not been read yet, and those threads were never stored
+        // (SYNC-05). Re-reading is idempotent — a thread upserts — and it means the label reconciles against a
+        // complete snapshot when it eventually finishes.
         await commit({
           cursor: null,
-          pageCheckpoint: JSON.stringify({ labelId: target.remoteId, pageToken: listing.nextPageToken, startHistoryId } satisfies GmailBaselineCheckpoint),
+          pageCheckpoint: JSON.stringify({ labelId: target.remoteId, pageToken: null, startHistoryId } satisfies GmailBaselineCheckpoint),
         });
         return { incomplete: true, startHistoryId };
       }
 
+      // The page itself was fully applied. The end-of-list test must come before any budget test: a budget that
+      // ended exactly on the last thread of the last page used to satisfy `budget <= 0` and look like an
+      // interruption, which stored a null page token and restarted the label on every run.
       pageToken = listing.nextPageToken;
       if (!pageToken) { completed = true; break; }
       await renew();

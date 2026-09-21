@@ -405,6 +405,35 @@ describeOrSkip('Microsoft Graph mail message sync (PostgreSQL)', () => {
     expect(delta.urls.some(url => url.includes('inbox') && url.includes('deltatoken'))).toBe(true);
   });
 
+  it('does not reconcile deletions when a baseline stops at the page cap', async () => {
+    // SYNC-04: a capped run read only a prefix of the folder. Reconciling against that prefix deletes every
+    // message on the pages that were not read yet, and storing a cursor would skip them for ever.
+    const connectionId = await seedConnection();
+    await discoverFolders(connectionId);
+    await syncGraphMailMessagesForAccount({
+      userId: USER_ID, connectionId, accountId: ACCOUNT_ID, config: CONFIG,
+      fetchImpl: fakeMailProvider({ inbox: [{ value: [graphMessage('m1'), graphMessage('m2')], '@odata.deltaLink': DELTA_INBOX }] }).fetchImpl,
+    });
+    expect((await storedMessages()).map(row => row.provider_message_id)).toEqual(['m1', 'm2']);
+
+    // Force a baseline and cap it at one page: page 1 names only m1 and promises a second page that names m2.
+    await autocommit(client => client.query(
+      "UPDATE sync_states SET cursor = NULL WHERE user_id = $1 AND feature = 'mail' AND coverage = 'messages'",
+      [USER_ID],
+    ));
+    const capped = fakeMailProvider({ inbox: [
+      { value: [graphMessage('m1')], '@odata.nextLink': 'https://graph.microsoft.com/v1.0/me/mailFolders/graph-inbox/messages/delta?$skiptoken=page-2' },
+      { value: [graphMessage('m2')], '@odata.deltaLink': `${DELTA_INBOX}-2` },
+    ] });
+    const result = await syncGraphMailMessagesForAccount({
+      userId: USER_ID, connectionId, accountId: ACCOUNT_ID, config: CONFIG, fetchImpl: capped.fetchImpl, maxPages: 1,
+    });
+
+    expect(result.incompleteFolders).toBe(1);
+    // The unread page must not be mistaken for "these messages are gone".
+    expect((await storedMessages()).map(row => row.provider_message_id)).toEqual(['m1', 'm2']);
+  });
+
   it('does not revert a flag the user just changed', async () => {
     const connectionId = await seedConnection();
     await discoverFolders(connectionId);

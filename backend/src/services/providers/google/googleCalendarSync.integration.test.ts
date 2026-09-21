@@ -263,6 +263,32 @@ describeOrSkip('Google Calendar sync (PostgreSQL)', { timeout: PG_TEST_TIMEOUT_M
     expect((await storedEvents()).map(event => event.uid)).toEqual(['dentist@google.com', 'standup@google.com']);
   });
 
+  it('does not reconcile a rebuild that stopped at the page cap', async () => {
+    // SYNC-04: a rebuild reconciles by deleting what its baseline omits. A capped rebuild read only a prefix, so
+    // reconciling it would delete every event on the pages that were not read — the worst possible local loss.
+    const connectionId = await seedConnection();
+    await syncGoogleCalendar({
+      userId: USER_ID, connectionId, config: CONFIG,
+      fetchImpl: fakeProvider([() => json(CALENDAR_LIST), () => json({ items: [master], nextSyncToken: 'sync-1' })]).fetchImpl,
+    });
+    expect((await storedEvents()).map(event => event.uid)).toEqual(['standup@google.com']);
+
+    // Force a rebuild, then stop it at one page: page 1 is empty and promises a second page with the events.
+    const provider = fakeProvider([
+      () => json(CALENDAR_LIST),
+      () => json({ error: { message: 'Sync token is no longer valid', status: 'FAILED_PRECONDITION' } }, 410),
+      () => json({ items: [], nextPageToken: 'page-2' }),
+      () => json({ items: [master], nextSyncToken: 'fresh-1' }),
+    ]);
+    const result = await syncGoogleCalendar({
+      userId: USER_ID, connectionId, config: CONFIG, fetchImpl: provider.fetchImpl, maxPages: 1,
+    });
+    expect(result).toMatchObject({ fullSync: true, incompleteCollections: 1, errors: [] });
+
+    // The event the unread page would have listed must survive: the prefix is not a complete baseline.
+    expect((await storedEvents()).map(event => event.uid)).toEqual(['standup@google.com']);
+  });
+
   it('records the provider’s own access role, and refreshes it without touching the user’s choice', async () => {
     const connectionId = await seedConnection();
     // A calendar shared read-only: the provider permits no writes, so the write-back switch must refuse.

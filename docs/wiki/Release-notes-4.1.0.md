@@ -265,6 +265,15 @@ Microsoft application is registered in this environment.
 
 ### Fixed
 
+- **A synchronisation that was cut short no longer looks finished, and never deletes what it did not read.**
+  Provider listings are capped at a number of pages per run. When a run hit that cap, some adapters reconciled
+  deletions against the pages they had seen — deleting messages, contacts and events that were merely further
+  down the list — and the contact syncs reported success for a book they had read only halfway. A capped run is
+  now reported as incomplete, leaves the stored cursor alone and deletes nothing; the next run continues from
+  that cursor. A Gmail baseline that was interrupted mid-page also re-reads that page rather than skipping to the
+  next one, and a Gmail history feed that was too long to read to its end rebuilds from a baseline instead of
+  advancing past the unread changes.
+
 - **A duplicate name no longer loses a whole synchronisation.** When a second provider calendar, address book
   or mailbox folder had a name a local one already used, the code retried with a suffix — but the retry ran
   inside a transaction PostgreSQL had already aborted, so it failed and the discovery was lost. Each attempt now

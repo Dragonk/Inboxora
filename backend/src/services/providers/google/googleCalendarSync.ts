@@ -48,6 +48,8 @@ export interface GoogleCalendarSyncResult {
   skipped: number;
   fullSync: boolean;
   errors: Array<{ calendarId: string; code: string }>;
+  /** Collections whose delta or baseline did not reach its end within one run (SYNC-04). */
+  incompleteCollections: number;
 }
 
 interface CalendarCollection {
@@ -198,8 +200,8 @@ async function listAllCalendars(api: GoogleApiOptions): Promise<GoogleCalendarLi
   return calendars;
 }
 
-async function syncCollection(api: GoogleApiOptions, collection: CalendarCollection, context: Omit<ApplyContext, 'collectionId' | 'calendarId' | 'remoteCalendarId'>): Promise<{
-  created: number; updated: number; deleted: number; skipped: number; fullSync: boolean;
+async function syncCollection(api: GoogleApiOptions, collection: CalendarCollection, context: Omit<ApplyContext, 'collectionId' | 'calendarId' | 'remoteCalendarId'>, maxPages?: number): Promise<{
+  created: number; updated: number; deleted: number; skipped: number; fullSync: boolean; incomplete: boolean;
 }> {
   const syncStateId = await withTransaction(client => ensureSyncState(client, {
     userId: context.userId,
@@ -227,9 +229,10 @@ async function syncCollection(api: GoogleApiOptions, collection: CalendarCollect
     let pageToken: string | null = null;
     let nextSyncToken: string | null = null;
     let rebuilt = false;
+    let complete = false;
     const events: GoogleCalendarEvent[] = [];
 
-    for (let page = 0; page < MAX_PAGES; page++) {
+    for (let page = 0; page < (maxPages ?? MAX_PAGES); page++) {
       let fetched;
       try {
         fetched = await fetchCalendarEvents(api, collection.remoteId, { pageToken, syncToken: cursor, maxResults: PAGE_SIZE });
@@ -248,7 +251,7 @@ async function syncCollection(api: GoogleApiOptions, collection: CalendarCollect
       events.push(...fetched.events);
       if (fetched.nextSyncToken) nextSyncToken = fetched.nextSyncToken;
       pageToken = fetched.nextPageToken;
-      if (!pageToken) break;
+      if (!pageToken) { complete = true; break; }
     }
 
     const applyContext: ApplyContext = {
@@ -263,12 +266,20 @@ async function syncCollection(api: GoogleApiOptions, collection: CalendarCollect
       totals[applied] += 1;
     }
     // A rebuild read a complete baseline, so a resource it omits was deleted while the cursor was
-    // unusable; an incremental batch must never be reconciled this way.
-    if (rebuilt) {
+    // unusable; an incremental batch must never be reconciled this way. A capped run read only a prefix, so it
+    // must not reconcile either (SYNC-04).
+    if (rebuilt && complete) {
       const removed = await withTransaction(client => reconcileProviderCalendarCollection(
         client, { userId: context.userId, collectionId: collection.id }, new Set(groups.keys()),
       ));
       totals.deleted += removed;
+    }
+
+    if (!complete) {
+      // The page cap was reached before the end. Leave the stored token untouched and do not claim success; the
+      // next run re-reads from it and finishes.
+      await withTransaction(client => releaseSyncLease(client, { syncStateId, generation: lease.generation })).catch(() => {});
+      return { ...totals, incomplete: true };
     }
 
     // The cursor advances only after every group was applied, so a crash mid-run
@@ -293,7 +304,7 @@ async function syncCollection(api: GoogleApiOptions, collection: CalendarCollect
       });
     }
     await withTransaction(client => releaseSyncLease(client, { syncStateId, generation: lease.generation })).catch(() => {});
-    return totals;
+    return { ...totals, incomplete: false };
   } catch (caught) {
     const code = caught instanceof GoogleApiError || caught instanceof ProviderAuthError ? caught.code : 'INTERNAL_ERROR';
     await withTransaction(client => failSyncRun(client, { syncStateId, generation: lease.generation, errorCode: code })).catch(() => {});
@@ -310,6 +321,8 @@ export async function syncGoogleCalendar(input: {
   connectionId: string;
   config: GoogleConfig;
   fetchImpl?: FetchLike;
+  /** The page cap for one calendar; injectable so the "limited run is not complete" path is provable. */
+  maxPages?: number;
 }): Promise<GoogleCalendarSyncResult> {
   const api: GoogleApiOptions = {
     userId: input.userId,
@@ -341,7 +354,7 @@ export async function syncGoogleCalendar(input: {
 
   const result: GoogleCalendarSyncResult = {
     collections: collections.length,
-    created: 0, updated: 0, deleted: 0, skipped: 0, fullSync: false, errors: [],
+    created: 0, updated: 0, deleted: 0, skipped: 0, fullSync: false, errors: [], incompleteCollections: 0,
   };
   for (const collection of collections) {
     try {
@@ -349,12 +362,13 @@ export async function syncGoogleCalendar(input: {
         userId: input.userId,
         connectionId: input.connectionId,
         defaultTimeZone,
-      });
+      }, input.maxPages);
       result.created += totals.created;
       result.updated += totals.updated;
       result.deleted += totals.deleted;
       result.skipped += totals.skipped;
       result.fullSync = result.fullSync || totals.fullSync;
+      if (totals.incomplete) result.incompleteCollections += 1;
     } catch (caught) {
       result.errors.push({
         calendarId: collection.remoteId,

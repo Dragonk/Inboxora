@@ -318,6 +318,8 @@ export interface GraphMailMessageSyncResult {
   deleted: number;
   skipped: number;
   fullSyncFolders: number;
+  /** Folders whose delta did not reach its end within one run, so their snapshot is only a prefix (SYNC-04). */
+  incompleteFolders: number;
 }
 
 /** One folder's outcome, so a caller can tell a baseline from an incremental run. */
@@ -327,6 +329,8 @@ interface FolderMessageSyncResult {
   deleted: number;
   skipped: number;
   fullSync: boolean;
+  /** The delta did not reach its end within one run; the local snapshot is a prefix, not the folder (SYNC-04). */
+  incomplete: boolean;
 }
 
 /** The local folder a mail-folder collection projects onto. */
@@ -501,6 +505,8 @@ export async function syncGraphMailMessagesForAccount(input: {
   config?: GraphApiOptions['config'];
   fetchImpl?: FetchLike;
   owner?: string;
+  /** The page cap for one folder's delta; injectable so the "limited run is not complete" path is provable. */
+  maxPages?: number;
 }): Promise<GraphMailMessageSyncResult> {
   // Settle any flag mutation the journal scheduled before reading the delta: a
   // pending write would otherwise be overwritten by the very sync that is about to
@@ -524,11 +530,11 @@ export async function syncGraphMailMessagesForAccount(input: {
     [input.accountId],
   );
   const account = accountResult.rows[0];
-  if (!account) return { accountId: input.accountId, folders: 0, created: 0, updated: 0, deleted: 0, skipped: 0, fullSyncFolders: 0 };
+  if (!account) return { accountId: input.accountId, folders: 0, created: 0, updated: 0, deleted: 0, skipped: 0, fullSyncFolders: 0, incompleteFolders: 0 };
 
   const targets = await withTransaction(client => listGraphFolderTargets(client, input));
   const totals: GraphMailMessageSyncResult = {
-    accountId: input.accountId, folders: 0, created: 0, updated: 0, deleted: 0, skipped: 0, fullSyncFolders: 0,
+    accountId: input.accountId, folders: 0, created: 0, updated: 0, deleted: 0, skipped: 0, fullSyncFolders: 0, incompleteFolders: 0,
   };
 
   for (const target of targets) {
@@ -539,6 +545,7 @@ export async function syncGraphMailMessagesForAccount(input: {
     totals.deleted += result.deleted;
     totals.skipped += result.skipped;
     if (result.fullSync) totals.fullSyncFolders += 1;
+    if (result.incomplete) totals.incompleteFolders += 1;
   }
   return totals;
 }
@@ -554,6 +561,8 @@ export async function syncGraphMailMessagesForFolder(input: {
   config?: GraphApiOptions['config'];
   fetchImpl?: FetchLike;
   owner?: string;
+  /** The page cap for this folder's delta; see the account-level input. */
+  maxPages?: number;
 }): Promise<FolderMessageSyncResult> {
   const syncStateId = await withTransaction(client => ensureSyncState(client, {
     userId: input.userId,
@@ -592,8 +601,9 @@ export async function syncGraphMailMessagesForFolder(input: {
     // Only a baseline needs the seen-set: a delta reports deletions explicitly.
     const seen = new Set<string>();
     const totals = { created: 0, updated: 0, deleted: 0, skipped: 0 };
+    let complete = false;
 
-    for (let page = 0; page < MESSAGE_MAX_PAGES; page++) {
+    for (let page = 0; page < (input.maxPages ?? MESSAGE_MAX_PAGES); page++) {
       let fetched;
       try {
         fetched = await fetchMessagesDeltaPage(api, {
@@ -620,7 +630,16 @@ export async function syncGraphMailMessagesForFolder(input: {
       totals.skipped += applied.skipped;
       if (fetched.deltaLink) cursor = fetched.deltaLink;
       nextLink = fetched.nextLink;
-      if (!nextLink) break;
+      if (!nextLink) { complete = true; break; }
+    }
+
+    if (!complete) {
+      // The page cap was reached before the delta ended, so `seen` (and the local snapshot) is only a prefix.
+      // Reconciling deletions against a prefix would delete messages that simply had not been read yet, and
+      // storing a cursor would skip everything after the cap for ever (SYNC-04). The stored cursor is left
+      // untouched and the run does not claim a successful synchronisation.
+      await withTransaction(client => releaseSyncLease(client, { syncStateId, generation: lease.generation })).catch(() => {});
+      return { ...totals, fullSync, incomplete: true };
     }
 
     if (fullSync) {
@@ -648,7 +667,7 @@ export async function syncGraphMailMessagesForFolder(input: {
       });
     }
     await withTransaction(client => releaseSyncLease(client, { syncStateId, generation: lease.generation })).catch(() => {});
-    return { ...totals, fullSync };
+    return { ...totals, fullSync, incomplete: false };
   } catch (caught) {
     // `ProviderAuthError` is not a `GraphApiError`, and a token or grant problem is the most common reason a
     // provider sync fails. Classifying it as INTERNAL_ERROR hid the one instruction that helps — reconnect or

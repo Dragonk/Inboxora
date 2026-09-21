@@ -163,6 +163,32 @@ describeOrSkip('Google contacts sync (PostgreSQL)', () => {
     expect(incremental.urls[0]).not.toContain('requestSyncToken');
   });
 
+  it('does not report success when the listing stops at the page cap', async () => {
+    // SYNC-04: reaching the cap is not reaching the end. The sync token only arrives with the last page, and
+    // the run must not record a successful synchronisation for a book it only read halfway.
+    const connectionId = await seedConnection();
+    const provider = fakeProvider([
+      () => json({ connections: [person('people/c1', 'Ada Lovelace', 'ada@example.test')], nextPageToken: 'page-2' }),
+      () => json({ connections: [person('people/c2', 'Grace Hopper', 'grace@example.test')], nextPageToken: 'page-3' }),
+    ]);
+
+    const result = await syncGoogleContacts({
+      userId: USER_ID, connectionId, config: CONFIG, fetchImpl: provider.fetchImpl, maxPages: 2,
+    });
+    expect(result).toMatchObject({ incomplete: true, cursor: null });
+    // The two pages that were read are stored; nothing claims the book is complete.
+    const contacts = await autocommit(client => client.query<{ count: string }>(
+      'SELECT COUNT(*)::text AS count FROM contacts WHERE user_id = $1', [USER_ID],
+    ));
+    expect(contacts.rows[0]?.count).toBe('2');
+
+    const state = await autocommit(client => client.query<{ cursor: string | null; last_success_at: Date | null }>(
+      'SELECT cursor, last_success_at FROM sync_states WHERE user_id = $1 AND feature = $2', [USER_ID, 'contacts'],
+    ));
+    expect(state.rows[0]?.cursor).toBeNull();
+    expect(state.rows[0]?.last_success_at).toBeNull();
+  });
+
   it('stores the anniversary and IM handle a person carries, not just maps them', async () => {
     // The unit cases prove the mapping and the upsert was verified by reading; this is the end-to-end
     // proof that both columns are written, which is the difference between a field being mapped and a

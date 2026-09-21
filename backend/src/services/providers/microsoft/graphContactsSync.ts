@@ -45,6 +45,8 @@ export interface GraphContactsSyncResult {
   skipped: number;
   fullSync: boolean;
   cursor: string | null;
+  /** The delta did not reach its end within one run; the local book is a prefix, not the book (SYNC-04). */
+  incomplete: boolean;
 }
 
 interface ApplyContext {
@@ -314,6 +316,8 @@ export async function syncGraphContacts(input: {
   label?: string;
   fetchImpl?: FetchLike;
   owner?: string;
+  /** The page cap for one delta; injectable so the "limited run is not complete" path is provable. */
+  maxPages?: number;
 }): Promise<GraphContactsSyncResult> {
   const ensured = await withTransaction(client => ensureGraphAddressBook(client, {
     userId: input.userId,
@@ -362,8 +366,9 @@ export async function syncGraphContacts(input: {
     // Only a baseline needs the seen-set: a delta reports deletions explicitly.
     const seen = new Set<string>();
     const totals = { created: 0, updated: 0, deleted: 0, skipped: 0 };
+    let complete = false;
 
-    for (let page = 0; page < MAX_PAGES; page++) {
+    for (let page = 0; page < (input.maxPages ?? MAX_PAGES); page++) {
       let fetched;
       try {
         fetched = await fetchContactsPage(api, { nextLink, deltaLink: nextLink ? null : cursor, top: PAGE_SIZE });
@@ -387,7 +392,15 @@ export async function syncGraphContacts(input: {
 
       if (fetched.deltaLink) deltaLink = fetched.deltaLink;
       nextLink = fetched.nextLink;
-      if (!nextLink) break;
+      if (!nextLink) { complete = true; break; }
+    }
+
+    if (!complete) {
+      // The page cap was reached before the delta ended. Reconciling deletions against a prefix would remove
+      // contacts that were merely not read yet, and storing a cursor would skip the rest for ever (SYNC-04). The
+      // stored cursor is left as it is and the run does not claim a successful synchronisation.
+      await withTransaction(client => releaseSyncLease(client, { syncStateId, generation: lease.generation })).catch(() => {});
+      return { addressBookId: ensured.addressBookId, ...totals, fullSync, cursor, incomplete: true };
     }
 
     if (fullSync) {
@@ -417,7 +430,7 @@ export async function syncGraphContacts(input: {
       });
     }
     await withTransaction(client => releaseSyncLease(client, { syncStateId, generation: lease.generation })).catch(() => {});
-    return { addressBookId: ensured.addressBookId, ...totals, fullSync, cursor: finalCursor };
+    return { addressBookId: ensured.addressBookId, ...totals, fullSync, cursor: finalCursor, incomplete: false };
   } catch (caught) {
     const code = caught instanceof GraphApiError || caught instanceof ProviderAuthError ? caught.code : 'INTERNAL_ERROR';
     await withTransaction(client => failSyncRun(client, { syncStateId, generation: lease.generation, errorCode: code })).catch(() => {});

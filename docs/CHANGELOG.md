@@ -296,6 +296,25 @@ None.
   IMAP loops, health checks, rule forwarder and send path no longer open IMAP or SMTP for it.
 
 ### Fixed
+- **A listing that stopped at a page limit is no longer treated as the end of the list.** Every provider adapter
+  caps how many pages one run reads, and several of them then went on as if the collection had been read
+  completely: Graph mail and the Graph and Google calendar rebuilds reconciled deletions against a partial
+  snapshot — so a message, contact or event that simply sat on an unread page was deleted locally — and the
+  Google and Graph contact syncs reported a successful run whose sync token only ever arrives with the last
+  page. Each adapter now returns an `incomplete` flag, skips the destructive reconcile and neither advances the
+  cursor nor claims a successful synchronisation when the cap was reached; the next run re-reads from the stored
+  token and finishes. The page cap is injectable, like the existing thread budget, so the path is provable.
+- **An interrupted Gmail baseline re-reads the page it stopped on instead of skipping it.** The checkpoint stored
+  `listing.nextPageToken` — the *following* page — so every thread of the current page that had not been read yet
+  was skipped and never stored. It now re-reads the whole label from its first page, which is idempotent and lets
+  the label reconcile against a complete snapshot. A budget that happens to end exactly on the last thread of the
+  last page is also recognised as a finished label rather than a pause, which previously restarted that label on
+  every run and never completed it.
+- **Gmail history no longer advances the cursor past pages it did not read.** The history loop is capped, and
+  leaving the cap with a page token still set meant the feed had not been read to its end; returning the last
+  page's history id then skipped every change on the remaining pages for ever. Completion is now decided by the
+  page token alone — many pages can describe the same few threads, so the distinct-thread guard cannot detect it
+  — and an unread feed rebuilds from a baseline, which reconciles and captures a fresh history id.
 - **A name collision no longer loses the whole discovery.** Several "the local name is taken, try the next
   suffix" loops caught PostgreSQL's `23505` and retried the INSERT on the same client inside the same
   transaction. PostgreSQL aborts a transaction after any SQL error, so the retry could only fail with `25P02`

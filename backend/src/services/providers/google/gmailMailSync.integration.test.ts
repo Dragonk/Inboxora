@@ -394,6 +394,51 @@ describeOrSkip('Gmail API label and message ingest (PostgreSQL)', () => {
     expect(rows[0]?.provider_labels).toEqual(['UNREAD', 'Label_1']);
   });
 
+  it('rebuilds instead of advancing the cursor when the history feed had more pages than one run reads', async () => {
+    // SYNC-06: the history loop is capped. Leaving the cap with a page token still set means the feed was not
+    // read to its end, and returning the last page's history id would skip every change on the remaining pages
+    // for ever. Many pages can describe the same few threads, so the unique-thread guard cannot detect this.
+    const connectionId = await seedConnection();
+    await syncGmailMailLabels({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl: fakeGmail([{ match: /\/labels$/, handle: () => json(LABELS) }]).fetchImpl });
+
+    await syncGmailMailMessagesForAccount({
+      userId: USER_ID, connectionId, accountId: ACCOUNT_ID, config: CONFIG,
+      fetchImpl: fakeGmail([
+        { match: /\/profile$/, handle: () => json({ historyId: '1000' }) },
+        { match: /\/messages$/, handle: url => json(url.searchParams.get('labelIds') === 'INBOX'
+          ? { messages: [{ id: 'm1', threadId: 't1' }, { id: 'm2', threadId: 't2' }] }
+          : { messages: [] }) },
+        { match: /\/threads\/t1$/, handle: () => json({ id: 't1', messages: [message('m1', 't1', ['INBOX'])] }) },
+        { match: /\/threads\/t2$/, handle: () => json({ id: 't2', messages: [message('m2', 't2', ['INBOX'])] }) },
+      ]).fetchImpl,
+    });
+    expect(await storedMessages()).toHaveLength(2);
+
+    // Every history page claims another page follows and repeats one thread, so the run hits the page cap with
+    // few distinct threads and the old code advanced the cursor anyway. The rebuild then reconciles m2 away.
+    const incremental = fakeGmail([
+      { match: /\/history$/, handle: () => json({
+        history: [{ id: '1001', labelsAdded: [{ message: { id: 'm1', threadId: 't1' }, labelIds: ['UNREAD'] }] }],
+        historyId: '1010',
+        nextPageToken: 'more',
+      }) },
+      { match: /\/profile$/, handle: () => json({ historyId: '2000' }) },
+      { match: /\/messages$/, handle: url => json(url.searchParams.get('labelIds') === 'INBOX'
+        ? { messages: [{ id: 'm1', threadId: 't1' }] }
+        : { messages: [] }) },
+      { match: /\/threads\/t1$/, handle: () => json({ id: 't1', messages: [message('m1', 't1', ['INBOX'])] }) },
+    ]);
+    const result = await syncGmailMailMessagesForAccount({
+      userId: USER_ID, connectionId, accountId: ACCOUNT_ID, config: CONFIG, fetchImpl: incremental.fetchImpl,
+    });
+
+    expect(result.mode).toBe('baseline');
+    // The cursor is the fresh baseline's history id, never the unread feed's last page.
+    expect(result.cursor).toBe('2000');
+    expect(result.cursor).not.toBe('1010');
+    expect((await storedMessages()).map(row => row.provider_message_id)).toEqual(['m1']);
+  });
+
   it('rebuilds and reconciles when Gmail no longer holds the stored history id', async () => {
     const connectionId = await seedConnection();
     await syncGmailMailLabels({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl: fakeGmail([{ match: /\/labels$/, handle: () => json(LABELS) }]).fetchImpl });
@@ -445,15 +490,14 @@ describeOrSkip('Gmail API label and message ingest (PostgreSQL)', () => {
     })).rejects.toMatchObject({ code: 'RATE_LIMITED' });
   });
 
-  it('pauses a baseline at its budget and resumes from the stored checkpoint', async () => {
+  it('pauses a baseline at its budget and re-reads the interrupted page instead of skipping it', async () => {
     const connectionId = await seedConnection();
     await syncGmailMailLabelsForAccount({
       userId: USER_ID, connectionId, accountId: ACCOUNT_ID, config: CONFIG,
       fetchImpl: fakeGmail([{ match: /\/labels$/, handle: () => json(LABELS) }]).fetchImpl,
     });
 
-    // One thread is the run's whole budget: the first listing names two messages and
-    // carries a page token, so the run must stop after one thread and remember where.
+    // One thread is the run's whole budget, and the first page names two of them.
     const firstUrls: string[] = [];
     const first = fakeGmail([
       { match: /\/profile$/, handle: () => json({ historyId: '3000' }) },
@@ -481,21 +525,24 @@ describeOrSkip('Gmail API label and message ingest (PostgreSQL)', () => {
       [USER_ID, ACCOUNT_ID],
     ));
     expect(pausedState.rows[0]?.cursor).toBeNull();
+    // The checkpoint names the label but no page: `nextPageToken` would point at the *following* page and skip
+    // m2 for ever, because Gmail's token only ever moves forward (SYNC-05).
     expect(JSON.parse(pausedState.rows[0]?.page_checkpoint ?? '{}')).toEqual({
-      labelId: 'INBOX', pageToken: 'page-2', startHistoryId: '3000',
+      labelId: 'INBOX', pageToken: null, startHistoryId: '3000',
     });
     expect(await storedMessages()).toHaveLength(1);
 
-    // The resume continues from the stored page token rather than restarting the
-    // label, and finishes the snapshot.
+    // The resume re-lists INBOX from its first page and therefore sees both threads. Applying t1 again is an
+    // upsert, so the label ends with exactly the two messages and reconciles against a complete snapshot.
     const resumeUrls: string[] = [];
     const second = fakeGmail([
       { match: /\/messages$/, handle: url => {
         resumeUrls.push(url.toString());
-        return url.searchParams.get('labelIds') === 'INBOX' && url.searchParams.get('pageToken') === 'page-2'
-          ? json({ messages: [{ id: 'm2', threadId: 't2' }] })
+        return url.searchParams.get('labelIds') === 'INBOX'
+          ? json({ messages: [{ id: 'm1', threadId: 't1' }, { id: 'm2', threadId: 't2' }] })
           : json({ messages: [] });
       } },
+      { match: /\/threads\/t1$/, handle: () => json({ id: 't1', messages: [message('m1', 't1', ['INBOX'])] }) },
       { match: /\/threads\/t2$/, handle: () => json({ id: 't2', messages: [message('m2', 't2', ['INBOX'])] }) },
     ]);
     const resumed = await syncGmailMailMessagesForAccount({
@@ -503,11 +550,36 @@ describeOrSkip('Gmail API label and message ingest (PostgreSQL)', () => {
       fetchImpl: second.fetchImpl, maxThreadsPerRun: 5,
     });
     expect(resumed).toMatchObject({ incomplete: false, created: 1, cursor: '3000' });
-    // The resumed listing asked for the stored page, and no profile call was needed:
-    // the history id was already captured by the paused run.
-    expect(resumeUrls[0]).toContain('pageToken=page-2');
+    // The interrupted page was re-read, never the page after it, and no profile call was needed: the history id
+    // was already captured by the paused run.
+    expect(resumeUrls[0]).not.toContain('pageToken=');
     expect(resumeUrls.some(url => url.includes('/profile'))).toBe(false);
     expect((await storedMessages()).map(row => row.provider_message_id)).toEqual(['m1', 'm2']);
+  });
+
+  it('treats a budget that ends exactly on the last thread as a finished label', async () => {
+    // The old test was `budget <= 0` after the thread loop, so a run whose budget happened to end on the final
+    // thread of the final page looked interrupted: it stored a null page token and restarted the label on every
+    // subsequent run, never finishing (SYNC-05).
+    const connectionId = await seedConnection();
+    await syncGmailMailLabelsForAccount({
+      userId: USER_ID, connectionId, accountId: ACCOUNT_ID, config: CONFIG,
+      fetchImpl: fakeGmail([{ match: /\/labels$/, handle: () => json(LABELS) }]).fetchImpl,
+    });
+
+    const result = await syncGmailMailMessagesForAccount({
+      userId: USER_ID, connectionId, accountId: ACCOUNT_ID, config: CONFIG, maxThreadsPerRun: 1,
+      fetchImpl: fakeGmail([
+        { match: /\/profile$/, handle: () => json({ historyId: '4000' }) },
+        { match: /\/messages$/, handle: url => url.searchParams.get('labelIds') === 'INBOX'
+          ? json({ messages: [{ id: 'm1', threadId: 't1' }] })
+          : json({ messages: [] }) },
+        { match: /\/threads\/t1$/, handle: () => json({ id: 't1', messages: [message('m1', 't1', ['INBOX'])] }) },
+      ]).fetchImpl,
+    });
+
+    expect(result).toMatchObject({ mode: 'baseline', incomplete: false, cursor: '4000' });
+    expect((await storedMessages()).map(row => row.provider_message_id)).toEqual(['m1']);
   });
 
   it('records the failure and keeps the error code when Gmail refuses the call', async () => {

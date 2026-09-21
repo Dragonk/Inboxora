@@ -48,6 +48,8 @@ export interface GoogleContactsSyncResult {
   skipped: number;
   fullSync: boolean;
   cursor: string | null;
+  /** The listing did not reach its end within one run; the local book is a prefix, not the book (SYNC-04). */
+  incomplete: boolean;
 }
 
 /** Stable local identity derived from the People resource name, never the e-mail. */
@@ -280,6 +282,8 @@ export async function syncGoogleContacts(input: {
   label?: string;
   fetchImpl?: FetchLike;
   owner?: string;
+  /** The page cap for one listing; injectable so the "limited run is not complete" path is provable. */
+  maxPages?: number;
 }): Promise<GoogleContactsSyncResult> {
   const ensured = await withTransaction(client => ensureGoogleAddressBook(client, {
     userId: input.userId,
@@ -325,9 +329,10 @@ export async function syncGoogleContacts(input: {
     let fullSync = cursor === null;
     let pageToken: string | null = null;
     let nextSyncToken: string | null = null;
+    let complete = false;
     const totals = { created: 0, updated: 0, deleted: 0, skipped: 0 };
 
-    for (let page = 0; page < MAX_PAGES; page++) {
+    for (let page = 0; page < (input.maxPages ?? MAX_PAGES); page++) {
       let fetched;
       try {
         fetched = await fetchConnectionsPage(api, { pageToken, syncToken: cursor, pageSize: APPLY_PAGE_SIZE });
@@ -351,7 +356,15 @@ export async function syncGoogleContacts(input: {
 
       if (fetched.nextSyncToken) nextSyncToken = fetched.nextSyncToken;
       pageToken = fetched.nextPageToken;
-      if (!pageToken) break;
+      if (!pageToken) { complete = true; break; }
+    }
+
+    if (!complete) {
+      // The page cap was reached before the listing ended. The book's snapshot is a prefix, so the run must not
+      // report success and must not advance the cursor: the next run re-reads from the stored token and finishes
+      // (SYNC-04). `nextSyncToken` only arrives on the last page, which is exactly the page that was not read.
+      await withTransaction(client => releaseSyncLease(client, { syncStateId, generation: lease.generation })).catch(() => {});
+      return { addressBookId: ensured.addressBookId, ...totals, fullSync, cursor, incomplete: true };
     }
 
     // The cursor advances only after every page was applied, so a crash mid-run
@@ -378,7 +391,7 @@ export async function syncGoogleContacts(input: {
     }
     await withTransaction(client => releaseSyncLease(client, { syncStateId, generation: lease.generation })).catch(() => {});
 
-    return { addressBookId: ensured.addressBookId, ...totals, fullSync, cursor: finalCursor };
+    return { addressBookId: ensured.addressBookId, ...totals, fullSync, cursor: finalCursor, incomplete: false };
   } catch (caught) {
     const code = caught instanceof GoogleApiError || caught instanceof ProviderAuthError ? caught.code : 'INTERNAL_ERROR';
     await withTransaction(client => failSyncRun(client, { syncStateId, generation: lease.generation, errorCode: code })).catch(() => {});
