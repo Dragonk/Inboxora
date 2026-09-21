@@ -27,11 +27,13 @@ test('the contacts screen offers the Google pull only when connected', async () 
   const source = await readFile(contactsPage, 'utf8');
   assert.match(source, /api\.googleContacts\.status\(\)/);
   const manager = await readFile(contactsManager, 'utf8');
-  assert.match(manager, /data-testid={`contacts-manager-sync-\$\{provider\}`}/);
-  assert.match(source, /const runProviderContactsSync = async \(provider: 'google' \| 'microsoft'\) => \{/);
+  assert.match(manager, /data-testid={`contacts-manager-sync-\$\{syncTarget\}`}/);
+  assert.match(source, /const runProviderContactsSync = async \(provider: 'google' \| 'microsoft' \| 'dav'\) => \{/);
   assert.match(source, /await api\.googleContacts\.sync\(\)/);
-  // The control is offered by the manager for the provider the books belong to.
-  assert.match(await readFile(contactsManager, 'utf8'), /providerState\?\.connected && provider && \(/);
+  // The control is offered by the manager for the target the book belongs to — its provider, or its DAV source
+  // (DAV-05).
+  assert.match(manager, /const syncTarget: 'google' \| 'microsoft' \| 'dav' \| null/);
+  assert.match(manager, /syncTarget && \(/);
   // The result is reported per run, including a partial failure.
   assert.match(source, /contacts\.addressBooks\.googleSyncDone/);
   assert.match(source, /contacts\.addressBooks\.googleSyncPartial/);
@@ -43,8 +45,8 @@ test('the contacts screen offers the Microsoft pull through the same control', a
   assert.match(source, /api\.microsoftContacts\.status\(\)/);
   assert.match(source, /await api\.microsoftContacts\.sync\(\)/);
   const manager = await readFile(contactsManager, 'utf8');
-  assert.match(manager, /data-testid={`contacts-manager-sync-\$\{provider\}`}/);
-  assert.match(await readFile(contactsManager, 'utf8'), /providerState\?\.connected && provider && \(/);
+  assert.match(manager, /data-testid={`contacts-manager-sync-\$\{syncTarget\}`}/);
+  assert.match(manager, /syncTarget && \(/);
   assert.match(source, /contacts\.addressBooks\.microsoftSyncDone/);
   assert.match(source, /contacts\.addressBooks\.microsoftSyncPartial/);
   // Both providers must be loadable independently: one being absent cannot hide
@@ -161,7 +163,7 @@ test('a configured but unconnected provider says so on the contacts page', async
   assert.match(manager, /providers\.connectGoogleHint/);
   assert.match(manager, /providers\.connectMicrosoftHint/);
   // The hint must not replace the sync control for a provider that *is* connected.
-  assert.match(manager, /providerState\?\.connected && provider && \(/);
+  assert.match(manager, /syncTarget && \(/);
 });
 
 test('the last-sync line reports the total the connector holds', async () => {

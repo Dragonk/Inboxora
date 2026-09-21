@@ -222,8 +222,10 @@ export default function ContactsPage({ isActive = true }) {
   // and the notice reports what the last run of either provider changed.
   const [googleContacts, setGoogleContacts] = useState<ProviderContactsStatus | null>(null);
   const [microsoftContacts, setMicrosoftContacts] = useState<ProviderContactsStatus | null>(null);
-  const [providerSyncing, setProviderSyncing] = useState<'google' | 'microsoft' | null>(null);
-  const [providerNotice, setProviderNotice] = useState<{ provider: 'google' | 'microsoft'; message: string } | null>(null);
+  const [providerSyncing, setProviderSyncing] = useState<'google' | 'microsoft' | 'dav' | null>(null);
+  const [providerNotice, setProviderNotice] = useState<{ provider: 'google' | 'microsoft' | 'dav'; message: string } | null>(null);
+  /** The CardDAV source's own state, so a DAV book shows its real last sync and offers its own action (DAV-05). */
+  const [davStatus, setDavStatus] = useState<{ connected?: boolean; lastSyncAt?: string | null; errorCode?: string | null } | null>(null);
   // What the last file import added, so the user gets a confirmation instead of a
   // silent list refresh.
   const [importNotice, setImportNotice] = useState('');
@@ -308,17 +310,20 @@ export default function ContactsPage({ isActive = true }) {
   useEffect(() => { totalRef.current = total; }, [total]);
 
   const loadAddressBooks = useCallback(async () => {
-    const [books, google, microsoft] = await Promise.all([
+    const [books, google, microsoft, dav] = await Promise.all([
       api.addressBooks.list(),
       // A server without a provider adapter must not break the address books.
       api.googleContacts.status().catch(() => null),
       api.microsoftContacts.status().catch(() => null),
+      // DAV-05: a CardDAV book needs its own state and action too, not only the provider ones.
+      api.carddav.status().catch(() => null),
     ]);
     // Older servers and test fixtures may not expose address books yet. Contacts
     // must remain usable while the client and API roll out independently.
     setAddressBooks(Array.isArray(books.addressBooks) ? books.addressBooks : []);
     setGoogleContacts(google ?? null);
     setMicrosoftContacts(microsoft ?? null);
+    setDavStatus(dav ?? null);
   }, []);
 
   const load = useCallback(async (q = '') => {
@@ -444,11 +449,24 @@ export default function ContactsPage({ isActive = true }) {
     finally { setDavBusy(false); }
   };
 
-  const runProviderContactsSync = async (provider: 'google' | 'microsoft') => {
+  const runProviderContactsSync = async (provider: 'google' | 'microsoft' | 'dav') => {
     setProviderSyncing(provider);
     setProviderNotice(null);
     setListError(null);
     try {
+      if (provider === 'dav') {
+        // DAV-05: the CardDAV source has its own sync, and the selected DAV book must be able to start it.
+        const result = await api.carddav.sync() as { ok?: boolean; error?: string };
+        setProviderNotice({
+          provider: 'dav',
+          message: result?.ok === false && result.error
+            ? result.error
+            : t('admin.integrations.carddav.lastSync', { when: new Date().toLocaleString() }),
+        });
+        await loadAddressBooks();
+        await load(searchRef.current);
+        return;
+      }
       const result = provider === 'google'
         ? await api.googleContacts.sync() as { results?: GoogleContactsSyncOutcome[] }
         : await api.microsoftContacts.sync() as { results?: GoogleContactsSyncOutcome[] };
@@ -769,13 +787,23 @@ export default function ContactsPage({ isActive = true }) {
     const providerForBook = source === 'google' ? 'google' : source === 'microsoft' ? 'microsoft' : null;
     const providerRows = providerForBook === 'google' ? googleContacts?.books : providerForBook === 'microsoft' ? microsoftContacts?.books : null;
     const row = providerRows?.find(candidate => candidate.addressBookId === book.id);
+    // DAV-05: a CardDAV book reports the source's own last sync rather than "never", and its failure code when
+    // the last run failed. The status is per source until DAV sources are separate connections (DAV-01).
+    const isDavBook = source === 'carddav' || source === 'dav';
+    const davSummary: { key: string | null; values: Record<string, string> } | null = isDavBook
+      ? davStatus?.errorCode
+        ? { key: providerFailureKey(davStatus.errorCode) ?? 'contacts.addressBooks.lastSyncFailed', values: {} }
+        : davStatus?.lastSyncAt
+          ? { key: 'admin.integrations.carddav.lastSync', values: { when: new Date(davStatus.lastSyncAt).toLocaleString() } }
+          : null
+      : null;
     const summary = row
       ? providerConnectorSummary([row], {
           id: candidate => candidate.addressBookId,
           count: candidate => candidate.contactCount ?? 0,
           failureKey: code => providerFailureKey(code) ?? 'contacts.addressBooks.lastSyncFailed',
         })
-      : null;
+      : davSummary;
     return {
       id: book.id,
       name: book.name ?? '',
@@ -810,6 +838,7 @@ export default function ContactsPage({ isActive = true }) {
     onSync={runProviderContactsSync}
     googleSummary={googleSummary}
     microsoftSummary={microsoftSummary}
+    dav={{ configured: true, connected: davStatus?.connected === true }}
     onImportGoogleCsv={() => importInputRef.current?.click()}
     onImportVCard={() => importVCardRef.current?.click()}
     exportUrl={format => api.addressBooks.exportUrl(selectedAddressBookId, format)}

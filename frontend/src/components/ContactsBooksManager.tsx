@@ -52,8 +52,10 @@ export interface ContactsBooksManagerProps {
   deleteError: string | null;
   google: ManagerProviderState;
   microsoft: ManagerProviderState;
-  syncing: 'google' | 'microsoft' | null;
-  onSync: (provider: 'google' | 'microsoft') => void;
+  /** The CardDAV source's own state: a DAV book is synchronised by it, not by a provider (DAV-05). */
+  dav: ManagerProviderState;
+  syncing: 'google' | 'microsoft' | 'dav' | null;
+  onSync: (provider: 'google' | 'microsoft' | 'dav') => void;
   googleSummary: { key: string | null; values: Record<string, string> } | null;
   microsoftSummary: { key: string | null; values: Record<string, string> } | null;
   onImportGoogleCsv: () => void;
@@ -93,6 +95,12 @@ export default function ContactsBooksManager(props: ContactsBooksManagerProps) {
   const localBooks = books.filter(book => book.source === 'local');
   const provider = selected ? (selected.source === 'microsoft' ? 'microsoft' : selected.source === 'google' ? 'google' : null) : null;
   const providerState = provider === 'google' ? props.google : provider === 'microsoft' ? props.microsoft : null;
+  const isDavBook = selected?.source === 'carddav' || selected?.source === 'dav';
+  // A DAV book is synchronised by its own source; a provider book by its provider. Only a connected target is
+  // offered, so the button never promises a run that cannot happen (DAV-05).
+  const syncTarget: 'google' | 'microsoft' | 'dav' | null = isDavBook
+    ? (props.dav.connected ? 'dav' : null)
+    : (providerState?.connected && provider ? provider : null);
   const summary = provider === 'google' ? props.googleSummary : provider === 'microsoft' ? props.microsoftSummary : null;
 
   // A provider collection is not a local address book: it cannot be renamed or deleted here, and its delete
@@ -173,9 +181,11 @@ export default function ContactsBooksManager(props: ContactsBooksManagerProps) {
           </p>
         )}
         <div style={rowStyle}>
-          {providerState?.connected && provider && (
-            <Button data-testid={`contacts-manager-sync-${provider}`} disabled={props.syncing !== null} onClick={() => props.onSync(provider)}>
-              {props.syncing === provider ? t('contacts.booksManager.syncing') : t('contacts.booksManager.syncNow')}
+          {/* DAV-05: a CardDAV book is synchronised by its own source, so it gets the same action. Which source
+              owns it decides the target, never the provider a book merely resembles. */}
+          {syncTarget && (
+            <Button data-testid={`contacts-manager-sync-${syncTarget}`} disabled={props.syncing !== null} onClick={() => props.onSync(syncTarget)}>
+              {props.syncing === syncTarget ? t('contacts.booksManager.syncing') : t('contacts.booksManager.syncNow')}
             </Button>
           )}
         </div>

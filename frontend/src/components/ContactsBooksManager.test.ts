@@ -100,9 +100,25 @@ test('the manager never starts a provider authorization', async () => {
   assert.ok(!source.includes('/oauth/'), 'the manager must not link an OAuth flow');
   assert.ok(!source.includes('authorizationPath'));
   assert.match(source, /contacts-manager-connect-hint/);
-  assert.match(source, /contacts-manager-sync-\$\{provider\}/);
+  // The control names its target, which is the provider for a provider book and the DAV source for a DAV book
+  // (DAV-05); a provider authorization is still never started from here.
+  assert.match(source, /contacts-manager-sync-\$\{syncTarget\}/);
+  assert.match(source, /syncTarget: 'google' \| 'microsoft' \| 'dav' \| null/);
   assert.ok(!source.includes('contacts-manager-connect-google'));
   assert.ok(!source.includes('contacts-manager-connect-microsoft'));
+});
+
+test('a CardDAV book is synchronised by its own source, not shown as never synced', async () => {
+  // DAV-05: the panel only knew about Google and Microsoft, so a CardDAV book said "never" and offered no
+  // action even when the source had just synchronised it.
+  const source = await read(manager);
+  assert.match(source, /const isDavBook = selected\?\.source === 'carddav' \|\| selected\?\.source === 'dav'/);
+  assert.match(source, /props\.dav\.connected \? 'dav' : null/);
+  const contactsPage = await read(page);
+  // The page takes the DAV source's own status, and its last sync is what the book reports.
+  assert.match(contactsPage, /api\.carddav\.status\(\)/);
+  assert.match(contactsPage, /admin\.integrations\.carddav\.lastSync/);
+  assert.match(contactsPage, /connected: davStatus\?\.connected === true/);
 });
 
 test('the manager is one panel on desktop and a two-step sheet on mobile', async () => {

@@ -296,6 +296,12 @@ None.
   IMAP loops, health checks, rule forwarder and send path no longer open IMAP or SMTP for it.
 
 ### Fixed
+- **A CardDAV address book no longer reads "never synchronised" and now has a sync action.** The books manager
+  knew only about Google and Microsoft: for a book whose source is CardDAV it computed no state and offered no
+  action, so a source that had just run still showed "never", and the only way to synchronise it was the separate
+  DAV section. The manager now names its sync target from the book's own source, and the contacts page reads the
+  DAV source's status so a DAV book reports its real last sync (or the failure code) and can start a sync from
+  its own panel. Which source owns a book decides the action, never the provider a book resembles.
 - **A Microsoft reply is now created as a reply, not as a new message carrying headers Graph ignores.** Replies
   were staged the same way as any new message, with `In-Reply-To` and `References` put into
   `internetMessageHeaders` — but Graph's JSON contract accepts only custom headers whose name starts with `x-`,

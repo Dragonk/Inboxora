@@ -265,6 +265,11 @@ Microsoft application is registered in this environment.
 
 ### Fixed
 
+- **A CardDAV address book shows its real last sync and can be synchronised from its own panel.** The books
+  manager only knew Google and Microsoft, so a CardDAV book always read "never synchronised" and had no sync
+  button. It now reports the DAV source's last sync (or failure) and offers the action, next to the book it
+  applies to.
+
 - **Replies sent from a Microsoft mailbox now thread correctly.** They used to be sent as new messages with
   reply headers that Graph does not accept, so Outlook and Inboxora saw no relationship to the message being
   answered. Inboxora now asks Microsoft to create the reply (or reply-all/forward) itself and fills in the
