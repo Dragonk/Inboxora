@@ -227,9 +227,23 @@ minutes by default, configurable or disableable by an administrator with
 
 ## Pulling contacts from Microsoft
 
-Once a Microsoft account is connected through the Graph authorization flow, Inboxora can read the
-contacts of its **default Outlook contact folder**. They land in one local address book per
-connection, named *Microsoft Contacts*.
+Once a Microsoft account is connected through the Graph authorization flow, Inboxora reads **every
+Outlook contact folder**, and each one lands in its own local address book:
+
+- The mailbox's **default** contact folder becomes the book named after it (usually *Contacts*).
+  Inboxora reads it first, and if it cannot, the run reports the failure: the mailbox's own contacts
+  are not something to fail silently about.
+- **Every other top-level folder**, and the folders nested one level inside them — which is how
+  Outlook nests contact folders — become books of their own, named from the folder's display name.
+  Each has its own synchronisation position and its own *Enabled* and *write-back* switches, so a
+  folder can be pulled, disabled or published to devices independently.
+- A failure in one of those additional folders is reported in the run's result and the remaining
+  folders still synchronise; one unreadable folder does not hide the others.
+
+The folders are **looked up in your mailbox** before anything is read. There is no folder name
+Inboxora could assume: Microsoft's contact-folder resource has no well-known-name property, so the
+old request for a folder called `contacts` was asking for something that does not exist. If the
+folder list cannot be read at all, the run reports an upstream failure instead of guessing.
 
 - A contact is identified by its Outlook contact id, never by its e-mail address, so two contacts
   sharing an address, or a contact with none, never merge or duplicate.
@@ -246,7 +260,7 @@ The connector is reachable from the interface: **Settings → Integrations → E
 Microsoft card offers **Connect Microsoft contacts**, which authorizes Microsoft Graph for contacts
 only and never changes or migrates your mailbox. Once connected, the Contacts page's address-book
 menu shows **Sync Microsoft contacts** next to **Sync Google contacts**, and each run reports what
-it changed for that account. Once pulled, this book is refreshed on the same schedule as the Google
-ones (every 15 minutes by default, `PROVIDER_SYNC_INTERVAL_MINUTES`; `0` disables it), and the two
-providers are refreshed independently — an account configured for one is never affected by the
+it changed for that account. Once pulled, these books are refreshed on the same schedule as the
+Google ones (every 15 minutes by default, `PROVIDER_SYNC_INTERVAL_MINUTES`; `0` disables it), and the
+two providers are refreshed independently — an account configured for one is never affected by the
 other.

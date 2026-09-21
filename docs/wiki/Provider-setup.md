@@ -18,7 +18,7 @@ accounts from **Settings → Integrations → Email providers**.
 | --- | --- | --- | --- |
 | Microsoft mail | Microsoft Graph | Mail read, send, drafts, search, flags, folders | Entra application + a Graph-scoped connection |
 | Microsoft calendars | Microsoft Graph | Calendars and events (read, and write once enabled) | Entra application + a Graph-scoped connection |
-| Microsoft contacts | Microsoft Graph | Default Outlook contact folder (read, and write once enabled) | Entra application + a Graph-scoped connection |
+| Microsoft contacts | Microsoft Graph | Every Outlook contact folder, one local address book each (read, and write once enabled) | Entra application + a Graph-scoped connection |
 | Microsoft mailbox sign-in | Microsoft OAuth2 | IMAP/SMTP access token | Entra application (separate grant) |
 | Google mail | Gmail API | Messages, labels, drafts, send | Google OAuth client |
 | Google calendars | Google Calendar API | Calendars and events (read, and write once enabled) | Google OAuth client |
