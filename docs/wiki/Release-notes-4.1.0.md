@@ -265,6 +265,11 @@ Microsoft application is registered in this environment.
 
 ### Fixed
 
+- **Moving a mail between folders keeps it.** Microsoft reports a folder delta removal both when a message is
+  deleted and when it merely moves to another folder; Inboxora deleted the message from the whole account, so a
+  message that had just been moved could vanish locally. The removal is now applied only to the folder it came
+  from, so a move ends with the message in its new folder whichever side is processed first.
+
 - **Microsoft contacts synchronise again, and keep your anniversaries.** The contact request asked Graph for an
   `anniversary` property that the v1.0 API does not have (and the beta API names differently), which can fail
   the whole request. It is no longer requested, and a provider sync no longer clears an anniversary you or

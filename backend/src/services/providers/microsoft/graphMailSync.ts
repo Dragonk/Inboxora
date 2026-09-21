@@ -369,9 +369,15 @@ export async function applyGraphMailMessagesPage(
   for (const message of messages) {
     if (!message.id) { totals.skipped += 1; continue; }
     if (message['@removed']) {
+      // The delta is folder-scoped, and Graph emits `@removed` both for a real deletion and for a message that
+      // *moved out of this folder*. Deleting by account and provider id alone therefore removed a message that
+      // had already been re-homed to the destination folder — the folder the delta was read from is the one that
+      // may be vacated, so the deletion is scoped to it (GRAPH-05). A move processed in either order now
+      // converges on one row in the destination: source-first deletes it and the destination re-creates it,
+      // destination-first leaves it untouched because its folder no longer matches.
       const removed = await client.query(
-        'DELETE FROM messages WHERE account_id = $1 AND provider_message_id = $2',
-        [context.accountId, message.id],
+        'DELETE FROM messages WHERE account_id = $1 AND provider_message_id = $2 AND folder = $3',
+        [context.accountId, message.id, context.folderPath],
       );
       if ((removed.rowCount ?? 0) > 0) totals.deleted += 1;
       else totals.skipped += 1;

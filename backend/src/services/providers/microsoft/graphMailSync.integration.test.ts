@@ -294,6 +294,7 @@ const FLAT_TREE = {
 };
 
 const DELTA_INBOX = 'https://graph.microsoft.com/v1.0/me/mailFolders/graph-inbox/messages/delta?$deltatoken=inbox';
+const DELTA_SENT = 'https://graph.microsoft.com/v1.0/me/mailFolders/graph-sent/messages/delta?$deltatoken=sent';
 
 function graphMessage(id: string, overrides: Record<string, unknown> = {}) {
   return {
@@ -403,6 +404,48 @@ describeOrSkip('Microsoft Graph mail message sync (PostgreSQL)', () => {
     expect(messages[0]?.subject).toBe('Renamed');
     // The stored delta link is what the run resumes from, not the folder's first page.
     expect(delta.urls.some(url => url.includes('inbox') && url.includes('deltatoken'))).toBe(true);
+  });
+
+  it('keeps a message that moved to another folder, whichever delta is applied first', async () => {
+    // GRAPH-05: a folder-scoped delta reports `@removed` for a message that moved out of the folder, not only
+    // for one that was deleted. Deleting by account and provider id alone removed the message the destination
+    // folder had already re-homed, whichever delta happened to run first.
+    const connectionId = await seedConnection();
+    await discoverFolders(connectionId);
+    await syncGraphMailMessagesForAccount({
+      userId: USER_ID, connectionId, accountId: ACCOUNT_ID, config: CONFIG,
+      fetchImpl: fakeMailProvider({
+        inbox: [{ value: [graphMessage('m1')], '@odata.deltaLink': DELTA_INBOX }],
+        sent: [{ value: [], '@odata.deltaLink': DELTA_SENT }],
+      }).fetchImpl,
+    });
+    expect((await storedMessages()).map(row => [row.provider_message_id, row.folder])).toEqual([['m1', 'INBOX']]);
+
+    // Destination first: the row already sits in Sent when the source folder reports it removed.
+    await autocommit(client => client.query(
+      "UPDATE messages SET folder = 'Sent' WHERE account_id = $1 AND provider_message_id = 'm1'", [ACCOUNT_ID],
+    ));
+    await syncGraphMailMessagesForAccount({
+      userId: USER_ID, connectionId, accountId: ACCOUNT_ID, config: CONFIG,
+      fetchImpl: fakeMailProvider({
+        inbox: [{ value: [{ id: 'm1', '@removed': { reason: 'deleted' } }], '@odata.deltaLink': `${DELTA_INBOX}-2` }],
+        sent: [{ value: [], '@odata.deltaLink': DELTA_SENT }],
+      }).fetchImpl,
+    });
+    expect((await storedMessages()).map(row => [row.provider_message_id, row.folder])).toEqual([['m1', 'Sent']]);
+
+    // Source first: the source removes it and the destination lists it again.
+    await autocommit(client => client.query(
+      "UPDATE messages SET folder = 'INBOX' WHERE account_id = $1 AND provider_message_id = 'm1'", [ACCOUNT_ID],
+    ));
+    await syncGraphMailMessagesForAccount({
+      userId: USER_ID, connectionId, accountId: ACCOUNT_ID, config: CONFIG,
+      fetchImpl: fakeMailProvider({
+        inbox: [{ value: [{ id: 'm1', '@removed': { reason: 'deleted' } }], '@odata.deltaLink': `${DELTA_INBOX}-3` }],
+        sent: [{ value: [graphMessage('m1')], '@odata.deltaLink': `${DELTA_SENT}-2` }],
+      }).fetchImpl,
+    });
+    expect((await storedMessages()).map(row => [row.provider_message_id, row.folder])).toEqual([['m1', 'Sent']]);
   });
 
   it('does not reconcile deletions when a baseline stops at the page cap', async () => {

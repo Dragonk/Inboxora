@@ -296,6 +296,12 @@ None.
   IMAP loops, health checks, rule forwarder and send path no longer open IMAP or SMTP for it.
 
 ### Fixed
+- **Moving a message between folders no longer deletes its local copy.** A Microsoft folder delta reports
+  `@removed` both for a real deletion and for a message that moved out of that folder. The sync deleted by
+  account and provider id alone, so when the destination folder's delta had already re-homed the message, the
+  source folder's removal deleted it — a correctly moved message disappeared. The deletion is now scoped to the
+  folder the delta was read from, so a move converges on one message in the destination whichever delta is
+  applied first.
 - **The Graph contact request no longer asks for a property the API does not have.** The v1.0 `contact`
   resource has no `anniversary`, and the beta resource names it differently, so it was wrong in both versions
   and can fail the whole `$select` — the same class of mistake that stopped Microsoft mail folder discovery.
