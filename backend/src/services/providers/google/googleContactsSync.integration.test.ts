@@ -310,6 +310,50 @@ describeOrSkip('Google contacts sync (PostgreSQL)', () => {
     expect(contacts.rows[0]?.count).toBe('2');
   });
 
+  it('removes a contact deleted while the sync token was invalid, and leaves another book alone', async () => {
+    // SYNC-07: the rebuild only upserted what it read, so a contact deleted during the gap between an expired
+    // token and the full scan stayed locally for ever. A complete rebuild reconciles; the removal is scoped to
+    // this collection, so another address book keeps its contacts.
+    const connectionId = await seedConnection();
+    await syncGoogleContacts({
+      userId: USER_ID, connectionId, config: CONFIG,
+      fetchImpl: fakeProvider([() => json({
+        connections: [person('people/c1', 'Ada Lovelace', 'ada@example.test'), person('people/c2', 'Grace Hopper', 'grace@example.test')],
+        nextSyncToken: 'stale-1',
+      })]).fetchImpl,
+    });
+    // A second, local-only book with a contact that has nothing to do with this provider.
+    const otherBook = await autocommit(client => client.query<{ id: string }>(
+      "INSERT INTO address_books (user_id, name) VALUES ($1, 'Local') RETURNING id", [USER_ID],
+    ));
+    await autocommit(client => client.query(
+      `INSERT INTO contacts (address_book_id, user_id, uid, vcard, display_name, primary_email, is_auto)
+       VALUES ($1, $2, 'local-1', 'BEGIN:VCARD', 'Local Person', 'local@example.test', false)`,
+      [otherBook.rows[0]!.id, USER_ID],
+    ));
+
+    // Grace was deleted at the provider while the token was unusable; the token itself is now rejected.
+    const provider = fakeProvider([
+      () => json({ error: { message: 'Sync token is no longer valid', status: 'FAILED_PRECONDITION' } }, 410),
+      () => json({ connections: [person('people/c1', 'Ada Lovelace', 'ada@example.test')], nextSyncToken: 'fresh-1' }),
+    ]);
+    const result = await syncGoogleContacts({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl: provider.fetchImpl });
+    expect(result).toMatchObject({ fullSync: true, deleted: 1, cursor: 'fresh-1' });
+
+    const remaining = await autocommit(client => client.query<{ display_name: string }>(
+      'SELECT display_name FROM contacts WHERE user_id = $1 ORDER BY display_name', [USER_ID],
+    ));
+    expect(remaining.rows.map(row => row.display_name)).toEqual(['Ada Lovelace', 'Local Person']);
+    // The link is kept as a tombstone, exactly like a deletion the provider reported.
+    const link = await autocommit(client => client.query<{ status: string; local_id: string | null }>(
+      `SELECT status, local_id FROM remote_object_links
+        WHERE collection_id = (SELECT id FROM integration_collections WHERE user_id = $1 AND kind = 'address_book')
+          AND object_remote_id = 'people/c2'`,
+      [USER_ID],
+    ));
+    expect(link.rows[0]).toMatchObject({ status: 'deleted', local_id: null });
+  });
+
   it('refuses a second concurrent sync for the same connection', async () => {
     const connectionId = await seedConnection();
     await syncGoogleContacts({

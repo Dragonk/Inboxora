@@ -265,6 +265,12 @@ Microsoft application is registered in this environment.
 
 ### Fixed
 
+- **Google contacts deleted while a sync token had expired are gone for good.** Google reports an out-of-date
+  token in a structured field that Inboxora did not read, so the rebuild it asks for could be missed; and the
+  rebuild only added what it found, so a contact deleted in the meantime stayed in the address book. The signal
+  is now honoured whatever status carries it, and a completed rebuild removes the contacts it no longer lists —
+  only in that address book, and only after a complete scan.
+
 - **Moving a mail between folders keeps it.** Microsoft reports a folder delta removal both when a message is
   deleted and when it merely moves to another folder; Inboxora deleted the message from the whole account, so a
   message that had just been moved could vanish locally. The removal is now applied only to the folder it came

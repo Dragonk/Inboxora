@@ -296,6 +296,12 @@ None.
   IMAP loops, health checks, rule forwarder and send path no longer open IMAP or SMTP for it.
 
 ### Fixed
+- **Google contacts deleted while the sync token was invalid are removed again.** The People API reports an
+  out-of-date token in the structured error details as `EXPIRED_SYNC_TOKEN`, which the client did not read — it
+  recognised only HTTP 410, so a rebuild could be missed — and the rebuild itself only upserted whatever it read,
+  so a contact deleted during the gap stayed locally for ever. The structured signal now triggers the rebuild
+  whatever status carries it, and a complete rebuild reconciles: contacts it no longer lists are removed and
+  their links kept as tombstones, scoped to that address book so another source is untouched.
 - **Moving a message between folders no longer deletes its local copy.** A Microsoft folder delta reports
   `@removed` both for a real deletion and for a message that moved out of that folder. The sync deleted by
   account and provider id alone, so when the destination folder's delta had already re-homed the message, the

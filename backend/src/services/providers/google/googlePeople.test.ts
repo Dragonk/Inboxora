@@ -23,6 +23,36 @@ describe('classifyGoogleError', () => {
     expect(classifyGoogleError(404, {}, headers()).code).toBe('RESOURCE_NOT_FOUND');
   });
 
+  it('recognises the documented structured expiry signal whatever the HTTP status is', () => {
+    // SYNC-07: the People API reports an out-of-date sync token as `google.rpc.ErrorInfo`
+    // `reason: EXPIRED_SYNC_TOKEN`, which is not tied to status 410. A rebuild must be triggered from the
+    // provider's own signal, not from an assumption that only Calendar's 410 means it.
+    const expired = classifyGoogleError(400, {
+      error: {
+        code: 400,
+        message: 'Sync token is expired. Please perform a full sync.',
+        status: 'FAILED_PRECONDITION',
+        details: [{
+          '@type': 'type.googleapis.com/google.rpc.ErrorInfo',
+          reason: 'EXPIRED_SYNC_TOKEN',
+          domain: 'people.googleapis.com',
+          metadata: { service: 'people.googleapis.com' },
+        }],
+      },
+    }, headers());
+    expect(expired).toMatchObject({ code: 'INVALID_SYNC_CURSOR', providerReason: 'EXPIRED_SYNC_TOKEN' });
+
+    // A detail that is not an ErrorInfo, or names an unrelated reason, must not be mistaken for it.
+    const unrelated = classifyGoogleError(400, {
+      error: { details: [{ '@type': 'type.googleapis.com/google.rpc.BadRequest', reason: 'EXPIRED_SYNC_TOKEN' }] },
+    }, headers());
+    expect(unrelated.code).not.toBe('INVALID_SYNC_CURSOR');
+    const other = classifyGoogleError(400, {
+      error: { details: [{ '@type': 'type.googleapis.com/google.rpc.ErrorInfo', reason: 'FIELD_INVALID' }] },
+    }, headers());
+    expect(other.code).not.toBe('INVALID_SYNC_CURSOR');
+  });
+
   it('marks server errors and 429 as retryable', () => {
     expect(classifyGoogleError(503, {}, headers()).retryable).toBe(true);
     const limited = classifyGoogleError(429, {}, headers({ 'retry-after': '5' }));

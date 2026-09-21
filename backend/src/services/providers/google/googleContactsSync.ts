@@ -249,7 +249,12 @@ async function deletePerson(client: PoolClient, context: ApplyContext, resourceN
  * Apply one page of people. Exported so the behaviour can be exercised directly:
  * a full sync and an incremental one use the same path.
  */
-export async function applyGooglePeoplePage(client: PoolClient, context: ApplyContext, people: readonly GooglePerson[]): Promise<{
+export async function applyGooglePeoplePage(
+  client: PoolClient,
+  context: ApplyContext,
+  people: readonly GooglePerson[],
+  seenResourceNames?: Set<string>,
+): Promise<{
   created: number; updated: number; deleted: number; skipped: number;
 }> {
   const totals = { created: 0, updated: 0, deleted: 0, skipped: 0 };
@@ -260,11 +265,44 @@ export async function applyGooglePeoplePage(client: PoolClient, context: ApplyCo
       continue;
     }
     const outcome = await applyPerson(client, context, person);
+    // Collected for the rebuild's reconcile: only a person actually present in this baseline counts as seen.
+    if (person.resourceName) seenResourceNames?.add(person.resourceName);
     if (outcome === 'created') totals.created += 1;
     else if (outcome === 'updated') totals.updated += 1;
     else totals.skipped += 1;
   }
   return totals;
+}
+
+/**
+ * Remove the contacts a complete baseline no longer lists.
+ *
+ * Google's incremental feed reports deletions explicitly, so this is only for a rebuilt baseline: a contact
+ * deleted while the sync token was invalid would otherwise stay locally for ever, because the rebuild only
+ * upserted what it read (SYNC-07). The link is kept as a tombstone, exactly like a deletion the provider
+ * reported, so a later reappearance is recognised as the same object.
+ */
+export async function reconcileGoogleContacts(
+  client: PoolClient,
+  context: ApplyContext,
+  seenRemoteIds: ReadonlySet<string>,
+): Promise<number> {
+  const links = await client.query<{ id: string; object_remote_id: string; local_id: string | null }>(
+    `SELECT id, object_remote_id, local_id FROM remote_object_links
+      WHERE collection_id = $1 AND object_type = 'contact' AND status = 'active'`,
+    [context.collectionId],
+  );
+  let removed = 0;
+  for (const link of links.rows) {
+    if (seenRemoteIds.has(link.object_remote_id)) continue;
+    if (link.local_id) await client.query('DELETE FROM contacts WHERE id = $1 AND user_id = $2', [link.local_id, context.userId]);
+    await client.query(
+      `UPDATE remote_object_links SET status = 'deleted', local_id = NULL, updated_at = NOW() WHERE id = $1`,
+      [link.id],
+    );
+    removed += 1;
+  }
+  return removed;
 }
 
 /**
@@ -331,6 +369,8 @@ export async function syncGoogleContacts(input: {
     let nextSyncToken: string | null = null;
     let complete = false;
     const totals = { created: 0, updated: 0, deleted: 0, skipped: 0 };
+    // Only a rebuilt baseline needs the seen-set: the incremental feed reports deletions explicitly.
+    const seen = new Set<string>();
 
     for (let page = 0; page < (input.maxPages ?? MAX_PAGES); page++) {
       let fetched;
@@ -343,12 +383,13 @@ export async function syncGoogleContacts(input: {
           cursor = null;
           pageToken = null;
           fullSync = true;
+          seen.clear();
           continue;
         }
         throw caught;
       }
 
-      const applied = await withTransaction(client => applyGooglePeoplePage(client, context, fetched.people));
+      const applied = await withTransaction(client => applyGooglePeoplePage(client, context, fetched.people, seen));
       totals.created += applied.created;
       totals.updated += applied.updated;
       totals.deleted += applied.deleted;
@@ -365,6 +406,13 @@ export async function syncGoogleContacts(input: {
       // (SYNC-04). `nextSyncToken` only arrives on the last page, which is exactly the page that was not read.
       await withTransaction(client => releaseSyncLease(client, { syncStateId, generation: lease.generation })).catch(() => {});
       return { addressBookId: ensured.addressBookId, ...totals, fullSync, cursor, incomplete: true };
+    }
+
+    // A rebuilt baseline lists everything that still exists, so anything else was deleted at the provider while
+    // the token was unusable. An incremental feed must never be reconciled this way: there, omission means
+    // "unchanged". The cap path returned above, so a partial baseline is never reconciled (SYNC-04, SYNC-07).
+    if (fullSync) {
+      totals.deleted += await withTransaction(client => reconcileGoogleContacts(client, context, seen));
     }
 
     // The cursor advances only after every page was applied, so a crash mid-run

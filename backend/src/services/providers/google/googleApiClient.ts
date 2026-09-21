@@ -53,7 +53,29 @@ interface GoogleErrorBody {
     message?: string;
     status?: string;
     errors?: Array<{ reason?: string; message?: string }>;
+    /**
+     * Structured error details (`google.rpc.ErrorInfo`). The People API reports an out-of-date sync token here
+     * as `reason: EXPIRED_SYNC_TOKEN` even when the HTTP status is not 410, and that is the documented signal
+     * for "your sync token expired, do a full sync" (SYNC-07).
+     */
+    details?: Array<{ '@type'?: string; reason?: string; domain?: string; metadata?: Record<string, string> }>;
   };
+}
+
+/** `google.rpc.ErrorInfo` reasons that mean the stored synchronization cursor is no longer usable. */
+const EXPIRED_SYNC_TOKEN_REASONS = new Set(['EXPIRED_SYNC_TOKEN', 'SYNC_TOKEN_EXPIRED']);
+
+/**
+ * The provider's own "the sync token expired" signal, read from the structured details rather than inferred
+ * from the status code: the People API documents `EXPIRED_SYNC_TOKEN` and the status it arrives with is not
+ * part of the contract.
+ */
+function expiredSyncTokenReason(body: GoogleErrorBody): string | null {
+  for (const detail of body.error?.details ?? []) {
+    if (detail['@type'] && !detail['@type'].includes('google.rpc.ErrorInfo')) continue;
+    if (detail.reason && EXPIRED_SYNC_TOKEN_REASONS.has(detail.reason)) return detail.reason;
+  }
+  return null;
 }
 
 /** Google's `reason` values that mean "slow down / quota", not "not allowed". */
@@ -77,6 +99,12 @@ export function classifyGoogleError(status: number, body: unknown, headers: Head
   const reason = parsed.error?.errors?.[0]?.reason ?? parsed.error?.status;
   const message = parsed.error?.message || `Google API returned ${status}`;
   const after = retryAfterSeconds(headers);
+  // The structured expiry signal wins over the status: a full rebuild is the only correct answer whatever the
+  // transport answered with (SYNC-07).
+  const expired = expiredSyncTokenReason(parsed);
+  if (expired) {
+    return new GoogleApiError({ code: 'INVALID_SYNC_CURSOR', message, status, providerReason: expired });
+  }
   if (status === 401) {
     return new GoogleApiError({ code: 'PROVIDER_AUTH_REQUIRED', message, status, retryable: false, providerReason: reason });
   }
