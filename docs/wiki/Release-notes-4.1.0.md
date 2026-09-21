@@ -265,6 +265,11 @@ Microsoft application is registered in this environment.
 
 ### Changed
 
+- **Internal: the transport seam now has a Gmail and Microsoft implementation.** The actions the inbox rules
+  perform — move, delete, read/starred — can now be carried out on a native account through the same services
+  the app already uses for those writes. Nothing calls it from a native synchronisation yet, so behaviour is
+  unchanged in this release; it is the remaining step before rules and the block list can run there.
+
 - **Internal: the provider flag write is now a service, not route-private code.** Setting read/starred on a Gmail
   or Microsoft message was implemented inside the mail route because it needed the IMAP manager imported from the
   application root. It now takes that side as a parameter and lives beside the provider adapters, so the inbox

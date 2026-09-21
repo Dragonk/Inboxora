@@ -221,6 +221,15 @@ provider identity, `0109` provider-operation payload, `0110` device authorizatio
 reads the new columns; a mixed old/new deployment must not run with the new code before the migrations.
 
 ### Changed
+- **The message-action seam now has a provider implementation.** `MailActionPort` (above) is implemented for Gmail
+  and Microsoft Graph: the port resolves the local message from the `uid`/folder the rules engine passes and then
+  acts by the provider's own id, through the move, delete and flag services that already run on the mutation
+  journal — a move, the block list's expunge (`\Deleted` is that provider's delete, not a flag) and a
+  read/starred flag. Two provider-specific facts are handled here rather than in the engine: Graph reassigns a
+  message's id when it moves, so the local row is updated to the new id (otherwise the next synchronisation would
+  insert a second copy), and a provider flag write is never queued on the IMAP reconciler, which writes over
+  IMAP. No provider synchronisation calls the port yet, so native accounts behave exactly as before in this
+  release.
 - **The provider flag write moved out of the mail route into a service, with the IMAP side injected.** Setting
   read/starred on a provider message lived as private helpers inside `routes/mail.ts` because the IMAP branch
   needed the `imapManager` singleton imported from the application root, and a service importing the root would
