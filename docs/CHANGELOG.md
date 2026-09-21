@@ -296,6 +296,15 @@ None.
   IMAP loops, health checks, rule forwarder and send path no longer open IMAP or SMTP for it.
 
 ### Fixed
+- **Microsoft mail folder discovery asked v1.0 for a field only beta has.** The folder listing selected
+  `wellKnownName`, which the `mailFolder` resource exposes in the beta endpoint but not in v1.0 — the endpoint
+  this adapter is pinned to. That is a contract violation a strict service answers with `400`, and even when it
+  is tolerated the property is absent, so the Inbox/Sent/Trash/Spam/Drafts roles were never recognised and
+  Microsoft mail could not be mapped onto the local folders the rest of the application reads. The listing now
+  selects only v1.0 properties and resolves each role through `GET /me/mailFolders/{well-known-name}` — the
+  documented v1.0 way to address those folders — matching a role by the returned id, never by a display name
+  that changes with the mailbox language. A well-known folder the mailbox does not have is skipped; any other
+  failure still fails the discovery rather than silently producing a mailbox with no Inbox.
 - **"Reconnect" on an account card finishes instead of waiting forever.** The card's connect action asks for one
   consent covering the whole mailbox (`account_enable`), but both OAuth start routes kept a narrower allow-list
   of purposes that did not contain it, so the value was silently rewritten to a plain "new account" flow. That

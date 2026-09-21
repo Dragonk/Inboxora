@@ -1,5 +1,5 @@
 import { createHash } from 'crypto';
-import { graphGet, graphUrl } from './graphApiClient.js';
+import { GraphApiError, graphGet, graphUrl } from './graphApiClient.js';
 import type { GraphApiOptions } from './graphApiClient.js';
 
 /**
@@ -32,8 +32,6 @@ export interface GraphMailFolder {
   childFolderCount?: number | null;
   totalItemCount?: number | null;
   unreadItemCount?: number | null;
-  /** Present on Outlook's well-known folders (`inbox`, `sentitems`, …). */
-  wellKnownName?: string | null;
 }
 
 interface GraphFolderPage {
@@ -51,7 +49,13 @@ export interface LocalMailFolder {
   unreadCount: number;
 }
 
-const FOLDER_SELECT = 'id,displayName,parentFolderId,childFolderCount,totalItemCount,unreadItemCount,wellKnownName';
+/**
+ * `$select` for a folder listing. It deliberately omits `wellKnownName`: that property exists only on the beta
+ * `mailFolder` resource, and requesting it from the v1.0 endpoint this adapter is pinned to is a contract
+ * violation that can fail the whole listing (GRAPH-01). The role is resolved from the folder's stable id
+ * instead — see `fetchWellKnownFolderIds`.
+ */
+const FOLDER_SELECT = 'id,displayName,parentFolderId,childFolderCount,totalItemCount,unreadItemCount';
 const PAGE_SIZE = 100;
 /** Graph nests folders; the bound keeps a malformed tree from being walked forever. */
 const MAX_FOLDER_DEPTH = 10;
@@ -74,10 +78,42 @@ const WELL_KNOWN_FOLDERS: Readonly<Record<string, { path: string; specialUse: st
   conversationhistory: { path: 'Conversation History', specialUse: '\\All' },
 });
 
+/**
+ * The well-known names this adapter resolves. Unlike the `wellKnownName` property, these names are valid in a
+ * v1.0 request path (`GET /me/mailFolders/drafts`), and they work whatever language the mailbox uses, so each
+ * role is resolved to the folder's real id and matched by id rather than by a localized display name.
+ */
+export const WELL_KNOWN_FOLDER_ALIASES: readonly string[] = Object.freeze(Object.keys(WELL_KNOWN_FOLDERS));
+
+/**
+ * Resolve every well-known folder alias this mailbox has to its real Graph id.
+ *
+ * A mailbox need not have all of them (`archive` and `conversationhistory` are created lazily), so a 404 for an
+ * alias is expected and skipped. Any other failure is rethrown: an incomplete role map must not be mistaken for
+ * "this mailbox has no Inbox".
+ */
+export async function fetchWellKnownFolderIds(api: GraphApiOptions): Promise<Map<string, string>> {
+  const byId = new Map<string, string>();
+  for (const alias of WELL_KNOWN_FOLDER_ALIASES) {
+    try {
+      const folder = await graphGet<{ id?: string }>(api, graphUrl(`/me/mailFolders/${alias}`, { $select: 'id' }));
+      if (folder.id) byId.set(folder.id, alias);
+    } catch (caught) {
+      if (caught instanceof GraphApiError && caught.code === 'RESOURCE_NOT_FOUND') continue;
+      throw caught;
+    }
+  }
+  return byId;
+}
+
 /** The local folder a Graph folder projects onto. Pure, so it can be asserted directly. */
-export function localFolderForGraphFolder(folder: GraphMailFolder, parentPath: string | null): LocalMailFolder {
+export function localFolderForGraphFolder(
+  folder: GraphMailFolder,
+  parentPath: string | null,
+  wellKnownName: string | null = null,
+): LocalMailFolder {
   const name = (folder.displayName ?? '').trim() || folder.id;
-  const wellKnown = folder.wellKnownName ? WELL_KNOWN_FOLDERS[folder.wellKnownName.toLowerCase()] : undefined;
+  const wellKnown = wellKnownName ? WELL_KNOWN_FOLDERS[wellKnownName.toLowerCase()] : undefined;
   const path = wellKnown ? wellKnown.path : parentPath ? `${parentPath}/${name}` : name;
   return {
     path,
@@ -92,8 +128,14 @@ export function localFolderForGraphFolder(folder: GraphMailFolder, parentPath: s
 /**
  * Map every folder in a listing by its Graph id. A folder whose parent is not in
  * the listing is treated as a root, and a cycle is broken rather than followed.
+ *
+ * `wellKnownById` maps a folder id to the well-known alias resolved for it, so a renamed Inbox still lands on
+ * the canonical `INBOX` path.
  */
-export function graphFolderPathMap(folders: readonly GraphMailFolder[]): Map<string, LocalMailFolder> {
+export function graphFolderPathMap(
+  folders: readonly GraphMailFolder[],
+  wellKnownById: ReadonlyMap<string, string> = new Map(),
+): Map<string, LocalMailFolder> {
   const byId = new Map<string, GraphMailFolder>();
   for (const folder of folders) if (folder.id) byId.set(folder.id, folder);
 
@@ -110,7 +152,7 @@ export function graphFolderPathMap(folders: readonly GraphMailFolder[]): Map<str
       parentPath = resolve(parent).path;
       resolving.delete(folder.id);
     }
-    const local = localFolderForGraphFolder(folder, parentPath);
+    const local = localFolderForGraphFolder(folder, parentPath, wellKnownById.get(folder.id) ?? null);
     mapped.set(folder.id, local);
     return local;
   };

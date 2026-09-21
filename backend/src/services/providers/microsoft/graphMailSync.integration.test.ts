@@ -32,12 +32,36 @@ function json(body: unknown, status = 200): Response {
   return { ok: status >= 200 && status < 300, status, headers: new Headers(), json: async () => body } as Response;
 }
 
-/** A single-page folder tree, served for every folder request in a run. */
+/**
+ * A single-page folder tree, served for every folder request in a run.
+ *
+ * The fixtures carry `wellKnownName` to say which folder plays which role, but v1.0 does not return that
+ * property (GRAPH-01) — the adapter resolves each role from `GET /me/mailFolders/{alias}` instead. The fake
+ * therefore answers those alias requests from the fixture and serves the positional pages only for the listing
+ * and `childFolders` calls.
+ */
 function fakeFolders(pages: Array<unknown | (() => Response)>): { fetchImpl: typeof fetch; urls: string[] } {
   const urls: string[] = [];
   let index = 0;
+  const aliasIds = new Map<string, string>();
+  const collect = (value: unknown) => {
+    if (!value || typeof value !== 'object') return;
+    const folder = value as { id?: string; wellKnownName?: string | null };
+    if (folder.id && folder.wellKnownName) aliasIds.set(folder.wellKnownName.toLowerCase(), folder.id);
+  };
+  for (const page of pages) {
+    if (typeof page === 'function') continue;
+    const value = (page as { value?: unknown[] }).value;
+    if (Array.isArray(value)) value.forEach(collect);
+  }
   const fetchImpl = async (url: string): Promise<Response> => {
     urls.push(String(url));
+    const path = new URL(String(url)).pathname;
+    const aliasMatch = /\/me\/mailFolders\/([^/]+)$/.exec(path);
+    if (aliasMatch && !path.endsWith('/childFolders')) {
+      const id = aliasIds.get(decodeURIComponent(aliasMatch[1]).toLowerCase());
+      return id ? json({ id }) : new Response('not found', { status: 404 });
+    }
     const page = pages[Math.min(index, pages.length - 1)];
     index += 1;
     return typeof page === 'function' ? (page as () => Response)() : json(page);

@@ -45,12 +45,34 @@ function json(body: unknown, status = 200): Response {
   return { ok: status >= 200 && status < 300, status, headers: new Headers(), json: async () => body } as Response;
 }
 
-/** Serve a scripted sequence of folder pages; every other URL gets the same tree. */
+/**
+ * Serve a scripted sequence of folder pages; every other URL gets the same tree.
+ *
+ * The fixtures keep `wellKnownName` to name each role, but v1.0 does not return that property (GRAPH-01): the
+ * adapter resolves a role from `GET /me/mailFolders/{alias}`, so those requests are answered from the fixture.
+ */
 function fakeFolders(pages: Array<unknown | (() => Response)>): { fetchImpl: typeof fetch; urls: string[] } {
   const urls: string[] = [];
   let index = 0;
+  const aliasIds = new Map<string, string>();
+  const collect = (value: unknown) => {
+    if (!value || typeof value !== 'object') return;
+    const folder = value as { id?: string; wellKnownName?: string | null };
+    if (folder.id && folder.wellKnownName) aliasIds.set(folder.wellKnownName.toLowerCase(), folder.id);
+  };
+  for (const page of pages) {
+    if (typeof page === 'function') continue;
+    const value = (page as { value?: unknown[] }).value;
+    if (Array.isArray(value)) value.forEach(collect);
+  }
   const fetchImpl = async (url: string): Promise<Response> => {
     urls.push(String(url));
+    const path = new URL(String(url)).pathname;
+    const aliasMatch = /\/me\/mailFolders\/([^/]+)$/.exec(path);
+    if (aliasMatch && !path.endsWith('/childFolders')) {
+      const id = aliasIds.get(decodeURIComponent(aliasMatch[1]).toLowerCase());
+      return id ? json({ id }) : new Response('not found', { status: 404 });
+    }
     const page = pages[Math.min(index, pages.length - 1)];
     index += 1;
     return typeof page === 'function' ? (page as () => Response)() : json(page);

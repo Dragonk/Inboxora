@@ -91,9 +91,21 @@ const CHILDREN = {
 function fakeSearchProvider(searchPages: unknown[]) {
   const urls: string[] = [];
   const pages = [...searchPages];
+  // v1.0 has no `wellKnownName` property (GRAPH-01); the adapter resolves the role from the alias path instead,
+  // and the fixture's `wellKnownName` says which id that alias must return.
+  const aliasIds = new Map<string, string>();
+  for (const folder of TREE.value as Array<{ id?: string; wellKnownName?: string | null }>) {
+    if (folder.id && folder.wellKnownName) aliasIds.set(folder.wellKnownName.toLowerCase(), folder.id);
+  }
   const fetchImpl = async (url: string): Promise<Response> => {
     const target = String(url);
     urls.push(target);
+    const path = new URL(target).pathname;
+    const aliasMatch = /\/me\/mailFolders\/([^/]+)$/.exec(path);
+    if (aliasMatch && !path.endsWith('/childFolders')) {
+      const id = aliasIds.get(decodeURIComponent(aliasMatch[1]).toLowerCase());
+      return id ? json({ id }) : new Response('not found', { status: 404 });
+    }
     if (target.includes('/childFolders')) return json(CHILDREN);
     if (target.includes('/me/messages')) return json(pages.shift() ?? { value: [] });
     return json(TREE);

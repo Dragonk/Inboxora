@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   fetchMailFolders,
   fetchMessagesDeltaPage,
+  fetchWellKnownFolderIds,
   graphFolderPathMap,
   localFolderForGraphFolder,
   localMessageForGraphMessage,
@@ -32,20 +33,22 @@ afterEach(() => {
 
 describe('mapping a Graph folder onto the local folder model', () => {
   it('gives a well-known folder its canonical local path and special use', () => {
-    const inbox = localFolderForGraphFolder({ id: 'AAA', displayName: 'Skrzynka odbiorcza', wellKnownName: 'inbox' }, null);
+    // The role comes from the id the alias resolved to, never from the display name: v1.0 does not return a
+    // `wellKnownName` property at all (GRAPH-01).
+    const inbox = localFolderForGraphFolder({ id: 'AAA', displayName: 'Skrzynka odbiorcza' }, null, 'inbox');
     expect(inbox).toMatchObject({ path: 'INBOX', name: 'Skrzynka odbiorcza', specialUse: '\\Inbox' });
 
-    expect(localFolderForGraphFolder({ id: 'B', displayName: 'Deleted Items', wellKnownName: 'deleteditems' }, null).path).toBe('Trash');
-    expect(localFolderForGraphFolder({ id: 'C', displayName: 'Junk Email', wellKnownName: 'junkemail' }, null)).toMatchObject({ path: 'Spam', specialUse: '\\Junk' });
-    expect(localFolderForGraphFolder({ id: 'D', displayName: 'Sent Items', wellKnownName: 'sentitems' }, null).specialUse).toBe('\\Sent');
-    expect(localFolderForGraphFolder({ id: 'E', displayName: 'Drafts', wellKnownName: 'drafts' }, null).specialUse).toBe('\\Drafts');
-    expect(localFolderForGraphFolder({ id: 'F', displayName: 'Archive', wellKnownName: 'archive' }, null).specialUse).toBe('\\Archive');
+    expect(localFolderForGraphFolder({ id: 'B', displayName: 'Deleted Items' }, null, 'deleteditems').path).toBe('Trash');
+    expect(localFolderForGraphFolder({ id: 'C', displayName: 'Junk Email' }, null, 'junkemail')).toMatchObject({ path: 'Spam', specialUse: '\\Junk' });
+    expect(localFolderForGraphFolder({ id: 'D', displayName: 'Sent Items' }, null, 'sentitems').specialUse).toBe('\\Sent');
+    expect(localFolderForGraphFolder({ id: 'E', displayName: 'Drafts' }, null, 'drafts').specialUse).toBe('\\Drafts');
+    expect(localFolderForGraphFolder({ id: 'F', displayName: 'Archive' }, null, 'archive').specialUse).toBe('\\Archive');
   });
 
   it('keeps the canonical path when a well-known folder is renamed', () => {
     // This is why the well-known role is read separately from the display name: the
     // application compares `folder` to INBOX, and a renamed Inbox must keep working.
-    const renamed = localFolderForGraphFolder({ id: 'AAA', displayName: 'Poczta', wellKnownName: 'inbox' }, null);
+    const renamed = localFolderForGraphFolder({ id: 'AAA', displayName: 'Poczta' }, null, 'inbox');
     expect(renamed.path).toBe('INBOX');
     expect(renamed.name).toBe('Poczta');
   });
@@ -69,22 +72,23 @@ describe('mapping a Graph folder onto the local folder model', () => {
 
 describe('mapping a whole folder tree', () => {
   const folders: GraphMailFolder[] = [
-    { id: 'inbox', displayName: 'Inbox', wellKnownName: 'inbox', childFolderCount: 1 },
+    { id: 'inbox', displayName: 'Inbox', childFolderCount: 1 },
     { id: 'work', displayName: 'Work', parentFolderId: 'inbox', childFolderCount: 1 },
     { id: 'projects', displayName: 'Projects', parentFolderId: 'work' },
-    { id: 'sent', displayName: 'Sent Items', wellKnownName: 'sentitems' },
+    { id: 'sent', displayName: 'Sent Items' },
     { id: 'orphan', displayName: 'Orphan', parentFolderId: 'missing-parent' },
   ];
+  const wellKnown = new Map([['inbox', 'inbox'], ['sent', 'sentitems']]);
 
   it('resolves parents before children, even when the listing is not ordered that way', () => {
-    const mapped = graphFolderPathMap(folders);
+    const mapped = graphFolderPathMap(folders, wellKnown);
     expect(mapped.get('projects')?.path).toBe('INBOX/Work/Projects');
     expect(mapped.get('work')?.path).toBe('INBOX/Work');
     expect(mapped.get('sent')?.path).toBe('Sent');
   });
 
   it('treats a folder whose parent is absent from the listing as a root', () => {
-    expect(graphFolderPathMap(folders).get('orphan')?.path).toBe('Orphan');
+    expect(graphFolderPathMap(folders, wellKnown).get('orphan')?.path).toBe('Orphan');
   });
 
   it('breaks a parent cycle instead of recursing for ever', () => {
@@ -142,6 +146,52 @@ describe('reading the folder tree from Graph', () => {
   it('ignores a folder Graph returned without an id', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ value: [{ displayName: 'No id' }, { id: 'ok', displayName: 'OK' }] })));
     await expect(fetchMailFolders(OPTIONS)).resolves.toEqual([{ id: 'ok', displayName: 'OK' }]);
+  });
+
+  it('never selects the beta-only wellKnownName property from the v1.0 endpoint', async () => {
+    // GRAPH-01: `wellKnownName` is a beta `mailFolder` property. Asking the v1.0 endpoint for it is a contract
+    // violation that can fail the entire listing, which is what stopped Microsoft mail from syncing at all.
+    const urls: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      urls.push(String(url));
+      return jsonResponse({ value: [] });
+    }));
+    await fetchMailFolders(OPTIONS);
+    expect(urls.length).toBeGreaterThan(0);
+    expect(urls.every(url => !url.includes('wellKnownName'))).toBe(true);
+  });
+});
+
+describe('resolving well-known folder aliases to real ids', () => {
+  const aliasOf = (url: string) => new URL(url).pathname.split('/').pop() ?? '';
+
+  it('resolves every alias through a v1.0 path segment and maps it to the returned id', async () => {
+    const urls: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      urls.push(String(url));
+      return jsonResponse({ id: `id-${aliasOf(String(url))}` });
+    }));
+    const byId = await fetchWellKnownFolderIds(OPTIONS);
+    expect(byId.get('id-inbox')).toBe('inbox');
+    expect(byId.get('id-sentitems')).toBe('sentitems');
+    expect(byId.get('id-deleteditems')).toBe('deleteditems');
+    expect(urls.every(url => url.includes('/me/mailFolders/'))).toBe(true);
+    // v1.0 accepts the alias in the path; it does not accept the property in `$select`.
+    expect(urls.every(url => !url.includes('wellKnownName'))).toBe(true);
+  });
+
+  it('skips an alias this mailbox does not have, but rethrows any other failure', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (aliasOf(String(url)) === 'archive') return new Response('not found', { status: 404 });
+      return jsonResponse({ id: `id-${aliasOf(String(url))}` });
+    }));
+    const byId = await fetchWellKnownFolderIds(OPTIONS);
+    expect(byId.has('id-archive')).toBe(false);
+    expect(byId.get('id-inbox')).toBe('inbox');
+
+    // A 500 is not "this mailbox has no Inbox": an incomplete role map must not be treated as a complete one.
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('boom', { status: 500 })));
+    await expect(fetchWellKnownFolderIds(OPTIONS)).rejects.toMatchObject({ code: 'UPSTREAM_UNAVAILABLE' });
   });
 });
 

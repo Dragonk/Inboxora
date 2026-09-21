@@ -14,6 +14,7 @@ import { GraphApiError } from './graphApiClient.js';
 import type { GraphApiOptions } from './graphApiClient.js';
 import {
   fetchMailFolders,
+  fetchWellKnownFolderIds,
   fetchMessagesDeltaPage,
   graphFolderPathMap,
   localMessageForGraphMessage,
@@ -247,8 +248,13 @@ export async function syncGraphMailFoldersForAccount(input: {
   };
 
   try {
-    const folders = await fetchMailFolders(api);
-    const mapped = graphFolderPathMap(folders);
+    // The listing carries no role: `wellKnownName` is a beta-only property and requesting it from v1.0 can fail
+    // the whole request (GRAPH-01). Roles come from resolving each well-known alias to its real id instead.
+    const [folders, wellKnownById] = await Promise.all([
+      fetchMailFolders(api),
+      fetchWellKnownFolderIds(api),
+    ]);
+    const mapped = graphFolderPathMap(folders, wellKnownById);
     const applied = await withTransaction(client => applyGraphMailFolders(client, context, mapped));
     const committed = await withTransaction(client => commitSyncCheckpoint(client, {
       syncStateId,

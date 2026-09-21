@@ -265,6 +265,13 @@ Microsoft application is registered in this environment.
 
 ### Fixed
 
+- **Microsoft mail synchronisation reads the folder tree again.** Folder discovery asked the pinned v1.0 Graph
+  endpoint for `wellKnownName`, a property that only the beta resource has. Depending on the service that either
+  fails the request outright or returns folders with no role at all, in which case Inbox, Sent, Trash, Spam and
+  Drafts were not recognised and no provider message could be placed in the local folders the interface and the
+  rules read. Discovery now asks v1.0 only for v1.0 fields and resolves each well-known folder through its
+  documented v1.0 alias (`GET /me/mailFolders/inbox`), so a renamed or non-English folder keeps its role.
+
 - **Reconnecting a mailbox now reaches the end of the flow.** The account card's connect button asks for one
   consent that covers mail, calendar and contacts together, but the OAuth start routes accepted a narrower set
   of purposes and quietly downgraded the request to a "new account" authorization. That authorization stores the
