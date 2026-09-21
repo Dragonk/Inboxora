@@ -20,7 +20,13 @@ vi.mock('./graphApiClient.js', async importOriginal => ({
 }));
 const { query, withTransaction } = vi.mocked(await import('../../db.js'));
 const { graphGetWithHeaders } = vi.mocked(await import('./graphApiClient.js'));
-import { applyGraphMessageIdTranslation, immutableIdForMessage, planGraphMessageIdTranslation } from './graphMessageIdType.js';
+import {
+  applyGraphMessageIdTranslation,
+  immutableIdForMessage,
+  immutableIdsEnabled,
+  markMessageIdsTranslated,
+  planGraphMessageIdTranslation,
+} from './graphMessageIdType.js';
 
 const api = { userId: 'user-1', connectionId: 'connection-1' };
 
@@ -88,5 +94,38 @@ describe('planning and applying the translation', () => {
     const [sql, params] = client.query.mock.calls[1] as [string, unknown[]];
     expect(sql).toContain('NOT EXISTS');
     expect(params).toEqual(['row-2', 'IMMUTABLE-3']);
+  });
+});
+
+describe('the record that allows the immutable-id preference (GRAPH-04)', () => {
+  it('records the translation only when every stored message was answered for', async () => {
+    query.mockResolvedValue({ rowCount: 1, rows: [{ id: 'connection-1' }] } as never);
+
+    // A message Graph would not answer for keeps its old id; asking for the immutable form afterwards would make
+    // the synchronisation see a different id for it and insert a second copy. The record is therefore refused.
+    const refused = await markMessageIdsTranslated({
+      connectionId: 'connection-1',
+      plan: { changes: [], unchanged: 3, unavailable: [{ messageId: 'row-1', providerMessageId: 'AAMkAD-1' }] },
+    });
+    expect(refused).toBe(false);
+    expect(query).not.toHaveBeenCalled();
+
+    const recorded = await markMessageIdsTranslated({
+      connectionId: 'connection-1',
+      plan: { changes: [{ messageId: 'row-1', from: 'AAMkAD-1', to: 'IMM-1' }], unchanged: 2, unavailable: [] },
+    });
+    expect(recorded).toBe(true);
+    const [sql, params] = query.mock.calls[0] as [string, unknown[]];
+    expect(sql).toContain('immutable_message_ids_at = NOW()');
+    expect(params).toEqual(['connection-1']);
+  });
+
+  it('answers that the preference is not in use until that record exists', async () => {
+    // The default state of every mailbox: the synchronisation keeps the default id form.
+    query.mockResolvedValue({ rows: [{ immutable_message_ids_at: null }] } as never);
+    await expect(immutableIdsEnabled('connection-1')).resolves.toBe(false);
+
+    query.mockResolvedValue({ rows: [{ immutable_message_ids_at: new Date('2026-09-21T10:00:00Z') }] } as never);
+    await expect(immutableIdsEnabled('connection-1')).resolves.toBe(true);
   });
 });

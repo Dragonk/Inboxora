@@ -1,5 +1,5 @@
 import { query, withTransaction } from '../../db.js';
-import { graphGetWithHeaders, graphUrl } from './graphApiClient.js';
+import { graphGetWithHeaders, graphUrl, IMMUTABLE_ID_PREFERENCE } from './graphApiClient.js';
 import type { GraphApiOptions } from './graphApiClient.js';
 
 /**
@@ -18,8 +18,6 @@ import type { GraphApiOptions } from './graphApiClient.js';
  * The preference is not enabled anywhere by this file; a mailbox is only ever read under it here, one message at a
  * time, with what Graph returns compared against what is stored before anything is written.
  */
-const IMMUTABLE_ID_PREFERENCE = 'IdType="ImmutableId"';
-
 /** The immutable id Graph reports for one message, or null when it reports none. */
 export async function immutableIdForMessage(api: GraphApiOptions, providerMessageId: string): Promise<string | null> {
   const message = await graphGetWithHeaders<{ id?: string | null }>(
@@ -116,4 +114,43 @@ export async function applyGraphMessageIdTranslation(plan: GraphIdTranslationPla
     }
     return { updated, skipped };
   });
+}
+
+/**
+ * Record that a connection's message ids are now in the immutable form (GRAPH-04).
+ *
+ * Refused when the plan reported any message Graph would not answer for: such a row keeps its old id, and asking
+ * for the immutable form afterwards would make the synchronisation see a different id for it and insert a second
+ * copy. Until that is resolved the mailbox stays on the default form, where nothing is duplicated and nothing is
+ * lost — the safe state, not the ideal one.
+ */
+export async function markMessageIdsTranslated(input: {
+  connectionId: string;
+  plan: GraphIdTranslationPlan;
+}): Promise<boolean> {
+  if (input.plan.unavailable.length > 0) return false;
+  const result = await query(
+    'UPDATE provider_connections SET immutable_message_ids_at = NOW(), updated_at = NOW() WHERE id = $1',
+    [input.connectionId],
+  );
+  return (result.rowCount ?? 0) > 0;
+}
+
+/** When this connection's ids were translated, or null when they have not been. */
+export async function messageIdsTranslatedAt(connectionId: string): Promise<Date | null> {
+  const result = await query<{ immutable_message_ids_at: Date | null }>(
+    'SELECT immutable_message_ids_at FROM provider_connections WHERE id = $1',
+    [connectionId],
+  );
+  return result.rows[0]?.immutable_message_ids_at ?? null;
+}
+
+/**
+ * Whether a connection's Graph requests may ask for immutable ids.
+ *
+ * The one place the decision is made, so a request that asks for a form the mailbox has not been translated into
+ * cannot be added by accident: every caller reads it from here.
+ */
+export async function immutableIdsEnabled(connectionId: string): Promise<boolean> {
+  return (await messageIdsTranslatedAt(connectionId)) !== null;
 }

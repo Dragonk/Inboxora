@@ -35,6 +35,13 @@ Nothing is being prepared beyond 4.1.0. Work whose version has not been chosen a
 ## [4.1.0]
 
 ### Added
+- **An operator can prepare an existing Microsoft mailbox for immutable message ids without switching the sync on.**
+  `planGraphMessageIdTranslation` asks Graph for the immutable id of each stored message in bounded batches and
+  writes nothing; `applyGraphMessageIdTranslation` applies only the confirmed mapping, skips collisions, and refuses
+  to mark the connection ready if Graph did not answer for any stored row. Only after that marker exists does the
+  Graph mail client add `Prefer: IdType="ImmutableId"` to its requests. The synchronisation still defaults to the
+  old id form, and the tool is not wired to a route or automatic job yet: the translation must be run deliberately
+  and validated against a real mailbox first.
 - **A provider message's labels are now recorded as membership, not only as its one folder.** A Gmail message can
   carry several labels at once, and Inboxora presents it in the folder of its primary label alone — so a message
   that is both in the inbox and labelled *Work* is missing from the other view. The synchronisation now writes one

@@ -27,6 +27,7 @@ import type { GraphMessage, LocalMailFolder } from './graphMail.js';
 import { drainGraphMailFlagOperations } from './graphMailMutations.js';
 import { applyIngestRulesToRows } from '../../providerIngestRules.js';
 import { persistConversationCopyForRow } from '../../conversationRowIngest.js';
+import { immutableIdsEnabled } from './graphMessageIdType.js';
 import type { ConversationAccountRow } from '../../conversationRowIngest.js';
 import type { FetchLike } from '../../providerAuthService.js';
 
@@ -260,6 +261,9 @@ export async function syncGraphMailFoldersForAccount(input: {
     userId: input.userId,
     connectionId: input.connectionId,
     owner,
+    // GRAPH-04: the immutable-id preference is only used for a mailbox whose stored ids have already been
+    // translated into that form; read here, from the connection's own record, never assumed.
+    immutableIds: await immutableIdsEnabled(input.connectionId),
     ...(input.config ? { config: input.config } : {}),
     ...(input.fetchImpl ? { fetchImpl: input.fetchImpl } : {}),
   };
@@ -642,6 +646,7 @@ export async function syncGraphMailMessagesForFolder(input: {
     userId: input.userId,
     connectionId: input.connectionId,
     owner,
+    immutableIds: await immutableIdsEnabled(input.connectionId),
     ...(input.config ? { config: input.config } : {}),
     ...(input.fetchImpl ? { fetchImpl: input.fetchImpl } : {}),
   };

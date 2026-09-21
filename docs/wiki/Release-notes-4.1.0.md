@@ -91,6 +91,13 @@ without copying or losing anything local.
 
 ## Administrator actions
 
+- **Preparing Microsoft message identities (optional, not automatic).** Existing Graph rows use the default
+  message id, which can change when a message moves. Before enabling immutable ids, run the translation in plan mode,
+  review the mapping and unavailable/colliding rows, then apply it only when the plan is complete. The application
+  records the successful translation on the connection and only then adds `Prefer: IdType="ImmutableId"` to Graph
+  mail requests. This release does not expose an automatic command or enable the preference by default; a real
+  mailbox must validate the translation before the switch is used.
+
 - **Microsoft message identifiers can be migrated to their permanent form.** Inboxora can ask Microsoft for each
   stored message's permanent (immutable) identifier and record it, which is the step that has to happen before any
   synchronisation may rely on those identifiers — relying on them first would duplicate every message in the

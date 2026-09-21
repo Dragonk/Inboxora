@@ -102,7 +102,18 @@ export interface GraphApiOptions {
   config?: ReturnType<typeof microsoftConfigFromEnv>;
   fetchImpl?: FetchLike;
   owner?: string;
+  /**
+   * Ask for **immutable** message ids on every request this client makes (GRAPH-04).
+   *
+   * The preference is per request, and it may only be used for a mailbox whose stored ids have already been
+   * translated to that form — asking for it earlier would make every stored id unrecognisable. Callers set it from
+   * the connection's recorded translation, never from a default.
+   */
+  immutableIds?: boolean;
 }
+
+/** The preference that makes Graph answer with immutable ids rather than the default, mutable ones. */
+export const IMMUTABLE_ID_PREFERENCE = 'IdType="ImmutableId"';
 
 async function accessToken(options: GraphApiOptions, skewSeconds?: number): Promise<string> {
   const result = await getMicrosoftAccessToken({
@@ -136,10 +147,14 @@ async function graphSendWithHeaders(
 ): Promise<Response> {
   const fetchImpl = options.fetchImpl ?? fetch;
   const url = pathOrUrl.startsWith('http') ? pathOrUrl : `${GRAPH_API_BASE}${pathOrUrl}`;
+  // The caller's own preference wins when it set one; otherwise the mailbox's immutable-id mode applies.
+  const prefer = extraHeaders.prefer
+    ?? (options.immutableIds ? IMMUTABLE_ID_PREFERENCE : undefined);
   const send = async (token: string): Promise<Response> => fetchImpl(url, {
     method: init.method,
     headers: {
       ...extraHeaders,
+      ...(prefer ? { prefer } : {}),
       authorization: `Bearer ${token}`,
       accept: 'application/json',
       ...(init.body === undefined ? {} : { 'content-type': 'application/json' }),
