@@ -1,5 +1,6 @@
 import { withTransaction } from './db.js';
 import { beginOperation, completeOperation, recordOperationProgress, scheduleOperationRetry } from './providerOperations.js';
+import type { OperationProgressEntry } from './providerOperations.js';
 import type { ProviderOperationStatus } from './providerOperations.js';
 import type { ProviderOperation } from './providers/contracts.js';
 
@@ -52,6 +53,14 @@ export interface ProviderMutationAdapter<TPayload, TResult = unknown> {
   idempotent: boolean;
   /** The provider call. It must classify its own failures. */
   perform(payload: TPayload, context: ProviderMutationContext): Promise<ProviderAdapterOutcome<TResult>>;
+  /**
+   * Whether this adapter can continue a reclaimed operation from the stages it recorded (CAL-01).
+   *
+   * Only an adapter that writes in steps *and* records each of them can answer yes: it must know which of its
+   * writes the record shows as done, so resuming does not repeat one. The default — no method at all — keeps the
+   * conservative park.
+   */
+  resumeFrom?(progress: OperationProgressEntry[]): boolean;
 }
 
 export interface ProviderMutationContext {
@@ -68,6 +77,12 @@ export interface ProviderMutationContext {
    * always supplies it, and an adapter must therefore call it as `context.recordProgress?.(…)`.
    */
   recordProgress?(stage: string, detail?: unknown): Promise<void>;
+  /**
+   * The stages a reclaimed operation already completed, empty for a fresh one.
+   *
+   * An adapter that resumes reads them to skip the writes the record shows as done.
+   */
+  progress?: OperationProgressEntry[];
 }
 
 export interface ProviderMutationRequest<TPayload> {
@@ -138,8 +153,12 @@ function codeFrom(error: unknown): string {
  * is the decision the whole layer exists to make, and it is worth asserting
  * directly rather than only through a database round trip.
  */
-export function reclaimDecision(reclaimed: boolean, idempotent: boolean): 'run' | 'park' {
-  return reclaimed && !idempotent ? 'park' : 'run';
+export function reclaimDecision(reclaimed: boolean, idempotent: boolean, resumable = false): 'run' | 'park' {
+  // A non-idempotent adapter is normally parked: the previous owner may have dispatched the call before it stopped,
+  // and running it again could duplicate the effect. An adapter that recorded its own stages and declares itself
+  // resumable is the exception — it can continue from where the record says it stopped, without repeating a write
+  // the record shows was completed (CAL-01).
+  return reclaimed && !idempotent && !resumable ? 'park' : 'run';
 }
 
 /** The outcomes that map to a terminal journal status. `retryable` is scheduled instead. */
@@ -204,7 +223,8 @@ export async function runProviderMutation<TPayload, TResult = unknown>(
   }
 
   // ── Phase 2: the provider call, with the claim already durable ────────────
-  if (reclaimDecision(claim.reclaimed, adapter.idempotent) === 'park') {
+  const resumable = Boolean(adapter.resumeFrom?.(claim.progress ?? []));
+  if (reclaimDecision(claim.reclaimed, adapter.idempotent, resumable) === 'park') {
     await withTransaction(client => completeOperation(client, {
       operationId: claim.operationId,
       claimToken: claim.claimToken,
@@ -222,6 +242,7 @@ export async function runProviderMutation<TPayload, TResult = unknown>(
     outcome = await adapter.perform(request.payload, {
       operationId: claim.operationId,
       signal: controller.signal,
+      progress: claim.progress ?? [],
       // Durable, so a run that dies after the first write leaves evidence rather than a bare "in flight".
       recordProgress: async (stage: string, detail?: unknown) => {
         await withTransaction(client => recordOperationProgress(client, {

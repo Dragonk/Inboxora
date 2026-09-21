@@ -14,7 +14,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { PoolClient } from 'pg';
 import { pool } from './db.js';
-import { beginOperation } from './providerOperations.js';
+import { beginOperation, recordOperationProgress } from './providerOperations.js';
 import type { ProviderAdapterOutcome, ProviderMutationAdapter } from './providerMutationService.js';
 import { journalStatusFor, reclaimDecision, runProviderMutation } from './providerMutationService.js';
 
@@ -48,8 +48,17 @@ async function operationRow(operationId: string): Promise<{ status: string; erro
   return row;
 }
 
-function adapter(perform: () => Promise<ProviderAdapterOutcome<string>>, idempotent: boolean): ProviderMutationAdapter<void, string> {
-  return { resourceType: 'test_resource', idempotent, perform: async () => perform() };
+function adapter(
+  perform: () => Promise<ProviderAdapterOutcome<string>>,
+  idempotent: boolean,
+  options: { resumeFrom?: (progress: Array<{ stage: string }>) => boolean } = {},
+): ProviderMutationAdapter<void, string> {
+  return {
+    resourceType: 'test_resource',
+    idempotent,
+    ...(options.resumeFrom ? { resumeFrom: options.resumeFrom } : {}),
+    perform: async () => perform(),
+  };
 }
 
 function request(idempotencyKey: string, payloadHash = 'hash-1') {
@@ -148,6 +157,37 @@ describeOrSkip('provider mutation layer (PostgreSQL)', () => {
     expect(result.status).toBe('outcome_unknown');
     expect(result.replayed).toBe(true);
     expect((await operationRow(result.operationId!)).status).toBe('outcome_unknown');
+  });
+
+  it('lets a non-idempotent adapter resume from the stages a recovered operation recorded', async () => {
+    // CAL-01: parking is right when nothing is known about how far the previous owner got. An adapter that records
+    // each of its steps can answer that question, so the remaining step is finished instead of abandoned.
+    const started = await autocommit(client => beginOperation(client, {
+      userId: USER_ID, resourceType: 'test_resource', operation: 'update',
+      idempotencyKey: 'key-crashed-resumable', payloadHash: 'hash-1', leaseSeconds: 300,
+    }));
+    if (started.outcome !== 'started') throw new Error('Expected a fresh operation');
+    // The previous owner truncated the series, recorded that, and stopped before creating the remainder.
+    await autocommit(client => recordOperationProgress(client, {
+      operationId: started.operationId, claimToken: started.claimToken, generation: started.generation,
+      stage: 'master_truncated', detail: { masterId: 'series-1' },
+    }));
+    await expireOperationLease(started.operationId);
+
+    const seen: Array<{ stage: string }> = [];
+    let calls = 0;
+    const result = await runProviderMutation(request('key-crashed-resumable'), adapter(async () => {
+      calls += 1;
+      return { status: 'committed', value: 'resumed' };
+    }, false, {
+      resumeFrom: progress => { seen.push(...progress); return progress.some(entry => entry.stage === 'master_truncated'); },
+    }));
+
+    expect(calls).toBe(1);
+    expect(result.status).toBe('confirmed');
+    expect(result.replayed).toBe(false);
+    // The adapter was told what its predecessor had already done, which is what lets it skip that write.
+    expect(seen).toContainEqual(expect.objectContaining({ stage: 'master_truncated' }));
   });
 
   it('re-runs a recovered idempotent operation, because re-applying it converges', async () => {

@@ -227,8 +227,13 @@ reads the new columns; a mixed old/new deployment must not run with the new code
   about which half had happened. Each completed stage is now appended to the operation's own record, under the same
   claim fence as the final write, and the whole intent (the series, the split point and the remainder's payload) is
   recorded **before** the first write, so a run that stops mid-way leaves everything the remainder would need to be
-  reconciled. Still open: nothing consumes those stages yet — the operation is still parked as unknown rather than
-  resumed from them, and that resumption is the remaining part of CAL-01.
+  reconciled. A recovered operation now **uses** them: an adapter that declares itself resumable is run against its
+  own record instead of being parked as an unknown outcome, skipping the writes the record shows as completed — the
+  series is not truncated twice, the remainder is created from the snapshot the operation recorded, and an operation
+  whose record already shows the remainder returns that result without touching the provider at all. An adapter that
+  records nothing keeps the conservative park, so nothing is re-run on a guess. Still open: a create whose outcome
+  was never recorded is not resumed (no record, no resume), which is what keeps a lost response from becoming a
+  second series.
 - **The message-action seam now has a provider implementation.** `MailActionPort` (above) is implemented for Gmail
   and Microsoft Graph: the port resolves the local message from the `uid`/folder the rules engine passes and then
   acts by the provider's own id, through the move, delete and flag services that already run on the mutation

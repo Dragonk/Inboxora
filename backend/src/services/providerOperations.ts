@@ -72,6 +72,13 @@ export type BeginOperationResult =
      * dispatched it before it stopped.
      */
     reclaimed: boolean;
+    /**
+     * The stages a reclaimed operation had already completed.
+     *
+     * A caller that resumed an operation needs them to know which writes it must not repeat, and an adapter that
+     * declares itself resumable receives them through its context (CAL-01).
+     */
+    progress: OperationProgressEntry[];
   }
   | { outcome: 'duplicate'; operationId: string; status: ProviderOperationStatus; result?: unknown; errorCode?: string | null }
   | { outcome: 'in_progress'; operationId: string; status: ProviderOperationStatus }
@@ -87,6 +94,15 @@ interface OperationRow {
   generation: string | number;
   lease_expires_at: string | Date | null;
   attempts: number;
+  /** The durable record of this operation's own stages, as `recordOperationProgress` appends them (CAL-01). */
+  upstream_ref?: { progress?: OperationProgressEntry[] } | null;
+}
+
+/** One completed stage of a multi-write operation. */
+export interface OperationProgressEntry {
+  stage: string;
+  at?: string;
+  detail?: unknown;
 }
 
 function scopedIdempotencyPredicate(): string {
@@ -131,13 +147,13 @@ export async function beginOperation(client: PoolClient, input: BeginOperationIn
   );
   const started = insert.rows[0];
   if (started) {
-    return { outcome: 'started', operationId: started.id, claimToken: started.claim_token, generation: Number(started.generation), reclaimed: false };
+    return { outcome: 'started', operationId: started.id, claimToken: started.claim_token, generation: Number(started.generation), reclaimed: false, progress: [] };
   }
 
   // The row already exists for this key. Lock it so two concurrent retries cannot
   // both decide to reclaim the same expired claim.
   const existing = await client.query<OperationRow>(
-    `SELECT id, status, payload_hash, result, error_code, claim_token, generation, lease_expires_at, attempts
+    `SELECT id, status, payload_hash, result, error_code, claim_token, generation, lease_expires_at, attempts, upstream_ref
        FROM provider_operations
       WHERE ${scopedIdempotencyPredicate()}
       FOR UPDATE`,
@@ -175,7 +191,14 @@ export async function beginOperation(client: PoolClient, input: BeginOperationIn
   );
   const claimed = reclaim.rows[0];
   if (!claimed) return { outcome: 'in_progress', operationId: row.id, status: 'in_flight' };
-  return { outcome: 'started', operationId: claimed.id, claimToken: claimed.claim_token, generation: Number(claimed.generation), reclaimed: true };
+  return {
+    outcome: 'started',
+    operationId: claimed.id,
+    claimToken: claimed.claim_token,
+    generation: Number(claimed.generation),
+    reclaimed: true,
+    progress: row.upstream_ref?.progress ?? [],
+  };
 }
 
 export interface CompleteOperationInput {

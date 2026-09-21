@@ -267,8 +267,11 @@ Microsoft application is registered in this environment.
 
 - **Internal: a two-step calendar change now records its progress.** Splitting a repeating event writes twice; if
   Inboxora stops between the writes, the operation's own record now says which part completed and holds the
-  information the second part needs, instead of leaving an unexplained unknown outcome. Nothing reads those stages
-  yet — resuming from them is the remaining work — so the user-visible behaviour of a split is unchanged.
+  information the second part needs, instead of leaving an unexplained unknown outcome. A change that was
+  interrupted is now finished from that record rather than abandoned — the first write is not repeated, and the
+  second uses the snapshot the operation recorded. A write whose outcome was never recorded is still left alone
+  (that is what stops a lost response from creating a second series), so an interrupted split either completes
+  exactly or is reported as unknown, never silently duplicated.
 
 - **Internal: the transport seam now has a Gmail and Microsoft implementation.** The actions the inbox rules
   perform — move, delete, read/starred — can now be carried out on a native account through the same services

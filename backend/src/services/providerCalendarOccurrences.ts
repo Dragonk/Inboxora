@@ -2,6 +2,7 @@ import ICAL from 'ical.js';
 import { googleConfigFromEnv, microsoftConfigFromEnv } from './providerAuthService.js';
 import { runProviderMutation } from './providerMutationService.js';
 import type { ProviderAdapterOutcome, ProviderMutationAdapter } from './providerMutationService.js';
+import type { OperationProgressEntry } from './providerOperations.js';
 import { providerWriteFailure, type ProviderWriteFailure } from './providerWriteFailure.js';
 import type { GoogleEventWriteInput } from './providerGoogleWrites.js';
 import {
@@ -304,6 +305,25 @@ function continuedCount(total: number | null | undefined, consumed: number | nul
   return remaining > 0 ? { kind: 'count', count: remaining } : { kind: 'unsupported' };
 }
 
+/**
+ * The outcome a resumed run already reached, when its own record says the remainder exists.
+ *
+ * Returning it without touching the provider is what keeps a reclaimed operation from creating a second series.
+ */
+function resumedOutcome(context: { progress?: OperationProgressEntry[] } | undefined): ProviderAdapterOutcome<{ createdSeriesId?: string | null }> | null {
+  const created = context?.progress?.find(entry => entry.stage === 'remainder_created');
+  const createdSeriesId = (created?.detail as { createdSeriesId?: string } | undefined)?.createdSeriesId;
+  return createdSeriesId ? { status: 'committed', value: { createdSeriesId } } : null;
+}
+
+/** What a resumed run must not repeat, and the snapshot the remainder is built from. */
+function resumedSplit(context: { progress?: OperationProgressEntry[] } | undefined): { masterTruncated: boolean; prepared: Record<string, unknown> | null } | null {
+  const truncated = context?.progress?.some(entry => entry.stage === 'master_truncated') ?? false;
+  if (!truncated) return null;
+  const prepared = context?.progress?.find(entry => entry.stage === 'split_prepared')?.detail;
+  return { masterTruncated: true, prepared: (prepared as Record<string, unknown> | undefined) ?? null };
+}
+
 // ── Resolution of the provider's occurrence identity ─────────────────────────
 /**
  * The provider's id for one occurrence, or `null` when the provider does not know it.
@@ -385,10 +405,17 @@ function graphValueInput(values: OccurrenceEventValues): LocalEventWriteInput {
 function googleOccurrenceAdapter(api: Parameters<typeof insertGoogleEvent>[0]): ProviderMutationAdapter<OccurrenceWritePayload, { createdSeriesId?: string | null }> {
   return {
     resourceType: 'calendar_event',
-    // Applying a truncation twice, or creating the remainder twice, is not safe to replay, so a recovered
-    // claim is parked — the same rule the single-event adapter states.
+    // Applying a truncation twice, or creating the remainder twice, is not safe to replay, so a recovered claim is
+    // parked **unless** the operation recorded how far it got: then the remaining step can be finished from that
+    // record instead of repeating both writes (CAL-01).
     idempotent: false,
+    resumeFrom: progress => Boolean(
+      progress.some(entry => entry.stage === 'master_truncated')
+      && progress.some(entry => entry.stage === 'split_prepared'),
+    ),
     async perform(write, context): Promise<ProviderAdapterOutcome<{ createdSeriesId?: string | null }>> {
+      if (resumedOutcome(context)) return resumedOutcome(context) as ProviderAdapterOutcome<{ createdSeriesId?: string | null }>;
+      const resumed = resumedSplit(context);
       try {
         if (write.scope === 'single') {
           if (write.operation === 'cancel') {
@@ -455,16 +482,20 @@ function googleOccurrenceAdapter(api: Parameters<typeof insertGoogleEvent>[0]): 
           scope: write.scope,
           operation: write.operation,
           remainderRecurrence,
-          values: write.values ?? null,
+          values: writeValues,
         });
-        await patchGoogleEvent(
-          api,
-          write.providerCalendarId,
-          write.masterId,
-          { recurrence: truncateRRuleBefore(existing, before, { startIsDate }) },
-          { sendUpdates: write.sendUpdates },
-        );
-        await context?.recordProgress?.('master_truncated', { masterId: write.masterId, occurrenceStart: write.occurrenceStart });
+        // A resumed run already truncated the master: repeating it would re-derive the same truncation, but the
+        // record is the authority on what happened, so the write is skipped entirely.
+        if (!resumed?.masterTruncated) {
+          await patchGoogleEvent(
+            api,
+            write.providerCalendarId,
+            write.masterId,
+            { recurrence: truncateRRuleBefore(existing, before, { startIsDate }) },
+            { sendUpdates: write.sendUpdates },
+          );
+          await context?.recordProgress?.('master_truncated', { masterId: write.masterId, occurrenceStart: write.occurrenceStart });
+        }
         if (write.operation === 'cancel' || !remainder) return { status: 'committed', value: {} };
 
         if (remainderRecurrence) {
@@ -487,7 +518,13 @@ function graphOccurrenceAdapter(api: Parameters<typeof patchGraphEvent>[0]): Pro
   return {
     resourceType: 'calendar_event',
     idempotent: false,
+    resumeFrom: progress => Boolean(
+      progress.some(entry => entry.stage === 'master_truncated')
+      && progress.some(entry => entry.stage === 'split_prepared'),
+    ),
     async perform(write, context): Promise<ProviderAdapterOutcome<{ createdSeriesId?: string | null }>> {
+      if (resumedOutcome(context)) return resumedOutcome(context) as ProviderAdapterOutcome<{ createdSeriesId?: string | null }>;
+      const resumed = resumedSplit(context);
       try {
         if (write.scope === 'single') {
           if (write.operation === 'cancel') {
@@ -574,10 +611,17 @@ function graphOccurrenceAdapter(api: Parameters<typeof patchGraphEvent>[0]): Pro
           operation: write.operation,
           payload: payload ?? null,
         });
-        await patchGraphEvent(api, write.providerCalendarId, write.masterId, {
-          recurrence: { pattern, range: { type: 'endDate', startDate, endDate } },
-        });
-        await context?.recordProgress?.('master_truncated', { masterId: write.masterId, occurrenceStart: write.occurrenceStart });
+        // The record is the authority: a resumed run does not repeat a truncation it already completed.
+        if (!resumed?.masterTruncated) {
+          await patchGraphEvent(api, write.providerCalendarId, write.masterId, {
+            recurrence: { pattern, range: { type: 'endDate', startDate, endDate } },
+          });
+          await context?.recordProgress?.('master_truncated', { masterId: write.masterId, occurrenceStart: write.occurrenceStart });
+        }
+        // A resumed run creates the remainder from the snapshot it recorded before the first write, not from a
+        // rebuild: that snapshot is what the operation declared it would create.
+        const recordedPayload = (resumed?.prepared as { payload?: GraphEventPayload | null } | undefined)?.payload ?? null;
+        if (resumed?.masterTruncated && recordedPayload) payload = recordedPayload;
         if (write.operation === 'cancel' || !payload) return { status: 'committed', value: {} };
 
         const created = await createGraphEvent(api, write.providerCalendarId, payload);
