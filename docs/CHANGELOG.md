@@ -242,6 +242,14 @@ provider identity, `0109` provider-operation payload, `0110` device authorizatio
 reads the new columns; a mixed old/new deployment must not run with the new code before the migrations.
 
 ### Changed
+- **A user can now hold more than one source of the same provider.** `user_integrations` shipped with
+  `UNIQUE (user_id, provider)`, so a second CardDAV or CalDAV server could not be represented at all — the audit's
+  DAV-01. The constraint is replaced by two partial unique indexes: one keeps the unlabelled row per provider
+  unique, which is exactly the guarantee the old constraint gave, so every reader that expects a single integration
+  for a provider keeps behaving as it does; the other makes a label unique per user and provider, so additional
+  sources are addressed by their own name. Nothing is rewritten and no row is touched — this is the model step that
+  makes a multi-source UI and sync possible, and the readers do not use it yet, so behaviour is unchanged. The
+  remaining part of DAV-01 is teaching the connect flow, the sync and the interface to work with several sources.
 - **A two-write provider change now records how far it got.** Splitting a repeating event is two provider writes —
   truncate the series, then create the remainder — and a process that died between them left the journal saying only
   that the operation had started; a reclaimed claim could then only report an unknown outcome, with nothing to say
