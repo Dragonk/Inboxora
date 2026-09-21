@@ -84,6 +84,14 @@ without copying or losing anything local.
 
 ## Administrator actions
 
+- **Microsoft message identifiers can be migrated to their permanent form.** Inboxora can ask Microsoft for each
+  stored message's permanent (immutable) identifier and record it, which is the step that has to happen before any
+  synchronisation may rely on those identifiers — relying on them first would duplicate every message in the
+  mailbox. The migration can be planned without writing anything and then applied, in batches. Nothing uses the
+  permanent identifiers by default, and the migration should be validated against a real mailbox before it is made
+  the default.
+
+
 The full procedure — fields, redirect URIs, scope names and console steps — is in
 [Connecting Google and Microsoft accounts](Provider-setup.md). In summary:
 
