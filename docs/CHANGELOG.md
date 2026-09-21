@@ -296,6 +296,13 @@ None.
   IMAP loops, health checks, rule forwarder and send path no longer open IMAP or SMTP for it.
 
 ### Fixed
+- **A calendar the user disabled is no longer synchronised, and discovery no longer switches it back on.** Both
+  calendar syncs selected the connection's calendars without an `enabled` filter — mail already had one — so a
+  collection the user turned off kept being pulled and written to, and the "link repair" branch re-asserted
+  `enabled = true` and `user_access = 'source'` on a half-finished link, undoing a user's choice. Discovery now
+  touches only the provider's own facts (`source_access`, the provider's permission), and Graph refreshes that
+  permission on an already-linked calendar too: Google did, Graph returned early, so a share whose write
+  permission had been revoked stayed described locally as writable.
 - **A listing that stopped at a page limit is no longer treated as the end of the list.** Every provider adapter
   caps how many pages one run reads, and several of them then went on as if the collection had been read
   completely: Graph mail and the Graph and Google calendar rebuilds reconciled deletions against a partial

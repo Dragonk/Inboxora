@@ -289,6 +289,37 @@ describeOrSkip('Google Calendar sync (PostgreSQL)', { timeout: PG_TEST_TIMEOUT_M
     expect((await storedEvents()).map(event => event.uid)).toEqual(['standup@google.com']);
   });
 
+  it('does not synchronise a calendar the user disabled, and does not switch it back on', async () => {
+    // SYNC-09: a disabled collection is a user choice, not an absent one. Discovery must not re-enable it, and
+    // the synchroniser must not pull it — before this, the selection query had no `enabled` filter, so a
+    // calendar the user turned off kept being written to.
+    const connectionId = await seedConnection();
+    await syncGoogleCalendar({
+      userId: USER_ID, connectionId, config: CONFIG,
+      fetchImpl: fakeProvider([() => json(CALENDAR_LIST), () => json({ items: [master], nextSyncToken: 'sync-1' })]).fetchImpl,
+    });
+    expect((await storedEvents()).map(event => event.uid)).toEqual(['standup@google.com']);
+
+    await autocommit(client => client.query(
+      "UPDATE integration_collections SET enabled = false WHERE user_id = $1 AND kind = 'calendar'", [USER_ID],
+    ));
+
+    const second = fakeProvider([
+      () => json(CALENDAR_LIST),
+      () => json({ items: [master, single], nextSyncToken: 'sync-2' }),
+    ]);
+    const result = await syncGoogleCalendar({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl: second.fetchImpl });
+    // Only the calendar-listing call happened: the disabled collection was not synchronised.
+    expect(result.collections).toBe(0);
+    expect(second.urls).toHaveLength(1);
+    // The second calendar's event was never pulled, and the choice survived the discovery pass.
+    expect((await storedEvents()).map(event => event.uid)).toEqual(['standup@google.com']);
+    const collection = await autocommit(client => client.query<{ enabled: boolean; source_access: string }>(
+      "SELECT enabled, source_access FROM integration_collections WHERE user_id = $1 AND kind = 'calendar'", [USER_ID],
+    ));
+    expect(collection.rows[0]).toMatchObject({ enabled: false });
+  });
+
   it('records the provider’s own access role, and refreshes it without touching the user’s choice', async () => {
     const connectionId = await seedConnection();
     // A calendar shared read-only: the provider permits no writes, so the write-back switch must refuse.

@@ -265,6 +265,11 @@ Microsoft application is registered in this environment.
 
 ### Fixed
 
+- **A calendar you switched off is really off.** Both calendar syncs ignored the per-collection enabled switch
+  when choosing what to pull, so a disabled calendar kept being synchronised, and a refresh could turn a
+  collection you disabled back on. Discovery now updates only the provider's own facts, the synchroniser reads
+  only enabled collections, and a share whose write permission has been revoked is shown as read-only again.
+
 - **A synchronisation that was cut short no longer looks finished, and never deletes what it did not read.**
   Provider listings are capped at a number of pages per run. When a run hit that cap, some adapters reconciled
   deletions against the pages they had seen — deleting messages, contacts and events that were merely further

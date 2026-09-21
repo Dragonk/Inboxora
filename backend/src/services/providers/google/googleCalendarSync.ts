@@ -132,10 +132,11 @@ export async function ensureGoogleCalendarCollection(client: PoolClient, input: 
         if (!calendarId) throw new Error('Could not create the Google calendar');
 
         if (existing.rows[0]) {
+          // A link row without a local calendar is a half-finished link, not a user choice: fill in the local
+          // side and the provider's own fact, but leave `enabled` and `user_access` as they are (SYNC-09).
           await client.query(
             `UPDATE integration_collections
-                SET local_calendar_id = $2, enabled = true, source_access = $3, user_access = 'source',
-                    dav_mode = 'off', updated_at = NOW()
+                SET local_calendar_id = $2, source_access = $3, dav_mode = 'off', updated_at = NOW()
               WHERE id = $1`,
             [existing.rows[0].id, calendarId, sourceAccess],
           );
@@ -340,8 +341,11 @@ export async function syncGoogleCalendar(input: {
   });
 
   const stored = await withTransaction(client => client.query<{ id: string; remote_id: string; local_calendar_id: string }>(
+    // Only enabled calendars are synchronised. A calendar the user disabled is a user choice, not an absent
+    // collection: before this filter a disabled calendar was still pulled and written to (SYNC-09).
     `SELECT id, remote_id, local_calendar_id FROM integration_collections
       WHERE user_id = $1 AND connection_id = $2 AND kind = 'calendar' AND local_calendar_id IS NOT NULL
+        AND enabled = true
       ORDER BY created_at ASC`,
     [input.userId, input.connectionId],
   ));

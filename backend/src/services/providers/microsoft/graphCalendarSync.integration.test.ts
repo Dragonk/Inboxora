@@ -188,6 +188,50 @@ describeOrSkip('Microsoft Graph calendar sync (PostgreSQL)', { timeout: PG_TEST_
     expect(state.rows[0]?.cursor).toBe(DELTA_LINK_1);
   });
 
+  it('refreshes a revoked write permission without touching the user’s choices', async () => {
+    // SYNC-09: Google refreshed `source_access` on an already-linked calendar; Graph returned early and never
+    // did, so a share whose write permission was revoked kept being described locally as writable.
+    const connectionId = await seedConnection();
+    await syncGraphCalendar({
+      userId: USER_ID, connectionId, config: CONFIG,
+      fetchImpl: fakeProvider([
+        () => json(CALENDAR_LIST),
+        () => json({ value: [], '@odata.deltaLink': DELTA_LINK_1 }),
+        () => json({ value: [], '@odata.deltaLink': 'https://graph.microsoft.com/v1.0/me/calendars/cal-2/events/delta?$deltatoken=2' }),
+      ]).fetchImpl,
+    });
+    const before = await autocommit(client => client.query<{ remote_id: string; source_access: string; enabled: boolean; user_access: string }>(
+      'SELECT remote_id, source_access, enabled, user_access FROM integration_collections WHERE user_id = $1 ORDER BY remote_id', [USER_ID],
+    ));
+    expect(before.rows).toEqual([
+      { remote_id: 'cal-1', source_access: 'read_write', enabled: true, user_access: 'source' },
+      { remote_id: 'cal-2', source_access: 'read_only', enabled: true, user_access: 'source' },
+    ]);
+    // The user disables cal-2 and restricts write-back to a local-only choice; neither may be overwritten.
+    await autocommit(client => client.query(
+      "UPDATE integration_collections SET user_access = 'read_only' WHERE user_id = $1 AND remote_id = 'cal-2'", [USER_ID],
+    ));
+
+    const downgraded = { value: [{ ...CALENDAR_LIST.value[0], canEdit: false }, CALENDAR_LIST.value[1]] };
+    await syncGraphCalendar({
+      userId: USER_ID, connectionId, config: CONFIG,
+      fetchImpl: fakeProvider([
+        () => json(downgraded),
+        () => json({ value: [], '@odata.deltaLink': DELTA_LINK_1 }),
+        () => json({ value: [], '@odata.deltaLink': 'https://graph.microsoft.com/v1.0/me/calendars/cal-2/events/delta?$deltatoken=3' }),
+      ]).fetchImpl,
+    });
+
+    const after = await autocommit(client => client.query<{ remote_id: string; source_access: string; enabled: boolean; user_access: string }>(
+      'SELECT remote_id, source_access, enabled, user_access FROM integration_collections WHERE user_id = $1 ORDER BY remote_id', [USER_ID],
+    ));
+    expect(after.rows).toEqual([
+      // The provider's fact follows the share; the user's own choice does not move.
+      { remote_id: 'cal-1', source_access: 'read_only', enabled: true, user_access: 'source' },
+      { remote_id: 'cal-2', source_access: 'read_only', enabled: true, user_access: 'read_only' },
+    ]);
+  });
+
   it('resumes from the stored delta link and merges a moved instance with a cancelled event', async () => {
     const connectionId = await seedConnection();
     await syncGraphCalendar({
