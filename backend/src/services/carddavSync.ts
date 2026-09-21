@@ -86,6 +86,17 @@ type CardavContact = ReturnType<typeof contactFromVCard>;
 type CardavBook = Awaited<ReturnType<typeof discoverAddressBooks>>[number];
 type CardavCredentials = { username: string; password: string; allowPrivate: boolean };
 
+/**
+ * Whether a duplicate found in another book may be merged into by this pull (DAV-03).
+ *
+ * A local book is the user's own and another DAV book belongs to the same source, so the vCard's descriptive
+ * fields can be applied to either. A Google or Microsoft contact is synchronized with its provider, and this pull
+ * has no way to push the change back, so writing to it here would be an overwrite the other source then undoes.
+ */
+function mergesIntoSource(ownerSource: string | null): boolean {
+  return ownerSource !== 'google' && ownerSource !== 'microsoft';
+}
+
 async function upsertCardavContact(client: PoolClient, bookId: string, userId: string, c: CardavContact) {
   const etag = crypto.createHash('md5').update(c.vcard).digest('hex');
   await client.query(`
@@ -157,15 +168,17 @@ async function syncBook(userId: string, book: CardavBook, dupMode: string, creds
     console.warn('Linking an external address book to its source connection failed:', toAppError(caught).message);
   }
 
-  // Emails present in the user's OTHER books, for cross-book duplicate handling.
-  const otherEmail = new Map<string, string>(); // email -> existing contact id
+  // Emails present in the user's OTHER books, for cross-book duplicate handling. The owning book's source comes
+  // with it, because a contact that belongs to another provider must not be written by this pull (DAV-03).
+  const otherEmail = new Map<string, { id: string; source: string | null }>();
   if (dupMode !== 'separate') {
-    const rows = await query<{ primary_email: string; id: string }>(
-      `SELECT id, primary_email FROM contacts
-       WHERE user_id = $1 AND address_book_id <> $2 AND primary_email IS NOT NULL`,
+    const rows = await query<{ primary_email: string; id: string; source: string | null }>(
+      `SELECT c.id, c.primary_email, b.source
+         FROM contacts c JOIN address_books b ON b.id = c.address_book_id
+        WHERE c.user_id = $1 AND c.address_book_id <> $2 AND c.primary_email IS NOT NULL`,
       [userId, bookId],
     );
-    for (const r of rows.rows) otherEmail.set(r.primary_email.toLowerCase(), r.id);
+    for (const r of rows.rows) otherEmail.set(r.primary_email.toLowerCase(), { id: r.id, source: r.source });
   }
 
   // Classify first (no writes) so we know the final set before touching the DB.
@@ -181,8 +194,13 @@ async function syncBook(userId: string, book: CardavBook, dupMode: string, creds
     if (c.primaryEmail && dupMode !== 'separate' && otherEmail.has(c.primaryEmail)) {
       if (dupMode === 'skip') continue;
       if (dupMode === 'merge') {
-        const existingId = otherEmail.get(c.primaryEmail);
-        if (existingId) { toMerge.push({ id: existingId, contact: c }); continue; }
+        const owner = otherEmail.get(c.primaryEmail);
+        // A merge may only write a contact this pull owns: another book of the same DAV source, or one of the
+        // user's own local books. A contact that belongs to Google or Microsoft is left **untouched** — the pull
+        // has no write-through to that provider, so merging into it would overwrite the other source's data here
+        // and that source's next sync would clobber it back, silently losing whichever change came second
+        // (DAV-03). The incoming card is created as its own contact instead, so both copies survive.
+        if (owner && mergesIntoSource(owner.source)) { toMerge.push({ id: owner.id, contact: c }); continue; }
       }
     }
     toUpsert.push(c);

@@ -296,6 +296,13 @@ None.
   IMAP loops, health checks, rule forwarder and send path no longer open IMAP or SMTP for it.
 
 ### Fixed
+- **A CardDAV pull no longer overwrites contacts that belong to Google or Microsoft.** With duplicate handling set
+  to "merge", a card whose email matched a contact in another book was written onto that contact with no check of
+  who owned it. A Google or Microsoft contact is synchronized with its provider and this pull has no write-through
+  to it, so the change existed only locally and the provider's next sync reverted it — whichever edit came second
+  was lost silently. A merge now applies only to a book this pull may write (another DAV book of the same source,
+  or one of the user's own local books); a provider-owned duplicate is left untouched and the incoming card is
+  created as its own contact, so both copies survive.
 - **The address books appear as soon as a CardDAV source is connected.** Connecting pulls the server's address
   books, but the panel that did the connecting never told the screen, so the books the user had just connected
   did not appear until the page was reloaded by hand — which is what made DAV look like an import rather than a

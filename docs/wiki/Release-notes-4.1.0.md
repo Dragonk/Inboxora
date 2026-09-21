@@ -265,6 +265,12 @@ Microsoft application is registered in this environment.
 
 ### Fixed
 
+- **A CardDAV synchronisation no longer changes your Google or Microsoft contacts.** With duplicate merging on,
+  a matching email caused the imported card to be written over the provider-synced contact — a change Inboxora
+  could not send back to that provider, so the next synchronisation undid it and the edit was lost. Merging now
+  applies only to your own local books and to other books of the same CardDAV source; when the duplicate belongs
+  to Google or Microsoft, both contacts are kept.
+
 - **Connecting a CardDAV source shows its address books immediately.** The books it pulls used to appear only
   after a manual page reload, so a freshly connected source looked like it had imported nothing.
 

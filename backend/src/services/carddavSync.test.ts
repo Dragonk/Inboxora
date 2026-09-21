@@ -141,7 +141,9 @@ describe('remote CardDAV contact-date persistence', () => {
     query.mockImplementation(async (sql: string) => {
       if (sql.includes('SELECT config FROM user_integrations')) return { rows: [{ config: { serverUrl: 'https://dav.example', username: 'user', password: 'password', dupMode: 'merge' } }] };
       if (sql.includes('SELECT id FROM address_books')) return { rows: [{ id: 'book-1' }] };
-      if (sql.includes('SELECT id, primary_email FROM contacts')) return { rows: [{ id: 'existing-contact-1', primary_email: 'duplicate@example.com' }] };
+      // The owner's book source travels with the match, because a provider-owned contact may not be merged
+      // into (DAV-03). A local book is the user's own, so the merge applies.
+      if (sql.includes('JOIN address_books')) return { rows: [{ id: 'existing-contact-1', primary_email: 'duplicate@example.com', source: 'local' }] };
       return { rows: [] };
     });
     fetchAddressBookCards.mockResolvedValue([{ href, vcard }]);
@@ -175,6 +177,27 @@ describe('remote CardDAV contact-date persistence', () => {
     if (!secondMergeCall) throw new Error('Expected a repeated existing-contact merge query');
     const [, secondMergeParams] = secondMergeCall;
     expect(secondMergeParams[9]).toBe(mergeParams[9]);
+  });
+
+  it('never merges into a contact that another provider owns', async () => {
+    // DAV-03: `dupMode=merge` wrote the DAV card's fields onto a matching contact in a Google or Microsoft book.
+    // This pull has no write-through to that provider, so the overwrite existed only locally and the provider's
+    // next sync reverted it — whichever change came second was lost. The card is created in its own book instead.
+    query.mockImplementation(async (sql: string) => {
+      if (sql.includes('SELECT config FROM user_integrations')) return { rows: [{ config: { serverUrl: 'https://dav.example', username: 'user', password: 'password', dupMode: 'merge' } }] };
+      if (sql.includes('SELECT id FROM address_books')) return { rows: [{ id: 'book-1' }] };
+      if (sql.includes('JOIN address_books')) return { rows: [{ id: 'google-contact-1', primary_email: 'duplicate@example.com', source: 'google' }] };
+      return { rows: [] };
+    });
+    fetchAddressBookCards.mockResolvedValue([{ href: '/apple.vcf', vcard: appleMergeCard }]);
+
+    await expect(syncUser('user-1')).resolves.toMatchObject({ ok: true, contactCount: 1 });
+
+    // The other source's row is not touched, and the card lands as its own contact in this book.
+    expect(transactionQuery.mock.calls.some(([sql]) => sql.includes('UPDATE contacts SET'))).toBe(false);
+    const upserts = transactionQuery.mock.calls.filter(([sql]) => sql.includes('INSERT INTO contacts'));
+    expect(upserts).toHaveLength(1);
+    expect(upserts[0]?.[1][2]).toBe('apple-1');
   });
 
   it.each([
