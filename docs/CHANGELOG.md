@@ -336,11 +336,11 @@ None.
   provider reader. A failure is logged and never fails the synchronisation that stored the mail. Not yet validated
   against a live Gmail or Microsoft mailbox: the rule actions are exercised by unit tests and by the provider
   services the routes already use, so the first real-account run should be watched (the diagnostics report each
-  account's last error per feature). **One end-to-end case is still open** and is recorded rather than smoothed
-  over: in a Gmail baseline, after the block list moved a blocked message to trash, the run reported `deleted: 1`
-  and the local row was gone. The move itself reached the provider service, so the deletion happens afterwards and
-  its cause is not yet identified. Until it is understood, a blocked message on a Gmail account can be removed
-  from the local store instead of merely being re-filed, which is the outcome this change set out to prevent.
+  account's last error per feature). The end-to-end case that first reported a blocked message disappearing was
+  the *fake* being unfaithful, not the synchronisation: it kept listing the message under INBOX after the move, so
+  the run's own reconcile correctly treated the locally re-filed row as one the provider no longer holds. With a
+  fake that reflects the move — INBOX before, TRASH after — the message is moved, survives the run and is filed in
+  Trash, and the run deletes nothing. The case is committed, so that behaviour is now pinned rather than assumed.
 - **Every Microsoft contact folder is now synchronised, each into its own address book.** Only the default folder
   was pulled, so a contact kept in a second (or nested) folder never appeared. The folders — including one level
   of children, which is how contact folders nest — are discovered and each becomes its own local book with its own

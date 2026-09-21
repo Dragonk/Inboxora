@@ -8,7 +8,7 @@
 //   DB_HOST=127.0.0.1 DB_PORT=55432 DB_NAME=inboxora_gmail_gate DB_USER=mailflow_test DB_PASSWORD=mailflow_test \
 //     npx vitest run src/services/providers/google/gmailMailSync.integration.test.ts
 
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import crypto from 'crypto';
 import type { PoolClient } from 'pg';
 import { pool } from '../../db.js';
@@ -25,6 +25,25 @@ import {
   syncGmailMailLabelsForAccount,
   syncGmailMailMessagesForAccount,
 } from './gmailMailSync.js';
+
+/**
+ * The provider move the block list performs, mocked at **its own** boundary.
+ *
+ * `moveGmailMessageToLabel` builds its own Gmail client, so the HTTP fake this suite uses for the synchronisation
+ * cannot intercept it. Mocking it here still lets the case prove what matters: the engine ran on a real
+ * synchronisation's rows, resolved the right message and asked the provider for the right destination. The mock
+ * also **flips the mailbox state** the HTTP fake reports, because a real move changes it — and a fake that keeps
+ * listing the message under INBOX would have the synchronisation's own reconcile put it back.
+ */
+const movedToTrash = vi.hoisted(() => ({ value: false }));
+const moveGmailMessageToLabelMock = vi.hoisted(() => vi.fn(async () => {
+  movedToTrash.value = true;
+  return { moved: true as const, folder: 'Trash' };
+}));
+vi.mock('./gmailMailMove.js', async importOriginal => ({
+  ...(await importOriginal<typeof import('./gmailMailMove.js')>()),
+  moveGmailMessageToLabel: moveGmailMessageToLabelMock,
+}));
 
 const hasPg = process.env.DB_HOST && process.env.DB_NAME;
 const describeOrSkip = hasPg ? describe : describe.skip;
@@ -194,6 +213,7 @@ describeOrSkip('Gmail API label and message ingest (PostgreSQL)', () => {
   });
 
   beforeEach(async () => {
+    moveGmailMessageToLabelMock.mockClear();
     await autocommit(async client => {
       await client.query('DELETE FROM provider_connections WHERE user_id = $1', [USER_ID]);
       await client.query('DELETE FROM email_accounts WHERE user_id = $1', [USER_ID]);
@@ -346,6 +366,58 @@ describeOrSkip('Gmail API label and message ingest (PostgreSQL)', () => {
       [USER_ID, ACCOUNT_ID],
     ));
     expect(state.rows[0]).toMatchObject({ cursor: '1000', page_checkpoint: null, last_error_code: null });
+  });
+
+  it('moves a blocked sender’s freshly stored inbox mail to the trash on Gmail (MAIL-01)', async () => {
+    // The block list ran only for IMAP accounts until the engine was given a transport port. This is the
+    // end-to-end evidence that a native account now honours it: the message arrives through an ordinary baseline
+    // and the block list asks Gmail to move it out of the inbox.
+    const connectionId = await seedConnection();
+    await syncGmailMailLabels({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl: fakeGmail([{ match: /\/labels$/, handle: () => json(LABELS) }]).fetchImpl });
+    await autocommit(client => client.query(
+      'INSERT INTO block_list (user_id, email_address) VALUES ($1, $2)',
+      [USER_ID, 'spammer@example.test'],
+    ));
+
+    movedToTrash.value = false;
+    const spam = () => message('m9', 't9', movedToTrash.value ? ['UNREAD', 'TRASH'] : ['UNREAD', 'INBOX'], {
+      payload: { headers: [
+        { name: 'From', value: 'Spammer <spammer@example.test>' },
+        { name: 'To', value: 'me@example.test' },
+        { name: 'Subject', value: 'Buy something' },
+        { name: 'Message-ID', value: '<m9@example.test>' },
+      ] },
+    });
+    const provider = fakeGmail([
+      { match: /\/profile$/, handle: () => json({ historyId: '1000' }) },
+      // The provider's own view: INBOX before the move, TRASH after it.
+      { match: /\/messages$/, handle: url => {
+        const label = url.searchParams.get('labelIds');
+        if (label === 'INBOX') return json(movedToTrash.value ? { messages: [] } : { messages: [{ id: 'm9', threadId: 't9' }] });
+        if (label === 'TRASH') return json(movedToTrash.value ? { messages: [{ id: 'm9', threadId: 't9' }] } : { messages: [] });
+        return json({ messages: [] });
+      } },
+      { match: /\/threads\/t9$/, handle: () => json({ id: 't9', historyId: '1000', messages: [spam()] }) },
+    ]);
+
+    const result = await syncGmailMailMessagesForAccount({
+      userId: USER_ID, connectionId, accountId: ACCOUNT_ID, config: CONFIG, fetchImpl: provider.fetchImpl,
+    });
+    expect(result.created).toBe(1);
+
+    // The block list reached the provider, by the id the port resolved from the row, into the account's trash.
+    expect(moveGmailMessageToLabelMock, 'the block list did not reach the provider').toHaveBeenCalledWith(expect.objectContaining({
+      providerMessageId: 'm9',
+      destinationPath: 'Trash',
+      sourcePath: 'INBOX',
+    }));
+
+    // And the message survives the run, filed in Trash rather than in the inbox and rather than deleted.
+    const rows = await storedMessages();
+    const stored = rows.find(row => row.provider_message_id === 'm9');
+    expect(stored, 'the blocked message was deleted instead of re-filed').toBeDefined();
+    expect(stored?.folder).toBe('Trash');
+    expect(result.deleted).toBe(0);
   });
 
   it('applies an incremental run from the history cursor: a mailbox move and a deletion', async () => {
