@@ -590,7 +590,38 @@ export async function applyGmailMessage(
       throw caught;
     }
   }
+  if (applied) await recordGmailMessageLabels(client, context, applied.id, local);
   return applied;
+}
+
+/**
+ * Record every label a message carries, as membership (MAIL-02).
+ *
+ * The message's own `provider_labels` array is the label set as Gmail reported it, and this is that set written as
+ * rows: one per label, with the local folder the label projects into when this account models one. It is the
+ * durable form a view can be built on — today a message is presented only in the folder of its *primary* label, so
+ * a message carrying several is missing from the others — and it is written here, with the message, in the same
+ * transaction. Nothing reads it yet: the reads change together with the model, and recording the membership first
+ * is what makes that change verifiable.
+ */
+async function recordGmailMessageLabels(
+  client: PoolClient,
+  context: GmailMessageContext,
+  messageId: string,
+  local: LocalGmailMessage,
+): Promise<void> {
+  const labelIds = Array.isArray(local.labels) ? local.labels.filter(label => typeof label === 'string' && label) : [];
+  // Replace the whole set: a label the message no longer carries must not linger in the membership.
+  await client.query('DELETE FROM message_labels WHERE message_id = $1', [messageId]);
+  if (labelIds.length === 0) return;
+  const folderPaths = labelIds.map(labelId => context.pathByLabelId.get(labelId) ?? null);
+  await client.query(
+    `INSERT INTO message_labels (message_id, account_id, label_id, folder_path)
+     SELECT $1, $2, label.label_id, label.folder_path
+       FROM unnest($3::text[], $4::text[]) AS label(label_id, folder_path)
+     ON CONFLICT (message_id, label_id) DO UPDATE SET folder_path = EXCLUDED.folder_path`,
+    [messageId, context.accountId, labelIds, folderPaths],
+  );
 }
 
 /**

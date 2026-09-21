@@ -360,6 +360,23 @@ describeOrSkip('Gmail API label and message ingest (PostgreSQL)', () => {
       has_attachments: true,
     });
 
+    // MAIL-02: the message's label set is recorded as membership rows, one per label, with the local folder each
+    // label projects into — the durable form the views need, written with the message. Nothing reads it yet.
+    const membership = await autocommit(client => client.query<{ provider_message_id: string; label_id: string; folder_path: string | null }>(
+      `SELECT m.provider_message_id, ml.label_id, ml.folder_path
+         FROM message_labels ml JOIN messages m ON m.id = ml.message_id
+        WHERE ml.account_id = $1 ORDER BY m.provider_message_id, ml.label_id`,
+      [ACCOUNT_ID],
+    ));
+    expect(membership.rows).toEqual([
+      // m1 carries UNREAD (no local folder) and INBOX (the inbox path).
+      { provider_message_id: 'm1', label_id: 'INBOX', folder_path: 'INBOX' },
+      { provider_message_id: 'm1', label_id: 'UNREAD', folder_path: null },
+      // m2 carries the user label Work, which is a folder here, and STARRED, which is not.
+      { provider_message_id: 'm2', label_id: 'Label_1', folder_path: 'Work' },
+      { provider_message_id: 'm2', label_id: 'STARRED', folder_path: null },
+    ]);
+
     const state = await autocommit(client => client.query<{ cursor: string | null; page_checkpoint: string | null; last_error_code: string | null }>(
       `SELECT cursor, page_checkpoint, last_error_code FROM sync_states
         WHERE user_id = $1 AND account_id = $2 AND feature = 'mail' AND coverage = 'history'`,

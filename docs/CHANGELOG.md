@@ -35,6 +35,14 @@ Nothing is being prepared beyond 4.1.0. Work whose version has not been chosen a
 ## [4.1.0]
 
 ### Added
+- **A provider message's labels are now recorded as membership, not only as its one folder.** A Gmail message can
+  carry several labels at once, and Inboxora presents it in the folder of its primary label alone — so a message
+  that is both in the inbox and labelled *Work* is missing from the other view. The synchronisation now writes one
+  row per (message, label) into a new `message_labels` table, with the local folder each label projects into, in the
+  same transaction as the message itself. **Nothing reads it yet**, deliberately: the reads (folder listings,
+  counts, search) change together with the model, and recording the membership first is what makes that change
+  verifiable. The migration is additive — it creates a table and rewrites nothing — and is named for the upgrade
+  order below.
 - **A controlled way to move a Microsoft mailbox onto immutable message ids.** Graph has two kinds of message id:
   the default one, which can change when a message moves between folders, and the immutable one, which is stable and
   is what a local store should record. Asking for immutable ids is a per-request preference, and turning it on for a

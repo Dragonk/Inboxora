@@ -56,12 +56,14 @@ without copying or losing anything local.
 
 ## Upgrade impact
 
-- **Apply migrations `0101`–`0112` in order, before rolling out the application.** They are additive and no
-  existing table, column or row is rewritten. Three deserve naming: `0110` adds the columns the Microsoft
+- **Apply migrations `0101`–`0116` in order, before rolling out the application.** They are additive and no
+  existing table, column or row is rewritten. Four deserve naming: `0110` adds the columns the Microsoft
   device authorization uses and must be applied before a device flow is started; `0111` adds the nullable
   `messages.provider_labels` the Gmail adapter writes; `0112` adds the `read_write` value the per-collection
-  write-back switch needs and changes no row, so nothing becomes writable because of it. An application
-  version older than these columns simply leaves them `NULL`.
+  write-back switch needs and changes no row, so nothing becomes writable because of it; `0116` creates the
+  `message_labels` membership table (MAIL-02), which is written by the Gmail synchronisation and **read by
+  nothing yet** — an application version that does not know it leaves it empty, and one that knows it writes only
+  there. An application version older than these columns simply leaves them `NULL`.
 - **Microsoft accounts are not migrated automatically.** An existing Microsoft account keeps reading and
   sending over OAuth2 IMAP/SMTP until an administrator (or the account's owner) invokes the in-place
   cutover for it. Migrating is what makes the Graph paths reachable for that mailbox; **no account is
