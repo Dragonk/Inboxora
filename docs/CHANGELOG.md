@@ -296,6 +296,21 @@ None.
   IMAP loops, health checks, rule forwarder and send path no longer open IMAP or SMTP for it.
 
 ### Fixed
+- **The account card no longer reports "never" for a calendar or address book that did synchronise.** The
+  diagnostics read `sync_states` by `account_id` and by the raw feature name, but mail state is the only state
+  stored that way: the calendar synchronizers record the feature as `calendars` and store it per collection with
+  no account id, and the contact state likewise. The query therefore matched mail alone, so a mailbox whose
+  calendar and contacts had pulled data still showed "last synchronisation: never". The state is now read where
+  it is written (mail by account, calendar and contacts by the verified connection) and the feature name is
+  normalised.
+- **"Calendars" and "address books" are counted as calendars and address books.** The calendar count was every
+  collection of the connection — folders included, which is where "6 collections" came from — and the address
+  book count compared `kind` to `contacts`, a value the schema does not allow, so it was always zero. Each group
+  now carries only collections of its own kind (`calendar`, `address_book`), and a linked calendar or
+  address-book collection counts as a scheduler target even though those collections carry no account id.
+- **The reported sync pipeline follows the provider.** A single shared coverage string reported Gmail's
+  `history` for a Graph mailbox, whose pipeline is `messages`; the name now comes from the provider that owns
+  the feature.
 - **Microsoft mail folder discovery asked v1.0 for a field only beta has.** The folder listing selected
   `wellKnownName`, which the `mailFolder` resource exposes in the beta endpoint but not in v1.0 — the endpoint
   this adapter is pinned to. That is a contract violation a strict service answers with `400`, and even when it

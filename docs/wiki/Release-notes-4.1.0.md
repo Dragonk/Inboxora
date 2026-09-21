@@ -265,6 +265,14 @@ Microsoft application is registered in this environment.
 
 ### Fixed
 
+- **The account card tells the truth about calendars and contacts.** Calendar and address-book synchronisation
+  state is stored per collection with no account id, and the calendar pipeline is recorded as `calendars`; the
+  diagnostics looked for it by account id and under the name `calendar`, so it was invisible and the card said
+  "last synchronisation: never" for a connection that had pulled data. The same screen counted every collection
+  of the connection as a calendar (folders included) and compared the address-book kind to a value the schema
+  does not use, so it always showed zero books. Both reads now follow how the data is actually stored, and the
+  pipeline name shown follows the provider (Gmail `history`, Graph `messages`).
+
 - **Microsoft mail synchronisation reads the folder tree again.** Folder discovery asked the pinned v1.0 Graph
   endpoint for `wellKnownName`, a property that only the beta resource has. Depending on the service that either
   fails the request outright or returns folders with no role at all, in which case Inbox, Sent, Trash, Spam and

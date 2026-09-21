@@ -355,3 +355,110 @@ describeOrSkip('how a feature is refreshed', () => {
     await query('DELETE FROM integration_collections WHERE user_id = $1', [USER_A]);
   });
 });
+
+describeOrSkip('calendar and address-book state is read from where it is stored', () => {
+  it('counts calendars and address books by kind and reads the calendar pipeline run', async () => {
+    // OBS-01: the sync writers store calendar state as feature 'calendars' and contacts state as 'contacts',
+    // both with a connection and a collection but no account id, while calendar and address-book collections
+    // likewise carry only a connection. A reader that filtered on account_id and on the raw feature name saw
+    // none of it: the card reported "last synchronisation: never" and "0 address books" beside a connection
+    // that had in fact pulled both.
+    await query('DELETE FROM integration_collections WHERE user_id = $1', [USER_A]);
+    await query('DELETE FROM sync_states WHERE user_id = $1', [USER_A]);
+
+    const connectionId = await inTransaction(client => upsertProviderConnection(client, {
+      userId: USER_A, provider: 'google', issuer: 'https://accounts.google.com',
+      subject: 'diag-obs01', providerUserId: 'diag@gmail.test',
+    }));
+    await query('UPDATE email_accounts SET provider_connection_id = $2 WHERE id = $1', [accountId, connectionId]);
+    // Every feature authorized, so an unscheduled/never result cannot be blamed on a missing scope.
+    await inTransaction(client => storeOAuthGrant(client, {
+      connectionId, audience: GOOGLE_GRANT_AUDIENCE, accessToken: 'a', refreshToken: null,
+      expiresAt: new Date(Date.now() + 3600_000),
+      scopes: [`${GOOGLE}gmail.modify`, `${GOOGLE}calendar.events`, `${GOOGLE}contacts`],
+      clientIdAtIssue: 'client-1',
+    }));
+
+    const primary = await query<{ id: string }>(
+      "INSERT INTO calendars (user_id, name, owner_user_id) VALUES ($1, 'Primary', $1) RETURNING id", [USER_A],
+    );
+    const team = await query<{ id: string }>(
+      "INSERT INTO calendars (user_id, name, owner_user_id) VALUES ($1, 'Team', $1) RETURNING id", [USER_A],
+    );
+    const book = await query<{ id: string }>(
+      "INSERT INTO address_books (user_id, name) VALUES ($1, 'Personal') RETURNING id", [USER_A],
+    );
+    // Collections exactly as the sync writers create them: calendar and address_book rows have no account_id.
+    await query(
+      `INSERT INTO integration_collections
+         (user_id, connection_id, kind, remote_id, local_calendar_id, enabled, source_access, user_access, dav_mode)
+       VALUES ($1, $2, 'calendar', 'primary', $3, true, 'read_write', 'source', 'off'),
+              ($1, $2, 'calendar', 'team', $4, true, 'read_only', 'source', 'off')`,
+      [USER_A, connectionId, primary.rows[0]!.id, team.rows[0]!.id],
+    );
+    await query(
+      `INSERT INTO integration_collections
+         (user_id, connection_id, kind, remote_id, local_address_book_id, enabled, source_access, user_access, dav_mode)
+       VALUES ($1, $2, 'address_book', 'personal', $3, true, 'read_write', 'source', 'off')`,
+      [USER_A, connectionId, book.rows[0]!.id],
+    );
+
+    await query(
+      `INSERT INTO sync_states (user_id, connection_id, feature, collection_id, coverage, last_success_at, cursor)
+       SELECT $1, $2, 'calendars', ic.id, 'events', NOW() - interval '1 hour', 'cursor-cal'
+         FROM integration_collections ic
+        WHERE ic.user_id = $1 AND ic.kind = 'calendar'`,
+      [USER_A, connectionId],
+    );
+    await query(
+      `INSERT INTO sync_states (user_id, connection_id, feature, collection_id, coverage, last_success_at, cursor)
+       SELECT $1, $2, 'contacts', ic.id, 'personal', NOW() - interval '2 hours', 'cursor-book'
+         FROM integration_collections ic
+        WHERE ic.user_id = $1 AND ic.kind = 'address_book'`,
+      [USER_A, connectionId],
+    );
+
+    const features = await describeAccountProviderFeatures({ userId: USER_A, accountId });
+    expect(features!.diagnostics.calendar.collections).toBe(2);
+    expect(features!.diagnostics.contacts.collections).toBe(1);
+    expect(features!.calendar!.collections).toHaveLength(2);
+    expect(features!.contacts!.collections).toHaveLength(1);
+    expect(features!.diagnostics.calendar.lastSuccessfulSync).not.toBeNull();
+    expect(features!.diagnostics.calendar.cursorPresent).toBe(true);
+    expect(features!.diagnostics.calendar.syncStateCoverage).toBe('events');
+    expect(features!.diagnostics.contacts.lastSuccessfulSync).not.toBeNull();
+    expect(features!.diagnostics.contacts.syncStateCoverage).toBe('personal');
+    // A linked calendar or address-book collection is a scheduler target even without an account id on it.
+    expect(features!.diagnostics.calendar.schedulerTarget).toBe(true);
+    expect(features!.diagnostics.contacts.schedulerTarget).toBe(true);
+
+    await query('DELETE FROM integration_collections WHERE user_id = $1', [USER_A]);
+    await query('DELETE FROM sync_states WHERE user_id = $1', [USER_A]);
+  });
+
+  it('names the Microsoft mail coverage for a Microsoft account, not the Google one', async () => {
+    // A single shared coverage string reported `history` for a Graph mailbox, whose pipeline is `messages`
+    // (OBS-01). The name is what the interface shows, so it has to follow the provider that owns the feature.
+    const microsoftAccount = await query<{ id: string }>(
+      `INSERT INTO email_accounts (user_id, name, email_address, imap_host, imap_port, smtp_host, smtp_port, auth_user, auth_pass, mail_transport)
+       VALUES ($1, 'Graph', 'diag@outlook.test', 'outlook.office365.com', 993, 'smtp.office365.com', 587, 'diag@outlook.test', 'x', 'microsoft_graph')
+       RETURNING id`,
+      [USER_A],
+    );
+    const microsoftAccountId = microsoftAccount.rows[0]!.id;
+    await query('DELETE FROM sync_states WHERE user_id = $1 AND account_id = $2', [USER_A, microsoftAccountId]);
+    await query(
+      `INSERT INTO sync_states (user_id, account_id, feature, coverage, last_success_at, cursor)
+       VALUES ($1, $2, 'mail', 'messages', NOW(), 'delta-1')`,
+      [USER_A, microsoftAccountId],
+    );
+
+    const features = await describeAccountProviderFeatures({ userId: USER_A, accountId: microsoftAccountId });
+    expect(features!.provider).toBe('microsoft');
+    expect(features!.diagnostics.mail.syncStateCoverage).toBe('messages');
+    expect(features!.diagnostics.mail.lastSuccessfulSync).not.toBeNull();
+
+    await query('DELETE FROM sync_states WHERE user_id = $1 AND account_id = $2', [USER_A, microsoftAccountId]);
+    await query('DELETE FROM email_accounts WHERE id = $1', [microsoftAccountId]);
+  });
+});

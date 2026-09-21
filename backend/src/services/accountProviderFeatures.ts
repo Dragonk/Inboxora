@@ -287,13 +287,16 @@ function withSchedulerTarget(
   feature: 'mail' | 'calendar' | 'contacts',
   schedulable: Set<string>,
   authorized: boolean,
+  provider: ProviderAccountKind | null,
 ): AccountFeatureSyncState & { synchronized: boolean; syncPending: boolean; syncErrorCode: string | null } {
   const coverage = PIPELINE_COVERAGE[feature]!;
-  const kinds = feature === 'mail' ? ['mail_label', 'mail_folder'] : [feature];
+  const kinds = feature === 'mail' ? ['mail_label', 'mail_folder'] : [feature === 'calendar' ? 'calendar' : 'address_book'];
   return {
     ...state,
     // The pipeline's own coverage is what the fields above describe; discovery has its own row and is not it.
-    syncStateCoverage: coverage.google,
+    // The name depends on the provider (Gmail records `history`, Graph records `messages`), so it is read from
+    // the provider that owns the feature rather than always from the Google entry (OBS-01).
+    syncStateCoverage: provider ? coverage[provider] : '',
     schedulerTarget: authorized && kinds.some(kind => schedulable.has(kind)),
     ...synchronizationStateOf(state, authorized),
   };
@@ -325,22 +328,36 @@ const PIPELINE_COVERAGE: Record<string, { google: string; microsoft: string }> =
 };
 
 /** The last recorded run of each feature's own pipeline for one account, read from `sync_states`. */
-async function syncStatesForAccount(userId: string, accountId: string): Promise<Record<string, AccountFeatureSyncState>> {
+async function syncStatesForAccount(
+  userId: string,
+  accountId: string,
+  connectionId: string | null,
+): Promise<Record<string, AccountFeatureSyncState>> {
   const pipelineCoverages = [...new Set(Object.values(PIPELINE_COVERAGE).flatMap(entry => [entry.google, entry.microsoft]))];
+  // OBS-01: mail states are written per account, while calendar and contacts states are written per connection
+  // and per collection with no account id at all (`ensureSyncState` is called without one), and the calendar
+  // writer spells the feature `calendars`. Filtering everything by `account_id` therefore matched only mail, and
+  // grouping by the raw feature name dropped the calendar rows, so the card said "never" for a mailbox that had
+  // synchronized. The scope now follows how each feature is actually stored, and the feature name is normalised.
   const result = await query<{
     feature: string; coverage: string; last_success_at: Date | string | null;
     last_error_code: string | null; last_error_at: Date | string | null; cursor_present: boolean;
   }>(
-    `SELECT feature,
+    `SELECT CASE WHEN feature = 'calendars' THEN 'calendar' ELSE feature END AS feature,
             coverage,
             max(last_success_at) AS last_success_at,
             (array_agg(last_error_code ORDER BY last_error_at DESC NULLS LAST))[1] AS last_error_code,
             max(last_error_at) AS last_error_at,
             bool_or(cursor IS NOT NULL) AS cursor_present
        FROM sync_states
-      WHERE user_id = $1 AND account_id = $2 AND coverage = ANY($3::text[])
-      GROUP BY feature, coverage`,
-    [userId, accountId, pipelineCoverages],
+      WHERE user_id = $1
+        AND coverage = ANY($4::text[])
+        AND (
+          (feature = 'mail' AND account_id = $2)
+          OR (feature IN ('calendar', 'calendars', 'contacts') AND $3::uuid IS NOT NULL AND connection_id = $3)
+        )
+      GROUP BY CASE WHEN feature = 'calendars' THEN 'calendar' ELSE feature END, coverage`,
+    [userId, accountId, connectionId, pipelineCoverages],
   );
   const states: Record<string, AccountFeatureSyncState> = {};
   for (const row of result.rows) {
@@ -414,20 +431,9 @@ export async function describeAccountProviderFeatures(input: {
   const native = nativeTransport !== null && transport === nativeTransport;
   const subscriptions = await listSubscriptionDiagnostics();
 
-  // Read once, before the groups are assembled: each group reports its own synchronization state.
-  const syncStates = await syncStatesForAccount(input.userId, row.id);
-  // Which collection kinds the scheduler would pick up for this account's connection. The query the scheduler
-  // uses requires an enabled collection with a local link, so this asks the same question of the same table.
-  const schedulableKinds = await query<{ kind: string }>(
-    `SELECT DISTINCT ic.kind
-       FROM integration_collections ic
-      WHERE ic.user_id = $1 AND ic.account_id = $2 AND ic.enabled = true
-        AND (ic.local_calendar_id IS NOT NULL OR ic.local_address_book_id IS NOT NULL OR ic.local_folder_id IS NOT NULL)`,
-    [input.userId, row.id],
-  );
-  const schedulable = new Set(schedulableKinds.rows.map(entry => entry.kind));
-  const groups = {} as Record<ProviderAccountKind, AccountFeatureGroup>;
-  const contactsAuth = {} as Partial<Record<ProviderAccountKind, ProviderFeatureAuthorization>>;
+  // The verified connection this account resolves to. It scopes both the synchronization states and the
+  // scheduler-target question: calendar and address-book collections are stored per connection, with no
+  // account id, so an account-scoped query cannot see them (OBS-01).
   const mailConnection = provider
     ? await connectionForAccount({
         userId: input.userId, address: row.email_address, provider,
@@ -437,6 +443,27 @@ export async function describeAccountProviderFeatures(input: {
   const mailAuth = provider
     ? await readProviderFeatureAuthorization({ connectionId: mailConnection?.id ?? null, provider, feature: 'mail' })
     : { authorized: false, requiredScopes: [], grantedScopes: [], missingScopes: [] };
+
+  // Read once, before the groups are assembled: each group reports its own synchronization state.
+  const syncStates = await syncStatesForAccount(input.userId, row.id, mailConnection?.id ?? null);
+  // Which collection kinds the scheduler would pick up for this account's connection. The scheduler's own query
+  // requires an enabled collection with a local link on the connection, so this asks the same question of the
+  // same table: mail collections are account-scoped, calendar and address-book ones connection-scoped.
+  const schedulableKinds = await query<{ kind: string }>(
+    `SELECT DISTINCT ic.kind
+       FROM integration_collections ic
+      WHERE ic.user_id = $1 AND ic.enabled = true
+        AND (ic.local_calendar_id IS NOT NULL OR ic.local_address_book_id IS NOT NULL OR ic.local_folder_id IS NOT NULL)
+        AND (
+          (ic.kind IN ('mail_label', 'mail_folder') AND ic.account_id = $2)
+          OR (ic.kind IN ('calendar', 'address_book') AND $3::uuid IS NOT NULL
+              AND (ic.connection_id = $3 OR ic.source_connection_id = $3))
+        )`,
+    [input.userId, row.id, mailConnection?.id ?? null],
+  );
+  const schedulable = new Set(schedulableKinds.rows.map(entry => entry.kind));
+  const groups = {} as Record<ProviderAccountKind, AccountFeatureGroup>;
+  const contactsAuth = {} as Partial<Record<ProviderAccountKind, ProviderFeatureAuthorization>>;
 
   for (const kind of ['google', 'microsoft'] as const) {
     const connection = await connectionForAccount({
@@ -492,7 +519,7 @@ export async function describeAccountProviderFeatures(input: {
       }),
     },
     mail: {
-      ...withSchedulerTarget(syncStates.mail ?? EMPTY_SYNC_STATE, 'mail', schedulable, native),
+      ...withSchedulerTarget(syncStates.mail ?? EMPTY_SYNC_STATE, 'mail', schedulable, native, provider),
       transport,
       authorized: mailAuth.authorized,
       requiredScopes: mailAuth.requiredScopes,
@@ -503,19 +530,23 @@ export async function describeAccountProviderFeatures(input: {
       scheduler: native ? 'scheduled_and_push' : 'scheduled',
     },
     calendar: {
-      ...withSchedulerTarget(syncStates.calendar ?? EMPTY_SYNC_STATE, 'calendar', schedulable, provider !== null),
+      ...withSchedulerTarget(syncStates.calendar ?? EMPTY_SYNC_STATE, 'calendar', schedulable, provider !== null, provider),
       authorized: provider ? groups[provider].authorized : false,
       requiredScopes: provider ? groups[provider].requiredScopes : [],
       missingScopes: provider ? groups[provider].missingScopes : [],
-      collections: provider ? groups[provider].collections.length : 0,
+      // Only calendar collections are calendars: counting every collection of the connection reported folders as
+      // calendars, which is how "6 collections" appeared next to an empty calendar (OBS-01).
+      collections: provider ? groups[provider].collections.filter(collection => collection.kind === 'calendar').length : 0,
       push: push.calendar,
     },
     contacts: {
-      ...withSchedulerTarget(syncStates.contacts ?? EMPTY_SYNC_STATE, 'contacts', schedulable, provider !== null),
+      ...withSchedulerTarget(syncStates.contacts ?? EMPTY_SYNC_STATE, 'contacts', schedulable, provider !== null, provider),
       authorized: provider ? contactsAuth[provider]?.authorized ?? false : false,
       requiredScopes: provider ? contactsAuth[provider]?.requiredScopes ?? [] : [],
       missingScopes: provider ? contactsAuth[provider]?.missingScopes ?? [] : [],
-      collections: provider ? groups[provider].collections.filter(collection => collection.kind === 'contacts').length : 0,
+      // An address book is `kind = 'address_book'`; `'contacts'` is not a value the schema allows, so the count
+      // was always zero (OBS-01).
+      collections: provider ? groups[provider].collections.filter(collection => collection.kind === 'address_book').length : 0,
       push: push.contacts,
     },
   };
@@ -532,10 +563,15 @@ export async function describeAccountProviderFeatures(input: {
       // A migration is offered only for an account that classifies as the provider and is not already native.
       migrationAvailable: provider !== null && !native,
     },
-    calendar: provider ? groups[provider] : null,
+    // Each group carries only its own collections, so `calendar.collections.length` is a calendar count and
+    // `contacts.collections.length` an address-book count, as both the card and the diagnostics read them.
+    calendar: provider
+      ? { ...groups[provider], collections: groups[provider].collections.filter(collection => collection.kind === 'calendar') }
+      : null,
     contacts: provider
       ? {
           ...groups[provider],
+          collections: groups[provider].collections.filter(collection => collection.kind === 'address_book'),
           ...(contactsAuth[provider] ?? { authorized: false, requiredScopes: [], grantedScopes: [], missingScopes: [] }),
           ...synchronizationStateOf(syncStates.contacts, contactsAuth[provider]?.authorized ?? false),
         }
