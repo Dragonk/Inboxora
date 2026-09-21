@@ -320,6 +320,12 @@ None.
   IMAP loops, health checks, rule forwarder and send path no longer open IMAP or SMTP for it.
 
 ### Fixed
+- **A provider message's identity is no longer rounded when the ingest rules address it.** A provider row's
+  derived `uid` can exceed what a JavaScript number holds exactly — the Gmail sync writes 19-digit values, and the
+  value seen in the case that exposed this was `3724290043493249425`. The ingest path coerced it with `Number(...)`
+  before handing it back to the action port, so the port resolved a row that does not exist: the action failed,
+  the mail stayed where it was, and nothing was logged. The engine now carries the transport's own coordinate
+  unchanged (a string where the row stores one) and the port compares it as the column does.
 - **Inbox rules and the block list now run for Gmail and Microsoft accounts.** They only ran for IMAP accounts,
   because the engine acted through the IMAP manager; a native account stored its mail and applied nothing, so a
   blocked address kept arriving and a user's rules never fired. Both now run on the INBOX rows a native
@@ -330,7 +336,11 @@ None.
   provider reader. A failure is logged and never fails the synchronisation that stored the mail. Not yet validated
   against a live Gmail or Microsoft mailbox: the rule actions are exercised by unit tests and by the provider
   services the routes already use, so the first real-account run should be watched (the diagnostics report each
-  account's last error per feature).
+  account's last error per feature). **One end-to-end case is still open** and is recorded rather than smoothed
+  over: in a Gmail baseline, after the block list moved a blocked message to trash, the run reported `deleted: 1`
+  and the local row was gone. The move itself reached the provider service, so the deletion happens afterwards and
+  its cause is not yet identified. Until it is understood, a blocked message on a Gmail account can be removed
+  from the local store instead of merely being re-filed, which is the outcome this change set out to prevent.
 - **Every Microsoft contact folder is now synchronised, each into its own address book.** Only the default folder
   was pulled, so a contact kept in a second (or nested) folder never appeared. The folders — including one level
   of children, which is how contact folders nest — are discovered and each becomes its own local book with its own

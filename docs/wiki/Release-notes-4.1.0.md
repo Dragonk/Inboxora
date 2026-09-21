@@ -282,6 +282,12 @@ Microsoft application is registered in this environment.
 
 ### Fixed
 
+- **Known issue, found while testing this on a native account:** during a Gmail account's first full
+  synchronisation, after a blocked message is moved to trash the same run also reports it as deleted and the local
+  copy disappears. The move reaches Gmail, but what happens afterwards is not yet understood, so blocking a sender
+  on a Gmail account should be treated as unverified until this is fixed. Related and already fixed: a provider
+  message's internal identifier was being rounded, which made an ingest action fail without saying so.
+
 - **Your rules and blocked senders now work on Gmail and Microsoft accounts too.** They previously applied only to
   IMAP accounts: a blocked address kept arriving and no rule ran. Blocking an address now moves its new mail to
   that account's trash (or deletes it, when the account has no trash folder), and rules can move, archive, label,
