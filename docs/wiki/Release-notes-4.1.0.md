@@ -265,6 +265,15 @@ Microsoft application is registered in this environment.
 
 ### Fixed
 
+- **An address book you switched off is no longer synchronised by hand either.** It was already excluded from
+  the automatic schedule, but a manual "sync contacts" still pulled it. Both providers now skip a disabled book
+  and leave it and its contents alone.
+
+- **A repeating-event change now refuses before it changes anything.** Changing "this and following" is two
+  provider writes; the original was shortened before the request was validated, so a request that could never
+  succeed could still end the earlier part of the series. Validation and payload building now happen first. The
+  two writes are not yet resumable across a crash, which remains a known limitation.
+
 - **The card no longer says instant sync is on when the mailbox only polls.** The push state collapsed a
   subscription that exists but is failing, renewing or removed into "missing", and the schedule was labelled
   push-and-polling for every provider-API mailbox. The state now distinguishes those cases and shows when a

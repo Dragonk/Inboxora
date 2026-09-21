@@ -298,6 +298,24 @@ describe('changing this and following', () => {
     expect(mocks.graph.create).not.toHaveBeenCalled();
   });
 
+  it('refuses a following-change without values before truncating the master', async () => {
+    // CAL-01: the master used to be truncated and only then was the missing `values` noticed, so a request that
+    // could never succeed still ended the earlier part of the series. Everything is validated and built first.
+    mocks.google.instances.mockResolvedValue([{ id: `${GOOGLE_MASTER}_20260915T090000Z`, originalStartTime: { dateTime: '2026-09-15T09:00:00Z' } }]);
+    mocks.google.get.mockResolvedValue(GOOGLE_MASTER_EVENT);
+    const google = await writeProviderCalendarOccurrence({ target: googleTarget, scope: 'following', operation: 'update', sendUpdates: 'all' });
+    expect(google).toMatchObject({ status: 'failed', failure: { code: 'INVALID_REQUEST' } });
+    expect(mocks.google.patch).not.toHaveBeenCalled();
+    expect(mocks.google.insert).not.toHaveBeenCalled();
+
+    mocks.graph.instances.mockResolvedValue([{ id: `${GRAPH_MASTER}_20260915`, originalStart: '2026-09-15T09:00:00.0000000' }]);
+    mocks.graph.get.mockResolvedValue(GRAPH_MASTER_EVENT);
+    const graph = await writeProviderCalendarOccurrence({ target: graphTarget, scope: 'following', operation: 'update', sendUpdates: 'all' });
+    expect(graph).toMatchObject({ status: 'failed', failure: { code: 'INVALID_REQUEST' } });
+    expect(mocks.graph.patch).not.toHaveBeenCalled();
+    expect(mocks.graph.create).not.toHaveBeenCalled();
+  });
+
   it('continues a counted series without restarting its count, and refuses when it cannot', () => {
     // CAL-02: a COUNT rule copied verbatim restarts the whole series. With weekly Tuesdays from 2026-09-01 and
     // a split at the 4th occurrence, three occurrences stay behind and the remainder continues with seven.

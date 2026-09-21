@@ -386,10 +386,17 @@ function googleOccurrenceAdapter(api: Parameters<typeof insertGoogleEvent>[0]): 
         const existing = Array.isArray(master.recurrence) ? master.recurrence : [];
         // An all-day series has a DATE DTSTART, so its UNTIL must be a DATE too (CAL-03).
         const startIsDate = Boolean(master.start?.date && !master.start?.dateTime);
-        // The remainder's rule is computed **before** any write. A `COUNT` copied verbatim would start the
-        // whole count again from the split, so a series of 10 split at the 4th would end with 13 occurrences
-        // (CAL-02); when the continuation cannot be represented the write refuses instead of truncating the
-        // master and leaving a remainder that restarts the series.
+        // CAL-01: everything the two writes need is validated and built **before** the first one. The master
+        // used to be truncated and only then was the payload inspected, so a missing `values` (or a payload that
+        // could not be built) left a truncated series with no remainder.
+        if (write.operation !== 'cancel' && !write.values) {
+          return { status: 'permanent', code: 'INVALID_REQUEST' };
+        }
+        const remainder = write.values ? googleEventPayloadFor(googleValueInput(write.values)) : null;
+        // The remainder's rule is computed before any write. A `COUNT` copied verbatim would start the whole
+        // count again from the split, so a series of 10 split at the 4th would end with 13 occurrences (CAL-02);
+        // when the continuation cannot be represented the write refuses instead of truncating the master and
+        // leaving a remainder that restarts the series.
         const needsContinuation = write.operation !== 'cancel' && write.values?.recurrence === undefined;
         let remainderRecurrence: string[] | null = null;
         if (needsContinuation) {
@@ -407,10 +414,8 @@ function googleOccurrenceAdapter(api: Parameters<typeof insertGoogleEvent>[0]): 
           { recurrence: truncateRRuleBefore(existing, before, { startIsDate }) },
           { sendUpdates: write.sendUpdates },
         );
-        if (write.operation === 'cancel') return { status: 'committed', value: {} };
-        if (!write.values) return { status: 'permanent', code: 'INVALID_REQUEST' };
+        if (write.operation === 'cancel' || !remainder) return { status: 'committed', value: {} };
 
-        const remainder = googleEventPayloadFor(googleValueInput(write.values));
         if (remainderRecurrence) {
           // The remainder continues the series with the master's own rule adjusted for what the earlier part
           // keeps — not the truncated one, and not the original count either (CAL-02).
@@ -477,20 +482,27 @@ function graphOccurrenceAdapter(api: Parameters<typeof patchGraphEvent>[0]): Pro
             remainderRange = { ...(range ?? { type: 'noEnd' }), startDate: splitDate };
           }
         }
+        // CAL-01: the remainder payload is built **before** the master is truncated, so a missing `values` or a
+        // payload that cannot be built refuses with nothing written, instead of leaving a truncated series.
+        if (write.operation !== 'cancel' && !write.values) {
+          return { status: 'permanent', code: 'INVALID_REQUEST' };
+        }
+        let payload: GraphEventPayload | null = null;
+        if (write.values) {
+          payload = graphEventPayloadFor(graphValueInput(write.values));
+          if (write.values.recurrence) {
+            payload.recurrence = graphRecurrenceFromStructure(write.values.recurrence, write.values.startsAt);
+          } else if (write.values.recurrence === null) {
+            payload.recurrence = null;
+          } else if (master.recurrence) {
+            payload.recurrence = { pattern, range: remainderRange ?? { ...(master.recurrence.range ?? { type: 'noEnd' }), startDate: splitDate } };
+          }
+        }
         await patchGraphEvent(api, write.providerCalendarId, write.masterId, {
           recurrence: { pattern, range: { type: 'endDate', startDate, endDate } },
         });
-        if (write.operation === 'cancel') return { status: 'committed', value: {} };
-        if (!write.values) return { status: 'permanent', code: 'INVALID_REQUEST' };
+        if (write.operation === 'cancel' || !payload) return { status: 'committed', value: {} };
 
-        const payload: GraphEventPayload = graphEventPayloadFor(graphValueInput(write.values));
-        if (write.values.recurrence) {
-          payload.recurrence = graphRecurrenceFromStructure(write.values.recurrence, write.values.startsAt);
-        } else if (write.values.recurrence === null) {
-          payload.recurrence = null;
-        } else if (master.recurrence) {
-          payload.recurrence = { pattern, range: remainderRange ?? { ...(master.recurrence.range ?? { type: 'noEnd' }), startDate: splitDate } };
-        }
         const created = await createGraphEvent(api, write.providerCalendarId, payload);
         if (!created?.id) return { status: 'outcome_unknown', code: 'EVENT_ID_MISSING' };
         return { status: 'committed', value: { createdSeriesId: created.id } };

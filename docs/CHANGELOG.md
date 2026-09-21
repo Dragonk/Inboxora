@@ -296,6 +296,17 @@ None.
   IMAP loops, health checks, rule forwarder and send path no longer open IMAP or SMTP for it.
 
 ### Fixed
+- **A disabled address book is no longer pulled, on a manual run as well as on the schedule.** The calendar half
+  of this was fixed earlier; contacts were still synchronised whenever the connection was, so a book the user
+  had switched off was written to from a manual "sync contacts" and could be re-created locally. Both contacts
+  adapters now check the collection's own `enabled` flag and report `disabled: true` instead of pulling, leaving
+  the book and its contents untouched.
+- **A calendar-series change validates and builds both writes before the first one.** Splitting a series is two
+  remote writes — truncate the master, then create the remainder — and the master used to be truncated before
+  the request was even checked for the values it needs, or before the remainder payload was built. A request
+  that could never succeed therefore still ended the earlier part of the series. Everything is now validated and
+  built first, so a refusal writes nothing. Making the two writes resumable (a durable multi-stage operation
+  with per-step results) is still open.
 - **"Push: available" no longer stands in for a channel that is not delivering.** The push model collapsed a
   subscription's real state — `renewing`, `failed`, `removed` all became `missing` — and the mail schedule was
   labelled `scheduled_and_push` for every native transport, whether or not a subscription existed. A mailbox
