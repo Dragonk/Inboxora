@@ -35,6 +35,16 @@ Nothing is being prepared beyond 4.1.0. Work whose version has not been chosen a
 ## [4.1.0]
 
 ### Added
+- **A controlled way to move a Microsoft mailbox onto immutable message ids.** Graph has two kinds of message id:
+  the default one, which can change when a message moves between folders, and the immutable one, which is stable and
+  is what a local store should record. Asking for immutable ids is a per-request preference, and turning it on for a
+  mailbox whose rows already hold default ids would make every stored id unrecognisable — each message would look
+  new (and be duplicated) while the existing rows, with their annotations, were orphaned. The translation is
+  therefore its own step: it asks Graph for each stored message's immutable id and records the mapping, in batches,
+  and it can be planned without writing anything first. A message Graph no longer holds is reported rather than
+  removed, and a row whose new id another row already holds is skipped instead of breaking that identity. The
+  synchronisation does **not** use the preference yet, so nothing changes for a mailbox until the translation has
+  been run and validated against a real one.
 - **A legacy Gmail or Outlook account can now actually migrate.** The recommendation and the cutover were
   answering the same question with different rules: the Google recommendation recognised a Gmail mailbox by
   its IMAP host, while the Gmail cutover accepted only `oauth_provider = 'google'`. A real 4.0.4 account —
