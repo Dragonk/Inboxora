@@ -263,6 +263,13 @@ Microsoft application is registered in this environment.
 
 ## Detailed changes
 
+### Changed
+
+- **Internal: the inbox rules and the block list now act through a transport seam.** They were written against
+  the IMAP manager, which is why they only run for IMAP accounts; extracting the actions they perform is the
+  prerequisite for running them on Gmail and Microsoft accounts. No behaviour changed for IMAP, and nothing
+  changed for native accounts yet — this release ships the seam, not the provider side.
+
 ### Fixed
 
 - **Contacts in every Microsoft contact folder are imported.** Previously only the default folder was read, so

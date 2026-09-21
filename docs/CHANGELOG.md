@@ -221,6 +221,14 @@ provider identity, `0109` provider-operation payload, `0110` device authorizatio
 reads the new columns; a mixed old/new deployment must not run with the new code before the migrations.
 
 ### Changed
+- **The inbox rules and block list now act through a message-action seam.** Both were written against
+  `ImapManager` — moving and flagging a message by its IMAP `uid` and folder path — so they could only ever run
+  for an IMAP account. What they actually do (move, flag, delete, read a message's bytes, keep two concurrent
+  moves of one message apart) is now an interface, `MailActionPort`, which the manager satisfies structurally:
+  wiring it in changed no IMAP call site and no behaviour, and the same engine can now be handed a port that
+  speaks to a provider. This is the prerequisite for running rules and the block list on native accounts; no
+  provider port and no provider wiring are shipped yet, so nothing about native accounts' behaviour differs in
+  this release. Pinned by a case that runs the block list against a plain object that is not an `ImapManager`.
 - **The per-account diagnostics say how each feature is refreshed.** Every feature now reports the
   `syncStateCoverage` its fields were read from (`history`/`messages`, `events`, `personal`) and whether it is a
   `schedulerTarget` — an enabled collection of the right kind linked to a local folder, calendar or address
