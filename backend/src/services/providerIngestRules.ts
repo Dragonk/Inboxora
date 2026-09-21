@@ -37,13 +37,14 @@ export async function applyIngestRulesToRows(input: {
 
   const messages = rows.rows.map(row => ({
     id: row.id,
-    // The engine's `uid` is the number the row carries; a provider row always has one because the sync derives
-    // it. A row without one is skipped rather than given a made-up number, which would address nothing.
-    uid: Number(row.uid ?? 0),
+    // The row's own uid, **as stored**: a provider's derived value can exceed what a JavaScript number holds
+    // exactly, and rounding it would address a message that does not exist. A row without one is skipped rather
+    // than given a made-up value.
+    uid: String(row.uid ?? ''),
     folder: row.folder,
     fromEmail: row.from_email ?? '',
     is_read: row.is_read ?? false,
-  })).filter(message => Number.isFinite(message.uid) && message.uid > 0);
+  })).filter(message => message.uid.length > 0);
   // Loaded lazily: `mailActionPort` reaches the provider move services, which reach back into the synchronisers
   // that call this hook, so a module-level import would close a cycle. Deferring it to first use keeps the
   // dependency a call-time one.

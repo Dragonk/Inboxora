@@ -87,7 +87,7 @@ export function providerMailActionPort(input: {
         WHERE account_id = $1 AND uid = $2 AND provider_message_id IS NOT NULL
         ORDER BY (folder = $3) DESC, synced_at DESC NULLS LAST
         LIMIT 1`,
-      [accountId, uid, folder],
+      [accountId, String(uid), folder],
     );
     return found.rows[0] ?? null;
   };

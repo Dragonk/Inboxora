@@ -19,7 +19,13 @@ interface RuleRecipient { email?: string; name?: string }
 /** An ingest message the rules run against. */
 interface RuleMessage {
   id: string;
-  uid: number;
+  /**
+   * The transport's own coordinate for the message: an IMAP uid, or the derived value a provider row carries.
+   *
+   * A provider's derived uid can exceed what a JavaScript number holds exactly, so it stays a string where the
+   * row stores one; nothing here does arithmetic on it, it is only handed back to the port.
+   */
+  uid: number | string;
   folder: string;
   subject?: string;
   fromEmail?: string;
