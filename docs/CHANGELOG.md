@@ -320,16 +320,17 @@ None.
   IMAP loops, health checks, rule forwarder and send path no longer open IMAP or SMTP for it.
 
 ### Fixed
-- **A blocked sender's mail no longer stays in the inbox of a Gmail or Microsoft account.** Rules and the block
-  list only ran for IMAP accounts, because the engine acted through the IMAP manager; a native account stored its
-  mail and applied nothing, so a blocked address kept arriving. The block list now runs on the INBOX rows a native
-  synchronisation has just stored — the same engine the IMAP path runs, handed a port that speaks to that
-  provider — so a blocked sender's message is moved to the account's trash on Gmail and Microsoft Graph, or
-  deleted when the account has no trash. The engine's remaining actions (forward, archive, label, mark read) reach
-  that provider through the same port but are deliberately not enabled for native accounts in this release: they
-  each need exercising on a real transport first, and enabling them silently in one step would put every rule's
-  side effect on an untested path at once. A failure in the block list is logged and never fails the
-  synchronisation that stored the mail.
+- **Inbox rules and the block list now run for Gmail and Microsoft accounts.** They only ran for IMAP accounts,
+  because the engine acted through the IMAP manager; a native account stored its mail and applied nothing, so a
+  blocked address kept arriving and a user's rules never fired. Both now run on the INBOX rows a native
+  synchronisation has just stored, in the order the IMAP path uses — block list first, then rules — handed a port
+  that speaks to that provider. A blocked sender's message is moved to the account's trash (or deleted when the
+  account has no trash), and a rule's move, archive, label, read/star and delete reach the provider through the
+  same port; a rule that forwards uses the forwarder, which already reads a native message's body through its own
+  provider reader. A failure is logged and never fails the synchronisation that stored the mail. Not yet validated
+  against a live Gmail or Microsoft mailbox: the rule actions are exercised by unit tests and by the provider
+  services the routes already use, so the first real-account run should be watched (the diagnostics report each
+  account's last error per feature).
 - **Every Microsoft contact folder is now synchronised, each into its own address book.** Only the default folder
   was pulled, so a contact kept in a second (or nested) folder never appeared. The folders — including one level
   of children, which is how contact folders nest — are discovered and each becomes its own local book with its own

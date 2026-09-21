@@ -28,7 +28,7 @@ import {
   providerUidForGmailMessage,
 } from './gmailMail.js';
 import type { GmailThread, LocalGmailMessage } from './gmailMail.js';
-import { applyBlockListToIngestedRows } from '../../providerIngestBlockList.js';
+import { applyIngestRulesToRows } from '../../providerIngestRules.js';
 import { persistConversationCopyForRow } from '../../conversationRowIngest.js';
 import type { ConversationAccountRow } from '../../conversationRowIngest.js';
 import type { FetchLike, GoogleConfig } from '../../providerAuthService.js';
@@ -808,7 +808,7 @@ export async function syncGmailMailMessagesForAccount(input: {
   // messages it fetched. It acts through the provider port, so a blocked sender's mail leaves the inbox on a
   // native account too. The label the rows were stored under is the engine's `folder`, and only INBOX is a target.
   const afterIngest = async (rowIds: readonly string[], labelPath: string): Promise<void> => {
-    await applyBlockListToIngestedRows({
+    await applyIngestRulesToRows({
       userId: input.userId,
       connectionId: input.connectionId,
       account,

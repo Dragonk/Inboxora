@@ -25,7 +25,7 @@ import {
 } from './graphMail.js';
 import type { GraphMessage, LocalMailFolder } from './graphMail.js';
 import { drainGraphMailFlagOperations } from './graphMailMutations.js';
-import { applyBlockListToIngestedRows } from '../../providerIngestBlockList.js';
+import { applyIngestRulesToRows } from '../../providerIngestRules.js';
 import { persistConversationCopyForRow } from '../../conversationRowIngest.js';
 import type { ConversationAccountRow } from '../../conversationRowIngest.js';
 import type { FetchLike } from '../../providerAuthService.js';
@@ -681,7 +681,7 @@ export async function syncGraphMailMessagesForFolder(input: {
       // MAIL-01: a blocked sender's mail must not stay in a native account's inbox either. The block list
       // runs on the rows this page just stored, through the provider port, and only for a folder that is the
       // account's inbox.
-      await applyBlockListToIngestedRows({
+      await applyIngestRulesToRows({
         userId: input.userId,
         connectionId: input.connectionId,
         account: input.account,

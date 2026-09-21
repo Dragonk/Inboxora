@@ -282,11 +282,11 @@ Microsoft application is registered in this environment.
 
 ### Fixed
 
-- **Blocked senders are now honoured on Gmail and Microsoft accounts.** Blocking an address did nothing for a
-  mailbox synchronised through a provider: the mail was stored and left in the inbox, because only IMAP accounts
-  ran the block list. A blocked sender's new mail is now moved to that account's trash (or deleted, when the
-  account has no trash folder). The rest of the rule actions — forwarding, archiving, labelling, marking read —
-  are not enabled for provider accounts yet; they need to be exercised on a real mailbox first.
+- **Your rules and blocked senders now work on Gmail and Microsoft accounts too.** They previously applied only to
+  IMAP accounts: a blocked address kept arriving and no rule ran. Blocking an address now moves its new mail to
+  that account's trash (or deletes it, when the account has no trash folder), and rules can move, archive, label,
+  mark read or star, delete, and forward — carried out on the provider. These paths are covered by tests but have
+  not yet been run against a live mailbox, so the first real-account synchronisation is worth watching.
 
 - **Contacts in every Microsoft contact folder are imported.** Previously only the default folder was read, so
   anything kept in another folder (or in a folder inside one) stayed invisible. Each of those folders now becomes
