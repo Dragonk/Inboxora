@@ -77,6 +77,11 @@ Two switches govern the provider layer:
   provider authorization and stops the sync paths too, so an installation that must not call a
   provider does not; unset means enabled. The per-provider and per-method switches in the card narrow
   a configured installation further.
+- `PROVIDER_NATIVE_RULES` — **off unless set to `1`**. Whether the user's inbox rules run on mail that a Gmail or
+  Microsoft account synchronises. Opt-in because a rule can be global (`account_id` null) and can delete mail:
+  switching it on applies rules a native mailbox may never have run, so it is a deliberate operator decision rather
+  than a consequence of upgrading. The block list is not gated — blocking a sender is an explicit instruction and
+  always moves that sender's mail to the account's trash (or deletes it, when the account has no trash).
 
 The same Entra application is also what the **Microsoft Graph** API integration uses. Its
 authorization entry point is `/oauth/provider/microsoft` and it asks only for the scopes of the

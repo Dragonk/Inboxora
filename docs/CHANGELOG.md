@@ -342,6 +342,14 @@ None.
   before handing it back to the action port, so the port resolved a row that does not exist: the action failed,
   the mail stayed where it was, and nothing was logged. The engine now carries the transport's own coordinate
   unchanged (a string where the row stores one) and the port compares it as the column does.
+- **Inbox rules on native accounts are opt-in, and why.** The block list runs there (blocking a sender is an
+  explicit instruction, and the defect was that it did nothing), but the rule engine is off unless
+  `PROVIDER_NATIVE_RULES=1`. A rule can be global and can delete mail, so enabling it by default would change what
+  an existing Gmail or Microsoft account does the moment this release is installed — applying rules it never ran
+  before, including a delete the user wrote while only IMAP accounts existed. That is a destructive change nobody
+  chose, so it is a switch an operator sets deliberately. When it is on, a rule's move, archive, label, read/star,
+  delete and forward all travel through the provider port, and the run's result says `rulesSkipped` when the switch
+  is off so the reason is visible rather than guessed.
 - **Inbox rules and the block list now run for Gmail and Microsoft accounts.** They only ran for IMAP accounts,
   because the engine acted through the IMAP manager; a native account stored its mail and applied nothing, so a
   blocked address kept arriving and a user's rules never fired. Both now run on the INBOX rows a native

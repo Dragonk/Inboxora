@@ -298,6 +298,10 @@ Microsoft application is registered in this environment.
   synchronisation and is filed there. Related and already fixed: a provider message's internal identifier was being
   rounded, which made an ingest action fail without saying so.
 
+- **Blocked senders work on Gmail and Microsoft accounts; your rules do too, once an operator turns them on.**
+  Rules can be global and can delete mail, so they are not switched on for provider accounts automatically — an
+  upgrade would otherwise start applying rules a mailbox never ran, including deletions. Set
+  `PROVIDER_NATIVE_RULES=1` to enable them; until then the synchronisation reports that it skipped them.
 - **Your rules and blocked senders now work on Gmail and Microsoft accounts too.** They previously applied only to
   IMAP accounts: a blocked address kept arriving and no rule ran. Blocking an address now moves its new mail to
   that account's trash (or deletes it, when the account has no trash folder), and rules can move, archive, label,
