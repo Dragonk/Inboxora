@@ -77,6 +77,10 @@ Two switches govern the provider layer:
   provider authorization and stops the sync paths too, so an installation that must not call a
   provider does not; unset means enabled. The per-provider and per-method switches in the card narrow
   a configured installation further.
+- `GRAPH_CALENDAR_DELTA_VERSION` — `v1.0` (default) or `beta`. Which contract the Microsoft calendar's
+  change-tracking read uses. Microsoft documents the per-calendar event delta as a preview capability and the stable
+  alternative returns repeating events in a shape that loses the series master, so neither is free; `beta` makes
+  each changed event read back in full (one extra request each). Write paths always use the stable contract.
 - `PROVIDER_NATIVE_RULES` — **off unless set to `1`**. Whether the user's inbox rules run on mail that a Gmail or
   Microsoft account synchronises. Opt-in because a rule can be global (`account_id` null) and can delete mail:
   switching it on applies rules a native mailbox may never have run, so it is a deliberate operator decision rather

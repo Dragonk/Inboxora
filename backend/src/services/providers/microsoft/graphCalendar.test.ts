@@ -190,6 +190,47 @@ describe('Graph calendar permissions and colour', () => {
 });
 
 describe('the Graph event delta page', () => {
+  it('reads the delta from an explicitly selected contract version, and expands the reduced beta form', async () => {
+    // GRAPH-02: the per-calendar delta's documented home is beta, while the stable version is what this projection
+    // has always used. The choice is the operator's, and the beta form answers a reduced resource, so each changed
+    // event is read back in full — which is asserted here rather than assumed.
+    const calls: string[] = [];
+    const fetchImpl = (async (url: string) => {
+      calls.push(String(url));
+      if (String(url).includes('/events/delta')) {
+        return {
+          ok: true, status: 200, headers: new Headers(),
+          json: async () => ({
+            // The item-delta shape: identity and bounds only.
+            value: [{ id: 'AAMkAD-evt-1', type: 'seriesMaster', start: { dateTime: '2026-09-01T09:00:00.0000000' } }],
+            '@odata.deltaLink': 'https://graph.microsoft.com/beta/me/calendars/cal-1/events/delta?$deltatoken=def',
+          }),
+        } as Response;
+      }
+      // The single-event read is the stable resource, and carries what the projection needs.
+      return { ok: true, status: 200, headers: new Headers(), json: async () => timed() } as Response;
+    }) as unknown as typeof fetch;
+
+    process.env.GRAPH_CALENDAR_DELTA_VERSION = 'beta';
+    try {
+      const page = await fetchGraphCalendarEventsPage({ ...api, fetchImpl }, 'cal-1');
+      expect(calls[0]).toContain('https://graph.microsoft.com/beta/me/calendars/cal-1/events/delta');
+      // The expansion is what makes the reduced answer usable, and it goes to the stable resource.
+      expect(calls[1]).toContain('https://graph.microsoft.com/v1.0/me/calendars/cal-1/events/AAMkAD-evt-1');
+      expect(page.events[0]).toMatchObject({ id: 'AAMkAD-evt-1', subject: timed().subject });
+      expect(page.deltaLink).toContain('$deltatoken=def');
+    } finally {
+      delete process.env.GRAPH_CALENDAR_DELTA_VERSION;
+    }
+
+    // The default stays on the stable version and expands nothing: one request, the changed events as answered.
+    calls.length = 0;
+    const stable = await fetchGraphCalendarEventsPage({ ...api, fetchImpl }, 'cal-1');
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toContain('https://graph.microsoft.com/v1.0/me/calendars/cal-1/events/delta');
+    expect(stable.events[0]).toMatchObject({ id: 'AAMkAD-evt-1' });
+  });
+
   it('asks the delta endpoint with only the parameters the delta function accepts, and follows an absolute link', async () => {
     const calls: Array<{ url: string; prefer: string | null }> = [];
     const fetchImpl = (async (url: string, init?: RequestInit) => {

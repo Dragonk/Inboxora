@@ -1,4 +1,4 @@
-import { graphDelete, graphGet, graphPatch, graphPost, graphUrl, graphGetWithHeaders } from './graphApiClient.js';
+import { GRAPH_API_BASE, GRAPH_BETA_API_BASE, graphDelete, graphGet, graphPatch, graphPost, graphUrl, graphGetWithHeaders } from './graphApiClient.js';
 import type { GraphApiOptions } from './graphApiClient.js';
 import { buildVTimezone, isValidTimeZone } from '../../../utils/icalTimezone.js';
 import {
@@ -179,6 +179,37 @@ export interface GraphEventPage {
 }
 
 /**
+ * Which contract the calendar's item-delta is read from (GRAPH-02).
+ *
+ * Microsoft documents the per-calendar event delta (`events/delta`) as **beta-only**, while `calendarView/delta`
+ * is available on the stable version but returns occurrences and exceptions instead of the series master this
+ * projection stores. Neither choice is free, and the documentation cannot settle which behaves as the other
+ * claims against a real mailbox:
+ *
+ * - `v1.0` (the default) requests a form the documentation places in beta. It is what this code has always sent.
+ * - `beta` uses the documented version for that form. Its answer is a **reduced** resource, so each changed event
+ *   is read back in full, one request at a time — a real cost that only a live mailbox can measure.
+ *
+ * The version is therefore explicit and operator-selected rather than inferred or changed blind, and the write
+ * paths stay on `v1.0` whichever way it is set: mixing a beta read with stable writes for the same resource is
+ * what the audit's GRAPH-04 warns about, and the read is the part whose contract actually differs.
+ */
+export function graphCalendarDeltaVersion(env: NodeJS.ProcessEnv = process.env): 'v1.0' | 'beta' {
+  const value = (env.GRAPH_CALENDAR_DELTA_VERSION ?? '').trim().toLowerCase();
+  return value === 'beta' ? 'beta' : 'v1.0';
+}
+
+/** Build an absolute URL against the selected contract version. */
+function graphUrlOn(version: 'v1.0' | 'beta', path: string, params: Record<string, string | number | null | undefined>): string {
+  const base = version === 'beta' ? GRAPH_BETA_API_BASE : GRAPH_API_BASE;
+  const url = new URL(`${base}${path}`);
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null && value !== '') url.searchParams.set(key, String(value));
+  }
+  return url.toString();
+}
+
+/**
  * One page of a calendar's events, delta-shaped.
  *
  * `events/delta` returns the **masters** of recurring series plus `@removed` tombstones, which is what makes a
@@ -197,9 +228,10 @@ export interface GraphEventPage {
  * needs a live tenant to validate, so the API version is deliberately left as it is rather than switched blind.
  */
 export async function fetchGraphCalendarEventsPage(api: GraphApiOptions, calendarId: string, input: { link?: string | null; pageSize?: number } = {}): Promise<GraphEventPage> {
+  const version = graphCalendarDeltaVersion();
   const path = input.link
     ? input.link
-    : graphUrl(`${GRAPH_CALENDAR_PATH}/${encodeURIComponent(calendarId)}/events/delta`, {});
+    : graphUrlOn(version, `${GRAPH_CALENDAR_PATH}/${encodeURIComponent(calendarId)}/events/delta`, {});
   const pageSize = Number.isFinite(input.pageSize) && Number(input.pageSize) > 0 ? Math.min(250, Math.floor(Number(input.pageSize))) : 100;
   const body = await graphGetWithHeaders<{ value?: GraphEvent[] | null; '@odata.nextLink'?: string | null; '@odata.deltaLink'?: string | null }>(
     api,
@@ -208,11 +240,32 @@ export async function fetchGraphCalendarEventsPage(api: GraphApiOptions, calenda
     // in the same frame the instances call uses.
     { prefer: `odata.maxpagesize=${pageSize}, outlook.timezone="UTC"` },
   );
+  const events = (Array.isArray(body.value) ? body.value : []).filter(event => Boolean(event?.id));
   return {
-    events: (Array.isArray(body.value) ? body.value : []).filter(event => Boolean(event?.id)),
+    // The item-delta form answers a **reduced** resource — id, type, start and end only — so when that contract is
+    // in use each changed event is read back in full before the projection sees it. A tombstone has nothing to
+    // expand and is passed through as it is.
+    events: version === 'beta' ? await expandGraphCalendarEvents(api, calendarId, events) : events,
     nextLink: body['@odata.nextLink'] ?? null,
     deltaLink: body['@odata.deltaLink'] ?? null,
   };
+}
+
+/**
+ * Read each changed event in full, because the item-delta form answers only its identity and its bounds.
+ *
+ * The expansion uses the stable `v1.0` resource — the event's own representation is not version-specific, and the
+ * write paths are pinned there — one request per changed event, which is the cost of using the item form. An event
+ * that has gone in the meantime becomes the tombstone it already is: the projection deletes it either way.
+ */
+async function expandGraphCalendarEvents(api: GraphApiOptions, calendarId: string, events: readonly GraphEvent[]): Promise<GraphEvent[]> {
+  const expanded: GraphEvent[] = [];
+  for (const event of events) {
+    if (event['@removed']) { expanded.push(event); continue; }
+    const full = await fetchGraphEvent(api, calendarId, event.id as string).catch(() => null);
+    expanded.push(full ?? { ...event, '@removed': { reason: 'deleted' } });
+  }
+  return expanded;
 }
 
 /**

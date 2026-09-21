@@ -280,6 +280,12 @@ Microsoft application is registered in this environment.
 
 ### Changed
 
+- **Microsoft calendars: the preview/stable choice for change tracking is explicit and off by default.** Microsoft
+  documents the per-calendar event delta as a preview capability; the stable alternative returns repeating events
+  in a shape that loses the series. Inboxora keeps using the stable contract unless an operator sets
+  `GRAPH_CALENDAR_DELTA_VERSION=beta`, which then reads each changed event in full (one extra request each). Writes
+  stay on the stable contract in both cases. Neither path has been exercised against a real mailbox here.
+
 - **Internal: a two-step calendar change now records its progress.** Splitting a repeating event writes twice; if
   Inboxora stops between the writes, the operation's own record now says which part completed and holds the
   information the second part needs, instead of leaving an unexplained unknown outcome. A change that was

@@ -242,6 +242,16 @@ provider identity, `0109` provider-operation payload, `0110` device authorizatio
 reads the new columns; a mixed old/new deployment must not run with the new code before the migrations.
 
 ### Changed
+- **Which contract the Microsoft calendar delta is read from is now an explicit choice.** Microsoft documents the
+  per-calendar event delta (`events/delta`) as **beta-only**, while the stable version offers `calendarView/delta`,
+  which returns occurrences and exceptions instead of the series master this projection stores. Neither is free and
+  the documentation cannot settle which behaves as the other claims for a real mailbox, so the version is selected
+  by `GRAPH_CALENDAR_DELTA_VERSION` (`v1.0` by default, `beta` opt-in) rather than inferred. When the beta form is
+  selected, each changed event is read back in full — that form answers only the identity and the bounds — which is
+  one extra request per changed event. Write paths stay on the stable version either way, because mixing a preview
+  read with stable writes for one resource is what the audit's GRAPH-04 warns about. **Not validated against a live
+  tenant**: both paths are pinned by tests over the request each builds and the shape each expects, but which one a
+  real mailbox answers as documented has not been observed here.
 - **A user can now hold more than one source of the same provider.** `user_integrations` shipped with
   `UNIQUE (user_id, provider)`, so a second CardDAV or CalDAV server could not be represented at all — the audit's
   DAV-01. The constraint is replaced by two partial unique indexes: one keeps the unlabelled row per provider

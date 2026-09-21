@@ -13,6 +13,14 @@ import type { ApiProblemCode } from '../contracts.js';
  */
 
 export const GRAPH_API_BASE = 'https://graph.microsoft.com/v1.0';
+/**
+ * The preview contract.
+ *
+ * Used by exactly one read — the calendar's per-calendar event delta, whose documented home is beta (GRAPH-02) —
+ * and never by a write. Exported so that single use is explicit and greppable rather than a literal buried in a
+ * URL builder.
+ */
+export const GRAPH_BETA_API_BASE = 'https://graph.microsoft.com/beta';
 export const GRAPH_TIMEOUT_MS = 20_000;
 
 export class GraphApiError extends Error {
