@@ -43,7 +43,14 @@ test('every promised line is rendered per feature', async () => {
   // Mail: transport, authorization, missing scopes, last success, last error, cursor, push and schedule.
   assert.match(source, /transportLabel\(diagnostics\.mail\.transport\)/);
   assert.match(source, /diagnostics\.mail\.cursorPresent/);
-  assert.match(source, /diagnostics\.mail\.push/);
+  // OBS-03: the push line comes from the full push state per resource, not from the shorthand capability text —
+  // "Push: available" must not be shown for a channel that is not subscribed or is not delivering.
+  assert.match(source, /const pushSummary = \(push: AccountPushDiagnostic\)/);
+  assert.match(source, /pushSummary\(diagnostics\.push\.mail\)/);
+  assert.match(source, /pushSummary\(diagnostics\.push\.calendar\)/);
+  assert.match(source, /pushSummary\(diagnostics\.push\.contacts\)/);
+  assert.match(source, /push\.subscription === 'active'/);
+  assert.match(source, /push\.lastErrorCode \|\| push\.subscription === 'failed'/);
   assert.match(source, /diagnostics\.mail\.scheduler/);
   // Calendar and contacts: collections and push.
   assert.match(source, /diagnostics\.calendar\.collections/);

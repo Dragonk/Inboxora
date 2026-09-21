@@ -1,6 +1,7 @@
 import { query } from './db.js';
 import { classifyProviderAccount, providerConnectionSignals, type ProviderAccountKind } from './providerAccountClassifier.js';
 import { listSubscriptionDiagnostics } from './providerPushSubscriptions.js';
+import { providerSyncIntervalMinutes } from './providerSyncScheduler.js';
 import { readProviderFeatureAuthorization, type ProviderFeatureAuthorization } from './providerFeatureAuthorization.js';
 
 /**
@@ -76,8 +77,20 @@ export interface AccountFeatureSyncState {
  */
 export interface AccountPushModel {
   capability: 'available' | 'unavailable';
-  subscription: 'active' | 'disabled' | 'expired' | 'missing' | 'not_configured';
+  /**
+   * The subscription's own state. Every status a subscription row can hold is reported as itself: collapsing
+   * `renewing`, `failed` and `removed` into `missing` hid a subscription that exists but is not delivering,
+   * which is exactly the state a user must not read as "push is fine" (OBS-03).
+   */
+  subscription: 'active' | 'disabled' | 'expired' | 'renewing' | 'failed' | 'removed' | 'missing' | 'not_configured';
   effectiveSyncMode: 'push_and_polling' | 'polling';
+  /** Why push is not doing what `capability` suggests, or null when nothing is degraded. */
+  degradedReason: string | null;
+  /** The subscription's own bookkeeping, so the card can say when a renewal is due. */
+  expiresAt: string | null;
+  lastNotificationAt: string | null;
+  /** The provider's error code from the last failed renewal, if any. */
+  lastErrorCode: string | null;
 }
 
 export interface AccountDiagnostics {
@@ -205,26 +218,46 @@ async function collectionsFor(connectionId: string | null): Promise<AccountFeatu
  */
 function pushModelFor(input: {
   capability: 'available' | 'unavailable';
-  subscriptions: Array<{ connectionId: string | null; resourceType: string; status: string }>;
+  subscriptions: Array<{
+    connectionId: string | null; resourceType: string; status: string;
+    expiresAt?: Date | string | null; lastNotificationAt?: Date | string | null; lastErrorCode?: string | null;
+  }>;
   connectionId: string | null;
   resourceType: string;
 }): AccountPushModel {
   if (input.capability === 'unavailable') {
-    return { capability: 'unavailable', subscription: 'not_configured', effectiveSyncMode: 'polling' };
+    return {
+      capability: 'unavailable', subscription: 'not_configured', effectiveSyncMode: 'polling',
+      degradedReason: 'provider_has_no_channel', expiresAt: null, lastNotificationAt: null, lastErrorCode: null,
+    };
   }
   const row = input.subscriptions.find(subscription =>
     subscription.connectionId === input.connectionId && subscription.resourceType === input.resourceType);
+  const known = new Set(['active', 'disabled', 'expired', 'renewing', 'failed', 'removed']);
   const subscription: AccountPushModel['subscription'] = row
-    ? (row.status === 'active' ? 'active'
-      : row.status === 'expired' ? 'expired'
-        : row.status === 'disabled' ? 'disabled' : 'missing')
+    ? (known.has(row.status) ? row.status as AccountPushModel['subscription'] : 'missing')
     : 'missing';
+  // A subscription that is not active says *why* it is not, so the card cannot render "available" for a channel
+  // that is not delivering (OBS-03).
+  const degradedReason = subscription === 'active' ? null
+    : subscription === 'missing' ? 'not_subscribed'
+      : `subscription_${subscription}`;
   return {
     capability: 'available',
     subscription,
     // The schedule always runs; an active subscription adds the immediate notification on top of it.
     effectiveSyncMode: subscription === 'active' ? 'push_and_polling' : 'polling',
+    degradedReason,
+    expiresAt: toIsoOrNull(row?.expiresAt),
+    lastNotificationAt: toIsoOrNull(row?.lastNotificationAt),
+    lastErrorCode: row?.lastErrorCode ?? null,
   };
+}
+
+function toIsoOrNull(value: Date | string | null | undefined): string | null {
+  if (!value) return null;
+  const parsed = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
 }
 
 /** The push state that belongs to this account's own subscriptions. */
@@ -503,12 +536,21 @@ export async function describeAccountProviderFeatures(input: {
     connectionId: subscription.connectionId,
     resourceType: subscription.resourceType,
     status: subscription.status,
+    expiresAt: subscription.expiresAt,
+    lastNotificationAt: subscription.lastNotificationAt,
+    lastErrorCode: subscription.lastErrorCode,
   }));
+  // One model per resource, computed once: the diagnostics render it and the scheduler label follows it, so the
+  // two can never disagree (OBS-03).
+  const mailPush = pushModelFor({
+    capability: native ? 'available' : 'unavailable', subscriptions: subscriptionRows,
+    connectionId: provider ? groups[provider].connectionId : null, resourceType: 'mail',
+  });
   const diagnostics: AccountDiagnostics = {
     connection: connectionDiagnostic,
     push: {
       // Mail push exists only with a native transport: the legacy IMAP/SMTP path has no provider notification.
-      mail: pushModelFor({ capability: native ? 'available' : 'unavailable', subscriptions: subscriptionRows, connectionId: provider ? groups[provider].connectionId : null, resourceType: 'mail' }),
+      mail: mailPush,
       calendar: pushModelFor({ capability: provider ? 'available' : 'unavailable', subscriptions: subscriptionRows, connectionId: provider ? groups[provider].connectionId : null, resourceType: 'calendar' }),
       // The People API has no notification channel for the resources this application syncs.
       contacts: pushModelFor({
@@ -525,9 +567,12 @@ export async function describeAccountProviderFeatures(input: {
       requiredScopes: mailAuth.requiredScopes,
       missingScopes: mailAuth.missingScopes,
       push: push.mail,
-      // A native transport is synchronised by the provider (push, and the scheduled poll as its backstop); the
-      // legacy one is polled on the mail schedule.
-      scheduler: native ? 'scheduled_and_push' : 'scheduled',
+      // The schedule's own state, not an assumption: `scheduled_and_push` is only true when the schedule is
+      // enabled *and* a subscription is actually delivering. Reporting it for a native transport with no active
+      // subscription is what made "Push: available" appear for a mailbox that only polls (OBS-03).
+      scheduler: providerSyncIntervalMinutes() === 0
+        ? 'disabled'
+        : (native && mailPush.subscription === 'active' ? 'scheduled_and_push' : 'scheduled'),
     },
     calendar: {
       ...withSchedulerTarget(syncStates.calendar ?? EMPTY_SYNC_STATE, 'calendar', schedulable, provider !== null, provider),

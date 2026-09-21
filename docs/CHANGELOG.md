@@ -296,6 +296,15 @@ None.
   IMAP loops, health checks, rule forwarder and send path no longer open IMAP or SMTP for it.
 
 ### Fixed
+- **"Push: available" no longer stands in for a channel that is not delivering.** The push model collapsed a
+  subscription's real state — `renewing`, `failed`, `removed` all became `missing` — and the mail schedule was
+  labelled `scheduled_and_push` for every native transport, whether or not a subscription existed. A mailbox
+  that only polled therefore read as if instant sync were on. The model now reports each subscription status as
+  itself, with a `degradedReason`, the subscription's expiry and last notification, and the schedule label is
+  derived from the schedule's own setting and the subscription state: `disabled` when the schedule is off,
+  `scheduled_and_push` only when a subscription is actually active, `scheduled` otherwise. The account card reads
+  that model instead of the shorthand text, so the line says "not enabled — polling", "renewal error" or
+  "polling fallback" as the case is.
 - **A calendar link records the provider's version instead of a local hash.** `remote_object_links.remote_version`
   was filled with the SHA-256 of the locally merged iCalendar — a *local* fingerprint that also changes when
   local formatting or local components change — and the only reader that treats that column as a remote ETag is

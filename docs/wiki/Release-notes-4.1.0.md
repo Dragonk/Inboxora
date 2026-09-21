@@ -265,6 +265,11 @@ Microsoft application is registered in this environment.
 
 ### Fixed
 
+- **The card no longer says instant sync is on when the mailbox only polls.** The push state collapsed a
+  subscription that exists but is failing, renewing or removed into "missing", and the schedule was labelled
+  push-and-polling for every provider-API mailbox. The state now distinguishes those cases and shows when a
+  renewal is due, and the schedule label says "scheduled and push" only when a subscription is really active.
+
 - **Calendar links carry the provider's version, not a local fingerprint.** The stored "remote version" of a
   synced event was a hash of the local copy, which changes for local reasons; a CalDAV write-back could then
   send a precondition the provider never issued. It is now the provider's own version (Google `etag`, Microsoft

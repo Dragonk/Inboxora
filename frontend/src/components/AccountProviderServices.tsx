@@ -34,11 +34,27 @@ export interface AccountFeatureDiagnostic {
   missingScopes: string[];
 }
 
+/** One resource's push state, as the diagnostics endpoint reports it (OBS-03). */
+export interface AccountPushDiagnostic {
+  capability: 'available' | 'unavailable';
+  subscription: 'active' | 'disabled' | 'expired' | 'renewing' | 'failed' | 'removed' | 'missing' | 'not_configured';
+  effectiveSyncMode: 'push_and_polling' | 'polling';
+  degradedReason: string | null;
+  expiresAt: string | null;
+  lastNotificationAt: string | null;
+  lastErrorCode: string | null;
+}
+
 export interface AccountProviderDiagnostics {
   accountId: string;
   provider: 'google' | 'microsoft' | null;
   transport: string;
   connection: { provider: 'google' | 'microsoft'; identity: string | null; status: string } | null;
+  /**
+   * The full push state per resource. The card reads this rather than the shorthand strings below, so a channel
+   * that is subscribed but not delivering cannot render as "available" (OBS-03).
+   */
+  push: { mail: AccountPushDiagnostic; calendar: AccountPushDiagnostic; contacts: AccountPushDiagnostic };
   mail: AccountFeatureDiagnostic & { transport: string; push: string; scheduler: string };
   calendar: AccountFeatureDiagnostic & { collections: number; push: string };
   contacts: AccountFeatureDiagnostic & { collections: number; push: string };
@@ -192,6 +208,20 @@ export default function AccountProviderServices({ accountId, reload, t }: Props)
     return t('admin.accounts.services.syncPending');
   };
 
+  /**
+   * The push line, from the full state rather than a shorthand (OBS-03).
+   *
+   * "Push: available" is a capability; it says nothing about whether a subscription exists or is delivering. The
+   * wording reuses the Integrations push strings, so nothing new has to be translated.
+   */
+  const pushSummary = (push: AccountPushDiagnostic): string => {
+    if (push.subscription === 'active') return t('admin.integrations.push.stateActive');
+    if (push.lastErrorCode || push.subscription === 'failed') return t('admin.integrations.push.stateRenewalError');
+    if (push.capability === 'unavailable') return t('admin.integrations.push.statePollingFallback');
+    if (push.subscription !== 'missing') return t('admin.integrations.push.statePollingFallback');
+    return t('admin.integrations.push.stateAvailable');
+  };
+
   const serviceRow = (label: string, connected: boolean, extra?: string, feature?: { authorized: boolean; synchronized?: boolean; syncPending?: boolean; syncErrorCode?: string | null } | null) => (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
       <span style={{ minWidth: 92, color: 'var(--text-secondary)' }}>{label}</span>
@@ -316,20 +346,20 @@ export default function AccountProviderServices({ accountId, reload, t }: Props)
                 <>
                   <div>{t('admin.accounts.diagnostics.transport')}: {transportLabel(diagnostics.mail.transport)}</div>
                   <div>{t('admin.accounts.diagnostics.cursor')}: {diagnostics.mail.cursorPresent ? t('admin.accounts.diagnostics.yes') : t('admin.accounts.diagnostics.no')}</div>
-                  <div>{t('admin.accounts.diagnostics.push')}: {diagnostics.mail.push}</div>
+                  <div data-testid="account-diagnostics-push-mail">{t('admin.accounts.diagnostics.push')}: {pushSummary(diagnostics.push.mail)}</div>
                   <div>{t('admin.accounts.diagnostics.scheduler')}: {diagnostics.mail.scheduler}</div>
                 </>
               ))}
               {diagnosticsFeature('calendar', t('admin.accounts.services.calendar'), diagnostics.calendar, (
                 <>
                   <div>{t('admin.accounts.diagnostics.collections')}: {diagnostics.calendar.collections}</div>
-                  <div>{t('admin.accounts.diagnostics.push')}: {diagnostics.calendar.push}</div>
+                  <div>{t('admin.accounts.diagnostics.push')}: {pushSummary(diagnostics.push.calendar)}</div>
                 </>
               ))}
               {diagnosticsFeature('contacts', t('admin.accounts.services.contacts'), diagnostics.contacts, (
                 <>
                   <div>{t('admin.accounts.diagnostics.addressBooks')}: {diagnostics.contacts.collections}</div>
-                  <div>{t('admin.accounts.diagnostics.push')}: {diagnostics.contacts.push}</div>
+                  <div>{t('admin.accounts.diagnostics.push')}: {pushSummary(diagnostics.push.contacts)}</div>
                 </>
               ))}
             </div>

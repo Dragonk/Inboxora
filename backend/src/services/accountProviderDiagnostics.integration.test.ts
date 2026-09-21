@@ -130,7 +130,8 @@ describeOrSkip('account provider diagnostics (PostgreSQL)', () => {
     expect(features!.diagnostics.mail.lastErrorCode).toBe('RATE_LIMITED');
     expect(features!.diagnostics.mail.cursorPresent).toBe(true);
     expect(features!.diagnostics.mail.transport).toBe('gmail_api');
-    expect(features!.diagnostics.mail.scheduler).toBe('scheduled_and_push');
+    // OBS-03: a native transport with no active subscription only polls, so the label must not claim push.
+    expect(features!.diagnostics.mail.scheduler).toBe('scheduled');
     // A feature with no recorded run says so instead of inventing a time.
     expect(features!.diagnostics.calendar.lastSuccessfulSync).toBeNull();
     expect(features!.diagnostics.calendar.lastErrorCode).toBeNull();
@@ -316,12 +317,25 @@ describeOrSkip('the push model', () => {
     const withSubscription = await describeAccountProviderFeatures({ userId: USER_A, accountId });
     expect(withSubscription!.diagnostics.push.mail.subscription).toBe('active');
     expect(withSubscription!.diagnostics.push.mail.effectiveSyncMode).toBe('push_and_polling');
+    // An active subscription is what makes the mail schedule push-and-polling, and nothing is degraded.
+    expect(withSubscription!.diagnostics.push.mail.degradedReason).toBeNull();
+    expect(withSubscription!.diagnostics.push.mail.expiresAt).not.toBeNull();
+    expect(withSubscription!.diagnostics.mail.scheduler).toBe('scheduled_and_push');
+
+    // A subscription that exists but is not delivering says why, instead of being collapsed into "missing".
+    await query("UPDATE provider_push_subscriptions SET status = 'failed', last_error_code = 'RENEWAL_REJECTED' WHERE provider_subscription_id = 'sub-1'");
+    const failed = await describeAccountProviderFeatures({ userId: USER_A, accountId });
+    expect(failed!.diagnostics.push.mail.subscription).toBe('failed');
+    expect(failed!.diagnostics.push.mail.degradedReason).toBe('subscription_failed');
+    expect(failed!.diagnostics.push.mail.lastErrorCode).toBe('RENEWAL_REJECTED');
+    expect(failed!.diagnostics.mail.scheduler).toBe('scheduled');
 
     // An expired subscription falls back to polling rather than reporting a push that is not there.
     await query("UPDATE provider_push_subscriptions SET status = 'expired' WHERE provider_subscription_id = 'sub-1'");
     const expired = await describeAccountProviderFeatures({ userId: USER_A, accountId });
     expect(expired!.diagnostics.push.mail.subscription).toBe('expired');
     expect(expired!.diagnostics.push.mail.effectiveSyncMode).toBe('polling');
+    expect(expired!.diagnostics.push.mail.degradedReason).toBe('subscription_expired');
 
     await query("DELETE FROM provider_push_subscriptions WHERE provider_subscription_id = 'sub-1'");
   });
