@@ -72,6 +72,22 @@ describe('finalizeProviderAuthorization', () => {
     });
   });
 
+  it('reports a partially failed calendar run as a failure, not as success', async () => {
+    // OBS-02: a calendar run reports one bad shared calendar in `errors` and still resolves. Reading only the
+    // exception let the consent be announced as synchronized while a calendar had not been pulled at all.
+    calls.syncGoogleCalendar.mockResolvedValueOnce({
+      collections: 2, created: 1, updated: 0, deleted: 0, skipped: 0, fullSync: false,
+      errors: [{ calendarId: 'shared-cal', code: 'INSUFFICIENT_SCOPES' }],
+    } as never);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const result = await finalizeProviderAuthorization(input());
+      expect(result).toMatchObject({ authorized: true, synchronized: false, syncPending: false, syncErrorCode: 'INSUFFICIENT_SCOPES' });
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it('runs the contacts synchronisation immediately for contacts_enable', async () => {
     const result = await finalizeProviderAuthorization(input({ purpose: 'contacts_enable' }));
     expect(calls.syncGoogleContacts).toHaveBeenCalledWith(expect.objectContaining({ connectionId: 'connection-1' }));

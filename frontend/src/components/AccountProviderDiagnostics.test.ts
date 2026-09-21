@@ -82,17 +82,21 @@ test('the client calls the per-account diagnostics endpoint', async () => {
 test('a service row separates authorization from synchronization', async () => {
   const source = await readFile(services, 'utf8');
 
-  // The four states, in the order they are decided: not connected, connected, pending, failed.
+  // The four states, in the order they are decided: not connected, a current failure, connected, pending.
   assert.match(source, /if \(!feature\?\.authorized\) return t\('admin\.accounts\.services\.notConnected'\)/);
-  assert.match(source, /if \(feature\.synchronized === true\) return t\('admin\.accounts\.services\.connected'\)/);
   assert.match(source, /if \(feature\.syncErrorCode\) return t\('admin\.accounts\.services\.syncFailed', \{ code: feature\.syncErrorCode \}\)/);
+  assert.match(source, /if \(feature\.synchronized === true\) return t\('admin\.accounts\.services\.connected'\)/);
   assert.match(source, /return t\('admin\.accounts\.services\.syncPending'\)/);
 
-  // A grant with a failed run can never render as "not connected": the failure branch is reached before the
-  // pending one and only after authorization has been established.
+  // A grant with a failed run can never render as "not connected": authorization is established first. A failure
+  // that arrived after an earlier success must not be masked by that success either, so the failure branch is
+  // decided before the connected one (OBS-02).
   const notConnectedAt = source.indexOf("admin.accounts.services.notConnected");
   const failedAt = source.indexOf("admin.accounts.services.syncFailed");
-  assert.ok(notConnectedAt !== -1 && failedAt !== -1 && notConnectedAt < failedAt);
+  const connectedAt = source.indexOf("admin.accounts.services.connected");
+  assert.ok(notConnectedAt !== -1 && failedAt !== -1 && connectedAt !== -1);
+  assert.ok(notConnectedAt < failedAt, 'authorization must be decided before the failure state');
+  assert.ok(failedAt < connectedAt, 'a current failure must be decided before a past success');
 
   // The model carries the three synchronisation fields, and the row exposes them for the tests and for a
   // reader that wants to know whether a run has completed.

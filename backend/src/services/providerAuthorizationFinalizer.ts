@@ -78,17 +78,19 @@ function failureCodeOf(caught: unknown): string {
   return 'SYNC_FAILED';
 }
 
+/** The per-collection failures a calendar run reports instead of throwing. */
+type CalendarSyncFailures = Array<{ calendarId: string; code: string }>;
+
 /** The first calendar run for one connection. */
-async function runCalendarSync(input: FinalizeProviderAuthorizationInput): Promise<void> {
+async function runCalendarSync(input: FinalizeProviderAuthorizationInput): Promise<CalendarSyncFailures> {
   if (input.provider === 'google') {
     const config = input.googleConfig ?? googleConfigFromEnv();
     if (!isGoogleConfigured(config)) throw Object.assign(new Error('Google API is not configured'), { code: 'ADMIN_CONFIGURATION_REQUIRED' });
-    await syncGoogleCalendar({ userId: input.userId, connectionId: input.connectionId, config });
-    return;
+    return (await syncGoogleCalendar({ userId: input.userId, connectionId: input.connectionId, config })).errors ?? [];
   }
   const config = input.microsoftConfig ?? microsoftConfigFromEnv();
   if (!isMicrosoftConfigured(config)) throw Object.assign(new Error('Microsoft API is not configured'), { code: 'ADMIN_CONFIGURATION_REQUIRED' });
-  await syncGraphCalendar({ userId: input.userId, connectionId: input.connectionId, config });
+  return (await syncGraphCalendar({ userId: input.userId, connectionId: input.connectionId, config })).errors ?? [];
 }
 
 /** The first contacts run for one connection. */
@@ -130,18 +132,26 @@ async function runMailBaseline(input: FinalizeProviderAuthorizationInput): Promi
 
 
 /**
- * The `sync_states.coverage` each purpose's first run belongs to.
+ * The `sync_states` feature and coverage each purpose's first run belongs to.
  *
  * A feature writes more than one kind of run (a calendar's discovery and its events, a mailbox's labels and its
  * messages), and the diagnostics report the pipeline's own coverage. A failure recorded under a different one is
- * invisible, so this writes the failure where the card reads.
+ * invisible, so this writes the failure where the card reads. The feature names are the ones the sync writers
+ * use, which is `calendars` for a calendar.
  */
-const PURPOSE_PIPELINE_COVERAGE: Record<string, { google: string; microsoft: string }> = {
-  mail_migration: { google: 'history', microsoft: 'messages' },
-  account_enable: { google: 'history', microsoft: 'messages' },
-  calendar_enable: { google: 'events', microsoft: 'events' },
-  contacts_enable: { google: 'personal', microsoft: 'personal' },
+type FinalizedFeature = 'mail' | 'calendars' | 'contacts';
+
+const FEATURE_PIPELINE_COVERAGE: Record<FinalizedFeature, { google: string; microsoft: string }> = {
+  mail: { google: 'history', microsoft: 'messages' },
+  calendars: { google: 'events', microsoft: 'events' },
+  contacts: { google: 'personal', microsoft: 'personal' },
 };
+
+function featureForPurpose(purpose: ProviderAuthorizationPurpose): FinalizedFeature {
+  if (purpose === 'calendar_enable') return 'calendars';
+  if (purpose === 'contacts_enable') return 'contacts';
+  return 'mail';
+}
 
 /**
  * Record a failed first synchronisation where the account's diagnostics will show it.
@@ -151,19 +161,20 @@ const PURPOSE_PIPELINE_COVERAGE: Record<string, { google: string; microsoft: str
  * card had nothing to show and the cause had to be guessed at. This persists the code against the feature's
  * pipeline, which is what the diagnostics read.
  */
-async function recordInitialSyncFailure(input: FinalizeProviderAuthorizationInput, code: string): Promise<void> {
+async function recordInitialSyncFailure(
+  input: FinalizeProviderAuthorizationInput,
+  code: string,
+  feature: FinalizedFeature = featureForPurpose(input.purpose),
+): Promise<void> {
   if (!input.targetAccountId) return;
-  // `sync_states.feature` names a calendar as `calendars`, which is the value the calendar sync writes.
-  const feature = input.purpose === 'calendar_enable' ? 'calendars'
-    : input.purpose === 'contacts_enable' ? 'contacts'
-      : 'mail';
-  const coverage = PURPOSE_PIPELINE_COVERAGE[input.purpose]?.[input.provider] ?? null;
-  if (!coverage) return;
+  const coverage = FEATURE_PIPELINE_COVERAGE[feature][input.provider];
   await withTransaction(async client => {
     const syncStateId = await ensureSyncState(client, {
       userId: input.userId,
       connectionId: input.connectionId,
-      accountId: input.targetAccountId,
+      // Mail state is stored per account; calendar and contact state is stored per connection with no account
+      // id, which is how the sync writers create it and what the diagnostics read.
+      accountId: feature === 'mail' ? input.targetAccountId : null,
       feature,
       collectionId: null,
       coverage,
@@ -186,22 +197,38 @@ export async function finalizeProviderAuthorization(
   };
 
   try {
-    if (input.purpose === 'calendar_enable') await runCalendarSync(input);
+    if (input.purpose === 'calendar_enable') {
+      // A calendar run reports a per-collection failure instead of throwing: one unreadable shared calendar must
+      // not fail the consent, but it does mean the synchronisation was not complete (OBS-02).
+      const calendarFailures = await runCalendarSync(input);
+      if (calendarFailures.length) {
+        const code = calendarFailures[0]!.code;
+        console.warn(`Initial calendar sync after authorization partly failed for ${input.provider}:`, calendarFailures.map(failure => failure.code).join(','));
+        await recordInitialSyncFailure(input, code, 'calendars').catch(() => { /* the result is still reported below */ });
+        return { ...base, synchronized: false, syncPending: false, syncErrorCode: code };
+      }
+    }
     else if (input.purpose === 'contacts_enable') await runContactsSync(input);
     else if (input.purpose === 'account_enable') {
       // One consent covers the whole mailbox, so every feature it authorized is primed now. A failure in one of
       // them must not stop the others: each feature records its own state, and the first failure is reported.
-      const failures: string[] = [];
-      for (const run of [runCalendarSync, runContactsSync]) {
-        try { await run(input); } catch (caught) { failures.push(failureCodeOf(caught)); }
-      }
+      const failures: Array<{ feature: FinalizedFeature; code: string }> = [];
+      try {
+        for (const failure of await runCalendarSync(input)) failures.push({ feature: 'calendars', code: failure.code });
+      } catch (caught) { failures.push({ feature: 'calendars', code: failureCodeOf(caught) }); }
+      try { await runContactsSync(input); } catch (caught) { failures.push({ feature: 'contacts', code: failureCodeOf(caught) }); }
       // The mail baseline only applies to a mailbox the flow named; a bare consent reuses what syncs exist.
       if (input.targetAccountId) {
-        try { await runMailBaseline(input); } catch (caught) { failures.push(failureCodeOf(caught)); }
+        try { await runMailBaseline(input); } catch (caught) { failures.push({ feature: 'mail', code: failureCodeOf(caught) }); }
       }
       if (failures.length) {
-        console.warn(`Initial sync after a single consent partly failed for ${input.provider}:`, failures.join(','));
-        return { ...base, synchronized: false, syncPending: false, syncErrorCode: failures[0]! };
+        console.warn(`Initial sync after a single consent partly failed for ${input.provider}:`, failures.map(failure => failure.code).join(','));
+        // Persist each failure against its own feature, so the card can name the part that failed rather than
+        // only the first one (OBS-02).
+        for (const failure of failures) {
+          await recordInitialSyncFailure(input, failure.code, failure.feature).catch(() => { /* reported below */ });
+        }
+        return { ...base, synchronized: false, syncPending: false, syncErrorCode: failures[0]!.code };
       }
     }
     else await runMailBaseline(input);

@@ -265,6 +265,13 @@ Microsoft application is registered in this environment.
 
 ### Fixed
 
+- **A partly failed synchronisation no longer looks successful.** A calendar run that could read some calendars
+  but not others reported the failure in its result rather than by throwing, and the post-authorization step
+  looked only for a thrown error — so the account card said the connection was synchronised when a calendar had
+  not been pulled at all. A reported collection failure now makes the result a partial failure with the
+  provider's code, and a failure that arrives after an earlier good run is shown instead of the older green
+  state.
+
 - **An interrupted synchronisation no longer looks finished, and a stale sync cursor is really dropped.**
   Storing progress and declaring success were the same database write, so a first synchronisation cut short
   after one page reported the mailbox as up to date; and because the cursor was written with a "keep the old

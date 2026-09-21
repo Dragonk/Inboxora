@@ -184,8 +184,11 @@ export default function AccountProviderServices({ accountId, reload, t }: Props)
    */
   const serviceStatus = (feature: { authorized: boolean; synchronized?: boolean; syncPending?: boolean; syncErrorCode?: string | null } | null | undefined): string => {
     if (!feature?.authorized) return t('admin.accounts.services.notConnected');
-    if (feature.synchronized === true) return t('admin.accounts.services.connected');
+    // The most recent failure outranks an older success: the diagnostics keep the last successful time and the
+    // latest error separately, so checking `synchronized` first let a failure that arrived after a good run keep
+    // showing "connected" (OBS-02).
     if (feature.syncErrorCode) return t('admin.accounts.services.syncFailed', { code: feature.syncErrorCode });
+    if (feature.synchronized === true) return t('admin.accounts.services.connected');
     return t('admin.accounts.services.syncPending');
   };
 

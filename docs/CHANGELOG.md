@@ -296,6 +296,16 @@ None.
   IMAP loops, health checks, rule forwarder and send path no longer open IMAP or SMTP for it.
 
 ### Fixed
+- **A partially failed first calendar synchronisation is reported as a failure.** The calendar synchronizers
+  resolve successfully while listing the collections they could not read in `errors` — one shared calendar that
+  refuses access must not fail the whole consent — but the post-authorization finalizer looked only at
+  exceptions, so the opener was told the connection was synchronised while a calendar had not been pulled. The
+  errors are now treated as a partial failure: the result says `synchronized: false` with the provider's code,
+  and each failed feature records its own state so the card names the part that failed.
+- **A current synchronisation failure is no longer hidden behind an older success.** The service row decided
+  "connected" before it checked the error, so a failure that arrived after a good run kept showing the green
+  state. The failure now takes precedence — authorization, then the current error, then a completed run, then
+  "pending" — while the genuine last-success time is still kept in the diagnostics.
 - **A partial checkpoint is no longer recorded as a successful synchronisation, and a cleared cursor is actually
   cleared.** Two meanings were collapsed into one statement: `commitSyncCheckpoint` both stored progress and
   stamped `last_success_at`, and it wrote the cursor with `COALESCE($3, cursor)`, which cannot express "clear
