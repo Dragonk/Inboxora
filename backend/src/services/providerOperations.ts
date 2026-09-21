@@ -193,6 +193,40 @@ export interface CompleteOperationInput {
  * (expired lease, superseded generation), in which case the caller must not treat
  * its result as authoritative.
  */
+/**
+ * Record how far an in-flight operation has got, durably, under its own claim.
+ *
+ * A provider change can take more than one write — splitting a repeating event truncates the series and then
+ * creates the remainder — and a process that dies between them left the journal saying only "in flight", which a
+ * reclaimed non-idempotent operation then reports as an unknown outcome. Each completed stage is appended here,
+ * with the data the next step would need, so the outcome is explainable afterwards instead of a mystery (CAL-01).
+ *
+ * The claim token and generation fence the write exactly as the terminal one is fenced: a worker that lost its
+ * claim cannot append to an operation another worker now owns.
+ */
+export async function recordOperationProgress(client: PoolClient, input: {
+  operationId: string;
+  claimToken: string;
+  generation: number;
+  stage: string;
+  detail?: unknown;
+}): Promise<boolean> {
+  const result = await client.query(
+    `UPDATE provider_operations
+        SET upstream_ref = jsonb_set(
+              COALESCE(upstream_ref, '{}'::jsonb),
+              '{progress}',
+              COALESCE(upstream_ref->'progress', '[]'::jsonb)
+                || jsonb_build_array(jsonb_build_object('stage', $4::text, 'at', to_jsonb(NOW()), 'detail', $5::jsonb)),
+              true),
+            updated_at = NOW()
+      WHERE id = $1 AND claim_token = $2 AND generation = $3
+      RETURNING id`,
+    [input.operationId, input.claimToken, input.generation, input.stage, JSON.stringify(input.detail ?? null)],
+  );
+  return (result.rowCount ?? result.rows.length) > 0;
+}
+
 export async function completeOperation(client: PoolClient, input: CompleteOperationInput): Promise<boolean> {
   const result = await client.query(
     `UPDATE provider_operations

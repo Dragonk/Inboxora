@@ -1,5 +1,5 @@
 import { withTransaction } from './db.js';
-import { beginOperation, completeOperation, scheduleOperationRetry } from './providerOperations.js';
+import { beginOperation, completeOperation, recordOperationProgress, scheduleOperationRetry } from './providerOperations.js';
 import type { ProviderOperationStatus } from './providerOperations.js';
 import type { ProviderOperation } from './providers/contracts.js';
 
@@ -58,6 +58,16 @@ export interface ProviderMutationContext {
   operationId: string;
   /** Aborted when the request's `timeoutMs` elapses. */
   signal: AbortSignal;
+  /**
+   * Record a completed stage of a multi-write operation, durably (CAL-01).
+   *
+   * A change that spans two provider writes can die between them; without this the journal knew only that the
+   * operation had started. An adapter calls it after each write it completes, with the data the next step needs.
+   *
+   * Optional so a test double can build a context from just an id and a signal; the service that runs an adapter
+   * always supplies it, and an adapter must therefore call it as `context.recordProgress?.(…)`.
+   */
+  recordProgress?(stage: string, detail?: unknown): Promise<void>;
 }
 
 export interface ProviderMutationRequest<TPayload> {
@@ -209,7 +219,23 @@ export async function runProviderMutation<TPayload, TResult = unknown>(
   const timer = request.timeoutMs === undefined ? null : setTimeout(() => controller.abort(), request.timeoutMs);
   let outcome: ProviderAdapterOutcome<TResult>;
   try {
-    outcome = await adapter.perform(request.payload, { operationId: claim.operationId, signal: controller.signal });
+    outcome = await adapter.perform(request.payload, {
+      operationId: claim.operationId,
+      signal: controller.signal,
+      // Durable, so a run that dies after the first write leaves evidence rather than a bare "in flight".
+      recordProgress: async (stage: string, detail?: unknown) => {
+        await withTransaction(client => recordOperationProgress(client, {
+          operationId: claim.operationId,
+          claimToken: claim.claimToken,
+          generation: claim.generation,
+          stage,
+          detail,
+        })).catch(error => console.warn(
+          `Could not record stage ${stage} of operation ${claim.operationId}:`,
+          error instanceof Error ? error.message : error,
+        ));
+      },
+    });
   } catch (error) {
     // The adapter did not classify this. It may have reached the provider, so the
     // only safe reading is "unknown" — never an automatic retry.

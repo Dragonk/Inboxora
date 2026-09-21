@@ -388,7 +388,7 @@ function googleOccurrenceAdapter(api: Parameters<typeof insertGoogleEvent>[0]): 
     // Applying a truncation twice, or creating the remainder twice, is not safe to replay, so a recovered
     // claim is parked — the same rule the single-event adapter states.
     idempotent: false,
-    async perform(write): Promise<ProviderAdapterOutcome<{ createdSeriesId?: string | null }>> {
+    async perform(write, context): Promise<ProviderAdapterOutcome<{ createdSeriesId?: string | null }>> {
       try {
         if (write.scope === 'single') {
           if (write.operation === 'cancel') {
@@ -446,6 +446,17 @@ function googleOccurrenceAdapter(api: Parameters<typeof insertGoogleEvent>[0]): 
           if (!continued) return { status: 'permanent', code: 'RECURRENCE_CONTINUATION_UNSUPPORTED' };
           remainderRecurrence = existing.map(line => (line === masterRuleLine ? `RRULE:${continued}` : line));
         }
+        // CAL-01: the whole intent is recorded **before** the first write, so a run that dies between the two
+        // writes leaves everything the remainder needs — the series, the split point and the payload — rather than
+        // a bare "in flight" that a later claim can only park as unknown.
+        await context?.recordProgress?.('split_prepared', {
+          masterId: write.masterId,
+          occurrenceStart: write.occurrenceStart,
+          scope: write.scope,
+          operation: write.operation,
+          remainderRecurrence,
+          values: write.values ?? null,
+        });
         await patchGoogleEvent(
           api,
           write.providerCalendarId,
@@ -453,6 +464,7 @@ function googleOccurrenceAdapter(api: Parameters<typeof insertGoogleEvent>[0]): 
           { recurrence: truncateRRuleBefore(existing, before, { startIsDate }) },
           { sendUpdates: write.sendUpdates },
         );
+        await context?.recordProgress?.('master_truncated', { masterId: write.masterId, occurrenceStart: write.occurrenceStart });
         if (write.operation === 'cancel' || !remainder) return { status: 'committed', value: {} };
 
         if (remainderRecurrence) {
@@ -462,6 +474,7 @@ function googleOccurrenceAdapter(api: Parameters<typeof insertGoogleEvent>[0]): 
         }
         const created = await insertGoogleEvent(api, write.providerCalendarId, remainder, { sendUpdates: write.sendUpdates });
         if (!created?.id) return { status: 'outcome_unknown', code: 'EVENT_ID_MISSING' };
+        await context?.recordProgress?.('remainder_created', { createdSeriesId: created.id });
         return { status: 'committed', value: { createdSeriesId: created.id } };
       } catch (error) {
         return classifyGmailMailMutationFailure(error);
@@ -474,7 +487,7 @@ function graphOccurrenceAdapter(api: Parameters<typeof patchGraphEvent>[0]): Pro
   return {
     resourceType: 'calendar_event',
     idempotent: false,
-    async perform(write): Promise<ProviderAdapterOutcome<{ createdSeriesId?: string | null }>> {
+    async perform(write, context): Promise<ProviderAdapterOutcome<{ createdSeriesId?: string | null }>> {
       try {
         if (write.scope === 'single') {
           if (write.operation === 'cancel') {
@@ -553,13 +566,23 @@ function graphOccurrenceAdapter(api: Parameters<typeof patchGraphEvent>[0]): Pro
             payload.recurrence = { pattern, range: remainderRange ?? { ...(master.recurrence.range ?? { type: 'noEnd' }), startDate: splitDate } };
           }
         }
+        // CAL-01: as on Google, everything the remainder needs is recorded before the first write.
+        await context?.recordProgress?.('split_prepared', {
+          masterId: write.masterId,
+          occurrenceStart: write.occurrenceStart,
+          scope: write.scope,
+          operation: write.operation,
+          payload: payload ?? null,
+        });
         await patchGraphEvent(api, write.providerCalendarId, write.masterId, {
           recurrence: { pattern, range: { type: 'endDate', startDate, endDate } },
         });
+        await context?.recordProgress?.('master_truncated', { masterId: write.masterId, occurrenceStart: write.occurrenceStart });
         if (write.operation === 'cancel' || !payload) return { status: 'committed', value: {} };
 
         const created = await createGraphEvent(api, write.providerCalendarId, payload);
         if (!created?.id) return { status: 'outcome_unknown', code: 'EVENT_ID_MISSING' };
+        await context?.recordProgress?.('remainder_created', { createdSeriesId: created.id });
         return { status: 'committed', value: { createdSeriesId: created.id } };
       } catch (error) {
         return classifyGmailMailMutationFailure(error);

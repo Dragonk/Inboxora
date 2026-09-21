@@ -221,6 +221,14 @@ provider identity, `0109` provider-operation payload, `0110` device authorizatio
 reads the new columns; a mixed old/new deployment must not run with the new code before the migrations.
 
 ### Changed
+- **A two-write provider change now records how far it got.** Splitting a repeating event is two provider writes —
+  truncate the series, then create the remainder — and a process that died between them left the journal saying only
+  that the operation had started; a reclaimed claim could then only report an unknown outcome, with nothing to say
+  about which half had happened. Each completed stage is now appended to the operation's own record, under the same
+  claim fence as the final write, and the whole intent (the series, the split point and the remainder's payload) is
+  recorded **before** the first write, so a run that stops mid-way leaves everything the remainder would need to be
+  reconciled. Still open: nothing consumes those stages yet — the operation is still parked as unknown rather than
+  resumed from them, and that resumption is the remaining part of CAL-01.
 - **The message-action seam now has a provider implementation.** `MailActionPort` (above) is implemented for Gmail
   and Microsoft Graph: the port resolves the local message from the `uid`/folder the rules engine passes and then
   acts by the provider's own id, through the move, delete and flag services that already run on the mutation
