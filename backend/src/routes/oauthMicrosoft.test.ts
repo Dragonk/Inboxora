@@ -233,6 +233,26 @@ describe('GET /oauth/provider/microsoft (start)', () => {
     expect(response.headers.get('location')).toContain('oauth_error=');
     expect(queryCallsMatching('INSERT INTO oauth_authorization_flows')).toHaveLength(0);
   });
+
+  it('starts the whole-mailbox account_enable purpose and asks for mail, calendar and contacts', async () => {
+    // AUTH-01: the same one-consent purpose Google uses must survive this route's purpose check and reach the
+    // flow row, otherwise a Microsoft mailbox reconnect never finalizes its services.
+    const response = await startFlow('?purpose=account_enable');
+    expect(response.status).toBe(302);
+    const scope = new URL(String(response.headers.get('location'))).searchParams.get('scope') ?? '';
+    expect(scope).toContain('https://graph.microsoft.com/Mail.ReadWrite');
+    expect(scope).toContain('https://graph.microsoft.com/Calendars.ReadWrite');
+    expect(scope).toContain('https://graph.microsoft.com/Contacts.ReadWrite');
+    const [insert] = queryCallsMatching('INSERT INTO oauth_authorization_flows');
+    expect(JSON.stringify(insert)).toContain('account_enable');
+  });
+
+  it('rejects an explicitly unknown purpose instead of quietly starting another flow', async () => {
+    const response = await startFlow('?purpose=delete_everything');
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ error: 'Unsupported authorization purpose' });
+    expect(queryCallsMatching('INSERT INTO oauth_authorization_flows')).toHaveLength(0);
+  });
 });
 
 describe('GET /oauth/microsoft/callback', () => {
@@ -381,6 +401,21 @@ describe('POST /oauth/provider/microsoft/device (provider device authorization)'
     const response = await startDevice();
     expect(response.status).toBe(409);
     expect(providerCalls()).toHaveLength(0);
+  });
+
+  it('starts an account_enable device flow and rejects an unknown purpose', async () => {
+    // AUTH-01: the device path shares the purpose reader, so it must accept the whole-mailbox purpose too.
+    const accepted = await startDevice({ purpose: 'account_enable' });
+    expect(accepted.status).toBe(200);
+    const body = String((providerCalls()[0]?.[1] as { body?: string }).body);
+    expect(decodeURIComponent(body)).toContain('https://graph.microsoft.com/Mail.ReadWrite');
+    expect(decodeURIComponent(body)).toContain('https://graph.microsoft.com/Calendars.ReadWrite');
+    const [insert] = queryCallsMatching('INSERT INTO oauth_authorization_flows');
+    expect(JSON.stringify(insert)).toContain('account_enable');
+
+    const rejected = await startDevice({ purpose: 'not_a_purpose' });
+    expect(rejected.status).toBe(400);
+    await expect(rejected.json()).resolves.toEqual({ error: 'Unsupported authorization purpose' });
   });
 });
 

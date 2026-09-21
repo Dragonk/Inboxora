@@ -4,11 +4,18 @@ import type { Server } from 'node:http';
 import { listeningPort } from '../test/net.js';
 
 const mocks = vi.hoisted(() => ({ query: vi.fn() }));
+const finalizerMock = vi.hoisted(() => ({ finalize: vi.fn() }));
 
 vi.mock('../services/db.js', () => ({
   query: mocks.query,
   withTransaction: async (fn: (client: { query: typeof mocks.query }) => unknown) => fn({ query: mocks.query }),
 }));
+// Keep the real `isFinalizablePurpose`/`authorizationResultQuery`, but observe the finalization call so a test
+// can prove an `account_enable` callback runs the mailbox's services instead of the generic success branch.
+vi.mock('../services/providerAuthorizationFinalizer.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../services/providerAuthorizationFinalizer.js')>();
+  return { ...actual, finalizeProviderAuthorization: finalizerMock.finalize };
+});
 vi.mock('../services/encryption.js', () => ({
   encrypt: (value: string) => `enc:${value}`,
   decrypt: (value: unknown) => typeof value === 'string' && value.startsWith('enc:') ? value.slice(4) : value,
@@ -82,6 +89,16 @@ beforeEach(() => {
   process.env.GOOGLE_CLIENT_ID = CONFIG.clientId;
   process.env.GOOGLE_CLIENT_SECRET = CONFIG.clientSecret;
   process.env.GOOGLE_REDIRECT_URI = CONFIG.redirectUri;
+
+  finalizerMock.finalize.mockReset();
+  finalizerMock.finalize.mockResolvedValue({
+    provider: 'google',
+    purpose: 'account_enable',
+    accountId: '11111111-1111-4111-8111-111111111111',
+    authorized: true,
+    synchronized: true,
+    syncErrorCode: null,
+  });
 
   mocks.query.mockReset();
   mocks.query.mockImplementation(async (sql: string) => {
@@ -192,6 +209,29 @@ describe('GET /oauth/google (start)', () => {
     expect(response.headers.get('location')).toBe('/?oauth_error=Account%20not%20found');
     expect(queryCallsMatching('INSERT INTO oauth_authorization_flows')).toHaveLength(0);
   });
+
+  it('starts the whole-mailbox account_enable purpose with mail, calendar and contacts scopes', async () => {
+    // AUTH-01: the account card asks for one consent covering everything the mailbox needs. The route used to
+    // keep a narrower allow-list, so this value was rewritten to `new_account` and no service was ever
+    // finalized for the existing mailbox.
+    const response = await startFlow('?purpose=account_enable');
+    expect(response.status).toBe(302);
+    const location = new URL(response.headers.get('location') || '');
+    const scope = location.searchParams.get('scope') || '';
+    expect(scope).toContain('gmail.modify');
+    expect(scope).toContain('calendar.events');
+    expect(scope).toContain('contacts');
+    const insert = queryCallsMatching('INSERT INTO oauth_authorization_flows');
+    expect(insert).toHaveLength(1);
+    expect((insert[0][1] as unknown[])[2]).toBe('account_enable');
+  });
+
+  it('rejects an explicitly unknown purpose instead of quietly starting another flow', async () => {
+    const response = await startFlow('?purpose=delete_everything');
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ error: 'Unsupported authorization purpose' });
+    expect(queryCallsMatching('INSERT INTO oauth_authorization_flows')).toHaveLength(0);
+  });
 });
 
 describe('GET /oauth/google/callback', () => {
@@ -276,5 +316,24 @@ describe('GET /oauth/google/callback', () => {
     expect(queryCallsMatching('INSERT INTO oauth_grants')).toHaveLength(0);
     const finish = queryCallsMatching('UPDATE oauth_authorization_flows').find(([sql]) => String(sql).includes('SET status = $2'));
     expect(finish?.[1]).toEqual(['flow-1', 'failed', 'invalid_grant']);
+  });
+
+  it('finalizes an account_enable consent instead of announcing a bare success', async () => {
+    // AUTH-01: the reconnect card listens for a result that names its account. A generic `oauth_success`
+    // without finalization leaves the card waiting, so this path must reach the finalizer and report back.
+    takenFlow.purpose = 'account_enable';
+    takenFlow.target_account_id = '11111111-1111-4111-8111-111111111111';
+    const response = await callback('?code=code-1&state=state-1');
+    expect(response.status).toBe(302);
+    const location = response.headers.get('location') || '';
+    expect(location).not.toBe('/?oauth_success=google');
+    expect(finalizerMock.finalize).toHaveBeenCalledTimes(1);
+    expect(finalizerMock.finalize.mock.calls[0][0]).toMatchObject({
+      provider: 'google',
+      purpose: 'account_enable',
+      targetAccountId: '11111111-1111-4111-8111-111111111111',
+    });
+    expect(location).toContain('accountId=11111111-1111-4111-8111-111111111111');
+    expect(location).toContain('authorized=1');
   });
 });

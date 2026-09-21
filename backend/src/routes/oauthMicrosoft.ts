@@ -12,6 +12,7 @@ import {
   exchangeMicrosoftAuthorizationCode,
   fetchMicrosoftIdentity,
   finishAuthorizationFlow,
+  isAuthorizationPurpose,
   isMicrosoftConfigured,
   markDeviceAuthorizationPolled,
   microsoftAuthorizeUrl,
@@ -48,7 +49,6 @@ import type { Request, Response } from 'express';
 
 const router = Router();
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const PURPOSES: readonly AuthorizationPurpose[] = ['new_account', 'mail_migration', 'calendar_enable', 'contacts_enable'];
 
 function failRedirect(res: Response, message: string, status = 302) {
   // `res.redirect(url)` always forces 302; pass the status explicitly so a 403
@@ -56,10 +56,14 @@ function failRedirect(res: Response, message: string, status = 302) {
   return res.redirect(status, `/?oauth_error=${encodeURIComponent(message)}`);
 }
 
-function readPurpose(value: unknown): AuthorizationPurpose {
-  return typeof value === 'string' && (PURPOSES as readonly string[]).includes(value)
-    ? value as AuthorizationPurpose
-    : 'new_account';
+/**
+ * An omitted purpose keeps the historical default; a purpose that was explicitly sent but is not one this
+ * build implements is rejected instead of being reinterpreted (AUTH-01). Both the browser and the device
+ * start use this, so `account_enable` reaches the finalizer on either path.
+ */
+function readPurpose(value: unknown): AuthorizationPurpose | null {
+  if (value === undefined || value === '') return 'new_account';
+  return isAuthorizationPurpose(value) ? value : null;
 }
 
 function readAccess(value: unknown): RequestedAccess {
@@ -78,6 +82,7 @@ router.get('/provider/microsoft', requireAuth, async (req: Request, res: Respons
   if (!userId) return res.status(401).json({ error: 'Not authenticated' });
 
   const purpose = readPurpose(req.query.purpose);
+  if (!purpose) return res.status(400).json({ error: 'Unsupported authorization purpose' });
   const access = readAccess(req.query.access);
   const requestedAccount = typeof req.query.accountId === 'string' && UUID_PATTERN.test(req.query.accountId) ? req.query.accountId : null;
   if (requestedAccount) {
@@ -127,6 +132,7 @@ router.post('/provider/microsoft/device', requireAuth, async (req: Request, res:
   if (!userId) return res.status(401).json({ error: 'Not authenticated' });
 
   const purpose = readPurpose(req.body?.purpose);
+  if (!purpose) return res.status(400).json({ error: 'Unsupported authorization purpose' });
   const access = readAccess(req.body?.access);
   const requestedAccount = typeof req.body?.accountId === 'string' && UUID_PATTERN.test(req.body.accountId) ? req.body.accountId : null;
   if (requestedAccount) {

@@ -15,6 +15,7 @@ import {
   googleAuthorizeUrl,
   googleConfigFromEnv,
   googleScopesForPurpose,
+  isAuthorizationPurpose,
   isGoogleConfigured,
   providerConfigRevision,
   storeOAuthGrant,
@@ -41,7 +42,6 @@ import type { Request, Response } from 'express';
 
 const router = Router();
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const PURPOSES: readonly AuthorizationPurpose[] = ['new_account', 'mail_migration', 'calendar_enable', 'contacts_enable'];
 
 function googleConfig(): GoogleConfig {
   // One source of truth for the effective client configuration.
@@ -54,10 +54,15 @@ function failRedirect(res: Response, message: string, status = 302) {
   return res.redirect(status, `/?oauth_error=${encodeURIComponent(message)}`);
 }
 
-function readPurpose(value: unknown): AuthorizationPurpose {
-  return typeof value === 'string' && (PURPOSES as readonly string[]).includes(value)
-    ? value as AuthorizationPurpose
-    : 'new_account';
+/**
+ * An omitted purpose keeps the historical default; a purpose that was explicitly sent but is not one this
+ * build implements is rejected instead of being reinterpreted. Silently coercing it to `new_account` is what
+ * made "reconnect this mailbox" (`account_enable`) store an unrelated flow whose callback never finalized the
+ * mailbox's services, so the card waited forever (AUTH-01).
+ */
+function readPurpose(value: unknown): AuthorizationPurpose | null {
+  if (value === undefined || value === '') return 'new_account';
+  return isAuthorizationPurpose(value) ? value : null;
 }
 
 function readAccess(value: unknown): RequestedAccess {
@@ -76,6 +81,7 @@ router.get('/google', requireAuth, async (req: Request, res: Response) => {
   if (!userId) return res.status(401).json({ error: 'Not authenticated' });
 
   const purpose = readPurpose(req.query.purpose);
+  if (!purpose) return res.status(400).json({ error: 'Unsupported authorization purpose' });
   const access = readAccess(req.query.access);
   const requestedAccount = typeof req.query.accountId === 'string' && UUID_PATTERN.test(req.query.accountId) ? req.query.accountId : null;
   if (requestedAccount) {

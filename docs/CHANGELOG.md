@@ -296,6 +296,14 @@ None.
   IMAP loops, health checks, rule forwarder and send path no longer open IMAP or SMTP for it.
 
 ### Fixed
+- **"Reconnect" on an account card finishes instead of waiting forever.** The card's connect action asks for one
+  consent covering the whole mailbox (`account_enable`), but both OAuth start routes kept a narrower allow-list
+  of purposes that did not contain it, so the value was silently rewritten to a plain "new account" flow. That
+  flow only stores the authorization, never runs the mailbox's first synchronisation, and its result carried no
+  account id — so the card that started it could not recognise the completion and stayed on its waiting state.
+  The purpose list is now one shared source of truth used by both providers, by the browser and the device flow;
+  an explicitly unknown purpose is rejected with `400` instead of being reinterpreted; and migration
+  `0115_oauth_account_enable_purpose` widens the database `CHECK` that rejected the value as well.
 - **The contacts CardDAV section shows words, not key names.** Six of the fourteen labels that section reads —
   server address, user name, password, synchronise now, connecting, disconnecting — were never added to the locale
   files, so the interface rendered `admin.integrations.carddav.serverUrl` and its siblings. All nine languages now

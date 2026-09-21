@@ -327,4 +327,15 @@ describe('migration integrity', () => {
     // Expand-only: no credential is rewritten by the migration.
     expect(sql).not.toMatch(/UPDATE\s+dav_app_passwords/i);
   });
+
+  it('widens the OAuth flow purpose CHECK to accept account_enable', () => {
+    // AUTH-01: the route-level allow-list was not the only gate — 0103's CHECK rejected account_enable too, so
+    // a reconnect flow could never be persisted. The fix must widen the constraint, not rewrite 0103.
+    const sql = readFileSync(join(process.cwd(), 'migrations/0115_oauth_account_enable_purpose.sql'), 'utf8');
+    expect(sql).toContain('oauth_authorization_flows_purpose_check');
+    expect(sql).toContain("'account_enable'");
+    // Additive: it must not drop or rewrite rows.
+    expect(sql).not.toMatch(/DELETE\s+FROM\s+oauth_authorization_flows/i);
+    expect(sql).not.toMatch(/UPDATE\s+oauth_authorization_flows/i);
+  });
 });

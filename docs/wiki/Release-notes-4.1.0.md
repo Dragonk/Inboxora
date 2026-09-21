@@ -265,6 +265,15 @@ Microsoft application is registered in this environment.
 
 ### Fixed
 
+- **Reconnecting a mailbox now reaches the end of the flow.** The account card's connect button asks for one
+  consent that covers mail, calendar and contacts together, but the OAuth start routes accepted a narrower set
+  of purposes and quietly downgraded the request to a "new account" authorization. That authorization stores the
+  token and stops: no first synchronisation runs, and the result does not name the mailbox, so the card that
+  started the flow cannot match it and keeps waiting. Both providers (browser and device flow) now share one
+  purpose list, a purpose that is not recognised is refused with `400` rather than turned into a different flow,
+  and migration `0115_oauth_account_enable_purpose` widens the database constraint that rejected the value.
+  Apply the migration before rolling out the new backend.
+
 - **Polish and other non-ASCII sender names from legacy charsets are shown correctly.** A message whose client
   encoded the `From`/`To` name or the subject in ISO-8859-2 or Windows-1250 — Outlook's charset for Polish — was
   decoded as UTF-8, which turned `Kamil Maciąg` into `Kamil Maci?g`; only UTF-8 mail was right, so the problem

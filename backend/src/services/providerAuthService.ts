@@ -25,7 +25,23 @@ export type OAuthProvider = 'microsoft' | 'google';
  * the second or third from being granted to a different mailbox — the exact mistake a single authorization
  * removes. The per-feature purposes remain, because an installation may still want to narrow a consent.
  */
-export type AuthorizationPurpose = 'new_account' | 'mail_migration' | 'calendar_enable' | 'contacts_enable' | 'account_enable';
+export const AUTHORIZATION_PURPOSES = [
+  'new_account',
+  'mail_migration',
+  'calendar_enable',
+  'contacts_enable',
+  'account_enable',
+] as const;
+export type AuthorizationPurpose = (typeof AUTHORIZATION_PURPOSES)[number];
+
+/**
+ * True only for a purpose this build implements. A request that names an unknown purpose must be rejected,
+ * never coerced to `new_account`: the caller asked for a different flow, and the card that started it would
+ * then wait for a terminal result the wrong flow never produces (AUTH-01).
+ */
+export function isAuthorizationPurpose(value: unknown): value is AuthorizationPurpose {
+  return typeof value === 'string' && (AUTHORIZATION_PURPOSES as readonly string[]).includes(value);
+}
 export type RequestedAccess = 'source' | 'read_only';
 export type AuthorizationFlowStatus = 'pending' | 'exchanging' | 'completed' | 'failed' | 'expired' | 'cancelled';
 
