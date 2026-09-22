@@ -41,11 +41,14 @@ export async function listCardavConfigs(userId: string): Promise<CardavSourceCon
 }
 
 // Shallow-merge a patch into the stored JSONB config.
-export async function saveCardavConfig(userId: string, patch: Record<string, unknown>) {
+export async function saveCardavConfig(userId: string, patch: Record<string, unknown>, sourceId?: string | null) {
   await query(
-    `UPDATE user_integrations SET config = config || $2::jsonb, updated_at = NOW()
-     WHERE user_id = $1 AND provider = 'carddav'`,
-    [userId, JSON.stringify(patch)],
+    sourceId
+      ? `UPDATE user_integrations SET config = config || $2::jsonb, updated_at = NOW()
+         WHERE id = $1 AND user_id = $3 AND provider = 'carddav'`
+      : `UPDATE user_integrations SET config = config || $2::jsonb, updated_at = NOW()
+         WHERE user_id = $1 AND provider = 'carddav' AND label IS NULL`,
+    sourceId ? [sourceId, JSON.stringify(patch), userId] : [userId, JSON.stringify(patch)],
   );
 }
 
@@ -302,11 +305,9 @@ async function syncBook(userId: string, book: CardavBook, dupMode: string, creds
   return { bookId, count: presentUids.length };
 }
 
-export async function syncUser(userId: string, sourceId?: string | null) {
-  const config = await getCardavConfig(userId, sourceId);
-  if (!config?.serverUrl) return { ok: false, error: 'not connected' };
-  if (syncing.has(userId)) return { ok: false, error: 'A sync is already in progress' };
-  syncing.add(userId);
+async function syncOneCardavSource(userId: string, source: CardavSourceConfig): Promise<{ ok: boolean; bookCount?: number; contactCount?: number; error?: string }> {
+  const config = source.config;
+  if (!config.serverUrl) return { ok: false, error: 'not connected' };
   try {
     const policy = await getConnectionPolicy();
     if (typeof config.username !== 'string') throw new Error('CardDAV username is missing');
@@ -315,27 +316,53 @@ export async function syncUser(userId: string, sourceId?: string | null) {
     const creds: CardavCredentials = { username: config.username, password: decryptedPassword, allowPrivate: policy.allowPrivateHosts };
     const books = await discoverAddressBooks({ serverUrl: config.serverUrl, ...creds });
     let contactCount = 0;
-    const seenUrls = [];
+    const seenUrls: string[] = [];
     for (const book of books) {
       const { count } = await syncBook(userId, book, config.dupMode || 'separate', creds);
       contactCount += count;
       seenUrls.push(book.url);
     }
-    // Prune local CardDAV books whose remote collection disappeared (cascades to contacts).
-    await query(
-      `DELETE FROM address_books
-       WHERE user_id = $1 AND source = 'carddav' AND external_url <> ALL($2::text[])`,
-      [userId, seenUrls.length ? seenUrls : ['']],
-    );
-    await saveCardavConfig(userId, {
-      lastSyncAt: new Date().toISOString(),
-      lastError: null, bookCount: books.length, contactCount,
-    });
+    // Preserve the legacy cleanup for the unlabelled source. Labeled sources skip pruning until the collection
+    // link carries a source identity of its own; keeping a stale book is safer than deleting another source's book.
+    if (!source.label) {
+      await query(
+        `DELETE FROM address_books
+         WHERE user_id = $1 AND source = 'carddav' AND external_url <> ALL($2::text[])`,
+        [userId, seenUrls.length ? seenUrls : ['']],
+      );
+    }
+    await saveCardavConfig(userId, { lastSyncAt: new Date().toISOString(), lastError: null, bookCount: books.length, contactCount }, source.id);
     return { ok: true, bookCount: books.length, contactCount };
   } catch (caught) {
     const err = toAppError(caught);
-    await saveCardavConfig(userId, { lastError: err.message, lastSyncAt: new Date().toISOString() });
+    await saveCardavConfig(userId, { lastError: err.message, lastSyncAt: new Date().toISOString() }, source.id);
     return { ok: false, error: err.message };
+  }
+}
+
+export async function syncUser(userId: string, sourceId?: string | null) {
+  if (syncing.has(userId)) return { ok: false, error: 'A sync is already in progress' };
+  let sources = await listCardavConfigs(userId);
+  // Legacy/test fallback: an older reader or a rolling deployment may expose only the old config query. Treat it
+  // as the unlabelled source until all application instances know the labeled form.
+  if (sources.length === 0) {
+    const legacy = await getCardavConfig(userId, sourceId);
+    if (legacy) sources = [{ id: sourceId ?? `legacy:${userId}`, label: null, config: legacy }];
+  }
+  const selected = sourceId ? sources.filter(source => source.id === sourceId) : sources;
+  if (selected.length === 0) return { ok: false, error: 'not connected' };
+  syncing.add(userId);
+  try {
+    const results = [];
+    for (const source of selected) results.push({ sourceId: source.id, label: source.label, ...(await syncOneCardavSource(userId, source)) });
+    const failed = results.filter(result => !result.ok);
+    return {
+      ok: failed.length === 0,
+      sources: results,
+      bookCount: results.reduce((sum, result) => sum + (result.bookCount ?? 0), 0),
+      contactCount: results.reduce((sum, result) => sum + (result.contactCount ?? 0), 0),
+      ...(failed.length ? { error: failed.map(result => result.error).filter(Boolean).join('; ') } : {}),
+    };
   } finally {
     syncing.delete(userId);
   }

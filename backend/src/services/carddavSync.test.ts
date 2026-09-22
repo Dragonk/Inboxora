@@ -261,8 +261,10 @@ describe('remote CardDAV contact-date persistence', () => {
     });
 
     const postConfigQueries = query.mock.calls.slice(1);
-    expect(postConfigQueries).toHaveLength(1);
-    expect(postConfigQueries[0][0]).toContain('UPDATE user_integrations SET config');
+    // Source-aware reads may probe the labelled form before falling back to the legacy unlabelled source; the
+    // persistent error update is still exactly one and is what this test pins.
+    const configUpdates = postConfigQueries.filter(([sql]) => String(sql).includes('UPDATE user_integrations SET config'));
+    expect(configUpdates).toHaveLength(1);
   });
 });
 
