@@ -18,7 +18,7 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
   let p = 1;
 
   const isSpecificAccount = resolvedAccountId !== null;
-  let displayFolderExpr = "'INBOX'";
+  let displayFolderExpr: string;
 
   if (isSpecificAccount) {
     whereConditions.push(`m.account_id = $${p++}`);
@@ -68,7 +68,7 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
   const safeLimit  = Math.min(Math.max(Number(limit)  || 50, 1), 500);
   const safeOffset = Math.max(Number(offset) || 0, 0);
 
-  let total = 0;
+  let total: number;
   try {
     // The cached folder counters count only the legacy primary `folder`, while the membership predicate above can
     // add a message to another projected label. Count from the same predicate so pagination and the returned total

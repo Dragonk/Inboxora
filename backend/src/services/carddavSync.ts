@@ -17,12 +17,27 @@ const DEFAULT_INTERVAL_MIN = 60;
 const timers = new Map();   // userId -> interval id
 const syncing = new Set();  // userIds with a sync in flight (prevents overlap)
 
-export async function getCardavConfig(userId: string): Promise<{ serverUrl?: string | null; username?: string | null; password?: string | null; dupMode?: string | null; intervalMin?: number | null; [key: string]: unknown } | null> {
-  const r = await query<{ config?: { serverUrl?: string | null; username?: string | null; password?: string | null; dupMode?: string | null; intervalMin?: number | null; [key: string]: unknown } | null }>(
-    "SELECT config FROM user_integrations WHERE user_id = $1 AND provider = 'carddav'",
-    [userId],
+export type CardavConfig = { serverUrl?: string | null; username?: string | null; password?: string | null; dupMode?: string | null; intervalMin?: number | null; [key: string]: unknown };
+export type CardavSourceConfig = { id: string; label: string | null; config: CardavConfig };
+
+/** Legacy reader: the unlabelled source, preserving existing callers until the UI is source-aware. */
+export async function getCardavConfig(userId: string, sourceId?: string | null): Promise<CardavConfig | null> {
+  const r = await query<{ config?: CardavConfig | null }>(
+    sourceId
+      ? "SELECT config FROM user_integrations WHERE id = $1 AND user_id = $2 AND provider = 'carddav'"
+      : "SELECT config FROM user_integrations WHERE user_id = $1 AND provider = 'carddav' AND label IS NULL LIMIT 1",
+    sourceId ? [sourceId, userId] : [userId],
   );
   return r.rows[0]?.config || null;
+}
+
+/** All CardDAV source rows, so a source-aware UI/scheduler can address them independently (DAV-01). */
+export async function listCardavConfigs(userId: string): Promise<CardavSourceConfig[]> {
+  const r = await query<{ id: string; label: string | null; config?: CardavConfig | null }>(
+    "SELECT id, label, config FROM user_integrations WHERE user_id = $1 AND provider = 'carddav' ORDER BY label NULLS FIRST, created_at",
+    [userId],
+  );
+  return r.rows.map(row => ({ id: row.id, label: row.label ?? null, config: row.config ?? {} }));
 }
 
 // Shallow-merge a patch into the stored JSONB config.
@@ -287,8 +302,8 @@ async function syncBook(userId: string, book: CardavBook, dupMode: string, creds
   return { bookId, count: presentUids.length };
 }
 
-export async function syncUser(userId: string) {
-  const config = await getCardavConfig(userId);
+export async function syncUser(userId: string, sourceId?: string | null) {
+  const config = await getCardavConfig(userId, sourceId);
   if (!config?.serverUrl) return { ok: false, error: 'not connected' };
   if (syncing.has(userId)) return { ok: false, error: 'A sync is already in progress' };
   syncing.add(userId);
