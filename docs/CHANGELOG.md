@@ -52,7 +52,10 @@ Nothing is being prepared beyond 4.1.0. Work whose version has not been chosen a
   order below. A mailbox's membership can be checked before anything depends on it: Inboxora can compare each
   message's own label set against the rows recorded for it and report the accounts where the two disagree
   (`labelMembershipReport`), which is how an account synchronised before migration `0116` is seen rather than
-  silently empty.
+  silently empty. The flat message listing now follows membership too: a Gmail message appears in each projected
+  label it carries, with the returned folder set to the label being viewed so an action addresses that membership,
+  not the primary folder left on the legacy row. Threaded expansion and the remaining archive/member actions still
+  need the same treatment before MAIL-02 is complete.
 - **A controlled way to move a Microsoft mailbox onto immutable message ids.** Graph has two kinds of message id:
   the default one, which can change when a message moves between folders, and the immutable one, which is stable and
   is what a local store should record. Asking for immutable ids is a per-request preference, and turning it on for a

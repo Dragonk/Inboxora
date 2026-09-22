@@ -65,7 +65,10 @@ without copying or losing anything local.
   nothing yet** — an application version that does not know it leaves it empty, and one that knows it writes only
   there. A mailbox that was synchronised before `0116` therefore has no membership recorded; the new membership
   report compares each message's own label set against its rows and names such accounts, so the gap is measurable
-  before anything depends on the table. `0117` lets a user hold several CalDAV or CardDAV sources: it drops the
+  before anything depends on the table. The flat message list now follows those memberships too: a message carrying
+  multiple Gmail labels can appear in each projected label, and an action from that view carries the viewed
+  membership as its folder context. Threaded expansion, counts and the remaining archive semantics are not yet
+  migrated. `0117` lets a user hold several CalDAV or CardDAV sources: it drops the
   single-row constraint and replaces it with two partial unique indexes, so the unlabelled row per provider remains
   unique while labelled ones coexist. No row is rewritten, and nothing reads the new column yet, so behaviour is
   unchanged until the source model is used. An application version older than these columns simply leaves them `NULL`.
