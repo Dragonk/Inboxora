@@ -18,16 +18,29 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
   let p = 1;
 
   const isSpecificAccount = resolvedAccountId !== null;
+  let displayFolderExpr = "'INBOX'";
 
   if (isSpecificAccount) {
     whereConditions.push(`m.account_id = $${p++}`);
     values.push(resolvedAccountId);
-    whereConditions.push(`m.folder = $${p++}`);
+    const folderParam = p++;
     values.push(folder);
+    // MAIL-02: a Gmail message may carry several labels while the legacy row retains one primary folder. The
+    // membership table makes it visible in every projected folder, but only for rows that actually have that
+    // membership; IMAP rows and provider rows before migration 0116 retain the old `m.folder` behaviour.
+    whereConditions.push(`(m.folder = $${folderParam} OR EXISTS (
+      SELECT 1 FROM message_labels ml
+       WHERE ml.message_id = m.id AND ml.account_id = m.account_id AND ml.folder_path = $${folderParam}
+    ))`);
+    displayFolderExpr = `(CASE WHEN m.folder = $${folderParam} THEN m.folder ELSE $${folderParam} END)`;
   } else {
     whereConditions.push(`m.account_id = ANY($${p++})`);
     values.push(scopedAccountIds);
-    whereConditions.push(`m.folder = 'INBOX'`);
+    whereConditions.push(`(m.folder = 'INBOX' OR EXISTS (
+      SELECT 1 FROM message_labels ml
+       WHERE ml.message_id = m.id AND ml.account_id = m.account_id AND ml.folder_path = 'INBOX'
+    ))`);
+    displayFolderExpr = "'INBOX'";
   }
 
   const isUnreadOnly = unreadOnly === 'true' || unreadOnly === true;
@@ -57,26 +70,16 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
 
   let total = 0;
   try {
-    if (isSpecificAccount) {
-      const r = await query<{ total_count?: number | null; unread_count?: number | null }>(
-        'SELECT total_count, unread_count FROM folders WHERE account_id = $1 AND path = $2',
-        [accountId, folder]
-      );
-      if (r.rows.length) {
-        total = isUnreadOnly ? (r.rows[0].unread_count ?? 0) : (r.rows[0].total_count ?? 0);
-      }
-    } else {
-      const r = isUnreadOnly
-        ? await query<{ n: number }>(
-            "SELECT COALESCE(SUM(unread_count), 0)::int AS n FROM folders WHERE account_id = ANY($1) AND path = 'INBOX'",
-            [scopedAccountIds]
-          )
-        : await query<{ n: number }>(
-            "SELECT COALESCE(SUM(total_count), 0)::int AS n FROM folders WHERE account_id = ANY($1) AND path = 'INBOX'",
-            [scopedAccountIds]
-          );
-      total = r.rows[0]?.n ?? 0;
-    }
+    // The cached folder counters count only the legacy primary `folder`, while the membership predicate above can
+    // add a message to another projected label. Count from the same predicate so pagination and the returned total
+    // describe the same set (MAIL-02); this is intentionally scoped to the query, not a destructive rewrite of the
+    // existing counters.
+    const countValues = [...values];
+    const r = await query<{ n: number }>(
+      `SELECT COUNT(*)::int AS n FROM messages m WHERE ${where}`,
+      countValues,
+    );
+    total = r.rows[0]?.n ?? 0;
   } catch {
     total = 0;
   }
@@ -199,7 +202,7 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
   values.push(safeLimit, safeOffset);
 
   const result = await query(`
-    SELECT m.id, m.uid, m.folder, m.message_id, m.thread_id, m.thread_key, m.subject, m.from_name, m.from_email,
+    SELECT m.id, m.uid, ${displayFolderExpr} AS folder, m.message_id, m.thread_id, m.thread_key, m.subject, m.from_name, m.from_email,
            m.to_addresses, m.cc_addresses, m.draft_bcc_addresses, m.draft_uid_validity::text AS draft_uid_validity, m.draft_alias_id, m.draft_in_reply_to, m.draft_references, m.draft_composition, m.reply_to, m.in_reply_to,
            m.date, m.snippet, m.is_read, m.is_starred,
            m.has_attachments, m.account_id, m.category,

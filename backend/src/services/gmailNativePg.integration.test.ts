@@ -33,4 +33,24 @@ describe.skipIf(process.env.REQUIRE_MAIL_POSTGRES !== '1')('Gmail native groupin
     const children = await query('SELECT id FROM messages WHERE account_id=$1 AND thread_key=$2', [accountId, grouped.thread_key]);
     expect(children.rows).toHaveLength(2);
   });
+
+  it('lists a Gmail message in every label membership, not only its primary folder', async () => {
+    const message = (await query<{ id: string }>(
+      `INSERT INTO messages(account_id, uid, folder, provider_message_id, provider_labels, message_id, subject, from_email, to_addresses, date, snippet, is_read)
+       VALUES($1,$2,'INBOX','membership-1',ARRAY['INBOX','Label_Work']::text[],'<membership-1@example.test>','Membership test','sender@example.test','[{"address":"me@example.test"}]',$3,'Synthetic',false)
+       RETURNING id`,
+      [accountId, 8001, new Date('2026-09-05T09:00:00Z')],
+    )).rows[0]!;
+    await query(
+      `INSERT INTO message_labels(message_id, account_id, label_id, folder_path)
+       VALUES($1,$2,'INBOX','INBOX'),($1,$2,'Label_Work','Work')`,
+      [message.id, accountId],
+    );
+
+    const listed = await listMessages({ userId, accountId, folder: 'Work', threaded: false });
+
+    expect(listed.total).toBe(1);
+    expect(listed.messages).toHaveLength(1);
+    expect(listed.messages[0]).toMatchObject({ id: message.id, folder: 'Work' });
+  });
 });
