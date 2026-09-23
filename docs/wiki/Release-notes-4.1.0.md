@@ -21,6 +21,10 @@ without copying or losing anything local.
   `outcome_unknown`, rather than replaying an uncertain provider effect. Apply `0121`, `0124`, and `0125` in order
   before rolling out the worker.
 
+- **Safe recovery of a legacy local message after Graph cutover.** `0126_graph_legacy_message_bindings.sql` records a confirmed alias from an old IMAP-era local message to its canonical Graph copy. Inboxora does not manufacture a Graph ID from an IMAP UID or RFC `Message-ID`: ambiguous matches stay visible for review, and cache is not deleted as a substitute for binding.
+- **Account-scoped provider services and source controls.** Calendars and contacts can be enabled independently for each Google or Microsoft mail account. `0128_account_provider_feature_settings.sql` preserves already-active linked services during upgrade, but does not turn on a new service merely because an OAuth grant is broad. Disabled services are not scheduled or manually synchronized; an enabled service without a first collection remains eligible for discovery.
+- **Calendar sources are grouped and presented independently from synchronization.** Local/system, subscription/DAV, Google and Microsoft sources use stable source/account identities. `0129_calendar_presentation_preferences.sql` persists per-user source collapse and calendar sidebar hiding; these presentation actions do not remove a calendar remotely or change its synchronization/write permissions. Google and Microsoft account sources share account-scoped “sync now” handling.
+- **Provider error and status wording is more precise.** Google API-disabled, scope, access, quota and unknown-forbidden responses remain distinguishable. Account cards render one account snapshot for enabled intent, authorization, sync freshness/error and push/polling rather than merging separate status fetches.
 - **Native Microsoft Graph mail, calendars and contacts.** Reading, filing, flagging, searching, drafting
   and **sending** over Graph, with folders, delta sync, bodies and attachments (single, inline and ZIP),
   delete, move/archive, spam/ham, snooze, bulk delete, mark-all-read, source headers, drafts and
@@ -65,7 +69,7 @@ without copying or losing anything local.
 
 ## Upgrade impact
 
-- **Apply migrations `0101`–`0125` in order, before rolling out the application.** They are additive and no
+- **Apply migrations `0101`–`0129` in numeric order, before rolling out the application.** They are additive and no
   existing table, column or row is rewritten. Several deserve naming: `0110` adds the columns the Microsoft
   device authorization uses and must be applied before a device flow is started; `0111` adds the nullable
   `messages.provider_labels` the Gmail adapter writes; `0112` adds the `read_write` value the per-collection
@@ -80,7 +84,7 @@ without copying or losing anything local.
   migrated. `0117` lets a user hold several CalDAV or CardDAV sources: it drops the
   single-row constraint and replaces it with two partial unique indexes, so the unlabelled row per provider remains
   unique while labelled ones coexist. No row is rewritten, and nothing reads the new column yet, so behaviour is
-  unchanged until the source model is used. `0118_carddav_source_identity.sql` attaches CardDAV links to their exact source, `0119_gmail_archive_state.sql` records Gmail's archive state without deleting the message, and `0120_provider_rule_headers.sql` stores native-provider headers used by rules. `0121_provider_rule_deferred_queue.sql` creates the leased read-only queue for missing provider rule inputs. `0122_carddav_source_ownership_and_leases.sql` gives each external CardDAV projection a source owner and a fenced lease (ambiguous legacy ownership remains unowned rather than guessed); `0123_gmail_baseline_generations.sql` persists a bounded Gmail baseline's seen set and its final All Mail reconciliation; `0124_message_header_completeness.sql` records whether provider headers are complete; and `0125_provider_rule_deferred_dispatch.sql` records the action hand-off state. Apply all five in that order before deploying their workers. All are additive, do not rewrite existing rows, and must be applied before this application version runs.
+  unchanged until the source model is used. `0118_carddav_source_identity.sql` attaches CardDAV links to their exact source, `0119_gmail_archive_state.sql` records Gmail's archive state without deleting the message, and `0120_provider_rule_headers.sql` stores native-provider headers used by rules. `0121_provider_rule_deferred_queue.sql` creates the leased read-only queue for missing provider rule inputs. `0122_carddav_source_ownership_and_leases.sql` gives each external CardDAV projection a source owner and a fenced lease (ambiguous legacy ownership remains unowned rather than guessed); `0123_gmail_baseline_generations.sql` persists a bounded Gmail baseline's seen set and its final All Mail reconciliation; `0124_message_header_completeness.sql` records whether provider headers are complete; and `0125_provider_rule_deferred_dispatch.sql` records the action hand-off state. Apply all five in that order before deploying their workers. `0126_graph_legacy_message_bindings.sql` adds explicit legacy-to-Graph aliases; `0128_account_provider_feature_settings.sql` adds the account/feature intent table and backfills only accounts with an enabled linked projection; `0129_calendar_presentation_preferences.sql` adds per-user source-collapse and sidebar-hidden preferences. (There is no `0127` migration file in this checkout.) Apply the present `0126`, `0128` and `0129` migrations in numeric order before serving the corresponding code. All are additive, do not rewrite existing rows (except the intentional `0128` insert of settings), and must be applied before this application version runs.
 - **Microsoft accounts are not migrated automatically.** An existing Microsoft account keeps reading and
   sending over OAuth2 IMAP/SMTP until an administrator (or the account's owner) invokes the in-place
   cutover for it. Migrating is what makes the Graph paths reachable for that mailbox; **no account is
@@ -239,6 +243,14 @@ Deliberate product behaviour, not missing work:
   `PROVIDER_PUSH_ENABLED` off) Inboxora synchronises by polling alone, which is the supported default;
 - **Google Contacts stays polling-only**: the People API has no push channel for the contact resources
   Inboxora syncs, so its sync token and the schedule remain the mechanism;
+- **Push hints respect disabled optional services, but are not proof of subscription cleanup.** The scheduler gates
+  calendar/contact push hints with the account feature setting (`b028ebd0`); a disabled service does not call its
+  adapter from that hint. Existing upstream subscriptions, their expiry/cleanup and a live provider delivery path
+  still require environment validation.
+- **The account feature preference is not yet a universal write/DAV ownership gate.** It controls the implemented
+  OAuth, scheduled/manual sync and push-hint paths; do not rely on disabling a service as an authorization boundary
+  for every provider write, DAV request, already-running worker or externally owned source until those paths enforce
+  the same effective setting with ownership/revision checks.
 - **Google personal contacts only**, no shared directory, and no remote creation or sharing of collections;
 - a **legacy external CalDAV/CardDAV collection** gains its write-back link on the next sync of its source
   rather than through a one-shot migration;
@@ -250,8 +262,10 @@ Deliberate product behaviour, not missing work:
 These need a real provider, device or client. They are **NOT RUN**, not failures:
 
 - **live Microsoft** — authorization (browser and device code), Graph mail, calendars, contacts, send and
-  provider-side search against a real mailbox;
-- **live Google** — OAuth, the Gmail API, Calendar and People;
+  provider-side search against a real mailbox, including a legacy-message binding after a real cutover and contact
+  discovery where the default folder has a non-empty `parentFolderId`;
+- **live Google** — OAuth, the Gmail API, Calendar and People, including API-disabled/access/scope 403 diagnosis,
+  first calendar discovery after enabling the service, and push-hint behavior;
 - **a real mailbox cutover** from IMAP/SMTP to Graph or the Gmail API;
 - **DAV clients** — DAVx⁵, Thunderbird and macOS Contacts/Calendar, including write-back;
 - **the browser suite and documentation screenshots** for this revision on a runner, and the **CI jobs on a
