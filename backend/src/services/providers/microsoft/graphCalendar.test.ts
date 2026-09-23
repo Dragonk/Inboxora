@@ -231,38 +231,34 @@ describe('the Graph event delta page', () => {
     expect(stable.events[0]).toMatchObject({ id: 'AAMkAD-evt-1', subject: timed().subject });
   });
 
-  it('asks the delta endpoint with only the parameters the delta function accepts, and follows an absolute link', async () => {
-    const calls: Array<{ url: string; prefer: string | null }> = [];
-    const fetchImpl = (async (url: string, init?: RequestInit) => {
-      calls.push({ url: String(url), prefer: new Headers(init?.headers).get('prefer') });
+  it('fails closed for an explicit v1.0 item-delta override before any HTTP request', async () => {
+    const fetchImpl = vi.fn() as unknown as typeof fetch;
+    process.env.GRAPH_CALENDAR_DELTA_VERSION = 'v1.0';
+    try {
+      await expect(fetchGraphCalendarEventsPage({ ...api, fetchImpl }, 'cal-1'))
+        .rejects.toMatchObject({ code: 'VALIDATION_ERROR', status: 400 });
+      expect(fetchImpl).not.toHaveBeenCalled();
+    } finally {
+      delete process.env.GRAPH_CALENDAR_DELTA_VERSION;
+    }
+  });
+
+  it('does not convert a failed beta event expansion into a deletion tombstone', async () => {
+    const fetchImpl = vi.fn(async (url: string) => {
+      if (String(url).includes('/events/delta')) {
+        return {
+          ok: true, status: 200, headers: new Headers(),
+          json: async () => ({ value: [{ id: 'AAMkAD-evt-1', type: 'seriesMaster' }] }),
+        } as Response;
+      }
       return {
-        ok: true, status: 200, headers: new Headers(),
-        json: async () => ({
-          value: [timed()],
-          '@odata.nextLink': 'https://graph.microsoft.com/v1.0/me/calendars/cal-1/events/delta?$skiptoken=abc',
-          '@odata.deltaLink': 'https://graph.microsoft.com/v1.0/me/calendars/cal-1/events/delta?$deltatoken=def',
-        }),
+        ok: false, status: 429, headers: new Headers({ 'retry-after': '10' }),
+        json: async () => ({ error: { code: 'TooManyRequests', message: 'throttled' } }),
       } as Response;
     }) as unknown as typeof fetch;
 
-    const options = { ...api, fetchImpl };
-    process.env.GRAPH_CALENDAR_DELTA_VERSION = 'v1.0';
-    const page = await fetchGraphCalendarEventsPage(options, 'cal-1');
-    expect(calls[0].url).toContain('/me/calendars/cal-1/events/delta');
-    // GRAPH-02: the delta function documents `$select`, `$expand`, `$filter`, `$orderby` and `$search` as
-    // unsupported, and pages with `odata.maxpagesize` rather than `$top`. Either parameter makes the request
-    // one the contract cannot answer, so neither is sent.
-    const asked = decodeURIComponent(calls[0].url);
-    expect(asked).not.toContain('$select');
-    expect(asked).not.toContain('$top');
-    expect(asked.toLowerCase()).not.toContain('maxpagesize=');
-    expect(calls[0].prefer).toBe('odata.maxpagesize=100, outlook.timezone="UTC"');
-    expect(page.events.map(event => event.id)).toEqual(['AAMkAD-evt-1']);
-    expect(page.nextLink).toContain('$skiptoken=abc');
-    expect(page.deltaLink).toContain('$deltatoken=def');
-
-    await fetchGraphCalendarEventsPage(options, 'cal-1', { link: page.nextLink });
-    expect(calls[1].url).toBe(page.nextLink);
-    delete process.env.GRAPH_CALENDAR_DELTA_VERSION;
+    await expect(fetchGraphCalendarEventsPage({ ...api, fetchImpl }, 'cal-1'))
+      .rejects.toMatchObject({ code: 'RATE_LIMITED', retryable: true });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 });

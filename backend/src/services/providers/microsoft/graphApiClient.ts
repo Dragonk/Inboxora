@@ -115,25 +115,60 @@ export interface GraphApiOptions {
 /** The preference that makes Graph answer with immutable ids rather than the default, mutable ones. */
 export const IMMUTABLE_ID_PREFERENCE = 'IdType="ImmutableId"';
 
-/** Merge Graph Prefer values without losing mailbox-wide immutable-id mode. */
-export function mergeGraphPrefer(...values: Array<string | undefined>): string | undefined {
+/** Split a Prefer header without treating a comma inside a quoted value as a separator. */
+function graphPreferTokens(value: string): string[] {
   const tokens: string[] = [];
   let quoted = false;
+  let token = '';
+  for (const char of value) {
+    if (char === '"') quoted = !quoted;
+    if (char === ',' && !quoted) {
+      if (token.trim()) tokens.push(token.trim());
+      token = '';
+    } else token += char;
+  }
+  if (quoted) throw new GraphApiError({ code: 'VALIDATION_ERROR', status: 400, message: 'Graph Prefer header contains an unclosed quote' });
+  if (token.trim()) tokens.push(token.trim());
+  return tokens;
+}
+
+/** The directive name is case-insensitive and ends before its optional value. */
+function graphPreferDirective(token: string): string {
+  return token.split('=', 1)[0]!.trim().toLowerCase();
+}
+
+/**
+ * Merge Graph Prefer values without losing mailbox-wide immutable-id mode.
+ *
+ * Repeating the exact same directive is harmless; two values for one directive are ambiguous, so reject the
+ * request instead of silently selecting whichever header happened to be enumerated first.
+ */
+export function mergeGraphPrefer(...values: Array<string | undefined>): string | undefined {
+  const tokens: string[] = [];
+  const byDirective = new Map<string, string>();
   for (const value of values) {
     if (!value) continue;
-    let token = '';
-    for (const char of value) {
-      if (char === '"') quoted = !quoted;
-      if (char === ',' && !quoted) {
-        const normalized = token.trim();
-        if (normalized && !tokens.some(existing => existing.toLowerCase() === normalized.toLowerCase())) tokens.push(normalized);
-        token = '';
-      } else token += char;
+    for (const token of graphPreferTokens(value)) {
+      const directive = graphPreferDirective(token);
+      const existing = byDirective.get(directive);
+      if (existing !== undefined) {
+        if (existing.toLowerCase() !== token.toLowerCase()) {
+          throw new GraphApiError({ code: 'VALIDATION_ERROR', status: 400, message: `Conflicting Graph Prefer directive: ${directive}` });
+        }
+        continue;
+      }
+      byDirective.set(directive, token);
+      tokens.push(token);
     }
-    const normalized = token.trim();
-    if (normalized && !tokens.some(existing => existing.toLowerCase() === normalized.toLowerCase())) tokens.push(normalized);
   }
   return tokens.length ? tokens.join(', ') : undefined;
+}
+
+/** Collect every casing of Prefer so a caller cannot bypass the immutable-id merge accidentally. */
+function graphPreferValues(headers: Record<string, string>): string[] {
+  return Object.entries(headers)
+    .filter(([name]) => name.toLowerCase() === 'prefer')
+    .map(([, value]) => value);
 }
 
 async function accessToken(options: GraphApiOptions, skewSeconds?: number): Promise<string> {
@@ -169,7 +204,7 @@ async function graphSendWithHeaders(
   const fetchImpl = options.fetchImpl ?? fetch;
   const url = pathOrUrl.startsWith('http') ? pathOrUrl : `${GRAPH_API_BASE}${pathOrUrl}`;
   const prefer = mergeGraphPrefer(
-    extraHeaders.prefer ?? extraHeaders.Prefer,
+    ...graphPreferValues(extraHeaders),
     options.immutableIds ? IMMUTABLE_ID_PREFERENCE : undefined,
   );
   const send = async (token: string): Promise<Response> => fetchImpl(url, {

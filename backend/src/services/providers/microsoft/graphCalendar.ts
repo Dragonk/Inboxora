@@ -1,4 +1,4 @@
-import { GRAPH_API_BASE, GRAPH_BETA_API_BASE, graphDelete, graphGet, graphPatch, graphPost, graphUrl, graphGetWithHeaders } from './graphApiClient.js';
+import { GRAPH_API_BASE, GRAPH_BETA_API_BASE, GraphApiError, graphDelete, graphGet, graphPatch, graphPost, graphUrl, graphGetWithHeaders } from './graphApiClient.js';
 import type { GraphApiOptions } from './graphApiClient.js';
 import { buildVTimezone, isValidTimeZone } from '../../../utils/icalTimezone.js';
 import {
@@ -186,18 +186,23 @@ export interface GraphEventPage {
  * projection stores. Neither choice is free, and the documentation cannot settle which behaves as the other
  * claims against a real mailbox:
  *
- * - `beta` is the default because the item-delta form is documented there. Its answer is a **reduced** resource, so each changed event
- *   is read back in full.
- * - `v1.0` remains an explicit compatibility override for operators validating an older tenant contract; it is not the default.
- *   is read back in full, one request at a time — a real cost that only a live mailbox can measure.
+ * - `beta` is the only supported contract because the item-delta form is documented there. Its answer is a
+ *   **reduced** resource, so each changed event is read back in full.
  *
- * The version is therefore explicit and operator-selected rather than inferred or changed blind, and the write
- * paths stay on `v1.0` whichever way it is set: mixing a beta read with stable writes for the same resource is
- * what the audit's GRAPH-04 warns about, and the read is the part whose contract actually differs.
+ * `v1.0` must not be used as a compatibility fallback: it would send a request whose item-delta contract is not
+ * supported. Fail before any network request instead. The write paths stay on `v1.0`; only this explicitly
+ * beta-only read uses the preview contract.
  */
-export function graphCalendarDeltaVersion(env: NodeJS.ProcessEnv = process.env): 'v1.0' | 'beta' {
+export function graphCalendarDeltaVersion(env: NodeJS.ProcessEnv = process.env): 'beta' {
   const value = (env.GRAPH_CALENDAR_DELTA_VERSION ?? '').trim().toLowerCase();
-  return value === 'v1.0' ? 'v1.0' : 'beta';
+  if (value === 'v1.0') {
+    throw new GraphApiError({
+      code: 'VALIDATION_ERROR',
+      status: 400,
+      message: 'GRAPH_CALENDAR_DELTA_VERSION=v1.0 is unsupported for the Graph events delta endpoint',
+    });
+  }
+  return 'beta';
 }
 
 /** Build an absolute URL against the selected contract version. */
