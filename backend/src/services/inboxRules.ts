@@ -217,7 +217,12 @@ function evaluateRule(rule: InboxRuleRow, msg: RuleMessage): boolean {
 //   remaining — messages still in INBOX after rules ran (moved/archived/deleted excluded)
 //   mutedIds  — IDs of remaining messages that had mark_read applied by a rule;
 //               the caller uses this to suppress sound/toast/push for silenced mail
-export async function applyInboxRules<T extends RuleMessage>(messages: T[], account: RuleAccount, mailActions: MailActionPort) {
+export async function applyInboxRules<T extends RuleMessage>(
+  messages: T[],
+  account: RuleAccount,
+  mailActions: MailActionPort,
+  options: { beforeAction?: (input: { messageId: string; ruleId: string; actionType: string | undefined }) => Promise<boolean> } = {},
+) {
   if (!messages.length) return { remaining: messages, mutedIds: new Set() };
 
   let rules: InboxRuleRow[];
@@ -288,6 +293,7 @@ export async function applyInboxRules<T extends RuleMessage>(messages: T[], acco
 
     const executeNonForwardAction = async (action: RuleAction, ruleId: string, isDest: boolean): Promise<void> => {
       try {
+        if (options.beforeAction && !await options.beforeAction({ messageId: msg.id, ruleId, actionType: action.type })) return;
         const acted = await applyAction(
           action,
           msg,
@@ -345,6 +351,7 @@ export async function applyInboxRules<T extends RuleMessage>(messages: T[], acco
       // blocks relocation of this source for the remainder of the batch.
       for (const action of actions.filter(action => action.type === 'forward')) {
         try {
+          if (options.beforeAction && !await options.beforeAction({ messageId: msg.id, ruleId: rule.id, actionType: action.type })) continue;
           await applyAction(
             action,
             msg,

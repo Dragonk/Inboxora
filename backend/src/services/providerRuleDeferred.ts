@@ -15,6 +15,7 @@ interface DeferredRow {
   transport: 'gmail_api' | 'microsoft_graph';
   needs_body: boolean;
   needs_headers: boolean;
+  dispatch_state: 'pending' | 'dispatching' | 'outcome_unknown';
 }
 
 const LEASE_SECONDS = 120;
@@ -63,6 +64,8 @@ async function claim(limit: number, owner: string): Promise<DeferredRow[]> {
     `WITH candidates AS (
        SELECT id FROM provider_rule_deferred_messages
         WHERE available_at <= NOW()
+          AND dispatch_state IN ('pending', 'dispatching')
+          AND action_started_at IS NULL
           AND (lease_expires_at IS NULL OR lease_expires_at < NOW())
         ORDER BY available_at ASC, created_at ASC
         FOR UPDATE SKIP LOCKED
@@ -73,7 +76,7 @@ async function claim(limit: number, owner: string): Promise<DeferredRow[]> {
        FROM candidates
       WHERE queue.id = candidates.id
       RETURNING queue.id, queue.message_id, queue.account_id, queue.user_id, queue.connection_id,
-                queue.transport, queue.needs_body, queue.needs_headers`,
+                queue.transport, queue.needs_body, queue.needs_headers, queue.dispatch_state`,
     [limit, owner, LEASE_SECONDS],
   );
   return result.rows;
@@ -84,9 +87,14 @@ async function processDeferred(row: DeferredRow, owner: string): Promise<'applie
     id: string; provider_message_id: string | null; body_text: string | null; parsed_headers: unknown;
     parsed_headers_complete: boolean; folder: string; is_deleted: boolean;
   }>(
-    `SELECT id, provider_message_id, body_text, parsed_headers, parsed_headers_complete, folder, is_deleted
-       FROM messages WHERE id = $1 AND account_id = $2`,
-    [row.message_id, row.account_id],
+    `SELECT m.id, m.provider_message_id, m.body_text, m.parsed_headers, m.parsed_headers_complete, m.folder, m.is_deleted
+       FROM messages m
+       JOIN email_accounts a ON a.id = m.account_id
+       JOIN provider_connections pc ON pc.id = a.provider_connection_id
+      WHERE m.id = $1 AND m.account_id = $2
+        AND a.user_id = $3 AND a.provider_connection_id = $4
+        AND pc.user_id = $3 AND pc.id = $4 AND pc.status = 'active'`,
+    [row.message_id, row.account_id, row.user_id, row.connection_id],
   );
   const message = source.rows[0];
   if (!message || message.folder !== 'INBOX' || message.is_deleted || !message.provider_message_id) {
@@ -141,25 +149,74 @@ async function processDeferred(row: DeferredRow, owner: string): Promise<'applie
     }
   }
 
-  // Delete the read-retry record before actions. A crash after this point may miss an
-  // effect, but it can never replay an action whose provider outcome is uncertain.
-  const settled = await query('DELETE FROM provider_rule_deferred_messages WHERE id = $1 AND lease_owner = $2', [row.id, owner]);
-  if ((settled.rowCount ?? 0) !== 1) return 'discarded';
+  // Keep the job while handing work to the existing action journals. A restart before
+  // `beforeRuleAction` is called reclaims this dispatching row; once that callback
+  // records an action boundary, an expired lease is parked as outcome_unknown rather
+  // than replaying an externally visible provider action.
+  const dispatching = await query(
+    `UPDATE provider_rule_deferred_messages
+        SET dispatch_state = 'dispatching', updated_at = NOW()
+      WHERE id = $1 AND lease_owner = $2 AND action_started_at IS NULL`,
+    [row.id, owner],
+  );
+  if ((dispatching.rowCount ?? 0) !== 1) return 'discarded';
   const { applyIngestRulesToRows } = await import('./providerIngestRules.js');
+  let actionRefused = false;
   await applyIngestRulesToRows({
     userId: row.user_id,
     connectionId: row.connection_id,
     account: { id: row.account_id, user_id: row.user_id, mail_transport: row.transport, provider_connection_id: row.connection_id },
     folder: 'INBOX', rowIds: [row.message_id], providerName: row.transport === 'gmail_api' ? 'Gmail' : 'Microsoft Graph',
     skipDeferral: true,
+    beforeRuleAction: async ({ messageId, ruleId }) => {
+      // This is the final ownership/eligibility check, immediately before the rule
+      // engine delegates to the transport's own mutation/forward journal.
+      const marked = await query(
+        `UPDATE provider_rule_deferred_messages q
+            SET action_started_at = COALESCE(action_started_at, NOW()),
+                action_rule_id = COALESCE(action_rule_id, $3::uuid), updated_at = NOW()
+          WHERE q.id = $1 AND q.lease_owner = $2 AND q.dispatch_state = 'dispatching'
+            AND EXISTS (
+              SELECT 1 FROM messages m
+              JOIN email_accounts a ON a.id = m.account_id
+              JOIN provider_connections pc ON pc.id = a.provider_connection_id
+               WHERE m.id = $4 AND m.account_id = q.account_id AND m.folder = 'INBOX'
+                 AND m.is_deleted = false AND a.user_id = q.user_id
+                 AND a.provider_connection_id = q.connection_id
+                 AND pc.user_id = q.user_id AND pc.id = q.connection_id AND pc.status = 'active'
+            )`,
+        [row.id, owner, ruleId, messageId],
+      );
+      const allowed = (marked.rowCount ?? 0) === 1;
+      if (!allowed) actionRefused = true;
+      return allowed;
+    },
   });
-  return 'applied';
+  const completed = await query(
+    `UPDATE provider_rule_deferred_messages
+        SET dispatch_state = $3, lease_owner = NULL, lease_expires_at = NULL,
+            outcome_note = $4, updated_at = NOW()
+      WHERE id = $1 AND lease_owner = $2`,
+    [row.id, owner, actionRefused ? 'refused' : 'completed', actionRefused ? 'message or account no longer eligible for rule action' : 'rule evaluation completed'],
+  );
+  return (completed.rowCount ?? 0) === 1 ? 'applied' : 'discarded';
 }
 
 /** Drain bounded native-rule read deferrals. It retries only provider reads, never actions. */
 export async function drainProviderRuleDeferrals(options: { limit?: number; owner?: string } = {}): Promise<{ applied: number; retried: number; discarded: number }> {
   const owner = options.owner ?? `provider-rule-deferrals:${process.pid}:${Date.now()}`;
   const rows = await claim(options.limit ?? 25, owner);
+  // The process may have died after crossing an action journal boundary. Preserve a
+  // visible unresolved record; automatic retry would turn an unknown provider outcome
+  // into a duplicate move/delete/forward. Do this after claiming so a recovery sweep
+  // cannot race a new claim for a still-retryable pre-action dispatch.
+  await query(
+    `UPDATE provider_rule_deferred_messages
+        SET dispatch_state = 'outcome_unknown', lease_owner = NULL, lease_expires_at = NULL,
+            outcome_note = 'worker lease expired after dispatch to rule action journal', updated_at = NOW()
+      WHERE dispatch_state = 'dispatching' AND action_started_at IS NOT NULL
+        AND lease_expires_at < NOW()`,
+  );
   const result = { applied: 0, retried: 0, discarded: 0 };
   for (const row of rows) {
     const outcome = await processDeferred(row, owner);

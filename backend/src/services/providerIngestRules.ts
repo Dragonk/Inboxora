@@ -30,6 +30,8 @@ export async function applyIngestRulesToRows(input: {
   providerName?: string;
   /** The deferred worker already hydrated its claimed row and must not enqueue it again. */
   skipDeferral?: boolean;
+  /** Durable worker checkpoint immediately before a rule action reaches its action journal. */
+  beforeRuleAction?: (input: { messageId: string; ruleId: string; actionType: string | undefined }) => Promise<boolean>;
 }): Promise<{ considered: number; blocked: number; ruled: number; rulesSkipped: boolean }> {
   if (input.rowIds.length === 0) return { considered: 0, blocked: 0, ruled: 0, rulesSkipped: false };
   const rows = await query<{
@@ -134,7 +136,9 @@ export async function applyIngestRulesToRows(input: {
     if (rulesSkipped) {
       return { considered: messages.length, blocked, ruled: 0, rulesSkipped };
     }
-    const ruled = await applyInboxRules(afterBlockList, ruleAccount, port);
+    const ruled = await applyInboxRules(afterBlockList, ruleAccount, port, {
+      beforeAction: input.beforeRuleAction,
+    });
     return { considered: messages.length, blocked, ruled: afterBlockList.length - ruled.remaining.length, rulesSkipped };
   } catch (caught) {
     console.warn(
