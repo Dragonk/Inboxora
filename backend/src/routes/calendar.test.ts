@@ -249,6 +249,29 @@ function mockEventRead({ events = [], contacts = [], occurrences = [] }: {
   });
 }
 
+describe('external calendar source pause state', () => {
+  it('persists a pause and cancels that source scheduler without deleting its projection', async () => {
+    query.mockResolvedValueOnce({ rows: [{ id: 'source-1', kind: 'ical_url', url: 'encrypted', display_name: 'Work', interval_min: 60, enabled: false, last_sync_at: null, last_error: null }] });
+    const response = await fetch(`${base}/api/calendar/sources/source-1`, {
+      method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ enabled: false }),
+    });
+    expect(response.status).toBe(200);
+    expect(query).toHaveBeenCalledWith(expect.stringContaining('enabled = COALESCE($2, enabled)'), [null, false, 'source-1', 'user-1']);
+    expect(stopCalendarSource).toHaveBeenCalledWith('source-1');
+    expect(scheduleCalendarSource).not.toHaveBeenCalled();
+  });
+
+  it('re-arms only the resumed source', async () => {
+    query.mockResolvedValueOnce({ rows: [{ id: 'source-1', kind: 'ical_url', url: 'encrypted', display_name: 'Work', interval_min: 60, enabled: true, last_sync_at: null, last_error: null }] });
+    const response = await fetch(`${base}/api/calendar/sources/source-1`, {
+      method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ enabled: true }),
+    });
+    expect(response.status).toBe(200);
+    expect(scheduleCalendarSource).toHaveBeenCalledWith(expect.objectContaining({ id: 'source-1', enabled: true }));
+    expect(stopCalendarSource).not.toHaveBeenCalled();
+  });
+});
+
 describe('local calendar API', () => {
 
   it('rejects a CalDAV source without dedicated remote credentials', async () => {
