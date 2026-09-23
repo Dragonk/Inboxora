@@ -311,9 +311,9 @@ describe('send failure semantics', () => {
       throw new Error(`Unexpected SQL: ${sql}`);
     });
 
-    const first = await post({ ...defaultBody, replyToMessageId: 'message-one' });
+    const first = await post({ ...defaultBody, replyToMessageId: '11111111-1111-4111-8111-111111111111' });
     expect(await first.json()).toEqual({ ok: true });
-    const second = await post({ ...defaultBody, replyToMessageId: 'message-two' });
+    const second = await post({ ...defaultBody, replyToMessageId: '22222222-2222-4222-8222-222222222222' });
 
     expect(second.status).toBe(409);
     expect(await second.json()).toEqual({ error: 'This idempotency key belongs to a different message.' });
@@ -322,10 +322,17 @@ describe('send failure semantics', () => {
     expect(sendMail).not.toHaveBeenCalled();
   });
 
+  it('rejects a malformed physical reply parent before transport dispatch', async () => {
+    const response = await post({ ...defaultBody, sendKind: 'reply', replyToMessageId: 'not-a-message-uuid' });
+    expect(response.status).toBe(422);
+    await expect(response.json()).resolves.toMatchObject({ code: 'REPLY_PARENT_NOT_RESOLVABLE' });
+    expect(sendMail).not.toHaveBeenCalled();
+  });
+
   it('still replays a resend of the very same reply', async () => {
     // The other side of the same change: an identical reply under the same key must keep replaying.
     mockExistingIntent('completed', { ok: true });
-    const response = await post({ ...defaultBody, replyToMessageId: 'message-one' });
+    const response = await post({ ...defaultBody, replyToMessageId: '11111111-1111-4111-8111-111111111111' });
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ ok: true });
     expect(sendMail).not.toHaveBeenCalled();

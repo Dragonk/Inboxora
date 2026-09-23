@@ -800,6 +800,9 @@ router.post('/send', async (req, res) => {
       ? replyParentMessageId.trim() : resolvedInReplyTo;
     const durableParentAccountId = typeof replyParentAccountId === 'string' && replyParentAccountId
       ? replyParentAccountId : null;
+    if (parentRowId && !UUID_RE.test(parentRowId)) {
+      return res.status(422).json({ code: 'REPLY_PARENT_NOT_RESOLVABLE', error: 'The selected reply parent is invalid' });
+    }
     // The physical row is authoritative. Client RFC headers may be stale or
     // deliberately forged; never let them select a different thread/provider
     // parent than the row the user selected.

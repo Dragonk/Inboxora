@@ -169,7 +169,7 @@ describe('sending from a native Microsoft Graph account', () => {
     });
 
     const response = await post({
-      replyToMessageId: 'stale-physical-parent', sendKind: 'reply', inReplyTo: '<parent@contoso.test>',
+      replyToMessageId: '66666666-6666-4666-8666-666666666666', sendKind: 'reply', inReplyTo: '<parent@contoso.test>',
     });
 
     expect(response.status).toBe(200);
