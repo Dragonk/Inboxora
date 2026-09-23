@@ -2573,7 +2573,8 @@ export default function MessageList() {
           replyToMessageId: typeof composition?.replyToMessageId === 'string' ? composition.replyToMessageId : null,
           replyParentMessageId: typeof composition?.replyParentMessageId === 'string' ? composition.replyParentMessageId : null,
           replyParentAccountId: typeof composition?.replyParentAccountId === 'string' ? composition.replyParentAccountId : null,
-          isReply: Boolean(message.draft_in_reply_to),
+          isReplyAll: composition?.replyKind === 'reply_all',
+          isReply: composition?.replyKind === 'reply' || composition?.replyKind === 'reply_all' || Boolean(message.draft_in_reply_to),
         });
       } catch (err) {
         if (!isCurrentDraftOpen()) return;

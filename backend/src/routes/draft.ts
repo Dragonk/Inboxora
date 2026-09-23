@@ -57,6 +57,7 @@ type RawDraftInput = {
   /** Same-account RFC fallback when a move replaces the physical row. */
   replyParentMessageId?: string | null;
   replyParentAccountId?: string | null;
+  replyKind?: 'reply' | 'reply_all' | null;
 };
 
 type ExistingDraftIdentity = {
@@ -126,7 +127,7 @@ function textToHtml(text: string) {
     .join('');
 }
 
-async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml, quotedBody, quotedBodyHtml, editedSignature, editedSignatureIsHtml = true, hasEditedSignature = false, inReplyTo, references, replyToMessageId, replyParentMessageId, replyParentAccountId }: RawDraftInput) {
+async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml, quotedBody, quotedBodyHtml, editedSignature, editedSignatureIsHtml = true, hasEditedSignature = false, inReplyTo, references, replyToMessageId, replyParentMessageId, replyParentAccountId, replyKind }: RawDraftInput) {
   const acctResult = await query<EmailAccountRow & { email_address: string }>(
     'SELECT * FROM email_accounts WHERE id = $1',
     [accountId]
@@ -240,6 +241,7 @@ async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, b
         replyToMessageId: typeof replyToMessageId === 'string' ? replyToMessageId : null,
         replyParentMessageId: typeof replyParentMessageId === 'string' ? replyParentMessageId : null,
         replyParentAccountId: typeof replyParentAccountId === 'string' ? replyParentAccountId : null,
+        replyKind: replyKind === 'reply_all' || replyKind === 'reply' ? replyKind : null,
       },
     },
   };
@@ -299,7 +301,7 @@ async function deleteProviderDraftByIdentity(userId: string, identity: ExistingD
 }
 
 router.post('/draft', async (req, res) => {
-  const { accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml = false, quotedBody, quotedBodyHtml, editedSignature, editedSignatureIsHtml, inReplyTo, references, replyToMessageId, replyParentMessageId, replyParentAccountId } = req.body;
+  const { accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml = false, quotedBody, quotedBodyHtml, editedSignature, editedSignatureIsHtml, inReplyTo, references, replyToMessageId, replyParentMessageId, replyParentAccountId, replyKind } = req.body;
   if (editedSignatureIsHtml !== undefined && typeof editedSignatureIsHtml !== 'boolean') return res.status(400).json({ error: 'editedSignatureIsHtml must be a boolean' });
   const hasEditedSignature = Object.prototype.hasOwnProperty.call(req.body || {}, 'editedSignature');
   const existingDraft = existingDraftIdentity(req.body?.existingDraft);
@@ -312,7 +314,7 @@ router.post('/draft', async (req, res) => {
   if (!ownerCheck.rows.length) return res.status(404).json({ error: 'Account not found' });
 
   try {
-    const { rawMessage, account, composed, meta } = await buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml, quotedBody, quotedBodyHtml, editedSignature, editedSignatureIsHtml, hasEditedSignature, inReplyTo, references, replyToMessageId, replyParentMessageId, replyParentAccountId });
+    const { rawMessage, account, composed, meta } = await buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml, quotedBody, quotedBodyHtml, editedSignature, editedSignatureIsHtml, hasEditedSignature, inReplyTo, references, replyToMessageId, replyParentMessageId, replyParentAccountId, replyKind });
 
     const draftsFolder = await resolveDraftsFolder(account);
     if (!draftsFolder) return res.status(422).json({ error: 'No Drafts folder found for this account' });

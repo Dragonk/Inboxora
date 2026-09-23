@@ -794,10 +794,17 @@ router.post('/send', async (req, res) => {
     const strictReplyParent = sendKind === 'reply' || sendKind === 'reply_all'
       || (transportKind === 'microsoft_graph' && requestedReply);
     const parentRowId = typeof replyToMessageId === 'string' && replyToMessageId ? replyToMessageId : null;
+    const durableParentMessageId = typeof replyParentMessageId === 'string' && replyParentMessageId.trim()
+      ? replyParentMessageId.trim() : resolvedInReplyTo;
+    const durableParentAccountId = typeof replyParentAccountId === 'string' && replyParentAccountId
+      ? replyParentAccountId : null;
     // The physical row is authoritative. Client RFC headers may be stale or
     // deliberately forged; never let them select a different thread/provider
     // parent than the row the user selected.
     if (parentRowId) {
+      if (durableParentAccountId && durableParentAccountId !== accountId) {
+        return res.status(422).json({ code: 'REPLY_PARENT_NOT_RESOLVABLE', error: 'The saved reply parent belongs to a different account' });
+      }
       const parent = await query<{
         id: string; message_id: string | null; canonical_message_id: string | null; in_reply_to: string | null;
         thread_references: string | null; provider_message_id: string | null; account_id: string;
@@ -812,7 +819,7 @@ router.post('/send', async (req, res) => {
       // resync. Its RFC parent is only a durable lookup hint; a matched row still
       // supplies all authoritative RFC and provider identity below.
       let row = parent.rows[0];
-      if (!row && typeof inReplyTo === 'string' && inReplyTo.trim()) {
+      if (!row && durableParentMessageId) {
         const movedParent = await query<{
           id: string; message_id: string | null; canonical_message_id: string | null; in_reply_to: string | null;
           thread_references: string | null; provider_message_id: string | null; account_id: string;
@@ -822,7 +829,7 @@ router.post('/send', async (req, res) => {
              FROM messages m JOIN email_accounts a ON a.id = m.account_id
             WHERE m.message_id = $1 AND m.account_id = $2 AND a.user_id = $3 AND m.is_deleted = false
             ORDER BY (m.folder = 'INBOX') DESC, m.date DESC NULLS LAST LIMIT 1`,
-          [inReplyTo.trim(), accountId, req.session.userId],
+          [durableParentMessageId, accountId, req.session.userId],
         );
         row = movedParent.rows[0];
       }

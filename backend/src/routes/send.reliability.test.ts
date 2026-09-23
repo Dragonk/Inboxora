@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vitest';
 import type { JsonBody } from '../test/json.js';
+import { parseRawHeaders } from '../services/messageParser.js';
 vi.mock('../services/db.js', () => ({
   query: vi.fn(),
   // Delivery tests must model the transaction used by asynchronous recipient
@@ -228,6 +229,27 @@ describe('send failure semantics', () => {
     const [mailOptions] = sendMail.mock.calls[0];
     expect(mailOptions).toMatchObject({ bcc: 'blind@example.com' });
     expect(mailOptions).not.toHaveProperty('to');
+  });
+
+  it('renders an SMTP reply with the authoritative RFC chain (THR-08)', async () => {
+    const response = await post({
+      ...defaultBody,
+      replyToMessageId: '11111111-1111-4111-8111-111111111111',
+      sendKind: 'reply',
+      // Deliberately false client hints: the parent row must win.
+      inReplyTo: '<forged@example.test>', references: '<forged@example.test>',
+    });
+
+    expect(response.status).toBe(200);
+    const [mailOptions] = sendMail.mock.calls[0];
+    const raw = Buffer.isBuffer(mailOptions.raw) ? mailOptions.raw.toString('utf8') : String(mailOptions.raw);
+    // Consume the raw wire payload through the same header parser used by
+    // ingest, rather than asserting only a composer object.
+    const parsed = parseRawHeaders(raw);
+    expect(parsed['message-id']).toMatch(/^<[^>]+>$/);
+    expect(parsed['in-reply-to']).toBe('<parent@example.com>');
+    expect(parsed.references).toBe('<parent@example.com>');
+    expect(raw).not.toContain('<forged@example.test>');
   });
 
   it.each([

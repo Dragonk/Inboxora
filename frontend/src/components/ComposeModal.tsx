@@ -1100,6 +1100,9 @@ export default function ComposeModal() {
       // the send route can re-resolve a current physical copy.
       replyParentMessageId: composeData?.replyParentMessageId || null,
       replyParentAccountId: composeData?.replyParentAccountId || null,
+      // Graph has distinct createReply and createReplyAll actions; preserve the
+      // original intent instead of inferring it from editable recipient chips.
+      replyKind: composeData?.isReplyAll ? 'reply_all' : composeData?.isReply ? 'reply' : null,
       existingDraft: draftUid != null && draftFolder != null && draftAccountId
         ? { accountId: draftAccountId, uid: draftUid, folder: draftFolder, ...(draftUidValidity != null ? { uidValidity: draftUidValidity } : {}) }
         : null,
@@ -1125,6 +1128,7 @@ export default function ComposeModal() {
         ...(draftSnapshot.replyToMessageId ? { replyToMessageId: draftSnapshot.replyToMessageId } : {}),
         ...(draftSnapshot.replyParentMessageId ? { replyParentMessageId: draftSnapshot.replyParentMessageId } : {}),
         ...(draftSnapshot.replyParentAccountId ? { replyParentAccountId: draftSnapshot.replyParentAccountId } : {}),
+        ...(draftSnapshot.replyKind ? { replyKind: draftSnapshot.replyKind } : {}),
         ...(draftSnapshot.existingDraft ? { existingDraft: draftSnapshot.existingDraft } : {}),
       });
       if (!isCurrentComposeSession()) return;

@@ -385,7 +385,7 @@ export interface StoreMessageRow {
   draft_alias_id?: string | null;
   draft_in_reply_to?: string | null;
   draft_references?: string | null;
-  draft_composition?: { version?: number; authoredBody?: string; bodyIsHtml?: boolean; signatureHtml?: string | null; signatureText?: string | null; quotedBody?: string | null; quotedBodyHtml?: string | null; replyToMessageId?: string | null; replyParentMessageId?: string | null; replyParentAccountId?: string | null } | null;
+  draft_composition?: { version?: number; authoredBody?: string; bodyIsHtml?: boolean; signatureHtml?: string | null; signatureText?: string | null; quotedBody?: string | null; quotedBodyHtml?: string | null; replyToMessageId?: string | null; replyParentMessageId?: string | null; replyParentAccountId?: string | null; replyKind?: 'reply' | 'reply_all' | null } | null;
   reply_to?: string | null;
   delivery_addresses?: string | Array<{ email?: string | null; address?: string | null } | string> | null;
   category?: string | null;
