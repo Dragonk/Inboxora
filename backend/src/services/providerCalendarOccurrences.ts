@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import ICAL from 'ical.js';
 import { googleConfigFromEnv, microsoftConfigFromEnv } from './providerAuthService.js';
 import { runProviderMutation } from './providerMutationService.js';
@@ -500,6 +501,39 @@ function googleOccurrenceAdapter(api: Parameters<typeof insertGoogleEvent>[0]): 
           return { status: 'committed', value: {} };
         }
 
+        // A resumed split is driven exclusively by the immutable payload saved before the first provider write.
+        // The master was already truncated, so reading it would derive a different remainder (especially COUNT/UNTIL).
+        if (resumed?.masterTruncated) {
+          if (write.operation === 'cancel') return { status: 'committed', value: {} };
+          const remainder = (resumed.prepared as { payload?: ReturnType<typeof googleEventPayloadFor> | null } | null)?.payload ?? null;
+          if (!remainder) return { status: 'outcome_unknown', code: 'MUTATION_OUTCOME_UNKNOWN' };
+          if (resumed.createDispatched) {
+            const before = occurrenceInstant(write.occurrenceStart);
+            if (!before) return { status: 'outcome_unknown', code: 'MUTATION_OUTCOME_UNKNOWN' };
+            const page = await fetchCalendarEvents(api, write.providerCalendarId, {
+              timeMin: new Date(before.getTime() - 86_400_000).toISOString(),
+              timeMax: new Date(before.getTime() + 86_400_000).toISOString(),
+              maxResults: 250,
+            });
+            const match = matchSplitRemainder(page.events, {
+              id: write.masterId,
+              summary: remainder.summary ?? '',
+              start: { dateTime: remainder.start?.dateTime ?? null, date: remainder.start?.date ?? null },
+              recurrence: remainder.recurrence ?? [],
+            });
+            if (match.verdict === 'found') {
+              await context?.recordProgress?.('remainder_created', { createdSeriesId: match.id, reconciled: true });
+              return { status: 'committed', value: { createdSeriesId: match.id } };
+            }
+            return { status: 'outcome_unknown', code: 'MUTATION_OUTCOME_UNKNOWN' };
+          }
+          await context?.recordProgress?.('remainder_create_dispatched', { occurrenceStart: write.occurrenceStart });
+          const created = await insertGoogleEvent(api, write.providerCalendarId, remainder, { sendUpdates: write.sendUpdates });
+          if (!created?.id) return { status: 'outcome_unknown', code: 'EVENT_ID_MISSING' };
+          await context?.recordProgress?.('remainder_created', { createdSeriesId: created.id });
+          return { status: 'committed', value: { createdSeriesId: created.id } };
+        }
+
         const master = await fetchGoogleEvent(api, write.providerCalendarId, write.masterId);
         if (!master) return { status: 'permanent', code: 'RESOURCE_NOT_FOUND' };
         const before = occurrenceInstant(write.occurrenceStart);
@@ -546,16 +580,15 @@ function googleOccurrenceAdapter(api: Parameters<typeof insertGoogleEvent>[0]): 
           if (!continued) return { status: 'permanent', code: 'RECURRENCE_CONTINUATION_UNSUPPORTED' };
           remainderRecurrence = existing.map(line => (line === masterRuleLine ? `RRULE:${continued}` : line));
         }
-        // CAL-01: the whole intent is recorded **before** the first write, so a run that dies between the two
-        // writes leaves everything the remainder needs — the series, the split point and the payload — rather than
-        // a bare "in flight" that a later claim can only park as unknown.
+        if (remainder && remainderRecurrence) remainder.recurrence = remainderRecurrence;
+        // CAL-01: persist the final provider payload before truncating. Recovery never derives a remainder from
+        // the shortened master, which would otherwise change its COUNT/UNTIL semantics.
         await context?.recordProgress?.('split_prepared', {
           masterId: write.masterId,
           occurrenceStart: write.occurrenceStart,
           scope: write.scope,
           operation: write.operation,
-          remainderRecurrence,
-          values: writeValues,
+          payload: remainder,
         });
         // A resumed run already truncated the master: repeating it would re-derive the same truncation, but the
         // record is the authority on what happened, so the write is skipped entirely.
@@ -638,6 +671,40 @@ function graphOccurrenceAdapter(api: Parameters<typeof patchGraphEvent>[0]): Pro
           if (!write.values) return { status: 'permanent', code: 'INVALID_REQUEST' };
           await patchGraphEvent(api, write.providerCalendarId, write.occurrenceId, graphEventPayloadFor(graphValueInput(write.values)));
           return { status: 'committed', value: {} };
+        }
+
+        // As with Google, a reclaimed split must use its pre-truncation plan before any provider read.
+        if (resumed?.masterTruncated) {
+          if (write.operation === 'cancel') return { status: 'committed', value: {} };
+          const payload = (resumed.prepared as { payload?: GraphEventPayload | null } | null)?.payload ?? null;
+          if (!payload) return { status: 'outcome_unknown', code: 'MUTATION_OUTCOME_UNKNOWN' };
+          if (resumed.createDispatched) {
+            const listed = await listGraphCalendarEvents(api, write.providerCalendarId);
+            const match = matchSplitRemainder(
+              listed.map(event => ({
+                id: event.id,
+                summary: event.subject ?? null,
+                start: { dateTime: event.start?.dateTime ?? null, date: null },
+                recurrence: event.recurrence ? graphRecurrenceRule(event.recurrence.pattern, event.recurrence.range) ? [graphRecurrenceRule(event.recurrence.pattern, event.recurrence.range) as string] : [] : [],
+              })),
+              {
+                id: write.masterId,
+                summary: payload.subject ?? '',
+                start: { dateTime: payload.start?.dateTime ?? null, date: null },
+                recurrence: payload.recurrence ? [graphRecurrenceRule(payload.recurrence.pattern, payload.recurrence.range) as string] : [],
+              },
+            );
+            if (match.verdict === 'found') {
+              await context?.recordProgress?.('remainder_created', { createdSeriesId: match.id, reconciled: true });
+              return { status: 'committed', value: { createdSeriesId: match.id } };
+            }
+            return { status: 'outcome_unknown', code: 'MUTATION_OUTCOME_UNKNOWN' };
+          }
+          await context?.recordProgress?.('remainder_create_dispatched', { occurrenceStart: write.occurrenceStart });
+          const created = await createGraphEvent(api, write.providerCalendarId, payload);
+          if (!created?.id) return { status: 'outcome_unknown', code: 'EVENT_ID_MISSING' };
+          await context?.recordProgress?.('remainder_created', { createdSeriesId: created.id });
+          return { status: 'committed', value: { createdSeriesId: created.id } };
         }
 
         const master = await fetchGraphEvent(api, write.providerCalendarId, write.masterId);
@@ -772,6 +839,31 @@ function graphOccurrenceAdapter(api: Parameters<typeof patchGraphEvent>[0]): Pro
 
 // ── The entry point ──────────────────────────────────────────────────────────
 
+function occurrenceRequestFingerprint(input: {
+  target: ProviderOccurrenceTarget;
+  scope: OccurrenceScope;
+  operation: OccurrenceOperation;
+  values?: OccurrenceEventValues;
+  sendUpdates: 'none' | 'all';
+}): string {
+  // The occurrence id is provider-derived and may no longer be listable after a split. Fingerprint only the
+  // caller's immutable intent, so a replay can use the stored id while a different edit under the same key fails.
+  return crypto.createHash('sha256').update(JSON.stringify({
+    kind: input.target.kind,
+    connectionId: input.target.connectionId,
+    collectionId: input.target.collectionId,
+    providerCalendarId: input.target.providerCalendarId,
+    localEventId: input.target.localEventId,
+    masterProviderId: input.target.masterProviderId,
+    occurrenceStart: input.target.occurrenceStart,
+    allDay: input.target.allDay,
+    scope: input.scope,
+    operation: input.operation,
+    values: input.values,
+    sendUpdates: input.sendUpdates,
+  })).digest('hex');
+}
+
 function storedOccurrencePayload(value: unknown, input: {
   target: ProviderOccurrenceTarget;
   scope: OccurrenceScope;
@@ -800,6 +892,7 @@ export async function writeProviderCalendarOccurrence(input: {
 }): Promise<OccurrenceWriteOutcome> {
   // Replays and recovery must read the durable operation before resolving the live
   // occurrence: following a master split, the old instance may legitimately vanish.
+  const payloadHash = occurrenceRequestFingerprint(input);
   const existing = input.idempotencyKey
     ? await withTransaction(client => findOperationByKey(client, {
       userId: input.target.userId,
@@ -807,7 +900,7 @@ export async function writeProviderCalendarOccurrence(input: {
     }))
     : null;
   const storedPayload = storedOccurrencePayload(existing?.payload, input);
-  if (existing && existing.payload && !storedPayload) {
+  if (existing && (existing.payloadHash !== payloadHash || !storedPayload)) {
     return { status: 'failed', failure: { status: 409, code: 'IDEMPOTENCY_KEY_REUSED', error: 'The idempotency key belongs to a different calendar mutation.' } };
   }
   const occurrence = storedPayload
@@ -850,6 +943,7 @@ export async function writeProviderCalendarOccurrence(input: {
       collectionId: input.target.collectionId,
       resourceId: input.target.localEventId,
       ...(input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : {}),
+      payloadHash,
       payload,
       timeoutMs: 20_000,
     },

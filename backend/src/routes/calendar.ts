@@ -1092,6 +1092,9 @@ async function handleProviderOccurrence(
   );
   if (!stored.rows[0]) return res.status(404).json({ error: 'Event not found' });
 
+  const idempotencyKey = typeof req.headers['x-idempotency-key'] === 'string'
+    ? req.headers['x-idempotency-key'].slice(0, 128)
+    : null;
   const outcome = await writeProviderCalendarOccurrence({
     target: {
       kind: input.target.kind,
@@ -1121,6 +1124,7 @@ async function handleProviderOccurrence(
       },
     }),
     sendUpdates: 'all',
+    ...(idempotencyKey ? { idempotencyKey } : {}),
   });
   if (outcome.status !== 'confirmed') return providerWriteRefusal(res, outcome.failure);
 

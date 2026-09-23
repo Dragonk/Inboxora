@@ -309,13 +309,13 @@ export async function findOperationByKey(client: PoolClient, input: {
   userId: string;
   accountId?: string | null;
   idempotencyKey: string;
-}): Promise<{ id: string; status: ProviderOperationStatus; result?: unknown; payload?: unknown; attempts: number } | null> {
-  const result = await client.query<{ id: string; status: ProviderOperationStatus; result: unknown; payload: unknown; attempts: number }>(
-    `SELECT id, status, result, payload, attempts FROM provider_operations WHERE ${scopedIdempotencyPredicate()}`,
+}): Promise<{ id: string; status: ProviderOperationStatus; result?: unknown; payload?: unknown; payloadHash?: string | null; attempts: number } | null> {
+  const result = await client.query<{ id: string; status: ProviderOperationStatus; result: unknown; payload: unknown; payload_hash: string | null; attempts: number }>(
+    `SELECT id, status, result, payload, payload_hash, attempts FROM provider_operations WHERE ${scopedIdempotencyPredicate()}`,
     [input.userId, input.accountId ?? null, input.idempotencyKey],
   );
   const row = result.rows[0];
-  return row ? { id: row.id, status: row.status, result: row.result, payload: row.payload, attempts: row.attempts } : null;
+  return row ? { id: row.id, status: row.status, result: row.result, payload: row.payload, payloadHash: row.payload_hash, attempts: row.attempts } : null;
 }
 
 /** A scheduled retry the adapter parameters make runnable again. */

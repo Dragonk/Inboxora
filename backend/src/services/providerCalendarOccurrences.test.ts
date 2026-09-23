@@ -393,12 +393,36 @@ describe('changing this and following', () => {
     expect(graphRecurrence?.range).toMatchObject({ type: 'numbered', numberOfOccurrences: 8 });
   });
 
+  it('preserves absent, null, and explicit recurrence as three distinct Google remainder intents', async () => {
+    const instance = [{ id: `${GOOGLE_MASTER}_20260915T090000Z`, originalStartTime: { dateTime: '2026-09-15T09:00:00Z' } }];
+    const write = async (recurrence: { frequency: 'weekly'; interval: number; byWeekday: number[]; until: null; untilIcal: null; count: number } | null | undefined, provided: boolean) => {
+      vi.clearAllMocks();
+      mocks.google.instances.mockResolvedValue(instance);
+      mocks.google.get.mockResolvedValue(GOOGLE_MASTER_EVENT);
+      mocks.google.insert.mockResolvedValue({ id: 'remainder' });
+      await writeProviderCalendarOccurrence({
+        target: googleTarget, scope: 'following', operation: 'update',
+        values: provided ? { ...values, recurrence } : values, sendUpdates: 'all',
+      });
+      return mocks.google.insert.mock.calls.at(-1)?.[2] as { recurrence?: string[] };
+    };
+
+    expect((await write(undefined, false)).recurrence).toContain('RRULE:FREQ=WEEKLY;COUNT=8;BYDAY=MO,WE');
+    expect((await write(null, true)).recurrence).toEqual([]);
+    const explicit = (await write({ frequency: 'weekly', interval: 1, byWeekday: [1], until: null, untilIcal: null, count: 12 }, true)).recurrence?.join(';') ?? '';
+    expect(explicit).toContain('COUNT=8');
+    expect(explicit).toContain('BYDAY=MO');
+  });
+
   it('recognises a remainder a previous run already created, instead of creating a second series', async () => {
     // CAL-01: the create goes straight to the provider, so a run that died after dispatching it left no record of
     // whether it landed. A resumed run asks the calendar; an exact, single match means it did land.
     const prepared = {
-      values: { ...values, recurrence: { frequency: 'weekly' as const, interval: 1, byWeekday: [1, 3], until: null, untilIcal: null, count: 8 } },
-      remainderRecurrence: null,
+      payload: {
+        summary: 'Standup (moved)', description: 'Daily', location: 'Room 1',
+        start: { dateTime: '2026-09-15T11:00:00.000Z' }, end: { dateTime: '2026-09-15T11:30:00.000Z' },
+        recurrence: ['RRULE:FREQ=WEEKLY;COUNT=8;BYDAY=MO,WE'],
+      },
     };
     injected.progress = [
       { stage: 'split_prepared', detail: prepared },
@@ -431,7 +455,16 @@ describe('changing this and following', () => {
     // The same recovery as on Google, over Graph's ordinary listing: the create has no journal of its own, so the
     // calendar is asked what it holds before another one is dispatched.
     injected.progress = [
-      { stage: 'split_prepared', detail: { values } },
+      { stage: 'split_prepared', detail: { payload: {
+        subject: 'Standup (moved)', body: { contentType: 'text', content: 'Daily' },
+        start: { dateTime: '2026-09-15T11:00:00.000Z', timeZone: 'UTC' },
+        end: { dateTime: '2026-09-15T11:30:00.000Z', timeZone: 'UTC' },
+        recurrence: {
+          pattern: { type: 'weekly', interval: 1, daysOfWeek: ['monday', 'wednesday'] },
+          range: { type: 'numbered', startDate: '2026-09-15', numberOfOccurrences: 8 },
+        },
+        transactionId: 'op-1',
+      } } },
       { stage: 'master_truncated', detail: {} },
       { stage: 'remainder_create_dispatched', detail: {} },
     ];

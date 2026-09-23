@@ -97,11 +97,11 @@ function createApp() {
   return app;
 }
 
-async function call(method: 'POST' | 'PATCH' | 'DELETE', path: string, body?: unknown) {
+async function call(method: 'POST' | 'PATCH' | 'DELETE', path: string, body?: unknown, headers: Record<string, string> = {}) {
   const server: Server = createApp().listen(0);
   const response = await fetch(`http://127.0.0.1:${listeningPort(server)}/api/calendar${path}`, {
     method,
-    ...(body === undefined ? {} : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
+    ...(body === undefined ? {} : { headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body) }),
   });
   const parsed = await response.json().catch(() => null) as Record<string, unknown> | null;
   await new Promise(resolve => server.close(resolve));
@@ -241,6 +241,17 @@ describe('provider write paths that do not exist yet are refused, not written lo
     // Provider first: the projection comes from the collection's own sync, never from a local shortcut.
     expect(mocks.syncGraph).toHaveBeenCalledWith(expect.objectContaining({ connectionId: 'connection-1' }));
     expect(ranQuery('UPDATE calendar_events')).toBe(false);
+  });
+
+  it('forwards the bounded idempotency key to a provider occurrence write', async () => {
+    mocks.query.mockResolvedValue({ rows: [localEventRow] });
+    const response = await call('PATCH', '/events/event-1/occurrence', {
+      calendarId: 'calendar-1', recurrenceId: '2026-09-15T09:00:00Z', scope: 'following',
+      startsAt: '2026-09-16T09:00:00.000Z', endsAt: '2026-09-16T09:30:00.000Z', attendees: [],
+    }, { 'x-idempotency-key': 'split-retry-1' });
+
+    expect(response.status).toBe(200);
+    expect(mocks.writeOccurrence).toHaveBeenCalledWith(expect.objectContaining({ idempotencyKey: 'split-retry-1' }));
   });
 
   it('cancels one occurrence, and this-and-following, with the scope the client asked for', async () => {
