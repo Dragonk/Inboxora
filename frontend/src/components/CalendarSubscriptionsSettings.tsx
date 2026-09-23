@@ -60,6 +60,7 @@ export default function CalendarSubscriptionsSettings({ locale }: { locale?: str
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [form, setForm] = useState({ displayName: '', url: '' });
+  const [localCalendar, setLocalCalendar] = useState({ name: '', color: '#3b82f6' });
   // Credentials belong to the Calendar settings connection flow. The source
   // manager can then manage discovered collections without becoming a login UI.
   const [caldavForm, setCaldavForm] = useState({ displayName: '', url: '', username: '', password: '' });
@@ -84,6 +85,23 @@ export default function CalendarSubscriptionsSettings({ locale }: { locale?: str
   const countries = useMemo(() => HOLIDAY_CALENDARS
     .map(entry => ({ ...entry, name: holidayCountryName(entry.code, language) }))
     .sort((a, b) => a.name.localeCompare(b.name, language)), [language]);
+
+  const submitLocalCalendar = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const name = localCalendar.name.trim();
+    if (!name) return;
+    setBusy(true); setError(null); setNotice(null);
+    try {
+      await api.calendar.createCalendar({ name, color: localCalendar.color, displayVisible: true });
+      setLocalCalendar({ name: '', color: '#3b82f6' });
+      setNotice(t('calendar.createLocalCalendar'));
+      notifyCalendarChanged();
+    } catch (err) {
+      setError(toAppError(err).message);
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const addSubscription = async ({ displayName, url, intervalMin }: { displayName: string; url: string; intervalMin: number }) => {
     setBusy(true); setError(null); setNotice(null);
@@ -172,6 +190,16 @@ export default function CalendarSubscriptionsSettings({ locale }: { locale?: str
     <p className="settings-choice-description">{t('calendar.subscribeDescription')}</p>
     {error && <p role="alert" className="ui-alert">{error}</p>}
     {notice && <p role="status" data-testid="calendar-subscription-notice" style={success}>{notice}</p>}
+    <form data-testid="calendar-local-create-form" onSubmit={submitLocalCalendar} style={formStyle}>
+      <div className="settings-switch-label">{t('calendar.localCalendar')}</div>
+      <label style={fieldStyle}>{t('calendar.sourceName')}
+        <input required maxLength={120} value={localCalendar.name} onChange={event => setLocalCalendar(current => ({ ...current, name: event.target.value }))} style={inputStyle} />
+      </label>
+      <label style={fieldStyle}>{t('calendar.calendarColor')}
+        <input required type="color" value={localCalendar.color} onChange={event => setLocalCalendar(current => ({ ...current, color: event.target.value }))} style={{ ...inputStyle, minHeight: 38 }} />
+      </label>
+      <div><Button type="submit" variant="primary" disabled={busy || !localCalendar.name.trim()}>{t('calendar.createLocalCalendar')}</Button></div>
+    </form>
     <form onSubmit={submitUrl} style={formStyle}>
       <label style={fieldStyle}>{t('calendar.sourceName')}
         <input required maxLength={120} value={form.displayName} onChange={event => setForm(current => ({ ...current, displayName: event.target.value }))} style={inputStyle} />

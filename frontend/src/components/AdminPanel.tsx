@@ -2,7 +2,7 @@ import { refreshUnreadCounts } from '../utils/unreadRefresh.ts';
 import { useBackLayer } from '../hooks/useBackNavigation.ts';
 import { intlLocale } from '../utils/intlLocale.ts';
 import { folderLabel } from '../utils/folderLabels.ts';
-import { inputStyle as sharedInputStyle } from './ui.tsx';
+import { Button, inputStyle as sharedInputStyle } from './ui.tsx';
 import ConversationRebuild from './ConversationRebuild.tsx';
 import CalendarSubscriptionsSettings from './CalendarSubscriptionsSettings.tsx';
 import AddAccountFlow, { type IntegrationStatus } from './AddAccountFlow.tsx';
@@ -1963,10 +1963,15 @@ function SwipeActionIcon({ action, size = 17 }: SwipeActionIconProps) {
 function CalendarSettingsTab() {
   const { t, i18n } = useTranslation();
   const { calendarWeekStartsOn, setCalendarWeekStartsOn, calendarWorkDays, setCalendarWorkDays, calendarWorkHoursStart, setCalendarWorkHoursStart, calendarWorkHoursEnd, setCalendarWorkHoursEnd, calendarWorkHoursError, calendarInviteAccountId, setCalendarInviteAccountId, accounts } = useStore();
+  const [section, setSection] = useState<'appearance' | 'connections'>('appearance');
   // Only accounts that can actually send mail may be offered as a default sender.
   const senderAccounts = (accounts || []).filter(account => account.enabled && account.smtp_host);
   return <div data-testid="calendar-settings">
-      <div>
+      <div role="tablist" aria-label={t('calendar.title')} style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+        <Button type="button" variant={section === 'appearance' ? 'primary' : 'secondary'} onClick={() => setSection('appearance')} aria-selected={section === 'appearance'}>{t('admin.tabs.appearance')}</Button>
+        <Button type="button" variant={section === 'connections' ? 'primary' : 'secondary'} onClick={() => setSection('connections')} aria-selected={section === 'connections'}>{t('calendar.subscribeTitle')}</Button>
+      </div>
+      {section === 'appearance' && <div>
         <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 16 }}>
           {t('calendar.title')}
         </div>
@@ -2012,8 +2017,8 @@ function CalendarSettingsTab() {
             <span className="settings-choice-description">{t('calendar.defaultInviteAccountDescription')}</span>
           </label>
         </div>
-      </div>
-      <CalendarSubscriptionsSettings locale={intlLocale(i18n.resolvedLanguage || i18n.language)} />
+      </div>}
+      {section === 'connections' && <CalendarSubscriptionsSettings locale={intlLocale(i18n.resolvedLanguage || i18n.language)} />}
 
   </div>;
 }

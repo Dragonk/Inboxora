@@ -498,6 +498,7 @@ export const api = {
     addInvitation: (id: string, calendarId: string) => request('POST', `/calendar/invitations/${encodeURIComponent(id)}`, { calendarId }),
     removeInvitation: (id: string) => request('DELETE', `/calendar/invitations/${encodeURIComponent(id)}`),
     listCalendars: ({ signal }: { signal?: AbortSignal } = {}) => request('GET', '/calendar/calendars', undefined, undefined, { signal }),
+    createCalendar: (data: { name: string; color: string; displayVisible: boolean }) => request('POST', '/calendar/calendars', data),
     updateCalendar: (id: string, data: unknown) => request('PATCH', `/calendar/calendars/${encodeURIComponent(id)}`, data),
     deleteCalendar: (id: string, confirmName: string) => request('DELETE', `/calendar/calendars/${encodeURIComponent(id)}`, { confirmName }),
     // Reads accept an AbortSignal so a superseded range or an unmounting page can

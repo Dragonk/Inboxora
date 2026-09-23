@@ -19,6 +19,11 @@ test('calendar settings offer ICS/webcal subscriptions, CalDAV connection, and h
   assert.match(component, /normalizeSubscriptionUrl\(form\.url\)/);
   assert.match(component, /data-testid="calendar-subscriptions-settings"/);
   assert.match(component, /data-testid="calendar-subscription-row"/);
+  // Local calendars are created in the same management section, without a URL or account.
+  assert.match(component, /data-testid="calendar-local-create-form"/);
+  assert.match(component, /api\.calendar\.createCalendar\(\{ name, color: localCalendar\.color, displayVisible: true \}\)/);
+  assert.match(admin, /section === 'appearance'/);
+  assert.match(admin, /section === 'connections'/);
   // Credential-bearing CalDAV setup is a Calendar setting, not a source-manager form.
   assert.match(component, /data-testid="calendar-caldav-settings-form"/);
   assert.match(component, /kind: 'caldav'/);
