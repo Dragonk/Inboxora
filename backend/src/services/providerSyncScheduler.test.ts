@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   listGmailMailAccounts: vi.fn(),
   googleConfigured: { value: true },
   microsoftConfigured: { value: true },
+  featureEnabled: { value: true },
 }));
 
 vi.mock('./db.js', () => ({
@@ -40,11 +41,16 @@ vi.mock('./providers/google/gmailMailSync.js', () => ({
   syncGmailMailMessagesForAccount: mocks.syncGmailMailMessagesForAccount,
   listGmailMailAccounts: mocks.listGmailMailAccounts,
 }));
+vi.mock('./accountProviderFeatureSettings.js', () => ({
+  collectionKindForAccountProviderService: (feature: string) => feature === 'calendars' ? 'calendar' : 'address_book',
+  providerConnectionFeatureEnabled: vi.fn(async () => mocks.featureEnabled.value),
+}));
 
 import { nextSyncBackoffMs,
   FIRST_PASS_DELAY_MS,
   listProviderSyncTargets,
   providerSyncIntervalMinutes,
+  runProviderSyncForHint,
   runProviderSyncs,
   startProviderSyncScheduler,
   stopProviderSyncScheduler,
@@ -67,6 +73,7 @@ afterEach(() => {
   mocks.syncGraphMailMessagesForAccount.mockReset().mockResolvedValue({ accountId: 'account-1' });
   mocks.googleConfigured.value = true;
   mocks.microsoftConfigured.value = true;
+  mocks.featureEnabled.value = true;
 });
 
 describe('providerSyncIntervalMinutes', () => {
@@ -396,6 +403,16 @@ describe('the schedule backs off from a throttled run', () => {
     const jittered = nextSyncBackoffMs(0, true, () => 0.999);
     expect(jittered).toBeGreaterThan(60_000);
     expect(jittered).toBeLessThanOrEqual(60_000 + 15_000);
+  });
+});
+
+describe('push hint optional-service gate', () => {
+  it('does not call a calendar adapter after the account disables that service', async () => {
+    mocks.featureEnabled.value = false;
+    await expect(runProviderSyncForHint({
+      userId: 'user-1', connectionId: 'connection-1', provider: 'google', resourceType: 'calendar',
+    })).resolves.toEqual({ ran: false, reason: 'FEATURE_DISABLED' });
+    expect(mocks.syncGoogleCalendar).not.toHaveBeenCalled();
   });
 });
 

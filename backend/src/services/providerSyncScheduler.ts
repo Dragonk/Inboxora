@@ -12,7 +12,7 @@ import { syncGraphContacts } from './providers/microsoft/graphContactsSync.js';
 import { syncGraphCalendar } from './providers/microsoft/graphCalendarSync.js';
 import { syncGraphMailFolders, syncGraphMailMessagesForAccount } from './providers/microsoft/graphMailSync.js';
 import { listGmailMailAccounts, syncGmailMailLabelsForAccount, syncGmailMailMessagesForAccount } from './providers/google/gmailMailSync.js';
-import { collectionKindForAccountProviderService } from './accountProviderFeatureSettings.js';
+import { collectionKindForAccountProviderService, providerConnectionFeatureEnabled } from './accountProviderFeatureSettings.js';
 
 /**
  * Periodic refresh of the provider collections a user has already pulled (P09).
@@ -359,6 +359,11 @@ export async function runProviderSyncForHint(input: {
   const microsoftConfig = microsoftConfigFromEnv();
   const ready = input.provider === 'google' ? isGoogleConfigured(googleConfig) : isMicrosoftConfigured(microsoftConfig);
   if (!ready) return { ran: false, reason: 'PROVIDER_NOT_CONFIGURED' };
+  const optionalFeature = input.resourceType === 'calendar' ? 'calendars'
+    : input.resourceType === 'contacts' ? 'contacts' : null;
+  if (optionalFeature && !await providerConnectionFeatureEnabled({
+    userId: input.userId, connectionId: input.connectionId, feature: optionalFeature,
+  })) return { ran: false, reason: 'FEATURE_DISABLED' };
   const sync = syncFor(input.provider, input.resourceType);
   if (!sync) return { ran: false, reason: 'NO_SYNC_FOR_RESOURCE' };
   await sync(
