@@ -1179,6 +1179,7 @@
     "auto": "auto",
     "autoHint": "从收件中自动发现",
     "selectHint": "选择联系人",
+    "newTarget": "将新联系人保存到",
     "deleteConfirm": "永久删除此联系人？",
     "addEmail": "添加邮箱",
     "addPhone": "添加电话",

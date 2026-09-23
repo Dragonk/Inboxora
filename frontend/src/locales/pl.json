@@ -1179,6 +1179,7 @@
     "auto": "Automatycznie",
     "autoHint": "Wykryto na podstawie odebranej poczty",
     "selectHint": "Wybierz kontakt, aby wyświetlić szczegóły",
+    "newTarget": "Zapisz nowy kontakt w",
     "deleteConfirm": "Trwale usunąć ten kontakt?",
     "addEmail": "Dodaj adres e-mail",
     "addPhone": "Dodaj telefon",

@@ -59,3 +59,11 @@ test('a provider-book sync uses its owning account rather than all provider conn
   assert.match(handler, /selectedProviderBook\?\.provider === provider && selectedProviderBook\.account_id/);
   assert.match(handler, /api\.syncAccountProviderFeature\(selectedProviderBook\.account_id, 'contacts'\)/);
 });
+
+test('new contacts display and preserve an explicit writable address-book target', async () => {
+  const source = await readFile(page, 'utf8');
+  assert.match(source, /const \[newAddressBookId, setNewAddressBookId\] = useState\(''\)/);
+  assert.match(source, /data-testid="contacts-new-target"/);
+  assert.match(source, /addressBooks\.filter\(book => book\.read_only !== true\)/);
+  assert.match(source, /addressBookId: newAddressBookId \|\| undefined/);
+});

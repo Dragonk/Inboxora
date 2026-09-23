@@ -1179,6 +1179,7 @@
     "auto": "auto",
     "autoHint": "Aus empfangenen Mails erkannt",
     "selectHint": "Kontakt auswählen",
+    "newTarget": "Neuen Kontakt speichern in",
     "deleteConfirm": "Diesen Kontakt dauerhaft löschen?",
     "addEmail": "E-Mail hinzufügen",
     "addPhone": "Telefon hinzufügen",

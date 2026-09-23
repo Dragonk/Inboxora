@@ -1179,6 +1179,7 @@
     "auto": "auto",
     "autoHint": "Discovered from received mail",
     "selectHint": "Select a contact to view details",
+    "newTarget": "Save new contact to",
     "deleteConfirm": "Permanently delete this contact?",
     "addEmail": "Add email",
     "addPhone": "Add phone",

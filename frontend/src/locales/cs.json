@@ -1179,6 +1179,7 @@
     "auto": "automaticky",
     "autoHint": "Nalezeno v přijaté poště",
     "selectHint": "Výběrem kontaktu zobrazíte podrobnosti",
+    "newTarget": "Uložit nový kontakt do",
     "deleteConfirm": "Trvale smazat tento kontakt?",
     "addEmail": "Přidat e-mail",
     "addPhone": "Přidat telefon",

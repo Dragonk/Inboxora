@@ -1179,6 +1179,7 @@
     "auto": "auto",
     "autoHint": "Descubierto del correo recibido",
     "selectHint": "Selecciona un contacto",
+    "newTarget": "Guardar nuevo contacto en",
     "deleteConfirm": "¿Eliminar permanentemente este contacto?",
     "addEmail": "Agregar email",
     "addPhone": "Añadir teléfono",

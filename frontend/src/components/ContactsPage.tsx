@@ -238,6 +238,9 @@ export default function ContactsPage({ isActive = true }) {
   const [contacts, setContacts]     = useState<ContactRow[]>([]);
   const [addressBooks, setAddressBooks] = useState<AddressBookRow[]>([]);
   const [selectedAddressBookId, setSelectedAddressBookId] = useState('');
+  // Creating has its own target so changing the list filter cannot silently
+  // redirect a contact while the form is open.
+  const [newAddressBookId, setNewAddressBookId] = useState('');
   const [total, setTotal]           = useState(0);
   const [loading, setLoading]       = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -579,7 +582,16 @@ export default function ContactsPage({ isActive = true }) {
   };
 
   const startNew = () => {
+    const selectedBook = addressBooks.find(book => book.id === selectedAddressBookId);
+    const target = selectedBook?.read_only !== true
+      ? selectedBook
+      : addressBooks.find(book => book.read_only !== true);
+    if (!target) {
+      setError(t('contacts.booksManager.readOnly'));
+      return;
+    }
     contactSelectionRequestRef.current += 1;
+    setNewAddressBookId(target.id);
     setSelected(null);
     setForm(emptyContact());
     setEditing(false);
@@ -671,7 +683,7 @@ export default function ContactsPage({ isActive = true }) {
       };
       let saved;
       if (showNew) {
-        saved = await api.createContact({ ...payload, addressBookId: selectedAddressBookId || undefined });
+        saved = await api.createContact({ ...payload, addressBookId: newAddressBookId || undefined });
       } else {
         if (!selected) return;
         saved = await api.updateContact(selected.id, payload);
@@ -1052,6 +1064,13 @@ export default function ContactsPage({ isActive = true }) {
         </div>
       )}
       {inForm && (
+        <>
+          {showNew && <label data-testid="contacts-new-target" style={{ display: 'flex', gap: 8, alignItems: 'center', margin: '0 0 10px', color: 'var(--text-secondary)', fontSize: 13 }}>
+            {t('contacts.newTarget')}
+            <select value={newAddressBookId} onChange={event => setNewAddressBookId(event.target.value)} style={{ maxWidth: 280 }}>
+              {addressBooks.filter(book => book.read_only !== true).map(book => <option key={book.id} value={book.id}>{book.name}{book.account_email ? ` · ${book.account_email}` : ''}</option>)}
+            </select>
+          </label>}
         <ContactForm
           key={showNew ? 'new' : selected?.id}
           form={form}
@@ -1073,6 +1092,7 @@ export default function ContactsPage({ isActive = true }) {
           onCancel={cancelEdit}
           t={t}
         />
+        </>
       )}
       {selected && !inForm && (
         <ContactDetail
