@@ -247,10 +247,12 @@ Deliberate product behaviour, not missing work:
   calendar/contact push hints with the account feature setting (`b028ebd0`); a disabled service does not call its
   adapter from that hint. Existing upstream subscriptions, their expiry/cleanup and a live provider delivery path
   still require environment validation.
-- **The account feature preference is not yet a universal write/DAV ownership gate.** It controls the implemented
-  OAuth, scheduled/manual sync and push-hint paths; do not rely on disabling a service as an authorization boundary
-  for every provider write, DAV request, already-running worker or externally owned source until those paths enforce
-  the same effective setting with ownership/revision checks.
+- **Account service intent now gates account-owned native writes where ownership is explicit.** Google and Microsoft
+  calendar writes plus Google People contact writes resolve `integration_collections.account_id` and refuse a missing
+  or disabled feature setting before reaching the provider. It is still **not** a universal DAV/source ownership gate:
+  externally owned CalDAV/CardDAV, local and ICS targets retain their source-specific policy, and already-running work
+  cannot be retroactively undone. Validate DAV/source ownership behavior separately before treating a feature toggle
+  as a universal authorization boundary.
 - **Google personal contacts only**, no shared directory, and no remote creation or sharing of collections;
 - a **legacy external CalDAV/CardDAV collection** gains its write-back link on the next sync of its source
   rather than through a one-shot migration;
