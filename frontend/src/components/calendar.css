@@ -66,6 +66,12 @@
 /* Sheet content follows the shared type scale and touch targets instead of the
    desktop rail metrics. */
 .calendar-panel-dialog .calendar-rail { font-size: 12.5px; }
+/* Source manager becomes a drill-down view on phones instead of squeezing two panes. */
+@media (max-width: 640px) {
+  [data-testid=calendar-source-manager] { grid-template-columns: 1fr !important; min-height: 0 !important; }
+  [data-testid=calendar-source-manager] nav { border-right: 0 !important; border-bottom: 1px solid var(--border-subtle); max-height: 190px; }
+  [data-testid=calendar-source-manager] button { min-height: 44px; }
+}
 .calendar-panel-dialog .calendar-mini-day { width: 40px; height: 40px; min-height: 40px; font-size: 12px; }
 .calendar-panel-dialog .calendar-mini-nav { min-width: 40px; min-height: 40px; }
 .calendar-panel-dialog [data-testid=calendar-mini-weekday] { font-size: 10.5px; }

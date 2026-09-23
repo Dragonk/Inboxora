@@ -582,7 +582,7 @@ type CalendarPresentationRow = {
   id: string; name: string | null; color: string | null; source: string | null; read_only: boolean | null;
   display_visible: boolean | null; collection_id: string | null; provider: string | null; provider_identity: string | null;
   account_id: string | null; account_email: string | null; import_source_id: string | null; import_kind: string | null;
-  import_label: string | null; feature_enabled: boolean | null;
+  import_label: string | null; feature_enabled: boolean | null; connection_status?: string | null; import_enabled?: boolean | null;
 };
 
 type CalendarPresentationSource = ReturnType<typeof calendarSourceId> & { collapsed: boolean };
@@ -596,9 +596,10 @@ function calendarSourceId(row: CalendarPresentationRow) {
     // An Inboxora account is durable across reauthorization. Older rows without one
     // use the provider subject, not a transient provider connection id.
     const identity = row.account_id ? `account:${row.account_id}` : row.provider_identity ? `identity:${row.provider_identity}` : `collection:${row.collection_id ?? row.id}`;
-    return { id: `${row.provider}:${identity}`, kind: row.provider, label: row.provider === 'google' ? 'Google' : 'Microsoft', accountId: row.account_id, identityLabel: row.account_email ?? row.provider_identity, featureEnabled: row.feature_enabled === true, canSync: row.feature_enabled === true };
+    const connected = row.connection_status === undefined || row.connection_status === 'active';
+    return { id: `${row.provider}:${identity}`, kind: row.provider, label: row.provider === 'google' ? 'Google' : 'Microsoft', accountId: row.account_id, identityLabel: row.account_email ?? row.provider_identity, featureEnabled: row.feature_enabled === true, canSync: connected && row.feature_enabled === true };
   }
-  if (row.import_source_id) return { id: `calendar-source:${row.import_source_id}`, kind: row.import_kind ?? 'ical_url', label: row.import_label ?? 'Subscription', accountId: null, identityLabel: null, featureEnabled: true, canSync: true };
+  if (row.import_source_id) return { id: `calendar-source:${row.import_source_id}`, kind: row.import_kind ?? 'ical_url', label: row.import_label ?? 'Subscription', accountId: null, identityLabel: null, featureEnabled: row.import_enabled !== false, canSync: row.import_enabled !== false };
   return { id: `collection:${row.collection_id ?? row.id}`, kind: row.source === 'caldav' ? 'caldav' : 'ical_url', label: row.source === 'caldav' ? 'CalDAV' : 'Subscription', accountId: null, identityLabel: null, featureEnabled: true, canSync: Boolean(row.collection_id) };
 }
 
@@ -610,8 +611,8 @@ function calendarSourceId(row: CalendarPresentationRow) {
 export async function loadCalendarPresentation(userId: string): Promise<CalendarPresentation> {
   const result = await query<CalendarPresentationRow>(
     `SELECT c.id, c.name, c.color, c.source, c.read_only, c.display_visible, ic.id AS collection_id,
-            pc.provider, pc.provider_user_id AS provider_identity, a.id AS account_id, a.email_address AS account_email,
-            cis.id AS import_source_id, cis.kind AS import_kind, cis.display_name AS import_label, aps.enabled AS feature_enabled
+            pc.provider, pc.provider_user_id AS provider_identity, pc.status AS connection_status, a.id AS account_id, a.email_address AS account_email,
+            cis.id AS import_source_id, cis.kind AS import_kind, cis.display_name AS import_label, cis.enabled AS import_enabled, aps.enabled AS feature_enabled
        FROM calendars c
        LEFT JOIN integration_collections ic ON ic.local_calendar_id = c.id AND ic.kind = 'calendar' AND ic.user_id = c.user_id
        LEFT JOIN provider_connections pc ON pc.id = ic.connection_id
@@ -619,10 +620,17 @@ export async function loadCalendarPresentation(userId: string): Promise<Calendar
        LEFT JOIN account_provider_feature_settings aps ON aps.account_id = a.id AND aps.feature = 'calendars'
        LEFT JOIN calendar_import_sources cis ON cis.user_id = c.user_id AND c.external_url = ('source:' || cis.id::text)
       WHERE c.user_id = $1 AND c.owner_user_id = $1 ORDER BY c.created_at ASC`, [userId]);
-  const [sourcePrefs, calendarPrefs, appearance] = await Promise.all([
+  const [sourcePrefs, calendarPrefs, appearance, accountSources, importSources] = await Promise.all([
     query<{ source_id: string; collapsed: boolean }>('SELECT source_id, collapsed FROM user_calendar_source_preferences WHERE user_id = $1', [userId]),
     query<{ calendar_id: string; sidebar_hidden: boolean }>('SELECT calendar_id, sidebar_hidden FROM user_calendar_presentation_preferences WHERE user_id = $1', [userId]),
     contactCalendarAppearance(userId),
+    query<CalendarPresentationRow>(`SELECT a.id AS account_id, a.email_address AS account_email, pc.provider,
+      pc.provider_user_id AS provider_identity, pc.status AS connection_status, aps.enabled AS feature_enabled
+      FROM email_accounts a JOIN provider_connections pc ON pc.id = a.provider_connection_id
+      LEFT JOIN account_provider_feature_settings aps ON aps.account_id = a.id AND aps.feature = 'calendars'
+      WHERE a.user_id = $1 AND pc.provider IN ('google', 'microsoft')`, [userId]),
+    query<CalendarPresentationRow>(`SELECT id AS import_source_id, kind AS import_kind, display_name AS import_label,
+      enabled AS import_enabled FROM calendar_import_sources WHERE user_id = $1`, [userId]),
   ]);
   const collapsed = new Map(sourcePrefs.rows.map(row => [row.source_id, row.collapsed]));
   const hidden = new Map(calendarPrefs.rows.map(row => [row.calendar_id, row.sidebar_hidden]));
@@ -633,6 +641,13 @@ export async function loadCalendarPresentation(userId: string): Promise<Calendar
     if (!sourcesById.has(source.id)) sourcesById.set(source.id, { ...source, collapsed: collapsed.get(source.id) === true });
     return { id: row.id, sourceId: source.id, displayName: row.name ?? 'Untitled calendar', readOnly: row.read_only === true, selected: row.display_visible !== false, sidebarHidden: hidden.get(row.id) === true };
   });
+  // Sources are independent from discovered collections. Keep an authorized account
+  // (including a disabled service or a failed first discovery) and a configured DAV/ICS
+  // source visible in management even when it currently has zero calendars.
+  for (const candidate of [...accountSources.rows, ...importSources.rows]) {
+    const source = calendarSourceId(candidate);
+    if (!sourcesById.has(source.id)) sourcesById.set(source.id, { ...source, collapsed: collapsed.get(source.id) === true });
+  }
   const sources = [...sourcesById.values()];
   const groups = sources.map(source => ({ ...source, calendars: calendars.filter(calendar => calendar.sourceId === source.id) }));
   // The revision is an opaque snapshot validator, not another mutable preference.

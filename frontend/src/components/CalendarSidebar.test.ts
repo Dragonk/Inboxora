@@ -70,8 +70,22 @@ describe('CalendarSidebar contract', () => {
     assert.match(component, /updateSourcePresentation\(sourceId, collapsed\)/);
     assert.match(component, /data-testid="calendar-hidden-calendars"/);
     assert.match(component, /data-testid="calendar-restore-hidden"/);
-    assert.match(component, /if \(sidebarHidden && selectedBeforeHide\) onToggleCalendar\(calendar\.id\)/);
+    assert.match(component, /selectedBeforeHide\.current\.set\(calendar\.id, priorSelection\)/);
+    assert.match(component, /selectedBeforeHide\.current\.get\(calendar\.id\) === true/);
+    assert.match(component, /data-testid="calendar-source-collapse"/);
     assert.match(component, /view\.sidebarHidden \|\| group\.collapsed \? null/);
+  });
+
+  it('uses one selectable source list and lazy add-source form in the manager', async () => {
+    const [component, css] = await Promise.all([source(), readFile(new URL('./calendar.css', import.meta.url), 'utf8')]);
+    assert.match(component, /data-testid="calendar-source-manager"/);
+    assert.match(component, /data-testid="calendar-manager-source"/);
+    assert.match(component, /data-testid="calendar-source-details"/);
+    assert.match(component, /data-testid="calendar-add-source"/);
+    assert.match(component, /\{showAddSource && <form/);
+    assert.match(component, /data-testid="calendar-source-search"/);
+    assert.match(css, /@media \(max-width: 640px\)/);
+    assert.match(css, /calendar-source-manager/);
   });
 
   it('syncs only the selected provider account with neutral localized copy', async () => {
