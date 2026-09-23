@@ -407,7 +407,16 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
       setOpenCalendarMenu(null); await loadPresentation();
     } catch (caught) { setSourceError(toAppError(caught).message); }
   };
-  const managerSources = (presentation?.sources ?? []).filter(source => `${source.label} ${source.identityLabel ?? ''}`.toLocaleLowerCase().includes(managerSearch.toLocaleLowerCase()));
+  // A successfully persisted external source can be returned before the next
+  // presentation snapshot has incorporated it (notably after its first sync
+  // fails). Keep that source actionable in the manager rather than making it
+  // disappear until a later refresh.
+  const presentationSources = presentation?.sources ?? [];
+  const transientExternalSources: CalendarPresentationSource[] = sources
+    .filter(source => !presentationSources.some(view => view.id === `calendar-source:${source.id}`))
+    .map(source => ({ id: `calendar-source:${source.id}`, kind: source.kind ?? 'ical_url', label: source.displayName ?? source.id, accountId: null, identityLabel: null, featureEnabled: true, canSync: true, collapsed: false }));
+  const managerSources = [...presentationSources, ...transientExternalSources]
+    .filter(source => `${source.label} ${source.identityLabel ?? ''}`.toLocaleLowerCase().includes(managerSearch.toLocaleLowerCase()));
   const managerSource = managerSources.find(source => source.id === selectedSourceId) ?? managerSources[0] ?? null;
   const managerRows = managerSource ? calendarSidebarGroups(presentation, calendars).find(group => group.id === managerSource.id)?.rows ?? [] : [];
   const managedExternalSource = managerSource ? sources.find(source => `calendar-source:${source.id}` === managerSource.id) : undefined;

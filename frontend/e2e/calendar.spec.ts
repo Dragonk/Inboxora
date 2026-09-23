@@ -73,9 +73,10 @@ test('removing a remote ICS source refreshes events and prevents its stale event
   await expect(page.getByText('Stale remote event', { exact: true })).toBeVisible();
   await page.getByTestId('calendar-sidebar-manage-sources').click();
   const dialog = page.getByRole('dialog', { name: 'Zarządzaj źródłami' });
-  await expect(dialog.getByText(source.displayName)).toBeVisible();
+  const managerSource = dialog.getByTestId('calendar-manager-source').filter({ hasText: source.displayName });
+  await expect(managerSource).toBeVisible();
   await dialog.getByRole('button', { name: 'Usuń' }).click();
-  await expect(dialog.getByText(source.displayName)).toHaveCount(0);
+  await expect(managerSource).toHaveCount(0);
   await expect(page.getByText('Stale remote event', { exact: true })).toHaveCount(0);
 });
 
@@ -111,10 +112,11 @@ test('deleting a pending ICS source cancels its initial-sync polling', async ({ 
   await dialog.getByLabel('Nazwa', { exact: true }).fill(source.displayName);
   await dialog.getByLabel('Adres URL').fill('webcal://calendar.example/pending-delete.ics');
   await dialog.getByRole('button', { name: 'Dodaj źródło' }).click();
-  await expect(dialog.getByText(source.displayName)).toBeVisible();
+  const pendingManagerSource = dialog.getByTestId('calendar-manager-source').filter({ hasText: source.displayName });
+  await expect(pendingManagerSource).toBeVisible();
   await expect(dialog.getByText('Synchronizowanie…')).toBeVisible();
   await dialog.getByRole('button', { name: 'Usuń' }).click();
-  await expect(dialog.getByText(source.displayName)).toHaveCount(0);
+  await expect(pendingManagerSource).toHaveCount(0);
   const requestCountAfterDelete = sourceListRequests;
   await page.waitForTimeout(1200);
   expect(sourceListRequests).toBe(requestCountAfterDelete);
@@ -139,7 +141,7 @@ test('remote ICS source does not poll after terminal successful creation', async
   await dialog.getByLabel('Nazwa', { exact: true }).fill('NiedostepnyICS');
   await dialog.getByLabel('Adres URL').fill('webcal://calendar.example/timeout.ics');
   await dialog.getByRole('button', { name: 'Dodaj źródło' }).click();
-  await expect(dialog.getByText('NiedostepnyICS')).toBeVisible();
+  await expect(dialog.getByTestId('calendar-manager-source').filter({ hasText: 'NiedostepnyICS' })).toBeVisible();
   await page.waitForTimeout(1000);
   expect(refreshCount).toBe(2);
 });
