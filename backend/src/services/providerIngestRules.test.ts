@@ -164,6 +164,28 @@ describe('the provider ingest block list', () => {
     expect(moveGmailMessageToLabel).toHaveBeenCalledWith(expect.objectContaining({ providerMessageId: 'provider-1' }));
   });
 
+  it('durably defers missing native body data before any rule action', async () => {
+    query.mockImplementation(async (sql: string) => {
+      if (sql.includes('SELECT id, uid, folder, from_email, is_read')) {
+        return { rows: [{ id: 'row-1', uid: 77, folder: 'INBOX', from_email: 'news@example.com', is_read: false, body_text: null, parsed_headers: { subject: 'Report' } }] } as never;
+      }
+      if (sql.includes('FROM inbox_rules')) {
+        return { rows: [{ id: 'rule-1', conditions: [{ field: 'body', operator: 'not_contains', value: 'unsubscribe' }], actions: [{ type: 'move', value: 'Archive' }] }] } as never;
+      }
+      if (sql.includes('INSERT INTO provider_rule_deferred_messages')) return { rows: [] } as never;
+      return { rows: [] } as never;
+    });
+    process.env.PROVIDER_NATIVE_RULES = '1';
+
+    const outcome = await applyIngestRulesToRows({
+      userId: 'user-1', connectionId: 'conn-1', account, folder: 'INBOX', rowIds: ['row-1'], providerName: 'Gmail',
+    });
+
+    expect(outcome).toEqual({ considered: 1, blocked: 0, ruled: 0, rulesSkipped: false });
+    expect(query).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO provider_rule_deferred_messages'), expect.arrayContaining(['row-1', 'acc-1', true, false]));
+    expect(moveGmailMessageToLabel).not.toHaveBeenCalled();
+  });
+
   it('does nothing when the run stored no inbox rows', async () => {
     const outcome = await applyIngestRulesToRows({
       userId: 'user-1', connectionId: 'conn-1', account, folder: 'INBOX', rowIds: [], providerName: 'Gmail',

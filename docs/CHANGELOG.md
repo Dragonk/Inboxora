@@ -35,6 +35,10 @@ Nothing is being prepared beyond 4.1.0. Work whose version has not been chosen a
 ## [4.1.0]
 
 ### Added
+- **Native inbox rules now defer safely when a newly ingested Gmail or Microsoft message lacks body or header data.**
+  Migration `0121_provider_rule_deferred_queue.sql` adds a lease-owned durable read queue. The worker fetches only
+  the missing data through the provider read API before applying a rule; failed, absent or ambiguous reads back off
+  without treating them as empty values or replaying provider actions with an uncertain outcome.
 - **An operator can prepare an existing Microsoft mailbox for immutable message ids without switching the sync on.**
   `planGraphMessageIdTranslation` asks Graph for the immutable id of each stored message in bounded batches and
   writes nothing; `applyGraphMessageIdTranslation` applies only the confirmed mapping, skips collisions, and refuses

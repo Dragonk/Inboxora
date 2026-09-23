@@ -54,6 +54,22 @@ async function getRulesForAccount(userId: string, accountId: string): Promise<In
   return result.rows;
 }
 
+/** The lazy message data an enabled rule may need before it is safe to apply any rule effect. */
+export interface RuleDataRequirements { needsBody: boolean; needsHeaders: boolean }
+
+export async function ruleDataRequirementsForAccount(userId: string, accountId: string): Promise<RuleDataRequirements> {
+  const rules = await getRulesForAccount(userId, accountId);
+  let needsBody = false;
+  let needsHeaders = false;
+  for (const rule of rules) {
+    for (const condition of Array.isArray(rule.conditions) ? rule.conditions : []) {
+      if (condition?.field === 'body') needsBody = true;
+      if (condition?.field === 'header') needsHeaders = true;
+    }
+  }
+  return { needsBody, needsHeaders };
+}
+
 function normalizeStr(val: unknown): string {
   return String(val || '').toLowerCase().trim();
 }

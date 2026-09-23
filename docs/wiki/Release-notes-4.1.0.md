@@ -12,6 +12,13 @@ without copying or losing anything local.
 
 ## Highlights
 
+- **Safe deferred native inbox rules.** A Gmail or Microsoft message whose ingest projection lacks a body or headers
+  needed by an inbox rule is recorded in the additive `0121_provider_rule_deferred_queue.sql` queue before any
+  block-list or rule action runs. The scheduled worker reads only the missing provider data, with a lease and
+  backoff for transient failures. Empty or unavailable reads remain unknown, so a negative rule cannot act from
+  missing content; after the queue record is settled, a provider action is never replayed by this mechanism.
+  Apply migration `0121` after `0120_provider_rule_headers.sql` and before rolling out the worker.
+
 - **Native Microsoft Graph mail, calendars and contacts.** Reading, filing, flagging, searching, drafting
   and **sending** over Graph, with folders, delta sync, bodies and attachments (single, inline and ZIP),
   delete, move/archive, spam/ham, snooze, bulk delete, mark-all-read, source headers, drafts and
@@ -56,7 +63,7 @@ without copying or losing anything local.
 
 ## Upgrade impact
 
-- **Apply migrations `0101`–`0117` in order, before rolling out the application.** They are additive and no
+- **Apply migrations `0101`–`0121` in order, before rolling out the application.** They are additive and no
   existing table, column or row is rewritten. Four deserve naming: `0110` adds the columns the Microsoft
   device authorization uses and must be applied before a device flow is started; `0111` adds the nullable
   `messages.provider_labels` the Gmail adapter writes; `0112` adds the `read_write` value the per-collection
@@ -71,7 +78,7 @@ without copying or losing anything local.
   migrated. `0117` lets a user hold several CalDAV or CardDAV sources: it drops the
   single-row constraint and replaces it with two partial unique indexes, so the unlabelled row per provider remains
   unique while labelled ones coexist. No row is rewritten, and nothing reads the new column yet, so behaviour is
-  unchanged until the source model is used. An application version older than these columns simply leaves them `NULL`.
+  unchanged until the source model is used. `0118_carddav_source_identity.sql` attaches CardDAV links to their exact source, `0119_gmail_archive_state.sql` records Gmail's archive state without deleting the message, and `0120_provider_rule_headers.sql` stores native-provider headers used by rules. `0121_provider_rule_deferred_queue.sql` creates the leased read-only queue for missing provider rule inputs; apply it before deploying the worker. All four are additive, do not rewrite existing rows, and must be applied before this application version runs.
 - **Microsoft accounts are not migrated automatically.** An existing Microsoft account keeps reading and
   sending over OAuth2 IMAP/SMTP until an administrator (or the account's owner) invokes the in-place
   cutover for it. Migrating is what makes the Graph paths reachable for that mailbox; **no account is

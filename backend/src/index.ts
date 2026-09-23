@@ -49,6 +49,7 @@ import { startExternalCalendarScheduler } from './services/externalCalendarSync.
 import { startProviderSyncScheduler } from './services/providerSyncScheduler.js';
 import { startProviderSyncHintWorker } from './services/providerSyncHintWorker.js';
 import { startProviderPushScheduler } from './services/providerPushScheduler.js';
+import { startProviderRuleDeferredWorker } from './services/providerRuleDeferred.js';
 import { encryptExistingCredentials, query } from './services/db.js';
 import { runMigrations } from './services/migrations.js';
 import { parseVCard } from './utils/vcard.js';
@@ -380,6 +381,9 @@ startProviderSyncScheduler();
 // PROVIDER_PUSH_ENABLED is off, and polling continues either way.
 startProviderSyncHintWorker();
 startProviderPushScheduler();
+// Hydrate native-provider rule inputs that were unavailable during ingest. This worker
+// retries reads only; it never replays an action with an unknown provider outcome.
+startProviderRuleDeferredWorker();
 // Retry conversation persistence failures without blocking IMAP synchronization.
 setInterval(() => retryConversationIngestFailures({ limit: 25 }).catch(err => console.warn('Conversation ingest retry failed:', err.message)), 5 * 60 * 1000);
 // Retry calendar invitations whose SMTP delivery failed, so a transient outage

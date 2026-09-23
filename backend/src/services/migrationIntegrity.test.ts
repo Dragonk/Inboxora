@@ -328,6 +328,15 @@ describe('migration integrity', () => {
     expect(sql).not.toMatch(/UPDATE\s+dav_app_passwords/i);
   });
 
+  it('adds a lease-owned native provider rule read queue without rewriting messages', () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/0121_provider_rule_deferred_queue.sql'), 'utf8');
+    expect(sql).toContain('CREATE TABLE IF NOT EXISTS provider_rule_deferred_messages');
+    expect(sql).toContain('UNIQUE (message_id)');
+    expect(sql).toContain('lease_owner TEXT');
+    expect(sql).toContain("transport IN ('gmail_api', 'microsoft_graph')");
+    expect(sql).not.toMatch(/UPDATE\s+messages/i);
+  });
+
   it('widens the OAuth flow purpose CHECK to accept account_enable', () => {
     // AUTH-01: the route-level allow-list was not the only gate — 0103's CHECK rejected account_enable too, so
     // a reconnect flow could never be persisted. The fix must widen the constraint, not rewrite 0103.
