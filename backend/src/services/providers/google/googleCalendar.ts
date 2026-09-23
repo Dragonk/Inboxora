@@ -83,11 +83,14 @@ interface EventWindow {
   maxResults?: number;
 }
 
-const MAX_RESULTS = 2500;
+/** Google CalendarList.list permits at most 250 entries per request. */
+export const GOOGLE_CALENDAR_LIST_MAX_RESULTS = 250;
+/** Google Events.list permits at most 2500 entries per request. */
+export const GOOGLE_CALENDAR_EVENTS_MAX_RESULTS = 2500;
 
 export async function fetchCalendarList(options: GoogleApiOptions, input: { pageToken?: string | null } = {}): Promise<CalendarListPage> {
   const url = googleUrl(GOOGLE_CALENDAR_API_BASE, '/users/me/calendarList', {
-    maxResults: MAX_RESULTS,
+    maxResults: GOOGLE_CALENDAR_LIST_MAX_RESULTS,
     pageToken: input.pageToken ?? undefined,
   });
   const body = await googleApiFetch<{ items?: GoogleCalendarListEntry[] | null; nextPageToken?: string | null }>(options, url);
@@ -104,7 +107,9 @@ export async function fetchCalendarList(options: GoogleApiOptions, input: { page
 export async function fetchCalendarEvents(options: GoogleApiOptions, calendarId: string, input: EventWindow = {}): Promise<CalendarEventsPage> {
   const incremental = Boolean(input.syncToken);
   const url = googleUrl(GOOGLE_CALENDAR_API_BASE, `/calendars/${encodeURIComponent(calendarId)}/events`, {
-    maxResults: Number.isFinite(input.maxResults) && Number(input.maxResults) > 0 ? Math.min(MAX_RESULTS, Number(input.maxResults)) : MAX_RESULTS,
+    maxResults: Number.isFinite(input.maxResults) && Number(input.maxResults) > 0
+      ? Math.min(GOOGLE_CALENDAR_EVENTS_MAX_RESULTS, Number(input.maxResults))
+      : GOOGLE_CALENDAR_EVENTS_MAX_RESULTS,
     pageToken: input.pageToken ?? undefined,
     syncToken: input.syncToken ?? undefined,
     // Google rejects the window parameters together with a sync token.

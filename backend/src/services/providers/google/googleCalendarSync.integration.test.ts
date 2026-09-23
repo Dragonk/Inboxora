@@ -90,7 +90,7 @@ async function seedConnection(): Promise<string> {
       accessToken: 'access-valid',
       refreshToken: 'refresh-1',
       expiresAt: new Date(Date.now() + 3600_000),
-      scopes: ['https://www.googleapis.com/auth/calendar.events'],
+      scopes: ['https://www.googleapis.com/auth/calendar.calendarlist.readonly', 'https://www.googleapis.com/auth/calendar.events'],
       clientIdAtIssue: CONFIG.clientId,
     });
     return connectionId;
@@ -137,6 +137,31 @@ describeOrSkip('Google Calendar sync (PostgreSQL)', { timeout: PG_TEST_TIMEOUT_M
       await client.query('DELETE FROM provider_connections WHERE user_id = $1', [USER_ID]);
       await client.query('DELETE FROM calendars WHERE user_id = $1', [USER_ID]);
     });
+  });
+
+  it('rejects an events-only current token before calendar discovery is requested', async () => {
+    const connectionId = await seedConnection();
+    await inTransaction(client => storeOAuthGrant(client, {
+      connectionId, audience: GOOGLE_GRANT_AUDIENCE, accessToken: 'events-only', refreshToken: null,
+      expiresAt: new Date(Date.now() + 3600_000), scopes: ['https://www.googleapis.com/auth/calendar.events'],
+    }));
+    const provider = fakeProvider([]);
+    await expect(syncGoogleCalendar({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl: provider.fetchImpl }))
+      .rejects.toMatchObject({ code: 'INSUFFICIENT_SCOPES' });
+    expect(provider.urls).toEqual([]);
+  });
+
+  it('follows a CalendarList nextPageToken even when the preceding page is empty', async () => {
+    const connectionId = await seedConnection();
+    const provider = fakeProvider([
+      () => json({ items: [], nextPageToken: 'calendar-list-page-2' }),
+      () => json(CALENDAR_LIST),
+      () => json({ items: [master], nextSyncToken: 'sync-1' }),
+    ]);
+    const result = await syncGoogleCalendar({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl: provider.fetchImpl });
+    expect(result).toMatchObject({ collections: 1, errors: [] });
+    expect(new URL(provider.urls[0]!).searchParams.get('maxResults')).toBe('250');
+    expect(new URL(provider.urls[1]!).searchParams.get('pageToken')).toBe('calendar-list-page-2');
   });
 
   it('creates a hidden read-only calendar and stores the series and the single event', async () => {

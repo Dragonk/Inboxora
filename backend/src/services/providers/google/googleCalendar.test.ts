@@ -2,7 +2,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { buildVTimezone, formatOffset, isValidTimeZone, zoneOffsetMinutes } from '../../../utils/icalTimezone.js';
 import { parseCalendarEvent } from '../../../utils/ical.js';
 import { projectCalendarResource } from '../../../utils/calendarRecurrence.js';
-import { buildGoogleEventICalendar, buildGoogleSeriesICalendar, fetchCalendarEvents, fetchCalendarList } from './googleCalendar.js';
+import {
+  buildGoogleEventICalendar, buildGoogleSeriesICalendar, fetchCalendarEvents, fetchCalendarList,
+  GOOGLE_CALENDAR_EVENTS_MAX_RESULTS, GOOGLE_CALENDAR_LIST_MAX_RESULTS,
+} from './googleCalendar.js';
 import type { GoogleCalendarEvent } from './googleCalendar.js';
 
 vi.mock('../../providerTokenService.js', () => ({
@@ -250,6 +253,17 @@ describe('Google Calendar API calls', () => {
     expect(String(fetchMock.mock.calls[0][0])).toContain('/users/me/calendarList');
   });
 
+  it('uses the CalendarList maximum and preserves its pagination token exactly', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(json({ items: [], nextPageToken: 'next/opaque+token' }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await fetchCalendarList(API_OPTIONS, { pageToken: 'previous/opaque+token' });
+    const url = new URL(String(fetchMock.mock.calls[0][0]));
+    expect(url.searchParams.get('maxResults')).toBe(String(GOOGLE_CALENDAR_LIST_MAX_RESULTS));
+    expect(url.searchParams.get('pageToken')).toBe('previous/opaque+token');
+    expect(GOOGLE_CALENDAR_LIST_MAX_RESULTS).toBeLessThanOrEqual(250);
+  });
+
   it('asks for a baseline with a window and never expands instances', async () => {
     const fetchMock = vi.fn().mockResolvedValue(json({ items: [{ id: 'evt-1' }], nextSyncToken: 'sync-1' }));
     vi.stubGlobal('fetch', fetchMock);
@@ -261,6 +275,7 @@ describe('Google Calendar API calls', () => {
     expect(url).toContain('singleEvents=false');
     expect(url).toContain('showDeleted=true');
     expect(url).toContain('timeMin=');
+    expect(new URL(url).searchParams.get('maxResults')).toBe(String(GOOGLE_CALENDAR_EVENTS_MAX_RESULTS));
   });
 
   it('sends only the cursor on an incremental call, because Google rejects a window with it', async () => {

@@ -23,6 +23,7 @@ import {
   type CalendarResourceAdapters,
 } from '../providerCalendarProjection.js';
 import { ProviderAuthError } from '../../providerAuthService.js';
+import { readProviderFeatureAuthorization } from '../../providerFeatureAuthorization.js';
 import type { FetchLike, GoogleConfig } from '../../providerAuthService.js';
 
 /**
@@ -329,6 +330,18 @@ export async function syncGoogleCalendar(input: {
   /** The page cap for one calendar; injectable so the "limited run is not complete" path is provable. */
   maxPages?: number;
 }): Promise<GoogleCalendarSyncResult> {
+  // A complete run starts with CalendarList.list and then reads each collection.
+  // Checking only events would turn an events-only token into an avoidable 403.
+  const authorization = await readProviderFeatureAuthorization({
+    connectionId: input.connectionId, provider: 'google', feature: 'calendar',
+  });
+  if (!authorization.canDiscover || !authorization.canRead) {
+    const missing = [
+      ...(!authorization.canDiscover ? authorization.capabilities.discover.missingScopes : []),
+      ...(!authorization.canRead ? authorization.capabilities.read.missingScopes : []),
+    ];
+    throw new ProviderAuthError('INSUFFICIENT_SCOPES', `Google Calendar sync requires discovery and read scopes: ${[...new Set(missing)].join(', ')}`);
+  }
   const api: GoogleApiOptions = {
     userId: input.userId,
     connectionId: input.connectionId,
