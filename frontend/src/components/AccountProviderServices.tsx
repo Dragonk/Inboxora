@@ -1,5 +1,5 @@
 import type React from 'react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../utils/api.ts';
 import { toAppError } from '../utils/errors.ts';
 
@@ -60,6 +60,12 @@ export interface AccountProviderDiagnostics {
   contacts: AccountFeatureDiagnostic & { collections: number; push: string };
 }
 
+export interface AccountProviderStatusSnapshot extends AccountProviderFeatures {
+  generatedAt: string;
+  snapshotRevision: string;
+  diagnostics: AccountProviderDiagnostics;
+}
+
 interface Props {
   accountId: string;
   /** Called after a successful migration or authorization, so the card refetches. */
@@ -100,15 +106,23 @@ export default function AccountProviderServices({ accountId, reload, t }: Props)
   const [notice, setNotice] = useState<string | null>(null);
   const [diagnostics, setDiagnostics] = useState<AccountProviderDiagnostics | null>(null);
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
+  const statusGeneration = useRef(0);
 
   const load = useCallback(() => {
-    api.accountProviderFeatures(accountId)
-      .then((data: AccountProviderFeatures) => setFeatures(data))
-      .catch(() => { /* the card simply shows no services section when it cannot be read */ });
-    // Read with the features, so the section never shows a state the buttons above contradict.
-    api.accountProviderDiagnostics(accountId)
-      .then((data: AccountProviderDiagnostics) => setDiagnostics(data))
-      .catch(() => setDiagnostics(null));
+    const generation = ++statusGeneration.current;
+    api.accountProviderStatus(accountId)
+      .then((data: AccountProviderStatusSnapshot) => {
+        // An account switch or a newer refresh may finish first; never mix its state
+        // with this response's diagnostics.
+        if (generation !== statusGeneration.current || data.accountId !== accountId) return;
+        setFeatures(data); setDiagnostics(data.diagnostics); setError(null);
+      })
+      .catch(caught => {
+        if (generation !== statusGeneration.current) return;
+        // Keep the last coherent snapshot visible but mark it stale rather than
+        // dropping the card and making a temporary read failure look disconnected.
+        setError(toAppError(caught).message);
+      });
   }, [accountId]);
   useEffect(() => { load(); }, [load]);
 
@@ -130,10 +144,10 @@ export default function AccountProviderServices({ accountId, reload, t }: Props)
       } | null;
       if (!data) return;
       if (data.type === 'oauth_error') {
-        // A consent that failed must say so on the card that started it. Without this the tab closed, the
-        // notice stayed up and nothing else changed, which reads as "I clicked Connect and nothing happened" —
-        // the provider's own reason (a redirect URI that is not registered, a denied consent) is what the user
-        // needs to see.
+        // Errors are account-scoped too. A failed popup from another card must never
+        // replace this card's status; callbacks without a bound account stay in their
+        // own tab rather than being guessed onto an arbitrary account.
+        if (typeof data.accountId !== 'string' || data.accountId !== accountId) return;
         setNotice(null);
         setError(typeof data.error === 'string' && data.error ? data.error : t('admin.accounts.services.authorizationFailed'));
         return;

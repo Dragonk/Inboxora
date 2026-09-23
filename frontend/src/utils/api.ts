@@ -341,6 +341,8 @@ export const api = {
   // calendar, contacts and push state. Account-centric, so the card does not have to guess.
   accountProviderFeatures: (accountId: string) =>
     request('GET', `/accounts/${encodeURIComponent(accountId)}/provider-features`),
+  accountProviderStatus: (accountId: string) =>
+    request('GET', `/accounts/${encodeURIComponent(accountId)}/provider-status`),
   // The same capability view plus what the last runs did, for the account's own diagnostics section. The
   // server never includes a token, a secret or a raw provider payload.
   accountProviderDiagnostics: (accountId: string) =>

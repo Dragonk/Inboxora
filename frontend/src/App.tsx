@@ -101,7 +101,7 @@ export default function App() {
           accountId: params.get('accountId'),
         }, window.location.origin);
       } else {
-        window.opener.postMessage({ type: 'oauth_error', error: oauthError }, window.location.origin);
+        window.opener.postMessage({ type: 'oauth_error', error: oauthError, accountId: params.get('accountId'), purpose: params.get('purpose') }, window.location.origin);
       }
       window.close();
       return;

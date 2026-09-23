@@ -494,6 +494,19 @@ router.get('/:id/provider-features', async (req, res) => {
   res.json(features);
 });
 
+/** One coherent read for the account card: capabilities and diagnostics share this snapshot. */
+router.get('/:id/provider-status', async (req, res) => {
+  const userId = req.session.userId;
+  if (!userId) return res.status(401).json({ error: 'Not authenticated' });
+  const features = await describeAccountProviderFeatures({ userId, accountId: req.params.id });
+  if (!features) return res.status(404).json({ error: 'Account not found' });
+  const generatedAt = new Date().toISOString();
+  // Response-local monotonic identity: clients discard superseded fetches, without
+  // claiming independent provider transactions were frozen atomically.
+  const snapshotRevision = `${features.accountId}:${generatedAt}`;
+  res.json({ ...features, generatedAt, snapshotRevision, diagnostics: { accountId: features.accountId, provider: features.provider, transport: features.mail.transport, ...features.diagnostics } });
+});
+
 /** Persist the account owner's optional calendar/contact intent, without revoking its grant. */
 router.patch('/:id/provider-features/:feature', async (req, res) => {
   const userId = req.session.userId;
