@@ -1735,6 +1735,10 @@ async function respondWithGmailBody(
 
   try {
     const content = await fetchGmailMessageContent(api, message.provider_message_id);
+    if (content.complete === false) {
+      res.status(404).json({ error: 'This message no longer exists in the mailbox', code: 'RESOURCE_NOT_FOUND' });
+      return;
+    }
 
     let html: string | null = null;
     let text: string | null = null;
@@ -1747,19 +1751,19 @@ async function respondWithGmailBody(
     const visibleAttachments = localAttachmentsForGmail(content.attachments);
     const snip = sanitizeDbText(snippetFromBody(text ?? '', html));
 
-    // Only cache when there is something to cache, exactly as the IMAP path does:
-    // a transient empty answer must not wipe a previously successful body.
-    if (html || text || visibleAttachments.length > 0) {
-      await query(
-        `UPDATE messages
-            SET body_html = $1, body_text = $2, attachments = $3,
-                snippet = CASE WHEN $5 != '' THEN $5 ELSE snippet END,
-                gmail_reader_body_complete = true,
-                gmail_attachment_metadata_complete = true
-          WHERE id = $4`,
-        [html, text, JSON.stringify(visibleAttachments), message.id, snip]
-      );
-    }
+    // A successful `format=full` response is authoritative even when it has no
+    // text, HTML, or visible attachment. Persist that completeness so a legitimate
+    // attachment-only/empty message is not fetched forever; errors and a missing
+    // message returned above never reach this update.
+    await query(
+      `UPDATE messages
+          SET body_html = $1, body_text = $2, attachments = $3,
+              snippet = CASE WHEN $5 != '' THEN $5 ELSE snippet END,
+              gmail_reader_body_complete = true,
+              gmail_attachment_metadata_complete = true
+        WHERE id = $4`,
+      [html, text, JSON.stringify(visibleAttachments), message.id, snip]
+    );
 
     const skipBlocking = req.query.remoteImages === '1';
     let responseHtml = html;

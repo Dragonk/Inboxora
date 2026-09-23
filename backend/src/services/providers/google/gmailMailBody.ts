@@ -198,6 +198,8 @@ async function textPartData(api: GoogleApiOptions, messageId: string, part: Gmai
 }
 
 export interface GmailMessageContent {
+  /** False only when Gmail did not return a message; absent preserves mock compatibility. */
+  complete?: boolean;
   html: string | null;
   text: string | null;
   attachments: GmailAttachmentMeta[];
@@ -212,10 +214,11 @@ export interface GmailMessageContent {
  */
 export async function fetchGmailMessageContent(api: GoogleApiOptions, messageId: string): Promise<GmailMessageContent> {
   const message = await fetchGmailMessage(api, messageId, 'full');
-  if (!message) return { html: null, text: null, attachments: [] };
+  if (!message) return { complete: false, html: null, text: null, attachments: [] };
   const htmlPart = findPart(message.payload, 'text/html');
   const textPart = findPart(message.payload, 'text/plain');
   return {
+    complete: true,
     html: htmlPart ? await textPartData(api, messageId, htmlPart) : null,
     text: textPart ? await textPartData(api, messageId, textPart) : null,
     attachments: collectGmailAttachments(message),

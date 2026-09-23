@@ -139,7 +139,7 @@ describe('reading a Gmail message body and its attachments', () => {
   it('preserves a confirmed empty text body', async () => {
     const message: GmailMessage = { id: 'm-empty', payload: { partId: '0', mimeType: 'text/plain', body: { data: '' } } };
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(message)));
-    await expect(fetchGmailMessageContent(OPTIONS, 'm-empty')).resolves.toMatchObject({ text: '', html: null });
+    await expect(fetchGmailMessageContent(OPTIONS, 'm-empty')).resolves.toMatchObject({ complete: true, text: '', html: null, attachments: [] });
   });
 
   it('reads the HTML and text bodies from one full fetch', async () => {
