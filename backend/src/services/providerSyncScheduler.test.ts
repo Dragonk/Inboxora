@@ -107,9 +107,18 @@ describe('listProviderSyncTargets', () => {
   it('adds an enabled service as a desired target even when another service already has collections', async () => {
     mocks.query
       .mockResolvedValueOnce({ rows: [target({ features: ['mail_label'], discovery: false })] })
-      .mockResolvedValueOnce({ rows: [{ user_id: 'user-1', connection_id: 'connection-1', provider: 'google', feature: 'calendars' }] });
+      .mockResolvedValueOnce({ rows: [{ connection_id: 'connection-1', feature: 'calendars', enabled: true }] });
     await expect(listProviderSyncTargets()).resolves.toEqual([
       { userId: 'user-1', connectionId: 'connection-1', provider: 'google', features: ['mail_label'], desiredFeatures: ['calendar'], discovery: false },
+    ]);
+  });
+
+  it('does not schedule an existing optional collection after every owning account disabled it', async () => {
+    mocks.query
+      .mockResolvedValueOnce({ rows: [target({ features: ['calendar', 'mail_label'], discovery: false })] })
+      .mockResolvedValueOnce({ rows: [{ connection_id: 'connection-1', feature: 'calendars', enabled: false }] });
+    await expect(listProviderSyncTargets()).resolves.toEqual([
+      { userId: 'user-1', connectionId: 'connection-1', provider: 'google', features: ['mail_label'], discovery: false },
     ]);
   });
 

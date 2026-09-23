@@ -63,6 +63,31 @@ export async function setAccountProviderFeatureSetting(input: {
   });
 }
 
+/**
+ * Resolve current optional-service intent for a provider connection at the last
+ * possible boundary before a provider call. A standalone connection (one that is
+ * not owned by an email account) retains its explicit legacy flow; an account-owned
+ * connection with no setting is fail-closed after migration.
+ */
+export async function providerConnectionFeatureEnabled(input: {
+  userId: string;
+  connectionId: string;
+  feature: AccountProviderService;
+}): Promise<boolean> {
+  const result = await query<{ account_count: number | string; enabled_count: number | string }>(
+    `SELECT COUNT(a.id) AS account_count,
+            COUNT(a.id) FILTER (WHERE s.enabled = true) AS enabled_count
+       FROM email_accounts a
+       LEFT JOIN account_provider_feature_settings s
+         ON s.account_id = a.id AND s.feature = $3
+      WHERE a.user_id = $1 AND a.provider_connection_id = $2`,
+    [input.userId, input.connectionId, input.feature],
+  );
+  const row = result.rows[0];
+  if (!row || Number(row.account_count) === 0) return true;
+  return Number(row.enabled_count) > 0;
+}
+
 /** Feature settings mapped to existing collection kinds used by provider adapters. */
 export function collectionKindForAccountProviderService(feature: AccountProviderService): 'calendar' | 'address_book' {
   return feature === 'calendars' ? 'calendar' : 'address_book';

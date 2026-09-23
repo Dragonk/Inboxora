@@ -127,20 +127,22 @@ export async function listProviderSyncTargets(): Promise<ProviderSyncTarget[]> {
   // Desired optional services are account intent, not an accidental consequence of an
   // existing collection. A calendar/contact setting must therefore survive a failed
   // first discovery and be visible to the scheduler after a restart.
-  const desired = await query<{ user_id: string; connection_id: string; provider: string; feature: 'calendars' | 'contacts' }>(
-    `SELECT a.user_id, pc.id AS connection_id, pc.provider, s.feature
+  const desired = await query<{ connection_id: string; feature: 'calendars' | 'contacts'; enabled: boolean }>(
+    `SELECT pc.id AS connection_id, s.feature, s.enabled
        FROM account_provider_feature_settings s
        JOIN email_accounts a ON a.id = s.account_id
        JOIN provider_connections pc ON pc.id = a.provider_connection_id
-      WHERE s.enabled = true AND pc.status = 'active'
-        AND pc.user_id = a.user_id AND pc.provider IN ('google', 'microsoft')`,
+      WHERE pc.status = 'active' AND pc.user_id = a.user_id
+        AND pc.provider IN ('google', 'microsoft')`,
   );
-  const desiredByConnection = new Map<string, string[]>();
+  const featureStateByConnection = new Map<string, Map<string, boolean>>();
   for (const row of desired.rows) {
-    const kinds = desiredByConnection.get(row.connection_id) ?? [];
+    const state = featureStateByConnection.get(row.connection_id) ?? new Map<string, boolean>();
     const kind = collectionKindForAccountProviderService(row.feature);
-    if (!kinds.includes(kind)) kinds.push(kind);
-    desiredByConnection.set(row.connection_id, kinds);
+    // A connection can only run a shared optional feature if at least one of its
+    // owning accounts still opts in; no setting means a standalone legacy source.
+    state.set(kind, state.get(kind) === true || row.enabled === true);
+    featureStateByConnection.set(row.connection_id, state);
   }
 
   const targets: ProviderSyncTarget[] = [];
@@ -148,10 +150,16 @@ export async function listProviderSyncTargets(): Promise<ProviderSyncTarget[]> {
     const discovery = row.discovery === true;
     // A driver that hands back no array at all is the pre-existing defensive case: the row is kept with no
     // features rather than dropped.
-    const features = row.features === null || row.features === undefined
+    const rawFeatures = row.features === null || row.features === undefined
       ? null
       : (Array.isArray(row.features) ? row.features : []);
-    const desiredFeatures = desiredByConnection.get(row.connection_id) ?? [];
+    const featureState = featureStateByConnection.get(row.connection_id);
+    const features = rawFeatures === null ? null : rawFeatures.filter(kind =>
+      (kind !== 'calendar' && kind !== 'address_book') || featureState?.get(kind) !== false,
+    );
+    const desiredFeatures = [...(featureState?.entries() ?? [])]
+      .filter(([, enabled]) => enabled)
+      .map(([kind]) => kind);
     if (!discovery && features !== null && features.length === 0 && desiredFeatures.length === 0) continue;
     targets.push({
       userId: row.user_id,
