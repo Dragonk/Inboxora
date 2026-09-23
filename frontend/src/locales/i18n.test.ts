@@ -500,6 +500,9 @@ const SAME_VALUE_ALLOWED: Record<string, SameValueRule> = {
   'contacts.booksManager.importExport': 'any',
   'contacts.booksManager.nameLabel': 'any',
   'contacts.booksManager.providerLabel': 'any',
+  // These translations intentionally share an international/common spelling.
+  'contacts.booksManager.accountLabel': [['de', 'pl'], ['en', 'it']],
+  'calendar.calendarColor': [['en', 'es']],
   'contacts.booksManager.sourceLabel': 'any',
   'contacts.booksManager.sourceLocal': 'any',
   'contacts.booksManager.sync': 'any',
