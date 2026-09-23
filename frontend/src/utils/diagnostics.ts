@@ -136,6 +136,7 @@ export async function generateReport({ locale, theme, uiScale }: Parameters<type
     events,
     warnings: server?.warnings ?? [],
     syncSignals: server?.syncSignals ?? [],
+    replyEvents: server?.replyEvents ?? [],
     connection: server?.connection ?? {},
     performance: server?.performance ?? {},
     config: server?.config ?? {},

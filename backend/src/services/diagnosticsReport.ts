@@ -14,7 +14,7 @@ import { query } from './db.js';
 import { redisClient } from './redis.js';
 import { loadAiConfig } from './aiProvider.js';
 import { getActivatedPlugins } from '../plugins/activation.js';
-import { getWarningsRaw, getConnectionStats, getSyncSignalsRaw } from './diagnosticsRing.js';
+import { getWarningsRaw, getConnectionStats, getSyncSignalsRaw, getReplyDiagnosticsRaw } from './diagnosticsRing.js';
 import { getPerformanceSnapshot } from './performanceMetrics.js';
 
 const packageMeta = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf-8'));
@@ -220,6 +220,14 @@ export async function buildServerReport(userId: string, salt: string) {
       lastSeenAgeSeconds: Math.round((Date.now() - s.lastT) / 1000),
     }));
 
+  const replyEvents = getReplyDiagnosticsRaw()
+    .filter(event => !event.accountId || userAccountIds.has(event.accountId))
+    .map(({ accountId, t, ...event }) => ({
+      ...event,
+      ...(accountId ? { accountRef: hashRef(accountId, salt) } : {}),
+      ageSeconds: Math.round((Date.now() - t) / 1000),
+    }));
+
   return {
     versions: { backend: BACKEND_VERSION, gitSha: process.env.BUILD_SHA || 'dev' },
     server: { uptimeSeconds: Math.round(process.uptime()), dbOk, redisOk, migrations },
@@ -228,6 +236,7 @@ export async function buildServerReport(userId: string, salt: string) {
     counts: { unreadTotal, unreadByAccountRef },
     warnings,
     syncSignals,
+    replyEvents,
     connection: getConnectionStats(),
     performance: getPerformanceSnapshot(),
     config: { aiEnabled, aiProvider, plugins },

@@ -15,6 +15,10 @@ vi.mock('./diagnosticsRing.js', () => ({
     { sig: 'ghost_rows_served', accountId: 'acct-1', count: 4, lastT: Date.now() - 2000, sumMag: 7, maxMag: 3 },
     { sig: 'uidvalidity_change', accountId: 'other-user-acct', count: 2, lastT: Date.now(), sumMag: 0, maxMag: 0 },
   ]),
+  getReplyDiagnosticsRaw: vi.fn(() => [
+    { event: 'mail_reply_resolution', accountId: 'acct-1', transport: 'microsoft_graph', sendKind: 'reply', replyParentPresent: true, parentRfcMessageIdPresent: true, referencesCount: 2, providerParentResolved: true, providerResolution: 'direct', transportReplyMode: 'graph_create_reply', t: Date.now() - 500 },
+    { event: 'mail_reply_resolution', accountId: 'other-user-acct', transport: 'smtp', sendKind: 'reply', replyParentPresent: true, parentRfcMessageIdPresent: true, referencesCount: 1, providerParentResolved: false, providerResolution: 'not_applicable', transportReplyMode: 'rfc_headers', t: Date.now() },
+  ]),
 }));
 
 import { hashRef, folderLabel, categorizeSyncError, deriveProvider, scrubReport, buildServerReport } from './diagnosticsReport.js';
@@ -161,6 +165,14 @@ describe('buildServerReport', () => {
     expect(report.syncSignals[0].count).toBe(4);
     expect(report.syncSignals[0].totalMagnitude).toBe(7);
     expect(report.syncSignals.some(s => s.signal === 'uidvalidity_change')).toBe(false);
+    // Reply diagnostics are scoped and account-hashed, with no message/provider IDs.
+    expect(report.replyEvents).toHaveLength(1);
+    expect(report.replyEvents[0]).toMatchObject({
+      event: 'mail_reply_resolution', transport: 'microsoft_graph', sendKind: 'reply',
+      providerResolution: 'direct', transportReplyMode: 'graph_create_reply',
+    });
+    expect(report.replyEvents[0].accountRef).toMatch(/^[0-9a-f]{8}$/);
+    expect(JSON.stringify(report.replyEvents)).not.toContain('acct-1');
     // connection stats present
     expect(report.connection.broadcastCounts.new_messages).toBe(6);
     expect(report.connection.wsConnects).toBe(4);

@@ -28,6 +28,7 @@ import { toAppError } from '../utils/errors.js';
 import { resolveSenderIdentity } from '../services/senderIdentity.js';
 import { resolveIncomingBodyIsHtml, resolveOutgoingBodyIsHtml } from '../services/composeFormat.js';
 import { resolveGraphMessageIdentity } from '../services/providers/microsoft/graphLegacyMessageBindings.js';
+import { recordReplyDiagnostic } from '../services/diagnosticsRing.js';
 import type { InlineAttachment } from '../utils/inlineImages.js';
 
 /** One client-supplied attachment of an outgoing message (base64 payload). */
@@ -784,6 +785,7 @@ router.post('/send', async (req, res) => {
     // The answered message's provider id, when it is in **this** mailbox: that is what a provider-native reply
     // action needs (MAIL-03).
     let parentProviderMessageId: string | null = null;
+    let providerResolution: 'direct' | 'legacy_alias' | 'not_applicable' | 'unresolved' = transportKind === 'microsoft_graph' ? 'unresolved' : 'not_applicable';
     // Infer the old headers-only shape before choosing the transport. Microsoft
     // cannot safely turn that shape into POST /me/messages: its reply action
     // needs a resolvable physical parent. SMTP/Gmail retain this legacy path
@@ -857,6 +859,7 @@ router.post('/send', async (req, res) => {
           return res.status(422).json({ code: 'REPLY_PARENT_NOT_RESOLVABLE', error: 'The selected reply parent has no usable Microsoft identity' });
         }
         parentProviderMessageId = identity.providerMessageId;
+        providerResolution = row.provider_message_id ? 'direct' : 'legacy_alias';
       }
     } else if (strictReplyParent) {
       // Do not silently turn an explicit reply, or a Graph headers-only reply,
@@ -1045,6 +1048,17 @@ router.post('/send', async (req, res) => {
       && (effectiveSendKind === 'reply' || effectiveSendKind === 'reply_all' || effectiveSendKind === 'forward')
       ? { kind: effectiveSendKind, providerMessageId: parentProviderMessageId }
       : undefined;
+    if (effectiveSendKind === 'reply' || effectiveSendKind === 'reply_all') {
+      recordReplyDiagnostic({
+        event: 'mail_reply_resolution', accountId, transport: transportKind, sendKind: effectiveSendKind,
+        replyParentPresent: Boolean(parentRowId), parentRfcMessageIdPresent: Boolean(resolvedInReplyTo),
+        referencesCount: (resolvedReferences?.match(/<[^<>\r\n]+>/g) || []).length,
+        providerParentResolved: Boolean(parentProviderMessageId), providerResolution,
+        transportReplyMode: transportKind === 'microsoft_graph'
+          ? effectiveSendKind === 'reply_all' ? 'graph_create_reply_all' : 'graph_create_reply'
+          : 'rfc_headers',
+      });
+    }
     const outcome = await transport.send({ composed, ...(rendered ? { rendered } : {}), ...(replyContext ? { replyContext } : {}) });
     if (outcome.status === 'outcome_unknown') {
       // The provider may or may not have the message. Keep the durable uncertain intent and the Redis
