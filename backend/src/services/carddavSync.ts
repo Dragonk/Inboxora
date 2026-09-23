@@ -54,12 +54,23 @@ export async function saveCardavConfig(userId: string, patch: Record<string, unk
   );
 }
 
-type CardavSourceLease = { owner: string; generation: number };
+type CardavSourceLease = { owner: string; generation: string };
+
+/**
+ * PostgreSQL exposes BIGINT values as strings by default. Keep the generation in that exact decimal
+ * representation so a valid fence above Number.MAX_SAFE_INTEGER cannot be rounded before it is used
+ * in the owner-checked SQL predicates.
+ */
+export function parseCardavLeaseGeneration(value: unknown): string | null {
+  if (typeof value === 'string') return /^[1-9][0-9]*$/.test(value) ? value : null;
+  if (typeof value === 'bigint') return value > 0n ? value.toString() : null;
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? String(value) : null;
+}
 
 /** Claim a source-owned, cross-process lease before any remote snapshot is read. */
 async function claimCardavSourceLease(userId: string, sourceId: string): Promise<CardavSourceLease | null> {
   const owner = crypto.randomUUID();
-  const claimed = await query<{ generation: number }>(
+  const claimed = await query<{ generation: unknown }>(
     `INSERT INTO carddav_source_sync_leases (integration_id, owner, generation, lease_expires_at)
        SELECT id, $3, 1, NOW() + make_interval(secs => $4)
          FROM user_integrations
@@ -73,8 +84,8 @@ async function claimCardavSourceLease(userId: string, sourceId: string): Promise
      RETURNING generation`,
     [sourceId, userId, owner, SOURCE_LEASE_SECONDS],
   );
-  const generation = claimed.rows[0]?.generation;
-  return typeof generation === 'number' ? { owner, generation } : null;
+  const generation = parseCardavLeaseGeneration(claimed.rows[0]?.generation);
+  return generation === null ? null : { owner, generation };
 }
 
 async function saveCardavSyncStatus(userId: string, sourceId: string, lease: CardavSourceLease, patch: Record<string, unknown>): Promise<void> {
@@ -102,7 +113,7 @@ async function releaseCardavSourceLease(sourceId: string, lease: CardavSourceLea
 
 /** A stale/disconnected run may never commit a projection after it loses its lease. */
 async function assertCardavSourceLease(
-  execute: (sql: string, params: unknown[]) => Promise<{ rows: Array<{ ok: number }> }>,
+  execute: (sql: string, params: unknown[]) => Promise<{ rows: Array<{ ok: unknown }> }>,
   userId: string,
   sourceId: string,
   lease: CardavSourceLease,
@@ -112,7 +123,8 @@ async function assertCardavSourceLease(
        FROM carddav_source_sync_leases lease
        JOIN user_integrations source ON source.id = lease.integration_id
       WHERE lease.integration_id = $1 AND source.user_id = $2 AND source.provider = 'carddav'
-        AND lease.owner = $3 AND lease.generation = $4 AND lease.lease_expires_at > NOW()`,
+        AND lease.owner = $3 AND lease.generation = $4 AND lease.lease_expires_at > NOW()
+      FOR UPDATE OF lease`,
     [sourceId, userId, lease.owner, lease.generation],
   );
   if (!active.rows[0]) throw new Error('CardDAV sync lease was lost or the source was disconnected');
@@ -340,7 +352,7 @@ async function syncBook(userId: string, book: CardavBook, dupMode: string, creds
   await withTransaction(async client => {
     // Fencing is inside the transaction that mutates the projection; a source deleted
     // while HTTP was in flight cannot resurrect or overwrite its local book.
-    await assertCardavSourceLease((sql, params) => client.query<{ ok: number }>(sql, params), userId, integrationId, lease);
+    await assertCardavSourceLease((sql, params) => client.query<{ ok: unknown }>(sql, params), userId, integrationId, lease);
     await client.query(
       `DELETE FROM contacts WHERE address_book_id = $1 AND uid <> ALL($2::text[])`,
       [bookId, presentUids.length ? presentUids : ['']],
@@ -407,22 +419,26 @@ async function syncOneCardavSource(userId: string, source: CardavSourceConfig): 
     // link carries a source identity of its own; keeping a stale book is safer than deleting another source's book.
     // Prune only books owned by this exact integration. A complete discovery is required
     // before this point; auth, rate-limit, and partial discovery failures stay in the catch above.
-    await assertCardavSourceLease((sql, params) => query<{ ok: number }>(sql, params), userId, source.id, lease);
-    await query(
-      `DELETE FROM address_books ab
-       WHERE ab.user_id = $1 AND ab.source = 'carddav'
-         AND ab.source_connection_id = $2
-          AND ab.external_url <> ALL($3::text[])
-         AND EXISTS (
-           SELECT 1 FROM integration_collections ic
-           JOIN source_connections sc ON sc.id = ic.source_connection_id
-           WHERE ic.local_address_book_id = ab.id
-             AND sc.id = $2
-              AND sc.integration_id = $4
-             AND sc.user_id = $1
-         )`,
-      [userId, sourceConnectionId, seenUrls.length ? seenUrls : [''], source.id],
-    );
+    await withTransaction(async client => {
+      // Hold the lease row lock through pruning: a successor cannot take an expired lease or
+      // disconnect this source between the fence check and this destructive projection mutation.
+      await assertCardavSourceLease((sql, params) => client.query<{ ok: unknown }>(sql, params), userId, source.id, lease);
+      await client.query(
+        `DELETE FROM address_books ab
+         WHERE ab.user_id = $1 AND ab.source = 'carddav'
+           AND ab.source_connection_id = $2
+            AND ab.external_url <> ALL($3::text[])
+           AND EXISTS (
+             SELECT 1 FROM integration_collections ic
+             JOIN source_connections sc ON sc.id = ic.source_connection_id
+             WHERE ic.local_address_book_id = ab.id
+               AND sc.id = $2
+                AND sc.integration_id = $4
+               AND sc.user_id = $1
+           )`,
+        [userId, sourceConnectionId, seenUrls.length ? seenUrls : [''], source.id],
+      );
+    });
     await saveCardavSyncStatus(userId, source.id, lease, { lastSyncAt: new Date().toISOString(), lastError: null, bookCount: books.length, contactCount });
     return { ok: true, bookCount: books.length, contactCount };
   } catch (caught) {

@@ -26,7 +26,7 @@ vi.mock('./carddavClient.js', () => ({ discoverAddressBooks, fetchAddressBookCar
 vi.mock('./connectionPolicy.js', () => ({ getConnectionPolicy }));
 vi.mock('./encryption.js', () => ({ decrypt: (value: string) => value, encrypt: (value: string) => `enc:v1:${value}` }));
 
-import { scheduleCardavUser, startCardavScheduler, stopCardavUser, stopCardavUserSources, syncUser } from './carddavSync.js';
+import { parseCardavLeaseGeneration, scheduleCardavUser, startCardavScheduler, stopCardavUser, stopCardavUserSources, syncUser } from './carddavSync.js';
 
 const appleCard = 'BEGIN:VCARD\r\nVERSION:3.0\r\nUID:apple-1\r\nFN:Apple Contact\r\nPHOTO;TYPE=JPEG:YWJj\r\nX-ABDATE;TYPE=Wedding:2020-09-14\r\nX-ABDATE;TYPE=Wedding:20200914\r\nEND:VCARD\r\n';
 const androidCard = 'BEGIN:VCARD\r\nVERSION:3.0\r\nUID:android-1\r\nFN:Android Contact\r\nX-ANDROID-CUSTOM:vnd.android.cursor.item/contact_event;2019-10-19;0;Rencontre;\r\nEND:VCARD\r\n';
@@ -34,6 +34,15 @@ const appleMergeCard = appleCard.replace('FN:Apple Contact\r\n', 'FN:Apple Conta
 const androidMergeCard = androidCard.replace('FN:Android Contact\r\n', 'FN:Android Contact\r\nEMAIL:duplicate@example.com\r\nBDAY:1991-02-03\r\nANNIVERSARY:2021-10-19\r\n');
 const invalidBirthdayCard = 'BEGIN:VCARD\r\nVERSION:3.0\r\nUID:invalid-birthday\r\nFN:Invalid Birthday\r\nBDAY:2020-02-30\r\nEND:VCARD\r\n';
 const invalidAndroidDateCard = 'BEGIN:VCARD\r\nVERSION:3.0\r\nUID:invalid-android-date\r\nFN:Invalid Android Date\r\nX-ANDROID-CUSTOM:vnd.android.cursor.item/contact_event;2024-04-31;0;Meeting;\r\nEND:VCARD\r\n';
+
+describe('CardDAV lease generation parsing', () => {
+  it('preserves a PostgreSQL BIGINT string above JavaScript’s safe integer range', () => {
+    expect(parseCardavLeaseGeneration('9007199254740993')).toBe('9007199254740993');
+    expect(parseCardavLeaseGeneration(9007199254740992)).toBeNull();
+    expect(parseCardavLeaseGeneration('0')).toBeNull();
+    expect(parseCardavLeaseGeneration('1.5')).toBeNull();
+  });
+});
 
 function parseJsonParameter(value: QueryParameter): unknown {
   if (typeof value !== 'string') throw new Error('Expected a JSON query parameter');
@@ -321,7 +330,7 @@ describe('CardDAV source isolation and scheduling', () => {
 
     expect(discoverAddressBooks).toHaveBeenCalledOnce();
     expect(discoverAddressBooks).toHaveBeenCalledWith(expect.objectContaining({ serverUrl: 'https://a.example', username: 'a', password: 'secret-a' }));
-    const prune = query.mock.calls.find(([sql]) => String(sql).includes('DELETE FROM address_books ab'));
+    const prune = transactionQuery.mock.calls.find(([sql]) => String(sql).includes('DELETE FROM address_books ab'));
     expect(prune?.[1]).toEqual(['user-1', 'source-connection-a', ['https://a.example/books/a'], 'source-a']);
     expect(String(prune?.[0])).toContain('ab.source_connection_id = $2');
     expect(String(prune?.[0])).toContain('sc.integration_id = $4');
