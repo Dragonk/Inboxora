@@ -6,6 +6,7 @@ export interface GraphLegacyBindingRepairResult {
   needsReview: number;
   missingNative: number;
   failed: number;
+  scanned: number;
   /** Last legacy UUID durably examined; pass it to resume. */
   checkpoint: string | null;
 }
@@ -32,7 +33,7 @@ export async function repairExistingGraphLegacyMessageBindings(
     [input.accountId, input.userId, input.connectionId, input.checkpoint ?? null, limit],
   );
   const result: GraphLegacyBindingRepairResult = {
-    bound: 0, needsReview: 0, missingNative: 0, failed: 0, checkpoint: input.checkpoint ?? null,
+    bound: 0, needsReview: 0, missingNative: 0, failed: 0, scanned: 0, checkpoint: input.checkpoint ?? null,
   };
   for (const row of legacy.rows) {
     try {
@@ -62,11 +63,37 @@ export async function repairExistingGraphLegacyMessageBindings(
         else if (outcome === 'ambiguous') result.needsReview += 1;
         else result.missingNative += 1;
       }
+      result.scanned += 1;
       result.checkpoint = row.id;
     } catch {
       result.failed += 1;
       break;
     }
   }
+  return result;
+}
+
+/** Execute one durable repair slice after a normal account sync, without touching its delta cursor. */
+export async function runGraphLegacyMessageBindingRepair(
+  client: PoolClient,
+  input: { userId: string; accountId: string; connectionId: string; limit?: number },
+): Promise<GraphLegacyBindingRepairResult> {
+  const state = await client.query<{ checkpoint: string | null }>(
+    `INSERT INTO graph_legacy_message_binding_repair_state (user_id, account_id, connection_id)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (account_id, connection_id) DO UPDATE SET updated_at = NOW()
+     RETURNING checkpoint`,
+    [input.userId, input.accountId, input.connectionId],
+  );
+  const result = await repairExistingGraphLegacyMessageBindings(client, { ...input, checkpoint: state.rows[0]?.checkpoint ?? null });
+  const status = result.failed > 0 ? 'failed' : result.scanned === 0 ? 'complete' : 'pending';
+  await client.query(
+    `UPDATE graph_legacy_message_binding_repair_state
+        SET checkpoint = $3, status = $4, bound_count = bound_count + $5,
+            needs_review_count = needs_review_count + $6, missing_native_count = missing_native_count + $7,
+            failed_count = failed_count + $8, last_run_at = NOW(), updated_at = NOW()
+      WHERE account_id = $1 AND connection_id = $2 AND user_id = $9`,
+    [input.accountId, input.connectionId, result.checkpoint, status, result.bound, result.needsReview, result.missingNative, result.failed, input.userId],
+  );
   return result;
 }

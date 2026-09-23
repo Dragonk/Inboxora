@@ -11,7 +11,7 @@ describe('repairExistingGraphLegacyMessageBindings', () => {
     const result = await repairExistingGraphLegacyMessageBindings({ query } as never, {
       userId: 'user-1', accountId: 'account-1', connectionId: 'connection-1', limit: 1,
     });
-    expect(result).toEqual({ bound: 1, needsReview: 0, missingNative: 0, failed: 0, checkpoint: '00000000-0000-0000-0000-000000000010' });
+    expect(result).toEqual({ bound: 1, needsReview: 0, missingNative: 0, failed: 0, scanned: 1, checkpoint: '00000000-0000-0000-0000-000000000010' });
     expect(String(query.mock.calls[0]?.[0])).toContain('a.provider_connection_id = $3');
     expect(String(query.mock.calls[0]?.[0])).toContain('LIMIT $5');
   });

@@ -809,4 +809,27 @@ describeOrSkip('Graph conversations on PostgreSQL', () => {
     ));
     expect(conversations.rows.map(row => Number(row.copy_count))).toEqual([2, 1]);
   });
+
+  it('runs durable legacy binding recovery after empty deltas in bounded resumable slices', async () => {
+    const connectionId = await seedConnection();
+    await discoverFolders(connectionId);
+    await autocommit(async client => {
+      for (const [legacyId, nativeId, providerId, uid] of [
+        ['00000000-0000-0000-0000-0000000004c1', '00000000-0000-0000-0000-0000000004d1', 'legacy-native-1', 7001],
+        ['00000000-0000-0000-0000-0000000004c2', '00000000-0000-0000-0000-0000000004d2', 'legacy-native-2', 7002],
+      ] as const) {
+        await client.query(`INSERT INTO messages (id, account_id, uid, folder, message_id, from_email, date, subject, is_read) VALUES ($1,$2,$3,'INBOX',$4,'legacy@example.test',$5::timestamptz,'legacy',false)`, [legacyId, ACCOUNT_ID, uid, `<${providerId}@test>`, '2026-09-23T12:00:00Z']);
+        await client.query(`INSERT INTO messages (id, account_id, uid, folder, provider_message_id, message_id, from_email, date, subject, is_read) VALUES ($1,$2,$3,'INBOX',$4,$5,'legacy@example.test',$6::timestamptz,'native',false)`, [nativeId, ACCOUNT_ID, uid + 100, providerId, `<${providerId}@test>`, '2026-09-23T12:00:00Z']);
+      }
+    });
+    const empty = fakeMailProvider({ inbox: [{ value: [], '@odata.deltaLink': DELTA_INBOX }] });
+    await syncGraphMailMessagesForAccount({ userId: USER_ID, connectionId, accountId: ACCOUNT_ID, config: CONFIG, fetchImpl: empty.fetchImpl, legacyBindingRepairLimit: 1 });
+    let state = await autocommit(client => client.query<{ checkpoint: string; bound_count: number; status: string }>('SELECT checkpoint, bound_count, status FROM graph_legacy_message_binding_repair_state WHERE account_id = $1 AND connection_id = $2', [ACCOUNT_ID, connectionId]));
+    expect(state.rows[0]).toMatchObject({ checkpoint: '00000000-0000-0000-0000-0000000004c1', bound_count: 1, status: 'pending' });
+    await syncGraphMailMessagesForAccount({ userId: USER_ID, connectionId, accountId: ACCOUNT_ID, config: CONFIG, fetchImpl: empty.fetchImpl, legacyBindingRepairLimit: 1 });
+    state = await autocommit(client => client.query<{ checkpoint: string; bound_count: number; status: string }>('SELECT checkpoint, bound_count, status FROM graph_legacy_message_binding_repair_state WHERE account_id = $1 AND connection_id = $2', [ACCOUNT_ID, connectionId]));
+    expect(state.rows[0]).toMatchObject({ checkpoint: '00000000-0000-0000-0000-0000000004c2', bound_count: 2, status: 'pending' });
+    const bindings = await autocommit(client => client.query('SELECT legacy_message_id FROM graph_legacy_message_bindings WHERE account_id = $1 ORDER BY legacy_message_id', [ACCOUNT_ID]));
+    expect(bindings.rows).toHaveLength(2);
+  });
 });

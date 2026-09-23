@@ -2,6 +2,7 @@ import type { PoolClient } from 'pg';
 import { query, withSavepoint, withTransaction } from '../../db.js';
 import { toAppError } from '../../../utils/errors.js';
 import { bindVerifiedLegacyGraphMessage } from './graphLegacyMessageBindings.js';
+import { runGraphLegacyMessageBindingRepair } from './graphLegacyMessageBindingRepair.js';
 import { ProviderAuthError } from '../../providerAuthService.js';
 import {
   acquireSyncLease,
@@ -567,6 +568,8 @@ export async function syncGraphMailMessagesForAccount(input: {
   owner?: string;
   /** The page cap for one folder's delta; injectable so the "limited run is not complete" path is provable. */
   maxPages?: number;
+  /** Bounded local legacy-alias recovery slice; test/operational injection only. */
+  legacyBindingRepairLimit?: number;
 }): Promise<GraphMailMessageSyncResult> {
   // Settle any flag mutation the journal scheduled before reading the delta: a
   // pending write would otherwise be overwritten by the very sync that is about to
@@ -630,6 +633,20 @@ export async function syncGraphMailMessagesForAccount(input: {
         )).catch(() => { /* the run's other folders are what matter here */ });
       }
     }
+  }
+  // Existing IMAP-era rows are not re-emitted by a current Graph delta. Repair one bounded local slice after the
+  // regular account pass; it has separate durable state and cannot alter any folder cursor or provider data.
+  try {
+    const repair = await withTransaction(client => runGraphLegacyMessageBindingRepair(client, {
+      userId: input.userId, accountId: input.accountId, connectionId: input.connectionId,
+      ...(input.legacyBindingRepairLimit !== undefined ? { limit: input.legacyBindingRepairLimit } : {}),
+    }));
+    if (repair.needsReview || repair.failed) {
+      console.warn(`Graph mail legacy binding repair for ${input.accountId}: bound=${repair.bound}, needs_review=${repair.needsReview}, failed=${repair.failed}`);
+    }
+  } catch (error) {
+    // The normal delta was already committed. Do not turn a local optional repair failure into a cursor retry.
+    console.warn(`Graph mail legacy binding repair failed for ${input.accountId}:`, error instanceof Error ? error.message : error);
   }
   return totals;
 }
