@@ -23,6 +23,9 @@ test('service intent toggles persist per account and roll back on refusal', asyn
   assert.match(source, /data-testid={`account-feature-\$\{service\}`}/);
   assert.match(source, /setFeatures\(before\); setError\(/);
   assert.match(source, /feature\?\.enabled === false/);
+  assert.match(source, /role="switch"/);
+  assert.match(source, /aria-checked=\{checked\}/);
+  assert.match(source, /feature\?\.enabled === false \? 'var\(--text-tertiary\)'/);
 });
 
 test('Google Contacts API-disabled guidance links configuration and retries this account service', async () => {

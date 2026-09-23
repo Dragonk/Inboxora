@@ -396,6 +396,7 @@ None.
   IMAP loops, health checks, rule forwarder and send path no longer open IMAP or SMTP for it.
 
 ### Fixed
+- **Provider service controls now match Settings switches.** Calendar and Contacts use accessible on/off switches on the account card, and a deliberately disabled service is visually neutral instead of green.
 - **Disabled providers stop scheduled, push-hint and manual syncs.** Existing authorized connections now require both the provider and API switches before their contacts or calendars adapters can call an upstream API.
 - **Calendar settings separate preferences from calendar connections.** The connection section now creates local Inboxora calendars without an account or URL alongside external feeds, CalDAV and holiday subscriptions; appearance preferences stay separate. Removing an external source now requires confirmation and explicitly preserves the upstream provider calendar.
 - **Provider calendar collections no longer expose unsafe local lifecycle actions.** Rename, color and delete are now local-calendar-only; provider-backed calendars retain visibility and write-back controls until provider-native, journalled collection operations are available.

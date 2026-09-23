@@ -278,13 +278,13 @@ export default function AccountProviderServices({ accountId, reload, t, deferSer
     return t('admin.integrations.push.stateAvailable');
   };
 
-  const serviceRow = (label: string, connected: boolean, extra?: string, feature?: { authorized: boolean; synchronized?: boolean; syncPending?: boolean; syncErrorCode?: string | null } | null) => (
+  const serviceRow = (label: string, connected: boolean, extra?: string, feature?: { enabled?: boolean; authorized: boolean; synchronized?: boolean; syncPending?: boolean; syncErrorCode?: string | null } | null) => (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
       <span style={{ minWidth: 92, color: 'var(--text-secondary)' }}>{label}</span>
       <span
         data-testid={`account-service-status-${label.toLowerCase()}`}
         data-synchronized={connected && feature?.synchronized === true ? 'true' : 'false'}
-        style={{ color: connected ? (feature?.syncErrorCode ? 'var(--red, #f87171)' : 'var(--green)') : 'var(--text-tertiary)' }}
+        style={{ color: feature?.enabled === false ? 'var(--text-tertiary)' : (connected ? (feature?.syncErrorCode ? 'var(--red, #f87171)' : 'var(--green)') : 'var(--text-tertiary)') }}
       >
         {serviceStatus(feature ?? { authorized: connected })}
       </span>
@@ -352,10 +352,23 @@ export default function AccountProviderServices({ accountId, reload, t, deferSer
           const feature = service === 'calendars' ? features.calendar : features.contacts;
           if (!feature) return null;
           const label = service === 'calendars' ? t('admin.accounts.services.calendar') : t('admin.accounts.services.contacts');
-          return <label key={service} style={{ display: 'inline-flex', gap: 5, alignItems: 'center' }}>
-            <input type="checkbox" data-testid={`account-feature-${service}`} checked={feature.enabled === true} disabled={featureSaving !== null} onChange={event => { void setServiceEnabled(service, event.target.checked); }} />
-            {label}
-          </label>;
+          const checked = feature.enabled === true;
+          const disabled = featureSaving !== null;
+          return <div key={service} className="settings-switch-row" style={{ minWidth: 190, padding: '6px 0' }}>
+            <span className="settings-switch-label">{label}</span>
+            <button
+              type="button"
+              role="switch"
+              data-testid={`account-feature-${service}`}
+              aria-checked={checked}
+              aria-label={label}
+              disabled={disabled}
+              onClick={() => { void setServiceEnabled(service, !checked); }}
+              style={{ width: 44, height: 24, borderRadius: 12, background: checked ? 'var(--accent)' : 'var(--bg-elevated)', border: `1px solid ${checked ? 'var(--accent)' : 'var(--border)'}`, cursor: disabled ? 'not-allowed' : 'pointer', position: 'relative', opacity: disabled ? 0.6 : 1 }}
+            >
+              <span style={{ position: 'absolute', top: 3, left: checked ? 22 : 3, width: 16, height: 16, borderRadius: '50%', background: 'white', transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.3)' }} />
+            </button>
+          </div>;
         })}
       </div>
 
