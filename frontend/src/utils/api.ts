@@ -74,8 +74,11 @@ async function request(method: string, path: string, body: unknown = undefined, 
     error.status = res.status;
     // The domain code, so a caller can answer in the user's own language rather than matching the server's prose.
     if (typeof payload.code === 'string') (error as Error & { code?: string }).code = payload.code;
-    if (typeof payload.source === 'string') error.source = payload.source;
-    if (typeof payload.sync === 'string') error.sync = payload.sync;
+    // Source context is a stable, server-whitelisted diagnostic value. It can be
+    // a short scope string or a persisted calendar-source descriptor; retain it
+    // without coercing structured context to an unusable message.
+    if (payload.source !== undefined) (error as unknown as Record<string, unknown>).source = payload.source;
+    if (payload.sync !== undefined) (error as unknown as Record<string, unknown>).sync = payload.sync;
     if (payload.details) (error as Error & { details?: unknown }).details = payload.details;
     throw error;
   }
