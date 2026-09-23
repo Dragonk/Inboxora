@@ -396,7 +396,7 @@ None.
   IMAP loops, health checks, rule forwarder and send path no longer open IMAP or SMTP for it.
 
 ### Fixed
-- **Reply parent resolution is authoritative.** `POST /send` resolves the selected physical parent for every reply, rebuilds RFC threading metadata from it, and rejects missing/cross-account/identity-less Graph parents instead of silently sending a new message. Verified legacy Graph bindings are used for `createReply`.
+- **Reply parent resolution is authoritative.** `POST /send` resolves the selected physical parent for every reply, rebuilds RFC threading metadata from it, and rejects missing/cross-account/identity-less Graph parents instead of silently sending a new message. Verified legacy Graph bindings are used for `createReply`; saved reply drafts also retain their reply/reply-all intent and durable RFC parent fallback after a MOVE.
 - **Conversation-native reader copies retain reply headers.** Native thread fallback now preserves `In-Reply-To` and the full `References` chain through its reader adapter.
 - **Diagnostics now identify the running UI/API pair and migration ledger.** The sanitized report records backend/frontend build SHA, loaded hashed UI entry path, route and applied migration names without tokens, message content or account identifiers.
 - **CalDAV connection is configured in Settings → Calendar.** Credential entry no longer appears in the source manager; that manager adds ICS/webcal sources and manages already-connected sources and their collections.

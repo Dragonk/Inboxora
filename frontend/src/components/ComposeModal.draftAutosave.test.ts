@@ -46,6 +46,11 @@ test('reply drafts carry their physical parent through save and reopen (THR-07)'
   assert.match(draftSave, /draftSnapshot\.replyToMessageId \? \{ replyToMessageId: draftSnapshot\.replyToMessageId \}/);
 });
 
+test('reply-all drafts preserve their Graph reply action (THR-07)', () => {
+  assert.match(draftSave, /replyKind: composeData\?\.isReplyAll \? 'reply_all' : composeData\?\.isReply \? 'reply' : null/);
+  assert.match(draftSave, /draftSnapshot\.replyKind \? \{ replyKind: draftSnapshot\.replyKind \}/);
+});
+
 test('draft replacement keeps the prior account, UID and folder as one request snapshot (V7-02)', () => {
   // `uidValidity` is carried when the draft has one and omitted for a provider-native draft, whose
   // identity is the provider id held server-side — requiring it here would strand every provider draft.

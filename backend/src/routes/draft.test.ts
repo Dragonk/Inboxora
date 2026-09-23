@@ -100,12 +100,12 @@ describe('POST /api/mail/draft — local row persistence', () => {
   it('persists reply headers and separately editable draft composition (V10-04/V10-05)', async () => {
     const res = await fetch(`${base}/api/mail/draft`, {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ accountId: ACCOUNT_ID, subject: 'Re: x', body: 'author text', bodyIsHtml: false, editedSignature: '', quotedBody: 'old quote', inReplyTo: '<parent@example.test>', references: '<root@example.test> <parent@example.test>', replyToMessageId: '11111111-1111-4111-8111-111111111111' }),
+      body: JSON.stringify({ accountId: ACCOUNT_ID, subject: 'Re: x', body: 'author text', bodyIsHtml: false, editedSignature: '', quotedBody: 'old quote', inReplyTo: '<parent@example.test>', references: '<root@example.test> <parent@example.test>', replyToMessageId: '11111111-1111-4111-8111-111111111111', replyKind: 'reply_all' }),
     });
     expect(res.status).toBe(200);
     expect(imapManager.upsertDraftMessageRecord).toHaveBeenCalledWith(expect.anything(), 'Drafts', 5, expect.objectContaining({
       inReplyTo: '<parent@example.test>', references: '<root@example.test> <parent@example.test>',
-      draftComposition: { version: 3, authoredBody: 'author text', bodyIsHtml: false, signatureHtml: null, signatureText: null, quotedBody: 'old quote', quotedBodyHtml: null, replyToMessageId: '11111111-1111-4111-8111-111111111111', replyParentMessageId: null, replyParentAccountId: null },
+      draftComposition: { version: 3, authoredBody: 'author text', bodyIsHtml: false, signatureHtml: null, signatureText: null, quotedBody: 'old quote', quotedBodyHtml: null, replyToMessageId: '11111111-1111-4111-8111-111111111111', replyParentMessageId: null, replyParentAccountId: null, replyKind: 'reply_all' },
     }));
   });
 
