@@ -137,8 +137,9 @@ export default function MailApp() {
       selectedCopyId,
       account_id: copy.accountId,
       message_id: copy.messageId || copy.canonicalMessageId,
-      // The stored row the reply answers, so the server can supply the edge when the client's payload lacks it.
-      replyToMessageId: copy.id,
+      // One physical source of truth: selectedCopyId is the actual messages.id
+      // behind this Conversation Reader card, never the logical-message wrapper.
+      replyToMessageId: selectedCopyId,
       subject: copy.subject,
       from_email: copy.fromEmail,
       from_name: copy.fromName,
