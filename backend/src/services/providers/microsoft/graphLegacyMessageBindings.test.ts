@@ -4,7 +4,7 @@ import { bindVerifiedLegacyGraphMessage, resolveGraphMessageIdentity } from './g
 describe('Graph legacy message bindings', () => {
   it('uses a verified alias only for its exact account and connection', async () => {
     const query = vi.fn()
-      .mockResolvedValueOnce({ rows: [{ canonical_message_id: 'native-1', provider_message_id: 'graph-1' }] });
+      .mockResolvedValueOnce({ rows: [{ canonical_message_id: 'native-1', provider_message_id: 'graph-1', status: 'bound' }] });
     await expect(resolveGraphMessageIdentity({ query }, {
       messageId: 'legacy-1', accountId: 'account-1', connectionId: 'connection-1', directProviderMessageId: null,
     })).resolves.toEqual({ kind: 'resolved', canonicalMessageId: 'native-1', providerMessageId: 'graph-1' });
@@ -23,7 +23,7 @@ describe('Graph legacy message bindings', () => {
   it('binds only one candidate corroborated by RFC id, sender and date', async () => {
     const query = vi.fn()
       .mockResolvedValueOnce({ rows: [{ id: 'legacy-1' }] })
-      .mockResolvedValueOnce({ rows: [] });
+      .mockResolvedValueOnce({ rows: [{ legacy_message_id: 'legacy-1' }] });
     await expect(bindVerifiedLegacyGraphMessage({ query }, {
       accountId: 'account-1', connectionId: 'connection-1', canonicalMessageId: 'native-1', providerMessageId: 'graph-1',
       rfcMessageId: '<x@example.test>', fromEmail: 'sender@example.test', date: '2026-09-23T09:00:00Z',
