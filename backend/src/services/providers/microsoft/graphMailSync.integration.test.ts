@@ -814,6 +814,16 @@ describeOrSkip('Graph conversations on PostgreSQL', () => {
     const connectionId = await seedConnection();
     await discoverFolders(connectionId);
     await autocommit(async client => {
+      // DA-10 starts from a current cursor: an empty incremental delta cannot reconcile existing native rows away.
+      const collections = await client.query<{ id: string }>(
+        "SELECT id FROM integration_collections WHERE account_id = $1 AND feature = 'mail' AND enabled = true", [ACCOUNT_ID],
+      );
+      for (const collection of collections.rows) {
+        const syncStateId = await ensureSyncState(client, {
+          userId: USER_ID, connectionId, accountId: ACCOUNT_ID, feature: 'mail', collectionId: collection.id, coverage: 'messages',
+        });
+        await client.query('UPDATE sync_states SET cursor = $2 WHERE id = $1', [syncStateId, `${DELTA_INBOX}-${collection.id}`]);
+      }
       for (const [legacyId, nativeId, providerId, uid] of [
         ['00000000-0000-0000-0000-0000000004c1', '00000000-0000-0000-0000-0000000004d1', 'legacy-native-1', 7001],
         ['00000000-0000-0000-0000-0000000004c2', '00000000-0000-0000-0000-0000000004d2', 'legacy-native-2', 7002],
