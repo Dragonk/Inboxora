@@ -173,13 +173,17 @@ describeOrSkip('LIVE-01 legacy Graph identity route (PostgreSQL)', { timeout: 30
       receivedDateTime: '2026-09-23T10:00:00Z', isRead: false,
     }]));
 
-    const bindings = await autocommit(client => client.query(
-      'SELECT legacy_message_id FROM graph_legacy_message_bindings WHERE account_id = $1', [ACCOUNT_ID],
+    const bindings = await autocommit(client => client.query<{ legacy_message_id: string; status: string }>(
+      'SELECT legacy_message_id, status FROM graph_legacy_message_bindings WHERE account_id = $1 ORDER BY legacy_message_id', [ACCOUNT_ID],
     ));
-    expect(bindings.rows).toHaveLength(0);
+    // Ambiguity is durable review work, never an arbitrary canonical binding.
+    expect(bindings.rows).toEqual([
+      { legacy_message_id: LEGACY_ID, status: 'needs_review' },
+      { legacy_message_id: '00000000-0000-0000-0000-00000000b102', status: 'needs_review' },
+    ]);
     const response = await nativeFetch(`${base}/api/mail/messages/${LEGACY_ID}/body`);
     expect(response.status).toBe(409);
-    await expect(response.json()).resolves.toMatchObject({ code: 'MESSAGE_PROVIDER_IDENTITY_MISSING' });
+    await expect(response.json()).resolves.toMatchObject({ code: 'MESSAGE_BINDING_AMBIGUOUS' });
   });
 
   it('repairs an existing legacy/native cache pair without a new delta item, then serves its old UUID', async () => {

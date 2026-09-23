@@ -51,7 +51,7 @@ export async function markGraphBindingNeedsReview(client: QueryExecutor, input: 
   await client.query(
     `INSERT INTO graph_legacy_message_bindings
        (legacy_message_id, canonical_message_id, account_id, connection_id, status, evidence)
-     VALUES ($1, $2, $3, $4, 'needs_review', jsonb_build_object('kind', $5))
+     VALUES ($1, $2, $3, $4, 'needs_review', jsonb_build_object('kind', $5::text))
      ON CONFLICT (legacy_message_id) DO UPDATE SET evidence = EXCLUDED.evidence, updated_at = NOW()
        WHERE graph_legacy_message_bindings.status = 'needs_review'
          AND graph_legacy_message_bindings.canonical_message_id = EXCLUDED.canonical_message_id
