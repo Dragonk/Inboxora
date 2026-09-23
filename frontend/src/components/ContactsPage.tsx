@@ -160,6 +160,10 @@ interface AddressBookRow {
    * write-back switch is addressed and labelled the same way in both places.
    */
   collection_id?: string | null;
+  connection_id?: string | null;
+  provider?: 'google' | 'microsoft' | null;
+  account_id?: string | null;
+  account_email?: string | null;
   read_only?: boolean;
   source?: string | null;
   visible?: boolean;

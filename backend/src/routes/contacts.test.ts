@@ -95,7 +95,7 @@ describe('the address-book list exposes the write-back switch', () => {
     query.mockResolvedValueOnce({ rows: [{ id: 'user-1' }] });
     query.mockResolvedValueOnce({
       rows: [
-        { id: 'book-pulled', name: 'Contacts', source: 'carddav', visible: true, dav_mode: 'off', contact_count: 3, collection_id: 'collection-1', source_access: 'read_write', user_access: 'source' },
+        { id: 'book-pulled', name: 'Contacts', source: 'google', visible: true, dav_mode: 'off', contact_count: 3, collection_id: 'collection-1', connection_id: 'connection-1', provider: 'google', account_id: 'account-1', account_email: 'one@example.test', source_access: 'read_write', user_access: 'source' },
         { id: 'book-local', name: 'Personal', source: 'local', visible: true, dav_mode: 'off', contact_count: 1, collection_id: null, source_access: null, user_access: null },
       ],
     });
@@ -103,8 +103,8 @@ describe('the address-book list exposes the write-back switch', () => {
     try {
       const response = await fetch(`http://127.0.0.1:${listeningPort(server)}/api/contacts/address-books`);
       expect(response.status).toBe(200);
-      const body = await response.json() as { addressBooks: Array<{ id: string; collection_id: string | null; read_only: boolean }> };
-      expect(body.addressBooks.find(book => book.id === 'book-pulled')).toMatchObject({ collection_id: 'collection-1', read_only: true });
+      const body = await response.json() as { addressBooks: Array<{ id: string; collection_id: string | null; account_id?: string | null; account_email?: string | null; provider?: string | null; read_only: boolean }> };
+      expect(body.addressBooks.find(book => book.id === 'book-pulled')).toMatchObject({ collection_id: 'collection-1', provider: 'google', account_id: 'account-1', account_email: 'one@example.test', read_only: true });
       // A local book has no collection and is writable, so it offers no write-back switch at all.
       expect(body.addressBooks.find(book => book.id === 'book-local')).toMatchObject({ collection_id: null, read_only: false });
     } finally {
