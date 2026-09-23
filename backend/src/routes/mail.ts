@@ -85,6 +85,7 @@ interface ReadMessageRow {
   mail_transport?: string | null;
   gmail_reader_body_complete?: boolean;
   gmail_attachment_metadata_complete?: boolean;
+  graph_attachment_metadata_complete?: boolean;
   snippet?: string | null;
   reply_to?: string | null;
   user_id?: string | null;
@@ -492,7 +493,9 @@ router.get('/messages/:id/body', async (req, res) => {
   // after a full MIME projection also confirmed attachment metadata.
   const gmailReaderComplete = message.mail_transport !== 'gmail_api'
     || (message.gmail_reader_body_complete === true && message.gmail_attachment_metadata_complete === true);
-  if ((message.body_html || message.body_text) && !hasCidRefs && !hasHttpImgs && gmailReaderComplete) {
+  const graphReaderComplete = message.mail_transport !== 'microsoft_graph'
+    || message.graph_attachment_metadata_complete === true;
+  if ((message.body_html || message.body_text) && !hasCidRefs && !hasHttpImgs && gmailReaderComplete && graphReaderComplete) {
     const attachments = message.attachments
       ? (typeof message.attachments === 'string' ? JSON.parse(message.attachments) : message.attachments)
       : [];
@@ -1336,7 +1339,7 @@ async function deleteMessageOverGraph(input: {
   if (input.destinationPath === null) {
     const deleted = await deleteGraphMessagePermanently({
       userId: input.userId, accountId: message.account_id, connectionId,
-      config: microsoftConfigFromEnv(), resourceId: message.id, providerMessageId: identity.providerMessageId,
+      config: microsoftConfigFromEnv(), resourceId: identity.canonicalMessageId, providerMessageId: identity.providerMessageId,
     });
     if (deleted.deleted) return { ok: true, moved: false };
     const refused = deleted.code === 'RESOURCE_NOT_FOUND' || deleted.code === 'PROVIDER_AUTH_REQUIRED' || deleted.code === 'INSUFFICIENT_SCOPES' || deleted.code === 'OPERATION_FORBIDDEN';
@@ -1364,7 +1367,7 @@ async function deleteMessageOverGraph(input: {
     accountId: message.account_id,
     connectionId,
     config: microsoftConfigFromEnv(),
-    resourceId: message.id,
+    resourceId: identity.canonicalMessageId,
     providerMessageId: identity.providerMessageId,
     destinationPath: input.destinationPath,
   });
@@ -1641,14 +1644,15 @@ async function respondWithGraphBody(
 
     // Only cache when there is something to cache. A null attachment value preserves prior metadata if its
     // independent provider read failed; it is not evidence that the message has no files.
-    if (html || text || visibleAttachments?.length) {
+    if (body || html || text || visibleAttachments?.length) {
       await query(
         `UPDATE messages
             SET body_html = $1, body_text = $2,
                 attachments = CASE WHEN $3::jsonb IS NULL THEN attachments ELSE $3::jsonb END,
+                graph_attachment_metadata_complete = CASE WHEN $6::boolean THEN true ELSE graph_attachment_metadata_complete END,
                 snippet = CASE WHEN $5 != '' THEN $5 ELSE snippet END
           WHERE id = $4`,
-        [html, text, visibleAttachments ? JSON.stringify(visibleAttachments) : null, message.id, snip]
+        [html, text, visibleAttachments ? JSON.stringify(visibleAttachments) : null, message.id, snip, attachmentProblem === null]
       );
     }
 

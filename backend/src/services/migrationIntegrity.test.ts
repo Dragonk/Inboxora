@@ -391,6 +391,11 @@ describe('migration integrity', () => {
     expect(sql).toContain('gmail_attachment_metadata_complete BOOLEAN NOT NULL DEFAULT false');
   });
 
+  it('persists Graph attachment metadata completeness independently of body cache', () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/0132_graph_attachment_metadata_completeness.sql'), 'utf8');
+    expect(sql).toContain('graph_attachment_metadata_complete BOOLEAN NOT NULL DEFAULT false');
+  });
+
   it('widens the OAuth flow purpose CHECK to accept account_enable', () => {
     // AUTH-01: the route-level allow-list was not the only gate — 0103's CHECK rejected account_enable too, so
     // a reconnect flow could never be persisted. The fix must widen the constraint, not rewrite 0103.

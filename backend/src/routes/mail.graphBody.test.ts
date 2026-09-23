@@ -136,6 +136,9 @@ describe('a Graph message body is read from the provider and cached', () => {
     });
     const cache = mocks.query.mock.calls.find(([sql]) => String(sql).includes('SET body_html = $1'));
     expect(cache?.[1]?.[2]).toBeNull();
+    // A later read must fetch attachment metadata again rather than treating this
+    // body-only cache as proof that the message has no attachments.
+    expect(cache?.[1]?.[5]).toBe(false);
     expect(mocks.fetchMessageBody).not.toHaveBeenCalled();
   });
 
