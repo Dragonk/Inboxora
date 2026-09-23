@@ -151,6 +151,19 @@ describe('bulk-move files a Graph message through the provider', () => {
     expect(mocks.broadcast).toHaveBeenCalledWith({ type: 'folder_updated', folder: 'Archive', accountId: ACCOUNT_ID }, 'user-1');
   });
 
+  it('moves a verified legacy alias through its canonical Graph identity and local row only', async () => {
+    const canonicalId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+    arrangeOwnedMessages({ provider_message_id: null });
+    mocks.query.mockResolvedValueOnce({ rows: [{ canonical_message_id: canonicalId, provider_message_id: 'AAMkAD-canonical', status: 'bound' }], rowCount: 1 });
+
+    const response = await post('/messages/bulk-move', { ids: [MESSAGE_ID], folder: 'Archive' });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, moved: [canonicalId] });
+    const [request] = mocks.runProviderMutation.mock.calls[0];
+    expect(request).toMatchObject({ resourceId: canonicalId, payload: { providerMessageId: 'AAMkAD-canonical' } });
+    expect(request.resourceId).not.toBe(MESSAGE_ID);
+  });
+
   it('moves nothing when the destination is not a folder the account discovered', async () => {
     arrangeOwnedMessages();
     mocks.graphFolderIdForPath.mockResolvedValue(null);

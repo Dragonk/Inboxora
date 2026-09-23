@@ -1466,18 +1466,27 @@ async function moveMessagesOverGraph(input: {
     return { movedIds, failedIds: input.messages.map(message => message.id), newUids };
   }
 
+  const movedCanonicalIds = new Set<string>();
   for (const message of input.messages) {
-    if (!message.provider_message_id) {
+    const identity = await resolveGraphMessageIdentity({ query }, {
+      messageId: message.id, accountId: input.accountId,
+      connectionId: input.account.provider_connection_id,
+      directProviderMessageId: message.provider_message_id ?? null,
+    });
+    if (identity.kind !== 'resolved') {
       failedIds.push(message.id);
       continue;
     }
+    // An old IMAP row and its canonical Graph projection may both be selected.
+    // Move the provider object once and update only its canonical local identity.
+    if (movedCanonicalIds.has(identity.canonicalMessageId)) continue;
     const result = await moveGraphMessageToFolder({
       userId: input.userId,
       accountId: input.accountId,
       connectionId: input.account.provider_connection_id,
       config: microsoftConfigFromEnv(),
-      resourceId: message.id,
-      providerMessageId: message.provider_message_id,
+      resourceId: identity.canonicalMessageId,
+      providerMessageId: identity.providerMessageId,
       destinationPath: input.destinationPath,
     });
     if (!result.moved) {
