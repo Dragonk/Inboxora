@@ -1,6 +1,8 @@
 import ICAL from 'ical.js';
 import { googleConfigFromEnv, microsoftConfigFromEnv } from './providerAuthService.js';
 import { runProviderMutation } from './providerMutationService.js';
+import { withTransaction } from './db.js';
+import { findOperationByKey } from './providerOperations.js';
 import type { ProviderAdapterOutcome, ProviderMutationAdapter } from './providerMutationService.js';
 import type { OperationProgressEntry } from './providerOperations.js';
 import { fetchCalendarEvents } from './providers/google/googleCalendar.js';
@@ -523,7 +525,7 @@ function googleOccurrenceAdapter(api: Parameters<typeof insertGoogleEvent>[0]): 
         // A client-supplied rule for the remainder is the **series'** rule (the composer copies it), so its COUNT
         // is continued rather than restarted; an unrepresentable one refuses before anything is written (CAL-02).
         let writeValues = write.values ?? null;
-        const clientRecurrence = writeValues?.recurrence ?? null;
+        const clientRecurrence = writeValues?.recurrence;
         if (clientRecurrence) {
           const outcome = continuedCount(clientRecurrence.count, occurrencesBeforeSplit(masterRuleLine, masterDtstart, before));
           if (outcome.kind === 'unsupported') return { status: 'permanent', code: 'RECURRENCE_CONTINUATION_UNSUPPORTED' };
@@ -536,7 +538,7 @@ function googleOccurrenceAdapter(api: Parameters<typeof insertGoogleEvent>[0]): 
         // count again from the split, so a series of 10 split at the 4th would end with 13 occurrences (CAL-02);
         // when the continuation cannot be represented the write refuses instead of truncating the master and
         // leaving a remainder that restarts the series.
-        const needsContinuation = write.operation !== 'cancel' && clientRecurrence === null;
+        const needsContinuation = write.operation !== 'cancel' && clientRecurrence === undefined;
         let remainderRecurrence: string[] | null = null;
         if (needsContinuation) {
           if (!masterRuleLine || !masterDtstart) return { status: 'permanent', code: 'RECURRENCE_CONTINUATION_UNSUPPORTED' };
@@ -599,6 +601,7 @@ function googleOccurrenceAdapter(api: Parameters<typeof insertGoogleEvent>[0]): 
             await context?.recordProgress?.('remainder_created', { createdSeriesId: match.id, reconciled: true });
             return { status: 'committed', value: { createdSeriesId: match.id } };
           }
+          if (match.verdict === 'absent') return { status: 'outcome_unknown', code: 'MUTATION_OUTCOME_UNKNOWN' };
         }
         // The create goes straight to the API (no journal of its own), so this record is the only evidence that it
         // was dispatched. A run that dies here cannot be resumed safely — a second create would make a second
@@ -708,6 +711,7 @@ function graphOccurrenceAdapter(api: Parameters<typeof patchGraphEvent>[0]): Pro
         // first, exactly as the Google path does — an exact, single match means it landed.
         const reconcile = resumed?.createDispatched && !resumed.remainderCreated;
         if (reconcile && payload) {
+          // Empty/ambiguous listings are handled as outcome-unknown below; never create blindly.
           const expected = payload;
           const listed = await listGraphCalendarEvents(api, write.providerCalendarId);
           const match = matchSplitRemainder(
@@ -729,7 +733,10 @@ function graphOccurrenceAdapter(api: Parameters<typeof patchGraphEvent>[0]): Pro
             await context?.recordProgress?.('remainder_created', { createdSeriesId: match.id, reconciled: true });
             return { status: 'committed', value: { createdSeriesId: match.id } };
           }
+          if (match.verdict === 'absent') return { status: 'outcome_unknown', code: 'MUTATION_OUTCOME_UNKNOWN' };
         }
+        // Graph's transactionId gives a repeated create a stable provider-side deduplication key.
+        if (payload && !payload.transactionId) payload.transactionId = context?.operationId;
         // CAL-01: as on Google, everything the remainder needs is recorded before the first write.
         await context?.recordProgress?.('split_prepared', {
           masterId: write.masterId,
@@ -765,6 +772,22 @@ function graphOccurrenceAdapter(api: Parameters<typeof patchGraphEvent>[0]): Pro
 
 // ── The entry point ──────────────────────────────────────────────────────────
 
+function storedOccurrencePayload(value: unknown, input: {
+  target: ProviderOccurrenceTarget;
+  scope: OccurrenceScope;
+  operation: OccurrenceOperation;
+}): OccurrenceWritePayload | null {
+  if (!value || typeof value !== 'object') return null;
+  const candidate = value as Partial<OccurrenceWritePayload>;
+  if (candidate.providerCalendarId !== input.target.providerCalendarId
+    || candidate.masterId !== input.target.masterProviderId
+    || candidate.occurrenceStart !== input.target.occurrenceStart
+    || candidate.scope !== input.scope
+    || candidate.operation !== input.operation
+    || typeof candidate.occurrenceId !== 'string') return null;
+  return value as OccurrenceWritePayload;
+}
+
 export async function writeProviderCalendarOccurrence(input: {
   target: ProviderOccurrenceTarget;
   scope: OccurrenceScope;
@@ -775,7 +798,21 @@ export async function writeProviderCalendarOccurrence(input: {
   /** Injected in tests so the journal and the route can be exercised without a provider. */
   fetchImpl?: typeof fetch;
 }): Promise<OccurrenceWriteOutcome> {
-  const occurrence = await resolveProviderOccurrenceId({ target: input.target, ...(input.fetchImpl ? { fetchImpl: input.fetchImpl } : {}) });
+  // Replays and recovery must read the durable operation before resolving the live
+  // occurrence: following a master split, the old instance may legitimately vanish.
+  const existing = input.idempotencyKey
+    ? await withTransaction(client => findOperationByKey(client, {
+      userId: input.target.userId,
+      idempotencyKey: input.idempotencyKey as string,
+    }))
+    : null;
+  const storedPayload = storedOccurrencePayload(existing?.payload, input);
+  if (existing && existing.payload && !storedPayload) {
+    return { status: 'failed', failure: { status: 409, code: 'IDEMPOTENCY_KEY_REUSED', error: 'The idempotency key belongs to a different calendar mutation.' } };
+  }
+  const occurrence = storedPayload
+    ? { id: storedPayload.occurrenceId }
+    : await resolveProviderOccurrenceId({ target: input.target, ...(input.fetchImpl ? { fetchImpl: input.fetchImpl } : {}) });
   if (!occurrence) {
     return {
       status: 'failed',
@@ -787,7 +824,7 @@ export async function writeProviderCalendarOccurrence(input: {
     };
   }
 
-  const payload: OccurrenceWritePayload = {
+  const payload: OccurrenceWritePayload = storedPayload ?? {
     scope: input.scope,
     operation: input.operation,
     providerCalendarId: input.target.providerCalendarId,

@@ -16,6 +16,9 @@ import { Button } from './ui.tsx';
  */
 
 interface DavStatus {
+  id?: string;
+  label?: string | null;
+  sources?: DavStatus[];
   connected?: boolean;
   username?: string;
   serverUrl?: string;
@@ -45,12 +48,16 @@ export default function ContactsDavSource({ t, onChanged }: {
   onChanged?: () => void | Promise<void>;
 }) {
   const [status, setStatus] = useState<DavStatus | null>(null);
+  const [selectedSourceId, setSelectedSourceId] = useState<string | undefined>();
   const [form, setForm] = useState({ serverUrl: '', username: '', password: '', intervalMin: 60 });
   const [busy, setBusy] = useState<'connect' | 'sync' | 'disconnect' | null>(null);
   const [error, setError] = useState('');
 
   const load = useCallback(() => {
-    api.carddav.status().then((data: DavStatus) => setStatus(data)).catch(() => setStatus({ connected: false }));
+    api.carddav.status().then((data: DavStatus) => {
+      setStatus(data);
+      setSelectedSourceId(current => current ?? data.sources?.[0]?.id);
+    }).catch(() => setStatus({ connected: false }));
   }, []);
   useEffect(() => { load(); }, [load]);
 
@@ -81,7 +88,7 @@ export default function ContactsDavSource({ t, onChanged }: {
     setBusy('sync');
     setError('');
     try {
-      const result = await api.carddav.sync() as { ok?: boolean; error?: string; status?: DavStatus };
+      const result = await (selectedSourceId ? api.carddav.sync(selectedSourceId) : api.carddav.sync()) as { ok?: boolean; error?: string; status?: DavStatus };
       if (result.status) setStatus(result.status);
       if (!result.ok && result.error) setError(result.error);
       else await onChanged?.();
@@ -96,7 +103,7 @@ export default function ContactsDavSource({ t, onChanged }: {
     setBusy('disconnect');
     setError('');
     try {
-      await api.carddav.disconnect();
+      await (selectedSourceId ? api.carddav.disconnect(selectedSourceId) : api.carddav.disconnect());
       setStatus({ connected: false });
       await onChanged?.();
     } catch (caught) {
@@ -112,6 +119,11 @@ export default function ContactsDavSource({ t, onChanged }: {
 
       {status !== null && connected && (
         <>
+          {(status.sources?.length ?? 0) > 1 && (
+            <select aria-label={t('admin.integrations.carddav.title')} value={selectedSourceId ?? ''} onChange={event => setSelectedSourceId(event.target.value)} style={inputStyle}>
+              {status.sources?.map(source => <option key={source.id} value={source.id}>{source.label || source.serverUrl || source.id}</option>)}
+            </select>
+          )}
           <p style={metaStyle} data-testid="contacts-manager-carddav-status">
             {t('admin.integrations.carddav.connected')}
             {typeof status.serverUrl === 'string' && status.serverUrl ? ` · ${status.serverUrl}` : ''}

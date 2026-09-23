@@ -223,12 +223,12 @@ describe('the Graph event delta page', () => {
       delete process.env.GRAPH_CALENDAR_DELTA_VERSION;
     }
 
-    // The default stays on the stable version and expands nothing: one request, the changed events as answered.
+    // The default uses the documented beta item-delta contract and expands its reduced event.
     calls.length = 0;
     const stable = await fetchGraphCalendarEventsPage({ ...api, fetchImpl }, 'cal-1');
-    expect(calls).toHaveLength(1);
-    expect(calls[0]).toContain('https://graph.microsoft.com/v1.0/me/calendars/cal-1/events/delta');
-    expect(stable.events[0]).toMatchObject({ id: 'AAMkAD-evt-1' });
+    expect(calls[0]).toContain('https://graph.microsoft.com/beta/me/calendars/cal-1/events/delta');
+    expect(calls[1]).toContain('https://graph.microsoft.com/v1.0/me/calendars/cal-1/events/AAMkAD-evt-1');
+    expect(stable.events[0]).toMatchObject({ id: 'AAMkAD-evt-1', subject: timed().subject });
   });
 
   it('asks the delta endpoint with only the parameters the delta function accepts, and follows an absolute link', async () => {
@@ -246,6 +246,7 @@ describe('the Graph event delta page', () => {
     }) as unknown as typeof fetch;
 
     const options = { ...api, fetchImpl };
+    process.env.GRAPH_CALENDAR_DELTA_VERSION = 'v1.0';
     const page = await fetchGraphCalendarEventsPage(options, 'cal-1');
     expect(calls[0].url).toContain('/me/calendars/cal-1/events/delta');
     // GRAPH-02: the delta function documents `$select`, `$expand`, `$filter`, `$orderby` and `$search` as
@@ -262,5 +263,6 @@ describe('the Graph event delta page', () => {
 
     await fetchGraphCalendarEventsPage(options, 'cal-1', { link: page.nextLink });
     expect(calls[1].url).toBe(page.nextLink);
+    delete process.env.GRAPH_CALENDAR_DELTA_VERSION;
   });
 });

@@ -343,6 +343,7 @@ export async function resolveDavSource(input: {
   kind: DavWriteKind;
   userId: string;
   externalUrl: string | null | undefined;
+  localCollectionId?: string | null;
 }): Promise<DavSource | null> {
   const policy = await getConnectionPolicy();
   const allowPrivate = policy.allowPrivateHosts === true;
@@ -364,10 +365,32 @@ export async function resolveDavSource(input: {
     return { kind: 'caldav', collectionUrl, username: row.username ?? '', password, allowPrivate };
   }
 
+  if (input.localCollectionId) {
+    const scoped = await query<{ collection_url: string; config?: { username?: unknown; password?: unknown } | null }>(
+      `SELECT ic.remote_id AS collection_url, ui.config
+         FROM integration_collections ic
+         JOIN source_connections sc ON sc.id = ic.source_connection_id
+         JOIN user_integrations ui ON ui.id = sc.integration_id
+        WHERE ic.user_id = $1 AND ic.kind = 'address_book' AND sc.kind = 'carddav'
+          AND ui.user_id = $1 AND ui.provider = 'carddav'
+          AND (ic.id = $2 OR ic.local_address_book_id = $2)
+          AND ic.enabled = true AND sc.enabled = true
+        LIMIT 1`,
+      [input.userId, input.localCollectionId],
+    );
+    const row = scoped.rows[0];
+    const config = row?.config;
+    const username = typeof config?.username === 'string' ? config.username : '';
+    const password = decrypt(config?.password);
+    if (row?.collection_url && username && password) return { kind: 'carddav', collectionUrl: row.collection_url, username, password, allowPrivate };
+    return null;
+  }
+  // Legacy unlabelled integrations have no durable collection binding and are safe only when
+  // there is exactly one matching source. New source-aware writes always use the scoped branch.
   const collectionUrl = input.externalUrl ?? '';
   if (!collectionUrl) return null;
   const result = await query<{ config?: { username?: unknown; password?: unknown } | null }>(
-    "SELECT config FROM user_integrations WHERE user_id = $1 AND provider = 'carddav'",
+    "SELECT config FROM user_integrations WHERE user_id = $1 AND provider = 'carddav' AND label IS NULL LIMIT 1",
     [input.userId],
   );
   const config = result.rows[0]?.config;
@@ -464,7 +487,12 @@ const MUTATION_STATUS_RESULT: Readonly<Record<ProviderMutationStatus, DavWriteBa
  * answer leaves both the local row and the link untouched.
  */
 export async function executeDavWriteBack(spec: DavWriteBackSpec, deps: DavWriteBackDeps): Promise<DavWriteBackRouteResult> {
-  const source = await resolveDavSource({ kind: spec.kind, userId: spec.userId, externalUrl: spec.externalUrl });
+  const source = await resolveDavSource({
+    kind: spec.kind,
+    userId: spec.userId,
+    externalUrl: spec.externalUrl,
+    localCollectionId: spec.localCollectionId,
+  });
   if (!source) return { status: 'permanent', created: false, code: 'ADMIN_CONFIGURATION_REQUIRED' };
 
   const link = spec.localObjectId

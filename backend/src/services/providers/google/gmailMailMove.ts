@@ -31,14 +31,18 @@ async function updateStoredLabels(input: {
   folder: string | null;
 }): Promise<number> {
   if (input.folder === null) {
-    // The message is archived and carries no modeled mailbox: the local row goes,
-    // exactly as the ingest path removes it, rather than being filed under a folder
-    // Gmail does not have.
-    const removed = await query(
-      'DELETE FROM messages WHERE id = $1 AND account_id = $2',
-      [input.resourceId, input.accountId],
+    // Gmail archive removes INBOX, not the remote message. Preserve the local identity
+    // and mark the virtual All Mail/Archive state explicitly.
+    const archived = await query(
+      `UPDATE messages SET is_archived = true, provider_labels = (
+         SELECT array_agg(DISTINCT label ORDER BY label)
+           FROM unnest(COALESCE(provider_labels, '{}'::text[]) || $3::text[]) AS label
+          WHERE NOT (label = ANY($4::text[]))
+       ), synced_at = NOW()
+       WHERE id = $1 AND account_id = $2`,
+      [input.resourceId, input.accountId, [...input.addLabelIds], [...input.removeLabelIds]],
     );
-    return removed.rowCount ?? 0;
+    return archived.rowCount ?? 0;
   }
   const updated = await query(
     `UPDATE messages
@@ -52,6 +56,7 @@ async function updateStoredLabels(input: {
       WHERE id = $1 AND account_id = $2`,
     [input.resourceId, input.accountId, input.folder, [...input.addLabelIds], [...input.removeLabelIds]],
   );
+  if (updated.rowCount) await query('UPDATE messages SET is_archived = false WHERE id = $1 AND account_id = $2', [input.resourceId, input.accountId]);
   return updated.rowCount ?? 0;
 }
 

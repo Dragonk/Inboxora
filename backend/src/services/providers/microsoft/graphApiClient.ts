@@ -115,6 +115,27 @@ export interface GraphApiOptions {
 /** The preference that makes Graph answer with immutable ids rather than the default, mutable ones. */
 export const IMMUTABLE_ID_PREFERENCE = 'IdType="ImmutableId"';
 
+/** Merge Graph Prefer values without losing mailbox-wide immutable-id mode. */
+export function mergeGraphPrefer(...values: Array<string | undefined>): string | undefined {
+  const tokens: string[] = [];
+  let quoted = false;
+  for (const value of values) {
+    if (!value) continue;
+    let token = '';
+    for (const char of value) {
+      if (char === '"') quoted = !quoted;
+      if (char === ',' && !quoted) {
+        const normalized = token.trim();
+        if (normalized && !tokens.some(existing => existing.toLowerCase() === normalized.toLowerCase())) tokens.push(normalized);
+        token = '';
+      } else token += char;
+    }
+    const normalized = token.trim();
+    if (normalized && !tokens.some(existing => existing.toLowerCase() === normalized.toLowerCase())) tokens.push(normalized);
+  }
+  return tokens.length ? tokens.join(', ') : undefined;
+}
+
 async function accessToken(options: GraphApiOptions, skewSeconds?: number): Promise<string> {
   const result = await getMicrosoftAccessToken({
     userId: options.userId,
@@ -147,14 +168,15 @@ async function graphSendWithHeaders(
 ): Promise<Response> {
   const fetchImpl = options.fetchImpl ?? fetch;
   const url = pathOrUrl.startsWith('http') ? pathOrUrl : `${GRAPH_API_BASE}${pathOrUrl}`;
-  // The caller's own preference wins when it set one; otherwise the mailbox's immutable-id mode applies.
-  const prefer = extraHeaders.prefer
-    ?? (options.immutableIds ? IMMUTABLE_ID_PREFERENCE : undefined);
+  const prefer = mergeGraphPrefer(
+    extraHeaders.prefer ?? extraHeaders.Prefer,
+    options.immutableIds ? IMMUTABLE_ID_PREFERENCE : undefined,
+  );
   const send = async (token: string): Promise<Response> => fetchImpl(url, {
     method: init.method,
     headers: {
-      ...extraHeaders,
-      ...(prefer ? { prefer } : {}),
+      ...Object.fromEntries(Object.entries(extraHeaders).filter(([name]) => name.toLowerCase() !== 'prefer')),
+      ...(prefer ? { Prefer: prefer } : {}),
       authorization: `Bearer ${token}`,
       accept: 'application/json',
       ...(init.body === undefined ? {} : { 'content-type': 'application/json' }),

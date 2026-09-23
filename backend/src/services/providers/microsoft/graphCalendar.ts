@@ -186,8 +186,9 @@ export interface GraphEventPage {
  * projection stores. Neither choice is free, and the documentation cannot settle which behaves as the other
  * claims against a real mailbox:
  *
- * - `v1.0` (the default) requests a form the documentation places in beta. It is what this code has always sent.
- * - `beta` uses the documented version for that form. Its answer is a **reduced** resource, so each changed event
+ * - `beta` is the default because the item-delta form is documented there. Its answer is a **reduced** resource, so each changed event
+ *   is read back in full.
+ * - `v1.0` remains an explicit compatibility override for operators validating an older tenant contract; it is not the default.
  *   is read back in full, one request at a time — a real cost that only a live mailbox can measure.
  *
  * The version is therefore explicit and operator-selected rather than inferred or changed blind, and the write
@@ -196,7 +197,7 @@ export interface GraphEventPage {
  */
 export function graphCalendarDeltaVersion(env: NodeJS.ProcessEnv = process.env): 'v1.0' | 'beta' {
   const value = (env.GRAPH_CALENDAR_DELTA_VERSION ?? '').trim().toLowerCase();
-  return value === 'beta' ? 'beta' : 'v1.0';
+  return value === 'v1.0' ? 'v1.0' : 'beta';
 }
 
 /** Build an absolute URL against the selected contract version. */
@@ -262,8 +263,11 @@ async function expandGraphCalendarEvents(api: GraphApiOptions, calendarId: strin
   const expanded: GraphEvent[] = [];
   for (const event of events) {
     if (event['@removed']) { expanded.push(event); continue; }
-    const full = await fetchGraphEvent(api, calendarId, event.id as string).catch(() => null);
-    expanded.push(full ?? { ...event, '@removed': { reason: 'deleted' } });
+    // A failed expansion is an incomplete read, never evidence that Graph deleted the event.
+    // Propagating the typed provider error prevents the sync cursor from advancing past it.
+    const full = await fetchGraphEvent(api, calendarId, event.id as string);
+    if (!full) throw new Error(`Graph event expansion returned no event for ${event.id}`);
+    expanded.push(full);
   }
   return expanded;
 }

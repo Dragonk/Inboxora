@@ -465,8 +465,8 @@ export const api = {
     status:     ()     => request('GET',    '/carddav'),
     connect:    (data: unknown) => request('POST',   '/carddav/connect', data),
     update:     (data: unknown) => request('PATCH',  '/carddav', data),
-    sync:       ()     => request('POST',   '/carddav/sync'),
-    disconnect: ()     => request('DELETE', '/carddav'),
+    sync:       (sourceId?: string) => request('POST', '/carddav/sync', sourceId ? { sourceId } : undefined),
+    disconnect: (sourceId?: string) => request('DELETE', '/carddav', sourceId ? { sourceId } : undefined),
   },
 
   // DAV Hub — dedicated, revocable app passwords for CardDAV/CalDAV clients.

@@ -157,7 +157,7 @@ router.post('/connect', async (req: Request, res: Response) => {
 
   const userId = sessionUserId(req);
   const sourceId = stored.rows[0]?.id ?? null;
-  scheduleCardavUser(userId, config.intervalMin);
+  scheduleCardavUser(userId, config.intervalMin, sourceId);
   // Kick off the first sync in the background; the client polls GET / for status.
   syncUser(userId, sourceId).catch(() => {});
   res.json(publicStatus(config, sourceId ? { id: sourceId, label } : undefined));
@@ -185,7 +185,11 @@ router.patch('/', async (req: Request, res: Response) => {
          WHERE user_id = $1 AND provider = 'carddav' AND label IS NULL`,
     sourceId ? [sourceId, JSON.stringify(patch), sessionUserId(req)] : [sessionUserId(req), JSON.stringify(patch)],
   );
-  if (patch.intervalMin) scheduleCardavUser(sessionUserId(req), patch.intervalMin);
+  if (patch.intervalMin) {
+    const sourceRows = await listCardavConfigs(sessionUserId(req));
+    const selected = sourceId ? sourceRows.find(row => row.id === sourceId) : sourceRows.find(row => row.label === null);
+    scheduleCardavUser(sessionUserId(req), patch.intervalMin, selected?.id ?? sourceId);
+  }
   res.json(publicStatus({ ...existing, ...patch }));
 });
 
@@ -203,15 +207,29 @@ router.post('/sync', async (req: Request, res: Response) => {
 
 router.delete('/', async (req: Request, res: Response) => {
   const userId = sessionUserId(req);
-  stopCardavUser(userId);
-  // Remove the synced (read-only) address books; contacts cascade with them.
+  const body = requestBody(req);
+  const sourceId = typeof body?.sourceId === 'string' ? body.sourceId : null;
+  const source = await getCardavConfig(userId, sourceId);
+  if (!source) return res.status(404).json({ error: 'CardDAV source not connected' });
+  const sourceRows = await listCardavConfigs(userId);
+  const selectedSourceId = sourceId ?? sourceRows.find(row => row.label === null)?.id ?? null;
+  stopCardavUser(selectedSourceId ?? `legacy:${userId}`);
+  // Remove only books linked to the selected source; contacts cascade with them.
   await query(
-    "DELETE FROM address_books WHERE user_id = $1 AND source = 'carddav'",
-    [userId],
+    `DELETE FROM address_books ab
+      WHERE ab.user_id = $1 AND ab.source = 'carddav'
+        AND EXISTS (
+          SELECT 1 FROM integration_collections ic
+          JOIN source_connections sc ON sc.id = ic.source_connection_id
+          WHERE ic.local_address_book_id = ab.id AND sc.integration_id = $2
+        )`,
+    [userId, selectedSourceId],
   );
   await query(
-    "DELETE FROM user_integrations WHERE user_id = $1 AND provider = 'carddav'",
-    [userId],
+    selectedSourceId
+      ? "DELETE FROM user_integrations WHERE id = $1 AND user_id = $2 AND provider = 'carddav'"
+      : "DELETE FROM user_integrations WHERE user_id = $1 AND provider = 'carddav' AND label IS NULL",
+    selectedSourceId ? [selectedSourceId, userId] : [userId],
   );
   res.json({ ok: true });
 });

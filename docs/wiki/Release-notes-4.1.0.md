@@ -324,6 +324,24 @@ Microsoft application is registered in this environment.
 
 ### Fixed
 
+- **CardDAV sources are isolated during synchronization and write-back.** Each source now has its own durable integration identity, credentials, pruning scope, timer and disconnect operation; the Contacts panel selects the source for sync and disconnect. Apply migration `0118_carddav_source_identity.sql` before rolling out the application change; ambiguous legacy links fail closed and live DAV validation remains required.
+
+- **Gmail baseline resumes within a page instead of restarting it.** A durable set of processed thread IDs lets a bounded run advance through pages larger than its per-run budget.
+
+- **Native inbox rules receive normalized provider metadata and fail closed on unknown content.** Missing lazy bodies, headers or sender metadata no longer satisfy negative conditions that could move or delete mail; retry/live-provider hydration remains required for fields not stored locally.
+
+- **Gmail archive preserves the local message object.** Removing INBOX records an explicit archived state and updates label membership instead of deleting the message, preserving IDs, annotations and thread history. Apply migration `0119_gmail_archive_state.sql` before rollout.
+
+- **Microsoft Graph calendar delta defaults to the documented beta contract.** Reduced events are read back in full; `GRAPH_CALENDAR_DELTA_VERSION=v1.0` is an explicit compatibility override pending live-tenant validation.
+
+- **Graph calendar expansion preserves read failures.** A 401/403, 429, timeout or 5xx is no longer converted to a deletion tombstone, so the cursor cannot advance as if the event had been removed. A live Microsoft tenant test is still required.
+
+- **Graph preferences are combined and Google recurrence clearing remains explicit.** Paging/time-zone preferences are sent together with immutable-id mode, and an explicit `recurrence: null` no longer recreates the prior recurring series.
+
+- **Calendar occurrence retries consult the mutation journal before live occurrence lookup.** A retry after a master split can use the stored occurrence identity instead of incorrectly returning `OCCURRENCE_NOT_FOUND`.
+
+- **Calendar split recovery no longer creates on an empty bounded search.** An accepted create with a lost response remains `outcome_unknown`; Graph remainder creates also carry a stable journal operation transaction ID.
+
 - **Inboxora now asks a CalDAV or CardDAV collection what may be written to it.** It used to assume every
   collection accepted writes, so an edit failed at the server each time. The collection's own permission list is
   read when it is synchronised: a collection that grants only reading is shown and treated as read-only, and one

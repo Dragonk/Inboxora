@@ -487,6 +487,7 @@ interface GmailBaselineCheckpoint {
   labelId: string | null;
   pageToken: string | null;
   startHistoryId: string | null;
+  processedThreadIds: string[];
 }
 
 function parseBaselineCheckpoint(raw: string | null): GmailBaselineCheckpoint | null {
@@ -499,6 +500,9 @@ function parseBaselineCheckpoint(raw: string | null): GmailBaselineCheckpoint | 
       labelId: typeof candidate.labelId === 'string' ? candidate.labelId : null,
       pageToken: typeof candidate.pageToken === 'string' ? candidate.pageToken : null,
       startHistoryId: typeof candidate.startHistoryId === 'string' ? candidate.startHistoryId : null,
+      processedThreadIds: Array.isArray(candidate.processedThreadIds)
+        ? candidate.processedThreadIds.filter((id): id is string => typeof id === 'string')
+        : [],
     };
   } catch {
     // A checkpoint written by another version, or a truncated one, is not a reason to
@@ -525,14 +529,19 @@ export async function applyGmailMessage(
   local: LocalGmailMessage,
 ): Promise<{ id: string; inserted: boolean } | null> {
   if (local.folderPath === null) {
-    // Archived: no label this account models is a mailbox. The IMAP path keeps such a
-    // message only in Gmail's "All Mail", which Inboxora deliberately does not sync,
-    // so the local row goes rather than being filed under a folder Gmail has none of.
-    await client.query(
-      'DELETE FROM messages WHERE account_id = $1 AND provider_message_id = $2',
-      [context.accountId, local.providerMessageId],
+    // Archiving removes INBOX membership, not the provider message. Keep its identity
+    // and thread links for the virtual All Mail/Archive view.
+    const archived = await client.query<{ id: string }>(
+      `UPDATE messages
+          SET is_archived = true, provider_labels = $3::text[], synced_at = NOW()
+        WHERE account_id = $1 AND provider_message_id = $2
+        RETURNING id`,
+      [context.accountId, local.providerMessageId, local.labels],
     );
-    return null;
+    const row = archived.rows[0];
+    if (!row) return null;
+    await recordGmailMessageLabels(client, context, row.id, local);
+    return { id: row.id, inserted: false };
   }
 
   let applied: { id: string; inserted: boolean } | null = null;
@@ -590,7 +599,10 @@ export async function applyGmailMessage(
       throw caught;
     }
   }
-  if (applied) await recordGmailMessageLabels(client, context, applied.id, local);
+  if (applied) {
+    await client.query('UPDATE messages SET is_archived = false WHERE id = $1', [applied.id]);
+    await recordGmailMessageLabels(client, context, applied.id, local);
+  }
   return applied;
 }
 
@@ -647,11 +659,8 @@ export async function applyGmailThread(
     });
     if (!local) { totals.skipped += 1; continue; }
     if (local.folderPath === null) {
-      const removed = await client.query(
-        'DELETE FROM messages WHERE account_id = $1 AND provider_message_id = $2',
-        [context.accountId, local.providerMessageId],
-      );
-      if ((removed.rowCount ?? 0) > 0) totals.deleted += 1;
+      const archived = await applyGmailMessage(client, context, local);
+      if (archived) totals.rowIds.push(archived.id);
       else totals.skipped += 1;
       continue;
     }
@@ -991,7 +1000,7 @@ async function runBaseline(
   maxThreadsPerRun: number,
   afterIngest: (rowIds: readonly string[], labelPath: string) => Promise<void>,
 ): Promise<{ incomplete: boolean; startHistoryId: string | null }> {
-  const checkpoint = parseBaselineCheckpoint(pageCheckpoint) ?? { labelId: null, pageToken: null, startHistoryId: null };
+  const checkpoint = parseBaselineCheckpoint(pageCheckpoint) ?? { labelId: null, pageToken: null, startHistoryId: null, processedThreadIds: [] };
   const startHistoryId = checkpoint.startHistoryId ?? await fetchGmailProfileHistoryId(api);
 
   let startIndex = 0;
@@ -1006,9 +1015,11 @@ async function runBaseline(
   for (let index = startIndex; index < targets.length; index++) {
     const target = targets[index];
     if (!target) continue;
-    const resumed = index === startIndex && checkpoint.labelId === target.remoteId && checkpoint.pageToken !== null;
+    const resumed = index === startIndex && checkpoint.labelId === target.remoteId
+      && (checkpoint.pageToken !== null || checkpoint.processedThreadIds.length > 0);
     let pageToken: string | null = resumed ? checkpoint.pageToken : null;
     const seen = new Set<string>();
+    let processedOnPage = resumed ? new Set(checkpoint.processedThreadIds) : new Set<string>();
     let completed = false;
 
     for (let page = 0; page < MAX_LIST_PAGES_PER_LABEL; page++) {
@@ -1025,9 +1036,11 @@ async function runBaseline(
 
       let pageComplete = true;
       for (const threadId of threadIds) {
+        if (processedOnPage.has(threadId)) continue;
         if (budget <= 0) { pageComplete = false; break; }
         const thread = await fetchGmailThread(api, threadId);
         budget -= 1;
+        processedOnPage.add(threadId);
         if (!thread) continue;
         const applied = await fenced(client => applyGmailThread(client, context, thread, seen));
         await persistConversations(applied.rowIds, account);
@@ -1043,7 +1056,10 @@ async function runBaseline(
         // complete snapshot when it eventually finishes.
         await commit({
           cursor: null,
-          pageCheckpoint: JSON.stringify({ labelId: target.remoteId, pageToken: null, startHistoryId } satisfies GmailBaselineCheckpoint),
+          pageCheckpoint: JSON.stringify({
+            labelId: target.remoteId, pageToken, startHistoryId,
+            processedThreadIds: [...processedOnPage],
+          } satisfies GmailBaselineCheckpoint),
         });
         return { incomplete: true, startHistoryId };
       }
@@ -1052,6 +1068,7 @@ async function runBaseline(
       // ended exactly on the last thread of the last page used to satisfy `budget <= 0` and look like an
       // interruption, which stored a null page token and restarted the label on every run.
       pageToken = listing.nextPageToken;
+      processedOnPage = new Set<string>();
       if (!pageToken) { completed = true; break; }
       await renew();
     }
@@ -1065,7 +1082,9 @@ async function runBaseline(
     } else {
       await commit({
         cursor: null,
-        pageCheckpoint: JSON.stringify({ labelId: target.remoteId, pageToken, startHistoryId } satisfies GmailBaselineCheckpoint),
+        pageCheckpoint: JSON.stringify({
+          labelId: target.remoteId, pageToken, startHistoryId, processedThreadIds: [...processedOnPage],
+        } satisfies GmailBaselineCheckpoint),
       });
       return { incomplete: true, startHistoryId };
     }
@@ -1073,7 +1092,7 @@ async function runBaseline(
     const next = targets[index + 1];
     await commit({
       cursor: null,
-      pageCheckpoint: JSON.stringify({ labelId: next?.remoteId ?? null, pageToken: null, startHistoryId } satisfies GmailBaselineCheckpoint),
+      pageCheckpoint: JSON.stringify({ labelId: next?.remoteId ?? null, pageToken: null, startHistoryId, processedThreadIds: [] } satisfies GmailBaselineCheckpoint),
     });
     await renew();
   }

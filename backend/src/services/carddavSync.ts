@@ -14,8 +14,8 @@ import { ensureExternalCollectionLink } from './providers/externalCollectionLink
 import { toAppError } from '../utils/errors.js';
 
 const DEFAULT_INTERVAL_MIN = 60;
-const timers = new Map();   // userId -> interval id
-const syncing = new Set();  // userIds with a sync in flight (prevents overlap)
+const timers = new Map<string, ReturnType<typeof setInterval>>(); // sourceId -> interval id
+const syncing = new Set<string>(); // sourceIds with a sync in flight (prevents overlap)
 
 export type CardavConfig = { serverUrl?: string | null; username?: string | null; password?: string | null; dupMode?: string | null; intervalMin?: number | null; [key: string]: unknown };
 export type CardavSourceConfig = { id: string; label: string | null; config: CardavConfig };
@@ -195,7 +195,7 @@ async function mergeIntoExisting(client: PoolClient, id: string, c: CardavContac
       JSON.stringify(c.urls), JSON.stringify(c.instantMessages), JSON.stringify(c.categories), JSON.stringify(c.addresses), c.vcard, etag]);
 }
 
-async function syncBook(userId: string, book: CardavBook, dupMode: string, creds: CardavCredentials) {
+async function syncBook(userId: string, book: CardavBook, dupMode: string, creds: CardavCredentials, integrationId: string) {
   const rawCards = await fetchAddressBookCards({ ...book, ...creds });
   const cards = rawCards.map(rc => contactFromVCard(rc.vcard, rc.href, rc.etag));
   if (cards.some(card => card.invalidDates.length || card.invalidDateLabels.length)) {
@@ -219,6 +219,7 @@ async function syncBook(userId: string, book: CardavBook, dupMode: string, creds
       label: book.displayName ?? null,
       localAddressBookId: bookId,
       discoveredAccess,
+      integrationId,
     });
   } catch (caught) {
     console.warn('Linking an external address book to its source connection failed:', toAppError(caught).message);
@@ -318,19 +319,27 @@ async function syncOneCardavSource(userId: string, source: CardavSourceConfig): 
     let contactCount = 0;
     const seenUrls: string[] = [];
     for (const book of books) {
-      const { count } = await syncBook(userId, book, config.dupMode || 'separate', creds);
+      const { count } = await syncBook(userId, book, config.dupMode || 'separate', creds, source.id);
       contactCount += count;
       seenUrls.push(book.url);
     }
     // Preserve the legacy cleanup for the unlabelled source. Labeled sources skip pruning until the collection
     // link carries a source identity of its own; keeping a stale book is safer than deleting another source's book.
-    if (!source.label) {
-      await query(
-        `DELETE FROM address_books
-         WHERE user_id = $1 AND source = 'carddav' AND external_url <> ALL($2::text[])`,
-        [userId, seenUrls.length ? seenUrls : ['']],
-      );
-    }
+    // Prune only books owned by this exact integration. A complete discovery is required
+    // before this point; auth, rate-limit, and partial discovery failures stay in the catch above.
+    await query(
+      `DELETE FROM address_books ab
+       WHERE ab.user_id = $1 AND ab.source = 'carddav'
+         AND ab.external_url <> ALL($2::text[])
+         AND EXISTS (
+           SELECT 1 FROM integration_collections ic
+           JOIN source_connections sc ON sc.id = ic.source_connection_id
+           WHERE ic.local_address_book_id = ab.id
+             AND sc.integration_id = $3
+             AND sc.user_id = $1
+         )`,
+      [userId, seenUrls.length ? seenUrls : [''], source.id],
+    );
     await saveCardavConfig(userId, { lastSyncAt: new Date().toISOString(), lastError: null, bookCount: books.length, contactCount }, source.id);
     return { ok: true, bookCount: books.length, contactCount };
   } catch (caught) {
@@ -370,27 +379,28 @@ export async function syncUser(userId: string, sourceId?: string | null) {
 
 // ── Scheduler ─────────────────────────────────────────────────────────────────
 
-export function scheduleCardavUser(userId: string, intervalMin: string | number | null | undefined) {
-  stopCardavUser(userId);
+export function scheduleCardavUser(userId: string, intervalMin: string | number | null | undefined, sourceId?: string | null) {
+  const effectiveSourceId = sourceId ?? `legacy:${userId}`;
+  stopCardavUser(effectiveSourceId);
   const min = Math.max(15, Math.min(1440, parseInt(String(intervalMin ?? ''), 10) || DEFAULT_INTERVAL_MIN));
   const id = setInterval(() => {
-    syncUser(userId).catch(e => console.warn(`CardDAV sync failed for ${userId}:`, e.message));
+    syncUser(userId, sourceId).catch(e => console.warn(`CardDAV sync failed for ${effectiveSourceId}:`, e.message));
   }, min * 60 * 1000);
-  timers.set(userId, id);
+  timers.set(effectiveSourceId, id);
 }
 
-export function stopCardavUser(userId: string) {
-  const id = timers.get(userId);
-  if (id) { clearInterval(id); timers.delete(userId); }
+export function stopCardavUser(sourceId: string) {
+  const id = timers.get(sourceId);
+  if (id) { clearInterval(id); timers.delete(sourceId); }
 }
 
 export async function startCardavScheduler() {
   try {
-    const rows = await query<{ user_id: string; config?: { serverUrl?: string | null; intervalMin?: number | null } | null }>("SELECT user_id, config FROM user_integrations WHERE provider = 'carddav'");
+    const rows = await query<{ id: string; user_id: string; config?: { serverUrl?: string | null; intervalMin?: number | null } | null }>("SELECT id, user_id, config FROM user_integrations WHERE provider = 'carddav'");
     for (const row of rows.rows) {
-      if (row.config?.serverUrl) scheduleCardavUser(row.user_id, row.config?.intervalMin);
+      if (row.config?.serverUrl) scheduleCardavUser(row.user_id, row.config?.intervalMin, row.id);
     }
-    if (rows.rows.length) console.log(`CardDAV: scheduled sync for ${rows.rows.length} account(s)`);
+    if (rows.rows.length) console.log(`CardDAV: scheduled sync for ${rows.rows.length} source(s)`);
   } catch (caught) {
     const err = toAppError(caught);
     console.warn('CardDAV scheduler start failed:', err.message);

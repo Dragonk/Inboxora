@@ -128,6 +128,7 @@ function evaluateCondition(cond: RuleCondition | null | undefined, msg: RuleMess
       // A sender "Alice <alice@example.com>" would wrongly escape a not_contains filter
       // using OR because the display name "Alice" doesn't contain the domain.
       if (operator === 'not_contains') {
+        if (msg.fromEmail === undefined || msg.fromName === undefined) return false;
         return matchOperator('not_contains', msg.fromEmail, value) &&
                matchOperator('not_contains', msg.fromName, value);
       }
@@ -135,6 +136,7 @@ function evaluateCondition(cond: RuleCondition | null | undefined, msg: RuleMess
              matchOperator(operator, msg.fromName, value);
     }
     case 'to': {
+      if (msg.to === undefined) return false;
       const addrs = Array.isArray(msg.to) ? msg.to : [];
       if (!addrs.length) return false;
       // not_contains must mean none of the recipients contain the value.
@@ -152,12 +154,15 @@ function evaluateCondition(cond: RuleCondition | null | undefined, msg: RuleMess
       );
     }
     case 'subject': {
+      if (msg.subject === undefined) return false;
       return matchOperator(operator, msg.subject, value);
     }
     case 'has_attachment': {
+      if (msg.hasAttachments === undefined) return false;
       return !!msg.hasAttachments;
     }
     case 'read_status': {
+      if (msg.isRead === undefined && msg.is_read === undefined) return false;
       // value is 'read' or 'unread'. Mirror the msg.isRead ?? msg.is_read fallback
       // used by the action handlers so both the real-time and run-rules message
       // shapes are covered. Any non-'read' value is treated as 'unread'.
@@ -165,13 +170,17 @@ function evaluateCondition(cond: RuleCondition | null | undefined, msg: RuleMess
       return value === 'read' ? isRead : !isRead;
     }
     case 'body': {
-      return matchOperator(operator, msg._bodyText || '', value);
+      // Missing body is an unknown lazy-fetch state, not an empty body. In particular,
+      // `not_contains` must not perform a destructive action on content not fetched yet.
+      if (msg._bodyText === undefined) return false;
+      return matchOperator(operator, msg._bodyText, value);
     }
     case 'header': {
       const headerName = (cond.headerName || '').toLowerCase().trim();
-      if (!headerName) return false;
+      if (!headerName || msg.parsedHeaders === undefined) return false;
       const headers = isHeaderBag(msg.parsedHeaders) ? msg.parsedHeaders : {};
-      const headerVal = headers[headerName] || '';
+      const headerVal = headers[headerName];
+      if (headerVal === undefined) return false;
       return matchOperator(operator, headerVal, value);
     }
     default:
@@ -221,10 +230,9 @@ export async function applyInboxRules<T extends RuleMessage>(messages: T[], acco
       const byId: Record<string, (typeof res.rows)[number]> = {};
       for (const row of res.rows) byId[row.id] = row;
       for (const msg of messages) {
-        msg._bodyText = byId[msg.id]?.body_text || '';
-        if (!msg._bodyText) {
-          console.warn(`inboxRules: body_text not yet available for message ${msg.id} — body rules will not match (account uses lazy body fetch)`);
-        }
+        const body = byId[msg.id]?.body_text;
+        if (typeof body === 'string') msg._bodyText = body;
+        else console.warn(`inboxRules: body_text not yet available for message ${msg.id} — body rules deferred safely`);
       }
     } catch (caught) {
       const err = toAppError(caught);

@@ -29,8 +29,11 @@ export async function applyIngestRulesToRows(input: {
   providerName?: string;
 }): Promise<{ considered: number; blocked: number; ruled: number; rulesSkipped: boolean }> {
   if (input.rowIds.length === 0) return { considered: 0, blocked: 0, ruled: 0, rulesSkipped: false };
-  const rows = await query<{ id: string; uid: number | string | null; folder: string; from_email: string | null; is_read: boolean | null }>(
-    `SELECT id, uid, folder, from_email, is_read FROM messages
+  const rows = await query<{
+    id: string; uid: number | string | null; folder: string; from_email: string | null; from_name: string | null;
+    subject: string | null; to_addresses: unknown; has_attachments: boolean | null; is_read: boolean | null;
+  }>(
+    `SELECT id, uid, folder, from_email, is_read, from_name, subject, to_addresses, has_attachments FROM messages
       WHERE id = ANY($1::uuid[]) AND account_id = $2 AND folder = $3 AND is_deleted = false`,
     [input.rowIds, input.account.id, input.folder],
   );
@@ -38,13 +41,26 @@ export async function applyIngestRulesToRows(input: {
 
   const messages = rows.rows.map(row => ({
     id: row.id,
+    ...(typeof row.subject === 'string' ? { subject: row.subject } : {}),
+    ...(typeof row.from_name === 'string' ? { fromName: row.from_name } : {}),
+    ...(typeof row.has_attachments === 'boolean' ? { hasAttachments: row.has_attachments } : {}),
+    ...(Array.isArray(row.to_addresses) ? {
+      to: row.to_addresses.map(value => {
+        if (!value || typeof value !== 'object') return { email: '' };
+        const recipient = value as { address?: unknown; email?: unknown; name?: unknown };
+        return {
+          email: typeof recipient.email === 'string' ? recipient.email : typeof recipient.address === 'string' ? recipient.address : '',
+          ...(typeof recipient.name === 'string' ? { name: recipient.name } : {}),
+        };
+      }),
+    } : {}),
     // The row's own uid, **as stored**: a provider's derived value can exceed what a JavaScript number holds
     // exactly, and rounding it would address a message that does not exist. A row without one is skipped rather
     // than given a made-up value.
     uid: String(row.uid ?? ''),
     folder: row.folder,
-    fromEmail: row.from_email ?? '',
-    is_read: row.is_read ?? false,
+    ...(typeof row.from_email === 'string' ? { fromEmail: row.from_email } : {}),
+    ...(typeof row.is_read === 'boolean' ? { is_read: row.is_read } : {}),
   })).filter(message => message.uid.length > 0);
   // Loaded lazily: `mailActionPort` reaches the provider move services, which reach back into the synchronisers
   // that call this hook, so a module-level import would close a cycle. Deferring it to first use keeps the

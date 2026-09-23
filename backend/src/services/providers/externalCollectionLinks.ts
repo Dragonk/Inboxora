@@ -59,6 +59,8 @@ export async function ensureExternalSourceConnection(input: {
   kind: ExternalSourceKind;
   url: string;
   label?: string | null;
+  /** Existing integration identity for multi-source credentials (for example CardDAV). */
+  integrationId?: string | null;
   /**
    * What the origin's own privilege list says, when the caller was able to read it (`discoverDavWriteAccess`).
    *
@@ -69,8 +71,10 @@ export async function ensureExternalSourceConnection(input: {
 }): Promise<string | null> {
   const fingerprint = externalSourceFingerprint(input.url);
   const existing = await query<{ id: string }>(
-    'SELECT id FROM source_connections WHERE user_id = $1 AND url_fingerprint = $2',
-    [input.userId, fingerprint],
+    input.integrationId
+      ? 'SELECT id FROM source_connections WHERE user_id = $1 AND kind = $2 AND integration_id = $3'
+      : 'SELECT id FROM source_connections WHERE user_id = $1 AND url_fingerprint = $2 AND integration_id IS NULL',
+    input.integrationId ? [input.userId, input.kind, input.integrationId] : [input.userId, fingerprint],
   );
   if (existing.rows[0]) {
     // The label is cosmetic and refreshed; the kind is not — the same URL cannot be two kinds at once.
@@ -83,10 +87,10 @@ export async function ensureExternalSourceConnection(input: {
 
   try {
     const created = await query<{ id: string }>(
-      `INSERT INTO source_connections (user_id, kind, label, url_encrypted, url_fingerprint)
-       VALUES ($1, $2, $3, $4, $5)
+      `INSERT INTO source_connections (user_id, kind, label, url_encrypted, url_fingerprint, integration_id)
+       VALUES ($1, $2, $3, $4, $5, $6)
        RETURNING id`,
-      [input.userId, input.kind, input.label ?? null, encrypt(input.url), fingerprint],
+      [input.userId, input.kind, input.label ?? null, encrypt(input.url), fingerprint, input.integrationId ?? null],
     );
     if (!created.rows[0]?.id) throw new Error('The source connection could not be created');
     return created.rows[0].id;
@@ -95,8 +99,10 @@ export async function ensureExternalSourceConnection(input: {
     // so re-read rather than failing the sync that is merely linking a collection.
     if ((caught as { code?: string }).code !== '23505') throw caught;
     const raced = await query<{ id: string }>(
-      'SELECT id FROM source_connections WHERE user_id = $1 AND url_fingerprint = $2',
-      [input.userId, fingerprint],
+      input.integrationId
+        ? 'SELECT id FROM source_connections WHERE user_id = $1 AND kind = $2 AND integration_id = $3'
+        : 'SELECT id FROM source_connections WHERE user_id = $1 AND url_fingerprint = $2 AND integration_id IS NULL',
+      input.integrationId ? [input.userId, input.kind, input.integrationId] : [input.userId, fingerprint],
     );
     return raced.rows[0]?.id ?? null;
   }
@@ -123,9 +129,12 @@ export async function ensureExternalCollectionLink(input: {
    * assumed writable — which the write path corrects from a refusal.
    */
   discoveredAccess?: 'read_only' | 'read_write' | null;
+  /** Existing integration identity for sources with multiple credential sets. */
+  integrationId?: string | null;
 }): Promise<string | null> {
   const sourceConnectionId = await ensureExternalSourceConnection({
     userId: input.userId, kind: input.kind, url: input.url, label: input.label,
+    integrationId: input.integrationId,
   });
   if (!sourceConnectionId) return null;
 
