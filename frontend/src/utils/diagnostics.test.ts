@@ -43,6 +43,8 @@ describe('collectEnvironment', () => {
     assert.equal(env.theme, 'dark');
     assert.equal(env.uiScale, 1.2);
     assert.equal(env.platform, 'web');
+    assert.equal(env.route, null);
+    assert.equal(env.uiEntry, null);
     assert.equal(typeof env.tzOffsetMinutes, 'number');
     assert.ok('viewport' in env);
     assert.ok(!JSON.stringify(env).includes('Mozilla'));

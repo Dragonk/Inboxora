@@ -110,6 +110,7 @@ describe('buildServerReport', () => {
           { account_id: 'acct-2', count: 2 },
         ] });
       }
+      if (/FROM schema_migrations/.test(sql)) return Promise.resolve({ rows: [{ version: '0128_account_provider_feature_settings.sql' }] });
       return Promise.resolve({ rows: [{ '?column?': 1 }] }); // SELECT 1 health
     });
 
@@ -144,6 +145,7 @@ describe('buildServerReport', () => {
     expect(report.config.plugins).toEqual({ gtd: 'enabled' });
     expect(report.config.aiEnabled).toBe(true);
     expect(report.server.redisOk).toBe(true);
+    expect(report.server.migrations).toEqual(['0128_account_provider_feature_settings.sql']);
 
     // warnings: only this user's account warning + the global one; other-user filtered out
     const imapWarnings = report.warnings.filter(w => w.code === 'imap_error');

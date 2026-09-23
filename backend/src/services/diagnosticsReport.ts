@@ -184,6 +184,14 @@ export async function buildServerReport(userId: string, salt: string) {
 
   let dbOk = true;
   try { await query('SELECT 1'); } catch { dbOk = false; }
+  // Migration names are operational metadata, not user content or credentials.
+  // Recording the applied ledger lets a support report distinguish an old schema
+  // from a stale UI/API bundle without exposing the database itself.
+  let migrations: string[] = [];
+  try {
+    const applied = await query<{ version: string }>('SELECT version FROM schema_migrations ORDER BY version ASC');
+    migrations = applied.rows.map(row => row.version).filter(version => typeof version === 'string').slice(-200);
+  } catch { /* diagnostics stays available on a partially initialized database */ }
   let redisOk = true;
   try { await redisClient.ping(); } catch { redisOk = false; }
 
@@ -214,7 +222,7 @@ export async function buildServerReport(userId: string, salt: string) {
 
   return {
     versions: { backend: BACKEND_VERSION, gitSha: process.env.BUILD_SHA || 'dev' },
-    server: { uptimeSeconds: Math.round(process.uptime()), dbOk, redisOk },
+    server: { uptimeSeconds: Math.round(process.uptime()), dbOk, redisOk, migrations },
     accounts,
     folders,
     counts: { unreadTotal, unreadByAccountRef },

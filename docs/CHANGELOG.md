@@ -396,6 +396,7 @@ None.
   IMAP loops, health checks, rule forwarder and send path no longer open IMAP or SMTP for it.
 
 ### Fixed
+- **Diagnostics now identify the running UI/API pair and migration ledger.** The sanitized report records backend/frontend build SHA, loaded hashed UI entry path, route and applied migration names without tokens, message content or account identifiers.
 - **CalDAV connection is configured in Settings → Calendar.** Credential entry no longer appears in the source manager; that manager adds ICS/webcal sources and manages already-connected sources and their collections.
 - **Provider account cards are compact again.** Google and Microsoft service switches, reconnect, retry and diagnostics now appear only after opening that specific account for editing; native accounts no longer fail validation because their deliberately hidden IMAP fields are empty.
 - **External contacts can now share an e-mail address without losing provider identity.** Migration `0134_contact_local_email_keys.sql` removes the address-book-wide unique e-mail index and gives Inboxora-owned recipient learning its own durable local key. Google, Microsoft and DAV projections continue to update by their stable UID/remote link; apply `0134` before this application code.
