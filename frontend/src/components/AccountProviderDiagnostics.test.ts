@@ -23,9 +23,11 @@ test('the diagnostics section is collapsible and reads one account from the serv
   assert.match(source, /data-testid="account-diagnostics"/);
   // Collapsed until asked for: the card's job is the actions.
   assert.match(source, /const \[diagnosticsOpen, setDiagnosticsOpen\] = useState\(false\)/);
-  // One request for one account, and the same account the features were read for.
-  assert.match(source, /api\.accountProviderDiagnostics\(accountId\)/);
-  assert.match(source, /api\.accountProviderFeatures\(accountId\)/);
+  // One coherent request carries both capabilities and diagnostics for this account.
+  assert.match(source, /api\.accountProviderStatus\(accountId\)/);
+  assert.doesNotMatch(source, /api\.accountProviderDiagnostics\(accountId\)/);
+  assert.doesNotMatch(source, /api\.accountProviderFeatures\(accountId\)/);
+  assert.match(source, /setFeatures\(data\); setDiagnostics\(data\.diagnostics\)/);
 });
 
 test('every promised line is rendered per feature', async () => {
@@ -80,10 +82,10 @@ test('the diagnostics model has no field for a credential', async () => {
   }
 });
 
-test('the client calls the per-account diagnostics endpoint', async () => {
+test('the client calls the coherent per-account provider status endpoint', async () => {
   const source = await readFile(api, 'utf8');
-  assert.match(source, /accountProviderDiagnostics: \(accountId: string\) =>/);
-  assert.match(source, /\/accounts\/\$\{encodeURIComponent\(accountId\)\}\/provider-diagnostics/);
+  assert.match(source, /accountProviderStatus: \(accountId: string\) =>/);
+  assert.match(source, /\/accounts\/\$\{encodeURIComponent\(accountId\)\}\/provider-status/);
 });
 
 test('a service row separates authorization from synchronization', async () => {

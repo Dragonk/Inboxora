@@ -484,12 +484,12 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
         </> : <p style={{ margin: '6px 0', fontSize: 12, color: 'var(--text-tertiary)' }}>{t('calendar.googleNotConnected')}</p>}
       </div>
       <div style={{ marginTop: 18, borderTop: '1px solid var(--border)', paddingTop: 12 }}>
-        <strong>Microsoft</strong>
+        <strong>{t('calendar.microsoftTitle')}</strong>
         {microsoftCalendars?.connected ? <>
-          <p style={{ margin: '6px 0', fontSize: 12, color: 'var(--text-tertiary)' }}>Microsoft Graph calendars</p>
+          <p style={{ margin: '6px 0', fontSize: 12, color: 'var(--text-tertiary)' }}>{t('calendar.microsoftHint')}</p>
           <button data-testid="calendar-microsoft-sync" disabled={microsoftSyncing} onClick={runMicrosoftCalendarSync} style={primaryButton}>{microsoftSyncing ? t('calendar.googleSyncing') : t('calendar.syncSource')}</button>
           {microsoftSyncNotice && <p role="status" data-testid="calendar-microsoft-sync-result" style={{ margin: '8px 0 0', fontSize: 12 }}>{microsoftSyncNotice}</p>}
-        </> : <p style={{ margin: '6px 0', fontSize: 12, color: 'var(--text-tertiary)' }}>Microsoft is not connected.</p>}
+        </> : <p style={{ margin: '6px 0', fontSize: 12, color: 'var(--text-tertiary)' }}>{t('calendar.microsoftNotConnected')}</p>}
       </div>
     </Dialog>}
   </aside>;

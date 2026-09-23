@@ -94,7 +94,7 @@ test('the account card carries the provider services, and the classifier decides
   const services = await readFile(new URL('./AccountProviderServices.tsx', import.meta.url), 'utf8');
   // Mounted on every account card, driven by the backend's account-centric feature view.
   assert.match(panel, /<AccountProviderServices accountId=\{account\.id\} reload=\{loadAccounts\} t=\{t\} \/>/);
-  assert.match(services, /api\.accountProviderFeatures\(accountId\)/);
+  assert.match(services, /api\.accountProviderStatus\(accountId\)/);
   // The transport is named, and a migration is offered only when the backend says it applies.
   assert.match(services, /data-testid="account-transport"/);
   assert.match(services, /features\.mail\.migrationAvailable &&/);
