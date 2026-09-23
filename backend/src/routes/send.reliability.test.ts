@@ -252,6 +252,23 @@ describe('send failure semantics', () => {
     expect(raw).not.toContain('<forged@example.test>');
   });
 
+  it('renders a complete de-duplicated multi-hop References chain (THR-06)', async () => {
+    query.mockImplementation(async sql => {
+      if (sql.includes('FROM messages m JOIN email_accounts')) return { rows: [{
+        id: 'parent-row', message_id: '<c@example.test>', canonical_message_id: null,
+        in_reply_to: '<b@example.test>', thread_references: '<a@example.test> <b@example.test> <a@example.test>',
+        provider_message_id: null, account_id: 'a1',
+      }] };
+      return { rows: sql.includes('FROM email_accounts') ? [account] : [{ preferences: {}, id: 'book1' }] };
+    });
+    const response = await post({ ...defaultBody, replyToMessageId: '11111111-1111-4111-8111-111111111111', sendKind: 'reply' }, 'multihop');
+    expect(response.status).toBe(200);
+    const [mailOptions] = sendMail.mock.calls[0];
+    const parsed = parseRawHeaders(Buffer.isBuffer(mailOptions.raw) ? mailOptions.raw : String(mailOptions.raw));
+    expect(parsed['in-reply-to']).toBe('<c@example.test>');
+    expect(parsed.references).toBe('<a@example.test> <b@example.test> <c@example.test>');
+  });
+
   it.each([
     ['pending', null, 409, { error: 'This message is already being sent.' }],
     ['uncertain', null, 409, { code: 'SEND_OUTCOME_UNKNOWN', error: 'The result of this send is still being confirmed. It will not be sent again automatically.' }],
