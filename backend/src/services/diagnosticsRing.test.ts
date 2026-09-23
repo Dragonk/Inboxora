@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import {
   recordWarning, recordBroadcast, recordWsConnect, recordWsDisconnect,
   getWarningsRaw, getConnectionStats, recordSyncSignal, getSyncSignalsRaw,
-  _resetDiagnosticsRing,
+  recordReplyDiagnostic, getReplyDiagnosticsRaw, _resetDiagnosticsRing,
 } from './diagnosticsRing.js';
 
 describe('diagnosticsRing', () => {
@@ -60,6 +60,19 @@ describe('diagnosticsRing', () => {
     expect(uv.count).toBe(1);
     expect(uv.sumMag).toBe(0); // no magnitude recorded
     expect(raw.some(s => s.sig === 'badge_count_clamp' && !s.accountId)).toBe(true);
+  });
+
+  it('keeps a redacted reply ingest observation with only outcome booleans', () => {
+    recordReplyDiagnostic({
+      event: 'mail_reply_ingested', accountId: 'a1', transport: 'microsoft_graph', sendKind: 'reply',
+      replyParentPresent: true, parentRfcMessageIdPresent: true, referencesCount: 2,
+      providerParentResolved: true, providerResolution: 'direct', transportReplyMode: 'graph_create_reply',
+      legacyThreadMatched: true, conversationMatched: true, providerThreadMatched: true,
+    });
+    const event = getReplyDiagnosticsRaw()[0];
+    expect(event).toMatchObject({ accountId: 'a1', event: 'mail_reply_ingested', conversationMatched: true });
+    expect(Object.keys(event)).not.toContain('messageId');
+    expect(Object.keys(event)).not.toContain('providerMessageId');
   });
 
   it('ignores empty sync signatures and resets with the ring', () => {

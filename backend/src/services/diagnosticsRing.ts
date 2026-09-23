@@ -41,6 +41,9 @@ export interface ReplyDiagnosticEvent {
   providerParentResolved: boolean;
   providerResolution: 'direct' | 'legacy_alias' | 'not_applicable' | 'unresolved';
   transportReplyMode: 'rfc_headers' | 'graph_create_reply' | 'graph_create_reply_all';
+  legacyThreadMatched?: boolean;
+  conversationMatched?: boolean;
+  providerThreadMatched?: boolean;
   t: number;
 }
 

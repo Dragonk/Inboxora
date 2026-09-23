@@ -3,6 +3,7 @@ import { toAppError } from '../utils/errors.js';
 import { conversationPersistedFields, resolveOwnIdentityAddresses } from './conversationIngestEnvelope.js';
 import { upsertConversationCopy } from './conversationPersistence.js';
 import { recordConversationIngestFailure } from './conversationIngestFailures.js';
+import { recordReplyDiagnostic } from './diagnosticsRing.js';
 
 /**
  * Project one persisted message row into the conversation engine.
@@ -65,6 +66,43 @@ export async function persistConversationCopyForRow(rowId: string, account: Conv
       // persisted/message payload in the conversation persistence layer.
       userId: account.user_id,
     });
+    const parentHeader = typeof result.rows[0].in_reply_to === 'string' ? result.rows[0].in_reply_to : null;
+    if (parentHeader) {
+      const verdict = await query<{
+        legacy_thread_matched: boolean; conversation_matched: boolean; provider_thread_matched: boolean;
+      }>(
+        `SELECT EXISTS (
+           SELECT 1 FROM messages child JOIN messages parent
+             ON parent.account_id = child.account_id AND parent.message_id = child.in_reply_to
+            WHERE child.id = $1 AND parent.thread_id IS NOT NULL AND parent.thread_id = child.thread_id
+         ) AS legacy_thread_matched,
+         EXISTS (
+           SELECT 1 FROM messages child JOIN messages parent
+             ON parent.account_id = child.account_id AND parent.message_id = child.in_reply_to
+            WHERE child.id = $1 AND parent.conversation_id IS NOT NULL AND parent.conversation_id = child.conversation_id
+         ) AS conversation_matched,
+         EXISTS (
+           SELECT 1 FROM messages child JOIN messages parent
+             ON parent.account_id = child.account_id AND parent.message_id = child.in_reply_to
+            WHERE child.id = $1 AND parent.provider_thread_id IS NOT NULL AND parent.provider_thread_id = child.provider_thread_id
+         ) AS provider_thread_matched`,
+        [rowId],
+      );
+      const state = verdict.rows[0];
+      const transport = account.mail_transport === 'microsoft_graph' ? 'microsoft_graph'
+        : account.mail_transport === 'gmail_api' ? 'gmail_api' : 'smtp';
+      recordReplyDiagnostic({
+        event: 'mail_reply_ingested', accountId: account.id, transport, sendKind: 'reply',
+        replyParentPresent: true, parentRfcMessageIdPresent: true,
+        referencesCount: (String(result.rows[0].thread_references || '').match(/<[^<>\r\n]+>/g) || []).length,
+        providerParentResolved: state?.provider_thread_matched === true,
+        providerResolution: transport === 'microsoft_graph' ? 'direct' : 'not_applicable',
+        transportReplyMode: transport === 'microsoft_graph' ? 'graph_create_reply' : 'rfc_headers',
+        legacyThreadMatched: state?.legacy_thread_matched === true,
+        conversationMatched: state?.conversation_matched === true,
+        providerThreadMatched: state?.provider_thread_matched === true,
+      });
+    }
   } catch (caught) {
     const err = toAppError(caught);
     console.error('Conversation persistence error:', err.message);
