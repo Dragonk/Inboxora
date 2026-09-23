@@ -3,7 +3,7 @@ import express from 'express';
 import type { Server } from 'node:http';
 import { listeningPort } from '../test/net.js';
 
-const mocks = vi.hoisted(() => ({ query: vi.fn(), syncGraphContacts: vi.fn(), configured: { value: true }, browserReady: { value: true } }));
+const mocks = vi.hoisted(() => ({ query: vi.fn(), syncGraphContacts: vi.fn(), configured: { value: true }, browserReady: { value: true }, operational: { value: true } }));
 
 vi.mock('../services/db.js', () => ({
   query: mocks.query,
@@ -16,6 +16,10 @@ vi.mock('../middleware/auth.js', () => ({
   },
 }));
 // Keep every real export and override only what this suite needs.
+vi.mock('../services/providerSwitches.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../services/providerSwitches.js')>()),
+  providerOperationalForSync: vi.fn(async () => mocks.operational.value),
+}));
 vi.mock('../services/providerAuthService.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../services/providerAuthService.js')>()),
   microsoftConfigFromEnv: () => ({ clientId: 'client-1', clientSecret: 'secret-1', redirectUri: 'https://x/cb', providerRedirectUri: 'https://x/oauth/provider/microsoft/callback', tenantId: 'common' }),
@@ -67,6 +71,7 @@ afterAll(async () => {
 beforeEach(() => {
   mocks.configured.value = true;
   mocks.browserReady.value = true;
+  mocks.operational.value = true;
   mocks.query.mockReset();
   mocks.syncGraphContacts.mockReset();
 });
@@ -75,6 +80,15 @@ const status = () => fetch(`${base}/api/contacts/providers/microsoft/status`);
 const sync = () => fetch(`${base}/api/contacts/providers/microsoft/sync`, { method: 'POST' });
 
 describe('Microsoft contacts connector routes', () => {
+  it('refuses an existing Microsoft connection before any query or provider call when the API is disabled', async () => {
+    mocks.operational.value = false;
+    const response = await sync();
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({ error: 'Microsoft API is disabled by the administrator' });
+    expect(mocks.query).not.toHaveBeenCalled();
+    expect(mocks.syncGraphContacts).not.toHaveBeenCalled();
+  });
+
   it('scopes the reported books to the Microsoft connections', async () => {
     mocks.query
       .mockResolvedValueOnce({ rows: [{ id: 'connection-1' }] })

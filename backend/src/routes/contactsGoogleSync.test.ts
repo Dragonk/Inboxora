@@ -3,7 +3,7 @@ import express from 'express';
 import type { Server } from 'node:http';
 import { listeningPort } from '../test/net.js';
 
-const mocks = vi.hoisted(() => ({ query: vi.fn(), syncGoogleContacts: vi.fn(), configured: { value: true } }));
+const mocks = vi.hoisted(() => ({ query: vi.fn(), syncGoogleContacts: vi.fn(), configured: { value: true }, operational: { value: true } }));
 
 vi.mock('../services/db.js', () => ({
   query: mocks.query,
@@ -17,6 +17,10 @@ vi.mock('../middleware/auth.js', () => ({
 }));
 // Keep every real export and override only what this suite needs: the routers pull
 // the token service in transitively, so a narrower mock breaks module evaluation.
+vi.mock('../services/providerSwitches.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../services/providerSwitches.js')>()),
+  providerOperationalForSync: vi.fn(async () => mocks.operational.value),
+}));
 vi.mock('../services/providerAuthService.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../services/providerAuthService.js')>()),
   googleConfigFromEnv: () => ({ clientId: 'client-1', clientSecret: 'secret-1', redirectUri: 'https://inboxora.example/oauth/google/callback' }),
@@ -67,6 +71,7 @@ afterAll(async () => {
 
 beforeEach(() => {
   mocks.configured.value = true;
+  mocks.operational.value = true;
   mocks.query.mockReset();
   mocks.syncGoogleContacts.mockReset();
 });
@@ -112,6 +117,15 @@ describe('GET /api/contacts/providers/google/status', () => {
 });
 
 describe('POST /api/contacts/providers/google/sync', () => {
+  it('refuses an existing Google connection before any query or provider call when the API is disabled', async () => {
+    mocks.operational.value = false;
+    const response = await sync();
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({ error: 'Google API is disabled by the administrator' });
+    expect(mocks.query).not.toHaveBeenCalled();
+    expect(mocks.syncGoogleContacts).not.toHaveBeenCalled();
+  });
+
   it('asks the user to connect an account when there is no Google connection', async () => {
     mocks.query.mockResolvedValueOnce({ rows: [] });
     const response = await sync();

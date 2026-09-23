@@ -3,7 +3,7 @@ import type { Response } from 'express';
 import type { VCardContact } from '../utils/vcard.ts';
 import { query, withTransaction } from '../services/db.js';
 import { collectionIsWritable } from '../services/providerAccess.js';
-import { providerIntegrationsEnabled } from '../services/providerSwitches.js';
+import { providerIntegrationsEnabled, providerOperationalForSync } from '../services/providerSwitches.js';
 import { providerConnectionFeatureEnabled } from '../services/accountProviderFeatureSettings.js';
 import { requireAuth } from '../middleware/auth.js';
 import { generateVCard, mergeVCard, normalizeContactDateLabel, normalizeVCardDate, parseVCard, splitVCards } from '../utils/vcard.js';
@@ -418,6 +418,9 @@ router.post('/providers/microsoft/sync', async (req, res) => {
   if (!providerIntegrationsEnabled()) {
     return res.status(403).json({ error: 'Provider integrations are disabled on this installation' });
   }
+  if (!await providerOperationalForSync('microsoft')) {
+    return res.status(403).json({ error: 'Microsoft API is disabled by the administrator' });
+  }
   const userId = sessionUserId(req);
   const connections = await query<{ id: string }>(
     "SELECT id FROM provider_connections WHERE user_id = $1 AND provider = 'microsoft' AND status = 'active' ORDER BY created_at ASC",
@@ -465,6 +468,9 @@ router.post('/providers/google/sync', async (req, res) => {
   // the readiness report stops offering it, and this stops an existing collection from syncing.
   if (!providerIntegrationsEnabled()) {
     return res.status(403).json({ error: 'Provider integrations are disabled on this installation' });
+  }
+  if (!await providerOperationalForSync('google')) {
+    return res.status(403).json({ error: 'Google API is disabled by the administrator' });
   }
   const userId = sessionUserId(req);
   const connections = await query<{ id: string }>(
