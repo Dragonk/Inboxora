@@ -25,6 +25,12 @@ without copying or losing anything local.
 - **Account-scoped provider services and source controls.** Calendars and contacts can be enabled independently for each Google or Microsoft mail account. `0128_account_provider_feature_settings.sql` preserves already-active linked services during upgrade, but does not turn on a new service merely because an OAuth grant is broad. Disabled services are not scheduled or manually synchronized; an enabled service without a first collection remains eligible for discovery.
 - **Calendar sources are grouped and presented independently from synchronization.** Local/system, subscription/DAV, Google and Microsoft sources use stable source/account identities. `0129_calendar_presentation_preferences.sql` persists per-user source collapse and calendar sidebar hiding; these presentation actions do not remove a calendar remotely or change its synchronization/write permissions. Google and Microsoft account sources share account-scoped “sync now” handling.
 - **Provider error and status wording is more precise.** Google API-disabled, scope, access, quota and unknown-forbidden responses remain distinguishable. Account cards render one account snapshot for enabled intent, authorization, sync freshness/error and push/polling rather than merging separate status fetches.
+- **OAuth capability checks now use scopes proven for the current token generation.** `0127_oauth_grant_current_scopes.sql` keeps `current_scopes` separate from historical consent. Existing grants deliberately remain unverified until a flow/token response confirms current scopes; a historic union is not treated as access for a new token.
+- **A legacy Graph cache has a bounded repair path.** Confirmed local legacy/native pairs are bound without deleting either cache row; ambiguous candidates become `needs_review` and a later ingest cannot replace an established binding. Graph body delivery also preserves body content if attachment metadata is unavailable.
+- **Gmail reader MIME completeness is explicit.** `0130_gmail_message_completeness.sql` separates rule-body, reader-body and attachment-metadata completeness, so a rule hydration text cache does not falsely prove that reader HTML/files were loaded. The MIME reader supports embedded attachment bytes, attachment-backed text bodies and explicit attachment disposition.
+- **Newsletter unsubscribe is recorded as an outcome, not inferred from a link.** Gmail ingest persists unsubscribe evidence, and `0131_message_unsubscribe_attempts.sql` stores pending, confirmed or uncertain one-click attempts. A manual URL or `mailto:` draft is not a completed unsubscribe, and an uncertain POST is not replayed automatically.
+- **Native bulk mail actions preserve the native projection.** Mixed transport trash batches keep Gmail/Graph local UUIDs and related metadata, and Gmail API archive stays on Gmail even when an IMAP-era archive mapping exists.
+- **Graph default contacts use a real default target.** The local `default_contacts` marker no longer reaches a `/contactFolders/{id}` URL; default results are retained independently from optional contact-folder discovery failures.
 - **Native Microsoft Graph mail, calendars and contacts.** Reading, filing, flagging, searching, drafting
   and **sending** over Graph, with folders, delta sync, bodies and attachments (single, inline and ZIP),
   delete, move/archive, spam/ham, snooze, bulk delete, mark-all-read, source headers, drafts and
@@ -69,7 +75,7 @@ without copying or losing anything local.
 
 ## Upgrade impact
 
-- **Apply migrations `0101`–`0129` in numeric order, before rolling out the application.** They are additive and no
+- **Apply migrations `0101`–`0131` in numeric order, before rolling out the application.** They are additive and no
   existing table, column or row is rewritten. Several deserve naming: `0110` adds the columns the Microsoft
   device authorization uses and must be applied before a device flow is started; `0111` adds the nullable
   `messages.provider_labels` the Gmail adapter writes; `0112` adds the `read_write` value the per-collection
@@ -84,7 +90,7 @@ without copying or losing anything local.
   migrated. `0117` lets a user hold several CalDAV or CardDAV sources: it drops the
   single-row constraint and replaces it with two partial unique indexes, so the unlabelled row per provider remains
   unique while labelled ones coexist. No row is rewritten, and nothing reads the new column yet, so behaviour is
-  unchanged until the source model is used. `0118_carddav_source_identity.sql` attaches CardDAV links to their exact source, `0119_gmail_archive_state.sql` records Gmail's archive state without deleting the message, and `0120_provider_rule_headers.sql` stores native-provider headers used by rules. `0121_provider_rule_deferred_queue.sql` creates the leased read-only queue for missing provider rule inputs. `0122_carddav_source_ownership_and_leases.sql` gives each external CardDAV projection a source owner and a fenced lease (ambiguous legacy ownership remains unowned rather than guessed); `0123_gmail_baseline_generations.sql` persists a bounded Gmail baseline's seen set and its final All Mail reconciliation; `0124_message_header_completeness.sql` records whether provider headers are complete; and `0125_provider_rule_deferred_dispatch.sql` records the action hand-off state. Apply all five in that order before deploying their workers. `0126_graph_legacy_message_bindings.sql` adds explicit legacy-to-Graph aliases; `0128_account_provider_feature_settings.sql` adds the account/feature intent table and backfills only accounts with an enabled linked projection; `0129_calendar_presentation_preferences.sql` adds per-user source-collapse and sidebar-hidden preferences. (There is no `0127` migration file in this checkout.) Apply the present `0126`, `0128` and `0129` migrations in numeric order before serving the corresponding code. All are additive, do not rewrite existing rows (except the intentional `0128` insert of settings), and must be applied before this application version runs.
+  unchanged until the source model is used. `0118_carddav_source_identity.sql` attaches CardDAV links to their exact source, `0119_gmail_archive_state.sql` records Gmail's archive state without deleting the message, and `0120_provider_rule_headers.sql` stores native-provider headers used by rules. `0121_provider_rule_deferred_queue.sql` creates the leased read-only queue for missing provider rule inputs. `0122_carddav_source_ownership_and_leases.sql` gives each external CardDAV projection a source owner and a fenced lease (ambiguous legacy ownership remains unowned rather than guessed); `0123_gmail_baseline_generations.sql` persists a bounded Gmail baseline's seen set and its final All Mail reconciliation; `0124_message_header_completeness.sql` records whether provider headers are complete; and `0125_provider_rule_deferred_dispatch.sql` records the action hand-off state. Apply all five in that order before deploying their workers. `0126_graph_legacy_message_bindings.sql` adds explicit legacy-to-Graph aliases; `0127_oauth_grant_current_scopes.sql` adds a nullable, intentionally unbackfilled proof of current-token scopes; `0128_account_provider_feature_settings.sql` adds the account/feature intent table and backfills only accounts with an enabled linked projection; `0129_calendar_presentation_preferences.sql` adds per-user source-collapse and sidebar-hidden preferences; `0130_gmail_message_completeness.sql` adds independent Gmail rule/reader/attachment completeness flags; and `0131_message_unsubscribe_attempts.sql` records durable unsubscribe-attempt outcomes. Apply `0126`–`0131` in numeric order before serving their code. All are additive, do not rewrite existing rows (except the intentional `0128` insert of settings), and must be applied before this application version runs.
 - **Microsoft accounts are not migrated automatically.** An existing Microsoft account keeps reading and
   sending over OAuth2 IMAP/SMTP until an administrator (or the account's owner) invokes the in-place
   cutover for it. Migrating is what makes the Graph paths reachable for that mailbox; **no account is
@@ -228,6 +234,7 @@ provider payload.
 
 ## Known limitations
 
+- **The complete calendar-sidebar grouping, hide/restore and per-account source-sync interface is not part of this committed documentation update.** A frontend change is still uncommitted, so this release note does not claim that the main sidebar renders the source groups or that its controls complete the UI flow.
 - **Names already stored with replacement characters are not rewritten.** The fix applies when a header is
   decoded, so newly received mail is correct. A message that was already parsed under the old decoder holds the
   replacement character in the database, and the original octets are not recoverable from it — re-fetching or
@@ -276,8 +283,7 @@ These need a real provider, device or client. They are **NOT RUN**, not failures
 
 ## Verification
 
-Measured on the frozen `dev` SHA **`561262b4cb3b554fb8e9a2821224d49ee7206f36`**, with each gate's own exit
-status read rather than inferred from a pipeline:
+The following measurements are from the earlier frozen `dev` SHA **`561262b4cb3b554fb8e9a2821224d49ee7206f36`**; they do **not** validate the later second-audit commits documented above. Their provider and UI paths still require the focused/local gates and the live acceptance listed here, with no claim of live validation:
 
 - Backend: typecheck clean, lint clean, **2983 unit tests passed, 225 skipped** (247 files passed, 25
   skipped).
