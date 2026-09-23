@@ -12,12 +12,14 @@ without copying or losing anything local.
 
 ## Highlights
 
-- **Safe deferred native inbox rules.** A Gmail or Microsoft message whose ingest projection lacks a body or headers
-  needed by an inbox rule is recorded in the additive `0121_provider_rule_deferred_queue.sql` queue before any
-  block-list or rule action runs. The scheduled worker reads only the missing provider data, with a lease and
-  backoff for transient failures. Empty or unavailable reads remain unknown, so a negative rule cannot act from
-  missing content; after the queue record is settled, a provider action is never replayed by this mechanism.
-  Apply migration `0121` after `0120_provider_rule_headers.sql` and before rolling out the worker.
+- **Crash-safe deferred native inbox rules.** A Gmail or Microsoft message whose ingest projection lacks a body or
+  headers needed by an inbox rule is recorded in the additive `0121_provider_rule_deferred_queue.sql` queue before
+  any block-list or rule action runs. The worker reads only missing data, with a lease and backoff for transient
+  failures. `0124_message_header_completeness.sql` distinguishes metadata-only headers from a complete header read;
+  a confirmed empty body is evaluated as empty, while unavailable content remains unknown. `0125_provider_rule_deferred_dispatch.sql`
+  retains the record through the hand-off to an action journal and parks a lease lost after that boundary as
+  `outcome_unknown`, rather than replaying an uncertain provider effect. Apply `0121`, `0124`, and `0125` in order
+  before rolling out the worker.
 
 - **Native Microsoft Graph mail, calendars and contacts.** Reading, filing, flagging, searching, drafting
   and **sending** over Graph, with folders, delta sync, bodies and attachments (single, inline and ZIP),
@@ -63,8 +65,8 @@ without copying or losing anything local.
 
 ## Upgrade impact
 
-- **Apply migrations `0101`–`0121` in order, before rolling out the application.** They are additive and no
-  existing table, column or row is rewritten. Four deserve naming: `0110` adds the columns the Microsoft
+- **Apply migrations `0101`–`0125` in order, before rolling out the application.** They are additive and no
+  existing table, column or row is rewritten. Several deserve naming: `0110` adds the columns the Microsoft
   device authorization uses and must be applied before a device flow is started; `0111` adds the nullable
   `messages.provider_labels` the Gmail adapter writes; `0112` adds the `read_write` value the per-collection
   write-back switch needs and changes no row, so nothing becomes writable because of it; `0116` creates the
@@ -78,7 +80,7 @@ without copying or losing anything local.
   migrated. `0117` lets a user hold several CalDAV or CardDAV sources: it drops the
   single-row constraint and replaces it with two partial unique indexes, so the unlabelled row per provider remains
   unique while labelled ones coexist. No row is rewritten, and nothing reads the new column yet, so behaviour is
-  unchanged until the source model is used. `0118_carddav_source_identity.sql` attaches CardDAV links to their exact source, `0119_gmail_archive_state.sql` records Gmail's archive state without deleting the message, and `0120_provider_rule_headers.sql` stores native-provider headers used by rules. `0121_provider_rule_deferred_queue.sql` creates the leased read-only queue for missing provider rule inputs; apply it before deploying the worker. All four are additive, do not rewrite existing rows, and must be applied before this application version runs.
+  unchanged until the source model is used. `0118_carddav_source_identity.sql` attaches CardDAV links to their exact source, `0119_gmail_archive_state.sql` records Gmail's archive state without deleting the message, and `0120_provider_rule_headers.sql` stores native-provider headers used by rules. `0121_provider_rule_deferred_queue.sql` creates the leased read-only queue for missing provider rule inputs. `0122_carddav_source_ownership_and_leases.sql` gives each external CardDAV projection a source owner and a fenced lease (ambiguous legacy ownership remains unowned rather than guessed); `0123_gmail_baseline_generations.sql` persists a bounded Gmail baseline's seen set and its final All Mail reconciliation; `0124_message_header_completeness.sql` records whether provider headers are complete; and `0125_provider_rule_deferred_dispatch.sql` records the action hand-off state. Apply all five in that order before deploying their workers. All are additive, do not rewrite existing rows, and must be applied before this application version runs.
 - **Microsoft accounts are not migrated automatically.** An existing Microsoft account keeps reading and
   sending over OAuth2 IMAP/SMTP until an administrator (or the account's owner) invokes the in-place
   cutover for it. Migrating is what makes the Graph paths reachable for that mailbox; **no account is
