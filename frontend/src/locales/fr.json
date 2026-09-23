@@ -2042,7 +2042,6 @@
     "firstDayOfWeek": "Premier jour de la semaine",
     "monday": "Lundi",
     "sunday": "Dimanche",
-    "sourceType": "Type de source",
     "sourceName": "Nom",
     "sourceUrl": "URL",
     "sourceUsername": "Nom d’utilisateur",
