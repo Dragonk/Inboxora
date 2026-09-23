@@ -8,9 +8,15 @@ describe('reduceProviderSyncResult', () => {
     });
   });
 
-  it('preserves collection failures as partial and retryable', () => {
+  it('preserves a settled collection failure as partial, not success or an in-flight retry', () => {
     expect(reduceProviderSyncResult({ errors: [{ code: 'PROVIDER_API_DISABLED' }] })).toMatchObject({
-      outcome: 'partial', state: 'partial', synchronized: false, syncPending: true, errorCode: 'PROVIDER_API_DISABLED',
+      outcome: 'partial', state: 'partial', synchronized: false, syncPending: false, errorCode: 'PROVIDER_API_DISABLED',
+    });
+  });
+
+  it('keeps an explicit scope refusal terminal and distinct from a partial collection failure', () => {
+    expect(reduceProviderSyncResult({ errors: [{ code: 'INSUFFICIENT_SCOPES' }] })).toMatchObject({
+      outcome: 'auth_required', state: 'error', synchronized: false, syncPending: false, errorCode: 'INSUFFICIENT_SCOPES',
     });
   });
 

@@ -42,7 +42,7 @@ export function isFinalizablePurpose(purpose: string): purpose is ProviderAuthor
 }
 
 export type { ProviderSyncOutcome } from './providerSyncOutcome.js';
-type FinalizerSyncOutcome = ProviderSyncOutcome | 'auth_required' | 'failed';
+type FinalizerSyncOutcome = ProviderSyncOutcome;
 
 export interface ProviderAuthorizationResult {
   provider: 'google' | 'microsoft';
