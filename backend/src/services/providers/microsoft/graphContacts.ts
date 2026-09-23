@@ -1,4 +1,4 @@
-import { graphDelete, graphGet, graphPatch, graphPost, graphUrl } from './graphApiClient.js';
+import { graphDelete, graphGet, graphGetWithHeaders, graphPatch, graphPost, graphUrl } from './graphApiClient.js';
 import type { GraphApiOptions } from './graphApiClient.js';
 import type { VCardContact } from '../../../utils/vcard.js';
 
@@ -232,15 +232,18 @@ export async function fetchContactsPage(options: GraphApiOptions, input: {
   const top = Number.isFinite(input.top) && Number(input.top) > 0 ? Math.min(999, Math.floor(Number(input.top))) : 200;
   const folderId = (input.folderId ?? '').trim();
   // A caller-provided link is already a complete, absolute Graph URL.
+  const isInitialFolderDelta = !input.nextLink && !input.deltaLink && !input.defaultContacts && Boolean(folderId);
   const url = input.nextLink ?? input.deltaLink
     ?? (input.defaultContacts
       ? graphUrl('/me/contacts', { $select: CONTACT_SELECT, $top: top })
       : folderId
-        ? graphUrl(`/me/contactFolders/${encodeURIComponent(folderId)}/contacts/delta`, { $select: CONTACT_SELECT, $top: top })
+        ? graphUrl(`/me/contactFolders/${encodeURIComponent(folderId)}/contacts/delta`, { $select: CONTACT_SELECT })
         // `contactFolder` has no well-known-name property; callers must either name
         // a real folder id or explicitly request Graph's default collection.
         : (() => { throw new Error('A Microsoft contact folder id or default collection is required'); })());
-  const body = await graphGet<GraphCollection<GraphContact & { '@removed'?: { reason?: string } }>>(options, url);
+  const body = isInitialFolderDelta
+    ? await graphGetWithHeaders<GraphCollection<GraphContact & { '@removed'?: { reason?: string } }>>(options, url, { Prefer: `odata.maxpagesize=${top}` })
+    : await graphGet<GraphCollection<GraphContact & { '@removed'?: { reason?: string } }>>(options, url);
   return {
     contacts: (Array.isArray(body.value) ? body.value : []).map(entry => {
       const removed = (entry as { '@removed'?: { reason?: string } })['@removed'];

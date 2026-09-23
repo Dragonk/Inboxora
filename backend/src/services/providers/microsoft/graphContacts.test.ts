@@ -160,7 +160,7 @@ describe('fetchContactsPage', () => {
   const json = (body: unknown, status = 200): Response =>
     ({ ok: status >= 200 && status < 300, status, headers: new Headers(), json: async () => body }) as Response;
 
-  it('reads the default folder delta with a select list and surfaces the delta link', async () => {
+  it('uses Graph delta paging preference rather than $top for a folder delta', async () => {
     const fetchMock = vi.fn().mockResolvedValue(json({
       value: [{ id: 'c1', displayName: 'Ada' }],
       '@odata.deltaLink': 'https://graph.microsoft.com/v1.0/me/contactFolders/folder-1/contacts/delta?$deltatoken=abc',
@@ -174,7 +174,8 @@ describe('fetchContactsPage', () => {
     const url = String(fetchMock.mock.calls[0][0]);
     expect(url).toContain('/me/contactFolders/folder-1/contacts/delta');
     expect(url).toContain('%24select=id');
-    expect(url).toContain('%24top=200');
+    expect(url).not.toContain('%24top=');
+    expect(new Headers(fetchMock.mock.calls[0][1]?.headers).get('prefer')).toBe('odata.maxpagesize=200');
   });
 
   it('reads the default collection without inventing a contact folder id', async () => {

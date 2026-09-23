@@ -53,7 +53,7 @@ export interface GraphContactsSyncResult extends GraphContactsFolderResult {
    * own contacts and a silent success would report a mailbox that pulled nothing as healthy — while one extra
    * folder must not stop the others (the rule GRAPH-06 established for mail folders).
    */
-  errors: Array<{ folderId: string; code: string }>;
+  errors: Array<{ folderId: string; code: string; stage: 'discovery' | 'provider-request' | 'decode-contact' | 'db-project' | 'reconcile' | 'checkpoint'; status?: number; providerReason?: string }>;
 }
 
 /** One folder's outcome. */
@@ -515,14 +515,14 @@ export async function syncGraphContacts(input: {
   };
   // The default collection is independent from contact-folder discovery. A broken
   // child branch must not prevent the documented `/me/contacts` read from running.
-  const errors: Array<{ folderId: string; code: string }> = [];
+  const errors: GraphContactsSyncResult['errors'] = [];
   let discovered: GraphContactFolder[] = [];
   try {
     discovered = await discoverGraphContactFolders(api);
   } catch (caught) {
     const code = caught instanceof GraphApiError || caught instanceof ProviderAuthError || caught instanceof SyncLeaseLostError
       ? caught.code : 'INTERNAL_ERROR';
-    errors.push({ folderId: 'discovery', code });
+    errors.push({ folderId: 'discovery', code, stage: 'discovery', ...(caught instanceof GraphApiError ? { status: caught.status, providerReason: caught.providerReason } : {}) });
     console.warn(`Microsoft contacts folder discovery failed for connection ${input.connectionId}:`, code);
   }
   // The default collection is not a contactFolder and may be present even if the
@@ -545,11 +545,17 @@ export async function syncGraphContacts(input: {
       );
       books.push(result);
     } catch (caught) {
-      const code = caught instanceof GraphApiError || caught instanceof ProviderAuthError || caught instanceof SyncLeaseLostError
-        ? caught.code
-        : 'INTERNAL_ERROR';
+      const db = toAppError(caught);
+      const emailCollision = db.code === '23505';
+      // Preserve distinct provider identities: an address-book unique-email
+      // constraint is diagnosed, never resolved by merging two people by email.
+      const code = emailCollision ? 'CONTACT_EMAIL_COLLISION' : caught instanceof GraphApiError || caught instanceof ProviderAuthError || caught instanceof SyncLeaseLostError
+        ? caught.code : 'INTERNAL_ERROR';
       if (folder.id === primary.id) throw caught;
-      errors.push({ folderId: folder.id, code });
+      errors.push({
+        folderId: folder.id, code, stage: emailCollision ? 'db-project' : 'provider-request',
+        ...(caught instanceof GraphApiError ? { status: caught.status, providerReason: caught.providerReason } : {}),
+      });
       console.warn(`Microsoft contacts sync failed for folder ${folder.id} of connection ${input.connectionId}:`, code);
     }
   }
