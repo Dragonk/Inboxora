@@ -481,7 +481,7 @@ describeOrSkip('4.0.4 → 4.1.0 upgrade', () => {
     ]);
     expect(afterFirstRun.ledger.slice(1, 3)).toEqual(preservedBefore.ledger);
     expect(afterFirstRun.grant).toEqual([{ scopes: ['openid', 'email'], current_scopes: null }]);
-    expect(afterFirstRun.metadata).toEqual(preservedBefore.metadata.map(({ scopes, ...row }: Record<string, unknown>) => row));
+    expect(afterFirstRun.metadata).toEqual(preservedBefore.metadata.map(({ scopes: _scopes, ...row }: Record<string, unknown>) => row));
 
     await runMigrations();
     const afterSecondRun = await autocommit(client => client.query<{ version: string; applied_at: string }>(
