@@ -21,13 +21,15 @@ export interface ProviderSyncError {
   retryable?: boolean;
   /** Sanitized provider reason, never a raw provider response. */
   providerReason?: string;
+  /** Safe Google ErrorInfo service identifier. */
+  providerService?: string;
   /** Logical adapter stage, not a URL or request payload. */
   operation?: string;
 }
 
 /** The HTTP status and retryability a provider error carries, whichever client raised it. */
-function providerErrorDetails(caught: unknown): { code: string; message: string; status: number | null; retryable: boolean; providerReason?: string } {
-  const candidate = caught as { code?: unknown; message?: unknown; status?: unknown; retryable?: unknown; providerReason?: unknown } | null;
+function providerErrorDetails(caught: unknown): { code: string; message: string; status: number | null; retryable: boolean; providerReason?: string; providerService?: string } {
+  const candidate = caught as { code?: unknown; message?: unknown; status?: unknown; retryable?: unknown; providerReason?: unknown; providerService?: unknown } | null;
   const code = typeof candidate?.code === 'string' && candidate.code ? candidate.code : 'PROVIDER_ERROR';
   const message = typeof candidate?.message === 'string' && candidate.message
     ? candidate.message
@@ -39,7 +41,9 @@ function providerErrorDetails(caught: unknown): { code: string; message: string;
   const providerReason = typeof candidate?.providerReason === 'string' && /^[A-Za-z0-9_.-]{1,120}$/.test(candidate.providerReason)
     ? candidate.providerReason
     : undefined;
-  return { code, message, status, retryable, ...(providerReason ? { providerReason } : {}) };
+  const providerService = typeof candidate?.providerService === 'string' && /^[A-Za-z0-9.-]{1,120}$/.test(candidate.providerService)
+    ? candidate.providerService : undefined;
+  return { code, message, status, retryable, ...(providerReason ? { providerReason } : {}), ...(providerService ? { providerService } : {}) };
 }
 
 /** Codes that mean the authorization, not the request, is the problem. */
@@ -87,6 +91,7 @@ export async function describeProviderSyncFailure(input: {
     message: details.message,
     ...(missingScopes ? { missingScopes } : {}),
     ...(details.providerReason ? { providerReason: details.providerReason } : {}),
+    ...(details.providerService ? { providerService: details.providerService } : {}),
     ...(input.operation ? { operation: input.operation } : {}),
     retryable: details.retryable,
   };

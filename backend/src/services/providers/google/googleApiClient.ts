@@ -20,6 +20,7 @@ export class GoogleApiError extends Error {
   readonly retryable: boolean;
   readonly retryAfterSeconds?: number;
   readonly providerReason?: string;
+  readonly providerService?: string;
 
   constructor(input: {
     code: ApiProblemCode;
@@ -28,6 +29,7 @@ export class GoogleApiError extends Error {
     retryable?: boolean;
     retryAfterSeconds?: number;
     providerReason?: string;
+    providerService?: string;
   }) {
     super(input.message);
     this.name = 'GoogleApiError';
@@ -36,6 +38,7 @@ export class GoogleApiError extends Error {
     this.retryable = input.retryable ?? false;
     if (input.retryAfterSeconds !== undefined) this.retryAfterSeconds = input.retryAfterSeconds;
     if (input.providerReason !== undefined) this.providerReason = input.providerReason;
+    if (input.providerService !== undefined) this.providerService = input.providerService;
   }
 }
 
@@ -105,6 +108,11 @@ function normalizedReasons(reasons: readonly string[]): Set<string> {
   return new Set(reasons.map(reason => reason.toLowerCase()));
 }
 
+function errorInfoService(body: GoogleErrorBody): string | undefined {
+  const service = body.error?.details?.find(detail => detail['@type']?.includes('google.rpc.ErrorInfo'))?.metadata?.service;
+  return typeof service === 'string' && /^[a-z0-9.-]{1,120}$/i.test(service) ? service : undefined;
+}
+
 function retryAfterSeconds(headers: Headers): number | undefined {
   const raw = headers.get('retry-after');
   if (!raw) return undefined;
@@ -120,6 +128,7 @@ export function classifyGoogleError(status: number, body: unknown, headers: Head
   const normalized = normalizedReasons(reasons);
   const message = parsed.error?.message || `Google API returned ${status}`;
   const after = retryAfterSeconds(headers);
+  const providerService = errorInfoService(parsed);
   // The structured expiry signal wins over the status: a full rebuild is the only correct answer whatever the
   // transport answered with (SYNC-07).
   const expired = expiredSyncTokenReason(parsed);
@@ -136,7 +145,7 @@ export function classifyGoogleError(status: number, body: unknown, headers: Head
       return new GoogleApiError({ code: 'RATE_LIMITED', message, status, retryable: true, retryAfterSeconds: after, providerReason: reason });
     }
     if ([...normalized].some(value => API_DISABLED_REASONS.has(value))) {
-      return new GoogleApiError({ code: 'PROVIDER_API_DISABLED', message, status, providerReason: reason });
+      return new GoogleApiError({ code: 'PROVIDER_API_DISABLED', message, status, providerReason: reason, providerService });
     }
     if ([...normalized].some(value => SCOPE_REASONS.has(value))) {
       return new GoogleApiError({ code: 'INSUFFICIENT_SCOPES', message, status, providerReason: reason });
