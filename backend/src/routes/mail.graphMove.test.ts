@@ -267,6 +267,37 @@ describe('bulk-delete keeps a Graph row out of the re-insert statement too', () 
     expect(mocks.bulkMoveMessages).not.toHaveBeenCalled();
   });
 
+  it('expunges an alias and its canonical row once, using only canonical provider and local identities', async () => {
+    const canonicalId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+    mocks.query
+      .mockResolvedValueOnce({ rows: [
+        messageRow({ provider_message_id: null, folder: 'Trash' }),
+        messageRow({ id: canonicalId, provider_message_id: 'AAMkAD-canonical', folder: 'Trash' }),
+      ], rowCount: 2 })
+      .mockResolvedValueOnce({ rows: [{ ...graphAccount() }], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ canonical_message_id: canonicalId, provider_message_id: 'AAMkAD-canonical', status: 'bound' }], rowCount: 1 });
+
+    const response = await post('/messages/bulk-delete', { ids: [MESSAGE_ID, canonicalId] });
+    expect(response.status).toBe(200);
+    expect(mocks.runProviderMutation).toHaveBeenCalledTimes(1);
+    expect(mocks.runProviderMutation.mock.calls[0][0]).toMatchObject({
+      operation: 'delete', resourceId: canonicalId, payload: { providerMessageId: 'AAMkAD-canonical' },
+    });
+    const removal = mocks.query.mock.calls.find(([sql]) => String(sql).includes('DELETE FROM messages WHERE id = ANY'));
+    expect(removal?.[1]?.[0]).toEqual([canonicalId]);
+  });
+
+  it('does not call Graph for a needs-review legacy binding', async () => {
+    mocks.query
+      .mockResolvedValueOnce({ rows: [messageRow({ provider_message_id: null, folder: 'Trash' })], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ ...graphAccount() }], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ canonical_message_id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', provider_message_id: 'AAMkAD-canonical', status: 'needs_review' }], rowCount: 1 });
+
+    const response = await post('/messages/bulk-delete', { ids: [MESSAGE_ID] });
+    expect(response.status).toBe(200);
+    expect(mocks.runProviderMutation).not.toHaveBeenCalled();
+  });
+
   it('removes a Graph message that is already in Trash, without the move path', async () => {
     mocks.query
       .mockResolvedValueOnce({ rows: [messageRow({ folder: 'Trash' })], rowCount: 1 })
