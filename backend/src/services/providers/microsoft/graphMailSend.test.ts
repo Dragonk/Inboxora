@@ -9,7 +9,7 @@ const tokenMock = vi.hoisted(() => vi.fn(async () => ({
 vi.mock('../../providerTokenService.js', () => ({ getMicrosoftAccessToken: tokenMock }));
 
 import { GraphApiError } from './graphApiClient.js';
-import { createGraphDraft, createGraphReplyDraft, renderGraphMessage, sendGraphDraft } from './graphMailSend.js';
+import { createGraphDraft, createGraphReplyDraft, patchGraphDraft, renderGraphMessage, sendGraphDraft } from './graphMailSend.js';
 import type { ComposedMail } from '../../composedMail.js';
 
 const base: ComposedMail = {
@@ -78,6 +78,30 @@ describe('renderGraphMessage', () => {
       expect(draft).toEqual({ id: 'draft-1' });
       expect(String(fetchMock.mock.calls.at(-1)?.[0])).toContain(`/me/messages/AAMkAD%20parent%2F1/${action}`);
     }
+  });
+
+  it('uses the native reply sequence and never POSTs a new message', async () => {
+    const calls: Array<{ path: string; method: string }> = [];
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      const path = new URL(url).pathname;
+      calls.push({ path, method: init?.method || 'GET' });
+      if (path.endsWith('/createReplyAll')) return new Response(JSON.stringify({ id: 'reply-draft-1' }), { status: 201, headers: { 'content-type': 'application/json' } });
+      if (path.endsWith('/reply-draft-1')) return new Response(null, { status: 200 });
+      if (path.endsWith('/reply-draft-1/send')) return new Response(null, { status: 202 });
+      return new Response(JSON.stringify({ error: { code: 'unexpected', message: path } }), { status: 500, headers: { 'content-type': 'application/json' } });
+    });
+    const client = api(fetchMock);
+
+    const draft = await createGraphReplyDraft(client, 'AAMkAD-parent', 'reply_all');
+    await patchGraphDraft(client, draft.id, base);
+    await expect(sendGraphDraft(client, draft.id)).resolves.toEqual({ status: 'accepted' });
+
+    expect(calls).toEqual([
+      { path: '/v1.0/me/messages/AAMkAD-parent/createReplyAll', method: 'POST' },
+      { path: '/v1.0/me/messages/reply-draft-1', method: 'PATCH' },
+      { path: '/v1.0/me/messages/reply-draft-1/send', method: 'POST' },
+    ]);
+    expect(calls.some(call => call.path === '/v1.0/me/messages' && call.method === 'POST')).toBe(false);
   });
 
   it('refuses a reply draft the provider answered without an id', async () => {
