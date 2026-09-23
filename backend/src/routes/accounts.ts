@@ -17,6 +17,7 @@ import { releaseProviderPushForConnection } from '../services/providerPushLifecy
 import { createNativeMailAccount, describeNativeCandidates, nativeProviderReadiness } from '../services/nativeAccountService.js';
 import { classifyProviderAccountById } from '../services/providerAccountClassifier.js';
 import { describeAccountProviderFeatures } from '../services/accountProviderFeatures.js';
+import { isAccountProviderService, setAccountProviderFeatureSetting } from '../services/accountProviderFeatureSettings.js';
 import { clearSyncHintsForConnection } from '../services/providerSyncHints.js';
 import type { MicrosoftMailCutoverAccount } from '../services/providerMailCutover.js';
 import { cutOverGoogleMailAccount } from '../services/providerGoogleMailCutover.js';
@@ -486,6 +487,26 @@ router.get('/:id/provider-features', async (req, res) => {
   const features = await describeAccountProviderFeatures({ userId, accountId: req.params.id });
   if (!features) return res.status(404).json({ error: 'Account not found' });
   res.json(features);
+});
+
+/** Persist the account owner's optional calendar/contact intent, without revoking its grant. */
+router.patch('/:id/provider-features/:feature', async (req, res) => {
+  const userId = req.session.userId;
+  if (!userId) return res.status(401).json({ error: 'Not authenticated' });
+  if (!isAccountProviderService(req.params.feature)) {
+    return res.status(400).json({ error: 'feature must be calendars or contacts', code: 'INVALID_PROVIDER_FEATURE' });
+  }
+  if (typeof req.body?.enabled !== 'boolean') {
+    return res.status(400).json({ error: 'enabled must be a boolean', code: 'INVALID_PROVIDER_FEATURE_SETTING' });
+  }
+  const setting = await setAccountProviderFeatureSetting({
+    userId,
+    accountId: req.params.id,
+    feature: req.params.feature,
+    enabled: req.body.enabled,
+  });
+  if (!setting) return res.status(404).json({ error: 'Account not found' });
+  res.json({ accountId: req.params.id, ...setting });
 });
 
 /**

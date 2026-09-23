@@ -12,6 +12,7 @@ import { syncGraphContacts } from './providers/microsoft/graphContactsSync.js';
 import { syncGraphCalendar } from './providers/microsoft/graphCalendarSync.js';
 import { syncGraphMailFolders, syncGraphMailMessagesForAccount } from './providers/microsoft/graphMailSync.js';
 import { listGmailMailAccounts, syncGmailMailLabelsForAccount, syncGmailMailMessagesForAccount } from './providers/google/gmailMailSync.js';
+import { collectionKindForAccountProviderService } from './accountProviderFeatureSettings.js';
 
 /**
  * Periodic refresh of the provider collections a user has already pulled (P09).
@@ -81,6 +82,8 @@ export interface ProviderSyncTarget {
   provider: string;
   /** The collection kinds this connection has already pulled. */
   features: string[];
+  /** Account settings may request first discovery before a collection exists. */
+  desiredFeatures?: string[];
   /**
    * True when the connection holds **no** collection yet, so its first discovery still has to run (SYNC-01).
    *
@@ -105,7 +108,7 @@ export async function listProviderSyncTargets(): Promise<ProviderSyncTarget[]> {
   // collections is scheduled per collection; a connection with **no collection row at all** is scheduled for the
   // discovery that creates the first one (SYNC-01). A connection whose only collections are unusable — disabled,
   // or with no local link — is still absent, which is the rule the schedule has always had.
-  const result = await query<{ user_id: string; connection_id: string; provider: string; features: string[] | null; discovery: boolean }>(
+  const result = await query<{ user_id: string; connection_id: string; provider: string; features: string[] | null; desired_features: string[] | null; discovery: boolean }>(
     `SELECT pc.user_id, pc.id AS connection_id, pc.provider,
             array_agg(DISTINCT ic.kind) FILTER (
               WHERE ic.id IS NOT NULL
@@ -121,6 +124,25 @@ export async function listProviderSyncTargets(): Promise<ProviderSyncTarget[]> {
       GROUP BY pc.user_id, pc.id, pc.provider
       ORDER BY pc.user_id, pc.id`,
   );
+  // Desired optional services are account intent, not an accidental consequence of an
+  // existing collection. A calendar/contact setting must therefore survive a failed
+  // first discovery and be visible to the scheduler after a restart.
+  const desired = await query<{ user_id: string; connection_id: string; provider: string; feature: 'calendars' | 'contacts' }>(
+    `SELECT a.user_id, pc.id AS connection_id, pc.provider, s.feature
+       FROM account_provider_feature_settings s
+       JOIN email_accounts a ON a.id = s.account_id
+       JOIN provider_connections pc ON pc.id = a.provider_connection_id
+      WHERE s.enabled = true AND pc.status = 'active'
+        AND pc.user_id = a.user_id AND pc.provider IN ('google', 'microsoft')`,
+  );
+  const desiredByConnection = new Map<string, string[]>();
+  for (const row of desired.rows) {
+    const kinds = desiredByConnection.get(row.connection_id) ?? [];
+    const kind = collectionKindForAccountProviderService(row.feature);
+    if (!kinds.includes(kind)) kinds.push(kind);
+    desiredByConnection.set(row.connection_id, kinds);
+  }
+
   const targets: ProviderSyncTarget[] = [];
   for (const row of result.rows) {
     const discovery = row.discovery === true;
@@ -129,12 +151,14 @@ export async function listProviderSyncTargets(): Promise<ProviderSyncTarget[]> {
     const features = row.features === null || row.features === undefined
       ? null
       : (Array.isArray(row.features) ? row.features : []);
-    if (!discovery && features !== null && features.length === 0) continue;
+    const desiredFeatures = desiredByConnection.get(row.connection_id) ?? [];
+    if (!discovery && features !== null && features.length === 0 && desiredFeatures.length === 0) continue;
     targets.push({
       userId: row.user_id,
       connectionId: row.connection_id,
       provider: row.provider,
       features: features ?? [],
+      ...(desiredFeatures.length ? { desiredFeatures } : {}),
       discovery,
     });
   }
@@ -210,7 +234,13 @@ export async function runProviderSyncs(): Promise<ProviderSyncRunSummary> {
     // for the run that creates the first collection (SYNC-01).
     const discoveryKind = target.discovery ? discoveryKindFor(target.provider) : null;
     if (target.discovery && !discoveryKind) continue;
-    const kinds = target.discovery ? [discoveryKind as string] : target.features;
+    // Mail remains the initial discovery for a newly created mailbox. Optional
+    // account services add their own desired targets even when mail/contact rows
+    // already exist, fixing the permanent zero-calendar discovery gap.
+    const kinds = [...new Set([
+      ...(target.discovery ? [discoveryKind as string] : target.features),
+      ...(target.desiredFeatures ?? []),
+    ])];
     for (const kind of kinds) {
       const sync = syncFor(target.provider, kind);
       if (!sync) continue;

@@ -2,7 +2,8 @@ import { query } from './db.js';
 import { classifyProviderAccount, providerConnectionSignals, type ProviderAccountKind } from './providerAccountClassifier.js';
 import { listSubscriptionDiagnostics } from './providerPushSubscriptions.js';
 import { providerSyncIntervalMinutes } from './providerSyncScheduler.js';
-import { readProviderFeatureAuthorization, type ProviderFeatureAuthorization } from './providerFeatureAuthorization.js';
+import { evaluateProviderFeatureAuthorization, readProviderFeatureAuthorization, type ProviderFeatureAuthorization } from './providerFeatureAuthorization.js';
+import { accountProviderFeatureSettings } from './accountProviderFeatureSettings.js';
 
 /**
  * What one **account** can do with its provider: the mail transport it uses and whether the native one is
@@ -29,6 +30,9 @@ export interface AccountMailFeatures extends ProviderFeatureAuthorization {
 
 export interface AccountFeatureGroup extends ProviderFeatureAuthorization {
   provider: ProviderAccountKind;
+  /** User intent is independent of an OAuth grant and of discovered collections. */
+  enabled: boolean;
+  settingsRevision: number;
   connectionId: string | null;
   collections: Array<{ id: string; kind: string; name: string | null; enabled: boolean; sourceAccess: string; userAccess: string }>;
   /** A run has completed for this feature. */
@@ -475,10 +479,11 @@ export async function describeAccountProviderFeatures(input: {
     : null;
   const mailAuth = provider
     ? await readProviderFeatureAuthorization({ connectionId: mailConnection?.id ?? null, provider, feature: 'mail' })
-    : { authorized: false, requiredScopes: [], grantedScopes: [], missingScopes: [] };
+    : evaluateProviderFeatureAuthorization('google', 'mail', []);
 
   // Read once, before the groups are assembled: each group reports its own synchronization state.
   const syncStates = await syncStatesForAccount(input.userId, row.id, mailConnection?.id ?? null);
+  const serviceSettings = new Map((await accountProviderFeatureSettings(row.id)).map(setting => [setting.feature, setting]));
   // Which collection kinds the scheduler would pick up for this account's connection. The scheduler's own query
   // requires an enabled collection with a local link on the connection, so this asks the same question of the
   // same table: mail collections are account-scoped, calendar and address-book ones connection-scoped.
@@ -508,6 +513,8 @@ export async function describeAccountProviderFeatures(input: {
     const collections = await collectionsFor(connection?.id ?? null);
     groups[kind] = {
       provider: kind,
+      enabled: serviceSettings.get('calendars')?.enabled === true,
+      settingsRevision: serviceSettings.get('calendars')?.revision ?? 0,
       connectionId: connection?.id ?? null,
       collections,
       ...calendarAuth,
@@ -616,6 +623,8 @@ export async function describeAccountProviderFeatures(input: {
     contacts: provider
       ? {
           ...groups[provider],
+          enabled: serviceSettings.get('contacts')?.enabled === true,
+          settingsRevision: serviceSettings.get('contacts')?.revision ?? 0,
           collections: groups[provider].collections.filter(collection => collection.kind === 'address_book'),
           ...(contactsAuth[provider] ?? { authorized: false, requiredScopes: [], grantedScopes: [], missingScopes: [] }),
           ...synchronizationStateOf(syncStates.contacts, contactsAuth[provider]?.authorized ?? false),

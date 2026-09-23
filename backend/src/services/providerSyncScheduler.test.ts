@@ -58,7 +58,7 @@ afterEach(() => {
   stopProviderSyncScheduler();
   vi.useRealTimers();
   vi.restoreAllMocks();
-  mocks.query.mockReset();
+  mocks.query.mockReset().mockResolvedValue({ rows: [] });
   mocks.syncGoogleContacts.mockReset();
   mocks.syncGoogleCalendar.mockReset();
   mocks.syncGraphContacts.mockReset();
@@ -102,6 +102,15 @@ describe('listProviderSyncTargets', () => {
     // connection whose first discovery failed can be resumed instead of being skipped forever.
     expect(sql).toContain('LEFT JOIN integration_collections');
     expect(sql).toContain('(COUNT(ic.id) = 0) AS discovery');
+  });
+
+  it('adds an enabled service as a desired target even when another service already has collections', async () => {
+    mocks.query
+      .mockResolvedValueOnce({ rows: [target({ features: ['mail_label'], discovery: false })] })
+      .mockResolvedValueOnce({ rows: [{ user_id: 'user-1', connection_id: 'connection-1', provider: 'google', feature: 'calendars' }] });
+    await expect(listProviderSyncTargets()).resolves.toEqual([
+      { userId: 'user-1', connectionId: 'connection-1', provider: 'google', features: ['mail_label'], desiredFeatures: ['calendar'], discovery: false },
+    ]);
   });
 
   it('offers a connection that holds no collection at all as a discovery target', async () => {
@@ -155,7 +164,9 @@ describe('runProviderSyncs', () => {
     // user's and provider's refresh. The backoff is per connection+feature now.
     mocks.query
       .mockResolvedValueOnce({ rows: [target({ features: ['calendar'] }), target({ connection_id: 'connection-2', provider: 'microsoft', features: ['calendar'] })] })
-      .mockResolvedValueOnce({ rows: [target({ features: ['calendar'] }), target({ connection_id: 'connection-2', provider: 'microsoft', features: ['calendar'] })] });
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [target({ features: ['calendar'] }), target({ connection_id: 'connection-2', provider: 'microsoft', features: ['calendar'] })] })
+      .mockResolvedValueOnce({ rows: [] });
     mocks.syncGoogleCalendar.mockRejectedValue(Object.assign(new Error('throttled'), { code: 'RATE_LIMITED', retryAfterSeconds: 600 }));
     mocks.syncGraphCalendar.mockResolvedValue({ collections: 1 });
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -176,7 +187,9 @@ describe('runProviderSyncs', () => {
     // for it was both wrong and, because every adapter used `RATE_LIMITED` for it, common.
     mocks.query
       .mockResolvedValueOnce({ rows: [target({ features: ['calendar'] })] })
-      .mockResolvedValueOnce({ rows: [target({ features: ['calendar'] })] });
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [target({ features: ['calendar'] })] })
+      .mockResolvedValueOnce({ rows: [] });
     mocks.syncGoogleCalendar.mockRejectedValueOnce(Object.assign(new Error('already running'), { code: 'SYNC_ALREADY_RUNNING' }));
     mocks.syncGoogleCalendar.mockResolvedValue({});
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -299,20 +312,20 @@ describe('startProviderSyncScheduler', () => {
     expect(mocks.query).not.toHaveBeenCalled();
 
     await vi.advanceTimersByTimeAsync(1);
-    expect(mocks.query).toHaveBeenCalledTimes(1);
+    expect(mocks.query).toHaveBeenCalledTimes(2);
 
     // The interval is still a full interval from start, not shortened by the first
     // pass: measured from the first pass it is still one whole interval minus the
     // delay away.
     await vi.advanceTimersByTimeAsync(30 * 60_000 - FIRST_PASS_DELAY_MS - 1);
-    expect(mocks.query).toHaveBeenCalledTimes(1);
-    await vi.advanceTimersByTimeAsync(1);
     expect(mocks.query).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(mocks.query).toHaveBeenCalledTimes(4);
 
     // A restart must not leave a pending first pass behind.
     stopProviderSyncScheduler();
     await vi.advanceTimersByTimeAsync(60 * 60_000);
-    expect(mocks.query).toHaveBeenCalledTimes(2);
+    expect(mocks.query).toHaveBeenCalledTimes(4);
   });
 
   it('arms nothing when the schedule is disabled', () => {
@@ -332,10 +345,10 @@ describe('startProviderSyncScheduler', () => {
     await vi.advanceTimersByTimeAsync(60_000);
     // While the first pass is still running the next tick must not start a second one.
     await vi.advanceTimersByTimeAsync(60_000);
-    expect(mocks.query).toHaveBeenCalledTimes(1);
+    expect(mocks.query).toHaveBeenCalledTimes(2);
     release();
     await vi.advanceTimersByTimeAsync(60_000);
-    expect(mocks.query).toHaveBeenCalledTimes(2);
+    expect(mocks.query).toHaveBeenCalledTimes(4);
   });
 });
 
