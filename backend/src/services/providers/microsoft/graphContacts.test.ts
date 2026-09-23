@@ -177,6 +177,14 @@ describe('fetchContactsPage', () => {
     expect(url).toContain('%24top=200');
   });
 
+  it('reads the default collection without inventing a contact folder id', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(json({ value: [], '@odata.deltaLink': 'https://graph.microsoft.com/v1.0/me/contacts/delta?$deltatoken=default' }));
+    vi.stubGlobal('fetch', fetchMock);
+    await fetchContactsPage(OPTIONS, { defaultContacts: true });
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain('/me/contacts/delta');
+    expect(String(fetchMock.mock.calls[0]?.[0])).not.toContain('/contactFolders/contacts/');
+  });
+
   it('marks a deleted entry from its @removed marker', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({
       value: [{ id: 'gone', '@removed': { reason: 'deleted' } }],
@@ -243,6 +251,22 @@ describe('contact folder discovery', () => {
     expect(url).toContain('/me/contactFolders');
     expect(url).toContain('$select=id,displayName,parentFolderId');
     expect(decodeURIComponent(String(fetchMock.mock.calls[1][0]))).toContain('/me/contactFolders/folder-1/childFolders');
+  });
+
+  it('retains a provider-listed folder with a parent id and walks deeper descendants', async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      const target = String(url);
+      if (target.includes('folder-A/childFolders')) return json({ value: [{ id: 'folder-B', displayName: 'Team', parentFolderId: 'folder-A' }] });
+      if (target.includes('folder-B/childFolders')) return json({ value: [{ id: 'folder-C', displayName: 'Nested', parentFolderId: 'folder-B' }] });
+      if (target.includes('folder-C/childFolders')) return json({ value: [] });
+      return json({ value: [{ id: 'folder-A', displayName: 'Kontakty', parentFolderId: 'root-A' }] });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(discoverGraphContactFolders(OPTIONS)).resolves.toEqual([
+      { id: 'folder-A', displayName: 'Kontakty', parentFolderId: 'root-A' },
+      { id: 'folder-B', displayName: 'Team', parentFolderId: 'folder-A' },
+      { id: 'folder-C', displayName: 'Nested', parentFolderId: 'folder-B' },
+    ]);
   });
 
   it('picks a top-level folder as the default, and answers null rather than guessing', () => {

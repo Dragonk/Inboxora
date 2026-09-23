@@ -49,6 +49,7 @@ import {
   fetchGraphMessageBody,
   localAttachmentsForGraph,
 } from '../services/providers/microsoft/graphMailBody.js';
+import { resolveGraphMessageIdentity } from '../services/providers/microsoft/graphLegacyMessageBindings.js';
 import type { Request as ExpressRequest, Response as ExpressResponse } from 'express';
 /** Attachment metadata as stored in messages.attachments (JSON) and fetched from IMAP. */
 interface AttachmentMeta {
@@ -637,17 +638,25 @@ router.get('/messages/:id/headers', async (req, res) => {
 
     let headers = '';
     if (account.mail_transport === 'microsoft_graph') {
-      // A native message has no IMAP headers to read, and asking IMAP first could
-      // only time out before the fallback below.
-      if (account.provider_connection_id && message.provider_message_id) {
-        try {
-          headers = await fetchGraphMessageHeaders(
-            { userId: account.user_id, connectionId: account.provider_connection_id, config: microsoftConfigFromEnv() },
-            message.provider_message_id,
-          );
-        } catch (caught) {
-          console.warn('Headers Graph fetch failed:', caught instanceof Error ? caught.message : caught);
-        }
+      // A native message has no IMAP headers to read. Resolve the same durable
+      // alias used by body/attachment reads instead of treating an old UUID as a
+      // provider id or silently falling back to another transport.
+      const identity = await resolveGraphMessageIdentity({ query }, {
+        messageId: message.id, accountId: account.id,
+        connectionId: account.provider_connection_id, directProviderMessageId: message.provider_message_id,
+      });
+      if (identity.kind !== 'resolved') {
+        const code = identity.kind === 'account_connection_missing' ? 'ACCOUNT_PROVIDER_CONNECTION_MISSING'
+          : identity.kind === 'binding_ambiguous' ? 'MESSAGE_BINDING_AMBIGUOUS' : 'MESSAGE_PROVIDER_IDENTITY_MISSING';
+        return res.status(409).json({ error: 'This message has no resolvable Microsoft Graph identity', code });
+      }
+      try {
+        headers = await fetchGraphMessageHeaders(
+          { userId: account.user_id, connectionId: account.provider_connection_id!, config: microsoftConfigFromEnv() },
+          identity.providerMessageId,
+        );
+      } catch (caught) {
+        console.warn('Headers Graph fetch failed:', caught instanceof Error ? caught.message : caught);
       }
     } else if (account.mail_transport === 'gmail_api') {
       // As for Graph: the provider's own headers are the honest answer, and asking
@@ -737,14 +746,20 @@ router.get('/messages/:id/attachments.zip', async (req, res) => {
     // deduplication, the archive and the response — is shared with the IMAP path.
     let bufferMap: Map<string, Buffer>;
     if (account.mail_transport === 'microsoft_graph') {
-      if (!account.provider_connection_id || !message.provider_message_id) {
-        return res.status(409).json({ error: 'This message has no Microsoft Graph identity', code: 'RESOURCE_NOT_FOUND' });
+      const identity = await resolveGraphMessageIdentity({ query }, {
+        messageId: message.id, accountId: account.id,
+        connectionId: account.provider_connection_id, directProviderMessageId: message.provider_message_id,
+      });
+      if (identity.kind !== 'resolved') {
+        const code = identity.kind === 'account_connection_missing' ? 'ACCOUNT_PROVIDER_CONNECTION_MISSING'
+          : identity.kind === 'binding_ambiguous' ? 'MESSAGE_BINDING_AMBIGUOUS' : 'MESSAGE_PROVIDER_IDENTITY_MISSING';
+        return res.status(409).json({ error: 'This message has no resolvable Microsoft Graph identity', code });
       }
-      const api = { userId: account.user_id, connectionId: account.provider_connection_id, config: microsoftConfigFromEnv() };
+      const api = { userId: account.user_id, connectionId: account.provider_connection_id!, config: microsoftConfigFromEnv() };
       bufferMap = new Map();
       for (const att of eligible) {
         try {
-          const bytes = await fetchGraphAttachmentBytes(api, message.provider_message_id, String(att.part), ZIP_MAX_FILE_BYTES);
+          const bytes = await fetchGraphAttachmentBytes(api, identity.providerMessageId, String(att.part), ZIP_MAX_FILE_BYTES);
           if (bytes.length) bufferMap.set(att.part, bytes);
         } catch (caught) {
           // One unreadable or oversized attachment must not fail the whole archive.
@@ -1552,28 +1567,38 @@ async function respondWithGraphBody(
   message: ReadMessageRow,
   account: EmailAccountRow,
 ): Promise<void> {
-  if (!account.provider_connection_id || !message.provider_message_id) {
-    // A Graph account whose message carries no provider id is a broken row rather
-    // than a temporary failure, so it is reported instead of retried for ever.
-    res.status(409).json({ error: 'This message has no Microsoft Graph identity', code: 'RESOURCE_NOT_FOUND' });
+  const identity = await resolveGraphMessageIdentity({ query }, {
+    messageId: message.id,
+    accountId: account.id,
+    connectionId: account.provider_connection_id,
+    directProviderMessageId: message.provider_message_id,
+  });
+  if (identity.kind !== 'resolved') {
+    const details = identity.kind === 'account_connection_missing'
+      ? { error: 'This Microsoft account has no active provider connection', code: 'ACCOUNT_PROVIDER_CONNECTION_MISSING' }
+      : identity.kind === 'binding_ambiguous'
+        ? { error: 'This message has more than one possible Microsoft Graph binding', code: 'MESSAGE_BINDING_AMBIGUOUS' }
+        : { error: 'This message has no Microsoft Graph identity', code: 'MESSAGE_PROVIDER_IDENTITY_MISSING' };
+    res.status(409).json(details);
     return;
   }
   const api = {
     userId: account.user_id,
-    connectionId: account.provider_connection_id,
+    connectionId: account.provider_connection_id!,
     config: microsoftConfigFromEnv(),
   };
+  const providerMessageId = identity.providerMessageId;
 
   try {
     const [body, attachments] = await Promise.all([
-      fetchGraphMessageBody(api, message.provider_message_id),
-      fetchGraphAttachments(api, message.provider_message_id),
+      fetchGraphMessageBody(api, providerMessageId),
+      fetchGraphAttachments(api, providerMessageId),
     ]);
 
     let html: string | null = null;
     let text: string | null = null;
     if (body?.contentType === 'html') {
-      const inline = await collectGraphInlineImages(api, message.provider_message_id, attachments);
+      const inline = await collectGraphInlineImages(api, providerMessageId, attachments);
       html = sanitizeDbText(sanitizeEmail(embedGraphInlineImages(body.content, inline)));
     } else if (body) {
       text = sanitizeDbText(body.content);

@@ -61,6 +61,9 @@ export interface GraphContact {
   removed?: { reason?: string | null } | null;
 }
 
+/** Stable local remote-id for Graph's default `/me/contacts` collection, not a folder id. */
+export const DEFAULT_GRAPH_CONTACTS_TARGET = 'default_contacts';
+
 export interface GraphContactsPage {
   contacts: GraphContact[];
   /** Absolute URL for the next page, as Graph provides it. */
@@ -177,13 +180,21 @@ export async function discoverGraphContactFolders(options: GraphApiOptions): Pro
   };
   const top = await list(graphUrl('/me/contactFolders', { $select: 'id,displayName,parentFolderId', $top: 100 }));
   const folders = [...top];
-  // A contact folder nests one level below a top-level folder, and a contact in a child folder is as invisible as
-  // one in an unlisted top-level folder, so the children are discovered too. Their `parentFolderId` keeps them
-  // out of the default-folder choice below.
-  for (const parent of top) {
-    folders.push(...await list(graphUrl(`/me/contactFolders/${encodeURIComponent(parent.id)}/childFolders`, {
+  // Folder depth is not an identity or validity signal. Walk every discovered branch
+  // and guard cycles/repeated ids, rather than silently losing third-level folders.
+  const seen = new Set(top.map(folder => folder.id));
+  const queue = [...top];
+  while (queue.length) {
+    const parent = queue.shift()!;
+    const children = await list(graphUrl(`/me/contactFolders/${encodeURIComponent(parent.id)}/childFolders`, {
       $select: 'id,displayName,parentFolderId', $top: 100,
-    })));
+    }));
+    for (const child of children) {
+      if (seen.has(child.id)) continue;
+      seen.add(child.id);
+      folders.push(child);
+      queue.push(child);
+    }
   }
   return folders;
 }
@@ -208,6 +219,8 @@ export function defaultGraphContactFolder(folders: readonly GraphContactFolder[]
 export async function fetchContactsPage(options: GraphApiOptions, input: {
   /** The provider's own contact-folder id. Required unless a complete `nextLink`/`deltaLink` is supplied. */
   folderId?: string;
+  /** Graph's default contact collection is addressed as /me/contacts, not as a fictional folder. */
+  defaultContacts?: boolean;
   nextLink?: string | null;
   deltaLink?: string | null;
   top?: number;
@@ -216,11 +229,13 @@ export async function fetchContactsPage(options: GraphApiOptions, input: {
   const folderId = (input.folderId ?? '').trim();
   // A caller-provided link is already a complete, absolute Graph URL.
   const url = input.nextLink ?? input.deltaLink
-    ?? (folderId
-      ? graphUrl(`/me/contactFolders/${encodeURIComponent(folderId)}/contacts/delta`, { $select: CONTACT_SELECT, $top: top })
-      // `contactFolder` has no well-known-name property, so there is no id to default to: the literal `contacts`
-      // this used to send addressed a folder Graph cannot resolve (GRAPH-03).
-      : (() => { throw new Error('A Microsoft contact folder id is required to read a contact delta'); })());
+    ?? (input.defaultContacts
+      ? graphUrl('/me/contacts/delta', { $select: CONTACT_SELECT, $top: top })
+      : folderId
+        ? graphUrl(`/me/contactFolders/${encodeURIComponent(folderId)}/contacts/delta`, { $select: CONTACT_SELECT, $top: top })
+        // `contactFolder` has no well-known-name property; callers must either name
+        // a real folder id or explicitly request Graph's default collection.
+        : (() => { throw new Error('A Microsoft contact folder id or default collection is required'); })());
   const body = await graphGet<GraphCollection<GraphContact & { '@removed'?: { reason?: string } }>>(options, url);
   return {
     contacts: (Array.isArray(body.value) ? body.value : []).map(entry => {

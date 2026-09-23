@@ -205,7 +205,7 @@ export async function ingestGraphMailSearch(input: {
     for (const [folderPath, messages] of byFolder) {
       const result = await applyGraphMailMessagesPage(
         client,
-        { userId: input.userId, accountId: input.accountId, folderPath },
+        { userId: input.userId, accountId: input.accountId, connectionId: input.connectionId, folderPath },
         messages,
       );
       totals.created += result.created;

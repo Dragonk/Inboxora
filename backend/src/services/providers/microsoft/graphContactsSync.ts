@@ -16,7 +16,7 @@ import {
 } from '../../syncCoordinator.js';
 import { GraphApiError } from './graphApiClient.js';
 import type { GraphApiOptions } from './graphApiClient.js';
-import { contactUidForGraphContact, defaultGraphContactFolder, discoverGraphContactFolders, fetchContactsPage, graphContactToVCard } from './graphContacts.js';
+import { contactUidForGraphContact, DEFAULT_GRAPH_CONTACTS_TARGET, discoverGraphContactFolders, fetchContactsPage, graphContactToVCard } from './graphContacts.js';
 import type { GraphContact, GraphContactFolder } from './graphContacts.js';
 import { ProviderAuthError, graphGrantCoversScope, REQUIRED_GRAPH_CONTACT_WRITE_SCOPE } from '../../providerAuthService.js';
 import { MICROSOFT_GRANT_AUDIENCE } from '../../providerAuthService.js';
@@ -122,23 +122,10 @@ export async function ensureGraphAddressBook(client: PoolClient, input: {
     linkQuery,
     [input.connectionId, remoteId],
   );
-  if (!existing.rows[0] && remoteId !== GRAPH_CONTACTS_FOLDER) {
-    // Adopt the row created before folder ids were discovered. Repointing it — rather than creating a second
-    // collection — keeps the local book, its delta cursor, its enabled flag and the user's write-back choice.
-    const legacy = await client.query<{ id: string; local_address_book_id: string | null }>(
-      `SELECT id, local_address_book_id FROM integration_collections
-        WHERE connection_id = $1 AND kind = 'address_book' AND remote_id = $2`,
-      [input.connectionId, GRAPH_CONTACTS_FOLDER],
-    );
-    if (legacy.rows[0]) {
-      const adopted = await client.query(
-        `UPDATE integration_collections SET remote_id = $2, updated_at = NOW()
-          WHERE id = $1 AND remote_id = $3`,
-        [legacy.rows[0].id, remoteId, GRAPH_CONTACTS_FOLDER],
-      );
-      if (adopted.rowCount === 1) existing = legacy as typeof existing;
-    }
-  }
+  // A historical literal `contacts` does not prove which modern target it was
+  // intended to represent. Do not transfer its cursor, contacts or write-back choice
+  // to the default collection or to the first discovered folder without provider-side
+  // evidence; a later dedicated adoption flow may bind it explicitly.
   if (existing.rows[0]?.local_address_book_id) {
     // Already linked: refresh the source's own permission, which is what repairs a collection created
     // before this was recorded, and never touch `user_access` or `enabled` — those are the user's.
@@ -425,7 +412,10 @@ async function syncGraphContactFolder(input: {
     for (let page = 0; page < (input.maxPages ?? MAX_PAGES); page++) {
       let fetched;
       try {
-        fetched = await fetchContactsPage(api, { folderId: folder.id, nextLink, deltaLink: nextLink ? null : cursor, top: PAGE_SIZE });
+        fetched = await fetchContactsPage(api, {
+          ...(folder.id === DEFAULT_GRAPH_CONTACTS_TARGET ? { defaultContacts: true } : { folderId: folder.id }),
+          nextLink, deltaLink: nextLink ? null : cursor, top: PAGE_SIZE,
+        });
       } catch (caught) {
         // The delta token expired: rebuild from a baseline instead of failing.
         if (caught instanceof GraphApiError && caught.code === 'INVALID_SYNC_CURSOR' && cursor) {
@@ -524,20 +514,15 @@ export async function syncGraphContacts(input: {
     ...(input.fetchImpl ? { fetchImpl: input.fetchImpl } : {}),
   };
   const discovered = await discoverGraphContactFolders(api);
-  const primary = defaultGraphContactFolder(discovered);
-  if (!primary) {
-    // Guessing an id is what produced the unusable literal, so a mailbox whose folders cannot be listed is
-    // reported instead.
-    throw new GraphApiError({
-      code: 'UPSTREAM_UNAVAILABLE',
-      message: 'Microsoft Graph listed no contact folder for this mailbox',
-      status: 502,
-      retryable: true,
-    });
-  }
-
-  // The default folder first, then the others in discovery order; a folder that is somehow listed twice runs once.
-  const ordered = [primary, ...discovered.filter(folder => folder.id !== primary.id)];
+  // The default collection is not a contactFolder and may be present even if the
+  // folder list is empty or every folder has a parentFolderId. Its local remote id
+  // is a typed sentinel, never the fictional Graph id `contacts`.
+  const primary: GraphContactFolder = { id: DEFAULT_GRAPH_CONTACTS_TARGET, displayName: GRAPH_CONTACTS_BOOK_NAME };
+  // The default collection first, then all real folders exactly as Graph named them.
+  // A provider id may occur once only; display names and parentFolderId are never identity.
+  const ordered = [primary, ...discovered.filter((folder, index, all) =>
+    folder.id !== DEFAULT_GRAPH_CONTACTS_TARGET && all.findIndex(candidate => candidate.id === folder.id) === index,
+  )];
   const books: GraphContactsFolderResult[] = [];
   const errors: Array<{ folderId: string; code: string }> = [];
   for (const folder of ordered) {
@@ -567,7 +552,10 @@ export async function syncGraphContacts(input: {
     deleted: sum.deleted + book.deleted,
     skipped: sum.skipped + book.skipped,
   }), { created: 0, updated: 0, deleted: 0, skipped: 0 });
-  const primaryBook = books[0];
+  // Keep the historical aggregate cursor anchored to the first real folder when
+  // available; the independent default collection is still in `books[0]` and never
+  // masquerades as that folder's cursor.
+  const primaryBook = books[1] ?? books[0];
   return {
     addressBookId: primaryBook?.addressBookId ?? '',
     ...totals,

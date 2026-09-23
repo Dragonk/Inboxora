@@ -79,6 +79,12 @@ function fakeProvider(
       discoveryUrls.push(target);
       return json({ value: folders.filter(folder => !folder.parentFolderId) });
     }
+    // The default collection is independent from a folder. Existing cases exercise
+    // folder deltas; give the new default path an explicit empty complete baseline
+    // without consuming their folder-specific handler sequence.
+    if (target.includes('/me/contacts/delta')) {
+      return json({ value: [], '@odata.deltaLink': 'https://graph.microsoft.com/v1.0/me/contacts/delta?$deltatoken=default' });
+    }
     urls.push(target);
     const handler = handlers[Math.min(index, handlers.length - 1)];
     index += 1;
@@ -196,7 +202,7 @@ describeOrSkip('Microsoft Graph contacts sync (PostgreSQL)', () => {
     const state = await autocommit(client => client.query<{ cursor: string | null; last_success_at: Date | null; last_error_code: string | null }>(
       'SELECT cursor, last_success_at, last_error_code FROM sync_states WHERE user_id = $1 AND feature = $2', [USER_ID, 'contacts'],
     ));
-    expect(state.rows[0]?.cursor).toBe(`${DELTA_BASE}?$deltatoken=baseline`);
+    expect(state.rows.some(row => row.cursor === `${DELTA_BASE}?$deltatoken=baseline`)).toBe(true);
     // The connector status the UI reads is this bookkeeping.
     expect(state.rows[0]?.last_success_at).not.toBeNull();
     expect(state.rows[0]?.last_error_code).toBeNull();
@@ -300,7 +306,9 @@ describeOrSkip('Microsoft Graph contacts sync (PostgreSQL)', () => {
       () => json({ value: [contact('c1', 'Ada Lovelace', 'ada@contoso.test')], '@odata.deltaLink': `${DELTA_BASE}?$deltatoken=fresh` }),
     ]);
     const result = await syncGraphContacts({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl: provider.fetchImpl });
-    expect(result).toMatchObject({ fullSync: true, deleted: 1, cursor: `${DELTA_BASE}?$deltatoken=fresh` });
+    expect(result).toMatchObject({ deleted: 1, cursor: `${DELTA_BASE}?$deltatoken=fresh` });
+    // The independently cursorised default collection can be incremental while this
+    // folder rebuilt, so the aggregate never claims a whole-account baseline.
     expect(provider.urls[1]).not.toContain('$deltatoken=stale');
 
     // A plain re-read would have left the deleted contact behind; reconciliation removes it.
@@ -311,24 +319,20 @@ describeOrSkip('Microsoft Graph contacts sync (PostgreSQL)', () => {
     expect(link.rows[0]?.status).toBe('deleted');
   });
 
-  it('records the failure time and code when a run fails after taking the lease', async () => {
+  it('records a real-folder failure without misreporting the independent default collection as upstream failure', async () => {
     const connectionId = await seedConnection();
-    // The first page succeeds, the second fails: the run throws after the lease was taken,
-    // so this is the path that records the failure the status line reports.
     const provider = fakeProvider([
       () => json({ value: [contact('c1', 'Ada Lovelace', 'ada@contoso.test')], '@odata.nextLink': `${DELTA_BASE}?$skiptoken=page-2` }),
       () => json({ error: { code: 'ErrorInternalServerError', message: 'server error' } }, 500),
     ]);
 
-    await expect(syncGraphContacts({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl: provider.fetchImpl }))
-      .rejects.toMatchObject({ code: 'UPSTREAM_UNAVAILABLE' });
+    const result = await syncGraphContacts({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl: provider.fetchImpl });
+    expect(result).toMatchObject({ incomplete: true, errors: [{ folderId: FOLDER_ID, code: 'UPSTREAM_UNAVAILABLE' }] });
 
     const state = await autocommit(client => client.query<{ last_error_code: string | null; last_error_at: Date | null }>(
       'SELECT last_error_code, last_error_at FROM sync_states WHERE user_id = $1 AND feature = $2', [USER_ID, 'contacts'],
     ));
-    // Both fields, because the status line shows the code *and* when it happened.
-    expect(state.rows[0]?.last_error_code).toBe('UPSTREAM_UNAVAILABLE');
-    expect(state.rows[0]?.last_error_at).not.toBeNull();
+    expect(state.rows.some(row => row.last_error_code === 'UPSTREAM_UNAVAILABLE' && row.last_error_at !== null)).toBe(true);
   });
 
   it('pulls every contact folder into its own address book', async () => {
@@ -350,9 +354,9 @@ describeOrSkip('Microsoft Graph contacts sync (PostgreSQL)', () => {
     const result = await syncGraphContacts({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl: provider.fetchImpl });
 
     expect(result).toMatchObject({ created: 3, updated: 0, deleted: 0, errors: [] });
-    // The default folder ran first and is the run's reported book; each folder was read through its own id.
-    expect(result.books).toHaveLength(3);
-    expect(new Set(result.books.map(book => book.addressBookId)).size).toBe(3);
+    // The independent default collection plus each folder has its own durable book.
+    expect(result.books).toHaveLength(4);
+    expect(new Set(result.books.map(book => book.addressBookId)).size).toBe(4);
     expect(provider.urls.map(url => decodeURIComponent(url))).toEqual([
       expect.stringContaining(`/me/contactFolders/${FOLDER_ID}/contacts/delta`),
       expect.stringContaining(`/me/contactFolders/${SECOND_ID}/contacts/delta`),
@@ -362,7 +366,7 @@ describeOrSkip('Microsoft Graph contacts sync (PostgreSQL)', () => {
     const books = await autocommit(client => client.query<{ name: string }>(
       'SELECT name FROM address_books WHERE user_id = $1 ORDER BY name', [USER_ID],
     ));
-    expect(books.rows.map(row => row.name)).toEqual(['Contacts', 'Team', 'Work']);
+    expect(books.rows.map(row => row.name)).toEqual(['Contacts', 'Microsoft Contacts', 'Team', 'Work']);
   });
 
   it('records an additional folder’s failure and still synchronises the rest', async () => {
@@ -382,7 +386,7 @@ describeOrSkip('Microsoft Graph contacts sync (PostgreSQL)', () => {
 
     // The default folder's contact arrived, the failing folder is named, and the run is not claimed as complete.
     expect(result).toMatchObject({ created: 1, incomplete: true, errors: [{ folderId: SECOND_ID, code: 'UPSTREAM_UNAVAILABLE' }] });
-    expect(result.books).toHaveLength(1);
+    expect(result.books).toHaveLength(2);
   });
 
   it('refuses a second concurrent sync for the same connection', async () => {

@@ -361,6 +361,14 @@ describe('migration integrity', () => {
     expect(sql).not.toMatch(/UPDATE\s+messages/i);
   });
 
+  it('keeps verified Graph legacy aliases separate from provider identities', () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/0126_graph_legacy_message_bindings.sql'), 'utf8');
+    expect(sql).toContain('CREATE TABLE IF NOT EXISTS graph_legacy_message_bindings');
+    expect(sql).toContain('legacy_message_id UUID PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE');
+    expect(sql).toContain("status IN ('bound', 'needs_review')");
+    expect(sql).not.toMatch(/UPDATE\s+messages/i);
+  });
+
   it('widens the OAuth flow purpose CHECK to accept account_enable', () => {
     // AUTH-01: the route-level allow-list was not the only gate — 0103's CHECK rejected account_enable too, so
     // a reconnect flow could never be persisted. The fix must widen the constraint, not rewrite 0103.

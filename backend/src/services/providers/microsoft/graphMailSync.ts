@@ -1,6 +1,7 @@
 import type { PoolClient } from 'pg';
 import { query, withSavepoint, withTransaction } from '../../db.js';
 import { toAppError } from '../../../utils/errors.js';
+import { bindVerifiedLegacyGraphMessage } from './graphLegacyMessageBindings.js';
 import { ProviderAuthError } from '../../providerAuthService.js';
 import {
   acquireSyncLease,
@@ -371,6 +372,7 @@ interface FolderTarget {
 interface MessageContext {
   userId: string;
   accountId: string;
+  connectionId: string;
   folderPath: string;
 }
 
@@ -466,6 +468,18 @@ export async function applyGraphMailMessagesPage(
               WHERE id = $1`,
             [applied.id, JSON.stringify(local.parsedHeaders), local.parsedHeadersComplete],
           );
+          // A legacy IMAP row remains a distinct physical copy. Bind it only after
+          // Graph has given us one verified provider record and strict corroborating
+          // metadata makes exactly one counterpart eligible.
+          await bindVerifiedLegacyGraphMessage(client, {
+            accountId: context.accountId,
+            connectionId: context.connectionId,
+            canonicalMessageId: applied.id,
+            providerMessageId: local.providerMessageId,
+            rfcMessageId: local.messageId,
+            fromEmail: local.fromEmail,
+            date: local.date,
+          });
           // The id is collected so the caller can run the conversation projection
           // **after** this transaction commits: the engine opens its own, and nesting
           // the two is the mistake this return value exists to prevent.
@@ -657,7 +671,7 @@ export async function syncGraphMailMessagesForFolder(input: {
     ...(input.config ? { config: input.config } : {}),
     ...(input.fetchImpl ? { fetchImpl: input.fetchImpl } : {}),
   };
-  const context: MessageContext = { userId: input.userId, accountId: input.accountId, folderPath: input.target.folderPath };
+  const context: MessageContext = { userId: input.userId, accountId: input.accountId, connectionId: input.connectionId, folderPath: input.target.folderPath };
 
   try {
     const state = await withTransaction(client => readSyncState(client, syncStateId));
