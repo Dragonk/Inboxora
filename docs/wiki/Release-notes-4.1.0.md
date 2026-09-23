@@ -339,7 +339,7 @@ Microsoft application is registered in this environment.
 
 - **Gmail archive preserves the local message object.** Removing INBOX records an explicit archived state and updates label membership instead of deleting the message, preserving IDs, annotations and thread history. Apply migration `0119_gmail_archive_state.sql` before rollout.
 
-- **Microsoft Graph calendar delta defaults to the documented beta contract.** Reduced events are read back in full; `GRAPH_CALENDAR_DELTA_VERSION=v1.0` is an explicit compatibility override pending live-tenant validation.
+- **Microsoft Graph calendar delta uses only the documented beta item-delta contract.** Reduced events are read back in full; `GRAPH_CALENDAR_DELTA_VERSION=v1.0` is rejected before it can send an unsupported request. Live-tenant validation remains required.
 
 - **Graph calendar expansion preserves read failures.** A 401/403, 429, timeout or 5xx is no longer converted to a deletion tombstone, so the cursor cannot advance as if the event had been removed. A live Microsoft tenant test is still required.
 
