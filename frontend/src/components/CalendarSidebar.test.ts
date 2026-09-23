@@ -56,6 +56,13 @@ describe('CalendarSidebar contract', () => {
     assert.match(component, /return \(\) => \{ active = false; \}/);
   });
 
+  it('offers the same non-destructive pause/resume action in the source manager', async () => {
+    const component = await source();
+    assert.match(component, /toggleSource\(managedExternalSource, !managedExternalSource\.enabled\)/);
+    assert.match(component, /calendar\.pauseSource/);
+    assert.match(component, /calendar\.resumeSource/);
+  });
+
   it('confirms source removal before deleting imported calendar projections', async () => {
     const component = await source();
     assert.match(component, /window\.confirm\(t\('calendar\.removeSourceConfirm'\)\)/);
