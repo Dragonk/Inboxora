@@ -50,7 +50,7 @@ describe('the external collection link', () => {
     expect(String(insert[0])).toContain('INSERT INTO source_connections');
     expect(insert[1]).toEqual([
       'user-1', 'caldav', 'Work', 'enc:v1:https://dav.example/calendars/user/',
-      externalSourceFingerprint('https://dav.example/calendars/user/'),
+      externalSourceFingerprint('https://dav.example/calendars/user/'), null,
     ]);
 
     query.mockReset();
