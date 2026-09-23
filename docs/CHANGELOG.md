@@ -396,6 +396,7 @@ None.
   IMAP loops, health checks, rule forwarder and send path no longer open IMAP or SMTP for it.
 
 ### Fixed
+- **Disabled providers stop scheduled and push-hint syncs.** Existing authorized connections now require both the provider and API switches before their adapters can call an upstream API.
 - **Provider calendar collections no longer expose unsafe local lifecycle actions.** Rename, color and delete are now local-calendar-only; provider-backed calendars retain visibility and write-back controls until provider-native, journalled collection operations are available.
 - **Threaded message-list representatives are deterministic at equal timestamps.** Window and final-page ordering now use message-row IDs as tie-breakers, preventing a thread card’s selected copy from oscillating across requests.
 - **Infinite scrolling cannot append a stale page after navigation.** Offset-page responses now share the list refresh generation guard, so a completed request from an old account or folder is ignored.

@@ -4,8 +4,8 @@ import { query } from './db.js';
  * The stored on/off switches for a provider and its methods.
  *
  * Read here rather than in each flow so that enforcement and the readiness report answer the
- * same question: a provider an administrator switched off must stop being usable *and* stop
- * being offered. Living in a service rather than beside the settings routes keeps those routes
+ * same question: a provider an administrator switched off must stop being usable, stop being
+ * offered, and stop synchronizing existing grants. Living in a service rather than beside the settings routes keeps those routes
  * importable on their own.
  *
  * An absent row (nothing saved yet) or an unreadable configuration counts as switched on: a
@@ -30,13 +30,8 @@ const ALL_OFF: ProviderSwitches = { enabled: false, webEnabled: false, deviceEna
  * The per-provider and per-method switches say which parts a configured installation offers; this says
  * whether to offer any of it, which is what an operator wants before configuring a client.
  *
- * Read here so that the four authorization flows and the readiness report answer the same question from
- * the same place. **It does not yet cover every path that reaches a provider**: the three provider sync
- * routes and the scheduled refresh call the adapters directly, so an installation that switches the layer
- * off can still make a scheduled or manual sync call out for collections it already has. Closing that means
- * checking this function in those four places — the two route groups and `runProviderSyncs` — which is
- * recorded here rather than implied, because a switch whose documentation overstates its reach is worse
- * than one that admits the hole.
+ * The scheduler and push-hint refresh use `providerOperationalForSync` so pre-existing grants cannot
+ * keep calling the remote API after an administrator disables the provider or its API method.
  *
  * Unset or any value other than an explicit off counts as enabled, so an existing installation is
  * unaffected by the flag's arrival.
@@ -67,6 +62,15 @@ interface StoredSwitchConfig {
   webEnabled?: boolean;
   deviceEnabled?: boolean;
   apiEnabled?: boolean;
+}
+
+/**
+ * Sync uses the provider API, so both the provider and API method must remain
+ * enabled even for connections authorized before an administrator changed policy.
+ */
+export async function providerOperationalForSync(provider: ProviderSwitchName): Promise<boolean> {
+  const switches = await readProviderSwitches(provider);
+  return switches.enabled && switches.apiEnabled;
 }
 
 export async function readProviderSwitches(provider: ProviderSwitchName): Promise<ProviderSwitches> {

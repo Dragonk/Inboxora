@@ -1,5 +1,5 @@
 import { query, withTransaction } from './db.js';
-import { providerIntegrationsEnabled } from './providerSwitches.js';
+import { providerIntegrationsEnabled, providerOperationalForSync } from './providerSwitches.js';
 import {
   googleConfigFromEnv,
   isGoogleConfigured,
@@ -229,9 +229,13 @@ export async function runProviderSyncs(): Promise<ProviderSyncRunSummary> {
   const googleConfig = googleConfigFromEnv();
   const microsoftConfig = microsoftConfigFromEnv();
   // Readiness is per provider: an unconfigured Google must never stop Microsoft.
+  const [googleOperational, microsoftOperational] = await Promise.all([
+    providerOperationalForSync('google'),
+    providerOperationalForSync('microsoft'),
+  ]);
   const ready: Record<string, boolean> = {
-    google: isGoogleConfigured(googleConfig),
-    microsoft: isMicrosoftConfigured(microsoftConfig),
+    google: googleOperational && isGoogleConfigured(googleConfig),
+    microsoft: microsoftOperational && isMicrosoftConfigured(microsoftConfig),
   };
   let ran = 0;
   let failed = 0;
@@ -355,6 +359,8 @@ export async function runProviderSyncForHint(input: {
   resourceType: string;
 }): Promise<{ ran: boolean; reason?: string }> {
   if (!providerIntegrationsEnabled()) return { ran: false, reason: 'PROVIDER_INTEGRATIONS_DISABLED' };
+  if ((input.provider === 'google' || input.provider === 'microsoft')
+      && !await providerOperationalForSync(input.provider)) return { ran: false, reason: 'PROVIDER_DISABLED' };
   const googleConfig = googleConfigFromEnv();
   const microsoftConfig = microsoftConfigFromEnv();
   const ready = input.provider === 'google' ? isGoogleConfigured(googleConfig) : isMicrosoftConfigured(microsoftConfig);

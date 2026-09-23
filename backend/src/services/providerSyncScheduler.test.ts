@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   googleConfigured: { value: true },
   microsoftConfigured: { value: true },
   featureEnabled: { value: true },
+  providerOperational: { google: true, microsoft: true },
 }));
 
 vi.mock('./db.js', () => ({
@@ -21,6 +22,10 @@ vi.mock('./db.js', () => ({
   withTransaction: async (fn: (client: { query: typeof mocks.query }) => unknown) => fn({ query: mocks.query }),
 }));
 // Keep every real export and override only what this suite needs.
+vi.mock('./providerSwitches.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./providerSwitches.js')>()),
+  providerOperationalForSync: vi.fn(async (provider: 'google' | 'microsoft') => mocks.providerOperational[provider]),
+}));
 vi.mock('./providerAuthService.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./providerAuthService.js')>()),
   googleConfigFromEnv: () => ({ clientId: 'client-1', clientSecret: 'secret-1', redirectUri: 'https://inboxora.example/oauth/google/callback' }),
@@ -74,6 +79,8 @@ afterEach(() => {
   mocks.googleConfigured.value = true;
   mocks.microsoftConfigured.value = true;
   mocks.featureEnabled.value = true;
+  mocks.providerOperational.google = true;
+  mocks.providerOperational.microsoft = true;
 });
 
 describe('providerSyncIntervalMinutes', () => {
@@ -160,6 +167,13 @@ describe('runProviderSyncs', () => {
     await expect(runProviderSyncs()).resolves.toEqual({ connections: 1, ran: 2, failed: 0 });
     expect(mocks.syncGoogleContacts).toHaveBeenCalledWith(expect.objectContaining({ userId: 'user-1', connectionId: 'connection-1' }));
     expect(mocks.syncGoogleCalendar).toHaveBeenCalledWith(expect.objectContaining({ userId: 'user-1', connectionId: 'connection-1' }));
+  });
+
+  it('does not call an already-authorized provider after its API switch is disabled', async () => {
+    mocks.providerOperational.google = false;
+    mocks.query.mockResolvedValueOnce({ rows: [target({ features: ['calendar'] })] });
+    await expect(runProviderSyncs()).resolves.toEqual({ connections: 1, ran: 0, failed: 0 });
+    expect(mocks.syncGoogleCalendar).not.toHaveBeenCalled();
   });
 
   it('keeps going when one feature fails, and counts the failure', async () => {
@@ -407,6 +421,14 @@ describe('the schedule backs off from a throttled run', () => {
 });
 
 describe('push hint optional-service gate', () => {
+  it('does not call a provider after its API switch disables existing grants', async () => {
+    mocks.providerOperational.google = false;
+    await expect(runProviderSyncForHint({
+      userId: 'user-1', connectionId: 'connection-1', provider: 'google', resourceType: 'calendar',
+    })).resolves.toEqual({ ran: false, reason: 'PROVIDER_DISABLED' });
+    expect(mocks.syncGoogleCalendar).not.toHaveBeenCalled();
+  });
+
   it('does not call a calendar adapter after the account disables that service', async () => {
     mocks.featureEnabled.value = false;
     await expect(runProviderSyncForHint({
