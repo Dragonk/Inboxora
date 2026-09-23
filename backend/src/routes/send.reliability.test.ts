@@ -1,6 +1,15 @@
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vitest';
 import type { JsonBody } from '../test/json.js';
-vi.mock('../services/db.js', () => ({ query: vi.fn() }));
+vi.mock('../services/db.js', () => ({
+  query: vi.fn(),
+  // Delivery tests must model the transaction used by asynchronous recipient
+  // learning so expected transport outcomes do not emit unrelated mock errors.
+  withTransaction: async (work: (client: { query: (sql: string) => Promise<{ rows: Array<{ contact_id?: string }>; rowCount?: number }> }) => Promise<unknown>) => work({
+    query: async sql => sql.includes('SELECT contact_id')
+      ? { rows: [{ contact_id: 'learned-contact' }], rowCount: 1 }
+      : { rows: [], rowCount: 1 },
+  }),
+}));
 vi.mock('../middleware/auth.js', () => ({ requireAuth: (req: { headers: Record<string, string>; session?: { userId?: string } }, _res: unknown, next: () => void) => { req.session = { userId: 'u1' }; next(); } }));
 vi.mock('../services/redis.js', () => ({ redisClient: { get: vi.fn(), set: vi.fn(), del: vi.fn(), eval: vi.fn() } }));
 vi.mock('../index.js', () => ({ imapManager: {} }));
@@ -34,7 +43,12 @@ beforeAll(async () => {
 afterAll(async () => { await new Promise(resolve => server.close(resolve)); });
 beforeEach(() => {
   vi.clearAllMocks();
-  query.mockImplementation(async sql => ({ rows: sql.includes('FROM email_accounts') ? [account] : [{ preferences: {}, id: 'book1' }] }));
+  query.mockImplementation(async sql => {
+    if (sql.includes('FROM messages m JOIN email_accounts')) {
+      return { rows: [{ id: 'parent-row', message_id: '<parent@example.com>', canonical_message_id: null, in_reply_to: null, thread_references: null, provider_message_id: null, account_id: 'a1' }] };
+    }
+    return { rows: sql.includes('FROM email_accounts') ? [account] : [{ preferences: {}, id: 'book1' }] };
+  });
   redisClient.get.mockResolvedValue(null);
   redisClient.set.mockResolvedValue('OK');
   redisClient.del.mockResolvedValue(1);
@@ -52,12 +66,12 @@ const post = (body: Record<string, unknown> = defaultBody, idempotencyKey = 'sen
 function mockExistingIntent(status: 'pending' | 'uncertain' | 'completed', result: unknown = null, fingerprint = 'same') {
   let incomingFingerprint = '';
   query.mockImplementation(async (sql, params: unknown[] = []) => {
-    if (sql.includes('FROM email_accounts')) return { rows: [account] };
-    if (sql.includes('SELECT preferences FROM users')) return { rows: [{ preferences: {} }] };
     // Resolving the answered message: the composer sends its row id and the server reads the RFC Message-ID.
     if (sql.includes('FROM messages m JOIN email_accounts')) {
-      return { rows: [{ message_id: '<parent@example.com>', canonical_message_id: null, in_reply_to: null, thread_references: null }] };
+      return { rows: [{ id: 'parent-row', message_id: '<parent@example.com>', canonical_message_id: null, in_reply_to: null, thread_references: null, provider_message_id: null, account_id: 'a1' }] };
     }
+    if (sql.includes('FROM email_accounts')) return { rows: [account] };
+    if (sql.includes('SELECT preferences FROM users')) return { rows: [{ preferences: {} }] };
     // A prior successful send may still be auto-learning contacts when the next
     // duplicate-intent test replaces this mock. Keep that detached work harmless.
     if (sql.includes('INSERT INTO address_books')) return { rows: [{ id: 'book1' }] };
@@ -259,7 +273,7 @@ describe('send failure semantics', () => {
       if (sql.includes('FROM email_accounts')) return { rows: [account] };
       if (sql.includes('SELECT preferences FROM users')) return { rows: [{ preferences: {} }] };
       if (sql.includes('FROM messages m JOIN email_accounts')) {
-        return { rows: [{ message_id: '<parent@example.com>', canonical_message_id: null, in_reply_to: null, thread_references: null }] };
+        return { rows: [{ id: 'parent-row', message_id: '<parent@example.com>', canonical_message_id: null, in_reply_to: null, thread_references: null, provider_message_id: null, account_id: 'a1' }] };
       }
       if (sql.includes('INSERT INTO send_idempotency')) {
         fingerprints.push(String(params[2]));
@@ -276,7 +290,7 @@ describe('send failure semantics', () => {
     });
 
     const first = await post({ ...defaultBody, replyToMessageId: 'message-one' });
-    expect(first.status).toBe(200);
+    expect(await first.json()).toEqual({ ok: true });
     const second = await post({ ...defaultBody, replyToMessageId: 'message-two' });
 
     expect(second.status).toBe(409);

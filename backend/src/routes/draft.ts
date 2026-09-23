@@ -52,6 +52,11 @@ type RawDraftInput = {
   hasEditedSignature?: boolean;
   inReplyTo?: string | null;
   references?: string | null;
+  /** Stable physical parent for native transports when a reply draft is reopened. */
+  replyToMessageId?: string | null;
+  /** Same-account RFC fallback when a move replaces the physical row. */
+  replyParentMessageId?: string | null;
+  replyParentAccountId?: string | null;
 };
 
 type ExistingDraftIdentity = {
@@ -121,7 +126,7 @@ function textToHtml(text: string) {
     .join('');
 }
 
-async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml, quotedBody, quotedBodyHtml, editedSignature, editedSignatureIsHtml = true, hasEditedSignature = false, inReplyTo, references }: RawDraftInput) {
+async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml, quotedBody, quotedBodyHtml, editedSignature, editedSignatureIsHtml = true, hasEditedSignature = false, inReplyTo, references, replyToMessageId, replyParentMessageId, replyParentAccountId }: RawDraftInput) {
   const acctResult = await query<EmailAccountRow & { email_address: string }>(
     'SELECT * FROM email_accounts WHERE id = $1',
     [accountId]
@@ -226,7 +231,16 @@ async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, b
       aliasId: resolvedAliasId,
       inReplyTo: inReplyTo ? sanitizeHeaderValue(inReplyTo) : null,
       references: references ? sanitizeHeaderValue(references) : null,
-      draftComposition: { version: 2, authoredBody: body || '', bodyIsHtml: Boolean(bodyIsHtml), signatureHtml: effectiveSignature, signatureText: sigText, quotedBody: quotedBody || null, quotedBodyHtml: quotedBodyHtml || null },
+      // Keep parent identity in the durable composition metadata. IMAP/Graph/Gmail
+      // draft projections already preserve this JSON across reopen, unlike a
+      // transient ComposeModal-only field.
+      draftComposition: {
+        version: 3, authoredBody: body || '', bodyIsHtml: Boolean(bodyIsHtml), signatureHtml: effectiveSignature,
+        signatureText: sigText, quotedBody: quotedBody || null, quotedBodyHtml: quotedBodyHtml || null,
+        replyToMessageId: typeof replyToMessageId === 'string' ? replyToMessageId : null,
+        replyParentMessageId: typeof replyParentMessageId === 'string' ? replyParentMessageId : null,
+        replyParentAccountId: typeof replyParentAccountId === 'string' ? replyParentAccountId : null,
+      },
     },
   };
 }
@@ -285,7 +299,7 @@ async function deleteProviderDraftByIdentity(userId: string, identity: ExistingD
 }
 
 router.post('/draft', async (req, res) => {
-  const { accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml = false, quotedBody, quotedBodyHtml, editedSignature, editedSignatureIsHtml, inReplyTo, references } = req.body;
+  const { accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml = false, quotedBody, quotedBodyHtml, editedSignature, editedSignatureIsHtml, inReplyTo, references, replyToMessageId, replyParentMessageId, replyParentAccountId } = req.body;
   if (editedSignatureIsHtml !== undefined && typeof editedSignatureIsHtml !== 'boolean') return res.status(400).json({ error: 'editedSignatureIsHtml must be a boolean' });
   const hasEditedSignature = Object.prototype.hasOwnProperty.call(req.body || {}, 'editedSignature');
   const existingDraft = existingDraftIdentity(req.body?.existingDraft);
@@ -298,7 +312,7 @@ router.post('/draft', async (req, res) => {
   if (!ownerCheck.rows.length) return res.status(404).json({ error: 'Account not found' });
 
   try {
-    const { rawMessage, account, composed, meta } = await buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml, quotedBody, quotedBodyHtml, editedSignature, editedSignatureIsHtml, hasEditedSignature, inReplyTo, references });
+    const { rawMessage, account, composed, meta } = await buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml, quotedBody, quotedBodyHtml, editedSignature, editedSignatureIsHtml, hasEditedSignature, inReplyTo, references, replyToMessageId, replyParentMessageId, replyParentAccountId });
 
     const draftsFolder = await resolveDraftsFolder(account);
     if (!draftsFolder) return res.status(422).json({ error: 'No Drafts folder found for this account' });

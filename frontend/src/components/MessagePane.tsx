@@ -1160,6 +1160,13 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
       allRecipients,
       threadId: message.thread_key || message.thread_id,
       threadCacheId: message.thread_id || message.thread_key,
+      // Preserve the physical row behind the selected reader copy. RFC headers
+      // are merely hints; /send resolves this row again for SMTP and Graph.
+      replyToMessageId: typeof message.selectedCopyId === 'string'
+        ? message.selectedCopyId
+        : typeof message.id === 'string' ? message.id : null,
+      replyParentMessageId: message.message_id || null,
+      replyParentAccountId: message.account_id || null,
     });
   };
 

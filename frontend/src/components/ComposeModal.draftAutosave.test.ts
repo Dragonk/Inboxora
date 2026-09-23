@@ -41,6 +41,11 @@ test('draft acknowledgement separates recipient and document edits from request 
   assert.match(draftSave, /if \(closeAfter && snapshotStillCurrent\) \{/);
 });
 
+test('reply drafts carry their physical parent through save and reopen (THR-07)', () => {
+  assert.match(draftSave, /replyToMessageId: composeData\?\.replyToMessageId \|\| null/);
+  assert.match(draftSave, /draftSnapshot\.replyToMessageId \? \{ replyToMessageId: draftSnapshot\.replyToMessageId \}/);
+});
+
 test('draft replacement keeps the prior account, UID and folder as one request snapshot (V7-02)', () => {
   // `uidValidity` is carried when the draft has one and omitted for a provider-native draft, whose
   // identity is the provider id held server-side — requiring it here would strand every provider draft.

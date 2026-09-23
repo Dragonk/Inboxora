@@ -272,7 +272,7 @@ router.get('/messages/:id', async (req, res) => {
     const result = await query(`
       SELECT m.id, m.uid, m.folder, m.message_id, m.subject,
              m.from_name, m.from_email, m.to_addresses, m.cc_addresses,
-             m.reply_to, m.in_reply_to,
+             m.reply_to, m.in_reply_to, m.thread_references,
              m.date, m.snippet, m.is_read, m.is_starred,
              m.has_attachments, m.account_id, m.category,
              m.spam_verdict, m.spam_score_ml, m.spam_score_blended,
@@ -311,7 +311,7 @@ router.get('/resolve-message', async (req, res) => {
   const accountId = rawAccountId || null;
   const COLS = `m.id, m.uid, m.folder, m.message_id, m.subject,
              m.from_name, m.from_email, m.to_addresses, m.cc_addresses,
-             m.reply_to, m.in_reply_to,
+             m.reply_to, m.in_reply_to, m.thread_references,
              m.date, m.snippet, m.is_read, m.is_starred,
              m.has_attachments, m.account_id, m.category,
              m.spam_verdict, m.spam_score_ml, m.spam_score_blended,
@@ -390,7 +390,7 @@ router.get('/thread/:threadId', async (req, res) => {
                             COALESCE(NULLIF(btrim(m.message_id), ''), '__physical__:' || m.id::text))
                m.id, m.uid, m.folder, m.message_id, m.thread_id, m.thread_key, m.subject,
                m.from_name, m.from_email, m.to_addresses, m.cc_addresses,
-               m.reply_to, m.in_reply_to,
+               m.reply_to, m.in_reply_to, m.thread_references,
                m.date, m.snippet, m.is_read, m.is_starred,
                m.has_attachments, m.account_id, m.category,
                m.spam_verdict, m.spam_score_ml, m.spam_score_blended,

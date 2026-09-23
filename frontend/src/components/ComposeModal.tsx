@@ -919,9 +919,13 @@ export default function ComposeModal() {
         // MAIL-03: what this send semantically is. A provider with its own reply action needs it to create the
         // message as a reply rather than as a new message that merely carries RFC headers.
         sendKind: fwdAttachments.length ? 'forward'
-          : (composeData?.replyToMessageId || composeData?.inReplyTo) ? (ccFinal.length ? 'reply_all' : 'reply')
+          // Reply All is user intent, not an accidental consequence of whether
+          // the deduplicated recipient set still has a Cc address.
+          : (composeData?.replyToMessageId || composeData?.inReplyTo) ? (composeData?.isReplyAll ? 'reply_all' : 'reply')
             : 'new',
         ...(composeData?.replyToMessageId ? { replyToMessageId: composeData.replyToMessageId } : {}),
+        ...(composeData?.replyParentMessageId ? { replyParentMessageId: composeData.replyParentMessageId } : {}),
+        ...(composeData?.replyParentAccountId ? { replyParentAccountId: composeData.replyParentAccountId } : {}),
         ...(priority !== 'normal' ? { priority } : {}),
         ...(attachments.length ? {
           attachments: attachments.map(a => ({
@@ -1090,6 +1094,12 @@ export default function ComposeModal() {
       editedSignature: plaintextCompose ? plainSig : signatureContentRef.current,
       inReplyTo: composeData?.inReplyTo || null,
       references: composeData?.references || null,
+      // The physical parent is required by Graph createReply after reopening a draft.
+      replyToMessageId: composeData?.replyToMessageId || null,
+      // A row UUID can change after MOVE; retain a same-account RFC identity so
+      // the send route can re-resolve a current physical copy.
+      replyParentMessageId: composeData?.replyParentMessageId || null,
+      replyParentAccountId: composeData?.replyParentAccountId || null,
       existingDraft: draftUid != null && draftFolder != null && draftAccountId
         ? { accountId: draftAccountId, uid: draftUid, folder: draftFolder, ...(draftUidValidity != null ? { uidValidity: draftUidValidity } : {}) }
         : null,
@@ -1112,6 +1122,9 @@ export default function ComposeModal() {
         editedSignatureIsHtml: !plaintextCompose,
         ...(draftSnapshot.inReplyTo ? { inReplyTo: draftSnapshot.inReplyTo } : {}),
         ...(draftSnapshot.references ? { references: draftSnapshot.references } : {}),
+        ...(draftSnapshot.replyToMessageId ? { replyToMessageId: draftSnapshot.replyToMessageId } : {}),
+        ...(draftSnapshot.replyParentMessageId ? { replyParentMessageId: draftSnapshot.replyParentMessageId } : {}),
+        ...(draftSnapshot.replyParentAccountId ? { replyParentAccountId: draftSnapshot.replyParentAccountId } : {}),
         ...(draftSnapshot.existingDraft ? { existingDraft: draftSnapshot.existingDraft } : {}),
       });
       if (!isCurrentComposeSession()) return;

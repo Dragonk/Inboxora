@@ -596,12 +596,16 @@ it('the legacy mailbox sign-in no longer owns the canonical callback path', asyn
 it('resolves the reply edge from the stored message when the payload omits it', async () => {
   const source = await readFile(new URL('./send.ts', import.meta.url), 'utf8');
   assert.match(source, /replyToMessageId\?: string;/);
-  assert.match(source, /if \(\(!resolvedInReplyTo \|\| !resolvedReferences\) && typeof replyToMessageId === 'string' && replyToMessageId\)/);
+  // The physical parent is authoritative even when a stale client supplied RFC headers;
+  // Graph still needs its native ID for createReply.
+  assert.match(source, /Client RFC headers may be stale or/);
   // The lookup is scoped to the caller's own account.
   assert.match(source, /FROM messages m JOIN email_accounts a ON a\.id = m\.account_id\s*\n\s*WHERE m\.id = \$1 AND a\.user_id = \$2/);
   assert.match(source, /const parentId = row\.message_id \|\| row\.canonical_message_id \|\| null;/);
-  // The chain is the parent's own References plus the parent, per RFC 5322 §3.6.4.
-  assert.match(source, /\[row\.thread_references, row\.in_reply_to, parentId\]\.filter\(Boolean\)\.join\(' '\)\.trim\(\)/);
+  // The chain is the parent's own References plus the parent, per RFC 5322 §3.6.4,
+  // while duplicate IDs are removed before Sent projection.
+  assert.match(source, /\[row\.thread_references, row\.in_reply_to, parentId\]/);
+  assert.match(source, /resolvedReferences = \[\.\.\.new Set\(ids\)\]\.join\(' '\) \|\| parentId/);
   assert.match(source, /inReplyToHeader = sanitizeHeaderValue\(resolvedInReplyTo\)/);
   assert.match(source, /referencesHeader = sanitizeHeaderValue\(resolvedReferences \|\| resolvedInReplyTo\)/);
 });

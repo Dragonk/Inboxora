@@ -164,6 +164,25 @@ describe('subject prefixing', () => {
   });
 });
 
+describe('reply physical parent intent', () => {
+  it('sends the selected Conversation Reader physical copy as replyToMessageId', async () => {
+    const h = harness();
+    await openReplyFromMessage({
+      id: 'logical-copy-id', selectedCopyId: 'physical-copy-id', account_id: 'a',
+      reply_to: [], from_email: 'sender@example.com', message_id: '<parent@example.test>',
+    }, { accounts: [], openCompose: h.openCompose, getMessageBody: h.getMessageBody });
+    assert.equal(h.payload().replyToMessageId, 'physical-copy-id');
+  });
+
+  it('falls back to the message physical id outside Conversation Reader', async () => {
+    const h = harness();
+    await openReplyFromMessage({
+      id: 'physical-copy-id', account_id: 'a', reply_to: [], from_email: 'sender@example.com', message_id: '<parent@example.test>',
+    }, { accounts: [], openCompose: h.openCompose, getMessageBody: h.getMessageBody });
+    assert.equal(h.payload().replyToMessageId, 'physical-copy-id');
+  });
+});
+
 describe('references chain', () => {
   it('joins in_reply_to and message_id', async () => {
     const h = harness();
@@ -173,6 +192,16 @@ describe('references chain', () => {
     );
     assert.equal(h.payload().references, '<a> <b>');
     assert.equal(h.payload().inReplyTo, '<b>');
+  });
+
+  it('preserves a complete References chain and removes repeated Message-IDs', async () => {
+    const h = harness();
+    await openReplyFromMessage(
+      { account_id: 'a', reply_to: [], from_email: 'f@example.com', thread_references: '<a> <b>', in_reply_to: '<b>', message_id: '<c>' },
+      { accounts: [], openCompose: h.openCompose, getMessageBody: h.getMessageBody },
+    );
+    assert.equal(h.payload().references, '<a> <b> <c>');
+    assert.equal(h.payload().inReplyTo, '<c>');
   });
 
   it('uses message_id alone when there is no in_reply_to', async () => {

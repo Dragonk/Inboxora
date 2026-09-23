@@ -77,6 +77,11 @@ export interface ComposeDraft {
   isForward?: boolean;
   inReplyTo?: string | null;
   references?: string | null;
+  /** Durable RFC parent identity used if a draft's physical copy moves. */
+  replyParentMessageId?: string | null;
+  replyParentAccountId?: string | null;
+  /** The selected physical row; transports resolve it server-side when current. */
+  replyToMessageId?: string | null;
   originalFrom?: string | string[] | Array<{ email: string; name?: string | null }>;
   allRecipients?: string[];
   forwardedAttachments?: Array<{ messageId?: string; part?: string; filename?: string | null; size?: number | null; [key: string]: unknown }>;
@@ -380,7 +385,7 @@ export interface StoreMessageRow {
   draft_alias_id?: string | null;
   draft_in_reply_to?: string | null;
   draft_references?: string | null;
-  draft_composition?: { version?: number; authoredBody?: string; bodyIsHtml?: boolean; signatureHtml?: string | null; signatureText?: string | null; quotedBody?: string | null; quotedBodyHtml?: string | null } | null;
+  draft_composition?: { version?: number; authoredBody?: string; bodyIsHtml?: boolean; signatureHtml?: string | null; signatureText?: string | null; quotedBody?: string | null; quotedBodyHtml?: string | null; replyToMessageId?: string | null; replyParentMessageId?: string | null; replyParentAccountId?: string | null } | null;
   reply_to?: string | null;
   delivery_addresses?: string | Array<{ email?: string | null; address?: string | null } | string> | null;
   category?: string | null;

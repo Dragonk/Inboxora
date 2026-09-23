@@ -46,8 +46,8 @@ describe('GET /api/mail/resolve-message account scope', () => {
     query.mockReset();
   });
 
-  it('scopes a durable Message-ID lookup to the requested owned account', async () => {
-    query.mockResolvedValueOnce({ rows: [{ id: 'current-row', account_id: ACCOUNT_ID }] });
+  it('scopes a durable Message-ID lookup to the requested owned account and returns its complete RFC chain', async () => {
+    query.mockResolvedValueOnce({ rows: [{ id: 'current-row', account_id: ACCOUNT_ID, in_reply_to: '<parent@example.test>', thread_references: '<root@example.test> <parent@example.test>' }] });
 
     const url = new URL(`${base}/api/mail/resolve-message`);
     url.searchParams.set('ref', MESSAGE_ID);
@@ -57,7 +57,12 @@ describe('GET /api/mail/resolve-message account scope', () => {
     expect(response.status).toBe(200);
     const [sql, params] = query.mock.calls[0];
     expect(sql).toContain('m.account_id = $3');
+    expect(sql).toContain('m.in_reply_to, m.thread_references');
     expect(params).toEqual([MESSAGE_ID, 'user-1', ACCOUNT_ID]);
+    expect(await response.json()).toMatchObject({
+      in_reply_to: '<parent@example.test>',
+      thread_references: '<root@example.test> <parent@example.test>',
+    });
   });
 
   it('keeps unscoped deep-link resolution backward compatible', async () => {

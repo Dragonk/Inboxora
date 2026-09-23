@@ -1474,79 +1474,14 @@ export default function MessageList() {
   }, [setMessagesStarredState]);
 
   const handleSwipeReply = useCallback((message: ListMessage, replyAll = false) => {
-    const replyToArr = Array.isArray(message.reply_to)
-      ? message.reply_to
-      : (() => { try { return JSON.parse(message.reply_to || '[]'); } catch { return []; } })();
-    const replyTarget = (replyToArr.length && replyToArr[0].email)
-      ? replyToArr[0]
-      : { name: message.from_name || '', email: message.from_email || '' };
-    const sender = replyTarget.email ? [replyTarget] : [];
-
-    const myAccount = accounts.find(a => a.id === message.account_id);
-    const myEmail = myAccount?.email_address || '';
-    const myAddresses = new Set([
-      myEmail.toLowerCase(),
-      ...(myAccount?.aliases || [])
-        .map(al => al.email)
-        .filter((email): email is string => typeof email === 'string')
-        .map(email => email.toLowerCase()),
-    ]);
-
-    const replyAliasId = (() => {
-      const aliases = myAccount?.aliases || [];
-      if (!aliases.length) return null;
-      try {
-        const toArr = Array.isArray(message.to_addresses)
-          ? message.to_addresses
-          : JSON.parse(message.to_addresses || '[]');
-        const ccArr = Array.isArray(message.cc_addresses)
-          ? message.cc_addresses
-          : JSON.parse(message.cc_addresses || '[]');
-        const allEmails = [...toArr, ...ccArr].map(t => t.email?.toLowerCase()).filter(Boolean);
-        const fromEmail = (message.from_email || '').toLowerCase();
-        const match = aliases.find(al => {
-          if (typeof al.email !== 'string') return false;
-          const aliasEmail = al.email.toLowerCase();
-          return allEmails.includes(aliasEmail) || fromEmail === aliasEmail;
-        });
-        return match ? match.id : null;
-      } catch { return null; }
-    })();
-
-    const allRecipients = (() => {
-      try {
-        const toArr = Array.isArray(message.to_addresses)
-          ? message.to_addresses
-          : JSON.parse(message.to_addresses || '[]');
-        const ccArr = Array.isArray(message.cc_addresses)
-          ? message.cc_addresses
-          : JSON.parse(message.cc_addresses || '[]');
-        return [...toArr, ...ccArr].filter(
-          t => t.email && !myAddresses.has(t.email.toLowerCase()) && t.email !== replyTarget.email
-        );
-      } catch { return []; }
-    })();
-
-    const referencesChain = [message.in_reply_to, message.message_id]
-      .filter(Boolean).join(' ').trim() || null;
-    const rawSubject = (message.subject || '').trim();
-
-    openCompose({
-      to: sender,
-      cc: replyAll ? allRecipients : [],
-      subject: rawSubject.startsWith('Re:') ? rawSubject : rawSubject ? `Re: ${rawSubject}` : 'Re:',
-      body: '',
-      quotedBody: '',
-      inReplyTo: message.message_id,
-      // The row id travels too: if the list row had no Message-ID, the server reads it from the stored message.
-      replyToMessageId: message.id,
-      references: referencesChain,
-      accountId: message.account_id,
-      aliasId: replyAliasId,
-      isReply: true,
-      isReplyAll: replyAll,
-      originalFrom: sender,
-      allRecipients,
+    // List, menu and swipe entry points intentionally use the same helper as
+    // the single reader and Conversation Reader. It carries the physical row
+    // identity to /send; RFC headers remain only a compatibility hint.
+    void openReplyFromMessage(message, {
+      accounts,
+      openCompose,
+      getMessageBody: api.getMessageBody,
+      replyAll,
     });
   }, [accounts, openCompose]);
   
@@ -2635,6 +2570,9 @@ export default function MessageList() {
           editedSignatureIsHtml: hasCanonicalSignatureText ? false : composition?.bodyIsHtml !== false,
           inReplyTo: message.draft_in_reply_to || null,
           references: message.draft_references || null,
+          replyToMessageId: typeof composition?.replyToMessageId === 'string' ? composition.replyToMessageId : null,
+          replyParentMessageId: typeof composition?.replyParentMessageId === 'string' ? composition.replyParentMessageId : null,
+          replyParentAccountId: typeof composition?.replyParentAccountId === 'string' ? composition.replyParentAccountId : null,
           isReply: Boolean(message.draft_in_reply_to),
         });
       } catch (err) {

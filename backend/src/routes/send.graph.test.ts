@@ -16,7 +16,16 @@ vi.mock('../services/providers/microsoft/graphMailSend.js', () => ({
 }));
 vi.mock('../services/providers/microsoft/graphMailAttachments.js', () => ({ addGraphAttachment: attachMock }));
 
-vi.mock('../services/db.js', () => ({ query: vi.fn() }));
+vi.mock('../services/db.js', () => ({
+  query: vi.fn(),
+  // Post-send recipient learning is intentionally asynchronous, but the mock
+  // still needs the transaction boundary the real send route uses.
+  withTransaction: async (work: (client: { query: (sql: string) => Promise<{ rows: Array<{ contact_id?: string }>; rowCount?: number }> }) => Promise<unknown>) => work({
+    query: async sql => sql.includes('SELECT contact_id')
+      ? { rows: [{ contact_id: 'learned-contact' }], rowCount: 1 }
+      : { rows: [], rowCount: 1 },
+  }),
+}));
 vi.mock('../middleware/auth.js', () => ({ requireAuth: (req: { headers: Record<string, string>; session?: { userId?: string } }, _res: unknown, next: () => void) => { req.session = { userId: 'u1' }; next(); } }));
 vi.mock('../services/redis.js', () => ({ redisClient: { get: vi.fn(), set: vi.fn(), del: vi.fn(), eval: vi.fn() } }));
 const appendToSent = vi.hoisted(() => vi.fn());
@@ -117,11 +126,123 @@ describe('sending from a native Microsoft Graph account', () => {
     expect(sendMock).toHaveBeenCalled();
   });
 
-  it('does not claim a Graph-native reply for a parent in another mailbox (THREAD-01)', async () => {
-    // THREAD-01 diagnostic: an OVH/IMAP parent and a Gmail/Graph sending account are different provider
-    // authorities. We deliberately do not borrow the parent's provider id into `createReply`; the Graph JSON
-    // renderer also refuses the RFC headers Graph cannot accept. This test pins the current limitation rather than
-    // claiming cross-mailbox provider threading.
+  it('resolves a verified legacy Graph alias before staging a reply', async () => {
+    query.mockImplementation(async sql => {
+      if (sql.includes('FROM email_accounts')) return { rows: [account] };
+      if (sql.includes('SELECT preferences FROM users')) return { rows: [{ preferences: {} }] };
+      if (sql.includes('FROM messages m JOIN email_accounts')) return { rows: [{
+        id: 'legacy-copy-id', message_id: '<parent@contoso.test>', canonical_message_id: null, in_reply_to: null,
+        thread_references: null, provider_message_id: null, account_id: 'a1',
+      }] };
+      if (sql.includes('FROM graph_legacy_message_bindings')) return { rows: [{
+        canonical_message_id: 'canonical-copy-id', provider_message_id: 'AAMkAD-legacy-bound-parent', status: 'bound',
+      }] };
+      if (sql.includes('INSERT INTO send_idempotency')) return { rows: [{ status: 'pending' }] };
+      if (sql.includes('INSERT INTO address_books')) return { rows: [{ id: 'book1' }] };
+      if (sql.includes('INSERT INTO contacts')) return { rows: [{ address_book_id: 'book1' }] };
+      return { rows: [] };
+    });
+
+    const response = await post({ replyToMessageId: '44444444-4444-4444-8444-444444444444', sendKind: 'reply' });
+
+    expect(response.status).toBe(200);
+    expect(draftMock).not.toHaveBeenCalled();
+    expect(replyDraftMock).toHaveBeenCalledWith(expect.anything(), 'AAMkAD-legacy-bound-parent', 'reply');
+  });
+
+  it('re-resolves a moved draft parent by its stored RFC identity before Graph reply', async () => {
+    let parentLookups = 0;
+    query.mockImplementation(async sql => {
+      if (sql.includes('FROM email_accounts')) return { rows: [account] };
+      if (sql.includes('SELECT preferences FROM users')) return { rows: [{ preferences: {} }] };
+      if (sql.includes('FROM messages m JOIN email_accounts')) {
+        parentLookups += 1;
+        return parentLookups === 1 ? { rows: [] } : { rows: [{
+          id: 'moved-parent-id', message_id: '<parent@contoso.test>', canonical_message_id: null, in_reply_to: null,
+          thread_references: null, provider_message_id: 'AAMkAD-moved-parent', account_id: 'a1',
+        }] };
+      }
+      if (sql.includes('INSERT INTO send_idempotency')) return { rows: [{ status: 'pending' }] };
+      if (sql.includes('INSERT INTO address_books')) return { rows: [{ id: 'book1' }] };
+      if (sql.includes('INSERT INTO contacts')) return { rows: [{ address_book_id: 'book1' }] };
+      return { rows: [] };
+    });
+
+    const response = await post({
+      replyToMessageId: 'stale-physical-parent', sendKind: 'reply', inReplyTo: '<parent@contoso.test>',
+    });
+
+    expect(response.status).toBe(200);
+    expect(parentLookups).toBe(2);
+    expect(replyDraftMock).toHaveBeenCalledWith(expect.anything(), 'AAMkAD-moved-parent', 'reply');
+    expect(draftMock).not.toHaveBeenCalled();
+  });
+
+  it('refuses a Graph reply whose selected parent lacks a native identity', async () => {
+    query.mockImplementation(async sql => {
+      if (sql.includes('FROM email_accounts')) return { rows: [account] };
+      if (sql.includes('SELECT preferences FROM users')) return { rows: [{ preferences: {} }] };
+      if (sql.includes('FROM messages m JOIN email_accounts')) return { rows: [{
+        id: 'legacy-copy-id', message_id: '<parent@contoso.test>', canonical_message_id: null, in_reply_to: null,
+        thread_references: null, provider_message_id: null, account_id: 'a1',
+      }] };
+      if (sql.includes('FROM graph_legacy_message_bindings')) return { rows: [] };
+      return { rows: [] };
+    });
+
+    const response = await post({ replyToMessageId: '55555555-5555-4555-8555-555555555555', sendKind: 'reply' });
+
+    expect(response.status).toBe(422);
+    await expect(response.json()).resolves.toMatchObject({ code: 'REPLY_PARENT_NOT_RESOLVABLE' });
+    expect(replyDraftMock).not.toHaveBeenCalled();
+    expect(draftMock).not.toHaveBeenCalled();
+  });
+
+  it('refuses an inferred Graph reply without a physical parent instead of creating a new message', async () => {
+    query.mockImplementation(async sql => {
+      if (sql.includes('FROM email_accounts')) return { rows: [account] };
+      if (sql.includes('SELECT preferences FROM users')) return { rows: [{ preferences: {} }] };
+      return { rows: [] };
+    });
+
+    const response = await post({ inReplyTo: '<parent@contoso.test>', references: '<root@contoso.test> <parent@contoso.test>' });
+
+    expect(response.status).toBe(422);
+    await expect(response.json()).resolves.toMatchObject({ code: 'REPLY_PARENT_NOT_RESOLVABLE' });
+    expect(replyDraftMock).not.toHaveBeenCalled();
+    expect(draftMock).not.toHaveBeenCalled();
+  });
+
+  it('uses the parent provider identity even when the client included complete RFC reply headers', async () => {
+    // THR-02: the UI may carry headers for SMTP compatibility, but those must
+    // never bypass the row lookup that Graph needs for createReply.
+    query.mockImplementation(async sql => {
+      if (sql.includes('FROM email_accounts')) return { rows: [account] };
+      if (sql.includes('SELECT preferences FROM users')) return { rows: [{ preferences: {} }] };
+      if (sql.includes('FROM messages m JOIN email_accounts')) return { rows: [{
+        message_id: '<parent@contoso.test>', canonical_message_id: null, in_reply_to: '<root@contoso.test>',
+        thread_references: '<root@contoso.test>', provider_message_id: 'AAMkAD-parent-with-headers', account_id: 'a1',
+      }] };
+      if (sql.includes('INSERT INTO send_idempotency')) return { rows: [{ status: 'pending' }] };
+      if (sql.includes('INSERT INTO address_books')) return { rows: [{ id: 'book1' }] };
+      if (sql.includes('INSERT INTO contacts')) return { rows: [{ address_book_id: 'book1' }] };
+      return { rows: [] };
+    });
+
+    const response = await post({
+      replyToMessageId: '33333333-3333-4333-8333-333333333333', sendKind: 'reply',
+      inReplyTo: '<parent@contoso.test>', references: '<root@contoso.test> <parent@contoso.test>',
+    });
+
+    expect(response.status).toBe(200);
+    expect(draftMock).not.toHaveBeenCalled();
+    expect(replyDraftMock).toHaveBeenCalledWith(expect.anything(), 'AAMkAD-parent-with-headers', 'reply');
+  });
+
+  it('rejects a reply whose selected parent belongs to another mailbox (THREAD-01)', async () => {
+    // A client must not turn an OVH/IMAP row into a Graph reply or silently send
+    // it as a new message. A reply always resolves one physical parent in the
+    // sending mailbox; the caller can explicitly compose a new mail instead.
     query.mockImplementation(async sql => {
       if (sql.includes('FROM email_accounts')) return { rows: [account] };
       if (sql.includes('SELECT preferences FROM users')) return { rows: [{ preferences: {} }] };
@@ -139,9 +260,10 @@ describe('sending from a native Microsoft Graph account', () => {
 
     const response = await post({ replyToMessageId: '22222222-2222-4222-8222-222222222222', sendKind: 'reply' });
 
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(422);
+    await expect(response.json()).resolves.toMatchObject({ code: 'REPLY_PARENT_NOT_RESOLVABLE' });
     expect(replyDraftMock).not.toHaveBeenCalled();
-    expect(draftMock).toHaveBeenCalled();
+    expect(draftMock).not.toHaveBeenCalled();
     expect(patchDraftMock).not.toHaveBeenCalled();
   });
 

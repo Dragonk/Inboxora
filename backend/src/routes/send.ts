@@ -27,6 +27,7 @@ import { pluginRegistry } from '../plugins/registry.js';
 import { toAppError } from '../utils/errors.js';
 import { resolveSenderIdentity } from '../services/senderIdentity.js';
 import { resolveIncomingBodyIsHtml, resolveOutgoingBodyIsHtml } from '../services/composeFormat.js';
+import { resolveGraphMessageIdentity } from '../services/providers/microsoft/graphLegacyMessageBindings.js';
 import type { InlineAttachment } from '../utils/inlineImages.js';
 
 /** One client-supplied attachment of an outgoing message (base64 payload). */
@@ -90,6 +91,9 @@ interface SendRequestBody {
    * own Message-ID from it, so the header no longer depends on the client carrying the value through.
    */
   replyToMessageId?: string;
+  /** Durable same-account RFC parent identity persisted by reply drafts after MOVE/reingest. */
+  replyParentMessageId?: string;
+  replyParentAccountId?: string;
   /**
    * What this send *is*, semantically: a new message, a reply, a reply to all, or a forward.
    *
@@ -461,7 +465,7 @@ router.get('/send-limits', async (req, res) => {
 });
 
 router.post('/send', async (req, res) => {
-  const { accountId, aliasId, to, cc = [], bcc = [], subject, body, bodyIsHtml, quotedBody, quotedBodyHtml, inReplyTo, references, replyToMessageId, sendKind, attachments, editedSignature, editedSignatureIsHtml, forwardedAttachments, priority }: SendRequestBody = req.body;
+  const { accountId, aliasId, to, cc = [], bcc = [], subject, body, bodyIsHtml, quotedBody, quotedBodyHtml, inReplyTo, references, replyToMessageId, replyParentMessageId, replyParentAccountId, sendKind, attachments, editedSignature, editedSignatureIsHtml, forwardedAttachments, priority }: SendRequestBody = req.body;
   const emailPriority = isEmailPriority(priority) ? priority : 'normal';
   if (!accountId) return res.status(400).json({ error: 'accountId required' });
   if (bodyIsHtml !== undefined && typeof bodyIsHtml !== 'boolean') return res.status(400).json({ error: 'bodyIsHtml must be a boolean' });
@@ -780,26 +784,78 @@ router.post('/send', async (req, res) => {
     // The answered message's provider id, when it is in **this** mailbox: that is what a provider-native reply
     // action needs (MAIL-03).
     let parentProviderMessageId: string | null = null;
-    if ((!resolvedInReplyTo || !resolvedReferences) && typeof replyToMessageId === 'string' && replyToMessageId) {
+    // Infer the old headers-only shape before choosing the transport. Microsoft
+    // cannot safely turn that shape into POST /me/messages: its reply action
+    // needs a resolvable physical parent. SMTP/Gmail retain this legacy path
+    // only while older clients are upgraded, and explicit reply kinds are strict
+    // on every transport.
+    const requestedReply = sendKind === 'reply' || sendKind === 'reply_all'
+      || (!sendKind && (Boolean(resolvedInReplyTo) || Boolean(resolvedReferences)));
+    const strictReplyParent = sendKind === 'reply' || sendKind === 'reply_all'
+      || (transportKind === 'microsoft_graph' && requestedReply);
+    const parentRowId = typeof replyToMessageId === 'string' && replyToMessageId ? replyToMessageId : null;
+    // The physical row is authoritative. Client RFC headers may be stale or
+    // deliberately forged; never let them select a different thread/provider
+    // parent than the row the user selected.
+    if (parentRowId) {
       const parent = await query<{
-        message_id: string | null; canonical_message_id: string | null; in_reply_to: string | null;
+        id: string; message_id: string | null; canonical_message_id: string | null; in_reply_to: string | null;
         thread_references: string | null; provider_message_id: string | null; account_id: string;
       }>(
-        `SELECT m.message_id, m.canonical_message_id, m.in_reply_to, m.thread_references,
+        `SELECT m.id, m.message_id, m.canonical_message_id, m.in_reply_to, m.thread_references,
                 m.provider_message_id, m.account_id
            FROM messages m JOIN email_accounts a ON a.id = m.account_id
           WHERE m.id = $1 AND a.user_id = $2`,
-        [replyToMessageId, req.session.userId],
+        [parentRowId, req.session.userId],
       );
-      const row = parent.rows[0];
-      if (row) {
-        const parentId = row.message_id || row.canonical_message_id || null;
-        resolvedInReplyTo = resolvedInReplyTo || parentId;
-        // The chain is the parent's own references plus the parent, which is what RFC 5322 §3.6.4 asks for.
-        const chain = [row.thread_references, row.in_reply_to, parentId].filter(Boolean).join(' ').trim();
-        resolvedReferences = resolvedReferences || chain || null;
-        if (row.account_id === accountId) parentProviderMessageId = row.provider_message_id;
+      // A draft can outlive its original physical row after a MOVE/ARCHIVE
+      // resync. Its RFC parent is only a durable lookup hint; a matched row still
+      // supplies all authoritative RFC and provider identity below.
+      let row = parent.rows[0];
+      if (!row && typeof inReplyTo === 'string' && inReplyTo.trim()) {
+        const movedParent = await query<{
+          id: string; message_id: string | null; canonical_message_id: string | null; in_reply_to: string | null;
+          thread_references: string | null; provider_message_id: string | null; account_id: string;
+        }>(
+          `SELECT m.id, m.message_id, m.canonical_message_id, m.in_reply_to, m.thread_references,
+                  m.provider_message_id, m.account_id
+             FROM messages m JOIN email_accounts a ON a.id = m.account_id
+            WHERE m.message_id = $1 AND m.account_id = $2 AND a.user_id = $3 AND m.is_deleted = false
+            ORDER BY (m.folder = 'INBOX') DESC, m.date DESC NULLS LAST LIMIT 1`,
+          [inReplyTo.trim(), accountId, req.session.userId],
+        );
+        row = movedParent.rows[0];
       }
+      if (!row || row.account_id !== accountId) {
+        return res.status(422).json({ code: 'REPLY_PARENT_NOT_RESOLVABLE', error: 'The selected reply parent is unavailable for this account' });
+      }
+      const parentId = row.message_id || row.canonical_message_id || null;
+      if (!parentId) {
+        return res.status(422).json({ code: 'REPLY_PARENT_NOT_RESOLVABLE', error: 'The selected reply parent has no RFC message identity' });
+      }
+      resolvedInReplyTo = parentId;
+      // The chain is the parent's own references plus its Message-ID. Keep the
+      // first occurrence only so repeated sync headers do not grow indefinitely.
+      const ids = [row.thread_references, row.in_reply_to, parentId]
+        .flatMap(value => String(value || '').match(/<[^<>\r\n]+>/g) || []);
+      resolvedReferences = [...new Set(ids)].join(' ') || parentId;
+      if (transportKind === 'microsoft_graph') {
+        const identity = await resolveGraphMessageIdentity({ query }, {
+          messageId: row.id,
+          accountId,
+          connectionId: account.provider_connection_id,
+          directProviderMessageId: row.provider_message_id,
+        });
+        if (identity.kind !== 'resolved') {
+          return res.status(422).json({ code: 'REPLY_PARENT_NOT_RESOLVABLE', error: 'The selected reply parent has no usable Microsoft identity' });
+        }
+        parentProviderMessageId = identity.providerMessageId;
+      }
+    } else if (strictReplyParent) {
+      // Do not silently turn an explicit reply, or a Graph headers-only reply,
+      // into a new message. SMTP/Gmail legacy callers remain a narrow
+      // compatibility branch until they carry the physical parent field.
+      return res.status(422).json({ code: 'REPLY_PARENT_NOT_RESOLVABLE', error: 'A reply requires a selected message' });
     }
     if (resolvedInReplyTo) {
       inReplyToHeader = sanitizeHeaderValue(resolvedInReplyTo);
