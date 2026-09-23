@@ -120,6 +120,25 @@ describe('a Graph message body is read from the provider and cached', () => {
     expect(mocks.noteUserActivity).not.toHaveBeenCalled();
   });
 
+  it('returns a fetched Graph body when attachment metadata fails, without caching an empty list', async () => {
+    mocks.query
+      .mockResolvedValueOnce({ rows: [messageRow()], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ id: ACCOUNT_ID, user_id: 'user-1', mail_transport: 'microsoft_graph', provider_connection_id: 'connection-1' }], rowCount: 1 });
+    const { GraphApiError } = await import('../services/providers/microsoft/graphApiClient.js');
+    mocks.fetchGraphMessageBody.mockResolvedValue({ contentType: 'text', content: 'available body' });
+    mocks.fetchGraphAttachments.mockRejectedValue(new GraphApiError({ code: 'RATE_LIMITED', message: 'slow down', status: 429, retryable: true }));
+
+    const response = await fetch(`${base}/api/mail/messages/${MESSAGE_ID}/body`);
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      text: 'available body', attachments: [], attachmentsIncomplete: true,
+      attachmentError: { code: 'RATE_LIMITED', retryable: true },
+    });
+    const cache = mocks.query.mock.calls.find(([sql]) => String(sql).includes('SET body_html = $1'));
+    expect(cache?.[1]?.[2]).toBeNull();
+    expect(mocks.fetchMessageBody).not.toHaveBeenCalled();
+  });
+
   it('does not fall through to IMAP for a Graph account', async () => {
     mocks.query
       .mockResolvedValueOnce({ rows: [messageRow()], rowCount: 1 })

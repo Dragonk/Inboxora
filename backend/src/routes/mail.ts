@@ -1613,10 +1613,19 @@ async function respondWithGraphBody(
   const providerMessageId = identity.providerMessageId;
 
   try {
-    const [body, attachments] = await Promise.all([
-      fetchGraphMessageBody(api, providerMessageId),
-      fetchGraphAttachments(api, providerMessageId),
-    ]);
+    // The body is independently useful. An attachments-list failure must not turn a readable message into a
+    // false 404/503, nor may it overwrite a previously complete attachment cache with an empty list.
+    const body = await fetchGraphMessageBody(api, providerMessageId);
+    let attachments: Awaited<ReturnType<typeof fetchGraphAttachments>> = [];
+    let attachmentProblem: GraphApiError | null = null;
+    try {
+      attachments = await fetchGraphAttachments(api, providerMessageId);
+    } catch (caught) {
+      attachmentProblem = caught instanceof GraphApiError ? caught : new GraphApiError({
+        code: 'UPSTREAM_UNAVAILABLE', status: 503, retryable: true, message: 'Could not load Microsoft Graph attachments',
+      });
+      console.error('Graph attachment list fetch error:', attachmentProblem.message);
+    }
 
     let html: string | null = null;
     let text: string | null = null;
@@ -1627,18 +1636,19 @@ async function respondWithGraphBody(
       text = sanitizeDbText(body.content);
     }
 
-    const visibleAttachments = localAttachmentsForGraph(attachments);
+    const visibleAttachments = attachmentProblem ? null : localAttachmentsForGraph(attachments);
     const snip = sanitizeDbText(snippetFromBody(text ?? '', html));
 
-    // Only cache when there is something to cache, exactly as the IMAP path does:
-    // a transient empty answer must not wipe a previously successful body.
-    if (html || text || visibleAttachments.length > 0) {
+    // Only cache when there is something to cache. A null attachment value preserves prior metadata if its
+    // independent provider read failed; it is not evidence that the message has no files.
+    if (html || text || visibleAttachments?.length) {
       await query(
         `UPDATE messages
-            SET body_html = $1, body_text = $2, attachments = $3,
+            SET body_html = $1, body_text = $2,
+                attachments = CASE WHEN $3::jsonb IS NULL THEN attachments ELSE $3::jsonb END,
                 snippet = CASE WHEN $5 != '' THEN $5 ELSE snippet END
           WHERE id = $4`,
-        [html, text, JSON.stringify(visibleAttachments), message.id, snip]
+        [html, text, visibleAttachments ? JSON.stringify(visibleAttachments) : null, message.id, snip]
       );
     }
 
@@ -1652,7 +1662,9 @@ async function respondWithGraphBody(
     res.json({
       html: responseHtml,
       text,
-      attachments: visibleAttachments,
+      attachments: visibleAttachments ?? [],
+      attachmentsIncomplete: attachmentProblem !== null,
+      ...(attachmentProblem ? { attachmentError: { code: attachmentProblem.code, retryable: attachmentProblem.retryable } } : {}),
       hasBlockedRemoteImages,
       senderEmail: message.sender_email,
       senderName: message.sender_name,

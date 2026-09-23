@@ -427,8 +427,9 @@ export async function applyGraphMailMessagesPage(
           const result = await client.query<{ id: string; inserted: boolean }>(
             `INSERT INTO messages (
                account_id, uid, folder, provider_message_id, message_id, thread_id, subject, from_name, from_email,
-               to_addresses, cc_addresses, reply_to, date, snippet, is_read, is_starred, has_attachments, synced_at
-             ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11::jsonb,$12::jsonb,$13,$14,$15,$16,$17,NOW())
+               to_addresses, cc_addresses, reply_to, list_unsubscribe, list_unsubscribe_post,
+               date, snippet, is_read, is_starred, has_attachments, synced_at
+             ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11::jsonb,$12::jsonb,$13,$14,$15,$16,$17,$18,$19,NOW())
              ON CONFLICT (account_id, provider_message_id) WHERE provider_message_id IS NOT NULL DO UPDATE SET
                folder = EXCLUDED.folder,
                uid = EXCLUDED.uid,
@@ -440,13 +441,16 @@ export async function applyGraphMailMessagesPage(
                to_addresses = EXCLUDED.to_addresses,
                cc_addresses = EXCLUDED.cc_addresses,
                reply_to = EXCLUDED.reply_to,
+               -- Graph delta entries may omit internet headers; retain prior hydration.
+               list_unsubscribe = COALESCE(EXCLUDED.list_unsubscribe, messages.list_unsubscribe),
+               list_unsubscribe_post = COALESCE(EXCLUDED.list_unsubscribe_post, messages.list_unsubscribe_post),
                date = EXCLUDED.date,
                snippet = EXCLUDED.snippet,
                is_read = CASE
-                 WHEN messages.read_changed_at IS NULL OR messages.read_changed_at < NOW() - make_interval(secs => $18)
+                 WHEN messages.read_changed_at IS NULL OR messages.read_changed_at < NOW() - make_interval(secs => $20)
                    THEN EXCLUDED.is_read ELSE messages.is_read END,
                is_starred = CASE
-                 WHEN messages.star_changed_at IS NULL OR messages.star_changed_at < NOW() - make_interval(secs => $18)
+                 WHEN messages.star_changed_at IS NULL OR messages.star_changed_at < NOW() - make_interval(secs => $20)
                    THEN EXCLUDED.is_starred ELSE messages.is_starred END,
                has_attachments = EXCLUDED.has_attachments,
                synced_at = NOW()
@@ -455,6 +459,7 @@ export async function applyGraphMailMessagesPage(
               context.accountId, uid, context.folderPath, local.providerMessageId, local.messageId, local.threadId,
               local.subject, local.fromName, local.fromEmail,
               JSON.stringify(local.toAddresses), JSON.stringify(local.ccAddresses), JSON.stringify(local.replyTo),
+              local.listUnsubscribe, local.listUnsubscribePost,
               local.date, local.snippet, local.isRead, local.isStarred, local.hasAttachments, LOCAL_WINS_SECONDS,
             ],
           );

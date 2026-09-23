@@ -276,6 +276,10 @@ export interface LocalGraphMessage {
   ccAddresses: Array<{ name: string | null; address: string }>;
   replyTo: Array<{ name: string | null; address: string }>;
   parsedHeaders: Record<string, string>;
+  /** RFC 2369 action references, normalized from Graph internet headers. */
+  listUnsubscribe: string | null;
+  /** RFC 8058 one-click declaration, normalized from Graph internet headers. */
+  listUnsubscribePost: string | null;
   /** True only when Graph actually returned the internetMessageHeaders collection. */
   parsedHeadersComplete: boolean;
   date: Date | null;
@@ -339,10 +343,16 @@ function graphHeaderMap(headers: GraphMessage['internetMessageHeaders']): Record
   return result;
 }
 
+/** Header values are optional metadata; blanks must not erase a previously hydrated value. */
+function normalizedUnsubscribeHeader(headers: Readonly<Record<string, string>>, name: string): string | null {
+  return headers[name]?.trim() || null;
+}
+
 /** Project one Graph message. `null` for an entry that is a deletion or has no id. */
 export function localMessageForGraphMessage(message: GraphMessage): LocalGraphMessage | null {
   if (!message.id || message['@removed']) return null;
   const from = message.from?.emailAddress;
+  const parsedHeaders = graphHeaderMap(message.internetMessageHeaders);
   return {
     uid: providerUidForGraphMessage(message.id),
     providerMessageId: message.id,
@@ -354,7 +364,9 @@ export function localMessageForGraphMessage(message: GraphMessage): LocalGraphMe
     toAddresses: addresses(message.toRecipients),
     ccAddresses: addresses(message.ccRecipients),
     replyTo: addresses(message.replyTo),
-    parsedHeaders: graphHeaderMap(message.internetMessageHeaders),
+    parsedHeaders,
+    listUnsubscribe: normalizedUnsubscribeHeader(parsedHeaders, 'list-unsubscribe'),
+    listUnsubscribePost: normalizedUnsubscribeHeader(parsedHeaders, 'list-unsubscribe-post'),
     parsedHeadersComplete: Array.isArray(message.internetMessageHeaders),
     date: parseGraphDate(message.receivedDateTime) ?? parseGraphDate(message.sentDateTime),
     snippet: message.bodyPreview ?? null,

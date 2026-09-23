@@ -256,6 +256,24 @@ describe('projecting a Graph message onto the local row', () => {
     expect(local?.replyTo).toEqual([{ name: null, address: 'replies@contoso.test' }]);
   });
 
+  it('normalizes List-Unsubscribe headers without inventing absent metadata', () => {
+    const local = localMessageForGraphMessage({
+      ...message,
+      internetMessageHeaders: [
+        { name: 'List-Unsubscribe', value: ' <https://unsubscribe.example/token> ' },
+        { name: 'LIST-UNSUBSCRIBE-POST', value: ' List-Unsubscribe=One-Click ' },
+      ],
+    });
+    expect(local).toMatchObject({
+      listUnsubscribe: '<https://unsubscribe.example/token>',
+      listUnsubscribePost: 'List-Unsubscribe=One-Click',
+      parsedHeadersComplete: true,
+    });
+    expect(localMessageForGraphMessage(message)).toMatchObject({
+      listUnsubscribe: null, listUnsubscribePost: null, parsedHeadersComplete: false,
+    });
+  });
+
   it('treats anything other than a flagged status as unstarred', () => {
     expect(localMessageForGraphMessage({ ...message, flag: { flagStatus: 'notFlagged' } })?.isStarred).toBe(false);
     expect(localMessageForGraphMessage({ ...message, flag: null })?.isStarred).toBe(false);
