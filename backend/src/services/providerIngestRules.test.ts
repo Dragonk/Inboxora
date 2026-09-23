@@ -137,6 +137,33 @@ describe('the provider ingest block list', () => {
     }));
   });
 
+  it('passes persisted provider headers to a native inbox rule', async () => {
+    query.mockImplementation(async (sql: string) => {
+      if (sql.includes('SELECT email_address FROM block_list')) return { rows: [] } as never;
+      if (sql.includes('SELECT id, uid, folder, from_email, is_read')) {
+        return { rows: [{
+          id: 'row-1', uid: 77, folder: 'INBOX', from_email: 'news@example.com', from_name: 'News',
+          subject: 'Invoice', to_addresses: [{ address: 'me@example.com' }], has_attachments: true,
+          is_read: false, parsed_headers: { 'list-id': 'invoices.example.com' },
+        }] } as never;
+      }
+      if (sql.includes('FROM inbox_rules')) {
+        return { rows: [{ id: 'rule-1', condition_logic: 'AND', conditions: [{ field: 'header', headerName: 'List-Id', operator: 'contains', value: 'invoices' }], actions: [{ type: 'move', value: 'Archive' }] }] } as never;
+      }
+      if (sql.includes('SELECT id, provider_message_id FROM messages')) return { rows: [{ id: 'row-1', provider_message_id: 'provider-1' }] } as never;
+      return { rows: [] } as never;
+    });
+    moveGmailMessageToLabel.mockResolvedValue({ moved: true, folder: 'Archive' });
+    process.env.PROVIDER_NATIVE_RULES = '1';
+
+    const outcome = await applyIngestRulesToRows({
+      userId: 'user-1', connectionId: 'conn-1', account, folder: 'INBOX', rowIds: ['row-1'], providerName: 'Gmail',
+    });
+
+    expect(outcome).toMatchObject({ ruled: 1, rulesSkipped: false });
+    expect(moveGmailMessageToLabel).toHaveBeenCalledWith(expect.objectContaining({ providerMessageId: 'provider-1' }));
+  });
+
   it('does nothing when the run stored no inbox rows', async () => {
     const outcome = await applyIngestRulesToRows({
       userId: 'user-1', connectionId: 'conn-1', account, folder: 'INBOX', rowIds: [], providerName: 'Gmail',

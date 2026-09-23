@@ -31,9 +31,9 @@ export async function applyIngestRulesToRows(input: {
   if (input.rowIds.length === 0) return { considered: 0, blocked: 0, ruled: 0, rulesSkipped: false };
   const rows = await query<{
     id: string; uid: number | string | null; folder: string; from_email: string | null; from_name: string | null;
-    subject: string | null; to_addresses: unknown; has_attachments: boolean | null; is_read: boolean | null;
+    subject: string | null; to_addresses: unknown; has_attachments: boolean | null; is_read: boolean | null; parsed_headers: unknown;
   }>(
-    `SELECT id, uid, folder, from_email, is_read, from_name, subject, to_addresses, has_attachments FROM messages
+    `SELECT id, uid, folder, from_email, is_read, from_name, subject, to_addresses, has_attachments, parsed_headers FROM messages
       WHERE id = ANY($1::uuid[]) AND account_id = $2 AND folder = $3 AND is_deleted = false`,
     [input.rowIds, input.account.id, input.folder],
   );
@@ -44,6 +44,7 @@ export async function applyIngestRulesToRows(input: {
     ...(typeof row.subject === 'string' ? { subject: row.subject } : {}),
     ...(typeof row.from_name === 'string' ? { fromName: row.from_name } : {}),
     ...(typeof row.has_attachments === 'boolean' ? { hasAttachments: row.has_attachments } : {}),
+    ...(row.parsed_headers !== null && typeof row.parsed_headers === 'object' ? { parsedHeaders: row.parsed_headers } : {}),
     ...(Array.isArray(row.to_addresses) ? {
       to: row.to_addresses.map(value => {
         if (!value || typeof value !== 'object') return { email: '' };

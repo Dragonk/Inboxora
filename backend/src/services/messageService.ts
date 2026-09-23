@@ -25,17 +25,28 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
     values.push(resolvedAccountId);
     const folderParam = p++;
     values.push(folder);
-    // MAIL-02: a Gmail message may carry several labels while the legacy row retains one primary folder. The
-    // membership table makes it visible in every projected folder, but only for rows that actually have that
-    // membership; IMAP rows and provider rows before migration 0116 retain the old `m.folder` behaviour.
-    whereConditions.push(`(m.folder = $${folderParam} OR EXISTS (
-      SELECT 1 FROM message_labels ml
-       WHERE ml.message_id = m.id AND ml.account_id = m.account_id AND ml.folder_path = $${folderParam}
-    ))`);
-    displayFolderExpr = `(CASE WHEN m.folder = $${folderParam} THEN m.folder ELSE $${folderParam} END)`;
+    // Gmail has no Archive label. Its archived rows retain their historical folder
+    // for identity and legacy constraints, but must not reappear in INBOX. `Archive`
+    // is consequently a virtual view for those rows; physical Archive folders keep
+    // their normal legacy behaviour.
+    if (folder === 'Archive') {
+      whereConditions.push(`(m.folder = $${folderParam} OR m.is_archived = true)`);
+      displayFolderExpr = `(CASE WHEN m.is_archived THEN 'Archive' ELSE m.folder END)`;
+    } else {
+      whereConditions.push('m.is_archived = false');
+      // MAIL-02: a Gmail message may carry several labels while the legacy row retains one primary folder. The
+      // membership table makes it visible in every projected folder, but only for rows that actually have that
+      // membership; IMAP rows and provider rows before migration 0116 retain the old `m.folder` behaviour.
+      whereConditions.push(`(m.folder = $${folderParam} OR EXISTS (
+        SELECT 1 FROM message_labels ml
+         WHERE ml.message_id = m.id AND ml.account_id = m.account_id AND ml.folder_path = $${folderParam}
+      ))`);
+      displayFolderExpr = `(CASE WHEN m.folder = $${folderParam} THEN m.folder ELSE $${folderParam} END)`;
+    }
   } else {
     whereConditions.push(`m.account_id = ANY($${p++})`);
     values.push(scopedAccountIds);
+    whereConditions.push('m.is_archived = false');
     whereConditions.push(`(m.folder = 'INBOX' OR EXISTS (
       SELECT 1 FROM message_labels ml
        WHERE ml.message_id = m.id AND ml.account_id = m.account_id AND ml.folder_path = 'INBOX'

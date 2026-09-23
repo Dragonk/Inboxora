@@ -127,6 +127,8 @@ export interface LocalGmailMessage {
   toAddresses: Array<{ name: string | null; address: string }>;
   ccAddresses: Array<{ name: string | null; address: string }>;
   replyTo: Array<{ name: string | null; address: string }>;
+  /** Complete lower-cased header map for rule conditions. */
+  parsedHeaders: Record<string, string>;
   date: Date | null;
   snippet: string | null;
   isRead: boolean;
@@ -232,6 +234,7 @@ export function localMessageForGmailMessage(
     toAddresses: addresses(headers.get('to')),
     ccAddresses: addresses(headers.get('cc')),
     replyTo: addresses(headers.get('reply-to')),
+    parsedHeaders: Object.fromEntries(headers),
     date: gmailMessageDate(message, headers),
     snippet: message.snippet ?? null,
     // Gmail's only unread marker is the `UNREAD` label.

@@ -107,6 +107,27 @@ describe('listMessages — account scope', () => {
   });
 });
 
+describe('listMessages — Gmail virtual archive', () => {
+  it('excludes archived Gmail rows from INBOX while retaining them for Archive', async () => {
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'acc-1' }] })
+      .mockResolvedValueOnce({ rows: [{ n: 0 }] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    await listMessages({ userId: 'user-1', accountId: 'acc-1', folder: 'INBOX' });
+    expect(String(query.mock.calls[1]?.[0])).toContain('m.is_archived = false');
+
+    query.mockReset()
+      .mockResolvedValueOnce({ rows: [{ id: 'acc-1' }] })
+      .mockResolvedValueOnce({ rows: [{ n: 1 }] })
+      .mockResolvedValueOnce({ rows: [] });
+    await listMessages({ userId: 'user-1', accountId: 'acc-1', folder: 'Archive' });
+    const archiveCountSql = String(query.mock.calls[1]?.[0]);
+    expect(archiveCountSql).toContain('m.is_archived = true');
+    expect(String(query.mock.calls[2]?.[0])).toContain("CASE WHEN m.is_archived THEN 'Archive'");
+  });
+});
+
 describe('listMessages — total count selection', () => {
   it('sums unread_count across accounts for unified inbox when unreadOnly=true', async () => {
     query

@@ -149,9 +149,9 @@ async function insertMessage(input: {
   return id;
 }
 
-async function storedRow(id: string): Promise<{ folder: string; provider_labels: string[] | null } | null> {
-  const result = await autocommit(client => client.query<{ folder: string; provider_labels: string[] | null }>(
-    'SELECT folder, provider_labels FROM messages WHERE id = $1', [id],
+async function storedRow(id: string): Promise<{ folder: string; provider_labels: string[] | null; is_archived: boolean } | null> {
+  const result = await autocommit(client => client.query<{ folder: string; provider_labels: string[] | null; is_archived: boolean }>(
+    'SELECT folder, provider_labels, is_archived FROM messages WHERE id = $1', [id],
   ));
   return result.rows[0] ?? null;
 }
@@ -209,7 +209,7 @@ describeOrSkip('Gmail API message mutations (PostgreSQL)', () => {
     expect(result.calls[0]?.body).toEqual({ addLabelIds: ['Label_1'], removeLabelIds: ['INBOX'] });
     // The local row moved with its labels: the stored set is what a later label
     // deletion is resolved against, so it must follow the provider.
-    expect(await storedRow(rowId)).toEqual({ folder: 'Work', provider_labels: ['Label_1', 'UNREAD'] });
+    expect(await storedRow(rowId)).toEqual({ folder: 'Work', provider_labels: ['Label_1', 'UNREAD'], is_archived: false });
     expect(await journalRows()).toEqual([{ status: 'committed', operation: 'update', resource_type: 'message' }]);
   });
 
@@ -224,7 +224,7 @@ describeOrSkip('Gmail API message mutations (PostgreSQL)', () => {
     );
     expect(result.archived).toMatchObject({ archived: true, folder: 'Work' });
     expect(result.calls[0]?.body).toEqual({ addLabelIds: [], removeLabelIds: ['INBOX'] });
-    expect(await storedRow(rowId)).toEqual({ folder: 'Work', provider_labels: ['Label_1'] });
+    expect(await storedRow(rowId)).toEqual({ folder: 'Work', provider_labels: ['Label_1'], is_archived: false });
   });
 
   it('archives an unlabelled message out of the local view rather than inventing a folder', async () => {
@@ -236,10 +236,11 @@ describeOrSkip('Gmail API message mutations (PostgreSQL)', () => {
         resourceId: rowId, providerMessageId: 'm3',
       }),
     );
-    // Gmail has no Archive label: the message leaves our view, exactly as the ingest
-    // path models an archived message, instead of being filed at a synthetic path.
+    // Gmail has no Archive label: keep the local identity and mark its virtual
+    // Archive state; the listing predicate, not a made-up remote folder, hides it
+    // from INBOX.
     expect(result).toMatchObject({ archived: true, folder: null });
-    expect(await storedRow(rowId)).toBeNull();
+    expect(await storedRow(rowId)).toEqual({ folder: 'INBOX', provider_labels: ['UNREAD'], is_archived: true });
   });
 
   it('parks a retryable refusal as a scheduled journal row instead of losing the change', async () => {
@@ -259,7 +260,7 @@ describeOrSkip('Gmail API message mutations (PostgreSQL)', () => {
 
     expect(result).toMatchObject({ moved: false, code: 'RATE_LIMITED' });
     // The local row is untouched: a change that was not applied must not look applied.
-    expect(await storedRow(rowId)).toEqual({ folder: 'INBOX', provider_labels: ['INBOX'] });
+    expect(await storedRow(rowId)).toEqual({ folder: 'INBOX', provider_labels: ['INBOX'], is_archived: false });
     const journal = await journalRows();
     expect(journal).toHaveLength(1);
     expect(journal[0]).toMatchObject({ status: 'pending', operation: 'update', resource_type: 'message' });

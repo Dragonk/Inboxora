@@ -257,6 +257,7 @@ export interface GraphMessage {
   replyTo?: GraphRecipient[] | null;
   changeKey?: string | null;
   parentFolderId?: string | null;
+  internetMessageHeaders?: Array<{ name?: string | null; value?: string | null }> | null;
   /** Set on the delta entry that reports a deletion, instead of the message. */
   '@removed'?: { reason?: string } | null;
 }
@@ -274,6 +275,7 @@ export interface LocalGraphMessage {
   toAddresses: Array<{ name: string | null; address: string }>;
   ccAddresses: Array<{ name: string | null; address: string }>;
   replyTo: Array<{ name: string | null; address: string }>;
+  parsedHeaders: Record<string, string>;
   date: Date | null;
   snippet: string | null;
   isRead: boolean;
@@ -282,7 +284,7 @@ export interface LocalGraphMessage {
   isDraft: boolean;
 }
 
-export const GRAPH_MESSAGE_SELECT = 'id,internetMessageId,conversationId,subject,bodyPreview,receivedDateTime,sentDateTime,isRead,isDraft,hasAttachments,flag,from,toRecipients,ccRecipients,replyTo,changeKey,parentFolderId';
+export const GRAPH_MESSAGE_SELECT = 'id,internetMessageId,conversationId,subject,bodyPreview,receivedDateTime,sentDateTime,isRead,isDraft,hasAttachments,flag,from,toRecipients,ccRecipients,replyTo,changeKey,parentFolderId,internetMessageHeaders';
 /** The page size the message delta sync uses; exported so provider-side search asks for the same shape. */
 export const MESSAGE_PAGE_SIZE = 50;
 
@@ -325,6 +327,16 @@ function parseGraphDate(value: string | null | undefined): Date | null {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
+function graphHeaderMap(headers: GraphMessage['internetMessageHeaders']): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const header of headers ?? []) {
+    const name = header?.name?.trim().toLowerCase();
+    if (!name || Object.hasOwn(result, name)) continue;
+    result[name] = header?.value ?? '';
+  }
+  return result;
+}
+
 /** Project one Graph message. `null` for an entry that is a deletion or has no id. */
 export function localMessageForGraphMessage(message: GraphMessage): LocalGraphMessage | null {
   if (!message.id || message['@removed']) return null;
@@ -340,6 +352,7 @@ export function localMessageForGraphMessage(message: GraphMessage): LocalGraphMe
     toAddresses: addresses(message.toRecipients),
     ccAddresses: addresses(message.ccRecipients),
     replyTo: addresses(message.replyTo),
+    parsedHeaders: graphHeaderMap(message.internetMessageHeaders),
     date: parseGraphDate(message.receivedDateTime) ?? parseGraphDate(message.sentDateTime),
     snippet: message.bodyPreview ?? null,
     isRead: Boolean(message.isRead),

@@ -540,6 +540,7 @@ export async function applyGmailMessage(
     );
     const row = archived.rows[0];
     if (!row) return null;
+    await client.query('UPDATE messages SET parsed_headers = $2::jsonb WHERE id = $1', [row.id, JSON.stringify(local.parsedHeaders)]);
     await recordGmailMessageLabels(client, context, row.id, local);
     return { id: row.id, inserted: false };
   }
@@ -600,7 +601,10 @@ export async function applyGmailMessage(
     }
   }
   if (applied) {
-    await client.query('UPDATE messages SET is_archived = false WHERE id = $1', [applied.id]);
+    await client.query(
+      'UPDATE messages SET is_archived = false, parsed_headers = $2::jsonb WHERE id = $1',
+      [applied.id, JSON.stringify(local.parsedHeaders)],
+    );
     await recordGmailMessageLabels(client, context, applied.id, local);
   }
   return applied;
@@ -701,6 +705,7 @@ export async function reconcileGmailFolder(
   const removed = await client.query(
     `DELETE FROM messages
       WHERE account_id = $1 AND folder = $2 AND provider_message_id IS NOT NULL
+        AND is_archived = false
         AND provider_message_id <> ALL($3::text[])`,
     [context.accountId, folderPath, [...seenProviderIds]],
   );
