@@ -868,12 +868,18 @@ router.get('/messages/:id/attachments/:part', async (req, res) => {
     // A native account's attachments come from the provider, addressed by the
     // Graph attachment id stored as the `part` above.
     if (attachmentAccount.mail_transport === 'microsoft_graph') {
-      if (!message.provider_message_id || !attachmentAccount.provider_connection_id) {
-        return res.status(409).json({ error: 'This message has no Microsoft Graph identity', code: 'RESOURCE_NOT_FOUND' });
+      const identity = await resolveGraphMessageIdentity({ query }, {
+        messageId: message.id, accountId: attachmentAccount.id,
+        connectionId: attachmentAccount.provider_connection_id, directProviderMessageId: message.provider_message_id,
+      });
+      if (identity.kind !== 'resolved') {
+        const code = identity.kind === 'account_connection_missing' ? 'ACCOUNT_PROVIDER_CONNECTION_MISSING'
+          : identity.kind === 'binding_ambiguous' ? 'MESSAGE_BINDING_AMBIGUOUS' : 'MESSAGE_PROVIDER_IDENTITY_MISSING';
+        return res.status(409).json({ error: 'This message has no resolvable Microsoft Graph identity', code });
       }
       const bytes = await fetchGraphAttachmentBytes(
-        { userId: attachmentAccount.user_id, connectionId: attachmentAccount.provider_connection_id, config: microsoftConfigFromEnv() },
-        message.provider_message_id,
+        { userId: attachmentAccount.user_id, connectionId: attachmentAccount.provider_connection_id!, config: microsoftConfigFromEnv() },
+        identity.providerMessageId,
         partNum,
         ATTACHMENT_SIZE_LIMIT,
       );
@@ -1307,13 +1313,23 @@ async function deleteMessageOverGraph(input: {
   | { ok: false; status: number; error: string; code?: string }
 > {
   const { account, message } = input;
-  if (!account.provider_connection_id || !message.provider_message_id) {
-    return { ok: false, status: 409, error: 'This message has no Microsoft Graph identity', code: 'RESOURCE_NOT_FOUND' };
+  const connectionId = account.provider_connection_id;
+  if (!connectionId) {
+    return { ok: false, status: 409, error: 'This Microsoft account has no active provider connection', code: 'ACCOUNT_PROVIDER_CONNECTION_MISSING' };
+  }
+  const identity = await resolveGraphMessageIdentity({ query }, {
+    messageId: message.id, accountId: account.id,
+    connectionId, directProviderMessageId: message.provider_message_id,
+  });
+  if (identity.kind !== 'resolved') {
+    const code = identity.kind === 'account_connection_missing' ? 'ACCOUNT_PROVIDER_CONNECTION_MISSING'
+      : identity.kind === 'binding_ambiguous' ? 'MESSAGE_BINDING_AMBIGUOUS' : 'MESSAGE_PROVIDER_IDENTITY_MISSING';
+    return { ok: false, status: 409, error: 'This message has no resolvable Microsoft Graph identity', code };
   }
   if (input.destinationPath === null) {
     const deleted = await deleteGraphMessagePermanently({
-      userId: input.userId, accountId: message.account_id, connectionId: account.provider_connection_id,
-      config: microsoftConfigFromEnv(), resourceId: message.id, providerMessageId: message.provider_message_id,
+      userId: input.userId, accountId: message.account_id, connectionId,
+      config: microsoftConfigFromEnv(), resourceId: message.id, providerMessageId: identity.providerMessageId,
     });
     if (deleted.deleted) return { ok: true, moved: false };
     const refused = deleted.code === 'RESOURCE_NOT_FOUND' || deleted.code === 'PROVIDER_AUTH_REQUIRED' || deleted.code === 'INSUFFICIENT_SCOPES' || deleted.code === 'OPERATION_FORBIDDEN';
@@ -1326,7 +1342,7 @@ async function deleteMessageOverGraph(input: {
   }
 
   const resolvedDestination = await graphFolderIdForPath({
-    connectionId: account.provider_connection_id,
+    connectionId,
     accountId: message.account_id,
     path: input.destinationPath,
   });
@@ -1339,10 +1355,10 @@ async function deleteMessageOverGraph(input: {
   const moved = await moveGraphMessageToFolder({
     userId: input.userId,
     accountId: message.account_id,
-    connectionId: account.provider_connection_id,
+    connectionId,
     config: microsoftConfigFromEnv(),
     resourceId: message.id,
-    providerMessageId: message.provider_message_id,
+    providerMessageId: identity.providerMessageId,
     destinationPath: input.destinationPath,
   });
   if (moved.moved) {
