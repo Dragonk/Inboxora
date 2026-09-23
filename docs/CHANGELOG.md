@@ -397,7 +397,7 @@ None.
 
 ### Fixed
 - **Disabled providers stop scheduled, push-hint and manual syncs.** Existing authorized connections now require both the provider and API switches before their contacts or calendars adapters can call an upstream API.
-- **Calendar settings separate preferences from calendar connections.** The connection section now creates local Inboxora calendars without an account or URL alongside external feeds, CalDAV and holiday subscriptions; appearance preferences stay separate.
+- **Calendar settings separate preferences from calendar connections.** The connection section now creates local Inboxora calendars without an account or URL alongside external feeds, CalDAV and holiday subscriptions; appearance preferences stay separate. Removing an external source now requires confirmation and explicitly preserves the upstream provider calendar.
 - **Provider calendar collections no longer expose unsafe local lifecycle actions.** Rename, color and delete are now local-calendar-only; provider-backed calendars retain visibility and write-back controls until provider-native, journalled collection operations are available.
 - **Threaded message-list representatives are deterministic at equal timestamps.** Window and final-page ordering now use message-row IDs as tie-breakers, preventing a thread card’s selected copy from oscillating across requests.
 - **Infinite scrolling cannot append a stale page after navigation.** Offset-page responses now share the list refresh generation guard, so a completed request from an old account or folder is ignored.

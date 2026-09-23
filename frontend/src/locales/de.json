@@ -2045,6 +2045,7 @@
     "localCalendar": "Lokaler Kalender",
     "createLocalCalendar": "Kalender erstellen",
     "calendarColor": "Farbe",
+    "removeSourceConfirm": "Diese Verbindung und importierte Kalender aus Inboxora entfernen? Der Kalender des Anbieters wird nicht gelöscht.",
     "sourceName": "Kalendername",
     "sourceUrl": "URL",
     "sourceUsername": "Benutzername",

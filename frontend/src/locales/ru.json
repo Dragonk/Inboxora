@@ -2045,6 +2045,7 @@
     "localCalendar": "Локальный календарь",
     "createLocalCalendar": "Создать календарь",
     "calendarColor": "Цвет",
+    "removeSourceConfirm": "Удалить это подключение и импортированные календари из Inboxora? Календарь поставщика не будет удалён.",
     "sourceName": "Название",
     "sourceUrl": "URL",
     "sourceUsername": "Имя пользователя",

@@ -2045,6 +2045,7 @@
     "localCalendar": "Místní kalendář",
     "createLocalCalendar": "Vytvořit kalendář",
     "calendarColor": "Barva",
+    "removeSourceConfirm": "Odebrat toto připojení a importované kalendáře z Inboxora? Kalendář poskytovatele nebude smazán.",
     "sourceName": "Název",
     "sourceUrl": "URL",
     "sourceUsername": "Uživatelské jméno",

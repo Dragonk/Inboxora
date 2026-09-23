@@ -56,8 +56,9 @@ describe('CalendarSidebar contract', () => {
     assert.match(component, /return \(\) => \{ active = false; \}/);
   });
 
-  it('cancels pending initial-sync polling after a successful source deletion', async () => {
+  it('confirms source removal before deleting imported calendar projections', async () => {
     const component = await source();
+    assert.match(component, /window\.confirm\(t\('calendar\.removeSourceConfirm'\)\)/);
     assert.match(component, /deleteSource\(id\); clearSourcePoll\(id\);/);
   });
 

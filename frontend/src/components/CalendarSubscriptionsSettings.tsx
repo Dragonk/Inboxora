@@ -160,6 +160,7 @@ export default function CalendarSubscriptionsSettings({ locale }: { locale?: str
   };
 
   const removeSource = async (id: string) => {
+    if (!window.confirm(t('calendar.removeSourceConfirm'))) return;
     setBusy(true); setError(null); setNotice(null);
     try {
       await api.calendar.deleteSource(id);

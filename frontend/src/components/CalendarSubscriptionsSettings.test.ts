@@ -35,6 +35,7 @@ test('calendar settings offer ICS/webcal subscriptions, CalDAV connection, and h
   assert.match(component, /calendar\.holidayName/);
   // Adding a subscription refreshes a calendar that is already mounted behind the dialog.
   assert.match(component, /inboxora:calendar-changed/);
+  assert.match(component, /window\.confirm\(t\('calendar\.removeSourceConfirm'\)\)/);
 });
 
 test('week views stretch all-day and multi-day events across the whole day', async () => {

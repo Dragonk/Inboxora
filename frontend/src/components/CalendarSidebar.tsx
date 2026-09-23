@@ -324,6 +324,7 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
     }
   };
   const removeSource = async (id: string) => {
+    if (!window.confirm(t('calendar.removeSourceConfirm'))) return;
     sourceRequestGeneration.current += 1;
     try { await api.calendar.deleteSource(id); clearSourcePoll(id); await loadSources(); await onSourcesChanged(); }
     catch (error) { setSourceError(toAppError(error).message); }
