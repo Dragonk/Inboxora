@@ -24,6 +24,9 @@ vi.mock('../services/providerAuthService.js', async (importOriginal) => ({
   isMicrosoftBrowserFlowReady: () => mocks.browserReady.value,
 }));
 vi.mock('../services/providers/microsoft/graphContactsSync.js', () => ({ syncGraphContacts: mocks.syncGraphContacts }));
+vi.mock('../services/accountProviderFeatureSettings.js', () => ({
+  providerConnectionFeatureEnabled: vi.fn(async () => true),
+}));
 
 import contactsRouter from './contacts.js';
 // The preflight and the failure describer read the grant and the account; this suite is about the route's

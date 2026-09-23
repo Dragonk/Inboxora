@@ -4,6 +4,7 @@ import type { VCardContact } from '../utils/vcard.ts';
 import { query, withTransaction } from '../services/db.js';
 import { collectionIsWritable } from '../services/providerAccess.js';
 import { providerIntegrationsEnabled } from '../services/providerSwitches.js';
+import { providerConnectionFeatureEnabled } from '../services/accountProviderFeatureSettings.js';
 import { requireAuth } from '../middleware/auth.js';
 import { generateVCard, mergeVCard, normalizeContactDateLabel, normalizeVCardDate, parseVCard, splitVCards } from '../utils/vcard.js';
 import { chooseDefined, normalizeRichContactFields } from '../utils/contactFields.js';
@@ -433,6 +434,10 @@ router.post('/providers/microsoft/sync', async (req, res) => {
   const results: Array<Record<string, unknown>> = [];
   for (const connection of connections.rows) {
     try {
+      if (!await providerConnectionFeatureEnabled({ userId, connectionId: connection.id, feature: 'contacts' })) {
+        results.push({ connectionId: connection.id, error: { code: 'FEATURE_DISABLED', message: 'Contacts are disabled for this account' } });
+        continue;
+      }
       const refusal = await providerSyncPreflight({ userId, connectionId: connection.id, provider: 'microsoft', feature: 'contacts' });
       if (refusal) {
         results.push({ connectionId: connection.id, error: refusal });
@@ -477,6 +482,10 @@ router.post('/providers/google/sync', async (req, res) => {
   const results: Array<Record<string, unknown>> = [];
   for (const connection of connections.rows) {
     try {
+      if (!await providerConnectionFeatureEnabled({ userId, connectionId: connection.id, feature: 'contacts' })) {
+        results.push({ connectionId: connection.id, error: { code: 'FEATURE_DISABLED', message: 'Contacts are disabled for this account' } });
+        continue;
+      }
       // A grant that cannot authorize the call is refused here, with the scope that is missing, rather than
       // sent to the provider to come back as a 403 the user cannot act on.
       const refusal = await providerSyncPreflight({ userId, connectionId: connection.id, provider: 'google', feature: 'contacts' });

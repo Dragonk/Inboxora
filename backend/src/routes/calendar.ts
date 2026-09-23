@@ -33,6 +33,7 @@ import { parseCalendarEvent } from '../utils/ical.js';
 import { descriptionContentLines, normalizeDescription } from '../utils/richText.js';
 import { Router } from 'express';
 import { providerIntegrationsEnabled } from '../services/providerSwitches.js';
+import { providerConnectionFeatureEnabled } from '../services/accountProviderFeatureSettings.js';
 import type { Request, Response } from 'express';
 import crypto from 'crypto';
 import { query, withTransaction } from '../services/db.js';
@@ -1982,6 +1983,10 @@ router.post('/providers/google/sync', async (req, res) => {
   const results: Array<Record<string, unknown>> = [];
   for (const connection of connections.rows) {
     try {
+      if (!await providerConnectionFeatureEnabled({ userId, connectionId: connection.id, feature: 'calendars' })) {
+        results.push({ connectionId: connection.id, error: { code: 'FEATURE_DISABLED', message: 'Calendars are disabled for this account' } });
+        continue;
+      }
       // A missing calendar scope is refused here, with the scope named, rather than sent to Google to come
       // back as a 403 the user cannot act on.
       const refusal = await providerSyncPreflight({ userId, connectionId: connection.id, provider: 'google', feature: 'calendar' });
@@ -2067,6 +2072,10 @@ router.post('/providers/microsoft/sync', async (req, res) => {
   const results: Array<Record<string, unknown>> = [];
   for (const connection of connections.rows) {
     try {
+      if (!await providerConnectionFeatureEnabled({ userId, connectionId: connection.id, feature: 'calendars' })) {
+        results.push({ connectionId: connection.id, error: { code: 'FEATURE_DISABLED', message: 'Calendars are disabled for this account' } });
+        continue;
+      }
       const refusal = await providerSyncPreflight({ userId, connectionId: connection.id, provider: 'microsoft', feature: 'calendar' });
       if (refusal) {
         results.push({ connectionId: connection.id, error: refusal });

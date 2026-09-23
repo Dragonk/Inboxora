@@ -3,7 +3,7 @@ import express from 'express';
 import type { Server } from 'node:http';
 import { listeningPort } from '../test/net.js';
 
-const mocks = vi.hoisted(() => ({ query: vi.fn(), syncGoogleCalendar: vi.fn(), configured: { value: true } }));
+const mocks = vi.hoisted(() => ({ query: vi.fn(), syncGoogleCalendar: vi.fn(), configured: { value: true }, featureEnabled: { value: true } }));
 
 vi.mock('../services/db.js', () => ({
   query: mocks.query,
@@ -24,6 +24,9 @@ vi.mock('../services/providerAuthService.js', async (importOriginal) => ({
 }));
 vi.mock('../services/providers/google/googleCalendarSync.js', () => ({
   syncGoogleCalendar: mocks.syncGoogleCalendar,
+}));
+vi.mock('../services/accountProviderFeatureSettings.js', () => ({
+  providerConnectionFeatureEnabled: vi.fn(async () => mocks.featureEnabled.value),
 }));
 vi.mock('../services/calendarInvitation.js', () => ({
   sendCalendarInvitation: vi.fn(),
@@ -74,6 +77,7 @@ afterAll(async () => {
 
 beforeEach(() => {
   mocks.configured.value = true;
+  mocks.featureEnabled.value = true;
   mocks.query.mockReset();
   mocks.syncGoogleCalendar.mockReset();
 });
@@ -130,6 +134,15 @@ describe('POST /api/calendar/providers/google/sync', () => {
     const response = await sync();
     expect(response.status).toBe(409);
     expect(await response.json()).toEqual({ error: 'Google API is not configured by the administrator' });
+    expect(mocks.syncGoogleCalendar).not.toHaveBeenCalled();
+  });
+
+  it('does not call Google when calendars are disabled for the account connection', async () => {
+    mocks.featureEnabled.value = false;
+    mocks.query.mockResolvedValueOnce({ rows: [{ id: 'connection-1' }] });
+    const response = await sync();
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ results: [{ connectionId: 'connection-1', error: { code: 'FEATURE_DISABLED' } }] });
     expect(mocks.syncGoogleCalendar).not.toHaveBeenCalled();
   });
 

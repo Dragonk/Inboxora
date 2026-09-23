@@ -25,6 +25,9 @@ vi.mock('../services/providerAuthService.js', async (importOriginal) => ({
 vi.mock('../services/providers/google/googleContactsSync.js', () => ({
   syncGoogleContacts: mocks.syncGoogleContacts,
 }));
+vi.mock('../services/accountProviderFeatureSettings.js', () => ({
+  providerConnectionFeatureEnabled: vi.fn(async () => true),
+}));
 
 import contactsRouter from './contacts.js';
 // The preflight and the failure describer read the grant and the account; this suite is about the route's

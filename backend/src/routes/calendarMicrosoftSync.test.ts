@@ -25,6 +25,9 @@ vi.mock('../services/providerAuthService.js', async (importOriginal) => ({
 vi.mock('../services/providers/microsoft/graphCalendarSync.js', () => ({
   syncGraphCalendar: mocks.syncGraphCalendar,
 }));
+vi.mock('../services/accountProviderFeatureSettings.js', () => ({
+  providerConnectionFeatureEnabled: vi.fn(async () => true),
+}));
 vi.mock('../services/calendarInvitation.js', () => ({
   sendCalendarInvitation: vi.fn(),
   prepareCalendarInvitation: vi.fn(),
