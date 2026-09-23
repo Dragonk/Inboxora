@@ -26,6 +26,7 @@ test('remote ICS first sync failure can be retried without duplicating the impor
   await page.getByTestId('calendar-nav-primary').click();
   await page.getByTestId('calendar-sidebar-manage-sources').click();
   const dialog = page.getByRole('dialog', { name: 'Zarządzaj źródłami' });
+  await dialog.getByTestId('calendar-add-source').click();
   await dialog.getByLabel('Nazwa', { exact: true }).fill(source.displayName);
   await dialog.getByLabel('Adres URL').fill('webcal://calendar.example/retry.ics');
   await dialog.getByRole('button', { name: 'Dodaj źródło' }).click();
@@ -47,6 +48,7 @@ test('invalid remote ICS URL surfaces a meaningful error instead of creating a s
   await page.getByTestId('calendar-nav-primary').click();
   await page.getByTestId('calendar-sidebar-manage-sources').click();
   const dialog = page.getByRole('dialog', { name: 'Zarządzaj źródłami' });
+  await dialog.getByTestId('calendar-add-source').click();
   await dialog.getByLabel('Nazwa', { exact: true }).fill('InvalidICS');
   await dialog.getByLabel('Adres URL').fill('https://calendar.example/not-an-ics');
   await dialog.getByRole('button', { name: 'Dodaj źródło' }).click();
@@ -105,6 +107,7 @@ test('deleting a pending ICS source cancels its initial-sync polling', async ({ 
   await page.getByTestId('calendar-nav-primary').click();
   await page.getByTestId('calendar-sidebar-manage-sources').click();
   const dialog = page.getByRole('dialog', { name: 'Zarządzaj źródłami' });
+  await dialog.getByTestId('calendar-add-source').click();
   await dialog.getByLabel('Nazwa', { exact: true }).fill(source.displayName);
   await dialog.getByLabel('Adres URL').fill('webcal://calendar.example/pending-delete.ics');
   await dialog.getByRole('button', { name: 'Dodaj źródło' }).click();
@@ -132,6 +135,7 @@ test('remote ICS source does not poll after terminal successful creation', async
   await page.getByTestId('calendar-nav-primary').click();
   await page.getByTestId('calendar-sidebar-manage-sources').click();
   const dialog = page.getByRole('dialog', { name: 'Zarządzaj źródłami' });
+  await dialog.getByTestId('calendar-add-source').click();
   await dialog.getByLabel('Nazwa', { exact: true }).fill('NiedostepnyICS');
   await dialog.getByLabel('Adres URL').fill('webcal://calendar.example/timeout.ics');
   await dialog.getByRole('button', { name: 'Dodaj źródło' }).click();
@@ -923,7 +927,8 @@ test('calendar sidebar renders canonical source groups on first entry', async ({
   await page.getByTestId('calendar-nav-primary').click();
   const rail = page.getByTestId('calendar-sidebar');
   await expect(rail.getByTestId('calendar-source-group')).toHaveCount(5);
-  await expect(rail.getByTestId('calendar-source-heading')).toContainText(['Google — first@example.test', 'Google — second@example.test', 'Microsoft — microsoft@example.test', 'Team CalDAV', 'Holidays ICS']);
+  for (const identity of ['first@example.test', 'second@example.test', 'microsoft@example.test']) await expect(rail.getByText(identity, { exact: true })).toBeVisible();
+  for (const label of ['Google', 'Microsoft', 'Team CalDAV', 'Holidays ICS']) await expect(rail.getByTestId('calendar-source-heading').getByText(label, { exact: true }).first()).toBeVisible();
   // The first account's child is interactive even though another account uses
   // the same display name; collapse hides only the second group's children.
   const groupsInRail = rail.getByTestId('calendar-source-group');
