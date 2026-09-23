@@ -396,6 +396,7 @@ None.
   IMAP loops, health checks, rule forwarder and send path no longer open IMAP or SMTP for it.
 
 ### Fixed
+- **Provider calendar collections no longer expose unsafe local lifecycle actions.** Rename, color and delete are now local-calendar-only; provider-backed calendars retain visibility and write-back controls until provider-native, journalled collection operations are available.
 - **Reply parent resolution is authoritative.** `POST /send` resolves the selected physical parent for every reply, rebuilds RFC threading metadata from it, and rejects missing/cross-account/identity-less Graph parents instead of silently sending a new message. Verified legacy Graph bindings are used for `createReply`; saved reply drafts also retain their reply/reply-all intent and durable RFC parent fallback after a MOVE. Sanitized diagnostics record resolution and post-ingest thread-match outcomes without content, addresses or provider IDs. SMTP tests cover a rendered, de-duplicated multi-hop RFC References chain.
 - **Reply entry points share one intent builder.** Single reader, list, swipe and Conversation Reader now carry the same selected physical parent into compose/send instead of maintaining separate header and recipient logic.
 - **Operator tooling has a bounded orphaned-reply repair job.** It only follows one same-account RFC parent edge, skips ambiguous/missing/manual-override candidates, supports dry-run, and reports scanned/repaired/ambiguous/missing/protected counters; it never groups by subject.

@@ -16,6 +16,13 @@ describe('CalendarSidebar contract', () => {
     assert.match(component, /data-testid="calendar-sidebar-manage-sources"/);
   });
 
+  it('keeps generic collection lifecycle controls local-only', async () => {
+    const component = await source();
+    assert.match(component, /const localCalendar = \(calendar: CalendarRow\) => calendar\.source === 'local'/);
+    assert.match(component, /\{localCalendar\(calendar\) && <>\s*<button role="menuitem" onClick=\{\(\) => editCalendar\(calendar\)\}/);
+    assert.match(component, /\{ownedCalendar\(calendar\) && <button role="menuitem" onClick=\{\(\) => deleteCalendar\(calendar\)\}/);
+  });
+
   it('leaves closing to the one shared sheet header control', async () => {
     // The panel used to render its own "Zamknij" button next to the dialog's ×.
     // The bottom sheet header now owns the single close affordance, so the rail

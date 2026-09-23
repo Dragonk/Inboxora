@@ -427,7 +427,7 @@ describe('local calendar API', () => {
   });
 
   it('updates only an owned local calendar', async () => {
-    query.mockResolvedValueOnce({ rows: [{ id: 'calendar-2', owner_user_id: 'user-1', name: 'Updated', color: '#abcdef', display_visible: false, source: 'local', read_only: false }] });
+    query.mockResolvedValueOnce({ rows: [{ source: 'local' }] }).mockResolvedValueOnce({ rows: [{ id: 'calendar-2', owner_user_id: 'user-1', name: 'Updated', color: '#abcdef', display_visible: false, source: 'local', read_only: false }] });
 
     const response = await fetch(`${base}/api/calendar/calendars/calendar-2`, {
       method: 'PATCH', headers: { 'content-type': 'application/json' },
@@ -436,21 +436,21 @@ describe('local calendar API', () => {
 
     expect(response.status).toBe(200);
     expect(responseObject(await response.json(), 'calendar')).toMatchObject({ name: 'Updated', display_visible: false });
-    expect(queryCall(0)[0]).toContain('owner_user_id = $6 AND user_id = $6');
+    expect(queryCall(1)[0]).toContain("owner_user_id = $6 AND user_id = $6 AND source = 'local'");
     // davMode is omitted here, which keeps the stored mode (COALESCE) unchanged.
-    expect(queryCall(0)[0]).toContain('dav_mode = COALESCE($4, dav_mode)');
-    expect(queryCall(0)[1]).toEqual(['Updated', '#abcdef', false, null, 'calendar-2', 'user-1']);
+    expect(queryCall(1)[0]).toContain('dav_mode = COALESCE($4, dav_mode)');
+    expect(queryCall(1)[1]).toEqual(['Updated', '#abcdef', false, null, 'calendar-2', 'user-1']);
   });
 
   it('stores a DAV sharing mode on an owned calendar and rejects an unknown one', async () => {
-    query.mockResolvedValueOnce({ rows: [{ id: 'calendar-2', name: 'Work', color: '#123456', display_visible: true, source: 'local', read_only: false, dav_mode: 'read_only' }] });
+    query.mockResolvedValueOnce({ rows: [{ source: 'local' }] }).mockResolvedValueOnce({ rows: [{ id: 'calendar-2', name: 'Work', color: '#123456', display_visible: true, source: 'local', read_only: false, dav_mode: 'read_only' }] });
     const response = await fetch(`${base}/api/calendar/calendars/calendar-2`, {
       method: 'PATCH', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ name: 'Work', color: '#123456', displayVisible: true, davMode: 'read_only' }),
     });
     expect(response.status).toBe(200);
     expect(responseObject(await response.json(), 'calendar').dav_mode).toBe('read_only');
-    expect(queryCall(0)[1][3]).toBe('read_only');
+    expect(queryCall(1)[1][3]).toBe('read_only');
 
     query.mockClear();
     const invalid = await fetch(`${base}/api/calendar/calendars/calendar-2`, {
@@ -470,16 +470,15 @@ describe('local calendar API', () => {
     expect(query).not.toHaveBeenCalled();
   });
 
-  it('allows display edits on an owned imported calendar without allowing event writes', async () => {
-    query.mockResolvedValueOnce({ rows: [{ id: 'remote-calendar', name: 'Work', color: '#123456', source: 'ical_url', read_only: true }] });
+  it('refuses generic local metadata edits on an imported provider calendar', async () => {
+    query.mockResolvedValueOnce({ rows: [{ source: 'ical_url' }] });
     const response = await fetch(`${base}/api/calendar/calendars/remote-calendar`, {
       method: 'PATCH', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ name: 'Work', color: '#123456', displayVisible: true }),
     });
-    expect(response.status).toBe(200);
-    expect(queryCall(0)[0]).toContain('owner_user_id = $6 AND user_id = $6');
-    expect(queryCall(0)[0]).not.toContain("source = 'local'");
-    expect(responseObject(await response.json(), 'calendar').read_only).toBe(true);
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({ error: 'Provider calendars cannot be edited here' });
+    expect(query).toHaveBeenCalledTimes(1);
   });
   it('persists contact calendar appearance per user while retaining translated default names', async () => {
     query.mockResolvedValueOnce({ rows: [] });
@@ -500,7 +499,7 @@ describe('local calendar API', () => {
   it('requires exact calendar-name confirmation before deleting an owned calendar', async () => {
     // The capability decision loads the row, then the scoped DELETE returns it.
     query
-      .mockResolvedValueOnce({ rows: [{ id: 'calendar-2' }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'calendar-2', source: 'local', read_only: false }] })
       .mockResolvedValueOnce({ rows: [{ id: 'calendar-2' }] });
 
     const response = await fetch(`${base}/api/calendar/calendars/calendar-2`, {
@@ -515,6 +514,17 @@ describe('local calendar API', () => {
     const [deleteSql, deleteParameters] = queryCallContaining('DELETE FROM calendars');
     expect(deleteSql).toContain('owner_user_id = $2');
     expect(deleteParameters).toEqual(['calendar-2', 'user-1', 'Work']);
+  });
+
+  it('refuses provider calendar deletion instead of deleting its local projection', async () => {
+    query.mockResolvedValueOnce({ rows: [{ id: 'provider-calendar', source: 'google', read_only: false, source_access: 'read_write', user_access: 'read_write' }] });
+    const response = await fetch(`${base}/api/calendar/calendars/provider-calendar`, {
+      method: 'DELETE', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ confirmName: 'Work' }),
+    });
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({ error: 'Provider calendars cannot be deleted here' });
+    expect(query).toHaveBeenCalledTimes(1);
   });
 
   it('does not delete a calendar when server-side confirmation does not match', async () => {

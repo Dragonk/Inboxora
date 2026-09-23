@@ -753,10 +753,18 @@ router.patch('/calendars/:calendarId', async (req, res) => {
     return res.json({ calendar: { id: 'contacts-birthdays', name: customName || 'Contact dates', custom_name: Boolean(customName), color, display_visible: displayVisible, source: 'contacts', read_only: true, dav_mode: 'off' } });
   }
   try {
+    const existing = await query<{ source: string | null }>(
+      'SELECT source FROM calendars WHERE id = $1 AND owner_user_id = $2 AND user_id = $2',
+      [req.params.calendarId, req.session.userId],
+    );
+    if (!existing.rows[0]) return res.status(404).json({ error: 'Calendar not found' });
+    // Generic local metadata mutations are not provider collection operations.
+    // Refuse rather than creating a misleading local/provider divergence.
+    if (existing.rows[0].source !== 'local') return res.status(409).json({ error: 'Provider calendars cannot be edited here' });
     const result = await query(
       `UPDATE calendars
        SET name = $1, color = $2, display_visible = $3, dav_mode = COALESCE($4, dav_mode), updated_at = NOW()
-       WHERE id = $5 AND owner_user_id = $6 AND user_id = $6
+       WHERE id = $5 AND owner_user_id = $6 AND user_id = $6 AND source = 'local'
        RETURNING id, user_id, owner_user_id, name, description, color, source, external_url, read_only, display_visible, sync_token, created_at, updated_at, dav_mode`,
       [name, color, displayVisible, davMode ?? null, req.params.calendarId, req.session.userId],
     );
@@ -782,6 +790,9 @@ router.delete('/calendars/:calendarId', async (req, res) => {
   );
   const candidate = current.rows[0];
   if (!candidate || !collectionIsWritable(candidate, 'calendars')) return res.status(404).json({ error: 'Calendar not found' });
+  // Remote collection lifecycle needs a provider-native, journalled operation.
+  // Do not delete only the local projection through this generic endpoint.
+  if (candidate.source !== 'local') return res.status(409).json({ error: 'Provider calendars cannot be deleted here' });
   // Stop the calendar's push channel before the collection row goes: the row's foreign key would remove the
   // subscription record without telling Google, leaving a channel pushing at an endpoint that no longer
   // recognises it. Best effort — the removal must not fail because Google is unreachable. A local calendar has
