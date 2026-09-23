@@ -54,6 +54,43 @@ describe('CalendarSidebar contract', () => {
     assert.match(component, /deleteSource\(id\); clearSourcePoll\(id\);/);
   });
 
+  it('loads canonical groups on first entry and renders durable headings before children', async () => {
+    const component = await source();
+    assert.match(component, /useEffect\(\(\) => \{ void loadPresentation\(\); \}, \[\]\)/);
+    assert.match(component, /presentationRequestGeneration/);
+    assert.match(component, /data-testid="calendar-source-group"/);
+    assert.match(component, /data-testid="calendar-source-heading"/);
+    assert.match(component, /\(presentation\?\.groups \?\? \[\]\)\.map\(group/);
+    assert.match(component, /group\.identityLabel/);
+    assert.match(component, /view\.sidebarHidden \|\| group\.collapsed/);
+  });
+
+  it('keeps collapse separate from event selection and restores hidden calendars', async () => {
+    const component = await source();
+    assert.match(component, /updateSourcePresentation\(sourceId, collapsed\)/);
+    assert.match(component, /data-testid="calendar-hidden-calendars"/);
+    assert.match(component, /data-testid="calendar-restore-hidden"/);
+    assert.match(component, /if \(sidebarHidden && selectedBeforeHide\) onToggleCalendar\(calendar\.id\)/);
+    assert.match(component, /view\.sidebarHidden \|\| group\.collapsed \? null/);
+  });
+
+  it('syncs only the selected provider account with neutral localized copy', async () => {
+    const [component, en, pl] = await Promise.all([
+      source(),
+      readFile(new URL('../locales/en.json', import.meta.url), 'utf8'),
+      readFile(new URL('../locales/pl.json', import.meta.url), 'utf8'),
+    ]);
+    assert.match(component, /syncAccountProviderFeature\(source\.accountId, 'calendars'\)/);
+    assert.match(component, /data-testid="calendar-account-sync"/);
+    assert.doesNotMatch(component, /providerCalendars\.sync\(/);
+    assert.doesNotMatch(component, /calendar\.googleSyncing/);
+    for (const locale of [en, pl]) {
+      assert.match(locale, /"providerSyncing"/);
+      assert.match(locale, /"providerSyncDone"/);
+      assert.match(locale, /"providerSyncPartial"/);
+    }
+  });
+
   it('lets the owner choose the per-collection DAV access mode', async () => {
     const component = await source();
     assert.match(component, /data-testid="calendar-dav-mode"/);

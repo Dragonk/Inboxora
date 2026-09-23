@@ -57,24 +57,16 @@ test('the contacts screen offers the Microsoft pull through the same control', a
 
 
 
-test('the calendar sources dialog offers the Google pull once connected', async () => {
+test('the calendar rail syncs exactly the selected account source', async () => {
   const source = await readFile(calendarSidebar, 'utf8');
-  assert.match(source, /api\.calendar\.providerCalendars\.status\('google'\)/);
-  assert.match(source, /api\.calendar\.providerCalendars\.sync\('google'\)/);
-  assert.match(source, /data-testid="calendar-google-sync"/);
-  assert.match(source, /googleCalendars\?\.connected \?/);
-  assert.match(source, /calendar\.googleNotConnected/);
-  assert.match(source, /providerCalendars\.status\('microsoft'\)/);
-  assert.match(source, /data-testid="calendar-microsoft-sync"/);
+  assert.match(source, /api\.syncAccountProviderFeature\(source\.accountId, 'calendars'\)/);
+  assert.match(source, /data-testid="calendar-account-sync"/);
+  assert.match(source, /data-testid="calendar-account-sync-result"/);
   assert.match(source, /api\.calendar\.presentation\(\)/);
   assert.match(source, /updateSourcePresentation/);
   assert.match(source, /updateCalendarPresentation/);
-  // A partial run counts a failed connection and a failed calendar, so it never
-  // looks like a complete one.
-  assert.match(source, /calendar\.googleSyncPartial/);
-  assert.match(source, /data-testid="calendar-google-sync-result"/);
-  // The imported calendars appear immediately after a run.
-  assert.match(source, /await loadGoogleCalendars\(\);\s*\n\s*await onSourcesChanged\(\);/);
+  assert.doesNotMatch(source, /providerCalendars\.sync\(/);
+  assert.doesNotMatch(source, /calendar\.googleSyncing/);
 });
 
 test('the contacts screen can import a vCard file into a local book', async () => {
@@ -109,12 +101,12 @@ test('each provider reports when it last synced, or that it failed', async () =>
   assert.match(manager, /data-testid={`contacts-manager-book-status-\$\{book\.id\}`}/);
 });
 
-test('the calendar connector reports when it last synced, or that it failed', async () => {
+test('the calendar connector reports the selected account outcome', async () => {
   const source = await readFile(calendarSidebar, 'utf8');
-  assert.match(source, /providerConnectorSummary\(googleCalendars\?\.calendars/);
-  assert.match(source, /calendar\.lastSynced/);
-  assert.match(source, /calendar\.lastSyncFailed/);
-  assert.match(source, /data-testid="calendar-google-sync-status"/);
+  assert.match(source, /response\.state !== 'success' \|\| failed > 0/);
+  assert.match(source, /calendar\.providerSyncDone/);
+  assert.match(source, /calendar\.providerSyncPartial/);
+  assert.match(source, /data-testid="calendar-account-sync-result"/);
 });
 
 test('an actionable provider failure is explained instead of shown as a code', async () => {
@@ -125,12 +117,12 @@ test('an actionable provider failure is explained instead of shown as a code', a
   assert.match(helper, /providers\.syncFailedAuth/);
   assert.match(helper, /providers\.syncFailedScopes/);
   assert.match(helper, /providers\.syncFailedRateLimited/);
-  // The mapping is wired through the summary helper's failureKey, one per surface.
+  // Contacts use a summary, while calendar source sync passes each account's errors
+  // to the same actionable formatter.
   assert.match(source, /failureKey: code => providerFailureKey\(code\) \?\? 'contacts\.addressBooks\.lastSyncFailed'/);
-  assert.match(sidebar, /failureKey: code => providerFailureKey\(code\) \?\? 'calendar\.lastSyncFailed'/);
-  // A code with no known action keeps the raw code rather than a friendly guess.
+  assert.match(sidebar, /summariseProviderSyncErrors/);
   assert.match(source, /contacts\.addressBooks\.lastSyncFailed/);
-  assert.match(sidebar, /calendar\.lastSyncFailed/);
+  assert.match(sidebar, /failureSummary\?\.first/);
 });
 
 test('an import confirms what it added instead of refreshing silently', async () => {
@@ -171,18 +163,14 @@ test('a configured but unconnected provider says so on the contacts page', async
   assert.match(manager, /syncTarget && \(/);
 });
 
-test('the last-sync line reports the total the connector holds', async () => {
+test('the account sync copy reports that account’s own result', async () => {
   const contacts = await readFile(contactsPage, 'utf8');
   const sidebar = await readFile(calendarSidebar, 'utf8');
-  // The count is a total across books/calendars while the date is the freshest sync, so
-  // the message must not imply the count belongs to that one time.
   assert.match(contacts, /count: book => book\.contactCount \?\? 0/);
-  assert.match(sidebar, /count: calendar => calendar\.eventCount \?\? 0/);
+  assert.match(sidebar, /const values = \{ calendars: outcome\.collections \?\? 0/);
   const strings = JSON.parse(await readFile(new URL('../locales/en.json', import.meta.url), 'utf8'));
-  assert.match(strings.contacts.addressBooks.lastSynced, /\{\{count\}\}/);
-  assert.match(strings.contacts.addressBooks.lastSynced, /in total/);
-  assert.match(strings.calendar.lastSynced, /\{\{count\}\}/);
-  assert.match(strings.calendar.lastSynced, /in total/);
+  assert.match(strings.calendar.providerSyncDone, /\{\{provider\}\}/);
+  assert.match(strings.calendar.providerSyncPartial, /\{\{failed\}\}/);
 });
 
 test('an import confirmation does not follow the user to another address book', async () => {

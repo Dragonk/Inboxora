@@ -5,8 +5,6 @@ import { api } from '../utils/api.ts';
 import { Button, Dialog } from './ui.tsx';
 import type { CSSProperties, FormEvent } from 'react';
 import { toAppError } from '../utils/errors.ts';
-import { providerFailureKey } from '../utils/providerFailure.ts';
-import { providerConnectorSummary } from '../utils/providerSyncSummary.ts';
 import { summariseProviderSyncErrors } from '../utils/providerSyncError.ts';
 import type { TFunction } from 'i18next';
 
@@ -26,21 +24,34 @@ interface CalendarSourceList {
   sources?: CalendarSource[];
 }
 
+interface CalendarPresentationSource {
+  id: string;
+  kind: string;
+  label: string;
+  accountId: string | null;
+  identityLabel: string | null;
+  featureEnabled: boolean;
+  canSync: boolean;
+  collapsed: boolean;
+}
+interface CalendarPresentationCalendar { id: string; sourceId: string; displayName: string; readOnly: boolean; selected: boolean; sidebarHidden: boolean }
 interface CalendarPresentation {
-  sources?: Array<{ id: string; kind: string; label: string; accountId: string | null; identityLabel: string | null; featureEnabled: boolean; canSync: boolean; collapsed: boolean }>;
-  calendars?: Array<{ id: string; sourceId: string; displayName: string; readOnly: boolean; selected: boolean; sidebarHidden: boolean }>;
+  revision?: string;
+  sources?: CalendarPresentationSource[];
+  calendars?: CalendarPresentationCalendar[];
+  groups?: Array<CalendarPresentationSource & { calendars: CalendarPresentationCalendar[] }>;
 }
 
-/** The Google Calendar pull status the sources dialog reads (no credential). */
-interface GoogleCalendarStatus {
-  configured?: boolean;
-  connected?: boolean;
-  connections?: number;
-  calendars?: Array<{ calendarId: string; name?: string | null; eventCount?: number; lastSyncedAt?: string | null; lastErrorCode?: string | null; lastErrorAt?: string | null }>;
+/** Joins server-owned group identities to the current calendar rows without naming heuristics. */
+export function calendarSidebarGroups(presentation: CalendarPresentation | null, calendars: CalendarRow[]) {
+  return (presentation?.groups ?? []).map(group => ({
+    ...group,
+    rows: group.calendars.map(view => ({ view, calendar: calendars.find(calendar => calendar.id === view.id) })).filter((item): item is { view: CalendarPresentationCalendar; calendar: CalendarRow } => item.calendar !== undefined),
+  }));
 }
 
-/** One connection's outcome from POST /calendar/providers/google/sync. */
-interface GoogleCalendarSyncOutcome {
+/** One account's outcome from POST /accounts/:id/provider-features/calendars/sync. */
+interface ProviderCalendarSyncOutcome {
   collections?: number;
   created?: number;
   updated?: number;
@@ -135,15 +146,14 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
   const [calendarEdit, setCalendarEdit] = useState<CalendarEditDraft | null>(null);
   const [editError, setEditError] = useState<string | null>(null);
   const [calendarSaving, setCalendarSaving] = useState(false);
-  // The Google Calendar pull: `connected` decides whether the action is offered,
-  // and the notice reports what the last run changed.
-  const [googleCalendars, setGoogleCalendars] = useState<GoogleCalendarStatus | null>(null);
-  const [microsoftCalendars, setMicrosoftCalendars] = useState<GoogleCalendarStatus | null>(null);
-  const [googleSyncing, setGoogleSyncing] = useState(false);
-  const [microsoftSyncing, setMicrosoftSyncing] = useState(false);
-  const [googleSyncNotice, setGoogleSyncNotice] = useState('');
-  const [microsoftSyncNotice, setMicrosoftSyncNotice] = useState('');
+  // The server's durable group model controls the rail from its first render.
   const [presentation, setPresentation] = useState<CalendarPresentation | null>(null);
+  // Keep a failed optional presentation snapshot separate from source management.
+  // A source-list error must not be replaced by an unrelated failed sidebar refresh.
+  const [presentationError, setPresentationError] = useState<string | null>(null);
+  const presentationRequestGeneration = useRef(0);
+  const [syncingAccountIds, setSyncingAccountIds] = useState<Set<string>>(new Set());
+  const [accountSyncNotices, setAccountSyncNotices] = useState<Map<string, string>>(new Map());
   const [icsImporting, setIcsImporting] = useState(false);
   // What the last .ics import added, so the result is visible instead of the dialog
   // simply closing.
@@ -211,19 +221,31 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
     poll();
   };
   const loadPresentation = async () => {
-    try { const result = await api.calendar.presentation() as CalendarPresentation; if (mounted.current) setPresentation(result); }
-    catch (caught) { if (mounted.current) setSourceError(toAppError(caught).message); }
+    const generation = ++presentationRequestGeneration.current;
+    try {
+      const result = await api.calendar.presentation() as CalendarPresentation;
+      if (mounted.current && generation === presentationRequestGeneration.current) {
+        setPresentation(result); setPresentationError(null);
+      }
+      return result;
+    } catch (caught) {
+      if (mounted.current && generation === presentationRequestGeneration.current) setPresentationError(toAppError(caught).message);
+      return null;
+    }
   };
-  const openSources = async () => { setShowSources(true); await Promise.all([loadSources(), loadGoogleCalendars(), loadMicrosoftCalendars(), loadPresentation()]); };
+  // The durable presentation is the sidebar's source of truth from first entry;
+  // request generations fence responses from an older session/view refresh.
+  useEffect(() => { void loadPresentation(); }, []);
+  const openSources = async () => { setShowSources(true); await Promise.all([loadSources(), loadPresentation()]); };
   useEffect(() => {
     if (!sourcePanelRequest) return;
     let active = true;
+    const presentationGeneration = ++presentationRequestGeneration.current;
     setShowSources(true);
-    Promise.all([api.calendar.listSources(), api.calendar.providerCalendars.status('google'), api.calendar.providerCalendars.status('microsoft'), api.calendar.presentation()])
-      .then(([sourceResult, googleResult, microsoftResult, presentationResult]) => {
-        if (!active || !mounted.current) return;
-        setSources(sourceResult.sources || []); setGoogleCalendars(googleResult as GoogleCalendarStatus);
-        setMicrosoftCalendars(microsoftResult as GoogleCalendarStatus); setPresentation(presentationResult as CalendarPresentation); setSourceError(null);
+    Promise.all([api.calendar.listSources(), api.calendar.presentation()])
+      .then(([sourceResult, presentationResult]) => {
+        if (!active || !mounted.current || presentationGeneration !== presentationRequestGeneration.current) return;
+        setSources(sourceResult.sources || []); setPresentation(presentationResult as CalendarPresentation); setSourceError(null);
       })
       .catch(error => { if (active && mounted.current) setSourceError(toAppError(error).message); });
     return () => { active = false; };
@@ -245,64 +267,25 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
       setSourceError(toAppError(error).message);
     }
   };
-  const googleSummary = providerConnectorSummary(googleCalendars?.calendars, {
-    id: calendar => calendar.calendarId,
-    count: calendar => calendar.eventCount ?? 0,
-    failureKey: code => providerFailureKey(code) ?? 'calendar.lastSyncFailed',
-  });
-  async function loadGoogleCalendars() {
-    try { const result = await api.calendar.providerCalendars.status('google') as GoogleCalendarStatus; if (mounted.current) setGoogleCalendars(result); }
-    catch { if (mounted.current) setGoogleCalendars(null); }
-  }
-  async function loadMicrosoftCalendars() {
-    try { const result = await api.calendar.providerCalendars.status('microsoft') as GoogleCalendarStatus; if (mounted.current) setMicrosoftCalendars(result); }
-    catch { if (mounted.current) setMicrosoftCalendars(null); }
-  }
-  const runGoogleCalendarSync = async () => {
-    setGoogleSyncing(true);
-    setGoogleSyncNotice('');
+  const runAccountCalendarSync = async (source: CalendarPresentationSource) => {
+    if (!source.accountId || syncingAccountIds.has(source.accountId)) return;
+    setSyncingAccountIds(current => new Set(current).add(source.accountId!));
+    setAccountSyncNotices(current => { const next = new Map(current); next.delete(source.accountId!); return next; });
     setSourceError(null);
     try {
-      const result = await api.calendar.providerCalendars.sync('google') as { results?: GoogleCalendarSyncOutcome[] };
-      const outcomes = Array.isArray(result?.results) ? result.results : [];
-      const sum = (field: 'created' | 'updated' | 'deleted') => outcomes.reduce((total, outcome) => total + (outcome[field] ?? 0), 0);
-      const calendars = outcomes.reduce((total, outcome) => total + (outcome.collections ?? 0), 0);
-      // A failed connection and a failed calendar inside a successful connection
-      // both count as failures, so a partial run never looks complete.
-      const failed = outcomes.reduce((total, outcome) => total + (outcome.error ? 1 : 0) + (outcome.errors?.length ?? 0), 0);
-      const failureSummary = summariseProviderSyncErrors({
-        t,
-        provider: 'google',
-        feature: 'calendar',
-        errors: [
-          ...outcomes.map(outcome => outcome.error),
-          ...outcomes.flatMap(outcome => outcome.errors ?? []),
-        ],
-      });
-      setGoogleSyncNotice(failed
-        ? `${t('calendar.googleSyncPartial', { calendars, created: sum('created'), updated: sum('updated'), deleted: sum('deleted'), failed })} ${failureSummary?.first ?? ''}${failureSummary?.more ? ` ${t('providers.syncError.showDetails', { count: failureSummary.more })}` : ''}`.trim()
-        : t('calendar.googleSyncDone', { calendars, created: sum('created'), updated: sum('updated'), deleted: sum('deleted') }));
-      await loadGoogleCalendars();
-      await onSourcesChanged();
-    } catch (error) {
-      setSourceError(toAppError(error).message);
-    } finally {
-      if (mounted.current) setGoogleSyncing(false);
-    }
-  };
-  const runMicrosoftCalendarSync = async () => {
-    setMicrosoftSyncing(true); setMicrosoftSyncNotice(''); setSourceError(null);
-    try {
-      const result = await api.calendar.providerCalendars.sync('microsoft') as { results?: GoogleCalendarSyncOutcome[] };
-      const outcomes = Array.isArray(result?.results) ? result.results : [];
-      const sum = (field: 'created' | 'updated' | 'deleted') => outcomes.reduce((total, outcome) => total + (outcome[field] ?? 0), 0);
-      const calendarCount = outcomes.reduce((total, outcome) => total + (outcome.collections ?? 0), 0);
-      const failed = outcomes.reduce((total, outcome) => total + (outcome.error ? 1 : 0) + (outcome.errors?.length ?? 0), 0);
-      const failureSummary = summariseProviderSyncErrors({ t, provider: 'microsoft', feature: 'calendar', errors: [...outcomes.map(outcome => outcome.error), ...outcomes.flatMap(outcome => outcome.errors ?? [])] });
-      setMicrosoftSyncNotice(failed ? `${t('calendar.googleSyncPartial', { calendars: calendarCount, created: sum('created'), updated: sum('updated'), deleted: sum('deleted'), failed })} ${failureSummary?.first ?? ''}`.trim() : t('calendar.googleSyncDone', { calendars: calendarCount, created: sum('created'), updated: sum('updated'), deleted: sum('deleted') }));
-      await Promise.all([loadMicrosoftCalendars(), loadPresentation(), onSourcesChanged()]);
-    } catch (error) { setSourceError(toAppError(error).message); }
-    finally { if (mounted.current) setMicrosoftSyncing(false); }
+      const response = await api.syncAccountProviderFeature(source.accountId, 'calendars') as { state?: string; result?: ProviderCalendarSyncOutcome };
+      const outcome = response.result ?? {};
+      const failed = (outcome.error ? 1 : 0) + (outcome.errors?.length ?? 0);
+      const values = { calendars: outcome.collections ?? 0, created: outcome.created ?? 0, updated: outcome.updated ?? 0, deleted: outcome.deleted ?? 0, failed };
+      const failureSummary = summariseProviderSyncErrors({ t, provider: source.kind === 'microsoft' ? 'microsoft' : 'google', feature: 'calendar', errors: [outcome.error, ...(outcome.errors ?? [])] });
+      const partial = response.state !== 'success' || failed > 0;
+      const notice = partial
+        ? `${t('calendar.providerSyncPartial', { provider: source.label, ...values })} ${failureSummary?.first ?? ''}`.trim()
+        : t('calendar.providerSyncDone', { provider: source.label, ...values });
+      setAccountSyncNotices(current => new Map(current).set(source.accountId!, notice));
+      await Promise.all([loadPresentation(), onSourcesChanged()]);
+    } catch (caught) { setSourceError(toAppError(caught).message); }
+    finally { if (mounted.current) setSyncingAccountIds(current => { const next = new Set(current); next.delete(source.accountId!); return next; }); }
   };
   const importIcsFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -397,16 +380,17 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
     catch (error) { setSourceError(toAppError(error).message); } finally { setCalendarSaving(false); }
   };
   const presentationCalendar = new Map((presentation?.calendars ?? []).map(item => [item.id, item]));
-  const presentationSource = new Map((presentation?.sources ?? []).map(item => [item.id, item]));
-  const sourceForCalendar = (calendar: CalendarRow) => presentationCalendar.get(calendar.id)?.sourceId ?? (calendar.source === 'local' ? 'local' : `legacy:${calendar.source ?? 'external'}`);
-  const groups = new Map<string, CalendarRow[]>();
-  for (const calendar of calendars) {
-    const sourceId = sourceForCalendar(calendar);
-    if (!groups.has(sourceId)) groups.set(sourceId, []);
-    groups.get(sourceId)!.push(calendar);
-  }
   const updateCollapsed = async (sourceId: string, collapsed: boolean) => { try { await api.calendar.updateSourcePresentation(sourceId, collapsed); await loadPresentation(); } catch (caught) { setSourceError(toAppError(caught).message); } };
-  const updateHidden = async (calendar: CalendarRow, sidebarHidden: boolean) => { try { await api.calendar.updateCalendarPresentation(calendar.id, sidebarHidden); setOpenCalendarMenu(null); await loadPresentation(); } catch (caught) { setSourceError(toAppError(caught).message); } };
+  const updateHidden = async (calendar: CalendarRow, sidebarHidden: boolean) => {
+    const selectedBeforeHide = isVisible(calendar.id);
+    try {
+      await api.calendar.updateCalendarPresentation(calendar.id, sidebarHidden);
+      // Hiding uses the established selection callback so the parent immediately
+      // removes this calendar's events; restore deliberately retains that selection.
+      if (sidebarHidden && selectedBeforeHide) onToggleCalendar(calendar.id);
+      setOpenCalendarMenu(null); await loadPresentation();
+    } catch (caught) { setSourceError(toAppError(caught).message); }
+  };
   return <aside data-testid="calendar-sidebar" className="calendar-rail" style={panel} aria-label={t('calendar.panel')}>
     <h1 className="calendar-rail-heading">{t('calendar.title')}</h1>
     {onCreate && <Button variant="primary" className="calendar-rail-create" data-testid="calendar-rail-new-event" disabled={!canCreate} onClick={onCreate}>+ {t('calendar.newEvent')}</Button>}
@@ -423,10 +407,13 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
     </div>
     <section style={section}>
       <div style={sectionHeading}><strong>{t('calendar.calendars')}</strong><button data-testid="calendar-sidebar-manage-sources" onClick={openSources} style={linkButton}>{t('calendar.manageSources')}</button></div>
-      {[...calendars].filter(calendar => {
-        const view = presentationCalendar.get(calendar.id);
-        return view?.sidebarHidden !== true && presentationSource.get(view?.sourceId ?? (calendar.source === 'local' ? 'local' : `legacy:${calendar.source ?? 'external'}`))?.collapsed !== true;
-      }).sort((a, b) => Number(a.source !== 'local') - Number(b.source !== 'local')).map((calendar, index, all) => <div key={calendar.id}>{(index === 0 || (all[index - 1].source === 'local') !== (calendar.source === 'local')) && <h2 style={{ ...sectionHeading, margin: '12px 0 4px' }}>{calendar.source === 'local' ? t('calendar.myCalendars') : t('calendar.sourceCalendar')}</h2>}<div key={calendar.id} className="cal-row" style={calendarRow}><label style={calendarToggle}><input data-testid="calendar-visibility-toggle" type="checkbox" checked={isVisible(calendar.id)} onChange={() => onToggleCalendar(calendar.id)} /><span style={{ ...colorDot, background: calendar.color || 'var(--accent)' }} />{calendar.name}{ownedCalendar(calendar) ? <small style={owned}>{t('calendar.owned')}</small> : <small style={readOnly}>{t('calendar.sourceCalendar')}</small>}</label>{<div style={menuWrap}><button type="button" aria-label={t('calendar.calendarActions', { name: calendar.name })} aria-expanded={openCalendarMenu === calendar.id} onClick={() => setOpenCalendarMenu(openCalendarMenu === calendar.id ? null : calendar.id)} style={menuButton} disabled={calendarSaving}>⋮</button>{openCalendarMenu === calendar.id && <div role="menu" aria-label={t('calendar.calendarActions', { name: calendar.name })} style={contextMenu}><button role="menuitem" onClick={() => editCalendar(calendar)}>{t('calendar.rename')}</button><button role="menuitem" onClick={() => editCalendar(calendar)}>{t('calendar.changeColor')}</button><button role="menuitem" data-testid="calendar-hide" onClick={() => updateHidden(calendar, !(presentationCalendar.get(calendar.id)?.sidebarHidden === true))}>{presentationCalendar.get(calendar.id)?.sidebarHidden ? t('calendar.show', 'Show') : t('calendar.hide', 'Hide from list')}</button>{calendar.collection_id && <button role="menuitem" data-testid="calendar-write-back" onClick={() => setWriteBack(calendar)} disabled={calendarSaving}>{calendar.read_only ? t('calendar.enableWriteBack') : t('calendar.disableWriteBack')}</button>}{ownedCalendar(calendar) && <button role="menuitem" onClick={() => deleteCalendar(calendar)} style={dangerButton}>{t('calendar.deleteCalendar')}</button>}</div>}</div>}</div></div>)}
+      {presentationError && <p role="status" data-testid="calendar-presentation-error" style={{ margin: '4px 0', fontSize: 12 }}>{presentationError}</p>}
+      {calendarSidebarGroups(presentation, calendars).map(group => <div key={group.id} data-testid="calendar-source-group">
+        <h2 data-testid="calendar-source-heading" style={{ ...sectionHeading, margin: '12px 0 4px' }}>{group.label}{group.identityLabel ? ` — ${group.identityLabel}` : ''}{group.accountId && group.canSync && <button type="button" data-testid="calendar-account-sync" disabled={syncingAccountIds.has(group.accountId)} onClick={() => runAccountCalendarSync(group)} style={linkButton}>{syncingAccountIds.has(group.accountId) ? t('calendar.providerSyncing', { provider: group.label }) : t('calendar.providerSync', { provider: group.label })}</button>}</h2>
+        {group.accountId && accountSyncNotices.get(group.accountId) && <p role="status" data-testid="calendar-account-sync-result" style={{ margin: '0 0 4px', fontSize: 12 }}>{accountSyncNotices.get(group.accountId)}</p>}
+        {group.rows.map(({ view, calendar }) => {
+          return view.sidebarHidden || group.collapsed ? null : <div key={calendar.id}><div key={calendar.id} className="cal-row" style={calendarRow}><label style={calendarToggle}><input data-testid="calendar-visibility-toggle" type="checkbox" checked={isVisible(calendar.id)} onChange={() => onToggleCalendar(calendar.id)} /><span style={{ ...colorDot, background: calendar.color || 'var(--accent)' }} />{calendar.name}{ownedCalendar(calendar) ? <small style={owned}>{t('calendar.owned')}</small> : <small style={readOnly}>{t('calendar.sourceCalendar')}</small>}</label>{<div style={menuWrap}><button type="button" aria-label={t('calendar.calendarActions', { name: calendar.name })} aria-expanded={openCalendarMenu === calendar.id} onClick={() => setOpenCalendarMenu(openCalendarMenu === calendar.id ? null : calendar.id)} style={menuButton} disabled={calendarSaving}>⋮</button>{openCalendarMenu === calendar.id && <div role="menu" aria-label={t('calendar.calendarActions', { name: calendar.name })} style={contextMenu}><button role="menuitem" onClick={() => editCalendar(calendar)}>{t('calendar.rename')}</button><button role="menuitem" onClick={() => editCalendar(calendar)}>{t('calendar.changeColor')}</button><button role="menuitem" data-testid="calendar-hide" onClick={() => updateHidden(calendar, !(presentationCalendar.get(calendar.id)?.sidebarHidden === true))}>{presentationCalendar.get(calendar.id)?.sidebarHidden ? t('calendar.show', 'Show') : t('calendar.hide', 'Hide from list')}</button>{calendar.collection_id && <button role="menuitem" data-testid="calendar-write-back" onClick={() => setWriteBack(calendar)} disabled={calendarSaving}>{calendar.read_only ? t('calendar.enableWriteBack') : t('calendar.disableWriteBack')}</button>}{ownedCalendar(calendar) && <button role="menuitem" onClick={() => deleteCalendar(calendar)} style={dangerButton}>{t('calendar.deleteCalendar')}</button>}</div>}</div>}</div></div>})}</div>)}
+      {presentation && presentation.calendars?.some(item => item.sidebarHidden) && <details data-testid="calendar-hidden-calendars"><summary>{t('calendar.hiddenCalendars')}</summary>{presentation.calendars.filter(item => item.sidebarHidden).map(view => <div key={view.id} style={calendarRow}><span>{view.displayName}</span><button type="button" data-testid="calendar-restore-hidden" onClick={() => updateHidden({ id: view.id, name: view.displayName }, false)} style={linkButton}>{t('calendar.restore')}</button></div>)}</details>}
     </section>
     {calendarEdit && <Dialog testId="calendar-appearance-dialog" title={t('calendar.calendarActions', { name: calendarEdit.calendar.name })} closeLabel={t('calendar.close')} busy={calendarSaving} onClose={() => setCalendarEdit(null)} footer={<>
       <Button onClick={() => setCalendarEdit(null)} disabled={calendarSaving}>{t('calendar.cancel')}</Button>
@@ -472,25 +459,6 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
         <button type="submit" style={primaryButton}>{t('calendar.addSource')}</button>
       </form>
       <div style={sourceList}>{sources.map(source => <div key={source.id} data-testid="calendar-source-row" style={sourceRow}><span style={sourceDetails}><strong>{source.displayName}</strong><small style={{ display: 'block' }}>{source.kind === 'caldav' ? t('calendar.caldav') : t('calendar.icsWebcal')}</small><SourceStatus source={source} pending={pendingSourceIds.current.has(source.id) || syncingSourceIds.has(source.id)} t={t} /><SourceIntervalSelect label={t('calendar.sourceSyncInterval')} value={source.intervalMin} onChange={value => changeSourceInterval(source, value)} t={t} /></span><span style={sourceActions}><button disabled={syncingSourceIds.has(source.id) || pendingSourceIds.current.has(source.id)} onClick={() => syncSource(source.id)} style={linkButton}>{t('calendar.syncSource')}</button><button onClick={() => removeSource(source.id)} style={dangerButton}>{t('calendar.delete')}</button></span></div>)}</div>
-      {/* The Google pull is offered once an account is connected; the imported
-          calendars arrive read-only and hidden from DAV devices. */}
-      <div style={{ marginTop: 18, borderTop: '1px solid var(--border)', paddingTop: 12 }}>
-        <strong>{t('calendar.googleTitle')}</strong>
-        {googleCalendars?.connected ? <>
-          <p style={{ margin: '6px 0', fontSize: 12, color: 'var(--text-tertiary)' }}>{t('calendar.googleHint')}</p>
-          <button data-testid="calendar-google-sync" disabled={googleSyncing} onClick={runGoogleCalendarSync} style={primaryButton}>{t(googleSyncing ? 'calendar.googleSyncing' : 'calendar.googleSync')}</button>
-          {googleSummary && <p data-testid="calendar-google-sync-status" style={{ margin: '6px 0 0', fontSize: 11, color: 'var(--text-tertiary)' }}>{t(googleSummary.key ?? 'calendar.lastSynced', googleSummary.values)}</p>}
-          {googleSyncNotice && <p role="status" data-testid="calendar-google-sync-result" style={{ margin: '8px 0 0', fontSize: 12 }}>{googleSyncNotice}</p>}
-        </> : <p style={{ margin: '6px 0', fontSize: 12, color: 'var(--text-tertiary)' }}>{t('calendar.googleNotConnected')}</p>}
-      </div>
-      <div style={{ marginTop: 18, borderTop: '1px solid var(--border)', paddingTop: 12 }}>
-        <strong>{t('calendar.microsoftTitle')}</strong>
-        {microsoftCalendars?.connected ? <>
-          <p style={{ margin: '6px 0', fontSize: 12, color: 'var(--text-tertiary)' }}>{t('calendar.microsoftHint')}</p>
-          <button data-testid="calendar-microsoft-sync" disabled={microsoftSyncing} onClick={runMicrosoftCalendarSync} style={primaryButton}>{microsoftSyncing ? t('calendar.googleSyncing') : t('calendar.syncSource')}</button>
-          {microsoftSyncNotice && <p role="status" data-testid="calendar-microsoft-sync-result" style={{ margin: '8px 0 0', fontSize: 12 }}>{microsoftSyncNotice}</p>}
-        </> : <p style={{ margin: '6px 0', fontSize: 12, color: 'var(--text-tertiary)' }}>{t('calendar.microsoftNotConnected')}</p>}
-      </div>
     </Dialog>}
   </aside>;
 }

@@ -904,3 +904,30 @@ test('mobile long Contacts and Mail lists keep their final rows above fixed navi
     expect(mailGeometry.hit).toBe('large-row-99');
   }
 });
+
+test('calendar sidebar renders canonical source groups on first entry', async ({ page, fixtureApi }, testInfo) => {
+  test.skip(testInfo.project.name !== 'chromium-desktop', 'desktop calendar presentation contract');
+  await fixtureApi;
+  const calendars = ['g-a', 'g-b', 'm-a', 'dav-a', 'ics-a'].map(id => ({ id, name: 'Calendar', color: '#35558a', source: 'google', read_only: true }));
+  const groups = [
+    ['google:account:a', 'google', 'Google', 'first@example.test', 'g-a', false], ['google:account:b', 'google', 'Google', 'second@example.test', 'g-b', true],
+    ['microsoft:account:m', 'microsoft', 'Microsoft', 'microsoft@example.test', 'm-a', false], ['calendar-source:dav', 'caldav', 'Team CalDAV', null, 'dav-a', false], ['calendar-source:ics', 'ical_url', 'Holidays ICS', null, 'ics-a', false],
+  ] as const;
+  await page.route('**/api/calendar/calendars**', route => route.fulfill({ json: { calendars } }));
+  await page.route('**/api/calendar/events**', route => route.fulfill({ json: { events: [] } }));
+  await page.route('**/api/calendar/presentation**', route => route.fulfill({ json: {
+    calendars: groups.map(([id, , , , calendarId]) => ({ id: calendarId, sourceId: id, displayName: 'Calendar', readOnly: true, selected: true, sidebarHidden: calendarId === 'ics-a' })),
+    groups: groups.map(([id, kind, label, identityLabel, calendarId, collapsed]) => ({ id, kind, label, accountId: kind === 'google' || kind === 'microsoft' ? id.split(':').at(-1) : null, identityLabel, featureEnabled: true, canSync: true, collapsed, calendars: [{ id: calendarId, sourceId: id, displayName: 'Calendar', readOnly: true, selected: true, sidebarHidden: calendarId === 'ics-a' }] })),
+  } }));
+  await page.goto('/?list=0&reader=0');
+  await page.getByTestId('calendar-nav-primary').click();
+  const rail = page.getByTestId('calendar-sidebar');
+  await expect(rail.getByTestId('calendar-source-group')).toHaveCount(5);
+  await expect(rail.getByTestId('calendar-source-heading')).toContainText(['Google — first@example.test', 'Google — second@example.test', 'Microsoft — microsoft@example.test', 'Team CalDAV', 'Holidays ICS']);
+  // The first account's child is interactive even though another account uses
+  // the same display name; collapse hides only the second group's children.
+  const groupsInRail = rail.getByTestId('calendar-source-group');
+  await expect(groupsInRail.nth(0).getByTestId('calendar-visibility-toggle')).toBeVisible();
+  await expect(groupsInRail.nth(1).getByTestId('calendar-visibility-toggle')).toHaveCount(0);
+  await expect(rail.getByTestId('calendar-hidden-calendars')).toContainText('Calendar');
+});
