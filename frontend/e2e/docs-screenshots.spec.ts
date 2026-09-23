@@ -311,11 +311,12 @@ test('settings: the provider card and its policy', async ({ page, fixtureApi }) 
   await openSettings(page);
   await openSettingsTab(page, 'Integrations');
   await openSettingsSubTab(page, 'Email providers');
-  // The provider rows are collapsed until they are clicked, and the policy notes live inside them.
+  // The provider rows are collapsed until they are clicked. The account boundary is
+  // part of the card's policy: configuration lives here, while mailbox OAuth lives in Accounts.
   await page.getByText('Microsoft 365 / Outlook.com', { exact: false }).first().click();
-  await expect(page.getByTestId('microsoft-mail-policy')).toBeVisible();
+  await expect(page.getByTestId('microsoft-accounts-hint')).toBeVisible();
   await capture(page, 'settings-integrations', { mode: 'workspace', require: [
-    page.getByTestId('microsoft-mail-policy'),
+    page.getByTestId('microsoft-accounts-hint'),
     page.getByText('Microsoft 365 / Outlook.com', { exact: false }).first(),
   ] });
 });

@@ -208,8 +208,11 @@ test('V3 address-book tabs preserve search and reject a late response from the p
   await page.getByRole('button', { name: 'Firmowa', exact: true }).click();
   await expect(page.getByRole('searchbox')).toHaveValue('anna');
   await expect(page.getByRole('button', { name: 'Anna Kowalska', exact: true })).toBeVisible();
-  await openContactBooks(page);
-  await page.locator('.contacts-book-menu summary').click();
-  await expect(page.locator('.contacts-book-actions a')).toHaveCount(3);
-  await expect(page.locator('.contacts-book-actions a').last()).toHaveAttribute('href', /vcard/);
+  // The former ellipsis menu was replaced with the manager panel. On phones its
+  // entry point is inside the book picker; wider layouts keep it in the book strip.
+  if (page.viewportSize().width < 768) await page.getByTestId('contacts-address-books').click();
+  await page.getByTestId('contacts-manage-books').click();
+  await page.getByTestId('contacts-manager-book-book-work').click();
+  await expect(page.getByTestId('contacts-manager-import-export').locator('a')).toHaveCount(3);
+  await expect(page.getByTestId('contacts-manager-export-vcard')).toHaveAttribute('href', /vcard/);
 });
