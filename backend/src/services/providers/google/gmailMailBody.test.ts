@@ -87,12 +87,59 @@ describe('reading a Gmail message body and its attachments', () => {
     ]);
   });
 
-  it('does not offer a part Gmail did not give a download id for', () => {
+  it('keeps a file whose bytes Gmail returned inline, using its part reference', async () => {
     const message: GmailMessage = {
       id: 'm1',
-      payload: { mimeType: 'text/plain', filename: 'note.txt', body: { size: 3, data: base64url('abc') } },
+      payload: { partId: '1', mimeType: 'text/plain', filename: 'note.txt', body: { size: 3, data: base64url('abc') } },
     };
-    expect(collectGmailAttachments(message)).toEqual([]);
+    const attachments = collectGmailAttachments(message);
+    expect(attachments).toMatchObject([{ part: 'gmail-part:1', filename: 'note.txt' }]);
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(message)));
+    expect((await fetchGmailAttachmentBytes(OPTIONS, 'm1', attachments[0]!.part, 1024)).toString('utf8')).toBe('abc');
+  });
+
+  it('keeps an explicit attachment visible even when it has Content-ID', () => {
+    const message: GmailMessage = {
+      id: 'm-cid',
+      payload: {
+        mimeType: 'multipart/mixed',
+        parts: [{
+          partId: '7', mimeType: 'application/pdf', body: { attachmentId: 'pdf-7', size: 2 },
+          headers: [{ name: 'Content-ID', value: '<not-inline>' }, { name: 'Content-Disposition', value: 'attachment; filename="report.pdf"' }],
+        }],
+      },
+    };
+    expect(localAttachmentsForGmail(collectGmailAttachments(message))).toMatchObject([
+      { part: 'pdf-7', filename: 'report.pdf', type: 'application/pdf' },
+    ]);
+  });
+
+  it('fetches attachment-backed HTML and decodes declared ISO-8859-2 text', async () => {
+    const message: GmailMessage = {
+      id: 'm-charset',
+      payload: {
+        mimeType: 'multipart/alternative',
+        parts: [
+          { partId: '0', mimeType: 'text/plain', headers: [{ name: 'Content-Type', value: 'text/plain; charset=ISO-8859-2' }], body: { attachmentId: 'plain-0', size: 3 } },
+          { partId: '1', mimeType: 'text/html', body: { attachmentId: 'html-1', size: 11 } },
+          // This must not win over the actual plain-text body merely because it is first in a malformed tree.
+          { partId: '2', mimeType: 'text/plain', filename: 'notes.txt', body: { data: base64url('attachment') } },
+        ],
+      },
+    };
+    const polish = Buffer.from([0x5a, 0xb3, 0x6f]); // Zło in ISO-8859-2
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('plain-0')) return jsonResponse({ size: polish.length, data: polish.toString('base64url') });
+      if (url.includes('html-1')) return jsonResponse({ size: 11, data: base64url('<p>HTML</p>') });
+      return jsonResponse(message);
+    }));
+    await expect(fetchGmailMessageContent(OPTIONS, 'm-charset')).resolves.toMatchObject({ text: 'Zło', html: '<p>HTML</p>' });
+  });
+
+  it('preserves a confirmed empty text body', async () => {
+    const message: GmailMessage = { id: 'm-empty', payload: { partId: '0', mimeType: 'text/plain', body: { data: '' } } };
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(message)));
+    await expect(fetchGmailMessageContent(OPTIONS, 'm-empty')).resolves.toMatchObject({ text: '', html: null });
   });
 
   it('reads the HTML and text bodies from one full fetch', async () => {

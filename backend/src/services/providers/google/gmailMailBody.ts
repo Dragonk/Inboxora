@@ -26,7 +26,7 @@ import type { GmailMessage, GmailPart } from './gmailMail.js';
 
 /** One part's attachment identity, as `format=full` reports it. */
 export interface GmailAttachmentMeta {
-  /** The value stored as the local `part`: Gmail's attachment id, which is what a download addresses. */
+  /** A download reference: Gmail attachment id or a `gmail-part:` reference for inline bytes. */
   part: string;
   filename: string;
   type: string;
@@ -68,28 +68,52 @@ function contentIdOf(part: GmailPart): string | null {
 
 function isInlinePart(part: GmailPart, contentId: string | null): boolean {
   const disposition = (headerValue(part, 'Content-Disposition') ?? '').toLowerCase();
+  // An explicit attachment is visible even when a sender supplied a Content-ID.
+  if (disposition.includes('attachment')) return false;
   if (disposition.includes('inline')) return true;
   return contentId !== null;
 }
 
-/**
- * Every part whose bytes can be downloaded, with the identity a download addresses.
- *
- * A part with no `attachmentId` is not offered: Gmail only omits one for content it
- * inlines into the message itself, and inventing a download address for it would
- * make the attachment route promise bytes it cannot fetch.
- */
+const GMAIL_PART_REFERENCE_PREFIX = 'gmail-part:';
+
+function filenameForPart(part: GmailPart): string {
+  const explicit = (part.filename ?? '').trim();
+  if (explicit) return explicit;
+  const disposition = headerValue(part, 'Content-Disposition') ?? '';
+  const named = /filename\*?=(?:UTF-8''|"?)([^;"\r\n]+)/i.exec(disposition)?.[1]?.trim();
+  if (named) {
+    try { return decodeURIComponent(named); } catch { return named; }
+  }
+  // A nameless attachment is still a file. This is only a presentation name; the
+  // provider identity remains the attachment id/part id below.
+  return `attachment-${(part.partId ?? 'part').replace(/[^A-Za-z0-9._-]/g, '_')}`;
+}
+
+function isAttachmentPart(part: GmailPart): boolean {
+  const disposition = (headerValue(part, 'Content-Disposition') ?? '').toLowerCase();
+  return disposition.includes('attachment') || Boolean((part.filename ?? '').trim()) || Boolean(contentIdOf(part));
+}
+
+function partReference(part: GmailPart): string | null {
+  const attachmentId = part.body?.attachmentId?.trim();
+  if (attachmentId) return attachmentId;
+  // Gmail includes `data` directly for small parts. The part id is a real,
+  // re-resolvable address on a later download — unlike a fabricated attachment id.
+  if (part.body?.data !== undefined && part.body?.data !== null) return `${GMAIL_PART_REFERENCE_PREFIX}${part.partId ?? 'root'}`;
+  return null;
+}
+
+/** Every file part whose bytes are available inline or by attachment id. */
 export function collectGmailAttachments(message: GmailMessage): GmailAttachmentMeta[] {
   const attachments: GmailAttachmentMeta[] = [];
   const walk = (part: GmailPart | null | undefined): void => {
     if (!part) return;
-    const attachmentId = part.body?.attachmentId?.trim();
-    const filename = (part.filename ?? '').trim();
-    if (attachmentId && filename) {
+    const reference = partReference(part);
+    if (reference && isAttachmentPart(part)) {
       const contentId = contentIdOf(part);
       attachments.push({
-        part: attachmentId,
-        filename,
+        part: reference,
+        filename: filenameForPart(part),
         type: (part.mimeType ?? '').trim() || 'application/octet-stream',
         size: Math.max(0, part.body?.size ?? 0),
         isInline: isInlinePart(part, contentId),
@@ -119,22 +143,58 @@ export function localAttachmentsForGmail(attachments: readonly GmailAttachmentMe
     }));
 }
 
-/** Decode a leaf part's inline `data`, when Gmail chose to inline it. */
-function decodedPartData(part: GmailPart): string | null {
-  const data = part.body?.data;
-  if (!data) return null;
-  return fromBase64Url(data).toString('utf8');
+function charsetOf(part: GmailPart): string {
+  const source = headerValue(part, 'Content-Type') ?? part.mimeType ?? '';
+  return /charset\s*=\s*["']?([^;"'\s]+)/i.exec(source)?.[1] ?? 'utf-8';
 }
 
-/** The first leaf part of a MIME type, depth-first, in the order Gmail lists them. */
+function decodeText(bytes: Buffer, charset: string): string {
+  try { return new TextDecoder(charset).decode(bytes); } catch { return bytes.toString('utf8'); }
+}
+
+/** Decode inline data, including a deliberately empty body. */
+function decodedPartData(part: GmailPart): string | null {
+  const data = part.body?.data;
+  if (data === undefined || data === null) return null;
+  return decodeText(fromBase64Url(data), charsetOf(part));
+}
+
+/** A body leaf, not a text file attached before the real message body. */
+function isBodyPart(part: GmailPart): boolean {
+  const disposition = (headerValue(part, 'Content-Disposition') ?? '').toLowerCase();
+  return !disposition.includes('attachment') && !(part.filename ?? '').trim();
+}
+
+/** The first body leaf of a MIME type, depth-first, in Gmail's order. */
 function findPart(part: GmailPart | null | undefined, mimeType: string): GmailPart | null {
   if (!part) return null;
-  if ((part.mimeType ?? '').toLowerCase() === mimeType && !(part.parts?.length)) return part;
+  if ((part.mimeType ?? '').toLowerCase() === mimeType && !(part.parts?.length) && isBodyPart(part)) return part;
   for (const child of part.parts ?? []) {
     const found = findPart(child, mimeType);
     if (found) return found;
   }
   return null;
+}
+
+function findPartById(part: GmailPart | null | undefined, partId: string): GmailPart | null {
+  if (!part) return null;
+  if ((part.partId ?? 'root') === partId) return part;
+  for (const child of part.parts ?? []) {
+    const found = findPartById(child, partId);
+    if (found) return found;
+  }
+  return null;
+}
+
+const MAX_GMAIL_BODY_PART_BYTES = 10 * 1024 * 1024;
+
+async function textPartData(api: GoogleApiOptions, messageId: string, part: GmailPart): Promise<string | null> {
+  const inline = decodedPartData(part);
+  if (inline !== null) return inline;
+  const attachmentId = part.body?.attachmentId?.trim();
+  if (!attachmentId) return null;
+  const bytes = await fetchGmailAttachmentBytes(api, messageId, attachmentId, MAX_GMAIL_BODY_PART_BYTES);
+  return decodeText(bytes, charsetOf(part));
 }
 
 export interface GmailMessageContent {
@@ -156,8 +216,8 @@ export async function fetchGmailMessageContent(api: GoogleApiOptions, messageId:
   const htmlPart = findPart(message.payload, 'text/html');
   const textPart = findPart(message.payload, 'text/plain');
   return {
-    html: htmlPart ? decodedPartData(htmlPart) : null,
-    text: textPart ? decodedPartData(textPart) : null,
+    html: htmlPart ? await textPartData(api, messageId, htmlPart) : null,
+    text: textPart ? await textPartData(api, messageId, textPart) : null,
     attachments: collectGmailAttachments(message),
   };
 }
@@ -175,6 +235,18 @@ export async function fetchGmailAttachmentBytes(
   attachmentId: string,
   limitBytes: number,
 ): Promise<Buffer> {
+  if (attachmentId.startsWith(GMAIL_PART_REFERENCE_PREFIX)) {
+    const partId = attachmentId.slice(GMAIL_PART_REFERENCE_PREFIX.length);
+    const message = await fetchGmailMessage(api, messageId, 'full');
+    const part = findPartById(message?.payload, partId);
+    const data = part?.body?.data;
+    if (data === undefined || data === null) return Buffer.alloc(0);
+    const bytes = fromBase64Url(data);
+    if (bytes.length > limitBytes) {
+      throw Object.assign(new Error('ATTACHMENT_TOO_LARGE'), { code: 'ATTACHMENT_TOO_LARGE' });
+    }
+    return bytes;
+  }
   const attachment = await gmailGet<{ size?: number | null; data?: string | null }>(
     api,
     `users/${GMAIL_USER}/messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(attachmentId)}`,
