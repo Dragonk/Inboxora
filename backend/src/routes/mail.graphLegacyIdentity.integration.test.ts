@@ -28,6 +28,7 @@ vi.mock('../services/providerAuthService.js', async importOriginal => ({
 import { pool } from '../services/db.js';
 import { MICROSOFT_GRANT_AUDIENCE, MICROSOFT_ISSUER, storeOAuthGrant, upsertProviderConnection } from '../services/providerAuthService.js';
 import { applyGraphMailMessagesPage } from '../services/providers/microsoft/graphMailSync.js';
+import { repairExistingGraphLegacyMessageBindings } from '../services/providers/microsoft/graphLegacyMessageBindingRepair.js';
 import mailRoutes from './mail.js';
 import { listeningPort } from '../test/net.js';
 
@@ -179,5 +180,28 @@ describeOrSkip('LIVE-01 legacy Graph identity route (PostgreSQL)', { timeout: 30
     const response = await nativeFetch(`${base}/api/mail/messages/${LEGACY_ID}/body`);
     expect(response.status).toBe(409);
     await expect(response.json()).resolves.toMatchObject({ code: 'MESSAGE_PROVIDER_IDENTITY_MISSING' });
+  });
+
+  it('repairs an existing legacy/native cache pair without a new delta item, then serves its old UUID', async () => {
+    const connectionId = await autocommit(async client => {
+      const id = await upsertProviderConnection(client, { userId: USER_ID, provider: 'microsoft', issuer: MICROSOFT_ISSUER, subject: 'live-01-cache', providerUserId: 'live-01@contoso.test' });
+      await storeOAuthGrant(client, { connectionId: id, audience: MICROSOFT_GRANT_AUDIENCE, accessToken: 'access-valid', refreshToken: 'refresh-valid', expiresAt: new Date(Date.now() + 3_600_000), scopes: ['https://graph.microsoft.com/Mail.Read'], clientIdAtIssue: 'client-1' });
+      await client.query(`INSERT INTO email_accounts (id, user_id, name, email_address, protocol, imap_host, mail_transport, provider_connection_id, migration_state) VALUES ($1,$2,'Live Graph','live-01@contoso.test','imap','outlook.office365.com','microsoft_graph',$3,'active_native')`, [ACCOUNT_ID, USER_ID, id]);
+      await client.query(`INSERT INTO messages (id, account_id, uid, folder, message_id, from_email, date, subject, is_read) VALUES ($1,$2,42,'INBOX','<cache@example.test>','sender@example.test',$3::timestamptz,'legacy',true)`, [LEGACY_ID, ACCOUNT_ID, '2026-09-23T11:00:00Z']);
+      await client.query(`INSERT INTO messages (id, account_id, uid, folder, provider_message_id, message_id, from_email, date, subject, is_read) VALUES ('00000000-0000-0000-0000-00000000c101',$1,43,'INBOX',$2,'<cache@example.test>','sender@example.test',$3::timestamptz,'native',false)`, [ACCOUNT_ID, GRAPH_ID, '2026-09-23T11:00:00Z']);
+      return id;
+    });
+    const repair = await inTransaction(client => repairExistingGraphLegacyMessageBindings(client, { userId: USER_ID, accountId: ACCOUNT_ID, connectionId, limit: 1 }));
+    expect(repair).toMatchObject({ bound: 1, failed: 0, checkpoint: LEGACY_ID });
+    vi.stubGlobal('fetch', (async (input: string | URL | Request) => {
+      const url = String(input);
+      if (!url.startsWith('https://graph.microsoft.com/')) return nativeFetch(input);
+      return new Response(JSON.stringify(url.includes('/attachments') ? { value: [] } : { body: { contentType: 'text', content: 'recovered cache body' } }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }) as typeof fetch);
+    try {
+      const response = await nativeFetch(`${base}/api/mail/messages/${LEGACY_ID}/body`);
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({ text: 'recovered cache body' });
+    } finally { vi.unstubAllGlobals(); }
   });
 });
