@@ -67,7 +67,6 @@
         "notConnected": "Not connected",
         "connect": "Connect",
         "collections": "{{count}} collection(s)",
-        "instantSync": "Instant sync",
         "migrateGoogle": "Move to the Gmail API",
         "migrateMicrosoft": "Move to Microsoft Graph",
         "finishInTab": "Finish signing in in the tab that opened, then return to this card.",

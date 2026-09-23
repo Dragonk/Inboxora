@@ -67,7 +67,6 @@
         "notConnected": "未连接",
         "connect": "连接",
         "collections": "{{count}} 个集合",
-        "instantSync": "即时同步",
         "migrateGoogle": "迁移到 Gmail API",
         "migrateMicrosoft": "迁移到 Microsoft Graph",
         "finishInTab": "请在打开的标签页中完成登录，然后返回此卡片。",

@@ -65,7 +65,6 @@
         "notConnected": "Не подключено",
         "connect": "Подключить",
         "collections": "Коллекций: {{count}}",
-        "instantSync": "Мгновенная синхронизация",
         "migrateGoogle": "Перейти на Gmail API",
         "migrateMicrosoft": "Перейти на Microsoft Graph",
         "finishInTab": "Завершите вход во вкладке и вернитесь к этой карточке.",

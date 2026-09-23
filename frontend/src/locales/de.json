@@ -67,7 +67,6 @@
         "notConnected": "Nicht verbunden",
         "connect": "Verbinden",
         "collections": "{{count}} Sammlung(en)",
-        "instantSync": "Sofort-Sync",
         "migrateGoogle": "Zur Gmail-API wechseln",
         "migrateMicrosoft": "Zu Microsoft Graph wechseln",
         "finishInTab": "Schließen Sie die Anmeldung im geöffneten Tab ab und kehren Sie hierher zurück.",

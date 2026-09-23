@@ -65,7 +65,6 @@
         "notConnected": "No conectado",
         "connect": "Conectar",
         "collections": "{{count}} colección(es)",
-        "instantSync": "Sincronización instantánea",
         "migrateGoogle": "Cambiar a la API de Gmail",
         "migrateMicrosoft": "Cambiar a Microsoft Graph",
         "finishInTab": "Complete el inicio de sesión en la pestaña abierta y vuelva a esta tarjeta.",

@@ -185,7 +185,6 @@
         "notConnected": "Nepřipojeno",
         "connect": "Připojit",
         "collections": "{{count}} kolekce/í",
-        "instantSync": "Okamžitá synchronizace",
         "migrateGoogle": "Přejít na Gmail API",
         "migrateMicrosoft": "Přejít na Microsoft Graph",
         "finishInTab": "Dokončete přihlášení v otevřené kartě a vraťte se sem.",

@@ -299,7 +299,7 @@ export default function AccountProviderServices({ accountId, reload, t }: Props)
   );
 
   return (
-    <div data-testid="account-provider-services" data-sync-label={t('admin.accounts.services.instantSync')} data-legacy-push-mail={features.push.mail} data-legacy-push-contacts={features.push.contacts} style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--border-subtle)', fontSize: 12, lineHeight: 1.7, minWidth: 0 }}>
+    <div data-testid="account-provider-services" style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--border-subtle)', fontSize: 12, lineHeight: 1.7, minWidth: 0 }}>
       <div style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>{t('admin.accounts.services.title', { provider: providerName })}</div>
 
       <div style={{ marginTop: 4 }}>

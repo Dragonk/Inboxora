@@ -65,7 +65,6 @@
         "notConnected": "Non connesso",
         "connect": "Collega",
         "collections": "{{count}} raccolta/e",
-        "instantSync": "Sincronizzazione istantanea",
         "migrateGoogle": "Passa all’API di Gmail",
         "migrateMicrosoft": "Passa a Microsoft Graph",
         "finishInTab": "Completa l’accesso nella scheda aperta, poi torna a questa scheda.",

@@ -111,8 +111,8 @@ test('the account card carries the provider services, and the classifier decides
   assert.match(services, /authorize\(provider, 'account'\)/);
   assert.match(services, /data-testid="account-refresh"/);
   assert.ok(!/account-service-connect-/.test(services), 'a per-service connect action is still rendered');
-  assert.match(services, /features\.push\.mail/);
-  assert.match(services, /features\.push\.contacts/);
+  assert.match(services, /diagnostics\.push\.mail/);
+  assert.match(services, /diagnostics\.push\.contacts/);
 });
 
 test('the add-account screen survives a 360 px viewport', async () => {

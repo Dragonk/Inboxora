@@ -177,7 +177,6 @@
         "notConnected": "Niepołączone",
         "connect": "Połącz",
         "collections": "{{count}} kolekcja/e",
-        "instantSync": "Synchronizacja natychmiastowa",
         "migrateGoogle": "Przejdź na Gmail API",
         "migrateMicrosoft": "Przejdź na Microsoft Graph",
         "finishInTab": "Dokończ logowanie w otwartej karcie i wróć do tej karty konta.",
