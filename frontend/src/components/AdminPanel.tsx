@@ -152,10 +152,12 @@ interface AccountFormProps {
   onCancel: () => void;
   /** Refreshes the account summary after a provider-service mutation. */
   onReload?: () => void;
+  /** The edit parent returns to the account list after every staged change commits. */
+  onComplete?: () => void;
 }
 
 
-function AccountForm({ initial = undefined, onSave, onCancel, onReload }: AccountFormProps) {
+function AccountForm({ initial = undefined, onSave, onCancel, onReload, onComplete }: AccountFormProps) {
   const { t } = useTranslation();
   const { categorizationEnabled } = useStore();
 
@@ -182,6 +184,7 @@ function AccountForm({ initial = undefined, onSave, onCancel, onReload }: Accoun
   const [showSmtpPass, setShowSmtpPass] = useState(false);
   const [selectedPreset, setSelectedPreset] = useState<string | null>(null);
   const [mailPolicy, setMailPolicy] = useState({ allowPrivateHosts: false, allowInsecureTls: false, allowNonstandardPorts: false });
+  const [stagedFeatureChanges, setStagedFeatureChanges] = useState<Partial<Record<'calendars' | 'contacts', boolean>>>({});
 
   useEffect(() => {
     api.admin.getSettings()
@@ -217,6 +220,16 @@ function AccountForm({ initial = undefined, onSave, onCancel, onReload }: Accoun
     setError('');
     try {
       await onSave(form);
+      // Provider intent changes share the edit form's explicit Save/Cancel
+      // boundary. The account update is already durable if one feature fails,
+      // so surface that failure instead of claiming that every change saved.
+      if (isEdit && initial?.id) {
+        for (const [service, enabled] of Object.entries(stagedFeatureChanges) as Array<['calendars' | 'contacts', boolean]>) {
+          await api.setAccountProviderFeature(initial.id, service, enabled);
+        }
+      }
+      onReload?.();
+      onComplete?.();
     } catch (err) {
       setError(toAppError(err).message);
       setSaving(false);
@@ -561,7 +574,13 @@ function AccountForm({ initial = undefined, onSave, onCancel, onReload }: Accoun
 
       {isEdit && nativeTransport && initial?.id && (
         <section data-testid="account-edit-provider-services" style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--border-subtle)' }}>
-          <AccountProviderServices accountId={initial.id} reload={onReload ?? (() => {})} t={t} />
+          <AccountProviderServices
+            accountId={initial.id}
+            reload={onReload ?? (() => {})}
+            t={t}
+            deferServiceChanges
+            onFeatureIntentChange={(service, enabled) => setStagedFeatureChanges(current => ({ ...current, [service]: enabled }))}
+          />
         </section>
       )}
 
@@ -734,8 +753,6 @@ function AccountsTab({ onNavigate = undefined }: { onNavigate?: (tab: string) =>
       byAccount: unreadCounts.byAccount,
     });
     refreshUnreadCounts();
-    setSubview('list');
-    setEditTarget(null);
   };
 
   const handleDelete = (id: string) => {
@@ -952,7 +969,13 @@ function AccountsTab({ onNavigate = undefined }: { onNavigate?: (tab: string) =>
         <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 20 }}>
           {editTarget.email_address}
         </div>
-        <AccountForm initial={editTarget} onSave={handleEdit} onCancel={() => { setSubview('list'); setEditTarget(null); }} onReload={loadAccounts} />
+        <AccountForm
+          initial={editTarget}
+          onSave={handleEdit}
+          onCancel={() => { setSubview('list'); setEditTarget(null); }}
+          onReload={loadAccounts}
+          onComplete={() => { setSubview('list'); setEditTarget(null); }}
+        />
       </div>
     );
   }

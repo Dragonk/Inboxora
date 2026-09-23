@@ -71,6 +71,9 @@ interface Props {
   /** Called after a successful migration or authorization, so the card refetches. */
   reload: () => void;
   t: (key: string, vars?: Record<string, unknown>) => string;
+  /** Account editing stages service intent until the form is saved. */
+  deferServiceChanges?: boolean;
+  onFeatureIntentChange?: (service: 'calendars' | 'contacts', enabled: boolean) => void;
 }
 
 /** The human name of a transport, which is what the card shows instead of an IMAP host and port. */
@@ -99,7 +102,7 @@ export function authorizationPath(input: { provider: 'google' | 'microsoft'; ser
     : `/oauth/provider/microsoft?purpose=${purpose}${account}`;
 }
 
-export default function AccountProviderServices({ accountId, reload, t }: Props) {
+export default function AccountProviderServices({ accountId, reload, t, deferServiceChanges = false, onFeatureIntentChange }: Props) {
   const [features, setFeatures] = useState<AccountProviderFeatures | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -212,6 +215,10 @@ export default function AccountProviderServices({ accountId, reload, t }: Props)
     // Optimistic only for the persisted user intent. Authorization and last-run facts
     // remain server-derived; on refusal the complete prior snapshot is restored.
     setFeatures(current => current && current[key] ? { ...current, [key]: { ...current[key]!, enabled } } : current);
+    if (deferServiceChanges) {
+      onFeatureIntentChange?.(service, enabled);
+      return;
+    }
     setFeatureSaving(service); setError(null);
     try {
       await api.setAccountProviderFeature(accountId, service, enabled);

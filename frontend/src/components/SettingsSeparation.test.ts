@@ -97,7 +97,10 @@ test('provider services live in native-account editing, not the compact account 
   // are rendered only after opening a native Google/Microsoft account for editing.
   assert.doesNotMatch(panel, /<AccountProviderServices accountId=\{account\.id\} reload=\{loadAccounts\} t=\{t\} \/>/);
   assert.match(panel, /data-testid="account-edit-provider-services"/);
-  assert.match(panel, /<AccountProviderServices accountId=\{initial\.id\} reload=\{onReload \?\? \(\(\) => \{\}\)\} t=\{t\} \/>/);
+  assert.match(panel, /<AccountProviderServices/);
+  assert.match(panel, /accountId=\{initial\.id\}/);
+  assert.match(panel, /deferServiceChanges/);
+  assert.match(panel, /onFeatureIntentChange=\{\(service, enabled\) => setStagedFeatureChanges/);
   assert.match(services, /api\.accountProviderStatus\(accountId\)/);
   // The transport is named, and a migration is offered only when the backend says it applies.
   assert.match(services, /data-testid="account-transport"/);
@@ -114,6 +117,8 @@ test('provider services live in native-account editing, not the compact account 
   assert.match(services, /data-testid="account-connect"/);
   assert.match(services, /authorize\(provider, 'account'\)/);
   assert.match(services, /data-testid="account-refresh"/);
+  assert.match(services, /if \(deferServiceChanges\)/);
+  assert.match(panel, /api\.setAccountProviderFeature\(initial\.id, service, enabled\)/);
   assert.ok(!/account-service-connect-/.test(services), 'a per-service connect action is still rendered');
   assert.match(services, /diagnostics\.push\.mail/);
   assert.match(services, /diagnostics\.push\.contacts/);
