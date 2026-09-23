@@ -34,9 +34,11 @@ export async function applyIngestRulesToRows(input: {
   if (input.rowIds.length === 0) return { considered: 0, blocked: 0, ruled: 0, rulesSkipped: false };
   const rows = await query<{
     id: string; uid: number | string | null; folder: string; from_email: string | null; from_name: string | null;
-    subject: string | null; to_addresses: unknown; has_attachments: boolean | null; is_read: boolean | null; parsed_headers: unknown; body_text: string | null;
+    subject: string | null; to_addresses: unknown; has_attachments: boolean | null; is_read: boolean | null;
+    parsed_headers: unknown; parsed_headers_complete: boolean; body_text: string | null;
   }>(
-    `SELECT id, uid, folder, from_email, is_read, from_name, subject, to_addresses, has_attachments, parsed_headers, body_text FROM messages
+    `SELECT id, uid, folder, from_email, is_read, from_name, subject, to_addresses, has_attachments,
+            parsed_headers, parsed_headers_complete, body_text FROM messages
       WHERE id = ANY($1::uuid[]) AND account_id = $2 AND folder = $3 AND is_deleted = false`,
     [input.rowIds, input.account.id, input.folder],
   );
@@ -46,6 +48,7 @@ export async function applyIngestRulesToRows(input: {
   // header. If an enabled rule needs either unknown value, durably park the complete
   // message before *any* block-list or rule effect can reach the provider. Retrying the
   // record later retries reads only; it cannot replay an uncertain action.
+  let readyRows = rows.rows;
   if (!input.skipDeferral && providerNativeRulesEnabled()) {
     try {
       const requirements = await ruleDataRequirementsForAccount(input.account.user_id, input.account.id);
@@ -53,26 +56,29 @@ export async function applyIngestRulesToRows(input: {
       if ((transport === 'gmail_api' || transport === 'microsoft_graph') && (requirements.needsBody || requirements.needsHeaders)) {
         const deferred = rows.rows.filter(row =>
           (requirements.needsBody && row.body_text === null) ||
-          (requirements.needsHeaders && (row.parsed_headers === null || typeof row.parsed_headers !== 'object')),
+          (requirements.needsHeaders && !row.parsed_headers_complete),
         );
-        if (deferred.length > 0) {
-          for (const row of deferred) {
-            await enqueueProviderRuleDeferral({
-              messageId: row.id, accountId: input.account.id, userId: input.account.user_id,
-              connectionId: input.connectionId, transport, requirements,
-            });
-          }
-          return { considered: rows.rows.length, blocked: 0, ruled: 0, rulesSkipped: false };
+        for (const row of deferred) {
+          await enqueueProviderRuleDeferral({
+            messageId: row.id, accountId: input.account.id, userId: input.account.user_id,
+            connectionId: input.connectionId, transport, requirements: {
+              needsBody: requirements.needsBody && row.body_text === null,
+              needsHeaders: requirements.needsHeaders && !row.parsed_headers_complete,
+            },
+          });
         }
+        const deferredIds = new Set(deferred.map(row => row.id));
+        readyRows = rows.rows.filter(row => !deferredIds.has(row.id));
       }
     } catch (caught) {
       console.warn(`Ingest rule deferral failed for ${input.providerName ?? 'provider'} account ${input.account.id}:`, caught instanceof Error ? caught.message : caught);
-      // Do not apply an action when we could not prove the required input is present.
+      // Never apply an action to a row whose required data could not be durably deferred.
       return { considered: rows.rows.length, blocked: 0, ruled: 0, rulesSkipped: false };
     }
   }
+  if (readyRows.length === 0) return { considered: rows.rows.length, blocked: 0, ruled: 0, rulesSkipped: false };
 
-  const messages = rows.rows.map(row => ({
+  const messages = readyRows.map(row => ({
     id: row.id,
     ...(typeof row.subject === 'string' ? { subject: row.subject } : {}),
     ...(typeof row.from_name === 'string' ? { fromName: row.from_name } : {}),

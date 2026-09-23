@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildSnippetFromHtml, parseMessage, snippetFromBody } from './messageParser.js';
+import { buildSnippetFromHtml, extractHtmlTextForRules, parseMessage, snippetFromBody } from './messageParser.js';
 
 describe('buildSnippetFromHtml', () => {
   it('drops CSS from a style block in the document head', () => {
@@ -42,6 +42,10 @@ describe('buildSnippetFromHtml', () => {
   it('decodes HTML entities after stripping markup', () => {
     const html = '<p>Fish &amp; chips&nbsp;&hellip; &#x2014; &#169; &quot;yes&quot; &apos;ok&apos; &lt;done&gt;</p>';
     expect(buildSnippetFromHtml(html)).toBe('Fish & chips … — © "yes" \'ok\' <done>');
+  });
+
+  it('extracts decoded visible HTML text for rule hydration', () => {
+    expect(extractHtmlTextForRules('<p>Faktura&nbsp;VAT &#x2013; załącznik</p>')).toBe('Faktura VAT – załącznik');
   });
 
   it('drops closed HTML comments with their contents', () => {

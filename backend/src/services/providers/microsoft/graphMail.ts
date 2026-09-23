@@ -276,6 +276,8 @@ export interface LocalGraphMessage {
   ccAddresses: Array<{ name: string | null; address: string }>;
   replyTo: Array<{ name: string | null; address: string }>;
   parsedHeaders: Record<string, string>;
+  /** True only when Graph actually returned the internetMessageHeaders collection. */
+  parsedHeadersComplete: boolean;
   date: Date | null;
   snippet: string | null;
   isRead: boolean;
@@ -353,6 +355,7 @@ export function localMessageForGraphMessage(message: GraphMessage): LocalGraphMe
     ccAddresses: addresses(message.ccRecipients),
     replyTo: addresses(message.replyTo),
     parsedHeaders: graphHeaderMap(message.internetMessageHeaders),
+    parsedHeadersComplete: Array.isArray(message.internetMessageHeaders),
     date: parseGraphDate(message.receivedDateTime) ?? parseGraphDate(message.sentDateTime),
     snippet: message.bodyPreview ?? null,
     isRead: Boolean(message.isRead),

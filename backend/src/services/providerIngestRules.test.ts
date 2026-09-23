@@ -144,7 +144,7 @@ describe('the provider ingest block list', () => {
         return { rows: [{
           id: 'row-1', uid: 77, folder: 'INBOX', from_email: 'news@example.com', from_name: 'News',
           subject: 'Invoice', to_addresses: [{ address: 'me@example.com' }], has_attachments: true,
-          is_read: false, parsed_headers: { 'list-id': 'invoices.example.com' },
+          is_read: false, parsed_headers: { 'list-id': 'invoices.example.com' }, parsed_headers_complete: true,
         }] } as never;
       }
       if (sql.includes('FROM inbox_rules')) {
@@ -184,6 +184,35 @@ describe('the provider ingest block list', () => {
     expect(outcome).toEqual({ considered: 1, blocked: 0, ruled: 0, rulesSkipped: false });
     expect(query).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO provider_rule_deferred_messages'), expect.arrayContaining(['row-1', 'acc-1', true, false]));
     expect(moveGmailMessageToLabel).not.toHaveBeenCalled();
+  });
+
+  it('processes ready rows while queueing only incomplete rows from the same batch', async () => {
+    query.mockImplementation(async (sql: string, params?: unknown[]) => {
+      if (sql.includes('SELECT id, uid, folder, from_email, is_read')) {
+        return { rows: [
+          { id: 'ready', uid: 11, folder: 'INBOX', from_email: 'a@example.com', is_read: false, body_text: 'invoice', parsed_headers_complete: true },
+          { id: 'deferred', uid: 12, folder: 'INBOX', from_email: 'b@example.com', is_read: false, body_text: null, parsed_headers_complete: true },
+        ] } as never;
+      }
+      if (sql.includes('FROM inbox_rules')) return { rows: [{ id: 'rule-1', conditions: [{ field: 'body', operator: 'contains', value: 'invoice' }], actions: [{ type: 'move', value: 'Archive' }] }] } as never;
+      if (sql.includes('INSERT INTO provider_rule_deferred_messages')) return { rows: [] } as never;
+      if (sql.includes('SELECT id, body_text FROM messages')) return { rows: [{ id: 'ready', body_text: 'invoice' }] } as never;
+      if (sql.includes('SELECT id, provider_message_id FROM messages')) {
+        const ready = params?.some(value => String(value) === '11') ?? false;
+        return { rows: [{ id: ready ? 'ready' : 'deferred', provider_message_id: ready ? 'provider-ready' : 'provider-deferred' }] } as never;
+      }
+      if (sql.includes('SELECT email_address FROM block_list')) return { rows: [] } as never;
+      return { rows: [] } as never;
+    });
+    moveGmailMessageToLabel.mockResolvedValue({ moved: true, folder: 'Archive' });
+    process.env.PROVIDER_NATIVE_RULES = '1';
+
+    const outcome = await applyIngestRulesToRows({ userId: 'user-1', connectionId: 'conn-1', account, folder: 'INBOX', rowIds: ['ready', 'deferred'] });
+
+    expect(outcome).toMatchObject({ ruled: 1, rulesSkipped: false });
+    expect(query).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO provider_rule_deferred_messages'), expect.arrayContaining(['deferred', 'acc-1', true, false]));
+    expect(moveGmailMessageToLabel).toHaveBeenCalledWith(expect.objectContaining({ providerMessageId: 'provider-ready' }));
+    expect(moveGmailMessageToLabel).not.toHaveBeenCalledWith(expect.objectContaining({ providerMessageId: 'provider-deferred' }));
   });
 
   it('does nothing when the run stored no inbox rows', async () => {

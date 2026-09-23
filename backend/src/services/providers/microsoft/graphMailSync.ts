@@ -459,10 +459,13 @@ export async function applyGraphMailMessagesPage(
           return result.rows[0] ?? null;
         });
         if (applied) {
-          await client.query('UPDATE messages SET parsed_headers = $2::jsonb WHERE id = $1', [
-            applied.id,
-            JSON.stringify(local.parsedHeaders),
-          ]);
+          await client.query(
+            `UPDATE messages
+                SET parsed_headers = CASE WHEN $3 THEN $2::jsonb ELSE parsed_headers END,
+                    parsed_headers_complete = parsed_headers_complete OR $3
+              WHERE id = $1`,
+            [applied.id, JSON.stringify(local.parsedHeaders), local.parsedHeadersComplete],
+          );
           // The id is collected so the caller can run the conversation projection
           // **after** this transaction commits: the engine opens its own, and nesting
           // the two is the mistake this return value exists to prevent.

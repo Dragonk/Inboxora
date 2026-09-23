@@ -15,7 +15,7 @@ vi.mock('./providerIngestRules.js', () => ({ applyIngestRulesToRows: mocks.apply
 import { drainProviderRuleDeferrals } from './providerRuleDeferred.js';
 
 const row = { id: 'job-1', message_id: 'message-1', account_id: 'account-1', user_id: 'user-1', connection_id: 'connection-1', transport: 'gmail_api', needs_body: true, needs_headers: false } as const;
-const source = { id: 'message-1', provider_message_id: 'provider-1', body_text: null, parsed_headers: { subject: 'Known' }, folder: 'INBOX', is_deleted: false };
+const source = { id: 'message-1', provider_message_id: 'provider-1', body_text: null, parsed_headers: { subject: 'Known' }, parsed_headers_complete: false, folder: 'INBOX', is_deleted: false };
 
 function claimOne() {
   mocks.query.mockImplementation(async (sql: string) => {
@@ -52,11 +52,33 @@ describe('provider rule deferred worker', () => {
     expect(mocks.query).toHaveBeenCalledWith(expect.stringContaining('SET attempts = attempts + 1'), expect.arrayContaining(['job-1', 'worker-a']));
   });
 
-  it.each([null, ''])('keeps an absent or empty body unknown so a negative rule cannot run', async text => {
-    mocks.gmailContent.mockResolvedValue({ text, html: null, attachments: [] });
+  it('keeps an absent body unknown so a negative rule cannot run', async () => {
+    mocks.gmailContent.mockResolvedValue({ text: null, html: null, attachments: [] });
     await expect(drainProviderRuleDeferrals({ owner: 'worker-a' })).resolves.toEqual({ applied: 0, retried: 1, discarded: 0 });
     expect(mocks.apply).not.toHaveBeenCalled();
-    expect(mocks.query).not.toHaveBeenCalledWith(expect.stringContaining('UPDATE messages SET body_text'), expect.anything());
+  });
+
+  it('treats a confirmed empty body as complete and evaluates it once', async () => {
+    mocks.gmailContent.mockResolvedValue({ text: '', html: null, attachments: [] });
+    await expect(drainProviderRuleDeferrals({ owner: 'worker-a' })).resolves.toEqual({ applied: 1, retried: 0, discarded: 0 });
+    expect(mocks.apply).toHaveBeenCalledOnce();
+    expect(mocks.query).toHaveBeenCalledWith(expect.stringContaining('parsed_headers_complete'), expect.arrayContaining(['message-1', '']));
+  });
+
+  it('hydrates partial Gmail metadata before evaluating a header rule', async () => {
+    const headerRow = { ...row, needs_body: false, needs_headers: true };
+    mocks.query.mockImplementation(async (sql: string) => {
+      if (sql.includes('WITH candidates')) return { rows: [headerRow], rowCount: 1 };
+      if (sql.includes('SELECT id, provider_message_id')) return { rows: [{ ...source, body_text: 'known', parsed_headers_complete: false }], rowCount: 1 };
+      if (sql.startsWith('DELETE FROM provider_rule_deferred_messages')) return { rows: [], rowCount: 1 };
+      return { rows: [], rowCount: 1 };
+    });
+    mocks.gmailHeaders.mockResolvedValue('X-Customer: alpha\r\nSubject: Known\r\n');
+
+    await expect(drainProviderRuleDeferrals({ owner: 'worker-a' })).resolves.toEqual({ applied: 1, retried: 0, discarded: 0 });
+    expect(mocks.gmailHeaders).toHaveBeenCalledWith(expect.anything(), 'provider-1');
+    expect(mocks.query).toHaveBeenCalledWith(expect.stringContaining('parsed_headers_complete'), expect.arrayContaining(['message-1', null, expect.stringContaining('x-customer')]));
+    expect(mocks.apply).toHaveBeenCalledOnce();
   });
 
   it('does not act when another worker has no claimable lease', async () => {

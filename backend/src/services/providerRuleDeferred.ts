@@ -1,6 +1,6 @@
 import { query } from './db.js';
 import { googleConfigFromEnv, microsoftConfigFromEnv } from './providerAuthService.js';
-import { parseHeadersInput } from './messageParser.js';
+import { extractHtmlTextForRules, parseHeadersInput } from './messageParser.js';
 import { fetchGmailMessageContent, fetchGmailMessageHeaders } from './providers/google/gmailMailBody.js';
 import { fetchGraphMessageBody, fetchGraphMessageHeaders } from './providers/microsoft/graphMailBody.js';
 
@@ -46,16 +46,6 @@ export async function enqueueProviderRuleDeferral(input: {
   );
 }
 
-function htmlToRuleText(html: string): string {
-  // Provider body APIs can legitimately expose HTML only. This conservative conversion is
-  // solely for rule matching; it does not render or execute the untrusted markup.
-  return html.replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, ' ')
-    .replace(/<style\b[^>]*>[\s\S]*?<\/style\s*>/gi, ' ')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
 async function retryRead(row: DeferredRow, owner: string, message: string): Promise<void> {
   await query(
     `UPDATE provider_rule_deferred_messages
@@ -92,9 +82,9 @@ async function claim(limit: number, owner: string): Promise<DeferredRow[]> {
 async function processDeferred(row: DeferredRow, owner: string): Promise<'applied' | 'retried' | 'discarded'> {
   const source = await query<{
     id: string; provider_message_id: string | null; body_text: string | null; parsed_headers: unknown;
-    folder: string; is_deleted: boolean;
+    parsed_headers_complete: boolean; folder: string; is_deleted: boolean;
   }>(
-    `SELECT id, provider_message_id, body_text, parsed_headers, folder, is_deleted
+    `SELECT id, provider_message_id, body_text, parsed_headers, parsed_headers_complete, folder, is_deleted
        FROM messages WHERE id = $1 AND account_id = $2`,
     [row.message_id, row.account_id],
   );
@@ -105,7 +95,7 @@ async function processDeferred(row: DeferredRow, owner: string): Promise<'applie
   }
 
   const bodyMissing = row.needs_body && message.body_text === null;
-  const headersMissing = row.needs_headers && (message.parsed_headers === null || typeof message.parsed_headers !== 'object');
+  const headersMissing = row.needs_headers && !message.parsed_headers_complete;
   if (bodyMissing || headersMissing) {
     try {
       let bodyText: string | null = null;
@@ -114,7 +104,7 @@ async function processDeferred(row: DeferredRow, owner: string): Promise<'applie
         const api = { userId: row.user_id, connectionId: row.connection_id, config: googleConfigFromEnv(), owner };
         if (bodyMissing) {
           const content = await fetchGmailMessageContent(api, message.provider_message_id);
-          bodyText = content.text ?? (content.html ? htmlToRuleText(content.html) : null);
+          bodyText = content.text ?? (content.html ? extractHtmlTextForRules(content.html) : null);
         }
         if (headersMissing) {
           const rawHeaders = await fetchGmailMessageHeaders(api, message.provider_message_id);
@@ -126,7 +116,7 @@ async function processDeferred(row: DeferredRow, owner: string): Promise<'applie
         const api = { userId: row.user_id, connectionId: row.connection_id, config: microsoftConfigFromEnv(), owner };
         if (bodyMissing) {
           const content = await fetchGraphMessageBody(api, message.provider_message_id);
-          bodyText = content ? (content.contentType === 'html' ? htmlToRuleText(content.content) : content.content) : null;
+          bodyText = content ? (content.contentType === 'html' ? extractHtmlTextForRules(content.content) : content.content) : null;
         }
         if (headersMissing) {
           const rawHeaders = await fetchGraphMessageHeaders(api, message.provider_message_id);
@@ -135,12 +125,15 @@ async function processDeferred(row: DeferredRow, owner: string): Promise<'applie
           if (Object.keys(headers).length === 0) return await retryRead(row, owner, 'provider returned no parseable headers').then(() => 'retried');
         }
       }
-      // An absent or empty provider body remains unknown. In particular it must never
-      // become an empty string, because a not_contains rule could perform a destructive action.
-      if (bodyMissing && !bodyText?.trim()) return await retryRead(row, owner, 'provider returned no readable body').then(() => 'retried');
+      // `null` means the provider did not give us a body. An empty string is a complete,
+      // known body (for example an attachment-only message) and must be evaluated as such.
+      if (bodyMissing && bodyText === null) return await retryRead(row, owner, 'provider returned no readable body').then(() => 'retried');
       await query(
-        `UPDATE messages SET body_text = COALESCE(body_text, $2),
-          parsed_headers = COALESCE(parsed_headers, $3::jsonb) WHERE id = $1`,
+        `UPDATE messages
+            SET body_text = COALESCE(body_text, $2),
+                parsed_headers = CASE WHEN $3::jsonb IS NULL THEN parsed_headers ELSE $3::jsonb END,
+                parsed_headers_complete = CASE WHEN $3::jsonb IS NULL THEN parsed_headers_complete ELSE true END
+          WHERE id = $1`,
         [message.id, bodyText, headers === null ? null : JSON.stringify(headers)],
       );
     } catch (caught) {

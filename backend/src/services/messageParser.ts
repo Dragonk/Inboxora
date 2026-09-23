@@ -160,7 +160,7 @@ export function snippetFromBody(text: string, html?: string | null) {
 const SNIPPET_SKIP_TAGS = new Set(['script', 'style', 'head', 'title', 'noscript']);
 const SNIPPET_VISIBLE_CAP = 260; // stop after this many visible chars — comfortably over the 200-char snippet
 
-function extractHtmlSnippetText(html: string) {
+function extractHtmlSnippetText(html: string, visibleCap = SNIPPET_VISIBLE_CAP) {
   let out = '';
   let skipDepth = 0;
   let visible = 0;
@@ -178,7 +178,7 @@ function extractHtmlSnippetText(html: string) {
       if (/^\s*$/.test(clean)) { addSeparator(); return; } // collapse whitespace-only runs (incl. de-filler'd text)
       out += clean;
       visible += clean.replace(/\s+/g, '').length;
-      if (visible >= SNIPPET_VISIBLE_CAP) done = true;
+      if (visible >= visibleCap) done = true;
     },
   }, { decodeEntities: true, lowerCaseTags: true });
 
@@ -194,6 +194,14 @@ function extractHtmlSnippetText(html: string) {
 // only the post-extraction text cleanup stays as regex — ##marker## placeholders, residual
 // invisibles, decorative divider runs, and whitespace collapse — all operating on already
 // extracted visible text (bounded, linear).
+/** Plain visible HTML text for rule hydration, retaining substantially more input than a UI snippet. */
+export function extractHtmlTextForRules(html: string) {
+  return extractHtmlSnippetText(html, 1_048_576)
+    .replace(INVISIBLE_CHARS_RE, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 export function buildSnippetFromHtml(html: string) {
   return extractHtmlSnippetText(html)
     // Strip ##marker## template placeholders emitted by some marketing tools

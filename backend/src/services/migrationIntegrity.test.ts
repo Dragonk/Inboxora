@@ -337,6 +337,12 @@ describe('migration integrity', () => {
     expect(sql).not.toMatch(/UPDATE\s+messages/i);
   });
 
+  it('records whether stored provider headers are complete without rewriting messages', () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/0124_message_header_completeness.sql'), 'utf8');
+    expect(sql).toContain('parsed_headers_complete BOOLEAN NOT NULL DEFAULT false');
+    expect(sql).not.toMatch(/UPDATE\s+messages/i);
+  });
+
   it('widens the OAuth flow purpose CHECK to accept account_enable', () => {
     // AUTH-01: the route-level allow-list was not the only gate — 0103's CHECK rejected account_enable too, so
     // a reconnect flow could never be persisted. The fix must widen the constraint, not rewrite 0103.
