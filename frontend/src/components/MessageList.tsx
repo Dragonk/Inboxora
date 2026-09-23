@@ -534,16 +534,23 @@ export default function MessageList() {
       if (unreadOnly) params.unreadOnly = 'true';
       if (useStore.getState().threadedView) params.threaded = 'true';
       if (selectedFolder === 'INBOX' && (categorizationEnabled || selectedAccount?.categorization_enabled)) params.category = activeCategory;
-      const data = await api.getMessages(params);
-      appendMessages(applyDeleteGuard(applyReadGuard(data.messages)));
-      setMessagesOffset(currentOffset + data.messages.length);
-      setHasMoreMessages(currentOffset + data.messages.length < data.total);
+      // Use the same request generation as reset/refresh loads. If navigation
+      // changes the account/folder while this offset page is in flight, its
+      // callback is stale and cannot append rows into the new scope.
+      await refreshRequest.run(
+        () => api.getMessages(params),
+        (data: { messages: StoreMessageRow[]; total: number }) => {
+          appendMessages(applyDeleteGuard(applyReadGuard(data.messages)));
+          setMessagesOffset(currentOffset + data.messages.length);
+          setHasMoreMessages(currentOffset + data.messages.length < data.total);
+        },
+      );
     } catch (err) {
       console.error('Failed to load more messages:', err);
     } finally {
       setLoadingMessages(false);
     }
-  }, [selectedAccountId, selectedFolder, unreadOnly, activeCategory, pageSize, loadingMessages, hasMoreMessages, categorizationEnabled, selectedAccount?.categorization_enabled, applyReadGuard, appendMessages, setHasMoreMessages, setLoadingMessages, setMessagesOffset]);
+  }, [selectedAccountId, selectedFolder, unreadOnly, activeCategory, pageSize, loadingMessages, hasMoreMessages, categorizationEnabled, selectedAccount?.categorization_enabled, applyReadGuard, appendMessages, setHasMoreMessages, setLoadingMessages, setMessagesOffset, refreshRequest]);
 
   useEffect(() => {
     if (!loadingMessages && pendingLiveRefreshRef.current) {
