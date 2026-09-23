@@ -2045,6 +2045,8 @@
     "monday": "Lunedì",
     "sunday": "Domenica",
     "localCalendar": "Calendario locale",
+    "pauseSource": "Sospendi",
+    "resumeSource": "Riprendi",
     "createLocalCalendar": "Crea calendario",
     "calendarColor": "Colore",
     "removeSourceConfirm": "Rimuovere questa connessione e i calendari importati da Inboxora? Il calendario del provider non verrà eliminato.",

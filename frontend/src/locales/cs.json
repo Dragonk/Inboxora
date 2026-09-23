@@ -2045,6 +2045,8 @@
     "monday": "Pondělí",
     "sunday": "Neděle",
     "localCalendar": "Místní kalendář",
+    "pauseSource": "Pozastavit",
+    "resumeSource": "Obnovit",
     "createLocalCalendar": "Vytvořit kalendář",
     "calendarColor": "Barva",
     "removeSourceConfirm": "Odebrat toto připojení a importované kalendáře z Inboxora? Kalendář poskytovatele nebude smazán.",

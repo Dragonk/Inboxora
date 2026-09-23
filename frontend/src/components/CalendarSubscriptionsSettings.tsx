@@ -173,6 +173,19 @@ export default function CalendarSubscriptionsSettings({ locale }: { locale?: str
     }
   };
 
+  const toggleSource = async (id: string, enabled: boolean) => {
+    setBusy(true); setError(null); setNotice(null);
+    try {
+      await api.calendar.updateSource(id, { enabled });
+      await load();
+      notifyCalendarChanged();
+    } catch (err) {
+      setError(toAppError(err).message || t('calendar.subscribeFailed'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const syncSource = async (id: string) => {
     setBusy(true); setError(null); setNotice(null);
     try {
@@ -256,7 +269,8 @@ export default function CalendarSubscriptionsSettings({ locale }: { locale?: str
             <small>{source.kind === 'caldav' ? t('calendar.caldav') : t('calendar.icsWebcal')} &middot; {status}</small>
           </span>
           <span style={sourceActions}>
-            <Button onClick={() => syncSource(source.id)} disabled={busy}>{t('calendar.syncSource')}</Button>
+            <Button onClick={() => toggleSource(source.id, !source.enabled)} disabled={busy}>{source.enabled ? t('calendar.pauseSource') : t('calendar.resumeSource')}</Button>
+             <Button onClick={() => syncSource(source.id)} disabled={busy || !source.enabled}>{t('calendar.syncSource')}</Button>
             <Button variant="danger" onClick={() => removeSource(source.id)} disabled={busy}>{t('calendar.delete')}</Button>
           </span>
         </div>;

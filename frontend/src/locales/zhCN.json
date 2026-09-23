@@ -2045,6 +2045,8 @@
     "monday": "星期一",
     "sunday": "星期日",
     "localCalendar": "本地日历",
+    "pauseSource": "暂停",
+    "resumeSource": "恢复",
     "createLocalCalendar": "创建日历",
     "calendarColor": "颜色",
     "removeSourceConfirm": "要从 Inboxora 移除此连接及其导入的日历吗？不会删除服务商日历。",

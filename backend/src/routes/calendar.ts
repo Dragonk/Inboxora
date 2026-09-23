@@ -1933,27 +1933,38 @@ router.post('/sources/:sourceId/sync', async (req, res) => {
   res.json(result);
 });
 
-// Change an existing source's cadence. The interval is a per-calendar setting, so it
-// must be editable after creation and not only at creation time: how often a feed is
-// worth polling depends on how often it changes, which the user learns over time.
+// Change an existing source's cadence or pause state. Pausing is deliberately
+// separate from deletion: it stops future network calls while preserving the source
+// and its imported local projection for a later resume.
 router.patch('/sources/:sourceId', async (req, res) => {
-  if (req.body?.intervalMin === undefined) return res.status(400).json({ error: 'intervalMin is required' });
-  const interval = Number.parseInt(req.body.intervalMin, 10);
-  // Same bounds as the CHECK constraint and the create route, rejected explicitly
-  // rather than clamped so a bad client value is visible instead of silently ignored.
-  if (!Number.isInteger(interval) || interval < 15 || interval > 1440) {
-    return res.status(400).json({ error: 'intervalMin must be between 15 and 1440' });
+  const hasInterval = req.body?.intervalMin !== undefined;
+  const hasEnabled = req.body?.enabled !== undefined;
+  if (!hasInterval && !hasEnabled) return res.status(400).json({ error: 'intervalMin or enabled is required' });
+  let interval: number | null = null;
+  if (hasInterval) {
+    interval = Number.parseInt(req.body.intervalMin, 10);
+    // Same bounds as the CHECK constraint and the create route, rejected explicitly
+    // rather than clamped so a bad client value is visible instead of silently ignored.
+    if (!Number.isInteger(interval) || interval < 15 || interval > 1440) {
+      return res.status(400).json({ error: 'intervalMin must be between 15 and 1440' });
+    }
   }
+  if (hasEnabled && typeof req.body.enabled !== 'boolean') return res.status(400).json({ error: 'enabled must be a boolean' });
   const result = await query<CalendarSourceRow>(
-    `UPDATE calendar_import_sources SET interval_min = $1, updated_at = NOW()
-     WHERE id = $2 AND user_id = $3 RETURNING *`,
-    [interval, req.params.sourceId, req.session.userId],
+    `UPDATE calendar_import_sources
+        SET interval_min = COALESCE($1, interval_min), enabled = COALESCE($2, enabled), updated_at = NOW()
+      WHERE id = $3 AND user_id = $4 RETURNING *`,
+    [interval, hasEnabled ? req.body.enabled : null, req.params.sourceId, req.session.userId],
   );
   const source = result.rows[0];
   if (!source) return res.status(404).json({ error: 'Calendar source not found' });
-  // Re-arm the timer. The scheduler closes over the source row it was given, so without
-  // this the new interval would not take effect until the process restarted.
-  scheduleCalendarSource(source);
+  if (source.enabled) {
+    // Re-arm the timer. The scheduler closes over the source row it was given, so without
+    // this a changed interval or resumed source would not take effect until restart.
+    scheduleCalendarSource(source);
+  } else {
+    await stopCalendarSource(source.id);
+  }
   res.json({ source: publicSource(source) });
 });
 

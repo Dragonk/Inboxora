@@ -2055,6 +2055,8 @@
     "monday": "Monday",
     "sunday": "Sunday",
     "localCalendar": "Local calendar",
+    "pauseSource": "Pause",
+    "resumeSource": "Resume",
     "createLocalCalendar": "Create calendar",
     "calendarColor": "Color",
     "removeSourceConfirm": "Remove this connection and its imported calendars from Inboxora? The provider calendar will not be deleted.",

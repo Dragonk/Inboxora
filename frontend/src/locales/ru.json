@@ -2045,6 +2045,8 @@
     "monday": "Понедельник",
     "sunday": "Воскресенье",
     "localCalendar": "Локальный календарь",
+    "pauseSource": "Приостановить",
+    "resumeSource": "Возобновить",
     "createLocalCalendar": "Создать календарь",
     "calendarColor": "Цвет",
     "removeSourceConfirm": "Удалить это подключение и импортированные календари из Inboxora? Календарь поставщика не будет удалён.",
