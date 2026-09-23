@@ -90,11 +90,24 @@ describeOrSkip('the v4 provider schema upgrades over existing data', () => {
   }, 120_000);
 
   afterAll(async () => {
+    // `Pool.end()` waits for this fixture's checked-out clients. Do not use
+    // `DROP DATABASE ... WITH (FORCE)`: it races a client's final protocol
+    // messages and turns that expected server termination into Vitest's 57P01
+    // uncaught exception. A remaining session is a lifecycle defect, so make
+    // it fail visibly instead of killing it or swallowing its error.
     if (upgradePool) {
-      await upgradePool.end().catch(() => {});
+      await upgradePool.end();
       upgradePool = null;
     }
-    await pool.query(`DROP DATABASE IF EXISTS "${UPGRADE_DB}" WITH (FORCE)`).catch(() => {});
+    const remaining = await pool.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM pg_stat_activity
+       WHERE datname = $1 AND pid <> pg_backend_pid()`,
+      [UPGRADE_DB],
+    );
+    if (remaining.rows[0]?.count !== '0') {
+      throw new Error(`upgrade fixture still has ${remaining.rows[0]?.count} PostgreSQL connection(s)`);
+    }
+    await pool.query(`DROP DATABASE IF EXISTS "${UPGRADE_DB}"`);
   });
 
   it('keeps the rows that existed before the provider migrations, with their IDs', async () => {
