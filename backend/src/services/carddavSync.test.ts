@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 type QueryResult = { rows: Record<string, unknown>[] };
 type QueryParameter = string | null;
@@ -26,7 +26,7 @@ vi.mock('./carddavClient.js', () => ({ discoverAddressBooks, fetchAddressBookCar
 vi.mock('./connectionPolicy.js', () => ({ getConnectionPolicy }));
 vi.mock('./encryption.js', () => ({ decrypt: (value: string) => value, encrypt: (value: string) => `enc:v1:${value}` }));
 
-import { syncUser } from './carddavSync.js';
+import { scheduleCardavUser, startCardavScheduler, stopCardavUser, stopCardavUserSources, syncUser } from './carddavSync.js';
 
 const appleCard = 'BEGIN:VCARD\r\nVERSION:3.0\r\nUID:apple-1\r\nFN:Apple Contact\r\nPHOTO;TYPE=JPEG:YWJj\r\nX-ABDATE;TYPE=Wedding:2020-09-14\r\nX-ABDATE;TYPE=Wedding:20200914\r\nEND:VCARD\r\n';
 const androidCard = 'BEGIN:VCARD\r\nVERSION:3.0\r\nUID:android-1\r\nFN:Android Contact\r\nX-ANDROID-CUSTOM:vnd.android.cursor.item/contact_event;2019-10-19;0;Rencontre;\r\nEND:VCARD\r\n';
@@ -273,4 +273,92 @@ it('releases the sync lock when loading connection policy fails', async () => {
   getConnectionPolicy.mockRejectedValueOnce(new Error('Temporary policy failure'));
   expect(await syncUser('policy-retry-user')).toMatchObject({ ok: false, error: 'Temporary policy failure' });
   expect(await syncUser('policy-retry-user')).toMatchObject({ ok: true, contactCount: 2 });
+});
+
+describe('CardDAV source isolation and scheduling', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    query.mockReset(); transactionQuery.mockReset();
+    discoverAddressBooks.mockReset(); fetchAddressBookCards.mockReset(); getConnectionPolicy.mockReset();
+    getConnectionPolicy.mockResolvedValue({ allowPrivateHosts: false });
+    discoverDavWriteAccess.mockResolvedValue(null);
+    fetchAddressBookCards.mockResolvedValue([]);
+  });
+
+  afterEach(() => {
+    stopCardavUser('source-a');
+    stopCardavUser('source-b');
+    stopCardavUser('source-other-user');
+    vi.useRealTimers();
+  });
+
+  it('prunes only books linked to the selected source', async () => {
+    query.mockImplementation(async (sql: string) => {
+      if (sql.includes('SELECT id, label, config FROM user_integrations')) {
+        return { rows: [
+          { id: 'source-a', label: null, config: { serverUrl: 'https://a.example', username: 'a', password: 'secret-a' } },
+          { id: 'source-b', label: 'B', config: { serverUrl: 'https://b.example', username: 'b', password: 'secret-b' } },
+        ] };
+      }
+      if (sql.includes('SELECT id FROM address_books')) return { rows: [{ id: 'book-a' }] };
+      return { rows: [] };
+    });
+    transactionQuery.mockResolvedValue({ rows: [] });
+    discoverAddressBooks.mockResolvedValue([{ url: 'https://a.example/books/a', displayName: 'A' }]);
+
+    await expect(syncUser('user-1', 'source-a')).resolves.toMatchObject({ ok: true });
+
+    expect(discoverAddressBooks).toHaveBeenCalledOnce();
+    expect(discoverAddressBooks).toHaveBeenCalledWith(expect.objectContaining({ serverUrl: 'https://a.example', username: 'a', password: 'secret-a' }));
+    const prune = query.mock.calls.find(([sql]) => String(sql).includes('DELETE FROM address_books ab'));
+    expect(prune?.[1]).toEqual(['user-1', ['https://a.example/books/a'], 'source-a']);
+    expect(String(prune?.[0])).toContain('sc.integration_id = $3');
+  });
+
+  it('runs independent source timers at their own intervals and stops all timers for one user only', async () => {
+    const calls: string[] = [];
+    query.mockImplementation(async (sql: string) => {
+      if (sql.includes('SELECT id, label, config FROM user_integrations')) {
+        return { rows: [
+          { id: 'source-a', label: null, config: { serverUrl: 'https://a.example', username: 'a', password: 'secret-a' } },
+          { id: 'source-b', label: 'B', config: { serverUrl: 'https://b.example', username: 'b', password: 'secret-b' } },
+          { id: 'source-other-user', label: null, config: { serverUrl: 'https://other.example', username: 'other', password: 'secret-other' } },
+        ] };
+      }
+      if (sql.includes('SELECT id FROM address_books')) return { rows: [{ id: 'book-1' }] };
+      return { rows: [] };
+    });
+    transactionQuery.mockResolvedValue({ rows: [] });
+    discoverAddressBooks.mockImplementation(async ({ serverUrl }: { serverUrl: string }) => {
+      calls.push(serverUrl);
+      return [];
+    });
+
+    scheduleCardavUser('user-1', 15, 'source-a');
+    scheduleCardavUser('user-1', 120, 'source-b');
+    scheduleCardavUser('user-2', 15, 'source-other-user');
+    await vi.advanceTimersByTimeAsync(15 * 60 * 1000);
+    expect(calls).toEqual(['https://a.example', 'https://other.example']);
+
+    await vi.advanceTimersByTimeAsync(105 * 60 * 1000);
+    expect(calls.filter(url => url === 'https://a.example')).toHaveLength(8);
+    expect(calls.filter(url => url === 'https://b.example')).toHaveLength(1);
+    expect(calls.filter(url => url === 'https://other.example')).toHaveLength(8);
+
+    stopCardavUserSources('user-1');
+    await vi.advanceTimersByTimeAsync(15 * 60 * 1000);
+    expect(calls.filter(url => url === 'https://a.example')).toHaveLength(8);
+    expect(calls.filter(url => url === 'https://b.example')).toHaveLength(1);
+    expect(calls.filter(url => url === 'https://other.example')).toHaveLength(9);
+  });
+
+  it('restores one timer per source regardless of database row order', async () => {
+    query.mockResolvedValue({ rows: [
+      { id: 'source-b', user_id: 'user-1', config: { serverUrl: 'https://b.example', intervalMin: 120 } },
+      { id: 'source-a', user_id: 'user-1', config: { serverUrl: 'https://a.example', intervalMin: 15 } },
+    ] });
+
+    await startCardavScheduler();
+    expect(vi.getTimerCount()).toBe(2);
+  });
 });

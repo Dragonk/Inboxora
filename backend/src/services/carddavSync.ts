@@ -14,7 +14,8 @@ import { ensureExternalCollectionLink } from './providers/externalCollectionLink
 import { toAppError } from '../utils/errors.js';
 
 const DEFAULT_INTERVAL_MIN = 60;
-const timers = new Map<string, ReturnType<typeof setInterval>>(); // sourceId -> interval id
+type CardavTimer = { userId: string; interval: ReturnType<typeof setInterval> };
+const timers = new Map<string, CardavTimer>(); // sourceId -> timer, owned by user
 const syncing = new Set<string>(); // sourceIds with a sync in flight (prevents overlap)
 
 export type CardavConfig = { serverUrl?: string | null; username?: string | null; password?: string | null; dupMode?: string | null; intervalMin?: number | null; [key: string]: unknown };
@@ -386,12 +387,20 @@ export function scheduleCardavUser(userId: string, intervalMin: string | number 
   const id = setInterval(() => {
     syncUser(userId, sourceId).catch(e => console.warn(`CardDAV sync failed for ${effectiveSourceId}:`, e.message));
   }, min * 60 * 1000);
-  timers.set(effectiveSourceId, id);
+  timers.set(effectiveSourceId, { userId, interval: id });
 }
 
+/** Stop one source's timer without affecting the user's other CardDAV sources. */
 export function stopCardavUser(sourceId: string) {
-  const id = timers.get(sourceId);
-  if (id) { clearInterval(id); timers.delete(sourceId); }
+  const timer = timers.get(sourceId);
+  if (timer) { clearInterval(timer.interval); timers.delete(sourceId); }
+}
+
+/** Stop every timer owned by a deleted user, including all labelled sources. */
+export function stopCardavUserSources(userId: string) {
+  for (const [sourceId, timer] of timers) {
+    if (timer.userId === userId) stopCardavUser(sourceId);
+  }
 }
 
 export async function startCardavScheduler() {

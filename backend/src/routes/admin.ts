@@ -9,7 +9,7 @@ import { createSmtpTransport } from '../services/smtpTransport.js';
 import { getConnectionPolicy, invalidateConnectionPolicyCache } from '../services/connectionPolicy.js';
 import { reloadAuthSettings } from '../services/authLimiter.js';
 import { imapManager } from '../index.js';
-import { stopCardavUser } from '../services/carddavSync.js';
+import { stopCardavUserSources } from '../services/carddavSync.js';
 import { pluginRegistry } from '../plugins/registry.js';
 import { uuidParam } from '../utils/uuid.js';
 import { queryInt } from '../utils/query.js';
@@ -79,7 +79,7 @@ router.delete('/users/:id', async (req, res) => {
   // Stop live per-user workers BEFORE the delete — disconnectUser looks up the
   // user's accounts, which the cascade delete would remove.
   await imapManager.disconnectUser(id).catch(err => console.warn('disconnectUser on delete:', err.message));
-  stopCardavUser(id);
+  stopCardavUserSources(id);
   await query('DELETE FROM users WHERE id = $1', [id]);
   // Let plugins clean up any user-scoped data the FK cascade can't reach (GTD removes the
   // imported pet, stored under a slug derived from the user id rather than an FK). Best-effort
