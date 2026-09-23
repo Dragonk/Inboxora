@@ -82,6 +82,9 @@ interface ReadMessageRow {
   message_id: string | null;
   /** The provider's immutable id, on a natively-ingested message (migration 0108). */
   provider_message_id?: string | null;
+  mail_transport?: string | null;
+  gmail_reader_body_complete?: boolean;
+  gmail_attachment_metadata_complete?: boolean;
   snippet?: string | null;
   reply_to?: string | null;
   user_id?: string | null;
@@ -463,7 +466,7 @@ router.get('/messages/:id/body', async (req, res) => {
   if (!UUID_RE.test(id)) return res.status(400).json({ error: 'Invalid message id' });
 
   const result = await query<ReadMessageRow>(`
-    SELECT m.*, a.user_id, u.preferences, ci.message_id AS calendar_invitation_id FROM messages m
+    SELECT m.*, a.user_id, a.mail_transport, u.preferences, ci.message_id AS calendar_invitation_id FROM messages m
     JOIN email_accounts a ON m.account_id = a.id
     JOIN users u ON u.id = a.user_id
     LEFT JOIN inbound_calendar_invitations ci ON ci.message_id = m.id
@@ -485,7 +488,11 @@ router.get('/messages/:id/body', async (req, res) => {
     // CSS url(http://) in inline style attributes or <style> blocks
     /url\(\s*['"]?http:\/\//i.test(message.body_html)
   );
-  if ((message.body_html || message.body_text) && !hasCidRefs && !hasHttpImgs) {
+  // A rule worker may hydrate only plain text. Gmail reader cache is reusable only
+  // after a full MIME projection also confirmed attachment metadata.
+  const gmailReaderComplete = message.mail_transport !== 'gmail_api'
+    || (message.gmail_reader_body_complete === true && message.gmail_attachment_metadata_complete === true);
+  if ((message.body_html || message.body_text) && !hasCidRefs && !hasHttpImgs && gmailReaderComplete) {
     const attachments = message.attachments
       ? (typeof message.attachments === 'string' ? JSON.parse(message.attachments) : message.attachments)
       : [];
@@ -1699,12 +1706,11 @@ async function respondWithGmailBody(
 
     let html: string | null = null;
     let text: string | null = null;
-    if (content.html) {
+    if (content.html !== null) {
       const inline = await collectGmailInlineImages(api, message.provider_message_id, content.attachments);
       html = sanitizeDbText(sanitizeEmail(embedGmailInlineImages(content.html, inline)));
-    } else if (content.text) {
-      text = sanitizeDbText(content.text);
     }
+    if (content.text !== null) text = sanitizeDbText(content.text);
 
     const visibleAttachments = localAttachmentsForGmail(content.attachments);
     const snip = sanitizeDbText(snippetFromBody(text ?? '', html));
@@ -1715,7 +1721,9 @@ async function respondWithGmailBody(
       await query(
         `UPDATE messages
             SET body_html = $1, body_text = $2, attachments = $3,
-                snippet = CASE WHEN $5 != '' THEN $5 ELSE snippet END
+                snippet = CASE WHEN $5 != '' THEN $5 ELSE snippet END,
+                gmail_reader_body_complete = true,
+                gmail_attachment_metadata_complete = true
           WHERE id = $4`,
         [html, text, JSON.stringify(visibleAttachments), message.id, snip]
       );
@@ -3861,15 +3869,19 @@ router.post('/messages/:id/unsubscribe', async (req, res) => {
   const { id } = req.params;
   if (!UUID_RE.test(id)) return res.status(400).json({ error: 'Invalid message id' });
 
-  const result = await query<{ list_unsubscribe?: string | null; list_unsubscribe_post?: string | null }>(`
-    SELECT m.list_unsubscribe, m.list_unsubscribe_post
+  const result = await query<{
+    list_unsubscribe?: string | null;
+    list_unsubscribe_post?: string | null;
+    unsubscribed_at?: Date | null;
+  }>(`
+    SELECT m.list_unsubscribe, m.list_unsubscribe_post, m.unsubscribed_at
     FROM messages m
     JOIN email_accounts a ON m.account_id = a.id
     WHERE m.id = $1 AND a.user_id = $2 AND m.is_deleted = false
   `, [id, req.session.userId]);
 
   if (!result.rows.length) return res.status(404).json({ error: 'Message not found' });
-  const { list_unsubscribe: rawUnsub, list_unsubscribe_post: rawUnsubPost } = result.rows[0];
+  const { list_unsubscribe: rawUnsub, list_unsubscribe_post: rawUnsubPost, unsubscribed_at: unsubscribedAt } = result.rows[0];
   if (!rawUnsub) return res.status(400).json({ error: 'No unsubscribe header' });
   const list_unsubscribe = decodeMimeWords(rawUnsub);
   const list_unsubscribe_post = rawUnsubPost ? decodeMimeWords(rawUnsubPost) : rawUnsubPost;
@@ -3879,51 +3891,67 @@ router.post('/messages/:id/unsubscribe', async (req, res) => {
   const refs = [...list_unsubscribe.matchAll(/<([^>]+)>/g)].map(m => m[1].trim());
   const httpsUrl = refs.find(r => /^https:\/\//i.test(r));
   const mailtoUrl = refs.find(r => /^mailto:/i.test(r));
-
   const isOneClick = /List-Unsubscribe=One-Click/i.test(list_unsubscribe_post || '');
 
-  // RFC 8058 one-click: POST to the https URL on behalf of the user.
-  if (isOneClick && httpsUrl) {
-    // Validate the URL host — DNS-resolved check blocks hostnames that resolve to private IPs.
-    let parsed;
-    try { parsed = new URL(httpsUrl); } catch {
-      return res.status(400).json({ error: 'Invalid unsubscribe URL' });
-    }
-    const hostErr = await validateHost(parsed.hostname);
-    if (hostErr) return res.status(400).json({ error: 'Unsubscribe URL not allowed' });
+  // A URL or mailto merely offers an action to the user. It is not evidence that
+  // the provider accepted it, so it never changes unsubscribed_at.
+  if (!isOneClick || !httpsUrl) {
+    return res.json({ ok: true, state: 'offered', type: httpsUrl ? 'url' : 'mailto', url: httpsUrl || null, mailto: mailtoUrl || null });
+  }
+  if (unsubscribedAt) return res.json({ ok: true, state: 'confirmed', type: 'one-click', replayed: true });
 
-    try {
-      // safeFetch validates the resolved IP of the initial host AND every redirect
-      // hop, so an attacker-supplied List-Unsubscribe URL can't redirect to an
-      // internal address. (The validateHost above stays as a fast pre-check.)
-      const unsub = await safeFetch(httpsUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'Inboxora/4.0.0' },
-        body: 'List-Unsubscribe=One-Click',
-        signal: AbortSignal.timeout(10000),
-      });
-      if (unsub.ok) {
-        await query('UPDATE messages SET unsubscribed_at = NOW() WHERE id = $1', [id]);
-        return res.json({ ok: true, type: 'one-click' });
-      }
-      console.warn(`One-click unsubscribe returned ${unsub.status} for ${httpsUrl}`);
-      // Fall through to URL/mailto fallback
-    } catch (caught) {
-      const err = toAppError(caught);
-      console.warn('One-click unsubscribe failed:', err.message);
-      // Fall through to URL/mailto options instead
-    }
+  let parsed: URL;
+  try { parsed = new URL(httpsUrl); } catch {
+    return res.status(400).json({ error: 'Invalid unsubscribe URL' });
+  }
+  const hostErr = await validateHost(parsed.hostname);
+  if (hostErr) return res.status(400).json({ error: 'Unsubscribe URL not allowed' });
+
+  // Claim before the external side effect. A crash or transport failure leaves a
+  // durable unresolved record, rather than authorising a second POST blindly.
+  const claimed = await query<{ state: 'pending' | 'confirmed' | 'uncertain' }>(`
+    INSERT INTO message_unsubscribe_attempts (message_id, state)
+    VALUES ($1, 'pending')
+    ON CONFLICT (message_id) DO NOTHING
+    RETURNING state
+  `, [id]);
+  if (!claimed.rows.length) {
+    const existing = await query<{ state: 'pending' | 'confirmed' | 'uncertain' }>(
+      'SELECT state FROM message_unsubscribe_attempts WHERE message_id = $1', [id],
+    );
+    const state = existing.rows[0]?.state;
+    if (state === 'confirmed') return res.json({ ok: true, state: 'confirmed', type: 'one-click', replayed: true });
+    return res.status(409).json({
+      error: 'The result of this unsubscribe is not confirmed. It will not be submitted again automatically.',
+      code: 'UNSUBSCRIBE_OUTCOME_UNKNOWN',
+    });
   }
 
-  // Return parsed options for the frontend to handle.
-  // Mark unsubscribed_at optimistically — the user has been given the mechanism to complete it.
-  await query('UPDATE messages SET unsubscribed_at = NOW() WHERE id = $1', [id]);
-  res.json({
-    ok: true,
-    type: httpsUrl ? 'url' : 'mailto',
-    url: httpsUrl || null,
-    mailto: mailtoUrl || null,
-  });
+  try {
+    // Do not follow redirects: a 3xx only proves the endpoint received the POST,
+    // not that RFC 8058 completed at the redirect target.
+    const unsub = await safeFetch(httpsUrl, {
+      method: 'POST', redirect: 'manual',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'Inboxora/4.0.0' },
+      body: 'List-Unsubscribe=One-Click', signal: AbortSignal.timeout(10000),
+    });
+    if (!unsub.ok) {
+      await query("UPDATE message_unsubscribe_attempts SET state = 'uncertain', updated_at = NOW() WHERE message_id = $1 AND state = 'pending'", [id]);
+      // Never log the URL: unsubscribe links commonly embed recipient tokens.
+      console.warn('One-click unsubscribe did not confirm success', { status: unsub.status });
+      return res.status(502).json({ error: 'The unsubscribe provider did not confirm the request.', code: 'UNSUBSCRIBE_OUTCOME_UNKNOWN' });
+    }
+    // Write the user-visible confirmation first: if the process stops between these
+    // statements, a replay still observes the confirmed provider result.
+    await query('UPDATE messages SET unsubscribed_at = NOW() WHERE id = $1', [id]);
+    await query("UPDATE message_unsubscribe_attempts SET state = 'confirmed', confirmed_at = NOW(), updated_at = NOW() WHERE message_id = $1 AND state = 'pending'", [id]);
+    return res.json({ ok: true, state: 'confirmed', type: 'one-click' });
+  } catch {
+    await query("UPDATE message_unsubscribe_attempts SET state = 'uncertain', updated_at = NOW() WHERE message_id = $1 AND state = 'pending'", [id]).catch(() => {});
+    // The URL and upstream error can carry a recipient-specific token; do not log either.
+    console.warn('One-click unsubscribe transport failed; outcome is uncertain');
+    return res.status(502).json({ error: 'The unsubscribe provider did not confirm the request.', code: 'UNSUBSCRIBE_OUTCOME_UNKNOWN' });
+  }
 });
 
 // POST /api/mail/messages/:id/ham

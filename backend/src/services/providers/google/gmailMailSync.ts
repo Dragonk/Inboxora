@@ -555,8 +555,9 @@ export async function applyGmailMessage(
           `INSERT INTO messages (
              account_id, uid, folder, provider_message_id, message_id, thread_id, provider_thread_id,
              provider_namespace, provider_labels, subject, from_name, from_email,
-             to_addresses, cc_addresses, reply_to, date, snippet, is_read, is_starred, has_attachments, is_archived, synced_at
-           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::text[],$10,$11,$12,$13::jsonb,$14::jsonb,$15::jsonb,$16,$17,$18,$19,$20,$21,NOW())
+             to_addresses, cc_addresses, reply_to, list_unsubscribe, list_unsubscribe_post,
+             date, snippet, is_read, is_starred, has_attachments, is_archived, synced_at
+           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::text[],$10,$11,$12,$13::jsonb,$14::jsonb,$15::jsonb,$16,$17,$18,$19,$20,$21,$22,$23,NOW())
            ON CONFLICT (account_id, provider_message_id) WHERE provider_message_id IS NOT NULL DO UPDATE SET
              folder = CASE WHEN EXCLUDED.is_archived THEN messages.folder ELSE EXCLUDED.folder END,
              uid = EXCLUDED.uid,
@@ -571,15 +572,20 @@ export async function applyGmailMessage(
              to_addresses = EXCLUDED.to_addresses,
              cc_addresses = EXCLUDED.cc_addresses,
              reply_to = EXCLUDED.reply_to,
+             -- Metadata can be absent on a later provider response; retain the prior
+             -- hydrated action rather than making a message falsely non-actionable.
+             list_unsubscribe = COALESCE(EXCLUDED.list_unsubscribe, messages.list_unsubscribe),
+             list_unsubscribe_post = COALESCE(EXCLUDED.list_unsubscribe_post, messages.list_unsubscribe_post),
              date = EXCLUDED.date,
              snippet = EXCLUDED.snippet,
              is_read = CASE
-               WHEN messages.read_changed_at IS NULL OR messages.read_changed_at < NOW() - make_interval(secs => $22)
+               WHEN messages.read_changed_at IS NULL OR messages.read_changed_at < NOW() - make_interval(secs => $24)
                  THEN EXCLUDED.is_read ELSE messages.is_read END,
              is_starred = CASE
-               WHEN messages.star_changed_at IS NULL OR messages.star_changed_at < NOW() - make_interval(secs => $22)
+               WHEN messages.star_changed_at IS NULL OR messages.star_changed_at < NOW() - make_interval(secs => $24)
                  THEN EXCLUDED.is_starred ELSE messages.is_starred END,
-             has_attachments = EXCLUDED.has_attachments,
+             has_attachments = CASE WHEN messages.gmail_attachment_metadata_complete
+                THEN messages.has_attachments ELSE EXCLUDED.has_attachments END,
              is_archived = EXCLUDED.is_archived,
              synced_at = NOW()
            RETURNING id, (xmax = 0) AS inserted`,
@@ -588,6 +594,7 @@ export async function applyGmailMessage(
             local.providerThreadId, local.providerNamespace, local.labels,
             local.subject, local.fromName, local.fromEmail,
             JSON.stringify(local.toAddresses), JSON.stringify(local.ccAddresses), JSON.stringify(local.replyTo),
+            local.listUnsubscribe, local.listUnsubscribePost,
             local.date, local.snippet, local.isRead, local.isStarred, local.hasAttachments, archived, LOCAL_WINS_SECONDS,
           ],
         );

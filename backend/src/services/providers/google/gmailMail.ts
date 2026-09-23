@@ -103,6 +103,7 @@ export interface GmailHistoryPage {
  */
 export const GMAIL_METADATA_HEADERS: readonly string[] = Object.freeze([
   'From', 'To', 'Cc', 'Reply-To', 'Subject', 'Date', 'Message-ID', 'In-Reply-To', 'References',
+  'List-Unsubscribe', 'List-Unsubscribe-Post',
 ]);
 
 export const GMAIL_MESSAGE_LIST_PAGE_SIZE = 500;
@@ -129,6 +130,10 @@ export interface LocalGmailMessage {
   replyTo: Array<{ name: string | null; address: string }>;
   /** Complete lower-cased header map for rule conditions. */
   parsedHeaders: Record<string, string>;
+  /** RFC 2369 action references, normalized from Gmail metadata headers. */
+  listUnsubscribe: string | null;
+  /** RFC 8058 one-click declaration, normalized from Gmail metadata headers. */
+  listUnsubscribePost: string | null;
   date: Date | null;
   snippet: string | null;
   isRead: boolean;
@@ -235,6 +240,8 @@ export function localMessageForGmailMessage(
     ccAddresses: addresses(headers.get('cc')),
     replyTo: addresses(headers.get('reply-to')),
     parsedHeaders: Object.fromEntries(headers),
+    listUnsubscribe: decodeMimeWords(headers.get('list-unsubscribe') ?? '').trim() || null,
+    listUnsubscribePost: decodeMimeWords(headers.get('list-unsubscribe-post') ?? '').trim() || null,
     date: gmailMessageDate(message, headers),
     snippet: message.snippet ?? null,
     // Gmail's only unread marker is the `UNREAD` label.
