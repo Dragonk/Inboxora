@@ -165,6 +165,68 @@ beforeEach(() => {
   syncCalendarSource.mockReset().mockResolvedValue({ ok: true });
 });
 
+function presentationRows() {
+  return [{
+    id: '11111111-1111-4111-8111-111111111111', name: 'Polish holidays', color: '#123456', source: 'google', read_only: true, display_visible: true,
+    collection_id: '22222222-2222-4222-8222-222222222222', provider: 'google', provider_identity: 'provider-subject', account_id: '33333333-3333-4333-8333-333333333333', account_email: 'owner@example.test',
+    import_source_id: null, import_kind: null, import_label: null, feature_enabled: true,
+  }];
+}
+
+function mockPresentationRead({ sourceCollapsed = false, calendarHidden = false }: { sourceCollapsed?: boolean; calendarHidden?: boolean } = {}) {
+  query.mockImplementation(async (sql: string) => {
+    if (sql.includes('FROM calendars c') && sql.includes('provider_identity')) return { rows: presentationRows() };
+    if (sql.includes('FROM user_calendar_source_preferences')) return { rows: sourceCollapsed ? [{ source_id: 'google:account:33333333-3333-4333-8333-333333333333', collapsed: true }] : [] };
+    if (sql.includes('FROM user_calendar_presentation_preferences')) return { rows: calendarHidden ? [{ calendar_id: '11111111-1111-4111-8111-111111111111', sidebar_hidden: true }] : [] };
+    if (sql.includes("preferences->'calendarContactAppearance'")) return { rows: [] };
+    return { rows: [] };
+  });
+}
+
+describe('calendar presentation', () => {
+  it('returns grouped durable account identities and all presentation state', async () => {
+    mockPresentationRead({ sourceCollapsed: true, calendarHidden: true });
+    const response = await fetch(`${base}/api/calendar/presentation`);
+    expect(response.status).toBe(200);
+    const body = responseRecord(await response.json());
+    expect(typeof body.revision).toBe('string');
+    expect(responseArray(body, 'groups')).toEqual(expect.arrayContaining([expect.objectContaining({
+      id: 'google:account:33333333-3333-4333-8333-333333333333', collapsed: true,
+      calendars: expect.arrayContaining([expect.objectContaining({ id: '11111111-1111-4111-8111-111111111111', selected: true, sidebarHidden: true })]),
+    })]));
+  });
+
+  it('rejects unknown source identifiers before persisting a preference', async () => {
+    mockPresentationRead();
+    const response = await fetch(`${base}/api/calendar/presentation/sources/google%3Aaccount%3Aother`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ collapsed: true }) });
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ error: 'Calendar source not found' });
+    expect(query.mock.calls.some(([sql]) => sql.includes('INSERT INTO user_calendar_source_preferences'))).toBe(false);
+  });
+
+  it('rejects unknown and unowned calendar identifiers before persisting a preference', async () => {
+    mockPresentationRead();
+    const response = await fetch(`${base}/api/calendar/presentation/calendars/44444444-4444-4444-8444-444444444444`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sidebarHidden: true }) });
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ error: 'Calendar not found' });
+    expect(query.mock.calls.some(([sql]) => sql.includes('INSERT INTO user_calendar_presentation_preferences'))).toBe(false);
+  });
+
+  it('uses the canonical loader before and after both preference updates', async () => {
+    mockPresentationRead();
+    const source = await fetch(`${base}/api/calendar/presentation/sources/google%3Aaccount%3A33333333-3333-4333-8333-333333333333`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ collapsed: true }) });
+    expect(source.status).toBe(200);
+    expect(responseRecord(await source.json())).toHaveProperty('revision');
+    expect(query.mock.calls.filter(([sql]) => sql.includes('FROM calendars c') && sql.includes('provider_identity'))).toHaveLength(2);
+
+    query.mockClear();
+    const calendar = await fetch(`${base}/api/calendar/presentation/calendars/11111111-1111-4111-8111-111111111111`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sidebarHidden: true }) });
+    expect(calendar.status).toBe(200);
+    expect(responseRecord(await calendar.json())).toHaveProperty('revision');
+    expect(query.mock.calls.filter(([sql]) => sql.includes('FROM calendars c') && sql.includes('provider_identity'))).toHaveLength(2);
+  });
+});
+
 // The events read runs two disjoint queries: materialised occurrences, and the live fallback
 // for whatever the background worker has not covered. These tests route the fake data by SQL
 // content rather than by call order, so adding a query to the read path cannot silently
@@ -176,6 +238,11 @@ function mockEventRead({ events = [], contacts = [], occurrences = [] }: {
   occurrences?: Array<Record<string, unknown>>;
 } = {}) {
   query.mockImplementation(async (sql: string) => {
+    if (typeof sql === 'string' && sql.includes('FROM calendars c') && sql.includes('provider_identity')) {
+      const id = String(events[0]?.calendar_id ?? occurrences[0]?.calendar_id ?? '11111111-1111-4111-8111-111111111111');
+      return { rows: [{ id, name: 'Work', color: '#123456', source: 'local', read_only: false, display_visible: true, collection_id: null, provider: null, provider_identity: null, account_id: null, account_email: null, import_source_id: null, import_kind: null, import_label: null, feature_enabled: true }] };
+    }
+    if (typeof sql === 'string' && (sql.includes('user_calendar_source_preferences') || sql.includes('user_calendar_presentation_preferences') || sql.includes("preferences->'calendarContactAppearance'"))) return { rows: [] };
     if (typeof sql === 'string' && sql.includes('FROM calendar_occurrences o')) return { rows: occurrences };
     if (typeof sql === 'string' && sql.includes('contact_dates')) return { rows: contacts };
     return { rows: events };

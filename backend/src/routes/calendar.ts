@@ -585,20 +585,29 @@ type CalendarPresentationRow = {
   import_label: string | null; feature_enabled: boolean | null;
 };
 
+type CalendarPresentationSource = ReturnType<typeof calendarSourceId> & { collapsed: boolean };
+type CalendarPresentationCalendar = { id: string; sourceId: string; displayName: string; readOnly: boolean; selected: boolean; sidebarHidden: boolean };
+export type CalendarPresentation = { revision: string; sources: CalendarPresentationSource[]; calendars: CalendarPresentationCalendar[]; groups: Array<CalendarPresentationSource & { calendars: CalendarPresentationCalendar[] }> };
+
 function calendarSourceId(row: CalendarPresentationRow) {
   if (row.id === CONTACT_CALENDAR_ID || row.source === 'contacts') return { id: 'system:contacts-birthdays', kind: 'system', label: 'Contact dates', accountId: null, identityLabel: null, featureEnabled: true, canSync: false };
   if (row.source === 'local') return { id: 'local', kind: 'local', label: 'My calendars', accountId: null, identityLabel: null, featureEnabled: true, canSync: false };
   if (row.provider === 'google' || row.provider === 'microsoft') {
-    // An account id is stable across reauthorization; a technical connection id is not.
-    return { id: `${row.provider}:account:${row.account_id ?? row.collection_id}`, kind: row.provider, label: row.provider === 'google' ? 'Google' : 'Microsoft', accountId: row.account_id, identityLabel: row.account_email ?? row.provider_identity, featureEnabled: row.feature_enabled === true, canSync: row.feature_enabled === true };
+    // An Inboxora account is durable across reauthorization. Older rows without one
+    // use the provider subject, not a transient provider connection id.
+    const identity = row.account_id ? `account:${row.account_id}` : row.provider_identity ? `identity:${row.provider_identity}` : `collection:${row.collection_id ?? row.id}`;
+    return { id: `${row.provider}:${identity}`, kind: row.provider, label: row.provider === 'google' ? 'Google' : 'Microsoft', accountId: row.account_id, identityLabel: row.account_email ?? row.provider_identity, featureEnabled: row.feature_enabled === true, canSync: row.feature_enabled === true };
   }
   if (row.import_source_id) return { id: `calendar-source:${row.import_source_id}`, kind: row.import_kind ?? 'ical_url', label: row.import_label ?? 'Subscription', accountId: null, identityLabel: null, featureEnabled: true, canSync: true };
   return { id: `collection:${row.collection_id ?? row.id}`, kind: row.source === 'caldav' ? 'caldav' : 'ical_url', label: row.source === 'caldav' ? 'CalDAV' : 'Subscription', accountId: null, identityLabel: null, featureEnabled: true, canSync: Boolean(row.collection_id) };
 }
 
-/** Non-secret source identity and user presentation preferences for the calendar rail. */
-router.get('/presentation', async (req, res) => {
-  const userId = sessionUserId(req);
+/**
+ * The sole presentation read model. Source preferences are applied only after the
+ * source and calendar identities have been derived from rows owned by this user,
+ * which prevents stale or foreign preference keys from becoming visible state.
+ */
+export async function loadCalendarPresentation(userId: string): Promise<CalendarPresentation> {
   const result = await query<CalendarPresentationRow>(
     `SELECT c.id, c.name, c.color, c.source, c.read_only, c.display_visible, ic.id AS collection_id,
             pc.provider, pc.provider_user_id AS provider_identity, a.id AS account_id, a.email_address AS account_email,
@@ -618,24 +627,40 @@ router.get('/presentation', async (req, res) => {
   const collapsed = new Map(sourcePrefs.rows.map(row => [row.source_id, row.collapsed]));
   const hidden = new Map(calendarPrefs.rows.map(row => [row.calendar_id, row.sidebar_hidden]));
   const rows: CalendarPresentationRow[] = [...result.rows, { id: CONTACT_CALENDAR_ID, name: appearance.name || 'Contact dates', color: appearance.color || '#e879f9', source: 'contacts', read_only: true, display_visible: appearance.displayVisible !== false, collection_id: null, provider: null, provider_identity: null, account_id: null, account_email: null, import_source_id: null, import_kind: null, import_label: null, feature_enabled: true }];
-  const sourceById = new Map<string, ReturnType<typeof calendarSourceId>>();
-  const calendars = rows.map(row => { const source = calendarSourceId(row); sourceById.set(source.id, source); return { id: row.id, sourceId: source.id, displayName: row.name ?? 'Untitled calendar', readOnly: row.read_only === true, selected: row.display_visible !== false, sidebarHidden: hidden.get(row.id) === true }; });
-  res.json({ sources: [...sourceById.values()].map(source => ({ ...source, collapsed: collapsed.get(source.id) === true })), calendars });
+  const sourcesById = new Map<string, CalendarPresentationSource>();
+  const calendars = rows.map(row => {
+    const source = calendarSourceId(row);
+    if (!sourcesById.has(source.id)) sourcesById.set(source.id, { ...source, collapsed: collapsed.get(source.id) === true });
+    return { id: row.id, sourceId: source.id, displayName: row.name ?? 'Untitled calendar', readOnly: row.read_only === true, selected: row.display_visible !== false, sidebarHidden: hidden.get(row.id) === true };
+  });
+  const sources = [...sourcesById.values()];
+  const groups = sources.map(source => ({ ...source, calendars: calendars.filter(calendar => calendar.sourceId === source.id) }));
+  // The revision is an opaque snapshot validator, not another mutable preference.
+  const revision = crypto.createHash('sha256').update(JSON.stringify({ sources, calendars })).digest('hex');
+  return { revision, sources, calendars, groups };
+}
+
+/** Non-secret source identity and user presentation preferences for the calendar rail. */
+router.get('/presentation', async (req, res) => {
+  res.json(await loadCalendarPresentation(sessionUserId(req)));
 });
 
 router.patch('/presentation/sources/:sourceId', async (req, res) => {
   if (typeof req.body?.collapsed !== 'boolean') return res.status(400).json({ error: 'collapsed must be boolean' });
-  await query(`INSERT INTO user_calendar_source_preferences (user_id, source_id, collapsed, updated_at) VALUES ($1, $2, $3, NOW()) ON CONFLICT (user_id, source_id) DO UPDATE SET collapsed = EXCLUDED.collapsed, updated_at = NOW()`, [sessionUserId(req), req.params.sourceId, req.body.collapsed]);
-  res.json({ sourceId: req.params.sourceId, collapsed: req.body.collapsed });
+  const userId = sessionUserId(req);
+  const presentation = await loadCalendarPresentation(userId);
+  if (!presentation.sources.some(source => source.id === req.params.sourceId)) return res.status(404).json({ error: 'Calendar source not found' });
+  await query(`INSERT INTO user_calendar_source_preferences (user_id, source_id, collapsed, updated_at) VALUES ($1, $2, $3, NOW()) ON CONFLICT (user_id, source_id) DO UPDATE SET collapsed = EXCLUDED.collapsed, updated_at = NOW()`, [userId, req.params.sourceId, req.body.collapsed]);
+  res.json(await loadCalendarPresentation(userId));
 });
 
 router.patch('/presentation/calendars/:calendarId', async (req, res) => {
   if (typeof req.body?.sidebarHidden !== 'boolean') return res.status(400).json({ error: 'sidebarHidden must be boolean' });
-  const calendarId = req.params.calendarId;
-  const owned = calendarId === CONTACT_CALENDAR_ID || (await query('SELECT 1 FROM calendars WHERE id = $1 AND user_id = $2 AND owner_user_id = $2', [calendarId, sessionUserId(req)])).rows[0];
-  if (!owned) return res.status(404).json({ error: 'Calendar not found' });
-  await query(`INSERT INTO user_calendar_presentation_preferences (user_id, calendar_id, sidebar_hidden, updated_at) VALUES ($1, $2, $3, NOW()) ON CONFLICT (user_id, calendar_id) DO UPDATE SET sidebar_hidden = EXCLUDED.sidebar_hidden, updated_at = NOW()`, [sessionUserId(req), calendarId, req.body.sidebarHidden]);
-  res.json({ calendarId, sidebarHidden: req.body.sidebarHidden });
+  const userId = sessionUserId(req);
+  const presentation = await loadCalendarPresentation(userId);
+  if (!presentation.calendars.some(calendar => calendar.id === req.params.calendarId)) return res.status(404).json({ error: 'Calendar not found' });
+  await query(`INSERT INTO user_calendar_presentation_preferences (user_id, calendar_id, sidebar_hidden, updated_at) VALUES ($1, $2, $3, NOW()) ON CONFLICT (user_id, calendar_id) DO UPDATE SET sidebar_hidden = EXCLUDED.sidebar_hidden, updated_at = NOW()`, [userId, req.params.calendarId, req.body.sidebarHidden]);
+  res.json(await loadCalendarPresentation(userId));
 });
 
 router.get('/calendars', async (req, res) => {
@@ -779,8 +804,18 @@ router.get('/events', async (req, res) => {
   }
   const selection = parseCalendarSelection(req.query.calendarIds);
   if (selection.error) return res.status(400).json({ error: selection.error });
-  const selectedIds = selection.ids === null ? null : selection.ids.filter(id => id !== CONTACT_CALENDAR_ID);
-  const includeContacts = selection.ids === null || selection.ids.includes(CONTACT_CALENDAR_ID);
+  // With no explicit selection, the same durable presentation model that feeds
+  // the rail decides the default event set. Hiding removes a selected calendar
+  // from that default; collapsing is deliberately presentation-only.
+  const presentation = selection.ids === null ? await loadCalendarPresentation(sessionUserId(req)) : null;
+  // A database predating calendar rows has no durable default to constrain. Keep
+  // the historic unqualified read in that degenerate case; once any calendar is
+  // present, this always uses its selected/hidden presentation state.
+  const effectiveIds = presentation && presentation.calendars.some(calendar => calendar.id !== CONTACT_CALENDAR_ID)
+    ? presentation.calendars.filter(calendar => calendar.selected && !calendar.sidebarHidden).map(calendar => calendar.id)
+    : selection.ids;
+  const selectedIds = effectiveIds === null ? null : effectiveIds.filter(id => id !== CONTACT_CALENDAR_ID);
+  const includeContacts = effectiveIds === null || effectiveIds.includes(CONTACT_CALENDAR_ID);
   // A selection naming only the contact calendar still needs no event query, and
   // an explicitly empty selection means "no calendars at all". Ownership stays
   // enforced by the SQL predicate, so a foreign id can only match zero rows.
