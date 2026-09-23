@@ -234,7 +234,6 @@ provider payload.
 
 ## Known limitations
 
-- **The complete calendar-sidebar grouping, hide/restore and per-account source-sync interface is not part of this committed documentation update.** A frontend change is still uncommitted, so this release note does not claim that the main sidebar renders the source groups or that its controls complete the UI flow.
 - **Names already stored with replacement characters are not rewritten.** The fix applies when a header is
   decoded, so newly received mail is correct. A message that was already parsed under the old decoder holds the
   replacement character in the database, and the original octets are not recoverable from it — re-fetching or
