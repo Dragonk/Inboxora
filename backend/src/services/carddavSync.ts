@@ -10,13 +10,14 @@ import { decrypt } from './encryption.js';
 import { parseVCard } from '../utils/vcard.js';
 import { getConnectionPolicy } from './connectionPolicy.js';
 import { discoverAddressBooks, discoverDavWriteAccess, fetchAddressBookCards } from './carddavClient.js';
-import { ensureExternalCollectionLink } from './providers/externalCollectionLinks.js';
+import { ensureExternalCollectionLink, ensureExternalSourceConnection } from './providers/externalCollectionLinks.js';
 import { toAppError } from '../utils/errors.js';
 
 const DEFAULT_INTERVAL_MIN = 60;
 type CardavTimer = { userId: string; interval: ReturnType<typeof setInterval> };
 const timers = new Map<string, CardavTimer>(); // sourceId -> timer, owned by user
-const syncing = new Set<string>(); // sourceIds with a sync in flight (prevents overlap)
+const sourceFlights = new Map<string, Promise<{ ok: boolean; bookCount?: number; contactCount?: number; error?: string }>>();
+const SOURCE_LEASE_SECONDS = 10 * 60;
 
 export type CardavConfig = { serverUrl?: string | null; username?: string | null; password?: string | null; dupMode?: string | null; intervalMin?: number | null; [key: string]: unknown };
 export type CardavSourceConfig = { id: string; label: string | null; config: CardavConfig };
@@ -53,13 +54,80 @@ export async function saveCardavConfig(userId: string, patch: Record<string, unk
   );
 }
 
-// Find or create the local read-only address book mirroring a remote collection,
-// keyed by external_url. Address-book names are unique per user, so on a name
-// clash we disambiguate with a suffix.
-async function ensureCardavBook(userId: string, book: { url: string; displayName: string }) {
+type CardavSourceLease = { owner: string; generation: number };
+
+/** Claim a source-owned, cross-process lease before any remote snapshot is read. */
+async function claimCardavSourceLease(userId: string, sourceId: string): Promise<CardavSourceLease | null> {
+  const owner = crypto.randomUUID();
+  const claimed = await query<{ generation: number }>(
+    `INSERT INTO carddav_source_sync_leases (integration_id, owner, generation, lease_expires_at)
+       SELECT id, $3, 1, NOW() + make_interval(secs => $4)
+         FROM user_integrations
+        WHERE id = $1 AND user_id = $2 AND provider = 'carddav'
+     ON CONFLICT (integration_id) DO UPDATE
+       SET owner = EXCLUDED.owner,
+           generation = carddav_source_sync_leases.generation + 1,
+           lease_expires_at = EXCLUDED.lease_expires_at,
+           updated_at = NOW()
+     WHERE carddav_source_sync_leases.lease_expires_at <= NOW()
+     RETURNING generation`,
+    [sourceId, userId, owner, SOURCE_LEASE_SECONDS],
+  );
+  const generation = claimed.rows[0]?.generation;
+  return typeof generation === 'number' ? { owner, generation } : null;
+}
+
+async function saveCardavSyncStatus(userId: string, sourceId: string, lease: CardavSourceLease, patch: Record<string, unknown>): Promise<void> {
+  await query(
+    `UPDATE user_integrations source
+        SET config = source.config || $4::jsonb, updated_at = NOW()
+      WHERE source.id = $1 AND source.user_id = $2 AND source.provider = 'carddav'
+        AND EXISTS (
+          SELECT 1 FROM carddav_source_sync_leases lease
+           WHERE lease.integration_id = source.id AND lease.owner = $3
+             AND lease.generation = $5 AND lease.lease_expires_at > NOW()
+        )`,
+    [sourceId, userId, lease.owner, JSON.stringify(patch), lease.generation],
+  );
+}
+
+async function releaseCardavSourceLease(sourceId: string, lease: CardavSourceLease): Promise<void> {
+  await query(
+    `UPDATE carddav_source_sync_leases
+        SET lease_expires_at = NOW(), updated_at = NOW()
+      WHERE integration_id = $1 AND owner = $2 AND generation = $3`,
+    [sourceId, lease.owner, lease.generation],
+  );
+}
+
+/** A stale/disconnected run may never commit a projection after it loses its lease. */
+async function assertCardavSourceLease(
+  execute: (sql: string, params: unknown[]) => Promise<{ rows: Array<{ ok: number }> }>,
+  userId: string,
+  sourceId: string,
+  lease: CardavSourceLease,
+): Promise<void> {
+  const active = await execute(
+    `SELECT 1 AS ok
+       FROM carddav_source_sync_leases lease
+       JOIN user_integrations source ON source.id = lease.integration_id
+      WHERE lease.integration_id = $1 AND source.user_id = $2 AND source.provider = 'carddav'
+        AND lease.owner = $3 AND lease.generation = $4 AND lease.lease_expires_at > NOW()`,
+    [sourceId, userId, lease.owner, lease.generation],
+  );
+  if (!active.rows[0]) throw new Error('CardDAV sync lease was lost or the source was disconnected');
+}
+
+// Find or create the local read-only address book mirroring a remote collection.
+// A remote URL alone is not an owner: two CardDAV credentials can legitimately expose
+// the same URL. The immutable source-connection identity is therefore part of the
+// projection key; unowned legacy URL-only rows are deliberately never adopted.
+async function ensureCardavBook(userId: string, sourceConnectionId: string, book: { url: string; displayName: string }) {
   const existing = await query<{ id: string }>(
-    "SELECT id FROM address_books WHERE user_id = $1 AND external_url = $2",
-    [userId, book.url],
+    `SELECT id FROM address_books
+      WHERE user_id = $1 AND source = 'carddav'
+        AND source_connection_id = $2 AND external_url = $3`,
+    [userId, sourceConnectionId, book.url],
   );
   if (existing.rows.length) return existing.rows[0].id;
 
@@ -69,9 +137,9 @@ async function ensureCardavBook(userId: string, book: { url: string; displayName
       const r = await query<{ id: string }>(
         // A newly connected external address book is not published to DAV devices
         // until the user explicitly enables it (plan §17.1).
-        `INSERT INTO address_books (user_id, name, source, external_url, dav_mode)
-         VALUES ($1, $2, 'carddav', $3, 'off') RETURNING id`,
-        [userId, name, book.url],
+        `INSERT INTO address_books (user_id, name, source, external_url, source_connection_id, dav_mode)
+         VALUES ($1, $2, 'carddav', $3, $4, 'off') RETURNING id`,
+        [userId, name, book.url, sourceConnectionId],
       );
       return r.rows[0].id;
     } catch (caught) {
@@ -196,13 +264,13 @@ async function mergeIntoExisting(client: PoolClient, id: string, c: CardavContac
       JSON.stringify(c.urls), JSON.stringify(c.instantMessages), JSON.stringify(c.categories), JSON.stringify(c.addresses), c.vcard, etag]);
 }
 
-async function syncBook(userId: string, book: CardavBook, dupMode: string, creds: CardavCredentials, integrationId: string) {
+async function syncBook(userId: string, book: CardavBook, dupMode: string, creds: CardavCredentials, integrationId: string, sourceConnectionId: string, lease: CardavSourceLease) {
   const rawCards = await fetchAddressBookCards({ ...book, ...creds });
   const cards = rawCards.map(rc => contactFromVCard(rc.vcard, rc.href, rc.etag));
   if (cards.some(card => card.invalidDates.length || card.invalidDateLabels.length)) {
     throw new Error('Remote CardDAV vCard contains an invalid contact date');
   }
-  const bookId = await ensureCardavBook(userId, book);
+  const bookId = await ensureCardavBook(userId, sourceConnectionId, book);
   // Link the collection to its source connection so the per-collection write-back switch has something to
   // enable (P02's backfill, P10's reachability). Not this sync's purpose: a failure is reported and the
   // contacts still import, because losing them would be worse than a link that is retried next pass.
@@ -270,6 +338,9 @@ async function syncBook(userId: string, book: CardavBook, dupMode: string, creds
   // but it must not be visible without them either: a failure halfway used to leave the book missing rows until
   // the next successful pass. Delete, upsert, merge, the links and the token now commit together or not at all.
   await withTransaction(async client => {
+    // Fencing is inside the transaction that mutates the projection; a source deleted
+    // while HTTP was in flight cannot resurrect or overwrite its local book.
+    await assertCardavSourceLease((sql, params) => client.query<{ ok: number }>(sql, params), userId, integrationId, lease);
     await client.query(
       `DELETE FROM contacts WHERE address_book_id = $1 AND uid <> ALL($2::text[])`,
       [bookId, presentUids.length ? presentUids : ['']],
@@ -310,17 +381,25 @@ async function syncBook(userId: string, book: CardavBook, dupMode: string, creds
 async function syncOneCardavSource(userId: string, source: CardavSourceConfig): Promise<{ ok: boolean; bookCount?: number; contactCount?: number; error?: string }> {
   const config = source.config;
   if (!config.serverUrl) return { ok: false, error: 'not connected' };
+  const lease = await claimCardavSourceLease(userId, source.id);
+  if (!lease) return { ok: false, error: 'A sync for this source is already in progress' };
   try {
     const policy = await getConnectionPolicy();
     if (typeof config.username !== 'string') throw new Error('CardDAV username is missing');
     const decryptedPassword: unknown = decrypt(config.password);
     if (typeof decryptedPassword !== 'string') throw new Error('CardDAV password could not be decrypted');
     const creds: CardavCredentials = { username: config.username, password: decryptedPassword, allowPrivate: policy.allowPrivateHosts };
+    // Resolve durable ownership before projecting any remote collection. This row is
+    // scoped to the integration, not merely the collection URL.
+    const sourceConnectionId = await ensureExternalSourceConnection({
+      userId, kind: 'carddav', url: config.serverUrl, integrationId: source.id,
+    });
+    if (!sourceConnectionId) throw new Error('CardDAV source ownership could not be established');
     const books = await discoverAddressBooks({ serverUrl: config.serverUrl, ...creds });
     let contactCount = 0;
     const seenUrls: string[] = [];
     for (const book of books) {
-      const { count } = await syncBook(userId, book, config.dupMode || 'separate', creds, source.id);
+      const { count } = await syncBook(userId, book, config.dupMode || 'separate', creds, source.id, sourceConnectionId, lease);
       contactCount += count;
       seenUrls.push(book.url);
     }
@@ -328,30 +407,48 @@ async function syncOneCardavSource(userId: string, source: CardavSourceConfig): 
     // link carries a source identity of its own; keeping a stale book is safer than deleting another source's book.
     // Prune only books owned by this exact integration. A complete discovery is required
     // before this point; auth, rate-limit, and partial discovery failures stay in the catch above.
+    await assertCardavSourceLease((sql, params) => query<{ ok: number }>(sql, params), userId, source.id, lease);
     await query(
       `DELETE FROM address_books ab
        WHERE ab.user_id = $1 AND ab.source = 'carddav'
-         AND ab.external_url <> ALL($2::text[])
+         AND ab.source_connection_id = $2
+          AND ab.external_url <> ALL($3::text[])
          AND EXISTS (
            SELECT 1 FROM integration_collections ic
            JOIN source_connections sc ON sc.id = ic.source_connection_id
            WHERE ic.local_address_book_id = ab.id
-             AND sc.integration_id = $3
+             AND sc.id = $2
+              AND sc.integration_id = $4
              AND sc.user_id = $1
          )`,
-      [userId, seenUrls.length ? seenUrls : [''], source.id],
+      [userId, sourceConnectionId, seenUrls.length ? seenUrls : [''], source.id],
     );
-    await saveCardavConfig(userId, { lastSyncAt: new Date().toISOString(), lastError: null, bookCount: books.length, contactCount }, source.id);
+    await saveCardavSyncStatus(userId, source.id, lease, { lastSyncAt: new Date().toISOString(), lastError: null, bookCount: books.length, contactCount });
     return { ok: true, bookCount: books.length, contactCount };
   } catch (caught) {
     const err = toAppError(caught);
-    await saveCardavConfig(userId, { lastError: err.message, lastSyncAt: new Date().toISOString() }, source.id);
+    await saveCardavSyncStatus(userId, source.id, lease, { lastError: err.message, lastSyncAt: new Date().toISOString() });
     return { ok: false, error: err.message };
+  } finally {
+    // A completion makes the source immediately eligible; owner+generation prevents
+    // an old worker from clearing a lease acquired by a newer one.
+    await releaseCardavSourceLease(source.id, lease).catch(error => {
+      console.warn('CardDAV sync lease release failed:', toAppError(error).message);
+    });
   }
 }
 
+function syncSourceSingleFlight(userId: string, source: CardavSourceConfig) {
+  const active = sourceFlights.get(source.id);
+  if (active) return active;
+  const flight = syncOneCardavSource(userId, source).finally(() => {
+    if (sourceFlights.get(source.id) === flight) sourceFlights.delete(source.id);
+  });
+  sourceFlights.set(source.id, flight);
+  return flight;
+}
+
 export async function syncUser(userId: string, sourceId?: string | null) {
-  if (syncing.has(userId)) return { ok: false, error: 'A sync is already in progress' };
   let sources = await listCardavConfigs(userId);
   // Legacy/test fallback: an older reader or a rolling deployment may expose only the old config query. Treat it
   // as the unlabelled source until all application instances know the labeled form.
@@ -361,21 +458,21 @@ export async function syncUser(userId: string, sourceId?: string | null) {
   }
   const selected = sourceId ? sources.filter(source => source.id === sourceId) : sources;
   if (selected.length === 0) return { ok: false, error: 'not connected' };
-  syncing.add(userId);
-  try {
-    const results = [];
-    for (const source of selected) results.push({ sourceId: source.id, label: source.label, ...(await syncOneCardavSource(userId, source)) });
-    const failed = results.filter(result => !result.ok);
-    return {
-      ok: failed.length === 0,
-      sources: results,
-      bookCount: results.reduce((sum, result) => sum + (result.bookCount ?? 0), 0),
-      contactCount: results.reduce((sum, result) => sum + (result.contactCount ?? 0), 0),
-      ...(failed.length ? { error: failed.map(result => result.error).filter(Boolean).join('; ') } : {}),
-    };
-  } finally {
-    syncing.delete(userId);
-  }
+  // Each source is independently single-flight. A `sync all` joins the same
+  // flights as timers and source-specific API calls, so it cannot drop B because A runs.
+  const results = await Promise.all(selected.map(async source => ({
+    sourceId: source.id,
+    label: source.label,
+    ...(await syncSourceSingleFlight(userId, source)),
+  })));
+  const failed = results.filter(result => !result.ok);
+  return {
+    ok: failed.length === 0,
+    sources: results,
+    bookCount: results.reduce((sum, result) => sum + (result.bookCount ?? 0), 0),
+    contactCount: results.reduce((sum, result) => sum + (result.contactCount ?? 0), 0),
+    ...(failed.length ? { error: failed.map(result => result.error).filter(Boolean).join('; ') } : {}),
+  };
 }
 
 // ── Scheduler ─────────────────────────────────────────────────────────────────

@@ -337,6 +337,15 @@ describe('migration integrity', () => {
     expect(sql).not.toMatch(/UPDATE\s+messages/i);
   });
 
+  it('binds CardDAV books to one source and adds a fenced source lease', () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/0122_carddav_source_ownership_and_leases.sql'), 'utf8');
+    expect(sql).toContain('ADD COLUMN IF NOT EXISTS source_connection_id UUID REFERENCES source_connections(id) ON DELETE CASCADE');
+    expect(sql).toContain('HAVING count(DISTINCT sc.id) = 1');
+    expect(sql).toContain('address_books_carddav_source_url_key');
+    expect(sql).toContain('CREATE TABLE IF NOT EXISTS carddav_source_sync_leases');
+    expect(sql).toContain('generation BIGINT NOT NULL DEFAULT 1');
+  });
+
   it('persists Gmail baseline generations without rewriting messages', () => {
     const sql = readFileSync(join(process.cwd(), 'migrations/0123_gmail_baseline_generations.sql'), 'utf8');
     expect(sql).toContain('CREATE TABLE IF NOT EXISTS gmail_baseline_runs');
