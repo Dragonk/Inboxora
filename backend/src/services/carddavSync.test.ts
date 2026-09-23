@@ -11,7 +11,7 @@ type ConnectionPolicy = { allowPrivateHosts: boolean };
 const { query, transactionQuery, discoverAddressBooks, fetchAddressBookCards, discoverDavWriteAccess, getConnectionPolicy } = vi.hoisted(() => ({
   query: vi.fn<Query>(),
   transactionQuery: vi.fn<Query>(),
-  discoverAddressBooks: vi.fn<() => Promise<AddressBook[]>>(),
+  discoverAddressBooks: vi.fn<(input: { serverUrl: string; username: string; password: string; allowPrivate: boolean }) => Promise<AddressBook[]>>(),
   fetchAddressBookCards: vi.fn<() => Promise<AddressBookCard[]>>(),
   discoverDavWriteAccess: vi.fn<() => Promise<'read_write' | 'read_only' | null>>(),
   getConnectionPolicy: vi.fn<() => Promise<ConnectionPolicy>>(),

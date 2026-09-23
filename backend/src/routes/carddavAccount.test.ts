@@ -41,7 +41,7 @@ beforeAll(async () => {
   app.use(express.json());
   app.use('/api/carddav', carddavAccountRouter);
   await new Promise<void>((resolve, reject) => {
-    server = app.listen(0, resolve);
+    server = app.listen(0, () => resolve());
     server.once('error', reject);
   });
   base = `http://127.0.0.1:${listeningPort(server)}`;
