@@ -164,17 +164,17 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
         SELECT d.*,
                COALESCE(tt.message_count, 1) AS message_count,
                COUNT(*) FILTER (WHERE NOT d.is_read) OVER (PARTITION BY d.thread_id)::int AS unread_count,
-               FIRST_VALUE(d.subject)           OVER (PARTITION BY d.thread_id ORDER BY d.date ASC) AS thread_subject,
-               FIRST_VALUE(d.from_name)          OVER (PARTITION BY d.thread_id ORDER BY d.date ASC) AS thread_from_name,
-               FIRST_VALUE(d.from_email)         OVER (PARTITION BY d.thread_id ORDER BY d.date ASC) AS thread_from_email,
-               FIRST_VALUE(d.has_contact_photo)  OVER (PARTITION BY d.thread_id ORDER BY d.date ASC) AS thread_has_contact_photo,
+               FIRST_VALUE(d.subject)           OVER (PARTITION BY d.thread_id ORDER BY d.date ASC, d.id ASC) AS thread_subject,
+               FIRST_VALUE(d.from_name)          OVER (PARTITION BY d.thread_id ORDER BY d.date ASC, d.id ASC) AS thread_from_name,
+               FIRST_VALUE(d.from_email)         OVER (PARTITION BY d.thread_id ORDER BY d.date ASC, d.id ASC) AS thread_from_email,
+               FIRST_VALUE(d.has_contact_photo)  OVER (PARTITION BY d.thread_id ORDER BY d.date ASC, d.id ASC) AS thread_has_contact_photo,
                -- Latest message direction: the parent row shows the direction of the
                -- most recent unique child, not the thread's first message. ORDER BY date DESC
                -- picks the newest; the tie-breaker (id) keeps it deterministic when two
                -- children share the same timestamp.
                FIRST_VALUE(d.from_email) OVER (PARTITION BY d.thread_id ORDER BY d.date DESC, d.id DESC) AS latest_from_email,
                FIRST_VALUE(d.from_name)  OVER (PARTITION BY d.thread_id ORDER BY d.date DESC, d.id DESC) AS latest_from_name,
-               ROW_NUMBER() OVER (PARTITION BY d.thread_id ORDER BY d.date DESC) AS rn
+               ROW_NUMBER() OVER (PARTITION BY d.thread_id ORDER BY d.date DESC NULLS LAST, d.id DESC) AS rn
         FROM deduped d
         LEFT JOIN thread_totals tt ON tt.thread_id = d.thread_id
       )
@@ -189,7 +189,7 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
              latest_from_email, latest_from_name
       FROM ranked
       WHERE rn = 1
-      ORDER BY date DESC
+      ORDER BY date DESC NULLS LAST, id DESC
     `, [...filterValues, threadAccountParam, safeLimit, safeOffset]);
 
     const threadCountResult = await query(`

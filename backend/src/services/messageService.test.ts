@@ -201,6 +201,18 @@ describe('listMessages — threaded mode', () => {
     expect(String(query.mock.calls[1][0])).not.toContain('COUNT(*)::int AS n');
   });
 
+  it('uses stable message-id tie-breakers for threaded representatives and pages', async () => {
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'acc-1' }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ total: 0 }] });
+    await listMessages({ userId: 'user-1', accountId: 'acc-1', threaded: true });
+    const cteSql = String(query.mock.calls[1][0]);
+    expect(cteSql).toContain('ROW_NUMBER() OVER (PARTITION BY d.thread_id ORDER BY d.date DESC NULLS LAST, d.id DESC)');
+    expect(cteSql).toContain('ORDER BY date DESC NULLS LAST, id DESC');
+    expect(cteSql).toContain('FIRST_VALUE(d.subject)           OVER (PARTITION BY d.thread_id ORDER BY d.date ASC, d.id ASC)');
+  });
+
   it('counts thread messages across ALL folders when viewing a specific account INBOX (badge === expansion)', async () => {
     query
       .mockResolvedValueOnce({ rows: [{ id: 'acc-1' }] })
