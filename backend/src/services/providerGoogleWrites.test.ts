@@ -87,7 +87,8 @@ const contactTarget: GoogleContactWriteTarget = {
 
 const googleCalendarRow = (overrides: Record<string, unknown> = {}) => ({
   id: 'calendar-1', collection_id: 'collection-1', remote_id: 'primary',
-  connection_id: 'connection-1', source_access: 'read_write', user_access: 'read_write', ...overrides,
+  connection_id: 'connection-1', account_id: 'account-1', feature_enabled: true,
+  source_access: 'read_write', user_access: 'read_write', ...overrides,
 });
 
 beforeEach(() => {
@@ -166,7 +167,8 @@ describe('which writer owns a Google calendar', () => {
 describe('which writer owns a Google address book', () => {
   const googleBookRow = (overrides: Record<string, unknown> = {}) => ({
     id: 'book-1', collection_id: 'collection-1', remote_id: 'people/me',
-    connection_id: 'connection-1', source_access: 'read_write', user_access: 'read_write', ...overrides,
+    connection_id: 'connection-1', account_id: 'account-1', feature_enabled: true,
+  source_access: 'read_write', user_access: 'read_write', ...overrides,
   });
 
   it('resolves a write-enabled Google book and keeps the collection remote id as the link identity', async () => {

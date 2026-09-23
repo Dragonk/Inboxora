@@ -159,7 +159,7 @@ export interface GoogleCalendarWriteTarget {
  */
 export type GoogleCalendarTargetResolution =
   | GoogleCalendarWriteTarget
-  | { kind: 'refused'; status: number; error: string }
+  | { kind: 'refused'; status: number; error: string; code?: 'FEATURE_DISABLED' }
   | { kind: 'not_google' };
 
 /**
@@ -171,12 +171,16 @@ export type GoogleCalendarTargetResolution =
 export async function resolveGoogleCalendarWriteTarget(userId: string, calendarId: string): Promise<GoogleCalendarTargetResolution> {
   const result = await query<{
     id: string; collection_id: string; remote_id: string | null; connection_id: string | null;
+    account_id: string | null; feature_enabled: boolean | null;
     source_access: string | null; user_access: string | null;
   }>(
-    `SELECT c.id, ic.id AS collection_id, ic.remote_id, ic.connection_id, ic.source_access, ic.user_access
+    `SELECT c.id, ic.id AS collection_id, ic.remote_id, ic.connection_id, ic.account_id,
+            settings.enabled AS feature_enabled, ic.source_access, ic.user_access
        FROM calendars c
        JOIN integration_collections ic
          ON ic.local_calendar_id = c.id AND ic.kind = 'calendar' AND ic.user_id = c.user_id
+       LEFT JOIN account_provider_feature_settings settings
+         ON settings.account_id = ic.account_id AND settings.feature = 'calendars'
       WHERE c.id = $1 AND c.user_id = $2 AND c.owner_user_id = $2 AND c.source = 'google'`,
     [calendarId, userId],
   );
@@ -186,6 +190,9 @@ export async function resolveGoogleCalendarWriteTarget(userId: string, calendarI
   // a Google collection they do not both permit stays refused by the shared resolver, unchanged.
   if (!collectionIsWritable({ source: 'google', source_access: row.source_access, user_access: row.user_access }, 'calendars')) {
     return { kind: 'not_google' };
+  }
+  if (!row.account_id || row.feature_enabled !== true) {
+    return { kind: 'refused', status: 409, error: 'Calendars are disabled for this account', code: 'FEATURE_DISABLED' };
   }
   const gate = await googleWriteGate();
   if (!gate.ok) return { kind: 'refused', status: gate.status, error: gate.error };
@@ -527,19 +534,23 @@ export interface GoogleContactWriteTarget {
 
 export type GoogleContactTargetResolution =
   | GoogleContactWriteTarget
-  | { kind: 'refused'; status: number; error: string }
+  | { kind: 'refused'; status: number; error: string; code?: 'FEATURE_DISABLED' }
   | { kind: 'not_google' };
 
 /** Resolve a local address book to its Google collection, or say it is not one. */
 export async function resolveGoogleContactWriteTarget(userId: string, addressBookId: string): Promise<GoogleContactTargetResolution> {
   const result = await query<{
     id: string; collection_id: string; remote_id: string | null; connection_id: string | null;
+    account_id: string | null; feature_enabled: boolean | null;
     source_access: string | null; user_access: string | null;
   }>(
-    `SELECT ab.id, ic.id AS collection_id, ic.remote_id, ic.connection_id, ic.source_access, ic.user_access
+    `SELECT ab.id, ic.id AS collection_id, ic.remote_id, ic.connection_id, ic.account_id,
+            settings.enabled AS feature_enabled, ic.source_access, ic.user_access
        FROM address_books ab
        JOIN integration_collections ic
          ON ic.local_address_book_id = ab.id AND ic.kind = 'address_book' AND ic.user_id = ab.user_id
+       LEFT JOIN account_provider_feature_settings settings
+         ON settings.account_id = ic.account_id AND settings.feature = 'contacts'
       WHERE ab.id = $1 AND ab.user_id = $2 AND ab.source = 'google'`,
     [addressBookId, userId],
   );
@@ -547,6 +558,9 @@ export async function resolveGoogleContactWriteTarget(userId: string, addressBoo
   if (!row) return { kind: 'not_google' };
   if (!collectionIsWritable({ source: 'google', source_access: row.source_access, user_access: row.user_access }, 'contacts')) {
     return { kind: 'not_google' };
+  }
+  if (!row.account_id || row.feature_enabled !== true) {
+    return { kind: 'refused', status: 409, error: 'Contacts are disabled for this account', code: 'FEATURE_DISABLED' };
   }
   const gate = await googleWriteGate();
   if (!gate.ok) return { kind: 'refused', status: gate.status, error: gate.error };

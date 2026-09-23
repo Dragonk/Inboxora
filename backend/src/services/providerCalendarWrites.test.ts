@@ -23,7 +23,8 @@ import {
 
 const calendar = (overrides: Record<string, unknown> = {}) => ({
   id: 'calendar-1', source: 'local', collection_id: null, remote_id: null,
-  connection_id: null, source_access: null, user_access: null, ...overrides,
+  connection_id: null, account_id: 'account-1', feature_enabled: true,
+  source_access: null, user_access: null, ...overrides,
 });
 
 beforeEach(() => {
@@ -60,6 +61,16 @@ describe('which writer owns a calendar', () => {
     })] });
     await expect(resolveCalendarWriteTarget('user-1', 'calendar-1')).resolves.toEqual({
       kind: 'graph', connectionId: 'connection-1', collectionId: 'collection-1', providerCalendarId: 'cal-1', calendarId: 'calendar-1',
+    });
+  });
+
+  it('fails closed when an account-owned native calendar has no enabled service setting', async () => {
+    mocks.query.mockResolvedValueOnce({ rows: [calendar({
+      source: 'microsoft', collection_id: 'collection-1', remote_id: 'cal-1', connection_id: 'connection-1',
+      source_access: 'read_write', user_access: 'read_write', feature_enabled: false,
+    })] });
+    await expect(resolveCalendarWriteTarget('user-1', 'calendar-1')).resolves.toMatchObject({
+      kind: 'refused', status: 409, code: 'FEATURE_DISABLED',
     });
   });
 

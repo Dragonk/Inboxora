@@ -30,19 +30,22 @@ export type CalendarWriteTarget =
    * `providers/caldavWriteBack.ts` forwards to; the target carries what that client needs to address it.
    */
   | { kind: 'caldav'; collectionId: string; calendarId: string; externalUrl: string | null }
-  | { kind: 'refused'; status: number; error: string };
+  | { kind: 'refused'; status: number; error: string; code?: 'FEATURE_DISABLED' };
 
 export async function resolveCalendarWriteTarget(userId: string, calendarId: string): Promise<CalendarWriteTarget> {
   const result = await query<{
     id: string; source: string | null; collection_id: string | null; remote_id: string | null;
-    connection_id: string | null; source_access: string | null; user_access: string | null;
+    connection_id: string | null; account_id: string | null; feature_enabled: boolean | null;
+    source_access: string | null; user_access: string | null;
     external_url: string | null;
   }>(
-    `SELECT c.id, c.source, c.external_url, ic.id AS collection_id, ic.remote_id, ic.connection_id,
-            ic.source_access, ic.user_access
+    `SELECT c.id, c.source, c.external_url, ic.id AS collection_id, ic.remote_id, ic.connection_id, ic.account_id,
+            settings.enabled AS feature_enabled, ic.source_access, ic.user_access
        FROM calendars c
        LEFT JOIN integration_collections ic
               ON ic.local_calendar_id = c.id AND ic.kind = 'calendar' AND ic.user_id = c.user_id
+       LEFT JOIN account_provider_feature_settings settings
+              ON settings.account_id = ic.account_id AND settings.feature = 'calendars'
       WHERE c.id = $1 AND c.user_id = $2 AND c.owner_user_id = $2`,
     [calendarId, userId],
   );
@@ -69,6 +72,12 @@ export async function resolveCalendarWriteTarget(userId: string, calendarId: str
     };
   }
   if (row.source === 'microsoft') {
+    // A native collection is account-owned only when its collection carries an
+    // account id. Absence of the setting is intentionally disabled: broad OAuth
+    // scopes or a collection name must never silently opt an account into writes.
+    if (!row.account_id || row.feature_enabled !== true) {
+      return { kind: 'refused', status: 409, error: 'Calendars are disabled for this account', code: 'FEATURE_DISABLED' };
+    }
     if (!row.connection_id || !row.collection_id) {
       return { kind: 'refused', status: 409, error: 'This calendar is not linked to a Microsoft connection' };
     }
