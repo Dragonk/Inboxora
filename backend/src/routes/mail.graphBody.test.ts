@@ -117,6 +117,7 @@ describe('a Graph message body is read from the provider and cached', () => {
     expect(cache).toBeDefined();
     expect(String(cache?.[1]?.[0])).toContain('Quarterly');
     expect(JSON.parse(String(cache?.[1]?.[2]))).toHaveLength(1);
+    expect(cache?.[1]?.[5]).toBe(true);
     expect(mocks.noteUserActivity).not.toHaveBeenCalled();
   });
 
@@ -131,7 +132,7 @@ describe('a Graph message body is read from the provider and cached', () => {
     const response = await fetch(`${base}/api/mail/messages/${MESSAGE_ID}/body`);
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
-      text: 'available body', attachments: [], attachmentsIncomplete: true,
+      text: 'available body', attachments: [expect.objectContaining({ part: 'att-1', filename: 'plan.pdf' })], attachmentsIncomplete: true,
       attachmentError: { code: 'RATE_LIMITED', retryable: true },
     });
     const cache = mocks.query.mock.calls.find(([sql]) => String(sql).includes('SET body_html = $1'));
@@ -140,6 +141,21 @@ describe('a Graph message body is read from the provider and cached', () => {
     // body-only cache as proof that the message has no attachments.
     expect(cache?.[1]?.[5]).toBe(false);
     expect(mocks.fetchMessageBody).not.toHaveBeenCalled();
+  });
+
+  it('re-fetches attachment metadata on a later open when cached Graph body is incomplete', async () => {
+    mocks.query
+      .mockResolvedValueOnce({ rows: [messageRow({ body_text: 'cached body', mail_transport: 'microsoft_graph', graph_attachment_metadata_complete: false })], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ id: ACCOUNT_ID, user_id: 'user-1', mail_transport: 'microsoft_graph', provider_connection_id: 'connection-1' }], rowCount: 1 });
+    mocks.fetchGraphMessageBody.mockResolvedValue({ contentType: 'text', content: 'fresh body' });
+    mocks.fetchGraphAttachments.mockResolvedValue([{ id: 'att-2', name: 'later.pdf', contentType: 'application/pdf', size: 12 }]);
+
+    const response = await fetch(`${base}/api/mail/messages/${MESSAGE_ID}/body`);
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ text: 'fresh body', attachmentsIncomplete: false });
+    expect(mocks.fetchGraphAttachments).toHaveBeenCalledTimes(1);
+    const cache = mocks.query.mock.calls.find(([sql]) => String(sql).includes('graph_attachment_metadata_complete'));
+    expect(cache?.[1]?.[5]).toBe(true);
   });
 
   it('does not fall through to IMAP for a Graph account', async () => {

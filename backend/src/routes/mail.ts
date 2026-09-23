@@ -1494,8 +1494,9 @@ async function moveMessagesOverGraph(input: {
       failedIds.push(message.id);
       continue;
     }
-    movedIds.push(message.id);
-    newUids[message.id] = result.newUid;
+    movedCanonicalIds.add(identity.canonicalMessageId);
+    movedIds.push(identity.canonicalMessageId);
+    newUids[identity.canonicalMessageId] = result.newUid;
   }
   return { movedIds, failedIds, newUids };
 }
@@ -1665,6 +1666,12 @@ async function respondWithGraphBody(
       );
     }
 
+    // A failed refresh must not present previously known files as an empty list.
+    // `attachmentsIncomplete` remains the durable signal that the list needs retrying.
+    const cachedAttachments = message.attachments
+      ? (typeof message.attachments === 'string' ? JSON.parse(message.attachments) : message.attachments)
+      : [];
+    const responseAttachments = visibleAttachments ?? cachedAttachments;
     const skipBlocking = req.query.remoteImages === '1';
     let responseHtml = html;
     let hasBlockedRemoteImages = false;
@@ -1675,7 +1682,7 @@ async function respondWithGraphBody(
     res.json({
       html: responseHtml,
       text,
-      attachments: visibleAttachments ?? [],
+      attachments: responseAttachments,
       attachmentsIncomplete: attachmentProblem !== null,
       ...(attachmentProblem ? { attachmentError: { code: attachmentProblem.code, retryable: attachmentProblem.retryable } } : {}),
       hasBlockedRemoteImages,
@@ -2542,14 +2549,24 @@ router.post('/messages/bulk-delete', async (req, res) => {
       // helper itself, so they must stay out of the CTE below — it re-inserts under
       // an IMAP UID the provider does not have.
       if (account.mail_transport === 'microsoft_graph') {
+        const expungedCanonicalIds = new Set<string>();
         for (const m of toExpunge) {
-          if (!m.provider_message_id) { console.error(`bulk-delete: ${m.id} has no provider id`); continue; }
+          const identity = await resolveGraphMessageIdentity({ query }, {
+            messageId: m.id, accountId, connectionId: account.provider_connection_id,
+            directProviderMessageId: m.provider_message_id,
+          });
+          if (identity.kind !== 'resolved' || expungedCanonicalIds.has(identity.canonicalMessageId)) {
+            if (identity.kind !== 'resolved') console.error(`bulk-delete: ${m.id} has no resolvable Graph identity`);
+            continue;
+          }
           const removed = await deleteGraphMessagePermanently({
             userId: sessionUserId(req), accountId, connectionId: account.provider_connection_id ?? '',
-            config: microsoftConfigFromEnv(), resourceId: m.id, providerMessageId: m.provider_message_id,
+            config: microsoftConfigFromEnv(), resourceId: identity.canonicalMessageId, providerMessageId: identity.providerMessageId,
           });
-          if (removed.deleted) expungeSucceeded.push(m);
-          else console.error(`bulk-delete: Graph did not confirm the removal of ${m.id} (${removed.code ?? 'unknown'})`);
+          if (removed.deleted) {
+            expungedCanonicalIds.add(identity.canonicalMessageId);
+            expungeSucceeded.push({ ...m, id: identity.canonicalMessageId });
+          } else console.error(`bulk-delete: Graph did not confirm the removal of ${m.id} (${removed.code ?? 'unknown'})`);
         }
         for (const m of toMove) {
           const moved = await moveMessagesOverGraph({
