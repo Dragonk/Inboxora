@@ -484,10 +484,19 @@ export interface GmailMessageContext {
 
 /** The baseline's own resume position. */
 interface GmailBaselineCheckpoint {
-  labelId: string | null;
+  /** Stable scan target id (`label:<remote id>` or the account-wide `all`). */
+  targetId: string | null;
   pageToken: string | null;
   startHistoryId: string | null;
+  baselineRunId: string | null;
   processedThreadIds: string[];
+}
+
+interface GmailBaselineTarget {
+  id: string;
+  remoteId: string | null;
+  folderPath: string | null;
+  accountWide: boolean;
 }
 
 function parseBaselineCheckpoint(raw: string | null): GmailBaselineCheckpoint | null {
@@ -496,10 +505,14 @@ function parseBaselineCheckpoint(raw: string | null): GmailBaselineCheckpoint | 
     const parsed: unknown = JSON.parse(raw);
     if (parsed === null || typeof parsed !== 'object') return null;
     const candidate = parsed as Record<string, unknown>;
+    const legacyLabelId = typeof candidate.labelId === 'string' ? candidate.labelId : null;
     return {
-      labelId: typeof candidate.labelId === 'string' ? candidate.labelId : null,
+      // A checkpoint written before baseline generations is parsed for backwards
+      // compatibility; runBaseline restarts it because it has no durable seen set.
+      targetId: typeof candidate.targetId === 'string' ? candidate.targetId : legacyLabelId ? `label:${legacyLabelId}` : null,
       pageToken: typeof candidate.pageToken === 'string' ? candidate.pageToken : null,
       startHistoryId: typeof candidate.startHistoryId === 'string' ? candidate.startHistoryId : null,
+      baselineRunId: typeof candidate.baselineRunId === 'string' ? candidate.baselineRunId : null,
       processedThreadIds: Array.isArray(candidate.processedThreadIds)
         ? candidate.processedThreadIds.filter((id): id is string => typeof id === 'string')
         : [],
@@ -528,38 +541,24 @@ export async function applyGmailMessage(
   context: GmailMessageContext,
   local: LocalGmailMessage,
 ): Promise<{ id: string; inserted: boolean } | null> {
-  if (local.folderPath === null) {
-    // Archiving removes INBOX membership, not the provider message. Keep its identity
-    // and thread links for the virtual All Mail/Archive view.
-    const archived = await client.query<{ id: string }>(
-      `UPDATE messages
-          SET is_archived = true, provider_labels = $3::text[], synced_at = NOW()
-        WHERE account_id = $1 AND provider_message_id = $2
-        RETURNING id`,
-      [context.accountId, local.providerMessageId, local.labels],
-    );
-    const row = archived.rows[0];
-    if (!row) return null;
-    await client.query('UPDATE messages SET parsed_headers = $2::jsonb WHERE id = $1', [row.id, JSON.stringify(local.parsedHeaders)]);
-    await recordGmailMessageLabels(client, context, row.id, local);
-    return { id: row.id, inserted: false };
-  }
-
+  // Gmail's archive state has no folder label. `folder` remains a legacy non-null
+  // storage coordinate while `is_archived` is the source of visibility; it is never
+  // presented as a provider-side Archive folder.
+  const archived = local.folderPath === null;
+  const storageFolder = local.folderPath ?? 'INBOX';
   let applied: { id: string; inserted: boolean } | null = null;
   for (let attempt = 0; attempt < 3 && !applied; attempt++) {
     const uid = attempt === 0 ? local.uid : providerUidForGmailMessage(local.providerMessageId, attempt);
     try {
-      // The legacy (account_id, uid, folder) index can reject the derived number, and a failed statement
-      // aborts the transaction; the savepoint is what lets the next attempt run at all (DB-01).
       applied = await withSavepoint(client, `gmail_uid_${attempt}`, async () => {
         const result = await client.query<{ id: string; inserted: boolean }>(
           `INSERT INTO messages (
              account_id, uid, folder, provider_message_id, message_id, thread_id, provider_thread_id,
              provider_namespace, provider_labels, subject, from_name, from_email,
-             to_addresses, cc_addresses, reply_to, date, snippet, is_read, is_starred, has_attachments, synced_at
-           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::text[],$10,$11,$12,$13::jsonb,$14::jsonb,$15::jsonb,$16,$17,$18,$19,$20,NOW())
+             to_addresses, cc_addresses, reply_to, date, snippet, is_read, is_starred, has_attachments, is_archived, synced_at
+           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::text[],$10,$11,$12,$13::jsonb,$14::jsonb,$15::jsonb,$16,$17,$18,$19,$20,$21,NOW())
            ON CONFLICT (account_id, provider_message_id) WHERE provider_message_id IS NOT NULL DO UPDATE SET
-             folder = EXCLUDED.folder,
+             folder = CASE WHEN EXCLUDED.is_archived THEN messages.folder ELSE EXCLUDED.folder END,
              uid = EXCLUDED.uid,
              message_id = EXCLUDED.message_id,
              thread_id = EXCLUDED.thread_id,
@@ -575,34 +574,35 @@ export async function applyGmailMessage(
              date = EXCLUDED.date,
              snippet = EXCLUDED.snippet,
              is_read = CASE
-               WHEN messages.read_changed_at IS NULL OR messages.read_changed_at < NOW() - make_interval(secs => $21)
+               WHEN messages.read_changed_at IS NULL OR messages.read_changed_at < NOW() - make_interval(secs => $22)
                  THEN EXCLUDED.is_read ELSE messages.is_read END,
              is_starred = CASE
-               WHEN messages.star_changed_at IS NULL OR messages.star_changed_at < NOW() - make_interval(secs => $21)
+               WHEN messages.star_changed_at IS NULL OR messages.star_changed_at < NOW() - make_interval(secs => $22)
                  THEN EXCLUDED.is_starred ELSE messages.is_starred END,
              has_attachments = EXCLUDED.has_attachments,
+             is_archived = EXCLUDED.is_archived,
              synced_at = NOW()
            RETURNING id, (xmax = 0) AS inserted`,
           [
-            context.accountId, uid, local.folderPath, local.providerMessageId, local.messageId, local.threadId,
+            context.accountId, uid, storageFolder, local.providerMessageId, local.messageId, local.threadId,
             local.providerThreadId, local.providerNamespace, local.labels,
             local.subject, local.fromName, local.fromEmail,
             JSON.stringify(local.toAddresses), JSON.stringify(local.ccAddresses), JSON.stringify(local.replyTo),
-            local.date, local.snippet, local.isRead, local.isStarred, local.hasAttachments, LOCAL_WINS_SECONDS,
+            local.date, local.snippet, local.isRead, local.isStarred, local.hasAttachments, archived, LOCAL_WINS_SECONDS,
           ],
         );
         return result.rows[0] ?? null;
       });
     } catch (caught) {
-      // 23505 here is the legacy (account_id, uid, folder) index: another message
-      // already owns this derived number, so ask for the next one.
       if (toAppError(caught).code === '23505') continue;
       throw caught;
     }
   }
   if (applied) {
     await client.query(
-      'UPDATE messages SET is_archived = false, parsed_headers = $2::jsonb WHERE id = $1',
+      `UPDATE messages
+          SET parsed_headers = CASE WHEN parsed_headers_complete THEN parsed_headers ELSE $2::jsonb END
+        WHERE id = $1`,
       [applied.id, JSON.stringify(local.parsedHeaders)],
     );
     await recordGmailMessageLabels(client, context, applied.id, local);
@@ -662,12 +662,8 @@ export async function applyGmailThread(
       ...(context.host ? { host: context.host } : {}),
     });
     if (!local) { totals.skipped += 1; continue; }
-    if (local.folderPath === null) {
-      const archived = await applyGmailMessage(client, context, local);
-      if (archived) totals.rowIds.push(archived.id);
-      else totals.skipped += 1;
-      continue;
-    }
+    // Account-wide baseline scans must also retain archived messages in their durable
+    // membership: no folder label is not a remote deletion.
     seenProviderIds?.add(local.providerMessageId);
     const applied = await applyGmailMessage(client, context, local);
     if (!applied) { totals.skipped += 1; continue; }
@@ -710,6 +706,77 @@ export async function reconcileGmailFolder(
     [context.accountId, folderPath, [...seenProviderIds]],
   );
   return removed.rowCount ?? 0;
+}
+
+interface GmailBaselineRun {
+  id: string;
+  started_at: Date;
+}
+
+async function createGmailBaselineRun(client: PoolClient, input: {
+  syncStateId: string;
+  userId: string;
+  connectionId: string;
+  accountId: string;
+  startHistoryId: string | null;
+}): Promise<GmailBaselineRun> {
+  // A checkpointless rebuild supersedes an abandoned/failed generation. The sync
+  // lease makes this transition single-writer for one account.
+  await client.query(
+    `UPDATE gmail_baseline_runs SET status = 'abandoned', updated_at = NOW()
+      WHERE sync_state_id = $1 AND status = 'active'`,
+    [input.syncStateId],
+  );
+  const result = await client.query<GmailBaselineRun>(
+    `INSERT INTO gmail_baseline_runs (sync_state_id, user_id, connection_id, account_id, start_history_id)
+     VALUES ($1,$2,$3,$4,$5) RETURNING id, started_at`,
+    [input.syncStateId, input.userId, input.connectionId, input.accountId, input.startHistoryId],
+  );
+  const run = result.rows[0];
+  if (!run) throw new Error('Could not create Gmail baseline generation');
+  return run;
+}
+
+async function loadGmailBaselineRun(client: PoolClient, input: { id: string; syncStateId: string }): Promise<GmailBaselineRun | null> {
+  const result = await client.query<GmailBaselineRun>(
+    `SELECT id, started_at FROM gmail_baseline_runs WHERE id = $1 AND sync_state_id = $2 AND status = 'active'`,
+    [input.id, input.syncStateId],
+  );
+  return result.rows[0] ?? null;
+}
+
+async function recordGmailBaselineSeen(client: PoolClient, runId: string, providerMessageIds: ReadonlySet<string>): Promise<void> {
+  if (providerMessageIds.size === 0) return;
+  await client.query(
+    `INSERT INTO gmail_baseline_seen (baseline_run_id, provider_message_id)
+     SELECT $1, unnest($2::text[]) ON CONFLICT DO NOTHING`,
+    [runId, [...providerMessageIds]],
+  );
+}
+
+/** Reconcile only after the account-wide scan completed in this generation. */
+async function reconcileGmailBaseline(client: PoolClient, input: { run: GmailBaselineRun; accountId: string }): Promise<number> {
+  const removed = await client.query(
+    `DELETE FROM messages m
+      WHERE m.account_id = $1
+        AND m.provider_message_id IS NOT NULL
+        AND (m.synced_at IS NULL OR m.synced_at <= $2)
+        AND NOT EXISTS (
+          SELECT 1 FROM gmail_baseline_seen seen
+           WHERE seen.baseline_run_id = $3 AND seen.provider_message_id = m.provider_message_id
+        )`,
+    [input.accountId, input.run.started_at, input.run.id],
+  );
+  return removed.rowCount ?? 0;
+}
+
+async function finishGmailBaselineRun(client: PoolClient, runId: string): Promise<void> {
+  await client.query(
+    `UPDATE gmail_baseline_runs
+        SET status = 'completed', completed_at = NOW(), updated_at = NOW()
+      WHERE id = $1 AND status = 'active'`,
+    [runId],
+  );
 }
 
 /**
@@ -774,6 +841,13 @@ export async function syncGmailMailMessagesForAccount(input: {
   }
 
   const targets = await withTransaction(client => listGmailFolderTargets(client, input));
+  // Folder scans preserve per-folder ingest behaviour. The final account-wide scan
+  // discovers archived mail (which carries no folder label) and is the only scope
+  // trusted to reconcile absent provider identities.
+  const baselineTargets: GmailBaselineTarget[] = [
+    ...targets.map(target => ({ id: `label:${target.remoteId}`, remoteId: target.remoteId, folderPath: target.folderPath, accountWide: false })),
+    { id: 'all', remoteId: null, folderPath: null, accountWide: true },
+  ];
   const pathByLabelId = await gmailFolderPathByLabelId({ connectionId: input.connectionId, accountId: input.accountId });
   const context: GmailMessageContext = { accountId: input.accountId, pathByLabelId };
 
@@ -888,7 +962,11 @@ export async function syncGmailMailMessagesForAccount(input: {
     }
 
     if (mode === 'baseline') {
-      const baseline = await runBaseline(api, context, account, targets, totals, pageCheckpoint, commit, renew, fenced, maxThreadsPerRun, (rowIds, labelPath) => afterIngest(rowIds, labelPath));
+      const baseline = await runBaseline(
+        api, context, account, baselineTargets, totals, pageCheckpoint, commit, renew, fenced, maxThreadsPerRun,
+        { syncStateId, userId: input.userId, connectionId: input.connectionId, accountId: input.accountId },
+        (rowIds, labelPath) => afterIngest(rowIds, labelPath),
+      );
       incomplete = baseline.incomplete;
       if (!incomplete) {
         cursor = baseline.startHistoryId ?? cursor;
@@ -996,23 +1074,34 @@ async function runBaseline(
   api: GoogleApiOptions,
   context: GmailMessageContext,
   account: ConversationAccountRow,
-  targets: readonly GmailFolderTarget[],
+  targets: readonly GmailBaselineTarget[],
   totals: MessageTotals,
   pageCheckpoint: string | null,
   commit: (checkpoint: { cursor?: string | null; pageCheckpoint?: string | null; clearPageCheckpoint?: boolean }) => Promise<void>,
   renew: () => Promise<void>,
   fenced: <T>(run: (client: PoolClient) => Promise<T>) => Promise<T>,
   maxThreadsPerRun: number,
+  identity: { syncStateId: string; userId: string; connectionId: string; accountId: string },
   afterIngest: (rowIds: readonly string[], labelPath: string) => Promise<void>,
 ): Promise<{ incomplete: boolean; startHistoryId: string | null }> {
-  const checkpoint = parseBaselineCheckpoint(pageCheckpoint) ?? { labelId: null, pageToken: null, startHistoryId: null, processedThreadIds: [] };
+  const parsedCheckpoint = parseBaselineCheckpoint(pageCheckpoint) ?? {
+    targetId: null, pageToken: null, startHistoryId: null, baselineRunId: null, processedThreadIds: [],
+  };
+  const resumedRun = parsedCheckpoint.baselineRunId
+    ? await withTransaction(client => loadGmailBaselineRun(client, { id: parsedCheckpoint.baselineRunId!, syncStateId: identity.syncStateId }))
+    : null;
+  // A legacy or broken checkpoint cannot safely skip its former page: it has no
+  // durable seen set. Restart it as a new snapshot instead of reconciling against
+  // only the tail of the listing.
+  const checkpoint = resumedRun ? parsedCheckpoint : {
+    targetId: null, pageToken: null, startHistoryId: null, baselineRunId: null, processedThreadIds: [],
+  };
   const startHistoryId = checkpoint.startHistoryId ?? await fetchGmailProfileHistoryId(api);
+  const baselineRun = resumedRun ?? await withTransaction(client => createGmailBaselineRun(client, { ...identity, startHistoryId }));
 
   let startIndex = 0;
-  if (checkpoint.labelId) {
-    const found = targets.findIndex(target => target.remoteId === checkpoint.labelId);
-    // A label that disappeared while the baseline was paused is not an error: the run
-    // restarts the listing from the beginning, because there is no page to resume.
+  if (checkpoint.targetId) {
+    const found = targets.findIndex(target => target.id === checkpoint.targetId);
     startIndex = found >= 0 ? found : 0;
   }
 
@@ -1020,24 +1109,21 @@ async function runBaseline(
   for (let index = startIndex; index < targets.length; index++) {
     const target = targets[index];
     if (!target) continue;
-    const resumed = index === startIndex && checkpoint.labelId === target.remoteId
+    const resumed = index === startIndex && checkpoint.targetId === target.id
       && (checkpoint.pageToken !== null || checkpoint.processedThreadIds.length > 0);
     let pageToken: string | null = resumed ? checkpoint.pageToken : null;
-    const seen = new Set<string>();
     let processedOnPage = resumed ? new Set(checkpoint.processedThreadIds) : new Set<string>();
     let completed = false;
 
     for (let page = 0; page < MAX_LIST_PAGES_PER_LABEL; page++) {
       const listing = await fetchGmailMessageIds(api, {
-        labelId: target.remoteId,
+        ...(target.remoteId ? { labelId: target.remoteId } : {}),
         pageToken,
         includeSpamTrash: true,
       });
-      const threadIds = [...new Set(
-        listing.messages
-          .map(message => message.threadId?.trim())
-          .filter((threadId): threadId is string => Boolean(threadId)),
-      )];
+      const threadIds = [...new Set(listing.messages
+        .map(message => message.threadId?.trim())
+        .filter((threadId): threadId is string => Boolean(threadId)))];
 
       let pageComplete = true;
       for (const threadId of threadIds) {
@@ -1047,57 +1133,60 @@ async function runBaseline(
         budget -= 1;
         processedOnPage.add(threadId);
         if (!thread) continue;
-        const applied = await fenced(client => applyGmailThread(client, context, thread, seen));
+        const seenInThread = new Set<string>();
+        const applied = await fenced(async client => {
+          const result = await applyGmailThread(client, context, thread, seenInThread);
+          await recordGmailBaselineSeen(client, baselineRun.id, seenInThread);
+          return result;
+        });
         await persistConversations(applied.rowIds, account);
-        await afterIngest(applied.rowIds, target.folderPath);
+        // The all-mail scan has no local folder of its own. It is a discovery and
+        // reconciliation scope, not an invitation to run INBOX actions on every row.
+        if (target.folderPath) await afterIngest(applied.rowIds, target.folderPath);
         addTotals(totals, applied);
       }
 
       if (!pageComplete) {
-        // The budget ran out inside this page. Re-read the **whole label** from its first page next time
-        // (`pageToken: null`) rather than storing `listing.nextPageToken`: that token only ever moves forward, so
-        // it skipped every thread of this page that had not been read yet, and those threads were never stored
-        // (SYNC-05). Re-reading is idempotent — a thread upserts — and it means the label reconciles against a
-        // complete snapshot when it eventually finishes.
         await commit({
           cursor: null,
           pageCheckpoint: JSON.stringify({
-            labelId: target.remoteId, pageToken, startHistoryId,
+            targetId: target.id, pageToken, startHistoryId, baselineRunId: baselineRun.id,
             processedThreadIds: [...processedOnPage],
           } satisfies GmailBaselineCheckpoint),
         });
         return { incomplete: true, startHistoryId };
       }
 
-      // The page itself was fully applied. The end-of-list test must come before any budget test: a budget that
-      // ended exactly on the last thread of the last page used to satisfy `budget <= 0` and look like an
-      // interruption, which stored a null page token and restarted the label on every run.
       pageToken = listing.nextPageToken;
       processedOnPage = new Set<string>();
       if (!pageToken) { completed = true; break; }
       await renew();
     }
 
-    if (completed) {
-      if (!resumed) {
-        // Only a label listed from its first page in this run can be reconciled: a
-        // resumed listing has no record of the pages an earlier run already saw.
-        totals.deleted += await fenced(client => reconcileGmailFolder(client, context, target.folderPath, seen));
-      }
-    } else {
+    if (!completed) {
       await commit({
         cursor: null,
         pageCheckpoint: JSON.stringify({
-          labelId: target.remoteId, pageToken, startHistoryId, processedThreadIds: [...processedOnPage],
+          targetId: target.id, pageToken, startHistoryId, baselineRunId: baselineRun.id, processedThreadIds: [...processedOnPage],
         } satisfies GmailBaselineCheckpoint),
       });
       return { incomplete: true, startHistoryId };
     }
 
+    if (target.accountWide) {
+      totals.deleted += await fenced(async client => {
+        const deleted = await reconcileGmailBaseline(client, { run: baselineRun, accountId: identity.accountId });
+        await finishGmailBaselineRun(client, baselineRun.id);
+        return deleted;
+      });
+    }
+
     const next = targets[index + 1];
     await commit({
       cursor: null,
-      pageCheckpoint: JSON.stringify({ labelId: next?.remoteId ?? null, pageToken: null, startHistoryId, processedThreadIds: [] } satisfies GmailBaselineCheckpoint),
+      pageCheckpoint: JSON.stringify({
+        targetId: next?.id ?? null, pageToken: null, startHistoryId, baselineRunId: baselineRun.id, processedThreadIds: [],
+      } satisfies GmailBaselineCheckpoint),
     });
     await renew();
   }

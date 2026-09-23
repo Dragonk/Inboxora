@@ -337,6 +337,15 @@ describe('migration integrity', () => {
     expect(sql).not.toMatch(/UPDATE\s+messages/i);
   });
 
+  it('persists Gmail baseline generations without rewriting messages', () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/0123_gmail_baseline_generations.sql'), 'utf8');
+    expect(sql).toContain('CREATE TABLE IF NOT EXISTS gmail_baseline_runs');
+    expect(sql).toContain("status IN ('active', 'completed', 'abandoned')");
+    expect(sql).toContain('CREATE TABLE IF NOT EXISTS gmail_baseline_seen');
+    expect(sql).toContain('PRIMARY KEY (baseline_run_id, provider_message_id)');
+    expect(sql).not.toMatch(/UPDATE\s+messages/i);
+  });
+
   it('records whether stored provider headers are complete without rewriting messages', () => {
     const sql = readFileSync(join(process.cwd(), 'migrations/0124_message_header_completeness.sql'), 'utf8');
     expect(sql).toContain('parsed_headers_complete BOOLEAN NOT NULL DEFAULT false');

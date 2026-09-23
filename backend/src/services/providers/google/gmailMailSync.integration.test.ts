@@ -19,6 +19,7 @@ import {
   upsertProviderConnection,
 } from '../../providerAuthService.js';
 import { acquireSyncLease, ensureSyncState } from '../../syncCoordinator.js';
+import { listMessages } from '../../messageService.js';
 import { labelMembershipReport } from '../../providerLabelMembership.js';
 import {
   gmailLabelIdForPath,
@@ -652,9 +653,10 @@ describeOrSkip('Gmail API label and message ingest (PostgreSQL)', () => {
     expect(pausedState.rows[0]?.cursor).toBeNull();
     // The checkpoint names the label but no page: `nextPageToken` would point at the *following* page and skip
     // m2 for ever, because Gmail's token only ever moves forward (SYNC-05).
-    expect(JSON.parse(pausedState.rows[0]?.page_checkpoint ?? '{}')).toEqual({
-      labelId: 'INBOX', pageToken: null, startHistoryId: '3000', processedThreadIds: ['t1', 't2'],
+    expect(JSON.parse(pausedState.rows[0]?.page_checkpoint ?? '{}')).toMatchObject({
+      targetId: 'label:INBOX', pageToken: null, startHistoryId: '3000', processedThreadIds: ['t1', 't2'],
     });
+    expect(JSON.parse(pausedState.rows[0]?.page_checkpoint ?? '{}').baselineRunId).toEqual(expect.any(String));
     expect(await storedMessages()).toHaveLength(2);
 
     // The resume re-lists INBOX from its first page, skips the durable t1/t2 checkpoint,
@@ -705,6 +707,51 @@ describeOrSkip('Gmail API label and message ingest (PostgreSQL)', () => {
 
     expect(result).toMatchObject({ mode: 'baseline', incomplete: false, cursor: '4000' });
     expect((await storedMessages()).map(row => row.provider_message_id)).toEqual(['m1']);
+  });
+
+  it('carries a durable seen generation across resumed label and all-mail scans', async () => {
+    const connectionId = await seedConnection();
+    await syncGmailMailLabels({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl: fakeGmail([{ match: /\/labels$/, handle: () => json(LABELS) }]).fetchImpl });
+    // X predates the expired cursor but no longer exists remotely. Its removal must
+    // wait for a complete all-mail generation, not the first resumed page.
+    await autocommit(client => client.query(
+      `INSERT INTO messages (account_id, uid, folder, subject, provider_message_id, provider_labels, synced_at)
+       VALUES ($1, 900, 'INBOX', 'Stale', 'gone', ARRAY['INBOX'], NOW() - INTERVAL '1 hour')`, [ACCOUNT_ID],
+    ));
+    const provider = fakeGmail([
+      { match: /\/profile$/, handle: () => json({ historyId: '5000' }) },
+      { match: /\/messages$/, handle: url => {
+        const label = url.searchParams.get('labelIds');
+        if (label === 'INBOX') return json({ messages: [{ id: 'y', threadId: 'ty' }, { id: 'z', threadId: 'tz' }] });
+        if (label === null) return json({ messages: [{ id: 'y', threadId: 'ty' }, { id: 'z', threadId: 'tz' }, { id: 'a', threadId: 'ta' }] });
+        return json({ messages: [] });
+      } },
+      { match: /\/threads\/ty$/, handle: () => json({ id: 'ty', messages: [message('y', 'ty', ['INBOX'])] }) },
+      { match: /\/threads\/tz$/, handle: () => json({ id: 'tz', messages: [message('z', 'tz', ['INBOX'])] }) },
+      // A is first seen through account-wide scan and has no folder-bearing label.
+      { match: /\/threads\/ta$/, handle: () => json({ id: 'ta', messages: [message('a', 'ta', ['UNREAD', 'STARRED'])] }) },
+    ]);
+
+    let result = await syncGmailMailMessagesForAccount({ userId: USER_ID, connectionId, accountId: ACCOUNT_ID, config: CONFIG, fetchImpl: provider.fetchImpl, maxThreadsPerRun: 1 });
+    expect(result).toMatchObject({ incomplete: true, cursor: null });
+    expect((await storedMessages()).map(row => row.provider_message_id)).toContain('gone');
+    // Continue the same generation until the account-wide scan has completed.
+    for (let attempt = 0; attempt < 8 && result.incomplete; attempt++) {
+      result = await syncGmailMailMessagesForAccount({ userId: USER_ID, connectionId, accountId: ACCOUNT_ID, config: CONFIG, fetchImpl: provider.fetchImpl, maxThreadsPerRun: 1 });
+    }
+    expect(result).toMatchObject({ incomplete: false, cursor: '5000' });
+    const rows = await autocommit(client => client.query<{ provider_message_id: string; is_archived: boolean }>(
+      'SELECT provider_message_id, is_archived FROM messages WHERE account_id = $1 ORDER BY provider_message_id', [ACCOUNT_ID],
+    ));
+    expect(rows.rows).toEqual([
+      { provider_message_id: 'a', is_archived: true },
+      { provider_message_id: 'y', is_archived: false },
+      { provider_message_id: 'z', is_archived: false },
+    ]);
+    const archive = await listMessages({ userId: USER_ID, accountId: ACCOUNT_ID, folder: 'Archive' });
+    const inbox = await listMessages({ userId: USER_ID, accountId: ACCOUNT_ID, folder: 'INBOX' });
+    expect(archive.messages.map(row => row.provider_message_id)).toEqual(['a']);
+    expect(inbox.messages.map(row => row.provider_message_id).sort()).toEqual(['y', 'z']);
   });
 
   it('records the failure and keeps the error code when Gmail refuses the call', async () => {
