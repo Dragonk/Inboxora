@@ -64,13 +64,19 @@ async function request(method: string, path: string, body: unknown = undefined, 
     if (res.status === 401 && !path.startsWith('/auth/') && isCurrentAuthEpoch(requestAuthEpoch)) {
       window.dispatchEvent(new CustomEvent('inboxora:session_expired'));
     }
-    const err = await res.json().catch(() => ({ error: 'Request failed' }));
-    const error = new Error(err.error || 'Request failed');
+    const err: unknown = await res.json().catch(() => ({ error: 'Request failed' }));
+    const payload = typeof err === 'object' && err !== null ? err as Record<string, unknown> : {};
+    // Routes may include structured `details`, but Error.message must always be safe, short text — never
+    // JavaScript's "[object Object]" fallback.
+    const message = typeof payload.error === 'string' ? payload.error
+      : typeof payload.message === 'string' ? payload.message : 'Request failed';
+    const error = new Error(message);
     error.status = res.status;
     // The domain code, so a caller can answer in the user's own language rather than matching the server's prose.
-    if (typeof err.code === 'string') (error as Error & { code?: string }).code = err.code;
-    if (err.source) error.source = err.source;
-    if (err.sync) error.sync = err.sync;
+    if (typeof payload.code === 'string') (error as Error & { code?: string }).code = payload.code;
+    if (typeof payload.source === 'string') error.source = payload.source;
+    if (typeof payload.sync === 'string') error.sync = payload.sync;
+    if (payload.details) (error as Error & { details?: unknown }).details = payload.details;
     throw error;
   }
   // A successful DELETE may deliberately return no representation (HTTP 204).
@@ -347,7 +353,7 @@ export const api = {
   // server never includes a token, a secret or a raw provider payload.
   accountProviderDiagnostics: (accountId: string) =>
     request('GET', `/accounts/${encodeURIComponent(accountId)}/provider-diagnostics`),
-  syncAccountProviderFeature: (accountId: string, feature: 'calendars') =>
+  syncAccountProviderFeature: (accountId: string, feature: 'calendars' | 'contacts') =>
     request('POST', `/accounts/${encodeURIComponent(accountId)}/provider-features/${feature}/sync`),
   setAccountProviderFeature: (accountId: string, feature: 'calendars' | 'contacts', enabled: boolean) =>
     request('PATCH', `/accounts/${encodeURIComponent(accountId)}/provider-features/${feature}`, { enabled }),

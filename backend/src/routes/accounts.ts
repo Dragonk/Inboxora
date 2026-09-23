@@ -24,6 +24,9 @@ import { googleConfigFromEnv, microsoftConfigFromEnv } from '../services/provide
 import { providerSyncPreflight, describeProviderSyncFailure } from '../services/providerSyncDiagnostics.js';
 import { syncGoogleCalendar } from '../services/providers/google/googleCalendarSync.js';
 import { syncGraphCalendar } from '../services/providers/microsoft/graphCalendarSync.js';
+import { syncGoogleContacts } from '../services/providers/google/googleContactsSync.js';
+import { syncGraphContacts } from '../services/providers/microsoft/graphContactsSync.js';
+import { reduceProviderSyncResult } from '../services/providerSyncOutcome.js';
 import type { MicrosoftMailCutoverAccount } from '../services/providerMailCutover.js';
 import { cutOverGoogleMailAccount } from '../services/providerGoogleMailCutover.js';
 import type { GoogleMailCutoverAccount } from '../services/providerGoogleMailCutover.js';
@@ -523,32 +526,58 @@ router.patch('/:id/provider-features/:feature', async (req, res) => {
     feature: req.params.feature,
     enabled: req.body.enabled,
   });
-  if (!setting) return res.status(404).json({ error: 'Account not found' });
-  res.json({ accountId: req.params.id, ...setting });
+  if (!setting) return res.status(404).json({ error: 'Account not found', code: 'ACCOUNT_NOT_FOUND' });
+  // Persisting intent is not itself a successful synchronization. Return an explicit preparation contract so the
+  // card can offer the next safe action and never turn an unchecked/current-scope migration into a false denial.
+  const snapshot = await describeAccountProviderFeatures({ userId, accountId: req.params.id });
+  const service = req.params.feature === 'calendars' ? snapshot?.calendar : snapshot?.contacts;
+  const preparation = !req.body.enabled ? 'ready'
+    : !snapshot?.provider || !service?.connectionId ? 'authorization_required'
+      : service.authorized ? 'queued'
+        : service.missingScopes.length === 0 ? 'verification_required' : 'authorization_required';
+  res.json({ accountId: req.params.id, ...setting, preparation });
 });
 
 /** Sync exactly one enabled account service; connection identity is resolved server-side. */
 router.post('/:id/provider-features/:feature/sync', async (req, res) => {
   const userId = req.session.userId;
-  if (!userId) return res.status(401).json({ error: 'Not authenticated' });
-  if (req.params.feature !== 'calendars') return res.status(400).json({ error: 'Only calendars can be synced here', code: 'INVALID_PROVIDER_FEATURE' });
-  if (!providerIntegrationsEnabled()) return res.status(403).json({ error: 'Provider integrations are disabled' });
+  if (!userId) return res.status(401).json({ error: 'Not authenticated', code: 'NOT_AUTHENTICATED' });
+  const requested = req.params.feature;
+  if (requested !== 'calendars' && requested !== 'contacts') {
+    return res.status(400).json({ error: 'feature must be calendars or contacts', code: 'INVALID_PROVIDER_FEATURE' });
+  }
+  if (!providerIntegrationsEnabled()) return res.status(403).json({ error: 'Provider integrations are disabled', code: 'PROVIDER_INTEGRATIONS_DISABLED' });
   const features = await describeAccountProviderFeatures({ userId, accountId: req.params.id });
-  if (!features) return res.status(404).json({ error: 'Account not found' });
-  if (!features.provider || !features.calendar?.connectionId) return res.status(409).json({ error: 'No provider calendar connection for this account', code: 'PROVIDER_AUTH_REQUIRED' });
-  // SVC-01 owns the intent. A manual button must never silently re-enable it.
-  if (features.calendar.enabled !== true) return res.status(409).json({ error: 'Calendars are disabled for this account', code: 'FEATURE_DISABLED' });
+  if (!features) return res.status(404).json({ error: 'Account not found', code: 'ACCOUNT_NOT_FOUND' });
+  const service = requested === 'calendars' ? features.calendar : features.contacts;
+  const feature = requested === 'calendars' ? 'calendar' : 'contacts';
+  if (!features.provider || !service?.connectionId) {
+    return res.status(409).json({ error: `No provider ${feature} connection for this account`, code: 'PROVIDER_AUTH_REQUIRED' });
+  }
+  // User intent owns this setting. A manual button must never silently re-enable it.
+  if (service.enabled !== true) return res.status(409).json({ error: `${requested === 'calendars' ? 'Calendars' : 'Contacts'} are disabled for this account`, code: 'FEATURE_DISABLED' });
   const provider = features.provider;
-  const connectionId = features.calendar.connectionId;
-  const refusal = await providerSyncPreflight({ userId, connectionId, provider, feature: 'calendar' });
-  if (refusal) return res.status(409).json({ connectionId, error: refusal });
+  const connectionId = service.connectionId;
+  const refusal = await providerSyncPreflight({ userId, connectionId, provider, feature });
+  if (refusal) {
+    return res.status(409).json({
+      connectionId, code: refusal.code, error: 'Provider authorization is required before synchronization',
+      details: { feature: refusal.feature, missingScopes: refusal.missingScopes, retryable: refusal.retryable },
+    });
+  }
   try {
-    const result = provider === 'google'
-      ? await syncGoogleCalendar({ userId, connectionId, config: googleConfigFromEnv() })
-      : await syncGraphCalendar({ userId, connectionId, config: microsoftConfigFromEnv() });
-    res.json({ accountId: req.params.id, connectionId, provider, state: result.errors?.length ? 'partial' : 'success', result });
+    const result = requested === 'calendars'
+      ? (provider === 'google'
+        ? await syncGoogleCalendar({ userId, connectionId, config: googleConfigFromEnv() })
+        : await syncGraphCalendar({ userId, connectionId, config: microsoftConfigFromEnv() }))
+      : (provider === 'google'
+        ? await syncGoogleContacts({ userId, connectionId, config: googleConfigFromEnv() })
+        : await syncGraphContacts({ userId, connectionId, config: microsoftConfigFromEnv() }));
+    const reduced = reduceProviderSyncResult(result);
+    res.json({ accountId: req.params.id, connectionId, provider, feature, state: reduced.state, outcome: reduced.outcome, synchronized: reduced.synchronized, syncPending: reduced.syncPending, code: reduced.errorCode, result });
   } catch (caught) {
-    res.status(502).json({ accountId: req.params.id, connectionId, provider, state: 'error', error: await describeProviderSyncFailure({ userId, connectionId, provider, feature: 'calendar', caught }) });
+    const failure = await describeProviderSyncFailure({ userId, connectionId, provider, feature, caught });
+    res.status(502).json({ accountId: req.params.id, connectionId, provider, feature, state: 'error', code: failure.code, error: failure.message, details: failure });
   }
 });
 

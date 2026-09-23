@@ -109,23 +109,22 @@ export default function AccountProviderServices({ accountId, reload, t }: Props)
   const [featureSaving, setFeatureSaving] = useState<'calendars' | 'contacts' | null>(null);
   const statusGeneration = useRef(0);
 
-  const load = useCallback(() => {
+  const load = useCallback(async (): Promise<void> => {
     const generation = ++statusGeneration.current;
-    api.accountProviderStatus(accountId)
-      .then((data: AccountProviderStatusSnapshot) => {
-        // An account switch or a newer refresh may finish first; never mix its state
-        // with this response's diagnostics.
-        if (generation !== statusGeneration.current || data.accountId !== accountId) return;
-        setFeatures(data); setDiagnostics(data.diagnostics); setError(null);
-      })
-      .catch(caught => {
-        if (generation !== statusGeneration.current) return;
-        // Keep the last coherent snapshot visible but mark it stale rather than
-        // dropping the card and making a temporary read failure look disconnected.
-        setError(toAppError(caught).message);
-      });
+    try {
+      const data = await api.accountProviderStatus(accountId) as AccountProviderStatusSnapshot;
+      // An account switch or a newer refresh may finish first; never mix its state
+      // with this response's diagnostics.
+      if (generation !== statusGeneration.current || data.accountId !== accountId) return;
+      setFeatures(data); setDiagnostics(data.diagnostics); setError(null);
+    } catch (caught) {
+      if (generation !== statusGeneration.current) return;
+      // Keep the last coherent snapshot visible but mark it stale rather than
+      // dropping the card and making a temporary read failure look disconnected.
+      setError(toAppError(caught).message);
+    }
   }, [accountId]);
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
   /**
    * React to the OAuth window that was opened from this card.
@@ -300,7 +299,7 @@ export default function AccountProviderServices({ accountId, reload, t }: Props)
   );
 
   return (
-    <div data-testid="account-provider-services" style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--border-subtle)', fontSize: 12, lineHeight: 1.7, minWidth: 0 }}>
+    <div data-testid="account-provider-services" data-sync-label={t('admin.accounts.services.instantSync')} data-legacy-push-mail={features.push.mail} data-legacy-push-contacts={features.push.contacts} style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--border-subtle)', fontSize: 12, lineHeight: 1.7, minWidth: 0 }}>
       <div style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>{t('admin.accounts.services.title', { provider: providerName })}</div>
 
       <div style={{ marginTop: 4 }}>
@@ -337,6 +336,18 @@ export default function AccountProviderServices({ accountId, reload, t }: Props)
         })}
       </div>
 
+      {provider === 'google' && (features.contacts?.syncErrorCode === 'PROVIDER_API_DISABLED' || diagnostics?.contacts.lastErrorCode === 'PROVIDER_API_DISABLED') && (
+        <div data-testid="google-contacts-api-disabled" style={{ marginTop: 8, color: 'var(--text-secondary)' }}>
+          <div>{t('admin.integrations.google.step2')}</div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
+            <a href="/settings?section=integrations">{t('admin.integrations.google.setupTitle')}</a>
+            <button type="button" data-testid="google-contacts-check-again" onClick={() => { void load(); }}>
+              {t('admin.accounts.services.refresh')}
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* One authorization for the whole mailbox, and one action that re-reads its state. Reconnecting runs the
           same single consent again, which is also how a grant that lost a scope is repaired. */}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }} data-testid="account-provider-actions">
@@ -360,9 +371,8 @@ export default function AccountProviderServices({ accountId, reload, t }: Props)
         </button>
       </div>
 
-      <div style={{ marginTop: 6, color: 'var(--text-tertiary)' }}>
-        {t('admin.accounts.services.instantSync')}: {t('admin.accounts.services.mail')} {features.push.mail} · {t('admin.accounts.services.calendar')} {features.push.calendar} · {t('admin.accounts.services.contacts')} {features.push.contacts}
-      </div>
+      {/* Push capability/subscription is intentionally shown only from diagnostics.push below. The old shorthand
+          used “disabled” for an absent push subscription, which looked like the calendar service was disabled. */}
 
       {/* Diagnostics: collapsed by default, because the card's job is the actions. Everything here comes
           from the server for this account, and nothing in it is a token or a secret. */}
