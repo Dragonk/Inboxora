@@ -34,7 +34,7 @@ describe('provider sync diagnostics', () => {
 
   it('supplements an explicit scope error with the matching connection grant', async () => {
     mocks.query
-      .mockResolvedValueOnce({ rows: [{ scopes: ['https://www.googleapis.com/auth/gmail.modify'] }] })
+      .mockResolvedValueOnce({ rows: [{ current_scopes: ['https://www.googleapis.com/auth/gmail.modify'] }] })
       .mockResolvedValueOnce({ rows: [{ id: 'account-1' }] });
     const result = await describeProviderSyncFailure({
       ...input,
@@ -44,7 +44,7 @@ describe('provider sync diagnostics', () => {
   });
 
   it('permits a read-only People grant through read preflight but not write preflight', async () => {
-    mocks.query.mockResolvedValue({ rows: [{ scopes: ['https://www.googleapis.com/auth/contacts.readonly'] }] });
+    mocks.query.mockResolvedValue({ rows: [{ current_scopes: ['https://www.googleapis.com/auth/contacts.readonly'] }] });
     await expect(providerSyncPreflight({ ...input, feature: 'contacts' })).resolves.toBeNull();
     await expect(providerSyncPreflight({ ...input, feature: 'contacts', capability: 'write' }))
       .resolves.toMatchObject({ code: 'PROVIDER_AUTH_REQUIRED', missingScopes: ['contacts'] });

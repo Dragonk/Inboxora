@@ -117,7 +117,7 @@ describe('per-feature authorization (unit)', () => {
     expect(revoked).toMatchObject({ authorized: false, missingScopes: ['gmail.modify'] });
 
     // And an active grant with the right scope authorizes exactly that feature.
-    mocks.query.mockResolvedValue({ rows: [{ scopes: [`${GOOGLE}gmail.modify`] }] });
+    mocks.query.mockResolvedValue({ rows: [{ current_scopes: [`${GOOGLE}gmail.modify`] }] });
     const authorized = await readProviderFeatureAuthorization({ connectionId: 'connection-1', provider: 'google', feature: 'mail' });
     expect(authorized).toMatchObject({ authorized: true, missingScopes: [] });
     const calendar = await readProviderFeatureAuthorization({ connectionId: 'connection-1', provider: 'google', feature: 'calendar' });
@@ -130,7 +130,7 @@ describe('the account feature view', () => {
   beforeEach(() => { mocks.query.mockReset(); });
 
   it('reports authorization per feature rather than a connection existing', async () => {
-    mocks.query.mockResolvedValue({ rows: [{ scopes: [`${GOOGLE}gmail.modify`] }] });
+    mocks.query.mockResolvedValue({ rows: [{ current_scopes: [`${GOOGLE}gmail.modify`] }] });
     const mail = await readProviderFeatureAuthorization({ connectionId: 'connection-1', provider: 'google', feature: 'mail' });
     const contacts = await readProviderFeatureAuthorization({ connectionId: 'connection-1', provider: 'google', feature: 'contacts' });
     expect(mail.authorized).toBe(true);

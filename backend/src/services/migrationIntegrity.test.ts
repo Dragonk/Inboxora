@@ -369,6 +369,12 @@ describe('migration integrity', () => {
     expect(sql).not.toMatch(/UPDATE\s+messages/i);
   });
 
+  it('separates current OAuth-token scopes from consent history without guessing legacy grants', () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/0127_oauth_grant_current_scopes.sql'), 'utf8');
+    expect(sql).toContain('ADD COLUMN IF NOT EXISTS current_scopes TEXT[]');
+    expect(sql).not.toMatch(/UPDATE\s+oauth_grants/i);
+  });
+
   it('keeps calendar presentation preferences user-scoped and independent of provider mutations', () => {
     const sql = readFileSync(join(process.cwd(), 'migrations/0129_calendar_presentation_preferences.sql'), 'utf8');
     expect(sql).toContain('CREATE TABLE IF NOT EXISTS user_calendar_source_preferences');

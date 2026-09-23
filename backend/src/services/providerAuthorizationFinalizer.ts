@@ -40,6 +40,8 @@ export function isFinalizablePurpose(purpose: string): purpose is ProviderAuthor
     || purpose === 'account_enable';
 }
 
+export type ProviderSyncOutcome = 'completed' | 'partial' | 'incomplete' | 'skipped_disabled' | 'auth_required' | 'failed';
+
 export interface ProviderAuthorizationResult {
   provider: 'google' | 'microsoft';
   purpose: ProviderAuthorizationPurpose;
@@ -53,6 +55,8 @@ export interface ProviderAuthorizationResult {
   syncPending: boolean;
   /** The concrete failure of the first run, when it failed. */
   syncErrorCode: string | null;
+  /** Truthful completion state; `synchronized` is true only for completed. */
+  syncOutcome?: ProviderSyncOutcome;
 }
 
 export interface FinalizeProviderAuthorizationInput {
@@ -81,32 +85,39 @@ function failureCodeOf(caught: unknown): string {
   return 'SYNC_FAILED';
 }
 
-/** The per-collection failures a calendar run reports instead of throwing. */
-type CalendarSyncFailures = Array<{ calendarId: string; code: string }>;
+/** Adapter results intentionally survive the finalizer instead of becoming a bare success. */
+type CalendarSyncRun = { errors?: Array<{ calendarId: string; code: string }>; incompleteCollections?: number; disabled?: boolean };
+type FeatureSyncRun = { incomplete?: boolean; disabled?: boolean };
+
+function outcomeForRun(result: CalendarSyncRun | FeatureSyncRun): ProviderSyncOutcome {
+  if (result.disabled) return 'skipped_disabled';
+  if ('errors' in result && (result.errors?.length ?? 0) > 0) return 'partial';
+  if (('incomplete' in result && result.incomplete) || ('incompleteCollections' in result && (result.incompleteCollections ?? 0) > 0)) return 'incomplete';
+  return 'completed';
+}
 
 /** The first calendar run for one connection. */
-async function runCalendarSync(input: FinalizeProviderAuthorizationInput): Promise<CalendarSyncFailures> {
+async function runCalendarSync(input: FinalizeProviderAuthorizationInput): Promise<CalendarSyncRun> {
   if (input.provider === 'google') {
     const config = input.googleConfig ?? googleConfigFromEnv();
     if (!isGoogleConfigured(config)) throw Object.assign(new Error('Google API is not configured'), { code: 'ADMIN_CONFIGURATION_REQUIRED' });
-    return (await syncGoogleCalendar({ userId: input.userId, connectionId: input.connectionId, config })).errors ?? [];
+    return await syncGoogleCalendar({ userId: input.userId, connectionId: input.connectionId, config });
   }
   const config = input.microsoftConfig ?? microsoftConfigFromEnv();
   if (!isMicrosoftConfigured(config)) throw Object.assign(new Error('Microsoft API is not configured'), { code: 'ADMIN_CONFIGURATION_REQUIRED' });
-  return (await syncGraphCalendar({ userId: input.userId, connectionId: input.connectionId, config })).errors ?? [];
+  return await syncGraphCalendar({ userId: input.userId, connectionId: input.connectionId, config });
 }
 
 /** The first contacts run for one connection. */
-async function runContactsSync(input: FinalizeProviderAuthorizationInput): Promise<void> {
+async function runContactsSync(input: FinalizeProviderAuthorizationInput): Promise<FeatureSyncRun> {
   if (input.provider === 'google') {
     const config = input.googleConfig ?? googleConfigFromEnv();
     if (!isGoogleConfigured(config)) throw Object.assign(new Error('Google API is not configured'), { code: 'ADMIN_CONFIGURATION_REQUIRED' });
-    await syncGoogleContacts({ userId: input.userId, connectionId: input.connectionId, config });
-    return;
+    return await syncGoogleContacts({ userId: input.userId, connectionId: input.connectionId, config });
   }
   const config = input.microsoftConfig ?? microsoftConfigFromEnv();
   if (!isMicrosoftConfigured(config)) throw Object.assign(new Error('Microsoft API is not configured'), { code: 'ADMIN_CONFIGURATION_REQUIRED' });
-  await syncGraphContacts({ userId: input.userId, connectionId: input.connectionId, config });
+  return await syncGraphContacts({ userId: input.userId, connectionId: input.connectionId, config });
 }
 
 /**
@@ -115,22 +126,22 @@ async function runContactsSync(input: FinalizeProviderAuthorizationInput): Promi
  * Discovery first — a message's folder is only resolvable once the label or folder paths exist — then the
  * messages of every mailbox the connection owns, which is the same order the scheduler uses.
  */
-async function runMailBaseline(input: FinalizeProviderAuthorizationInput): Promise<void> {
+async function runMailBaseline(input: FinalizeProviderAuthorizationInput): Promise<FeatureSyncRun> {
   if (input.provider === 'google') {
     const config = input.googleConfig ?? googleConfigFromEnv();
     if (!isGoogleConfigured(config)) throw Object.assign(new Error('Google API is not configured'), { code: 'ADMIN_CONFIGURATION_REQUIRED' });
     const accountId = input.targetAccountId;
     if (!accountId) throw Object.assign(new Error('A mail migration needs the mailbox it belongs to'), { code: 'TARGET_ACCOUNT_REQUIRED' });
     await syncGmailMailLabelsForAccount({ userId: input.userId, connectionId: input.connectionId, accountId, config });
-    await syncGmailMailMessagesForAccount({ userId: input.userId, connectionId: input.connectionId, accountId, config });
-    return;
+    return await syncGmailMailMessagesForAccount({ userId: input.userId, connectionId: input.connectionId, accountId, config });
   }
   const config = input.microsoftConfig ?? microsoftConfigFromEnv();
   if (!isMicrosoftConfigured(config)) throw Object.assign(new Error('Microsoft API is not configured'), { code: 'ADMIN_CONFIGURATION_REQUIRED' });
   const accountId = input.targetAccountId;
   if (!accountId) throw Object.assign(new Error('A mail migration needs the mailbox it belongs to'), { code: 'TARGET_ACCOUNT_REQUIRED' });
   await syncGraphMailFolders({ userId: input.userId, connectionId: input.connectionId, config });
-  await syncGraphMailMessagesForAccount({ userId: input.userId, connectionId: input.connectionId, accountId, config });
+    const result = await syncGraphMailMessagesForAccount({ userId: input.userId, connectionId: input.connectionId, accountId, config });
+  return { incomplete: result.incompleteFolders > 0 || result.failedFolders > 0 };
 }
 
 
@@ -214,39 +225,51 @@ export async function finalizeProviderAuthorization(
   try {
     if (input.purpose === 'calendar_enable') {
       if (!await featureStillEnabled(input, 'calendars')) {
-        return { ...base, synchronized: false, syncPending: false, syncErrorCode: 'FEATURE_DISABLED' };
+        return { ...base, synchronized: false, syncPending: false, syncErrorCode: 'FEATURE_DISABLED', syncOutcome: 'skipped_disabled' };
       }
-      // A calendar run reports a per-collection failure instead of throwing: one unreadable shared calendar must
-      // not fail the consent, but it does mean the synchronisation was not complete (OBS-02).
-      const calendarFailures = await runCalendarSync(input);
-      if (calendarFailures.length) {
-        const code = calendarFailures[0]!.code;
-        console.warn(`Initial calendar sync after authorization partly failed for ${input.provider}:`, calendarFailures.map(failure => failure.code).join(','));
-        await recordInitialSyncFailure(input, code, 'calendars').catch(() => { /* the result is still reported below */ });
-        return { ...base, synchronized: false, syncPending: false, syncErrorCode: code };
+      const calendar = await runCalendarSync(input);
+      const outcome = outcomeForRun(calendar);
+      if (outcome !== 'completed') {
+        const code = calendar.errors?.[0]?.code ?? (outcome === 'incomplete' ? 'PARTIAL_SYNC' : 'FEATURE_DISABLED');
+        if (outcome !== 'skipped_disabled') await recordInitialSyncFailure(input, code, 'calendars').catch(() => {});
+        return { ...base, synchronized: false, syncPending: outcome === 'incomplete', syncErrorCode: code, syncOutcome: outcome };
       }
     }
     else if (input.purpose === 'contacts_enable') {
       if (!await featureStillEnabled(input, 'contacts')) {
-        return { ...base, synchronized: false, syncPending: false, syncErrorCode: 'FEATURE_DISABLED' };
+        return { ...base, synchronized: false, syncPending: false, syncErrorCode: 'FEATURE_DISABLED', syncOutcome: 'skipped_disabled' };
       }
-      await runContactsSync(input);
+      const contacts = await runContactsSync(input);
+      const outcome = outcomeForRun(contacts);
+      if (outcome !== 'completed') {
+        const code = outcome === 'incomplete' ? 'PARTIAL_SYNC' : 'FEATURE_DISABLED';
+        if (outcome !== 'skipped_disabled') await recordInitialSyncFailure(input, code, 'contacts').catch(() => {});
+        return { ...base, synchronized: false, syncPending: outcome === 'incomplete', syncErrorCode: code, syncOutcome: outcome };
+      }
     }
     else if (input.purpose === 'account_enable') {
       // One consent covers the whole mailbox, so every feature it authorized is primed now. A failure in one of
       // them must not stop the others: each feature records its own state, and the first failure is reported.
-      const failures: Array<{ feature: FinalizedFeature; code: string }> = [];
+      const failures: Array<{ feature: FinalizedFeature; code: string; outcome: ProviderSyncOutcome }> = [];
       if (await featureStillEnabled(input, 'calendars')) {
         try {
-          for (const failure of await runCalendarSync(input)) failures.push({ feature: 'calendars', code: failure.code });
-        } catch (caught) { failures.push({ feature: 'calendars', code: failureCodeOf(caught) }); }
+          const calendar = await runCalendarSync(input);
+          const outcome = outcomeForRun(calendar);
+          if (outcome !== 'completed') failures.push({ feature: 'calendars', outcome, code: calendar.errors?.[0]?.code ?? 'PARTIAL_SYNC' });
+        } catch (caught) { failures.push({ feature: 'calendars', outcome: 'failed', code: failureCodeOf(caught) }); }
       }
       if (await featureStillEnabled(input, 'contacts')) {
-        try { await runContactsSync(input); } catch (caught) { failures.push({ feature: 'contacts', code: failureCodeOf(caught) }); }
+        try {
+          const outcome = outcomeForRun(await runContactsSync(input));
+          if (outcome !== 'completed') failures.push({ feature: 'contacts', outcome, code: 'PARTIAL_SYNC' });
+        } catch (caught) { failures.push({ feature: 'contacts', outcome: 'failed', code: failureCodeOf(caught) }); }
       }
       // The mail baseline only applies to a mailbox the flow named; a bare consent reuses what syncs exist.
       if (input.targetAccountId) {
-        try { await runMailBaseline(input); } catch (caught) { failures.push({ feature: 'mail', code: failureCodeOf(caught) }); }
+        try {
+          const outcome = outcomeForRun(await runMailBaseline(input));
+          if (outcome !== 'completed') failures.push({ feature: 'mail', outcome, code: 'PARTIAL_SYNC' });
+        } catch (caught) { failures.push({ feature: 'mail', outcome: 'failed', code: failureCodeOf(caught) }); }
       }
       if (failures.length) {
         console.warn(`Initial sync after a single consent partly failed for ${input.provider}:`, failures.map(failure => failure.code).join(','));
@@ -255,18 +278,28 @@ export async function finalizeProviderAuthorization(
         for (const failure of failures) {
           await recordInitialSyncFailure(input, failure.code, failure.feature).catch(() => { /* reported below */ });
         }
-        return { ...base, synchronized: false, syncPending: false, syncErrorCode: failures[0]!.code };
+        return {
+          ...base, synchronized: false,
+          syncPending: failures.some(failure => failure.outcome === 'incomplete'),
+          syncErrorCode: failures[0]!.code,
+          syncOutcome: failures.some(failure => failure.outcome === 'partial') ? 'partial'
+            : failures.some(failure => failure.outcome === 'incomplete') ? 'incomplete'
+              : failures.some(failure => failure.outcome === 'skipped_disabled') ? 'skipped_disabled' : 'failed',
+        };
       }
     }
     else await runMailBaseline(input);
-    return { ...base, synchronized: true, syncPending: false, syncErrorCode: null };
+    return { ...base, synchronized: true, syncPending: false, syncErrorCode: null, syncOutcome: 'completed' };
   } catch (caught) {
     // The grant stays. The failure is reported with the provider's own code so the card can say
     // "connected, synchronisation failed" instead of asking for a reconnection that changes nothing.
     const code = failureCodeOf(caught);
     console.warn(`Initial ${input.purpose} sync after authorization failed for ${input.provider}:`, code);
     await recordInitialSyncFailure(input, code).catch(() => { /* the result is still reported below */ });
-    return { ...base, synchronized: false, syncPending: false, syncErrorCode: code };
+    return {
+      ...base, synchronized: false, syncPending: false, syncErrorCode: code,
+      syncOutcome: code === 'PROVIDER_AUTH_REQUIRED' || code === 'INSUFFICIENT_SCOPES' ? 'auth_required' : 'failed',
+    };
   }
 }
 
@@ -277,5 +310,6 @@ export function authorizationResultQuery(result: ProviderAuthorizationResult): s
   params.set('authorized', result.authorized ? '1' : '0');
   params.set('synchronized', result.synchronized ? '1' : '0');
   if (result.syncErrorCode) params.set('syncErrorCode', result.syncErrorCode);
+  if (result.syncOutcome) params.set('syncOutcome', result.syncOutcome);
   return params.toString();
 }

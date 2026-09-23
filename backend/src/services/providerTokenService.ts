@@ -36,7 +36,10 @@ export interface GrantView {
   accessToken: string | null;
   refreshToken: string | null;
   expiresAt: Date | null;
+  /** Historical consent scopes. */
   scopes: string[];
+  /** Scopes confirmed for the access token currently stored in this grant. */
+  currentScopes: string[];
   authFlow: string;
   clientAuthMethod: string;
   clientConfigId: string | null;
@@ -48,7 +51,7 @@ export interface GrantView {
 interface GrantRow {
   id: string; connection_id: string; provider: string; audience: string;
   access_token_encrypted: string | null; refresh_token_encrypted: string | null;
-  expires_at: Date | null; scopes: string[] | null; auth_flow: string; client_auth_method: string;
+  expires_at: Date | null; scopes: string[] | null; current_scopes: string[] | null; auth_flow: string; client_auth_method: string;
   client_config_id: string | null; client_id_at_issue: string | null; generation: string | number; status: string;
 }
 
@@ -62,6 +65,7 @@ function toGrantView(row: GrantRow): GrantView {
     refreshToken: row.refresh_token_encrypted ? decrypt(row.refresh_token_encrypted) : null,
     expiresAt: row.expires_at,
     scopes: row.scopes ?? [],
+    currentScopes: row.current_scopes ?? [],
     authFlow: row.auth_flow,
     clientAuthMethod: row.client_auth_method,
     clientConfigId: row.client_config_id,
@@ -79,7 +83,7 @@ export async function readGrantForUser(client: PoolClient, input: {
 }): Promise<GrantView | null> {
   const result = await client.query<GrantRow>(
     `SELECT g.id, g.connection_id, c.provider, g.audience, g.access_token_encrypted,
-            g.refresh_token_encrypted, g.expires_at, g.scopes, g.auth_flow, g.client_auth_method,
+            g.refresh_token_encrypted, g.expires_at, g.scopes, g.current_scopes, g.auth_flow, g.client_auth_method,
             g.client_config_id, g.client_id_at_issue, g.generation, g.status
        FROM oauth_grants g
        JOIN provider_connections c ON c.id = g.connection_id
@@ -139,7 +143,9 @@ export async function storeRefreshedGrant(client: PoolClient, input: {
         SET access_token_encrypted = $3,
             refresh_token_encrypted = COALESCE($4, refresh_token_encrypted),
             expires_at = $5,
-            scopes = CASE WHEN cardinality($6::text[]) > 0 THEN $6::text[] ELSE scopes END,
+            -- Refresh often omits scope; preserve the verified current-token set, never
+             -- the broader consent history.
+             current_scopes = CASE WHEN cardinality($6::text[]) > 0 THEN $6::text[] ELSE current_scopes END,
             generation = generation + 1,
             status = 'active', reauth_reason = NULL,
             refresh_lease_expires_at = NULL, refresh_lease_owner = NULL,
@@ -235,7 +241,7 @@ function usableToken(grant: GrantView | null, now: Date, skewMs: number): Omit<A
   if (!grant?.accessToken || !grant.expiresAt) return null;
   if (grant.expiresAt.getTime() <= now.getTime() + skewMs) return null;
   if (!REFRESHABLE_STATUSES.has(grant.status)) return null;
-  return { accessToken: grant.accessToken, expiresAt: grant.expiresAt, generation: grant.generation, scopes: grant.scopes };
+  return { accessToken: grant.accessToken, expiresAt: grant.expiresAt, generation: grant.generation, scopes: grant.currentScopes };
 }
 
 /** Provider-specific pieces of the shared refresh orchestration. */
@@ -327,7 +333,7 @@ async function getProviderAccessToken<TConfig>(profile: ProviderTokenProfile<TCo
     const tokens = await profile.exchange({
       // The token read under the lease, not the one read before acquiring it.
       refreshToken: guarded?.refreshToken ?? initial.refreshToken,
-      scopes: initial.scopes,
+      scopes: guarded?.currentScopes ?? initial.currentScopes,
       config: input.config,
       ...(input.fetchImpl ? { fetchImpl: input.fetchImpl } : {}),
     });
@@ -351,7 +357,7 @@ async function getProviderAccessToken<TConfig>(profile: ProviderTokenProfile<TCo
       expiresAt: tokens.expiresAt,
       generation: stored.generation,
       refreshed: true,
-      scopes: tokens.scopes.length ? tokens.scopes : initial.scopes,
+      scopes: tokens.scopes.length ? tokens.scopes : guarded?.currentScopes ?? initial.currentScopes,
     };
   } catch (caught) {
     if (caught instanceof ProviderAuthError && (caught.code === 'invalid_grant' || caught.code === 'unauthorized_client')) {

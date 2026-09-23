@@ -268,6 +268,7 @@ router.post('/provider/microsoft/device/poll', requireAuth, async (req: Request,
         refreshToken: result.tokens.refreshToken,
         expiresAt: result.tokens.expiresAt,
         scopes: result.tokens.scopes.length ? result.tokens.scopes : flow.requestedScopes,
+        currentScopes: result.tokens.scopes.length ? result.tokens.scopes : flow.requestedScopes,
         authFlow: 'device_code',
         // A device grant is issued to a public client, so its refresh must omit the secret.
         clientAuthMethod: 'public',
@@ -412,8 +413,10 @@ router.get('/microsoft/callback', async (req: Request, res: Response) => {
         accessToken: tokens.accessToken,
         refreshToken: tokens.refreshToken,
         expiresAt: tokens.expiresAt,
-        // Prefer the scopes the provider actually granted over what we asked for.
+        // This token generation falls back only to its own PKCE-bound request,
+        // never to the historical union held by an older grant generation.
         scopes: tokens.scopes.length ? tokens.scopes : taken.requestedScopes,
+        currentScopes: tokens.scopes.length ? tokens.scopes : taken.requestedScopes,
         authFlow: 'browser',
         // A browser authorization code is issued to the confidential web client;
         // refresh may still work without a secret for a public registration.

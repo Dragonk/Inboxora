@@ -983,7 +983,10 @@ export interface StoreGrantInput {
   accessToken: string;
   refreshToken?: string | null;
   expiresAt: Date;
+  /** Consent history added by this OAuth response. */
   scopes: readonly string[];
+  /** Exact scopes of the access token stored by this write; never the historical union. */
+  currentScopes?: readonly string[];
   authFlow?: 'browser' | 'device_code';
   clientAuthMethod?: 'confidential' | 'public';
   clientConfigId?: string | null;
@@ -1000,9 +1003,9 @@ export interface StoreGrantInput {
 export async function storeOAuthGrant(client: PoolClient, input: StoreGrantInput): Promise<{ id: string; generation: number }> {
   const result = await client.query<{ id: string; generation: string | number }>(
     `INSERT INTO oauth_grants
-       (connection_id, audience, access_token_encrypted, refresh_token_encrypted, expires_at, scopes,
+       (connection_id, audience, access_token_encrypted, refresh_token_encrypted, expires_at, scopes, current_scopes,
         auth_flow, client_auth_method, client_config_id, client_id_at_issue, generation, status)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,1,'active')
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,1,'active')
      ON CONFLICT (connection_id, audience) DO UPDATE SET
        access_token_encrypted = EXCLUDED.access_token_encrypted,
        refresh_token_encrypted = COALESCE(EXCLUDED.refresh_token_encrypted, oauth_grants.refresh_token_encrypted),
@@ -1016,9 +1019,12 @@ export async function storeOAuthGrant(client: PoolClient, input: StoreGrantInput
        scopes = (
          SELECT COALESCE(array_agg(DISTINCT scope ORDER BY scope), ARRAY[]::text[])
            FROM unnest(array_remove(oauth_grants.scopes || EXCLUDED.scopes, NULL)) AS scope
-          WHERE scope <> ALL (COALESCE($11::text[], ARRAY[]::text[]))
+          WHERE scope <> ALL (COALESCE($12::text[], ARRAY[]::text[]))
        ),
-       auth_flow = EXCLUDED.auth_flow,
+       -- This is a replacement, never a union: token B may be narrower than
+        -- token A although durable consent history still contains A.
+        current_scopes = EXCLUDED.current_scopes,
+        auth_flow = EXCLUDED.auth_flow,
        client_auth_method = EXCLUDED.client_auth_method,
        client_config_id = EXCLUDED.client_config_id,
        client_id_at_issue = EXCLUDED.client_id_at_issue,
@@ -1028,7 +1034,7 @@ export async function storeOAuthGrant(client: PoolClient, input: StoreGrantInput
     [
       input.connectionId, input.audience, encrypt(input.accessToken),
       input.refreshToken ? encrypt(input.refreshToken) : null,
-      input.expiresAt, [...input.scopes], input.authFlow ?? 'browser',
+      input.expiresAt, [...input.scopes], [...(input.currentScopes ?? input.scopes)], input.authFlow ?? 'browser',
       input.clientAuthMethod ?? 'confidential', input.clientConfigId ?? null, input.clientIdAtIssue ?? null,
       input.dropScopes ? [...input.dropScopes] : null,
     ],

@@ -104,6 +104,14 @@ describe('finalizeProviderAuthorization', () => {
     }
   });
 
+  it('reports a capped calendar sync as incomplete instead of a completed authorization sync', async () => {
+    calls.syncGoogleCalendar.mockResolvedValueOnce({
+      collections: 1, created: 1, updated: 0, deleted: 0, skipped: 0, fullSync: false, errors: [], incompleteCollections: 1,
+    } as never);
+    const result = await finalizeProviderAuthorization(input());
+    expect(result).toMatchObject({ synchronized: false, syncPending: true, syncErrorCode: 'PARTIAL_SYNC', syncOutcome: 'incomplete' });
+  });
+
   it('runs the contacts synchronisation immediately for contacts_enable', async () => {
     const result = await finalizeProviderAuthorization(input({ purpose: 'contacts_enable' }));
     expect(calls.syncGoogleContacts).toHaveBeenCalledWith(expect.objectContaining({ connectionId: 'connection-1' }));
@@ -201,7 +209,7 @@ describe('finalizeProviderAuthorization', () => {
   it('reports the result to the opener without a token', () => {
     const query = authorizationResultQuery({
       provider: 'microsoft', purpose: 'calendar_enable', accountId: 'account-1', connectionId: 'connection-1',
-      authorized: true, synchronized: false, syncPending: false, syncErrorCode: 'INSUFFICIENT_SCOPES',
+      authorized: true, synchronized: false, syncPending: false, syncErrorCode: 'INSUFFICIENT_SCOPES', syncOutcome: 'auth_required',
     });
     const params = new URLSearchParams(query);
     expect(params.get('provider')).toBe('microsoft');
@@ -209,6 +217,7 @@ describe('finalizeProviderAuthorization', () => {
     expect(params.get('accountId')).toBe('account-1');
     expect(params.get('synchronized')).toBe('0');
     expect(params.get('syncErrorCode')).toBe('INSUFFICIENT_SCOPES');
+    expect(params.get('syncOutcome')).toBe('auth_required');
     // Nothing about the connection's credentials travels.
     for (const forbidden of ['token', 'secret', 'code', 'connectionId']) {
       expect(query, `${forbidden} leaked into the result`).not.toContain(forbidden);

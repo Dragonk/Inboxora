@@ -111,11 +111,11 @@ export async function readProviderFeatureAuthorization(input: {
 }): Promise<ProviderFeatureAuthorization> {
   if (!input.connectionId) return evaluateProviderFeatureAuthorization(input.provider, input.feature, []);
   const audience = input.provider === 'google' ? GOOGLE_GRANT_AUDIENCE : MICROSOFT_GRANT_AUDIENCE;
-  const result = await query<{ scopes: string[] | null }>(
-    `SELECT scopes FROM oauth_grants
+  const result = await query<{ current_scopes: string[] | null }>(
+    `SELECT current_scopes FROM oauth_grants
       WHERE connection_id = $1 AND audience = $2 AND status = 'active'
       LIMIT 1`,
     [input.connectionId, audience],
   );
-  return evaluateProviderFeatureAuthorization(input.provider, input.feature, result.rows[0]?.scopes ?? []);
+  return evaluateProviderFeatureAuthorization(input.provider, input.feature, result.rows[0]?.current_scopes ?? []);
 }

@@ -220,8 +220,11 @@ router.get('/google/callback', async (req: Request, res: Response) => {
         accessToken: tokens.accessToken,
         refreshToken: tokens.refreshToken,
         expiresAt: tokens.expiresAt,
-        // Prefer the scopes the provider actually granted over what we asked for.
+        // Consent history may accumulate across flows, but capabilities must match
+        // this access-token generation. When Google omits `scope`, this browser flow's
+        // PKCE-bound request is the documented fallback — never an older grant union.
         scopes: tokens.scopes.length ? tokens.scopes : taken.requestedScopes,
+        currentScopes: tokens.scopes.length ? tokens.scopes : taken.requestedScopes,
         authFlow: 'browser',
         clientAuthMethod: 'confidential',
         clientConfigId: config.clientId,

@@ -143,6 +143,27 @@ describeOrSkip('OAuth authorization flows (PostgreSQL)', () => {
     expect(await inTransaction(client => takeAuthorizationFlow(client, { state: created.state, provider: 'google' }))).toBeNull();
   });
 
+  it('keeps historical consent separate from the current token scope generation', async () => {
+    const connectionId = await inTransaction(client => upsertProviderConnection(client, {
+      userId: USER_ID, provider: 'google', issuer: GOOGLE_ISSUER, subject: 'sub-current-scopes',
+    }));
+    await inTransaction(client => storeOAuthGrant(client, {
+      connectionId, audience: GOOGLE_GRANT_AUDIENCE, accessToken: 'token-a', refreshToken: 'refresh-a',
+      expiresAt: new Date(Date.now() + 3600_000),
+      scopes: ['calendar.events', 'contacts'], currentScopes: ['calendar.events', 'contacts'],
+    }));
+    await inTransaction(client => storeOAuthGrant(client, {
+      connectionId, audience: GOOGLE_GRANT_AUDIENCE, accessToken: 'token-b', refreshToken: null,
+      expiresAt: new Date(Date.now() + 3600_000), scopes: ['gmail.modify'], currentScopes: ['gmail.modify'],
+    }));
+    const stored = await autocommit(client => client.query<{ scopes: string[]; current_scopes: string[] | null }>(
+      'SELECT scopes, current_scopes FROM oauth_grants WHERE connection_id = $1 AND audience = $2',
+      [connectionId, GOOGLE_GRANT_AUDIENCE],
+    ));
+    expect(stored.rows[0]?.scopes).toEqual(['calendar.events', 'contacts', 'gmail.modify']);
+    expect(stored.rows[0]?.current_scopes).toEqual(['gmail.modify']);
+  });
+
   it('keeps one connection per verified issuer + subject', async () => {
     const first = await inTransaction(client => upsertProviderConnection(client, {
       userId: USER_ID, provider: 'google', issuer: GOOGLE_ISSUER, subject: 'sub-1', providerUserId: 'old@example.test',
