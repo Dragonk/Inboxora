@@ -32,6 +32,13 @@ test('the ellipsis menu is gone and one manage action opens the manager', async 
   assert.match(source, /<ContactsBooksManager/);
 });
 
+test('CardDAV connection management is separate from the selected book detail', async () => {
+  const source = await read(manager);
+  const detailEnd = source.indexOf('  ) : (\n    <p data-testid="contacts-manager-detail"');
+  const sources = source.indexOf('data-testid="contacts-manager-sources"');
+  assert.ok(sources > detailEnd, 'CardDAV sources must not be rendered inside a selected book detail');
+});
+
 test('the manager is a dialog with a book list and the selected book beside it', async () => {
   const source = await read(manager);
 

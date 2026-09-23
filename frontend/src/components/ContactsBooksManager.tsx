@@ -234,14 +234,6 @@ export default function ContactsBooksManager(props: ContactsBooksManagerProps) {
         )}
       </div>
 
-      {/* The CardDAV source is managed here, beside the books it pulls — the same place a calendar's sources
-          are managed from the calendar screen, and not an installation setting. */}
-      <div data-testid="contacts-manager-sources" style={sectionStyle}>
-        <p style={sectionTitleStyle}>{t('contacts.booksManager.sources')}</p>
-        <p style={metaStyle}>{t('contacts.booksManager.sourcesHint')}</p>
-        <ContactsDavSource t={t} onChanged={props.onDavChanged} />
-      </div>
-
       <div data-testid="contacts-manager-import-export" style={sectionStyle}>
         <p style={sectionTitleStyle}>{t('contacts.booksManager.importExport')}</p>
         <div style={rowStyle}>
@@ -287,6 +279,14 @@ export default function ContactsBooksManager(props: ContactsBooksManagerProps) {
         }}>
           {detail}
         </div>
+      </div>
+      {/* Sources are connection-level controls, not properties of whichever book
+          happened to be selected. Keeping CardDAV here prevents a Google or
+          Microsoft book from appearing to own the CardDAV credentials. */}
+      <div data-testid="contacts-manager-sources" style={{ ...sectionStyle, marginTop: 14 }}>
+        <p style={sectionTitleStyle}>{t('contacts.booksManager.sources')}</p>
+        <p style={metaStyle}>{t('contacts.booksManager.sourcesHint')}</p>
+        <ContactsDavSource t={t} onChanged={props.onDavChanged} />
       </div>
     </Dialog>
   );
