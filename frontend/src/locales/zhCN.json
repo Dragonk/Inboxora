@@ -1274,6 +1274,7 @@
       "hidden": "隐藏",
       "sync": "同步",
       "providerLabel": "提供商",
+      "accountLabel": "帐户",
       "neverSynced": "从未同步",
       "syncNow": "立即同步",
       "syncing": "正在同步…",

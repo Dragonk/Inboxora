@@ -471,6 +471,18 @@ export default function ContactsPage({ isActive = true }) {
         await load(searchRef.current);
         return;
       }
+      // A book belongs to one connected mailbox. Prefer that account's feature
+      // endpoint so a click on this book cannot synchronise every connection for
+      // the provider; retain the legacy provider-wide route only for old rows
+      // that predate account context.
+      const selectedProviderBook = addressBooks.find(book => book.id === selectedAddressBookId);
+      if (selectedProviderBook?.provider === provider && selectedProviderBook.account_id) {
+        await api.syncAccountProviderFeature(selectedProviderBook.account_id, 'contacts');
+        setProviderNotice({ provider, message: `${selectedProviderBook.name ?? ''}${selectedProviderBook.account_email ? ` · ${selectedProviderBook.account_email}` : ''}`.trim() });
+        await loadAddressBooks();
+        await load(searchRef.current);
+        return;
+      }
       const result = provider === 'google'
         ? await api.googleContacts.sync() as { results?: GoogleContactsSyncOutcome[] }
         : await api.microsoftContacts.sync() as { results?: GoogleContactsSyncOutcome[] };
@@ -815,6 +827,7 @@ export default function ContactsPage({ isActive = true }) {
       visible: book.visible !== false,
       readOnly: book.read_only !== false,
       collectionId: book.collection_id ?? null,
+       accountLabel: typeof book.account_email === 'string' ? book.account_email : null,
       contactCount: typeof book.contact_count === 'number' ? book.contact_count : (row?.contactCount ?? null),
       syncStatus: summary,
     };

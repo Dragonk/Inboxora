@@ -1274,6 +1274,7 @@
       "hidden": "oculta",
       "sync": "Sincronización",
       "providerLabel": "Proveedor",
+      "accountLabel": "Cuenta",
       "neverSynced": "nunca sincronizada",
       "syncNow": "Sincronizar ahora",
       "syncing": "Sincronizando…",

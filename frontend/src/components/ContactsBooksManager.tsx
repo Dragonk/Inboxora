@@ -23,6 +23,8 @@ export interface ManagerBook {
   readOnly: boolean;
   /** The collection this book belongs to, when the provider owns it. */
   collectionId: string | null;
+  /** Mailbox account owning this provider projection; absent for local/DAV books. */
+  accountLabel: string | null;
   contactCount: number | null;
   syncStatus: { key: string | null; values: Record<string, string> } | null;
 }
@@ -141,7 +143,7 @@ export default function ContactsBooksManager(props: ContactsBooksManagerProps) {
               {!book.visible && <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{t('contacts.booksManager.hiddenBadge')}</span>}
             </div>
             <div style={metaStyle}>
-              {t(sourceLabelKey(book.source))} · {book.readOnly ? t('contacts.booksManager.readOnly') : t('contacts.booksManager.readWrite')}
+              {t(sourceLabelKey(book.source))}{book.accountLabel ? ` · ${book.accountLabel}` : ''} · {book.readOnly ? t('contacts.booksManager.readOnly') : t('contacts.booksManager.readWrite')}
               {book.contactCount !== null ? ` · ${t('contacts.booksManager.contactsCount', { count: book.contactCount })}` : ''}
             </div>
             {bookSummary && <div data-testid={`contacts-manager-book-status-${book.id}`} style={{ ...metaStyle, margin: 0 }}>{t(bookSummary.key ?? 'contacts.addressBooks.lastSynced', bookSummary.values)}</div>}
@@ -165,6 +167,7 @@ export default function ContactsBooksManager(props: ContactsBooksManagerProps) {
         <p style={sectionTitleStyle}>{t('contacts.booksManager.general')}</p>
         <p style={metaStyle}>{t('contacts.booksManager.nameLabel')}: {selected.name}</p>
         <p style={metaStyle}>{t('contacts.booksManager.sourceLabel')}: {t(sourceLabelKey(selected.source))}</p>
+        {selected.accountLabel && <p data-testid="contacts-manager-account" style={metaStyle}>{t('contacts.booksManager.accountLabel')}: {selected.accountLabel}</p>}
         <p style={metaStyle}>{t('contacts.booksManager.visibility')}: {selected.visible ? t('contacts.booksManager.visible') : t('contacts.booksManager.hidden')}</p>
         <div style={rowStyle}>
           {isLocal && <Button data-testid="contacts-manager-rename" onClick={() => props.onRename(selected)}>{t('contacts.addressBooks.rename')}</Button>}

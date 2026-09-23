@@ -40,6 +40,8 @@ test('the manager is a dialog with a book list and the selected book beside it',
   assert.match(source, /testId="contacts-books-manager"/);
   assert.match(source, /data-testid="contacts-manager-books"/);
   assert.match(source, /data-testid="contacts-manager-detail"/);
+  assert.match(source, /accountLabel: string \| null;/);
+  assert.match(source, /data-testid="contacts-manager-account"/);
   assert.ok(!source.includes('<details'), 'the manager must not use a <details> disclosure');
 
   // Each row states what the book is, so an action can be read in context.

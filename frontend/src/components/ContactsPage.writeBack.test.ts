@@ -49,4 +49,13 @@ test("the address-book model carries the collection id and the read-only verdict
   const model = source.slice(source.indexOf("interface AddressBookRow"), source.indexOf("type AddressBookDavMode"));
   assert.match(model, /collection_id\?: string \| null;/);
   assert.match(model, /read_only\?: boolean;/);
+  assert.match(model, /account_id\?: string \| null;/);
+  assert.match(model, /account_email\?: string \| null;/);
+});
+
+test('a provider-book sync uses its owning account rather than all provider connections', async () => {
+  const source = await readFile(page, 'utf8');
+  const handler = source.slice(source.indexOf('const runProviderContactsSync'), source.indexOf('const importVCardFile'));
+  assert.match(handler, /selectedProviderBook\?\.provider === provider && selectedProviderBook\.account_id/);
+  assert.match(handler, /api\.syncAccountProviderFeature\(selectedProviderBook\.account_id, 'contacts'\)/);
 });

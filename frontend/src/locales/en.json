@@ -1274,6 +1274,7 @@
       "hidden": "hidden",
       "sync": "Synchronisation",
       "providerLabel": "Provider",
+      "accountLabel": "Account",
       "neverSynced": "never synchronised",
       "syncNow": "Synchronise now",
       "syncing": "Synchronising…",

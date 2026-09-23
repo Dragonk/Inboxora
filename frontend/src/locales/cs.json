@@ -1274,6 +1274,7 @@
       "hidden": "skrytý",
       "sync": "Synchronizace",
       "providerLabel": "Poskytovatel",
+      "accountLabel": "Účet",
       "neverSynced": "nikdy nesynchronizováno",
       "syncNow": "Synchronizovat nyní",
       "syncing": "Synchronizace…",

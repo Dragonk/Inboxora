@@ -396,7 +396,7 @@ None.
   IMAP loops, health checks, rule forwarder and send path no longer open IMAP or SMTP for it.
 
 ### Fixed
-- **Provider-backed contact books now identify their owning account.** The address-book presentation includes the provider connection and mailbox identity, allowing clients to group similarly named books and make future sync actions account-scoped rather than guessing from a provider.
+- **Provider-backed contact books now identify their owning account.** The address-book presentation includes the provider connection and mailbox identity, allowing clients to group similarly named books and make sync actions account-scoped rather than guessing from a provider.
 - **Provider service controls now match Settings switches.** Calendar and Contacts use accessible on/off switches on the account card, and a deliberately disabled service is visually neutral instead of green.
 - **Disabled providers stop scheduled, push-hint and manual syncs.** Existing authorized connections now require both the provider and API switches before their contacts or calendars adapters can call an upstream API.
 - **Calendar settings separate preferences from calendar connections.** The connection section now creates local Inboxora calendars without an account or URL alongside external feeds, CalDAV and holiday subscriptions; appearance preferences stay separate. Removing an external source now requires confirmation and explicitly preserves the upstream provider calendar.
