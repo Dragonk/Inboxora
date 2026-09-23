@@ -3,7 +3,7 @@ import express from 'express';
 import type { Server } from 'node:http';
 import { listeningPort } from '../test/net.js';
 
-const mocks = vi.hoisted(() => ({ query: vi.fn(), syncGraphCalendar: vi.fn(), configured: { value: true } }));
+const mocks = vi.hoisted(() => ({ query: vi.fn(), syncGraphCalendar: vi.fn(), configured: { value: true }, operational: { value: true } }));
 
 vi.mock('../services/db.js', () => ({
   query: mocks.query,
@@ -17,6 +17,10 @@ vi.mock('../middleware/auth.js', () => ({
 }));
 // Keep every real export and override only what this suite needs: the router pulls the token service in
 // transitively, so a narrower mock breaks module evaluation.
+vi.mock('../services/providerSwitches.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../services/providerSwitches.js')>()),
+  providerOperationalForSync: vi.fn(async () => mocks.operational.value),
+}));
 vi.mock('../services/providerAuthService.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../services/providerAuthService.js')>()),
   microsoftConfigFromEnv: () => ({ clientId: 'ms-client', clientSecret: 'ms-secret', redirectUri: 'https://inboxora.example/oauth/provider/microsoft/callback', tenantId: 'common' }),
@@ -77,6 +81,7 @@ afterAll(async () => {
 
 beforeEach(() => {
   mocks.configured.value = true;
+  mocks.operational.value = true;
   mocks.query.mockReset();
   mocks.syncGraphCalendar.mockReset();
 });
@@ -127,6 +132,15 @@ describe('GET /api/calendar/providers/microsoft/status', () => {
 });
 
 describe('POST /api/calendar/providers/microsoft/sync', () => {
+  it('refuses before any query or provider call when the Microsoft API is disabled', async () => {
+    mocks.operational.value = false;
+    const response = await sync();
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({ error: 'Microsoft API is disabled by the administrator' });
+    expect(mocks.query).not.toHaveBeenCalled();
+    expect(mocks.syncGraphCalendar).not.toHaveBeenCalled();
+  });
+
   it('asks the user to connect an account when there is no Microsoft connection', async () => {
     mocks.query.mockResolvedValueOnce({ rows: [] });
     const response = await sync();

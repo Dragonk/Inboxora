@@ -32,7 +32,7 @@ import { parseInboundCalendarInvitation } from '../services/inboundCalendarInvit
 import { parseCalendarEvent } from '../utils/ical.js';
 import { descriptionContentLines, normalizeDescription } from '../utils/richText.js';
 import { Router } from 'express';
-import { providerIntegrationsEnabled } from '../services/providerSwitches.js';
+import { providerIntegrationsEnabled, providerOperationalForSync } from '../services/providerSwitches.js';
 import { providerConnectionFeatureEnabled } from '../services/accountProviderFeatureSettings.js';
 import type { Request, Response } from 'express';
 import crypto from 'crypto';
@@ -2028,6 +2028,9 @@ router.post('/providers/google/sync', async (req, res) => {
   if (!providerIntegrationsEnabled()) {
     return res.status(403).json({ error: 'Provider integrations are disabled on this installation' });
   }
+  if (!await providerOperationalForSync('google')) {
+    return res.status(403).json({ error: 'Google API is disabled by the administrator' });
+  }
   const userId = sessionUserId(req);
   const connections = await query<{ id: string }>(
     "SELECT id FROM provider_connections WHERE user_id = $1 AND provider = 'google' AND status = 'active' ORDER BY created_at ASC",
@@ -2116,6 +2119,9 @@ router.get('/providers/microsoft/status', async (req, res) => {
 router.post('/providers/microsoft/sync', async (req, res) => {
   if (!providerIntegrationsEnabled()) {
     return res.status(403).json({ error: 'Provider integrations are disabled on this installation' });
+  }
+  if (!await providerOperationalForSync('microsoft')) {
+    return res.status(403).json({ error: 'Microsoft API is disabled by the administrator' });
   }
   const userId = sessionUserId(req);
   const connections = await query<{ id: string }>(
