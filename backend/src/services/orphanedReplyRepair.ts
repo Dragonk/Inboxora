@@ -91,6 +91,9 @@ export async function repairOrphanedRepliesWithClient(
        JOIN email_accounts a ON a.id = m.account_id
       WHERE a.user_id = $1
         AND ($2::uuid IS NULL OR m.account_id = $2)
+         -- Repair only rows missing a Conversation v2 projection. Rows already
+         -- attached to a conversation can reflect an intentional grouping.
+         AND (m.conversation_id IS NULL OR m.logical_message_id IS NULL)
         AND m.is_deleted = false
         AND (m.in_reply_to IS NOT NULL OR m.thread_references IS NOT NULL)
       ORDER BY m.date ASC NULLS LAST, m.id ASC

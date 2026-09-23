@@ -13,7 +13,7 @@ describe('repairOrphanedRepliesWithClient', () => {
   it('repairs only one unambiguous same-account RFC edge and rolls dry-run writes back', async () => {
     const query = vi.fn(async (sql: string) => {
       if (sql.startsWith('SELECT m.*, EXISTS') && sql.includes('FROM messages m')) return { rows: [
-        { id: 'child', account_id: 'account', in_reply_to: '<parent>', thread_references: '<root> <parent>', conversation_id: 'old', logical_message_id: 'logical-child', manual_protected: false },
+        { id: 'child', account_id: 'account', in_reply_to: '<parent>', thread_references: '<root> <parent>', conversation_id: null, logical_message_id: null, manual_protected: false },
       ] };
       if (sql.includes('m.message_id = $2')) return { rows: [
         { id: 'parent', account_id: 'account', message_id: '<parent>', conversation_id: 'target', logical_message_id: 'logical-parent', manual_protected: false },
@@ -28,6 +28,8 @@ describe('repairOrphanedRepliesWithClient', () => {
 
     expect(counters).toEqual({ scanned: 1, repaired: 1, ambiguous: 0, missing_parent: 0, protected_by_manual_override: 0 });
     expect(apply).toHaveBeenCalledTimes(1);
+    const [candidateSql] = query.mock.calls[0] as [string];
+    expect(candidateSql).toContain('(m.conversation_id IS NULL OR m.logical_message_id IS NULL)');
     expect(query).toHaveBeenCalledWith('SAVEPOINT orphaned_reply_repair_dry_run');
     expect(query).toHaveBeenCalledWith('ROLLBACK TO SAVEPOINT orphaned_reply_repair_dry_run');
   });

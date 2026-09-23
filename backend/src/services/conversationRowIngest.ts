@@ -66,8 +66,11 @@ export async function persistConversationCopyForRow(rowId: string, account: Conv
       // persisted/message payload in the conversation persistence layer.
       userId: account.user_id,
     });
-    const parentHeader = typeof result.rows[0].in_reply_to === 'string' ? result.rows[0].in_reply_to : null;
-    if (parentHeader) {
+    // Diagnostic observation must never downgrade a successful projection into
+    // an ingest failure or queue an unnecessary repair.
+    try {
+      const parentHeader = typeof result.rows[0].in_reply_to === 'string' ? result.rows[0].in_reply_to : null;
+      if (parentHeader) {
       const verdict = await query<{
         legacy_thread_matched: boolean; conversation_matched: boolean; provider_thread_matched: boolean;
       }>(
@@ -102,6 +105,10 @@ export async function persistConversationCopyForRow(rowId: string, account: Conv
         conversationMatched: state?.conversation_matched === true,
         providerThreadMatched: state?.provider_thread_matched === true,
       });
+      }
+    } catch (diagnosticError) {
+      // The copy is already persisted; diagnostics are explicitly best effort.
+      console.warn('Reply ingest diagnostic failed:', toAppError(diagnosticError).message);
     }
   } catch (caught) {
     const err = toAppError(caught);
