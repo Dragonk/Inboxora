@@ -18,6 +18,27 @@ describe('classifyGoogleError', () => {
     expect(scopes).toMatchObject({ code: 'INSUFFICIENT_SCOPES', retryable: false });
   });
 
+  it('keeps API-disabled, access-denied and unknown 403s distinct from consent', () => {
+    const disabled = classifyGoogleError(403, {
+      error: { details: [{ '@type': 'type.googleapis.com/google.rpc.ErrorInfo', reason: 'SERVICE_DISABLED' }] },
+    }, headers());
+    expect(disabled).toMatchObject({ code: 'PROVIDER_API_DISABLED', retryable: false, providerReason: 'SERVICE_DISABLED' });
+
+    const acl = classifyGoogleError(403, { error: { errors: [{ reason: 'accessDenied' }] } }, headers());
+    expect(acl).toMatchObject({ code: 'PROVIDER_ACCESS_DENIED', retryable: false });
+
+    // PERMISSION_DENIED alone does not prove scopes, API configuration, or ACL.
+    const unknown = classifyGoogleError(403, { error: { status: 'PERMISSION_DENIED' } }, headers());
+    expect(unknown).toMatchObject({ code: 'PROVIDER_FORBIDDEN', retryable: false });
+  });
+
+  it('reads every reason instead of trusting the first legacy error entry', () => {
+    const error = classifyGoogleError(403, {
+      error: { errors: [{ reason: 'PERMISSION_DENIED' }, { reason: 'rateLimitExceeded' }] },
+    }, headers({ 'retry-after': '12' }));
+    expect(error).toMatchObject({ code: 'RATE_LIMITED', retryable: true, retryAfterSeconds: 12 });
+  });
+
   it('treats an expired sync cursor as 410, distinct from a missing resource', () => {
     expect(classifyGoogleError(410, {}, headers()).code).toBe('INVALID_SYNC_CURSOR');
     expect(classifyGoogleError(404, {}, headers()).code).toBe('RESOURCE_NOT_FOUND');

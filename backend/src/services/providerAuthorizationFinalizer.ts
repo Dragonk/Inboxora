@@ -72,7 +72,9 @@ function failureCodeOf(caught: unknown): string {
   if (typeof candidate?.code === 'string' && candidate.code) return candidate.code;
   const status = typeof candidate?.status === 'number' ? candidate.status : null;
   if (status === 401) return 'PROVIDER_AUTH_REQUIRED';
-  if (status === 403) return 'INSUFFICIENT_SCOPES';
+  // A bare 403 does not prove missing consent: Google also uses it for disabled
+  // APIs, ACL/policy denial and unknown forbidden states.
+  if (status === 403) return 'PROVIDER_FORBIDDEN';
   if (status === 429) return 'RATE_LIMITED';
   if (status !== null && status >= 500) return 'UPSTREAM_UNAVAILABLE';
   return 'SYNC_FAILED';

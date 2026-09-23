@@ -1,5 +1,5 @@
 import { query } from './db.js';
-import { readProviderFeatureAuthorization, type ProviderFeature } from './providerFeatureAuthorization.js';
+import { readProviderFeatureAuthorization, type ProviderFeature, type ProviderFeatureCapability } from './providerFeatureAuthorization.js';
 import type { FeatureProvider } from './providerFeatureAuthorization.js';
 
 /**
@@ -19,11 +19,15 @@ export interface ProviderSyncError {
   message: string;
   missingScopes?: string[];
   retryable?: boolean;
+  /** Sanitized provider reason, never a raw provider response. */
+  providerReason?: string;
+  /** Logical adapter stage, not a URL or request payload. */
+  operation?: string;
 }
 
 /** The HTTP status and retryability a provider error carries, whichever client raised it. */
-function providerErrorDetails(caught: unknown): { code: string; message: string; status: number | null; retryable: boolean } {
-  const candidate = caught as { code?: unknown; message?: unknown; status?: unknown; retryable?: unknown } | null;
+function providerErrorDetails(caught: unknown): { code: string; message: string; status: number | null; retryable: boolean; providerReason?: string } {
+  const candidate = caught as { code?: unknown; message?: unknown; status?: unknown; retryable?: unknown; providerReason?: unknown } | null;
   const code = typeof candidate?.code === 'string' && candidate.code ? candidate.code : 'PROVIDER_ERROR';
   const message = typeof candidate?.message === 'string' && candidate.message
     ? candidate.message
@@ -32,13 +36,16 @@ function providerErrorDetails(caught: unknown): { code: string; message: string;
   const retryable = typeof candidate?.retryable === 'boolean'
     ? candidate.retryable
     : status === 429 || (status !== null && status >= 500);
-  return { code, message, status, retryable };
+  const providerReason = typeof candidate?.providerReason === 'string' && /^[A-Za-z0-9_.-]{1,120}$/.test(candidate.providerReason)
+    ? candidate.providerReason
+    : undefined;
+  return { code, message, status, retryable, ...(providerReason ? { providerReason } : {}) };
 }
 
 /** Codes that mean the authorization, not the request, is the problem. */
 const AUTH_CODES = new Set([
   'PROVIDER_AUTH_REQUIRED', 'INVALID_GRANT', 'UNAUTHORIZED', 'AUTHORIZATION_REQUIRED',
-  'INSUFFICIENT_SCOPES', 'ACCESS_DENIED', 'FORBIDDEN', 'REAUTH_REQUIRED', 'CONSENT_REQUIRED',
+  'INSUFFICIENT_SCOPES', 'REAUTH_REQUIRED', 'CONSENT_REQUIRED',
 ]);
 
 /**
@@ -55,9 +62,11 @@ export async function describeProviderSyncFailure(input: {
   feature: ProviderFeature;
   caught: unknown;
   accountId?: string | null;
+  /** Caller-owned logical stage, e.g. discovery or collection-read. */
+  operation?: string;
 }): Promise<ProviderSyncError> {
   const details = providerErrorDetails(input.caught);
-  const authProblem = AUTH_CODES.has(details.code) || details.status === 401 || details.status === 403;
+  const authProblem = AUTH_CODES.has(details.code) || details.status === 401;
   const authorization = authProblem
     ? await readProviderFeatureAuthorization({
         connectionId: input.connectionId,
@@ -71,12 +80,14 @@ export async function describeProviderSyncFailure(input: {
     connectionId: input.connectionId,
     accountId: input.accountId ?? await accountIdForConnection(input.connectionId),
     feature: input.feature,
-    // A 401/403 with scopes missing is a scope problem, which is the actionable statement; without scopes it is
-    // the provider refusing the token, and the provider's own code is the honest answer.
-    code: authProblem && missingScopes ? 'PROVIDER_AUTH_REQUIRED' : details.code,
+    // Never overwrite an explicit upstream diagnosis with a local scope inventory.
+    // The inventory is supplementary evidence for re-consent only.
+    code: details.code,
     providerStatus: details.status,
     message: details.message,
     ...(missingScopes ? { missingScopes } : {}),
+    ...(details.providerReason ? { providerReason: details.providerReason } : {}),
+    ...(input.operation ? { operation: input.operation } : {}),
     retryable: details.retryable,
   };
 }
@@ -92,21 +103,25 @@ export async function providerSyncPreflight(input: {
   connectionId: string;
   provider: FeatureProvider;
   feature: ProviderFeature;
+  /** Synchronizers need read access; write routes must explicitly request write. */
+  capability?: ProviderFeatureCapability;
 }): Promise<ProviderSyncError | null> {
   const authorization = await readProviderFeatureAuthorization({
     connectionId: input.connectionId,
     provider: input.provider,
     feature: input.feature,
   });
-  if (authorization.authorized) return null;
+  const capability = input.capability ?? 'read';
+  const result = authorization.capabilities[capability];
+  if (result.authorized) return null;
   return {
     connectionId: input.connectionId,
     accountId: await accountIdForConnection(input.connectionId),
     feature: input.feature,
     code: 'PROVIDER_AUTH_REQUIRED',
     providerStatus: null,
-    message: `The ${input.provider === 'google' ? 'Google' : 'Microsoft'} authorization is missing ${authorization.missingScopes.join(', ') || 'a required scope'}`,
-    missingScopes: authorization.missingScopes,
+    message: `The ${input.provider === 'google' ? 'Google' : 'Microsoft'} authorization is missing ${result.missingScopes.join(', ') || 'a required scope'} for ${capability}`,
+    missingScopes: result.missingScopes,
     retryable: false,
   };
 }

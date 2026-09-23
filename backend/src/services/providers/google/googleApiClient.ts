@@ -80,11 +80,30 @@ function expiredSyncTokenReason(body: GoogleErrorBody): string | null {
 
 /** Google's `reason` values that mean "slow down / quota", not "not allowed". */
 const RATE_LIMIT_REASONS = new Set([
-  'rateLimitExceeded',
-  'userRateLimitExceeded',
-  'quotaExceeded',
-  'dailyLimitExceeded',
+  'ratelimitexceeded',
+  'userratelimitexceeded',
+  'quotaexceeded',
+  'dailylimitexceeded',
 ]);
+
+// Google can put these in legacy `errors[]` or structured `google.rpc.ErrorInfo`.
+const API_DISABLED_REASONS = new Set(['service_disabled', 'servicedisabled', 'accessnotconfigured']);
+const SCOPE_REASONS = new Set(['insufficientpermissions', 'insufficientauthenticationscopes', 'authentication_scope_insufficient']);
+const ACCESS_DENIED_REASONS = new Set(['accessdenied', 'forbidden', 'acl_denied']);
+
+/** Gather all structured and legacy reasons; never let array order decide the diagnosis. */
+function googleReasons(body: GoogleErrorBody): string[] {
+  return [...new Set([
+    ...(body.error?.errors ?? []).map(entry => entry.reason),
+    body.error?.status,
+    ...(body.error?.details ?? []).map(detail => detail.reason),
+  ].filter((reason): reason is string => typeof reason === 'string' && reason.trim() !== '')
+    .map(reason => reason.trim()))];
+}
+
+function normalizedReasons(reasons: readonly string[]): Set<string> {
+  return new Set(reasons.map(reason => reason.toLowerCase()));
+}
 
 function retryAfterSeconds(headers: Headers): number | undefined {
   const raw = headers.get('retry-after');
@@ -96,7 +115,9 @@ function retryAfterSeconds(headers: Headers): number | undefined {
 /** Map a failed Google response to the domain problem code. */
 export function classifyGoogleError(status: number, body: unknown, headers: Headers): GoogleApiError {
   const parsed = (body ?? {}) as GoogleErrorBody;
-  const reason = parsed.error?.errors?.[0]?.reason ?? parsed.error?.status;
+  const reasons = googleReasons(parsed);
+  const reason = reasons[0];
+  const normalized = normalizedReasons(reasons);
   const message = parsed.error?.message || `Google API returned ${status}`;
   const after = retryAfterSeconds(headers);
   // The structured expiry signal wins over the status: a full rebuild is the only correct answer whatever the
@@ -109,11 +130,21 @@ export function classifyGoogleError(status: number, body: unknown, headers: Head
     return new GoogleApiError({ code: 'PROVIDER_AUTH_REQUIRED', message, status, retryable: false, providerReason: reason });
   }
   if (status === 403) {
-    // A 403 is not automatically an expired account: it can be a quota/policy signal.
-    if (reason && RATE_LIMIT_REASONS.has(reason)) {
+    // Precedence is evidence-based. A generic PERMISSION_DENIED is deliberately not
+    // treated as consent: it does not identify whether the project, ACL or policy refused.
+    if ([...normalized].some(value => RATE_LIMIT_REASONS.has(value))) {
       return new GoogleApiError({ code: 'RATE_LIMITED', message, status, retryable: true, retryAfterSeconds: after, providerReason: reason });
     }
-    return new GoogleApiError({ code: 'INSUFFICIENT_SCOPES', message, status, retryable: false, providerReason: reason });
+    if ([...normalized].some(value => API_DISABLED_REASONS.has(value))) {
+      return new GoogleApiError({ code: 'PROVIDER_API_DISABLED', message, status, providerReason: reason });
+    }
+    if ([...normalized].some(value => SCOPE_REASONS.has(value))) {
+      return new GoogleApiError({ code: 'INSUFFICIENT_SCOPES', message, status, providerReason: reason });
+    }
+    if ([...normalized].some(value => ACCESS_DENIED_REASONS.has(value))) {
+      return new GoogleApiError({ code: 'PROVIDER_ACCESS_DENIED', message, status, providerReason: reason });
+    }
+    return new GoogleApiError({ code: 'PROVIDER_FORBIDDEN', message, status, providerReason: reason });
   }
   if (status === 404) return new GoogleApiError({ code: 'RESOURCE_NOT_FOUND', message, status, providerReason: reason });
   if (status === 410) {
