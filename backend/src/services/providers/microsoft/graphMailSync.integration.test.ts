@@ -816,7 +816,7 @@ describeOrSkip('Graph conversations on PostgreSQL', () => {
     await autocommit(async client => {
       // DA-10 starts from a current cursor: an empty incremental delta cannot reconcile existing native rows away.
       const collections = await client.query<{ id: string }>(
-        "SELECT id FROM integration_collections WHERE account_id = $1 AND feature = 'mail' AND enabled = true", [ACCOUNT_ID],
+        "SELECT id FROM integration_collections WHERE connection_id = $1 AND kind = 'mail_folder' AND enabled = true", [connectionId],
       );
       for (const collection of collections.rows) {
         const syncStateId = await ensureSyncState(client, {
