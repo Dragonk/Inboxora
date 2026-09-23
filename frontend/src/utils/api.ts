@@ -345,6 +345,8 @@ export const api = {
   // server never includes a token, a secret or a raw provider payload.
   accountProviderDiagnostics: (accountId: string) =>
     request('GET', `/accounts/${encodeURIComponent(accountId)}/provider-diagnostics`),
+  syncAccountProviderFeature: (accountId: string, feature: 'calendars') =>
+    request('POST', `/accounts/${encodeURIComponent(accountId)}/provider-features/${feature}/sync`),
   nativeAccountCandidates: (provider: 'microsoft' | 'google') =>
     request('GET', `/accounts/native/candidates?provider=${provider}`),
   // Move one existing account onto its provider's native transport, in place. The server decides whether
@@ -505,12 +507,24 @@ export const api = {
     // which is also the path that notifies invited attendees.
     deleteEvent: (id: string, calendarId: string, recurrenceId: string | null | undefined = undefined, scope: string | null | undefined = undefined) =>recurrenceId ? request('DELETE', `/calendar/events/${encodeURIComponent(id)}/occurrence`, { calendarId, recurrenceId, ...(scope ? { scope } : {}) }) : request('DELETE', `/calendar/events/${encodeURIComponent(id)}?calendarId=${encodeURIComponent(calendarId)}`),
     listSources: () => request('GET', '/calendar/sources'),
+    presentation: () => request('GET', '/calendar/presentation'),
+    updateSourcePresentation: (id: string, collapsed: boolean) => request('PATCH', `/calendar/presentation/sources/${encodeURIComponent(id)}`, { collapsed }),
+    updateCalendarPresentation: (id: string, sidebarHidden: boolean) => request('PATCH', `/calendar/presentation/calendars/${encodeURIComponent(id)}`, { sidebarHidden }),
     // A local .ics import into one calendar; keyed by UID server-side.
     importIcs: (id: string, ics: string) => request('POST', `/calendar/calendars/${encodeURIComponent(id)}/import/ics`, { ics }),
     // Google Calendar pull: status is safe for any user, sync is idempotent per cursor.
+    providerCalendars: {
+      status: (provider: 'google' | 'microsoft') => request('GET', `/calendar/providers/${provider}/status`),
+      sync: (provider: 'google' | 'microsoft') => request('POST', `/calendar/providers/${provider}/sync`),
+    },
+    // Compatibility aliases; new source-management UI uses providerCalendars.
     googleCalendars: {
       status: () => request('GET', '/calendar/providers/google/status'),
       sync: () => request('POST', '/calendar/providers/google/sync'),
+    },
+    microsoftCalendars: {
+      status: () => request('GET', '/calendar/providers/microsoft/status'),
+      sync: () => request('POST', '/calendar/providers/microsoft/sync'),
     },
     createSource: (data: unknown) => request('POST', '/calendar/sources', data),
     updateSource: (id: string, data: unknown) => request('PATCH', `/calendar/sources/${encodeURIComponent(id)}`, data),

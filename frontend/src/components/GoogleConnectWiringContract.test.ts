@@ -59,11 +59,16 @@ test('the contacts screen offers the Microsoft pull through the same control', a
 
 test('the calendar sources dialog offers the Google pull once connected', async () => {
   const source = await readFile(calendarSidebar, 'utf8');
-  assert.match(source, /api\.calendar\.googleCalendars\.status\(\)/);
-  assert.match(source, /await api\.calendar\.googleCalendars\.sync\(\)/);
+  assert.match(source, /api\.calendar\.providerCalendars\.status\('google'\)/);
+  assert.match(source, /api\.calendar\.providerCalendars\.sync\('google'\)/);
   assert.match(source, /data-testid="calendar-google-sync"/);
   assert.match(source, /googleCalendars\?\.connected \?/);
   assert.match(source, /calendar\.googleNotConnected/);
+  assert.match(source, /providerCalendars\.status\('microsoft'\)/);
+  assert.match(source, /data-testid="calendar-microsoft-sync"/);
+  assert.match(source, /api\.calendar\.presentation\(\)/);
+  assert.match(source, /updateSourcePresentation/);
+  assert.match(source, /updateCalendarPresentation/);
   // A partial run counts a failed connection and a failed calendar, so it never
   // looks like a complete one.
   assert.match(source, /calendar\.googleSyncPartial/);

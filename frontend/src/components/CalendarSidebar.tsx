@@ -26,6 +26,11 @@ interface CalendarSourceList {
   sources?: CalendarSource[];
 }
 
+interface CalendarPresentation {
+  sources?: Array<{ id: string; kind: string; label: string; accountId: string | null; identityLabel: string | null; featureEnabled: boolean; canSync: boolean; collapsed: boolean }>;
+  calendars?: Array<{ id: string; sourceId: string; displayName: string; readOnly: boolean; selected: boolean; sidebarHidden: boolean }>;
+}
+
 /** The Google Calendar pull status the sources dialog reads (no credential). */
 interface GoogleCalendarStatus {
   configured?: boolean;
@@ -133,8 +138,12 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
   // The Google Calendar pull: `connected` decides whether the action is offered,
   // and the notice reports what the last run changed.
   const [googleCalendars, setGoogleCalendars] = useState<GoogleCalendarStatus | null>(null);
+  const [microsoftCalendars, setMicrosoftCalendars] = useState<GoogleCalendarStatus | null>(null);
   const [googleSyncing, setGoogleSyncing] = useState(false);
+  const [microsoftSyncing, setMicrosoftSyncing] = useState(false);
   const [googleSyncNotice, setGoogleSyncNotice] = useState('');
+  const [microsoftSyncNotice, setMicrosoftSyncNotice] = useState('');
+  const [presentation, setPresentation] = useState<CalendarPresentation | null>(null);
   const [icsImporting, setIcsImporting] = useState(false);
   // What the last .ics import added, so the result is visible instead of the dialog
   // simply closing.
@@ -201,20 +210,22 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
     };
     poll();
   };
-  const openSources = async () => { setShowSources(true); await loadSources(); await loadGoogleCalendars(); };
+  const loadPresentation = async () => {
+    try { const result = await api.calendar.presentation() as CalendarPresentation; if (mounted.current) setPresentation(result); }
+    catch (caught) { if (mounted.current) setSourceError(toAppError(caught).message); }
+  };
+  const openSources = async () => { setShowSources(true); await Promise.all([loadSources(), loadGoogleCalendars(), loadMicrosoftCalendars(), loadPresentation()]); };
   useEffect(() => {
     if (!sourcePanelRequest) return;
     let active = true;
     setShowSources(true);
-    api.calendar.listSources()
-      .then(result => {
+    Promise.all([api.calendar.listSources(), api.calendar.providerCalendars.status('google'), api.calendar.providerCalendars.status('microsoft'), api.calendar.presentation()])
+      .then(([sourceResult, googleResult, microsoftResult, presentationResult]) => {
         if (!active || !mounted.current) return;
-        setSources(result.sources || []); setSourceError(null);
+        setSources(sourceResult.sources || []); setGoogleCalendars(googleResult as GoogleCalendarStatus);
+        setMicrosoftCalendars(microsoftResult as GoogleCalendarStatus); setPresentation(presentationResult as CalendarPresentation); setSourceError(null);
       })
-      .catch(error => {
-        if (!active || !mounted.current) return;
-        setSourceError(toAppError(error).message);
-      });
+      .catch(error => { if (active && mounted.current) setSourceError(toAppError(error).message); });
     return () => { active = false; };
   }, [sourcePanelRequest]);
   const addSource = async (event: FormEvent) => {
@@ -239,21 +250,20 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
     count: calendar => calendar.eventCount ?? 0,
     failureKey: code => providerFailureKey(code) ?? 'calendar.lastSyncFailed',
   });
-  const loadGoogleCalendars = async () => {
-    try {
-      const result = await api.calendar.googleCalendars.status() as GoogleCalendarStatus;
-      if (mounted.current) setGoogleCalendars(result);
-    } catch {
-      // A server without the Google adapter must not break the sources dialog.
-      if (mounted.current) setGoogleCalendars(null);
-    }
-  };
+  async function loadGoogleCalendars() {
+    try { const result = await api.calendar.providerCalendars.status('google') as GoogleCalendarStatus; if (mounted.current) setGoogleCalendars(result); }
+    catch { if (mounted.current) setGoogleCalendars(null); }
+  }
+  async function loadMicrosoftCalendars() {
+    try { const result = await api.calendar.providerCalendars.status('microsoft') as GoogleCalendarStatus; if (mounted.current) setMicrosoftCalendars(result); }
+    catch { if (mounted.current) setMicrosoftCalendars(null); }
+  }
   const runGoogleCalendarSync = async () => {
     setGoogleSyncing(true);
     setGoogleSyncNotice('');
     setSourceError(null);
     try {
-      const result = await api.calendar.googleCalendars.sync() as { results?: GoogleCalendarSyncOutcome[] };
+      const result = await api.calendar.providerCalendars.sync('google') as { results?: GoogleCalendarSyncOutcome[] };
       const outcomes = Array.isArray(result?.results) ? result.results : [];
       const sum = (field: 'created' | 'updated' | 'deleted') => outcomes.reduce((total, outcome) => total + (outcome[field] ?? 0), 0);
       const calendars = outcomes.reduce((total, outcome) => total + (outcome.collections ?? 0), 0);
@@ -279,6 +289,20 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
     } finally {
       if (mounted.current) setGoogleSyncing(false);
     }
+  };
+  const runMicrosoftCalendarSync = async () => {
+    setMicrosoftSyncing(true); setMicrosoftSyncNotice(''); setSourceError(null);
+    try {
+      const result = await api.calendar.providerCalendars.sync('microsoft') as { results?: GoogleCalendarSyncOutcome[] };
+      const outcomes = Array.isArray(result?.results) ? result.results : [];
+      const sum = (field: 'created' | 'updated' | 'deleted') => outcomes.reduce((total, outcome) => total + (outcome[field] ?? 0), 0);
+      const calendarCount = outcomes.reduce((total, outcome) => total + (outcome.collections ?? 0), 0);
+      const failed = outcomes.reduce((total, outcome) => total + (outcome.error ? 1 : 0) + (outcome.errors?.length ?? 0), 0);
+      const failureSummary = summariseProviderSyncErrors({ t, provider: 'microsoft', feature: 'calendar', errors: [...outcomes.map(outcome => outcome.error), ...outcomes.flatMap(outcome => outcome.errors ?? [])] });
+      setMicrosoftSyncNotice(failed ? `${t('calendar.googleSyncPartial', { calendars: calendarCount, created: sum('created'), updated: sum('updated'), deleted: sum('deleted'), failed })} ${failureSummary?.first ?? ''}`.trim() : t('calendar.googleSyncDone', { calendars: calendarCount, created: sum('created'), updated: sum('updated'), deleted: sum('deleted') }));
+      await Promise.all([loadMicrosoftCalendars(), loadPresentation(), onSourcesChanged()]);
+    } catch (error) { setSourceError(toAppError(error).message); }
+    finally { if (mounted.current) setMicrosoftSyncing(false); }
   };
   const importIcsFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -372,6 +396,17 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
     try { await api.calendar.deleteCalendar(calendar.id, calendar.name); setOpenCalendarMenu(null); await onCalendarsChanged?.(); }
     catch (error) { setSourceError(toAppError(error).message); } finally { setCalendarSaving(false); }
   };
+  const presentationCalendar = new Map((presentation?.calendars ?? []).map(item => [item.id, item]));
+  const presentationSource = new Map((presentation?.sources ?? []).map(item => [item.id, item]));
+  const sourceForCalendar = (calendar: CalendarRow) => presentationCalendar.get(calendar.id)?.sourceId ?? (calendar.source === 'local' ? 'local' : `legacy:${calendar.source ?? 'external'}`);
+  const groups = new Map<string, CalendarRow[]>();
+  for (const calendar of calendars) {
+    const sourceId = sourceForCalendar(calendar);
+    if (!groups.has(sourceId)) groups.set(sourceId, []);
+    groups.get(sourceId)!.push(calendar);
+  }
+  const updateCollapsed = async (sourceId: string, collapsed: boolean) => { try { await api.calendar.updateSourcePresentation(sourceId, collapsed); await loadPresentation(); } catch (caught) { setSourceError(toAppError(caught).message); } };
+  const updateHidden = async (calendar: CalendarRow, sidebarHidden: boolean) => { try { await api.calendar.updateCalendarPresentation(calendar.id, sidebarHidden); setOpenCalendarMenu(null); await loadPresentation(); } catch (caught) { setSourceError(toAppError(caught).message); } };
   return <aside data-testid="calendar-sidebar" className="calendar-rail" style={panel} aria-label={t('calendar.panel')}>
     <h1 className="calendar-rail-heading">{t('calendar.title')}</h1>
     {onCreate && <Button variant="primary" className="calendar-rail-create" data-testid="calendar-rail-new-event" disabled={!canCreate} onClick={onCreate}>+ {t('calendar.newEvent')}</Button>}
@@ -388,7 +423,10 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
     </div>
     <section style={section}>
       <div style={sectionHeading}><strong>{t('calendar.calendars')}</strong><button data-testid="calendar-sidebar-manage-sources" onClick={openSources} style={linkButton}>{t('calendar.manageSources')}</button></div>
-      {[...calendars].sort((a, b) => Number(a.source !== 'local') - Number(b.source !== 'local')).map((calendar, index, all) => <div key={calendar.id}>{(index === 0 || (all[index - 1].source === 'local') !== (calendar.source === 'local')) && <h2 style={{ ...sectionHeading, margin: '12px 0 4px' }}>{calendar.source === 'local' ? t('calendar.myCalendars') : t('calendar.sourceCalendar')}</h2>}<div key={calendar.id} className="cal-row" style={calendarRow}><label style={calendarToggle}><input data-testid="calendar-visibility-toggle" type="checkbox" checked={isVisible(calendar.id)} onChange={() => onToggleCalendar(calendar.id)} /><span style={{ ...colorDot, background: calendar.color || 'var(--accent)' }} />{calendar.name}{ownedCalendar(calendar) ? <small style={owned}>{t('calendar.owned')}</small> : <small style={readOnly}>{t('calendar.sourceCalendar')}</small>}</label>{<div style={menuWrap}><button type="button" aria-label={t('calendar.calendarActions', { name: calendar.name })} aria-expanded={openCalendarMenu === calendar.id} onClick={() => setOpenCalendarMenu(openCalendarMenu === calendar.id ? null : calendar.id)} style={menuButton} disabled={calendarSaving}>⋮</button>{openCalendarMenu === calendar.id && <div role="menu" aria-label={t('calendar.calendarActions', { name: calendar.name })} style={contextMenu}><button role="menuitem" onClick={() => editCalendar(calendar)}>{t('calendar.rename')}</button><button role="menuitem" onClick={() => editCalendar(calendar)}>{t('calendar.changeColor')}</button>{calendar.collection_id && <button role="menuitem" data-testid="calendar-write-back" onClick={() => setWriteBack(calendar)} disabled={calendarSaving}>{calendar.read_only ? t('calendar.enableWriteBack') : t('calendar.disableWriteBack')}</button>}{ownedCalendar(calendar) && <button role="menuitem" onClick={() => deleteCalendar(calendar)} style={dangerButton}>{t('calendar.deleteCalendar')}</button>}</div>}</div>}</div></div>)}
+      {[...calendars].filter(calendar => {
+        const view = presentationCalendar.get(calendar.id);
+        return view?.sidebarHidden !== true && presentationSource.get(view?.sourceId ?? (calendar.source === 'local' ? 'local' : `legacy:${calendar.source ?? 'external'}`))?.collapsed !== true;
+      }).sort((a, b) => Number(a.source !== 'local') - Number(b.source !== 'local')).map((calendar, index, all) => <div key={calendar.id}>{(index === 0 || (all[index - 1].source === 'local') !== (calendar.source === 'local')) && <h2 style={{ ...sectionHeading, margin: '12px 0 4px' }}>{calendar.source === 'local' ? t('calendar.myCalendars') : t('calendar.sourceCalendar')}</h2>}<div key={calendar.id} className="cal-row" style={calendarRow}><label style={calendarToggle}><input data-testid="calendar-visibility-toggle" type="checkbox" checked={isVisible(calendar.id)} onChange={() => onToggleCalendar(calendar.id)} /><span style={{ ...colorDot, background: calendar.color || 'var(--accent)' }} />{calendar.name}{ownedCalendar(calendar) ? <small style={owned}>{t('calendar.owned')}</small> : <small style={readOnly}>{t('calendar.sourceCalendar')}</small>}</label>{<div style={menuWrap}><button type="button" aria-label={t('calendar.calendarActions', { name: calendar.name })} aria-expanded={openCalendarMenu === calendar.id} onClick={() => setOpenCalendarMenu(openCalendarMenu === calendar.id ? null : calendar.id)} style={menuButton} disabled={calendarSaving}>⋮</button>{openCalendarMenu === calendar.id && <div role="menu" aria-label={t('calendar.calendarActions', { name: calendar.name })} style={contextMenu}><button role="menuitem" onClick={() => editCalendar(calendar)}>{t('calendar.rename')}</button><button role="menuitem" onClick={() => editCalendar(calendar)}>{t('calendar.changeColor')}</button><button role="menuitem" data-testid="calendar-hide" onClick={() => updateHidden(calendar, !(presentationCalendar.get(calendar.id)?.sidebarHidden === true))}>{presentationCalendar.get(calendar.id)?.sidebarHidden ? t('calendar.show', 'Show') : t('calendar.hide', 'Hide from list')}</button>{calendar.collection_id && <button role="menuitem" data-testid="calendar-write-back" onClick={() => setWriteBack(calendar)} disabled={calendarSaving}>{calendar.read_only ? t('calendar.enableWriteBack') : t('calendar.disableWriteBack')}</button>}{ownedCalendar(calendar) && <button role="menuitem" onClick={() => deleteCalendar(calendar)} style={dangerButton}>{t('calendar.deleteCalendar')}</button>}</div>}</div>}</div></div>)}
     </section>
     {calendarEdit && <Dialog testId="calendar-appearance-dialog" title={t('calendar.calendarActions', { name: calendarEdit.calendar.name })} closeLabel={t('calendar.close')} busy={calendarSaving} onClose={() => setCalendarEdit(null)} footer={<>
       <Button onClick={() => setCalendarEdit(null)} disabled={calendarSaving}>{t('calendar.cancel')}</Button>
@@ -419,6 +457,7 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
     <input ref={importIcsRef} type="file" accept=".ics,text/calendar" onChange={importIcsFile} style={{ display: 'none' }} />
     {showSources && <Dialog title={t('calendar.manageSources')} closeLabel={t('calendar.close')} onClose={() => setShowSources(false)}>
       {sourceError && <p role="alert" style={error}>{sourceError}</p>}
+      {(presentation?.sources?.length ?? 0) > 0 && <div data-testid="calendar-presentation-sources" style={sourceList}>{presentation!.sources!.map(source => <div key={source.id} style={sourceRow}><span style={sourceDetails}><strong>{source.label}</strong>{source.identityLabel && <small style={{ display: 'block' }}>{source.identityLabel}</small>}<small style={{ display: 'block' }}>{source.featureEnabled ? '' : 'Disabled'}</small></span><button type="button" aria-expanded={!source.collapsed} onClick={() => updateCollapsed(source.id, !source.collapsed)} style={linkButton}>{source.collapsed ? t('calendar.show', 'Show') : t('calendar.hide', 'Collapse')}</button></div>)}</div>}
       <form onSubmit={addSource} className="ui-form" style={formStyle}>
         <label>{t('calendar.sourceType')}<select value={form.kind} onChange={event => setForm(current => ({ ...current, kind: event.target.value }))}><option value="ical_url">{t('calendar.icsWebcal')}</option><option value="caldav">{t('calendar.caldav')}</option></select></label>
         <label>{t('calendar.sourceName')}<input required value={form.displayName} onChange={event => setForm(current => ({ ...current, displayName: event.target.value }))} /></label>
@@ -443,6 +482,14 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
           {googleSummary && <p data-testid="calendar-google-sync-status" style={{ margin: '6px 0 0', fontSize: 11, color: 'var(--text-tertiary)' }}>{t(googleSummary.key ?? 'calendar.lastSynced', googleSummary.values)}</p>}
           {googleSyncNotice && <p role="status" data-testid="calendar-google-sync-result" style={{ margin: '8px 0 0', fontSize: 12 }}>{googleSyncNotice}</p>}
         </> : <p style={{ margin: '6px 0', fontSize: 12, color: 'var(--text-tertiary)' }}>{t('calendar.googleNotConnected')}</p>}
+      </div>
+      <div style={{ marginTop: 18, borderTop: '1px solid var(--border)', paddingTop: 12 }}>
+        <strong>Microsoft</strong>
+        {microsoftCalendars?.connected ? <>
+          <p style={{ margin: '6px 0', fontSize: 12, color: 'var(--text-tertiary)' }}>Microsoft Graph calendars</p>
+          <button data-testid="calendar-microsoft-sync" disabled={microsoftSyncing} onClick={runMicrosoftCalendarSync} style={primaryButton}>{microsoftSyncing ? t('calendar.googleSyncing') : t('calendar.syncSource')}</button>
+          {microsoftSyncNotice && <p role="status" data-testid="calendar-microsoft-sync-result" style={{ margin: '8px 0 0', fontSize: 12 }}>{microsoftSyncNotice}</p>}
+        </> : <p style={{ margin: '6px 0', fontSize: 12, color: 'var(--text-tertiary)' }}>Microsoft is not connected.</p>}
       </div>
     </Dialog>}
   </aside>;

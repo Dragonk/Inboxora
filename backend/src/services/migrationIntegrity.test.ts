@@ -369,6 +369,15 @@ describe('migration integrity', () => {
     expect(sql).not.toMatch(/UPDATE\s+messages/i);
   });
 
+  it('keeps calendar presentation preferences user-scoped and independent of provider mutations', () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/0129_calendar_presentation_preferences.sql'), 'utf8');
+    expect(sql).toContain('CREATE TABLE IF NOT EXISTS user_calendar_source_preferences');
+    expect(sql).toContain('CREATE TABLE IF NOT EXISTS user_calendar_presentation_preferences');
+    expect(sql).toContain('PRIMARY KEY (user_id, source_id)');
+    expect(sql).toContain('PRIMARY KEY (user_id, calendar_id)');
+    expect(sql).not.toMatch(/UPDATE\s+calendars/i);
+  });
+
   it('widens the OAuth flow purpose CHECK to accept account_enable', () => {
     // AUTH-01: the route-level allow-list was not the only gate — 0103's CHECK rejected account_enable too, so
     // a reconnect flow could never be persisted. The fix must widen the constraint, not rewrite 0103.

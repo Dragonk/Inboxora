@@ -19,6 +19,11 @@ import { classifyProviderAccountById } from '../services/providerAccountClassifi
 import { describeAccountProviderFeatures } from '../services/accountProviderFeatures.js';
 import { isAccountProviderService, setAccountProviderFeatureSetting } from '../services/accountProviderFeatureSettings.js';
 import { clearSyncHintsForConnection } from '../services/providerSyncHints.js';
+import { providerIntegrationsEnabled } from '../services/providerSwitches.js';
+import { googleConfigFromEnv, microsoftConfigFromEnv } from '../services/providerAuthService.js';
+import { providerSyncPreflight, describeProviderSyncFailure } from '../services/providerSyncDiagnostics.js';
+import { syncGoogleCalendar } from '../services/providers/google/googleCalendarSync.js';
+import { syncGraphCalendar } from '../services/providers/microsoft/graphCalendarSync.js';
 import type { MicrosoftMailCutoverAccount } from '../services/providerMailCutover.js';
 import { cutOverGoogleMailAccount } from '../services/providerGoogleMailCutover.js';
 import type { GoogleMailCutoverAccount } from '../services/providerGoogleMailCutover.js';
@@ -507,6 +512,31 @@ router.patch('/:id/provider-features/:feature', async (req, res) => {
   });
   if (!setting) return res.status(404).json({ error: 'Account not found' });
   res.json({ accountId: req.params.id, ...setting });
+});
+
+/** Sync exactly one enabled account service; connection identity is resolved server-side. */
+router.post('/:id/provider-features/:feature/sync', async (req, res) => {
+  const userId = req.session.userId;
+  if (!userId) return res.status(401).json({ error: 'Not authenticated' });
+  if (req.params.feature !== 'calendars') return res.status(400).json({ error: 'Only calendars can be synced here', code: 'INVALID_PROVIDER_FEATURE' });
+  if (!providerIntegrationsEnabled()) return res.status(403).json({ error: 'Provider integrations are disabled' });
+  const features = await describeAccountProviderFeatures({ userId, accountId: req.params.id });
+  if (!features) return res.status(404).json({ error: 'Account not found' });
+  if (!features.provider || !features.calendar?.connectionId) return res.status(409).json({ error: 'No provider calendar connection for this account', code: 'PROVIDER_AUTH_REQUIRED' });
+  // SVC-01 owns the intent. A manual button must never silently re-enable it.
+  if (features.calendar.enabled !== true) return res.status(409).json({ error: 'Calendars are disabled for this account', code: 'FEATURE_DISABLED' });
+  const provider = features.provider;
+  const connectionId = features.calendar.connectionId;
+  const refusal = await providerSyncPreflight({ userId, connectionId, provider, feature: 'calendar' });
+  if (refusal) return res.status(409).json({ connectionId, error: refusal });
+  try {
+    const result = provider === 'google'
+      ? await syncGoogleCalendar({ userId, connectionId, config: googleConfigFromEnv() })
+      : await syncGraphCalendar({ userId, connectionId, config: microsoftConfigFromEnv() });
+    res.json({ accountId: req.params.id, connectionId, provider, state: result.errors?.length ? 'partial' : 'success', result });
+  } catch (caught) {
+    res.status(502).json({ accountId: req.params.id, connectionId, provider, state: 'error', error: await describeProviderSyncFailure({ userId, connectionId, provider, feature: 'calendar', caught }) });
+  }
 });
 
 /**
