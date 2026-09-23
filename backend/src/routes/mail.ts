@@ -2595,8 +2595,11 @@ router.post('/messages/bulk-delete', async (req, res) => {
     // immediately re-INSERT at the destination when new UIDs are known.
     // Group by trashPath since different accounts may have different Trash folders.
     if (trashMoveSucceeded.length) {
+      // The UID relocation CTE belongs strictly to IMAP. Native provider moves have
+      // already updated their stable local row; including their null UID here deletes
+      // that row without a reinsert when an IMAP item shares the bulk request.
       const byTrashPath: Record<string, Array<{ msg: MailMessageRow; trashPath: string; newUid: number | null }>> = {};
-      for (const u of [...trashMoveSucceeded, ...graphTrashMoved]) {
+      for (const u of trashMoveSucceeded) {
         (byTrashPath[u.trashPath] = byTrashPath[u.trashPath] || []).push(u);
       }
       for (const [trashPath, entries] of Object.entries(byTrashPath)) {
@@ -2990,36 +2993,32 @@ router.post('/messages/bulk-archive', async (req, res) => {
     const allMailDestFolders = new Set();
 
     for (const [accountId, msgs] of Object.entries(byAccount)) {
+      // Select transport before resolving a legacy presentation mapping. Gmail
+      // archive means removing INBOX membership, never IMAP-moving to an old Archive
+      // or All Mail mapping left behind by a pre-migration account.
+      const accountResult = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
+      const account = accountResult.rows[0];
+      accountsById[accountId] = account;
+      if (account?.mail_transport === 'gmail_api') {
+        const archived = await archiveMessagesOverGmail({
+          userId: sessionUserId(req), accountId, account, messages: msgs,
+        });
+        for (const id of archived.archivedIds) {
+          const message = msgs.find(candidate => candidate.id === id);
+          if (message) gmailArchived.push({ id, accountId, sourceFolder: message.folder, wasUnread: !message.is_read });
+        }
+        for (const id of archived.failedIds) console.error(`bulk-archive: Gmail did not archive ${id}`);
+        continue;
+      }
+
       const archiveFolder = await resolveArchiveFolder(accountId, msgs[0].folder_mappings);
       if (!archiveFolder) {
-        // A Gmail account legitimately has no Archive folder to resolve — Gmail has no
-        // Archive label, and archiving there is *leaving the inbox*, not a move to
-        // somewhere else. It is therefore handled here rather than reported as an
-        // account that has no archive folder, which is what the other transports get.
-        const accountResult = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
-        const account = accountResult.rows[0];
-        accountsById[accountId] = account;
-        if (account?.mail_transport === 'gmail_api') {
-          const archived = await archiveMessagesOverGmail({
-            userId: sessionUserId(req), accountId, account, messages: msgs,
-          });
-          for (const id of archived.archivedIds) {
-            const message = msgs.find(candidate => candidate.id === id);
-            if (message) gmailArchived.push({ id, accountId, sourceFolder: message.folder, wasUnread: !message.is_read });
-          }
-          for (const id of archived.failedIds) console.error(`bulk-archive: Gmail did not archive ${id}`);
-          continue;
-        }
         noArchiveFolder.push(accountId);
         continue;
       }
       if (await isAllMailFolder(accountId, archiveFolder)) {
         allMailDestFolders.add(archiveFolder);
       }
-
-      const accountResult = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
-      const account = accountResult.rows[0];
-      accountsById[accountId] = account;
       // A native account archives through its provider, and the re-homing below is
       // done by the move pass, so it does not go through the UIDPLUS CTE.
       if (account.mail_transport === 'microsoft_graph') {

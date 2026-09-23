@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
   bulkMoveMessages: vi.fn(),
   _guardMoveUid: vi.fn(),
   _unguardMoveUid: vi.fn(),
+  archiveGmailMessage: vi.fn(),
 }));
 
 vi.mock('../services/db.js', () => ({ query: mocks.query, withTransaction: vi.fn() }));
@@ -42,6 +43,10 @@ vi.mock('../index.js', () => ({
   },
 }));
 vi.mock('../services/providerMutationService.js', () => ({ runProviderMutation: mocks.runProviderMutation }));
+vi.mock('../services/providers/google/gmailMailMove.js', () => ({
+  archiveGmailMessage: mocks.archiveGmailMessage,
+  moveGmailMessageToLabel: vi.fn(),
+}));
 vi.mock('../services/providers/microsoft/graphMailSync.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../services/providers/microsoft/graphMailSync.js')>();
   return { ...actual, graphFolderIdForPath: mocks.graphFolderIdForPath };
@@ -113,6 +118,7 @@ beforeEach(() => {
   mocks.resolveAllDraftsPaths.mockResolvedValue(new Set<string>());
   mocks.isAllMailFolder.mockResolvedValue(false);
   mocks.runProviderMutation.mockResolvedValue({ status: 'confirmed', operationId: 'op-1', value: { id: 'AAMkAD-2' }, replayed: false });
+  mocks.archiveGmailMessage.mockResolvedValue({ archived: true });
 });
 
 function arrangeOwnedMessages(message: Record<string, unknown> = {}) {
@@ -208,6 +214,24 @@ describe('bulk-archive keeps a Graph row out of the re-insert CTE', () => {
     const response = await post('/messages/bulk-archive', { ids: [MESSAGE_ID] });
     expect(await response.json()).toEqual({ ok: true, archived: [], noArchiveFolder: [ACCOUNT_ID] });
     expect(mocks.runProviderMutation).not.toHaveBeenCalled();
+  });
+});
+
+describe('bulk-archive always selects Gmail API before legacy archive mappings', () => {
+  it('removes INBOX through Gmail even when an old Archive mapping still resolves', async () => {
+    const gmailAccount = { id: ACCOUNT_ID, user_id: 'user-1', mail_transport: 'gmail_api', provider_connection_id: 'connection-1' };
+    mocks.query
+      .mockResolvedValueOnce({ rows: [messageRow({ provider_message_id: 'gmail-message-1', folder_mappings: { archive: 'Archive' } })], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [gmailAccount], rowCount: 1 });
+
+    const response = await post('/messages/bulk-archive', { ids: [MESSAGE_ID] });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ ok: true, archived: [MESSAGE_ID], noArchiveFolder: [] });
+    expect(mocks.archiveGmailMessage).toHaveBeenCalledWith(expect.objectContaining({
+      accountId: ACCOUNT_ID, providerMessageId: 'gmail-message-1',
+    }));
+    expect(mocks.resolveArchiveFolder).not.toHaveBeenCalled();
+    expect(mocks.bulkMoveMessages).not.toHaveBeenCalled();
   });
 });
 
