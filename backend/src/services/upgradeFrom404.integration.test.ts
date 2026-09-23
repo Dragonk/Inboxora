@@ -25,6 +25,8 @@ const describeOrSkip = hasPg && gateEnabled ? describe : describe.skip;
 const USER_ID = '00000000-0000-0000-0000-000000000404';
 const GMAIL_ACCOUNT_ID = '00000000-0000-0000-0000-000000001404';
 const PLAIN_ACCOUNT_ID = '00000000-0000-0000-0000-000000002404';
+const OUT_OF_ORDER_CONNECTION_ID = '00000000-0000-0000-0000-000000003404';
+const UPGRADE_CALENDAR_ID = '00000000-0000-0000-0000-000000004404';
 
 async function autocommit<T>(fn: (client: PoolClient) => Promise<T>): Promise<T> {
   const client = await pool.connect();
@@ -384,6 +386,116 @@ describeOrSkip('4.0.4 → 4.1.0 upgrade', () => {
       "SELECT 1 FROM pg_indexes WHERE indexname = 'messages_provider_identity_key'",
     ));
     expect(index.rows).toHaveLength(1);
+  }, 120_000);
+
+  it('fills an out-of-order 0127 gap after fa8b2cd7 had already recorded 0128 and 0129', async () => {
+    // fa8b2cd7 could have applied the two later migrations before 0127 existed. A
+    // max(version) runner would miss that gap; production must scan every file.
+    await autocommit(async client => {
+      await client.query(
+        `INSERT INTO provider_connections (id, user_id, provider, issuer, subject)
+         VALUES ($1, $2, 'google', 'https://accounts.google.com', 'out-of-order-upgrade')`,
+        [OUT_OF_ORDER_CONNECTION_ID, USER_ID],
+      );
+      await client.query('UPDATE email_accounts SET provider_connection_id = $2 WHERE id = $1', [GMAIL_ACCOUNT_ID, OUT_OF_ORDER_CONNECTION_ID]);
+      await client.query(
+        `INSERT INTO oauth_grants (connection_id, audience, scopes)
+         VALUES ($1, 'google', ARRAY['openid', 'email'])`,
+        [OUT_OF_ORDER_CONNECTION_ID],
+      );
+      await client.query(
+        `INSERT INTO account_provider_feature_settings (account_id, feature, enabled, revision)
+         VALUES ($1, 'calendars', true, 7)`,
+        [GMAIL_ACCOUNT_ID],
+      );
+      await client.query(
+        `INSERT INTO user_calendar_source_preferences (user_id, source_id, collapsed)
+         VALUES ($1, 'google:${OUT_OF_ORDER_CONNECTION_ID}', true)`,
+        [USER_ID],
+      );
+      await client.query(
+        `INSERT INTO user_calendar_presentation_preferences (user_id, calendar_id, sidebar_hidden)
+         VALUES ($1, $2, true)`,
+        [USER_ID, UPGRADE_CALENDAR_ID],
+      );
+      await client.query(
+        `INSERT INTO sync_states (user_id, connection_id, account_id, feature, coverage, cursor, page_checkpoint, running_generation)
+         VALUES ($1, $2, $3, 'calendars', 'default', 'opaque-cursor-404', 'opaque-checkpoint-404', 12)`,
+        [USER_ID, OUT_OF_ORDER_CONNECTION_ID, GMAIL_ACCOUNT_ID],
+      );
+      // Recreate the exact mixed ledger: 0128/0129 remain recorded but 0127 and
+      // subsequent migrations are pending. Their schema effects are removed too,
+      // so successful execution proves more than merely inserting ledger rows.
+      await client.query("DELETE FROM schema_migrations WHERE version IN ('0127_oauth_grant_current_scopes', '0130_gmail_message_completeness', '0131_message_unsubscribe_attempts')");
+      await client.query('ALTER TABLE oauth_grants DROP COLUMN current_scopes');
+      await client.query('ALTER TABLE messages DROP COLUMN gmail_rule_body_complete, DROP COLUMN gmail_reader_body_complete, DROP COLUMN gmail_attachment_metadata_complete');
+      await client.query('DROP TABLE message_unsubscribe_attempts');
+    });
+
+    const preservedBefore = await autocommit(async client => {
+      const ledger = await client.query<{ version: string; applied_at: string }>(
+        "SELECT version, applied_at::text FROM schema_migrations WHERE version IN ('0128_account_provider_feature_settings', '0129_calendar_presentation_preferences') ORDER BY version",
+      );
+      const metadata = await client.query(
+        `SELECT a.id AS account_id, g.scopes, s.cursor, s.page_checkpoint, s.running_generation,
+                f.enabled, f.revision, source.collapsed, presentation.sidebar_hidden
+           FROM email_accounts a
+           JOIN oauth_grants g ON g.connection_id = a.provider_connection_id
+           JOIN sync_states s ON s.account_id = a.id AND s.connection_id = a.provider_connection_id
+           JOIN account_provider_feature_settings f ON f.account_id = a.id AND f.feature = 'calendars'
+           JOIN user_calendar_source_preferences source ON source.user_id = a.user_id AND source.source_id = $2
+           JOIN user_calendar_presentation_preferences presentation ON presentation.user_id = a.user_id AND presentation.calendar_id = $3
+          WHERE a.id = $1`,
+        [GMAIL_ACCOUNT_ID, `google:${OUT_OF_ORDER_CONNECTION_ID}`, UPGRADE_CALENDAR_ID],
+      );
+      return { ledger: ledger.rows, metadata: metadata.rows };
+    });
+    expect(preservedBefore.ledger).toHaveLength(2);
+    expect(preservedBefore.metadata).toHaveLength(1);
+
+    await runMigrations();
+
+    const afterFirstRun = await autocommit(async client => {
+      const ledger = await client.query<{ version: string; applied_at: string }>(
+        "SELECT version, applied_at::text FROM schema_migrations WHERE version IN ('0127_oauth_grant_current_scopes', '0128_account_provider_feature_settings', '0129_calendar_presentation_preferences', '0130_gmail_message_completeness', '0131_message_unsubscribe_attempts') ORDER BY version",
+      );
+      const grant = await client.query<{ scopes: string[]; current_scopes: string[] | null }>(
+        'SELECT scopes, current_scopes FROM oauth_grants WHERE connection_id = $1', [OUT_OF_ORDER_CONNECTION_ID],
+      );
+      const metadata = await client.query(
+        `SELECT a.id AS account_id, s.cursor, s.page_checkpoint, s.running_generation,
+                f.enabled, f.revision, source.collapsed, presentation.sidebar_hidden
+           FROM email_accounts a
+           JOIN sync_states s ON s.account_id = a.id AND s.connection_id = a.provider_connection_id
+           JOIN account_provider_feature_settings f ON f.account_id = a.id AND f.feature = 'calendars'
+           JOIN user_calendar_source_preferences source ON source.user_id = a.user_id AND source.source_id = $2
+           JOIN user_calendar_presentation_preferences presentation ON presentation.user_id = a.user_id AND presentation.calendar_id = $3
+          WHERE a.id = $1`,
+        [GMAIL_ACCOUNT_ID, `google:${OUT_OF_ORDER_CONNECTION_ID}`, UPGRADE_CALENDAR_ID],
+      );
+      return { ledger: ledger.rows, grant: grant.rows, metadata: metadata.rows };
+    });
+    expect(afterFirstRun.ledger.map(row => row.version)).toEqual([
+      '0127_oauth_grant_current_scopes', '0128_account_provider_feature_settings', '0129_calendar_presentation_preferences',
+      '0130_gmail_message_completeness', '0131_message_unsubscribe_attempts',
+    ]);
+    expect(afterFirstRun.ledger.slice(1, 3)).toEqual(preservedBefore.ledger);
+    expect(afterFirstRun.grant).toEqual([{ scopes: ['openid', 'email'], current_scopes: null }]);
+    expect(afterFirstRun.metadata).toEqual(preservedBefore.metadata.map(({ scopes, ...row }: Record<string, unknown>) => row));
+
+    await runMigrations();
+    const afterSecondRun = await autocommit(client => client.query<{ version: string; applied_at: string }>(
+      "SELECT version, applied_at::text FROM schema_migrations WHERE version IN ('0127_oauth_grant_current_scopes', '0128_account_provider_feature_settings', '0129_calendar_presentation_preferences', '0130_gmail_message_completeness', '0131_message_unsubscribe_attempts') ORDER BY version",
+    ));
+    expect(afterSecondRun.rows).toEqual(afterFirstRun.ledger);
+
+    await autocommit(async client => {
+      await client.query('UPDATE email_accounts SET provider_connection_id = NULL WHERE id = $1', [GMAIL_ACCOUNT_ID]);
+      await client.query('DELETE FROM user_calendar_source_preferences WHERE user_id = $1 AND source_id = $2', [USER_ID, `google:${OUT_OF_ORDER_CONNECTION_ID}`]);
+      await client.query('DELETE FROM user_calendar_presentation_preferences WHERE user_id = $1 AND calendar_id = $2', [USER_ID, UPGRADE_CALENDAR_ID]);
+      await client.query('DELETE FROM account_provider_feature_settings WHERE account_id = $1 AND feature = $2', [GMAIL_ACCOUNT_ID, 'calendars']);
+      await client.query('DELETE FROM provider_connections WHERE id = $1', [OUT_OF_ORDER_CONNECTION_ID]);
+    });
   }, 120_000);
 
   it('is idempotent: running the runner again changes nothing', async () => {

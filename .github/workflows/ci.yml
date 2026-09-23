@@ -130,6 +130,8 @@ jobs:
         # `providerSchemaUpgrade.integration.test.ts` creates and drops a database of
         # its own, so the role needs CREATEDB (the service user has it) and this job
         # must not share its database with another.
+        # Explicitly include the route/service PostgreSQL regressions outside the
+        # provider directories; the upgrade gate below owns its isolated database.
         run: |
           npx vitest run \
             src/services/providerAuthService.integration.test.ts \
@@ -138,6 +140,16 @@ jobs:
             src/services/providerMutationService.integration.test.ts \
             src/services/providerWritesJournal.integration.test.ts \
             src/routes/send.limits.integration.test.ts \
+            src/routes/mail.mixedBulkTrash.integration.test.ts \
+            src/routes/mail.graphLegacyIdentity.integration.test.ts \
+            src/routes/calendarPresentation.integration.test.ts \
+            src/services/accountNotices.integration.test.ts \
+            src/services/carddavSourceOwnership.integration.test.ts \
+            src/services/carddavUneditedContact.integration.test.ts \
+            src/services/calendarOccurrences.integration.test.ts \
+            src/services/genericImapThreading.integration.test.ts \
+            src/services/providerMailCutover.integration.test.ts \
+            src/services/providerSyncTargets.integration.test.ts \
             src/services/providerConnectionService.integration.test.ts \
             src/services/providerSchemaUpgrade.integration.test.ts \
             src/services/providers/google src/services/providers/microsoft \
