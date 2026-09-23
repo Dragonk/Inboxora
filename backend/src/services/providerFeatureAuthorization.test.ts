@@ -49,6 +49,18 @@ describe('per-feature authorization (unit)', () => {
       .toMatchObject({ authorized: false, missingScopes: ['contacts'] });
   });
 
+  it('models read-only Google Calendar and People access separately from write', () => {
+    const calendar = evaluateProviderFeatureAuthorization('google', 'calendar', [
+      `${GOOGLE}calendar.calendarlist.readonly`, `${GOOGLE}calendar.events.readonly`,
+    ]);
+    expect(calendar).toMatchObject({ canDiscover: true, canRead: true, canWrite: false, authorized: false });
+    expect(calendar.capabilities.write.missingScopes).toEqual(['calendar.events']);
+
+    const contacts = evaluateProviderFeatureAuthorization('google', 'contacts', [`${GOOGLE}contacts.readonly`]);
+    expect(contacts).toMatchObject({ canDiscover: true, canRead: true, canWrite: false, authorized: false });
+    expect(contacts.capabilities.write.missingScopes).toEqual(['contacts']);
+  });
+
   it('keeps the Google features independent of one another', () => {
     // The exact sequence a user performs: mail, then calendar, then contacts. Each step must leave the
     // earlier features authorized.

@@ -9,6 +9,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
  */
 
 const calls = vi.hoisted(() => ({
+  settings: vi.fn(async () => [
+    { feature: 'calendars' as const, enabled: true, revision: 1 },
+    { feature: 'contacts' as const, enabled: true, revision: 1 },
+  ]),
   syncGmailLabels: vi.fn(async () => ({ labels: 1 })),
   syncGmailMessages: vi.fn(async () => ({ messages: 1 })),
   syncGoogleCalendar: vi.fn(async () => ({ events: 1 })),
@@ -31,6 +35,7 @@ vi.mock('./providers/microsoft/graphMailSync.js', () => ({
 }));
 vi.mock('./providers/microsoft/graphCalendarSync.js', () => ({ syncGraphCalendar: calls.syncGraphCalendar }));
 vi.mock('./providers/microsoft/graphContactsSync.js', () => ({ syncGraphContacts: calls.syncGraphContacts }));
+vi.mock('./accountProviderFeatureSettings.js', () => ({ accountProviderFeatureSettings: calls.settings }));
 
 vi.mock('./db.js', () => ({
   withTransaction: async (fn: (client: unknown) => unknown) => fn({ query: async () => ({ rows: [] }) }),
@@ -70,6 +75,17 @@ describe('finalizeProviderAuthorization', () => {
       provider: 'google', purpose: 'calendar_enable', accountId: 'account-1', connectionId: 'connection-1',
       authorized: true, synchronized: true, syncPending: false, syncErrorCode: null,
     });
+  });
+
+  it('does not start calendar work when the account was disabled during consent', async () => {
+    calls.settings.mockResolvedValueOnce([
+      { feature: 'calendars', enabled: false, revision: 2 },
+      { feature: 'contacts', enabled: true, revision: 1 },
+    ]);
+    await expect(finalizeProviderAuthorization(input())).resolves.toMatchObject({
+      synchronized: false, syncPending: false, syncErrorCode: 'FEATURE_DISABLED',
+    });
+    expect(calls.syncGoogleCalendar).not.toHaveBeenCalled();
   });
 
   it('reports a partially failed calendar run as a failure, not as success', async () => {

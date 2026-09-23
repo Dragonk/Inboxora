@@ -13,6 +13,7 @@ import { syncGraphCalendar } from './providers/microsoft/graphCalendarSync.js';
 import { syncGraphContacts } from './providers/microsoft/graphContactsSync.js';
 import { withTransaction } from './db.js';
 import { acquireSyncLease, ensureSyncState, failSyncRun } from './syncCoordinator.js';
+import { accountProviderFeatureSettings } from './accountProviderFeatureSettings.js';
 
 /**
  * Finish a provider authorization: run the first synchronization the purpose implies, right now.
@@ -187,6 +188,18 @@ async function recordInitialSyncFailure(
   });
 }
 
+/**
+ * Re-read durable intent after the callback. A user who disables a service while
+ * the provider consent page is open must not have its first discovery resurrect it.
+ * Standalone feature connections have no mailbox target and retain their explicit
+ * provider-purpose behavior.
+ */
+async function featureStillEnabled(input: FinalizeProviderAuthorizationInput, feature: 'calendars' | 'contacts'): Promise<boolean> {
+  if (!input.targetAccountId) return true;
+  const setting = (await accountProviderFeatureSettings(input.targetAccountId)).find(entry => entry.feature === feature);
+  return setting?.enabled === true;
+}
+
 export async function finalizeProviderAuthorization(
   input: FinalizeProviderAuthorizationInput,
 ): Promise<ProviderAuthorizationResult> {
@@ -200,6 +213,9 @@ export async function finalizeProviderAuthorization(
 
   try {
     if (input.purpose === 'calendar_enable') {
+      if (!await featureStillEnabled(input, 'calendars')) {
+        return { ...base, synchronized: false, syncPending: false, syncErrorCode: 'FEATURE_DISABLED' };
+      }
       // A calendar run reports a per-collection failure instead of throwing: one unreadable shared calendar must
       // not fail the consent, but it does mean the synchronisation was not complete (OBS-02).
       const calendarFailures = await runCalendarSync(input);
@@ -210,15 +226,24 @@ export async function finalizeProviderAuthorization(
         return { ...base, synchronized: false, syncPending: false, syncErrorCode: code };
       }
     }
-    else if (input.purpose === 'contacts_enable') await runContactsSync(input);
+    else if (input.purpose === 'contacts_enable') {
+      if (!await featureStillEnabled(input, 'contacts')) {
+        return { ...base, synchronized: false, syncPending: false, syncErrorCode: 'FEATURE_DISABLED' };
+      }
+      await runContactsSync(input);
+    }
     else if (input.purpose === 'account_enable') {
       // One consent covers the whole mailbox, so every feature it authorized is primed now. A failure in one of
       // them must not stop the others: each feature records its own state, and the first failure is reported.
       const failures: Array<{ feature: FinalizedFeature; code: string }> = [];
-      try {
-        for (const failure of await runCalendarSync(input)) failures.push({ feature: 'calendars', code: failure.code });
-      } catch (caught) { failures.push({ feature: 'calendars', code: failureCodeOf(caught) }); }
-      try { await runContactsSync(input); } catch (caught) { failures.push({ feature: 'contacts', code: failureCodeOf(caught) }); }
+      if (await featureStillEnabled(input, 'calendars')) {
+        try {
+          for (const failure of await runCalendarSync(input)) failures.push({ feature: 'calendars', code: failure.code });
+        } catch (caught) { failures.push({ feature: 'calendars', code: failureCodeOf(caught) }); }
+      }
+      if (await featureStillEnabled(input, 'contacts')) {
+        try { await runContactsSync(input); } catch (caught) { failures.push({ feature: 'contacts', code: failureCodeOf(caught) }); }
+      }
       // The mail baseline only applies to a mailbox the flow named; a bare consent reuses what syncs exist.
       if (input.targetAccountId) {
         try { await runMailBaseline(input); } catch (caught) { failures.push({ feature: 'mail', code: failureCodeOf(caught) }); }
