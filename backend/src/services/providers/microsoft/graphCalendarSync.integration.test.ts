@@ -48,17 +48,26 @@ function json(body: unknown, status = 200): Response {
   return { ok: status >= 200 && status < 300, status, headers: new Headers(), json: async () => body } as Response;
 }
 
-/** A fake Graph API: handlers are consumed in call order, URLs are recorded. */
-function fakeProvider(handlers: Array<(url: string) => Response | Promise<Response>>) {
+type GraphRoute = { matches: (url: string) => boolean; handle: (url: string) => Response | Promise<Response> };
+
+/** A stateful Graph fixture: every request must name its path, version and resource. */
+function fakeProvider(routes: readonly GraphRoute[]) {
   const urls: string[] = [];
-  let index = 0;
   const fetchImpl = async (url: string): Promise<Response> => {
     urls.push(url);
-    const handler = handlers[Math.min(index, handlers.length - 1)];
-    index += 1;
-    return handler(url);
+    const route = routes.find(candidate => candidate.matches(url));
+    if (!route) throw new Error(`Unexpected Graph request: ${url}`);
+    return route.handle(url);
   };
   return { fetchImpl: fetchImpl as unknown as typeof fetch, urls };
+}
+
+function graphPath(pathname: string, body: unknown, status = 200): GraphRoute {
+  return { matches: url => new URL(url).pathname === pathname, handle: () => json(body, status) };
+}
+
+function graphUrl(url: string, body: unknown, status = 200): GraphRoute {
+  return { matches: candidate => candidate === url, handle: () => json(body, status) };
 }
 
 async function autocommit<T>(fn: (client: PoolClient) => Promise<T>): Promise<T> {
@@ -144,9 +153,15 @@ describeOrSkip('Microsoft Graph calendar sync (PostgreSQL)', { timeout: PG_TEST_
   it('creates hidden read-only calendars, records the provider permission, and stores the series', async () => {
     const connectionId = await seedConnection();
     const provider = fakeProvider([
-      () => json(CALENDAR_LIST),
-      () => json({ value: [master, single], '@odata.deltaLink': DELTA_LINK_1 }),
-      () => json({ value: [], '@odata.deltaLink': 'https://graph.microsoft.com/v1.0/me/calendars/cal-2/events/delta?$deltatoken=2' }),
+      graphPath('/v1.0/me/calendars', CALENDAR_LIST),
+      graphPath('/beta/me/calendars/cal-1/events/delta', {
+        value: [{ id: master.id }, { id: single.id }], '@odata.deltaLink': DELTA_LINK_1,
+      }),
+      graphPath('/v1.0/me/calendars/cal-1/events/evt-master', master),
+      graphPath('/v1.0/me/calendars/cal-1/events/evt-single', single),
+      graphPath('/beta/me/calendars/cal-2/events/delta', {
+        value: [], '@odata.deltaLink': 'https://graph.microsoft.com/v1.0/me/calendars/cal-2/events/delta?$deltatoken=2',
+      }),
     ]);
 
     const result = await syncGraphCalendar({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl: provider.fetchImpl });
@@ -208,9 +223,9 @@ describeOrSkip('Microsoft Graph calendar sync (PostgreSQL)', { timeout: PG_TEST_
     await syncGraphCalendar({
       userId: USER_ID, connectionId, config: CONFIG,
       fetchImpl: fakeProvider([
-        () => json(CALENDAR_LIST),
-        () => json({ value: [], '@odata.deltaLink': DELTA_LINK_1 }),
-        () => json({ value: [], '@odata.deltaLink': 'https://graph.microsoft.com/v1.0/me/calendars/cal-2/events/delta?$deltatoken=2' }),
+        graphPath('/v1.0/me/calendars', CALENDAR_LIST),
+        graphPath('/beta/me/calendars/cal-1/events/delta', { value: [], '@odata.deltaLink': DELTA_LINK_1 }),
+        graphPath('/beta/me/calendars/cal-2/events/delta', { value: [], '@odata.deltaLink': 'https://graph.microsoft.com/v1.0/me/calendars/cal-2/events/delta?$deltatoken=2' }),
       ]).fetchImpl,
     });
     const before = await autocommit(client => client.query<{ remote_id: string; source_access: string; enabled: boolean; user_access: string }>(
@@ -229,9 +244,9 @@ describeOrSkip('Microsoft Graph calendar sync (PostgreSQL)', { timeout: PG_TEST_
     await syncGraphCalendar({
       userId: USER_ID, connectionId, config: CONFIG,
       fetchImpl: fakeProvider([
-        () => json(downgraded),
-        () => json({ value: [], '@odata.deltaLink': DELTA_LINK_1 }),
-        () => json({ value: [], '@odata.deltaLink': 'https://graph.microsoft.com/v1.0/me/calendars/cal-2/events/delta?$deltatoken=3' }),
+        graphPath('/v1.0/me/calendars', downgraded),
+        graphPath('/v1.0/me/calendars/cal-1/events/delta', { value: [], '@odata.deltaLink': DELTA_LINK_1 }),
+        graphPath('/v1.0/me/calendars/cal-2/events/delta', { value: [], '@odata.deltaLink': 'https://graph.microsoft.com/v1.0/me/calendars/cal-2/events/delta?$deltatoken=3' }),
       ]).fetchImpl,
     });
 
@@ -250,9 +265,15 @@ describeOrSkip('Microsoft Graph calendar sync (PostgreSQL)', { timeout: PG_TEST_
     await syncGraphCalendar({
       userId: USER_ID, connectionId, config: CONFIG,
       fetchImpl: fakeProvider([
-        () => json(CALENDAR_LIST),
-        () => json({ value: [master, single], '@odata.deltaLink': DELTA_LINK_1 }),
-        () => json({ value: [], '@odata.deltaLink': 'https://graph.microsoft.com/v1.0/me/calendars/cal-2/events/delta?$deltatoken=2' }),
+        graphPath('/v1.0/me/calendars', CALENDAR_LIST),
+        graphPath('/beta/me/calendars/cal-1/events/delta', {
+          value: [{ id: master.id }, { id: single.id }], '@odata.deltaLink': DELTA_LINK_1,
+        }),
+        graphPath('/v1.0/me/calendars/cal-1/events/evt-master', master),
+        graphPath('/v1.0/me/calendars/cal-1/events/evt-single', single),
+        graphPath('/beta/me/calendars/cal-2/events/delta', {
+          value: [], '@odata.deltaLink': 'https://graph.microsoft.com/v1.0/me/calendars/cal-2/events/delta?$deltatoken=2',
+        }),
       ]).fetchImpl,
     });
 
@@ -264,13 +285,14 @@ describeOrSkip('Microsoft Graph calendar sync (PostgreSQL)', { timeout: PG_TEST_
     };
     const removed: GraphEvent = { id: 'evt-single', '@removed': { reason: 'deleted' } };
     const provider = fakeProvider([
-      () => json(CALENDAR_LIST),
-      (url) => {
-        // The resumed run must start from the link the previous run stored, not from the endpoint.
-        expect(url).toBe(DELTA_LINK_1);
-        return json({ value: [moved, removed], '@odata.deltaLink': 'https://graph.microsoft.com/v1.0/me/calendars/cal-1/events/delta?$deltatoken=2' });
-      },
-      () => json({ value: [], '@odata.deltaLink': 'https://graph.microsoft.com/v1.0/me/calendars/cal-2/events/delta?$deltatoken=2' }),
+      graphPath('/v1.0/me/calendars', CALENDAR_LIST),
+      graphUrl(DELTA_LINK_1, {
+        value: [{ id: moved.id }, removed], '@odata.deltaLink': 'https://graph.microsoft.com/v1.0/me/calendars/cal-1/events/delta?$deltatoken=2',
+      }),
+      graphPath('/v1.0/me/calendars/cal-1/events/evt-master_occ', moved),
+      graphPath('/v1.0/me/calendars/cal-2/events/delta', {
+        value: [], '@odata.deltaLink': 'https://graph.microsoft.com/v1.0/me/calendars/cal-2/events/delta?$deltatoken=2',
+      }),
     ]);
 
     const result = await syncGraphCalendar({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl: provider.fetchImpl });
@@ -295,17 +317,24 @@ describeOrSkip('Microsoft Graph calendar sync (PostgreSQL)', { timeout: PG_TEST_
     await syncGraphCalendar({
       userId: USER_ID, connectionId, config: CONFIG,
       fetchImpl: fakeProvider([
-        () => json({ value: [CALENDAR_LIST.value[0]] }),
-        () => json({ value: [master, single], '@odata.deltaLink': DELTA_LINK_1 }),
+        graphPath('/v1.0/me/calendars', { value: [CALENDAR_LIST.value[0]] }),
+        graphPath('/beta/me/calendars/cal-1/events/delta', {
+          value: [{ id: master.id }, { id: single.id }], '@odata.deltaLink': DELTA_LINK_1,
+        }),
+        graphPath('/v1.0/me/calendars/cal-1/events/evt-master', master),
+        graphPath('/v1.0/me/calendars/cal-1/events/evt-single', single),
       ]).fetchImpl,
     });
     expect((await storedEvents()).map(event => event.uid)).toEqual(['dentist@contoso.test', 'standup@contoso.test']);
 
     const provider = fakeProvider([
-      () => json({ value: [CALENDAR_LIST.value[0]] }),
+      graphPath('/v1.0/me/calendars', { value: [CALENDAR_LIST.value[0]] }),
       // The stored cursor is gone: Graph answers 410, and the run rebuilds.
-      () => json({ error: { code: 'syncStateNotFound', message: 'gone' } }, 410),
-      () => json({ value: [master], '@odata.deltaLink': 'https://graph.microsoft.com/v1.0/me/calendars/cal-1/events/delta?$deltatoken=9' }),
+      graphUrl(DELTA_LINK_1, { error: { code: 'syncStateNotFound', message: 'gone' } }, 410),
+      graphPath('/beta/me/calendars/cal-1/events/delta', {
+        value: [{ id: master.id }], '@odata.deltaLink': 'https://graph.microsoft.com/v1.0/me/calendars/cal-1/events/delta?$deltatoken=9',
+      }),
+      graphPath('/v1.0/me/calendars/cal-1/events/evt-master', master),
     ]);
 
     const result = await syncGraphCalendar({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl: provider.fetchImpl });

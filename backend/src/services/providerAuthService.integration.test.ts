@@ -53,22 +53,23 @@ async function inTransaction<T>(fn: (client: PoolClient) => Promise<T>): Promise
   }
 }
 
+beforeAll(async () => {
+  // Both describe blocks create authorization flows for this fixture, so its lifecycle
+  // belongs to the file rather than the first group alone.
+  process.env.ENCRYPTION_KEY = crypto.randomBytes(32).toString('hex');
+  await autocommit(client => client.query(
+    `INSERT INTO users (id, username) VALUES ($1, 'p04-integration-user') ON CONFLICT (id) DO NOTHING`,
+    [USER_ID],
+  ));
+});
+
+afterAll(async () => {
+  await autocommit(client => client.query('DELETE FROM users WHERE id = $1', [USER_ID]));
+  if (originalKey === undefined) delete process.env.ENCRYPTION_KEY;
+  else process.env.ENCRYPTION_KEY = originalKey;
+});
+
 describeOrSkip('OAuth authorization flows (PostgreSQL)', () => {
-  beforeAll(async () => {
-    // A real key so the grant/verifier encryption path is exercised, not bypassed.
-    process.env.ENCRYPTION_KEY = crypto.randomBytes(32).toString('hex');
-    await autocommit(client => client.query(
-      `INSERT INTO users (id, username) VALUES ($1, 'p04-integration-user') ON CONFLICT (id) DO NOTHING`,
-      [USER_ID],
-    ));
-  });
-
-  afterAll(async () => {
-    await autocommit(client => client.query('DELETE FROM users WHERE id = $1', [USER_ID]));
-    if (originalKey === undefined) delete process.env.ENCRYPTION_KEY;
-    else process.env.ENCRYPTION_KEY = originalKey;
-  });
-
   beforeEach(async () => {
     await autocommit(async client => {
       await client.query('DELETE FROM provider_connections WHERE user_id = $1', [USER_ID]);
