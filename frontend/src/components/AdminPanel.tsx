@@ -150,10 +150,12 @@ interface AccountFormProps {
   initial?: Partial<AccountFormState> | null;
   onSave: (form: AccountFormState) => void;
   onCancel: () => void;
+  /** Refreshes the account summary after a provider-service mutation. */
+  onReload?: () => void;
 }
 
 
-function AccountForm({ initial = undefined, onSave, onCancel }: AccountFormProps) {
+function AccountForm({ initial = undefined, onSave, onCancel, onReload }: AccountFormProps) {
   const { t } = useTranslation();
   const { categorizationEnabled } = useStore();
 
@@ -200,11 +202,14 @@ function AccountForm({ initial = undefined, onSave, onCancel }: AccountFormProps
   };
 
   const handleSubmit = async () => {
-    if (!form.email_address || !form.auth_user || !form.imap_host) {
+    // Provider-managed accounts do not expose IMAP credentials. Requiring their
+    // hidden fields made a harmless metadata edit impossible unless the user
+    // entered a fictitious host.
+    if (!form.email_address || (!nativeTransport && (!form.auth_user || !form.imap_host))) {
       setError(t('admin.accounts.errorRequired'));
       return;
     }
-    if (!isEdit && !form.auth_pass) {
+    if (!nativeTransport && !isEdit && !form.auth_pass) {
       setError(t('admin.accounts.errorPasswordRequired'));
       return;
     }
@@ -552,6 +557,12 @@ function AccountForm({ initial = undefined, onSave, onCancel }: AccountFormProps
             {t('spam.trustedAuthservIdDesc')}
           </div>
         </>
+      )}
+
+      {isEdit && nativeTransport && initial?.id && (
+        <section data-testid="account-edit-provider-services" style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--border-subtle)' }}>
+          <AccountProviderServices accountId={initial.id} reload={onReload ?? (() => {})} t={t} />
+        </section>
       )}
 
       {error && (
@@ -941,7 +952,7 @@ function AccountsTab({ onNavigate = undefined }: { onNavigate?: (tab: string) =>
         <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 20 }}>
           {editTarget.email_address}
         </div>
-        <AccountForm initial={editTarget} onSave={handleEdit} onCancel={() => { setSubview('list'); setEditTarget(null); }} />
+        <AccountForm initial={editTarget} onSave={handleEdit} onCancel={() => { setSubview('list'); setEditTarget(null); }} onReload={loadAccounts} />
       </div>
     );
   }
@@ -1323,9 +1334,6 @@ function AccountsTab({ onNavigate = undefined }: { onNavigate?: (tab: string) =>
                 )}
               </div>
             </div>
-            {/* The account's own provider services: transport, migration, calendar, contacts and push. */}
-            <AccountProviderServices accountId={account.id} reload={loadAccounts} t={t} />
-
             <div style={{ display: 'flex', gap: 6, flexShrink: 0, marginLeft: 'auto' }}>
               {account.sync_error && (
                 <IconBtn onClick={() => handleReconnect(account.id)} title={t('sidebar.accountMenu.reconnect')}>

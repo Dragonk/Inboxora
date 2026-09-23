@@ -87,13 +87,17 @@ test('a native account is not edited as an IMAP account', async () => {
   const gated = source.slice(source.indexOf('{nativeTransport ? ('), source.indexOf("{t('admin.accounts.addAccountFlow.nativeTransport'"));
   assert.match(gated, /\{nativeTransport \? \(/);
   assert.match(source, /admin\.accounts\.imapHost/);
+  assert.match(source, /\(!nativeTransport && \(!form\.auth_user \|\| !form\.imap_host\)\)/);
 });
 
-test('the account card carries the provider services, and the classifier decides the migration', async () => {
+test('provider services live in native-account editing, not the compact account card', async () => {
   const panel = await readFile(new URL('./AdminPanel.tsx', import.meta.url), 'utf8');
   const services = await readFile(new URL('./AccountProviderServices.tsx', import.meta.url), 'utf8');
-  // Mounted on every account card, driven by the backend's account-centric feature view.
-  assert.match(panel, /<AccountProviderServices accountId=\{account\.id\} reload=\{loadAccounts\} t=\{t\} \/>/);
+  // The overview remains a compact account summary. Provider controls and diagnostics
+  // are rendered only after opening a native Google/Microsoft account for editing.
+  assert.doesNotMatch(panel, /<AccountProviderServices accountId=\{account\.id\} reload=\{loadAccounts\} t=\{t\} \/>/);
+  assert.match(panel, /data-testid="account-edit-provider-services"/);
+  assert.match(panel, /<AccountProviderServices accountId=\{initial\.id\} reload=\{onReload \?\? \(\(\) => \{\}\)\} t=\{t\} \/>/);
   assert.match(services, /api\.accountProviderStatus\(accountId\)/);
   // The transport is named, and a migration is offered only when the backend says it applies.
   assert.match(services, /data-testid="account-transport"/);
