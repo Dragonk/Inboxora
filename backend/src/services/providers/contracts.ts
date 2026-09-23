@@ -120,6 +120,12 @@ export type ApiProblemCode =
   | 'ADMIN_CONFIGURATION_REQUIRED'
   | 'ADMIN_CONSENT_REQUIRED'
   | 'INSUFFICIENT_SCOPES'
+  /** The provider API is disabled for the OAuth client project, not a consent failure. */
+  | 'PROVIDER_API_DISABLED'
+  /** The provider denied access to a concrete collection or policy-protected resource. */
+  | 'PROVIDER_ACCESS_DENIED'
+  /** The provider returned a 403 whose cause is not safely known. */
+  | 'PROVIDER_FORBIDDEN'
   | 'COLLECTION_READ_ONLY'
   | 'OPERATION_FORBIDDEN'
   | 'RESOURCE_NOT_FOUND'
