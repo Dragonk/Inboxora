@@ -750,8 +750,10 @@ describeOrSkip('Gmail API label and message ingest (PostgreSQL)', () => {
     ]);
     const archive = await listMessages({ userId: USER_ID, accountId: ACCOUNT_ID, folder: 'Archive' });
     const inbox = await listMessages({ userId: USER_ID, accountId: ACCOUNT_ID, folder: 'INBOX' });
-    expect(archive.messages.map(row => row.provider_message_id)).toEqual(['a']);
-    expect(inbox.messages.map(row => row.provider_message_id).sort()).toEqual(['y', 'z']);
+    // The public listing deliberately does not expose provider identities; prove the
+    // archive/inbox visibility split through stable projected fields instead.
+    expect(archive.messages.map(row => row.subject)).toEqual(['Subject a']);
+    expect(inbox.messages.map(row => row.subject).sort()).toEqual(['Subject y', 'Subject z']);
   });
 
   it('records the failure and keeps the error code when Gmail refuses the call', async () => {
