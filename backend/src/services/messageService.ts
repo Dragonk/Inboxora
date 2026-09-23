@@ -79,8 +79,9 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
   const safeLimit  = Math.min(Math.max(Number(limit)  || 50, 1), 500);
   const safeOffset = Math.max(Number(offset) || 0, 0);
 
-  let total: number;
-  try {
+  const isThreaded = threaded === 'true' || threaded === true;
+  let total: number | null = null;
+  if (!isThreaded) {
     // The cached folder counters count only the legacy primary `folder`, while the membership predicate above can
     // add a message to another projected label. Count from the same predicate so pagination and the returned total
     // describe the same set (MAIL-02); this is intentionally scoped to the query, not a destructive rewrite of the
@@ -91,11 +92,9 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
       countValues,
     );
     total = r.rows[0]?.n ?? 0;
-  } catch {
-    total = 0;
   }
 
-  if (threaded === 'true' || threaded === true) {
+  if (isThreaded) {
     const filterValues = [...values];
     const threadAccountParam = isSpecificAccount ? [resolvedAccountId] : scopedAccountIds;
     // Legacy thread_key values are only account-local. In unified inboxes, expose a
@@ -132,13 +131,16 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
                a.name  AS account_name,
                a.email_address AS account_email,
                a.color AS account_color,
-               (co.id IS NOT NULL) AS has_contact_photo
+               (EXISTS (
+                  SELECT 1 FROM contacts photo_contact
+                   WHERE photo_contact.user_id = a.user_id
+                     AND photo_contact.primary_email = lower(m.from_email)
+                     AND photo_contact.photo_data IS NOT NULL
+                )) AS has_contact_photo
         FROM messages m
         JOIN paged_threads pt ON pt.account_id = m.account_id AND pt.thread_key = m.thread_key
         JOIN email_accounts a ON m.account_id = a.id
-        LEFT JOIN contacts co ON co.user_id = a.user_id
-                              AND co.primary_email = lower(m.from_email)
-                              AND co.photo_data IS NOT NULL
+
         WHERE ${where}
         ORDER BY m.account_id,
                  m.thread_key,
@@ -220,20 +222,23 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
            m.spam_verdict, m.spam_score_ml, m.spam_score_blended,
            m.list_unsubscribe, m.list_unsubscribe_post, m.delivery_addresses,
            a.name as account_name, a.email_address as account_email, a.color as account_color,
-           (co.id IS NOT NULL) AS has_contact_photo
+           (EXISTS (
+                  SELECT 1 FROM contacts photo_contact
+                   WHERE photo_contact.user_id = a.user_id
+                     AND photo_contact.primary_email = lower(m.from_email)
+                     AND photo_contact.photo_data IS NOT NULL
+                )) AS has_contact_photo
     FROM messages m
     JOIN email_accounts a ON m.account_id = a.id
-    LEFT JOIN contacts co ON co.user_id = a.user_id
-                          AND co.primary_email = lower(m.from_email)
-                          AND co.photo_data IS NOT NULL
+
     WHERE ${where}
-    ORDER BY m.date DESC
+    ORDER BY m.date DESC NULLS LAST, m.id DESC
     LIMIT $${limitParam} OFFSET $${offsetParam}
   `, values);
 
   return {
     messages: result.rows,
-    total,
+    total: total ?? 0,
     resolvedAccountId,
   };
 }

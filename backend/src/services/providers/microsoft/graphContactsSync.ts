@@ -16,7 +16,7 @@ import {
 } from '../../syncCoordinator.js';
 import { GraphApiError } from './graphApiClient.js';
 import type { GraphApiOptions } from './graphApiClient.js';
-import { contactUidForGraphContact, DEFAULT_GRAPH_CONTACTS_TARGET, discoverGraphContactFolders, fetchContactsPage, graphContactToVCard } from './graphContacts.js';
+import { contactUidForGraphContact, DEFAULT_GRAPH_CONTACTS_TARGET, defaultGraphContactFolder, discoverGraphContactFolders, fetchContactsPage, graphContactToVCard } from './graphContacts.js';
 import type { GraphContact, GraphContactFolder } from './graphContacts.js';
 import { ProviderAuthError, graphGrantCoversScope, REQUIRED_GRAPH_CONTACT_WRITE_SCOPE } from '../../providerAuthService.js';
 import { MICROSOFT_GRANT_AUDIENCE } from '../../providerAuthService.js';
@@ -525,13 +525,21 @@ export async function syncGraphContacts(input: {
     errors.push({ folderId: 'discovery', code, stage: 'discovery', ...(caught instanceof GraphApiError ? { status: caught.status, providerReason: caught.providerReason } : {}) });
     console.warn(`Microsoft contacts folder discovery failed for connection ${input.connectionId}:`, code);
   }
-  // The default collection is not a contactFolder and may be present even if the
-  // folder list is empty or every folder has a parentFolderId. Its local remote id
-  // is a typed sentinel, never the fictional Graph id `contacts`.
-  const primary: GraphContactFolder = { id: DEFAULT_GRAPH_CONTACTS_TARGET, displayName: GRAPH_CONTACTS_BOOK_NAME };
-  const ordered = [primary, ...discovered.filter((folder, index, all) =>
-    folder.id !== DEFAULT_GRAPH_CONTACTS_TARGET && all.findIndex(candidate => candidate.id === folder.id) === index,
-  )];
+  // `/me/contacts` is the mailbox's default contact folder, not an
+  // additional book. Prefer the discovered real folder id so one remote person
+  // cannot be projected twice. Only fall back to the well-known collection when
+  // discovery itself yielded no usable default; that fallback has a distinct
+  // sentinel and is never conflated with a guessed folder id.
+  const discoveredDefault = defaultGraphContactFolder(discovered);
+  const primary: GraphContactFolder = discoveredDefault
+    ?? { id: DEFAULT_GRAPH_CONTACTS_TARGET, displayName: GRAPH_CONTACTS_BOOK_NAME };
+  const discoveredFolders = discovered.filter((folder, index, all) =>
+    all.findIndex(candidate => candidate.id === folder.id) === index,
+  );
+  // If discovery returned only nested folders, retain them as independent
+  // collections while still using the well-known default fallback. An incomplete
+  // discovery must not make known folders silently disappear.
+  const ordered = discoveredDefault ? discoveredFolders : [primary, ...discoveredFolders];
   const books: GraphContactsFolderResult[] = [];
   for (const folder of ordered) {
     try {
@@ -546,9 +554,10 @@ export async function syncGraphContacts(input: {
       books.push(result);
     } catch (caught) {
       const db = toAppError(caught);
-      const emailCollision = db.code === '23505';
-      // Preserve distinct provider identities: an address-book unique-email
-      // constraint is diagnosed, never resolved by merging two people by email.
+      const emailCollision = db.code === '23505' && db.constraint === 'contacts_book_primary_email_idx';
+      // Preserve distinct provider identities: only the historical address-book
+      // e-mail constraint is diagnosed this way. Other integrity violations keep
+      // their own failure code rather than being misreported as an e-mail clash.
       const code = emailCollision ? 'CONTACT_EMAIL_COLLISION' : caught instanceof GraphApiError || caught instanceof ProviderAuthError || caught instanceof SyncLeaseLostError
         ? caught.code : 'INTERNAL_ERROR';
       if (folder.id === primary.id) throw caught;
@@ -566,10 +575,9 @@ export async function syncGraphContacts(input: {
     deleted: sum.deleted + book.deleted,
     skipped: sum.skipped + book.skipped,
   }), { created: 0, updated: 0, deleted: 0, skipped: 0 });
-  // Keep the historical aggregate cursor anchored to the first real folder when
-  // available; the independent default collection is still in `books[0]` and never
-  // masquerades as that folder's cursor.
-  const primaryBook = books[1] ?? books[0];
+  // The first book is the discovered default folder when discovery succeeded,
+  // or the explicit `/me/contacts` fallback when it did not.
+  const primaryBook = books[0];
   return {
     addressBookId: primaryBook?.addressBookId ?? '',
     ...totals,

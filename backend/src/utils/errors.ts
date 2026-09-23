@@ -5,6 +5,8 @@ export interface AppError extends Error {
   status?: number;
   statusCode?: number;
   details?: unknown;
+  /** PostgreSQL's named constraint/index for a structured integrity violation. */
+  constraint?: string;
   /** IMAP: the server response code (e.g. NO/BAD) and its text. */
   serverResponseCode?: string;
   responseText?: string;

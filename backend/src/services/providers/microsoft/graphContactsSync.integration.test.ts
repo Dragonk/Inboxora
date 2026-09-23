@@ -216,6 +216,37 @@ describeOrSkip('Microsoft Graph contacts sync (PostgreSQL)', () => {
     expect(incremental.urls[0]).toBe(`${DELTA_BASE}?$deltatoken=baseline`);
   });
 
+  it('keeps two Graph identities with the same e-mail in one folder', async () => {
+    const connectionId = await seedConnection();
+    const provider = fakeProvider([
+      () => json({
+        value: [
+          contact('c-same-1', 'Ada Lovelace', 'shared@contoso.test'),
+          contact('c-same-2', 'Grace Hopper', 'shared@contoso.test'),
+        ],
+        '@odata.deltaLink': `${DELTA_BASE}?$deltatoken=same-email-1`,
+      }),
+      () => json({
+        value: [
+          contact('c-same-1', 'Ada Lovelace', 'shared@contoso.test'),
+          contact('c-same-2', 'Grace Hopper', 'shared@contoso.test'),
+        ],
+        '@odata.deltaLink': `${DELTA_BASE}?$deltatoken=same-email-2`,
+      }),
+    ]);
+
+    const first = await syncGraphContacts({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl: provider.fetchImpl });
+    expect(first).toMatchObject({ created: 2, incomplete: false });
+    const initial = await storedContacts();
+    expect(initial.map(row => row.uid)).toEqual(['msgraph-c-same-1', 'msgraph-c-same-2']);
+    expect(initial.map(row => row.primary_email)).toEqual(['shared@contoso.test', 'shared@contoso.test']);
+
+    const second = await syncGraphContacts({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl: provider.fetchImpl });
+    expect(second).toMatchObject({ created: 0, updated: 2, incomplete: false });
+    const repeated = await storedContacts();
+    expect(repeated.map(row => row.uid)).toEqual(['msgraph-c-same-1', 'msgraph-c-same-2']);
+  });
+
   it('stores the birthday and IM addresses a Graph contact carries, and leaves the anniversary unmapped', async () => {
     // GRAPH-03: the v1.0 contact resource has no anniversary property (beta names a different one), so it is
     // neither requested nor mapped. The local column is left alone rather than filled from a field the API
@@ -354,9 +385,10 @@ describeOrSkip('Microsoft Graph contacts sync (PostgreSQL)', () => {
     const result = await syncGraphContacts({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl: provider.fetchImpl });
 
     expect(result).toMatchObject({ created: 3, updated: 0, deleted: 0, errors: [] });
-    // The independent default collection plus each folder has its own durable book.
-    expect(result.books).toHaveLength(4);
-    expect(new Set(result.books.map(book => book.addressBookId)).size).toBe(4);
+    // The discovered default folder and each remaining folder has one durable
+    // book; `/me/contacts` is not duplicated as another collection.
+    expect(result.books).toHaveLength(3);
+    expect(new Set(result.books.map(book => book.addressBookId)).size).toBe(3);
     expect(provider.urls.map(url => decodeURIComponent(url))).toEqual([
       expect.stringContaining(`/me/contactFolders/${FOLDER_ID}/contacts/delta`),
       expect.stringContaining(`/me/contactFolders/${SECOND_ID}/contacts/delta`),

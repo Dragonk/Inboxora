@@ -1,7 +1,7 @@
 import { ImapFlow } from 'imapflow';
 import type { FolderMappings } from '../utils/mailUtils.js';
 import type { MailboxObject } from 'imapflow';
-import { query } from './db.js';
+import { query, withTransaction } from './db.js';
 import { parseMessage, snippetFromBody, detectBulkFromParsedHeaders, parseHeadersInput, headersToRawString, decodeMimeWords, enrichParsedMetadata } from './messageParser.js';
 import { classifyMessage, loadSocialDomains, getGlobalCategorizationEnabled } from './categorizer.js';
 import { pluginRegistry } from '../plugins/registry.js';
@@ -19,8 +19,7 @@ import { RELOCATE_COPY_COLS } from '../utils/relocateColumns.js';
 import { resolveForConnection, createPinnedLookup } from './hostValidation.js';
 import { getConnectionPolicy } from './connectionPolicy.js';
 import { applyInboxRules, applyBlockList } from './inboxRules.js';
-import { generateVCard } from '../utils/vcard.js';
-import { randomUUID } from 'crypto';
+import { learnLocalRecipient } from './contactRecipientLearning.js';
 import { deleteGraphMessagePermanently } from './providers/microsoft/graphMailMove.js';
 import { graphFolderIdForPath, syncGraphMailFoldersForAccount } from './providers/microsoft/graphMailSync.js';
 import { graphCreateMailFolder } from './providers/microsoft/graphMailMutations.js';
@@ -4146,7 +4145,7 @@ export class ImapManager {
   // downgraded by this path.
   async upsertAutoContacts(userId: string, messages: RawMessageInput[]) {
     try {
-      const abResult = await query(
+      const abResult = await query<{ id: string }>(
         `INSERT INTO address_books (user_id, name) VALUES ($1, 'Personal')
          ON CONFLICT (user_id, name) DO UPDATE SET updated_at = NOW()
          RETURNING id`,
@@ -4157,23 +4156,19 @@ export class ImapManager {
       const upsertResults = await Promise.allSettled(
         messages
           .filter((msg): msg is RawMessageInput & { fromEmail: string } => !!msg.fromEmail)
-          .map(msg => {
+          .map(async msg => {
             const primaryEmail = msg.fromEmail.toLowerCase();
-            const displayName  = (msg.fromName || '').trim() || primaryEmail;
-            const uid          = randomUUID();
-            const emails       = JSON.stringify([{ value: primaryEmail, type: 'other', primary: true }]);
-            const vcard        = generateVCard({ uid, displayName, emails: [{ value: primaryEmail, type: 'other', primary: true }] });
-            return query(`
-              INSERT INTO contacts (
-                address_book_id, user_id, uid, vcard, etag,
-                display_name, primary_email, emails, is_auto
-              )
-              VALUES ($1, $2, $3, $4, md5($4), $5, $6, $7::jsonb, true)
-              ON CONFLICT (address_book_id, primary_email) WHERE primary_email IS NOT NULL DO NOTHING
-            `, [addressBookId, userId, uid, vcard, displayName, primaryEmail, emails]);
-          })
+            const displayName = (msg.fromName || '').trim() || primaryEmail;
+            return withTransaction(client => learnLocalRecipient(client, {
+              userId,
+              addressBookId,
+              email: primaryEmail,
+              displayName,
+              source: 'inbound',
+            }));
+          }),
       );
-      const inserted = upsertResults.filter(r => r.status === 'fulfilled' && (r.value?.rowCount ?? 0) > 0).length;
+      const inserted = upsertResults.filter(result => result.status === 'fulfilled' && result.value?.created).length;
 
       // Bump sync_token only when new contacts were actually added so CardDAV
       // clients that use getctag/sync-token pick up newly discovered senders.

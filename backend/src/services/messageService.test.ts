@@ -6,7 +6,7 @@ const { query } = vi.mocked(await import('./db.js'));
 import { listMessages } from './messageService.js';
 
 beforeEach(() => {
-  query.mockClear();
+  query.mockReset();
 });
 
 describe('listMessages — draft identity projections', () => {
@@ -23,11 +23,10 @@ describe('listMessages — draft identity projections', () => {
 
     query.mockReset()
       .mockResolvedValueOnce({ rows: [{ id: 'acc-1' }] })
-      .mockResolvedValueOnce({ rows: [{ n: 1 }] })
       .mockResolvedValueOnce({ rows: [{ id: 'draft-1', draft_uid_validity: '42', draft_bcc_addresses: [{ email: 'hidden@example.test' }] }] })
       .mockResolvedValueOnce({ rows: [{ total: 1 }] });
     await listMessages({ userId: 'user-1', threaded: true });
-    const threadedSql = String(query.mock.calls[2][0]);
+    const threadedSql = String(query.mock.calls[1][0]);
     expect(threadedSql).toContain('m.draft_uid_validity::text AS draft_uid_validity');
     expect(threadedSql).toContain('draft_bcc_addresses, draft_uid_validity, draft_alias_id, draft_in_reply_to');
   });
@@ -183,12 +182,11 @@ describe('listMessages — total count selection', () => {
   });
 });
 
-// Threaded mode: 4 query calls — accounts, folder cache, thread CTE, thread count
+// Threaded mode: 3 query calls — accounts, thread CTE, thread count
 describe('listMessages — threaded mode', () => {
   it('returns thread count as total, ignoring the cached folder count', async () => {
     query
       .mockResolvedValueOnce({ rows: [{ id: 'acc-1' }] })                       // accounts
-      .mockResolvedValueOnce({ rows: [{ n: 2 }] })  // membership-aware count
       .mockResolvedValueOnce({ rows: [{ id: 'msg-1' }] })                       // thread CTE
       .mockResolvedValueOnce({ rows: [{ total: 5 }] });                          // thread count
 
@@ -197,12 +195,15 @@ describe('listMessages — threaded mode', () => {
     expect(result.total).toBe(5);
     expect(result.threaded).toBe(true);
     expect(result.messages).toHaveLength(1);
+    expect(query).toHaveBeenCalledTimes(3);
+    expect(String(query.mock.calls[1][0])).toContain('EXISTS (');
+    expect(String(query.mock.calls[1][0])).not.toContain('LEFT JOIN contacts');
+    expect(String(query.mock.calls[1][0])).not.toContain('COUNT(*)::int AS n');
   });
 
   it('counts thread messages across ALL folders when viewing a specific account INBOX (badge === expansion)', async () => {
     query
       .mockResolvedValueOnce({ rows: [{ id: 'acc-1' }] })
-      .mockResolvedValueOnce({ rows: [{ n: 0 }] })
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [{ total: 0 }] });
 
@@ -211,7 +212,7 @@ describe('listMessages — threaded mode', () => {
     // P1-C: thread_totals must count across ALL folders (Inbox + Sent + Archive) so the
     // badge equals the number of unique children /mail/thread/:threadId expansion renders.
     // Scoping to INBOX produced badge=2 while expansion showed 3 (Inbox+Sent+Inbox).
-    const cteSql = query.mock.calls[2][0];
+    const cteSql = query.mock.calls[1][0];
     expect(cteSql).not.toContain('AND folder = $2');
     expect(cteSql).not.toContain("AND folder = 'INBOX'");
   });
@@ -219,14 +220,13 @@ describe('listMessages — threaded mode', () => {
   it('counts thread messages across all folders when viewing a non-INBOX folder', async () => {
     query
       .mockResolvedValueOnce({ rows: [{ id: 'acc-1' }] })
-      .mockResolvedValueOnce({ rows: [{ n: 0 }] })
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [{ total: 0 }] });
 
     await listMessages({ userId: 'user-1', accountId: 'acc-1', folder: 'Sent', threaded: true });
 
     // thread_totals must not be scoped to a specific folder so the badge reflects true thread size
-    const cteSql = query.mock.calls[2][0];
+    const cteSql = query.mock.calls[1][0];
     expect(cteSql).not.toContain('AND folder = $2');
     expect(cteSql).not.toContain("AND folder = 'INBOX'");
   });
@@ -234,7 +234,6 @@ describe('listMessages — threaded mode', () => {
   it('counts thread messages across ALL folders for unified inbox threaded view (badge === expansion)', async () => {
     query
       .mockResolvedValueOnce({ rows: [{ id: 'acc-1' }, { id: 'acc-2' }] })
-      .mockResolvedValueOnce({ rows: [{ n: 20 }] })
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [{ total: 0 }] });
 
@@ -242,20 +241,19 @@ describe('listMessages — threaded mode', () => {
 
     // P1-C: unified inbox thread_totals must also count across all folders so the
     // badge matches expansion. The old INBOX-only scope produced badge mismatches.
-    const cteSql = query.mock.calls[2][0];
+    const cteSql = query.mock.calls[1][0];
     expect(cteSql).not.toContain("AND folder = 'INBOX'");
   });
 
   it('uses a physical fallback for NULL/empty Message-ID so badge count matches expansion children', async () => {
     query
       .mockResolvedValueOnce({ rows: [{ id: 'acc-1' }] })
-      .mockResolvedValueOnce({ rows: [{ total_count: 3, unread_count: 0 }] })
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [{ total: 1 }] });
 
     await listMessages({ userId: 'user-1', accountId: 'acc-1', folder: 'INBOX', threaded: true });
 
-    const cteSql = query.mock.calls[2][0];
+    const cteSql = query.mock.calls[1][0];
     // M1=<a>, M2=NULL, M3=<c> must produce badge=3: valid IDs dedupe by
     // normalized Message-ID; missing/whitespace IDs retain a deterministic physical row.
     expect(cteSql).toContain("COALESCE(NULLIF(btrim(m.message_id), ''), '__physical__:' || m.id::text)");
@@ -266,14 +264,13 @@ describe('listMessages — threaded mode', () => {
   it('keeps equal legacy thread keys separate per account in unified threaded view', async () => {
     query
       .mockResolvedValueOnce({ rows: [{ id: 'acc-1' }, { id: 'acc-2' }] })
-      .mockResolvedValueOnce({ rows: [{ n: 2 }] })
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [{ total: 2 }] });
 
     await listMessages({ userId: 'user-1', threaded: true });
 
-    const cteSql = query.mock.calls[2][0];
-    const countSql = query.mock.calls[3][0];
+    const cteSql = query.mock.calls[1][0];
+    const countSql = query.mock.calls[2][0];
     expect(cteSql).toContain("m.account_id::text || ':' || m.thread_key");
     expect(cteSql).toContain('m.thread_key,');
     expect(cteSql).toContain('PARTITION BY d.thread_id');
@@ -310,13 +307,12 @@ describe('listMessages — message shape', () => {
   it('selects delivery_addresses in the threaded query', async () => {
     query
       .mockResolvedValueOnce({ rows: [{ id: 'acc-1' }] })
-      .mockResolvedValueOnce({ rows: [{ total_count: 1, unread_count: 0 }] })
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [{ total: 0 }] });
 
     await listMessages({ userId: 'user-1', accountId: 'acc-1', threaded: true });
 
-    expect(query.mock.calls[2][0]).toContain('delivery_addresses');
+    expect(query.mock.calls[1][0]).toContain('delivery_addresses');
   });
 
   it('selects spam verdict fields in the flat query so SpamBadge receives data', async () => {
@@ -334,13 +330,12 @@ describe('listMessages — message shape', () => {
   it('selects spam verdict fields in the threaded query too', async () => {
     query
       .mockResolvedValueOnce({ rows: [{ id: 'acc-1' }] })
-      .mockResolvedValueOnce({ rows: [{ total_count: 1, unread_count: 0 }] })
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [{ total: 0 }] });
 
     await listMessages({ userId: 'user-1', accountId: 'acc-1', threaded: true });
 
-    const threadedSql = String(query.mock.calls[2][0]);
+    const threadedSql = String(query.mock.calls[1][0]);
     // The verdict must survive to the FINAL projection from `ranked` — a
     // field present only inside the `deduped` CTE never reaches the parent
     // row the reader renders.
@@ -369,14 +364,13 @@ describe('listMessages — ghost row suppression (#407)', () => {
   it('excludes hollow placeholder rows in the threaded query too (consistent pagination)', async () => {
     query
       .mockResolvedValueOnce({ rows: [{ id: 'acc-1' }] })
-      .mockResolvedValueOnce({ rows: [{ total_count: 1, unread_count: 0 }] })
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [{ total: 0 }] });
 
     await listMessages({ userId: 'user-1', accountId: 'acc-1', threaded: true });
 
-    // CTE (call 2) and thread-count (call 3) both share `where`, so both exclude ghosts.
+    // CTE (call 1) and thread-count (call 2) both share `where`, so both exclude ghosts.
+    expect(query.mock.calls[1][0]).toContain('NOT (m.message_id IS NULL');
     expect(query.mock.calls[2][0]).toContain('NOT (m.message_id IS NULL');
-    expect(query.mock.calls[3][0]).toContain('NOT (m.message_id IS NULL');
   });
 });

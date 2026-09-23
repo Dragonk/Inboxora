@@ -1,6 +1,6 @@
 import { randomBytes, createHash, randomUUID } from 'crypto';
 import { Router } from 'express';
-import { query } from '../services/db.js';
+import { query, withTransaction } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import sanitizeHtml from 'sanitize-html';
 import { sanitizeSignature, sanitizeComposeBody } from '../services/emailSanitizer.js';
@@ -9,7 +9,7 @@ import { redisClient } from '../services/redis.js';
 import { redactEmail } from '../utils/redact.js';
 import type { EmailAccountRow } from '../services/imapManager.js';
 import { resolveSentFolder } from '../utils/mailUtils.js';
-import { generateVCard } from '../utils/vcard.js';
+import { learnLocalRecipient } from '../services/contactRecipientLearning.js';
 import { createAccountMailTransport, transportKindForAccount, type MailTransport } from '../services/sendTransport.js';
 import {
   attachmentRefusal,
@@ -1029,7 +1029,7 @@ router.post('/send', async (req, res) => {
       setImmediate(async () => {
         try {
           // Ensure the user's default address book exists
-          const abResult = await query(
+          const abResult = await query<{ id: string }>(
             `INSERT INTO address_books (user_id, name) VALUES ($1, 'Personal')
              ON CONFLICT (user_id, name) DO UPDATE SET updated_at = NOW()
              RETURNING id`,
@@ -1037,46 +1037,28 @@ router.post('/send', async (req, res) => {
           );
           const addressBookId = abResult.rows[0].id;
 
-          const results = await Promise.allSettled(allRecipients.map(addr => {
+          // A provider contact's e-mail is not an identity. Recipient learning
+          // therefore owns its own local key, atomically linking one Personal-book
+          // contact to an e-mail without touching Google/Graph/DAV projections.
+          const learned = await Promise.allSettled(allRecipients.map(async addr => {
             const { name, email } = parseAddress(String(addr ?? ''));
-            if (!email) return Promise.resolve(null);
+            if (!email) return null;
             const primaryEmail = email.toLowerCase();
-            const displayName = name || primaryEmail;
-            const uid    = randomUUID();
-            const emails = [{ value: primaryEmail, type: 'other', primary: true }];
-            const vcard  = generateVCard({ uid, displayName, emails });
-            const etag   = createHash('md5').update(vcard).digest('hex');
-            // Upsert by (user_id, primary_email) — bump send_count and promote from is_auto.
-            // On conflict, preserve an existing vcard; only fill it in if the row had none.
-            return query(`
-              INSERT INTO contacts (
-                address_book_id, user_id, uid, vcard, etag,
-                display_name, primary_email, emails, is_auto, send_count, last_sent
-              )
-              VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, false, 1, $9)
-              ON CONFLICT (address_book_id, primary_email) WHERE primary_email IS NOT NULL DO UPDATE
-                SET send_count   = contacts.send_count + 1,
-                    last_sent    = $9,
-                    is_auto      = false,
-                    display_name = CASE WHEN contacts.is_auto THEN $6 ELSE contacts.display_name END,
-                    vcard        = COALESCE(contacts.vcard, EXCLUDED.vcard),
-                    etag         = COALESCE(contacts.etag,  EXCLUDED.etag),
-                    updated_at   = NOW()
-              RETURNING address_book_id
-            `, [addressBookId, userId, uid, vcard, etag, displayName, primaryEmail, JSON.stringify(emails), now]);
+            return withTransaction(client => learnLocalRecipient(client, {
+              userId,
+              addressBookId,
+              email: primaryEmail,
+              displayName: name || primaryEmail,
+              source: 'sent',
+              sentAt: now,
+            }));
           }));
 
-          const failed = results.filter(r => r.status === 'rejected');
-          if (failed.length) console.warn('Contact upsert errors:', failed.map(r => r.reason?.message));
+          const failed = learned.filter(result => result.status === 'rejected');
+          if (failed.length) console.warn('Contact learning errors:', failed.map(result => result.reason?.message));
 
-          // Collect distinct address books actually modified (contacts may live in non-default books).
-          const booksToSync = new Set();
-          for (const r of results) {
-            if (r.status === 'fulfilled' && r.value?.rows?.[0]?.address_book_id) {
-              booksToSync.add(r.value.rows[0].address_book_id);
-            }
-          }
-          if (!booksToSync.size) booksToSync.add(addressBookId);
+          // All recipient learning in this path belongs to the Personal book.
+          const booksToSync = new Set([addressBookId]);
 
           await Promise.all([...booksToSync].map(bookId =>
             query('UPDATE address_books SET sync_token = gen_random_uuid()::text, updated_at = NOW() WHERE id = $1', [bookId])

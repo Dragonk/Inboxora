@@ -117,10 +117,12 @@ describeOrSkip('Google contacts sync (PostgreSQL)', () => {
     const result = await syncGoogleContacts({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl: provider.fetchImpl });
     expect(result).toMatchObject({ created: 3, updated: 0, deleted: 0, fullSync: true, cursor: 'sync-1' });
 
-    // The first page starts a sync; the second continues it and carries the token.
+    // A full baseline keeps the sync-token request on every page; only the
+    // page token changes. This assertion lives at the HTTP boundary so a mock
+    // adapter result cannot hide an incorrect query contract.
     expect(provider.urls[0]).toContain('requestSyncToken=true');
     expect(provider.urls[1]).toContain('pageToken=page-2');
-    expect(provider.urls[1]).not.toContain('requestSyncToken');
+    expect(provider.urls[1]).toContain('requestSyncToken=true');
 
     const book = await autocommit(client => client.query<{ id: string; source: string; dav_mode: string }>(
       'SELECT id, source, dav_mode FROM address_books WHERE user_id = $1', [USER_ID],

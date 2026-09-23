@@ -265,6 +265,24 @@ describe('GET /oauth/google/callback', () => {
     expect(queryCallsMatching('INSERT INTO oauth_grants')).toHaveLength(0);
   });
 
+  it('does not exchange a returned code after the administrator disables Google', async () => {
+    const defaultQuery = mocks.query.getMockImplementation();
+    mocks.query.mockImplementation(async (sql: string, ...args: unknown[]) => {
+      if (String(sql).includes('FROM integration_config')) {
+        return { rows: [{ config: { apiEnabled: false } }], rowCount: 1 };
+      }
+      return defaultQuery?.(sql, ...args) as Promise<{ rows: unknown[]; rowCount: number }>;
+    });
+
+    const response = await callback('?code=code-1&state=state-1');
+    expect(response.status).toBe(302);
+    expect(response.headers.get('location')).toBe('/?oauth_error=Google%20API%20is%20disabled%20by%20the%20administrator');
+    expect(providerCalls()).toHaveLength(0);
+    expect(queryCallsMatching('INSERT INTO oauth_grants')).toHaveLength(0);
+    const finish = queryCallsMatching('UPDATE oauth_authorization_flows').find(([sql]) => String(sql).includes('SET status = $2'));
+    expect(finish?.[1]).toEqual(['flow-1', 'failed', 'PROVIDER_DISABLED']);
+  });
+
   it('exchanges the code, verifies the identity and stores connection and grant', async () => {
     const response = await callback('?code=code-1&state=state-1');
     expect(response.status).toBe(302);

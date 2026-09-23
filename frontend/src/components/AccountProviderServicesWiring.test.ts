@@ -25,13 +25,15 @@ test('service intent toggles persist per account and roll back on refusal', asyn
   assert.match(source, /feature\?\.enabled === false/);
 });
 
-test('Google Contacts API-disabled guidance links configuration and only rechecks status', async () => {
+test('Google Contacts API-disabled guidance links configuration and retries this account service', async () => {
   const source = await readFile(services, 'utf8');
   assert.match(source, /google-contacts-api-disabled/);
   assert.match(source, /PROVIDER_API_DISABLED/);
   assert.match(source, /admin\.integrations\.google\.step2/);
   assert.match(source, /href="\/settings\?section=integrations"/);
   assert.match(source, /google-contacts-check-again/);
+  assert.match(source, /api\.syncAccountProviderFeature\(accountId, feature\)/);
+  assert.match(source, /retryFeatureSync\('contacts'\)/);
 });
 
 test('OAuth errors are never assigned to another account card', async () => {

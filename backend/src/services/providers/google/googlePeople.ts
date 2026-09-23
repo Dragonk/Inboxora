@@ -137,23 +137,25 @@ export function personToVCardContact(person: GooglePerson, uid: string): VCardCo
 }
 
 /**
- * One page of personal connections. The first page of a fresh sync asks for a
- * sync token, which the caller stores as the collection cursor; an incremental
- * page must not ask for one again.
+ * One page of personal connections. A fresh baseline asks for a sync token on
+ * every page of that baseline, as required by the People API contract; an
+ * incremental run never asks for a new token. The caller owns this run-level
+ * intent and passes it unchanged while only `pageToken` advances.
  */
 export async function fetchConnectionsPage(options: GoogleApiOptions, input: {
   pageToken?: string | null;
   syncToken?: string | null;
   pageSize?: number;
-  /** Overrides the default: only the first request of a fresh sync asks for a token. */
+  /** Run-level sync-token intent. A full baseline keeps this true on every page. */
   requestSyncToken?: boolean;
 } = {}): Promise<ConnectionsPage> {
   const pageSize = Number.isFinite(input.pageSize) && Number(input.pageSize) > 0
     ? Math.min(MAX_PAGE_SIZE, Math.floor(Number(input.pageSize)))
     : MAX_PAGE_SIZE;
-  // A sync token may only be requested on the FIRST request of a sync: not on a
-  // later page of the same baseline, and not at all for an incremental one.
-  const requestSyncToken = input.requestSyncToken ?? (!input.syncToken && !input.pageToken);
+  // The default preserves the historic single-request adapter API. Sync callers
+  // pass a run-level value explicitly so page two cannot silently change baseline
+  // semantics by merely carrying a page token.
+  const requestSyncToken = input.requestSyncToken ?? !input.syncToken;
   const url = googleUrl(PEOPLE_API_BASE, '/people/me/connections', {
     personFields: PERSON_FIELDS,
     pageSize,

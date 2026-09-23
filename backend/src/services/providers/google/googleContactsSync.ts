@@ -390,7 +390,15 @@ export async function syncGoogleContacts(input: {
     for (let page = 0; page < (input.maxPages ?? MAX_PAGES); page++) {
       let fetched;
       try {
-        fetched = await fetchConnectionsPage(api, { pageToken, syncToken: cursor, pageSize: APPLY_PAGE_SIZE });
+        // `requestSyncToken` describes the whole run, not an individual page.
+        // Google only returns the durable baseline token when this intent is kept
+        // for every page, so advancing `pageToken` must not change it.
+        fetched = await fetchConnectionsPage(api, {
+          pageToken,
+          syncToken: cursor,
+          pageSize: APPLY_PAGE_SIZE,
+          requestSyncToken: fullSync,
+        });
       } catch (caught) {
         // A cursor the provider no longer accepts means history was lost: rebuild
         // this collection from a fresh baseline rather than failing forever.
@@ -421,6 +429,18 @@ export async function syncGoogleContacts(input: {
       // (SYNC-04). `nextSyncToken` only arrives on the last page, which is exactly the page that was not read.
       await withTransaction(client => releaseSyncLease(client, { syncStateId, generation: lease.generation })).catch(() => {});
       return { addressBookId: ensured.addressBookId, ...totals, fullSync, cursor, incomplete: true, disabled: false };
+    }
+
+    // A baseline without the requested token is incomplete even if pagination
+    // ended: advancing a null cursor would falsely report it as safely
+    // incremental on the next run. Do not reconcile its snapshot either.
+    if (fullSync && !nextSyncToken) {
+      throw new GoogleApiError({
+        code: 'PARTIAL_SYNC',
+        message: 'Google People baseline completed without a synchronization token',
+        status: 502,
+        retryable: true,
+      });
     }
 
     // A rebuilt baseline lists everything that still exists, so anything else was deleted at the provider while

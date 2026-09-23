@@ -221,6 +221,22 @@ export default function AccountProviderServices({ accountId, reload, t }: Props)
     } finally { setFeatureSaving(null); }
   };
 
+  const retryFeatureSync = async (feature: 'calendars' | 'contacts') => {
+    setFeatureSaving(feature); setError(null);
+    try {
+      // This is deliberately a scoped provider request, unlike Refresh which
+      // only re-reads Inboxora's stored snapshot. It gives an administrator who
+      // enabled an API a real verification attempt with this account's grant.
+      await api.syncAccountProviderFeature(accountId, feature);
+      await load();
+      reload();
+    } catch (caught) {
+      setError(toAppError(caught).message);
+    } finally {
+      setFeatureSaving(null);
+    }
+  };
+
   /**
    * The four states a service row can be in.
    *
@@ -341,7 +357,12 @@ export default function AccountProviderServices({ accountId, reload, t }: Props)
           <div>{t('admin.integrations.google.step2')}</div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
             <a href="/settings?section=integrations">{t('admin.integrations.google.setupTitle')}</a>
-            <button type="button" data-testid="google-contacts-check-again" onClick={() => { void load(); }}>
+            <button
+              type="button"
+              data-testid="google-contacts-check-again"
+              disabled={featureSaving !== null}
+              onClick={() => { void retryFeatureSync('contacts'); }}
+            >
               {t('admin.accounts.services.refresh')}
             </button>
           </div>

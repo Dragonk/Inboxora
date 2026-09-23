@@ -176,6 +176,14 @@ router.get('/google/callback', async (req: Request, res: Response) => {
       await withTransaction(client => finishAuthorizationFlow(client, { flowId: taken.id, status: 'failed', errorCode: 'CONFIG_CHANGED' }));
       return failRedirect(res, 'Google configuration changed during authorization');
     }
+    // The provider can be disabled while consent is open. Re-check after the
+    // single-use flow is taken and before exchanging the code, so a stale return
+    // cannot persist a new grant contrary to the current administrator policy.
+    const switches = await readProviderSwitches('google');
+    if (!switches.enabled || !switches.apiEnabled) {
+      await withTransaction(client => finishAuthorizationFlow(client, { flowId: taken.id, status: 'failed', errorCode: 'PROVIDER_DISABLED' }));
+      return failRedirect(res, 'Google API is disabled by the administrator');
+    }
     if (!taken.codeVerifier) {
       await withTransaction(client => finishAuthorizationFlow(client, { flowId: taken.id, status: 'failed', errorCode: 'MISSING_PKCE_VERIFIER' }));
       return failRedirect(res, 'Invalid authorization state');
