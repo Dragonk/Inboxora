@@ -76,7 +76,7 @@ describe('CalendarSidebar contract', () => {
     assert.match(component, /view\.sidebarHidden \|\| group\.collapsed \? null/);
   });
 
-  it('uses one selectable source list and lazy add-source form in the manager', async () => {
+  it('uses one selectable source list and lazy ICS-only add-source form in the manager', async () => {
     const [component, css] = await Promise.all([source(), readFile(new URL('./calendar.css', import.meta.url), 'utf8')]);
     assert.match(component, /data-testid="calendar-source-manager"/);
     assert.match(component, /data-testid="calendar-manager-source"/);
@@ -84,6 +84,8 @@ describe('CalendarSidebar contract', () => {
     assert.match(component, /data-testid="calendar-add-source"/);
     assert.match(component, /\{showAddSource && <form/);
     assert.match(component, /data-testid="calendar-source-search"/);
+    assert.match(component, /kind: 'ical_url', \.\.\.form/);
+    assert.doesNotMatch(component, /form\.username|form\.password|value="caldav"/);
     assert.match(css, /@media \(max-width: 640px\)/);
     assert.match(css, /calendar-source-manager/);
   });

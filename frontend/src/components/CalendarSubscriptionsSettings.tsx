@@ -60,6 +60,9 @@ export default function CalendarSubscriptionsSettings({ locale }: { locale?: str
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [form, setForm] = useState({ displayName: '', url: '' });
+  // Credentials belong to the Calendar settings connection flow. The source
+  // manager can then manage discovered collections without becoming a login UI.
+  const [caldavForm, setCaldavForm] = useState({ displayName: '', url: '', username: '', password: '' });
   const [country, setCountry] = useState(() => defaultHolidayCountry(language));
 
   const load = useCallback(async () => {
@@ -104,6 +107,28 @@ export default function CalendarSubscriptionsSettings({ locale }: { locale?: str
     if (!url) return;
     const added = await addSubscription({ displayName: form.displayName.trim(), url, intervalMin: 60 });
     if (added) setForm({ displayName: '', url: '' });
+  };
+
+  const submitCalDav = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const displayName = caldavForm.displayName.trim();
+    const url = caldavForm.url.trim();
+    const username = caldavForm.username.trim();
+    if (!displayName || !url || !username || !caldavForm.password) return;
+    setBusy(true); setError(null); setNotice(null);
+    try {
+      await api.calendar.createSource({
+        kind: 'caldav', displayName, url, username, password: caldavForm.password, intervalMin: 60,
+      });
+      setCaldavForm({ displayName: '', url: '', username: '', password: '' });
+      setNotice(t('calendar.subscribeSuccess'));
+      await load();
+      notifyCalendarChanged();
+    } catch (err) {
+      setError(toAppError(err).message || t('calendar.subscribeFailed'));
+    } finally {
+      setBusy(false);
+    }
   };
 
   const addHolidays = async () => {
@@ -156,6 +181,27 @@ export default function CalendarSubscriptionsSettings({ locale }: { locale?: str
       </label>
       <span className="settings-choice-description">{t('calendar.subscribeHint')}</span>
       <div><Button type="submit" variant="primary" disabled={busy || !form.displayName.trim() || !form.url.trim()}>{t('calendar.subscribeAdd')}</Button></div>
+    </form>
+    <form data-testid="calendar-caldav-settings-form" onSubmit={submitCalDav} style={holidayBlock}>
+      <div className="settings-switch-label">{t('calendar.caldav')}</div>
+      <p className="settings-choice-description">{t('calendar.sourceUsername')} / {t('calendar.sourcePassword')}</p>
+      <div style={holidayRow}>
+        <label style={fieldStyle}>{t('calendar.sourceName')}
+          <input required maxLength={120} value={caldavForm.displayName} onChange={event => setCaldavForm(current => ({ ...current, displayName: event.target.value }))} style={inputStyle} />
+        </label>
+        <label style={fieldStyle}>{t('calendar.sourceUrl')}
+          <input required type="url" placeholder="https://calendar.example.com/dav" value={caldavForm.url} onChange={event => setCaldavForm(current => ({ ...current, url: event.target.value }))} style={inputStyle} />
+        </label>
+      </div>
+      <div style={holidayRow}>
+        <label style={fieldStyle}>{t('calendar.sourceUsername')}
+          <input required autoComplete="username" value={caldavForm.username} onChange={event => setCaldavForm(current => ({ ...current, username: event.target.value }))} style={inputStyle} />
+        </label>
+        <label style={fieldStyle}>{t('calendar.sourcePassword')}
+          <input required type="password" autoComplete="new-password" value={caldavForm.password} onChange={event => setCaldavForm(current => ({ ...current, password: event.target.value }))} style={inputStyle} />
+        </label>
+      </div>
+      <div><Button type="submit" variant="primary" disabled={busy || !caldavForm.displayName.trim() || !caldavForm.url.trim() || !caldavForm.username.trim() || !caldavForm.password}>{t('calendar.addSource')}</Button></div>
     </form>
     <div style={holidayBlock}>
       <div className="settings-switch-label">{t('calendar.holidayTitle')}</div>

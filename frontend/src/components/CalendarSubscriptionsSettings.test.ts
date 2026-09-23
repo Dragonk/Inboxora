@@ -4,7 +4,7 @@ import test from 'node:test';
 
 const source = (path: string) => readFile(new URL(path, import.meta.url), 'utf8');
 
-test('calendar settings offer an ICS/webcal subscription form and a holiday picker', async () => {
+test('calendar settings offer ICS/webcal subscriptions, CalDAV connection, and holiday picker', async () => {
   const [admin, component] = await Promise.all([
     source('./AdminPanel.tsx'),
     source('./CalendarSubscriptionsSettings.tsx'),
@@ -19,6 +19,10 @@ test('calendar settings offer an ICS/webcal subscription form and a holiday pick
   assert.match(component, /normalizeSubscriptionUrl\(form\.url\)/);
   assert.match(component, /data-testid="calendar-subscriptions-settings"/);
   assert.match(component, /data-testid="calendar-subscription-row"/);
+  // Credential-bearing CalDAV setup is a Calendar setting, not a source-manager form.
+  assert.match(component, /data-testid="calendar-caldav-settings-form"/);
+  assert.match(component, /kind: 'caldav'/);
+  assert.match(component, /username, password: caldavForm\.password/);
 
   // Country presets point at the maintained Thunderbird feeds instead of a local holiday engine.
   assert.match(component, /holidayCalendarUrl\(entry\.file\)/);

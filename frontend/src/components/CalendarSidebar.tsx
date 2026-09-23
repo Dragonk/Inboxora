@@ -140,7 +140,9 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
   const pendingSourceIds = useRef(new Set<string>());
   const sourcePolls = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const sourceRequestGeneration = useRef(0);
-  const [form, setForm] = useState({ kind: 'ical_url', displayName: '', url: '', username: '', password: '', color: '#7c6af7', intervalMin: 60 });
+  // Credential-bearing CalDAV connections are created in Calendar settings.
+  // This manager adds and manages non-authenticated ICS/webcal sources only.
+  const [form, setForm] = useState({ displayName: '', url: '', color: '#7c6af7', intervalMin: 60 });
   const [openCalendarMenu, setOpenCalendarMenu] = useState<string | null>(null);
   const [syncingSourceIds, setSyncingSourceIds] = useState<Set<string>>(new Set());
   const [calendarEdit, setCalendarEdit] = useState<CalendarEditDraft | null>(null);
@@ -263,8 +265,8 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
   const addSource = async (event: FormEvent) => {
     event.preventDefault();
     try {
-      const result = await api.calendar.createSource({ ...form, password: form.kind === 'caldav' ? form.password : undefined, username: form.kind === 'caldav' ? form.username : undefined });
-      setForm({ kind: 'ical_url', displayName: '', url: '', username: '', password: '', color: '#7c6af7', intervalMin: 60 });
+      const result = await api.calendar.createSource({ kind: 'ical_url', ...form });
+      setForm({ displayName: '', url: '', color: '#7c6af7', intervalMin: 60 });
       await loadSources();
       await onSourcesChanged();
       if (result?.sync?.pending) waitForInitialSync(result.source?.id);
@@ -483,10 +485,9 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
         <section data-testid="calendar-source-details" style={managerDetails}>{managerSource ? <><h2 style={{ margin: 0 }}>{managerSource.label}</h2>{managerSource.identityLabel && <p title={managerSource.identityLabel} style={identityText}>{managerSource.identityLabel}</p>}<p style={{ margin: 0, color: 'var(--text-secondary)' }}>{managerSource.featureEnabled ? (managerRows.length ? `${managerRows.length} ${t('calendar.calendars')}` : t('calendar.noCalendarsDiscovered', 'No calendars discovered yet.')) : t('calendar.serviceDisabled', 'Calendar service is disabled.')}</p>{managerSource.accountId && <button type="button" data-testid="calendar-manager-account-sync" disabled={!managerSource.canSync || syncingAccountIds.has(managerSource.accountId)} onClick={() => runAccountCalendarSync(managerSource)} style={primaryButton}>{managerSource.canSync ? t('calendar.providerSync', { provider: managerSource.label }) : t('calendar.serviceDisabled', 'Calendar service is disabled.')}</button>}{managedExternalSource && <><SourceStatus source={managedExternalSource} pending={pendingSourceIds.current.has(managedExternalSource.id) || syncingSourceIds.has(managedExternalSource.id)} t={t} /><SourceIntervalSelect label={t('calendar.sourceSyncInterval')} value={managedExternalSource.intervalMin} onChange={value => changeSourceInterval(managedExternalSource, value)} t={t} /><div style={sourceActions}><button disabled={syncingSourceIds.has(managedExternalSource.id)} onClick={() => syncSource(managedExternalSource.id)} style={linkButton}>{t('calendar.syncSource')}</button><button onClick={() => removeSource(managedExternalSource.id)} style={dangerButton}>{t('calendar.delete')}</button></div></>}{managerRows.map(({ view, calendar }) => <div key={calendar.id} style={calendarRow}><span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{view.displayName}</span><label style={{ marginLeft: 'auto' }}><input type="checkbox" checked={isVisible(calendar.id)} onChange={() => onToggleCalendar(calendar.id)} /> {t('calendar.show', 'Show')}</label></div>)}</> : <p>{t('calendar.noSources', 'No calendar sources.')}</p>}</section>
       </div>
       {showAddSource && <form onSubmit={addSource} className="ui-form" style={formStyle}>
-        <label>{t('calendar.sourceType')}<select value={form.kind} onChange={event => setForm(current => ({ ...current, kind: event.target.value }))}><option value="ical_url">{t('calendar.icsWebcal')}</option><option value="caldav">{t('calendar.caldav')}</option></select></label>
+        <p style={{ margin: 0, color: 'var(--text-secondary)' }}>{t('calendar.icsWebcal')}</p>
         <label>{t('calendar.sourceName')}<input required value={form.displayName} onChange={event => setForm(current => ({ ...current, displayName: event.target.value }))} /></label>
         <label>{t('calendar.sourceUrl')}<input required type="url" value={form.url} onChange={event => setForm(current => ({ ...current, url: event.target.value }))} /></label>
-        {form.kind === 'caldav' && <><label>{t('calendar.sourceUsername')}<input required value={form.username} onChange={event => setForm(current => ({ ...current, username: event.target.value }))} /></label><label>{t('calendar.sourcePassword')}<input required type="password" autoComplete="new-password" value={form.password} onChange={event => setForm(current => ({ ...current, password: event.target.value }))} /></label></>}
         <SourceIntervalSelect
           label={t('calendar.sourceSyncInterval')}
           value={form.intervalMin}
