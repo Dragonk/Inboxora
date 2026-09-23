@@ -16,6 +16,15 @@ test('the account provider card reads one coherent status snapshot', async () =>
   assert.match(source, /setFeatures\(data\); setDiagnostics\(data\.diagnostics\)/);
 });
 
+test('service intent toggles persist per account and roll back on refusal', async () => {
+  const source = await readFile(services, 'utf8');
+  const apiSource = await readFile(api, 'utf8');
+  assert.match(apiSource, /setAccountProviderFeature: \(accountId: string, feature: 'calendars' \| 'contacts', enabled: boolean\)/);
+  assert.match(source, /data-testid={`account-feature-\$\{service\}`}/);
+  assert.match(source, /setFeatures\(before\); setError\(/);
+  assert.match(source, /feature\?\.enabled === false/);
+});
+
 test('OAuth errors are never assigned to another account card', async () => {
   const source = await readFile(services, 'utf8');
   const appSource = await readFile(app, 'utf8');

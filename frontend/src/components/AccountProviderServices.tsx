@@ -18,8 +18,8 @@ export interface AccountProviderFeatures {
   accountId: string;
   provider: 'google' | 'microsoft' | null;
   mail: { transport: string; nativeTransport: string | null; native: boolean; migrationAvailable: boolean; authorized?: boolean; requiredScopes?: string[]; grantedScopes?: string[]; missingScopes?: string[]; synchronized?: boolean; syncPending?: boolean; syncErrorCode?: string | null };
-  calendar: { authorized: boolean; connectionId: string | null; collections: Array<{ id: string; kind: string; enabled: boolean }>; requiredScopes?: string[]; grantedScopes?: string[]; missingScopes?: string[]; synchronized?: boolean; syncPending?: boolean; syncErrorCode?: string | null } | null;
-  contacts: { authorized: boolean; connectionId: string | null; collections: Array<{ id: string; kind: string; enabled: boolean }>; requiredScopes?: string[]; grantedScopes?: string[]; missingScopes?: string[]; synchronized?: boolean; syncPending?: boolean; syncErrorCode?: string | null } | null;
+  calendar: { enabled: boolean; authorized: boolean; connectionId: string | null; collections: Array<{ id: string; kind: string; enabled: boolean }>; requiredScopes?: string[]; grantedScopes?: string[]; missingScopes?: string[]; synchronized?: boolean; syncPending?: boolean; syncErrorCode?: string | null } | null;
+  contacts: { enabled: boolean; authorized: boolean; connectionId: string | null; collections: Array<{ id: string; kind: string; enabled: boolean }>; requiredScopes?: string[]; grantedScopes?: string[]; missingScopes?: string[]; synchronized?: boolean; syncPending?: boolean; syncErrorCode?: string | null } | null;
   push: { mail: string; calendar: string; contacts: string };
 }
 
@@ -106,6 +106,7 @@ export default function AccountProviderServices({ accountId, reload, t }: Props)
   const [notice, setNotice] = useState<string | null>(null);
   const [diagnostics, setDiagnostics] = useState<AccountProviderDiagnostics | null>(null);
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
+  const [featureSaving, setFeatureSaving] = useState<'calendars' | 'contacts' | null>(null);
   const statusGeneration = useRef(0);
 
   const load = useCallback(() => {
@@ -205,6 +206,22 @@ export default function AccountProviderServices({ accountId, reload, t }: Props)
     || features.calendar?.authorized === true
     || features.contacts?.authorized === true;
 
+  const setServiceEnabled = async (service: 'calendars' | 'contacts', enabled: boolean) => {
+    if (!features) return;
+    const key = service === 'calendars' ? 'calendar' : 'contacts';
+    const before = features;
+    // Optimistic only for the persisted user intent. Authorization and last-run facts
+    // remain server-derived; on refusal the complete prior snapshot is restored.
+    setFeatures(current => current && current[key] ? { ...current, [key]: { ...current[key]!, enabled } } : current);
+    setFeatureSaving(service); setError(null);
+    try {
+      await api.setAccountProviderFeature(accountId, service, enabled);
+      await load();
+    } catch (caught) {
+      setFeatures(before); setError(toAppError(caught).message);
+    } finally { setFeatureSaving(null); }
+  };
+
   /**
    * The four states a service row can be in.
    *
@@ -212,7 +229,10 @@ export default function AccountProviderServices({ accountId, reload, t }: Props)
    * grant is stored but whose first run failed is **connected with a synchronization failure**, not
    * "not connected" — that wording sends the user to reconnect an account that is already authorized.
    */
-  const serviceStatus = (feature: { authorized: boolean; synchronized?: boolean; syncPending?: boolean; syncErrorCode?: string | null } | null | undefined): string => {
+  const serviceStatus = (feature: { enabled?: boolean; authorized: boolean; synchronized?: boolean; syncPending?: boolean; syncErrorCode?: string | null } | null | undefined): string => {
+    // User intent is authoritative: an old error or an existing grant must not make a
+    // deliberately disabled service look pending or unhealthy.
+    if (feature?.enabled === false) return t('admin.plugins.disabledBadge');
     if (!feature?.authorized) return t('admin.accounts.services.notConnected');
     // The most recent failure outranks an older success: the diagnostics keep the last successful time and the
     // latest error separately, so checking `synchronized` first let a failure that arrived after a good run keep
@@ -305,6 +325,17 @@ export default function AccountProviderServices({ accountId, reload, t }: Props)
       {serviceRow(t('admin.accounts.services.contacts'), features.contacts?.authorized === true,
         undefined,
         features.contacts)}
+      <div data-testid="account-provider-feature-toggles" style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 4 }}>
+        {(['calendars', 'contacts'] as const).map(service => {
+          const feature = service === 'calendars' ? features.calendar : features.contacts;
+          if (!feature) return null;
+          const label = service === 'calendars' ? t('admin.accounts.services.calendar') : t('admin.accounts.services.contacts');
+          return <label key={service} style={{ display: 'inline-flex', gap: 5, alignItems: 'center' }}>
+            <input type="checkbox" data-testid={`account-feature-${service}`} checked={feature.enabled === true} disabled={featureSaving !== null} onChange={event => { void setServiceEnabled(service, event.target.checked); }} />
+            {label}
+          </label>;
+        })}
+      </div>
 
       {/* One authorization for the whole mailbox, and one action that re-reads its state. Reconnecting runs the
           same single consent again, which is also how a grant that lost a scope is repaired. */}

@@ -349,6 +349,8 @@ export const api = {
     request('GET', `/accounts/${encodeURIComponent(accountId)}/provider-diagnostics`),
   syncAccountProviderFeature: (accountId: string, feature: 'calendars') =>
     request('POST', `/accounts/${encodeURIComponent(accountId)}/provider-features/${feature}/sync`),
+  setAccountProviderFeature: (accountId: string, feature: 'calendars' | 'contacts', enabled: boolean) =>
+    request('PATCH', `/accounts/${encodeURIComponent(accountId)}/provider-features/${feature}`, { enabled }),
   nativeAccountCandidates: (provider: 'microsoft' | 'google') =>
     request('GET', `/accounts/native/candidates?provider=${provider}`),
   // Move one existing account onto its provider's native transport, in place. The server decides whether
