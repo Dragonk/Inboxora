@@ -513,18 +513,26 @@ export async function syncGraphContacts(input: {
     ...(input.config ? { config: input.config } : {}),
     ...(input.fetchImpl ? { fetchImpl: input.fetchImpl } : {}),
   };
-  const discovered = await discoverGraphContactFolders(api);
+  // The default collection is independent from contact-folder discovery. A broken
+  // child branch must not prevent the documented `/me/contacts` read from running.
+  const errors: Array<{ folderId: string; code: string }> = [];
+  let discovered: GraphContactFolder[] = [];
+  try {
+    discovered = await discoverGraphContactFolders(api);
+  } catch (caught) {
+    const code = caught instanceof GraphApiError || caught instanceof ProviderAuthError || caught instanceof SyncLeaseLostError
+      ? caught.code : 'INTERNAL_ERROR';
+    errors.push({ folderId: 'discovery', code });
+    console.warn(`Microsoft contacts folder discovery failed for connection ${input.connectionId}:`, code);
+  }
   // The default collection is not a contactFolder and may be present even if the
   // folder list is empty or every folder has a parentFolderId. Its local remote id
   // is a typed sentinel, never the fictional Graph id `contacts`.
   const primary: GraphContactFolder = { id: DEFAULT_GRAPH_CONTACTS_TARGET, displayName: GRAPH_CONTACTS_BOOK_NAME };
-  // The default collection first, then all real folders exactly as Graph named them.
-  // A provider id may occur once only; display names and parentFolderId are never identity.
   const ordered = [primary, ...discovered.filter((folder, index, all) =>
     folder.id !== DEFAULT_GRAPH_CONTACTS_TARGET && all.findIndex(candidate => candidate.id === folder.id) === index,
   )];
   const books: GraphContactsFolderResult[] = [];
-  const errors: Array<{ folderId: string; code: string }> = [];
   for (const folder of ordered) {
     try {
       const result = await syncGraphContactFolder(

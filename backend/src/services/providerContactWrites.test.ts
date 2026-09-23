@@ -65,7 +65,17 @@ describe('which writer owns an address book', () => {
       connection_id: 'connection-1', source_access: 'read_write', user_access: 'read_write',
     })] });
     await expect(resolveContactWriteTarget('user-1', 'book-1')).resolves.toEqual({
-      kind: 'graph', connectionId: 'connection-1', collectionId: 'collection-1', folderId: 'contacts', addressBookId: 'book-1',
+      kind: 'graph', connectionId: 'connection-1', collectionId: 'collection-1', target: { kind: 'folder', folderId: 'contacts' }, addressBookId: 'book-1',
+    });
+  });
+
+  it('resolves the typed default collection without treating its local sentinel as a folder id', async () => {
+    mocks.query.mockResolvedValueOnce({ rows: [book({
+      source: 'microsoft', collection_id: 'collection-1', remote_id: 'default_contacts',
+      connection_id: 'connection-1', source_access: 'read_write', user_access: 'read_write',
+    })] });
+    await expect(resolveContactWriteTarget('user-1', 'book-1')).resolves.toMatchObject({
+      kind: 'graph', target: { kind: 'default' },
     });
   });
 
@@ -113,7 +123,7 @@ describe('a provider answer becomes a response', () => {
 });
 
 describe('running a contact write through the journal', () => {
-  const target = { kind: 'graph' as const, connectionId: 'connection-1', collectionId: 'collection-1', folderId: 'contacts', addressBookId: 'book-1' };
+  const target = { kind: 'graph' as const, connectionId: 'connection-1', collectionId: 'collection-1', target: { kind: 'folder' as const, folderId: 'contacts' }, addressBookId: 'book-1' };
 
   it('reports the provider identity a create returned', async () => {
     const outcome = await writeGraphContact({

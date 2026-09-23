@@ -66,13 +66,13 @@ describe('mapping a local contact onto Graph', () => {
 
 describe('a Graph contact write reports what actually happened', () => {
   it('reports a create that returned an identity as committed', async () => {
-    await expect(adapter().perform({ operation: 'create', folderId: 'contacts' }, { operationId: 'op', signal: new AbortController().signal }))
+    await expect(adapter().perform({ operation: 'create', target: { kind: 'folder', folderId: 'contacts' } }, { operationId: 'op', signal: new AbortController().signal }))
       .resolves.toEqual({ status: 'committed', value: { contact: { id: 'AAMkAD-1' } } });
   });
 
   it('refuses to call a create without an identity committed', async () => {
     mocks.create.mockResolvedValueOnce({});
-    await expect(adapter().perform({ operation: 'create', folderId: 'contacts' }, { operationId: 'op', signal: new AbortController().signal }))
+    await expect(adapter().perform({ operation: 'create', target: { kind: 'folder', folderId: 'contacts' } }, { operationId: 'op', signal: new AbortController().signal }))
       .resolves.toEqual({ status: 'outcome_unknown', code: 'CONTACT_ID_MISSING' });
   });
 

@@ -138,6 +138,10 @@ export function graphContactToVCard(contact: GraphContact, uid: string): VCardCo
   };
 }
 
+export type GraphContactsTarget =
+  | { kind: 'default' }
+  | { kind: 'folder'; folderId: string };
+
 /** Stable local identity derived from the Graph contact id, never the e-mail. */
 export function contactUidForGraphContact(id: string): string {
   return `msgraph-${id}`;
@@ -230,7 +234,7 @@ export async function fetchContactsPage(options: GraphApiOptions, input: {
   // A caller-provided link is already a complete, absolute Graph URL.
   const url = input.nextLink ?? input.deltaLink
     ?? (input.defaultContacts
-      ? graphUrl('/me/contacts/delta', { $select: CONTACT_SELECT, $top: top })
+      ? graphUrl('/me/contacts', { $select: CONTACT_SELECT, $top: top })
       : folderId
         ? graphUrl(`/me/contactFolders/${encodeURIComponent(folderId)}/contacts/delta`, { $select: CONTACT_SELECT, $top: top })
         // `contactFolder` has no well-known-name property; callers must either name
@@ -354,14 +358,15 @@ export function vCardToGraphContact(contact: VCardContact, options: { full: bool
  * once defaulted to is not a folder Graph can resolve (GRAPH-03). Callers hold the discovered id — the collection
  * link's `remote_id` — and a missing one is a bug in the caller, not a request to send.
  */
-export function graphContactsPath(folderId: string | null | undefined): string {
-  const id = typeof folderId === 'string' ? folderId.trim() : '';
+export function graphContactsPath(target: GraphContactsTarget): string {
+  if (target.kind === 'default') return '/me/contacts';
+  const id = target.folderId.trim();
   if (!id) throw new Error('A Microsoft contact folder id is required to address a contact');
   return `/me/contactFolders/${encodeURIComponent(id)}/contacts`;
 }
 
-export async function createGraphContact(api: GraphApiOptions, folderId: string | null | undefined, payload: GraphContactPayload): Promise<GraphContact | null> {
-  return graphPost<GraphContact>(api, graphContactsPath(folderId), payload);
+export async function createGraphContact(api: GraphApiOptions, target: GraphContactsTarget, payload: GraphContactPayload): Promise<GraphContact | null> {
+  return graphPost<GraphContact>(api, graphContactsPath(target), payload);
 }
 
 /**

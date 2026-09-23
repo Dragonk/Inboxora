@@ -116,7 +116,7 @@ describeOrSkip('the provider write journal (PostgreSQL)', () => {
       userId: USER_ID,
       target: {
         kind: 'graph', connectionId: seeded.connectionId, collectionId: seeded.collectionId,
-        folderId: 'contacts', addressBookId: LOCAL_CONTACT_ID,
+        target: { kind: 'folder', folderId: 'contacts' }, addressBookId: LOCAL_CONTACT_ID,
       },
       operation: 'update',
       providerContactId: 'AAMkAD-contact-1',

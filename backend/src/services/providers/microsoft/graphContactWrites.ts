@@ -11,6 +11,7 @@ import {
 import { classifyGraphMutationFailure } from './graphMailMutations.js';
 import type { ProviderAdapterOutcome, ProviderMutationAdapter } from '../../providerMutationService.js';
 import type { VCardContact } from '../../../utils/vcard.js';
+import type { GraphContactsTarget } from './graphContacts.js';
 
 /**
  * Microsoft Graph **contact writes** (P09 contacts CRUD).
@@ -33,8 +34,8 @@ import type { VCardContact } from '../../../utils/vcard.js';
 /** The local contact fields a write sends. */
 export interface GraphContactWritePayload {
   operation: 'create' | 'update' | 'delete';
-  /** The provider's contact-folder id, for a create. */
-  folderId?: string | null;
+  /** Typed provider collection target, for a create. */
+  target?: GraphContactsTarget;
   /** The provider's contact id, for an update or delete. */
   contactId?: string | null;
   /** The mapped Graph payload for a create or update. */
@@ -61,7 +62,8 @@ export function graphContactMutationAdapter(options: {
     async perform(write): Promise<ProviderAdapterOutcome<GraphContactWriteResult>> {
       try {
         if (write.operation === 'create') {
-          const created = await create(options.api, write.folderId, write.payload ?? {});
+          if (!write.target) return { status: 'permanent', code: 'RESOURCE_NOT_FOUND' };
+          const created = await create(options.api, write.target, write.payload ?? {});
           // A create Graph answers without an id cannot be reconciled against a replay, so it is not
           // reported as a success.
           if (!created?.id) return { status: 'outcome_unknown', code: 'CONTACT_ID_MISSING' };

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { classifyGraphError, graphGet, graphUrl, GraphApiError } from './graphApiClient.js';
-import { contactUidForGraphContact, defaultGraphContactFolder, discoverGraphContactFolders, fetchContactsPage, graphContactToVCard, normalizeGraphBirthday } from './graphContacts.js';
+import { contactUidForGraphContact, defaultGraphContactFolder, discoverGraphContactFolders, fetchContactsPage, graphContactToVCard, graphContactsPath, normalizeGraphBirthday } from './graphContacts.js';
 import type { GraphContact } from './graphContacts.js';
 
 const tokenMock = vi.hoisted(() => vi.fn(async (_input: { skewSeconds?: number } = {}) => ({
@@ -178,10 +178,10 @@ describe('fetchContactsPage', () => {
   });
 
   it('reads the default collection without inventing a contact folder id', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(json({ value: [], '@odata.deltaLink': 'https://graph.microsoft.com/v1.0/me/contacts/delta?$deltatoken=default' }));
+    const fetchMock = vi.fn().mockResolvedValue(json({ value: [] }));
     vi.stubGlobal('fetch', fetchMock);
     await fetchContactsPage(OPTIONS, { defaultContacts: true });
-    expect(String(fetchMock.mock.calls[0]?.[0])).toContain('/me/contacts/delta');
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain('/me/contacts?');
     expect(String(fetchMock.mock.calls[0]?.[0])).not.toContain('/contactFolders/contacts/');
   });
 
@@ -278,6 +278,14 @@ describe('contact folder discovery', () => {
     expect(defaultGraphContactFolder([{ id: 'kontakty', displayName: 'Kontakty', parentFolderId: null }])?.id).toBe('kontakty');
     expect(defaultGraphContactFolder([{ id: 'nested', displayName: 'Team', parentFolderId: 'root' }])).toBeNull();
     expect(defaultGraphContactFolder([])).toBeNull();
+  });
+});
+
+describe('typed Graph contact targets', () => {
+  it('uses the documented default collection path and never serializes the local sentinel as a folder id', () => {
+    expect(graphContactsPath({ kind: 'default' })).toBe('/me/contacts');
+    expect(graphContactsPath({ kind: 'folder', folderId: 'AAMk-folder' })).toBe('/me/contactFolders/AAMk-folder/contacts');
+    expect(graphContactsPath({ kind: 'default' })).not.toContain('default_contacts');
   });
 });
 

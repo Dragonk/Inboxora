@@ -82,8 +82,8 @@ function fakeProvider(
     // The default collection is independent from a folder. Existing cases exercise
     // folder deltas; give the new default path an explicit empty complete baseline
     // without consuming their folder-specific handler sequence.
-    if (target.includes('/me/contacts/delta')) {
-      return json({ value: [], '@odata.deltaLink': 'https://graph.microsoft.com/v1.0/me/contacts/delta?$deltatoken=default' });
+    if (target.includes('/me/contacts?')) {
+      return json({ value: [] });
     }
     urls.push(target);
     const handler = handlers[Math.min(index, handlers.length - 1)];

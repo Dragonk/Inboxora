@@ -5,7 +5,7 @@ import { providerWriteFailure, type ProviderWriteFailure } from './providerWrite
 import { microsoftConfigFromEnv } from './providerAuthService.js';
 import { graphContactMutationAdapter, graphContactPayloadFor } from './providers/microsoft/graphContactWrites.js';
 import { createGraphContact, deleteGraphContact, patchGraphContact } from './providers/microsoft/graphContacts.js';
-import { contactUidForGraphContact, type GraphContact } from './providers/microsoft/graphContacts.js';
+import { contactUidForGraphContact, DEFAULT_GRAPH_CONTACTS_TARGET, type GraphContact, type GraphContactsTarget } from './providers/microsoft/graphContacts.js';
 import type { VCardContact } from '../utils/vcard.js';
 
 /**
@@ -21,7 +21,7 @@ import type { VCardContact } from '../utils/vcard.js';
 
 export type ContactWriteTarget =
   | { kind: 'local' }
-  | { kind: 'graph'; connectionId: string; collectionId: string; folderId: string; addressBookId: string }
+  | { kind: 'graph'; connectionId: string; collectionId: string; target: GraphContactsTarget; addressBookId: string }
   /**
    * An external CardDAV address book the user enabled write-back for. The writer is the **source**, which
    * `providers/carddavWriteBack.ts` forwards to.
@@ -77,15 +77,18 @@ export async function resolveContactWriteTarget(userId: string, addressBookId: s
     // GRAPH-03: the folder id is the provider's own. Falling back to the literal `contacts` addressed a folder
     // Graph cannot resolve, so a book whose link carries no folder id is refused rather than written to a
     // guessed path. `remote_id` is the collection's identity key, so this only guards an inconsistent row.
-    const folderId = (row.remote_id ?? '').trim();
-    if (!folderId) {
-      return { kind: 'refused', status: 409, error: 'This address book has no Microsoft contact folder recorded' };
+    const remoteId = (row.remote_id ?? '').trim();
+    if (!remoteId) {
+      return { kind: 'refused', status: 409, error: 'This address book has no Microsoft contact target recorded' };
     }
+    const target: GraphContactsTarget = remoteId === DEFAULT_GRAPH_CONTACTS_TARGET
+      ? { kind: 'default' }
+      : { kind: 'folder', folderId: remoteId };
     return {
       kind: 'graph',
       connectionId: row.connection_id,
       collectionId: row.collection_id,
-      folderId,
+      target,
       addressBookId: row.id,
     };
   }
@@ -129,7 +132,7 @@ export async function writeGraphContact(input: {
       ...(input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : {}),
       payload: {
         operation: input.operation,
-        folderId: input.target.folderId,
+        target: input.target.target,
         contactId: input.providerContactId ?? null,
         ...(input.contact ? { payload: graphContactPayloadFor(input.contact, input.operation === 'create' ? 'create' : 'update') } : {}),
       },
@@ -162,7 +165,9 @@ export async function recordGraphContactLink(input: {
      VALUES ($1,$2,$3,'contact',$4,$5,$6,$5,'active')
      ON CONFLICT (collection_id, object_remote_id) DO UPDATE SET
        local_id = EXCLUDED.local_id, status = 'active', updated_at = NOW()`,
-    [input.userId, input.target.connectionId, input.target.collectionId, input.localId, input.target.folderId, input.providerContactId],
+    [input.userId, input.target.connectionId, input.target.collectionId, input.localId,
+      input.target.target.kind === 'default' ? DEFAULT_GRAPH_CONTACTS_TARGET : input.target.target.folderId,
+      input.providerContactId],
   );
 }
 
