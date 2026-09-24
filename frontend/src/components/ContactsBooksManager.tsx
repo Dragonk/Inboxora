@@ -75,6 +75,7 @@ export interface ContactsBooksManagerProps {
   davMode: 'off' | 'read_only' | 'read_write';
   onDavModeChange: (mode: 'off' | 'read_only' | 'read_write') => void;
   davBusy: boolean;
+  view?: 'accounts' | 'resources' | 'import';
 }
 
 const sourceLabelKey = (source: string): string => {
@@ -174,7 +175,7 @@ export default function ContactsBooksManager(props: ContactsBooksManagerProps) {
         <p style={metaStyle}>{t(sourceLabelKey(selected.source))}{selected.accountLabel ? ` · ${selected.accountLabel}` : ''}</p>
       </header>
 
-      <div data-testid="contacts-manager-general" style={sectionStyle}>
+      {props.view !== 'import' && <div data-testid="contacts-manager-general" style={sectionStyle}>
         <p style={sectionTitleStyle}>{t('contacts.booksManager.general')}</p>
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(110px, auto) minmax(0, 1fr)', gap: '6px 16px', alignItems: 'baseline' }}>
           <span style={metaStyle}>{t('contacts.booksManager.nameLabel')}</span><strong style={{ fontSize: 13, overflowWrap: 'anywhere' }}>{selected.name}</strong>
@@ -188,9 +189,9 @@ export default function ContactsBooksManager(props: ContactsBooksManagerProps) {
             {selected.visible ? t('contacts.addressBooks.hide') : t('contacts.addressBooks.show')}
           </Button>
         </div>
-      </div>
+      </div>}
 
-      <div data-testid="contacts-manager-sync" style={sectionStyle}>
+      {props.view !== 'import' && <div data-testid="contacts-manager-sync" style={sectionStyle}>
         <p style={sectionTitleStyle}>{t('contacts.booksManager.sync')}</p>
         <p style={metaStyle}>{t('contacts.booksManager.providerLabel')}: {t(sourceLabelKey(selected.source))}</p>
         {summary
@@ -211,9 +212,9 @@ export default function ContactsBooksManager(props: ContactsBooksManagerProps) {
           )}
         </div>
         <p style={metaStyle}>{t('contacts.booksManager.contactsCount', { count: selected.contactCount ?? 0 })}</p>
-      </div>
+      </div>}
 
-      <div data-testid="contacts-manager-writeback" style={sectionStyle}>
+      {props.view !== 'accounts' && props.view !== 'import' && <div data-testid="contacts-manager-writeback" style={sectionStyle}>
         <p style={sectionTitleStyle}>{t('contacts.booksManager.writeBack')}</p>
         <p style={metaStyle}>{t('contacts.booksManager.sourceAccess')}: {selected.readOnly ? t('contacts.booksManager.readOnly') : t('contacts.booksManager.readWrite')}</p>
         <p style={metaStyle}>{t('contacts.booksManager.userAccess')}: {t('contacts.booksManager.userAccessSource')}</p>
@@ -223,9 +224,9 @@ export default function ContactsBooksManager(props: ContactsBooksManagerProps) {
             {t(selected.readOnly ? 'calendar.enableWriteBack' : 'calendar.disableWriteBack')}
           </Button>
         )}
-      </div>
+      </div>}
 
-      <div data-testid="contacts-manager-dav" style={sectionStyle}>
+      {props.view !== 'accounts' && props.view !== 'import' && <div data-testid="contacts-manager-dav" style={sectionStyle}>
         <p style={sectionTitleStyle}>{t('contacts.booksManager.dav')}</p>
         {isLocal ? (
           <label style={{ fontSize: 12 }}>
@@ -245,9 +246,9 @@ export default function ContactsBooksManager(props: ContactsBooksManagerProps) {
         ) : (
           <p style={metaStyle} data-testid="contacts-manager-dav-unavailable">{t('contacts.booksManager.davProviderUnavailable')}</p>
         )}
-      </div>
+      </div>}
 
-      <div data-testid="contacts-manager-import-export" style={sectionStyle}>
+      {props.view !== 'accounts' && props.view !== 'resources' && <div data-testid="contacts-manager-import-export" style={sectionStyle}>
         <p style={sectionTitleStyle}>{t('contacts.booksManager.importExport')}</p>
         <div style={rowStyle}>
           {isLocal && <Button data-testid="contacts-manager-import-google" onClick={props.onImportGoogleCsv}>{t('contacts.addressBooks.importGoogle')}</Button>}
@@ -256,12 +257,12 @@ export default function ContactsBooksManager(props: ContactsBooksManagerProps) {
           <a className="ui-button" data-testid="contacts-manager-export-outlook" href={props.exportUrl('outlook-csv')}>{t('contacts.addressBooks.exportOutlook')}</a>
           <a className="ui-button" data-testid="contacts-manager-export-vcard" href={props.exportUrl('vcard')}>vCard</a>
         </div>
-      </div>
+      </div>}
 
-      <div data-testid="contacts-manager-danger" style={{ ...sectionStyle, borderColor: 'var(--red, #f87171)' }}>
+      {props.view !== 'accounts' && props.view !== 'import' && <div data-testid="contacts-manager-danger" style={{ ...sectionStyle, borderColor: 'var(--red, #f87171)' }}>
         <p style={sectionTitleStyle}>{t('contacts.booksManager.dangerZone')}</p>
         {dangerZoneBody(props, canDelete)}
-      </div>
+      </div>}
     </div>
   ) : (
     <p data-testid="contacts-manager-detail" style={metaStyle}>{t('contacts.booksManager.selectBook')}</p>
@@ -295,13 +296,13 @@ export default function ContactsBooksManager(props: ContactsBooksManagerProps) {
       {/* Sources are connection-level controls, not properties of whichever book
           happened to be selected. Keeping CardDAV here prevents a Google or
           Microsoft book from appearing to own the CardDAV credentials. */}
-      <div data-testid="contacts-manager-sources" style={{ ...sectionStyle, margin: 0 }}>
+      {(props.view === undefined || props.view === 'accounts') && <div data-testid="contacts-manager-sources" style={{ ...sectionStyle, margin: 0 }}>
         <div style={{ display: 'grid', gap: 3 }}>
           <p style={sectionTitleStyle}>{t('contacts.booksManager.sources')}</p>
           <p style={metaStyle}>{t('contacts.booksManager.sourcesHint')}</p>
         </div>
         <ContactsDavSource t={t} onChanged={props.onDavChanged} />
-      </div>
+      </div>}
     </section>
   );
 }

@@ -166,7 +166,8 @@ test('the manager uses the settings shell rather than its own close layer', asyn
   const admin = await read(new URL('./AdminPanel.tsx', import.meta.url));
   assert.doesNotMatch(source, /<Dialog/);
   assert.match(source, /data-testid="contacts-manager-back"/);
-  assert.match(admin, /adminTab === 'contacts' && <ContactsPage settingsOnly/);
+  assert.match(admin, /adminTab === 'contacts' && <ContactsSettingsTab/);
+  assert.match(admin, /function ContactsSettingsTab\(\)[\s\S]*<ContactsPage settingsOnly settingsSection=/);
 });
 
 test('the trigger is a compact icon with an accessible name', async () => {
@@ -184,6 +185,13 @@ test('the trigger is a compact icon with an accessible name', async () => {
   assert.match(source, /width: isMobile \? 44 : 34/);
   assert.match(source, /height: isMobile \? 44 : 34/);
   assert.match(source, /<svg width=\{isMobile \? 20 : 17\}/);
+});
+
+test('settings sub-tabs expose distinct account, resource, and import surfaces', async () => {
+  const source = await read(manager);
+  assert.match(source, /view\?: 'accounts' \| 'resources' \| 'import'/);
+  assert.match(source, /props\.view !== 'accounts' && props\.view !== 'resources'/);
+  assert.match(source, /props\.view === undefined \|\| props\.view === 'accounts'/);
 });
 
 test('the CardDAV source is managed from Contacts, like a calendar source', async () => {

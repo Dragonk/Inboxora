@@ -24,7 +24,7 @@ type DavMode = 'off' | 'read_only' | 'read_write';
 const davMode = (value: unknown): DavMode => value === 'off' || value === 'read_only' ? value : 'read_write';
 
 /** Canonical manager: service/collection actions never change event selection. */
-export default function CalendarSettingsManager({ locale }: { locale?: string }) {
+export default function CalendarSettingsManager({ locale, view = 'accounts' }: { locale?: string; view?: 'accounts' | 'resources' }) {
   const { t } = useTranslation();
   const authEpoch = useStore(state => state.authEpoch);
   const lifetime = useRef(0);
@@ -180,6 +180,22 @@ export default function CalendarSettingsManager({ locale }: { locale?: string })
       window.dispatchEvent(new CustomEvent('inboxora:provider-sync-completed', { detail: { accountId: source.accountId } }));
     }
   });
+  if (view === 'resources') return <section data-testid="calendar-resources-manager" style={{ display: 'grid', gap: 14 }}>
+    {error && <p role="alert" className="ui-alert">{error}</p>}
+    {notice && <p role="status">{notice}</p>}
+    <input data-testid="calendar-resource-search" aria-label={t('calendar.searchSources', 'Search sources or calendars')} placeholder={t('calendar.searchSources', 'Search sources or calendars')} value={search} onChange={event => setSearch(event.target.value)} style={{ ...inputStyle, maxWidth: 360 }} />
+    {groups.map(group => <section key={group.id} style={{ display: 'grid', gap: 8 }}>
+      <h3 style={{ margin: 0, fontSize: 13 }}>{entries.find(item => item.id === group.id)?.label ?? group.id}</h3>
+      {group.rows.map(({ calendar, view: calendarView }) => <div key={calendar.id} data-testid="calendar-resource-row" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, padding: 12, border: '1px solid var(--border-subtle)', borderRadius: 10, background: 'var(--bg-tertiary)' }}>
+        <span aria-hidden="true" style={{ width: 10, height: 10, borderRadius: '50%', background: calendar.color || 'var(--accent)' }} />
+        <strong style={{ flex: '1 1 160px' }}>{calendar.name}</strong>
+        <Button disabled={busy} onClick={() => run(async () => { await setCalendarSidebarHidden(api.calendar.updateCalendarPresentation, calendar.id, !calendarView.sidebarHidden); })}>{calendarView.sidebarHidden ? t('calendar.show', 'Show') : t('calendar.hide', 'Hide from list')}</Button>
+        {calendar.collection_id && <Button disabled={busy} onClick={() => run(async () => { await api.setCollectionWriteBack(calendar.collection_id!, Boolean(calendar.read_only)); })}>{t(calendar.read_only ? 'calendar.enableWriteBack' : 'calendar.disableWriteBack')}</Button>}
+        {canManageLocalCalendar(calendar) && <Button disabled={busy} onClick={() => { setNotice(null); setError(null); setDraft({ calendar, name: calendar.name ?? '', color: calendar.color || '#35558a', davMode: davMode(calendar.dav_mode) }); }}>{t('calendar.calendarActions', { name: calendar.name })}</Button>}
+      </div>)}
+    </section>)}
+    {!groups.some(group => group.rows.length) && <p>{t('calendar.noCalendarsDiscovered', 'No calendars discovered yet.')}</p>}
+  </section>;
   return <section data-testid="calendar-settings-manager" style={{ display: 'grid', gap: 16 }}>
     {error && <p role="alert" className="ui-alert">{error}</p>}
     {notice && <p role="status">{notice}</p>}

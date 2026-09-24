@@ -75,6 +75,7 @@ interface Props {
   deferServiceChanges?: boolean;
   /** Read-only summary for the account overview. */
   compact?: boolean;
+  diagnosticsOnly?: boolean;
   onFeatureIntentChange?: (service: 'calendars' | 'contacts', enabled: boolean) => void;
 }
 
@@ -113,7 +114,7 @@ export function providerServiceStatus(feature: { enabled?: boolean; authorized: 
   return t('admin.accounts.services.syncPending');
 }
 
-export default function AccountProviderServices({ accountId, reload, t, deferServiceChanges = false, onFeatureIntentChange, compact = false }: Props) {
+export default function AccountProviderServices({ accountId, reload, t, deferServiceChanges = false, onFeatureIntentChange, compact = false, diagnosticsOnly = false }: Props) {
   const [features, setFeatures] = useState<AccountProviderFeatures | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -366,6 +367,7 @@ export default function AccountProviderServices({ accountId, reload, t, deferSer
 
   return (
     <div data-testid="account-provider-services" style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--border-subtle)', fontSize: 12, lineHeight: 1.7, minWidth: 0 }}>
+      {!diagnosticsOnly && <>
       <div style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>{t('admin.accounts.services.title', { provider: providerName })}</div>
 
       <div style={{ marginTop: 4 }}>
@@ -467,6 +469,7 @@ export default function AccountProviderServices({ accountId, reload, t, deferSer
           {t('admin.accounts.services.refresh')}
         </button>
       </div>
+      </>}
 
       {/* Push capability/subscription is intentionally shown only from diagnostics.push below. The old shorthand
           used “disabled” for an absent push subscription, which looked like the calendar service was disabled. */}
@@ -475,7 +478,7 @@ export default function AccountProviderServices({ accountId, reload, t, deferSer
           from the server for this account, and nothing in it is a token or a secret. */}
       {diagnostics && (
         <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--border-subtle)' }}>
-          <button
+          {!diagnosticsOnly && <button
             type="button"
             data-testid="account-diagnostics-toggle"
             aria-expanded={diagnosticsOpen}
@@ -483,8 +486,8 @@ export default function AccountProviderServices({ accountId, reload, t, deferSer
             style={{ background: 'none', border: 0, padding: 0, color: 'var(--text-secondary)', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
           >
             {diagnosticsOpen ? '▾' : '▸'} {t('admin.accounts.diagnostics.title')}
-          </button>
-          {diagnosticsOpen && (
+          </button>}
+          {(diagnosticsOnly || diagnosticsOpen) && (
             <div data-testid="account-diagnostics" style={{ marginTop: 6, color: 'var(--text-tertiary)', lineHeight: 1.7 }}>
               <div data-testid="account-diagnostics-connection">
                 <div style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>{t('admin.accounts.diagnostics.connection')}</div>

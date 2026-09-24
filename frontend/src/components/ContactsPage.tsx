@@ -193,7 +193,7 @@ interface ProviderContactsStatus {
 }
 
 
-export default function ContactsPage({ isActive = true, settingsOnly = false }) {
+export default function ContactsPage({ isActive = true, settingsOnly = false, settingsSection = 'accounts' }: { isActive?: boolean; settingsOnly?: boolean; settingsSection?: 'accounts' | 'resources' | 'import' }) {
   const { t } = useTranslation();
   const { showContacts, setAdminTab, setShowAdmin, authEpoch } = useStore();
   const bookLoadGeneration = useRef(0);
@@ -897,6 +897,7 @@ export default function ContactsPage({ isActive = true, settingsOnly = false }) 
     davMode={addressBookDavModeOf(selectedBook?.dav_mode)}
     onDavModeChange={changeAddressBookDavMode}
     davBusy={davBusy}
+    view={settingsSection}
   />;
 
   // Rendered by both layouts: the address-book menu is shared, so its dialog must be too.

@@ -6,6 +6,7 @@ import { inputStyle as sharedInputStyle } from './ui.tsx';
 import ConversationRebuild from './ConversationRebuild.tsx';
 import ContactsPage from './ContactsPage.tsx';
 import CalendarSettingsManager from './CalendarSettingsManager.tsx';
+import CalendarSubscriptionsSettings from './CalendarSubscriptionsSettings.tsx';
 import AddAccountFlow, { type IntegrationStatus } from './AddAccountFlow.tsx';
 import { transportLabel } from './AccountProviderServices.tsx';
 import AccountProviderServices from './AccountProviderServices.tsx';
@@ -103,6 +104,39 @@ const inputStyle = sharedInputStyle;
 
 const TOGGLE_OFF_BACKGROUND = 'var(--border)';
 
+interface SettingsSectionTab {
+  id: string;
+  label: React.ReactNode;
+}
+
+function SettingsSectionTabs({ tabs, active, onChange, label }: { tabs: SettingsSectionTab[]; active: string; onChange: (id: string) => void; label: string }) {
+  return <div role="tablist" aria-label={label} style={{ display: 'flex', gap: 0, overflowX: 'auto', overflowY: 'hidden', borderBottom: '1px solid var(--border-subtle)', marginBottom: 28 }}>
+    {tabs.map(tab => <button
+      key={tab.id}
+      type="button"
+      role="tab"
+      aria-selected={active === tab.id}
+      tabIndex={active === tab.id ? 0 : -1}
+      onClick={() => onChange(tab.id)}
+      onKeyDown={event => {
+        if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+        event.preventDefault();
+        const currentIndex = tabs.findIndex(item => item.id === active);
+        const nextIndex = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (currentIndex + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
+        const tabList = event.currentTarget.parentElement;
+        onChange(tabs[nextIndex].id);
+        requestAnimationFrame(() => tabList?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[nextIndex]?.focus());
+      }}
+      style={{
+        flexShrink: 0, padding: '8px 16px', marginBottom: -1, border: 0,
+        borderBottom: `2px solid ${active === tab.id ? 'var(--accent)' : 'transparent'}`,
+        background: 'none', color: active === tab.id ? 'var(--accent)' : 'var(--text-secondary)',
+        fontSize: 13, lineHeight: '18px', fontWeight: active === tab.id ? 600 : 400, cursor: 'pointer', whiteSpace: 'nowrap',
+      }}
+    >{tab.label}</button>)}
+  </div>;
+}
+
 // ─── Color picker ─────────────────────────────────────────────────────────────
 const COLORS = [
   '#6366f1','#8b5cf6','#ec4899','#ef4444',
@@ -156,10 +190,14 @@ interface AccountFormProps {
   onReload?: () => void;
   /** The edit parent returns to the account list after every staged change commits. */
   onComplete?: () => void;
+  /** Account services have their own sub-tab in the account editor. */
+  showProviderServices?: boolean;
+  /** Limits an existing IMAP account editor to metadata or server fields. */
+  section?: 'all' | 'general' | 'servers';
 }
 
 
-function AccountForm({ initial = undefined, onSave, onCancel, onReload, onComplete }: AccountFormProps) {
+function AccountForm({ initial = undefined, onSave, onCancel, onReload, onComplete, showProviderServices = true, section = 'all' }: AccountFormProps) {
   const { t } = useTranslation();
   const { categorizationEnabled } = useStore();
 
@@ -240,6 +278,7 @@ function AccountForm({ initial = undefined, onSave, onCancel, onReload, onComple
 
   return (
     <div>
+      {section !== 'servers' && <>
       {/* Presets (add only) */}
       {!isEdit && (
         <div style={{ display: 'flex', gap: 6, marginBottom: 18, flexWrap: 'wrap' }}>
@@ -297,14 +336,15 @@ function AccountForm({ initial = undefined, onSave, onCancel, onReload, onComple
             onBlur={e => e.target.style.borderColor = 'var(--border)'} />
         </Field>
       )}
+      </>}
 
-      {nativeTransport ? (
+      {nativeTransport ? (section !== 'servers' && (
         // Read-only for a provider-managed account: the transport and the mailbox identity are the
         // provider's, and "reconnect" is the action that changes them — not a host field.
         <div data-testid="native-transport-section" style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.7 }}>
           {t('admin.accounts.addAccountFlow.nativeTransport', { transport: nativeTransport === 'microsoft_graph' ? 'Microsoft Graph' : 'Gmail API' })}
         </div>
-      ) : (
+      )) : (section !== 'general' && (
         <>
         <div style={{ height: 1, background: 'var(--border-subtle)', margin: '16px 0' }} />
         <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 10, fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
@@ -456,7 +496,8 @@ function AccountForm({ initial = undefined, onSave, onCancel, onReload, onComple
         </Field>
 
         </>
-      )}
+      ))}
+      {section !== 'servers' && <>
       <div style={{ height: 1, background: 'var(--border-subtle)', margin: '16px 0' }} />
       <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 10, fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
         {t('admin.accounts.signatureSection')}
@@ -583,7 +624,7 @@ function AccountForm({ initial = undefined, onSave, onCancel, onReload, onComple
         </>
       )}
 
-      {isEdit && nativeTransport && initial?.id && (
+      {showProviderServices && isEdit && nativeTransport && initial?.id && (
         <section data-testid="account-edit-provider-services" style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--border-subtle)' }}>
           <AccountProviderServices
             accountId={initial.id}
@@ -594,6 +635,7 @@ function AccountForm({ initial = undefined, onSave, onCancel, onReload, onComple
           />
         </section>
       )}
+      </>}
 
       {error && (
         <div style={{
@@ -632,6 +674,9 @@ function AccountsTab({ onNavigate = undefined }: { onNavigate?: (tab: string) =>
   const { t } = useTranslation();
   const { accounts, setAccounts, updateAccount, unreadCounts, setUnreadCounts, addNotification, backfillProgress, user } = useStore();
   const [subview, setSubview] = useState('list'); // 'list' | 'add' | 'add-imap' | 'edit' | 'folders' | 'aliases'
+  const [accountSection, setAccountSection] = useState('general');
+  const [serviceChanges, setServiceChanges] = useState<Partial<Record<'calendars' | 'contacts', boolean>>>({});
+  const [servicesSaving, setServicesSaving] = useState(false);
   // Readiness only. The Accounts screen decides whether a provider sign-in can be offered; it never shows a
   // client id, a secret or a redirect URI, because those are the administrator's, in Integrations.
   const [integrationStatus, setIntegrationStatus] = useState<IntegrationStatus | null>(null);
@@ -977,16 +1022,64 @@ function AccountsTab({ onNavigate = undefined }: { onNavigate?: (tab: string) =>
         <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
           {t('admin.accounts.editTitle')}
         </div>
-        <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 20 }}>
+        <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 16 }}>
           {editTarget.email_address}
         </div>
-        <AccountForm
-          initial={editTarget}
-          onSave={handleEdit}
-          onCancel={() => { setSubview('list'); setEditTarget(null); }}
-          onReload={loadAccounts}
-          onComplete={() => { setSubview('list'); setEditTarget(null); }}
+        <SettingsSectionTabs
+          label={t('admin.accounts.title')}
+          active={accountSection}
+          onChange={setAccountSection}
+          tabs={(editTarget.mail_transport === 'microsoft_graph' || editTarget.mail_transport === 'gmail_api')
+            ? [
+                { id: 'general', label: t('contacts.booksManager.general') },
+                { id: 'services', label: t('admin.accounts.services.title', { provider: editTarget.mail_transport === 'gmail_api' ? t('admin.accounts.services.google') : t('admin.accounts.services.microsoft') }) },
+                { id: 'diagnostics', label: t('admin.accounts.diagnostics.title') },
+              ]
+            : [
+                { id: 'general', label: t('contacts.booksManager.general') },
+                { id: 'servers', label: `${t('admin.accounts.imapSection')} / ${t('admin.accounts.smtpSection')}` },
+                { id: 'diagnostics', label: t('admin.accounts.diagnostics.title') },
+              ]}
         />
+        <div data-testid={`account-editor-${accountSection}`} hidden={accountSection !== 'general' && accountSection !== 'servers'}>
+          <AccountForm
+            initial={editTarget}
+            onSave={handleEdit}
+            onCancel={() => { setSubview('list'); setEditTarget(null); }}
+            onReload={loadAccounts}
+            onComplete={() => { setSubview('list'); setEditTarget(null); }}
+            showProviderServices={false}
+            section={accountSection === 'servers' ? 'servers' : 'general'}
+          />
+        </div>
+        {accountSection === 'services' && <section data-testid="account-editor-services" style={{ display: 'grid', gap: 16 }}>
+          <AccountProviderServices
+            accountId={editTarget.id}
+            reload={loadAccounts}
+            t={t}
+            deferServiceChanges
+            onFeatureIntentChange={(service, enabled) => setServiceChanges(current => ({ ...current, [service]: enabled }))}
+          />
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button type="button" disabled={servicesSaving || Object.keys(serviceChanges).length === 0} onClick={async () => {
+              setServicesSaving(true);
+              try {
+                for (const [service, enabled] of Object.entries(serviceChanges) as Array<['calendars' | 'contacts', boolean]>) await api.setAccountProviderFeature(editTarget.id, service, enabled);
+                setServiceChanges({}); loadAccounts();
+              } catch (err) { addNotification({ type: 'error', title: t('common.error'), message: toAppError(err).message }); }
+              finally { setServicesSaving(false); }
+            }} style={{ padding: '8px 14px', border: 0, borderRadius: 7, background: 'var(--accent)', color: 'var(--accent-text)', cursor: 'pointer' }}>{t(servicesSaving ? 'common.saving' : 'admin.accounts.saveChanges')}</button>
+            <button type="button" disabled={servicesSaving} onClick={() => { setServiceChanges({}); setSubview('list'); setEditTarget(null); }} style={{ padding: '8px 14px', border: '1px solid var(--border)', borderRadius: 7, background: 'var(--bg-tertiary)', color: 'var(--text-secondary)', cursor: 'pointer' }}>{t('common.cancel')}</button>
+          </div>
+        </section>}
+        {accountSection === 'diagnostics' && <section data-testid="account-editor-diagnostics" style={{ display: 'grid', gap: 14 }}>
+          <div style={{ padding: 14, border: '1px solid var(--border-subtle)', borderRadius: 10, background: 'var(--bg-tertiary)', fontSize: 12, lineHeight: 1.7 }}>
+            <div><span style={{ color: 'var(--text-tertiary)' }}>{t('admin.accounts.transport')} </span>{transportLabel(typeof editTarget.mail_transport === 'string' ? editTarget.mail_transport : 'imap')}</div>
+            <div><span style={{ color: 'var(--text-tertiary)' }}>{t('admin.accounts.lastSync')} </span>{editTarget.last_sync ? new Date(String(editTarget.last_sync)).toLocaleString() : t('common.never')}</div>
+            <div><span style={{ color: 'var(--text-tertiary)' }}>{t('admin.accounts.diagnostics.connection')} </span><span style={{ color: editTarget.sync_error ? 'var(--red)' : 'var(--green)' }}>{editTarget.sync_error ? String(editTarget.sync_error) : t('admin.accounts.connected')}</span></div>
+          </div>
+          {(editTarget.mail_transport === 'microsoft_graph' || editTarget.mail_transport === 'gmail_api') && <AccountProviderServices accountId={editTarget.id} reload={loadAccounts} t={t} diagnosticsOnly />}
+        </section>}
       </div>
     );
   }
@@ -1349,7 +1442,7 @@ function AccountsTab({ onNavigate = undefined }: { onNavigate?: (tab: string) =>
                 )}
               </div>
             </div>
-            <button type="button" onClick={() => { setEditTarget(account); setSubview('edit'); }} style={{ flexShrink: 0, padding: '6px 10px', border: '1px solid var(--border)', borderRadius: 6, background: 'var(--bg-elevated)', color: 'var(--text-primary)', fontSize: 12, fontWeight: 500, cursor: 'pointer' }}>
+            <button type="button" onClick={() => { setEditTarget(account); setAccountSection('general'); setSubview('edit'); }} style={{ flexShrink: 0, padding: '6px 10px', border: '1px solid var(--border)', borderRadius: 6, background: 'var(--bg-elevated)', color: 'var(--text-primary)', fontSize: 12, fontWeight: 500, cursor: 'pointer' }}>
               {t('common.edit')}
             </button>
             <details style={{ position: 'relative', flexShrink: 0 }}>
@@ -1886,6 +1979,7 @@ function SwipeActionIcon({ action, size = 17 }: SwipeActionIconProps) {
 
 function CalendarSettingsTab({ section = 'accounts' }: { section?: 'accounts' | 'appearance' }) {
   const { t, i18n } = useTranslation();
+  const [accountSection, setAccountSection] = useState('accounts');
   const { calendarWeekStartsOn, setCalendarWeekStartsOn, calendarWorkDays, setCalendarWorkDays, calendarWorkHoursStart, setCalendarWorkHoursStart, calendarWorkHoursEnd, setCalendarWorkHoursEnd, calendarWorkHoursError, calendarInviteAccountId, setCalendarInviteAccountId, accounts } = useStore();
   // Only accounts that can actually send mail may be offered as a default sender.
   const senderAccounts = (accounts || []).filter(account => account.enabled && account.smtp_host);
@@ -1937,8 +2031,53 @@ function CalendarSettingsTab({ section = 'accounts' }: { section?: 'accounts' | 
           </label>
         </div>
       </div>}
-      {section === 'accounts' && <CalendarSettingsManager locale={intlLocale(i18n.resolvedLanguage || i18n.language)} />}
+      {section === 'accounts' && <>
+        <SettingsSectionTabs
+          label={t('calendar.title')}
+          active={accountSection}
+          onChange={setAccountSection}
+          tabs={[
+            { id: 'accounts', label: t('admin.tabs.accounts') },
+            { id: 'resources', label: t('calendar.calendars') },
+            { id: 'import', label: t('calendar.subscribeTitle') },
+          ]}
+        />
+        {(accountSection === 'accounts' || accountSection === 'resources') && <div data-testid={`calendar-settings-${accountSection}`}>
+          <header style={{ marginBottom: 16 }}>
+            <h2 style={{ margin: 0, fontSize: 15 }}>{accountSection === 'accounts' ? t('calendar.manageSources') : t('calendar.calendars')}</h2>
+            <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--text-tertiary)', lineHeight: 1.5 }}>{accountSection === 'accounts' ? t('calendar.subscribeDescription') : t('calendar.providerManagedHint')}</p>
+          </header>
+          <CalendarSettingsManager locale={intlLocale(i18n.resolvedLanguage || i18n.language)} view={accountSection as 'accounts' | 'resources'} />
+        </div>}
+        {accountSection === 'import' && <div data-testid="calendar-settings-import">
+          <CalendarSubscriptionsSettings locale={intlLocale(i18n.resolvedLanguage || i18n.language)} />
+        </div>}
+      </>}
 
+  </div>;
+}
+
+function ContactsSettingsTab() {
+  const { t } = useTranslation();
+  const [section, setSection] = useState('accounts');
+  return <div data-testid="contacts-settings-hub">
+    <SettingsSectionTabs
+      label={t('contacts.title')}
+      active={section}
+      onChange={setSection}
+      tabs={[
+        { id: 'accounts', label: t('admin.tabs.accounts') },
+        { id: 'resources', label: t('contacts.addressBooks.label') },
+        { id: 'import', label: t('contacts.booksManager.importExport') },
+      ]}
+    />
+    <div data-testid={`contacts-settings-${section}`}>
+      <header style={{ marginBottom: 16 }}>
+        <h2 style={{ margin: 0, fontSize: 15 }}>{section === 'accounts' ? t('contacts.booksManager.sources') : section === 'resources' ? t('contacts.addressBooks.label') : t('contacts.booksManager.importExport')}</h2>
+        <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--text-tertiary)', lineHeight: 1.5 }}>{section === 'accounts' ? t('contacts.booksManager.sourcesHint') : section === 'resources' ? t('contacts.booksManager.selectBook') : t('contacts.addressBooks.davAccessHint')}</p>
+      </header>
+      <ContactsPage settingsOnly settingsSection={section as 'accounts' | 'resources' | 'import'} />
+    </div>
   </div>;
 }
 
@@ -2967,34 +3106,21 @@ function IntegrationsTab() {
   const googleConfigured = (isAdmin ? configs.google?.clientId : null) || googleStatus?.configured;
   const googleWebReady = !!googleStatus?.browser?.ready;
 
-  const subTabStyle = (key: string) => ({
-    padding: '7px 14px',
-    background: 'none',
-    border: 'none',
-    borderBottom: `2px solid ${subTab === key ? 'var(--accent)' : 'transparent'}`,
-    marginBottom: -1,
-    color: subTab === key ? 'var(--accent)' : 'var(--text-secondary)',
-    cursor: 'pointer',
-    fontSize: 13,
-    fontWeight: subTab === key ? 600 : 400,
-    transition: 'color 0.1s',
-  });
-
   return (
     <div>
       <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
         {t('admin.integrations.title')}
       </div>
 
-      {/* Sub-tabs */}
-      <div style={{ display: 'flex', borderBottom: '1px solid var(--border-subtle)', marginBottom: 20 }}>
-        <button style={subTabStyle('emailProviders')} onClick={() => setSubTab('emailProviders')}>
-          {t('admin.integrations.tabEmailProviders')}
-        </button>
-        <button style={subTabStyle('apps')} onClick={() => setSubTab('apps')}>
-          {t('admin.integrations.tabApps')}
-        </button>
-      </div>
+      <SettingsSectionTabs
+        label={t('admin.integrations.title')}
+        active={subTab}
+        onChange={setSubTab}
+        tabs={[
+          { id: 'emailProviders', label: t('admin.integrations.tabEmailProviders') },
+          { id: 'apps', label: t('admin.integrations.tabApps') },
+        ]}
+      />
 
       {subTab === 'emailProviders' && (
         <div>
@@ -9315,7 +9441,7 @@ export default function AdminPanel() {
       {adminTab === 'cleanup' && <MailboxCleanupTab />}
       {adminTab === 'calendar' && <CalendarSettingsTab />}
       {adminTab === 'calendar-appearance' && <CalendarSettingsTab section="appearance" />}
-      {adminTab === 'contacts' && <ContactsPage settingsOnly />}
+      {adminTab === 'contacts' && <ContactsSettingsTab />}
       {adminTab === 'appearance' && <AppearanceTab initialSubTab={pendingSubTab} />}
       {adminTab === 'integrations' && <IntegrationsTab />}
       {adminTab === 'users' && <UsersTab />}
