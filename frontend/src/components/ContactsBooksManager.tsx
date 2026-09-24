@@ -85,14 +85,14 @@ const sourceLabelKey = (source: string): string => {
 };
 
 const sectionStyle: React.CSSProperties = {
-  border: '1px solid var(--border)', borderRadius: 10, padding: '10px 12px', marginBottom: 10,
+  display: 'grid', gap: 10, border: '1px solid var(--border-subtle, var(--border))', borderRadius: 12,
+  padding: '15px 16px', marginBottom: 12, background: 'var(--bg-elevated)', boxShadow: '0 1px 2px rgba(0, 0, 0, 0.03)',
 };
 const sectionTitleStyle: React.CSSProperties = {
-  margin: '0 0 8px', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)',
-  textTransform: 'uppercase', letterSpacing: '0.04em',
+  margin: 0, fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.055em',
 };
 const rowStyle: React.CSSProperties = { display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' };
-const metaStyle: React.CSSProperties = { fontSize: 12, color: 'var(--text-tertiary)', margin: '2px 0' };
+const metaStyle: React.CSSProperties = { fontSize: 12, lineHeight: 1.45, color: 'var(--text-tertiary)', margin: 0 };
 
 export default function ContactsBooksManager(props: ContactsBooksManagerProps) {
   const { t, books, selectedBookId, isMobile } = props;
@@ -120,42 +120,44 @@ export default function ContactsBooksManager(props: ContactsBooksManagerProps) {
   const canDelete = props.canDelete && isLocal && localBooks.length > 1;
 
   const list = (
-    <div data-testid="contacts-manager-books" style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 0 }}>
-      {groupBooksByConnection(books).map(group => <div key={group.id} data-testid="contacts-manager-book-group" style={{ display: 'grid', gap: 6 }}>
-        <div data-testid="contacts-manager-book-group-heading" style={{ ...metaStyle, marginTop: 6 }}><strong>{t(sourceLabelKey(group.source))}{group.accountLabel ? ` · ${group.accountLabel}` : ''}</strong></div>
-        {group.books.map(book => {
-        const active = book.id === selectedBookId;
-        const bookSummary = book.syncStatus;
-        return (
-          <button
-            key={book.id}
-            type="button"
-            data-testid={`contacts-manager-book-${book.id}`}
-            data-source={book.source}
-            data-visible={book.visible ? 'true' : 'false'}
-            data-readonly={book.readOnly ? 'true' : 'false'}
-            aria-pressed={active}
-            onClick={() => { props.onSelectBook(book.id); if (isMobile) setMobileDetail(true); }}
-            style={{
-              textAlign: 'left', padding: '9px 11px', borderRadius: 9, cursor: 'pointer',
-              background: active ? 'var(--bg-elevated)' : 'transparent',
-              border: `1px solid ${active ? 'var(--accent)' : 'var(--border)'}`,
-              color: 'var(--text-primary)', minWidth: 0,
-            }}
-          >
-            <div style={{ display: 'flex', gap: 6, alignItems: 'baseline', minWidth: 0 }}>
-              <span style={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{book.name}</span>
-              {!book.visible && <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{t('contacts.booksManager.hiddenBadge')}</span>}
-            </div>
-            <div style={metaStyle}>
-              {t(sourceLabelKey(book.source))}{book.accountLabel ? ` · ${book.accountLabel}` : ''} · {book.readOnly ? t('contacts.booksManager.readOnly') : t('contacts.booksManager.readWrite')}
-              {book.contactCount !== null ? ` · ${t('contacts.booksManager.contactsCount', { count: book.contactCount })}` : ''}
-            </div>
-            {bookSummary && <div data-testid={`contacts-manager-book-status-${book.id}`} style={{ ...metaStyle, margin: 0 }}>{t(bookSummary.key ?? 'contacts.addressBooks.lastSynced', bookSummary.values)}</div>}
-          </button>
-        );
-        })}
-      </div>)}
+    <div data-testid="contacts-manager-books" style={{ display: 'grid', gap: 12, minWidth: 0 }}>
+      {groupBooksByConnection(books).map(group => <section key={group.id} data-testid="contacts-manager-book-group" style={{
+        display: 'grid', gap: 4, overflow: 'hidden', border: '1px solid var(--border-subtle, var(--border))',
+        borderRadius: 12, background: 'var(--bg-elevated)',
+      }}>
+        <div data-testid="contacts-manager-book-group-heading" style={{ padding: '11px 13px 8px', borderBottom: '1px solid var(--border-subtle, var(--border))' }}>
+          <strong style={{ display: 'block', fontSize: 13, color: 'var(--text-primary)' }}>{t(sourceLabelKey(group.source))}</strong>
+          {group.accountLabel && <span style={metaStyle}>{group.accountLabel}</span>}
+        </div>
+        <div style={{ display: 'grid', gap: 2, padding: 4 }}>
+          {group.books.map(book => {
+            const active = book.id === selectedBookId;
+            const bookSummary = book.syncStatus;
+            return <button
+              key={book.id}
+              type="button"
+              data-testid={`contacts-manager-book-${book.id}`}
+              data-source={book.source}
+              data-visible={book.visible ? 'true' : 'false'}
+              data-readonly={book.readOnly ? 'true' : 'false'}
+              aria-pressed={active}
+              onClick={() => { props.onSelectBook(book.id); if (isMobile) setMobileDetail(true); }}
+              style={{
+                display: 'grid', gap: 3, width: '100%', textAlign: 'left', padding: '10px 9px', borderRadius: 8, cursor: 'pointer',
+                background: active ? 'var(--bg-hover, var(--bg-secondary))' : 'transparent',
+                border: `1px solid ${active ? 'var(--accent)' : 'transparent'}`, color: 'var(--text-primary)', minWidth: 0,
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'baseline', minWidth: 0 }}>
+                <span style={{ fontWeight: 650, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{book.name}</span>
+                {!book.visible && <span style={{ flex: '0 0 auto', fontSize: 11, color: 'var(--text-tertiary)' }}>{t('contacts.booksManager.hiddenBadge')}</span>}
+              </div>
+              <div style={metaStyle}>{book.readOnly ? t('contacts.booksManager.readOnly') : t('contacts.booksManager.readWrite')}{book.contactCount !== null ? ` · ${t('contacts.booksManager.contactsCount', { count: book.contactCount })}` : ''}</div>
+              {bookSummary && <div data-testid={`contacts-manager-book-status-${book.id}`} style={metaStyle}>{t(bookSummary.key ?? 'contacts.addressBooks.lastSynced', bookSummary.values)}</div>}
+            </button>;
+          })}
+        </div>
+      </section>)}
     </div>
   );
 
@@ -167,14 +169,19 @@ export default function ContactsBooksManager(props: ContactsBooksManagerProps) {
           ← {t('contacts.booksManager.back')}
         </button>
       )}
-      <h4 style={{ margin: '0 0 10px', fontSize: 14 }}>{selected.name}</h4>
+      <header style={{ display: 'grid', gap: 3, padding: '2px 2px 12px' }}>
+        <h4 style={{ margin: 0, fontSize: 18, lineHeight: 1.3, overflowWrap: 'anywhere' }}>{selected.name}</h4>
+        <p style={metaStyle}>{t(sourceLabelKey(selected.source))}{selected.accountLabel ? ` · ${selected.accountLabel}` : ''}</p>
+      </header>
 
       <div data-testid="contacts-manager-general" style={sectionStyle}>
         <p style={sectionTitleStyle}>{t('contacts.booksManager.general')}</p>
-        <p style={metaStyle}>{t('contacts.booksManager.nameLabel')}: {selected.name}</p>
-        <p style={metaStyle}>{t('contacts.booksManager.sourceLabel')}: {t(sourceLabelKey(selected.source))}</p>
-        {selected.accountLabel && <p data-testid="contacts-manager-account" style={metaStyle}>{t('contacts.booksManager.accountLabel')}: {selected.accountLabel}</p>}
-        <p style={metaStyle}>{t('contacts.booksManager.visibility')}: {selected.visible ? t('contacts.booksManager.visible') : t('contacts.booksManager.hidden')}</p>
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(110px, auto) minmax(0, 1fr)', gap: '6px 16px', alignItems: 'baseline' }}>
+          <span style={metaStyle}>{t('contacts.booksManager.nameLabel')}</span><strong style={{ fontSize: 13, overflowWrap: 'anywhere' }}>{selected.name}</strong>
+          <span style={metaStyle}>{t('contacts.booksManager.sourceLabel')}</span><span style={{ fontSize: 13 }}>{t(sourceLabelKey(selected.source))}</span>
+          {selected.accountLabel && <><span style={metaStyle}>{t('contacts.booksManager.accountLabel')}</span><span data-testid="contacts-manager-account" style={{ fontSize: 13, overflowWrap: 'anywhere' }}>{selected.accountLabel}</span></>}
+          <span style={metaStyle}>{t('contacts.booksManager.visibility')}</span><span style={{ fontSize: 13 }}>{selected.visible ? t('contacts.booksManager.visible') : t('contacts.booksManager.hidden')}</span>
+        </div>
         <div style={rowStyle}>
           {isLocal && <Button data-testid="contacts-manager-rename" onClick={() => props.onRename(selected)}>{t('contacts.addressBooks.rename')}</Button>}
           <Button data-testid="contacts-manager-visibility" onClick={props.onToggleVisibility}>
@@ -261,30 +268,38 @@ export default function ContactsBooksManager(props: ContactsBooksManagerProps) {
   );
 
   return (
-    <section data-testid="contacts-books-manager" aria-label={t('contacts.booksManager.title')} style={{ minWidth: 0 }}>
-      <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', minWidth: 0 }}>
-        <div data-testid="contacts-manager-list-pane" style={{
+    <section data-testid="contacts-books-manager" aria-label={t('contacts.booksManager.title')} style={{ display: 'grid', gap: 16, minWidth: 0 }}>
+      <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap', minWidth: 0 }}>
+        <aside data-testid="contacts-manager-list-pane" style={{
+          display: isMobile && mobileDetail ? 'none' : 'grid', gap: 12, alignContent: 'start',
           flex: isMobile ? '1 1 100%' : '1 1 260px', minWidth: 0,
-          display: isMobile && mobileDetail ? 'none' : 'block',
         }}>
-          <div style={rowStyle} data-testid="contacts-manager-create">
-            <Button data-testid="contacts-manager-create-book" variant="primary" onClick={props.onCreate}>{t('contacts.addressBooks.create')}</Button>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
+            <div style={{ minWidth: 0 }}>
+              <strong style={{ display: 'block', fontSize: 14 }}>{t('contacts.booksManager.title')}</strong>
+              <span style={metaStyle}>{t('contacts.booksManager.sourcesHint')}</span>
+            </div>
+            <div style={rowStyle} data-testid="contacts-manager-create">
+              <Button data-testid="contacts-manager-create-book" variant="primary" onClick={props.onCreate}>{t('contacts.addressBooks.create')}</Button>
+            </div>
           </div>
-          <div style={{ marginTop: 8 }}>{list}</div>
-        </div>
-        <div style={{
+          {list}
+        </aside>
+        <main style={{
           flex: isMobile ? '1 1 100%' : '2 1 340px', minWidth: 0,
           display: isMobile && !mobileDetail ? 'none' : 'block',
         }}>
           {detail}
-        </div>
+        </main>
       </div>
       {/* Sources are connection-level controls, not properties of whichever book
           happened to be selected. Keeping CardDAV here prevents a Google or
           Microsoft book from appearing to own the CardDAV credentials. */}
-      <div data-testid="contacts-manager-sources" style={{ ...sectionStyle, marginTop: 14 }}>
-        <p style={sectionTitleStyle}>{t('contacts.booksManager.sources')}</p>
-        <p style={metaStyle}>{t('contacts.booksManager.sourcesHint')}</p>
+      <div data-testid="contacts-manager-sources" style={{ ...sectionStyle, margin: 0 }}>
+        <div style={{ display: 'grid', gap: 3 }}>
+          <p style={sectionTitleStyle}>{t('contacts.booksManager.sources')}</p>
+          <p style={metaStyle}>{t('contacts.booksManager.sourcesHint')}</p>
+        </div>
         <ContactsDavSource t={t} onChanged={props.onDavChanged} />
       </div>
     </section>

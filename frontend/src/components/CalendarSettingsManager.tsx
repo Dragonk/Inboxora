@@ -177,19 +177,28 @@ export default function CalendarSettingsManager({ locale }: { locale?: string })
     const summary = summariseProviderSyncErrors({ t, provider: source.kind === 'microsoft' ? 'microsoft' : 'google', feature: 'calendar', errors: [outcome.error, ...(outcome.errors ?? [])] });
     setNotice(response.state !== 'success' || failed ? `${t('calendar.providerSyncPartial', values)} ${summary?.first ?? ''}`.trim() : t('calendar.providerSyncDone', values));
   });
-  return <section data-testid="calendar-settings-manager" style={{ display: 'grid', gap: 14 }}>
+  return <section data-testid="calendar-settings-manager" style={{ display: 'grid', gap: 16 }}>
     {error && <p role="alert" className="ui-alert">{error}</p>}
     {notice && <p role="status">{notice}</p>}
-    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-      <input data-testid="calendar-source-search" aria-label={t('calendar.searchSources', 'Search sources or calendars')} placeholder={t('calendar.searchSources', 'Search sources or calendars')} value={search} onChange={event => setSearch(event.target.value)} style={inputStyle} />
-      <Button data-testid="calendar-add-source" onClick={() => setAdding(value => !value)}>{adding ? t('calendar.cancel') : t('calendar.addSource')}</Button>
-    </div>
+    <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
+      <div><h2 style={{ margin: 0, fontSize: 15 }}>{t('calendar.title')}</h2><p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--text-tertiary)' }}>{t('calendar.subscribeDescription')}</p></div>
+      <Button data-testid="calendar-add-source" variant="primary" onClick={() => setAdding(value => !value)}>{adding ? t('calendar.cancel') : t('calendar.addSource')}</Button>
+    </header>
+    <input data-testid="calendar-source-search" aria-label={t('calendar.searchSources', 'Search sources or calendars')} placeholder={t('calendar.searchSources', 'Search sources or calendars')} value={search} onChange={event => setSearch(event.target.value)} style={{ ...inputStyle, maxWidth: 360 }} />
     {adding && <CalendarSubscriptionsSettings locale={locale} creationOnly />}
-    <div data-testid="calendar-source-manager" style={{ display: 'flex', flexWrap: 'wrap', gap: 16 }}>
-      <nav aria-label={t('calendar.manageSources')} style={{ display: 'grid', alignContent: 'start', gap: 6, flex: '1 1 180px', minWidth: 0 }}>
-        {entries.map(source => <Button key={source.id} data-testid="calendar-manager-source" aria-pressed={entry?.id === source.id} variant={entry?.id === source.id ? 'primary' : 'secondary'} onClick={() => setSelected(source.id)}><span style={{ display: 'grid', overflowWrap: 'anywhere' }}><strong>{source.label}</strong><small>{source.identityLabel || sourceLabels[calendarSourceCategory(source)]}</small></span></Button>)}
+    <div data-testid="calendar-source-manager" style={{ display: 'grid', gap: 16, minWidth: 0 }}>
+      <nav aria-label={t('calendar.manageSources')} style={{ display: 'grid', gap: 10, minWidth: 0 }}>
+        {entries.map(source => {
+          const sourceRows = groups.find(group => group.id === source.id)?.rows ?? [];
+          const active = entry?.id === source.id;
+          return <button key={source.id} type="button" data-testid="calendar-manager-source" aria-pressed={active} onClick={() => setSelected(source.id)} style={{ display: 'grid', gridTemplateColumns: '38px minmax(0, 1fr) auto', gap: 12, alignItems: 'center', width: '100%', minWidth: 0, textAlign: 'left', padding: '12px 14px', border: `1px solid ${active ? 'var(--accent)' : 'var(--border-subtle)'}`, borderRadius: 10, background: active ? 'var(--accent-dim)' : 'var(--bg-tertiary)', color: 'var(--text-primary)', cursor: 'pointer' }}>
+            <span aria-hidden="true" style={{ width: 38, height: 38, borderRadius: '50%', background: active ? 'var(--accent)' : 'var(--bg-secondary)', color: active ? 'var(--accent-text)' : 'var(--accent)', display: 'grid', placeItems: 'center', fontWeight: 600 }}>{source.label.slice(0, 1).toUpperCase()}</span>
+            <span style={{ display: 'grid', gap: 2, minWidth: 0 }}><strong style={{ fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{source.label}</strong><small style={{ color: 'var(--text-tertiary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{source.identityLabel || sourceLabels[calendarSourceCategory(source)]}</small><small style={{ color: source.featureEnabled === false ? 'var(--text-tertiary)' : 'var(--green)' }}>{source.featureEnabled === false ? t('calendar.serviceDisabled', 'Calendar service is disabled.') : t('admin.accounts.connected', 'Connected')}</small></span>
+            <span style={{ display: 'grid', justifyItems: 'end', gap: 4, fontSize: 11, color: 'var(--text-tertiary)' }}><span>{sourceRows.length} {t('calendar.calendars')}</span><span>› {t('common.edit')}</span></span>
+          </button>;
+        })}
       </nav>
-      <section data-testid="calendar-source-details" style={{ display: 'grid', alignContent: 'start', gap: 12, flex: '3 1 300px', minWidth: 0 }}>
+      <section data-testid="calendar-source-details" style={{ display: 'grid', alignContent: 'start', gap: 12, minWidth: 0, padding: 16, border: '1px solid var(--border-subtle)', borderRadius: 10, background: 'var(--bg-secondary)' }}>
         {entry ? <>
           <h2 style={{ margin: 0 }}>{entry.label}</h2>
           {entry.identityLabel && <p style={{ margin: 0, overflowWrap: 'anywhere' }}>{entry.identityLabel}</p>}

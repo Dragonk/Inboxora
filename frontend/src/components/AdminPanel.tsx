@@ -1251,9 +1251,12 @@ function AccountsTab({ onNavigate = undefined }: { onNavigate?: (tab: string) =>
   return (
     <>
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>
-          {t('admin.accounts.title')}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap', marginBottom: 20 }}>
+        <div>
+          <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>
+            {t('admin.accounts.title')}
+          </div>
+          <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--text-tertiary)', lineHeight: 1.5 }}>{t('admin.integrations.accountHint')}</p>
         </div>
         <button onClick={() => setSubview('add')} style={{
           display: 'flex', alignItems: 'center', gap: 6,

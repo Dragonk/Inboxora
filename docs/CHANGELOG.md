@@ -256,6 +256,7 @@ provider identity, `0109` provider-operation payload, `0110` device authorizatio
 reads the new columns; a mixed old/new deployment must not run with the new code before the migrations.
 
 ### Changed
+- **Account settings now use the same compact account-card hierarchy across mail, calendars and contacts.** Calendar sources render as responsive service cards with connection, synchronization and collection-count context before their safe management controls; the mail-account overview has matching explanatory hierarchy. Contact-book management adopts the same source-oriented presentation. Integration provider cards remain collapsed by default and continue to keep installation OAuth configuration separate from connecting a user account. Existing provider collection protections and local-only deletion semantics are unchanged.
 - **Which contract the Microsoft calendar delta is read from is now an explicit choice.** Microsoft documents the
   per-calendar event delta (`events/delta`) as **beta-only**, while the stable version offers `calendarView/delta`,
   which returns occurrences and exceptions instead of the series master this projection stores. Neither is free and
