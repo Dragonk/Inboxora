@@ -28,15 +28,19 @@ test('service intent toggles persist per account and roll back on refusal', asyn
   assert.match(source, /feature\?\.enabled === false \? 'var\(--text-tertiary\)'/);
 });
 
-test('Google Contacts API-disabled guidance links configuration and retries this account service', async () => {
+test('Google provider API-disabled guidance retries only each affected calendar or contacts service', async () => {
   const source = await readFile(services, 'utf8');
-  assert.match(source, /google-contacts-api-disabled/);
-  assert.match(source, /PROVIDER_API_DISABLED/);
+  assert.match(source, /google-provider-api-disabled/);
+  assert.match(source, /\['calendars', 'contacts'\] as const/);
+  assert.match(source, /feature\?\.syncErrorCode === 'PROVIDER_API_DISABLED' \|\| diagnostic\?\.lastErrorCode === 'PROVIDER_API_DISABLED'/);
   assert.match(source, /admin\.integrations\.google\.step2/);
   assert.match(source, /href="\/settings\?section=integrations"/);
-  assert.match(source, /google-contacts-check-again/);
+  assert.match(source, /data-testid={`google-\$\{service\}-check-again`}/);
   assert.match(source, /api\.syncAccountProviderFeature\(accountId, feature\)/);
-  assert.match(source, /retryFeatureSync\('contacts'\)/);
+  // Calendar regression: `service` is the exact narrowed calendars|contacts value from the affected feature list, never a global refresh.
+  assert.match(source, /retryFeatureSync\(service\)/);
+  assert.match(source, /onClick=\{\(\) => \{ void retryFeatureSync\(service\); \}\}/);
+  assert.match(source, /disabled=\{featureSaving !== null\}/);
 });
 
 test('OAuth errors are never assigned to another account card', async () => {

@@ -398,22 +398,39 @@ export default function AccountProviderServices({ accountId, reload, t, deferSer
         })}
       </div>
 
-      {provider === 'google' && (features.contacts?.syncErrorCode === 'PROVIDER_API_DISABLED' || diagnostics?.contacts.lastErrorCode === 'PROVIDER_API_DISABLED') && (
-        <div data-testid="google-contacts-api-disabled" style={{ marginTop: 8, color: 'var(--text-secondary)' }}>
-          <div>{t('admin.integrations.google.step2')}</div>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
-            <a href="/settings?section=integrations">{t('admin.integrations.google.setupTitle')}</a>
-            <button
-              type="button"
-              data-testid="google-contacts-check-again"
-              disabled={featureSaving !== null}
-              onClick={() => { void retryFeatureSync('contacts'); }}
-            >
-              {t('admin.accounts.services.refresh')}
-            </button>
+      {(() => {
+        // One provider configuration notice can cover both independently failed
+        // services. It deliberately offers only the retry that owns each failure:
+        // refreshing a snapshot or retrying the other service cannot prove that the
+        // administrator enabled the required Google API.
+        const apiDisabled = (['calendars', 'contacts'] as const).filter(service => {
+          const feature = service === 'calendars' ? features.calendar : features.contacts;
+          const diagnostic = service === 'calendars' ? diagnostics?.calendar : diagnostics?.contacts;
+          return feature?.syncErrorCode === 'PROVIDER_API_DISABLED' || diagnostic?.lastErrorCode === 'PROVIDER_API_DISABLED';
+        });
+        if (provider !== 'google' || apiDisabled.length === 0) return null;
+        return (
+          <div data-testid="google-provider-api-disabled" style={{ marginTop: 8, color: 'var(--text-secondary)' }}>
+            <div>{t('admin.integrations.google.step2')}</div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
+              <a href="/settings?section=integrations">{t('admin.integrations.google.setupTitle')}</a>
+              {apiDisabled.map(service => {
+                const label = service === 'calendars' ? t('admin.accounts.services.calendar') : t('admin.accounts.services.contacts');
+                return <button
+                  key={service}
+                  type="button"
+                  data-testid={`google-${service}-check-again`}
+                  aria-label={`${t('admin.accounts.services.refresh')}: ${label}`}
+                  disabled={featureSaving !== null}
+                  onClick={() => { void retryFeatureSync(service); }}
+                >
+                  {label}: {t('admin.accounts.services.refresh')}
+                </button>;
+              })}
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* One authorization for the whole mailbox, and one action that re-reads its state. Reconnecting runs the
           same single consent again, which is also how a grant that lost a scope is repaired. */}
