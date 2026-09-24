@@ -137,6 +137,29 @@ describeOrSkip('account provider diagnostics (PostgreSQL)', () => {
     expect(features!.diagnostics.calendar.lastErrorCode).toBeNull();
   });
 
+  it('does not report a recovered collection failure as a current feature error', async () => {
+    const connection = await query<{ id: string }>('SELECT id FROM provider_connections WHERE user_id = $1 AND provider = $2 ORDER BY created_at ASC LIMIT 1', [USER_A, 'google']);
+    const connectionId = connection.rows[0]!.id;
+    const syncStateId = await inTransaction(client => ensureSyncState(client, {
+      userId: USER_A, connectionId, accountId: null, feature: 'calendars', collectionId: null, coverage: 'events',
+    }));
+    // Simulate a row written by an earlier release: it retained the historical
+    // code/time even after a later successful run. The account card must ignore it.
+    await query(
+      `UPDATE sync_states
+          SET last_error_code = 'PROVIDER_API_DISABLED',
+              last_error_at = NOW() - interval '1 minute',
+              last_success_at = NOW()
+        WHERE id = $1`,
+      [syncStateId],
+    );
+
+    const features = await describeAccountProviderFeatures({ userId: USER_A, accountId });
+    expect(features!.diagnostics.calendar.lastSuccessfulSync).not.toBeNull();
+    expect(features!.diagnostics.calendar.lastErrorCode).toBeNull();
+    expect(features!.diagnostics.calendar.lastErrorAt).toBeNull();
+  });
+
   it('refuses a sync the grant cannot authorize, naming the scope, without calling the provider', async () => {
     const connection = await query<{ id: string }>('SELECT id FROM provider_connections WHERE user_id = $1 LIMIT 1', [USER_A]);
     const connectionId = connection.rows[0]!.id;

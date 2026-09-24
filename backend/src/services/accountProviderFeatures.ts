@@ -386,8 +386,14 @@ async function syncStatesForAccount(
     `SELECT CASE WHEN feature = 'calendars' THEN 'calendar' ELSE feature END AS feature,
             coverage,
             max(last_success_at) AS last_success_at,
-            (array_agg(last_error_code ORDER BY last_error_at DESC NULLS LAST))[1] AS last_error_code,
-            max(last_error_at) AS last_error_at,
+            -- A feature can own several collection states. An error is current only
+            -- when it happened after the last clean run of that same collection;
+            -- otherwise historical failures survive a later successful sync.
+            (array_agg(last_error_code ORDER BY last_error_at DESC)
+              FILTER (WHERE last_error_code IS NOT NULL
+                        AND last_error_at > COALESCE(last_success_at, '-infinity'::timestamptz)))[1] AS last_error_code,
+            max(last_error_at) FILTER (WHERE last_error_code IS NOT NULL
+                                       AND last_error_at > COALESCE(last_success_at, '-infinity'::timestamptz)) AS last_error_at,
             bool_or(cursor IS NOT NULL) AS cursor_present
        FROM sync_states
       WHERE user_id = $1
