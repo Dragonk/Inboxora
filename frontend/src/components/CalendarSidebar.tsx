@@ -43,12 +43,24 @@ interface CalendarPresentation {
   groups?: Array<CalendarPresentationSource & { calendars: CalendarPresentationCalendar[] }>;
 }
 
-/** Joins server-owned group identities to the current calendar rows without naming heuristics. */
+/** A source category is presentation-only; a source keeps its own durable ID, sync and credentials. */
+function calendarSourceCategory(source: CalendarPresentationSource): 'local' | 'external' | 'google' | 'microsoft' | 'system' {
+  if (source.kind === 'local') return 'local';
+  if (source.kind === 'google' || source.kind === 'microsoft' || source.kind === 'system') return source.kind;
+  return 'external';
+}
+function calendarSourceCategoryKey(category: ReturnType<typeof calendarSourceCategory>): string {
+  return `calendar.sourceCategory${category[0].toUpperCase()}${category.slice(1)}`;
+}
+
+/** Joins server-owned group identities to current rows and orders category → source → calendar without naming heuristics. */
 export function calendarSidebarGroups(presentation: CalendarPresentation | null, calendars: CalendarRow[]) {
+  const order = { local: 0, external: 1, google: 2, microsoft: 3, system: 4 } as const;
   return (presentation?.groups ?? []).map(group => ({
     ...group,
+    category: calendarSourceCategory(group),
     rows: group.calendars.map(view => ({ view, calendar: calendars.find(calendar => calendar.id === view.id) })).filter((item): item is { view: CalendarPresentationCalendar; calendar: CalendarRow } => item.calendar !== undefined),
-  }));
+  })).sort((left, right) => order[left.category] - order[right.category] || left.label.localeCompare(right.label));
 }
 
 /** One account's outcome from POST /accounts/:id/provider-features/calendars/sync. */
@@ -430,7 +442,8 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
   const managerSources = [...presentationSources, ...transientExternalSources]
     .filter(source => `${source.label} ${source.identityLabel ?? ''}`.toLocaleLowerCase().includes(managerSearch.toLocaleLowerCase()));
   const managerSource = managerSources.find(source => source.id === selectedSourceId) ?? managerSources[0] ?? null;
-  const managerRows = managerSource ? calendarSidebarGroups(presentation, calendars).find(group => group.id === managerSource.id)?.rows ?? [] : [];
+  const sidebarGroups = calendarSidebarGroups(presentation, calendars);
+  const managerRows = managerSource ? sidebarGroups.find(group => group.id === managerSource.id)?.rows ?? [] : [];
   const managedExternalSource = managerSource ? sources.find(source => `calendar-source:${source.id}` === managerSource.id) : undefined;
   return <aside data-testid="calendar-sidebar" className="calendar-rail" style={panel} aria-label={t('calendar.panel')}>
     <h1 className="calendar-rail-heading">{t('calendar.title')}</h1>
@@ -449,7 +462,8 @@ export default function CalendarSidebar({ anchor, calendars, visibleCalendarIds,
     <section style={section}>
       <div style={sectionHeading}><strong>{t('calendar.calendars')}</strong><button data-testid="calendar-sidebar-manage-sources" onClick={openSources} style={linkButton}>{t('calendar.manageSources')}</button></div>
       {presentationError && <p role="status" data-testid="calendar-presentation-error" style={{ margin: '4px 0', fontSize: 12 }}>{presentationError}</p>}
-      {calendarSidebarGroups(presentation, calendars).map(group => <div key={group.id} data-testid="calendar-source-group">
+      {sidebarGroups.map((group, index) => <div key={group.id} data-testid="calendar-source-group">
+          {(index === 0 || sidebarGroups[index - 1]?.category !== group.category) && <div data-testid="calendar-source-category" style={{ ...sourceHeading, margin: '14px 0 4px' }}><strong>{t(calendarSourceCategoryKey(group.category))}</strong></div>}
         <div data-testid="calendar-source-heading" style={{ ...sourceHeading, margin: '12px 0 4px' }}>
           <button type="button" data-testid="calendar-source-collapse" aria-label={group.collapsed ? t('calendar.show', 'Expand source') : t('calendar.hide', 'Collapse source')} aria-expanded={!group.collapsed} onClick={() => updateCollapsed(group.id, !group.collapsed)} style={chevronButton}>{group.collapsed ? '›' : '⌄'}</button>
           <span style={sourceHeadingText}><strong>{group.label}</strong>{group.identityLabel && <small title={group.identityLabel} style={identityText}>{group.identityLabel}</small>}</span>

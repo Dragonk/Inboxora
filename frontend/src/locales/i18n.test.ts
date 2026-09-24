@@ -479,6 +479,9 @@ type SameValueRule = 'any' | string[][];
 const SAME_VALUE_ALLOWED: Record<string, SameValueRule> = {
   // Provider and protocol names are the same word in every language these files cover.
   'contacts.booksManager.sourceGoogle': 'any',
+  'calendar.sourceCategoryGoogle': 'any',
+  'calendar.sourceCategoryMicrosoft': 'any',
+  'calendar.sourceCategorySystem': 'any',
   'contacts.booksManager.sources': 'any',
   // "Password" is the same word in English and Italian.
   'admin.integrations.carddav.password': 'any',
@@ -1006,6 +1009,9 @@ const DYNAMIC_KEYS = new Set([
   'calendar.day0', 'calendar.day1', 'calendar.day2', 'calendar.day3',
   'calendar.day4', 'calendar.day5', 'calendar.day6', 'calendar.workDays',
   'calendar.workHoursStart', 'calendar.workHoursEnd',
+  // Calendar source categories are selected from provider/source kind.
+  'calendar.sourceCategoryLocal', 'calendar.sourceCategoryExternal', 'calendar.sourceCategoryGoogle',
+  'calendar.sourceCategoryMicrosoft', 'calendar.sourceCategorySystem',
   // t(tab.labelKey) — labelKey is a string property set in the TABS array
   'admin.tabs.accounts',
   'admin.tabs.rules',

@@ -69,6 +69,14 @@ describe('CalendarSidebar contract', () => {
     assert.match(component, /deleteSource\(id\); clearSourcePoll\(id\);/);
   });
 
+  it('groups sources by presentation category without merging their durable identities', async () => {
+    const component = await source();
+    assert.match(component, /function calendarSourceCategory/);
+    assert.match(component, /category: calendarSourceCategory\(group\)/);
+    assert.match(component, /data-testid="calendar-source-category"/);
+    assert.match(component, /calendarSourceCategoryKey\(group\.category\)/);
+  });
+
   it('loads canonical groups on first entry and renders durable headings before children', async () => {
     const component = await source();
     assert.match(component, /useEffect\(\(\) => \{ void loadPresentation\(\); \}, \[\]\)/);
