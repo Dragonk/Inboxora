@@ -176,6 +176,9 @@ export default function CalendarSettingsManager({ locale }: { locale?: string })
     const values = { provider: source.label, calendars: outcome.collections ?? 0, created: outcome.created ?? 0, updated: outcome.updated ?? 0, deleted: outcome.deleted ?? 0, failed };
     const summary = summariseProviderSyncErrors({ t, provider: source.kind === 'microsoft' ? 'microsoft' : 'google', feature: 'calendar', errors: [outcome.error, ...(outcome.errors ?? [])] });
     setNotice(response.state !== 'success' || failed ? `${t('calendar.providerSyncPartial', values)} ${summary?.first ?? ''}`.trim() : t('calendar.providerSyncDone', values));
+    if (response.state === 'success' && failed === 0) {
+      window.dispatchEvent(new CustomEvent('inboxora:provider-sync-completed', { detail: { accountId: source.accountId } }));
+    }
   });
   return <section data-testid="calendar-settings-manager" style={{ display: 'grid', gap: 16 }}>
     {error && <p role="alert" className="ui-alert">{error}</p>}

@@ -506,6 +506,9 @@ export default function ContactsPage({ isActive = true, settingsOnly = false }) 
       const result = await api.syncAccountProviderFeature(accountId, 'contacts') as AccountContactsSyncResponse;
       if (!current()) return;
       setProviderNotice({ provider, message: accountContactsSyncMessage(result, provider, t) });
+      if (result.state === 'success') {
+        window.dispatchEvent(new CustomEvent('inboxora:provider-sync-completed', { detail: { accountId } }));
+      }
       await loadAddressBooks();
       if (!current()) return;
       await load(searchRef.current);

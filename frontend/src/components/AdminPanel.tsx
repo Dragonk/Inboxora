@@ -1332,136 +1332,45 @@ function AccountsTab({ onNavigate = undefined }: { onNavigate?: (tab: string) =>
           </div>
         ))}
 
-      {accounts.map(account => { const progress = backfillProgress[account.id]; return (
-        <div key={account.id} style={{
-          border: '1px solid var(--border-subtle)', borderRadius: 10,
-          background: 'var(--bg-tertiary)', marginBottom: 10, overflow: 'hidden',
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', flexWrap: 'wrap' }}>
-            <div style={{
-              width: 38, height: 38, borderRadius: '50%', flexShrink: 0,
-              background: account.color ?? undefined, display: 'flex', alignItems: 'center',
-              justifyContent: 'center', fontSize: 15, fontWeight: 600, color: 'white',
-            }}>
+      {accounts.map(account => { const progress = backfillProgress[account.id]; const transport = transportLabel(typeof account.mail_transport === 'string' ? account.mail_transport : 'imap'); return (
+        <div key={account.id} style={{ border: '1px solid var(--border-subtle)', borderRadius: 10, background: 'var(--bg-tertiary)', marginBottom: 10, overflow: 'hidden' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', minWidth: 0 }}>
+            <div style={{ width: 38, height: 38, borderRadius: '50%', flexShrink: 0, background: account.color ?? 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, fontWeight: 600, color: 'white' }}>
               {account.name?.[0]?.toUpperCase() || '?'}
             </div>
-            <div style={{ flex: '1 1 150px', minWidth: 140 }}>
-              <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {account.name}
-              </div>
-              <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {account.email_address}
-              </div>
-              <div style={{ fontSize: 11, marginTop: 3, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{account.name}</div>
+              <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{transport} · {account.email_address}</div>
+              <div style={{ fontSize: 11, marginTop: 4, display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
                 {account.sync_error ? (
-                  <span style={{
-                    color: 'var(--red)',
-                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                  }}>⚠ {account.sync_error}</span>
+                  <span style={{ color: 'var(--red)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>⚠ {account.sync_error}</span>
                 ) : (
-                  <>
-                    <span style={{ color: 'var(--green)' }}>● {t('admin.accounts.connected')}</span>
-                    {/* A native account has no active IMAP endpoint to show: the transport is the provider. */}
-                    <span data-testid="account-card-transport" style={{ color: 'var(--text-tertiary)' }}>
-                      {account.mail_transport === 'microsoft_graph' || account.mail_transport === 'gmail_api'
-                        ? `${t('admin.accounts.transport')}: ${account.mail_transport === 'microsoft_graph' ? 'Microsoft Graph' : 'Gmail API'}`
-                        : `${account.imap_host}:${account.imap_port} · ${t('admin.accounts.transport')}: IMAP/SMTP`}
-                    </span>
-                  </>
+                  <span style={{ color: 'var(--green)', display: 'inline-flex', alignItems: 'center', gap: 5 }}><span aria-hidden="true" style={{ width: 5, height: 5, borderRadius: '50%', background: 'currentColor' }} />{t('admin.accounts.connected')}</span>
                 )}
               </div>
             </div>
-            <div style={{ display: 'flex', gap: 6, flexShrink: 0, marginLeft: 'auto' }}>
-              {account.sync_error && (
-                <IconBtn onClick={() => handleReconnect(account.id)} title={t('sidebar.accountMenu.reconnect')}>
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <polyline points="23 4 23 10 17 10"/>
-                    <path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/>
-                  </svg>
-                </IconBtn>
-              )}
-              <IconBtn onClick={() => { setEditTarget(account); setSubview('edit'); }} title={t('common.edit')}>
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
-                  <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
-                </svg>
-              </IconBtn>
-              <IconBtn onClick={() => handleFolderMappingOpen(account)} title={t('admin.accounts.folderMappings')}>
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
-                </svg>
-              </IconBtn>
-              <IconBtn onClick={() => handleAliasOpen(account)} title={t('admin.accounts.aliases')}>
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <circle cx="12" cy="8" r="4"/>
-                  <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/>
-                </svg>
-              </IconBtn>
-              <IconBtn onClick={() => handleSyncFolders(account.id)} title={t('admin.accounts.syncFolders')}>
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
-                  <path d="M9 13a3 3 0 015.4-1.5M15 15a3 3 0 01-5.4 1.5"/>
-                </svg>
-              </IconBtn>
-              <IconBtn onClick={() => handleReindex(account.id)} title={t('admin.accounts.reindex')} disabled={!!progress}>
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-                </svg>
-              </IconBtn>
-              <IconBtn onClick={() => handleDelete(account.id)} title={t('common.remove')} danger>
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <polyline points="3 6 5 6 21 6"/>
-                  <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a1 1 0 011-1h4a1 1 0 011 1v2"/>
-                </svg>
-              </IconBtn>
-            </div>
+            <button type="button" onClick={() => { setEditTarget(account); setSubview('edit'); }} style={{ flexShrink: 0, padding: '6px 10px', border: '1px solid var(--border)', borderRadius: 6, background: 'var(--bg-elevated)', color: 'var(--text-primary)', fontSize: 12, fontWeight: 500, cursor: 'pointer' }}>
+              {t('common.edit')}
+            </button>
+            <details style={{ position: 'relative', flexShrink: 0 }}>
+              <summary aria-label={t('message.more')} title={t('message.more')} style={{ listStyle: 'none', cursor: 'pointer', color: 'var(--text-tertiary)', padding: '5px 2px', lineHeight: 1 }}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg>
+              </summary>
+              <div style={{ position: 'absolute', right: 0, top: 'calc(100% + 6px)', zIndex: 1, minWidth: 150, padding: 6, border: '1px solid var(--border-subtle)', borderRadius: 8, background: 'var(--bg-elevated)', boxShadow: '0 4px 14px rgba(0, 0, 0, 0.12)', display: 'flex', gap: 4, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                {account.sync_error && <IconBtn onClick={() => handleReconnect(account.id)} title={t('sidebar.accountMenu.reconnect')}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg></IconBtn>}
+                <IconBtn onClick={() => handleFolderMappingOpen(account)} title={t('admin.accounts.folderMappings')}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg></IconBtn>
+                <IconBtn onClick={() => handleAliasOpen(account)} title={t('admin.accounts.aliases')}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg></IconBtn>
+                <IconBtn onClick={() => handleSyncFolders(account.id)} title={t('admin.accounts.syncFolders')}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 012-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/><path d="M9 13a3 3 0 015.4-1.5M15 15a3 3 0 01-5.4 1.5"/></svg></IconBtn>
+                <IconBtn onClick={() => handleReindex(account.id)} title={t('admin.accounts.reindex')} disabled={!!progress}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></IconBtn>
+                <IconBtn onClick={() => handleDelete(account.id)} title={t('common.remove')} danger><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a1 1 0 011-1h4a1 1 0 011 1v2"/></svg></IconBtn>
+              </div>
+            </details>
           </div>
-
-          {/* Connection details bar */}
-          <div style={{
-            padding: '8px 14px', borderTop: '1px solid var(--border-subtle)',
-            background: 'var(--bg-secondary)',
-            display: 'flex', gap: 20, flexWrap: 'wrap',
-          }}>
-            {[
-              // A native account has no IMAP or SMTP endpoint to show: its transport is the provider, and the
-              // settings said "IMAP imap.gmail.com:993" for an account that reads mail through the Gmail API.
-              ...(account.mail_transport === 'gmail_api' || account.mail_transport === 'microsoft_graph'
-                ? [[t('admin.accounts.transport'), transportLabel(account.mail_transport)]] as Array<[string, string]>
-                : [
-                    ['IMAP', `${account.imap_host}:${account.imap_port}`],
-                    ['SMTP', `${account.smtp_host}:${account.smtp_port}`],
-                  ] as Array<[string, string]>),
-              [t('admin.accounts.lastSync'), account.last_sync ? new Date(account.last_sync).toLocaleTimeString() : t('common.never')],
-            ].map(([label, val]) => (
-              <div key={label} style={{ fontSize: 11 }}>
-                <span style={{ color: 'var(--text-tertiary)' }}>{label} </span>
-                <span style={{ color: 'var(--text-secondary)', fontFamily: 'JetBrains Mono, monospace' }}>{val}</span>
-              </div>
-            ))}
+          <div style={{ padding: '8px 14px', borderTop: '1px solid var(--border-subtle)', background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', fontSize: 11, lineHeight: 1.5 }}>
+            <span data-testid="account-card-transport" style={{ color: 'var(--text-secondary)' }}><span style={{ color: 'var(--text-tertiary)' }}>{t('admin.accounts.transport')} </span>{transport}</span>
+            <span style={{ color: 'var(--text-secondary)' }}><span style={{ color: 'var(--text-tertiary)' }}>{t('admin.accounts.lastSync')} </span>{account.last_sync ? new Date(account.last_sync).toLocaleTimeString() : t('common.never')}</span>
             <AccountProviderServices accountId={account.id} reload={loadAccounts} t={t} compact />
-            {progress && (
-              <div style={{ width: '100%', marginTop: 4 }}>
-                <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 4 }}>
-                  {progress.total
-                    ? t('admin.accounts.reindexProgress', {
-                        synced: progress.synced,
-                        total: progress.total,
-                      })
-                    : t('admin.accounts.reindexing')}
-                </div>
-                {typeof progress.total === 'number' && typeof progress.synced === 'number' && (
-                  <div style={{ height: 3, borderRadius: 2, background: 'var(--border-subtle)', overflow: 'hidden' }}>
-                    <div style={{
-                      height: '100%', borderRadius: 2,
-                      background: 'var(--accent)',
-                      width: `${Math.min(100, Math.round((progress.synced / progress.total) * 100))}%`,
-                      transition: 'width 0.3s ease',
-                    }} />
-                  </div>
-                )}
-              </div>
-            )}
+            {progress && <div style={{ width: '100%', marginTop: 2 }}><div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 4 }}>{progress.total ? t('admin.accounts.reindexProgress', { synced: progress.synced, total: progress.total }) : t('admin.accounts.reindexing')}</div>{typeof progress.total === 'number' && typeof progress.synced === 'number' && <div style={{ height: 3, borderRadius: 2, background: 'var(--border-subtle)', overflow: 'hidden' }}><div style={{ height: '100%', borderRadius: 2, background: 'var(--accent)', width: `${Math.min(100, Math.round((progress.synced / progress.total) * 100))}%`, transition: 'width 0.3s ease' }} /></div>}</div>}
           </div>
         </div>
       ); })}

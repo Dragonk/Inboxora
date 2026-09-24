@@ -391,16 +391,46 @@ async function syncStatesForAccount(
             -- otherwise historical failures survive a later successful sync.
             (array_agg(last_error_code ORDER BY last_error_at DESC)
               FILTER (WHERE last_error_code IS NOT NULL
-                        AND last_error_at > COALESCE(last_success_at, '-infinity'::timestamptz)))[1] AS last_error_code,
+                        AND last_error_at >= COALESCE(last_success_at, '-infinity'::timestamptz)))[1] AS last_error_code,
             max(last_error_at) FILTER (WHERE last_error_code IS NOT NULL
-                                       AND last_error_at > COALESCE(last_success_at, '-infinity'::timestamptz)) AS last_error_at,
+                                       AND last_error_at >= COALESCE(last_success_at, '-infinity'::timestamptz)) AS last_error_at,
             bool_or(cursor IS NOT NULL) AS cursor_present
        FROM sync_states
       WHERE user_id = $1
         AND coverage = ANY($4::text[])
         AND (
           (feature = 'mail' AND account_id = $2)
-          OR (feature IN ('calendar', 'calendars', 'contacts') AND $3::uuid IS NOT NULL AND connection_id = $3)
+          OR (
+             feature IN ('calendar', 'calendars', 'contacts')
+             AND $3::uuid IS NOT NULL
+             AND connection_id = $3
+             -- A provider run owns a collection. Retired, disabled, unlinked and
+             -- tombstoned collections are deliberately not sync targets, so their
+             -- historical failures must not make an account with only clean active
+             -- collections look unhealthy.
+             AND EXISTS (
+               SELECT 1
+                 FROM integration_collections collection
+                WHERE collection.id = sync_states.collection_id
+                  AND collection.user_id = sync_states.user_id
+                  AND collection.connection_id = sync_states.connection_id
+                  AND collection.enabled = true
+                  AND (
+                    (feature IN ('calendar', 'calendars')
+                      AND collection.kind = 'calendar'
+                      AND collection.local_calendar_id IS NOT NULL
+                      AND NOT EXISTS (
+                        SELECT 1 FROM calendar_collection_tombstones tombstone
+                         WHERE tombstone.user_id = collection.user_id
+                           AND tombstone.connection_id = collection.connection_id
+                           AND tombstone.remote_calendar_id = collection.remote_id
+                      ))
+                    OR (feature = 'contacts'
+                      AND collection.kind = 'address_book'
+                      AND collection.local_address_book_id IS NOT NULL)
+                  )
+             )
+           )
         )
       GROUP BY CASE WHEN feature = 'calendars' THEN 'calendar' ELSE feature END, coverage`,
     [userId, accountId, connectionId, pipelineCoverages],
@@ -420,13 +450,11 @@ async function syncStatesForAccount(
       syncStateCoverage: row.coverage,
       schedulerTarget: false,
     };
-    // Both providers can only have one of the two coverages, but a mailbox moved between them may have both;
-    // the newest completed run wins, and a recorded error survives if the newer row has none.
+    // Both providers can only have one of the two coverages, but a mailbox moved between them may have both.
+    // The newest completed run is authoritative: retaining an older coverage's error when that newer run is
+    // clean made a recovered account keep showing a failure until an unrelated error replaced it.
     if (!previous || (candidate.lastSuccessfulSync ?? '') > (previous.lastSuccessfulSync ?? '')) {
-      states[row.feature] = {
-        ...candidate,
-        lastErrorCode: candidate.lastErrorCode ?? previous?.lastErrorCode ?? null,
-      };
+      states[row.feature] = candidate;
     }
   }
   return states;

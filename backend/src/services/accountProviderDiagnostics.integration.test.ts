@@ -140,8 +140,19 @@ describeOrSkip('account provider diagnostics (PostgreSQL)', () => {
   it('does not report a recovered collection failure as a current feature error', async () => {
     const connection = await query<{ id: string }>('SELECT id FROM provider_connections WHERE user_id = $1 AND provider = $2 ORDER BY created_at ASC LIMIT 1', [USER_A, 'google']);
     const connectionId = connection.rows[0]!.id;
+    const localCalendar = await query<{ id: string }>(
+      "INSERT INTO calendars (user_id, name, owner_user_id) VALUES ($1, 'Recovered diagnostics', $1) RETURNING id",
+      [USER_A],
+    );
+    const collection = await query<{ id: string }>(
+      `INSERT INTO integration_collections
+         (user_id, connection_id, kind, remote_id, local_calendar_id, enabled, source_access, user_access, dav_mode)
+       VALUES ($1, $2, 'calendar', 'recovered-diagnostics', $3, true, 'read_write', 'source', 'off')
+       RETURNING id`,
+      [USER_A, connectionId, localCalendar.rows[0]!.id],
+    );
     const syncStateId = await inTransaction(client => ensureSyncState(client, {
-      userId: USER_A, connectionId, accountId: null, feature: 'calendars', collectionId: null, coverage: 'events',
+      userId: USER_A, connectionId, accountId: null, feature: 'calendars', collectionId: collection.rows[0]!.id, coverage: 'events',
     }));
     // Simulate a row written by an earlier release: it retained the historical
     // code/time even after a later successful run. The account card must ignore it.
@@ -158,6 +169,45 @@ describeOrSkip('account provider diagnostics (PostgreSQL)', () => {
     expect(features!.diagnostics.calendar.lastSuccessfulSync).not.toBeNull();
     expect(features!.diagnostics.calendar.lastErrorCode).toBeNull();
     expect(features!.diagnostics.calendar.lastErrorAt).toBeNull();
+  });
+
+  it('ignores a retired collection failure but retains an active sibling failure', async () => {
+    const connection = await query<{ id: string }>('SELECT id FROM provider_connections WHERE user_id = $1 AND provider = $2 ORDER BY created_at ASC LIMIT 1', [USER_A, 'google']);
+    const connectionId = connection.rows[0]!.id;
+    await query('DELETE FROM sync_states WHERE user_id = $1 AND connection_id = $2 AND feature IN (\'calendar\', \'calendars\', \'contacts\')', [USER_A, connectionId]);
+    await query('DELETE FROM integration_collections WHERE user_id = $1 AND connection_id = $2', [USER_A, connectionId]);
+    const local = await query<{ id: string }>(
+      "INSERT INTO calendars (user_id, name, owner_user_id) VALUES ($1, 'Active diagnostics', $1), ($1, 'Retired diagnostics', $1) RETURNING id",
+      [USER_A],
+    );
+    const collections = await query<{ id: string; remote_id: string }>(
+      `INSERT INTO integration_collections
+         (user_id, connection_id, kind, remote_id, local_calendar_id, enabled, source_access, user_access, dav_mode)
+       VALUES ($1, $2, 'calendar', 'active-diagnostics', $3, true, 'read_write', 'source', 'off'),
+              ($1, $2, 'calendar', 'retired-diagnostics', $4, false, 'read_write', 'source', 'off')
+       RETURNING id, remote_id`,
+      [USER_A, connectionId, local.rows[0]!.id, local.rows[1]!.id],
+    );
+    const active = collections.rows.find(collection => collection.remote_id === 'active-diagnostics')!;
+    const retired = collections.rows.find(collection => collection.remote_id === 'retired-diagnostics')!;
+    await query(
+      `INSERT INTO sync_states (user_id, connection_id, feature, collection_id, coverage, last_success_at, last_error_code, last_error_at)
+       VALUES ($1, $2, 'calendars', $3, 'events', NOW(), NULL, NULL),
+              ($1, $2, 'calendars', $4, 'events', NOW() - interval '1 hour', 'PROVIDER_API_DISABLED', NOW() - interval '30 minutes')`,
+      [USER_A, connectionId, active.id, retired.id],
+    );
+
+    let features = await describeAccountProviderFeatures({ userId: USER_A, accountId });
+    expect(features!.diagnostics.calendar.lastErrorCode).toBeNull();
+    expect(features!.calendar!.syncErrorCode).toBeNull();
+
+    await query('UPDATE integration_collections SET enabled = true WHERE id = $1', [retired.id]);
+    features = await describeAccountProviderFeatures({ userId: USER_A, accountId });
+    expect(features!.diagnostics.calendar.lastErrorCode).toBe('PROVIDER_API_DISABLED');
+    expect(features!.calendar!.syncErrorCode).toBe('PROVIDER_API_DISABLED');
+
+    await query('DELETE FROM sync_states WHERE user_id = $1 AND connection_id = $2 AND feature IN (\'calendar\', \'calendars\', \'contacts\')', [USER_A, connectionId]);
+    await query('DELETE FROM integration_collections WHERE user_id = $1 AND connection_id = $2', [USER_A, connectionId]);
   });
 
   it('refuses a sync the grant cannot authorize, naming the scope, without calling the provider', async () => {

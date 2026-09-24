@@ -16,6 +16,20 @@ test('provider summary prioritizes disabled intent, authorization, failure and p
   assert.equal(providerServiceStatus(connected, t), 'admin.accounts.services.connected');
 });
 
+test('a successful manual calendar or contacts run refreshes only its account summary', async () => {
+  const source = await readFile(new URL('./AccountProviderServices.tsx', import.meta.url), 'utf8');
+  const calendar = await readFile(new URL('./CalendarSettingsManager.tsx', import.meta.url), 'utf8');
+  const contacts = await readFile(new URL('./ContactsPage.tsx', import.meta.url), 'utf8');
+
+  assert.match(source, /inboxora:provider-sync-completed/);
+  assert.match(source, /account === accountId/);
+  assert.match(source, /void load\(\); reload\(\)/);
+  assert.match(calendar, /response\.state === 'success' && failed === 0/);
+  assert.match(calendar, /detail: \{ accountId: source\.accountId \}/);
+  assert.match(contacts, /result\.state === 'success'/);
+  assert.match(contacts, /detail: \{ accountId \}/);
+});
+
 test('overview is read-only and staged edits survive refresh without writing before Save', async () => {
   const source = await readFile(new URL('./AccountProviderServices.tsx', import.meta.url), 'utf8');
   const panel = await readFile(new URL('./AdminPanel.tsx', import.meta.url), 'utf8');

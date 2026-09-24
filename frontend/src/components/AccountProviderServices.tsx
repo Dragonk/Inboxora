@@ -153,6 +153,19 @@ export default function AccountProviderServices({ accountId, reload, t, deferSer
     return () => { statusGeneration.current += 1; };
   }, [load]);
 
+  // Calendar and Contacts can be synchronized from their own Settings sections.
+  // Refresh this account's immutable server snapshot only when that section reports
+  // a completed clean run for this exact mailbox, so a card never keeps a stale
+  // failure after a successful manual synchronization.
+  useEffect(() => {
+    const onProviderSyncCompleted = (event: Event) => {
+      const account = (event as CustomEvent<{ accountId?: unknown }>).detail?.accountId;
+      if (account === accountId) { void load(); reload(); }
+    };
+    window.addEventListener('inboxora:provider-sync-completed', onProviderSyncCompleted);
+    return () => window.removeEventListener('inboxora:provider-sync-completed', onProviderSyncCompleted);
+  }, [accountId, load, reload]);
+
   /**
    * React to the OAuth window that was opened from this card.
    *
