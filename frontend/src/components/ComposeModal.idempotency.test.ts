@@ -22,6 +22,11 @@ test('an unknown send outcome keeps its idempotency key', () => {
   assert.ok(!uncertainBranch.includes('idempotencyKeyRef.current = null;'), 'the key is cleared on an uncertain outcome again');
 });
 
+test('a forward uses the native forward intent even without forwarded attachments', () => {
+  assert.match(source, /sendKind: composeData\?\.isForward \? 'forward'/);
+  assert.doesNotMatch(source, /sendKind: fwdAttachments\.length \? 'forward'/);
+});
+
 test('re-sending is an explicit action that names the duplicate risk before a new key is minted', () => {
   const guard = source.indexOf('if (sendOutcomeUnknownRef.current) {');
   assert.ok(guard >= 0, 'the explicit re-send guard is gone');

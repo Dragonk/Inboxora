@@ -918,7 +918,7 @@ export default function ComposeModal() {
         references: composeData?.references || undefined,
         // MAIL-03: what this send semantically is. A provider with its own reply action needs it to create the
         // message as a reply rather than as a new message that merely carries RFC headers.
-        sendKind: fwdAttachments.length ? 'forward'
+        sendKind: composeData?.isForward ? 'forward'
           // Reply All is user intent, not an accidental consequence of whether
           // the deduplicated recipient set still has a Cc address.
           : (composeData?.replyToMessageId || composeData?.inReplyTo) ? (composeData?.isReplyAll ? 'reply_all' : 'reply')

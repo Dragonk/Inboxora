@@ -126,6 +126,23 @@ describe('sending from a native Microsoft Graph account', () => {
     expect(sendMock).toHaveBeenCalled();
   });
 
+  it('stages a forward through createForward when the physical parent is supplied', async () => {
+    query.mockImplementation(async sql => {
+      if (sql.includes('FROM email_accounts')) return { rows: [account] };
+      if (sql.includes('SELECT preferences FROM users')) return { rows: [{ preferences: {} }] };
+      if (sql.includes('FROM messages m JOIN email_accounts')) return { rows: [{ id: 'parent-copy', message_id: '<parent@contoso.test>', canonical_message_id: null, in_reply_to: null, thread_references: null, provider_message_id: 'AAMkAD-forward-parent', account_id: 'a1' }] };
+      if (sql.includes('INSERT INTO send_idempotency')) return { rows: [{ status: 'pending' }] };
+      if (sql.includes('INSERT INTO address_books')) return { rows: [{ id: 'book1' }] };
+      if (sql.includes('INSERT INTO contacts')) return { rows: [{ address_book_id: 'book1' }] };
+      return { rows: [] };
+    });
+
+    const response = await post({ replyToMessageId: '11111111-1111-4111-8111-111111111111', sendKind: 'forward' }, 'graph-forward');
+    expect(response.status).toBe(200);
+    expect(draftMock).not.toHaveBeenCalled();
+    expect(replyDraftMock).toHaveBeenCalledWith(expect.anything(), 'AAMkAD-forward-parent', 'forward');
+  });
+
   it('resolves a verified legacy Graph alias before staging a reply', async () => {
     query.mockImplementation(async sql => {
       if (sql.includes('FROM email_accounts')) return { rows: [account] };
