@@ -405,6 +405,12 @@ Microsoft application is registered in this environment.
 
 - **Resource deletion confirmation names the selected resource.** Calendar and contact deletion dialogs now interpolate the actual resource name in the confirmation prompt in each supported language; deletion remains gated by exact-name entry and acknowledgement.
 
+- **DAV Basic and Digest authentication share one guarded client path.** CardDAV and CalDAV discovery, reads, privilege detection, ETag-protected PUT/DELETE and write-back replay Digest challenges, including Baikal-style MD5/qop=auth, while preserving public-HTTP, private-host and redirect validation. Private plaintext HTTP does not send Basic credentials before a challenge.
+
+- **Conversation Engine contention and duplicate storage are reduced.** Live ingest, retry and rebuild serialize per user/account before their serializable transaction, while `0139_conversation_raw_header_dedup.sql` clears redundant `logical_messages.raw_headers` values without removing physical `messages.conversation_raw_headers`. Run the documented pre/post `DB-CHECKS.sql`; schedule any `VACUUM FULL` or `pg_repack` separately.
+
+- **Legacy Gmail API charset handling preserves Polish text.** Valid UTF-8 and declared legacy encodings remain authoritative; malformed UTF-8/ASCII legacy parts use a bounded Central-European fallback. Migration `0140_gmail_legacy_charset_cache_refresh.sql` marks cached Gmail reader bodies incomplete for one-time on-demand refresh without deleting messages.
+
 - **CardDAV sources are isolated during synchronization and write-back.** Each source now has its own durable integration identity, credentials, pruning scope, timer and disconnect operation; the Contacts panel selects the source for sync and disconnect. Apply migration `0118_carddav_source_identity.sql` before rolling out the application change; ambiguous legacy links fail closed and live DAV validation remains required.
 
 - **Gmail baseline resumes within a page instead of restarting it.** A durable set of processed thread IDs lets a bounded run advance through pages larger than its per-run budget.

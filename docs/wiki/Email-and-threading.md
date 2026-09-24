@@ -42,6 +42,11 @@ A message is matched to a conversation in this order:
 Unresolved references are re-checked later, so a reply that arrives before its parent still
 joins the right thread.
 
+Conversation Engine writes for one user/account are serialized across live ingest, retry and rebuild to reduce
+avoidable PostgreSQL serialization/deadlock contention while preserving concurrency between different accounts.
+The complete physical raw headers remain in `messages.conversation_raw_headers`; the redundant
+`logical_messages.raw_headers` copy is no longer populated.
+
 Provider mapping differs by service:
 
 - **Gmail** — `X-GM-THRID` is treated as a strong thread identifier.

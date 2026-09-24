@@ -39,20 +39,22 @@ type RebuildMocks = {
   query: ReturnType<typeof vi.fn<typeof import('./db.js').query>>;
   upsertConversationCopy: ReturnType<typeof vi.fn<typeof import('./conversationPersistence.js').upsertConversationCopy>>;
   _upsertConversationCopyWithClient: ReturnType<typeof vi.fn<typeof import('./conversationPersistence.js')._upsertConversationCopyWithClient>>;
+  conversationSerializeKey: ReturnType<typeof vi.fn<typeof import('./conversationPersistence.js').conversationSerializeKey>>;
   resolveOwnIdentityAddresses: ReturnType<typeof vi.fn<typeof import('./conversationIngestEnvelope.js').resolveOwnIdentityAddresses>>;
   providerIdentityForCopy: ReturnType<typeof vi.fn<typeof import('./conversationProviderEnvelope.js').providerIdentityForCopy>>;
 };
 
-const { pool, query, upsertConversationCopy, _upsertConversationCopyWithClient, resolveOwnIdentityAddresses, providerIdentityForCopy } = vi.hoisted<RebuildMocks>(() => ({
+const { pool, query, upsertConversationCopy, _upsertConversationCopyWithClient, conversationSerializeKey, resolveOwnIdentityAddresses, providerIdentityForCopy } = vi.hoisted<RebuildMocks>(() => ({
   pool: { connect: vi.fn<() => Promise<RebuildClient>>() },
   query: vi.fn<typeof import('./db.js').query>(),
   upsertConversationCopy: vi.fn<typeof import('./conversationPersistence.js').upsertConversationCopy>(),
   _upsertConversationCopyWithClient: vi.fn<typeof import('./conversationPersistence.js')._upsertConversationCopyWithClient>(),
+  conversationSerializeKey: vi.fn<typeof import('./conversationPersistence.js').conversationSerializeKey>().mockReturnValue('conversation-live-lock'),
   resolveOwnIdentityAddresses: vi.fn<typeof import('./conversationIngestEnvelope.js').resolveOwnIdentityAddresses>(),
   providerIdentityForCopy: vi.fn<typeof import('./conversationProviderEnvelope.js').providerIdentityForCopy>(),
 }));
 vi.mock('./db.js', () => ({ pool, query }));
-vi.mock('./conversationPersistence.js', () => ({ upsertConversationCopy, _upsertConversationCopyWithClient }));
+vi.mock('./conversationPersistence.js', () => ({ upsertConversationCopy, _upsertConversationCopyWithClient, conversationSerializeKey }));
 vi.mock('./conversationIngestEnvelope.js', () => ({ resolveOwnIdentityAddresses }));
 vi.mock('./conversationProviderEnvelope.js', () => ({ providerIdentityForCopy }));
 
@@ -91,6 +93,8 @@ describe('conversation rebuild', () => {
     const client: RebuildClient = {
       query: queryAdapter(vi.fn<RebuildQuery>()
         // advisory lock
+        .mockResolvedValueOnce({ rows: [] })
+        // live-ingest advisory lock
         .mockResolvedValueOnce({ rows: [] })
         // checkpoint lookup (no checkpoint)
         .mockResolvedValueOnce({ rows: [] })
@@ -144,7 +148,8 @@ describe('conversation rebuild', () => {
     const snapshot = { conversation_id: 'conv-1', logical_message_id: 'lm-1', canonical_message_id: '<m3@x>', provider_message_id: null, provider_thread_id: null, threading_reason: 'rfc-in-reply-to', threading_confidence: 0.99, threading_algorithm_version: 'conversation-v2' };
     const client: RebuildClient = {
       query: queryAdapter(vi.fn<RebuildQuery>()
-        .mockResolvedValueOnce({ rows: [] }) // advisory lock
+        .mockResolvedValueOnce({ rows: [] }) // rebuild advisory lock
+        .mockResolvedValueOnce({ rows: [] }) // live-ingest advisory lock
         .mockResolvedValueOnce({ rows: [] }) // checkpoint
         .mockResolvedValueOnce({ rows: [messageRow] }) // message query
         .mockResolvedValueOnce({ rows: [] }) // BEGIN
@@ -162,7 +167,8 @@ describe('conversation rebuild', () => {
   it('allows an explicit forced repair after a completed checkpoint', async () => {
     const client: RebuildClient = {
       query: queryAdapter(vi.fn<RebuildQuery>()
-        .mockResolvedValueOnce({ rows: [] }) // advisory lock
+        .mockResolvedValueOnce({ rows: [] }) // rebuild advisory lock
+        .mockResolvedValueOnce({ rows: [] }) // live-ingest advisory lock
         .mockResolvedValueOnce({ rows: [{ status: 'complete' }] }) // checkpoint
         .mockResolvedValueOnce({ rows: [] }) // message query (empty)
         .mockResolvedValue({ rows: [] })), // checkpoint write, advisory unlock

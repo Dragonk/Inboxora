@@ -3,7 +3,7 @@ import type { PoolClient } from 'pg';
 import { query, withTransaction } from '../db.js';
 import { decrypt } from '../encryption.js';
 import { getConnectionPolicy } from '../connectionPolicy.js';
-import { safeFetch } from '../safeFetch.js';
+import { davAuthenticatedFetch } from '../davHttpAuth.js';
 import { runProviderMutation } from '../providerMutationService.js';
 import type { ProviderAdapterOutcome, ProviderMutationAdapter, ProviderMutationStatus } from '../providerMutationService.js';
 import { toAppError } from '../../utils/errors.js';
@@ -216,10 +216,6 @@ export function dispositionToOutcome(disposition: DavWriteDisposition): Provider
   }
 }
 
-function basicAuth(username: string, password: string): string {
-  return `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`;
-}
-
 /** Join a collection URL and one resource filename without losing the collection's own suffix. */
 export function joinDavUrl(collectionUrl: string, filename: string): string {
   const base = collectionUrl.endsWith('/') ? collectionUrl.slice(0, -1) : collectionUrl;
@@ -245,17 +241,17 @@ export interface DavWriteAttempt {
 
 /** Send the mutation to the source and classify whatever came back — or failed to. */
 export async function sendDavWrite(request: DavWriteHttpRequest): Promise<DavWriteAttempt> {
-  const headers: Record<string, string> = { Authorization: basicAuth(request.source.username, request.source.password), ...request.headers };
+  const headers: Record<string, string> = { ...request.headers };
   if (request.contentType) headers['Content-Type'] = request.contentType;
   let response: Response;
   try {
-    response = await safeFetch(request.href, {
+    response = await davAuthenticatedFetch(request.href, {
       method: request.method,
       headers,
       body: request.method === 'PUT' ? request.body : undefined,
       redirect: 'follow',
       signal: request.signal ?? AbortSignal.timeout(DAV_WRITE_TIMEOUT_MS),
-    }, { allowPrivate: request.source.allowPrivate });
+    }, { username: request.source.username, password: request.source.password }, { allowPrivate: request.source.allowPrivate });
   } catch (error) {
     return { disposition: classifyDavTransportError(error), etag: null };
   }

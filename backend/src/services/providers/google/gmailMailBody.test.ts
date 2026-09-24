@@ -136,6 +136,22 @@ describe('reading a Gmail message body and its attachments', () => {
     await expect(fetchGmailMessageContent(OPTIONS, 'm-charset')).resolves.toMatchObject({ text: 'Zło', html: '<p>HTML</p>' });
   });
 
+  it('recovers legacy Polish bytes when a Gmail part omits charset', async () => {
+    const legacy = Buffer.from('5a61bff3b3e62067ea9c6cb9206a619ff1', 'hex');
+    const message: GmailMessage = {
+      id: 'm-legacy-polish',
+      payload: {
+        partId: '0', mimeType: 'text/plain',
+        headers: [{ name: 'Content-Type', value: 'text/plain' }],
+        body: { size: legacy.length, data: legacy.toString('base64url') },
+      },
+    };
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(message)));
+    await expect(fetchGmailMessageContent(OPTIONS, 'm-legacy-polish')).resolves.toMatchObject({
+      text: 'Zażółć gęślą jaźń', html: null,
+    });
+  });
+
   it('preserves a confirmed empty text body', async () => {
     const message: GmailMessage = { id: 'm-empty', payload: { partId: '0', mimeType: 'text/plain', body: { data: '' } } };
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(message)));

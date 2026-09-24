@@ -79,11 +79,20 @@ export async function query<T = DbRow>(text: string, params: unknown[] = []): Pr
 // the top-level query() helper.
 export async function withTransaction<T>(
   fn: (client: PoolClient) => Promise<T>,
-  { serializable = false, retries = 2 }: { serializable?: boolean; retries?: number } = {},
+  { serializable = false, retries = 2, serializeKey = null }: { serializable?: boolean; retries?: number; serializeKey?: string | null } = {},
 ): Promise<T> {
   for (let attempt = 0; attempt <= retries; attempt++) {
     const client = await pool.connect();
+    let advisoryLocked = false;
+    let discardClient = false;
     try {
+      // A session advisory lock is acquired BEFORE BEGIN. A transaction that had to wait
+      // therefore starts SERIALIZABLE with a fresh snapshot instead of waiting inside an
+      // already-open transaction and immediately conflicting with the transaction ahead of it.
+      if (serializeKey) {
+        await client.query('SELECT pg_advisory_lock(hashtext($1), hashtext($2))', [serializeKey, serializeKey + ':2']);
+        advisoryLocked = true;
+      }
       await client.query(serializable ? 'BEGIN ISOLATION LEVEL SERIALIZABLE' : 'BEGIN');
       const result = await fn(client);
       await client.query('COMMIT');
@@ -94,16 +103,22 @@ export async function withTransaction<T>(
         await client.query('ROLLBACK');
       } catch (caught) {
         const rollbackErr = toAppError(caught);
-        // ROLLBACK failed — the client is in an indeterminate state.
-        // Log the rollback error but throw the original error so the caller
-        // sees what actually went wrong, not the secondary ROLLBACK failure.
         console.warn('ROLLBACK failed (original error preserved):', rollbackErr.message);
       }
       const txErr = toAppError(err);
       if (serializable && (txErr.code === '40001' || txErr.code === '40P01') && attempt < retries) continue;
       throw err;
     } finally {
-      client.release();
+      if (advisoryLocked && serializeKey) {
+        try {
+          const unlocked = await client.query<{ unlocked: boolean }>('SELECT pg_advisory_unlock(hashtext($1), hashtext($2)) AS unlocked', [serializeKey, serializeKey + ':2']);
+          if (unlocked.rows[0]?.unlocked !== true) discardClient = true;
+        } catch (caught) {
+          discardClient = true;
+          console.warn('Conversation serialization advisory unlock failed:', toAppError(caught).message);
+        }
+      }
+      client.release(discardClient);
     }
   }
   throw new Error('Transaction retry limit exceeded');

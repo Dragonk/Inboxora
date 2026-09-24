@@ -2,6 +2,7 @@ import { GMAIL_USER, fromBase64Url, gmailGet } from './gmailApi.js';
 import type { GoogleApiOptions } from './googleApiClient.js';
 import { GMAIL_METADATA_HEADERS, fetchGmailMessage } from './gmailMail.js';
 import type { GmailMessage, GmailPart } from './gmailMail.js';
+import { decodeGmailText } from './gmailTextDecoder.js';
 
 /**
  * Gmail message **body and attachments** (P08, third slice).
@@ -143,13 +144,13 @@ export function localAttachmentsForGmail(attachments: readonly GmailAttachmentMe
     }));
 }
 
-function charsetOf(part: GmailPart): string {
+function charsetOf(part: GmailPart): string | null {
   const source = headerValue(part, 'Content-Type') ?? part.mimeType ?? '';
-  return /charset\s*=\s*["']?([^;"'\s]+)/i.exec(source)?.[1] ?? 'utf-8';
+  return /charset\s*=\s*["']?([^;"'\s]+)/i.exec(source)?.[1] ?? null;
 }
 
-function decodeText(bytes: Buffer, charset: string): string {
-  try { return new TextDecoder(charset).decode(bytes); } catch { return bytes.toString('utf8'); }
+function decodeText(bytes: Buffer, charset: string | null): string {
+  return decodeGmailText(bytes, charset);
 }
 
 /** Decode inline data, including a deliberately empty body. */

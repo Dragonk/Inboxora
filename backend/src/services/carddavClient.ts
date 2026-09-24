@@ -9,7 +9,7 @@ import { requireCompleteMultistatus } from '../utils/davXml.js';
 
 import { XMLParser } from 'fast-xml-parser';
 import { validateHost } from './hostValidation.js';
-import { safeFetch } from './safeFetch.js';
+import { davAuthenticatedFetch } from './davHttpAuth.js';
 import { toAppError } from '../utils/errors.js';
 
 interface DavRequestOptions {
@@ -34,10 +34,6 @@ interface DavCredentials { username: string; password: string; allowPrivate?: bo
 
 const toArray = <T>(x: T | T[] | null | undefined): T[] => (Array.isArray(x) ? x : x == null ? [] : [x]);
 
-function basicAuth(username: string, password: string): string {
-  return 'Basic ' + Buffer.from(`${username}:${password}`).toString('base64');
-}
-
 async function assertHostAllowed(url: string, allowPrivate: boolean): Promise<void> {
   let hostname;
   try { hostname = new URL(url).hostname; }
@@ -51,7 +47,6 @@ async function dav(method: string, url: string, { username, password, depth, bod
   // set, book URLs) are attacker-influenced and could point at internal hosts.
   await assertHostAllowed(url, allowPrivate);
   const headers: Record<string, string> = {
-    Authorization: basicAuth(username, password),
     'Content-Type': 'application/xml; charset=utf-8',
   };
   if (depth != null) headers.Depth = String(depth);
@@ -59,7 +54,12 @@ async function dav(method: string, url: string, { username, password, depth, bod
   try {
     // safeFetch validates every redirect hop's IP (well-known discovery relies on
     // the server's 301 redirect), honouring the admin private-host policy.
-    res = await safeFetch(url, { method, headers, body, redirect: 'follow', signal: AbortSignal.timeout(30000) }, { allowPrivate });
+    res = await davAuthenticatedFetch(
+      url,
+      { method, headers, body: body as RequestInit['body'], redirect: 'follow', signal: AbortSignal.timeout(30000) },
+      { username, password },
+      { allowPrivate },
+    );
   } catch (caught) {
     const err = toAppError(caught);
     if (err.name === 'TimeoutError') throw new Error('CardDAV server did not respond (timed out)', { cause: caught });

@@ -93,8 +93,8 @@ selecting a contact opens its details with an in-app Back action.
 | CardDAV | `/carddav` | `/.well-known/carddav` |
 | CalDAV | `/caldav` | `/.well-known/caldav` |
 
-Both use HTTP Basic authentication and support discovery, queries, multi-get, incremental sync
-with sync tokens, and conditional updates. Conflict handling is real: a write with a stale
+Both support HTTP Basic authentication and HTTP Digest challenge authentication, including Baikal-style MD5/qop=auth, and support discovery, queries, multi-get, incremental sync
+with sync tokens, and conditional updates. Private HTTP sources wait for a server challenge before sending credentials; public HTTP and disallowed private hosts remain rejected. Conflict handling is real: a write with a stale
 version tag is rejected rather than overwriting somebody else's change, and a client that
 presents an unknown sync token is told to resynchronise from scratch.
 

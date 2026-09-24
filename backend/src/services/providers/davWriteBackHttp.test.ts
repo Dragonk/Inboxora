@@ -58,8 +58,21 @@ function reset(status: number, headers: Record<string, string> = {}) {
 }
 
 describe('sendDavWrite forwards the HTTP preconditions to the source', () => {
-  it('sends the stored version as If-Match, with Basic auth and the body', async () => {
-    reset(204, { ETag: '"etag-10"' });
+  it('sends the stored version as If-Match and answers a Basic challenge without preemptive plaintext credentials', async () => {
+    recorded = [];
+    let challenged = false;
+    respond = res => {
+      if (!challenged) {
+        challenged = true;
+        res.statusCode = 401;
+        res.setHeader('WWW-Authenticate', 'Basic realm="DAV"');
+        res.end();
+        return;
+      }
+      res.statusCode = 204;
+      res.setHeader('ETag', '"etag-10"');
+      res.end();
+    };
     const attempt = await sendDavWrite({
       method: 'PUT',
       href: `${base}/calendars/user/work/e1.ics`,
@@ -71,12 +84,39 @@ describe('sendDavWrite forwards the HTTP preconditions to the source', () => {
     expect(attempt.disposition).toEqual({ kind: 'committed' });
     expect(attempt.status).toBe(204);
     expect(attempt.etag).toBe('etag-10');
-    expect(recorded).toHaveLength(1);
-    expect(recorded[0].method).toBe('PUT');
-    expect(recorded[0].headers['if-match']).toBe('"etag-9"');
-    expect(recorded[0].headers['content-type']).toBe('text/calendar; charset=utf-8');
-    expect(recorded[0].headers.authorization).toBe(`Basic ${Buffer.from('sam:secret').toString('base64')}`);
-    expect(recorded[0].body).toContain('BEGIN:VCALENDAR');
+    expect(recorded).toHaveLength(2);
+    expect(recorded[0].headers.authorization).toBeUndefined();
+    expect(recorded[1].method).toBe('PUT');
+    expect(recorded[1].headers['if-match']).toBe('"etag-9"');
+    expect(recorded[1].headers['content-type']).toBe('text/calendar; charset=utf-8');
+    expect(recorded[1].headers.authorization).toBe(`Basic ${Buffer.from('sam:secret').toString('base64')}`);
+    expect(recorded[1].body).toContain('BEGIN:VCALENDAR');
+  });
+
+  it('retries a DAV write with Digest authentication after a 401 challenge', async () => {
+    recorded = [];
+    let challenged = false;
+    respond = res => {
+      if (!challenged) {
+        challenged = true;
+        res.statusCode = 401;
+        res.setHeader('WWW-Authenticate', 'Digest realm="BaikalDAV", nonce="write-nonce", algorithm=MD5, qop="auth"');
+        res.end();
+        return;
+      }
+      res.statusCode = 204;
+      res.setHeader('ETag', '"digest-etag"');
+      res.end();
+    };
+    const attempt = await sendDavWrite({
+      method: 'PUT', href: `${base}/calendars/user/work/digest.ics`, source: source(), headers: { 'If-Match': '"old"' }, body: 'BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n',
+    });
+    expect(attempt.disposition).toEqual({ kind: 'committed' });
+    expect(attempt.etag).toBe('digest-etag');
+    expect(recorded).toHaveLength(2);
+    expect(recorded[0].headers.authorization).toBeUndefined();
+    expect(recorded[1].headers.authorization).toMatch(/^Digest /);
+    expect(recorded[1].headers['if-match']).toBe('"old"');
   });
 
   it('sends If-None-Match: * for a create and no body for a delete', async () => {

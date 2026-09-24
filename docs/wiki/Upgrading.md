@@ -89,6 +89,8 @@ later IMAP copy or a new Gmail label. Nothing is required from the operator in a
 | DAV | The endpoints are unchanged. An external CalDAV/CardDAV collection becomes writable back to its server once you enable write-back for it — its link is created on the next sync of that source. |
 | Send limits | `MAIL_MAX_MESSAGE_BYTES` is now the **fallback** ceiling for SMTP only, and the new `MAIL_MAX_ATTACHMENT_BYTES` is the hard installation ceiling. A Microsoft Graph account is no longer bounded by the SMTP-era 25 MB total. |
 
+**Migration 0139 and 0140.** Apply `0139_conversation_raw_header_dedup.sql` after `0138_calendar_color_overrides.sql`, then `0140_gmail_legacy_charset_cache_refresh.sql`, before serving the new Conversation Engine/Gmail reader code. Migration 0139 clears redundant nullable `logical_messages.raw_headers` payloads while retaining the column; physical `messages.conversation_raw_headers` remains intact. Migration 0140 only marks cached Gmail API reader bodies incomplete so they refresh on demand and are not deleted. Run the documented `DB-CHECKS.sql` queries on a staging copy before and after 0139. Ordinary `VACUUM (ANALYZE)` may reclaim dead space for reuse; returning relation files to the OS requires a separately scheduled `VACUUM FULL` or `pg_repack` maintenance window and is never run automatically.
+
 **Recommended post-upgrade steps**
 
 1. Apply the migrations and start the new version; confirm folders, mail and DAV still work.

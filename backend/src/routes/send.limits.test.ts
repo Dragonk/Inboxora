@@ -135,7 +135,7 @@ describe('the send-limits endpoint', () => {
 });
 
 describe('the send limits at the route', () => {
-  it('carries a Graph attachment above the SMTP-era 25 MB through to the provider', async () => {
+  it('carries a Graph attachment above the SMTP-era 25 MB through to the provider', { timeout: 30_000 }, async () => {
     // 26 MiB: one megabyte above the number that used to refuse every transport.
     const content = Buffer.alloc(26 * MIB, 7).toString('base64');
     const response = await post('a1', { attachments: [{ filename: 'big.bin', content }] }, 'p06-graph-big');

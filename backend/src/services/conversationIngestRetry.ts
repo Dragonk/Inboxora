@@ -1,7 +1,7 @@
-import { withTransaction } from './db.js';
+import { query, withTransaction } from './db.js';
 import { claimConversationIngestFailures, resolveConversationIngestFailure } from './conversationIngestFailures.js';
 import { resolveOwnIdentityAddresses } from './conversationIngestEnvelope.js';
-import { _upsertConversationCopyWithClient } from './conversationPersistence.js';
+import { _upsertConversationCopyWithClient, conversationSerializeKey } from './conversationPersistence.js';
 import { providerIdentityForCopy } from './conversationProviderEnvelope.js';
 import { toAppError } from '../utils/errors.js';
 
@@ -10,6 +10,12 @@ export async function retryConversationIngestFailures({ userId = null, limit = 2
   const results = [];
   for (const failure of failures) {
     try {
+      const owner = await query<{ account_id: string }>(
+        `SELECT m.account_id FROM messages m JOIN email_accounts a ON a.id = m.account_id WHERE m.id = $1 AND a.user_id = $2`,
+        [failure.message_row_id, failure.user_id],
+      );
+      if (owner.rows.length !== 1) throw new Error('Message row no longer exists');
+      const serializeKey = conversationSerializeKey(failure.user_id, owner.rows[0].account_id);
       // P1-18: The retry path must use the SAME transaction client for identity
       // resolution, provider decision, and persistence. The previous implementation
       // used a pool-level query() to load the message row (outside any transaction),
@@ -39,7 +45,7 @@ export async function retryConversationIngestFailures({ userId = null, limit = 2
           provider: providerIdentityForCopy(row.rows[0], row.rows[0]),
           userId: failure.user_id,
         });
-      }, { serializable: true });
+      }, { serializable: true, serializeKey });
       await resolveConversationIngestFailure(failure.id);
       results.push({ id: failure.id, resolved: true, ...result });
     } catch (caught) {

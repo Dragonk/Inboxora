@@ -4,7 +4,7 @@ import { XMLParser } from 'fast-xml-parser';
 import { decodeDavCharRefs, requireCompleteMultistatus } from '../../utils/davXml.js';
 import { parseCalendarEvent } from '../../utils/ical.js';
 import type { ParsedICalendarEvent } from '../../utils/ical.js';
-import { safeFetch } from '../safeFetch.js';
+import { davAuthenticatedFetch } from '../davHttpAuth.js';
 import { DavProjectionGuardError, executeDavWriteBack, joinDavUrl } from './davWriteBack.js';
 import type {
   DavProjectionCommit,
@@ -91,23 +91,18 @@ export function parseCaldavCollectionResources(xmlText: unknown, baseUrl: string
 
 const CALDAV_QUERY_BODY = '<?xml version="1.0" encoding="utf-8"?><C:calendar-query xmlns="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav"><prop><getetag/><C:calendar-data/></prop><C:filter><C:comp-filter name="VCALENDAR"><C:comp-filter name="VEVENT"/></C:comp-filter></C:filter></C:calendar-query>';
 
-function basicAuth(username: string, password: string): string {
-  return `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`;
-}
-
 /** Read the remote collection and find the resource whose UID is `uid`. */
 export async function resolveRemoteCaldavEvent(source: DavSource, uid: string): Promise<DavRemoteResource | null> {
-  const response = await safeFetch(source.collectionUrl, {
+  const response = await davAuthenticatedFetch(source.collectionUrl, {
     method: 'REPORT',
     headers: {
-      Authorization: basicAuth(source.username, source.password),
       'Content-Type': 'application/xml; charset=utf-8',
       Depth: '1',
     },
     body: CALDAV_QUERY_BODY,
     redirect: 'follow',
     signal: AbortSignal.timeout(30_000),
-  }, { allowPrivate: source.allowPrivate });
+  }, { username: source.username, password: source.password }, { allowPrivate: source.allowPrivate });
   if (!response.ok && response.status !== 207) {
     if (response.status === 401 || response.status === 403) {
       throw Object.assign(new Error('CalDAV source refused the credentials'), { status: response.status, code: 'PROVIDER_AUTH_REQUIRED' });

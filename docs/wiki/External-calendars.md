@@ -8,7 +8,7 @@ Add one from **Settings → Calendar → Calendar subscriptions** or from the ca
 
 | Type | Needs | Use it for |
 | --- | --- | --- |
-| **CalDAV** | Server URL, remote username and password (or app password) | Nextcloud, Fastmail, Radicale, Synology and other CalDAV servers. |
+| **CalDAV** | Server URL, remote username and password (or app password) | Nextcloud, Fastmail, Radicale, Synology and other CalDAV servers. Basic and Digest challenge authentication are supported. |
 | **ICS / webcal** | A calendar URL, or a `webcal://` link | Published `.ics` feeds, holiday calendars, team schedules. |
 
 ## Add a subscription in two steps

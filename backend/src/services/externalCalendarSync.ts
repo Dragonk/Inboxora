@@ -7,6 +7,7 @@ import { XMLParser } from 'fast-xml-parser';
 import { query } from './db.js';
 import { decrypt } from './encryption.js';
 import { safeFetch } from './safeFetch.js';
+import { davAuthenticatedFetch } from './davHttpAuth.js';
 import { getConnectionPolicy } from './connectionPolicy.js';
 import { parseCalendarEvent } from '../utils/ical.js';
 import { toAppError } from '../utils/errors.js';
@@ -45,7 +46,6 @@ const inFlight = new Map<string, CalendarSyncState>();
 const stopped = new Set<string>();
 const toArray = <T>(value: T | T[] | null | undefined): T[] => (Array.isArray(value) ? value : value == null ? [] : [value]);
 const textOf = (value: unknown): string => typeof value === 'string' ? value : String((value as Record<string, unknown> | null | undefined)?.['#text'] ?? '');
-const basicAuth = (username: string, password: string): string => `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`;
 
 function calendarPayloads(raw: unknown): string[] {
   if (typeof raw !== 'string' || !raw.trim()) {
@@ -72,17 +72,20 @@ function propsOf(response: { propstat?: Record<string, unknown> | Array<Record<s
 
 async function remoteFetch(source: ExternalCalendarSource, options: ExternalFetchOptions, policy: ExternalCalendarPolicy, signal: AbortSignal | null | undefined, secretSink?: string[]): Promise<string> {
   const headers: Record<string, string> = { ...options.headers };
-  if (source.kind === 'caldav') {
-    const password = decrypt(source.password ?? '');
-    if (!password) throw new Error('Stored calendar source password is unavailable');
-    headers.Authorization = basicAuth(source.username ?? '', password);
-  }
   const url = decrypt(source.url);
   if (!url) throw new Error('Stored calendar source URL is unavailable');
   secretSink?.push(url);
   const timeout = AbortSignal.timeout(30_000);
   const requestSignal = signal ? AbortSignal.any([signal, timeout]) : timeout;
-  const response = await safeFetch(url, { ...options, headers, redirect: 'follow', signal: requestSignal }, { allowPrivate: policy.allowPrivateHosts });
+  const request = { ...options, headers, redirect: 'follow' as const, signal: requestSignal };
+  let response: Response;
+  if (source.kind === 'caldav') {
+    const password = decrypt(source.password ?? '');
+    if (!password) throw new Error('Stored calendar source password is unavailable');
+    response = await davAuthenticatedFetch(url, request, { username: source.username ?? '', password }, { allowPrivate: policy.allowPrivateHosts });
+  } else {
+    response = await safeFetch(url, request, { allowPrivate: policy.allowPrivateHosts });
+  }
   if (!response.ok && response.status !== 207) throw new Error(`Remote calendar request failed (${response.status})`);
   return response.text();
 }
