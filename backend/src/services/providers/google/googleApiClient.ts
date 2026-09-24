@@ -48,6 +48,8 @@ export interface GoogleApiOptions {
   config: GoogleConfig;
   fetchImpl?: FetchLike;
   owner?: string;
+  /** Cancellation owned by the mutation journal or caller; never replace it with a timeout. */
+  signal?: AbortSignal;
 }
 
 interface GoogleErrorBody {
@@ -188,15 +190,26 @@ async function parseBody(response: Response): Promise<unknown> {
  */
 export async function googleApiRequest(options: GoogleApiOptions, url: string, init: RequestInit = {}): Promise<Response> {
   const fetchImpl = options.fetchImpl ?? fetch;
-  const send = async (accessToken: string): Promise<Response> => fetchImpl(url, {
-    ...init,
-    headers: {
-      ...(init.headers ?? {}),
-      authorization: `Bearer ${accessToken}`,
-      accept: 'application/json',
-    },
-    signal: AbortSignal.timeout(GOOGLE_API_TIMEOUT_MS),
-  });
+  // One deadline covers token lookup and the controlled 401 retry as well. A late
+  // token refresh must never dispatch a mutation after its journal has cancelled it.
+  const signal = AbortSignal.any([
+    AbortSignal.timeout(GOOGLE_API_TIMEOUT_MS),
+    ...(options.signal ? [options.signal] : []),
+    ...(init.signal ? [init.signal] : []),
+  ]);
+  signal.throwIfAborted();
+  const send = async (accessToken: string): Promise<Response> => {
+    signal.throwIfAborted();
+    return fetchImpl(url, {
+      ...init,
+      headers: {
+        ...(init.headers ?? {}),
+        authorization: `Bearer ${accessToken}`,
+        accept: 'application/json',
+      },
+      signal,
+    });
+  };
 
   let token = await getGoogleAccessToken({
     userId: options.userId,
@@ -206,6 +219,7 @@ export async function googleApiRequest(options: GoogleApiOptions, url: string, i
     ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
   });
   let response = await send(token.accessToken);
+  signal.throwIfAborted();
 
   if (response.status === 401) {
     // At most one controlled refresh and retry: the cached token may have been
@@ -220,6 +234,7 @@ export async function googleApiRequest(options: GoogleApiOptions, url: string, i
       skewSeconds: 60 * 60 * 24 * 365,
     });
     response = await send(token.accessToken);
+    signal.throwIfAborted();
   }
 
   return response;

@@ -34,8 +34,7 @@ test('the ellipsis menu is gone and one manage action opens the manager', async 
 
 test('provider books are grouped by their account connection', async () => {
   const source = await read(manager);
-  assert.match(source, /function groupBooksByConnection/);
-  assert.match(source, /const id = `\$\{book\.source\}:\$\{account \?\? 'local'\}`/);
+  assert.match(source, /import \{ groupBooksByConnection \} from '.\/contactsManagementModel.ts'/);
   assert.match(source, /data-testid="contacts-manager-book-group"/);
 });
 

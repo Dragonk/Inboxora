@@ -56,8 +56,9 @@ test("the address-book model carries the collection id and the read-only verdict
 test('a provider-book sync uses its owning account rather than all provider connections', async () => {
   const source = await readFile(page, 'utf8');
   const handler = source.slice(source.indexOf('const runProviderContactsSync'), source.indexOf('const importVCardFile'));
-  assert.match(handler, /selectedProviderBook\?\.provider === provider && selectedProviderBook\.account_id/);
-  assert.match(handler, /api\.syncAccountProviderFeature\(selectedProviderBook\.account_id, 'contacts'\)/);
+  assert.match(handler, /providerSyncAccount\(selectedProviderBook, provider\)/);
+  assert.match(handler, /api\.syncAccountProviderFeature\(accountId, 'contacts'\)/);
+  assert.doesNotMatch(handler, /api\.(googleContacts|microsoftContacts)\.sync\(/);
 });
 
 test('new contacts display and preserve an explicit writable address-book target', async () => {
@@ -65,5 +66,6 @@ test('new contacts display and preserve an explicit writable address-book target
   assert.match(source, /const \[newAddressBookId, setNewAddressBookId\] = useState\(''\)/);
   assert.match(source, /data-testid="contacts-new-target"/);
   assert.match(source, /addressBooks\.filter\(book => book\.read_only !== true\)/);
-  assert.match(source, /addressBookId: newAddressBookId \|\| undefined/);
+  assert.match(source, /writableContactTarget\(books, newAddressBookId\)/);
+  assert.match(source, /addressBookId: newAddressBookId \}/);
 });

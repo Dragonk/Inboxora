@@ -227,7 +227,9 @@ export async function runProviderMutation<TPayload, TResult = unknown>(
     };
   }
   if (claim.outcome === 'in_progress') {
-    return { status: 'pending', operationId: claim.operationId, replayed: true };
+    return { status: 'pending', operationId: claim.operationId, replayed: true,
+      ...(claim.retryAfterSeconds !== undefined ? { retryAfterSeconds: claim.retryAfterSeconds } : {}),
+    };
   }
 
   // ── Phase 2: the provider call, with the claim already durable ────────────
@@ -283,7 +285,8 @@ export async function runProviderMutation<TPayload, TResult = unknown>(
   if (outcome.status === 'retryable') {
     // A retryable outcome asserts nothing was applied, so the operation is safe to
     // run again — but only under a new claim, never inside this one.
-    const delaySeconds = request.retry?.delaySeconds ?? 0;
+    const backoff = (value: number | undefined): number => typeof value === 'number' && Number.isFinite(value) && value >= 0 ? Math.ceil(value) : 0;
+    const delaySeconds = Math.max(backoff(request.retry?.delaySeconds), backoff(outcome.retryAfterSeconds));
     const scheduled = await withTransaction(client => scheduleOperationRetry(client, {
       operationId: claim.operationId,
       claimToken: claim.claimToken,

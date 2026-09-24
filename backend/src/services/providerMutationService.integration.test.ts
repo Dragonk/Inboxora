@@ -13,8 +13,8 @@
 
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { PoolClient } from 'pg';
-import { pool } from './db.js';
-import { beginOperation, recordOperationProgress } from './providerOperations.js';
+import { pool, withTransaction } from './db.js';
+import { beginOperation, completeOperation, recordOperationProgress, scheduleOperationRetry } from './providerOperations.js';
 import type { ProviderAdapterOutcome, ProviderMutationAdapter } from './providerMutationService.js';
 import { journalStatusFor, reclaimDecision, runProviderMutation } from './providerMutationService.js';
 
@@ -272,10 +272,60 @@ describeOrSkip('provider mutation layer (PostgreSQL)', () => {
     expect(first.status).toBe('retryable');
     expect((await operationRow(first.operationId!)).status).toBe('pending');
 
+    const early = await runProviderMutation({ ...request('key-retry'), retry: { delaySeconds: 30 } }, perform);
+    expect(early.status).toBe('pending');
+    expect(early.retryAfterSeconds).toBeGreaterThan(0);
+    expect(calls).toBe(1);
+    await autocommit(client => client.query("UPDATE provider_operations SET next_attempt_at=NOW()-interval '1 second' WHERE id=$1", [first.operationId]));
     const second = await runProviderMutation({ ...request('key-retry'), retry: { delaySeconds: 30 } }, perform);
     expect(second.status).toBe('confirmed');
     expect(second.value).toBe('second');
     expect(calls).toBe(2);
+  });
+
+  it('consumes retry proof once, preserves progress, and parks after the next claim crashes', async () => {
+    const req = request('key-proof-consumed');
+    const first = await withTransaction(client => beginOperation(client, { ...req, resourceType: 'test_resource' }));
+    if (first.outcome !== 'started') throw new Error('Expected initial claim');
+    await autocommit(client => recordOperationProgress(client, { operationId: first.operationId, claimToken: first.claimToken, generation: first.generation, stage: 'guard_checked', detail: { unchanged: true } }));
+    expect(await autocommit(client => scheduleOperationRetry(client, { operationId: first.operationId, claimToken: first.claimToken, generation: first.generation, errorCode: 'RATE_LIMITED', nextAttemptAt: new Date(Date.now() - 1000) }))).toBe(true);
+    const next = await withTransaction(client => beginOperation(client, { ...req, resourceType: 'test_resource' }));
+    if (next.outcome !== 'started') throw new Error('Expected due retry claim');
+    expect(next.reclaimed).toBe(false);
+    expect(next.generation).toBe(first.generation + 1);
+    expect(next.progress).toEqual([expect.objectContaining({ stage: 'guard_checked' })]);
+    const row = await autocommit(client => client.query("SELECT upstream_ref->'safe_retry' AS proof, next_attempt_at FROM provider_operations WHERE id=$1", [first.operationId]));
+    expect(row.rows[0]).toEqual({ proof: null, next_attempt_at: null });
+    // The claimant may have dispatched before crashing; consumed proof cannot bless another attempt.
+    await expireOperationLease(first.operationId);
+    let calls = 0;
+    expect(await runProviderMutation(req, adapter(async () => { calls++; return { status: 'committed' }; }, false))).toMatchObject({ status: 'outcome_unknown' });
+    expect(calls).toBe(0);
+  });
+
+  it.each([
+    { marker: null, label: 'unmarked legacy pending' },
+    { marker: { version: 1, generation: '999' }, label: 'proof from another generation' },
+    { marker: { version: 2, generation: '1' }, label: 'unknown proof version' },
+  ])('parks non-idempotent $label without dispatch', async ({ marker }) => {
+    const req = request('key-unproven-pending');
+    const claim = await withTransaction(client => beginOperation(client, { ...req, resourceType: 'test_resource' }));
+    if (claim.outcome !== 'started') throw new Error('Expected claim');
+    await autocommit(client => client.query("UPDATE provider_operations SET status='pending', upstream_ref=$2::jsonb, next_attempt_at=NOW()-interval '1 second' WHERE id=$1", [claim.operationId, JSON.stringify(marker ? { safe_retry: marker } : {})]));
+    let calls = 0;
+    expect(await runProviderMutation(req, adapter(async () => { calls++; return { status: 'committed' }; }, false))).toMatchObject({ status: 'outcome_unknown' });
+    expect(calls).toBe(0);
+  });
+
+  it('does not let an old claimant mark an already committed row safe to retry', async () => {
+    const claim = await withTransaction(client => beginOperation(client, { ...request('key-completed-no-retry'), resourceType: 'test_resource' }));
+    if (claim.outcome !== 'started') throw new Error('Expected claim');
+    expect(await autocommit(client => completeOperation(client, { operationId: claim.operationId, claimToken: claim.claimToken, generation: claim.generation, status: 'committed', result: 'done' }))).toBe(true);
+    expect(await autocommit(client => scheduleOperationRetry(client, { operationId: claim.operationId, claimToken: claim.claimToken, generation: claim.generation, nextAttemptAt: new Date() }))).toBe(false);
+    // A legacy terminal row retaining stale ownership fields still must not be reset.
+    await autocommit(client => client.query('UPDATE provider_operations SET claim_token=$2 WHERE id=$1', [claim.operationId, claim.claimToken]));
+    expect(await autocommit(client => scheduleOperationRetry(client, { operationId: claim.operationId, claimToken: claim.claimToken, generation: claim.generation, nextAttemptAt: new Date() }))).toBe(false);
+    expect((await operationRow(claim.operationId)).status).toBe('committed');
   });
 
   it('records a permanent failure with its code and does not retry it', async () => {

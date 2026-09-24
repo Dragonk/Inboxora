@@ -8,8 +8,13 @@ import { summariseProviderSyncErrors } from '../utils/providerSyncError.ts';
 import CalendarSubscriptionsSettings from './CalendarSubscriptionsSettings.tsx';
 import { Button, Dialog, inputStyle } from './ui.tsx';
 import { calendarSidebarGroups, calendarSourceCategory, canManageLocalCalendar, setCalendarSidebarHidden, type CalendarPresentation, type CalendarPresentationSource, type CalendarRow } from './calendarSettingsModel.ts';
+import { isConfirmedNativeCalendarOperation, nativeCalendarDeleteAllowed, nativeCalendarOperationBlocksRetry, operationKey, type NativeCalendarOperationResponse } from './calendarCollectionManagementModel.ts';
 
 interface Source { id: string; displayName?: string; kind?: string; intervalMin?: number; enabled?: boolean; lastError?: string | null; lastSyncAt?: string | null }
+interface NativeCalendarIntent { action: 'create' | 'delete'; idempotencyKey: string; name?: string; collectionId?: string }
+interface AccountCalendarFeature {
+  calendar?: { calendarManagement?: { authorized?: boolean; requiredScopes?: string[]; missingScopes?: string[] } };
+}
 interface SyncOutcome {
   collections?: number; created?: number; updated?: number; deleted?: number;
   errors?: Array<{ code?: string; message?: string; providerStatus?: number | null; missingScopes?: string[] | null }>;
@@ -36,6 +41,11 @@ export default function CalendarSettingsManager({ locale }: { locale?: string })
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [draft, setDraft] = useState<{ calendar: CalendarRow; name: string; color: string; davMode: DavMode } | null>(null);
+  const [accountFeature, setAccountFeature] = useState<AccountCalendarFeature | null>(null);
+  const [nativeName, setNativeName] = useState('');
+  const [nativeDelete, setNativeDelete] = useState<CalendarRow | null>(null);
+  const [nativeOperation, setNativeOperation] = useState<NativeCalendarOperationResponse | null>(null);
+  const [nativeIntent, setNativeIntent] = useState<NativeCalendarIntent | null>(null);
   const alive = useCallback((generation: number) => lifetime.current === generation && useStore.getState().authEpoch === authEpoch, [authEpoch]);
   const load = useCallback(async () => {
     const generation = lifetime.current;
@@ -102,8 +112,61 @@ export default function CalendarSettingsManager({ locale }: { locale?: string })
     accountId: null, identityLabel: null, featureEnabled: true, canSync: true, collapsed: false,
   }))].filter(source => `${source.label} ${source.identityLabel ?? ''} ${groups.find(group => group.id === source.id)?.rows.map(row => row.calendar.name).join(' ') ?? ''}`.toLocaleLowerCase().includes(search.toLocaleLowerCase()));
   const entry = entries.find(source => source.id === selected) ?? entries[0];
+  useEffect(() => {
+    const generation = lifetime.current;
+    const accountId = entry?.accountId;
+    setAccountFeature(null); setNativeOperation(null); setNativeIntent(null); setNativeName(''); setNativeDelete(null);
+    if (!accountId || (entry?.kind !== 'google' && entry?.kind !== 'microsoft')) return;
+    try {
+      const stored = sessionStorage.getItem(`inboxora:calendar-lifecycle:${accountId}`);
+      if (stored) {
+        const parsed = JSON.parse(stored) as { intent?: NativeCalendarIntent; operation?: NativeCalendarOperationResponse };
+        if (parsed.intent && parsed.operation && (parsed.intent.action === 'create' || parsed.intent.action === 'delete') && typeof parsed.intent.idempotencyKey === 'string') {
+          setNativeIntent(parsed.intent); setNativeOperation(parsed.operation);
+        }
+      }
+    } catch { sessionStorage.removeItem(`inboxora:calendar-lifecycle:${accountId}`); }
+
+    void api.accountProviderFeatures(accountId).then(result => {
+      if (alive(generation) && entry?.accountId === accountId) setAccountFeature(result as AccountCalendarFeature);
+    }).catch(caught => { if (alive(generation)) setError(toAppError(caught).message); });
+  }, [entry?.accountId, entry?.kind, alive]);
   const external = sources.find(source => `calendar-source:${source.id}` === entry?.id);
   const rows = groups.find(group => group.id === entry?.id)?.rows ?? [];
+  const management = accountFeature?.calendar?.calendarManagement;
+  const lifecycleAllowed = entry?.featureEnabled !== false && management?.authorized === true;
+  const lifecycleBlocked = nativeOperation ? nativeCalendarOperationBlocksRetry(nativeOperation) : false;
+  const storeNativeOperation = (accountId: string, intent: NativeCalendarIntent, response: NativeCalendarOperationResponse) => {
+    setNativeIntent(intent); setNativeOperation(response);
+    if (isConfirmedNativeCalendarOperation(response)) sessionStorage.removeItem(`inboxora:calendar-lifecycle:${accountId}`);
+    else sessionStorage.setItem(`inboxora:calendar-lifecycle:${accountId}`, JSON.stringify({ intent, operation: response }));
+  };
+  const sendNativeIntent = async (accountId: string, intent: NativeCalendarIntent): Promise<NativeCalendarOperationResponse> => intent.action === 'create'
+    ? api.createAccountProviderCalendar(accountId, { name: intent.name!, idempotencyKey: intent.idempotencyKey }) as Promise<NativeCalendarOperationResponse>
+    : api.deleteAccountProviderCalendar(accountId, intent.collectionId!, { idempotencyKey: intent.idempotencyKey }) as Promise<NativeCalendarOperationResponse>;
+  const startNativeCreate = () => run(async current => {
+    if (!entry?.accountId || !lifecycleAllowed || lifecycleBlocked || !nativeName.trim()) return;
+    const intent: NativeCalendarIntent = { action: 'create', name: nativeName.trim(), idempotencyKey: operationKey() };
+    const response = await sendNativeIntent(entry.accountId, intent);
+    if (!current()) return;
+    storeNativeOperation(entry.accountId, intent, response);
+    if (isConfirmedNativeCalendarOperation(response)) { setNativeName(''); await load(); }
+  });
+  const startNativeDelete = () => run(async current => {
+    if (!entry?.accountId || !nativeDelete?.collection_id || !lifecycleAllowed || lifecycleBlocked) return;
+    const intent: NativeCalendarIntent = { action: 'delete', collectionId: nativeDelete.collection_id, idempotencyKey: operationKey() };
+    const response = await sendNativeIntent(entry.accountId, intent);
+    if (!current()) return;
+    storeNativeOperation(entry.accountId, intent, response); setNativeDelete(null);
+    if (isConfirmedNativeCalendarOperation(response)) await load();
+  });
+  const checkNativeOperation = () => run(async current => {
+    if (!entry?.accountId || !nativeIntent || !nativeOperation || nativeOperation.state === 'outcome_unknown' || nativeOperation.state === 'conflict') return;
+    const response = await sendNativeIntent(entry.accountId, nativeIntent);
+    if (!current()) return;
+    storeNativeOperation(entry.accountId, nativeIntent, response);
+    if (isConfirmedNativeCalendarOperation(response)) await load();
+  });
   const syncAccount = (source: CalendarPresentationSource) => run(async current => {
     if (!source.accountId || !source.canSync) return;
     const response = await api.syncAccountProviderFeature(source.accountId, 'calendars') as { state?: string; result?: SyncOutcome };
@@ -133,7 +196,14 @@ export default function CalendarSettingsManager({ locale }: { locale?: string })
           {!entry.featureEnabled && <p role="status">{t('calendar.serviceDisabled', 'Calendar service is disabled.')}</p>}
           {entry.accountId && <>
             <Button data-testid="calendar-manager-account-sync" disabled={busy || !entry.canSync} onClick={() => syncAccount(entry)}>{t('calendar.providerSync', { provider: entry.label })}</Button>
-            <p className="settings-choice-description">{t('calendar.providerManagedHint', 'Calendar creation, renaming and deletion are managed by the provider. Configure account services in Settings → Accounts.')}</p>
+            {entry.kind === 'google' || entry.kind === 'microsoft' ? <>
+              {!lifecycleAllowed && <><p className="settings-choice-description" data-testid="calendar-native-lifecycle-unavailable">{t('calendar.nativeCalendarReconsent', { provider: entry.label })}</p>{entry.kind === 'google' && <Button data-testid="calendar-native-google-reconsent" disabled={busy} onClick={() => { window.location.assign(`/oauth/google?purpose=calendar_enable&accountId=${encodeURIComponent(entry.accountId!)}&manageCalendars=1`); }}>{t('sidebar.accountMenu.reconnect')}</Button>}</>}
+              {lifecycleAllowed && <div data-testid="calendar-native-create" style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                <label style={{ flex: '1 1 180px' }}>{t('calendar.nativeCalendarName')}<input data-testid="calendar-native-name" maxLength={255} disabled={busy || lifecycleBlocked} value={nativeName} onChange={event => setNativeName(event.target.value)} /></label>
+                <Button data-testid="calendar-native-create-submit" disabled={busy || lifecycleBlocked || !nativeName.trim()} onClick={startNativeCreate}>{t('calendar.nativeCalendarCreate')}</Button>
+              </div>}
+              {nativeOperation && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}><p role="status" data-testid="calendar-native-operation-status">{isConfirmedNativeCalendarOperation(nativeOperation) ? t('calendar.nativeCalendarOperationConfirmed') : t('calendar.nativeCalendarOperationPending', { state: nativeOperation.state ?? 'failed', retryAfter: nativeOperation.retryAfterSeconds ?? 0 })}</p>{(nativeOperation.state === 'pending' || nativeOperation.state === 'retryable') && <Button data-testid="calendar-native-operation-check" disabled={busy} onClick={checkNativeOperation}>{t('calendar.nativeCalendarCheckOperation')}</Button>}</div>}
+            </> : <p className="settings-choice-description">{t('calendar.providerManagedHint', 'Calendar creation, renaming and deletion are managed by the provider. Configure account services in Settings → Accounts.')}</p>}
           </>}
           {external && <>
             <p role="status">{external.lastError ? calendarSyncWarning(external.lastError)?.details : t(external.lastSyncAt ? 'calendar.sourceReady' : 'calendar.sourceSyncing')}</p>
@@ -151,6 +221,7 @@ export default function CalendarSettingsManager({ locale }: { locale?: string })
             <strong style={{ flex: '1 1 140px' }}>{calendar.name}</strong>
             <Button data-testid="calendar-manager-visibility" disabled={busy} onClick={() => run(async () => { await setCalendarSidebarHidden(api.calendar.updateCalendarPresentation, calendar.id, !view.sidebarHidden); })}>{view.sidebarHidden ? t('calendar.show', 'Show') : t('calendar.hide', 'Hide from list')}</Button>
             {calendar.collection_id && <Button data-testid="calendar-write-back" disabled={busy} onClick={() => run(async () => { await api.setCollectionWriteBack(calendar.collection_id!, Boolean(calendar.read_only)); })}>{t(calendar.read_only ? 'calendar.enableWriteBack' : 'calendar.disableWriteBack')}</Button>}
+            {lifecycleAllowed && nativeCalendarDeleteAllowed(calendar) && <Button data-testid="calendar-native-delete" variant="danger" disabled={busy || lifecycleBlocked} onClick={() => { setError(null); setNotice(null); setNativeDelete(calendar); }}>{t('calendar.nativeCalendarDelete')}</Button>}
             {canManageLocalCalendar(calendar) && <>
               <Button disabled={busy} onClick={() => { setNotice(null); setError(null); setDraft({ calendar, name: calendar.name ?? '', color: calendar.color || '#35558a', davMode: davMode(calendar.dav_mode) }); }}>{t('calendar.calendarActions', { name: calendar.name })}</Button>
               <Button variant="danger" disabled={busy || !calendar.name} onClick={() => { if (calendar.name && window.confirm(t('calendar.confirmCalendarDelete', { name: calendar.name }))) void run(async () => { await api.calendar.deleteCalendar(calendar.id, calendar.name!); }); }}>{t('calendar.deleteCalendar')}</Button>
@@ -159,6 +230,9 @@ export default function CalendarSettingsManager({ locale }: { locale?: string })
         </> : <p>{t('calendar.subscribeEmpty')}</p>}
       </section>
     </div>
+    {nativeDelete && <Dialog testId="calendar-native-delete-dialog" title={t('calendar.nativeCalendarDelete')} closeLabel={t('calendar.close')} busy={busy} onClose={() => setNativeDelete(null)} footer={<><Button variant="secondary" disabled={busy} onClick={() => setNativeDelete(null)}>{t('calendar.cancel')}</Button><Button data-testid="calendar-native-delete-confirm" variant="danger" disabled={busy || lifecycleBlocked} onClick={startNativeDelete}>{t('calendar.nativeCalendarDelete')}</Button></>}>
+      <p>{t('calendar.nativeCalendarDeleteConfirm', { name: nativeDelete.name ?? '' })}</p>
+    </Dialog>}
     {draft && <Dialog testId="calendar-appearance-dialog" title={t('calendar.calendarActions', { name: draft.calendar.name })} closeLabel={t('calendar.close')} busy={busy} onClose={() => setDraft(null)} footer={<Button variant="primary" disabled={busy || !draft.name.trim() || !/^#[0-9a-f]{6}$/i.test(draft.color)} onClick={() => run(async current => {
       await api.calendar.updateCalendar(draft.calendar.id, { name: draft.name.trim(), color: draft.color, displayVisible: draft.calendar.display_visible !== false, customName: true, davMode: draft.davMode });
       if (current()) setDraft(null);

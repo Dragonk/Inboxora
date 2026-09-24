@@ -20,7 +20,7 @@ import type { StoreState } from '../store/index.ts';
 import { toAppError } from '../utils/errors.ts';
 import { providerFailureKey } from '../utils/providerFailure.ts';
 import { providerConnectorSummary } from '../utils/providerSyncSummary.ts';
-import { summariseProviderSyncErrors } from '../utils/providerSyncError.ts';
+import { accountContactsSyncMessage, initialContactTarget, providerSyncAccount, writableContactTarget, type AccountContactsSyncResponse } from './contactsManagementModel.ts';
 import ContactsBooksManager from './ContactsBooksManager.tsx';
 
 // Deterministic avatar color from a string
@@ -193,18 +193,6 @@ interface ProviderContactsStatus {
 }
 
 
-/** One connection's outcome from POST /contacts/providers/google/sync. */
-interface GoogleContactsSyncOutcome {
-  created?: number;
-  updated?: number;
-  deleted?: number;
-  error?: {
-    code?: string; message?: string; retryable?: boolean;
-    providerStatus?: number | null; missingScopes?: string[] | null; feature?: string;
-  };
-}
-
-
 export default function ContactsPage({ isActive = true, settingsOnly = false }) {
   const { t } = useTranslation();
   const { showContacts, setAdminTab, setShowAdmin, authEpoch } = useStore();
@@ -320,6 +308,7 @@ export default function ContactsPage({ isActive = true, settingsOnly = false }) 
   useEffect(() => { totalRef.current = total; }, [total]);
 
   const loadAddressBooks = useCallback(async () => {
+    if (useStore.getState().authEpoch !== authEpoch) return;
     const generation = ++bookLoadGeneration.current;
     const [books, google, microsoft, dav] = await Promise.all([
       api.addressBooks.list(),
@@ -340,7 +329,7 @@ export default function ContactsPage({ isActive = true, settingsOnly = false }) 
   }, [settingsOnly, authEpoch]);
 
   const load = useCallback(async (q = '') => {
-    if (settingsOnly) return;
+    if (settingsOnly || useStore.getState().authEpoch !== authEpoch) return;
     const requestId = ++listRequestRef.current;
     loadingMoreRef.current = true;
     setLoadingMore(false);
@@ -349,15 +338,15 @@ export default function ContactsPage({ isActive = true, settingsOnly = false }) 
     searchRef.current = q;
     try {
       const res = await api.getContacts({ q, limit: PAGE_SIZE, offset: 0, addressBookId: selectedAddressBookId || undefined });
-      if (requestId !== listRequestRef.current) return;
+      if (requestId !== listRequestRef.current || useStore.getState().authEpoch !== authEpoch) return;
       setContacts(res.contacts);
       setTotal(res.total);
     } catch (err) {
-      if (requestId === listRequestRef.current) setListError(toAppError(err).message);
+      if (requestId === listRequestRef.current && useStore.getState().authEpoch === authEpoch) setListError(toAppError(err).message);
     } finally {
-      if (requestId === listRequestRef.current) { setLoading(false); loadingMoreRef.current = false; }
+      if (requestId === listRequestRef.current && useStore.getState().authEpoch === authEpoch) { setLoading(false); loadingMoreRef.current = false; }
     }
-  }, [selectedAddressBookId, settingsOnly]);
+  }, [selectedAddressBookId, settingsOnly, authEpoch]);
 
   useEffect(() => {
     if (settingsOnly) return;
@@ -473,7 +462,26 @@ export default function ContactsPage({ isActive = true, settingsOnly = false }) 
     finally { setDavBusy(false); }
   };
 
+  const operationScope = useRef({ active: true });
+  useEffect(() => {
+    const scope = { active: true };
+    operationScope.current = scope;
+    setProviderSyncing(null);
+    setProviderNotice(null);
+    setSaving(false);
+    return () => { scope.active = false; };
+  }, [authEpoch, selectedAddressBookId]);
+  const currentOperation = () => {
+    const scope = operationScope.current;
+    return () => scope.active && useStore.getState().authEpoch === authEpoch;
+  };
+
   const runProviderContactsSync = async (provider: 'google' | 'microsoft' | 'dav') => {
+    if (providerSyncing) return;
+    const selectedProviderBook = addressBooks.find(book => book.id === selectedAddressBookId);
+    const accountId = provider !== 'dav' ? providerSyncAccount(selectedProviderBook, provider) : null;
+    if (provider !== 'dav' && !accountId) return;
+    const current = currentOperation();
     setProviderSyncing(provider);
     setProviderNotice(null);
     setListError(null);
@@ -481,6 +489,7 @@ export default function ContactsPage({ isActive = true, settingsOnly = false }) 
       if (provider === 'dav') {
         // DAV-05: the CardDAV source has its own sync, and the selected DAV book must be able to start it.
         const result = await api.carddav.sync() as { ok?: boolean; error?: string };
+        if (!current()) return;
         setProviderNotice({
           provider: 'dav',
           message: result?.ok === false && result.error
@@ -488,47 +497,22 @@ export default function ContactsPage({ isActive = true, settingsOnly = false }) 
             : t('admin.integrations.carddav.lastSync', { when: new Date().toLocaleString() }),
         });
         await loadAddressBooks();
+        if (!current()) return;
         await load(searchRef.current);
         return;
       }
-      // A book belongs to one connected mailbox. Prefer that account's feature
-      // endpoint so a click on this book cannot synchronise every connection for
-      // the provider; retain the legacy provider-wide route only for old rows
-      // that predate account context.
-      const selectedProviderBook = addressBooks.find(book => book.id === selectedAddressBookId);
-      if (selectedProviderBook?.provider === provider && selectedProviderBook.account_id) {
-        await api.syncAccountProviderFeature(selectedProviderBook.account_id, 'contacts');
-        setProviderNotice({ provider, message: `${selectedProviderBook.name ?? ''}${selectedProviderBook.account_email ? ` · ${selectedProviderBook.account_email}` : ''}`.trim() });
-        await loadAddressBooks();
-        await load(searchRef.current);
-        return;
-      }
-      const result = provider === 'google'
-        ? await api.googleContacts.sync() as { results?: GoogleContactsSyncOutcome[] }
-        : await api.microsoftContacts.sync() as { results?: GoogleContactsSyncOutcome[] };
-      const outcomes = Array.isArray(result?.results) ? result.results : [];
-      const sum = (field: 'created' | 'updated' | 'deleted') => outcomes.reduce((total, outcome) => total + (outcome[field] ?? 0), 0);
-      const failed = outcomes.filter(outcome => outcome.error).length;
-      const counts = { created: sum('created'), updated: sum('updated'), deleted: sum('deleted') };
-      // The two providers keep their own wording, so a user can tell which account
-      // a run belonged to without guessing. A failure is explained rather than counted: the provider's code,
-      // status and the scope that is missing are what tell the user to reconnect.
-      const summary = summariseProviderSyncErrors({
-        t,
-        provider,
-        feature: 'contacts',
-        errors: outcomes.map(outcome => outcome.error).filter(Boolean),
-      });
-      const message = summary
-        ? `${t(provider === 'google' ? 'contacts.addressBooks.googleSyncPartial' : 'contacts.addressBooks.microsoftSyncPartial', { ...counts, failed })} ${summary.first}${summary.more ? ` ${t('providers.syncError.showDetails', { count: summary.more })}` : ''}`
-        : t(provider === 'google' ? 'contacts.addressBooks.googleSyncDone' : 'contacts.addressBooks.microsoftSyncDone', counts);
-      setProviderNotice({ provider, message });
+      // Missing ownership is never permission to synchronise every provider account.
+      if (!accountId) return;
+      const result = await api.syncAccountProviderFeature(accountId, 'contacts') as AccountContactsSyncResponse;
+      if (!current()) return;
+      setProviderNotice({ provider, message: accountContactsSyncMessage(result, provider, t) });
       await loadAddressBooks();
+      if (!current()) return;
       await load(searchRef.current);
     } catch (err) {
-      setListError(toAppError(err).message);
+      if (current()) setListError(toAppError(err).message);
     } finally {
-      setProviderSyncing(null);
+      if (current()) setProviderSyncing(null);
     }
   };
 
@@ -599,10 +583,7 @@ export default function ContactsPage({ isActive = true, settingsOnly = false }) 
   };
 
   const startNew = () => {
-    const selectedBook = addressBooks.find(book => book.id === selectedAddressBookId);
-    const target = selectedBook?.read_only !== true
-      ? selectedBook
-      : addressBooks.find(book => book.read_only !== true);
+    const target = initialContactTarget(addressBooks, selectedAddressBookId);
     if (!target) {
       setError(t('contacts.booksManager.readOnly'));
       return;
@@ -674,6 +655,8 @@ export default function ContactsPage({ isActive = true, settingsOnly = false }) 
   useBackLayer(showContacts && confirmDelete, () => setConfirmDelete(false), 9100);
 
   const saveContact = async () => {
+    if (saving) return;
+    const current = currentOperation();
     setSaving(true);
     setError(null);
     try {
@@ -700,22 +683,34 @@ export default function ContactsPage({ isActive = true, settingsOnly = false }) 
       };
       let saved;
       if (showNew) {
-        saved = await api.createContact({ ...payload, addressBookId: newAddressBookId || undefined });
+        // Re-read capabilities at save time. Never silently reroute a vanished/read-only target.
+        const latest = await api.addressBooks.list();
+        if (!current()) return;
+        const books = Array.isArray(latest.addressBooks) ? latest.addressBooks : [];
+        setAddressBooks(books);
+        if (!writableContactTarget(books, newAddressBookId)) {
+          setError(t('contacts.booksManager.readOnly'));
+          return;
+        }
+        saved = await api.createContact({ ...payload, addressBookId: newAddressBookId });
       } else {
         if (!selected) return;
         saved = await api.updateContact(selected.id, payload);
       }
       // Reload list and re-fetch the saved contact before touching UI state,
       // so that any error here is still shown inside the open form.
+      if (!current()) return;
       await load(search);
+      if (!current()) return;
       const updated = await api.getContact(saved.id);
+      if (!current()) return;
       setShowNew(false);
       setEditing(false);
       setSelected(updated);
     } catch (err) {
-      setError(toAppError(err).message);
+      if (current()) setError(toAppError(err).message);
     } finally {
-      setSaving(false);
+      if (current()) setSaving(false);
     }
   };
 
@@ -827,7 +822,7 @@ export default function ContactsPage({ isActive = true, settingsOnly = false }) 
     {providerNotice && <p role="status" data-testid={`contacts-${providerNotice.provider}-sync-result`} style={{ margin: '6px 0 0', fontSize: 12, color: 'var(--text-tertiary)' }}>{providerNotice.message}</p>}
   </div>;
   const managerBooks = addressBooks.map(book => {
-    const source = book.source ?? 'local';
+    const source = book.source ?? 'unknown';
     const providerForBook = source === 'google' ? 'google' : source === 'microsoft' ? 'microsoft' : null;
     const providerRows = providerForBook === 'google' ? googleContacts?.books : providerForBook === 'microsoft' ? microsoftContacts?.books : null;
     const row = providerRows?.find(candidate => candidate.addressBookId === book.id);
@@ -855,7 +850,10 @@ export default function ContactsPage({ isActive = true, settingsOnly = false }) 
       visible: book.visible !== false,
       readOnly: book.read_only !== false,
       collectionId: book.collection_id ?? null,
-       accountLabel: typeof book.account_email === 'string' ? book.account_email : null,
+      accountLabel: typeof book.account_email === 'string' ? book.account_email : null,
+      accountId: book.account_id ?? null,
+      connectionId: book.connection_id ?? (typeof book.source_connection_id === 'string' ? book.source_connection_id : null),
+      canSyncProvider: providerForBook !== null && providerSyncAccount(book, providerForBook) !== null,
       contactCount: typeof book.contact_count === 'number' ? book.contact_count : (row?.contactCount ?? null),
       syncStatus: summary,
     };
@@ -1083,7 +1081,8 @@ export default function ContactsPage({ isActive = true, settingsOnly = false }) 
         <>
           {showNew && <label data-testid="contacts-new-target" style={{ display: 'flex', gap: 8, alignItems: 'center', margin: '0 0 10px', color: 'var(--text-secondary)', fontSize: 13 }}>
             {t('contacts.newTarget')}
-            <select value={newAddressBookId} onChange={event => setNewAddressBookId(event.target.value)} style={{ maxWidth: 280 }}>
+            <select value={newAddressBookId} disabled={saving} onChange={event => setNewAddressBookId(event.target.value)} style={{ maxWidth: 280 }}>
+              {!writableContactTarget(addressBooks, newAddressBookId) && <option value={newAddressBookId} disabled>{t('contacts.booksManager.readOnly')}</option>}
               {addressBooks.filter(book => book.read_only !== true).map(book => <option key={book.id} value={book.id}>{book.name}{book.account_email ? ` · ${book.account_email}` : ''}</option>)}
             </select>
           </label>}

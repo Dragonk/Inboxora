@@ -16,7 +16,7 @@ import {
 } from '../../syncCoordinator.js';
 import { GraphApiError } from './graphApiClient.js';
 import type { GraphApiOptions } from './graphApiClient.js';
-import { contactUidForGraphContact, DEFAULT_GRAPH_CONTACTS_TARGET, defaultGraphContactFolder, discoverGraphContactFolders, fetchContactsPage, graphContactToVCard } from './graphContacts.js';
+import { contactUidForGraphContact, DEFAULT_GRAPH_CONTACTS_TARGET, discoverGraphContactFolders, fetchContactsPage, graphContactToVCard } from './graphContacts.js';
 import type { GraphContact, GraphContactFolder } from './graphContacts.js';
 import { ProviderAuthError, graphGrantCoversScope, REQUIRED_GRAPH_CONTACT_WRITE_SCOPE } from '../../providerAuthService.js';
 import { MICROSOFT_GRANT_AUDIENCE } from '../../providerAuthService.js';
@@ -26,15 +26,15 @@ import type { FetchLike } from '../../providerAuthService.js';
 /**
  * Microsoft Graph contacts sync (P07/P09, read path).
  *
- * Outlook's default contact folder is addressed by its well-known name, so a
- * renamed folder still syncs. Contacts are linked by the Graph contact id; the
- * e-mail address is never a key. A delta cursor keeps later runs incremental, and a
+ * The default collection uses `/me/contacts`, independently of discovered folder
+ * ids or display names. Contacts are linked by Graph contact id; the e-mail address
+ * is never a key. Folder delta cursors keep later runs incremental, and a
  * cursor Graph rejects (HTTP 410) rebuilds from a baseline **and reconciles**: a
  * plain re-read would miss whatever was deleted while the cursor was unusable.
  */
 
 export const GRAPH_CONTACTS_BOOK_NAME = 'Microsoft Contacts';
-/** The well-known name of Outlook's default contact folder. */
+/** Historical collection key; not a resolvable Graph folder id or the default target. */
 export const GRAPH_CONTACTS_FOLDER = 'contacts';
 const MAX_PAGES = 1000;
 const PAGE_SIZE = 200;
@@ -108,9 +108,8 @@ export async function ensureGraphAddressBook(client: PoolClient, input: {
   connectionId: string;
   label?: string;
   /**
-   * The provider's **real** contact-folder id (GRAPH-03). Falls back to the legacy literal only for callers that
-   * predate discovery; `syncGraphContacts` always passes the discovered id, because the literal is not a folder
-   * id Graph can resolve.
+   * A discovered provider folder id or DEFAULT_GRAPH_CONTACTS_TARGET for `/me/contacts`.
+   * The legacy literal fallback is retained only for older callers; sync always supplies an explicit target.
    */
   folderId?: string;
 }): Promise<{ addressBookId: string; collectionId: string }> {
@@ -346,7 +345,7 @@ export async function reconcileGraphContacts(client: PoolClient, context: ApplyC
   return removed;
 }
 
-/** The per-folder half of the sync: one discovered contact folder into its own local address book. */
+/** Sync one explicit target (default collection or discovered folder) into its own leased book. */
 async function syncGraphContactFolder(input: {
   userId: string;
   connectionId: string;
@@ -483,12 +482,12 @@ async function syncGraphContactFolder(input: {
 }
 
 /**
- * Synchronise every contact folder of one connection.
+ * Synchronise the explicit default collection and every discovered contact folder.
  *
- * GRAPH-03: the folders are **discovered** — the sync used to address one as the literal `contacts`, which is not
- * a folder id Graph resolves (`contactFolder` has no well-known-name property, unlike the `mailFolder` whose
- * similar assumption had to be removed under GRAPH-01) — and each one is pulled into its own local address book,
- * so a contact is visible wherever the mailbox keeps it.
+ * `/me/contacts` has its own local book and lease, independent of discovery. Each
+ * discovered folder id has a separate book and cursor; no display name or list
+ * position establishes that it aliases the default collection. Discovery failure
+ * is reported without suppressing the default read.
  *
  * The default folder runs first and its failure is thrown: it holds the mailbox's own contacts, and reporting a
  * mailbox that pulled nothing as healthy would be worse than the error. A failure in any **additional** folder is
@@ -525,21 +524,13 @@ export async function syncGraphContacts(input: {
     errors.push({ folderId: 'discovery', code, stage: 'discovery', ...(caught instanceof GraphApiError ? { status: caught.status, providerReason: caught.providerReason } : {}) });
     console.warn(`Microsoft contacts folder discovery failed for connection ${input.connectionId}:`, code);
   }
-  // `/me/contacts` is the mailbox's default contact folder, not an
-  // additional book. Prefer the discovered real folder id so one remote person
-  // cannot be projected twice. Only fall back to the well-known collection when
-  // discovery itself yielded no usable default; that fallback has a distinct
-  // sentinel and is never conflated with a guessed folder id.
-  const discoveredDefault = defaultGraphContactFolder(discovered);
-  const primary: GraphContactFolder = discoveredDefault
-    ?? { id: DEFAULT_GRAPH_CONTACTS_TARGET, displayName: GRAPH_CONTACTS_BOOK_NAME };
-  const discoveredFolders = discovered.filter((folder, index, all) =>
+  // Names (including "Contacts"), localization and discovery order do not prove
+  // that a folder is the default collection. Keep its explicit endpoint and state
+  // independent until provider evidence establishes an identity we can safely adopt.
+  const primary: GraphContactFolder = { id: DEFAULT_GRAPH_CONTACTS_TARGET, displayName: GRAPH_CONTACTS_BOOK_NAME };
+  const ordered = [primary, ...discovered].filter((folder, index, all) =>
     all.findIndex(candidate => candidate.id === folder.id) === index,
   );
-  // If discovery returned only nested folders, retain them as independent
-  // collections while still using the well-known default fallback. An incomplete
-  // discovery must not make known folders silently disappear.
-  const ordered = discoveredDefault ? discoveredFolders : [primary, ...discoveredFolders];
   const books: GraphContactsFolderResult[] = [];
   for (const folder of ordered) {
     try {
@@ -554,7 +545,8 @@ export async function syncGraphContacts(input: {
       books.push(result);
     } catch (caught) {
       const db = toAppError(caught);
-      const emailCollision = db.code === '23505' && db.constraint === 'contacts_book_primary_email_idx';
+      const emailCollision = db.code === '23505'
+        && (db.constraint === 'contacts_book_primary_email_idx' || db.constraint === 'contacts_address_book_primary_email_idx');
       // Preserve distinct provider identities: only the historical address-book
       // e-mail constraint is diagnosed this way. Other integrity violations keep
       // their own failure code rather than being misreported as an e-mail clash.
@@ -575,8 +567,7 @@ export async function syncGraphContacts(input: {
     deleted: sum.deleted + book.deleted,
     skipped: sum.skipped + book.skipped,
   }), { created: 0, updated: 0, deleted: 0, skipped: 0 });
-  // The first book is the discovered default folder when discovery succeeded,
-  // or the explicit `/me/contacts` fallback when it did not.
+  // The explicit `/me/contacts` collection always runs first.
   const primaryBook = books[0];
   return {
     addressBookId: primaryBook?.addressBookId ?? '',

@@ -30,26 +30,30 @@ test('the contacts screen offers the Google pull only when connected', async () 
   const manager = await readFile(contactsManager, 'utf8');
   assert.match(manager, /data-testid={`contacts-manager-sync-\$\{syncTarget\}`}/);
   assert.match(source, /const runProviderContactsSync = async \(provider: 'google' \| 'microsoft' \| 'dav'\) => \{/);
-  assert.match(source, /await api\.googleContacts\.sync\(\)/);
+  assert.match(source, /await api\.syncAccountProviderFeature\(accountId, 'contacts'\)/);
+  assert.doesNotMatch(source, /api\.googleContacts\.sync\(/);
   // The control is offered by the manager for the target the book belongs to — its provider, or its DAV source
   // (DAV-05).
   assert.match(manager, /const syncTarget: 'google' \| 'microsoft' \| 'dav' \| null/);
   assert.match(manager, /syncTarget && \(/);
   // The result is reported per run, including a partial failure.
-  assert.match(source, /contacts\.addressBooks\.googleSyncDone/);
-  assert.match(source, /contacts\.addressBooks\.googleSyncPartial/);
+  const model = await readFile(new URL('./contactsManagementModel.ts', import.meta.url), 'utf8');
+  assert.match(model, /contacts\.addressBooks\.googleSyncDone/);
+  assert.match(model, /contacts\.addressBooks\.googleSyncPartial/);
   assert.match(source, /contacts-\$\{providerNotice\.provider\}-sync-result/);
 });
 
 test('the contacts screen offers the Microsoft pull through the same control', async () => {
   const source = await readFile(contactsPage, 'utf8');
   assert.match(source, /api\.microsoftContacts\.status\(\)/);
-  assert.match(source, /await api\.microsoftContacts\.sync\(\)/);
+  assert.match(source, /await api\.syncAccountProviderFeature\(accountId, 'contacts'\)/);
+  assert.doesNotMatch(source, /api\.microsoftContacts\.sync\(/);
   const manager = await readFile(contactsManager, 'utf8');
   assert.match(manager, /data-testid={`contacts-manager-sync-\$\{syncTarget\}`}/);
   assert.match(manager, /syncTarget && \(/);
-  assert.match(source, /contacts\.addressBooks\.microsoftSyncDone/);
-  assert.match(source, /contacts\.addressBooks\.microsoftSyncPartial/);
+  const model = await readFile(new URL('./contactsManagementModel.ts', import.meta.url), 'utf8');
+  assert.match(model, /contacts\.addressBooks\.microsoftSyncDone/);
+  assert.match(model, /contacts\.addressBooks\.microsoftSyncPartial/);
   // Both providers must be loadable independently: one being absent cannot hide
   // the other's control.
   const statusCalls = source.match(/api\.(google|microsoft)Contacts\.status\(\)/g) ?? [];

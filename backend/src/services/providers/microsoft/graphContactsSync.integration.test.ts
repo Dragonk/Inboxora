@@ -18,7 +18,7 @@ import {
 } from '../../providerAuthService.js';
 import { acquireSyncLease, ensureSyncState } from '../../syncCoordinator.js';
 import { syncGraphContacts } from './graphContactsSync.js';
-import type { GraphContact } from './graphContacts.js';
+import { DEFAULT_GRAPH_CONTACTS_TARGET, type GraphContact } from './graphContacts.js';
 
 const hasPg = process.env.DB_HOST && process.env.DB_NAME;
 const describeOrSkip = hasPg ? describe : describe.skip;
@@ -65,6 +65,7 @@ function fakeProvider(
 ) {
   const urls: string[] = [];
   const discoveryUrls: string[] = [];
+  const defaultUrls: string[] = [];
   let index = 0;
   const fetchImpl = async (url: string): Promise<Response> => {
     const target = String(url);
@@ -83,6 +84,7 @@ function fakeProvider(
     // folder deltas; give the new default path an explicit empty complete baseline
     // without consuming their folder-specific handler sequence.
     if (target.includes('/me/contacts?')) {
+      defaultUrls.push(target);
       return json({ value: [] });
     }
     urls.push(target);
@@ -90,7 +92,7 @@ function fakeProvider(
     index += 1;
     return handler(target);
   };
-  return { fetchImpl: fetchImpl as unknown as typeof fetch, urls, discoveryUrls };
+  return { fetchImpl: fetchImpl as unknown as typeof fetch, urls, discoveryUrls, defaultUrls };
 }
 
 async function autocommit<T>(fn: (client: PoolClient) => Promise<T>): Promise<T> {
@@ -160,7 +162,7 @@ describeOrSkip('Microsoft Graph contacts sync (PostgreSQL)', () => {
     });
   });
 
-  it('creates one hidden book and projects the contacts from a baseline delta', async () => {
+  it('creates independent hidden books and projects the contacts from a folder baseline delta', async () => {
     const connectionId = await seedConnection();
     const provider = fakeProvider([
       () => json({
@@ -170,7 +172,10 @@ describeOrSkip('Microsoft Graph contacts sync (PostgreSQL)', () => {
     ]);
 
     const result = await syncGraphContacts({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl: provider.fetchImpl });
-    expect(result).toMatchObject({ created: 2, updated: 0, deleted: 0, fullSync: true, cursor: `${DELTA_BASE}?$deltatoken=baseline` });
+    expect(result).toMatchObject({ created: 2, updated: 0, deleted: 0, fullSync: true, cursor: null });
+    expect(result.books).toHaveLength(2);
+    expect(result.books[1]).toMatchObject({ created: 2, cursor: `${DELTA_BASE}?$deltatoken=baseline` });
+    expect(provider.defaultUrls).toHaveLength(1);
     // The folders were discovered — the top-level list and this mailbox's (empty) child list — and the delta
     // named the **real** folder id it returned: the literal `contacts` this used to send is not a folder id Graph
     // resolves (GRAPH-03).
@@ -212,8 +217,53 @@ describeOrSkip('Microsoft Graph contacts sync (PostgreSQL)', () => {
       () => json({ value: [contact('c1', 'Ada Lovelace', 'ada@contoso.test')], '@odata.deltaLink': `${DELTA_BASE}?$deltatoken=delta-2` }),
     ]);
     const second = await syncGraphContacts({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl: incremental.fetchImpl });
-    expect(second).toMatchObject({ created: 0, updated: 1, fullSync: false, cursor: `${DELTA_BASE}?$deltatoken=delta-2` });
+    expect(second).toMatchObject({ created: 0, updated: 1, fullSync: false, cursor: null });
+    expect(second.books[1]).toMatchObject({ fullSync: false, cursor: `${DELTA_BASE}?$deltatoken=delta-2` });
     expect(incremental.urls[0]).toBe(`${DELTA_BASE}?$deltatoken=baseline`);
+  });
+
+  it.each(['Contacts', 'Kontakte', 'Arbitrary first folder'])('does not let a discovered %s folder suppress default contacts, even when that folder fails', async displayName => {
+    const connectionId = await seedConnection();
+    const provider = fakeProvider([
+      () => json({ error: { code: 'ErrorItemNotFound', message: 'folder unavailable' } }, 404),
+    ], [{ id: FOLDER_ID, displayName, parentFolderId: null }]);
+    const urls: string[] = [];
+    const result = await syncGraphContacts({
+      userId: USER_ID, connectionId, config: CONFIG,
+      fetchImpl: async (url, init) => {
+        const target = String(url);
+        urls.push(target);
+        if (target.includes('/me/contacts?')) return json({ value: [contact('default-only', 'Default Person', 'default@contoso.test')] });
+        return provider.fetchImpl(url, init);
+      },
+    });
+    expect(urls.filter(url => url.includes('/me/contacts?'))).toHaveLength(1);
+    expect(result).toMatchObject({ created: 1, incomplete: true, errors: [{ folderId: FOLDER_ID, code: 'RESOURCE_NOT_FOUND' }] });
+    expect(result.books).toHaveLength(1);
+    expect((await storedContacts()).map(row => row.uid)).toEqual(['msgraph-default-only']);
+    const states = await autocommit(client => client.query<{
+      remote_id: string; local_address_book_id: string; last_success_at: Date | null; last_error_code: string | null; running_owner: string | null;
+    }>(`SELECT c.remote_id, c.local_address_book_id, s.last_success_at, s.last_error_code, s.running_owner
+         FROM integration_collections c JOIN sync_states s ON s.collection_id = c.id
+         WHERE c.connection_id = $1 ORDER BY c.remote_id`, [connectionId]));
+    expect(states.rows).toHaveLength(2);
+    expect(states.rows.find(row => row.remote_id === DEFAULT_GRAPH_CONTACTS_TARGET)).toMatchObject({
+      local_address_book_id: result.addressBookId, last_success_at: expect.any(Date), last_error_code: null, running_owner: null,
+    });
+    expect(states.rows.find(row => row.remote_id === FOLDER_ID)).toMatchObject({ last_success_at: null, last_error_code: 'RESOURCE_NOT_FOUND', running_owner: null });
+  });
+
+  it('keeps default contacts available when folder discovery fails', async () => {
+    const connectionId = await seedConnection();
+    const result = await syncGraphContacts({
+      userId: USER_ID, connectionId, config: CONFIG,
+      fetchImpl: async url => String(url).includes('/me/contacts?')
+        ? json({ value: [contact('default-only', 'Default Person', 'default@contoso.test')] })
+        : json({ error: { code: 'ErrorAccessDenied', message: 'discovery unavailable' } }, 403),
+    });
+    expect(result).toMatchObject({ created: 1, incomplete: true, errors: [{ folderId: 'discovery', stage: 'discovery', code: 'INSUFFICIENT_SCOPES' }] });
+    expect(result.books).toHaveLength(1);
+    expect((await storedContacts()).map(row => row.uid)).toEqual(['msgraph-default-only']);
   });
 
   it('keeps two Graph identities with the same e-mail in one folder', async () => {
@@ -337,9 +387,9 @@ describeOrSkip('Microsoft Graph contacts sync (PostgreSQL)', () => {
       () => json({ value: [contact('c1', 'Ada Lovelace', 'ada@contoso.test')], '@odata.deltaLink': `${DELTA_BASE}?$deltatoken=fresh` }),
     ]);
     const result = await syncGraphContacts({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl: provider.fetchImpl });
-    expect(result).toMatchObject({ deleted: 1, cursor: `${DELTA_BASE}?$deltatoken=fresh` });
-    // The independently cursorised default collection can be incremental while this
-    // folder rebuilt, so the aggregate never claims a whole-account baseline.
+    expect(result).toMatchObject({ deleted: 1, cursor: null });
+    expect(result.books[1]).toMatchObject({ fullSync: true, cursor: `${DELTA_BASE}?$deltatoken=fresh` });
+    // The folder cursor belongs to its own book, never the default collection.
     expect(provider.urls[1]).not.toContain('$deltatoken=stale');
 
     // A plain re-read would have left the deleted contact behind; reconciliation removes it.
@@ -385,10 +435,11 @@ describeOrSkip('Microsoft Graph contacts sync (PostgreSQL)', () => {
     const result = await syncGraphContacts({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl: provider.fetchImpl });
 
     expect(result).toMatchObject({ created: 3, updated: 0, deleted: 0, errors: [] });
-    // The discovered default folder and each remaining folder has one durable
-    // book; `/me/contacts` is not duplicated as another collection.
-    expect(result.books).toHaveLength(3);
-    expect(new Set(result.books.map(book => book.addressBookId)).size).toBe(3);
+    // No discovered name proves default identity: keep all three folder books
+    // and the explicit default collection independently addressable.
+    expect(result.books).toHaveLength(4);
+    expect(new Set(result.books.map(book => book.addressBookId)).size).toBe(4);
+    expect(provider.defaultUrls).toHaveLength(1);
     expect(provider.urls.map(url => decodeURIComponent(url))).toEqual([
       expect.stringContaining(`/me/contactFolders/${FOLDER_ID}/contacts/delta`),
       expect.stringContaining(`/me/contactFolders/${SECOND_ID}/contacts/delta`),
@@ -429,7 +480,7 @@ describeOrSkip('Microsoft Graph contacts sync (PostgreSQL)', () => {
     });
 
     const collection = await autocommit(client => client.query<{ id: string }>(
-      `SELECT id FROM integration_collections WHERE user_id = $1 AND kind = 'address_book'`, [USER_ID],
+      `SELECT id FROM integration_collections WHERE user_id = $1 AND kind = 'address_book' AND remote_id = $2`, [USER_ID, DEFAULT_GRAPH_CONTACTS_TARGET],
     ));
     const syncStateId = await inTransaction(client => ensureSyncState(client, {
       userId: USER_ID, connectionId, feature: 'contacts', collectionId: collection.rows[0]?.id ?? null, coverage: 'personal',

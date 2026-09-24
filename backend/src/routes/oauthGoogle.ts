@@ -86,6 +86,14 @@ router.get('/google', requireAuth, async (req: Request, res: Response) => {
   if (!purpose) return res.status(400).json({ error: 'Unsupported authorization purpose' });
   const access = readAccess(req.query.access);
   const requestedAccount = typeof req.query.accountId === 'string' && UUID_PATTERN.test(req.query.accountId) ? req.query.accountId : null;
+  const managementFlag = req.query.manageCalendars;
+  if (managementFlag !== undefined && managementFlag !== '0' && managementFlag !== '1') {
+    return res.status(400).json({ code: 'INVALID_CALENDAR_MANAGEMENT_CONSENT', error: 'Invalid calendar management consent option' });
+  }
+  const manageCalendars = managementFlag === '1';
+  if (manageCalendars && (purpose !== 'calendar_enable' || (req.query.access !== undefined && req.query.access !== 'source') || !requestedAccount)) {
+    return res.status(400).json({ code: 'INVALID_CALENDAR_MANAGEMENT_CONSENT', error: 'Calendar management requires a selected account and calendar write consent' });
+  }
   if (requestedAccount) {
     // The flow may only ever target an account the actor owns.
     const owned = await query('SELECT 1 FROM email_accounts WHERE id = $1 AND user_id = $2', [requestedAccount, userId]);
@@ -93,7 +101,7 @@ router.get('/google', requireAuth, async (req: Request, res: Response) => {
   }
 
   try {
-    const scopes = googleScopesForPurpose(purpose, access);
+    const scopes = googleScopesForPurpose(purpose, access, { manageCalendars });
     const flow = await withTransaction(client => createAuthorizationFlow(client, {
       userId,
       provider: 'google',

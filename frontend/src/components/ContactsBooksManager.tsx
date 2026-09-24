@@ -1,6 +1,7 @@
 import React from 'react';
 import { Button } from './ui.tsx';
 import ContactsDavSource from './ContactsDavSource.tsx';
+import { groupBooksByConnection } from './contactsManagementModel.ts';
 
 /**
  * The address-book manager: one panel, the books on the left and the selected book's settings on the right.
@@ -25,6 +26,9 @@ export interface ManagerBook {
   collectionId: string | null;
   /** Mailbox account owning this provider projection; absent for local/DAV books. */
   accountLabel: string | null;
+  accountId: string | null;
+  connectionId: string | null;
+  canSyncProvider: boolean;
   contactCount: number | null;
   syncStatus: { key: string | null; values: Record<string, string> } | null;
 }
@@ -90,22 +94,6 @@ const sectionTitleStyle: React.CSSProperties = {
 const rowStyle: React.CSSProperties = { display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' };
 const metaStyle: React.CSSProperties = { fontSize: 12, color: 'var(--text-tertiary)', margin: '2px 0' };
 
-type BookGroup = { id: string; source: string; accountLabel: string | null; books: ManagerBook[] };
-
-/** Group by source and durable account context: two Google accounts never share a manager section. */
-function groupBooksByConnection(books: readonly ManagerBook[]): BookGroup[] {
-  const order = (source: string) => source === 'local' ? 0 : (source === 'carddav' || source === 'dav') ? 1 : source === 'google' ? 2 : source === 'microsoft' ? 3 : 4;
-  const groups = new Map<string, BookGroup>();
-  for (const book of books) {
-    const account = book.accountLabel ?? null;
-    const id = `${book.source}:${account ?? 'local'}`;
-    const group = groups.get(id) ?? { id, source: book.source, accountLabel: account, books: [] };
-    group.books.push(book);
-    groups.set(id, group);
-  }
-  return [...groups.values()].sort((left, right) => order(left.source) - order(right.source) || String(left.accountLabel ?? '').localeCompare(String(right.accountLabel ?? '')));
-}
-
 export default function ContactsBooksManager(props: ContactsBooksManagerProps) {
   const { t, books, selectedBookId, isMobile } = props;
   const [mobileDetail, setMobileDetail] = React.useState(false);
@@ -124,7 +112,7 @@ export default function ContactsBooksManager(props: ContactsBooksManagerProps) {
   const syncTarget: 'google' | 'microsoft' | 'dav' | null = isDavBook
     ? (props.dav.connected ? 'dav' : null)
     : (providerState?.connected && provider ? provider : null);
-  const summary = provider === 'google' ? props.googleSummary : provider === 'microsoft' ? props.microsoftSummary : null;
+  const summary = selected?.syncStatus ?? null;
 
   // A provider collection is not a local address book: it cannot be renamed or deleted here, and its delete
   // must never be offered as if it were local.
@@ -137,8 +125,7 @@ export default function ContactsBooksManager(props: ContactsBooksManagerProps) {
         <div data-testid="contacts-manager-book-group-heading" style={{ ...metaStyle, marginTop: 6 }}><strong>{t(sourceLabelKey(group.source))}{group.accountLabel ? ` · ${group.accountLabel}` : ''}</strong></div>
         {group.books.map(book => {
         const active = book.id === selectedBookId;
-        const bookProvider = book.source === 'microsoft' ? 'microsoft' : book.source === 'google' ? 'google' : null;
-        const bookSummary = bookProvider === 'google' ? props.googleSummary : bookProvider === 'microsoft' ? props.microsoftSummary : null;
+        const bookSummary = book.syncStatus;
         return (
           <button
             key={book.id}
@@ -211,7 +198,7 @@ export default function ContactsBooksManager(props: ContactsBooksManagerProps) {
           {/* DAV-05: a CardDAV book is synchronised by its own source, so it gets the same action. Which source
               owns it decides the target, never the provider a book merely resembles. */}
           {syncTarget && (
-            <Button data-testid={`contacts-manager-sync-${syncTarget}`} disabled={props.syncing !== null} onClick={() => props.onSync(syncTarget)}>
+            <Button data-testid={`contacts-manager-sync-${syncTarget}`} disabled={props.syncing !== null || (syncTarget !== 'dav' && !selected.canSyncProvider)} onClick={() => props.onSync(syncTarget)}>
               {props.syncing === syncTarget ? t('contacts.booksManager.syncing') : t('contacts.booksManager.syncNow')}
             </Button>
           )}

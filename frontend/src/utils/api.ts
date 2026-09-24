@@ -358,6 +358,12 @@ export const api = {
     request('GET', `/accounts/${encodeURIComponent(accountId)}/provider-diagnostics`),
   syncAccountProviderFeature: (accountId: string, feature: 'calendars' | 'contacts') =>
     request('POST', `/accounts/${encodeURIComponent(accountId)}/provider-features/${feature}/sync`),
+  // Native calendar lifecycle is account-scoped. The server owns collection identity,
+  // default/shared-calendar protection and journal replay; clients send only an intent key.
+  createAccountProviderCalendar: (accountId: string, body: { name: string; idempotencyKey: string }) =>
+    request('POST', `/accounts/${encodeURIComponent(accountId)}/provider-calendars`, body),
+  deleteAccountProviderCalendar: (accountId: string, collectionId: string, body: { idempotencyKey: string }) =>
+    request('DELETE', `/accounts/${encodeURIComponent(accountId)}/provider-calendars/${encodeURIComponent(collectionId)}`, body),
   setAccountProviderFeature: (accountId: string, feature: 'calendars' | 'contacts', enabled: boolean) =>
     request('PATCH', `/accounts/${encodeURIComponent(accountId)}/provider-features/${feature}`, { enabled }),
   nativeAccountCandidates: (provider: 'microsoft' | 'google') =>

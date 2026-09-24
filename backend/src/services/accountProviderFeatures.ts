@@ -4,6 +4,7 @@ import { listSubscriptionDiagnostics } from './providerPushSubscriptions.js';
 import { providerSyncIntervalMinutes } from './providerSyncScheduler.js';
 import { evaluateProviderFeatureAuthorization, readProviderFeatureAuthorization, type ProviderFeatureAuthorization } from './providerFeatureAuthorization.js';
 import { accountProviderFeatureSettings } from './accountProviderFeatureSettings.js';
+import { evaluateCalendarManagementAuthorization, type CalendarManagementAuthorization } from './calendarManagementAuthorization.js';
 
 /**
  * What one **account** can do with its provider: the mail transport it uses and whether the native one is
@@ -29,6 +30,8 @@ export interface AccountMailFeatures extends ProviderFeatureAuthorization {
 }
 
 export interface AccountFeatureGroup extends ProviderFeatureAuthorization {
+  /** Present only on calendar metadata; this grant does not authorize deleting any particular calendar. */
+  calendarManagement?: CalendarManagementAuthorization;
   provider: ProviderAccountKind;
   /** User intent is independent of an OAuth grant and of discovered collections. */
   enabled: boolean;
@@ -618,7 +621,11 @@ export async function describeAccountProviderFeatures(input: {
     // Each group carries only its own collections, so `calendar.collections.length` is a calendar count and
     // `contacts.collections.length` an address-book count, as both the card and the diagnostics read them.
     calendar: provider
-      ? { ...groups[provider], collections: groups[provider].collections.filter(collection => collection.kind === 'calendar') }
+      ? {
+          ...groups[provider],
+          calendarManagement: evaluateCalendarManagementAuthorization(provider, groups[provider].grantedScopes),
+          collections: groups[provider].collections.filter(collection => collection.kind === 'calendar'),
+        }
       : null,
     contacts: provider
       ? {

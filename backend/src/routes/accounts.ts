@@ -30,6 +30,7 @@ import { reduceProviderSyncResult } from '../services/providerSyncOutcome.js';
 import type { MicrosoftMailCutoverAccount } from '../services/providerMailCutover.js';
 import { cutOverGoogleMailAccount } from '../services/providerGoogleMailCutover.js';
 import type { GoogleMailCutoverAccount } from '../services/providerGoogleMailCutover.js';
+import calendarManagementRouter from './accountsCalendarManagement.js';
 
 // Serialize an account's reconnect triggers so a rapid settings change (e.g. a
 // gtd_enabled double-toggle) can't fire two overlapping disconnect→connect chains —
@@ -65,6 +66,8 @@ router.use(requireAuth);
 // Postgres cast error surfaces as a 500). Every :id/:aliasId in this router is a UUID.
 router.param('id', uuidParam('id'));
 router.param('aliasId', uuidParam('aliasId'));
+// Keep native collection lifecycle endpoints isolated from mailbox CRUD.
+router.use('/', calendarManagementRouter);
 
 // Fields safe to return to the client — matches the GET list, excludes credentials and tokens
 const SAFE_FIELDS = [

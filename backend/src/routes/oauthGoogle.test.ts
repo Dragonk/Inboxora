@@ -143,6 +143,44 @@ async function callback(query: string): Promise<Response> {
 }
 
 describe('GET /oauth/google (start)', () => {
+  it('requests and binds management scope only for an explicit owned calendar account', async () => {
+    const account = '11111111-1111-4111-8111-111111111111';
+    const response = await startFlow(`?purpose=calendar_enable&manageCalendars=1&accountId=${account}`);
+    expect(response.status).toBe(302);
+    const scopes = new URL(response.headers.get('location') || '').searchParams.get('scope')?.split(' ');
+    expect(scopes).toContain('https://www.googleapis.com/auth/calendar.calendars');
+    expect(scopes).not.toContain('https://www.googleapis.com/auth/contacts');
+    const insert = queryCallsMatching('INSERT INTO oauth_authorization_flows');
+    expect(insert).toHaveLength(1);
+    const params = insert[0][1] as unknown[];
+    expect(params[3]).toBe(account);
+    expect(params[7]).toEqual(scopes);
+  });
+
+  it.each([
+    '?purpose=calendar_enable&manageCalendars=1',
+    '?purpose=calendar_enable&manageCalendars=1&accountId=invalid',
+    '?purpose=calendar_enable&manageCalendars=1&access=read_only&accountId=11111111-1111-4111-8111-111111111111',
+    '?purpose=contacts_enable&manageCalendars=1&accountId=11111111-1111-4111-8111-111111111111',
+    '?purpose=account_enable&manageCalendars=1&accountId=11111111-1111-4111-8111-111111111111',
+    '?purpose=calendar_enable&manageCalendars=1&access=read_only&access=source&accountId=11111111-1111-4111-8111-111111111111',
+    '?purpose=calendar_enable&manageCalendars=1&access=unknown&accountId=11111111-1111-4111-8111-111111111111',
+    '?purpose=calendar_enable&manageCalendars=true',
+    '?purpose=calendar_enable&manageCalendars=1&manageCalendars=0',
+  ])('refuses inconsistent management consent without storing a flow: %s', async query => {
+    const response = await startFlow(query);
+    expect(response.status).toBe(400);
+    expect(queryCallsMatching('INSERT INTO oauth_authorization_flows')).toHaveLength(0);
+    expect(providerCalls()).toHaveLength(0);
+  });
+
+  it('never starts management consent for an account owned by someone else', async () => {
+    const original = mocks.query.getMockImplementation();
+    mocks.query.mockImplementation(async (sql: string, ...args: unknown[]) => String(sql).includes('SELECT 1 FROM email_accounts') ? { rows: [], rowCount: 0 } : original?.(sql, ...args));
+    const response = await startFlow('?purpose=calendar_enable&manageCalendars=1&accountId=11111111-1111-4111-8111-111111111111');
+    expect(response.headers.get('location')).toContain('Account%20not%20found');
+    expect(queryCallsMatching('INSERT INTO oauth_authorization_flows')).toHaveLength(0);
+  });
   it('refuses to start when the administrator has not configured Google', async () => {
     delete process.env.GOOGLE_CLIENT_ID;
     const response = await startFlow();
@@ -159,6 +197,7 @@ describe('GET /oauth/google (start)', () => {
     expect(location.searchParams.get('code_challenge_method')).toBe('S256');
     expect(location.searchParams.get('scope')).toContain('calendar.events');
     expect(location.searchParams.get('scope')).not.toContain('gmail');
+    expect(location.searchParams.get('scope')).not.toContain('calendar.calendars');
 
     const insert = queryCallsMatching('INSERT INTO oauth_authorization_flows');
     expect(insert).toHaveLength(1);
@@ -235,6 +274,21 @@ describe('GET /oauth/google (start)', () => {
 });
 
 describe('GET /oauth/google/callback', () => {
+  it('retains a partial grant without fabricating the requested management capability', async () => {
+    takenFlow.purpose = 'calendar_enable';
+    takenFlow.target_account_id = '11111111-1111-4111-8111-111111111111';
+    takenFlow.requested_scopes = ['openid', 'email', 'https://www.googleapis.com/auth/calendar.calendars'];
+    tokenBody.scope = 'openid email https://www.googleapis.com/auth/calendar.events';
+    const response = await callback('?state=state-1&code=code-1');
+    expect(response.status).toBe(302);
+    const insert = queryCallsMatching('INSERT INTO oauth_grants');
+    expect(insert).toHaveLength(1);
+    const params = insert[0][1] as unknown[];
+    // Partial consent remains useful for existing event access; lifecycle diagnostics
+    // consume current_scopes, not the requested set or accumulated consent history.
+    expect(params[6]).toEqual(['openid', 'email', 'https://www.googleapis.com/auth/calendar.events']);
+    expect(params[6]).not.toContain('https://www.googleapis.com/auth/calendar.calendars');
+  });
   it('rejects an unknown or replayed state without contacting Google', async () => {
     mocks.query.mockImplementation(async (sql: string) => {
       if (String(sql).includes("SET status = 'exchanging'")) return { rows: [], rowCount: 0 };

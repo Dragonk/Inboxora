@@ -143,7 +143,9 @@ describeOrSkip('account provider diagnostics (PostgreSQL)', () => {
 
     const refusal = await providerSyncPreflight({ userId: USER_A, connectionId, provider: 'google', feature: 'contacts' });
     expect(refusal).toMatchObject({ code: 'PROVIDER_AUTH_REQUIRED', feature: 'contacts' });
-    expect(refusal?.missingScopes).toEqual(['contacts']);
+    expect(refusal?.missingScopes).toEqual(['contacts.readonly']);
+    const writeRefusal = await providerSyncPreflight({ userId: USER_A, connectionId, provider: 'google', feature: 'contacts', capability: 'write' });
+    expect(writeRefusal?.missingScopes).toEqual(['contacts']);
     expect(refusal?.accountId).toBe(accountId);
     expect(refusal?.retryable).toBe(false);
 
@@ -480,5 +482,36 @@ describeOrSkip('calendar and address-book state is read from where it is stored'
 
     await query('DELETE FROM sync_states WHERE user_id = $1 AND account_id = $2', [USER_A, microsoftAccountId]);
     await query('DELETE FROM email_accounts WHERE id = $1', [microsoftAccountId]);
+  });
+
+  it('exposes lifecycle authorization only on the owned account calendar without changing event capabilities', async () => {
+    const connectionId = await inTransaction(client => upsertProviderConnection(client, {
+      userId: USER_A, provider: 'google', issuer: 'https://accounts.google.com',
+      subject: 'diag-lifecycle-subject', providerUserId: 'diag@gmail.test',
+    }));
+    await query('UPDATE email_accounts SET provider_connection_id = $2 WHERE id = $1', [accountId, connectionId]);
+    const events = [`${GOOGLE}calendar.calendarlist.readonly`, `${GOOGLE}calendar.events`];
+    for (const managementScope of [null, 'calendar.calendars', 'calendar']) {
+      await inTransaction(client => storeOAuthGrant(client, {
+        connectionId, audience: GOOGLE_GRANT_AUDIENCE, accessToken: 'a', refreshToken: null,
+        expiresAt: new Date(Date.now() + 3600_000), scopes: [...events, ...(managementScope ? [`${GOOGLE}${managementScope}`] : [])], clientIdAtIssue: 'client-1',
+      }));
+      const features = await describeAccountProviderFeatures({ userId: USER_A, accountId });
+      expect(features?.calendar).toMatchObject({
+        connectionId, authorized: true, canDiscover: true, canRead: true, canWrite: true,
+        calendarManagement: {
+          authorized: managementScope !== null,
+          requiredScopes: [managementScope ?? 'calendar.calendars'],
+          missingScopes: managementScope ? [] : ['calendar.calendars'],
+        },
+      });
+      expect(features?.mail).not.toHaveProperty('calendarManagement');
+      expect(features?.contacts).not.toHaveProperty('calendarManagement');
+      expect(features?.contacts?.canWrite).toBe(false);
+      expect(await describeAccountProviderFeatures({ userId: USER_B, accountId })).toBeNull();
+    }
+    await query("UPDATE oauth_grants SET status = 'revoked' WHERE connection_id = $1", [connectionId]);
+    const revoked = await describeAccountProviderFeatures({ userId: USER_A, accountId });
+    expect(revoked?.calendar?.calendarManagement).toMatchObject({ authorized: false, missingScopes: ['calendar.calendars'] });
   });
 });

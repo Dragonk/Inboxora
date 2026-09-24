@@ -94,7 +94,16 @@ export class ProviderAuthError extends Error {
 }
 
 /** The scopes one purpose asks for; independent features never imply one another. */
-export function googleScopesForPurpose(purpose: AuthorizationPurpose, access: RequestedAccess = 'source'): string[] {
+export function googleScopesForPurpose(
+  purpose: AuthorizationPurpose,
+  access: RequestedAccess = 'source',
+  options: { manageCalendars?: boolean } = {},
+): string[] {
+  // Collection lifecycle consent is explicit; ordinary event editing and read-only
+  // connections must never gain it as a side effect of reconnecting a mailbox.
+  if (options.manageCalendars && (purpose !== 'calendar_enable' || access !== 'source')) {
+    throw new ProviderAuthError('INVALID_CALENDAR_MANAGEMENT_CONSENT', 'Calendar management requires explicit calendar write consent');
+  }
   const scopes = new Set<string>(GOOGLE_IDENTITY_SCOPES);
   switch (purpose) {
     case 'new_account':
@@ -105,6 +114,7 @@ export function googleScopesForPurpose(purpose: AuthorizationPurpose, access: Re
     case 'calendar_enable':
       scopes.add(`${GOOGLE_AUTH_BASE}calendar.calendarlist.readonly`);
       scopes.add(`${GOOGLE_AUTH_BASE}${access === 'read_only' ? 'calendar.events.readonly' : 'calendar.events'}`);
+      if (options.manageCalendars) scopes.add(`${GOOGLE_AUTH_BASE}calendar.calendars`);
       break;
     case 'contacts_enable':
       scopes.add(`${GOOGLE_AUTH_BASE}${access === 'read_only' ? 'contacts.readonly' : 'contacts'}`);

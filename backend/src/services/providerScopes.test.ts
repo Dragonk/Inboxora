@@ -14,6 +14,20 @@ const GOOGLE = 'https://www.googleapis.com/auth/';
 const includes = (scopes: readonly string[], value: string) => scopes.includes(value);
 
 describe('googleScopesForPurpose', () => {
+  it('adds collection management only for explicit calendar write consent', () => {
+    const management = `${GOOGLE}calendar.calendars`;
+    expect(googleScopesForPurpose('calendar_enable', 'source', { manageCalendars: true })).toEqual(expect.arrayContaining([
+      management, `${GOOGLE}calendar.calendarlist.readonly`, `${GOOGLE}calendar.events`,
+    ]));
+    for (const purpose of ['new_account', 'mail_migration', 'calendar_enable', 'contacts_enable', 'account_enable'] as const) {
+      expect(googleScopesForPurpose(purpose)).not.toContain(management);
+      expect(googleScopesForPurpose(purpose, 'read_only')).not.toContain(management);
+      if (purpose !== 'calendar_enable') {
+        expect(() => googleScopesForPurpose(purpose, 'source', { manageCalendars: true })).toThrow('Calendar management requires explicit calendar write consent');
+      }
+    }
+    expect(() => googleScopesForPurpose('calendar_enable', 'read_only', { manageCalendars: true })).toThrow('Calendar management requires explicit calendar write consent');
+  });
   it('asks for a mailbox only when the purpose is mail', () => {
     const mail = googleScopesForPurpose('mail_migration');
     expect(includes(mail, `${GOOGLE}gmail.modify`)).toBe(true);

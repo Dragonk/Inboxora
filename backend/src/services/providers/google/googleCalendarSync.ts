@@ -1,6 +1,7 @@
 import type { PoolClient } from 'pg';
 import { withSavepoint, withTransaction } from '../../db.js';
 import { toAppError } from '../../../utils/errors.js';
+import { lockCalendarCollection, isCalendarCollectionDeleted, assertCalendarCollectionPresent, withCalendarCollectionSyncFence, CalendarCollectionDeletedError } from '../../calendarCollectionFence.js';
 import {
   acquireSyncLease,
   commitSyncCheckpoint,
@@ -10,7 +11,6 @@ import {
   readSyncState,
   releaseSyncLease,
   SyncLeaseLostError,
-  withFencedSyncLease,
 } from '../../syncCoordinator.js';
 import { GoogleApiError } from './googleApiClient.js';
 import type { GoogleApiOptions } from './googleApiClient.js';
@@ -100,12 +100,15 @@ export async function ensureGoogleCalendarCollection(client: PoolClient, input: 
   connectionId: string;
   entry: GoogleCalendarListEntry;
 }): Promise<void> {
+  const identity = { userId: input.userId, connectionId: input.connectionId, remoteCalendarId: input.entry.id };
+  await lockCalendarCollection(client, identity);
+  if (await isCalendarCollectionDeleted(client, identity)) return;
   const sourceAccess = googleCalendarSourceAccess(input.entry);
   const linkQuery = `SELECT id, local_calendar_id FROM integration_collections
-     WHERE connection_id = $1 AND kind = 'calendar' AND remote_id = $2`;
+     WHERE connection_id = $1 AND kind = 'calendar' AND remote_id = $2 AND user_id = $3`;
   const existing = await client.query<{ id: string; local_calendar_id: string | null }>(
     linkQuery,
-    [input.connectionId, input.entry.id],
+    [input.connectionId, input.entry.id, input.userId],
   );
   if (existing.rows[0]?.local_calendar_id) {
     // Already linked. `enabled` and `user_access` are **not** re-asserted — switching a collection the
@@ -152,12 +155,10 @@ export async function ensureGoogleCalendarCollection(client: PoolClient, input: 
           `INSERT INTO integration_collections
              (user_id, connection_id, kind, remote_id, local_calendar_id, enabled, source_access, user_access, dav_mode)
            VALUES ($1, $2, 'calendar', $3, $4, true, $5, 'source', 'off')
-           ON CONFLICT DO NOTHING
            RETURNING id`,
           [input.userId, input.connectionId, input.entry.id, calendarId, sourceAccess],
         );
-        const collectionId = collection.rows[0]?.id
-          ?? (await client.query<{ id: string }>(linkQuery, [input.connectionId, input.entry.id])).rows[0]?.id;
+        const collectionId = collection.rows[0]?.id;
         if (!collectionId) throw new Error('Could not link the Google calendar');
       });
       return;
@@ -209,6 +210,7 @@ async function listAllCalendars(api: GoogleApiOptions): Promise<GoogleCalendarLi
 async function syncCollection(api: GoogleApiOptions, collection: CalendarCollection, context: Omit<ApplyContext, 'collectionId' | 'calendarId' | 'remoteCalendarId'>, maxPages?: number): Promise<{
   created: number; updated: number; deleted: number; skipped: number; fullSync: boolean; incomplete: boolean;
 }> {
+  const collectionIdentity = { userId: context.userId, connectionId: context.connectionId, remoteCalendarId: collection.remoteId };
   const syncStateId = await withTransaction(client => ensureSyncState(client, {
     userId: context.userId,
     connectionId: context.connectionId,
@@ -268,14 +270,14 @@ async function syncCollection(api: GoogleApiOptions, collection: CalendarCollect
     };
     const groups = groupGoogleEvents(events);
     for (const [remoteId, group] of groups) {
-      const applied = await withFencedSyncLease({ syncStateId, generation: lease.generation, run: client => applyGoogleEventGroup(client, applyContext, remoteId, group) });
+      const applied = await withCalendarCollectionSyncFence(collectionIdentity, { syncStateId, generation: lease.generation, run: client => applyGoogleEventGroup(client, applyContext, remoteId, group) });
       totals[applied] += 1;
     }
     // A rebuild read a complete baseline, so a resource it omits was deleted while the cursor was
     // unusable; an incremental batch must never be reconciled this way. A capped run read only a prefix, so it
     // must not reconcile either (SYNC-04).
     if (rebuilt && complete) {
-      const removed = await withFencedSyncLease({ syncStateId, generation: lease.generation, run: client => reconcileProviderCalendarCollection(
+      const removed = await withCalendarCollectionSyncFence(collectionIdentity, { syncStateId, generation: lease.generation, run: client => reconcileProviderCalendarCollection(
         client, { userId: context.userId, collectionId: collection.id }, new Set(groups.keys()),
       ) });
       totals.deleted += removed;
@@ -291,6 +293,7 @@ async function syncCollection(api: GoogleApiOptions, collection: CalendarCollect
     // The cursor advances only after every group was applied, so a crash mid-run
     // re-reads from the previous cursor instead of skipping changes.
     const committed = await withTransaction(async client => {
+      await assertCalendarCollectionPresent(client, collectionIdentity);
       const saved = await commitSyncCheckpoint(client, {
         syncStateId,
         generation: lease.generation,
@@ -312,7 +315,7 @@ async function syncCollection(api: GoogleApiOptions, collection: CalendarCollect
     await withTransaction(client => releaseSyncLease(client, { syncStateId, generation: lease.generation })).catch(() => {});
     return { ...totals, incomplete: false };
   } catch (caught) {
-    const code = caught instanceof GoogleApiError || caught instanceof ProviderAuthError || caught instanceof SyncLeaseLostError ? caught.code : 'INTERNAL_ERROR';
+    const code = caught instanceof GoogleApiError || caught instanceof ProviderAuthError || caught instanceof SyncLeaseLostError || caught instanceof CalendarCollectionDeletedError ? caught.code : 'INTERNAL_ERROR';
     await withTransaction(client => failSyncRun(client, { syncStateId, generation: lease.generation, errorCode: code })).catch(() => {});
     throw caught;
   }
@@ -352,7 +355,7 @@ export async function syncGoogleCalendar(input: {
   const calendars = await listAllCalendars(api);
   await withTransaction(async client => {
     // One client, so the discovery writes run in sequence on the same connection.
-    for (const entry of calendars) {
+    for (const entry of [...calendars].sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0)) {
       await ensureGoogleCalendarCollection(client, { userId: input.userId, connectionId: input.connectionId, entry });
     }
   });
@@ -363,7 +366,11 @@ export async function syncGoogleCalendar(input: {
     `SELECT id, remote_id, local_calendar_id FROM integration_collections
       WHERE user_id = $1 AND connection_id = $2 AND kind = 'calendar' AND local_calendar_id IS NOT NULL
         AND enabled = true
-      ORDER BY created_at ASC`,
+         AND NOT EXISTS (SELECT 1 FROM calendar_collection_tombstones tombstone
+           WHERE tombstone.user_id = integration_collections.user_id
+             AND tombstone.connection_id = integration_collections.connection_id
+             AND tombstone.remote_calendar_id = integration_collections.remote_id)
+      ORDER BY created_at ASC, remote_id ASC`,
     [input.userId, input.connectionId],
   ));
   const collections: CalendarCollection[] = stored.rows.map(row => ({
@@ -393,7 +400,7 @@ export async function syncGoogleCalendar(input: {
     } catch (caught) {
       result.errors.push({
         calendarId: collection.remoteId,
-        code: caught instanceof GoogleApiError || caught instanceof ProviderAuthError || caught instanceof SyncLeaseLostError ? caught.code : 'INTERNAL_ERROR',
+        code: caught instanceof GoogleApiError || caught instanceof ProviderAuthError || caught instanceof SyncLeaseLostError || caught instanceof CalendarCollectionDeletedError ? caught.code : 'INTERNAL_ERROR',
       });
     }
   }

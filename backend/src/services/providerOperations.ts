@@ -66,10 +66,9 @@ export type BeginOperationResult =
     claimToken: string;
     generation: number;
     /**
-     * True when this claim took over an existing `in_flight` operation whose lease
-     * had expired, rather than beginning a new one. A caller must not re-run a
-     * non-idempotent provider call in that case: the previous owner may have
-     * dispatched it before it stopped.
+     * True for an expired in-flight claim or pending intent without durable safe-retry
+     * evidence. Non-idempotent calls must park: the previous owner may have dispatched.
+     * A due pending claim carrying this generation's explicit retry proof is false.
      */
     reclaimed: boolean;
     /**
@@ -81,7 +80,7 @@ export type BeginOperationResult =
     progress: OperationProgressEntry[];
   }
   | { outcome: 'duplicate'; operationId: string; status: ProviderOperationStatus; result?: unknown; errorCode?: string | null }
-  | { outcome: 'in_progress'; operationId: string; status: ProviderOperationStatus }
+  | { outcome: 'in_progress'; operationId: string; status: ProviderOperationStatus; retryAfterSeconds?: number }
   | { outcome: 'conflict'; reason: 'idempotency_key_reused' };
 
 interface OperationRow {
@@ -95,7 +94,9 @@ interface OperationRow {
   lease_expires_at: string | Date | null;
   attempts: number;
   /** The durable record of this operation's own stages, as `recordOperationProgress` appends them (CAL-01). */
-  upstream_ref?: { progress?: OperationProgressEntry[] } | null;
+  upstream_ref?: { progress?: OperationProgressEntry[]; safe_retry?: { version?: unknown; generation?: unknown } } | null;
+  retry_due?: boolean;
+  retry_after_seconds?: number | null;
 }
 
 /** One completed stage of a multi-write operation. */
@@ -153,7 +154,9 @@ export async function beginOperation(client: PoolClient, input: BeginOperationIn
   // The row already exists for this key. Lock it so two concurrent retries cannot
   // both decide to reclaim the same expired claim.
   const existing = await client.query<OperationRow>(
-    `SELECT id, status, payload_hash, result, error_code, claim_token, generation, lease_expires_at, attempts, upstream_ref
+    `SELECT id, status, payload_hash, result, error_code, claim_token, generation, lease_expires_at, attempts, upstream_ref,
+            (next_attempt_at IS NOT NULL AND next_attempt_at <= NOW()) AS retry_due,
+            CEIL(GREATEST(0, EXTRACT(EPOCH FROM (next_attempt_at - NOW()))))::float8 AS retry_after_seconds
        FROM provider_operations
       WHERE ${scopedIdempotencyPredicate()}
       FOR UPDATE`,
@@ -178,13 +181,23 @@ export async function beginOperation(client: PoolClient, input: BeginOperationIn
     return { outcome: 'in_progress', operationId: row.id, status: row.status };
   }
 
-  // `pending`, or an `in_flight` row whose lease expired: take it over with a new
-  // generation, which fences the previous owner out of completing it.
+  if (row.status === 'pending' && row.retry_due === false && (row.retry_after_seconds ?? 0) > 0) {
+    return { outcome: 'in_progress', operationId: row.id, status: row.status, retryAfterSeconds: row.retry_after_seconds! };
+  }
+  // Only our owned retry transition proves that no mutation was applied. Bind the
+  // proof to its generation and consume it on claim: a crash after this next
+  // dispatch must not inherit permission to execute yet again.
+  const proof = row.upstream_ref?.safe_retry;
+  const safeRetry = row.status === 'pending' && row.retry_due === true
+    && proof?.version === 1 && proof.generation === String(row.generation);
+  // Pending or expired in-flight: take over with a new generation, fencing the
+  // previous owner. Unmarked legacy pending retains conservative reclaim semantics.
   const reclaim = await client.query<{ id: string; claim_token: string; generation: string | number }>(
     `UPDATE provider_operations
         SET status = 'in_flight', claim_token = $3, generation = generation + 1,
             claimed_at = NOW(), lease_expires_at = NOW() + make_interval(secs => $4),
-            owner = $5, attempts = attempts + 1, updated_at = NOW()
+            owner = $5, attempts = attempts + 1, updated_at = NOW(),
+             upstream_ref = COALESCE(upstream_ref, '{}'::jsonb) - 'safe_retry', next_attempt_at = NULL
       WHERE id = $1 AND generation = $2
       RETURNING id, claim_token, generation`,
     [row.id, row.generation, crypto.randomUUID(), leaseSeconds, input.owner ?? null],
@@ -196,7 +209,7 @@ export async function beginOperation(client: PoolClient, input: BeginOperationIn
     operationId: claimed.id,
     claimToken: claimed.claim_token,
     generation: Number(claimed.generation),
-    reclaimed: true,
+    reclaimed: !safeRetry,
     progress: row.upstream_ref?.progress ?? [],
   };
 }
@@ -276,8 +289,10 @@ export async function scheduleOperationRetry(client: PoolClient, input: {
   const result = await client.query(
     `UPDATE provider_operations
         SET status = 'pending', error_code = $4, next_attempt_at = $5,
+            upstream_ref = COALESCE(upstream_ref, '{}'::jsonb) || jsonb_build_object(
+              'safe_retry', jsonb_build_object('version', 1, 'generation', generation::text)),
             claim_token = NULL, lease_expires_at = NULL, updated_at = NOW()
-      WHERE id = $1 AND claim_token = $2 AND generation = $3
+      WHERE id = $1 AND claim_token = $2 AND generation = $3 AND status = 'in_flight'
       RETURNING id`,
     [input.operationId, input.claimToken, input.generation, input.errorCode ?? null, input.nextAttemptAt],
   );

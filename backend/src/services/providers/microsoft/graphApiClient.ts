@@ -102,6 +102,8 @@ export interface GraphApiOptions {
   config?: ReturnType<typeof microsoftConfigFromEnv>;
   fetchImpl?: FetchLike;
   owner?: string;
+  /** Cancellation owned by the mutation journal or caller; never replace it with a timeout. */
+  signal?: AbortSignal;
   /**
    * Ask for **immutable** message ids on every request this client makes (GRAPH-04).
    *
@@ -207,24 +209,35 @@ async function graphSendWithHeaders(
     ...graphPreferValues(extraHeaders),
     options.immutableIds ? IMMUTABLE_ID_PREFERENCE : undefined,
   );
-  const send = async (token: string): Promise<Response> => fetchImpl(url, {
-    method: init.method,
-    headers: {
-      ...Object.fromEntries(Object.entries(extraHeaders).filter(([name]) => name.toLowerCase() !== 'prefer')),
-      ...(prefer ? { Prefer: prefer } : {}),
-      authorization: `Bearer ${token}`,
-      accept: 'application/json',
-      ...(init.body === undefined ? {} : { 'content-type': 'application/json' }),
-    },
-    ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
-    signal: AbortSignal.timeout(GRAPH_TIMEOUT_MS),
-  });
+  const signal = AbortSignal.any([
+    AbortSignal.timeout(GRAPH_TIMEOUT_MS),
+    ...(options.signal ? [options.signal] : []),
+  ]);
+  signal.throwIfAborted();
+  const send = async (token: string): Promise<Response> => {
+    // Token refresh may finish after cancellation; never dispatch a late write.
+    signal.throwIfAborted();
+    return fetchImpl(url, {
+      method: init.method,
+      headers: {
+        ...Object.fromEntries(Object.entries(extraHeaders).filter(([name]) => name.toLowerCase() !== 'prefer')),
+        ...(prefer ? { Prefer: prefer } : {}),
+        authorization: `Bearer ${token}`,
+        accept: 'application/json',
+        ...(init.body === undefined ? {} : { 'content-type': 'application/json' }),
+      },
+      ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
+      signal,
+    });
+  };
 
   let response = await send(await accessToken(options));
+  signal.throwIfAborted();
   if (response.status === 401) {
     // At most one controlled refresh and retry: the cached token may have been
     // revoked between the validity check and the call.
     response = await send(await accessToken(options, 60 * 60 * 24 * 365));
+    signal.throwIfAborted();
   }
   return response;
 }
@@ -273,9 +286,15 @@ export async function graphPost<T>(options: GraphApiOptions, pathOrUrl: string, 
   return await response.json().catch(() => null) as T | null;
 }
 
-export async function graphDelete(options: GraphApiOptions, pathOrUrl: string): Promise<void> {
+/** Preserve status for mutations that must distinguish confirmed 204 from accepted 202. */
+export async function graphDeleteResponse(options: GraphApiOptions, pathOrUrl: string): Promise<Response> {
   const response = await graphSend(options, pathOrUrl, { method: 'DELETE' });
   if (!response.ok) await throwForStatus(response);
+  return response;
+}
+
+export async function graphDelete(options: GraphApiOptions, pathOrUrl: string): Promise<void> {
+  await graphDeleteResponse(options, pathOrUrl);
 }
 
 /** Build a Graph URL with `$select`/`$top` and only the defined parameters. */

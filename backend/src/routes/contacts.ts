@@ -3,6 +3,7 @@ import type { Response } from 'express';
 import type { VCardContact } from '../utils/vcard.ts';
 import { query, withTransaction } from '../services/db.js';
 import { collectionIsWritable } from '../services/providerAccess.js';
+import { ADDRESS_BOOK_PRESENTATION_SQL } from '../services/addressBookPresentation.js';
 import { providerIntegrationsEnabled, providerOperationalForSync } from '../services/providerSwitches.js';
 import { providerConnectionFeatureEnabled } from '../services/accountProviderFeatureSettings.js';
 import { requireAuth } from '../middleware/auth.js';
@@ -260,18 +261,7 @@ router.get('/address-books', async (req, res) => {
     // can be switched the same way a pulled calendar can. Without them the switch had nothing to address
     // and the write-back was unreachable for every address book.
     const result = await query<{ id: string; source?: string | null; source_access?: string | null; user_access?: string | null; [key: string]: unknown }>(
-      `SELECT ab.id, ab.name, ab.source, ab.visible, ab.dav_mode, COUNT(c.id)::int AS contact_count,
-              ic.id AS collection_id, ic.connection_id, ic.source_access, ic.user_access,
-               pc.provider AS provider, ea.id AS account_id, ea.email_address AS account_email
-         FROM address_books ab
-         LEFT JOIN contacts c ON c.address_book_id = ab.id
-         LEFT JOIN integration_collections ic
-                ON ic.local_address_book_id = ab.id AND ic.kind = 'address_book' AND ic.user_id = ab.user_id
-        LEFT JOIN provider_connections pc ON pc.id = ic.connection_id
-         LEFT JOIN email_accounts ea ON ea.provider_connection_id = pc.id AND ea.user_id = ab.user_id
-         WHERE ab.user_id = $1
-        GROUP BY ab.id, ic.id, pc.provider, ea.id
-        ORDER BY ab.created_at ASC`,
+      ADDRESS_BOOK_PRESENTATION_SQL,
       [req.session.userId],
     );
     const addressBooks = result.rows.map(row => ({
