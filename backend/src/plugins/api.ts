@@ -19,6 +19,11 @@ import { getMailEngine } from './mailEngine.js';
 import * as labelsWrite from '../services/labels.js';
 import { archiveInboxCopy as _archiveInboxCopy } from '../services/archiveInbox.js';
 
+// Safe request/error helpers for plugin-owned routes and hook handlers.
+export { toAppError } from '../utils/errors.js';
+export { queryString, queryStringOr, queryInt, routeParam, sessionUserId } from '../utils/query.js';
+export type { PluginContext } from './registry.js';
+
 /** A mail account as the plugin API exposes it (never the engine or credentials). */
 export interface PluginAccount {
   id?: string;
