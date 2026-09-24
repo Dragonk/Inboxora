@@ -396,6 +396,7 @@ None.
   IMAP loops, health checks, rule forwarder and send path no longer open IMAP or SMTP for it.
 
 ### Fixed
+- **Successful provider sync clears its recovered error.** Calendar diagnostics no longer retain a historical disabled-API failure after the same collection completes a clean synchronization.
 - **Google Calendar API configuration is actionable from account diagnostics.** A disabled-Google-API failure for Calendar or Contacts shows the Google API setup link and retries only the affected service; it no longer leaves a calendar failure without remediation.
 - **Calendar collection intents are journaled before provider calls.** Confirmed results replay without another remote mutation; uncertain creates are not automatically repeated. Proven rate-limit retries honour `Retry-After` and consume their one safe re-dispatch token before calling upstream. Explicit account-scoped Google management consent requests the extra collection scope without widening ordinary reconnect or read-only consent.
 - **Confirmed calendar deletions fence stale discovery.** Additive migrations `0136_calendar_collection_lifecycle.sql` and `0137_calendar_collection_projection_receipts.sql` retain deletion tombstones and projection receipts; shared projection locks prevent concurrent discovery from creating orphan calendars. Canonical Settings now supports guarded account-native create/delete with replay-safe recovery, while newly created provider calendars start read-only rather than enabling event write-back.

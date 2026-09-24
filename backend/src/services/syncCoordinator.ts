@@ -241,7 +241,12 @@ export async function finishSyncRun(client: PoolClient, input: {
 }): Promise<boolean> {
   const result = await client.query(
     `UPDATE sync_states
-        SET last_success_at = NOW(), last_error_code = $3, updated_at = NOW()
+        SET last_success_at = NOW(), last_error_code = $3,
+            -- A completed clean run supersedes the failure it recovered from. Keeping
+            -- its timestamp made account diagnostics select a historical error even
+            -- though every calendar collection had subsequently synchronized.
+            last_error_at = CASE WHEN $3::text IS NULL THEN NULL ELSE last_error_at END,
+            updated_at = NOW()
       WHERE id = $1 AND running_generation = $2 AND lease_expires_at > NOW()
       RETURNING id`,
     [input.syncStateId, input.generation, input.lastErrorCode ?? null],
