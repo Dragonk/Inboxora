@@ -3170,7 +3170,7 @@ export default function MessageList() {
                 </div>
               ))}
               <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--border-subtle)', fontSize: 10, color: 'var(--text-tertiary)' }}>
-                {t('messageList.searchHelp.tip')} <code style={{ fontFamily: 'monospace' }}>from:amazon invoice</code>
+                {t('messageList.searchHelp.tip')} <code style={{ fontFamily: 'monospace' }}>{t('messageList.searchHelp.example')}</code>
               </div>
             </div>
           )}

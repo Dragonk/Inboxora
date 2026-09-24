@@ -11,7 +11,8 @@ test('calendar settings offer ICS/webcal subscriptions, CalDAV connection, and h
   ]);
 
   // The section lives in Settings → Calendar, not only in the visibility panel.
-  assert.match(admin, /<CalendarSubscriptionsSettings locale=/);
+  assert.match(admin, /<CalendarSettingsManager locale=/);
+  assert.match(await source('./CalendarSettingsManager.tsx'), /<CalendarSubscriptionsSettings locale=\{locale\} creationOnly/);
   assert.match(admin, /adminTab === 'calendar' && <CalendarSettingsTab/);
 
   // Subscribing by URL reuses the one external-source mechanism the panel already uses.
@@ -23,7 +24,7 @@ test('calendar settings offer ICS/webcal subscriptions, CalDAV connection, and h
   assert.match(component, /data-testid="calendar-local-create-form"/);
   assert.match(component, /api\.calendar\.createCalendar\(\{ name, color: localCalendar\.color, displayVisible: true \}\)/);
   assert.match(admin, /section === 'appearance'/);
-  assert.match(admin, /section === 'connections'/);
+  assert.match(admin, /section === 'accounts'/);
   // Credential-bearing CalDAV setup is a Calendar setting, not a source-manager form.
   assert.match(component, /data-testid="calendar-caldav-settings-form"/);
   assert.match(component, /kind: 'caldav'/);

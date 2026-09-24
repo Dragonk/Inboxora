@@ -1096,9 +1096,11 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     });
   };
 
+  const esc = (s: string | null | undefined) => (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
   const handleForward = () => {
     if (!message) return;
-    const date = message.date ? new Date(message.date).toLocaleString() : '';
+    const date = message.date ? new Date(message.date).toLocaleString(i18n.language) : '';
     const safeName = (message.from_name || '').replace(/[\r\n]+/g, ' ');
     const fromStr = safeName
       ? `${safeName} <${message.from_email}>`
@@ -1108,9 +1110,17 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     const toStr = parseAddressField(message.to_addresses);
     const ccStr = parseAddressField(message.cc_addresses);
 
-    const fwdText = `\n\n---------- Forwarded message ----------\nFrom: ${fromStr}\nDate: ${date}\nSubject: ${safeSubject}${toStr ? `\nTo: ${toStr}` : ''}${ccStr ? `\nCc: ${ccStr}` : ''}\n\n${body?.text || ''}`;
+    const forwardHeading = `---------- ${t('message.forwardedMessage')} ----------`;
+    const forwardHeaders = [
+      `${t('compose.from')}: ${fromStr}`,
+      `${t('message.date')}: ${date}`,
+      `${t('compose.subject')}: ${safeSubject}`,
+      ...(toStr ? [`${t('compose.to')}: ${toStr}`] : []),
+      ...(ccStr ? [`${t('compose.cc')}: ${ccStr}`] : []),
+    ];
+    const fwdText = `\n\n${[forwardHeading, ...forwardHeaders].join('\n')}\n\n${body?.text || ''}`;
     const fwdHtml = body?.html
-      ? `<div style="border-left:3px solid var(--border,#ccc);padding-left:12px;margin-top:12px;color:var(--text-secondary,#666)"><p style="margin:0 0 6px;font-size:12px">---------- Forwarded message ----------<br>From: ${fromStr}<br>Date: ${date}<br>Subject: ${safeSubject}${toStr ? `<br>To: ${toStr}` : ''}${ccStr ? `<br>Cc: ${ccStr}` : ''}</p>${body.html}</div>`
+      ? `<div style="border-left:3px solid var(--border,#ccc);padding-left:12px;margin-top:12px;color:var(--text-secondary,#666)"><p style="margin:0 0 6px;font-size:12px">${[forwardHeading, ...forwardHeaders].map(esc).join('<br>')}</p>${body.html}</div>`
       : null;
     openCompose({
       subject: message.subject?.startsWith('Fwd:') ? message.subject : `Fwd: ${message.subject}`,
@@ -1146,8 +1156,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
 
   const handlePrint = () => {
     if (!message) return;
-    const esc = (s: string | null | undefined) => (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    const date = message.date ? new Date(message.date).toLocaleString() : '';
+    const date = message.date ? new Date(message.date).toLocaleString(i18n.language) : '';
     const fromStr = message.from_name
       ? `${esc(message.from_name)} &lt;${esc(message.from_email)}&gt;`
       : esc(message.from_email);
@@ -1179,12 +1188,12 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   @media print { body { margin: 16px; } }
 </style></head><body>
 <div class="header">
-  <h1>${esc(message.subject) || '(no subject)'}</h1>
+  <h1>${esc(message.subject || t('common.noSubject'))}</h1>
   <div class="meta">
-    <div><span>From:</span> ${fromStr}</div>
-    <div><span>To:</span> ${toStr}</div>
-    ${ccStr ? `<div><span>Cc:</span> ${ccStr}</div>` : ''}
-    <div><span>Date:</span> ${date}</div>
+    <div><span>${esc(t('compose.from'))}:</span> ${fromStr}</div>
+    <div><span>${esc(t('compose.to'))}:</span> ${toStr}</div>
+    ${ccStr ? `<div><span>${esc(t('compose.cc'))}:</span> ${ccStr}</div>` : ''}
+    <div><span>${esc(t('message.date'))}:</span> ${esc(date)}</div>
   </div>
 </div>
 ${bodyContent}
@@ -2047,7 +2056,7 @@ ${bodyContent}
                   </div>
                   {ccList.length > 0 && (
                     <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      <span>Cc </span>
+                      <span>{t('compose.cc')} </span>
                       <span style={{ color: 'var(--text-secondary)' }}>
                         {ccList.map((r: { name?: string | null; email?: string | null }, i: number) => (
                           <span key={i}>{r.name || r.email}{i < ccList.length - 1 ? ', ' : ''}</span>
@@ -2089,7 +2098,7 @@ ${bodyContent}
                   </div>
                   {ccList.length > 0 && (
                     <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2 }}>
-                      <span>Cc </span>
+                      <span>{t('compose.cc')} </span>
                       <span style={{ color: 'var(--text-secondary)' }}>
                         {ccList.map((r, i) => (
                           <span key={i}>

@@ -8,7 +8,13 @@ describe('DAV application password settings contract', () => {
     assert.match(source, /function DavCredentialsTab\(\)/);
     assert.match(source, /api\.davCredentials\.list\(\)/);
     assert.match(source, /api\.davCredentials\.create\(label\.trim\(\), maxMode\)/);
-    assert.match(source, /navigator\.clipboard\.writeText\(secret\)/);
+    assert.match(source, /DavCopyValue label=\{t\('admin.davCredentials.secretTitle'\)\} value=\{secret\}/);
+    const copySource = await readFile(new URL('./DavCopyValue.tsx', import.meta.url), 'utf8');
+    assert.match(copySource, /navigator\.clipboard\.writeText\(value\)/);
+    assert.match(copySource, /overflowWrap: 'anywhere'/);
+    assert.match(copySource, /aria-label=/);
+    assert.match(copySource, /'alert' : 'status'/);
+    assert.match(copySource, /current === generation.current/);
     assert.match(source, /\.well-known\/carddav/);
     assert.match(source, /\.well-known\/caldav/);
     assert.match(source, /api\.davCredentials\.revoke\(credential\.id\)/);

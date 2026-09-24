@@ -73,6 +73,8 @@ interface Props {
   t: (key: string, vars?: Record<string, unknown>) => string;
   /** Account editing stages service intent until the form is saved. */
   deferServiceChanges?: boolean;
+  /** Read-only summary for the account overview. */
+  compact?: boolean;
   onFeatureIntentChange?: (service: 'calendars' | 'contacts', enabled: boolean) => void;
 }
 
@@ -102,7 +104,16 @@ export function authorizationPath(input: { provider: 'google' | 'microsoft'; ser
     : `/oauth/provider/microsoft?purpose=${purpose}${account}`;
 }
 
-export default function AccountProviderServices({ accountId, reload, t, deferServiceChanges = false, onFeatureIntentChange }: Props) {
+export function providerServiceStatus(feature: { enabled?: boolean; authorized: boolean; synchronized?: boolean; syncPending?: boolean; syncErrorCode?: string | null } | null | undefined, t: Props['t']): string {
+  if (feature?.enabled === false || feature == null) return t('admin.plugins.disabledBadge');
+  if (!feature?.authorized) return t('admin.accounts.services.notConnected');
+  if (feature.syncErrorCode) return t('admin.accounts.services.syncFailed', { code: feature.syncErrorCode });
+  if (feature.syncPending) return t('admin.accounts.services.syncPending');
+  if (feature.synchronized === true) return t('admin.accounts.services.connected');
+  return t('admin.accounts.services.syncPending');
+}
+
+export default function AccountProviderServices({ accountId, reload, t, deferServiceChanges = false, onFeatureIntentChange, compact = false }: Props) {
   const [features, setFeatures] = useState<AccountProviderFeatures | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -111,6 +122,7 @@ export default function AccountProviderServices({ accountId, reload, t, deferSer
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const [featureSaving, setFeatureSaving] = useState<'calendars' | 'contacts' | null>(null);
   const statusGeneration = useRef(0);
+  const stagedIntent = useRef<Partial<Record<'calendars' | 'contacts', boolean>>>({});
 
   const load = useCallback(async (): Promise<void> => {
     const generation = ++statusGeneration.current;
@@ -119,6 +131,12 @@ export default function AccountProviderServices({ accountId, reload, t, deferSer
       // An account switch or a newer refresh may finish first; never mix its state
       // with this response's diagnostics.
       if (generation !== statusGeneration.current || data.accountId !== accountId) return;
+      // Refresh updates server facts, but must not discard unsaved Save/Cancel intent.
+      for (const service of ['calendars', 'contacts'] as const) {
+        const key = service === 'calendars' ? 'calendar' : 'contacts';
+        const enabled = stagedIntent.current[service];
+        if (data[key] && enabled !== undefined) data[key] = { ...data[key], enabled };
+      }
       setFeatures(data); setDiagnostics(data.diagnostics); setError(null);
     } catch (caught) {
       if (generation !== statusGeneration.current) return;
@@ -127,7 +145,13 @@ export default function AccountProviderServices({ accountId, reload, t, deferSer
       setError(toAppError(caught).message);
     }
   }, [accountId]);
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    stagedIntent.current = {};
+    setFeatures(null);
+    setDiagnostics(null);
+    void load();
+    return () => { statusGeneration.current += 1; };
+  }, [load]);
 
   /**
    * React to the OAuth window that was opened from this card.
@@ -198,7 +222,23 @@ export default function AccountProviderServices({ accountId, reload, t, deferSer
     }
   }, [accountId, authorize, load, reload, t]);
 
-  if (!features?.provider) return null;
+  if (compact) return (
+    <div data-testid="account-provider-summary" style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 20px', minWidth: 0, fontSize: 11, overflowWrap: 'anywhere' }}>
+      {(['calendar', 'contacts'] as const).map(service => {
+        const feature = features?.[service];
+        return <span key={service} data-testid={`account-summary-${service}`}>
+          <span style={{ color: 'var(--text-tertiary)' }}>{t(`admin.accounts.services.${service}`)}: </span>
+          <span style={{ color: feature?.enabled && feature.syncErrorCode ? 'var(--red)' : 'var(--text-secondary)' }}>
+            {!features ? t(error ? 'admin.accounts.diagnostics.none' : 'common.loading') : <>
+              {t(feature?.enabled ? 'admin.accounts.diagnostics.yes' : 'admin.accounts.diagnostics.no')} · {providerServiceStatus(feature, t)}
+            </>}
+          </span>
+        </span>;
+      })}
+      {error && <span role="alert" style={{ color: 'var(--red)' }}>{error}</span>}
+    </div>
+  );
+  if (!features?.provider) return error ? <div role="alert">{error}</div> : null;
   const provider = features.provider;
   const providerName = provider === 'google' ? t('admin.accounts.services.google') : t('admin.accounts.services.microsoft');
   // The mailbox is already connected to its provider when any of its features is authorized, or when its mail
@@ -216,6 +256,7 @@ export default function AccountProviderServices({ accountId, reload, t, deferSer
     // remain server-derived; on refusal the complete prior snapshot is restored.
     setFeatures(current => current && current[key] ? { ...current, [key]: { ...current[key]!, enabled } } : current);
     if (deferServiceChanges) {
+      stagedIntent.current[service] = enabled;
       onFeatureIntentChange?.(service, enabled);
       return;
     }
@@ -251,18 +292,7 @@ export default function AccountProviderServices({ accountId, reload, t, deferSer
    * grant is stored but whose first run failed is **connected with a synchronization failure**, not
    * "not connected" — that wording sends the user to reconnect an account that is already authorized.
    */
-  const serviceStatus = (feature: { enabled?: boolean; authorized: boolean; synchronized?: boolean; syncPending?: boolean; syncErrorCode?: string | null } | null | undefined): string => {
-    // User intent is authoritative: an old error or an existing grant must not make a
-    // deliberately disabled service look pending or unhealthy.
-    if (feature?.enabled === false) return t('admin.plugins.disabledBadge');
-    if (!feature?.authorized) return t('admin.accounts.services.notConnected');
-    // The most recent failure outranks an older success: the diagnostics keep the last successful time and the
-    // latest error separately, so checking `synchronized` first let a failure that arrived after a good run keep
-    // showing "connected" (OBS-02).
-    if (feature.syncErrorCode) return t('admin.accounts.services.syncFailed', { code: feature.syncErrorCode });
-    if (feature.synchronized === true) return t('admin.accounts.services.connected');
-    return t('admin.accounts.services.syncPending');
-  };
+  const serviceStatus = (feature: Parameters<typeof providerServiceStatus>[0]): string => providerServiceStatus(feature, t);
 
   /**
    * The push line, from the full state rather than a shorthand (OBS-03).
@@ -341,21 +371,17 @@ export default function AccountProviderServices({ accountId, reload, t, deferSer
         )}
       </div>
 
-      {serviceRow(t('admin.accounts.services.calendar'), features.calendar?.authorized === true,
-        features.calendar?.authorized ? t('admin.accounts.services.collections', { count: features.calendar.collections.length }) : undefined,
-        features.calendar)}
-      {serviceRow(t('admin.accounts.services.contacts'), features.contacts?.authorized === true,
-        undefined,
-        features.contacts)}
-      <div data-testid="account-provider-feature-toggles" style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 4 }}>
+      <div data-testid="account-provider-feature-toggles" style={{ display: 'grid', marginTop: 12 }}>
         {(['calendars', 'contacts'] as const).map(service => {
           const feature = service === 'calendars' ? features.calendar : features.contacts;
           if (!feature) return null;
           const label = service === 'calendars' ? t('admin.accounts.services.calendar') : t('admin.accounts.services.contacts');
           const checked = feature.enabled === true;
           const disabled = featureSaving !== null;
-          return <div key={service} className="settings-switch-row" style={{ minWidth: 190, padding: '6px 0' }}>
-            <span className="settings-switch-label">{label}</span>
+          return <div key={service} className="settings-switch-row" style={{ minWidth: 0, padding: '12px 0', borderBottom: '1px solid var(--border-subtle)', gap: 16 }}>
+            <div className="settings-switch-label" style={{ minWidth: 0, overflowWrap: 'anywhere' }}>
+              {serviceRow(label, feature.authorized, undefined, feature)}
+            </div>
             <button
               type="button"
               role="switch"
@@ -364,7 +390,7 @@ export default function AccountProviderServices({ accountId, reload, t, deferSer
               aria-label={label}
               disabled={disabled}
               onClick={() => { void setServiceEnabled(service, !checked); }}
-              style={{ width: 44, height: 24, borderRadius: 12, background: checked ? 'var(--accent)' : 'var(--bg-elevated)', border: `1px solid ${checked ? 'var(--accent)' : 'var(--border)'}`, cursor: disabled ? 'not-allowed' : 'pointer', position: 'relative', opacity: disabled ? 0.6 : 1 }}
+              style={{ width: 44, height: 24, flexShrink: 0, borderRadius: 12, background: checked ? 'var(--accent)' : 'var(--bg-elevated)', border: `1px solid ${checked ? 'var(--accent)' : 'var(--border)'}`, cursor: disabled ? 'not-allowed' : 'pointer', position: 'relative', opacity: disabled ? 0.6 : 1 }}
             >
               <span style={{ position: 'absolute', top: 3, left: checked ? 22 : 3, width: 16, height: 16, borderRadius: '50%', background: 'white', transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.3)' }} />
             </button>

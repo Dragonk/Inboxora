@@ -1632,7 +1632,7 @@ export default function Sidebar({ onEditProfile = null }: { onEditProfile?: (() 
                 fontSize: 14, fontWeight: 600, color: 'var(--text-primary)',
                 overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
               }}>
-                {user?.displayName || user?.username || 'Account'}
+                {user?.displayName || user?.username || t('admin.cleanup.account')}
               </div>
               {user?.email && (
                 <div style={{
@@ -1858,7 +1858,7 @@ export default function Sidebar({ onEditProfile = null }: { onEditProfile?: (() 
                   color: 'var(--text-primary)',
                   overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                 }}>
-                  {user?.displayName || user?.username || 'Account'}
+                  {user?.displayName || user?.username || t('admin.cleanup.account')}
                 </span>
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
                   stroke="var(--text-tertiary)" strokeWidth="2" style={{ flexShrink: 0 }}>
@@ -1891,7 +1891,7 @@ export default function Sidebar({ onEditProfile = null }: { onEditProfile?: (() 
         >
           <div style={{ padding: '10px 13px 9px', borderBottom: '1px solid var(--border-subtle)' }}>
             <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>
-              {user?.displayName || user?.username || 'Account'}
+              {user?.displayName || user?.username || t('admin.cleanup.account')}
             </div>
             {user?.email && (
               <div style={{

@@ -20,7 +20,7 @@ const read = () => readFile(panel, 'utf8');
 function rowFor(source: string, saveMarker: string, provider: string): string {
   const saveAt = source.indexOf(`onClick={${saveMarker}}`);
   assert.ok(saveAt !== -1, `${saveMarker} not found`);
-  const openAt = source.lastIndexOf("<div style={{ display: 'flex', gap: 8 }}>", saveAt);
+  const openAt = source.lastIndexOf('<div style={providerActionsStyle}>', saveAt);
   assert.ok(openAt !== -1, `no action row opens before ${saveMarker}`);
   const testAt = source.indexOf(`<ProviderConfigTest provider="${provider}" />`, saveAt);
   assert.ok(testAt !== -1, `${provider} test action not found after ${saveMarker}`);
@@ -59,8 +59,9 @@ test('the two action rows use the same button metrics', async () => {
     assert.match(row, /fontWeight: 500/);
   }
   // Neither row may carry its own gap: the row itself decides the spacing.
-  assert.match(microsoft, /display: 'flex', gap: 8/);
-  assert.match(google, /display: 'flex', gap: 8/);
+  assert.match(microsoft, /style=\{providerActionsStyle\}/);
+  assert.match(google, /style=\{providerActionsStyle\}/);
+  assert.match(source, /const providerActionsStyle[^;]+flexWrap: 'wrap'/);
 });
 
 test('each card saves under its own label, and never the other provider’s', async () => {

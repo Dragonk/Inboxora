@@ -396,6 +396,10 @@ None.
   IMAP loops, health checks, rule forwarder and send path no longer open IMAP or SMTP for it.
 
 ### Fixed
+- **Translation coverage is enforced before publishing.** CI and container/native release workflows run `test:i18n`, checking referenced keys across all nine languages, rendered literals with TypeScript AST, interpolation variables and plural rendering without English fallback. Missing settings/contacts keys, untranslated editor/native notifications and broken provider-status placeholders are corrected; blanket conversation-copy exemptions are removed.
+- **Forward/print metadata is localized and escaped.** Translated labels and message metadata cannot become HTML markup in generated forward headers; displayed dates follow the application language.
+- **Calendar and contact management now lives in Settings.** View-level management buttons navigate to the canonical account/source sections instead of opening parallel managers. Calendar settings exposes Accounts and Appearance; hiding a calendar changes only its sidebar presence, not event selection.
+- **Settings controls share a consistent layout.** Gesture, conversation grouping and reader preferences use described choices; provider configuration starts collapsed, account cards summarize Calendar/Contacts state, and DAV addresses have compact responsive copy controls.
 - **Contacts manager groups books by connection.** Local, CardDAV, Google and Microsoft books are separated by their source and mailbox context, so same-named collections from two provider accounts do not share a management section.
 - **CardDAV source controls are no longer presented as a book property.** Contacts manager exposes the connection-level source section independently of the selected local, Google or Microsoft address book.
 - **New contacts have an explicit, durable destination.** The form selects a writable address book (with provider mailbox where applicable) and saves to that captured target even if the surrounding list filter changes.

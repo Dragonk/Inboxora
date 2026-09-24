@@ -51,6 +51,10 @@ jobs:
         working-directory: frontend
         run: npm ci
 
+      - name: Translation release gate
+        working-directory: frontend
+        run: npm run test:i18n
+
       - name: Resolve app version
         id: app-version
         shell: bash
@@ -171,6 +175,10 @@ jobs:
       - name: Install dependencies
         working-directory: frontend
         run: npm ci
+
+      - name: Translation release gate
+        working-directory: frontend
+        run: npm run test:i18n
 
       - name: Resolve app version
         id: app-version

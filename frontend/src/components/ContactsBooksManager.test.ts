@@ -28,7 +28,7 @@ test('the ellipsis menu is gone and one manage action opens the manager', async 
 
   // One entry point, which opens the panel rather than a menu.
   assert.match(source, /data-testid="contacts-manage-books"/);
-  assert.match(source, /setBooksManagerOpen\(true\)/);
+  assert.match(source, /setAdminTab\('contacts'\); setShowAdmin\(true\)/);
   assert.match(source, /<ContactsBooksManager/);
 });
 
@@ -49,9 +49,9 @@ test('CardDAV connection management is separate from the selected book detail', 
 test('the manager is a dialog with a book list and the selected book beside it', async () => {
   const source = await read(manager);
 
-  // A real dialog, not a menu.
-  assert.match(source, /<Dialog/);
-  assert.match(source, /testId="contacts-books-manager"/);
+  // Embedded settings content, not another floating settings dialog.
+  assert.doesNotMatch(source, /<Dialog/);
+  assert.match(source, /data-testid="contacts-books-manager"/);
   assert.match(source, /data-testid="contacts-manager-books"/);
   assert.match(source, /data-testid="contacts-manager-detail"/);
   assert.match(source, /accountLabel: string \| null;/);
@@ -141,7 +141,7 @@ test('the manager is one panel on desktop and a two-step sheet on mobile', async
   const source = await read(manager);
 
   // Mobile: the list, then the detail with a Back action; no side-by-side squeeze.
-  assert.match(source, /isMobile \? \{ className: 'ui-sheet' \}/);
+  assert.doesNotMatch(source, /className: 'ui-sheet'/);
   assert.match(source, /data-testid="contacts-manager-back"/);
   assert.match(source, /mobileDetail/);
   // The panes are flexible and allowed to shrink, which is what keeps a 360px screen from scrolling sideways.
@@ -158,30 +158,16 @@ test('both layouts render the manager, so the mobile sheet can open it too', asy
   // `bookControls` is rendered in the mobile header and the desktop header; the manager is rendered once per
   // layout alongside the name dialog.
   const mounts = (source.match(/\{booksManager\}/g) ?? []).length;
-  assert.equal(mounts, 2, 'the manager must be mounted in both the mobile and the desktop layout');
+  assert.equal(mounts, 1, 'only the settings route mounts the canonical manager');
+  assert.match(source, /if \(settingsOnly\) return <section data-testid="contacts-settings"/);
 });
 
-test('the manager can be closed and reopened', async () => {
+test('the manager uses the settings shell rather than its own close layer', async () => {
   const source = await read(manager);
-  const page = await read(new URL('./ContactsPage.tsx', import.meta.url));
-
-  // The live bug: the dialog was rendered unconditionally, so `onClose` set the state to closed and the panel
-  // stayed on screen — it opened and could not be dismissed. The panel must exist only while it is open, and
-  // that early return is what makes every close path effective.
-  assert.match(source, /if \(!props\.open\) return null;/);
-  assert.match(source, /onClose=\{props\.onClose\}/);
-  // The hook runs before the early return, so the render order is stable.
-  const hookAt = source.indexOf('const [mobileDetail, setMobileDetail] = React.useState(false);');
-  const gateAt = source.indexOf('if (!props.open) return null;');
-  assert.ok(hookAt !== -1 && gateAt !== -1 && hookAt < gateAt, 'the state hook must precede the open gate');
-
-  // Every close path reaches the same setter, which flips the state the panel is gated on.
+  const admin = await read(new URL('./AdminPanel.tsx', import.meta.url));
+  assert.doesNotMatch(source, /<Dialog/);
   assert.match(source, /data-testid="contacts-manager-back"/);
-  assert.match(source, /<Button onClick=\{props\.onClose\}>/);
-  assert.match(page, /const \[booksManagerOpen, setBooksManagerOpen\] = useState\(false\)/);
-  assert.match(page, /onClose=\{\(\) => setBooksManagerOpen\(false\)\}/);
-  // Escape and the backdrop are the Dialog's own, and it is the only dialog the manager mounts.
-  assert.equal((source.match(/<Dialog/g) ?? []).length, 1);
+  assert.match(admin, /adminTab === 'contacts' && <ContactsPage settingsOnly/);
 });
 
 test('the trigger is a compact icon with an accessible name', async () => {
@@ -194,7 +180,7 @@ test('the trigger is a compact icon with an accessible name', async () => {
   // Accessible name and tooltip carry the meaning the icon cannot.
   assert.match(source, /aria-label=\{t\('contacts\.booksManager\.manage'\)\}/);
   assert.match(source, /title=\{t\('contacts\.booksManager\.manage'\)\}/);
-  assert.match(source, /aria-haspopup="dialog"/);
+  assert.match(source, /onClick=\{openBookSettings\}/);
   // Desktop compact, mobile a real touch target.
   assert.match(source, /width: isMobile \? 44 : 34/);
   assert.match(source, /height: isMobile \? 44 : 34/);

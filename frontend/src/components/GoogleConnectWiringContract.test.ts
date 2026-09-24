@@ -9,6 +9,7 @@ const contactsPage = new URL('./ContactsPage.tsx', import.meta.url);
 // `⋯` menu read it as well.
 const contactsManager = new URL('./ContactsBooksManager.tsx', import.meta.url);
 const calendarSidebar = new URL('./CalendarSidebar.tsx', import.meta.url);
+const calendarManager = new URL('./CalendarSettingsManager.tsx', import.meta.url);
 
 
 test('a same-tab Google callback reports the connection instead of opening the accounts screen', async () => {
@@ -57,14 +58,20 @@ test('the contacts screen offers the Microsoft pull through the same control', a
 
 
 
-test('the calendar rail syncs exactly the selected account source', async () => {
-  const source = await readFile(calendarSidebar, 'utf8');
+test('calendar settings sync exactly the selected account source; the rail only navigates', async () => {
+  const source = await readFile(calendarManager, 'utf8');
+  const sidebar = await readFile(calendarSidebar, 'utf8');
   assert.match(source, /api\.syncAccountProviderFeature\(source\.accountId, 'calendars'\)/);
-  assert.match(source, /data-testid="calendar-account-sync"/);
-  assert.match(source, /data-testid="calendar-account-sync-result"/);
+  assert.match(source, /data-testid="calendar-manager-account-sync"[^>]*onClick=\{\(\) => syncAccount\(entry\)\}/);
+  assert.match(source, /if \(!source\.accountId \|\| !source\.canSync\) return/);
+  assert.match(source, /notice && <p role="status"/);
   assert.match(source, /api\.calendar\.presentation\(\)/);
-  assert.match(source, /updateSourcePresentation/);
+  assert.match(sidebar, /updateSourcePresentation/);
   assert.match(source, /updateCalendarPresentation/);
+  assert.match(sidebar, /setAdminTab\('calendar'\)/);
+  assert.match(sidebar, /setShowAdmin\(true\)/);
+  assert.match(sidebar, /data-testid="calendar-sidebar-manage-sources" onClick=\{openCalendarAccounts\}/);
+  assert.doesNotMatch(sidebar, /syncAccountProviderFeature|importIcs|deleteCalendar/);
   assert.doesNotMatch(source, /providerCalendars\.sync\(/);
   assert.doesNotMatch(source, /calendar\.googleSyncing/);
 });
@@ -81,13 +88,14 @@ test('the contacts screen can import a vCard file into a local book', async () =
   assert.ok(localGuards, 'import actions must be limited to local books');
 });
 
-test('a local calendar can import an .ics file from the appearance dialog', async () => {
-  const source = await readFile(calendarSidebar, 'utf8');
-  assert.match(source, /api\.calendar\.importIcs\(calendar\.id/);
+test('a local calendar can import an .ics file from the settings dialog', async () => {
+  const source = await readFile(calendarManager, 'utf8');
+  assert.match(source, /api\.calendar\.importIcs\(draft\.calendar\.id/);
   assert.match(source, /data-testid="calendar-import-ics"/);
-  assert.match(source, /accept="\.ics,text\/calendar"/);
+  assert.match(source, /accept="\.ics,text\/calendar" disabled=\{busy\}/);
   assert.match(source, /calendar\.importIcs/);
-  assert.match(source, /calendar\.importingIcs/);
+  assert.match(source, /canManageLocalCalendar\(calendar\) &&[\s\S]*?setDraft\(\{ calendar,/);
+  assert.match(source, /if \(busyRef\.current\) return/);
 });
 
 test('each provider reports when it last synced, or that it failed', async () => {
@@ -102,16 +110,17 @@ test('each provider reports when it last synced, or that it failed', async () =>
 });
 
 test('the calendar connector reports the selected account outcome', async () => {
-  const source = await readFile(calendarSidebar, 'utf8');
-  assert.match(source, /response\.state !== 'success' \|\| failed > 0/);
+  const source = await readFile(calendarManager, 'utf8');
+  assert.match(source, /response\.state !== 'success' \|\| failed/);
+  assert.match(source, /const failed = \(outcome\.error \? 1 : 0\) \+ \(outcome\.errors\?\.length \?\? 0\)/);
   assert.match(source, /calendar\.providerSyncDone/);
   assert.match(source, /calendar\.providerSyncPartial/);
-  assert.match(source, /data-testid="calendar-account-sync-result"/);
+  assert.match(source, /notice && <p role="status"/);
 });
 
 test('an actionable provider failure is explained instead of shown as a code', async () => {
   const source = await readFile(contactsPage, 'utf8');
-  const sidebar = await readFile(calendarSidebar, 'utf8');
+  const manager = await readFile(calendarManager, 'utf8');
   const helper = await readFile(new URL('../utils/providerFailure.ts', import.meta.url), 'utf8');
   // The helper owns the literal keys; both surfaces route through it.
   assert.match(helper, /providers\.syncFailedAuth/);
@@ -120,9 +129,9 @@ test('an actionable provider failure is explained instead of shown as a code', a
   // Contacts use a summary, while calendar source sync passes each account's errors
   // to the same actionable formatter.
   assert.match(source, /failureKey: code => providerFailureKey\(code\) \?\? 'contacts\.addressBooks\.lastSyncFailed'/);
-  assert.match(sidebar, /summariseProviderSyncErrors/);
+  assert.match(manager, /summariseProviderSyncErrors/);
   assert.match(source, /contacts\.addressBooks\.lastSyncFailed/);
-  assert.match(sidebar, /failureSummary\?\.first/);
+  assert.match(manager, /summary\?\.first/);
 });
 
 test('an import confirms what it added instead of refreshing silently', async () => {
@@ -135,16 +144,20 @@ test('an import confirms what it added instead of refreshing silently', async ()
 });
 
 test('a calendar import confirms its result and leaves the dialog open', async () => {
-  const source = await readFile(calendarSidebar, 'utf8');
-  assert.match(source, /setImportNotice\(protectedCount/);
+  const source = await readFile(calendarManager, 'utf8');
   assert.match(source, /calendar\.importProtected/);
   assert.match(source, /data-testid="calendar-import-result"/);
-  // The confirmation is only useful if the dialog stays open to show it.
-  const successPath = /importDone'[\s\S]{0,200}?await onSourcesChanged\(\)/.exec(source)?.[0] ?? '';
-  assert.ok(successPath, 'the success path must refresh the calendars');
-  assert.doesNotMatch(successPath, /setCalendarEdit\(null\)/);
+  const importPath = source.slice(source.indexOf('if (file) void run('), source.indexOf('}} /></label>'));
+  assert.match(importPath, /if \(!current\(\)\) return/);
+  assert.match(importPath, /if \(current\(\)\) setNotice/);
+  assert.match(importPath, /calendar\.importDone/);
+  assert.match(importPath, /count: result\.imported \?\? 0/);
+  assert.match(importPath, /count: result\.protected/);
+  // Imports refresh subscribed calendars without dismissing their confirmation dialog.
+  assert.match(source, /await operation\(current\);\s*if \(!current\(\)\) return;\s*window\.dispatchEvent\(new Event\('inboxora:calendar-changed'\)\)/);
+  assert.doesNotMatch(importPath, /setDraft\(null\)/);
   // A stale confirmation must not greet the next calendar.
-  assert.match(source, /setOpenCalendarMenu\(null\); setEditError\(null\); setImportNotice\(''\);/);
+  assert.match(source, /setNotice\(null\); setError\(null\); setDraft\(\{ calendar,/);
 });
 
 test('a configured but unconnected provider says so on the contacts page', async () => {
@@ -165,9 +178,9 @@ test('a configured but unconnected provider says so on the contacts page', async
 
 test('the account sync copy reports that account’s own result', async () => {
   const contacts = await readFile(contactsPage, 'utf8');
-  const sidebar = await readFile(calendarSidebar, 'utf8');
+  const manager = await readFile(calendarManager, 'utf8');
   assert.match(contacts, /count: book => book\.contactCount \?\? 0/);
-  assert.match(sidebar, /const values = \{ calendars: outcome\.collections \?\? 0/);
+  assert.match(manager, /const values = \{ provider: source\.label, calendars: outcome\.collections \?\? 0/);
   const strings = JSON.parse(await readFile(new URL('../locales/en.json', import.meta.url), 'utf8'));
   assert.match(strings.calendar.providerSyncDone, /\{\{provider\}\}/);
   assert.match(strings.calendar.providerSyncPartial, /\{\{failed\}\}/);
@@ -182,13 +195,12 @@ test('an import confirmation does not follow the user to another address book', 
 
 
 
-test('the drawer swipe gesture is reachable: default on, with a switch to turn it off', async () => {
+test('the drawer swipe gesture is reachable: default on, with a choice to turn it off', async () => {
   const panel = await readFile(adminPanel, 'utf8');
   const store = await readFile(new URL('../store/index.ts', import.meta.url), 'utf8');
-  // A gesture that is on by default but has no switch is a preference nobody can change,
-  // and one whose refs are unattached is dead code; both are pinned here.
+  // The default-on gesture must remain configurable and persist its boolean preference.
   assert.match(panel, /testId="mobile-sidebar-swipe-setting"/);
-  assert.match(panel, /onChange={setMobileSidebarSwipeEnabled}/);
+  assert.match(panel, /onChange=\{value => setMobileSidebarSwipeEnabled\(value === 'on'\)\}/);
   assert.match(panel, /admin\.appearance\.mobileSidebarSwipe/);
   assert.match(store, /mobileSidebarSwipeEnabled: true/);
   // The preference reaches the server allow-list, so a saved choice survives a reload.

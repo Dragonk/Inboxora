@@ -710,7 +710,7 @@ function EventDialog({ form, error, calendars, accounts, saving, seriesReady, on
   </>}>
     <div className="ui-form">
       {error && <div role="alert" className="ui-alert">{error}</div>}
-      {form.cancellationDelivery?.status && <div role="status" className="ui-alert">{form.cancellationDelivery.status === 'sent' ? 'Invitation cancellation was sent.' : `Invitation cancellation status: ${form.cancellationDelivery.status}${form.cancellationDelivery.lastError ? ` (${form.cancellationDelivery.lastError})` : ''}`}</div>}
+      {form.cancellationDelivery?.status && <div role="status" className="ui-alert">{form.cancellationDelivery.status === 'sent' ? t('calendar.invitationCancellationSent') : `${t('calendar.invitationCancellationStatus', { status: form.cancellationDelivery.status })}${form.cancellationDelivery.lastError ? ` (${form.cancellationDelivery.lastError})` : ''}`}</div>}
       {form.mode === 'edit' && form.seriesId && (
         <div className="calendar-edit-scope" data-testid="calendar-edit-scope">
           <span className="calendar-edit-scope-label">{t('calendar.recurrenceScope')}</span>

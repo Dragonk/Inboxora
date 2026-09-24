@@ -1,4 +1,20 @@
 {
+  "nativeUpdates": {
+    "syncStarted": "Synchronisierung gestartet",
+    "syncStartedBody": "Inboxora sucht nach neuen E-Mails.",
+    "syncFailed": "Synchronisierung fehlgeschlagen",
+    "syncFailedBody": "E-Mails konnten nicht synchronisiert werden.",
+    "ready": "Update bereit",
+    "downloaded": "Inboxora hat das Update heruntergeladen.",
+    "verified": "Inboxora hat das Update heruntergeladen und überprüft.",
+    "manualInstall": "Inboxora hat das Update heruntergeladen und überprüft. Installieren Sie es im Terminal mit:\n{{command}}",
+    "copyAndQuit": "Kopieren und beenden",
+    "install": "Installieren",
+    "copyFailed": "Kopieren fehlgeschlagen",
+    "copyFailedBody": "Der Update-Befehl konnte nicht kopiert werden.",
+    "installFailed": "Installation fehlgeschlagen",
+    "installFailedBody": "Das Update wurde heruntergeladen, aber das Installationsprogramm konnte nicht gestartet werden."
+  },
   "admin": {
     "about": {
       "subtitle": "Quelloffener, selbst gehosteter E-Mail-Client",
@@ -9,6 +25,8 @@
       "sourceCode": "Quellcode"
     },
     "accounts": {
+      "loadFoldersError": "Ordner konnten nicht geladen werden",
+      "saveFolderMappingsError": "Ordnerzuordnungen konnten nicht gespeichert werden",
       "title": "E-Mail-Konten",
       "addButton": "Konto hinzufügen",
       "empty": "Noch keine Konten hinzugefügt",
@@ -66,7 +84,6 @@
         "connected": "Verbunden",
         "notConnected": "Nicht verbunden",
         "connect": "Verbinden",
-        "collections": "{{count}} Sammlung(en)",
         "migrateGoogle": "Zur Gmail-API wechseln",
         "migrateMicrosoft": "Zu Microsoft Graph wechseln",
         "finishInTab": "Schließen Sie die Anmeldung im geöffneten Tab ab und kehren Sie hierher zurück.",
@@ -275,8 +292,9 @@
       "navigationTop": "Oben",
       "navigationBottom": "Unten",
       "mobileNavigationDescription": "Position des Menüs und der Aktionen in E-Mail, Kontakten und Kalender.",
+      "mobileSidebarSwipeOffDesc": "Die Seitenleiste über die Menütaste öffnen.",
+      "mobileSidebarSwipeOnDesc": "Die Seitenleiste durch Wischen vom linken Rand öffnen.",
       "mobileSidebarSwipe": "Menü per Wisch von links öffnen",
-      "mobileSidebarSwipeDescription": "Wischen Sie nach rechts und beginnen Sie im linken Viertel des Bildschirms.",
       "navigationTopDesc": "Der Panel-Umschalter liegt über der Nachrichtenliste.",
       "navigationBottomDesc": "Der Panel-Umschalter liegt unten, in Daumenreichweite."
     },
@@ -384,6 +402,7 @@
       }
     },
     "integrations": {
+      "appUrlRequired": "APP_URL erforderlich",
       "accountHint": "Postfächer werden unter Einstellungen → Konten hinzugefügt. Diese Seite konfiguriert nur die Anbieter-Anwendung.",
       "title": "Integrationen",
       "loading": "Lädt…",
@@ -443,6 +462,7 @@
         "help": "Token unter Todoist Einstellungen → Integrationen → Entwickler finden"
       },
       "carddav": {
+        "title": "CardDAV-Quelle",
         "description": "Kontakte von einem CardDAV-Server wie Nextcloud synchronisieren.",
         "connected": "Verbunden",
         "connect": "Verbinden",
@@ -460,7 +480,7 @@
       },
       "google": {
         "title": "Google (Gmail, Kalender, Kontakte)",
-        "description": "Empfohlene API-Verbindung für Google-Konten. IMAP/SMTP mit App-Passwort bleibt verfügbar, wenn das Google-Konto es zulässt. Die Konfiguration unten ist nur für die API-Integration nötig.",
+        "description": "API-Integration für Google-Mail, -Kontakte und -Kalender.",
         "savedNote": "Konfiguration gespeichert. Die Prüfung des Kontozugriffs erfordert die Autorisierung durch den Benutzer.",
         "appPasswordNote": "IMAP/SMTP mit App-Passwort hängt nicht von dieser Konfiguration ab und funktioniert ohne Google-Cloud-Projekt.",
         "deviceNotSupported": "Google bietet keinen Gerätecode für die für diese Integration nötigen Mail-, Kalender- und Kontaktberechtigungen. Der API-Zugang nutzt die Anmeldung im Browser; nur für Mail kann weiterhin ein erlaubtes IMAP/SMTP-App-Passwort verwendet werden.",
@@ -604,10 +624,9 @@
       "markReadDelayLabel": "Verzögerung",
       "markReadDelaySeconds": "{{count}} Sekunde",
       "markReadDelaySeconds_other": "{{count}} Sekunden",
-      "markReadDelaySeconds_many": "{{count}} seconds",
+      "markReadDelaySeconds_many": "{{count}} Sekunden",
       "markReadDelaySeconds_one": "{{count}} Sekunde",
-      "markReadDelaySeconds_few": "{{count}} seconds",
-      "threadingDesc": "Fasst eine Nachricht und ihre Antworten in der Nachrichtenliste zu einer Konversation zusammen."
+      "markReadDelaySeconds_few": "{{count}} Sekunden"
     },
     "notifications": {
       "title": "Benachrichtigungen",
@@ -627,6 +646,7 @@
       "badgeOff": "Deaktiviert"
     },
     "plugins": {
+      "disabledBadge": "Deaktiviert",
       "title": "Plugins",
       "description": "Aktivieren oder deaktivieren Sie optionale Funktionen für Ihr Konto. Ein aktiviertes Plugin fügt eigene Einstellungen und Oberflächen hinzu.",
       "activated": "Aktiviert",
@@ -678,6 +698,8 @@
       "loading": "Bitte warten…"
     },
     "rules": {
+      "valuePlaceholder": "Wert",
+      "unnamed": "(unbenannt)",
       "conditionLogicOr": "eine Bedingung (ODER)",
       "accountAll": "Alle Konten",
       "actionsLabel": "Aktionen",
@@ -909,6 +931,9 @@
       "body": "Dein Konto ist jetzt mit dem SSO-Anbieter verknüpft."
     },
     "systemEmail": {
+      "starttlsOption": "STARTTLS (Port 587)",
+      "tlsOption": "SSL/TLS (Port 465)",
+      "noSecurityOption": "Keine (Port 25)",
       "tabUsers": "Benutzer & Einladungen",
       "tabEmail": "System-E-Mail",
       "description": "Ein dediziertes SMTP-Konto für das Senden von Einladungs-E-Mails und anderen Systemnachrichten konfigurieren. Wenn nicht festgelegt, wird das erste persönliche SMTP-Konto des Admins als Fallback verwendet.",
@@ -1011,7 +1036,7 @@
       "revoke": "Widerrufen",
       "loadError": "DAV-App-Passwörter konnten nicht geladen werden.",
       "createError": "Das App-Passwort konnte nicht erstellt werden.",
-      "copyError": "Das App-Passwort konnte nicht kopiert werden.",
+      "copyError": "Kopieren fehlgeschlagen. Markieren und kopieren Sie den Text manuell.",
       "revokeError": "Das App-Passwort konnte nicht widerrufen werden.",
       "maxMode": "Zugriff",
       "maxModeReadWrite": "Lesen und Schreiben",
@@ -1069,6 +1094,9 @@
     "close": "Schließen"
   },
   "compose": {
+    "partialDeliveryTitle": "Nachricht teilweise angenommen",
+    "partialDeliveryBody": "Vom Mailserver nicht angenommen: {{recipients}}. Der Entwurf enthält jetzt nur diese Empfänger, damit Sie den Versand sicher wiederholen können.",
+    "partialDeliveryRecipients": "ein oder mehrere Empfänger",
     "newMessage": "Neue Nachricht",
     "reply": "Antworten",
     "replyAll": "Allen antworten",
@@ -1120,6 +1148,12 @@
       "action": "Anzeigen"
     },
     "toolbar": {
+      "backToRichText": "Zurück zu Rich Text",
+      "removeLink": "Link entfernen",
+      "emoji": "Emoji",
+      "alignLeft": "Linksbündig",
+      "alignCenter": "Zentriert",
+      "alignRight": "Rechtsbündig",
       "removeTable": "Tabelle entfernen",
       "textColor": "Textfarbe",
       "removeColor": "Farbe entfernen",
@@ -1232,6 +1266,9 @@
     "carddavBadge": "Von CardDAV synchronisiert",
     "composeTo": "Nachricht schreiben",
     "addressBooks": {
+      "googleSyncDone": "Google-Kontakte: {{created}} hinzugefügt, {{updated}} aktualisiert, {{deleted}} entfernt.",
+      "googleSyncPartial": "Google-Kontakte: {{created}} hinzugefügt, {{updated}} aktualisiert, {{deleted}} entfernt; {{failed}} Verbindung(en) fehlgeschlagen.",
+      "lastSynced": "Zuletzt synchronisiert: {{date}} · {{count}} Kontakte",
       "label": "Adressbuch",
       "allVisible": "Alle sichtbaren",
       "create": "Neues Adressbuch",
@@ -1343,6 +1380,13 @@
     "markAsHam": "Als kein Spam markieren"
   },
   "conversation": {
+    "conversationCount_other": "{{count}} Unterhaltungen",
+    "attachmentCount_other": "{{count}} Anhänge",
+    "logicalCount_other": "{{count}} Nachrichten",
+    "groupingOffDesc": "Jede Nachricht einzeln anzeigen.",
+    "groupingOnDesc": "Nachrichten und Antworten zusammen gruppieren.",
+    "readerOffDesc": "Jeweils eine Nachricht lesen.",
+    "readerOnDesc": "Die gesamte Unterhaltung zusammen lesen.",
     "label": "Unterhaltung",
     "attachment": "Anhang",
     "logicalCount": "{{count}} Nachrichten",
@@ -1418,16 +1462,15 @@
     "confirmMoveBody": "{{count}} Nachricht(en) in einen anderen Ordner verschieben?",
     "showQuotedText": "Zitierten Text anzeigen",
     "hideQuotedText": "Zitierten Text ausblenden",
-    "groupIntoConversationsOn": "On",
-    "readerOff": "Disabled",
-    "readerOn": "Enabled",
+    "groupIntoConversationsOn": "Ein",
+    "readerOff": "Deaktiviert",
+    "readerOn": "Aktiviert",
     "groupIntoConversations": "Nachrichten zu Unterhaltungen gruppieren",
     "incomingMessage": "Eingehende Nachricht",
     "outgoingMessage": "Ausgehende Nachricht",
     "expandMessage": "Nachricht von {{sender}} aufklappen: {{subject}}",
     "collapseMessage": "Nachricht von {{sender}} zuklappen: {{subject}}",
-    "summary": "Vorschau:",
-    "readerDesc": "Öffnet die ganze Konversation im Lesebereich statt einzelner Nachrichten."
+    "summary": "Vorschau:"
   },
   "diagnostics": {
     "section": "Diagnose",
@@ -1550,6 +1593,9 @@
     }
   },
   "message": {
+    "forwardedMessage": "Weitergeleitete Nachricht",
+    "date": "Datum",
+    "cc": "Cc",
     "find": {
       "title": "Suchen",
       "close": "Suche schließen",
@@ -1634,10 +1680,12 @@
       "done": "Klassifiziert als {{category}}",
       "error": "KI-Klassifizierung fehlgeschlagen."
     },
-    "attachment_few": "{{count}} attachments",
-    "attachment_many": "{{count}} attachments"
+    "attachment_few": "{{count}} Anhänge",
+    "attachment_many": "{{count}} Anhänge"
   },
   "messageList": {
+    "layout": "Layout",
+    "menu": "Menü",
     "search": "Suchen…",
     "unread": "Ungelesen",
     "showAll": "Alle anzeigen",
@@ -1677,10 +1725,10 @@
       "failTitle": "Löschen fehlgeschlagen",
       "failBody_one": "{{count}} Nachricht konnte nicht gelöscht werden.",
       "failBody_other": "{{count}} Nachrichten konnten nicht gelöscht werden.",
-      "failBody_few": "Some messages could not be deleted",
-      "failBody_many": "Some messages could not be deleted",
-      "title_few": "Deleted {{count}} messages",
-      "title_many": "Deleted {{count}} messages"
+      "failBody_few": "Einige Nachrichten konnten nicht gelöscht werden.",
+      "failBody_many": "Einige Nachrichten konnten nicht gelöscht werden.",
+      "title_few": "{{count}} Nachrichten gelöscht",
+      "title_many": "{{count}} Nachrichten gelöscht"
     },
     "bulkMoved": {
       "title_one": "{{count}} Nachricht verschoben",
@@ -1688,10 +1736,10 @@
       "failTitle": "Verschieben fehlgeschlagen",
       "failBody_one": "{{count}} Nachricht konnte nicht verschoben werden.",
       "failBody_other": "{{count}} Nachrichten konnten nicht verschoben werden.",
-      "failBody_few": "Some messages could not be moved",
-      "failBody_many": "Some messages could not be moved",
-      "title_few": "Moved {{count}} messages",
-      "title_many": "Moved {{count}} messages"
+      "failBody_few": "Einige Nachrichten konnten nicht verschoben werden.",
+      "failBody_many": "Einige Nachrichten konnten nicht verschoben werden.",
+      "title_few": "{{count}} Nachrichten verschoben",
+      "title_many": "{{count}} Nachrichten verschoben"
     },
     "bulkArchived": {
       "title_one": "{{count}} Nachricht archiviert",
@@ -1702,10 +1750,10 @@
       "failBody_other": "{{count}} Nachrichten konnten nicht archiviert werden.",
       "noFolderTitle": "Kein Archivordner",
       "noFolderBody": "Bei einem oder mehreren Konten ist kein Archivordner konfiguriert. In Einstellungen → Konten → Ordnerzuordnungen festlegen.",
-      "failBody_few": "Some messages could not be archived",
-      "failBody_many": "Some messages could not be archived",
-      "title_few": "Archived {{count}} messages",
-      "title_many": "Archived {{count}} messages"
+      "failBody_few": "Einige Nachrichten konnten nicht archiviert werden.",
+      "failBody_many": "Einige Nachrichten konnten nicht archiviert werden.",
+      "title_few": "{{count}} Nachrichten archiviert",
+      "title_many": "{{count}} Nachrichten archiviert"
     },
     "noArchiveFolder": {
       "title": "Kein Archivordner",
@@ -1719,6 +1767,7 @@
     "noSearchResultsDesc": "Keine Treffer für {{query}}",
     "clearSearch": "Suche löschen",
     "searchHelp": {
+      "example": "from:amazon Rechnung",
       "title": "Suchoperatoren",
       "from": "Von Absender",
       "subject": "Im Betreff",
@@ -1867,6 +1916,8 @@
     }
   },
   "sidebar": {
+    "favorites": "Favoriten",
+    "reorderFolder": "Ziehen, um die Ordnerreihenfolge zu ändern",
     "accounts": "Konten",
     "allInboxes": "Alle Posteingänge",
     "compose": "Verfassen",
@@ -1884,6 +1935,8 @@
     "signOut": "Abmelden",
     "connectionError": "Verbindungsfehler",
     "folderMenu": {
+      "favorite": "Zu Favoriten hinzufügen",
+      "unfavorite": "Aus Favoriten entfernen",
       "markAllRead": "Alle als gelesen markieren",
       "syncFolder": "Ordner synchronisieren",
       "renameFavorite": "Favorit umbenennen",
@@ -1915,8 +1968,8 @@
     "emptied": "Ordner geleert",
     "backToAccounts": "Zurück zu Konten",
     "updateAvailable": "Update verfügbar: v{{version}}",
-    "hiddenFolders_few": "{{count}} hidden folders",
-    "hiddenFolders_many": "{{count}} hidden folders"
+    "hiddenFolders_few": "{{count}} ausgeblendete Ordner",
+    "hiddenFolders_many": "{{count}} ausgeblendete Ordner"
   },
   "signatureEditor": {
     "bold": "Fett (Ctrl+B)",
@@ -1986,6 +2039,14 @@
     "close": "Schließen"
   },
   "calendar": {
+    "invitationCancellationSent": "Die Absage der Einladung wurde gesendet.",
+    "invitationCancellationStatus": "Status der Einladungsabsage: {{status}}",
+    "hide": "Ausblenden",
+    "show": "Anzeigen",
+    "noCalendarsDiscovered": "Noch keine Kalender gefunden.",
+    "searchSources": "Quellen oder Kalender suchen",
+    "serviceDisabled": "Der Kalenderdienst ist deaktiviert.",
+    "providerManagedHint": "Das Erstellen, Umbenennen und Löschen von Kalendern wird vom Anbieter verwaltet. Kontodienste konfigurieren Sie unter Einstellungen → Konten.",
     "organizer": "Organisator",
     "retry": "Erneut versuchen",
     "eventCount": "Termine: {{count}}",
@@ -2076,8 +2137,6 @@
     "day4": "Donnerstag",
     "day5": "Freitag",
     "day6": "Samstag",
-    "owned": "Eigener Kalender",
-    "sourceCalendar": "Quelle",
     "calendarActions": "Aktionen für {{name}}",
     "rename": "Umbenennen",
     "changeColor": "Farbe ändern",
@@ -2090,9 +2149,7 @@
     "contactDateEvent": "{{label}}: {{name}}",
     "invitationPending": "Die Zustellung der Einladungen steht noch aus. Versuchen Sie es erneut, um den Status zu prüfen.",
     "retrySave": "Speichern erneut versuchen",
-    "syncSkipped": "Übersprungene Termine: {{count}}. Die übrigen wurden synchronisiert.",
     "syncFailed": "Kalendersynchronisierung fehlgeschlagen.",
-    "syncDetails": "Diagnosedetails",
     "mailInvitation": "Kalendereinladung",
     "addInvitation": "Zum Kalender hinzufügen",
     "invitationAdded": "Zum Kalender hinzugefügt",
@@ -2104,7 +2161,6 @@
     "invitationSaveFailed": "Die Einladung konnte nicht aktualisiert werden.",
     "sourceSyncInterval": "Synchronisieren alle",
     "sourceSyncMinutes": "{{count}} Min.",
-    "sourceSyncHours": "{{count}} Std.",
     "invitationLoadFailed": "Die Einladung konnte nicht geladen oder gespeichert werden.",
     "editOccurrence": "Sie bearbeiten nur diesen Termin der Serie.",
     "editFollowing": "Sie bearbeiten dieses und alle folgenden Vorkommen.",
@@ -2160,13 +2216,9 @@
     "davAccessReadWrite": "Lesen und Schreiben",
     "davAccessHint": "Legt fest, ob dieser Kalender für verbundene Geräte (CalDAV) bereitgestellt wird. Er gewährt nie mehr, als der Kalender selbst erlaubt.",
     "providerSync": "{{provider}}-Kalender synchronisieren",
-    "providerSyncing": "{{provider}}-Kalender wird synchronisiert…",
-    "providerSyncDone": "{{provider}}-Kalender synchronisiert.",
-    "providerSyncPartial": "{{provider}}-Kalender teilweise synchronisiert.",
-    "hiddenCalendars": "Ausgeblendete Kalender",
-    "restore": "Wiederherstellen",
+    "providerSyncDone": "{{provider}}-Kalender: {{calendars}} Kalender, {{created}} hinzugefügt, {{updated}} aktualisiert, {{deleted}} entfernt.",
+    "providerSyncPartial": "{{provider}}-Kalender: {{calendars}} Kalender, {{created}} hinzugefügt, {{updated}} aktualisiert, {{deleted}} entfernt; {{failed}} Fehler.",
     "importIcs": "ICS-Datei importieren",
-    "importingIcs": "Import läuft…",
     "importDone": "{{count}} Termin(e) importiert.",
     "importProtected": "{{count}} Termin(e) blieben unverändert, weil Inboxora deren Einladungen versendet hat."
   },

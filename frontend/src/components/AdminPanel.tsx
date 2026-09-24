@@ -2,12 +2,14 @@ import { refreshUnreadCounts } from '../utils/unreadRefresh.ts';
 import { useBackLayer } from '../hooks/useBackNavigation.ts';
 import { intlLocale } from '../utils/intlLocale.ts';
 import { folderLabel } from '../utils/folderLabels.ts';
-import { Button, inputStyle as sharedInputStyle } from './ui.tsx';
+import { inputStyle as sharedInputStyle } from './ui.tsx';
 import ConversationRebuild from './ConversationRebuild.tsx';
-import CalendarSubscriptionsSettings from './CalendarSubscriptionsSettings.tsx';
+import ContactsPage from './ContactsPage.tsx';
+import CalendarSettingsManager from './CalendarSettingsManager.tsx';
 import AddAccountFlow, { type IntegrationStatus } from './AddAccountFlow.tsx';
 import { transportLabel } from './AccountProviderServices.tsx';
 import AccountProviderServices from './AccountProviderServices.tsx';
+import DavCopyValue from './DavCopyValue.tsx';
 import { useCallback, useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.ts';
@@ -470,9 +472,12 @@ function AccountForm({ initial = undefined, onSave, onCancel, onReload, onComple
           <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 10, fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
             {t('admin.accounts.unifiedInboxSection')}
           </div>
-          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+          <div className="settings-switch-row" style={{ display: 'flex', flexDirection: 'row-reverse', justifyContent: 'space-between', alignItems: 'center', gap: 16, padding: '12px 0' }}>
             <button
               type="button"
+              role="switch"
+              aria-label={t('admin.accounts.unifiedInboxEnabled')}
+              aria-checked={form.include_in_unified_inbox !== false}
               aria-pressed={form.include_in_unified_inbox !== false}
               onClick={() => set('include_in_unified_inbox', form.include_in_unified_inbox === false)}
               style={{
@@ -501,9 +506,12 @@ function AccountForm({ initial = undefined, onSave, onCancel, onReload, onComple
           <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 10, fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
             {t('admin.accounts.categorizationSection')}
           </div>
-          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, opacity: categorizationEnabled ? 0.5 : 1 }}>
+          <div className="settings-switch-row" style={{ display: 'flex', flexDirection: 'row-reverse', justifyContent: 'space-between', alignItems: 'center', gap: 16, padding: '12px 0', opacity: categorizationEnabled ? 0.5 : 1 }}>
             <button
               type="button"
+              role="switch"
+              aria-label={t('admin.accounts.categorizationEnabled')}
+              aria-checked={Boolean(categorizationEnabled || form.categorization_enabled)}
               disabled={categorizationEnabled}
               onClick={() => !categorizationEnabled && set('categorization_enabled', !form.categorization_enabled)}
               style={{
@@ -532,9 +540,12 @@ function AccountForm({ initial = undefined, onSave, onCancel, onReload, onComple
           <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 10, fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
             {t('spam.settingsTitle')}
           </div>
-          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+          <div className="settings-switch-row" style={{ display: 'flex', flexDirection: 'row-reverse', justifyContent: 'space-between', alignItems: 'center', gap: 16, padding: '12px 0' }}>
             <button
               type="button"
+              role="switch"
+              aria-label={t('spam.enableAccount')}
+              aria-checked={Boolean(form.antispam_enabled)}
               onClick={() => set('antispam_enabled', !form.antispam_enabled)}
               style={{
                 width: 36, height: 20, borderRadius: 10, border: 'none',
@@ -797,7 +808,7 @@ function AccountsTab({ onNavigate = undefined }: { onNavigate?: (tab: string) =>
       const folders = await api.getFolders(account.id);
       setAvailableFolders(folders);
     } catch (err) {
-      addNotification({ type: 'error', title: 'Could not load folders', body: toAppError(err).message });
+      addNotification({ type: 'error', title: t('admin.accounts.loadFoldersError'), body: toAppError(err).message });
     } finally {
       setFoldersLoading(false);
     }
@@ -816,7 +827,7 @@ function AccountsTab({ onNavigate = undefined }: { onNavigate?: (tab: string) =>
       setSubview('list');
       setEditTarget(null);
     } catch (err) {
-      addNotification({ type: 'error', title: 'Could not save folder mappings', body: toAppError(err).message });
+      addNotification({ type: 'error', title: t('admin.accounts.saveFolderMappingsError'), body: toAppError(err).message });
     } finally {
       setFoldersSaving(false);
     }
@@ -1425,6 +1436,7 @@ function AccountsTab({ onNavigate = undefined }: { onNavigate?: (tab: string) =>
                 <span style={{ color: 'var(--text-secondary)', fontFamily: 'JetBrains Mono, monospace' }}>{val}</span>
               </div>
             ))}
+            <AccountProviderServices accountId={account.id} reload={loadAccounts} t={t} compact />
             {progress && (
               <div style={{ width: '100%', marginTop: 4 }}>
                 <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 4 }}>
@@ -1960,17 +1972,12 @@ function SwipeActionIcon({ action, size = 17 }: SwipeActionIconProps) {
   return <svg {...common}><rect x="2" y="3" width="20" height="5" rx="1"/><path d="M4 8v11a1 1 0 001 1h14a1 1 0 001-1V8"/><polyline points="9 13 12 16 15 13"/><line x1="12" y1="11" x2="12" y2="16"/></svg>;
 }
 
-function CalendarSettingsTab() {
+function CalendarSettingsTab({ section = 'accounts' }: { section?: 'accounts' | 'appearance' }) {
   const { t, i18n } = useTranslation();
   const { calendarWeekStartsOn, setCalendarWeekStartsOn, calendarWorkDays, setCalendarWorkDays, calendarWorkHoursStart, setCalendarWorkHoursStart, calendarWorkHoursEnd, setCalendarWorkHoursEnd, calendarWorkHoursError, calendarInviteAccountId, setCalendarInviteAccountId, accounts } = useStore();
-  const [section, setSection] = useState<'appearance' | 'connections'>('appearance');
   // Only accounts that can actually send mail may be offered as a default sender.
   const senderAccounts = (accounts || []).filter(account => account.enabled && account.smtp_host);
   return <div data-testid="calendar-settings">
-      <div role="tablist" aria-label={t('calendar.title')} style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-        <Button type="button" variant={section === 'appearance' ? 'primary' : 'secondary'} onClick={() => setSection('appearance')} aria-selected={section === 'appearance'}>{t('admin.tabs.appearance')}</Button>
-        <Button type="button" variant={section === 'connections' ? 'primary' : 'secondary'} onClick={() => setSection('connections')} aria-selected={section === 'connections'}>{t('calendar.subscribeTitle')}</Button>
-      </div>
       {section === 'appearance' && <div>
         <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 16 }}>
           {t('calendar.title')}
@@ -2018,7 +2025,7 @@ function CalendarSettingsTab() {
           </label>
         </div>
       </div>}
-      {section === 'connections' && <CalendarSubscriptionsSettings locale={intlLocale(i18n.resolvedLanguage || i18n.language)} />}
+      {section === 'accounts' && <CalendarSettingsManager locale={intlLocale(i18n.resolvedLanguage || i18n.language)} />}
 
   </div>;
 }
@@ -2253,12 +2260,15 @@ function LayoutsTab() {
           options={[["top", t('admin.appearance.navigationTop'), t('admin.appearance.navigationTopDesc')], ["bottom", t('admin.appearance.navigationBottom'), t('admin.appearance.navigationBottomDesc')]]}
         />
         <div style={{ marginTop: 18 }}>
-          <SettingsSwitchRow
+          <SettingsChoices
             label={t('admin.appearance.mobileSidebarSwipe')}
-            description={t('admin.appearance.mobileSidebarSwipeDescription')}
-            checked={mobileSidebarSwipeEnabled}
-            onChange={setMobileSidebarSwipeEnabled}
+            value={mobileSidebarSwipeEnabled ? 'on' : 'off'}
+            onChange={value => setMobileSidebarSwipeEnabled(value === 'on')}
             testId="mobile-sidebar-swipe-setting"
+            options={[
+              ['off', t('conversation.readerOff'), t('admin.appearance.mobileSidebarSwipeOffDesc')],
+              ['on', t('conversation.readerOn'), t('admin.appearance.mobileSidebarSwipeOnDesc')],
+            ]}
           />
         </div>
       </div>
@@ -2562,30 +2572,34 @@ function LayoutsTab() {
 
       {/* Threading mode — Grupowanie wiadomości (same option row as the rest) */}
       <div style={{ marginTop: 28, paddingTop: 22, borderTop: '1px solid var(--border-subtle)' }}>
-        <SettingsSwitchRow
+        <SettingsChoices
           label={t('conversation.groupIntoConversations')}
-          description={t('admin.messageList.threadingDesc')}
           testId="conversation-list-toggle"
-          checked={threadedView}
-          onChange={setThreadedView}
-          ariaLabel={threadedView ? t('conversation.groupIntoConversationsOn') : t('conversation.seriesOff')}
+          value={threadedView ? 'on' : 'off'}
+          onChange={value => setThreadedView(value === 'on')}
+          options={[
+            ['off', t('conversation.seriesOff'), t('conversation.groupingOffDesc')],
+            ['on', t('conversation.groupIntoConversationsOn'), t('conversation.groupingOnDesc')],
+          ]}
         />
       </div>
 
       {/* Conversation reader — Czytnik wiadomości (same option row as the rest) */}
       <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--border-subtle)' }}>
-        <SettingsSwitchRow
+        <SettingsChoices
           label={t('conversation.conversationReader')}
-          description={t('conversation.readerDesc')}
           testId="conversation-reader-toggle"
-          checked={conversationReaderViewEnabled}
-          onChange={setConversationReaderViewEnabled}
-          ariaLabel={conversationReaderViewEnabled ? t('conversation.readerOn') : t('conversation.readerOff')}
+          value={conversationReaderViewEnabled ? 'on' : 'off'}
+          onChange={value => setConversationReaderViewEnabled(value === 'on')}
+          options={[
+            ['off', t('conversation.readerOff'), t('conversation.readerOffDesc')],
+            ['on', t('conversation.readerOn'), t('conversation.readerOnDesc')],
+          ]}
         />
       </div>
 
       {/* Rebuilding existing mail's threading — the step that groups a mailbox
-          migrated from MailFlow — sits beside the two threading switches. */}
+          migrated from MailFlow — sits beside the two threading choices. */}
       <ConversationRebuild />
 
       {/* Compose format */}
@@ -2744,6 +2758,14 @@ function IntegrationsTab() {
   const { setAccounts, setTodoistConnected, user } = useStore();
   const isAdmin = !!user?.isAdmin;
   const [subTab, setSubTab] = useState('emailProviders');
+  const providerHeaderStyle: React.CSSProperties = {
+    padding: '14px 16px', display: 'flex', alignItems: 'center', flexWrap: 'wrap',
+    gap: 12, cursor: 'pointer', background: 'var(--bg-tertiary)',
+    transition: 'background 0.1s',
+  };
+  const providerActionsStyle: React.CSSProperties = {
+    display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8,
+  };
   const [configs, setConfigs] = useState<Record<string, { clientId?: string; [key: string]: unknown }>>({});
   // Non-admins can't read the full config (admin-only), but need to know whether
   // Microsoft OAuth is configured so the connect buttons enable. (#315)
@@ -2786,7 +2808,6 @@ function IntegrationsTab() {
               tenantId: data.microsoft.tenantId || '',
               redirectUri: data.microsoft.redirectUri || '',
             });
-            setMsExpanded(true);
           }
           if (data.google) {
             setGoogleForm({
@@ -2794,7 +2815,6 @@ function IntegrationsTab() {
               clientSecret: data.google.clientSecret || '',
               redirectUri: data.google.redirectUri || '',
             });
-            setGoogleExpanded(true);
           }
         })
         .catch(console.error)
@@ -2814,8 +2834,6 @@ function IntegrationsTab() {
         .then(data => {
           setMsStatus(data.microsoft || null);
           setGoogleStatus(data.google || null);
-          if (data.microsoft?.configured) setMsExpanded(true);
-          if (data.google?.configured) setGoogleExpanded(true);
         })
         .catch(console.error)
         .finally(() => setLoading(false));
@@ -3078,12 +3096,18 @@ function IntegrationsTab() {
           }}>
             {/* Header */}
             <div
-              onClick={() => setMsExpanded(!msExpanded)}
-              style={{
-                padding: '14px 16px', display: 'flex', alignItems: 'center',
-                gap: 12, cursor: 'pointer', background: 'var(--bg-tertiary)',
-                transition: 'background 0.1s',
+              role="button"
+              tabIndex={0}
+              aria-expanded={msExpanded}
+              aria-controls="microsoft-provider-config"
+              onClick={() => setMsExpanded(expanded => !expanded)}
+              onKeyDown={event => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault();
+                  setMsExpanded(expanded => !expanded);
+                }
               }}
+              style={providerHeaderStyle}
               onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
               onMouseLeave={e => e.currentTarget.style.background = 'var(--bg-tertiary)'}
             >
@@ -3095,7 +3119,7 @@ function IntegrationsTab() {
                 <rect x="11" y="11" width="9" height="9" fill="#ffb900"/>
               </svg>
 
-              <div style={{ flex: 1 }}>
+              <div style={{ flex: '1 1 180px', minWidth: 0 }}>
                 <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-primary)' }}>
                   {t('admin.integrations.microsoft.title')}
                 </div>
@@ -3131,13 +3155,13 @@ function IntegrationsTab() {
             </div>
 
             {/* Where mailboxes are added. Integrations configures the application; Accounts connects mailboxes. */}
-            <div data-testid="microsoft-accounts-hint" style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 6 }}>
+            <div data-testid="microsoft-accounts-hint" style={{ fontSize: 11, color: 'var(--text-tertiary)', padding: '8px 16px' }}>
               {t('admin.integrations.accountHint')}
             </div>
 
             {/* Expanded form */}
             {msExpanded && (
-              <div style={{ padding: '16px', borderTop: '1px solid var(--border-subtle)' }}>
+              <div id="microsoft-provider-config" style={{ padding: '16px', borderTop: '1px solid var(--border-subtle)' }}>
                 {/* Admin-only: setup instructions + credential form. Non-admins can't
                     read or write the global config, so they see only the note + connect
                     buttons below. (#315) */}
@@ -3162,7 +3186,7 @@ function IntegrationsTab() {
                   </ol>
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))', gap: 12, marginBottom: 12 }}>
                   <Field label={t('admin.integrations.microsoft.clientId')} required>
                     <input value={msForm.clientId} onChange={e => setMsForm(f => ({ ...f, clientId: e.target.value }))}
                       placeholder={t('admin.integrations.microsoft.clientIdPh')}
@@ -3193,7 +3217,7 @@ function IntegrationsTab() {
 
                 <Field label={t('admin.integrations.microsoft.redirectUri')}>
                   <div data-testid="microsoft-generated-redirect-uri" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                    <code style={{ ...inputStyle, flex: 1, overflowWrap: 'anywhere', cursor: 'text' }}>{msStatus?.graph?.redirectUri || msStatus?.browser?.redirectUri || 'APP_URL required'}</code>
+                    <code style={{ ...inputStyle, flex: 1, minWidth: 0, overflowWrap: 'anywhere', cursor: 'text' }}>{msStatus?.graph?.redirectUri || msStatus?.browser?.redirectUri || t('admin.integrations.appUrlRequired')}</code>
                     <button type="button" onClick={() => navigator.clipboard?.writeText(msStatus?.graph?.redirectUri || msStatus?.browser?.redirectUri || '')}
                       disabled={!(msStatus?.graph?.redirectUri || msStatus?.browser?.redirectUri)}
                       style={{ padding: '8px 10px', border: '1px solid var(--border)', borderRadius: 7, background: 'var(--bg-elevated)', color: 'var(--text-secondary)', cursor: 'pointer' }}>
@@ -3231,7 +3255,7 @@ function IntegrationsTab() {
                   </div>
                 )}
 
-                <div style={{ display: 'flex', gap: 8 }}>
+                <div style={providerActionsStyle}>
                   {isAdmin && (
                   <button onClick={handleSaveMs} disabled={saving} style={{
                     padding: '9px 16px', background: 'var(--bg-elevated)',
@@ -3380,12 +3404,18 @@ function IntegrationsTab() {
                 overflow: 'hidden', marginBottom: 12,
               }}>
                 <div
-                  onClick={() => setGoogleExpanded(!googleExpanded)}
-                  style={{
-                    padding: '14px 16px', display: 'flex', alignItems: 'center',
-                    gap: 12, cursor: 'pointer', background: 'var(--bg-tertiary)',
-                    transition: 'background 0.1s',
+                  role="button"
+                  tabIndex={0}
+                  aria-expanded={googleExpanded}
+                  aria-controls="google-provider-config"
+                  onClick={() => setGoogleExpanded(expanded => !expanded)}
+                  onKeyDown={event => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      setGoogleExpanded(expanded => !expanded);
+                    }
                   }}
+                  style={providerHeaderStyle}
                   onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
                   onMouseLeave={e => e.currentTarget.style.background = 'var(--bg-tertiary)'}
                 >
@@ -3395,16 +3425,12 @@ function IntegrationsTab() {
                     <path fill="#FBBC05" d="M5.4 14.3c-.2-.7-.4-1.5-.4-2.3s.2-1.6.4-2.3V6.6H1.4C.5 8.2 0 10 0 12s.5 3.8 1.4 5.4l4-3.1z"/>
                     <path fill="#EA4335" d="M12 4.8c1.8 0 3.3.6 4.6 1.8l3.4-3.4C17.9 1.2 15.2 0 12 0 7.4 0 3.4 2.7 1.4 6.6l4 3.1C6.3 6.9 8.9 4.8 12 4.8z"/>
                   </svg>
-                  <div style={{ flex: 1 }}>
+                  <div style={{ flex: '1 1 180px', minWidth: 0 }}>
                     <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-primary)' }}>
                       {t('admin.integrations.google.title')}
                     </div>
                     <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 1 }}>
                       {t('admin.integrations.google.description')}
-                    </div>
-                    {/* Where mailboxes are added: Accounts connects them, this page configures the application. */}
-                    <div data-testid="google-accounts-hint" style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>
-                      {t('admin.integrations.accountHint')}
                     </div>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -3435,8 +3461,12 @@ function IntegrationsTab() {
                   </div>
                 </div>
 
+                <div data-testid="google-accounts-hint" style={{ fontSize: 11, color: 'var(--text-tertiary)', padding: '8px 16px' }}>
+                  {t('admin.integrations.accountHint')}
+                </div>
+
                 {googleExpanded && (
-                  <div style={{ padding: '16px', borderTop: '1px solid var(--border-subtle)' }}>
+                  <div id="google-provider-config" style={{ padding: '16px', borderTop: '1px solid var(--border-subtle)' }}>
                     {isAdmin && (<>
                       <div style={{
                         padding: '12px 14px', borderRadius: 8, marginBottom: 16,
@@ -3474,7 +3504,7 @@ function IntegrationsTab() {
 
                       <Field label={t('admin.integrations.microsoft.redirectUri')} required>
                         <div data-testid="google-generated-redirect-uri" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                          <code style={{ ...inputStyle, flex: 1, overflowWrap: 'anywhere', cursor: 'text' }}>{googleStatus?.browser?.redirectUri || 'APP_URL required'}</code>
+                          <code style={{ ...inputStyle, flex: 1, minWidth: 0, overflowWrap: 'anywhere', cursor: 'text' }}>{googleStatus?.browser?.redirectUri || t('admin.integrations.appUrlRequired')}</code>
                           <button type="button" onClick={() => navigator.clipboard?.writeText(googleStatus?.browser?.redirectUri || '')}
                             disabled={!googleStatus?.browser?.redirectUri}
                             style={{ padding: '8px 10px', border: '1px solid var(--border)', borderRadius: 7, background: 'var(--bg-elevated)', color: 'var(--text-secondary)', cursor: 'pointer' }}>
@@ -3534,7 +3564,7 @@ function IntegrationsTab() {
                     )}
 
                     {isAdmin && (
-                      <div style={{ display: 'flex', gap: 8 }}>
+                      <div style={providerActionsStyle}>
                         <button onClick={handleSaveGoogle} disabled={googleSaving} style={{
                           padding: '9px 16px', background: 'var(--bg-elevated)',
                           border: '1px solid var(--border)', borderRadius: 8,
@@ -5333,9 +5363,9 @@ function SystemEmailSection() {
           <label style={{ display: 'block', fontSize: 12, color: 'var(--text-secondary)', marginBottom: 5 }}>{t('admin.systemEmail.encryption')}</label>
           <select value={form.tls} onChange={e => setForm(f => ({ ...f, tls: e.target.value }))}
             style={{ width: '100%', background: 'var(--bg-tertiary)', border: '1px solid var(--border)', borderRadius: 6, padding: '7px 10px', color: 'var(--text-primary)', fontSize: 13 }}>
-            <option value="STARTTLS">STARTTLS (port 587)</option>
-            <option value="SSL">SSL/TLS (port 465)</option>
-            <option value="none">None (port 25)</option>
+            <option value="STARTTLS">{t('admin.systemEmail.starttlsOption')}</option>
+            <option value="SSL">{t('admin.systemEmail.tlsOption')}</option>
+            <option value="none">{t('admin.systemEmail.noSecurityOption')}</option>
           </select>
         </div>
 
@@ -7056,7 +7086,7 @@ function RulesTab() {
                       style={{ ...inputStyle, flex: 1 }}
                       value={cond.value || ''}
                       onChange={e => setCondition(idx, 'value', e.target.value)}
-                      placeholder="value"
+                      placeholder={t('admin.rules.valuePlaceholder')}
                     />
                   </>
                 )}
@@ -7304,7 +7334,7 @@ function RulesTab() {
                   <input type="checkbox" checked={rule.enabled} onChange={() => handleToggle(rule)} />
                 </label>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 2 }}>{rule.name || '(unnamed)'}</div>
+                  <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 2 }}>{rule.name || t('admin.rules.unnamed')}</div>
                   <div style={{ fontSize: 11, color: 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     {conditionSummary(rule)} → {actionSummary(rule)}
                   </div>
@@ -7625,7 +7655,8 @@ function MailboxCleanupTab() {
 
 const TAB_GROUPS = [
   { id: 'account-mail', labelKey: 'admin.tabs.groupAccountMail', tabIds: ['accounts', 'notifications', 'rules', 'categories', 'cleanup'] },
-  { id: 'calendar', labelKey: 'calendar.title', tabIds: ['calendar'] },
+  { id: 'calendar', labelKey: 'calendar.title', tabIds: ['calendar', 'calendar-appearance'] },
+  { id: 'contacts', labelKey: 'contacts.title', tabIds: ['contacts'] },
   { id: 'display', labelKey: 'admin.tabs.groupDisplay', tabIds: ['appearance', 'shortcuts'] },
   { id: 'security-integrations', labelKey: 'admin.tabs.groupSecurityIntegrations', tabIds: ['security', 'dav-credentials', 'integrations', 'ai', 'ai-actions', 'plugins'] },
   { id: 'admin', labelKey: 'admin.tabs.groupAdmin', tabIds: ['users', 'sso'] },
@@ -7653,7 +7684,9 @@ const TABS = [
     id: 'cleanup', labelKey: 'admin.tabs.cleanup', beta: true,
     icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M19 3l-6 6"/><path d="M14 4l6 6"/><path d="M11 8l-7 7c-1 1-1 3 0 4s3 1 4 0l7-7"/><path d="M6 20l-3-3"/></svg>,
   },
-  { id: 'calendar', labelKey: 'calendar.title', icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 11h18"/></svg> },
+  { id: 'calendar-appearance', labelKey: 'admin.tabs.appearance', icon: <span aria-hidden="true">◐</span> },
+  { id: 'contacts', labelKey: 'admin.tabs.accounts', icon: <span aria-hidden="true">☷</span> },
+  { id: 'calendar', labelKey: 'admin.tabs.accounts', icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 11h18"/></svg> },
   // Display
   {
     id: 'appearance', labelKey: 'admin.tabs.appearance',
@@ -9239,14 +9272,49 @@ function SearchResultsView({ results, query, onNavigate, t }: SearchResultsViewP
 }
 
 function DavCredentialsTab() {
-  const { t } = useTranslation(); const [credentials, setCredentials] = useState<DavCredential[]>([]); const [label, setLabel] = useState(''); const [secret, setSecret] = useState(''); const [error, setError] = useState(''); const [loading, setLoading] = useState(true); const [busy, setBusy] = useState(false); const [copied, setCopied] = useState(false); const [maxMode, setMaxMode] = useState<'read_only' | 'read_write'>('read_write');
-  const load = useCallback(async () => { setLoading(true); try { const result = await api.davCredentials.list(); setCredentials(result.credentials || []); } catch (err) { setError(toAppError(err).message || t('admin.davCredentials.loadError')); } finally { setLoading(false); } }, [t]);
-  useEffect(() => { load(); }, [load]);
-  const create = async () => { if (!label.trim()) return; setBusy(true); setError(''); setSecret(''); setCopied(false); try { const result = await api.davCredentials.create(label.trim(), maxMode); setCredentials(current => [result.credential, ...current]); setLabel(''); setSecret(result.secret); } catch (err) { setError(toAppError(err).message || t('admin.davCredentials.createError')); } finally { setBusy(false); } };
-  const copy = async () => { try { await navigator.clipboard.writeText(secret); setCopied(true); } catch { setError(t('admin.davCredentials.copyError')); } };
-  const revoke = async (credential: DavCredential) => { setBusy(true); setError(''); try { await api.davCredentials.revoke(credential.id); setCredentials(current => current.filter(item => item.id !== credential.id)); } catch (err) { setError(toAppError(err).message || t('admin.davCredentials.revokeError')); } finally { setBusy(false); } };
+  const { t } = useTranslation(); const [credentials, setCredentials] = useState<DavCredential[]>([]); const [label, setLabel] = useState(''); const [secret, setSecret] = useState(''); const [error, setError] = useState(''); const [loading, setLoading] = useState(true); const [busy, setBusy] = useState(false); const [maxMode, setMaxMode] = useState<'read_only' | 'read_write'>('read_write');
+  const scope = useRef(0);
+  const load = useCallback(async () => {
+    const generation = scope.current;
+    setLoading(true);
+    try {
+      const result = await api.davCredentials.list();
+      if (generation === scope.current) setCredentials(result.credentials || []);
+    } catch (err) {
+      if (generation === scope.current) setError(toAppError(err).message || t('admin.davCredentials.loadError'));
+    } finally { if (generation === scope.current) setLoading(false); }
+  }, [t]);
+  useEffect(() => { scope.current += 1; return () => { scope.current += 1; }; }, []);
+  useEffect(() => { void load(); }, [load]);
+  const create = async () => {
+    if (busy || loading || !label.trim()) return;
+    const generation = scope.current;
+    setBusy(true); setError(''); setSecret('');
+    try {
+      const result = await api.davCredentials.create(label.trim(), maxMode);
+      if (generation !== scope.current) return;
+      setCredentials(current => [result.credential, ...current]); setLabel(''); setSecret(result.secret);
+    } catch (err) {
+      if (generation === scope.current) setError(toAppError(err).message || t('admin.davCredentials.createError'));
+    } finally { if (generation === scope.current) setBusy(false); }
+  };
+  const revoke = async (credential: DavCredential) => {
+    if (busy || loading) return;
+    const generation = scope.current;
+    setBusy(true); setError('');
+    try {
+      await api.davCredentials.revoke(credential.id);
+      if (generation === scope.current) setCredentials(current => current.filter(item => item.id !== credential.id));
+    } catch (err) {
+      if (generation === scope.current) setError(toAppError(err).message || t('admin.davCredentials.revokeError'));
+    } finally { if (generation === scope.current) setBusy(false); }
+  };
   const endpoint = window.location.origin;
-  return <div style={{ maxWidth: 680 }}><h2 style={{ marginTop: 0 }}>{t('admin.davCredentials.title')}</h2><p style={{ color: 'var(--text-secondary)' }}>{t('admin.davCredentials.description')}</p>{error && <div role="alert" style={{ color: 'var(--red)', marginBottom: 12 }}>{error}</div>}<div style={{ display: 'flex', gap: 8, marginBottom: 18 }}><input aria-label={t('admin.davCredentials.label')} value={label} maxLength={120} onChange={e => setLabel(e.target.value)} onKeyDown={e => e.key === 'Enter' && create()} placeholder={t('admin.davCredentials.labelPlaceholder')} style={inputStyle}/><select data-testid="dav-credential-max-mode" aria-label={t('admin.davCredentials.maxMode')} value={maxMode} onChange={e => setMaxMode(e.target.value === 'read_only' ? 'read_only' : 'read_write')} style={{ ...inputStyle, maxWidth: 200 }}><option value="read_write">{t('admin.davCredentials.maxModeReadWrite')}</option><option value="read_only">{t('admin.davCredentials.maxModeReadOnly')}</option></select><button disabled={busy || !label.trim()} onClick={create} style={{ background: 'var(--accent)', color: 'var(--accent-text)', border: 0, borderRadius: 6, padding: '7px 12px', cursor: 'pointer', whiteSpace: 'nowrap' }}>{t('admin.davCredentials.create')}</button></div>{secret && <section style={{ border: '1px solid var(--accent)', borderRadius: 8, padding: 16, marginBottom: 18 }}><strong>{t('admin.davCredentials.secretTitle')}</strong><p>{t('admin.davCredentials.secretWarning')}</p><code style={{ display: 'block', overflowWrap: 'anywhere' }}>{secret}</code><button onClick={copy} style={{ marginTop: 10 }}>{copied ? t('admin.davCredentials.copied') : t('common.copy')}</button></section>}<section style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 16, marginBottom: 18 }}><strong>{t('admin.davCredentials.davx5Title')}</strong><p>{t('admin.davCredentials.davx5Description')}</p><code>{endpoint}/.well-known/carddav</code><br/><code>{endpoint}/.well-known/caldav</code><p style={{ color: 'var(--text-tertiary)', marginBottom: 0 }}>{t('admin.davCredentials.davx5Username')}</p></section><h3>{t('admin.davCredentials.activeTitle')}</h3>{loading ? <p>{t('common.loading')}</p> : credentials.length === 0 ? <p>{t('admin.davCredentials.empty')}</p> : <div style={{ display: 'grid', gap: 8 }}>{credentials.map(credential => <div key={credential.id} style={{ display: 'flex', gap: 12, alignItems: 'center', border: '1px solid var(--border)', borderRadius: 8, padding: 12 }}><div style={{ flex: 1 }}><strong>{credential.label}</strong><div style={{ color: 'var(--text-tertiary)', fontSize: 12 }}>{t('admin.davCredentials.metadata', { created: new Date(credential.created_at).toLocaleString(), used: credential.last_used_at ? new Date(credential.last_used_at).toLocaleString() : t('common.never') })}</div></div><div style={{ color: 'var(--text-tertiary)', fontSize: 12 }}>{t('admin.davCredentials.mode', { mode: credential.max_dav_mode === 'read_only' ? t('admin.davCredentials.maxModeReadOnly') : t('admin.davCredentials.maxModeReadWrite') })}</div><button disabled={busy} onClick={() => revoke(credential)} style={{ color: 'var(--red)' }}>{t('admin.davCredentials.revoke')}</button></div>)}</div>}</div>;
+  return <div style={{ maxWidth: 680, minWidth: 0, overflowWrap: 'anywhere' }}><h2 style={{ marginTop: 0 }}>{t('admin.davCredentials.title')}</h2><p style={{ color: 'var(--text-secondary)' }}>{t('admin.davCredentials.description')}</p>{error && <div role="alert" style={{ color: 'var(--red)', marginBottom: 12 }}>{error}</div>}<div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 18 }}><input aria-label={t('admin.davCredentials.label')} value={label} maxLength={120} onChange={e => setLabel(e.target.value)} onKeyDown={e => e.key === 'Enter' && create()} placeholder={t('admin.davCredentials.labelPlaceholder')} style={{ ...inputStyle, flex: '1 1 180px', minWidth: 0 }}/>
+<select data-testid="dav-credential-max-mode" aria-label={t('admin.davCredentials.maxMode')} value={maxMode} onChange={e => setMaxMode(e.target.value === 'read_only' ? 'read_only' : 'read_write')} style={{ ...inputStyle, flex: '1 1 170px', minWidth: 0, maxWidth: '100%' }}><option value="read_write">{t('admin.davCredentials.maxModeReadWrite')}</option><option value="read_only">{t('admin.davCredentials.maxModeReadOnly')}</option></select><button type="button" disabled={busy || loading || !label.trim()} onClick={create} style={{ background: 'var(--accent)', color: 'var(--accent-text)', border: 0, borderRadius: 6, padding: '7px 12px', cursor: 'pointer', whiteSpace: 'nowrap' }}>{t('admin.davCredentials.create')}</button></div>{secret && <section style={{ border: '1px solid var(--accent)', borderRadius: 8, padding: 16, marginBottom: 18 }}><strong>{t('admin.davCredentials.secretTitle')}</strong><p>{t('admin.davCredentials.secretWarning')}</p><DavCopyValue label={t('admin.davCredentials.secretTitle')} value={secret} /></section>}<section style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 16, marginBottom: 18 }}><strong>{t('admin.davCredentials.davx5Title')}</strong><p>{t('admin.davCredentials.davx5Description')}</p>
+<DavCopyValue label="CardDAV" value={`${endpoint}/.well-known/carddav`} />
+<DavCopyValue label="CalDAV" value={`${endpoint}/.well-known/caldav`} />
+<p style={{ color: 'var(--text-tertiary)', marginBottom: 0 }}>{t('admin.davCredentials.davx5Username')}</p></section><h3>{t('admin.davCredentials.activeTitle')}</h3>{loading ? <p>{t('common.loading')}</p> : credentials.length === 0 ? <p>{t('admin.davCredentials.empty')}</p> : <div style={{ display: 'grid', gap: 8 }}>{credentials.map(credential => <div key={credential.id} style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', minWidth: 0, border: '1px solid var(--border)', borderRadius: 8, padding: 12 }}><div style={{ flex: '1 1 180px', minWidth: 0 }}><strong>{credential.label}</strong><div style={{ color: 'var(--text-tertiary)', fontSize: 12 }}>{t('admin.davCredentials.metadata', { created: new Date(credential.created_at).toLocaleString(), used: credential.last_used_at ? new Date(credential.last_used_at).toLocaleString() : t('common.never') })}</div></div><div style={{ color: 'var(--text-tertiary)', fontSize: 12 }}>{t('admin.davCredentials.mode', { mode: credential.max_dav_mode === 'read_only' ? t('admin.davCredentials.maxModeReadOnly') : t('admin.davCredentials.maxModeReadWrite') })}</div><button disabled={busy} onClick={() => revoke(credential)} style={{ color: 'var(--red)' }}>{t('admin.davCredentials.revoke')}</button></div>)}</div>}</div>;
 }
 
 export default function AdminPanel() {
@@ -9334,6 +9402,8 @@ export default function AdminPanel() {
       {adminTab === 'categories' && <CategoriesSection initialSubTab={pendingSubTab} />}
       {adminTab === 'cleanup' && <MailboxCleanupTab />}
       {adminTab === 'calendar' && <CalendarSettingsTab />}
+      {adminTab === 'calendar-appearance' && <CalendarSettingsTab section="appearance" />}
+      {adminTab === 'contacts' && <ContactsPage settingsOnly />}
       {adminTab === 'appearance' && <AppearanceTab initialSubTab={pendingSubTab} />}
       {adminTab === 'integrations' && <IntegrationsTab />}
       {adminTab === 'users' && <UsersTab />}
@@ -9410,6 +9480,8 @@ export default function AdminPanel() {
                 }}
               >
                 <span style={{ display: 'flex', opacity: adminTab === tab.id && !searchResults ? 1 : 0.7 }}>{tab.icon}</span>
+                {(tab.id === 'calendar' || tab.id === 'calendar-appearance') && `${t('calendar.title')} · `}
+                {tab.id === 'contacts' && `${t('contacts.title')} · `}
                 {t(tab.labelKey)}
                 {tab.beta && <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.06em', padding: '1px 4px', borderRadius: 3, background: adminTab === tab.id && !searchResults ? 'rgba(255,255,255,0.25)' : 'color-mix(in srgb, var(--accent) 15%, transparent)', color: adminTab === tab.id && !searchResults ? '#fff' : 'var(--accent)' }}>BETA</span>}
               </button>

@@ -41,7 +41,13 @@ test('the drawer preference lives next to the mobile navigation position', async
   // Same settings block as the top/bottom choice.
   assert.match(adminPanel, /testId="mobile-navigation-position-setting"[\s\S]{0,1500}testId="mobile-sidebar-swipe-setting"/);
   assert.match(adminPanel, /t\('admin\.appearance\.mobileSidebarSwipe'\)/);
-  assert.match(adminPanel, /t\('admin\.appearance\.mobileSidebarSwipeDescription'\)/);
+  const choices = adminPanel.match(/<SettingsChoices\b[\s\S]*?\/>/g)?.find(block => block.includes('testId="mobile-sidebar-swipe-setting"'));
+  assert.ok(choices, 'the gesture uses the shared two-option choice control');
+  assert.match(choices, /value=\{mobileSidebarSwipeEnabled \? 'on' : 'off'\}/);
+  assert.match(choices, /onChange=\{value => setMobileSidebarSwipeEnabled\(value === 'on'\)\}/);
+  assert.match(choices, /\['off', t\('conversation\.readerOff'\), t\('admin\.appearance\.mobileSidebarSwipeOffDesc'\)\]/);
+  assert.match(choices, /\['on', t\('conversation\.readerOn'\), t\('admin\.appearance\.mobileSidebarSwipeOnDesc'\)\]/);
+  assert.equal(choices.match(/\['(?:off|on)',/g)?.length, 2);
 
   // Defaults to on, and only an explicit stored boolean flips it.
   assert.match(store, /mobileSidebarSwipeEnabled: true/);

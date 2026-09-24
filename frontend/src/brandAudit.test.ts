@@ -36,7 +36,7 @@ test("Inboxora branding is used by user-visible application surfaces", async () 
   const checks: readonly (readonly [file: string, expected: string])[] = [
     ["frontend/src/components/MailApp.tsx", "document.title = 'Inboxora'"],
     ["frontend/src/components/AdminPanel.tsx", "fromName: 'Inboxora'"],
-    ["frontend/src/components/ElectronNotificationBridge.tsx", "Inboxora downloaded"],
+    ["frontend/src/components/ElectronNotificationBridge.tsx", "t('nativeUpdates.downloaded')"],
     ["frontend/src/components/TodoistTaskModal.tsx", "View in Inboxora"],
     ["frontend/public/sw.js", "title       = 'Inboxora'"],
   ];
@@ -44,6 +44,10 @@ test("Inboxora branding is used by user-visible application surfaces", async () 
     const content = await source(file);
     assert.ok(content.includes(expected), `missing Inboxora branding in ${file}`);
     assert.ok(!content.includes("cfg.fromName || 'MailFlow'"), `legacy system-email fallback in ${file}`);
+  }
+  for (const lang of ['en', 'pl', 'cs', 'de', 'es', 'fr', 'it', 'ru', 'zhCN']) {
+    const catalog: Record<string, Record<string, string>> = JSON.parse(await source(`frontend/src/locales/${lang}.json`));
+    assert.match(catalog.nativeUpdates.downloaded, /Inboxora/, `${lang} updater translation preserves the brand`);
   }
 });
 

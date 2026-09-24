@@ -205,13 +205,16 @@ interface GoogleContactsSyncOutcome {
 }
 
 
-export default function ContactsPage({ isActive = true }) {
+export default function ContactsPage({ isActive = true, settingsOnly = false }) {
   const { t } = useTranslation();
-  const { showContacts } = useStore();
+  const { showContacts, setAdminTab, setShowAdmin, authEpoch } = useStore();
+  const bookLoadGeneration = useRef(0);
+  useEffect(() => () => { bookLoadGeneration.current++; }, [authEpoch]);
+  const openBookSettings = () => { setBooksOpen(false); setAdminTab('contacts'); setShowAdmin(true); };
   const phone = useMobile();
   const [booksOpen, setBooksOpen] = useState(false);
   // The manager replaces the old `⋯` menu: one panel that shows which book every action applies to.
-  const [booksManagerOpen, setBooksManagerOpen] = useState(false);
+  const [booksManagerOpen, setBooksManagerOpen] = useState(settingsOnly);
   const [deletingBook, setDeletingBook] = useState(false);
   const [bookDeleteError, setBookDeleteError] = useState<string | null>(null);
   const [davBusy, setDavBusy] = useState(false);
@@ -317,6 +320,7 @@ export default function ContactsPage({ isActive = true }) {
   useEffect(() => { totalRef.current = total; }, [total]);
 
   const loadAddressBooks = useCallback(async () => {
+    const generation = ++bookLoadGeneration.current;
     const [books, google, microsoft, dav] = await Promise.all([
       api.addressBooks.list(),
       // A server without a provider adapter must not break the address books.
@@ -325,15 +329,18 @@ export default function ContactsPage({ isActive = true }) {
       // DAV-05: a CardDAV book needs its own state and action too, not only the provider ones.
       api.carddav.status().catch(() => null),
     ]);
+    if (generation !== bookLoadGeneration.current || useStore.getState().authEpoch !== authEpoch) return;
     // Older servers and test fixtures may not expose address books yet. Contacts
     // must remain usable while the client and API roll out independently.
     setAddressBooks(Array.isArray(books.addressBooks) ? books.addressBooks : []);
     setGoogleContacts(google ?? null);
     setMicrosoftContacts(microsoft ?? null);
     setDavStatus(dav ?? null);
-  }, []);
+    if (settingsOnly) window.dispatchEvent(new Event('inboxora:contact-books-changed'));
+  }, [settingsOnly, authEpoch]);
 
   const load = useCallback(async (q = '') => {
+    if (settingsOnly) return;
     const requestId = ++listRequestRef.current;
     loadingMoreRef.current = true;
     setLoadingMore(false);
@@ -350,7 +357,17 @@ export default function ContactsPage({ isActive = true }) {
     } finally {
       if (requestId === listRequestRef.current) { setLoading(false); loadingMoreRef.current = false; }
     }
-  }, [selectedAddressBookId]);
+  }, [selectedAddressBookId, settingsOnly]);
+
+  useEffect(() => {
+    if (settingsOnly) return;
+    const refreshBooks = () => {
+      void loadAddressBooks().catch(err => setListError(toAppError(err).message));
+      void load(searchRef.current);
+    };
+    window.addEventListener('inboxora:contact-books-changed', refreshBooks);
+    return () => window.removeEventListener('inboxora:contact-books-changed', refreshBooks);
+  }, [settingsOnly, loadAddressBooks, load]);
 
   useEffect(() => {
     clearTimeout(searchTimer.current);
@@ -787,8 +804,7 @@ export default function ContactsPage({ isActive = true }) {
       data-testid="contacts-manage-books"
       aria-label={t('contacts.booksManager.manage')}
       title={t('contacts.booksManager.manage')}
-      aria-haspopup="dialog"
-      onClick={() => { setBookDeleteError(null); setBooksManagerOpen(true); }}
+      onClick={openBookSettings}
       style={{
         flexShrink: 0,
         width: isMobile ? 44 : 34,
@@ -845,7 +861,7 @@ export default function ContactsPage({ isActive = true }) {
     };
   });
   const booksManager = <ContactsBooksManager
-    open={booksManagerOpen}
+    open={settingsOnly || booksManagerOpen}
     onClose={() => setBooksManagerOpen(false)}
     books={managerBooks}
     selectedBookId={selectedAddressBookId}
@@ -1111,6 +1127,17 @@ export default function ContactsPage({ isActive = true }) {
     </>
   );
 
+  // The settings route is the sole book-management surface. It reuses this
+  // controller's operations without mounting the contact reader/list UI.
+  if (settingsOnly) return <section data-testid="contacts-settings">
+    {listError && <p role="alert" className="ui-alert">{listError}</p>}
+    {providerNotice && <p role="status">{providerNotice.message}</p>}
+    {importNotice && <p role="status">{importNotice}</p>}
+    <input ref={importInputRef} type="file" accept=".csv,text/csv" onChange={importGoogleCsv} hidden />
+    <input ref={importVCardRef} type="file" accept=".vcf,text/vcard" onChange={importVCardFile} hidden />
+    {booksManager}{bookNameDialog}
+  </section>;
+
   // ── Mobile layout ─────────────────────────────────────────────────────────
   if (isMobile) {
     const mobileHeaderTitle = mobilePanel === 'detail' && selected
@@ -1142,7 +1169,6 @@ export default function ContactsPage({ isActive = true }) {
           {bookControls}
         </Dialog>}
         {bookNameDialog}
-        {booksManager}
 
         {/* Content */}
         {mobilePanel === 'list' ? (
@@ -1194,7 +1220,6 @@ export default function ContactsPage({ isActive = true }) {
         {detailPanel}
       </div>
       {bookNameDialog}
-      {booksManager}
     </div>
   );
 }

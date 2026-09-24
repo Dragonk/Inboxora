@@ -48,6 +48,8 @@
       "davCredentials": "Dostęp DAV"
     },
     "rules": {
+      "valuePlaceholder": "Wartość",
+      "unnamed": "(bez nazwy)",
       "title": "Reguły skrzynki odbiorczej",
       "newButton": "Nowa reguła",
       "empty": "Brak reguł. Reguły automatycznie filtrują przychodzącą pocztę.",
@@ -119,6 +121,8 @@
       "errorAdd": "Nie udało się dodać do listy blokad"
     },
     "accounts": {
+      "loadFoldersError": "Nie udało się wczytać folderów",
+      "saveFolderMappingsError": "Nie udało się zapisać mapowania folderów",
       "title": "Konta pocztowe",
       "addButton": "Dodaj konto",
       "empty": "Nie dodano jeszcze kont",
@@ -176,7 +180,6 @@
         "connected": "Połączone",
         "notConnected": "Niepołączone",
         "connect": "Połącz",
-        "collections": "{{count}} kolekcja/e",
         "migrateGoogle": "Przejdź na Gmail API",
         "migrateMicrosoft": "Przejdź na Microsoft Graph",
         "finishInTab": "Dokończ logowanie w otwartej karcie i wróć do tej karty konta.",
@@ -341,8 +344,9 @@
       "navigationTop": "U góry",
       "navigationBottom": "Na dole",
       "mobileNavigationDescription": "Położenie menu i działań w poczcie, kontaktach i kalendarzu.",
+      "mobileSidebarSwipeOffDesc": "Otwieraj panel boczny przyciskiem menu.",
+      "mobileSidebarSwipeOnDesc": "Otwieraj panel boczny gestem od lewej krawędzi.",
       "mobileSidebarSwipe": "Otwieraj menu gestem od lewej strony",
-      "mobileSidebarSwipeDescription": "Przesuń w prawo, zaczynając w lewej ćwiartce ekranu.",
       "navigationTopDesc": "Przełącznik paneli znajduje się nad listą wiadomości.",
       "navigationBottomDesc": "Przełącznik paneli jest na dole, w zasięgu kciuka."
     },
@@ -427,8 +431,7 @@
       "gravatarOff": "Wyłączone",
       "gravatarOffDesc": "Prywatne — brak kontaktu z podmiotami trzecimi.",
       "gravatarOn": "Włączone",
-      "gravatarOnDesc": "Pobieraj zdjęcia nadawców z usługi Gravatar — do zewnętrznej usługi wysyłane są skrócone adresy nadawców.",
-      "threadingDesc": "Grupuje wiadomość i odpowiedzi w jedną rozmowę na liście wiadomości."
+      "gravatarOnDesc": "Pobieraj zdjęcia nadawców z usługi Gravatar — do zewnętrznej usługi wysyłane są skrócone adresy nadawców."
     },
     "notifications": {
       "title": "Powiadomienia",
@@ -736,6 +739,9 @@
       }
     },
     "systemEmail": {
+      "starttlsOption": "STARTTLS (port 587)",
+      "tlsOption": "SSL/TLS (port 465)",
+      "noSecurityOption": "Brak (port 25)",
       "tabUsers": "Użytkownicy i zaproszenia",
       "tabEmail": "Poczta e-mail systemowa",
       "description": "Skonfiguruj dedykowane konto SMTP do wysyłania wiadomości z zaproszeniami i innych wiadomości systemowych. Jeśli nie zostanie ustawione, pierwsze osobiste konto SMTP administratora będzie używane jako awaryjne.",
@@ -823,6 +829,7 @@
       "errorSecretRequired": "Sekret klienta jest wymagany."
     },
     "integrations": {
+      "appUrlRequired": "Wymagany APP_URL",
       "accountHint": "Skrzynki dodajesz w Ustawieniach → Konta. Ta strona konfiguruje wyłącznie aplikację providera.",
       "title": "Integracje",
       "loading": "Wczytywanie…",
@@ -882,6 +889,7 @@
         "help": "Znajdź swój token w Todoist: Ustawienia → Integracje → Deweloper"
       },
       "carddav": {
+        "title": "Źródło CardDAV",
         "description": "Synchronizuj kontakty z serwerem CardDAV, takim jak Nextcloud.",
         "connected": "Połączono",
         "connect": "Połącz",
@@ -899,7 +907,7 @@
       },
       "google": {
         "title": "Google (Gmail, Kalendarz, Kontakty)",
-        "description": "Zalecane połączenie przez API dla kont Google. IMAP/SMTP z hasłem aplikacji pozostaje dostępne, jeśli konto Google na to pozwala. Konfiguracja poniżej jest potrzebna tylko do integracji API.",
+        "description": "Integracja API poczty, kontaktów i kalendarzy Google.",
         "savedNote": "Konfiguracja zapisana. Sprawdzenie dostępu konta wymaga autoryzacji użytkownika.",
         "appPasswordNote": "IMAP/SMTP z hasłem aplikacji nie zależy od tej konfiguracji i działa bez projektu w Google Cloud.",
         "deviceNotSupported": "Google nie udostępnia kodu urządzenia dla uprawnień do poczty, kalendarza i kontaktów, których wymaga ta integracja. Dostęp API korzysta z logowania w przeglądarce; sama poczta może nadal używać dozwolonego hasła aplikacji IMAP/SMTP.",
@@ -985,6 +993,7 @@
       "autoLockMin": "{{n}} min"
     },
     "plugins": {
+      "disabledBadge": "Wyłączone",
       "title": "Wtyczki",
       "description": "Włączaj i wyłączaj opcjonalne funkcje dla swojego konta. Włączenie wtyczki dodaje własne ustawienia i interfejs.",
       "activated": "Aktywne",
@@ -1011,7 +1020,7 @@
       "revoke": "Unieważnij",
       "loadError": "Nie udało się wczytać haseł aplikacji DAV.",
       "createError": "Nie udało się utworzyć hasła aplikacji.",
-      "copyError": "Nie udało się skopiować hasła aplikacji.",
+      "copyError": "Nie udało się skopiować. Zaznacz i skopiuj tekst ręcznie.",
       "revokeError": "Nie udało się unieważnić hasła aplikacji.",
       "maxMode": "Dostęp",
       "maxModeReadWrite": "Odczyt i zapis",
@@ -1069,6 +1078,9 @@
     "close": "Zamknij"
   },
   "compose": {
+    "partialDeliveryTitle": "Wiadomość częściowo przyjęta",
+    "partialDeliveryBody": "Serwer pocztowy nie przyjął wiadomości dla: {{recipients}}. Edytor zawiera teraz tylko tych odbiorców, aby można było bezpiecznie ponowić wysyłkę.",
+    "partialDeliveryRecipients": "jeden lub więcej odbiorców",
     "newMessage": "Nowa wiadomość",
     "reply": "Odpowiedz",
     "replyAll": "Odpowiedz wszystkim",
@@ -1120,6 +1132,12 @@
       "action": "Wyświetl"
     },
     "toolbar": {
+      "backToRichText": "Wróć do tekstu sformatowanego",
+      "removeLink": "Usuń link",
+      "emoji": "Emoji",
+      "alignLeft": "Wyrównaj do lewej",
+      "alignCenter": "Wyśrodkuj",
+      "alignRight": "Wyrównaj do prawej",
       "removeTable": "Usuń tabelę",
       "textColor": "Kolor tekstu",
       "removeColor": "Usuń kolor",
@@ -1245,6 +1263,9 @@
       "exportGoogle": "Eksport CSV do Google",
       "exportOutlook": "Eksport CSV do Outlooka",
       "davAccessHint": "Określa, czy ta książka adresowa jest udostępniana podłączonym urządzeniom (CardDAV). Nigdy nie przyznaje więcej, niż pozwala sama książka.",
+      "lastSynced": "Ostatnia synchronizacja: {{date}} · {{count}} kontaktów",
+      "googleSyncDone": "Kontakty Google: dodano {{created}}, zaktualizowano {{updated}}, usunięto {{deleted}}.",
+      "googleSyncPartial": "Kontakty Google: dodano {{created}}, zaktualizowano {{updated}}, usunięto {{deleted}}; nie udało się dla {{failed}} połączeń.",
       "microsoftSync": "Synchronizuj kontakty Microsoft",
       "microsoftSyncDone": "Kontakty Microsoft: dodano {{created}}, zaktualizowano {{updated}}, usunięto {{deleted}}.",
       "microsoftSyncPartial": "Kontakty Microsoft: dodano {{created}}, zaktualizowano {{updated}}, usunięto {{deleted}}; nie udało się dla {{failed}} połączeń.",
@@ -1343,6 +1364,10 @@
     "copyLink": "Kopiuj link"
   },
   "conversation": {
+    "groupingOffDesc": "Pokazuj każdą wiadomość osobno.",
+    "groupingOnDesc": "Grupuj wiadomości i odpowiedzi razem.",
+    "readerOffDesc": "Czytaj po jednej wiadomości.",
+    "readerOnDesc": "Czytaj całą konwersację razem.",
     "label": "rozmowa",
     "attachment": "Załącznik",
     "logicalCount": "{{count}} wiadomości",
@@ -1377,6 +1402,7 @@
     "conversationCount_one": "{{count}} rozmowa",
     "conversationCount_few": "{{count}} rozmowy",
     "conversationCount_many": "{{count}} rozmów",
+    "conversationCount_other": "{{count}} rozmowy",
     "keyboardHint": "j/k nawigacja · Enter rozwiń · Spacja zaznacz",
     "mergeInto": "Połącz z…",
     "locked": "Zablokowana",
@@ -1407,6 +1433,7 @@
     "attachmentCount_one": "{{count}} załącznik",
     "attachmentCount_few": "{{count}} załączniki",
     "attachmentCount_many": "{{count}} załączników",
+    "attachmentCount_other": "{{count}} załącznika",
     "subject": "Temat",
     "scrollToMessage": "Przewiń do wiadomości",
     "copyDetails": "Szczegóły kopii",
@@ -1414,6 +1441,7 @@
     "logicalCount_one": "{{count}} wiad.",
     "logicalCount_few": "{{count}} wiad.",
     "logicalCount_many": "{{count}} wiad.",
+    "logicalCount_other": "{{count}} wiad.",
     "confirmMoveTitle": "Przenieś rozmowę",
     "confirmMoveBody": "Przenieść {{count}} wiadomość(-i) do innego folderu?",
     "showQuotedText": "Pokaż cytowaną treść",
@@ -1426,8 +1454,7 @@
     "outgoingMessage": "Wiadomość wychodząca",
     "expandMessage": "Rozwiń wiadomość od {{sender}}: {{subject}}",
     "collapseMessage": "Zwiń wiadomość od {{sender}}: {{subject}}",
-    "summary": "Skrót:",
-    "readerDesc": "Otwiera całą rozmowę w panelu czytania zamiast pojedynczej wiadomości."
+    "summary": "Skrót:"
   },
   "diagnostics": {
     "section": "Diagnostyka",
@@ -1550,6 +1577,9 @@
     }
   },
   "message": {
+    "forwardedMessage": "Przekazana wiadomość",
+    "date": "Data",
+    "cc": "DW",
     "find": {
       "title": "Wyszukiwanie",
       "close": "Zamknij wyszukiwanie",
@@ -1638,6 +1668,8 @@
     }
   },
   "messageList": {
+    "layout": "Układ",
+    "menu": "Menu",
     "search": "Szukaj…",
     "unread": "Nieprzeczytane",
     "showAll": "Pokaż wszystkie",
@@ -1719,6 +1751,7 @@
     "noSearchResultsDesc": "Brak wyników dla {{query}}",
     "clearSearch": "Wyczyść wyszukiwanie",
     "searchHelp": {
+      "example": "from:amazon faktura",
       "title": "Operatory wyszukiwania",
       "from": "Od nadawcy",
       "subject": "W temacie",
@@ -1867,6 +1900,8 @@
     }
   },
   "sidebar": {
+    "favorites": "Ulubione",
+    "reorderFolder": "Przeciągnij, aby zmienić kolejność folderów",
     "accounts": "Konta",
     "allInboxes": "Wszystkie skrzynki odbiorcze",
     "compose": "Napisz",
@@ -1886,6 +1921,8 @@
     "signOut": "Wyloguj się",
     "connectionError": "Błąd połączenia",
     "folderMenu": {
+      "favorite": "Dodaj do ulubionych",
+      "unfavorite": "Usuń z ulubionych",
       "markAllRead": "Oznacz wszystkie jako przeczytane",
       "syncFolder": "Synchronizuj folder",
       "renameFavorite": "Zmień nazwę ulubionego folderu",
@@ -1986,6 +2023,12 @@
     "close": "Zamknij"
   },
   "calendar": {
+    "hide": "Ukryj",
+    "show": "Pokaż",
+    "noCalendarsDiscovered": "Nie znaleziono jeszcze żadnych kalendarzy.",
+    "searchSources": "Szukaj źródeł lub kalendarzy",
+    "serviceDisabled": "Usługa kalendarza jest wyłączona.",
+    "providerManagedHint": "Tworzeniem, zmianą nazw i usuwaniem kalendarzy zarządza dostawca. Skonfiguruj usługi konta w Ustawieniach → Konta.",
     "organizer": "Organizator",
     "retry": "Ponów",
     "eventCount": "Wydarzenia: {{count}}",
@@ -2076,8 +2119,6 @@
     "day4": "Czwartek",
     "day5": "Piątek",
     "day6": "Sobota",
-    "owned": "Własny",
-    "sourceCalendar": "Źródło",
     "calendarActions": "Akcje dla {{name}}",
     "rename": "Zmień nazwę",
     "changeColor": "Zmień kolor",
@@ -2090,9 +2131,7 @@
     "contactDateEvent": "{{label}}: {{name}}",
     "invitationPending": "Dostarczenie zaproszeń jeszcze trwa. Ponów próbę, aby sprawdzić stan.",
     "retrySave": "Ponów zapis",
-    "syncSkipped": "Pominięte wydarzenia: {{count}}. Pozostałe zostały zsynchronizowane.",
     "syncFailed": "Synchronizacja kalendarza nie powiodła się.",
-    "syncDetails": "Szczegóły diagnostyczne",
     "mailInvitation": "Zaproszenie do kalendarza",
     "addInvitation": "Dodaj do kalendarza",
     "invitationAdded": "Dodano do kalendarza",
@@ -2104,7 +2143,6 @@
     "invitationSaveFailed": "Nie udało się zaktualizować zaproszenia.",
     "sourceSyncInterval": "Synchronizuj co",
     "sourceSyncMinutes": "{{count}} min",
-    "sourceSyncHours": "{{count}} godz.",
     "invitationLoadFailed": "Nie udało się odczytać lub zapisać zaproszenia.",
     "editOccurrence": "Edytujesz tylko to wystąpienie wydarzenia.",
     "editFollowing": "Edytujesz to i wszystkie następne wystąpienia.",
@@ -2159,14 +2197,12 @@
     "davAccessReadOnly": "Tylko odczyt",
     "davAccessReadWrite": "Odczyt i zapis",
     "davAccessHint": "Określa, czy ten kalendarz jest udostępniany podłączonym urządzeniom (CalDAV). Nigdy nie przyznaje więcej, niż pozwala sam kalendarz.",
+    "invitationCancellationSent": "Wysłano anulowanie zaproszenia.",
+    "invitationCancellationStatus": "Status anulowania zaproszenia: {{status}}",
     "providerSync": "Synchronizuj kalendarz {{provider}}",
-    "providerSyncing": "Synchronizowanie kalendarza {{provider}}…",
     "providerSyncDone": "Kalendarz {{provider}}: {{calendars}} kalendarzy, dodano {{created}}, zaktualizowano {{updated}}, usunięto {{deleted}}.",
     "providerSyncPartial": "Kalendarz {{provider}}: {{calendars}} kalendarzy, dodano {{created}}, zaktualizowano {{updated}}, usunięto {{deleted}}; niepowodzenia: {{failed}}.",
-    "hiddenCalendars": "Ukryte kalendarze",
-    "restore": "Przywróć",
     "importIcs": "Importuj plik .ics",
-    "importingIcs": "Importowanie…",
     "importDone": "Zaimportowano {{count}} wydarzenie/ń.",
     "importProtected": "{{count}} wydarzeń pozostało bez zmian, ponieważ Inboxora wysłała ich zaproszenia."
   },
@@ -2245,6 +2281,22 @@
       "openSystemSettings": "Otwórz domyślne aplikacje w Windows",
       "confirmHint": "Windows sam poprosi Cię o potwierdzenie domyślnej aplikacji — aplikacja nie może zrobić tego za Ciebie. Inboxora pojawi się na tej stronie na liście klientów poczty."
     }
+  },
+  "nativeUpdates": {
+    "ready": "Aktualizacja gotowa",
+    "downloaded": "Inboxora pobrała aktualizację.",
+    "verified": "Inboxora pobrała i zweryfikowała aktualizację.",
+    "manualInstall": "Inboxora pobrała i zweryfikowała aktualizację. Zainstaluj ją z terminala za pomocą polecenia:\n{{command}}",
+    "copyAndQuit": "Kopiuj i zakończ",
+    "install": "Zainstaluj",
+    "copyFailed": "Kopiowanie nie powiodło się",
+    "copyFailedBody": "Nie udało się skopiować polecenia aktualizacji.",
+    "installFailed": "Instalacja nie powiodła się",
+    "installFailedBody": "Aktualizacja została pobrana, ale nie udało się uruchomić instalatora.",
+    "syncStarted": "Rozpoczęto synchronizację",
+    "syncStartedBody": "Inboxora sprawdza, czy są nowe wiadomości.",
+    "syncFailed": "Synchronizacja nie powiodła się",
+    "syncFailedBody": "Nie udało się zsynchronizować poczty."
   },
   "providers": {
     "microsoftGraphConnected": {

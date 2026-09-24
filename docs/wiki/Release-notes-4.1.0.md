@@ -12,6 +12,12 @@ without copying or losing anything local.
 
 ## Highlights
 
+- **Localization is an explicit release gate.** Run `cd frontend && npm run test:i18n` before submitting UI changes. CI and GHCR/native publishers run it before publishing. It checks all nine locale catalogs, static/conditional translation calls (including English defaults), visible JSX/attribute/notification text, interpolation syntax and variable parity, and plural rendering without English fallback. Technical brands, protocol tokens and glyphs have exact reviewed exceptions; arbitrary computed runtime strings still require code review. English copies in conversation settings, missing contact-sync notices, provider sync counts and malformed placeholders are corrected. These checks require no migration; publishing an older revision without the gate requires backporting the gate rather than skipping it.
+- **Forward and print labels follow the app language.** Generated HTML header metadata and translated labels are escaped, and dates use the selected language. Subject transport conventions such as `Fwd:` remain unchanged.
+
+- **One settings surface for calendars and contacts.** Management buttons now open the corresponding Settings section. Calendar navigation separates Accounts from Appearance. Calendar hide/show affects only sidebar presence; event selection stays exclusively in the calendar rail. Local calendar/source lifecycle controls remain available; native provider collection creation/deletion is still restricted rather than simulated locally. No new database migration is required for this UI change (existing presentation preferences migration remains required).
+- **Consistent, mobile-friendly settings.** Gesture and conversation preferences use paired described choices. Provider integration cards start collapsed with concise setup guidance. Account overview includes Calendar/Contacts enablement and sync state. DAV endpoints wrap in compact text with individual copy feedback; account forms and provider services use consistent setting rows.
+
 - **Crash-safe deferred native inbox rules.** A Gmail or Microsoft message whose ingest projection lacks a body or
   headers needed by an inbox rule is recorded in the additive `0121_provider_rule_deferred_queue.sql` queue before
   any block-list or rule action runs. The worker reads only missing data, with a lease and backoff for transient

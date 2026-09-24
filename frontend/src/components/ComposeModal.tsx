@@ -960,8 +960,8 @@ export default function ComposeModal() {
         addNotification({
           type: 'warning',
           persistent: true,
-          title: 'Message partially accepted',
-          body: `Not accepted by the mail server: ${rejectedRecipients.join(', ') || 'one or more recipients'}. The composer now contains only those recipients for a safe retry.`,
+          title: t('compose.partialDeliveryTitle'),
+          body: t('compose.partialDeliveryBody', { recipients: rejectedRecipients.join(', ') || t('compose.partialDeliveryRecipients') }),
         });
         return;
       }
@@ -1665,7 +1665,7 @@ export default function ComposeModal() {
           {shouldShowSignatureEditor(fromSignature, hasPersistedSignature) && (
             <div style={{ padding: '0 16px 12px' }}>
               <div style={{ fontSize: 11, color: 'var(--text-tertiary)', margin: '8px 0 6px', userSelect: 'none' }}>
-                -- signature
+                -- {t('admin.accounts.signatureSection')}
               </div>
               {renderSignatureEditor()}
             </div>
@@ -2315,7 +2315,7 @@ export default function ComposeModal() {
         {shouldShowSignatureEditor(fromSignature, hasPersistedSignature) ? (
           <div style={{ padding: '0 14px 10px' }}>
             <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 6, userSelect: 'none' }}>
-              -- signature
+              -- {t('admin.accounts.signatureSection')}
             </div>
             {renderSignatureEditor()}
           </div>
@@ -2877,10 +2877,10 @@ function RichToolbar({ editor, onAttach, onInsertImage = undefined, htmlMode, on
       {isMobile ? (
         <>
           <div ref={mobileBarRef} style={{ borderBottom: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', padding: '2px 0' }}>
-            {mtb(es.bold, 'Bold', (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().toggleBold().run(); }, <b>B</b>)}
-            {mtb(es.italic, 'Italic', (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().toggleItalic().run(); }, <i>I</i>)}
-            {mtb(es.underline, 'Underline', (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().toggleUnderline().run(); }, <u>U</u>)}
-            {mtb(es.strike, 'Strikethrough', (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().toggleStrike().run(); }, <s>S</s>)}
+            {mtb(es.bold, t('signatureEditor.bold'), (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().toggleBold().run(); }, <b>B</b>)}
+            {mtb(es.italic, t('signatureEditor.italic'), (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().toggleItalic().run(); }, <i>I</i>)}
+            {mtb(es.underline, t('signatureEditor.underline'), (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().toggleUnderline().run(); }, <u>U</u>)}
+            {mtb(es.strike, t('signatureEditor.strikethrough'), (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().toggleStrike().run(); }, <s>S</s>)}
             {onAttach && (
               <button title={t('compose.toolbar.attachFile')} onMouseDown={ (e: React.MouseEvent<HTMLElement>) => { e.preventDefault(); onAttach(); }}
                 style={{ background: 'none', border: 'none', borderRadius: 4, padding: '6px 4px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: 1, color: 'var(--text-secondary)', WebkitTapHighlightColor: 'transparent' }}>
@@ -2926,16 +2926,16 @@ function RichToolbar({ editor, onAttach, onInsertImage = undefined, htmlMode, on
                 <span style={{ fontSize: 13, fontWeight: 700, color: '#1a1a1a', lineHeight: 1, background: es.backgroundColor || '#ffd43b', padding: '0 2px', borderRadius: 2, border: '1px solid rgba(0,0,0,0.2)' }}>A</span>
               </button>
               <Sep />
-              {mtb(es.alignLeft, 'Align left', (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().setTextAlign('left').run(); }, <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="18" x2="18" y2="18"/></svg>)}
-              {mtb(es.alignCenter, 'Align center', (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().setTextAlign('center').run(); }, <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="6" y1="12" x2="18" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg>)}
-              {mtb(es.alignRight, 'Align right', (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().setTextAlign('right').run(); }, <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="9" y1="12" x2="21" y2="12"/><line x1="6" y1="18" x2="21" y2="18"/></svg>)}
+              {mtb(es.alignLeft, t('compose.toolbar.alignLeft'), (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().setTextAlign('left').run(); }, <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="18" x2="18" y2="18"/></svg>)}
+              {mtb(es.alignCenter, t('compose.toolbar.alignCenter'), (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().setTextAlign('center').run(); }, <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="6" y1="12" x2="18" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg>)}
+              {mtb(es.alignRight, t('compose.toolbar.alignRight'), (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().setTextAlign('right').run(); }, <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="9" y1="12" x2="21" y2="12"/><line x1="6" y1="18" x2="21" y2="18"/></svg>)}
               <Sep />
-              {mtb(es.bulletList, 'Bullet list', (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().toggleBulletList().run(); }, <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="9" y1="6" x2="20" y2="6"/><line x1="9" y1="12" x2="20" y2="12"/><line x1="9" y1="18" x2="20" y2="18"/><circle cx="4" cy="6" r="1.5" fill="currentColor" stroke="none"/><circle cx="4" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="4" cy="18" r="1.5" fill="currentColor" stroke="none"/></svg>)}
-              {mtb(es.orderedList, 'Numbered list', (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().toggleOrderedList().run(); }, <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="10" y1="6" x2="21" y2="6"/><line x1="10" y1="12" x2="21" y2="12"/><line x1="10" y1="18" x2="21" y2="18"/><text x="1" y="8" fontSize="7" fill="currentColor" stroke="none" fontFamily="sans-serif">1.</text><text x="1" y="14" fontSize="7" fill="currentColor" stroke="none" fontFamily="sans-serif">2.</text><text x="1" y="20" fontSize="7" fill="currentColor" stroke="none" fontFamily="sans-serif">3.</text></svg>)}
+              {mtb(es.bulletList, t('richTextEditor.bulletList'), (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().toggleBulletList().run(); }, <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="9" y1="6" x2="20" y2="6"/><line x1="9" y1="12" x2="20" y2="12"/><line x1="9" y1="18" x2="20" y2="18"/><circle cx="4" cy="6" r="1.5" fill="currentColor" stroke="none"/><circle cx="4" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="4" cy="18" r="1.5" fill="currentColor" stroke="none"/></svg>)}
+              {mtb(es.orderedList, t('richTextEditor.orderedList'), (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().toggleOrderedList().run(); }, <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="10" y1="6" x2="21" y2="6"/><line x1="10" y1="12" x2="21" y2="12"/><line x1="10" y1="18" x2="21" y2="18"/><text x="1" y="8" fontSize="7" fill="currentColor" stroke="none" fontFamily="sans-serif">1.</text><text x="1" y="14" fontSize="7" fill="currentColor" stroke="none" fontFamily="sans-serif">2.</text><text x="1" y="20" fontSize="7" fill="currentColor" stroke="none" fontFamily="sans-serif">3.</text></svg>)}
               {onToggleHtml && (
                 <>
                   <Sep />
-                  <button title={htmlMode ? 'Back to rich text' : 'Edit HTML source'} onMouseDown={ (e: React.MouseEvent<HTMLElement>) => { e.preventDefault(); onToggleHtml(); }}
+                  <button title={htmlMode ? t('compose.toolbar.backToRichText') : t('signatureEditor.sourceMode')} onMouseDown={ (e: React.MouseEvent<HTMLElement>) => { e.preventDefault(); onToggleHtml(); }}
                     style={{ background: htmlMode ? 'var(--accent-dim)' : 'none', border: 'none', borderRadius: 4, padding: '6px 10px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', color: htmlMode ? 'var(--accent)' : 'var(--text-secondary)', fontFamily: 'monospace', fontSize: 11, fontWeight: 600, letterSpacing: '-0.5px', WebkitTapHighlightColor: 'transparent' }}>{'</>'}</button>
                 </>
               )}
@@ -3004,10 +3004,10 @@ function RichToolbar({ editor, onAttach, onInsertImage = undefined, htmlMode, on
 
         <Sep />
 
-        {tb(es.bold, 'Bold', (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().toggleBold().run(); }, <b>B</b>)}
-        {tb(es.italic, 'Italic', (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().toggleItalic().run(); }, <i>I</i>)}
-        {tb(es.underline, 'Underline', (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().toggleUnderline().run(); }, <u>U</u>)}
-        {tb(es.strike, 'Strikethrough', (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().toggleStrike().run(); }, <s>S</s>)}
+        {tb(es.bold, t('signatureEditor.bold'), (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().toggleBold().run(); }, <b>B</b>)}
+        {tb(es.italic, t('signatureEditor.italic'), (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().toggleItalic().run(); }, <i>I</i>)}
+        {tb(es.underline, t('signatureEditor.underline'), (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().toggleUnderline().run(); }, <u>U</u>)}
+        {tb(es.strike, t('signatureEditor.strikethrough'), (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().toggleStrike().run(); }, <s>S</s>)}
 
         <Sep />
 
@@ -3024,18 +3024,18 @@ function RichToolbar({ editor, onAttach, onInsertImage = undefined, htmlMode, on
 
         <Sep />
 
-        {tb(es.alignLeft, 'Align left', (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().setTextAlign('left').run(); },
+        {tb(es.alignLeft, t('compose.toolbar.alignLeft'), (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().setTextAlign('left').run(); },
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="18" x2="18" y2="18"/></svg>)}
-        {tb(es.alignCenter, 'Align center', (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().setTextAlign('center').run(); },
+        {tb(es.alignCenter, t('compose.toolbar.alignCenter'), (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().setTextAlign('center').run(); },
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="6" y1="12" x2="18" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg>)}
-        {tb(es.alignRight, 'Align right', (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().setTextAlign('right').run(); },
+        {tb(es.alignRight, t('compose.toolbar.alignRight'), (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().setTextAlign('right').run(); },
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="9" y1="12" x2="21" y2="12"/><line x1="6" y1="18" x2="21" y2="18"/></svg>)}
 
         <Sep />
 
-        {tb(es.bulletList, 'Bullet list', (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().toggleBulletList().run(); },
+        {tb(es.bulletList, t('richTextEditor.bulletList'), (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().toggleBulletList().run(); },
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="9" y1="6" x2="20" y2="6"/><line x1="9" y1="12" x2="20" y2="12"/><line x1="9" y1="18" x2="20" y2="18"/><circle cx="4" cy="6" r="1.5" fill="currentColor" stroke="none"/><circle cx="4" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="4" cy="18" r="1.5" fill="currentColor" stroke="none"/></svg>)}
-        {tb(es.orderedList, 'Numbered list', (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().toggleOrderedList().run(); },
+        {tb(es.orderedList, t('richTextEditor.orderedList'), (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().toggleOrderedList().run(); },
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="10" y1="6" x2="21" y2="6"/><line x1="10" y1="12" x2="21" y2="12"/><line x1="10" y1="18" x2="21" y2="18"/><text x="1" y="8" fontSize="7" fill="currentColor" stroke="none" fontFamily="sans-serif">1.</text><text x="1" y="14" fontSize="7" fill="currentColor" stroke="none" fontFamily="sans-serif">2.</text><text x="1" y="20" fontSize="7" fill="currentColor" stroke="none" fontFamily="sans-serif">3.</text></svg>)}
 
         <Sep />
@@ -3043,7 +3043,7 @@ function RichToolbar({ editor, onAttach, onInsertImage = undefined, htmlMode, on
         <TBtn ref={linkBtnRef} active={es.link} title={t('compose.toolbar.insertLink')} onMouseDown={openLink}>
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>
         </TBtn>
-        <button ref={emojiBtnRef} title="Emoji" onMouseDown={openEmoji}
+        <button ref={emojiBtnRef} title={t('compose.toolbar.emoji')} onMouseDown={openEmoji}
           style={{ background: 'none', border: 'none', borderRadius: 4, padding: '3px 6px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center' }}>
           <span style={{ fontSize: 13, lineHeight: 1 }}>😀</span>
         </button>
@@ -3091,7 +3091,7 @@ function RichToolbar({ editor, onAttach, onInsertImage = undefined, htmlMode, on
         {onToggleHtml && (
           <>
             <Sep />
-            <button title={htmlMode ? 'Back to rich text' : 'Edit HTML source'} onMouseDown={ (e: React.MouseEvent<HTMLElement>) => { e.preventDefault(); onToggleHtml(); }}
+            <button title={htmlMode ? t('compose.toolbar.backToRichText') : t('signatureEditor.sourceMode')} onMouseDown={ (e: React.MouseEvent<HTMLElement>) => { e.preventDefault(); onToggleHtml(); }}
               style={{
                 background: htmlMode ? 'var(--accent-dim)' : 'none', border: 'none', borderRadius: 4,
                 padding: '3px 6px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center',
@@ -3164,7 +3164,7 @@ function RichToolbar({ editor, onAttach, onInsertImage = undefined, htmlMode, on
           {es.link && (
             <button onMouseDown={ (e: React.MouseEvent<HTMLElement>) => { e.preventDefault(); editor.chain().focus().unsetLink().run(); setLinkPos(null); }}
               style={{ background: 'none', border: 'none', color: 'var(--red)', fontSize: 11, cursor: 'pointer', padding: 0, textAlign: 'left' }}>
-              Remove link
+              {t('compose.toolbar.removeLink')}
             </button>
           )}
         </div>

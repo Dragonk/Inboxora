@@ -9,6 +9,8 @@
       "sourceCode": "Исходный код"
     },
     "accounts": {
+      "loadFoldersError": "Не удалось загрузить папки",
+      "saveFolderMappingsError": "Не удалось сохранить соответствия папок",
       "title": "Почтовые аккаунты",
       "addButton": "Добавить аккаунт",
       "empty": "Аккаунты ещё не добавлены",
@@ -64,7 +66,6 @@
         "connected": "Подключено",
         "notConnected": "Не подключено",
         "connect": "Подключить",
-        "collections": "Коллекций: {{count}}",
         "migrateGoogle": "Перейти на Gmail API",
         "migrateMicrosoft": "Перейти на Microsoft Graph",
         "finishInTab": "Завершите вход во вкладке и вернитесь к этой карточке.",
@@ -275,8 +276,9 @@
       "navigationTop": "Сверху",
       "navigationBottom": "Снизу",
       "mobileNavigationDescription": "Расположение меню и действий в почте, контактах и календаре.",
+      "mobileSidebarSwipeOffDesc": "Открывайте боковую панель кнопкой меню.",
+      "mobileSidebarSwipeOnDesc": "Открывайте боковую панель свайпом от левого края.",
       "mobileSidebarSwipe": "Открывать меню свайпом слева",
-      "mobileSidebarSwipeDescription": "Свайпните вправо, начиная с левой четверти экрана.",
       "navigationTopDesc": "Переключатель панелей находится над списком сообщений.",
       "navigationBottomDesc": "Переключатель панелей находится снизу, под большим пальцем."
     },
@@ -384,6 +386,7 @@
       }
     },
     "integrations": {
+      "appUrlRequired": "Требуется APP_URL",
       "accountHint": "Ящики добавляются в «Настройки → Аккаунты». Эта страница настраивает только приложение провайдера.",
       "title": "Интеграции",
       "loading": "Загрузка…",
@@ -443,6 +446,7 @@
         "help": "Найдите токен в Todoist Настройки → Интеграции → Разработчик"
       },
       "carddav": {
+        "title": "Источник CardDAV",
         "description": "Синхронизация контактов с сервера CardDAV, например Nextcloud.",
         "connected": "Подключено",
         "connect": "Подключить",
@@ -460,7 +464,7 @@
       },
       "google": {
         "title": "Google (Gmail, Календарь, Контакты)",
-        "description": "Рекомендуемое подключение через API для аккаунтов Google. IMAP/SMTP с паролём приложения остаётся доступным, если это разрешено аккаунтом Google. Конфигурация ниже нужна только для интеграции API.",
+        "description": "Интеграция API для почты, контактов и календарей Google.",
         "savedNote": "Конфигурация сохранена. Проверка доступа к аккаунту требует авторизации пользователя.",
         "appPasswordNote": "IMAP/SMTP с паролём приложения не зависит от этой конфигурации и работает без проекта Google Cloud.",
         "deviceNotSupported": "Google не предоставляет код устройства для прав на почту, календарь и контакты, необходимых этой интеграции. Доступ к API использует вход в браузере; только почта может по-прежнему использовать разрешённый пароль приложения IMAP/SMTP.",
@@ -604,10 +608,9 @@
       "markReadDelayLabel": "Задержка",
       "markReadDelaySeconds": "{{count}} секунда",
       "markReadDelaySeconds_other": "{{count}} секунд",
-      "markReadDelaySeconds_many": "{{count}} seconds",
+      "markReadDelaySeconds_many": "{{count}} секунд",
       "markReadDelaySeconds_one": "{{count}} секунда",
-      "markReadDelaySeconds_few": "{{count}} seconds",
-      "threadingDesc": "Объединяет сообщение и ответы в одну переписку в списке сообщений."
+      "markReadDelaySeconds_few": "{{count}} секунды"
     },
     "notifications": {
       "title": "Уведомления",
@@ -627,6 +630,7 @@
       "badgeOff": "Выключено"
     },
     "plugins": {
+      "disabledBadge": "Отключено",
       "title": "Плагины",
       "description": "Включайте или отключайте дополнительные функции для вашей учётной записи. Включённый плагин добавляет свои настройки и интерфейс.",
       "activated": "Включён",
@@ -678,6 +682,8 @@
       "loading": "Выполняется…"
     },
     "rules": {
+      "valuePlaceholder": "Значение",
+      "unnamed": "(без названия)",
       "title": "Правила входящих",
       "newButton": "Новое правило",
       "empty": "Правил пока нет. Правила автоматически фильтруют входящую почту.",
@@ -909,6 +915,9 @@
       "body": "Ваш аккаунт теперь связан с SSO-провайдером."
     },
     "systemEmail": {
+      "starttlsOption": "STARTTLS (порт 587)",
+      "tlsOption": "SSL/TLS (порт 465)",
+      "noSecurityOption": "Без шифрования (порт 25)",
       "tabUsers": "Пользователи и приглашения",
       "tabEmail": "Системная почта",
       "description": "Настройте отдельный SMTP-аккаунт для отправки приглашений и других системных сообщений. Если он не задан, как резервный вариант используется первый личный SMTP-аккаунт администратора.",
@@ -1011,7 +1020,7 @@
       "revoke": "Отозвать",
       "loadError": "Не удалось загрузить пароли приложений DAV.",
       "createError": "Не удалось создать пароль приложения.",
-      "copyError": "Не удалось скопировать пароль приложения.",
+      "copyError": "Не удалось скопировать. Выделите и скопируйте текст вручную.",
       "revokeError": "Не удалось отозвать пароль приложения.",
       "maxMode": "Доступ",
       "maxModeReadWrite": "Чтение и запись",
@@ -1069,6 +1078,9 @@
     "close": "Закрыть"
   },
   "compose": {
+    "partialDeliveryTitle": "Сообщение принято частично",
+    "partialDeliveryBody": "Почтовый сервер не принял сообщение для: {{recipients}}. Теперь в редакторе остались только эти получатели для безопасной повторной отправки.",
+    "partialDeliveryRecipients": "один или несколько получателей",
     "newMessage": "Новое сообщение",
     "reply": "Ответить",
     "replyAll": "Ответить всем",
@@ -1120,6 +1132,12 @@
       "action": "Просмотреть"
     },
     "toolbar": {
+      "backToRichText": "Вернуться к форматированному тексту",
+      "removeLink": "Удалить ссылку",
+      "emoji": "Эмодзи",
+      "alignLeft": "Выровнять по левому краю",
+      "alignCenter": "Выровнять по центру",
+      "alignRight": "Выровнять по правому краю",
       "removeTable": "Удалить таблицу",
       "textColor": "Цвет текста",
       "removeColor": "Убрать цвет",
@@ -1245,6 +1263,9 @@
       "exportGoogle": "Экспорт CSV для Google",
       "exportOutlook": "Экспорт CSV для Outlook",
       "davAccessHint": "Определяет, публикуется ли эта адресная книга на подключённых устройствах (CardDAV). Она никогда не даёт больше прав, чем сама книга.",
+      "lastSynced": "Последняя синхронизация: {{date}} · контактов: {{count}}",
+      "googleSyncDone": "Контакты Google: добавлено {{created}}, обновлено {{updated}}, удалено {{deleted}}.",
+      "googleSyncPartial": "Контакты Google: добавлено {{created}}, обновлено {{updated}}, удалено {{deleted}}; не удалось для {{failed}} подключений.",
       "microsoftSync": "Синхронизировать контакты Microsoft",
       "microsoftSyncDone": "Контакты Microsoft: добавлено {{created}}, обновлено {{updated}}, удалено {{deleted}}.",
       "microsoftSyncPartial": "Контакты Microsoft: добавлено {{created}}, обновлено {{updated}}, удалено {{deleted}}; не удалось для {{failed}} подключений.",
@@ -1343,6 +1364,10 @@
     }
   },
   "conversation": {
+    "groupingOffDesc": "Показывать каждое сообщение отдельно.",
+    "groupingOnDesc": "Группировать сообщения и ответы вместе.",
+    "readerOffDesc": "Читать по одному сообщению.",
+    "readerOnDesc": "Читать всю беседу целиком.",
     "label": "переписка",
     "attachment": "Вложение",
     "logicalCount": "Сообщений: {{count}}",
@@ -1377,6 +1402,7 @@
     "conversationCount_one": "{{count}} переписка",
     "conversationCount_few": "{{count}} переписки",
     "conversationCount_many": "{{count}} переписок",
+    "conversationCount_other": "{{count}} переписки",
     "keyboardHint": "j/k — навигация · Enter — раскрыть · Пробел — выбрать",
     "mergeInto": "Объединить с…",
     "locked": "Заблокировано",
@@ -1407,6 +1433,7 @@
     "attachmentCount_one": "{{count}} вложение",
     "attachmentCount_few": "{{count}} вложения",
     "attachmentCount_many": "{{count}} вложений",
+    "attachmentCount_other": "{{count}} вложения",
     "subject": "Тема",
     "scrollToMessage": "Перейти к сообщению",
     "copyDetails": "Данные копии",
@@ -1414,20 +1441,20 @@
     "logicalCount_one": "{{count}} сообщение",
     "logicalCount_few": "{{count}} сообщения",
     "logicalCount_many": "{{count}} сообщений",
+    "logicalCount_other": "{{count}} сообщения",
     "confirmMoveTitle": "Переместить переписку",
     "confirmMoveBody": "Переместить сообщений: {{count}} в другую папку?",
     "showQuotedText": "Показать цитируемый текст",
     "hideQuotedText": "Скрыть цитируемый текст",
-    "groupIntoConversationsOn": "On",
-    "readerOff": "Disabled",
-    "readerOn": "Enabled",
+    "groupIntoConversationsOn": "Включено",
+    "readerOff": "Отключён",
+    "readerOn": "Включён",
     "groupIntoConversations": "Группировать сообщения в беседы",
     "incomingMessage": "Входящее сообщение",
     "outgoingMessage": "Исходящее сообщение",
     "expandMessage": "Развернуть сообщение от {{sender}}: {{subject}}",
     "collapseMessage": "Свернуть сообщение от {{sender}}: {{subject}}",
-    "summary": "Кратко:",
-    "readerDesc": "Открывает всю переписку в области чтения вместо одного сообщения."
+    "summary": "Кратко:"
   },
   "diagnostics": {
     "section": "Диагностика",
@@ -1550,6 +1577,9 @@
     }
   },
   "message": {
+    "forwardedMessage": "Пересланное сообщение",
+    "date": "Дата",
+    "cc": "Копия",
     "find": {
       "title": "Поиск",
       "close": "Закрыть поиск",
@@ -1634,10 +1664,12 @@
       "done": "Категория: {{category}}",
       "error": "Ошибка классификации ИИ."
     },
-    "attachment_few": "{{count}} attachments",
-    "attachment_many": "{{count}} attachments"
+    "attachment_few": "{{count}} вложения",
+    "attachment_many": "{{count}} вложений"
   },
   "messageList": {
+    "layout": "Расположение",
+    "menu": "Меню",
     "search": "Поиск…",
     "unread": "Непрочитанные",
     "showAll": "Показать все",
@@ -1677,10 +1709,10 @@
       "failTitle": "Не удалось удалить",
       "failBody_one": "Не удалось удалить {{count}} сообщение.",
       "failBody_other": "Не удалось удалить {{count}} сообщений.",
-      "failBody_few": "Some messages could not be deleted",
-      "failBody_many": "Some messages could not be deleted",
-      "title_few": "Deleted {{count}} messages",
-      "title_many": "Deleted {{count}} messages"
+      "failBody_few": "Не удалось удалить некоторые сообщения.",
+      "failBody_many": "Не удалось удалить некоторые сообщения.",
+      "title_few": "{{count}} сообщения удалены",
+      "title_many": "{{count}} сообщений удалено"
     },
     "bulkMoved": {
       "title_one": "{{count}} сообщение перемещено",
@@ -1688,10 +1720,10 @@
       "failTitle": "Не удалось переместить",
       "failBody_one": "Не удалось переместить {{count}} сообщение.",
       "failBody_other": "Не удалось переместить {{count}} сообщений.",
-      "failBody_few": "Some messages could not be moved",
-      "failBody_many": "Some messages could not be moved",
-      "title_few": "Moved {{count}} messages",
-      "title_many": "Moved {{count}} messages"
+      "failBody_few": "Не удалось переместить некоторые сообщения.",
+      "failBody_many": "Не удалось переместить некоторые сообщения.",
+      "title_few": "{{count}} сообщения перемещены",
+      "title_many": "{{count}} сообщений перемещено"
     },
     "bulkArchived": {
       "title_one": "{{count}} сообщение архивировано",
@@ -1702,10 +1734,10 @@
       "failBody_other": "Не удалось архивировать {{count}} сообщений.",
       "noFolderTitle": "Нет папки архива",
       "noFolderBody": "У одного или нескольких аккаунтов не настроена папка архива. Задайте её в Настройки → Аккаунты → Сопоставление папок.",
-      "failBody_few": "Some messages could not be archived",
-      "failBody_many": "Some messages could not be archived",
-      "title_few": "Archived {{count}} messages",
-      "title_many": "Archived {{count}} messages"
+      "failBody_few": "Не удалось архивировать некоторые сообщения.",
+      "failBody_many": "Не удалось архивировать некоторые сообщения.",
+      "title_few": "{{count}} сообщения архивированы",
+      "title_many": "{{count}} сообщений архивировано"
     },
     "noArchiveFolder": {
       "title": "Нет папки архива",
@@ -1719,6 +1751,7 @@
     "noSearchResultsDesc": "Ничего не найдено по запросу {{query}}",
     "clearSearch": "Очистить поиск",
     "searchHelp": {
+      "example": "from:amazon счёт",
       "title": "Операторы поиска",
       "from": "От отправителя",
       "subject": "В теме",
@@ -1867,6 +1900,8 @@
     }
   },
   "sidebar": {
+    "favorites": "Избранное",
+    "reorderFolder": "Перетащите, чтобы изменить порядок папок",
     "accounts": "Аккаунты",
     "allInboxes": "Все входящие",
     "compose": "Написать",
@@ -1884,6 +1919,8 @@
     "signOut": "Выйти",
     "connectionError": "Ошибка подключения",
     "folderMenu": {
+      "favorite": "Добавить в избранное",
+      "unfavorite": "Удалить из избранного",
       "markAllRead": "Отметить все как прочитанные",
       "syncFolder": "Синхронизировать папку",
       "renameFavorite": "Переименовать избранное",
@@ -1915,8 +1952,8 @@
     "emptied": "Папка очищена",
     "backToAccounts": "Назад к аккаунтам",
     "updateAvailable": "Доступно обновление: v{{version}}",
-    "hiddenFolders_few": "{{count}} hidden folders",
-    "hiddenFolders_many": "{{count}} hidden folders"
+    "hiddenFolders_few": "{{count}} скрытые папки",
+    "hiddenFolders_many": "{{count}} скрытых папок"
   },
   "signatureEditor": {
     "bold": "Жирный (Ctrl+B)",
@@ -1986,6 +2023,12 @@
     "close": "Закрыть"
   },
   "calendar": {
+    "hide": "Скрыть",
+    "show": "Показать",
+    "noCalendarsDiscovered": "Календари пока не найдены.",
+    "searchSources": "Поиск источников или календарей",
+    "serviceDisabled": "Служба календаря отключена.",
+    "providerManagedHint": "Созданием, переименованием и удалением календарей управляет провайдер. Настройте службы аккаунта в разделе «Настройки → Аккаунты».",
     "organizer": "Организатор",
     "retry": "Повторить",
     "eventCount": "События: {{count}}",
@@ -2076,8 +2119,6 @@
     "day4": "Четверг",
     "day5": "Пятница",
     "day6": "Суббота",
-    "owned": "Собственный",
-    "sourceCalendar": "Источник",
     "calendarActions": "Действия для {{name}}",
     "rename": "Переименовать",
     "changeColor": "Изменить цвет",
@@ -2090,9 +2131,7 @@
     "contactDateEvent": "{{label}}: {{name}}",
     "invitationPending": "Доставка приглашений ещё не завершена. Повторите попытку, чтобы проверить статус.",
     "retrySave": "Повторить сохранение",
-    "syncSkipped": "Пропущено событий: {{count}}. Остальные синхронизированы.",
     "syncFailed": "Не удалось синхронизировать календарь.",
-    "syncDetails": "Подробности диагностики",
     "mailInvitation": "Приглашение в календарь",
     "addInvitation": "Добавить в календарь",
     "invitationAdded": "Добавлено в календарь",
@@ -2104,7 +2143,6 @@
     "invitationSaveFailed": "Не удалось обновить приглашение.",
     "sourceSyncInterval": "Синхронизировать каждые",
     "sourceSyncMinutes": "{{count}} мин",
-    "sourceSyncHours": "{{count}} ч",
     "invitationLoadFailed": "Не удалось загрузить или сохранить приглашение.",
     "editOccurrence": "Вы изменяете только этот экземпляр события.",
     "editFollowing": "Вы изменяете это и все последующие повторения.",
@@ -2160,13 +2198,11 @@
     "davAccessReadWrite": "Чтение и запись",
     "davAccessHint": "Определяет, публикуется ли этот календарь на подключённых устройствах (CalDAV). Он никогда не даёт больше прав, чем сам календарь.",
     "providerSync": "Синхронизировать календарь {{provider}}",
-    "providerSyncing": "Синхронизация календаря {{provider}}…",
-    "providerSyncDone": "Календарь {{provider}} синхронизирован.",
-    "providerSyncPartial": "Частичная синхронизация календаря {{provider}}.",
-    "hiddenCalendars": "Скрытые календари",
-    "restore": "Восстановить",
+    "invitationCancellationSent": "Уведомление об отмене приглашения отправлено.",
+    "invitationCancellationStatus": "Статус отмены приглашения: {{status}}",
+    "providerSyncDone": "Календарь {{provider}}: календарей — {{calendars}}, добавлено {{created}}, обновлено {{updated}}, удалено {{deleted}}.",
+    "providerSyncPartial": "Календарь {{provider}}: календарей — {{calendars}}, добавлено {{created}}, обновлено {{updated}}, удалено {{deleted}}; ошибок — {{failed}}.",
     "importIcs": "Импорт файла .ics",
-    "importingIcs": "Импорт…",
     "importDone": "Импортировано событий: {{count}}.",
     "importProtected": "{{count}} событий остались без изменений, так как Inboxora отправила их приглашения."
   },
@@ -2246,6 +2282,22 @@
       "confirmHint": "Windows попросит вас подтвердить приложение по умолчанию самостоятельно — приложение не может назначить себя само. Inboxora появится на этой странице в списке почтовых клиентов."
     }
   },
+  "nativeUpdates": {
+    "ready": "Обновление готово",
+    "downloaded": "Inboxora скачала обновление.",
+    "verified": "Inboxora скачала и проверила обновление.",
+    "manualInstall": "Inboxora скачала и проверила обновление. Установите его из терминала с помощью команды:\n{{command}}",
+    "copyAndQuit": "Скопировать и выйти",
+    "install": "Установить",
+    "copyFailed": "Не удалось скопировать",
+    "copyFailedBody": "Не удалось скопировать команду обновления.",
+    "installFailed": "Не удалось установить",
+    "installFailedBody": "Обновление скачано, но не удалось запустить установщик.",
+    "syncStarted": "Синхронизация началась",
+    "syncStartedBody": "Inboxora проверяет наличие новых писем.",
+    "syncFailed": "Ошибка синхронизации",
+    "syncFailedBody": "Не удалось синхронизировать почту."
+  },
   "providers": {
     "microsoftGraphConnected": {
       "title": "Аккаунт Microsoft подключён",
@@ -2260,7 +2312,7 @@
     "syncError": {
       "missingScopes": "{{provider}} {{service}}: не хватает разрешения {{scopes}}. Подключите {{service}} заново.",
       "auth": "{{provider}} отклонил авторизацию для {{service}} ({{code}}). Подключите заново.",
-      "rateLimited": "{{provider}} сейчас ограничивает {{service}. Попробуйте через несколько минут.",
+      "rateLimited": "{{provider}} сейчас ограничивает {{service}}. Попробуйте через несколько минут.",
       "providerDown": "{{provider}} сообщил об ошибке сервера для {{service}} ({{status}}). Следующий запуск повторит попытку.",
       "generic": "{{provider}} {{service}}: ошибка {{code}}.",
       "showDetails": "Показать подробности ({{count}})",

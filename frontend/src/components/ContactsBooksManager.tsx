@@ -1,5 +1,5 @@
 import React from 'react';
-import { Button, Dialog } from './ui.tsx';
+import { Button } from './ui.tsx';
 import ContactsDavSource from './ContactsDavSource.tsx';
 
 /**
@@ -274,14 +274,7 @@ export default function ContactsBooksManager(props: ContactsBooksManagerProps) {
   );
 
   return (
-    <Dialog
-      title={t('contacts.booksManager.title')}
-      closeLabel={t('common.close')}
-      onClose={props.onClose}
-      testId="contacts-books-manager"
-      {...(isMobile ? { className: 'ui-sheet' } : {})}
-      footer={<Button onClick={props.onClose}>{t('common.close')}</Button>}
-    >
+    <section data-testid="contacts-books-manager" aria-label={t('contacts.booksManager.title')} style={{ minWidth: 0 }}>
       <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', minWidth: 0 }}>
         <div data-testid="contacts-manager-list-pane" style={{
           flex: isMobile ? '1 1 100%' : '1 1 260px', minWidth: 0,
@@ -307,7 +300,7 @@ export default function ContactsBooksManager(props: ContactsBooksManagerProps) {
         <p style={metaStyle}>{t('contacts.booksManager.sourcesHint')}</p>
         <ContactsDavSource t={t} onChanged={props.onDavChanged} />
       </div>
-    </Dialog>
+    </section>
   );
 }
 

@@ -464,6 +464,8 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import i18next from 'i18next';
+import { auditSource } from '../../scripts/i18n-source.ts';
+import { interpolationVariables } from '../../scripts/i18n-interpolation.ts';
 
 const dir = dirname(fileURLToPath(import.meta.url));
 
@@ -477,6 +479,15 @@ const dir = dirname(fileURLToPath(import.meta.url));
 type SameValueRule = 'any' | string[][];
 
 const SAME_VALUE_ALLOWED: Record<string, SameValueRule> = {
+  // Protocol names and the noun "port" have identical spellings in these locales.
+  'admin.systemEmail.starttlsOption': [['cs', 'en', 'fr', 'pl']],
+  'admin.systemEmail.tlsOption': [['cs', 'en', 'fr', 'pl']],
+  // Emoji is an established loanword in these languages.
+  'compose.toolbar.emoji': [['cs', 'de', 'en', 'es', 'it', 'pl']],
+  // Czech/Polish both use "faktura"; from: is untranslated search syntax.
+  'messageList.searchHelp.example': [['cs', 'pl']],
+  // Shared date nouns: Date (English/French), Data (Italian/Polish), Datum (Czech/German).
+  'message.date': [['en', 'fr'], ['it', 'pl'], ['cs', 'de']],
   // Provider and protocol names are the same word in every language these files cover.
   'contacts.booksManager.sourceGoogle': 'any',
   'calendar.sourceCategoryGoogle': 'any',
@@ -531,13 +542,9 @@ const SAME_VALUE_ALLOWED: Record<string, SameValueRule> = {
   'calendar.caldav': 'any',
   'calendar.day6': [['cs', 'pl']],
   'calendar.icsWebcal': 'any',
-  'calendar.sourceCalendar': [['en', 'fr']],
   'calendar.sourceUrl': 'any',
-  // Settings -> Accounts: the account's provider services. The service names are the calendar/contacts words
-  // already used elsewhere ("Calendario" is the same in Spanish and Italian), and the collection count is an
-  // interpolation-only template.
+  // Settings -> Accounts: "Calendario" is the same in Spanish and Italian.
   'admin.accounts.services.calendar': [['es', 'it']],
-  'admin.accounts.services.collections': 'any',
   // "Contacts" is the same word in these language groups, as it already is elsewhere in the file.
   'admin.accounts.services.contacts': [['en', 'fr'], ['cs', 'pl']],
   // The provider names, identical in every language by design.
@@ -551,164 +558,19 @@ const SAME_VALUE_ALLOWED: Record<string, SameValueRule> = {
   'admin.accounts.addAccountFlow.imap': 'any',
   'admin.accounts.addAccountFlow.microsoftDescription': 'any',
   'admin.accounts.addAccountFlow.googleDescription': 'any',
-  // CE v2 candidate-only locale keys retained from the candidate branch.
-  'admin.messageList.markReadDelaySeconds_few': 'any',
-  'admin.messageList.markReadDelaySeconds_many': 'any',
-  'admin.messageList.markReadDelaySeconds_one': 'any',
-  'conversation.account': 'any',
-  'conversation.accounts': 'any',
-  'conversation.apply': 'any',
-  'conversation.archive': 'any',
-  'conversation.attachment': 'any',
-  'conversation.attachmentCount_few': 'any',
-  'conversation.attachmentCount_many': 'any',
-  'conversation.attachmentCount_one': 'any',
-  'conversation.automatedSeries': 'any',
-  'conversation.bcc': 'any',
-  'conversation.bodyLabel': 'any',
-  'conversation.bulkActions': 'any',
-  'conversation.cancel': 'any',
-  'conversation.cc': 'any',
-  'conversation.close': 'any',
-  'conversation.collapse': 'any',
-  'conversation.collapseConversation': 'any',
-  'conversation.confirm': 'any',
-  'conversation.confirmArchiveBody': 'any',
-  'conversation.confirmArchiveTitle': 'any',
-  'conversation.confirmDeleteBody': 'any',
-  'conversation.confirmDeleteTitle': 'any',
-  'conversation.confirmMoveBody': 'any',
-  'conversation.confirmMoveTitle': 'any',
-  'conversation.conversationCount_few': 'any',
-  'conversation.conversationCount_many': 'any',
-  'conversation.conversationCount_one': 'any',
-  'conversation.conversationReader': 'any',
-  'conversation.readerOff': 'any',
-  'conversation.readerOn': 'any',
-  'conversation.groupIntoConversationsOn': 'any',
-  'conversation.copies': 'any',
-  'conversation.copyCount_few': 'any',
-  'conversation.copyCount_many': 'any',
-  'conversation.copyCount_one': 'any',
-  'conversation.copyDetails': 'any',
-  'conversation.copyUsed': 'any',
-  'conversation.date': 'any',
-  'conversation.delete': 'any',
-  'conversation.deselectAll': 'any',
-  'conversation.diagnosticsConfidence': 'any',
-  'conversation.diagnosticsCopyCount': 'any',
-  'conversation.diagnosticsKind': 'any',
-  'conversation.diagnosticsLogicalMessages': 'any',
-  'conversation.diagnosticsNoOverrides': 'any',
-  'conversation.diagnosticsNone': 'any',
-  'conversation.diagnosticsOverrides': 'any',
-  'conversation.diagnosticsParent': 'any',
-  'conversation.diagnosticsThreadingReason': 'any',
-  'conversation.diagnosticsTitle': 'any',
-  'conversation.downloadAttachment': 'any',
-  'conversation.exitSelection': 'any',
-  'conversation.expand': 'any',
-  'conversation.expandConversation': 'any',
-  'conversation.folder': 'any',
-  'conversation.forceExclude': 'any',
-  'conversation.forceInclude': 'any',
-  'conversation.forward': 'any',
-  'conversation.from': 'any',
-  'conversation.hideFullHeaders': 'any',
-  'conversation.hideQuotedText': 'any',
-  'conversation.imagesBlocked': 'any',
-  'conversation.keyboardHint': 'any',
-  'conversation.label': 'any',
-  'conversation.latestOwnReply': 'any',
-  'conversation.listLabel': 'any',
-  'conversation.loadBody': 'any',
-  'conversation.loadBodyFailed': 'any',
-  'conversation.loadFailed': 'any',
-  'conversation.loadImages': 'any',
-  'conversation.loadMore': 'any',
-  'conversation.loading': 'any',
-  'conversation.loadingBody': 'any',
-  'conversation.lock': 'any',
-  'conversation.locked': 'any',
-  'conversation.logicalCount': 'any',
-  'conversation.logicalCount_few': 'any',
-  'conversation.logicalCount_many': 'any',
-  'conversation.logicalCount_one': 'any',
-  'conversation.manualActions': 'any',
-  'conversation.markRead': 'any',
-  'conversation.markUnread': 'any',
-  'conversation.mergeConversations': 'any',
-  'conversation.mergeInto': 'any',
-  'conversation.mergeTargetPrompt': 'any',
-  'conversation.messageCount': 'any',
-  'conversation.messageCount_few': 'any',
-  'conversation.messageCount_many': 'any',
-  'conversation.messageCount_one': 'any',
-  'conversation.messagesLabel': 'any',
-  'conversation.move': 'any',
-  'conversation.moveToConversation': 'any',
-  'conversation.moveToConversationPrompt': 'any',
-  'conversation.noBody': 'any',
-  'conversation.noConversations': 'any',
-  'conversation.noConversationsDesc': 'any',
-  'conversation.noSubject': 'any',
-  'conversation.physicalCopy': 'any',
-  'conversation.read': 'any',
-  'conversation.rebuildConversations': 'any',
-  'conversation.rebuildDryRun': 'any',
-  'conversation.reply': 'any',
-  'conversation.replyAll': 'any',
-  'conversation.retryLoading': 'any',
-  'conversation.scopeAccountCopies': 'any',
-  'conversation.scopeAllCopies': 'any',
-  'conversation.scopeThisAccount': 'any',
-  'conversation.scopeThisCopy': 'any',
-  'conversation.scopeTitle': 'any',
-  'conversation.scopeWarning': 'any',
-  'conversation.scopeWholeConversation': 'any',
-  'conversation.scrollToMessage': 'any',
-  'conversation.selectAll': 'any',
-  'conversation.selectConversationAria': 'any',
-  'conversation.selectPage': 'any',
-  'conversation.selectedCount_few': 'any',
-  'conversation.selectedCount_many': 'any',
-  'conversation.selectedCount_one': 'any',
-  'conversation.seriesOff': 'any',
-  'conversation.seriesSmart': 'any',
-  'conversation.seriesStrict': 'any',
-  'conversation.showFullHeaders': 'any',
-  'conversation.showQuotedText': 'any',
-  'conversation.split': 'any',
-  'conversation.splitMessageAndReplies': 'any',
-  'conversation.splitMessageOnly': 'any',
-  'conversation.star': 'any',
-  'conversation.subject': 'any',
-  'conversation.threadingDiagnostics': 'any',
-  'conversation.to': 'any',
-  'conversation.unknownSender': 'any',
-  'conversation.unlockConversation': 'any',
-  'conversation.unlocked': 'any',
-  'conversation.unread': 'any',
-  'conversation.unreadCount': 'any',
-  'conversation.unstar': 'any',
-  'conversation.whyGrouped': 'any',
-  'conversation.you': 'any',
-  'message.attachment_few': 'any',
-  'message.attachment_many': 'any',
-  'messageList.bulkArchived.failBody_few': 'any',
-  'messageList.bulkArchived.failBody_many': 'any',
-  'messageList.bulkArchived.title_few': 'any',
-  'messageList.bulkArchived.title_many': 'any',
-  'messageList.bulkDeleted.failBody_few': 'any',
-  'messageList.bulkDeleted.failBody_many': 'any',
-  'messageList.bulkDeleted.title_few': 'any',
-  'messageList.bulkDeleted.title_many': 'any',
-  'messageList.bulkMoved.failBody_few': 'any',
-  'messageList.bulkMoved.failBody_many': 'any',
-  'messageList.bulkMoved.title_few': 'any',
-  'messageList.bulkMoved.title_many': 'any',
-  'sidebar.hiddenFolders_few': 'any',
-  'sidebar.hiddenFolders_many': 'any',
+  // Exact shared spellings: English/French conversation, conversations and strict.
+  'conversation.label': [['en', 'fr']],
+  'conversation.conversationCount_one': [['en', 'fr']],
+  'conversation.conversationCount_few': [['en', 'fr']],
+  'conversation.conversationCount_many': [['en', 'fr']],
+  'conversation.conversationCount_other': [['en', 'fr']],
+  'conversation.seriesStrict': [['en', 'fr']],
+  // Shared nouns: Copies/Kopie, Typ/Tipo, and English/French messages.
+  'conversation.diagnosticsCopyCount': [['cs', 'pl'], ['en', 'fr']],
+  'conversation.diagnosticsKind': [['de', 'pl'], ['es', 'it']],
+  'conversation.logicalCount': [['en', 'fr']],
+  // An em dash denotes an absent diagnostic value in these nine locales.
+  'conversation.diagnosticsNone': [['cs', 'de', 'en', 'es', 'fr', 'it', 'pl', 'ru', 'zhCN']],
   // ── Universal placeholders / brand names (all locales share) ───────────────
   'admin.about.kofi':                       'any', // Ko-fi — brand name, same everywhere
   'admin.about.githubSponsors':             'any', // GitHub Sponsors — product name, same everywhere
@@ -741,11 +603,8 @@ const SAME_VALUE_ALLOWED: Record<string, SameValueRule> = {
   'admin.cleanup.account': [['en', 'it'], ['de', 'pl']],
   // "{{n}} min" — the "min" abbreviation is shared in en, es, fr, it
   'admin.lock.autoLockMin': [['cs', 'en', 'es', 'fr', 'it', 'pl']],
-  // External-calendar sync cadence: SI-style unit abbreviations, unchanged across the
-  // languages that use the Latin "min"/"h" forms (de and pl localise them; ru and zhCN
-  // use their own scripts).
+  // External-calendar sync cadence: the Latin "min" abbreviation is shared here.
   'calendar.sourceSyncMinutes': [['cs', 'en', 'es', 'fr', 'it', 'pl']],
-  'calendar.sourceSyncHours':   [['cs', 'en', 'es', 'fr', 'it']],
 
   // "Website" — international term, same in de and en
   'admin.about.website': [['de', 'en']],
@@ -952,7 +811,11 @@ const SAME_VALUE_ALLOWED: Record<string, SameValueRule> = {
   'admin.ai.model': [['cs', 'en']],
   'admin.appearance.typography': [['cs', 'de']],
   'admin.integrations.carddav.serverPh': 'any',
-  'admin.integrations.carddav.title': [['cs', 'pl']],
+  // Standard email header abbreviation, matching compose.cc in these locales.
+  'message.cc': [['de', 'en', 'es', 'fr', 'it']],
+  // Established loanwords with identical spelling in these languages.
+  'messageList.layout': [['de', 'en']],
+  'messageList.menu': [['en', 'fr', 'it', 'pl']],
   'admin.messageList.markReadDelaySeconds': [['cs', 'pl']],
   'admin.messageList.markReadDelaySeconds_other': [['cs', 'pl']],
   'admin.tabs.categories': [['cs', 'pl']],
@@ -998,6 +861,10 @@ const LOCALE_SPECIFIC_KEYS = new Set(
 // found by a plain text search of the source. Add here to suppress false
 // "unused key" failures.
 const DYNAMIC_KEYS = new Set([
+  // Runtime i18next plural variants of the existing dynamically named counters.
+  'conversation.attachmentCount_other',
+  'conversation.conversationCount_other',
+  'conversation.logicalCount_other',
   // The failing feature names the sentence: `providers.syncError.service.${feature}`.
   'providers.syncError.service.mail',
   'providers.syncError.service.calendar',
@@ -1238,7 +1105,6 @@ function loadSourceText() {
 function loadLiteralSourceTranslationKeys(prefix: string) {
   const srcRoot = resolve(dir, '../..');
   const keys = new Set<string>();
-  const literalTranslationCall = /(?<![\w$.])t\(\s*['"]([^'"]+)['"]/g;
 
   function walk(d: string) {
     for (const entry of readdirSync(d, { withFileTypes: true })) {
@@ -1253,8 +1119,8 @@ function loadLiteralSourceTranslationKeys(prefix: string) {
         && !entry.name.includes('.test.')
       ) {
         const source = readFileSync(full, 'utf8');
-        for (const match of source.matchAll(literalTranslationCall)) {
-          if (match[1].startsWith(prefix)) keys.add(match[1]);
+        for (const key of auditSource(full, source).keys) {
+          if (key.startsWith(prefix)) keys.add(key);
         }
       }
     }
@@ -1278,6 +1144,26 @@ const langs = Object.keys(locales).sort();
 const allKeys = [...new Set(langs.flatMap(l => Object.keys(locales[l])))].filter(k => !LOCALE_SPECIFIC_KEYS.has(k)).sort();
 
 describe('i18n locale files', () => {
+
+  it('keeps non-empty values and valid interpolation contracts in every locale', () => {
+    const failures: string[] = [];
+    for (const lang of langs) {
+      for (const [key, value] of Object.entries(locales[lang])) {
+        if (typeof value !== 'string' || !value.trim()) { failures.push(`${lang}:${key}: empty translation`); continue; }
+        try {
+          const actual = interpolationVariables(value);
+          const reference = locales.en[key] ?? locales.en[`${baseKey(key)}_other`];
+          if (reference === undefined) continue; // locale-specific plural keys are checked against their English base where available
+          const expected = interpolationVariables(reference);
+          // Czech/Polish bulk-failure few/many forms state the count explicitly;
+          // the generic English wording does not. All three callers pass count.
+          if (['cs', 'pl'].includes(lang) && /^messageList\.bulk(?:Deleted|Moved|Archived)\.failBody_(?:few|many)$/.test(key) && expected.length === 0) expected.push('count');
+          if (JSON.stringify(actual) !== JSON.stringify(expected)) failures.push(`${lang}:${key}: expected ${expected.join(',')}; got ${actual.join(',')}`);
+        } catch (error) { failures.push(`${lang}:${key}: ${String(error)}`); }
+      }
+    }
+    assert.deepEqual(failures, [], `Invalid translation contracts:\n${failures.join('\n')}`);
+  });
 
   it('translates the mobile calendar navigation setting in every locale', () => {
     for (const lang of langs) {
@@ -1319,8 +1205,8 @@ describe('i18n locale files', () => {
         `Unused keys (remove from all locale files or add to DYNAMIC_KEYS if referenced dynamically):\n${unused.map(k => `  - ${k}`).join('\n')}`);
     });
 
-    it('every literal admin.ai source translation key exists in every locale', () => {
-      const sourceKeys = loadLiteralSourceTranslationKeys('admin.ai.');
+    it('every literal source translation key exists in every locale', () => {
+      const sourceKeys = loadLiteralSourceTranslationKeys('');
       const missing: unknown[] = [];
       for (const lang of langs) {
         const present = new Set(Object.keys(locales[lang]));
@@ -1385,6 +1271,27 @@ describe('i18n locale files', () => {
     });
   });
 
+});
+
+describe('Plural translations without English fallback', () => {
+  for (const lang of langs) {
+    it(`${lang} resolves every plural message for representative counts`, async () => {
+      const instance = i18next.createInstance();
+      await instance.init({ lng: lang, fallbackLng: false, resources: { [lang]: { translation: JSON.parse(readFileSync(join(dir, `${lang}.json`), 'utf8')) } }, interpolation: { escapeValue: false } });
+      const bases = new Set(Object.keys(locales[lang]).filter(key => baseKey(key) !== key).map(baseKey));
+      const failures: string[] = [];
+      for (const key of bases) {
+        const sample = locales[lang][`${key}_other`] ?? locales[lang][`${key}_one`];
+        if (!sample) continue;
+        const variables = Object.fromEntries(interpolationVariables(sample).map(variable => [variable, 'example']));
+        for (const count of [0, 1, 2, 5, 21, 1.5, 1_000_000]) {
+          const result = instance.t(key, { ...variables, count });
+          if (result === key || typeof result !== 'string' || !result.trim() || result.includes('{{')) failures.push(`${lang}:${key} count=${count}: ${result}`);
+        }
+      }
+      assert.deepEqual(failures, [], `Incomplete plural messages:\n${failures.join('\n')}`);
+    });
+  }
 });
 
 describe('Polish plural resolution', () => {

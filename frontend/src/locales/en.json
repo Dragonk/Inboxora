@@ -9,6 +9,8 @@
       "sourceCode": "Source code"
     },
     "accounts": {
+      "loadFoldersError": "Could not load folders",
+      "saveFolderMappingsError": "Could not save folder mappings",
       "title": "Email accounts",
       "addButton": "Add account",
       "empty": "No accounts added yet",
@@ -66,7 +68,6 @@
         "connected": "Connected",
         "notConnected": "Not connected",
         "connect": "Connect",
-        "collections": "{{count}} collection(s)",
         "migrateGoogle": "Move to the Gmail API",
         "migrateMicrosoft": "Move to Microsoft Graph",
         "finishInTab": "Finish signing in in the tab that opened, then return to this card.",
@@ -275,8 +276,9 @@
       "navigationTop": "Top",
       "navigationBottom": "Bottom",
       "mobileNavigationDescription": "Position of the menu and actions in mail, contacts and calendar.",
+      "mobileSidebarSwipeOffDesc": "Use the menu button to open the sidebar.",
+      "mobileSidebarSwipeOnDesc": "Swipe from the left edge to open the sidebar.",
       "mobileSidebarSwipe": "Open the menu with a swipe from the left",
-      "mobileSidebarSwipeDescription": "Swipe right, starting in the left quarter of the screen.",
       "navigationTopDesc": "The panel switcher sits above the message list.",
       "navigationBottomDesc": "The panel switcher sits below, within thumb reach."
     },
@@ -384,6 +386,7 @@
       }
     },
     "integrations": {
+      "appUrlRequired": "APP_URL required",
       "accountHint": "Mailboxes are added in Settings → Accounts. This page only configures the provider application.",
       "title": "Integrations",
       "loading": "Loading…",
@@ -443,6 +446,7 @@
         "help": "Find your token in Todoist Settings → Integrations → Developer"
       },
       "carddav": {
+        "title": "CardDAV source",
         "description": "Sync contacts from a CardDAV server such as Nextcloud.",
         "connected": "Connected",
         "connect": "Connect",
@@ -460,7 +464,7 @@
       },
       "google": {
         "title": "Google (Gmail, Calendar, Contacts)",
-        "description": "Recommended API connection for Google accounts. IMAP/SMTP with an app password remains available when your Google account allows it. The configuration below is only needed for the API integration.",
+        "description": "API integration for Google mail, contacts and calendars.",
         "savedNote": "Configuration saved. Verifying account access requires the user to authorize the connection.",
         "appPasswordNote": "IMAP/SMTP with an app password does not depend on this configuration and keeps working without a Google Cloud project.",
         "deviceNotSupported": "Google does not offer a device code for the mail, calendar and contact permissions this integration needs. API access uses browser sign-in; mail alone can keep using an allowed IMAP/SMTP app password.",
@@ -606,8 +610,7 @@
       "gravatarOnDesc": "Fetch sender photos from Gravatar — shares hashed sender addresses with a third party.",
       "markReadDelaySeconds_many": "{{count}} seconds",
       "markReadDelaySeconds_one": "{{count}} second",
-      "markReadDelaySeconds_few": "{{count}} seconds",
-      "threadingDesc": "Group a message and its replies into one conversation in the message list."
+      "markReadDelaySeconds_few": "{{count}} seconds"
     },
     "notifications": {
       "title": "Notifications",
@@ -627,6 +630,7 @@
       "badgeOff": "Disabled"
     },
     "plugins": {
+      "disabledBadge": "Disabled",
       "title": "Plugins",
       "description": "Turn optional features on or off for your account. Enabling a plugin adds its own settings and interface.",
       "activated": "Activated",
@@ -678,6 +682,8 @@
       "loading": "Working…"
     },
     "rules": {
+      "valuePlaceholder": "Value",
+      "unnamed": "(unnamed)",
       "title": "Inbox rules",
       "newButton": "New rule",
       "empty": "No rules yet. Rules automatically filter incoming mail.",
@@ -909,6 +915,9 @@
       "body": "Your account is now linked to the SSO provider."
     },
     "systemEmail": {
+      "starttlsOption": "STARTTLS (port 587)",
+      "tlsOption": "SSL/TLS (port 465)",
+      "noSecurityOption": "None (port 25)",
       "tabUsers": "Users & Invites",
       "tabEmail": "System Email",
       "description": "Configure a dedicated SMTP account for sending invite emails and other system messages. If not set, the admin's first personal SMTP account is used as a fallback.",
@@ -1011,7 +1020,7 @@
       "revoke": "Revoke",
       "loadError": "Could not load DAV application passwords.",
       "createError": "Could not create the application password.",
-      "copyError": "Could not copy the application password.",
+      "copyError": "Could not copy. Select and copy the text manually.",
       "revokeError": "Could not revoke the application password.",
       "maxMode": "Access",
       "maxModeReadWrite": "Read and write",
@@ -1069,6 +1078,9 @@
     "close": "Close"
   },
   "compose": {
+    "partialDeliveryTitle": "Message partially accepted",
+    "partialDeliveryBody": "Not accepted by the mail server: {{recipients}}. The composer now contains only those recipients for a safe retry.",
+    "partialDeliveryRecipients": "one or more recipients",
     "newMessage": "New Message",
     "reply": "Reply",
     "replyAll": "Reply All",
@@ -1120,6 +1132,12 @@
       "action": "View"
     },
     "toolbar": {
+      "backToRichText": "Back to rich text",
+      "removeLink": "Remove link",
+      "emoji": "Emoji",
+      "alignLeft": "Align left",
+      "alignCenter": "Align center",
+      "alignRight": "Align right",
       "removeTable": "Remove table",
       "textColor": "Text color",
       "removeColor": "Remove color",
@@ -1245,6 +1263,9 @@
       "exportGoogle": "Google CSV",
       "exportOutlook": "Outlook CSV",
       "davAccessHint": "Controls whether this address book is published to connected devices (CardDAV). It never grants more than the book itself allows.",
+      "googleSyncDone": "Google contacts: {{created}} added, {{updated}} updated, {{deleted}} removed.",
+      "googleSyncPartial": "Google contacts: {{created}} added, {{updated}} updated, {{deleted}} removed; {{failed}} connection(s) failed.",
+      "lastSynced": "Last synced: {{date}} · {{count}} contacts",
       "microsoftSync": "Sync Microsoft contacts",
       "microsoftSyncDone": "Microsoft contacts: {{created}} added, {{updated}} updated, {{deleted}} removed.",
       "microsoftSyncPartial": "Microsoft contacts: {{created}} added, {{updated}} updated, {{deleted}} removed; {{failed}} connection(s) failed.",
@@ -1343,6 +1364,10 @@
     }
   },
   "conversation": {
+    "groupingOffDesc": "Show each message separately.",
+    "groupingOnDesc": "Group messages and replies together.",
+    "readerOffDesc": "Read one message at a time.",
+    "readerOnDesc": "Read the whole conversation together.",
     "label": "conversation",
     "attachment": "Attachment",
     "logicalCount": "{{count}} messages",
@@ -1377,6 +1402,7 @@
     "conversationCount_one": "{{count}} conversation",
     "conversationCount_few": "{{count}} conversations",
     "conversationCount_many": "{{count}} conversations",
+    "conversationCount_other": "{{count}} conversations",
     "keyboardHint": "j/k navigate · Enter expand · Space select",
     "mergeInto": "Merge into…",
     "locked": "Locked",
@@ -1407,6 +1433,7 @@
     "attachmentCount_one": "{{count}} attachment",
     "attachmentCount_few": "{{count}} attachments",
     "attachmentCount_many": "{{count}} attachments",
+    "attachmentCount_other": "{{count}} attachments",
     "subject": "Subject",
     "scrollToMessage": "Scroll to message",
     "copyDetails": "Copy details",
@@ -1414,6 +1441,7 @@
     "logicalCount_one": "{{count}} msg",
     "logicalCount_few": "{{count}} msgs",
     "logicalCount_many": "{{count}} msgs",
+    "logicalCount_other": "{{count}} msgs",
     "confirmMoveTitle": "Move conversation",
     "confirmMoveBody": "Move {{count}} message(s) to another folder?",
     "showQuotedText": "Show quoted text",
@@ -1426,8 +1454,7 @@
     "outgoingMessage": "Outgoing message",
     "expandMessage": "Expand message from {{sender}}: {{subject}}",
     "collapseMessage": "Collapse message from {{sender}}: {{subject}}",
-    "summary": "Summary:",
-    "readerDesc": "Open the whole conversation in the reading pane instead of one message at a time."
+    "summary": "Summary:"
   },
   "diagnostics": {
     "section": "Diagnostics",
@@ -1550,6 +1577,9 @@
     }
   },
   "message": {
+    "forwardedMessage": "Forwarded message",
+    "date": "Date",
+    "cc": "Cc",
     "find": {
       "title": "Search",
       "close": "Close search",
@@ -1638,6 +1668,8 @@
     "attachment_many": "{{count}} attachments"
   },
   "messageList": {
+    "layout": "Layout",
+    "menu": "Menu",
     "search": "Search…",
     "unread": "Unread",
     "showAll": "Show all",
@@ -1719,6 +1751,7 @@
     "noSearchResultsDesc": "No results for {{query}}",
     "clearSearch": "Clear search",
     "searchHelp": {
+      "example": "from:amazon invoice",
       "title": "Search operators",
       "from": "From sender",
       "subject": "In subject",
@@ -1867,6 +1900,8 @@
     }
   },
   "sidebar": {
+    "favorites": "Favorites",
+    "reorderFolder": "Drag to reorder folder",
     "accounts": "Accounts",
     "allInboxes": "All Inboxes",
     "compose": "Compose",
@@ -1884,6 +1919,8 @@
     "signOut": "Sign out",
     "connectionError": "Connection error",
     "folderMenu": {
+      "favorite": "Add to Favorites",
+      "unfavorite": "Remove from Favorites",
       "markAllRead": "Mark all as read",
       "syncFolder": "Sync folder",
       "renameFavorite": "Rename favorite",
@@ -1986,6 +2023,14 @@
     "close": "Close"
   },
   "calendar": {
+    "invitationCancellationSent": "Invitation cancellation was sent.",
+    "invitationCancellationStatus": "Invitation cancellation status: {{status}}",
+    "hide": "Hide",
+    "show": "Show",
+    "noCalendarsDiscovered": "No calendars discovered yet.",
+    "searchSources": "Search sources or calendars",
+    "serviceDisabled": "Calendar service is disabled.",
+    "providerManagedHint": "Calendar creation, renaming and deletion are managed by the provider. Configure account services in Settings → Accounts.",
     "organizer": "Organizer",
     "retry": "Retry",
     "eventCount": "Events: {{count}}",
@@ -2076,8 +2121,6 @@
     "sourceSyncTimeout": "Source synchronization timed out.",
     "icsWebcal": "ICS / webcal",
     "caldav": "CalDAV",
-    "owned": "Owned",
-    "sourceCalendar": "Source",
     "calendarActions": "Actions for {{name}}",
     "rename": "Rename",
     "changeColor": "Change color",
@@ -2090,9 +2133,7 @@
     "contactDateEvent": "{{label}}: {{name}}",
     "invitationPending": "Invitation delivery is still pending; retry to check its status.",
     "retrySave": "Retry save",
-    "syncSkipped": "Skipped events: {{count}}. Other events were synchronized.",
     "syncFailed": "Calendar synchronization failed.",
-    "syncDetails": "Diagnostic details",
     "mailInvitation": "Calendar invitation",
     "addInvitation": "Add to calendar",
     "invitationAdded": "Added to calendar",
@@ -2104,7 +2145,6 @@
     "invitationSaveFailed": "Could not update the invitation.",
     "sourceSyncInterval": "Sync every",
     "sourceSyncMinutes": "{{count}} min",
-    "sourceSyncHours": "{{count}} h",
     "invitationLoadFailed": "Could not load or save the invitation.",
     "editOccurrence": "You are editing only this occurrence.",
     "editFollowing": "You are editing this and every following occurrence.",
@@ -2160,13 +2200,9 @@
     "davAccessReadWrite": "Read and write",
     "davAccessHint": "Controls whether this calendar is published to connected devices (CalDAV). It never grants more than the calendar itself allows.",
     "providerSync": "Sync {{provider}} calendar",
-    "providerSyncing": "Syncing {{provider}} calendar…",
     "providerSyncDone": "{{provider}} calendar: {{calendars}} calendar(s), {{created}} added, {{updated}} updated, {{deleted}} removed.",
     "providerSyncPartial": "{{provider}} calendar: {{calendars}} calendar(s), {{created}} added, {{updated}} updated, {{deleted}} removed; {{failed}} failure(s).",
-    "hiddenCalendars": "Hidden calendars",
-    "restore": "Restore",
     "importIcs": "Import .ics file",
-    "importingIcs": "Importing…",
     "importDone": "Imported {{count}} event(s).",
     "importProtected": "{{count}} event(s) were left unchanged because Inboxora sent their invitations."
   },
@@ -2245,6 +2281,22 @@
       "openSystemSettings": "Open Windows default apps",
       "confirmHint": "Windows asks you to confirm the default app yourself — an app cannot make itself the default. Inboxora will be listed as an email app on that page."
     }
+  },
+  "nativeUpdates": {
+    "ready": "Update ready",
+    "downloaded": "Inboxora downloaded the update.",
+    "verified": "Inboxora downloaded and verified the update.",
+    "manualInstall": "Inboxora downloaded and verified the update. Install it from a terminal with:\n{{command}}",
+    "copyAndQuit": "Copy & Quit",
+    "install": "Install",
+    "copyFailed": "Copy failed",
+    "copyFailedBody": "The update command could not be copied.",
+    "installFailed": "Install failed",
+    "installFailedBody": "The update was downloaded, but the installer could not be started.",
+    "syncStarted": "Sync started",
+    "syncStartedBody": "Inboxora is checking for new mail.",
+    "syncFailed": "Sync failed",
+    "syncFailedBody": "Could not sync mail."
   },
   "providers": {
     "microsoftGraphConnected": {

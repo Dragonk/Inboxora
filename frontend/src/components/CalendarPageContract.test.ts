@@ -36,15 +36,16 @@ test('calendar renders one event dialog for an active form', async () => {
   assert.equal(source.match(/\{form && <EventDialog/g)?.length, 1);
 });
 
-test('calendar source management stays in the visibility panel and owned calendars expose safe actions', async () => {
-  const [calendar, sidebar] = await Promise.all([readFile(calendarPath, 'utf8'), readFile(sidebarPath, 'utf8')]);
+test('calendar rail links to settings where owned calendars expose safe management actions', async () => {
+  const [calendar, sidebar, manager] = await Promise.all([readFile(calendarPath, 'utf8'), readFile(sidebarPath, 'utf8'), readFile(new URL('./CalendarSettingsManager.tsx', import.meta.url), 'utf8')]);
   assert.doesNotMatch(calendar, /data-testid="calendar-manage-sources"/);
   assert.match(sidebar, /data-testid="calendar-sidebar-manage-sources"/);
-  assert.match(sidebar, /role="menuitem"/);
-  assert.match(sidebar, /calendar-appearance-dialog/);
-  assert.match(sidebar, /type="color"/);
-  assert.match(sidebar, /confirmCalendarDelete/);
-  assert.match(sidebar, /!calendar\.read_only && calendar\.owner_user_id/);
+  assert.match(sidebar, /setAdminTab\('calendar'\)/);
+  assert.doesNotMatch(sidebar, /Dialog|role="menuitem"/);
+  assert.match(manager, /calendar-appearance-dialog/);
+  assert.match(manager, /type="color"/);
+  assert.match(manager, /confirmCalendarDelete/);
+  assert.match(manager, /canManageLocalCalendar\(calendar\) &&/);
 });
 
 

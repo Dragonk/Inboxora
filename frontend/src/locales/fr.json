@@ -1,4 +1,20 @@
 {
+  "nativeUpdates": {
+    "syncStarted": "Synchronisation démarrée",
+    "syncStartedBody": "Inboxora recherche de nouveaux e-mails.",
+    "syncFailed": "Échec de la synchronisation",
+    "syncFailedBody": "Impossible de synchroniser le courrier.",
+    "ready": "Mise à jour prête",
+    "downloaded": "Inboxora a téléchargé la mise à jour.",
+    "verified": "Inboxora a téléchargé et vérifié la mise à jour.",
+    "manualInstall": "Inboxora a téléchargé et vérifié la mise à jour. Installez-la depuis un terminal avec :\n{{command}}",
+    "copyAndQuit": "Copier et quitter",
+    "install": "Installer",
+    "copyFailed": "Échec de la copie",
+    "copyFailedBody": "La commande de mise à jour n’a pas pu être copiée.",
+    "installFailed": "Échec de l’installation",
+    "installFailedBody": "La mise à jour a été téléchargée, mais le programme d’installation n’a pas pu être lancé."
+  },
   "admin": {
     "about": {
       "subtitle": "Client e-mail open source auto-hébergé",
@@ -9,6 +25,8 @@
       "sourceCode": "Code source"
     },
     "accounts": {
+      "loadFoldersError": "Impossible de charger les dossiers",
+      "saveFolderMappingsError": "Impossible d’enregistrer les associations de dossiers",
       "title": "Comptes e-mail",
       "addButton": "Ajouter un compte",
       "empty": "Aucun compte ajouté pour l'instant",
@@ -64,7 +82,6 @@
         "connected": "Connecté",
         "notConnected": "Non connecté",
         "connect": "Connecter",
-        "collections": "{{count}} collection(s)",
         "migrateGoogle": "Passer à l’API Gmail",
         "migrateMicrosoft": "Passer à Microsoft Graph",
         "finishInTab": "Terminez la connexion dans l’onglet ouvert, puis revenez à cette fiche.",
@@ -275,8 +292,9 @@
       "navigationTop": "En haut",
       "navigationBottom": "En bas",
       "mobileNavigationDescription": "Position du menu et des actions dans les e-mails, les contacts et le calendrier.",
+      "mobileSidebarSwipeOffDesc": "Utilisez le bouton de menu pour ouvrir le panneau latéral.",
+      "mobileSidebarSwipeOnDesc": "Balayez depuis le bord gauche pour ouvrir le panneau latéral.",
       "mobileSidebarSwipe": "Ouvrir le menu par un balayage depuis la gauche",
-      "mobileSidebarSwipeDescription": "Balayez vers la droite en partant du quart gauche de l'écran.",
       "navigationTopDesc": "Le sélecteur de panneaux se trouve au-dessus de la liste des messages.",
       "navigationBottomDesc": "Le sélecteur de panneaux est en bas, à portée de pouce."
     },
@@ -384,6 +402,7 @@
       }
     },
     "integrations": {
+      "appUrlRequired": "APP_URL requis",
       "accountHint": "Les boîtes aux lettres s’ajoutent dans Paramètres → Comptes. Cette page ne configure que l’application du fournisseur.",
       "title": "Intégrations",
       "loading": "Chargement…",
@@ -443,6 +462,7 @@
         "help": "Trouvez votre jeton dans Todoist Paramètres → Intégrations → Développeur"
       },
       "carddav": {
+        "title": "Source CardDAV",
         "description": "Synchronisez les contacts depuis un serveur CardDAV comme Nextcloud.",
         "connected": "Connecté",
         "connect": "Connecter",
@@ -460,7 +480,7 @@
       },
       "google": {
         "title": "Google (Gmail, Agenda, Contacts)",
-        "description": "Connexion API recommandée pour les comptes Google. IMAP/SMTP avec un mot de passe d'application reste disponible si votre compte Google le permet. La configuration ci-dessous n'est nécessaire que pour l'intégration API.",
+        "description": "Intégration API pour la messagerie, les contacts et les agendas Google.",
         "savedNote": "Configuration enregistrée. La vérification de l'accès au compte nécessite l'autorisation de l'utilisateur.",
         "appPasswordNote": "IMAP/SMTP avec un mot de passe d'application ne dépend pas de cette configuration et fonctionne sans projet Google Cloud.",
         "deviceNotSupported": "Google ne propose pas de code d'appareil pour les autorisations de messagerie, d'agenda et de contacts requises par cette intégration. L'accès API utilise la connexion dans le navigateur ; seul le courrier peut continuer à utiliser un mot de passe d'application IMAP/SMTP autorisé.",
@@ -604,10 +624,9 @@
       "markReadDelayLabel": "Délai",
       "markReadDelaySeconds": "{{count}} seconde",
       "markReadDelaySeconds_other": "{{count}} secondes",
-      "markReadDelaySeconds_many": "{{count}} seconds",
+      "markReadDelaySeconds_many": "{{count}} secondes",
       "markReadDelaySeconds_one": "{{count}} seconde",
-      "markReadDelaySeconds_few": "{{count}} seconds",
-      "threadingDesc": "Regroupe un message et ses réponses dans une seule conversation."
+      "markReadDelaySeconds_few": "{{count}} secondes"
     },
     "notifications": {
       "title": "Notifications",
@@ -627,6 +646,7 @@
       "badgeOff": "Désactivé"
     },
     "plugins": {
+      "disabledBadge": "Désactivé",
       "title": "Extensions",
       "description": "Activez ou désactivez des fonctionnalités optionnelles pour votre compte. Une extension activée ajoute ses propres réglages et son interface.",
       "activated": "Activée",
@@ -678,6 +698,8 @@
       "loading": "En cours…"
     },
     "rules": {
+      "valuePlaceholder": "Valeur",
+      "unnamed": "(sans nom)",
       "title": "Règles de boîte de réception",
       "newButton": "Nouvelle règle",
       "empty": "Aucune règle pour l'instant. Les règles filtrent automatiquement le courrier entrant.",
@@ -909,6 +931,9 @@
       "body": "Votre compte est maintenant lié au fournisseur SSO."
     },
     "systemEmail": {
+      "starttlsOption": "STARTTLS (port 587)",
+      "tlsOption": "SSL/TLS (port 465)",
+      "noSecurityOption": "Aucune (port 25)",
       "tabUsers": "Utilisateurs et invitations",
       "tabEmail": "Courriel système",
       "description": "Configurez un compte SMTP dédié pour l'envoi des invitations et autres messages système. Si non configuré, le premier compte SMTP personnel de l'administrateur est utilisé.",
@@ -1011,7 +1036,7 @@
       "revoke": "Révoquer",
       "loadError": "Impossible de charger les mots de passe d’application DAV.",
       "createError": "Impossible de créer le mot de passe d’application.",
-      "copyError": "Impossible de copier le mot de passe d’application.",
+      "copyError": "Impossible de copier. Sélectionnez et copiez le texte manuellement.",
       "revokeError": "Impossible de révoquer le mot de passe d’application.",
       "maxMode": "Accès",
       "maxModeReadWrite": "Lecture et écriture",
@@ -1069,6 +1094,9 @@
     "close": "Fermer"
   },
   "compose": {
+    "partialDeliveryTitle": "Message partiellement accepté",
+    "partialDeliveryBody": "Non acceptés par le serveur de messagerie : {{recipients}}. L’éditeur ne contient désormais que ces destinataires pour permettre une nouvelle tentative sans risque.",
+    "partialDeliveryRecipients": "un ou plusieurs destinataires",
     "newMessage": "Nouveau message",
     "reply": "Répondre",
     "replyAll": "Répondre à tous",
@@ -1120,6 +1148,12 @@
       "action": "Voir"
     },
     "toolbar": {
+      "backToRichText": "Revenir au texte enrichi",
+      "removeLink": "Supprimer le lien",
+      "emoji": "Émoji",
+      "alignLeft": "Aligner à gauche",
+      "alignCenter": "Centrer",
+      "alignRight": "Aligner à droite",
       "removeTable": "Supprimer le tableau",
       "textColor": "Couleur du texte",
       "removeColor": "Supprimer la couleur",
@@ -1232,6 +1266,9 @@
     "carddavBadge": "Synchronisé depuis CardDAV",
     "composeTo": "Écrire un message",
     "addressBooks": {
+      "googleSyncDone": "Contacts Google : {{created}} ajoutés, {{updated}} mis à jour, {{deleted}} supprimés.",
+      "googleSyncPartial": "Contacts Google : {{created}} ajoutés, {{updated}} mis à jour, {{deleted}} supprimés ; {{failed}} connexion(s) en échec.",
+      "lastSynced": "Dernière synchronisation : {{date}} · {{count}} contacts",
       "label": "Carnet d'adresses",
       "allVisible": "Tous les visibles",
       "create": "Nouveau carnet",
@@ -1343,6 +1380,13 @@
     }
   },
   "conversation": {
+    "conversationCount_other": "{{count}} conversations",
+    "attachmentCount_other": "{{count}} pièces jointes",
+    "logicalCount_other": "{{count}} messages",
+    "groupingOffDesc": "Afficher chaque message séparément.",
+    "groupingOnDesc": "Regrouper les messages et les réponses.",
+    "readerOffDesc": "Lire un message à la fois.",
+    "readerOnDesc": "Lire toute la conversation ensemble.",
     "label": "discussion",
     "attachment": "Pièce jointe",
     "logicalCount": "{{count}} messages",
@@ -1418,16 +1462,15 @@
     "confirmMoveBody": "Déplacer {{count}} message(s) vers un autre dossier ?",
     "showQuotedText": "Afficher le texte cité",
     "hideQuotedText": "Masquer le texte cité",
-    "groupIntoConversationsOn": "On",
-    "readerOff": "Disabled",
-    "readerOn": "Enabled",
+    "groupIntoConversationsOn": "Activé",
+    "readerOff": "Désactivé",
+    "readerOn": "Activé",
     "groupIntoConversations": "Regrouper les messages en conversations",
     "incomingMessage": "Message entrant",
     "outgoingMessage": "Message sortant",
     "expandMessage": "Développer le message de {{sender}} : {{subject}}",
     "collapseMessage": "Réduire le message de {{sender}} : {{subject}}",
-    "summary": "Aperçu :",
-    "readerDesc": "Ouvre toute la conversation dans le volet de lecture au lieu d'un seul message."
+    "summary": "Aperçu :"
   },
   "diagnostics": {
     "section": "Diagnostic",
@@ -1550,6 +1593,9 @@
     }
   },
   "message": {
+    "forwardedMessage": "Message transféré",
+    "date": "Date",
+    "cc": "Cc",
     "find": {
       "title": "Rechercher",
       "close": "Fermer la recherche",
@@ -1634,10 +1680,12 @@
       "done": "Classé comme {{category}}",
       "error": "La classification par IA a échoué."
     },
-    "attachment_few": "{{count}} attachments",
-    "attachment_many": "{{count}} attachments"
+    "attachment_few": "{{count}} pièces jointes",
+    "attachment_many": "{{count}} pièces jointes"
   },
   "messageList": {
+    "layout": "Disposition",
+    "menu": "Menu",
     "search": "Rechercher…",
     "unread": "Non lus",
     "showAll": "Tout afficher",
@@ -1677,10 +1725,10 @@
       "failTitle": "Échec de la suppression",
       "failBody_one": "Impossible de supprimer {{count}} message.",
       "failBody_other": "Impossible de supprimer {{count}} messages.",
-      "failBody_few": "Some messages could not be deleted",
-      "failBody_many": "Some messages could not be deleted",
-      "title_few": "Deleted {{count}} messages",
-      "title_many": "Deleted {{count}} messages"
+      "failBody_few": "Impossible de supprimer certains messages.",
+      "failBody_many": "Impossible de supprimer certains messages.",
+      "title_few": "{{count}} messages supprimés",
+      "title_many": "{{count}} messages supprimés"
     },
     "bulkMoved": {
       "title_one": "{{count}} message déplacé",
@@ -1688,10 +1736,10 @@
       "failTitle": "Échec du déplacement",
       "failBody_one": "Impossible de déplacer {{count}} message.",
       "failBody_other": "Impossible de déplacer {{count}} messages.",
-      "failBody_few": "Some messages could not be moved",
-      "failBody_many": "Some messages could not be moved",
-      "title_few": "Moved {{count}} messages",
-      "title_many": "Moved {{count}} messages"
+      "failBody_few": "Impossible de déplacer certains messages.",
+      "failBody_many": "Impossible de déplacer certains messages.",
+      "title_few": "{{count}} messages déplacés",
+      "title_many": "{{count}} messages déplacés"
     },
     "bulkArchived": {
       "title_one": "{{count}} message archivé",
@@ -1702,10 +1750,10 @@
       "failBody_other": "Impossible d'archiver {{count}} messages.",
       "noFolderTitle": "Aucun dossier d'archive",
       "noFolderBody": "Un ou plusieurs comptes n'ont pas de dossier d'archive configuré. Définissez-en un dans Paramètres → Comptes → Mappage des dossiers.",
-      "failBody_few": "Some messages could not be archived",
-      "failBody_many": "Some messages could not be archived",
-      "title_few": "Archived {{count}} messages",
-      "title_many": "Archived {{count}} messages"
+      "failBody_few": "Impossible d’archiver certains messages.",
+      "failBody_many": "Impossible d’archiver certains messages.",
+      "title_few": "{{count}} messages archivés",
+      "title_many": "{{count}} messages archivés"
     },
     "noArchiveFolder": {
       "title": "Aucun dossier d'archive",
@@ -1719,6 +1767,7 @@
     "noSearchResultsDesc": "Aucun résultat pour {{query}}",
     "clearSearch": "Effacer la recherche",
     "searchHelp": {
+      "example": "from:amazon facture",
       "title": "Opérateurs de recherche",
       "from": "De l'expéditeur",
       "subject": "Dans l'objet",
@@ -1867,6 +1916,8 @@
     }
   },
   "sidebar": {
+    "favorites": "Favoris",
+    "reorderFolder": "Faites glisser pour réorganiser les dossiers",
     "accounts": "Comptes",
     "allInboxes": "Toutes les boîtes",
     "compose": "Composer",
@@ -1884,6 +1935,8 @@
     "signOut": "Se déconnecter",
     "connectionError": "Erreur de connexion",
     "folderMenu": {
+      "favorite": "Ajouter aux favoris",
+      "unfavorite": "Retirer des favoris",
       "markAllRead": "Tout marquer comme lu",
       "syncFolder": "Synchroniser le dossier",
       "renameFavorite": "Renommer le favori",
@@ -1915,8 +1968,8 @@
     "emptied": "Dossier vidé",
     "backToAccounts": "Retour aux comptes",
     "updateAvailable": "Mise à jour disponible : v{{version}}",
-    "hiddenFolders_few": "{{count}} hidden folders",
-    "hiddenFolders_many": "{{count}} hidden folders"
+    "hiddenFolders_few": "{{count}} dossiers masqués",
+    "hiddenFolders_many": "{{count}} dossiers masqués"
   },
   "signatureEditor": {
     "bold": "Gras (Ctrl+B)",
@@ -1986,6 +2039,14 @@
     "close": "Fermer"
   },
   "calendar": {
+    "invitationCancellationSent": "L’annulation de l’invitation a été envoyée.",
+    "invitationCancellationStatus": "État de l’annulation de l’invitation : {{status}}",
+    "hide": "Masquer",
+    "show": "Afficher",
+    "noCalendarsDiscovered": "Aucun calendrier trouvé pour le moment.",
+    "searchSources": "Rechercher des sources ou des calendriers",
+    "serviceDisabled": "Le service de calendrier est désactivé.",
+    "providerManagedHint": "La création, le renommage et la suppression des calendriers sont gérés par le fournisseur. Configurez les services du compte dans Paramètres → Comptes.",
     "organizer": "Organisateur",
     "retry": "Réessayer",
     "eventCount": "Événements : {{count}}",
@@ -2076,8 +2137,6 @@
     "day4": "Jeudi",
     "day5": "Vendredi",
     "day6": "Samedi",
-    "owned": "Personnel",
-    "sourceCalendar": "Source",
     "calendarActions": "Actions pour {{name}}",
     "rename": "Renommer",
     "changeColor": "Changer la couleur",
@@ -2090,9 +2149,7 @@
     "contactDateEvent": "{{label}}: {{name}}",
     "invitationPending": "La livraison des invitations est en attente. Réessayez pour vérifier son état.",
     "retrySave": "Réessayer l’enregistrement",
-    "syncSkipped": "Événements ignorés : {{count}}. Les autres ont été synchronisés.",
     "syncFailed": "La synchronisation du calendrier a échoué.",
-    "syncDetails": "Détails du diagnostic",
     "mailInvitation": "Invitation calendrier",
     "addInvitation": "Ajouter au calendrier",
     "invitationAdded": "Ajouté au calendrier",
@@ -2104,7 +2161,6 @@
     "invitationSaveFailed": "L'invitation n'a pas pu être mise à jour.",
     "sourceSyncInterval": "Synchroniser toutes les",
     "sourceSyncMinutes": "{{count}} min",
-    "sourceSyncHours": "{{count}} h",
     "invitationLoadFailed": "Impossible de charger ou d’enregistrer l’invitation.",
     "editOccurrence": "Vous modifiez uniquement cette occurrence.",
     "editFollowing": "Vous modifiez cette occurrence et toutes les suivantes.",
@@ -2160,13 +2216,9 @@
     "davAccessReadWrite": "Lecture et écriture",
     "davAccessHint": "Indique si ce calendrier est publié vers les appareils connectés (CalDAV). Cela n'accorde jamais plus que ce que le calendrier autorise.",
     "providerSync": "Synchroniser l’agenda {{provider}}",
-    "providerSyncing": "Synchronisation de l’agenda {{provider}}…",
-    "providerSyncDone": "Agenda {{provider}} synchronisé.",
-    "providerSyncPartial": "Synchronisation partielle de l’agenda {{provider}}.",
-    "hiddenCalendars": "Agendas masqués",
-    "restore": "Restaurer",
+    "providerSyncDone": "Agenda {{provider}} : {{calendars}} agenda(s), {{created}} ajoutés, {{updated}} mis à jour, {{deleted}} supprimés.",
+    "providerSyncPartial": "Agenda {{provider}} : {{calendars}} agenda(s), {{created}} ajoutés, {{updated}} mis à jour, {{deleted}} supprimés ; {{failed}} échec(s).",
     "importIcs": "Importer un fichier .ics",
-    "importingIcs": "Importation…",
     "importDone": "{{count}} événement(s) importé(s).",
     "importProtected": "{{count}} événement(s) sont restés inchangés car Inboxora a envoyé leurs invitations."
   },
@@ -2260,7 +2312,7 @@
     "syncError": {
       "missingScopes": "{{provider}} {{service}} : l’autorisation {{scopes}} manque. Reconnectez {{service}}.",
       "auth": "{{provider}} a refusé l’autorisation pour {{service}} ({{code}}). Reconnectez-le.",
-      "rateLimited": "{{provider}} limite {{service} pour le moment. Réessayez dans quelques minutes.",
+      "rateLimited": "{{provider}} limite {{service}} pour le moment. Réessayez dans quelques minutes.",
       "providerDown": "{{provider}} a signalé une erreur serveur pour {{service}} ({{status}}). La prochaine exécution réessaiera.",
       "generic": "{{provider}} {{service}} a échoué : {{code}}.",
       "showDetails": "Afficher les détails ({{count}})",

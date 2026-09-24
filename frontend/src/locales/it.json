@@ -1,4 +1,20 @@
 {
+  "nativeUpdates": {
+    "syncStarted": "Sincronizzazione avviata",
+    "syncStartedBody": "Inboxora sta cercando nuova posta.",
+    "syncFailed": "Sincronizzazione non riuscita",
+    "syncFailedBody": "Impossibile sincronizzare la posta.",
+    "ready": "Aggiornamento pronto",
+    "downloaded": "Inboxora ha scaricato l’aggiornamento.",
+    "verified": "Inboxora ha scaricato e verificato l’aggiornamento.",
+    "manualInstall": "Inboxora ha scaricato e verificato l’aggiornamento. Installalo da un terminale con:\n{{command}}",
+    "copyAndQuit": "Copia ed esci",
+    "install": "Installa",
+    "copyFailed": "Copia non riuscita",
+    "copyFailedBody": "Impossibile copiare il comando di aggiornamento.",
+    "installFailed": "Installazione non riuscita",
+    "installFailedBody": "L’aggiornamento è stato scaricato, ma non è stato possibile avviare il programma di installazione."
+  },
   "admin": {
     "about": {
       "subtitle": "Client e-mail open source self-hosted",
@@ -9,6 +25,8 @@
       "sourceCode": "Codice sorgente"
     },
     "accounts": {
+      "loadFoldersError": "Impossibile caricare le cartelle",
+      "saveFolderMappingsError": "Impossibile salvare le mappature delle cartelle",
       "title": "Account email",
       "addButton": "Aggiungi account",
       "empty": "Nessun account aggiunto ancora",
@@ -64,7 +82,6 @@
         "connected": "Connesso",
         "notConnected": "Non connesso",
         "connect": "Collega",
-        "collections": "{{count}} raccolta/e",
         "migrateGoogle": "Passa all’API di Gmail",
         "migrateMicrosoft": "Passa a Microsoft Graph",
         "finishInTab": "Completa l’accesso nella scheda aperta, poi torna a questa scheda.",
@@ -275,8 +292,9 @@
       "navigationTop": "In alto",
       "navigationBottom": "In basso",
       "mobileNavigationDescription": "Posizione del menu e delle azioni in posta, contatti e calendario.",
+      "mobileSidebarSwipeOffDesc": "Usa il pulsante del menu per aprire la barra laterale.",
+      "mobileSidebarSwipeOnDesc": "Scorri dal bordo sinistro per aprire la barra laterale.",
       "mobileSidebarSwipe": "Apri il menu con uno scorrimento da sinistra",
-      "mobileSidebarSwipeDescription": "Scorri verso destra partendo dal quarto sinistro dello schermo.",
       "navigationTopDesc": "Il selettore dei pannelli è sopra l'elenco dei messaggi.",
       "navigationBottomDesc": "Il selettore dei pannelli è in basso, a portata di pollice."
     },
@@ -384,6 +402,7 @@
       }
     },
     "integrations": {
+      "appUrlRequired": "APP_URL richiesto",
       "accountHint": "Le caselle si aggiungono in Impostazioni → Account. Questa pagina configura solo l’applicazione del provider.",
       "title": "Integrazioni",
       "loading": "Caricamento…",
@@ -443,6 +462,7 @@
         "help": "Trova il token in Todoist Impostazioni → Integrazioni → Sviluppatore"
       },
       "carddav": {
+        "title": "Fonte CardDAV",
         "description": "Sincronizza i contatti da un server CardDAV come Nextcloud.",
         "connected": "Connesso",
         "connect": "Connetti",
@@ -460,7 +480,7 @@
       },
       "google": {
         "title": "Google (Gmail, Calendario, Contatti)",
-        "description": "Connessione API consigliata per gli account Google. IMAP/SMTP con password per le app resta disponibile se il tuo account Google lo consente. La configurazione sotto serve solo per l'integrazione API.",
+        "description": "Integrazione API per posta, contatti e calendari Google.",
         "savedNote": "Configurazione salvata. La verifica dell'accesso all'account richiede l'autorizzazione dell'utente.",
         "appPasswordNote": "IMAP/SMTP con password per le app non dipende da questa configurazione e funziona senza un progetto Google Cloud.",
         "deviceNotSupported": "Google non offre un codice dispositivo per i permessi di posta, calendario e contatti richiesti da questa integrazione. L'accesso API usa l'accesso nel browser; solo la posta può continuare a usare una password per le app IMAP/SMTP consentita.",
@@ -604,10 +624,9 @@
       "markReadDelayLabel": "Ritardo",
       "markReadDelaySeconds": "{{count}} secondo",
       "markReadDelaySeconds_other": "{{count}} secondi",
-      "markReadDelaySeconds_many": "{{count}} seconds",
+      "markReadDelaySeconds_many": "{{count}} secondi",
       "markReadDelaySeconds_one": "{{count}} secondo",
-      "markReadDelaySeconds_few": "{{count}} seconds",
-      "threadingDesc": "Raggruppa un messaggio e le sue risposte in un'unica conversazione."
+      "markReadDelaySeconds_few": "{{count}} secondi"
     },
     "notifications": {
       "title": "Notifiche",
@@ -627,6 +646,7 @@
       "badgeOff": "Disattivato"
     },
     "plugins": {
+      "disabledBadge": "Disattivato",
       "title": "Plugin",
       "description": "Attiva o disattiva funzionalità opzionali per il tuo account. Un plugin attivato aggiunge le proprie impostazioni e interfaccia.",
       "activated": "Attivato",
@@ -678,6 +698,8 @@
       "loading": "In corso…"
     },
     "rules": {
+      "valuePlaceholder": "Valore",
+      "unnamed": "(senza nome)",
       "title": "Regole posta in arrivo",
       "newButton": "Nuova regola",
       "empty": "Nessuna regola ancora. Le regole filtrano automaticamente la posta in arrivo.",
@@ -909,6 +931,9 @@
       "body": "Il tuo account è ora collegato al provider SSO."
     },
     "systemEmail": {
+      "starttlsOption": "STARTTLS (porta 587)",
+      "tlsOption": "SSL/TLS (porta 465)",
+      "noSecurityOption": "Nessuna (porta 25)",
       "tabUsers": "Utenti e inviti",
       "tabEmail": "Email di sistema",
       "description": "Configura un account SMTP dedicato per l'invio di email di invito e altri messaggi di sistema. Se non impostato, viene usato come fallback il primo account SMTP personale dell'amministratore.",
@@ -1011,7 +1036,7 @@
       "revoke": "Revoca",
       "loadError": "Impossibile caricare le password dell’app DAV.",
       "createError": "Impossibile creare la password dell’app.",
-      "copyError": "Impossibile copiare la password dell’app.",
+      "copyError": "Impossibile copiare. Seleziona e copia il testo manualmente.",
       "revokeError": "Impossibile revocare la password dell’app.",
       "maxMode": "Accesso",
       "maxModeReadWrite": "Lettura e scrittura",
@@ -1069,6 +1094,9 @@
     "close": "Chiudi"
   },
   "compose": {
+    "partialDeliveryTitle": "Messaggio accettato parzialmente",
+    "partialDeliveryBody": "Non accettati dal server di posta: {{recipients}}. L’editor ora contiene solo questi destinatari per riprovare l’invio in sicurezza.",
+    "partialDeliveryRecipients": "uno o più destinatari",
     "newMessage": "Nuovo messaggio",
     "reply": "Rispondi",
     "replyAll": "Rispondi a tutti",
@@ -1120,6 +1148,12 @@
       "action": "Visualizza"
     },
     "toolbar": {
+      "backToRichText": "Torna al testo formattato",
+      "removeLink": "Rimuovi collegamento",
+      "emoji": "Emoji",
+      "alignLeft": "Allinea a sinistra",
+      "alignCenter": "Allinea al centro",
+      "alignRight": "Allinea a destra",
       "removeTable": "Rimuovi tabella",
       "textColor": "Colore testo",
       "removeColor": "Rimuovi colore",
@@ -1232,6 +1266,9 @@
     "carddavBadge": "Sincronizzato da CardDAV",
     "composeTo": "Scrivi messaggio",
     "addressBooks": {
+      "googleSyncDone": "Contatti Google: {{created}} aggiunti, {{updated}} aggiornati, {{deleted}} rimossi.",
+      "googleSyncPartial": "Contatti Google: {{created}} aggiunti, {{updated}} aggiornati, {{deleted}} rimossi; {{failed}} connessioni non riuscite.",
+      "lastSynced": "Ultima sincronizzazione: {{date}} · {{count}} contatti",
       "label": "Rubrica",
       "allVisible": "Tutti i visibili",
       "create": "Nuova rubrica",
@@ -1343,6 +1380,13 @@
     }
   },
   "conversation": {
+    "conversationCount_other": "{{count}} conversazioni",
+    "attachmentCount_other": "{{count}} allegati",
+    "logicalCount_other": "{{count}} messaggi",
+    "groupingOffDesc": "Mostra ogni messaggio separatamente.",
+    "groupingOnDesc": "Raggruppa messaggi e risposte.",
+    "readerOffDesc": "Leggi un messaggio alla volta.",
+    "readerOnDesc": "Leggi l'intera conversazione insieme.",
     "label": "conversazione",
     "attachment": "Allegato",
     "logicalCount": "{{count}} messaggi",
@@ -1418,16 +1462,15 @@
     "confirmMoveBody": "Spostare {{count}} messaggio/i in un’altra cartella?",
     "showQuotedText": "Mostra testo citato",
     "hideQuotedText": "Nascondi testo citato",
-    "groupIntoConversationsOn": "On",
-    "readerOff": "Disabled",
-    "readerOn": "Enabled",
+    "groupIntoConversationsOn": "Attivato",
+    "readerOff": "Disabilitato",
+    "readerOn": "Abilitato",
     "groupIntoConversations": "Raggruppa i messaggi nelle conversazioni",
     "incomingMessage": "Messaggio in arrivo",
     "outgoingMessage": "Messaggio in uscita",
     "expandMessage": "Espandi il messaggio di {{sender}}: {{subject}}",
     "collapseMessage": "Comprimi il messaggio di {{sender}}: {{subject}}",
-    "summary": "Anteprima:",
-    "readerDesc": "Apre l'intera conversazione nel riquadro di lettura invece di un singolo messaggio."
+    "summary": "Anteprima:"
   },
   "diagnostics": {
     "section": "Diagnostica",
@@ -1550,6 +1593,9 @@
     }
   },
   "message": {
+    "forwardedMessage": "Messaggio inoltrato",
+    "date": "Data",
+    "cc": "Cc",
     "find": {
       "title": "Cerca",
       "close": "Chiudi ricerca",
@@ -1634,10 +1680,12 @@
       "done": "Classificato come {{category}}",
       "error": "Classificazione IA fallita."
     },
-    "attachment_few": "{{count}} attachments",
-    "attachment_many": "{{count}} attachments"
+    "attachment_few": "{{count}} allegati",
+    "attachment_many": "{{count}} allegati"
   },
   "messageList": {
+    "layout": "Disposizione",
+    "menu": "Menu",
     "search": "Cerca…",
     "unread": "Non letti",
     "showAll": "Mostra tutto",
@@ -1677,10 +1725,10 @@
       "failTitle": "Eliminazione fallita",
       "failBody_one": "Impossibile eliminare {{count}} messaggio.",
       "failBody_other": "Impossibile eliminare {{count}} messaggi.",
-      "failBody_few": "Some messages could not be deleted",
-      "failBody_many": "Some messages could not be deleted",
-      "title_few": "Deleted {{count}} messages",
-      "title_many": "Deleted {{count}} messages"
+      "failBody_few": "Impossibile eliminare alcuni messaggi.",
+      "failBody_many": "Impossibile eliminare alcuni messaggi.",
+      "title_few": "{{count}} messaggi eliminati",
+      "title_many": "{{count}} messaggi eliminati"
     },
     "bulkMoved": {
       "title_one": "{{count}} messaggio spostato",
@@ -1688,10 +1736,10 @@
       "failTitle": "Spostamento fallito",
       "failBody_one": "Impossibile spostare {{count}} messaggio.",
       "failBody_other": "Impossibile spostare {{count}} messaggi.",
-      "failBody_few": "Some messages could not be moved",
-      "failBody_many": "Some messages could not be moved",
-      "title_few": "Moved {{count}} messages",
-      "title_many": "Moved {{count}} messages"
+      "failBody_few": "Impossibile spostare alcuni messaggi.",
+      "failBody_many": "Impossibile spostare alcuni messaggi.",
+      "title_few": "{{count}} messaggi spostati",
+      "title_many": "{{count}} messaggi spostati"
     },
     "bulkArchived": {
       "title_one": "{{count}} messaggio archiviato",
@@ -1702,10 +1750,10 @@
       "failBody_other": "Impossibile archiviare {{count}} messaggi.",
       "noFolderTitle": "Nessuna cartella di archivio",
       "noFolderBody": "Uno o più account non hanno una cartella di archivio configurata. Impostane una in Impostazioni → Account → Mappatura cartelle.",
-      "failBody_few": "Some messages could not be archived",
-      "failBody_many": "Some messages could not be archived",
-      "title_few": "Archived {{count}} messages",
-      "title_many": "Archived {{count}} messages"
+      "failBody_few": "Impossibile archiviare alcuni messaggi.",
+      "failBody_many": "Impossibile archiviare alcuni messaggi.",
+      "title_few": "{{count}} messaggi archiviati",
+      "title_many": "{{count}} messaggi archiviati"
     },
     "noArchiveFolder": {
       "title": "Nessuna cartella di archivio",
@@ -1719,6 +1767,7 @@
     "noSearchResultsDesc": "Nessun risultato per {{query}}",
     "clearSearch": "Cancella ricerca",
     "searchHelp": {
+      "example": "from:amazon fattura",
       "title": "Operatori di ricerca",
       "from": "Dal mittente",
       "subject": "Nell'oggetto",
@@ -1867,6 +1916,8 @@
     }
   },
   "sidebar": {
+    "favorites": "Preferiti",
+    "reorderFolder": "Trascina per riordinare le cartelle",
     "accounts": "Account",
     "allInboxes": "Tutte le caselle",
     "compose": "Scrivi",
@@ -1884,6 +1935,8 @@
     "signOut": "Esci",
     "connectionError": "Errore di connessione",
     "folderMenu": {
+      "favorite": "Aggiungi ai preferiti",
+      "unfavorite": "Rimuovi dai preferiti",
       "markAllRead": "Segna tutto come letto",
       "syncFolder": "Sincronizza cartella",
       "renameFavorite": "Rinomina preferito",
@@ -1915,8 +1968,8 @@
     "emptied": "Cartella svuotata",
     "backToAccounts": "Torna agli account",
     "updateAvailable": "Aggiornamento disponibile: v{{version}}",
-    "hiddenFolders_few": "{{count}} hidden folders",
-    "hiddenFolders_many": "{{count}} hidden folders"
+    "hiddenFolders_few": "{{count}} cartelle nascoste",
+    "hiddenFolders_many": "{{count}} cartelle nascoste"
   },
   "signatureEditor": {
     "bold": "Grassetto (Ctrl+B)",
@@ -1986,6 +2039,14 @@
     "close": "Chiudi"
   },
   "calendar": {
+    "invitationCancellationSent": "L’annullamento dell’invito è stato inviato.",
+    "invitationCancellationStatus": "Stato dell’annullamento dell’invito: {{status}}",
+    "hide": "Nascondi",
+    "show": "Mostra",
+    "noCalendarsDiscovered": "Nessun calendario trovato finora.",
+    "searchSources": "Cerca fonti o calendari",
+    "serviceDisabled": "Il servizio calendario è disattivato.",
+    "providerManagedHint": "La creazione, la ridenominazione e l'eliminazione dei calendari sono gestite dal fornitore. Configura i servizi dell'account in Impostazioni → Account.",
     "organizer": "Organizzatore",
     "retry": "Riprova",
     "eventCount": "Eventi: {{count}}",
@@ -2076,8 +2137,6 @@
     "day4": "Giovedì",
     "day5": "Venerdì",
     "day6": "Sabato",
-    "owned": "Di proprietà",
-    "sourceCalendar": "Fonte",
     "calendarActions": "Azioni per {{name}}",
     "rename": "Rinomina",
     "changeColor": "Cambia colore",
@@ -2090,9 +2149,7 @@
     "contactDateEvent": "{{label}}: {{name}}",
     "invitationPending": "La consegna degli inviti è ancora in sospeso. Riprova per verificarne lo stato.",
     "retrySave": "Riprova a salvare",
-    "syncSkipped": "Eventi ignorati: {{count}}. Gli altri sono stati sincronizzati.",
     "syncFailed": "Sincronizzazione del calendario non riuscita.",
-    "syncDetails": "Dettagli diagnostici",
     "mailInvitation": "Invito calendario",
     "addInvitation": "Aggiungi al calendario",
     "invitationAdded": "Aggiunto al calendario",
@@ -2104,7 +2161,6 @@
     "invitationSaveFailed": "Impossibile aggiornare l'invito.",
     "sourceSyncInterval": "Sincronizza ogni",
     "sourceSyncMinutes": "{{count}} min",
-    "sourceSyncHours": "{{count}} h",
     "invitationLoadFailed": "Impossibile caricare o salvare l’invito.",
     "editOccurrence": "Stai modificando solo questa occorrenza.",
     "editFollowing": "Stai modificando questa e tutte le occorrenze successive.",
@@ -2160,13 +2216,9 @@
     "davAccessReadWrite": "Lettura e scrittura",
     "davAccessHint": "Indica se questo calendario viene pubblicato sui dispositivi connessi (CalDAV). Non concede mai più di quanto consenta il calendario stesso.",
     "providerSync": "Sincronizza calendario {{provider}}",
-    "providerSyncing": "Sincronizzazione del calendario {{provider}}…",
-    "providerSyncDone": "Calendario {{provider}} sincronizzato.",
-    "providerSyncPartial": "Sincronizzazione parziale del calendario {{provider}}.",
-    "hiddenCalendars": "Calendari nascosti",
-    "restore": "Ripristina",
+    "providerSyncDone": "Calendario {{provider}}: {{calendars}} calendari, {{created}} aggiunti, {{updated}} aggiornati, {{deleted}} rimossi.",
+    "providerSyncPartial": "Calendario {{provider}}: {{calendars}} calendari, {{created}} aggiunti, {{updated}} aggiornati, {{deleted}} rimossi; {{failed}} errori.",
     "importIcs": "Importa file .ics",
-    "importingIcs": "Importazione…",
     "importDone": "{{count}} evento/i importato/i.",
     "importProtected": "{{count}} evento/i sono rimasti invariati perché Inboxora ha inviato i relativi inviti."
   },
@@ -2260,7 +2312,7 @@
     "syncError": {
       "missingScopes": "{{provider}} {{service}}: manca l’autorizzazione {{scopes}}. Collega di nuovo {{service}}.",
       "auth": "{{provider}} ha rifiutato l’autorizzazione per {{service}} ({{code}}). Collegalo di nuovo.",
-      "rateLimited": "{{provider}} sta limitando {{service} in questo momento. Riprova tra qualche minuto.",
+      "rateLimited": "{{provider}} sta limitando {{service}} in questo momento. Riprova tra qualche minuto.",
       "providerDown": "{{provider}} ha segnalato un errore del server per {{service}} ({{status}}). Il prossimo tentativo riproverà.",
       "generic": "{{provider}} {{service}} non riuscito: {{code}}.",
       "showDetails": "Mostra dettagli ({{count}})",

@@ -1,145 +1,78 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { calendarSidebarGroups, canManageLocalCalendar, setCalendarSidebarHidden, type CalendarPresentationSource } from './calendarSettingsModel.ts';
 
 const source = () => readFile(new URL('./CalendarSidebar.tsx', import.meta.url), 'utf8');
+const manager = () => readFile(new URL('./CalendarSettingsManager.tsx', import.meta.url), 'utf8');
 
-describe('CalendarSidebar contract', () => {
-  it('provides a mini-month, visible calendar toggles, and source management entry point', async () => {
+describe('calendar rail and canonical settings management', () => {
+  it('keeps mini-month and event selection in the rail but navigates management to Accounts', async () => {
     const component = await source();
-    assert.match(component, /data-testid="calendar-mini-month"/);
-    assert.match(component, /data-testid="calendar-mini-month-previous"/);
-    assert.match(component, /data-testid="calendar-mini-month-next"/);
-    assert.match(component, /onShiftMonth\?\.\(-1\)/);
-    assert.match(component, /onShiftMonth\?\.\(1\)/);
-    assert.match(component, /data-testid="calendar-visibility-toggle"/);
-    assert.match(component, /data-testid="calendar-sidebar-manage-sources"/);
+    for (const id of ['calendar-mini-month', 'calendar-mini-month-previous', 'calendar-mini-month-next', 'calendar-visibility-toggle', 'calendar-sidebar-manage-sources']) assert.ok(component.includes(`data-testid="${id}"`));
+    assert.match(component, /setAdminTab\('calendar'\)/);
+    assert.match(component, /setShowAdmin\(true\)/);
+    assert.doesNotMatch(component, /Dialog|deleteCalendar|createSource|updateCalendarPresentation|setCollectionWriteBack/);
+    assert.match(component, /onToggleCalendar\(calendar.id\)/);
   });
 
-  it('keeps generic collection lifecycle controls local-only', async () => {
-    const component = await source();
-    assert.match(component, /const localCalendar = \(calendar: CalendarRow\) => calendar\.source === 'local'/);
-    assert.match(component, /\{localCalendar\(calendar\) && <>\s*<button role="menuitem" onClick=\{\(\) => editCalendar\(calendar\)\}/);
-    assert.match(component, /\{ownedCalendar\(calendar\) && <button role="menuitem" onClick=\{\(\) => deleteCalendar\(calendar\)\}/);
+  it('groups durable identities without merging same-provider accounts or hiding selected events', () => {
+    const source = (id: string, kind: string): CalendarPresentationSource => ({ id, kind, label: id, accountId: kind === 'google' ? id : null, identityLabel: null, collapsed: false, featureEnabled: true, canSync: true });
+    const view = (id: string, sourceId: string) => ({ id, sourceId, displayName: id, readOnly: false, selected: true, sidebarHidden: true });
+    const groups = calendarSidebarGroups({ groups: [
+      { ...source('google-b', 'google'), calendars: [view('b', 'google-b')] },
+      { ...source('local', 'local'), calendars: [view('a', 'local')] },
+      { ...source('google-a', 'google'), calendars: [] },
+    ] }, [{ id: 'a' }, { id: 'b' }]);
+    assert.deepEqual(groups.map(group => group.id), ['local', 'google-a', 'google-b']);
+    assert.equal(groups[0].rows[0].view.selected, true);
+    assert.equal(groups[0].rows[0].view.sidebarHidden, true);
   });
 
-  it('leaves closing to the one shared sheet header control', async () => {
-    // The panel used to render its own "Zamknij" button next to the dialog's ×.
-    // The bottom sheet header now owns the single close affordance, so the rail
-    // neither renders that button nor accepts an onClose prop.
-    const component = await source();
-    assert.doesNotMatch(component, /calendar-sidebar-close/);
-    assert.doesNotMatch(component, /canCreate, onClose/);
+  it('hide/show persists only sidebarHidden and preserves failures', async () => {
+    const writes: unknown[] = [];
+    const update = async (id: string, hidden: boolean) => { writes.push({ id, sidebarHidden: hidden }); };
+    await setCalendarSidebarHidden(update, 'selected-calendar', true);
+    await setCalendarSidebarHidden(update, 'selected-calendar', false);
+    assert.deepEqual(writes, [{ id: 'selected-calendar', sidebarHidden: true }, { id: 'selected-calendar', sidebarHidden: false }]);
+    await assert.rejects(setCalendarSidebarHidden(async () => { throw new Error('denied'); }, 'a', true), /denied/);
+    const component = await manager();
+    assert.match(component, /setCalendarSidebarHidden\(api.calendar.updateCalendarPresentation, calendar.id, !view.sidebarHidden\)/);
+    assert.doesNotMatch(component, /onToggleCalendar|visibleCalendarIds|selectedBeforeHide|updatePreferences/);
   });
 
-  it('keeps application-wide calendar preferences out of the calendar source panel', async () => {
-    const component = await source();
-    assert.doesNotMatch(component, /calendar\.firstDayOfWeek/);
-    assert.doesNotMatch(component, /calendar\.mobileNavigation/);
+  it('permits collection lifecycle changes only for writable owned local calendars', () => {
+    assert.equal(canManageLocalCalendar({ id: 'local', source: 'local', owner_user_id: 'u' }), true);
+    for (const source of ['google', 'microsoft', 'ical_url', 'caldav', 'system']) assert.equal(canManageLocalCalendar({ id: source, source, owner_user_id: 'u', read_only: false }), false);
+    assert.equal(canManageLocalCalendar({ id: 'readonly', source: 'local', owner_user_id: 'u', read_only: true }), false);
+    assert.equal(canManageLocalCalendar({ id: 'unowned', source: 'local' }), false);
   });
 
-  it('waits for the asynchronous initial source sync with a bounded, cancellable poll', async () => {
-    const component = await source();
-    assert.match(component, /lastSyncAt|lastError/);
+  it('retains source/account controls, local DAV policy and ICS import in settings', async () => {
+    const component = await manager();
+    assert.match(component, /syncAccountProviderFeature\(source.accountId, 'calendars'\)/);
+    assert.doesNotMatch(component, /providerCalendars.sync/);
+    assert.match(component, /window.confirm\(t\('calendar.removeSourceConfirm'\)\)/);
+    assert.match(component, /intervalMin/);
+    assert.match(component, /calendar.pauseSource/);
+    assert.match(component, /calendar.resumeSource/);
+    assert.match(component, /canManageLocalCalendar\(calendar\) &&/);
+    assert.match(component, /CalendarSubscriptionsSettings locale=\{locale\} creationOnly/);
+    for (const mode of ['off', 'read_only', 'read_write']) assert.ok(component.includes(`value="${mode}"`));
+    assert.match(component, /api.calendar.importIcs/);
     assert.match(component, /setTimeout/);
     assert.match(component, /clearTimeout/);
-    assert.match(component, /unmount|mounted|cancel/i);
-    assert.match(component, /const maxAttempts = 70/);
-    assert.match(component, /attempts >= maxAttempts/);
-    assert.match(component, /pending\.clear\(\)/);
+    assert.match(component, /< 70/);
   });
 
-  it('guards independent source-panel requests across cleanup and unmount', async () => {
-    const component = await source();
-    assert.match(component, /let active = true/);
-    assert.match(component, /!active \|\| !mounted\.current/);
-    assert.match(component, /return \(\) => \{ active = false; \}/);
-  });
-
-  it('offers the same non-destructive pause/resume action in the source manager', async () => {
-    const component = await source();
-    assert.match(component, /toggleSource\(managedExternalSource, !managedExternalSource\.enabled\)/);
-    assert.match(component, /calendar\.pauseSource/);
-    assert.match(component, /calendar\.resumeSource/);
-  });
-
-  it('confirms source removal before deleting imported calendar projections', async () => {
-    const component = await source();
-    assert.match(component, /window\.confirm\(t\('calendar\.removeSourceConfirm'\)\)/);
-    assert.match(component, /deleteSource\(id\); clearSourcePoll\(id\);/);
-  });
-
-  it('groups sources by presentation category without merging their durable identities', async () => {
-    const component = await source();
-    assert.match(component, /function calendarSourceCategory/);
-    assert.match(component, /category: calendarSourceCategory\(group\)/);
-    assert.match(component, /data-testid="calendar-source-category"/);
-    assert.match(component, /calendarSourceCategoryKey\(group\.category\)/);
-  });
-
-  it('loads canonical groups on first entry and renders durable headings before children', async () => {
-    const component = await source();
-    assert.match(component, /useEffect\(\(\) => \{ void loadPresentation\(\); \}, \[\]\)/);
-    assert.match(component, /presentationRequestGeneration/);
-    assert.match(component, /data-testid="calendar-source-group"/);
-    assert.match(component, /data-testid="calendar-source-heading"/);
-    assert.match(component, /\(presentation\?\.groups \?\? \[\]\)\.map\(group/);
-    assert.match(component, /group\.identityLabel/);
-    assert.match(component, /view\.sidebarHidden \|\| group\.collapsed/);
-  });
-
-  it('keeps collapse separate from event selection and restores hidden calendars', async () => {
-    const component = await source();
-    assert.match(component, /updateSourcePresentation\(sourceId, collapsed\)/);
-    assert.match(component, /data-testid="calendar-hidden-calendars"/);
-    assert.match(component, /data-testid="calendar-restore-hidden"/);
-    assert.match(component, /selectedBeforeHide\.current\.set\(calendar\.id, priorSelection\)/);
-    assert.match(component, /selectedBeforeHide\.current\.get\(calendar\.id\) === true/);
-    assert.match(component, /data-testid="calendar-source-collapse"/);
-    assert.match(component, /view\.sidebarHidden \|\| group\.collapsed \? null/);
-  });
-
-  it('uses one selectable source list and lazy ICS-only add-source form in the manager', async () => {
-    const [component, css] = await Promise.all([source(), readFile(new URL('./calendar.css', import.meta.url), 'utf8')]);
-    assert.match(component, /data-testid="calendar-source-manager"/);
-    assert.match(component, /data-testid="calendar-manager-source"/);
-    assert.match(component, /data-testid="calendar-source-details"/);
-    assert.match(component, /data-testid="calendar-add-source"/);
-    assert.match(component, /\{showAddSource && <form/);
-    assert.match(component, /data-testid="calendar-source-search"/);
-    assert.match(component, /kind: 'ical_url', \.\.\.form/);
-    assert.doesNotMatch(component, /form\.username|form\.password|value="caldav"/);
-    assert.match(css, /@media \(max-width: 640px\)/);
-    assert.match(css, /calendar-source-manager/);
-  });
-
-  it('syncs only the selected provider account with neutral localized copy', async () => {
-    const [component, en, pl] = await Promise.all([
-      source(),
-      readFile(new URL('../locales/en.json', import.meta.url), 'utf8'),
-      readFile(new URL('../locales/pl.json', import.meta.url), 'utf8'),
-    ]);
-    assert.match(component, /syncAccountProviderFeature\(source\.accountId, 'calendars'\)/);
-    assert.match(component, /data-testid="calendar-account-sync"/);
-    assert.doesNotMatch(component, /providerCalendars\.sync\(/);
-    assert.doesNotMatch(component, /calendar\.googleSyncing/);
-    for (const locale of [en, pl]) {
-      assert.match(locale, /"providerSyncing"/);
-      assert.match(locale, /"providerSyncDone"/);
-      assert.match(locale, /"providerSyncPartial"/);
-    }
-  });
-
-  it('lets the owner choose the per-collection DAV access mode', async () => {
-    const component = await source();
-    assert.match(component, /data-testid="calendar-dav-mode"/);
-    for (const mode of ['off', 'read_only', 'read_write']) {
-      assert.match(component, new RegExp(`value="${mode}"`));
-    }
-    // The dialog sends the chosen mode (and defaults to the stored one), so an
-    // unrelated rename never silently resets the sharing policy.
-    assert.match(component, /davMode: changes\.davMode \?\? davModeOf\(calendar\.dav_mode\)/);
-    assert.match(component, /davMode: davModeOf\(calendar\.dav_mode\) \}/);
-    assert.match(component, /calendar\.davAccess/);
+  it('fences refreshes and async management against session change and unmount', async () => {
+    const component = await manager();
+    assert.match(component, /useStore.getState\(\).authEpoch === authEpoch/);
+    assert.match(component, /lifetime.current === generation/);
+    assert.match(component, /if \(!current\(\)\) return/);
+    assert.match(component, /request !== requests.current/);
+    const rail = await source();
+    assert.match(rail, /active && request === generation.current/);
+    assert.match(rail, /window.removeEventListener\('inboxora:calendar-changed'/);
   });
 });
