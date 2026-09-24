@@ -206,4 +206,95 @@ describeOrSkip('a mailbox is found through the connection that holds its collect
     const accounts = await inTransactionForTest(client => listGraphMailAccounts(client, { userId, connectionId: second }));
     expect(accounts).toContain(microsoftAccount);
   });
+
+  it('uses persisted mail-folder ownership when the collection connection has no provider identity', async () => {
+    const collectionConnection = randomUUID();
+    const localFolder = await createFolder(microsoftAccount, `Regression-${collectionConnection}`);
+    await query(
+      `INSERT INTO provider_connections
+         (id, user_id, provider, issuer, subject, provider_user_id, status)
+       VALUES ($1, $2, 'microsoft', 'https://login.microsoftonline.com/common/v2.0',
+               'graph-collection-owner', NULL, 'active')`,
+      [collectionConnection, userId],
+    );
+    await query(
+      `INSERT INTO integration_collections
+         (user_id, connection_id, account_id, kind, remote_id, local_folder_id,
+          enabled, source_access, user_access, dav_mode)
+       VALUES ($1, $2, $3, 'mail_folder', $4, $5, true, 'read_only', 'source', 'off')`,
+      [userId, collectionConnection, microsoftAccount, `remote-${collectionConnection}`, localFolder],
+    );
+    try {
+      await query('UPDATE email_accounts SET provider_connection_id = $2 WHERE id = $1', [microsoftAccount, microsoftConnection]);
+      const { listGraphMailAccounts } = await import('./providers/microsoft/graphMailSync.js');
+      const accounts = await inTransactionForTest(client =>
+        listGraphMailAccounts(client, { userId, connectionId: collectionConnection }));
+      expect(accounts).toContain(microsoftAccount);
+    } finally {
+      await query('DELETE FROM integration_collections WHERE connection_id = $1', [collectionConnection]);
+      await query('DELETE FROM folders WHERE id = $1', [localFolder]);
+      await query('DELETE FROM provider_connections WHERE id = $1', [collectionConnection]);
+    }
+  });
+
+  it('fails fast when enabled mail collections still resolve to no Graph account', async () => {
+    const orphanConnection = randomUUID();
+    const foreignFolder = await createFolder(googleAccount, `Foreign-${orphanConnection}`);
+    await query(
+      `INSERT INTO provider_connections
+         (id, user_id, provider, issuer, subject, provider_user_id, status)
+       VALUES ($1, $2, 'microsoft', 'https://login.microsoftonline.com/common/v2.0',
+               'graph-orphan-owner', NULL, 'active')`,
+      [orphanConnection, userId],
+    );
+    await query(
+      `INSERT INTO integration_collections
+         (user_id, connection_id, account_id, kind, remote_id, local_folder_id,
+          enabled, source_access, user_access, dav_mode)
+       VALUES ($1, $2, NULL, 'mail_folder', $3, $4, true, 'read_only', 'source', 'off')`,
+      [userId, orphanConnection, `orphan-remote-${orphanConnection}`, foreignFolder],
+    );
+    try {
+      const { syncGraphMailFolders } = await vi.importActual<typeof import('./providers/microsoft/graphMailSync.js')>('./providers/microsoft/graphMailSync.js');
+      await expect(syncGraphMailFolders({
+        userId,
+        connectionId: orphanConnection,
+        fetchImpl: async () => { throw new Error('Graph must not be contacted'); },
+      })).rejects.toMatchObject({ code: 'NO_ACCOUNT_FOR_CONNECTION' });
+    } finally {
+      await query('DELETE FROM integration_collections WHERE connection_id = $1', [orphanConnection]);
+      await query('DELETE FROM folders WHERE id = $1', [foreignFolder]);
+      await query('DELETE FROM provider_connections WHERE id = $1', [orphanConnection]);
+    }
+  });
+
+  it('recovers a legacy mail-folder link whose account_id is null from its local folder owner', async () => {
+    const legacyConnection = randomUUID();
+    const localFolder = await createFolder(microsoftAccount, `Legacy-${legacyConnection}`);
+    await query(
+      `INSERT INTO provider_connections
+         (id, user_id, provider, issuer, subject, provider_user_id, status)
+       VALUES ($1, $2, 'microsoft', 'https://login.microsoftonline.com/common/v2.0',
+               'graph-legacy-collection-owner', NULL, 'active')`,
+      [legacyConnection, userId],
+    );
+    await query(
+      `INSERT INTO integration_collections
+         (user_id, connection_id, account_id, kind, remote_id, local_folder_id,
+          enabled, source_access, user_access, dav_mode)
+       VALUES ($1, $2, NULL, 'mail_folder', $3, $4, true, 'read_only', 'source', 'off')`,
+      [userId, legacyConnection, `legacy-remote-${legacyConnection}`, localFolder],
+    );
+    try {
+      await query('UPDATE email_accounts SET provider_connection_id = $2 WHERE id = $1', [microsoftAccount, microsoftConnection]);
+      const { listGraphMailAccounts } = await import('./providers/microsoft/graphMailSync.js');
+      const accounts = await inTransactionForTest(client =>
+        listGraphMailAccounts(client, { userId, connectionId: legacyConnection }));
+      expect(accounts).toContain(microsoftAccount);
+    } finally {
+      await query('DELETE FROM integration_collections WHERE connection_id = $1', [legacyConnection]);
+      await query('DELETE FROM folders WHERE id = $1', [localFolder]);
+      await query('DELETE FROM provider_connections WHERE id = $1', [legacyConnection]);
+    }
+  });
 });

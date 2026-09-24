@@ -74,12 +74,21 @@ interface FolderContext {
 /**
  * The mailboxes a connection's sync should cover.
  *
- * The account is matched by its own link **or** by the connection's verified identity, because an identity can
- * have more than one connection row: the one its cutover created and the one a consent stored scopes on. The
- * features are read through the account's link, while the scheduler walks the connection that holds the
- * collections — and requiring the account's link to equal *that* id returned nothing at all, which is how a
- * native mailbox reported as connected stopped fetching mail entirely ("total silence" with no error, because
- * there was no account to synchronise).
+ * There are three durable ways a Graph connection can identify the mailbox it is already synchronising:
+ *
+ *  1. the account directly points at this provider connection;
+ *  2. one of this connection's `mail_folder` projections points at the account (directly through
+ *     `integration_collections.account_id`, or through the local folder for legacy rows);
+ *  3. the provider connection carries the same verified provider identity as the account address.
+ *
+ * #2 is important. Microsoft consent/cutover can legitimately leave more than one provider_connection for the
+ * same mailbox. The scheduler walks the connection that owns the mail-folder collections, while
+ * `email_accounts.provider_connection_id` may point at the newer consent/cutover connection. Some older
+ * collection-owning connections also do not have `provider_user_id` populated. In that state the previous
+ * implementation returned zero accounts and the scheduler silently did no work.
+ *
+ * Persisted collection ownership is the strongest local evidence here; `folders.account_id` keeps
+ * pre-account_id collection rows recoverable after upgrades.
  */
 export async function listGraphMailAccounts(client: PoolClient, input: { userId: string; connectionId: string }): Promise<string[]> {
   const result = await client.query<{ id: string }>(
@@ -87,7 +96,19 @@ export async function listGraphMailAccounts(client: PoolClient, input: { userId:
       WHERE a.user_id = $1 AND a.mail_transport = 'microsoft_graph'
         AND (
           a.provider_connection_id = $2
-          OR lower(a.email_address) = lower(COALESCE((
+          OR EXISTS (
+             SELECT 1
+               FROM integration_collections ic
+               LEFT JOIN folders f ON f.id = ic.local_folder_id
+              WHERE ic.user_id = $1
+                AND ic.connection_id = $2
+                AND ic.kind = 'mail_folder'
+                AND (
+                  ic.account_id = a.id
+                  OR f.account_id = a.id
+                )
+           )
+           OR lower(a.email_address) = lower(COALESCE((
             SELECT c.provider_user_id FROM provider_connections c WHERE c.id = $2 AND c.user_id = $1
           ), ''))
         )
@@ -95,6 +116,24 @@ export async function listGraphMailAccounts(client: PoolClient, input: { userId:
     [input.userId, input.connectionId],
   );
   return result.rows.map(row => row.id);
+}
+
+async function graphConnectionHasMailCollections(
+  client: PoolClient,
+  input: { userId: string; connectionId: string },
+): Promise<boolean> {
+  const result = await client.query<{ exists: boolean }>(
+    `SELECT EXISTS (
+       SELECT 1
+         FROM integration_collections ic
+        WHERE ic.user_id = $1
+          AND ic.connection_id = $2
+          AND ic.kind = 'mail_folder'
+          AND ic.enabled = true
+     ) AS exists`,
+    [input.userId, input.connectionId],
+  );
+  return result.rows[0]?.exists === true;
 }
 
 /** Find or create the local folder a Graph folder projects onto, and link it. */
@@ -219,13 +258,31 @@ export async function syncGraphMailFolders(input: {
   fetchImpl?: FetchLike;
   owner?: string;
 }): Promise<GraphMailFolderSyncResult[]> {
-  const accountIds = await withTransaction(client => listGraphMailAccounts(client, {
-    userId: input.userId,
-    connectionId: input.connectionId,
-  }));
+  const resolution = await withTransaction(async client => {
+    const accountIds = await listGraphMailAccounts(client, {
+      userId: input.userId,
+      connectionId: input.connectionId,
+    });
+    const hasMailCollections = accountIds.length === 0
+      ? await graphConnectionHasMailCollections(client, {
+        userId: input.userId,
+        connectionId: input.connectionId,
+      })
+      : false;
+    return { accountIds, hasMailCollections };
+  });
+
+  if (resolution.accountIds.length === 0 && resolution.hasMailCollections) {
+    throw new GraphApiError({
+      code: 'NO_ACCOUNT_FOR_CONNECTION',
+      message: 'Microsoft mail folders exist for this connection, but no Graph mailbox can be resolved for them',
+      status: 409,
+      retryable: false,
+    });
+  }
 
   const results: GraphMailFolderSyncResult[] = [];
-  for (const accountId of accountIds) {
+  for (const accountId of resolution.accountIds) {
     results.push(await syncGraphMailFoldersForAccount({ ...input, accountId }));
   }
   return results;
