@@ -396,6 +396,7 @@ None.
   IMAP loops, health checks, rule forwarder and send path no longer open IMAP or SMTP for it.
 
 ### Fixed
+- **Contacts manager groups books by connection.** Local, CardDAV, Google and Microsoft books are separated by their source and mailbox context, so same-named collections from two provider accounts do not share a management section.
 - **CardDAV source controls are no longer presented as a book property.** Contacts manager exposes the connection-level source section independently of the selected local, Google or Microsoft address book.
 - **New contacts have an explicit, durable destination.** The form selects a writable address book (with provider mailbox where applicable) and saves to that captured target even if the surrounding list filter changes.
 - **Provider-backed contact books now identify their owning account.** The address-book presentation includes the provider connection and mailbox identity, allowing clients to group similarly named books and make sync actions account-scoped rather than guessing from a provider.

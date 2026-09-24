@@ -90,6 +90,22 @@ const sectionTitleStyle: React.CSSProperties = {
 const rowStyle: React.CSSProperties = { display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' };
 const metaStyle: React.CSSProperties = { fontSize: 12, color: 'var(--text-tertiary)', margin: '2px 0' };
 
+type BookGroup = { id: string; source: string; accountLabel: string | null; books: ManagerBook[] };
+
+/** Group by source and durable account context: two Google accounts never share a manager section. */
+function groupBooksByConnection(books: readonly ManagerBook[]): BookGroup[] {
+  const order = (source: string) => source === 'local' ? 0 : (source === 'carddav' || source === 'dav') ? 1 : source === 'google' ? 2 : source === 'microsoft' ? 3 : 4;
+  const groups = new Map<string, BookGroup>();
+  for (const book of books) {
+    const account = book.accountLabel ?? null;
+    const id = `${book.source}:${account ?? 'local'}`;
+    const group = groups.get(id) ?? { id, source: book.source, accountLabel: account, books: [] };
+    group.books.push(book);
+    groups.set(id, group);
+  }
+  return [...groups.values()].sort((left, right) => order(left.source) - order(right.source) || String(left.accountLabel ?? '').localeCompare(String(right.accountLabel ?? '')));
+}
+
 export default function ContactsBooksManager(props: ContactsBooksManagerProps) {
   const { t, books, selectedBookId, isMobile } = props;
   const [mobileDetail, setMobileDetail] = React.useState(false);
@@ -117,7 +133,9 @@ export default function ContactsBooksManager(props: ContactsBooksManagerProps) {
 
   const list = (
     <div data-testid="contacts-manager-books" style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 0 }}>
-      {books.map(book => {
+      {groupBooksByConnection(books).map(group => <div key={group.id} data-testid="contacts-manager-book-group" style={{ display: 'grid', gap: 6 }}>
+        <div data-testid="contacts-manager-book-group-heading" style={{ ...metaStyle, marginTop: 6 }}><strong>{t(sourceLabelKey(group.source))}{group.accountLabel ? ` · ${group.accountLabel}` : ''}</strong></div>
+        {group.books.map(book => {
         const active = book.id === selectedBookId;
         const bookProvider = book.source === 'microsoft' ? 'microsoft' : book.source === 'google' ? 'google' : null;
         const bookSummary = bookProvider === 'google' ? props.googleSummary : bookProvider === 'microsoft' ? props.microsoftSummary : null;
@@ -149,7 +167,8 @@ export default function ContactsBooksManager(props: ContactsBooksManagerProps) {
             {bookSummary && <div data-testid={`contacts-manager-book-status-${book.id}`} style={{ ...metaStyle, margin: 0 }}>{t(bookSummary.key ?? 'contacts.addressBooks.lastSynced', bookSummary.values)}</div>}
           </button>
         );
-      })}
+        })}
+      </div>)}
     </div>
   );
 

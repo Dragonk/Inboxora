@@ -32,6 +32,13 @@ test('the ellipsis menu is gone and one manage action opens the manager', async 
   assert.match(source, /<ContactsBooksManager/);
 });
 
+test('provider books are grouped by their account connection', async () => {
+  const source = await read(manager);
+  assert.match(source, /function groupBooksByConnection/);
+  assert.match(source, /const id = `\$\{book\.source\}:\$\{account \?\? 'local'\}`/);
+  assert.match(source, /data-testid="contacts-manager-book-group"/);
+});
+
 test('CardDAV connection management is separate from the selected book detail', async () => {
   const source = await read(manager);
   const detailEnd = source.indexOf('  ) : (\n    <p data-testid="contacts-manager-detail"');
