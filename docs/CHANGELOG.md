@@ -415,6 +415,7 @@ None.
 - **CardDAV source controls are no longer presented as a book property.** Contacts manager exposes the connection-level source section independently of the selected local, Google or Microsoft address book.
 - **New contacts have an explicit, durable destination.** The form selects a writable address book (with provider mailbox where applicable) and saves to that captured target even if the surrounding list filter changes.
 - **Provider-backed contact books now identify their owning account.** The address-book presentation includes the provider connection and mailbox identity, allowing clients to group similarly named books and make sync actions account-scoped rather than guessing from a provider.
+- **Resource deletion confirmation names the resource being deleted.** Calendar and contact deletion dialogs now interpolate the actual resource name in the confirmation prompt for every supported language.
 - **Provider service controls now match Settings switches.** Calendar and Contacts use accessible on/off switches on the account card, and a deliberately disabled service is visually neutral instead of green.
 - **Disabled providers stop scheduled, push-hint and manual syncs.** Existing authorized connections now require both the provider and API switches before their contacts or calendars adapters can call an upstream API.
 - **Calendar rail has a stable category hierarchy.** Sources are ordered and headed as My calendars, External, Google, Microsoft and System; individual source/account IDs remain intact for collapse, sync and lifecycle actions.

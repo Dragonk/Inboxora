@@ -403,6 +403,8 @@ Microsoft application is registered in this environment.
 
 ### Fixed
 
+- **Resource deletion confirmation names the selected resource.** Calendar and contact deletion dialogs now interpolate the actual resource name in the confirmation prompt in each supported language; deletion remains gated by exact-name entry and acknowledgement.
+
 - **CardDAV sources are isolated during synchronization and write-back.** Each source now has its own durable integration identity, credentials, pruning scope, timer and disconnect operation; the Contacts panel selects the source for sync and disconnect. Apply migration `0118_carddav_source_identity.sql` before rolling out the application change; ambiguous legacy links fail closed and live DAV validation remains required.
 
 - **Gmail baseline resumes within a page instead of restarting it.** A durable set of processed thread IDs lets a bounded run advance through pages larger than its per-run budget.
