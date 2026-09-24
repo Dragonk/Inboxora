@@ -1,323 +1,155 @@
-import React from 'react';
-import { Button } from './ui.tsx';
-import ContactsDavSource from './ContactsDavSource.tsx';
-import { groupBooksByConnection } from './contactsManagementModel.ts';
-
-/**
- * The address-book manager: one panel, the books on the left and the selected book's settings on the right.
- *
- * This replaces the `⋯` menu that held a dozen unrelated actions. A menu is the wrong shape for this: the
- * actions belong to a *specific* book (its visibility, its write-back, its DAV sharing, its delete), and a user
- * cannot tell which book a menu applies to. The calendar settings solved the same problem with a panel, so the
- * concepts — source access, user access, DAV mode, write-back — are named and laid out the same way here.
- *
- * Provider authorization is deliberately absent: connecting Google or Microsoft contacts is account-scoped and
- * lives on the mailbox card in Settings → Accounts. This panel only synchronises books the account is already
- * authorized for, and says so in words when it is not.
- */
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { api } from '../utils/api.ts';
+import { useStore } from '../store/index.ts';
+import { Button, Dialog } from './ui.tsx';
+import ServiceSettingsView, { ConnectionFeature, type ServiceConnection, type ServiceResource } from './accountUi/ServiceSettingsView.tsx';
+import { Header, Icon, Notice, Status, Switch } from './accountUi/AccountUi.tsx';
+import { bookSourceId, featureState, providerLabel, syncFailed, type BookIdentity } from './accountUi/model.ts';
+import { openSettings, useSettingsTarget, type SettingsTarget } from './accountUi/navigation.ts';
+import { useProviderAccounts, useAccountOperation } from './accountUi/useAccounts.ts';
+import DavSourceEditor, { type DavSource } from './accountUi/DavSourceEditor.tsx';
+import DeleteResourceDialog from './accountUi/DeleteResourceDialog.tsx';
 
 export interface ManagerBook {
-  id: string;
-  name: string;
-  source: string;
-  visible: boolean;
-  readOnly: boolean;
-  /** The collection this book belongs to, when the provider owns it. */
-  collectionId: string | null;
-  /** Mailbox account owning this provider projection; absent for local/DAV books. */
-  accountLabel: string | null;
-  accountId: string | null;
-  connectionId: string | null;
-  canSyncProvider: boolean;
-  contactCount: number | null;
-  syncStatus: { key: string | null; values: Record<string, string> } | null;
+  id: string; name: string; source: string; visible: boolean; readOnly: boolean;
+  collectionId: string | null; accountLabel: string | null; accountId: string | null; connectionId: string | null;
+  canSyncProvider: boolean; contactCount: number | null; syncStatus: { key: string | null; values: Record<string, string> } | null;
+  davSourceId?: string | null; sourceLabel?: string | null; sourceUrl?: string | null; sourceUsername?: string | null;
+  accountName?: string | null; sourceAccess?: string | null; davMode?: 'off' | 'read_only' | 'read_write';
 }
-
-export interface ManagerProviderState {
-  configured: boolean;
-  connected: boolean;
-}
-
+export interface ManagerProviderState { configured: boolean; connected: boolean }
 export interface ContactsBooksManagerProps {
-  open: boolean;
-  onClose: () => void;
-  books: readonly ManagerBook[];
-  selectedBookId: string;
-  onSelectBook: (id: string) => void;
-  isMobile: boolean;
+  open: boolean; onClose: () => void; books: readonly ManagerBook[]; selectedBookId: string; onSelectBook: (id: string) => void; isMobile: boolean;
   t: (key: string, values?: Record<string, unknown>) => string;
-  onCreate: () => void;
-  onRename: (book: ManagerBook) => void;
-  onToggleVisibility: () => void;
-  onToggleWriteBack: () => void;
-  writingBack: boolean;
-  /** Delete is only offered where it is allowed; the caller decides that, not this panel. */
-  canDelete: boolean;
-  onDelete: () => void;
-  deleting: boolean;
-  deleteError: string | null;
-  google: ManagerProviderState;
-  microsoft: ManagerProviderState;
-  /** The CardDAV source's own state: a DAV book is synchronised by it, not by a provider (DAV-05). */
-  dav: ManagerProviderState;
-  /**
-   * The DAV source changed what it holds (connected, synchronised, disconnected), so the caller reloads the
-   * books instead of leaving a stale list on screen (DAV-01).
-   */
-  onDavChanged: () => void | Promise<void>;
-  syncing: 'google' | 'microsoft' | 'dav' | null;
-  onSync: (provider: 'google' | 'microsoft' | 'dav') => void;
-  googleSummary: { key: string | null; values: Record<string, string> } | null;
-  microsoftSummary: { key: string | null; values: Record<string, string> } | null;
-  onImportGoogleCsv: () => void;
-  onImportVCard: () => void;
-  exportUrl: (format: string) => string;
-  davMode: 'off' | 'read_only' | 'read_write';
-  onDavModeChange: (mode: 'off' | 'read_only' | 'read_write') => void;
-  davBusy: boolean;
-  view?: 'accounts' | 'resources' | 'import';
+  onCreate: () => void; onRename: (book: ManagerBook) => void; onToggleVisibility: () => void; onToggleWriteBack: () => void; writingBack: boolean;
+  canDelete: boolean; onDelete: () => void; deleting: boolean; deleteError: string | null;
+  google: ManagerProviderState; microsoft: ManagerProviderState; dav: ManagerProviderState;
+  onDavChanged: () => void | Promise<void>; syncing: 'google' | 'microsoft' | 'dav' | null; onSync: (provider: 'google' | 'microsoft' | 'dav') => void;
+  googleSummary: { key: string | null; values: Record<string, string> } | null; microsoftSummary: { key: string | null; values: Record<string, string> } | null;
+  onImportGoogleCsv: () => void; onImportVCard: () => void; exportUrl: (format: string) => string;
+  davMode: 'off' | 'read_only' | 'read_write'; onDavModeChange: (mode: 'off' | 'read_only' | 'read_write') => void; davBusy: boolean;
+  view?: 'accounts' | 'resources' | 'import'; loading?: boolean;
 }
-
-const sourceLabelKey = (source: string): string => {
-  if (source === 'google') return 'contacts.booksManager.sourceGoogle';
-  if (source === 'microsoft') return 'contacts.booksManager.sourceMicrosoft';
-  if (source === 'carddav' || source === 'dav') return 'contacts.booksManager.sourceDav';
-  return 'contacts.booksManager.sourceLocal';
-};
-
-const sectionStyle: React.CSSProperties = {
-  display: 'grid', gap: 10, border: '1px solid var(--border-subtle, var(--border))', borderRadius: 12,
-  padding: '15px 16px', marginBottom: 12, background: 'var(--bg-elevated)', boxShadow: '0 1px 2px rgba(0, 0, 0, 0.03)',
-};
-const sectionTitleStyle: React.CSSProperties = {
-  margin: 0, fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.055em',
-};
-const rowStyle: React.CSSProperties = { display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' };
-const metaStyle: React.CSSProperties = { fontSize: 12, lineHeight: 1.45, color: 'var(--text-tertiary)', margin: 0 };
+const asBook = (book: ManagerBook): BookIdentity => ({ id: book.id, name: book.name, source: book.source, account_id: book.accountId,
+  connection_id: book.connectionId, dav_source_id: book.davSourceId, source_label: book.sourceLabel, source_url: book.sourceUrl, source_username: book.sourceUsername,
+  account_email: book.accountLabel, account_name: book.accountName, read_only: book.readOnly, visible: book.visible, contact_count: book.contactCount });
 
 export default function ContactsBooksManager(props: ContactsBooksManagerProps) {
-  const { t, books, selectedBookId, isMobile } = props;
-  const [mobileDetail, setMobileDetail] = React.useState(false);
-  // The panel exists only while it is open. Rendering the dialog unconditionally left it visible after
-  // `onClose` had set the state to closed, which is why the live report was "it opens and cannot be closed":
-  // the close action ran, the state changed, and the dialog stayed. The early return is what makes every
-  // close path — the X, Escape, the backdrop and the mobile Back action — actually dismiss it.
+  const { t } = useTranslation(); const epoch = useStore(state => state.authEpoch);
+  const provider = useProviderAccounts(); const operation = useAccountOperation();
+  const [davSources, setDavSources] = useState<DavSource[]>([]); const [davLoading, setDavLoading] = useState(true); const [davFailed, setDavFailed] = useState(false);
+  const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null); const [filter, setFilter] = useState('all');
+  const [adding, setAdding] = useState(false); const [davEditor, setDavEditor] = useState<DavSource | 'new' | null>(null);
+  const [editing, setEditing] = useState<{ book: ManagerBook; name: string; visible: boolean; writeBack: boolean; davMode: 'off' | 'read_only' | 'read_write' } | null>(null);
+  const [deleting, setDeleting] = useState<ManagerBook | null>(null); const [disconnecting, setDisconnecting] = useState<DavSource | null>(null);
+  const [target, setTarget] = useState<SettingsTarget | null>(null); const [targetMissing, setTargetMissing] = useState(false);
+  const life = useRef(0);
+  const loadDav = useCallback(async () => {
+    const generation = life.current;
+    try {
+      const response = await api.carddav.status() as { sources?: DavSource[] };
+      if (generation !== life.current || useStore.getState().authEpoch !== epoch) return;
+      setDavSources(Array.isArray(response.sources) ? response.sources : []); setDavFailed(false);
+    } catch { if (generation === life.current && useStore.getState().authEpoch === epoch) setDavFailed(true); }
+    finally { if (generation === life.current && useStore.getState().authEpoch === epoch) setDavLoading(false); }
+  }, [epoch]);
+  useEffect(() => { life.current++; setSelectedSourceId(null); setEditing(null); setDeleting(null); setDavSources([]); setDavLoading(true); void loadDav(); const cancel = () => { life.current++; }; return cancel; }, [loadDav]);
+  const refresh = async () => { await props.onDavChanged(); await Promise.all([provider.refresh(), loadDav()]); };
+  const resources: ServiceResource[] = props.books.map(book => ({ id: book.id, sourceId: bookSourceId(asBook(book)), name: book.name || t('accountUi.unnamed'), visible: book.visible, readOnly: book.readOnly, count: book.contactCount }));
+  const connections = useMemo(() => {
+    const result = new Map<string, ServiceConnection>();
+    for (const account of provider.accounts) {
+      const snapshot = provider.snapshots[account.id];
+      const kind = snapshot?.provider ?? (account.mail_transport === 'gmail_api' ? 'google' : account.mail_transport === 'microsoft_graph' ? 'microsoft' : null);
+      if (!kind) continue;
+      const id = `${kind}:account:${account.id}`;
+      result.set(id, { id, kind, accountId: account.id, name: account.name || providerLabel(kind, t), identity: account.email_address,
+        color: account.color, count: props.books.filter(book => book.accountId === account.id).length,
+        lastSync: snapshot?.diagnostics?.contacts?.lastSuccessfulSync, state: featureState(snapshot?.contacts) });
+    }
+    for (const source of davSources) {
+      if (!source.id) continue;
+      const id = `carddav:source:${source.id}`;
+      result.set(id, { id, kind: 'carddav', name: source.label || 'CardDAV', identity: source.username || source.serverUrl,
+        count: source.bookCount, lastSync: source.lastSyncAt, state: source.lastError ? 'failed' : source.lastSyncAt ? 'ready' : source.connected ? 'pending' : 'unknown' });
+    }
+    for (const book of props.books) {
+      const id = bookSourceId(asBook(book));
+      if (id === 'local' || result.has(id)) continue;
+      result.set(id, { id, kind: book.source, accountId: book.accountId, name: book.sourceLabel || providerLabel(book.source, t), identity: book.accountLabel || book.sourceUsername,
+        count: props.books.filter(item => bookSourceId(asBook(item)) === id).length, state: 'unknown' });
+    }
+    return [...result.values()];
+  }, [props.books, provider.accounts, provider.snapshots, davSources, t]);
+  useSettingsTarget('contacts', setTarget);
+  useEffect(() => {
+    if (target?.module !== 'contacts' || props.loading || provider.loading || davLoading) return;
+    setTargetMissing(false);
+    if (target.resourceId) {
+      const book = props.books.find(item => item.id === target.resourceId);
+      if (book) { props.onSelectBook(book.id); setEditing({ book, name: book.name, visible: book.visible, writeBack: !book.readOnly, davMode: book.davMode ?? 'off' }); setFilter(bookSourceId(asBook(book))); }
+      else setTargetMissing(true);
+    } else if (target.sourceId || target.accountId) {
+      const source = connections.find(item => item.id === target.sourceId || Boolean(target.accountId && item.accountId === target.accountId));
+      if (target.section === 'resources') setFilter(target.sourceId === 'local' ? 'local' : source?.id ?? 'all');
+      else if (source) setSelectedSourceId(source.id);
+      else setTargetMissing(true);
+    }
+    setTarget(null);
+  }, [target, props, provider.loading, davLoading, connections]);
+  const openResources = (sourceId?: string) => openSettings({ module: 'contacts', section: 'resources', sourceId });
+  const runRefresh = (action: () => Promise<unknown>) => void operation.run(async current => { await action(); if (current()) await refresh(); });
+  const visibility = (id: string, visible: boolean) => runRefresh(() => api.addressBooks.update(id, { visible }));
+  const editResource = (id: string) => { const book = props.books.find(item => item.id === id); if (!book) return; props.onSelectBook(id); setEditing({ book, name: book.name, visible: book.visible, writeBack: !book.readOnly, davMode: book.davMode ?? 'off' }); };
+  const renderDetail = (source: ServiceConnection) => {
+    const snapshot = source.accountId ? provider.snapshots[source.accountId] : undefined;
+    const dav = davSources.find(item => `carddav:source:${item.id}` === source.id);
+    const ownedBooks = props.books.filter(book => bookSourceId(asBook(book)) === source.id);
+    return <>
+      <Header title={source.name} description={`${providerLabel(source.kind, t)}${source.identity ? ` · ${source.identity}` : ''}`}>{source.accountId && <Button onClick={() => openSettings({ module: 'accounts', accountId: source.accountId!, section: 'services' })}>{t('accountUi.accountSettings')}</Button>}</Header>
+      {source.accountId && <ConnectionFeature title={t('accountUi.syncContacts')} description={t('accountUi.independentService')} feature={snapshot?.contacts} busy={operation.busy} onChange={enabled => runRefresh(() => api.setAccountProviderFeature(source.accountId!, 'contacts', enabled))}/>}
+      <section className="au-section"><h3>{t('accountUi.connectionState')}</h3><dl className="au-meta"><dt>{t('accountUi.synchronization')}</dt><dd><Status state={source.state}/></dd><dt>{t('accountUi.books')}</dt><dd>{ownedBooks.length}</dd>{dav?.serverUrl && <><dt>{t('accountUi.serverUrl')}</dt><dd className="au-mono">{dav.serverUrl}</dd></>}</dl>
+        <div className="au-actions"><Button disabled={operation.busy || (!dav && !snapshot?.contacts?.authorized) || snapshot?.contacts?.enabled === false} onClick={() => runRefresh(async () => {
+          const response = source.accountId ? await api.syncAccountProviderFeature(source.accountId, 'contacts') : dav ? await api.carddav.sync(dav.id) : null;
+          if (syncFailed(response)) throw new Error('PROVIDER_SYNC_FAILED');
+        })}><Icon name="sync"/>{t('accountUi.syncNow')}</Button>{dav && <Button onClick={() => setDavEditor(dav)}>{t('accountUi.editConnection')}</Button>}</div>
+      </section>
+      <section className="au-section"><h3>{t('accountUi.booksOnAccount')}</h3><div className="au-resource-group">{ownedBooks.map(book => <div className="au-resource" key={book.id}><div className="au-grow"><strong>{book.name}</strong><small>{t(book.readOnly ? 'accountUi.readOnly' : 'accountUi.readWrite')}</small></div><Button onClick={() => editResource(book.id)}>{t('accountUi.resourceSettings')}</Button></div>)}</div>{!ownedBooks.length && <p className="au-note">{t('accountUi.noResources')}</p>}<div className="au-actions"><Button onClick={() => openResources(source.id)}>{t('accountUi.showResources')}</Button></div></section>
+      {dav && <section className="au-section"><p>{t('accountUi.disconnectHint')}</p><Button variant="danger" onClick={() => setDisconnecting(dav)}>{t('accountUi.disconnect')}</Button></section>}
+    </>;
+  };
   if (!props.open) return null;
-  const selected = books.find(book => book.id === selectedBookId) ?? null;
-  const localBooks = books.filter(book => book.source === 'local');
-  const provider = selected ? (selected.source === 'microsoft' ? 'microsoft' : selected.source === 'google' ? 'google' : null) : null;
-  const providerState = provider === 'google' ? props.google : provider === 'microsoft' ? props.microsoft : null;
-  const isDavBook = selected?.source === 'carddav' || selected?.source === 'dav';
-  // A DAV book is synchronised by its own source; a provider book by its provider. Only a connected target is
-  // offered, so the button never promises a run that cannot happen (DAV-05).
-  const syncTarget: 'google' | 'microsoft' | 'dav' | null = isDavBook
-    ? (props.dav.connected ? 'dav' : null)
-    : (providerState?.connected && provider ? provider : null);
-  const summary = selected?.syncStatus ?? null;
-
-  // A provider collection is not a local address book: it cannot be renamed or deleted here, and its delete
-  // must never be offered as if it were local.
-  const isLocal = selected?.source === 'local';
-  const canDelete = props.canDelete && isLocal && localBooks.length > 1;
-
-  const list = (
-    <div data-testid="contacts-manager-books" style={{ display: 'grid', gap: 12, minWidth: 0 }}>
-      {groupBooksByConnection(books).map(group => <section key={group.id} data-testid="contacts-manager-book-group" style={{
-        display: 'grid', gap: 4, overflow: 'hidden', border: '1px solid var(--border-subtle, var(--border))',
-        borderRadius: 12, background: 'var(--bg-elevated)',
-      }}>
-        <div data-testid="contacts-manager-book-group-heading" style={{ padding: '11px 13px 8px', borderBottom: '1px solid var(--border-subtle, var(--border))' }}>
-          <strong style={{ display: 'block', fontSize: 13, color: 'var(--text-primary)' }}>{t(sourceLabelKey(group.source))}</strong>
-          {group.accountLabel && <span style={metaStyle}>{group.accountLabel}</span>}
-        </div>
-        <div style={{ display: 'grid', gap: 2, padding: 4 }}>
-          {group.books.map(book => {
-            const active = book.id === selectedBookId;
-            const bookSummary = book.syncStatus;
-            return <button
-              key={book.id}
-              type="button"
-              data-testid={`contacts-manager-book-${book.id}`}
-              data-source={book.source}
-              data-visible={book.visible ? 'true' : 'false'}
-              data-readonly={book.readOnly ? 'true' : 'false'}
-              aria-pressed={active}
-              onClick={() => { props.onSelectBook(book.id); if (isMobile) setMobileDetail(true); }}
-              style={{
-                display: 'grid', gap: 3, width: '100%', textAlign: 'left', padding: '10px 9px', borderRadius: 8, cursor: 'pointer',
-                background: active ? 'var(--bg-hover, var(--bg-secondary))' : 'transparent',
-                border: `1px solid ${active ? 'var(--accent)' : 'transparent'}`, color: 'var(--text-primary)', minWidth: 0,
-              }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'baseline', minWidth: 0 }}>
-                <span style={{ fontWeight: 650, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{book.name}</span>
-                {!book.visible && <span style={{ flex: '0 0 auto', fontSize: 11, color: 'var(--text-tertiary)' }}>{t('contacts.booksManager.hiddenBadge')}</span>}
-              </div>
-              <div style={metaStyle}>{book.readOnly ? t('contacts.booksManager.readOnly') : t('contacts.booksManager.readWrite')}{book.contactCount !== null ? ` · ${t('contacts.booksManager.contactsCount', { count: book.contactCount })}` : ''}</div>
-              {bookSummary && <div data-testid={`contacts-manager-book-status-${book.id}`} style={metaStyle}>{t(bookSummary.key ?? 'contacts.addressBooks.lastSynced', bookSummary.values)}</div>}
-            </button>;
-          })}
-        </div>
-      </section>)}
-    </div>
-  );
-
-  const detail = selected ? (
-    <div data-testid="contacts-manager-detail" style={{ minWidth: 0 }}>
-      {isMobile && (
-        <button type="button" data-testid="contacts-manager-back" onClick={() => setMobileDetail(false)}
-          style={{ background: 'none', border: 0, color: 'var(--accent)', cursor: 'pointer', padding: 0, marginBottom: 10, fontSize: 13 }}>
-          ← {t('contacts.booksManager.back')}
-        </button>
-      )}
-      <header style={{ display: 'grid', gap: 3, padding: '2px 2px 12px' }}>
-        <h4 style={{ margin: 0, fontSize: 18, lineHeight: 1.3, overflowWrap: 'anywhere' }}>{selected.name}</h4>
-        <p style={metaStyle}>{t(sourceLabelKey(selected.source))}{selected.accountLabel ? ` · ${selected.accountLabel}` : ''}</p>
-      </header>
-
-      {props.view !== 'import' && <div data-testid="contacts-manager-general" style={sectionStyle}>
-        <p style={sectionTitleStyle}>{t('contacts.booksManager.general')}</p>
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(110px, auto) minmax(0, 1fr)', gap: '6px 16px', alignItems: 'baseline' }}>
-          <span style={metaStyle}>{t('contacts.booksManager.nameLabel')}</span><strong style={{ fontSize: 13, overflowWrap: 'anywhere' }}>{selected.name}</strong>
-          <span style={metaStyle}>{t('contacts.booksManager.sourceLabel')}</span><span style={{ fontSize: 13 }}>{t(sourceLabelKey(selected.source))}</span>
-          {selected.accountLabel && <><span style={metaStyle}>{t('contacts.booksManager.accountLabel')}</span><span data-testid="contacts-manager-account" style={{ fontSize: 13, overflowWrap: 'anywhere' }}>{selected.accountLabel}</span></>}
-          <span style={metaStyle}>{t('contacts.booksManager.visibility')}</span><span style={{ fontSize: 13 }}>{selected.visible ? t('contacts.booksManager.visible') : t('contacts.booksManager.hidden')}</span>
-        </div>
-        <div style={rowStyle}>
-          {isLocal && <Button data-testid="contacts-manager-rename" onClick={() => props.onRename(selected)}>{t('contacts.addressBooks.rename')}</Button>}
-          <Button data-testid="contacts-manager-visibility" onClick={props.onToggleVisibility}>
-            {selected.visible ? t('contacts.addressBooks.hide') : t('contacts.addressBooks.show')}
-          </Button>
-        </div>
-      </div>}
-
-      {props.view !== 'import' && <div data-testid="contacts-manager-sync" style={sectionStyle}>
-        <p style={sectionTitleStyle}>{t('contacts.booksManager.sync')}</p>
-        <p style={metaStyle}>{t('contacts.booksManager.providerLabel')}: {t(sourceLabelKey(selected.source))}</p>
-        {summary
-          ? <p style={metaStyle} data-testid="contacts-manager-last-sync">{t(summary.key ?? 'contacts.addressBooks.lastSynced', summary.values)}</p>
-          : <p style={metaStyle} data-testid="contacts-manager-last-sync">{t('contacts.booksManager.neverSynced')}</p>}
-        {providerState && providerState.configured && !providerState.connected && (
-          <p style={metaStyle} data-testid="contacts-manager-connect-hint">
-            {t(provider === 'google' ? 'providers.connectGoogleHint' : 'providers.connectMicrosoftHint')}
-          </p>
-        )}
-        <div style={rowStyle}>
-          {/* DAV-05: a CardDAV book is synchronised by its own source, so it gets the same action. Which source
-              owns it decides the target, never the provider a book merely resembles. */}
-          {syncTarget && (
-            <Button data-testid={`contacts-manager-sync-${syncTarget}`} disabled={props.syncing !== null || (syncTarget !== 'dav' && !selected.canSyncProvider)} onClick={() => props.onSync(syncTarget)}>
-              {props.syncing === syncTarget ? t('contacts.booksManager.syncing') : t('contacts.booksManager.syncNow')}
-            </Button>
-          )}
-        </div>
-        <p style={metaStyle}>{t('contacts.booksManager.contactsCount', { count: selected.contactCount ?? 0 })}</p>
-      </div>}
-
-      {props.view !== 'accounts' && props.view !== 'import' && <div data-testid="contacts-manager-writeback" style={sectionStyle}>
-        <p style={sectionTitleStyle}>{t('contacts.booksManager.writeBack')}</p>
-        <p style={metaStyle}>{t('contacts.booksManager.sourceAccess')}: {selected.readOnly ? t('contacts.booksManager.readOnly') : t('contacts.booksManager.readWrite')}</p>
-        <p style={metaStyle}>{t('contacts.booksManager.userAccess')}: {t('contacts.booksManager.userAccessSource')}</p>
-        <p style={metaStyle}>{t('contacts.booksManager.effectiveAccess')}: {selected.readOnly ? t('contacts.booksManager.readOnly') : t('contacts.booksManager.readWrite')}</p>
-        {selected.collectionId && (
-          <Button data-testid="contacts-manager-write-back" disabled={props.writingBack} onClick={props.onToggleWriteBack}>
-            {t(selected.readOnly ? 'calendar.enableWriteBack' : 'calendar.disableWriteBack')}
-          </Button>
-        )}
-      </div>}
-
-      {props.view !== 'accounts' && props.view !== 'import' && <div data-testid="contacts-manager-dav" style={sectionStyle}>
-        <p style={sectionTitleStyle}>{t('contacts.booksManager.dav')}</p>
-        {isLocal ? (
-          <label style={{ fontSize: 12 }}>
-            {t('calendar.davAccess')}
-            <select
-              data-testid="contacts-manager-dav-mode"
-              value={props.davMode}
-              disabled={props.davBusy}
-              onChange={event => props.onDavModeChange(event.target.value as 'off' | 'read_only' | 'read_write')}
-              style={{ marginLeft: 8 }}
-            >
-              <option value="off">{t('calendar.davAccessOff')}</option>
-              <option value="read_only">{t('calendar.davAccessReadOnly')}</option>
-              <option value="read_write">{t('calendar.davAccessReadWrite')}</option>
-            </select>
-          </label>
-        ) : (
-          <p style={metaStyle} data-testid="contacts-manager-dav-unavailable">{t('contacts.booksManager.davProviderUnavailable')}</p>
-        )}
-      </div>}
-
-      {props.view !== 'accounts' && props.view !== 'resources' && <div data-testid="contacts-manager-import-export" style={sectionStyle}>
-        <p style={sectionTitleStyle}>{t('contacts.booksManager.importExport')}</p>
-        <div style={rowStyle}>
-          {isLocal && <Button data-testid="contacts-manager-import-google" onClick={props.onImportGoogleCsv}>{t('contacts.addressBooks.importGoogle')}</Button>}
-          {isLocal && <Button data-testid="contacts-manager-import-vcard" onClick={props.onImportVCard}>{t('contacts.addressBooks.importVCard')}</Button>}
-          <a className="ui-button" data-testid="contacts-manager-export-google" href={props.exportUrl('google-csv')}>{t('contacts.addressBooks.exportGoogle')}</a>
-          <a className="ui-button" data-testid="contacts-manager-export-outlook" href={props.exportUrl('outlook-csv')}>{t('contacts.addressBooks.exportOutlook')}</a>
-          <a className="ui-button" data-testid="contacts-manager-export-vcard" href={props.exportUrl('vcard')}>vCard</a>
-        </div>
-      </div>}
-
-      {props.view !== 'accounts' && props.view !== 'import' && <div data-testid="contacts-manager-danger" style={{ ...sectionStyle, borderColor: 'var(--red, #f87171)' }}>
-        <p style={sectionTitleStyle}>{t('contacts.booksManager.dangerZone')}</p>
-        {dangerZoneBody(props, canDelete)}
-      </div>}
-    </div>
-  ) : (
-    <p data-testid="contacts-manager-detail" style={metaStyle}>{t('contacts.booksManager.selectBook')}</p>
-  );
-
-  return (
-    <section data-testid="contacts-books-manager" aria-label={t('contacts.booksManager.title')} style={{ display: 'grid', gap: 16, minWidth: 0 }}>
-      <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap', minWidth: 0 }}>
-        <aside data-testid="contacts-manager-list-pane" style={{
-          display: isMobile && mobileDetail ? 'none' : 'grid', gap: 12, alignContent: 'start',
-          flex: isMobile ? '1 1 100%' : '1 1 260px', minWidth: 0,
-        }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
-            <div style={{ minWidth: 0 }}>
-              <strong style={{ display: 'block', fontSize: 14 }}>{t('contacts.booksManager.title')}</strong>
-              <span style={metaStyle}>{t('contacts.booksManager.sourcesHint')}</span>
-            </div>
-            <div style={rowStyle} data-testid="contacts-manager-create">
-              <Button data-testid="contacts-manager-create-book" variant="primary" onClick={props.onCreate}>{t('contacts.addressBooks.create')}</Button>
-            </div>
-          </div>
-          {list}
-        </aside>
-        {props.view !== 'accounts' && <main style={{
-          flex: isMobile ? '1 1 100%' : '2 1 340px', minWidth: 0,
-          display: isMobile && !mobileDetail ? 'none' : 'block',
-        }}>
-          {detail}
-        </main>}
+  const selectedBook = props.books.find(book => book.id === props.selectedBookId);
+  const view = props.view ?? 'resources';
+  return <div className="au-workspace" data-testid="contacts-books-manager">
+    {(operation.failed || davFailed) && <Notice danger>{t('accountUi.operationFailed')}</Notice>}
+    {targetMissing && <Notice danger>{t('accountUi.targetUnavailable')}</Notice>}
+    {view === 'import' ? <>
+      <Header title={t('accountUi.importExport')} description={t('accountUi.importDescription')}/>
+      <label className="au-field"><span>{t('accountUi.targetBook')}</span><select value={props.selectedBookId} onChange={event => props.onSelectBook(event.target.value)}><option value="">{t('accountUi.chooseResource')}</option>{props.books.map(book => <option value={book.id} key={book.id}>{book.name}{book.accountLabel ? ` · ${book.accountLabel}` : ''}</option>)}</select></label>
+      <section className="au-operation"><h3>{t('accountUi.importContacts')}</h3><p>{t('accountUi.localImportOnly')}</p><div className="au-actions"><Button disabled={!selectedBook || selectedBook.source !== 'local'} onClick={props.onImportVCard}>{t('accountUi.formatVcard')}</Button><Button disabled={!selectedBook || selectedBook.source !== 'local'} onClick={props.onImportGoogleCsv}>{t('accountUi.formatGoogleCsv')}</Button></div></section>
+      <section className="au-operation"><h3>{t('accountUi.exportContacts')}</h3><div className="au-actions">{[['vcard',t('accountUi.formatVcard')],['google-csv',t('accountUi.formatGoogleCsv')],['outlook-csv',t('accountUi.formatOutlookCsv')]].map(([format,label]) => <Button disabled={!selectedBook} key={format} onClick={() => { if (selectedBook) window.location.assign(props.exportUrl(format)); }}>{label}</Button>)}</div></section>
+    </> : <ServiceSettingsView contacts view={view} connections={connections} resources={resources} selectedSourceId={selectedSourceId} onSelectSource={setSelectedSourceId} onAddConnection={() => setAdding(true)} onCreateResource={props.onCreate} onOpenResources={openResources} onEditResource={editResource} onVisibility={visibility} renderDetail={renderDetail} filter={filter} onFilter={setFilter} busy={operation.busy} loading={props.loading || provider.loading || davLoading}/>}
+    {adding && <Dialog title={t('accountUi.addAccount')} closeLabel={t('common.close')} onClose={() => setAdding(false)}><div className="au-workspace"><p className="au-note">{t('accountUi.chooseConnection')}</p><div className="au-actions"><Button onClick={() => { setAdding(false); openSettings({ module: 'accounts', add: true }); }}>{t('accountUi.providersNative')}</Button><Button onClick={() => { setAdding(false); setDavEditor('new'); }}>{t('accountUi.brandCardDAV')}</Button></div></div></Dialog>}
+    {davEditor && <DavSourceEditor key={davEditor === 'new' ? 'new' : davEditor.id} kind="carddav" source={davEditor === 'new' ? undefined : davEditor} onClose={() => setDavEditor(null)} onChanged={refresh}/>}
+    {editing && <Dialog title={t('accountUi.resourceSettings')} closeLabel={t('common.close')} busy={operation.busy} onClose={() => setEditing(null)} footer={<><Button disabled={operation.busy} onClick={() => setEditing(null)}>{t('common.cancel')}</Button><Button variant="primary" disabled={operation.busy || !editing.name.trim()} onClick={() => void operation.run(async current => {
+      const book = editing.book;
+      await api.addressBooks.update(book.id, { visible: editing.visible, ...(book.source === 'local' ? { name: editing.name.trim(), davMode: editing.davMode } : {}) });
+      if (!current()) return;
+      if (book.collectionId && editing.writeBack !== !book.readOnly) {
+        await api.setCollectionWriteBack(book.collectionId, editing.writeBack);
+        if (!current()) return;
+      }
+      await refresh(); if (current()) setEditing(null);
+    })}>{t('common.save')}</Button></>}>
+      <div className="ui-form au-workspace">{operation.failed && <Notice danger>{t('accountUi.partialSave')}</Notice>}<label>{t('accountUi.resourceName')}<input value={editing.name} maxLength={120} disabled={operation.busy} readOnly={editing.book.source !== 'local'} onChange={event => setEditing({ ...editing, name: event.target.value })}/></label><p className="au-note">{editing.book.accountLabel}</p><div className="au-switch-row"><strong>{t('accountUi.visibleInApplication')}</strong><Switch checked={editing.visible} label={t('accountUi.visibleInApplication')} disabled={operation.busy} onChange={visible => setEditing({ ...editing, visible })}/></div>
+      {editing.book.collectionId && <div className="au-switch-row"><div><strong>{t('accountUi.writeBack')}</strong><p>{t('accountUi.sourceRightsHint')}</p></div><Switch checked={editing.writeBack} label={t('accountUi.writeBack')} disabled={operation.busy || editing.book.sourceAccess === 'read_only'} onChange={writeBack => setEditing({ ...editing, writeBack })}/></div>}
+      {editing.book.source === 'local' && <label>{t('accountUi.davSharing')}<select disabled={operation.busy} value={editing.davMode} onChange={event => setEditing({ ...editing, davMode: event.target.value === 'off' || event.target.value === 'read_only' ? event.target.value : 'read_write' })}><option value="off">{t('accountUi.statusOff')}</option><option value="read_only">{t('accountUi.readOnly')}</option><option value="read_write">{t('accountUi.readWrite')}</option></select></label>}
+      {editing.book.source === 'local' && <div className="au-section"><Button variant="danger" disabled={props.books.filter(book => book.source === 'local').length < 2} onClick={() => setDeleting(editing.book)}>{t('accountUi.deleteResource')}</Button></div>}
       </div>
-      {/* Sources are connection-level controls, not properties of whichever book
-          happened to be selected. Keeping CardDAV here prevents a Google or
-          Microsoft book from appearing to own the CardDAV credentials. */}
-      {(props.view === undefined || props.view === 'accounts') && <div data-testid="contacts-manager-sources" style={{ ...sectionStyle, margin: 0 }}>
-        <div style={{ display: 'grid', gap: 3 }}>
-          <p style={sectionTitleStyle}>{t('contacts.booksManager.sources')}</p>
-          <p style={metaStyle}>{t('contacts.booksManager.sourcesHint')}</p>
-        </div>
-        <ContactsDavSource t={t} onChanged={props.onDavChanged} />
-      </div>}
-    </section>
-  );
-}
-
-/** The danger zone body: why delete is unavailable, or the action and its error. */
-function dangerZoneBody(props: ContactsBooksManagerProps, canDelete: boolean): React.ReactNode {
-  if (!canDelete) {
-    return <p data-testid="contacts-manager-delete-blocked" style={metaStyle}>{props.t('contacts.booksManager.deleteNotAllowed')}</p>;
-  }
-  return (
-    <>
-      {props.deleteError && <div role="alert" className="ui-alert">{props.deleteError}</div>}
-      <Button data-testid="contacts-manager-delete" disabled={props.deleting} onClick={props.onDelete}>
-        {props.t(props.deleting ? 'common.saving' : 'contacts.booksManager.deleteBook')}
-      </Button>
-    </>
-  );
+    </Dialog>}
+    {deleting && <DeleteResourceDialog name={deleting.name} identity={deleting.accountLabel ?? t('accountUi.storedInInboxora')} busy={operation.busy} failed={operation.failed} onClose={() => setDeleting(null)} onConfirm={() => void operation.run(async current => { await api.addressBooks.remove(deleting.id); if (current()) { await refresh(); if (current()) { setDeleting(null); setEditing(null); } } })}/>}
+    {disconnecting && <Dialog title={t('accountUi.disconnect')} closeLabel={t('common.close')} busy={operation.busy} onClose={() => setDisconnecting(null)} footer={<><Button onClick={() => setDisconnecting(null)} disabled={operation.busy}>{t('common.cancel')}</Button><Button variant="danger" disabled={operation.busy} onClick={() => void operation.run(async current => { await api.carddav.disconnect(disconnecting.id); if (current()) { await refresh(); if (current()) { setDisconnecting(null); setSelectedSourceId(null); } } })}>{t('accountUi.disconnect')}</Button></>}><Notice danger>{t('accountUi.disconnectHint')}</Notice>{operation.failed && <Notice danger>{t('accountUi.operationFailed')}</Notice>}</Dialog>}
+  </div>;
 }

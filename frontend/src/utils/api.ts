@@ -270,7 +270,14 @@ export const api = {
   },
 
   // Accounts
+  // Per-user view preferences, separate from provider write permissions.
+  contactPresentation: {
+    get: () => request('GET', '/contacts/presentation'),
+    update: (data: { selectedIds?: string[] | null; collapsedSourceIds?: string[] }) => request('PATCH', '/contacts/presentation', data),
+  },
+
   getAccounts: () => request('GET', '/accounts'),
+
   addAccount: (data: unknown) => request('POST', '/accounts', data),
   updateAccount: (id: string, data: unknown) => request('PUT', `/accounts/${id}`, data),
   deleteAccount: (id: string) => request('DELETE', `/accounts/${id}`),

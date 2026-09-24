@@ -1,3 +1,6 @@
+import BookSelectionPanel from './accountUi/BookSelectionPanel.tsx';
+import useBookPresentation from './accountUi/useBookPresentation.ts';
+import { openSettings } from './accountUi/navigation.ts';
 import MobileFloatingAction from './MobileFloatingAction.tsx';
 import { contactDateLabel, formatContactDate } from '../utils/contactDateLabels.ts';
 import { useBackLayer } from '../hooks/useBackNavigation.ts';
@@ -20,7 +23,7 @@ import type { StoreState } from '../store/index.ts';
 import { toAppError } from '../utils/errors.ts';
 import { providerFailureKey } from '../utils/providerFailure.ts';
 import { providerConnectorSummary } from '../utils/providerSyncSummary.ts';
-import { accountContactsSyncMessage, groupBooksByConnection, initialContactTarget, providerSyncAccount, writableContactTarget, type AccountContactsSyncResponse } from './contactsManagementModel.ts';
+import { accountContactsSyncMessage, initialContactTarget, providerSyncAccount, writableContactTarget, type AccountContactsSyncResponse } from './contactsManagementModel.ts';
 import ContactsBooksManager from './ContactsBooksManager.tsx';
 
 // Deterministic avatar color from a string
@@ -164,6 +167,13 @@ interface AddressBookRow {
   provider?: 'google' | 'microsoft' | null;
   account_id?: string | null;
   account_email?: string | null;
+  account_name?: string | null;
+  dav_source_id?: string | null;
+  source_label?: string | null;
+  source_url?: string | null;
+  source_username?: string | null;
+  source_connection_id?: string | null;
+  contact_count?: number | null;
   read_only?: boolean;
   source?: string | null;
   visible?: boolean;
@@ -195,10 +205,10 @@ interface ProviderContactsStatus {
 
 export default function ContactsPage({ isActive = true, settingsOnly = false, settingsSection = 'accounts' }: { isActive?: boolean; settingsOnly?: boolean; settingsSection?: 'accounts' | 'resources' | 'import' }) {
   const { t } = useTranslation();
-  const { showContacts, setAdminTab, setShowAdmin, authEpoch } = useStore();
+  const { showContacts, authEpoch } = useStore();
   const bookLoadGeneration = useRef(0);
   useEffect(() => () => { bookLoadGeneration.current++; }, [authEpoch]);
-  const openBookSettings = () => { setBooksOpen(false); setAdminTab('contacts'); setShowAdmin(true); };
+  const openBookSettings = () => { setBooksOpen(false); openSettings({ module: 'contacts', section: 'accounts' }); };
   const phone = useMobile();
   const [booksOpen, setBooksOpen] = useState(false);
   // The manager replaces the old `⋯` menu: one panel that shows which book every action applies to.
@@ -230,8 +240,9 @@ export default function ContactsPage({ isActive = true, settingsOnly = false, se
   const [addressBooks, setAddressBooks] = useState<AddressBookRow[]>([]);
   // Display selection is intentionally independent from the write target. An empty array is
   // an explicit empty selection (zero results), never an alias for "all visible".
-  const [selectedAddressBookIds, setSelectedAddressBookIds] = useState<string[]>([]);
-  const displaySelectionInitialized = useRef(false);
+  const [booksLoaded, setBooksLoaded] = useState(false);
+  const bookPresentation = useBookPresentation(addressBooks, booksLoaded, !settingsOnly);
+  const selectedAddressBookIds = bookPresentation.selectedIds;
   const [selectedAddressBookId, setSelectedAddressBookId] = useState('');
   // Creating has its own target so changing the list filter cannot silently
   // redirect a contact while the form is open.
@@ -304,9 +315,23 @@ export default function ContactsPage({ isActive = true, settingsOnly = false, se
   const loadingMoreRef = useRef(false);
   const searchRef      = useRef('');
   const listRequestRef = useRef(0);
-  const contactBookFilter = useMemo(() => displaySelectionInitialized.current
-    ? { addressBookIds: selectedAddressBookIds }
-    : { addressBookId: selectedAddressBookId || undefined }, [selectedAddressBookId, selectedAddressBookIds]);
+  const selectedBookKey = selectedAddressBookIds.slice().sort().join(',');
+  const contactBookFilter = useMemo(() => ({ addressBookIds: selectedBookKey ? selectedBookKey.split(',') : [] }), [selectedBookKey]);
+  useEffect(() => {
+    if (!editing && !showNew) contactSelectionRequestRef.current += 1;
+  }, [selectedBookKey, editing, showNew]);
+  useEffect(() => {
+    setContacts([]); setTotal(0); contactsRef.current = []; totalRef.current = 0; setLoadingMore(false);
+  }, [selectedBookKey]);
+  useEffect(() => {
+    const visible = new Set(selectedBookKey ? selectedBookKey.split(',') : []);
+    // Do not discard an in-progress editor when its source is filtered out.
+    // A read-only preview outside the current result set must, however, disappear.
+    if (!editing && !showNew && selected && typeof selected.address_book_id === 'string' && !visible.has(selected.address_book_id)) {
+      setSelected(null); if (isMobile) setMobilePanel('list');
+    }
+  }, [selectedBookKey, editing, showNew, selected, isMobile]);
+  useEffect(() => { setBooksLoaded(false); setBooksOpen(false); setSelected(null); }, [authEpoch]);
 
   useEffect(() => { contactsRef.current = contacts; }, [contacts]);
   // A previous book's import confirmation must not follow the user to the next one:
@@ -330,14 +355,7 @@ export default function ContactsPage({ isActive = true, settingsOnly = false, se
     // must remain usable while the client and API roll out independently.
     const nextBooks: AddressBookRow[] = Array.isArray(books.addressBooks) ? books.addressBooks as AddressBookRow[] : [];
     setAddressBooks(nextBooks);
-    setSelectedAddressBookIds(current => {
-      const valid = new Set(nextBooks.map(book => book.id));
-      if (!displaySelectionInitialized.current && nextBooks.length > 0) {
-        displaySelectionInitialized.current = true;
-        return nextBooks.filter(book => book.visible !== false).map(book => book.id);
-      }
-      return current.filter(id => valid.has(id));
-    });
+    setBooksLoaded(true);
     setGoogleContacts(google ?? null);
     setMicrosoftContacts(microsoft ?? null);
     setDavStatus(dav ?? null);
@@ -345,7 +363,7 @@ export default function ContactsPage({ isActive = true, settingsOnly = false, se
   }, [settingsOnly, authEpoch]);
 
   const load = useCallback(async (q = '') => {
-    if (settingsOnly || useStore.getState().authEpoch !== authEpoch) return;
+    if (settingsOnly || !bookPresentation.ready || useStore.getState().authEpoch !== authEpoch) return;
     const requestId = ++listRequestRef.current;
     loadingMoreRef.current = true;
     setLoadingMore(false);
@@ -362,7 +380,7 @@ export default function ContactsPage({ isActive = true, settingsOnly = false, se
     } finally {
       if (requestId === listRequestRef.current && useStore.getState().authEpoch === authEpoch) { setLoading(false); loadingMoreRef.current = false; }
     }
-  }, [contactBookFilter, settingsOnly, authEpoch]);
+  }, [contactBookFilter, bookPresentation.ready, settingsOnly, authEpoch]);
 
   useEffect(() => {
     if (settingsOnly) return;
@@ -806,40 +824,11 @@ export default function ContactsPage({ isActive = true, settingsOnly = false, se
     failureKey: code => providerFailureKey(code) ?? 'contacts.addressBooks.lastSyncFailed',
   });
   const selectedBook = addressBooks.find(book => book.id === selectedAddressBookId);
-  const toggleDisplayedBook = (id: string) => setSelectedAddressBookIds(current => current.includes(id) ? current.filter(item => item !== id) : [...current, id]);
-  const setDisplayedBooks = (ids: string[]) => setSelectedAddressBookIds([...new Set(ids)]);
-  const selectedCount = selectedAddressBookIds.length;
-  const bookGroups = groupBooksByConnection(addressBooks.map(book => ({
-    id: book.id, source: book.source ?? 'local', accountId: book.account_id ?? null,
-    connectionId: book.connection_id ?? null, accountLabel: book.account_email ?? null, book,
-  })));
   const bookControls = <div className="contacts-book-controls">
-    <button type="button" className="contacts-books-trigger" data-testid="contacts-books-trigger" aria-expanded={booksOpen} onClick={() => setBooksOpen(true)}>
-      {t('contacts.addressBooks.displayedBooks', { selected: selectedCount, total: addressBooks.length })}
-    </button>
-    {booksOpen && <div className="contacts-books-panel" role="dialog" aria-label={t('contacts.addressBooks.label')}>
-      <div className="contacts-books-actions">
-        <button type="button" onClick={() => setDisplayedBooks(addressBooks.map(book => book.id))}>{t('contacts.addressBooks.showAll')}</button>
-        <button type="button" onClick={() => setDisplayedBooks([])}>{t('contacts.addressBooks.clearAll')}</button>
-        <button type="button" onClick={() => setBooksOpen(false)} aria-label={t('common.close')}>×</button>
-      </div>
-      {bookGroups.map(group => {
-        const ids = group.books.map(item => item.id);
-        const selectedInGroup = ids.filter(id => selectedAddressBookIds.includes(id)).length;
-        return <section key={group.id} className="contacts-book-group">
-          <header>
-            <input type="checkbox" aria-label={group.accountLabel ?? group.source} checked={selectedInGroup === ids.length} ref={element => { if (element) element.indeterminate = selectedInGroup > 0 && selectedInGroup < ids.length; }} onChange={() => setDisplayedBooks(selectedInGroup === ids.length ? selectedAddressBookIds.filter(id => !ids.includes(id)) : [...selectedAddressBookIds, ...ids])} />
-            <strong>{group.source}</strong>{group.accountLabel && <span>{group.accountLabel}</span>}
-          </header>
-          {group.books.map(item => <div key={item.id} className="contacts-book-row" role="button" tabIndex={0} aria-label={item.book.name ?? item.id}
-            onClick={() => toggleDisplayedBook(item.id)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); toggleDisplayedBook(item.id); } }}>
-            <input type="checkbox" aria-label={item.book.name ?? item.id} checked={selectedAddressBookIds.includes(item.id)} onClick={event => event.stopPropagation()} onChange={() => toggleDisplayedBook(item.id)} />
-            <span>{item.book.name ?? item.id}</span>
-            <small>{item.book.read_only ? t('contacts.booksManager.readOnly') : t('contacts.booksManager.readWrite')}</small>
-          </div>)}
-        </section>;
-      })}
-    </div>}
+    <BookSelectionPanel books={addressBooks} selected={selectedAddressBookIds} onChange={bookPresentation.setSelected}
+      collapsed={bookPresentation.collapsed} onCollapse={bookPresentation.setCollapsed}
+      open={booksOpen} onOpen={() => setBooksOpen(true)} onClose={() => setBooksOpen(false)} hideTrigger={phone}
+      loading={!bookPresentation.ready} failed={bookPresentation.failed}/>
     {/* One entry point into the manager: a compact icon, because a labelled button competed with the book
         strip for the little room the header has. The panel it opens is the full manager. */}
     <button
@@ -901,12 +890,20 @@ export default function ContactsPage({ isActive = true, settingsOnly = false, se
       accountLabel: typeof book.account_email === 'string' ? book.account_email : null,
       accountId: book.account_id ?? null,
       connectionId: book.connection_id ?? (typeof book.source_connection_id === 'string' ? book.source_connection_id : null),
+      davSourceId: typeof book.dav_source_id === 'string' ? book.dav_source_id : null,
+      sourceLabel: typeof book.source_label === 'string' ? book.source_label : null,
+      sourceUrl: typeof book.source_url === 'string' ? book.source_url : null,
+      sourceUsername: typeof book.source_username === 'string' ? book.source_username : null,
+      sourceAccess: typeof book.source_access === 'string' ? book.source_access : null,
+      davMode: addressBookDavModeOf(book.dav_mode),
+      accountName: typeof book.account_name === 'string' ? book.account_name : null,
       canSyncProvider: providerForBook !== null && providerSyncAccount(book, providerForBook) !== null,
       contactCount: typeof book.contact_count === 'number' ? book.contact_count : (row?.contactCount ?? null),
       syncStatus: summary,
     };
   });
   const booksManager = <ContactsBooksManager
+    loading={!booksLoaded}
     open={settingsOnly || booksManagerOpen}
     onClose={() => setBooksManagerOpen(false)}
     books={managerBooks}
@@ -1200,7 +1197,7 @@ export default function ContactsPage({ isActive = true, settingsOnly = false, se
             <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m15 18-6-6 6-6"/></svg>
           </button> : undefined}
           title={mobileHeaderTitle}
-          subtitle={mobilePanel === 'detail' ? undefined : (selectedBook?.name || t('contacts.addressBooks.allVisible'))}
+          subtitle={mobilePanel === 'detail' ? undefined : t('accountUi.selectedOf', { selected: selectedAddressBookIds.length, total: addressBooks.filter(book => book.visible !== false).length })}
         >
           <HeaderAction icon="books" label={t('contacts.addressBooks.label')} data-testid="contacts-address-books" onClick={() => setBooksOpen(true)} />
           <HeaderAction icon="add" label={t('contacts.new')} data-testid="contacts-header-new" onClick={startNew} disabled={inForm} />
@@ -1213,9 +1210,7 @@ export default function ContactsPage({ isActive = true, settingsOnly = false, se
           <HeaderAction icon="add" label={t('contacts.new')} onClick={startNew} disabled={inForm} />
         </div>}
         {mobilePanel === 'list' && <div className="contacts-list-header">{!phone && bookControls}{searchControl}</div>}
-        {phone && booksOpen && <Dialog title={t('contacts.addressBooks.label')} closeLabel={t('common.close')} onClose={() => setBooksOpen(false)} testId="contacts-books-dialog" className="contacts-books-dialog">
-          {bookControls}
-        </Dialog>}
+        {phone && bookControls}
         {bookNameDialog}
 
         {/* Content */}

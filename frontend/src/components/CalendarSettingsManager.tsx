@@ -1,291 +1,243 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api } from '../utils/api.ts';
 import { useStore } from '../store/index.ts';
-import { toAppError } from '../utils/errors.ts';
-import { calendarSyncWarning } from '../utils/calendarSyncWarning.ts';
-import { summariseProviderSyncErrors } from '../utils/providerSyncError.ts';
-import CalendarSubscriptionsSettings from './CalendarSubscriptionsSettings.tsx';
-import { Button, Dialog, inputStyle } from './ui.tsx';
-import { calendarSidebarGroups, calendarSourceCategory, canManageLocalCalendar, setCalendarSidebarHidden, type CalendarPresentation, type CalendarPresentationSource, type CalendarRow } from './calendarSettingsModel.ts';
-import { isConfirmedNativeCalendarOperation, nativeCalendarDeleteAllowed, nativeCalendarOperationBlocksRetry, operationKey, type NativeCalendarOperationResponse } from './calendarCollectionManagementModel.ts';
+import { localizeContactCalendar } from '../utils/contactDateLabels.ts';
+import { intlLocale } from '../utils/intlLocale.ts';
+import { HOLIDAY_CALENDARS, HOLIDAY_SYNC_INTERVAL_MIN, defaultHolidayCountry, holidayCalendarUrl, holidayCountryName, normalizeSubscriptionUrl } from '../utils/calendarSubscriptions.ts';
+import { Button, Dialog } from './ui.tsx';
+import { calendarSidebarGroups, type CalendarPresentation, type CalendarRow } from './calendarSettingsModel.ts';
+import { operationKey, nativeCalendarDeleteAllowed, type NativeCalendarOperationResponse } from './calendarCollectionManagementModel.ts';
+import ServiceSettingsView, { ConnectionFeature, type ServiceConnection, type ServiceResource } from './accountUi/ServiceSettingsView.tsx';
+import { Header, Notice, Status, Switch, Icon } from './accountUi/AccountUi.tsx';
+import { featureState, sourceLabel, colorValue, syncFailed } from './accountUi/model.ts';
+import { openSettings, useSettingsTarget, type SettingsTarget } from './accountUi/navigation.ts';
+import { useProviderAccounts, useAccountOperation } from './accountUi/useAccounts.ts';
+import DavSourceEditor from './accountUi/DavSourceEditor.tsx';
+import DeleteResourceDialog from './accountUi/DeleteResourceDialog.tsx';
+import { previewCalendarColor } from './accountUi/calendarPreview.ts';
 
-interface Source { id: string; displayName?: string; kind?: string; intervalMin?: number; enabled?: boolean; lastError?: string | null; lastSyncAt?: string | null }
-interface NativeCalendarIntent { action: 'create' | 'delete'; idempotencyKey: string; name?: string; collectionId?: string }
-interface AccountCalendarFeature {
-  calendar?: { calendarManagement?: { authorized?: boolean; requiredScopes?: string[]; missingScopes?: string[] } };
-}
-interface SyncOutcome {
-  collections?: number; created?: number; updated?: number; deleted?: number;
-  errors?: Array<{ code?: string; message?: string; providerStatus?: number | null; missingScopes?: string[] | null }>;
-  error?: { code?: string; message?: string; providerStatus?: number | null; missingScopes?: string[] | null };
-}
 type DavMode = 'off' | 'read_only' | 'read_write';
-const davMode = (value: unknown): DavMode => value === 'off' || value === 'read_only' ? value : 'read_write';
+interface Source { id: string; displayName?: string; kind?: string; url?: string; serverOrigin?: string; username?: string; intervalMin?: number; enabled?: boolean; lastError?: string | null; lastSyncAt?: string | null }
+interface NativeIntent { accountId: string; action: 'create' | 'delete'; idempotencyKey: string; name?: string; collectionId?: string; response: NativeCalendarOperationResponse }
+interface ResourceDraft { calendar: CalendarRow; name: string; color: string; reset: boolean; colorDirty: boolean; writeBack: boolean; davMode: DavMode }
 
-/** Canonical manager: service/collection actions never change event selection. */
-export default function CalendarSettingsManager({ locale, view = 'accounts' }: { locale?: string; view?: 'accounts' | 'resources' }) {
-  const { t } = useTranslation();
-  const authEpoch = useStore(state => state.authEpoch);
-  const lifetime = useRef(0);
-  const requests = useRef(0);
-  const busyRef = useRef(false);
-  const pollAttempts = useRef(new Map<string, number>());
-  const [busy, setBusy] = useState(false);
-  const [sources, setSources] = useState<Source[]>([]);
-  const [calendars, setCalendars] = useState<CalendarRow[]>([]);
-  const [presentation, setPresentation] = useState<CalendarPresentation | null>(null);
-  const [selected, setSelected] = useState<string | null>(null);
-  const [search, setSearch] = useState('');
-  const [adding, setAdding] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
-  const [draft, setDraft] = useState<{ calendar: CalendarRow; name: string; color: string; davMode: DavMode } | null>(null);
-  const [accountFeature, setAccountFeature] = useState<AccountCalendarFeature | null>(null);
-  const [nativeName, setNativeName] = useState('');
-  const [nativeDelete, setNativeDelete] = useState<CalendarRow | null>(null);
-  const [nativeOperation, setNativeOperation] = useState<NativeCalendarOperationResponse | null>(null);
-  const [nativeIntent, setNativeIntent] = useState<NativeCalendarIntent | null>(null);
-  const alive = useCallback((generation: number) => lifetime.current === generation && useStore.getState().authEpoch === authEpoch, [authEpoch]);
+/** Accounts, collections and imports are separate screens sharing one controller. */
+export default function CalendarSettingsManager({ locale, view = 'accounts' }: { locale?: string; view?: 'accounts' | 'resources' | 'import' }) {
+  const { t, i18n } = useTranslation(); const epoch = useStore(state => state.authEpoch); const userId = useStore(state => state.user?.id);
+  const language = intlLocale(locale || i18n.resolvedLanguage || i18n.language) || 'en';
+  const provider = useProviderAccounts(); const operation = useAccountOperation();
+  const [sources, setSources] = useState<Source[]>([]); const [rawCalendars, setCalendars] = useState<CalendarRow[]>([]);
+  const calendars = useMemo(() => rawCalendars.map(calendar => localizeContactCalendar(calendar, t) as CalendarRow), [rawCalendars, t]);
+  const [presentation, setPresentation] = useState<CalendarPresentation | null>(null); const [loading, setLoading] = useState(true); const [readFailed, setReadFailed] = useState(false);
+  const [selected, setSelected] = useState<string | null>(null); const [filter, setFilter] = useState('all'); const [adding, setAdding] = useState(false);
+  const [davEditor, setDavEditor] = useState<Source | 'new' | null>(null); const [editing, setEditing] = useState<ResourceDraft | null>(null);
+  const [deleting, setDeleting] = useState<CalendarRow | null>(null); const [disconnecting, setDisconnecting] = useState<Source | null>(null);
+  const [create, setCreate] = useState<{ name: string; color: string; accountId: string } | null>(null);
+  const [pending, setPending] = useState<Record<string, NativeIntent>>({}); const [target, setTarget] = useState<SettingsTarget | null>(null); const [missing, setMissing] = useState(false);
+  const [ics, setIcs] = useState<{ name: string; url: string; interval: number } | null>(null);
+  const [importTarget, setImportTarget] = useState(''); const [file, setFile] = useState<File | null>(null); const [imported, setImported] = useState<{ imported: number; protected: number } | null>(null);
+  const [country, setCountry] = useState(() => defaultHolidayCountry(language));
+  const life = useRef(0); const request = useRef(0);
   const load = useCallback(async () => {
-    const generation = lifetime.current;
-    const request = ++requests.current;
+    const generation = life.current; const ticket = ++request.current;
     try {
-      const [sourceResult, calendarResult, view] = await Promise.all([api.calendar.listSources(), api.calendar.listCalendars(), api.calendar.presentation()]);
-      if (!alive(generation) || request !== requests.current) return;
-      const loadedSources: Source[] = sourceResult.sources || [];
-      setSources(loadedSources); setCalendars(calendarResult.calendars || []); setPresentation(view as CalendarPresentation);
-      return loadedSources;
-    } catch (caught) { if (alive(generation) && request === requests.current) setError(toAppError(caught).message); }
-  }, [alive]);
-  useLayoutEffect(() => {
-    const lifecycle = lifetime;
-    const requestCounter = requests;
-    lifetime.current++;
-    pollAttempts.current.clear();
-    setSources([]); setCalendars([]); setPresentation(null); setDraft(null); setError(null); setNotice(null); setBusy(false); busyRef.current = false;
-    void load();
-    const changed = () => { void load(); };
+      const [sourceResult, calendarResult, model] = await Promise.all([api.calendar.listSources(), api.calendar.listCalendars(), api.calendar.presentation()]);
+      if (generation !== life.current || ticket !== request.current || useStore.getState().authEpoch !== epoch) return;
+      setSources(sourceResult.sources || []); setCalendars(calendarResult.calendars || []); setPresentation(model as CalendarPresentation); setReadFailed(false);
+    } catch { if (generation === life.current && ticket === request.current && useStore.getState().authEpoch === epoch) setReadFailed(true); }
+    finally { if (generation === life.current && ticket === request.current && useStore.getState().authEpoch === epoch) setLoading(false); }
+  }, [epoch]);
+  useEffect(() => {
+    life.current++; setSources([]); setCalendars([]); setPresentation(null); setSelected(null); setEditing(null); setLoading(true); setPending({});
+    void load(); const changed = () => { void load(); }; const cancel = () => { life.current++; request.current++; };
     window.addEventListener('inboxora:calendar-changed', changed);
-    return () => { lifecycle.current++; requestCounter.current++; window.removeEventListener('inboxora:calendar-changed', changed); };
+    return () => { cancel(); window.removeEventListener('inboxora:calendar-changed', changed); };
   }, [load]);
-  // Initial discovery is asynchronous. Refresh pending sources with a bounded,
-  // cancellable poll rather than leaving newly created calendars invisible.
+  const needsDiscovery = sources.some(source => source.enabled !== false && !source.lastSyncAt && !source.lastError);
+  // Bounded discovery/status refresh. No blind write retry is performed.
   useEffect(() => {
-    const pending = sources.filter(source => !source.lastSyncAt && !source.lastError && source.enabled !== false);
-    if (!pending.some(source => (pollAttempts.current.get(source.id) ?? 0) < 70)) return;
-    const generation = lifetime.current;
-    const timer = setTimeout(() => {
-      if (!alive(generation)) return;
-      pending.forEach(source => pollAttempts.current.set(source.id, (pollAttempts.current.get(source.id) ?? 0) + 1));
-      void load().then(loaded => {
-        if (alive(generation) && loaded?.some(source => pending.some(item => item.id === source.id) && (source.lastSyncAt || source.lastError))) {
-          window.dispatchEvent(new Event('inboxora:calendar-changed'));
-        }
-      });
-      if (pending.some(source => pollAttempts.current.get(source.id) === 70)) setError(t('calendar.sourceSyncTimeout', 'Source synchronization timed out.'));
-    }, 500);
-    return () => clearTimeout(timer);
-  }, [sources, alive, load, t]);
-  const run = async (operation: (current: () => boolean) => Promise<void>) => {
-    if (busyRef.current) return;
-    const generation = lifetime.current;
-    const current = () => alive(generation);
-    if (!current()) return;
-    busyRef.current = true; setBusy(true); setError(null); setNotice(null);
-    try {
-      await operation(current);
-      if (!current()) return;
-      window.dispatchEvent(new Event('inboxora:calendar-changed'));
-    } catch (caught) { if (current()) setError(toAppError(caught).message); }
-    finally { if (current()) { busyRef.current = false; setBusy(false); } }
-  };
-  const groups = calendarSidebarGroups(presentation, calendars);
-  const sourceLabels = {
-    local: t('calendar.sourceCategoryLocal'), external: t('calendar.sourceCategoryExternal'),
-    google: t('calendar.sourceCategoryGoogle'), microsoft: t('calendar.sourceCategoryMicrosoft'), system: t('calendar.sourceCategorySystem'),
-  };
-  const views = presentation?.sources ?? [];
-  // A persisted source must remain actionable even after a failed initial discovery.
-  const entries: CalendarPresentationSource[] = [...views, ...sources.filter(source => !views.some(view => view.id === `calendar-source:${source.id}`)).map(source => ({
-    id: `calendar-source:${source.id}`, kind: source.kind ?? 'ical_url', label: source.displayName ?? source.id,
-    accountId: null, identityLabel: null, featureEnabled: true, canSync: true, collapsed: false,
-  }))].filter(source => `${source.label} ${source.identityLabel ?? ''} ${groups.find(group => group.id === source.id)?.rows.map(row => row.calendar.name).join(' ') ?? ''}`.toLocaleLowerCase().includes(search.toLocaleLowerCase()));
-  // V2 is a two-step flow: the account cards are the landing view and the
-  // selected account replaces them in this column. Do not implicitly open the
-  // first account; that makes it impossible to discover the complete list.
-  const entry = selected ? entries.find(source => source.id === selected) : undefined;
+    if (!needsDiscovery) return;
+    let attempts = 0; const timer = setInterval(() => { attempts++; void load(); if (attempts >= 20) clearInterval(timer); }, 1500);
+    return () => clearInterval(timer);
+  }, [load, needsDiscovery]);
+  const storageKey = (accountId: string) => `inboxora:calendar-lifecycle:${String(userId)}:${accountId}`;
   useEffect(() => {
-    const generation = lifetime.current;
-    const accountId = entry?.accountId;
-    setAccountFeature(null); setNativeOperation(null); setNativeIntent(null); setNativeName(''); setNativeDelete(null);
-    if (!accountId || (entry?.kind !== 'google' && entry?.kind !== 'microsoft')) return;
-    try {
-      const stored = sessionStorage.getItem(`inboxora:calendar-lifecycle:${accountId}`);
-      if (stored) {
-        const parsed = JSON.parse(stored) as { intent?: NativeCalendarIntent; operation?: NativeCalendarOperationResponse };
-        if (parsed.intent && parsed.operation && (parsed.intent.action === 'create' || parsed.intent.action === 'delete') && typeof parsed.intent.idempotencyKey === 'string') {
-          setNativeIntent(parsed.intent); setNativeOperation(parsed.operation);
+    const restored: Record<string, NativeIntent> = {};
+    for (const account of provider.accounts) {
+      try {
+        const key = `inboxora:calendar-lifecycle:${String(userId)}:${account.id}`;
+        const legacyKey = `inboxora:calendar-lifecycle:${account.id}`;
+        const stored = sessionStorage.getItem(key);
+        const legacy = stored ? null : sessionStorage.getItem(legacyKey);
+        let value: Partial<NativeIntent> | null = stored ? JSON.parse(stored) as Partial<NativeIntent> : null;
+        if (!value && legacy) {
+          const previous = JSON.parse(legacy) as { intent?: Partial<NativeIntent>; operation?: NativeCalendarOperationResponse };
+          if (previous.intent && previous.operation) value = { ...previous.intent, accountId: account.id, response: previous.operation };
         }
-      }
-    } catch { sessionStorage.removeItem(`inboxora:calendar-lifecycle:${accountId}`); }
-
-    void api.accountProviderFeatures(accountId).then(result => {
-      if (alive(generation) && entry?.accountId === accountId) setAccountFeature(result as AccountCalendarFeature);
-    }).catch(caught => { if (alive(generation)) setError(toAppError(caught).message); });
-  }, [entry?.accountId, entry?.kind, alive]);
-  const external = sources.find(source => `calendar-source:${source.id}` === entry?.id);
-  const rows = groups.find(group => group.id === entry?.id)?.rows ?? [];
-  const management = accountFeature?.calendar?.calendarManagement;
-  const lifecycleAllowed = entry?.featureEnabled !== false && management?.authorized === true;
-  const lifecycleBlocked = nativeOperation ? nativeCalendarOperationBlocksRetry(nativeOperation) : false;
-  const storeNativeOperation = (accountId: string, intent: NativeCalendarIntent, response: NativeCalendarOperationResponse) => {
-    setNativeIntent(intent); setNativeOperation(response);
-    if (isConfirmedNativeCalendarOperation(response)) sessionStorage.removeItem(`inboxora:calendar-lifecycle:${accountId}`);
-    else sessionStorage.setItem(`inboxora:calendar-lifecycle:${accountId}`, JSON.stringify({ intent, operation: response }));
-  };
-  const sendNativeIntent = async (accountId: string, intent: NativeCalendarIntent): Promise<NativeCalendarOperationResponse> => intent.action === 'create'
-    ? api.createAccountProviderCalendar(accountId, { name: intent.name!, idempotencyKey: intent.idempotencyKey }) as Promise<NativeCalendarOperationResponse>
-    : api.deleteAccountProviderCalendar(accountId, intent.collectionId!, { idempotencyKey: intent.idempotencyKey }) as Promise<NativeCalendarOperationResponse>;
-  const startNativeCreate = () => run(async current => {
-    if (!entry?.accountId || !lifecycleAllowed || lifecycleBlocked || !nativeName.trim()) return;
-    const intent: NativeCalendarIntent = { action: 'create', name: nativeName.trim(), idempotencyKey: operationKey() };
-    const response = await sendNativeIntent(entry.accountId, intent);
-    if (!current()) return;
-    storeNativeOperation(entry.accountId, intent, response);
-    if (isConfirmedNativeCalendarOperation(response)) { setNativeName(''); await load(); }
-  });
-  const startNativeDelete = () => run(async current => {
-    if (!entry?.accountId || !nativeDelete?.collection_id || !lifecycleAllowed || lifecycleBlocked) return;
-    const intent: NativeCalendarIntent = { action: 'delete', collectionId: nativeDelete.collection_id, idempotencyKey: operationKey() };
-    const response = await sendNativeIntent(entry.accountId, intent);
-    if (!current()) return;
-    storeNativeOperation(entry.accountId, intent, response); setNativeDelete(null);
-    if (isConfirmedNativeCalendarOperation(response)) await load();
-  });
-  const checkNativeOperation = () => run(async current => {
-    if (!entry?.accountId || !nativeIntent || !nativeOperation || nativeOperation.state === 'outcome_unknown' || nativeOperation.state === 'conflict') return;
-    const response = await sendNativeIntent(entry.accountId, nativeIntent);
-    if (!current()) return;
-    storeNativeOperation(entry.accountId, nativeIntent, response);
-    if (isConfirmedNativeCalendarOperation(response)) await load();
-  });
-  const syncAccount = (source: CalendarPresentationSource) => run(async current => {
-    if (!source.accountId || !source.canSync) return;
-    const response = await api.syncAccountProviderFeature(source.accountId, 'calendars') as { state?: string; result?: SyncOutcome };
-    if (!current()) return;
-    const outcome = response.result ?? {};
-    const failed = (outcome.error ? 1 : 0) + (outcome.errors?.length ?? 0);
-    const values = { provider: source.label, calendars: outcome.collections ?? 0, created: outcome.created ?? 0, updated: outcome.updated ?? 0, deleted: outcome.deleted ?? 0, failed };
-    const summary = summariseProviderSyncErrors({ t, provider: source.kind === 'microsoft' ? 'microsoft' : 'google', feature: 'calendar', errors: [outcome.error, ...(outcome.errors ?? [])] });
-    setNotice(response.state !== 'success' || failed ? `${t('calendar.providerSyncPartial', values)} ${summary?.first ?? ''}`.trim() : t('calendar.providerSyncDone', values));
-    if (response.state === 'success' && failed === 0) {
-      window.dispatchEvent(new CustomEvent('inboxora:provider-sync-completed', { detail: { accountId: source.accountId } }));
+        if (!value) continue;
+        if (value.accountId === account.id && (value.action === 'create' || value.action === 'delete') && typeof value.idempotencyKey === 'string' && value.response && value.response.state !== 'confirmed') {
+          restored[account.id] = value as NativeIntent;
+          if (legacy) { sessionStorage.setItem(key, JSON.stringify(value)); sessionStorage.removeItem(legacyKey); }
+        }
+      } catch { setReadFailed(true); }
     }
+    setPending(restored);
+  }, [provider.accounts, userId]);
+  const previewId = editing?.calendar.id; const previewColor = editing?.color;
+  useEffect(() => {
+    if (!previewId) return;
+    if (colorValue(previewColor)) previewCalendarColor(previewId, previewColor!, epoch);
+    return () => previewCalendarColor(previewId, null, epoch);
+  }, [previewId, previewColor, epoch]);
+  const refresh = async () => { await Promise.all([load(), provider.refresh()]); window.dispatchEvent(new Event('inboxora:calendar-changed')); };
+  const runRefresh = (action: () => Promise<unknown>) => void operation.run(async current => { await action(); if (current()) await refresh(); });
+  const groups = useMemo(() => calendarSidebarGroups(presentation, calendars), [presentation, calendars]);
+  const connections: ServiceConnection[] = useMemo(() => (presentation?.sources ?? []).filter(source => source.kind !== 'local').map(source => {
+    const external = sources.find(item => `calendar-source:${item.id}` === source.id);
+    const snapshot = source.accountId ? provider.snapshots[source.accountId] : undefined;
+    const account = provider.accounts.find(item => item.id === source.accountId);
+    const state = external ? external.enabled === false ? 'off' : external.lastError ? 'failed' : external.lastSyncAt ? 'ready' : 'pending'
+      : source.kind === 'system' ? 'ready' : featureState(snapshot?.calendar);
+    return { id: source.id, kind: source.kind, accountId: source.accountId, name: sourceLabel(source, t, provider.accounts), identity: source.identityLabel || (external?.username ? `${external.username}${external.serverOrigin ? ` · ${external.serverOrigin}` : ''}` : external?.serverOrigin),
+      color: account?.color, count: groups.find(group => group.id === source.id)?.rows.length ?? 0,
+      lastSync: external?.lastSyncAt ?? snapshot?.diagnostics?.calendar?.lastSuccessfulSync, state };
+  }), [presentation, sources, provider.snapshots, provider.accounts, groups, t]);
+  const accountConnections = connections.filter(connection => ['google','microsoft','caldav'].includes(connection.kind));
+  const resources: ServiceResource[] = groups.flatMap(group => group.rows.map(({ calendar, view: row }) => ({ id: calendar.id, sourceId: group.id,
+    name: calendar.id === 'contacts-birthdays' && !calendar.custom_name ? t('accountUi.contactDates') : calendar.name || t('accountUi.unnamed'),
+    color: calendar.color, visible: !row.sidebarHidden, readOnly: calendar.read_only === true })));
+  const sourceForCalendar = (id: string) => groups.find(group => group.rows.some(row => row.calendar.id === id));
+  const openResources = (sourceId?: string) => openSettings({ module: 'calendar', section: 'resources', sourceId });
+  const edit = (id: string) => {
+    const calendar = calendars.find(item => item.id === id); if (!calendar) return;
+    setEditing({ calendar, name: calendar.name ?? '', color: calendar.color || '#35558a', reset: false, colorDirty: false, writeBack: calendar.read_only === false,
+      davMode: calendar.dav_mode === 'off' || calendar.dav_mode === 'read_only' ? calendar.dav_mode : 'read_write' });
+  };
+  useSettingsTarget('calendar', setTarget);
+  useEffect(() => {
+    if (target?.module !== 'calendar' || loading) return;
+    setMissing(false);
+    if (target.resourceId) {
+      const calendar = calendars.find(item => item.id === target.resourceId);
+      if (calendar) {
+        setEditing({ calendar, name: calendar.name ?? '', color: calendar.color || '#35558a', reset: false, colorDirty: false, writeBack: calendar.read_only === false,
+          davMode: calendar.dav_mode === 'off' || calendar.dav_mode === 'read_only' ? calendar.dav_mode : 'read_write' });
+        setFilter(groups.find(group => group.rows.some(row => row.calendar.id === target.resourceId))?.id ?? 'all');
+      } else setMissing(true);
+    }
+    else if (target.sourceId || target.accountId) {
+      const source = connections.find(connection => connection.id === target.sourceId || Boolean(target.accountId && connection.accountId === target.accountId));
+      if (target.section === 'resources') setFilter(target.sourceId === 'local' ? 'local' : source?.id ?? 'all');
+      else if (source) setSelected(source.id); else setMissing(true);
+    }
+    setTarget(null);
+  }, [target, loading, calendars, connections, groups]);
+  const sendNative = async (intent: NativeIntent) => {
+    const generation = life.current;
+    const current = () => generation === life.current && useStore.getState().authEpoch === epoch;
+    if (!current()) return false;
+    // Persist the idempotency key before sending; never lose it on a navigation/reload.
+    sessionStorage.setItem(storageKey(intent.accountId), JSON.stringify(intent)); setPending(previous => ({ ...previous, [intent.accountId]: intent }));
+    try {
+      const response = await (intent.action === 'create'
+        ? api.createAccountProviderCalendar(intent.accountId, { name: intent.name!, idempotencyKey: intent.idempotencyKey })
+        : api.deleteAccountProviderCalendar(intent.accountId, intent.collectionId!, { idempotencyKey: intent.idempotencyKey })) as NativeCalendarOperationResponse;
+      if (!current()) return false;
+      if (response.state === 'confirmed') { sessionStorage.removeItem(storageKey(intent.accountId)); setPending(previous => { const next = { ...previous }; delete next[intent.accountId]; return next; }); return true; }
+      const next = { ...intent, response }; sessionStorage.setItem(storageKey(intent.accountId), JSON.stringify(next)); setPending(previous => ({ ...previous, [intent.accountId]: next })); return false;
+    } catch (error) {
+      if (current()) { const next: NativeIntent = { ...intent, response: { state: 'outcome_unknown' } }; sessionStorage.setItem(storageKey(intent.accountId), JSON.stringify(next)); setPending(previous => ({ ...previous, [intent.accountId]: next })); }
+      throw error;
+    }
+  };
+  const createCalendar = () => void operation.run(async current => {
+    if (!create?.name.trim()) return;
+    let confirmed = true;
+    if (!create.accountId) await api.calendar.createCalendar({ name: create.name.trim(), color: create.color, displayVisible: true });
+    else {
+      if (pending[create.accountId]) return;
+      confirmed = await sendNative({ accountId: create.accountId, action: 'create', name: create.name.trim(), idempotencyKey: operationKey(), response: { state: 'pending' } });
+    }
+    if (current()) { await refresh(); if (current() && confirmed) setCreate(null); }
   });
-  if (view === 'resources') return <section data-testid="calendar-resources-manager" style={{ display: 'grid', gap: 14 }}>
-    {error && <p role="alert" className="ui-alert">{error}</p>}
-    {notice && <p role="status">{notice}</p>}
-    <input data-testid="calendar-resource-search" aria-label={t('calendar.searchSources', 'Search sources or calendars')} placeholder={t('calendar.searchSources', 'Search sources or calendars')} value={search} onChange={event => setSearch(event.target.value)} style={{ ...inputStyle, maxWidth: 360 }} />
-    {groups.map(group => <section key={group.id} style={{ display: 'grid', gap: 8 }}>
-      <h3 style={{ margin: 0, fontSize: 13 }}>{entries.find(item => item.id === group.id)?.label ?? group.id}</h3>
-      {group.rows.map(({ calendar, view: calendarView }) => <div key={calendar.id} data-testid="calendar-resource-row" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, padding: 12, border: '1px solid var(--border-subtle)', borderRadius: 10, background: 'var(--bg-tertiary)' }}>
-        <span aria-hidden="true" style={{ width: 10, height: 10, borderRadius: '50%', background: calendar.color || 'var(--accent)' }} />
-        <strong style={{ flex: '1 1 160px' }}>{calendar.name}</strong>
-        <Button disabled={busy} onClick={() => run(async () => { await setCalendarSidebarHidden(api.calendar.updateCalendarPresentation, calendar.id, !calendarView.sidebarHidden); })}>{calendarView.sidebarHidden ? t('calendar.show', 'Show') : t('calendar.hide', 'Hide from list')}</Button>
-        {calendar.collection_id && <Button disabled={busy} onClick={() => run(async () => { await api.setCollectionWriteBack(calendar.collection_id!, Boolean(calendar.read_only)); })}>{t(calendar.read_only ? 'calendar.enableWriteBack' : 'calendar.disableWriteBack')}</Button>}
-        {canManageLocalCalendar(calendar) && <Button disabled={busy} onClick={() => { setNotice(null); setError(null); setDraft({ calendar, name: calendar.name ?? '', color: calendar.color || '#35558a', davMode: davMode(calendar.dav_mode) }); }}>{t('calendar.calendarActions', { name: calendar.name })}</Button>}
-      </div>)}
-    </section>)}
-    {!groups.some(group => group.rows.length) && <p>{t('calendar.noCalendarsDiscovered', 'No calendars discovered yet.')}</p>}
-  </section>;
-  return <section data-testid="calendar-settings-manager" style={{ display: 'grid', gap: 16 }}>
-    {error && <p role="alert" className="ui-alert">{error}</p>}
-    {notice && <p role="status">{notice}</p>}
-    <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
-      <div><h2 style={{ margin: 0, fontSize: 15 }}>{t('calendar.title')}</h2><p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--text-tertiary)' }}>{t('calendar.subscribeDescription')}</p></div>
-      <Button data-testid="calendar-add-source" variant="primary" onClick={() => setAdding(value => !value)}>{adding ? t('calendar.cancel') : t('calendar.addSource')}</Button>
-    </header>
-    <input data-testid="calendar-source-search" aria-label={t('calendar.searchSources', 'Search sources or calendars')} placeholder={t('calendar.searchSources', 'Search sources or calendars')} value={search} onChange={event => setSearch(event.target.value)} style={{ ...inputStyle, maxWidth: 360 }} />
-    {adding && <CalendarSubscriptionsSettings locale={locale} creationOnly />}
-    <div data-testid="calendar-source-manager" style={{ display: 'grid', gap: 16, minWidth: 0 }}>
-      {!entry && <div data-testid="calendar-account-list" style={{ display: 'grid', gap: 10 }}>
-        {entries.map(source => {
-          const sourceRows = groups.find(group => group.id === source.id)?.rows ?? [];
-          const active = false;
-          return <button key={source.id} type="button" data-testid="calendar-manager-source-manage" aria-pressed={active} onClick={() => setSelected(source.id)} style={{ display: 'grid', gridTemplateColumns: '38px minmax(0, 1fr) auto', gap: 12, alignItems: 'center', width: '100%', minWidth: 0, textAlign: 'left', padding: '12px 14px', border: `1px solid ${active ? 'var(--accent)' : 'var(--border-subtle)'}`, borderRadius: 10, background: active ? 'var(--accent-dim)' : 'var(--bg-tertiary)', color: 'var(--text-primary)', cursor: 'pointer' }}>
-            <span aria-hidden="true" style={{ width: 38, height: 38, borderRadius: '50%', background: active ? 'var(--accent)' : 'var(--bg-secondary)', color: active ? 'var(--accent-text)' : 'var(--accent)', display: 'grid', placeItems: 'center', fontWeight: 600 }}>{source.label.slice(0, 1).toUpperCase()}</span>
-            <span style={{ display: 'grid', gap: 2, minWidth: 0 }}><strong style={{ fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{source.label}</strong><small style={{ color: 'var(--text-tertiary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{source.identityLabel || sourceLabels[calendarSourceCategory(source)]}</small><small style={{ color: source.featureEnabled === false ? 'var(--text-tertiary)' : 'var(--green)' }}>{source.featureEnabled === false ? t('calendar.serviceDisabled', 'Calendar service is disabled.') : t('admin.accounts.connected', 'Connected')}</small></span>
-            <span style={{ display: 'grid', justifyItems: 'end', gap: 4, fontSize: 11, color: 'var(--text-tertiary)' }}><span>{sourceRows.length} {t('calendar.calendars')}</span><span>› {t('common.manage', 'Manage')}</span></span>
-          </button>;
-        })}
-      </div>}
-      {entry && <section data-testid="calendar-source-details" style={{ display: 'grid', alignContent: 'start', gap: 12, minWidth: 0, padding: 16, border: '1px solid var(--border-subtle)', borderRadius: 10, background: 'var(--bg-secondary)' }}>
-        {entry ? <>
-          <Button data-testid="calendar-manager-back" variant="secondary" onClick={() => setSelected(null)}>← {t('calendar.allAccounts', 'All accounts')}</Button><h2 style={{ margin: 0 }}>{entry.label}</h2>
-          {entry.identityLabel && <p style={{ margin: 0, overflowWrap: 'anywhere' }}>{entry.identityLabel}</p>}
-          {!entry.featureEnabled && <p role="status">{t('calendar.serviceDisabled', 'Calendar service is disabled.')}</p>}
-          {entry.accountId && <>
-            <Button data-testid="calendar-manager-account-sync" disabled={busy || !entry.canSync} onClick={() => syncAccount(entry)}>{t('calendar.providerSync', { provider: entry.label })}</Button>
-            {entry.kind === 'google' || entry.kind === 'microsoft' ? <>
-              {!lifecycleAllowed && <><p className="settings-choice-description" data-testid="calendar-native-lifecycle-unavailable">{t('calendar.nativeCalendarReconsent', { provider: entry.label })}</p>{entry.kind === 'google' && <Button data-testid="calendar-native-google-reconsent" disabled={busy} onClick={() => { window.location.assign(`/oauth/google?purpose=calendar_enable&accountId=${encodeURIComponent(entry.accountId!)}&manageCalendars=1`); }}>{t('sidebar.accountMenu.reconnect')}</Button>}</>}
-              {lifecycleAllowed && <div data-testid="calendar-native-create" style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                <label style={{ flex: '1 1 180px' }}>{t('calendar.nativeCalendarName')}<input data-testid="calendar-native-name" maxLength={255} disabled={busy || lifecycleBlocked} value={nativeName} onChange={event => setNativeName(event.target.value)} /></label>
-                <Button data-testid="calendar-native-create-submit" disabled={busy || lifecycleBlocked || !nativeName.trim()} onClick={startNativeCreate}>{t('calendar.nativeCalendarCreate')}</Button>
-              </div>
-       }
-              {nativeOperation && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}><p role="status" data-testid="calendar-native-operation-status">{isConfirmedNativeCalendarOperation(nativeOperation) ? t('calendar.nativeCalendarOperationConfirmed') : t('calendar.nativeCalendarOperationPending', { state: nativeOperation.state ?? 'failed', retryAfter: nativeOperation.retryAfterSeconds ?? 0 })}</p>{(nativeOperation.state === 'pending' || nativeOperation.state === 'retryable') && <Button data-testid="calendar-native-operation-check" disabled={busy} onClick={checkNativeOperation}>{t('calendar.nativeCalendarCheckOperation')}</Button>}</div>}
-            </> : <p className="settings-choice-description">{t('calendar.providerManagedHint', 'Calendar creation, renaming and deletion are managed by the provider. Configure account services in Settings → Accounts.')}</p>}
-          </>}
-          {external && <>
-            <p role="status">{external.lastError ? calendarSyncWarning(external.lastError)?.details : t(external.lastSyncAt ? 'calendar.sourceReady' : 'calendar.sourceSyncing')}</p>
-            <label>{t('calendar.sourceSyncInterval')}<select data-testid="calendar-source-interval" disabled={busy} value={external.intervalMin ?? 60} onChange={event => { const intervalMin = Number(event.target.value); void run(async () => { await api.calendar.updateSource(external.id, { intervalMin }); }); }}>
-              {Array.from(new Set([15, 30, 60, 180, 360, 720, 1440, external.intervalMin ?? 60])).sort((a, b) => a - b).map(minutes => <option key={minutes} value={minutes}>{t('calendar.sourceSyncMinutes', { count: minutes })}</option>)}
-            </select></label>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-              <Button disabled={busy} onClick={() => run(async () => { await api.calendar.updateSource(external.id, { enabled: !external.enabled }); })}>{t(external.enabled ? 'calendar.pauseSource' : 'calendar.resumeSource')}</Button>
-              <Button disabled={busy || !external.enabled} onClick={() => run(async () => { await api.calendar.syncSource(external.id); })}>{t('calendar.syncSource')}</Button>
-              <Button variant="danger" disabled={busy} onClick={() => { if (window.confirm(t('calendar.removeSourceConfirm'))) void run(async () => { await api.calendar.deleteSource(external.id); }); }}>{t('calendar.delete')}</Button>
-            </div>
-          </>}
-          {!rows.length && <p>{t('calendar.noCalendarsDiscovered', 'No calendars discovered yet.')}</p>}
-          {rows.map(({ calendar, view }) => <div key={calendar.id} data-testid="calendar-manager-calendar" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, padding: 10, border: '1px solid var(--border-subtle)', borderRadius: 8 }}>
-            <strong style={{ flex: '1 1 140px' }}>{calendar.name}</strong>
-            <Button data-testid="calendar-manager-visibility" disabled={busy} onClick={() => run(async () => { await setCalendarSidebarHidden(api.calendar.updateCalendarPresentation, calendar.id, !view.sidebarHidden); })}>{view.sidebarHidden ? t('calendar.show', 'Show') : t('calendar.hide', 'Hide from list')}</Button>
-            {calendar.collection_id && <Button data-testid="calendar-write-back" disabled={busy} onClick={() => run(async () => { await api.setCollectionWriteBack(calendar.collection_id!, Boolean(calendar.read_only)); })}>{t(calendar.read_only ? 'calendar.enableWriteBack' : 'calendar.disableWriteBack')}</Button>}
-            {lifecycleAllowed && nativeCalendarDeleteAllowed(calendar) && <Button data-testid="calendar-native-delete" variant="danger" disabled={busy || lifecycleBlocked} onClick={() => { setError(null); setNotice(null); setNativeDelete(calendar); }}>{t('calendar.nativeCalendarDelete')}</Button>}
-            {canManageLocalCalendar(calendar) && <>
-              <Button disabled={busy} onClick={() => { setNotice(null); setError(null); setDraft({ calendar, name: calendar.name ?? '', color: calendar.color || '#35558a', davMode: davMode(calendar.dav_mode) }); }}>{t('calendar.calendarActions', { name: calendar.name })}</Button>
-              <Button variant="danger" disabled={busy || !calendar.name} onClick={() => { if (calendar.name && window.confirm(t('calendar.confirmCalendarDelete', { name: calendar.name }))) void run(async () => { await api.calendar.deleteCalendar(calendar.id, calendar.name!); }); }}>{t('calendar.deleteCalendar')}</Button>
-            </>}
-          </div>)}
-        </> : <p>{t('calendar.subscribeEmpty')}</p>}
-      </section>}
-    </div>
-    {nativeDelete && <Dialog testId="calendar-native-delete-dialog" title={t('calendar.nativeCalendarDelete')} closeLabel={t('calendar.close')} busy={busy} onClose={() => setNativeDelete(null)} footer={<><Button variant="secondary" disabled={busy} onClick={() => setNativeDelete(null)}>{t('calendar.cancel')}</Button><Button data-testid="calendar-native-delete-confirm" variant="danger" disabled={busy || lifecycleBlocked} onClick={startNativeDelete}>{t('calendar.nativeCalendarDelete')}</Button></>}>
-      <p>{t('calendar.nativeCalendarDeleteConfirm', { name: nativeDelete.name ?? '' })}</p>
-    </Dialog>}
-    {draft && <Dialog testId="calendar-appearance-dialog" title={t('calendar.calendarActions', { name: draft.calendar.name })} closeLabel={t('calendar.close')} busy={busy} onClose={() => setDraft(null)} footer={<Button variant="primary" disabled={busy || !draft.name.trim() || !/^#[0-9a-f]{6}$/i.test(draft.color)} onClick={() => run(async current => {
-      await api.calendar.updateCalendar(draft.calendar.id, { name: draft.name.trim(), color: draft.color, displayVisible: draft.calendar.display_visible !== false, customName: true, davMode: draft.davMode });
-      if (current()) setDraft(null);
-    })}>{t('calendar.save')}</Button>}>
-      <div className="ui-form">
-        {error && <p role="alert">{error}</p>}
-        {notice && <p role="status" data-testid="calendar-import-result">{notice}</p>}
-        <label>{t('calendar.renamePrompt')}<input maxLength={120} disabled={busy} value={draft.name} onChange={event => setDraft({ ...draft, name: event.target.value })} /></label>
-        <label>{t('calendar.changeColor')}<input type="color" disabled={busy} value={draft.color} onChange={event => setDraft({ ...draft, color: event.target.value })} /></label>
-        <label>{t('calendar.davAccess')}<select data-testid="calendar-dav-mode" disabled={busy} value={draft.davMode} onChange={event => setDraft({ ...draft, davMode: davMode(event.target.value) })}><option value="off">{t('calendar.davAccessOff')}</option><option value="read_only">{t('calendar.davAccessReadOnly')}</option><option value="read_write">{t('calendar.davAccessReadWrite')}</option></select></label>
-        <p>{t('calendar.davAccessHint')}</p>
-        <label>{t('calendar.importIcs')}<input data-testid="calendar-import-ics" type="file" accept=".ics,text/calendar" disabled={busy} onChange={event => {
-          const file = event.target.files?.[0]; event.target.value = '';
-          if (file) void run(async current => {
-            const text = await file.text();
-            if (!current()) return;
-            const result = await api.calendar.importIcs(draft.calendar.id, text) as { imported?: number; protected?: number };
-            if (current()) setNotice(`${t('calendar.importDone', { count: result.imported ?? 0 })}${result.protected ? ` ${t('calendar.importProtected', { count: result.protected })}` : ''}`);
-          });
-        }} /></label>
-      </div>
-    </Dialog>}
-  </section>;
+  const deleteCalendar = () => void operation.run(async current => {
+    if (!deleting?.name) return;
+    let confirmed = true;
+    if (deleting.source === 'local') await api.calendar.deleteCalendar(deleting.id, deleting.name);
+    else {
+      const accountId = sourceForCalendar(deleting.id)?.accountId;
+      if (!accountId || !deleting.collection_id || pending[accountId]) return;
+      confirmed = await sendNative({ accountId, collectionId: deleting.collection_id, action: 'delete', idempotencyKey: operationKey(), response: { state: 'pending' } });
+    }
+    if (current()) { await refresh(); if (current() && confirmed) { setDeleting(null); setEditing(null); } }
+  });
+  const saveResource = () => void operation.run(async current => {
+    if (!editing) return;
+    const calendar = editing.calendar;
+    if (calendar.source === 'local' || calendar.id === 'contacts-birthdays') {
+      await api.calendar.updateCalendar(calendar.id, { name: editing.name.trim(), color: Object.prototype.hasOwnProperty.call(calendar, 'source_color') ? colorValue(calendar.source_color) : colorValue(calendar.color),
+        displayVisible: calendar.display_visible !== false, customName: calendar.custom_name === true || editing.name.trim() !== calendar.name, ...(calendar.source === 'local' ? { davMode: editing.davMode } : {}) });
+      if (!current()) return;
+    }
+    if (editing.colorDirty) await api.calendar.updateCalendarColorOverride(calendar.id, editing.reset ? null : editing.color);
+    if (!current()) return;
+    if (calendar.collection_id && editing.writeBack !== (calendar.read_only === false)) {
+      await api.setCollectionWriteBack(calendar.collection_id, editing.writeBack);
+      if (!current()) return;
+    }
+    if (current()) { await refresh(); if (current()) setEditing(null); }
+  });
+  const sourceDetail = (connection: ServiceConnection) => {
+    const snapshot = connection.accountId ? provider.snapshots[connection.accountId] : undefined;
+    const external = sources.find(source => `calendar-source:${source.id}` === connection.id);
+    const rows = resources.filter(resource => resource.sourceId === connection.id);
+    return <>
+      <Header title={connection.name} description={connection.identity}>{connection.accountId && <Button onClick={() => openSettings({ module: 'accounts', accountId: connection.accountId!, section: 'services' })}>{t('accountUi.accountSettings')}</Button>}</Header>
+      {connection.accountId && <ConnectionFeature title={t('accountUi.syncCalendars')} description={t('accountUi.independentService')} feature={snapshot?.calendar} busy={operation.busy} onChange={enabled => runRefresh(() => api.setAccountProviderFeature(connection.accountId!, 'calendars', enabled))}/>}
+      {external && <div className="au-switch-row"><div><strong>{t('accountUi.syncCalendars')}</strong><p>{t('accountUi.pauseHint')}</p></div><Switch label={t('accountUi.syncCalendars')} checked={external.enabled !== false} disabled={operation.busy} onChange={enabled => runRefresh(() => api.calendar.updateSource(external.id, { enabled }))}/></div>}
+      <section className="au-section"><h3>{t('accountUi.connectionState')}</h3><dl className="au-meta"><dt>{t('accountUi.synchronization')}</dt><dd><Status state={connection.state}/></dd><dt>{t('accountUi.calendars')}</dt><dd>{rows.length}</dd>{external?.url && <><dt>{t('accountUi.serverUrl')}</dt><dd className="au-mono">{external.url}</dd></>}</dl><div className="au-actions"><Button disabled={operation.busy || connection.state === 'off' || connection.state === 'authorization' || connection.state === 'unknown'} onClick={() => runRefresh(async () => {
+        if (external) { const response = await api.calendar.syncSource(external.id); if (syncFailed(response)) throw new Error('PROVIDER_SYNC_FAILED'); return; }
+        if (!connection.accountId) return;
+        const response = await api.syncAccountProviderFeature(connection.accountId, 'calendars');
+        if (syncFailed(response)) throw new Error('PROVIDER_SYNC_FAILED');
+      })}><Icon name="sync"/>{t('accountUi.syncNow')}</Button>{external && <Button onClick={() => setDavEditor(external)}>{t('accountUi.editConnection')}</Button>}</div></section>
+      <section className="au-section"><h3>{t('accountUi.calendarsOnAccount')}</h3><div className="au-resource-group">{rows.map(resource => <div className="au-resource" key={resource.id}><span className="au-color-dot" style={{ background: resource.color || 'var(--accent)' }}/><div className="au-grow"><strong>{resource.name}</strong><small>{t(resource.readOnly ? 'accountUi.readOnly' : 'accountUi.readWrite')}</small></div><Button onClick={() => edit(resource.id)}>{t('accountUi.resourceSettings')}</Button></div>)}</div><div className="au-actions"><Button onClick={() => openResources(connection.id)}>{t('accountUi.showResources')}</Button>{connection.accountId && <Button disabled={operation.busy || Boolean(pending[connection.accountId])} onClick={() => setCreate({ name: '', color: '#35558a', accountId: connection.accountId! })}>{t('accountUi.newCalendar')}</Button>}</div></section>
+      {external && <section className="au-section"><p>{t('accountUi.disconnectHint')}</p><Button variant="danger" onClick={() => setDisconnecting(external)}>{t('accountUi.disconnect')}</Button></section>}
+    </>;
+  };
+  const imports = <>
+    <Header title={t('accountUi.importSubscriptions')} description={t('accountUi.calendarImportDescription')}/>
+    <section className="au-operation"><h3>{t('accountUi.importIcs')}</h3><p>{t('accountUi.calendarImportDescription')}</p><label className="au-field"><span>{t('accountUi.targetCalendar')}</span><select value={importTarget} onChange={event => { setImportTarget(event.target.value); setImported(null); }}><option value="">{t('accountUi.chooseResource')}</option>{calendars.filter(calendar => calendar.source === 'local').map(calendar => <option key={calendar.id} value={calendar.id}>{calendar.name}</option>)}</select></label><input type="file" accept=".ics,text/calendar" aria-label={t('accountUi.importIcs')} onChange={event => { setFile(event.target.files?.[0] ?? null); setImported(null); }}/><div className="au-actions"><Button disabled={!file || !importTarget || operation.busy} onClick={() => void operation.run(async current => {
+      if (!file) return; const text = await file.text(); if (!current()) return;
+      const result = await api.calendar.importIcs(importTarget, text) as { imported?: number; protected?: number };
+      if (current()) { setImported({ imported: result.imported ?? 0, protected: result.protected ?? 0 }); await refresh(); }
+    })}>{t('accountUi.import')}</Button></div>{imported && <Notice>{t('accountUi.importResult', { count: imported.imported, protected: imported.protected })}</Notice>}</section>
+    <section className="au-operation"><h3>{t('accountUi.icsSubscription')}</h3><p>{t('accountUi.icsHint')}</p><Button onClick={() => setIcs({ name: '', url: '', interval: 60 })}>{t('accountUi.addSubscription')}</Button></section>
+    <section className="au-operation"><h3>{t('accountUi.holidays')}</h3><label className="au-field"><span>{t('accountUi.country')}</span><select value={country} onChange={event => setCountry(event.target.value)}>{HOLIDAY_CALENDARS.map(entry => <option key={entry.code} value={entry.code}>{holidayCountryName(entry.code, language)}</option>)}</select></label><Button disabled={operation.busy} onClick={() => runRefresh(async () => { const entry = HOLIDAY_CALENDARS.find(item => item.code === country); if (entry) await api.calendar.createSource({ kind: 'ical_url', displayName: t('calendar.holidayName', { country: holidayCountryName(country, language) }), url: holidayCalendarUrl(entry.file), intervalMin: HOLIDAY_SYNC_INTERVAL_MIN }); })}>{t('accountUi.addSubscription')}</Button></section>
+    <div className="au-section-label">{t('accountUi.subscriptions')}</div>{sources.filter(source => source.kind !== 'caldav').map(source => <div className="au-account-card" key={source.id}><div className="au-account-main"><div className="au-grow"><div className="au-account-name">{source.displayName}</div><div className="au-account-status"><Status state={source.enabled === false ? 'off' : source.lastError ? 'failed' : source.lastSyncAt ? 'ready' : 'pending'}/></div></div><Switch label={t('accountUi.synchronization')} checked={source.enabled !== false} disabled={operation.busy} onChange={enabled => runRefresh(() => api.calendar.updateSource(source.id, { enabled }))}/><Button onClick={() => setDisconnecting(source)}>{t('accountUi.disconnect')}</Button></div></div>)}
+  </>;
+  return <div className="au-workspace" data-testid="calendar-settings-manager">
+    {(readFailed || operation.failed) && <Notice danger>{t('accountUi.operationFailed')}<Button onClick={() => void load()}>{t('accountUi.retry')}</Button></Notice>}
+    {missing && <Notice danger>{t('accountUi.targetUnavailable')}</Notice>}
+    {Object.values(pending).map(intent => <Notice key={intent.accountId}>{t('accountUi.operationPending')} <span className="au-mono">{intent.response.code ?? intent.response.state}</span>{(intent.response.state === 'pending' || intent.response.state === 'retryable') && <Button disabled={operation.busy} onClick={() => void operation.run(async current => { await sendNative(intent); if (current()) await refresh(); })}>{t('accountUi.checkOperation')}</Button>}</Notice>)}
+    {view === 'import' ? imports : <ServiceSettingsView contacts={false} view={view} connections={view === 'accounts' ? accountConnections : connections} resources={resources} selectedSourceId={selected} onSelectSource={setSelected} onAddConnection={() => setAdding(true)} onCreateResource={() => setCreate({ name: '', color: '#35558a', accountId: '' })} onOpenResources={openResources} onEditResource={edit} onVisibility={(id, visible) => runRefresh(() => api.calendar.updateCalendarPresentation(id, !visible))} renderDetail={sourceDetail} filter={filter} onFilter={setFilter} loading={loading} busy={operation.busy}/>}
+    {adding && <Dialog title={t('accountUi.addAccount')} closeLabel={t('common.close')} onClose={() => setAdding(false)}><p className="au-note">{t('accountUi.chooseConnection')}</p><div className="au-actions"><Button onClick={() => { setAdding(false); openSettings({ module: 'accounts', add: true }); }}>{t('accountUi.providersNative')}</Button><Button onClick={() => { setAdding(false); setDavEditor('new'); }}>{t('accountUi.brandCalDAV')}</Button></div></Dialog>}
+    {davEditor && <DavSourceEditor key={davEditor === 'new' ? 'new' : davEditor.id} kind="caldav" source={davEditor === 'new' ? undefined : { id: davEditor.id, label: davEditor.displayName, serverUrl: davEditor.serverOrigin || davEditor.url, username: davEditor.username, intervalMin: davEditor.intervalMin }} onClose={() => setDavEditor(null)} onChanged={refresh}/>}
+    {create && <Dialog title={t('accountUi.newCalendar')} closeLabel={t('common.close')} onClose={() => setCreate(null)} busy={operation.busy} footer={<><Button disabled={operation.busy} onClick={() => setCreate(null)}>{t('common.cancel')}</Button><Button variant="primary" disabled={operation.busy || !create.name.trim() || Boolean(create.accountId && (!provider.snapshots[create.accountId]?.calendar?.calendarManagement?.authorized || pending[create.accountId]))} onClick={createCalendar}>{t('common.save')}</Button></>}><div className="ui-form au-workspace"><label>{t('accountUi.storageLocation')}<select value={create.accountId} disabled={operation.busy} onChange={event => setCreate({ ...create, accountId: event.target.value })}><option value="">{t('accountUi.storedInInboxora')}</option>{accountConnections.filter(source => source.accountId).map(source => <option key={source.id} value={source.accountId!}>{source.name} · {source.identity}</option>)}</select></label><label>{t('accountUi.resourceName')}<input value={create.name} maxLength={create.accountId ? 255 : 120} disabled={operation.busy} onChange={event => setCreate({ ...create, name: event.target.value })}/></label>{!create.accountId && <label>{t('accountUi.eventColor')}<input type="color" value={create.color} onChange={event => setCreate({ ...create, color: event.target.value })}/></label>}{create.accountId && !provider.snapshots[create.accountId]?.calendar?.calendarManagement?.authorized && <Notice>{t('accountUi.managementAuthorization')}<Button onClick={() => {
+      if (provider.snapshots[create.accountId]?.provider === 'google') window.location.assign(`/oauth/google?purpose=calendar_enable&accountId=${encodeURIComponent(create.accountId)}&manageCalendars=1`);
+      else openSettings({ module: 'accounts', accountId: create.accountId, section: 'services' });
+    }}>{t('accountUi.accountSettings')}</Button></Notice>}{operation.failed && <Notice danger>{t('accountUi.operationFailed')}</Notice>}</div></Dialog>}
+    {editing && <Dialog title={t('accountUi.resourceSettings')} closeLabel={t('common.close')} onClose={() => setEditing(null)} busy={operation.busy} footer={<><Button disabled={operation.busy} onClick={() => setEditing(null)}>{t('common.cancel')}</Button><Button variant="primary" disabled={operation.busy || !editing.name.trim() || !colorValue(editing.color)} onClick={saveResource}>{t('common.save')}</Button></>}><div className="ui-form au-workspace">
+      {operation.failed && <Notice danger>{t('accountUi.partialSave')}</Notice>}
+      <label>{t('accountUi.resourceName')}<input value={editing.name} maxLength={120} disabled={operation.busy} readOnly={editing.calendar.source !== 'local' && editing.calendar.id !== 'contacts-birthdays'} onChange={event => setEditing({ ...editing, name: event.target.value })}/></label>
+      <label>{t('accountUi.eventColor')}<div className="au-color-inputs"><input type="color" value={colorValue(editing.color) ?? '#35558a'} aria-label={t('accountUi.customColor')} disabled={operation.busy} onChange={event => setEditing({ ...editing, color: event.target.value, reset: false, colorDirty: true })}/><input type="text" value={editing.color} aria-label={t('accountUi.hexColor')} maxLength={7} disabled={operation.busy} onChange={event => setEditing({ ...editing, color: event.target.value, reset: false, colorDirty: true })}/></div></label><Button variant="ghost" disabled={operation.busy} onClick={() => setEditing({ ...editing, color: colorValue(editing.calendar.source_color) ?? getComputedStyle(document.documentElement).getPropertyValue('--accent').trim(), reset: true, colorDirty: true })}>{t('accountUi.resetColor')}</Button><p className="au-note">{t('accountUi.colorIsPersonal')}</p>
+      {editing.calendar.collection_id && <div className="au-switch-row"><div><strong>{t('accountUi.writeBack')}</strong><p>{t('accountUi.sourceRightsHint')}</p></div><Switch checked={editing.writeBack} label={t('accountUi.writeBack')} disabled={operation.busy || editing.calendar.source_access === 'read_only'} onChange={writeBack => setEditing({ ...editing, writeBack })}/></div>}
+      {editing.calendar.source === 'local' && <label>{t('accountUi.davSharing')}<select value={editing.davMode} disabled={operation.busy} onChange={event => setEditing({ ...editing, davMode: event.target.value === 'off' || event.target.value === 'read_only' ? event.target.value : 'read_write' })}><option value="off">{t('accountUi.statusOff')}</option><option value="read_only">{t('accountUi.readOnly')}</option><option value="read_write">{t('accountUi.readWrite')}</option></select></label>}
+      {(editing.calendar.source === 'local' || nativeCalendarDeleteAllowed(editing.calendar)) && <div className="au-section"><Button variant="danger" disabled={operation.busy} onClick={() => setDeleting(editing.calendar)}>{t('accountUi.deleteResource')}</Button></div>}
+    </div></Dialog>}
+    {deleting && <DeleteResourceDialog name={deleting.name ?? ''} remote={deleting.source !== 'local'} identity={sourceForCalendar(deleting.id)?.identityLabel ?? undefined} busy={operation.busy} failed={operation.failed} onClose={() => setDeleting(null)} onConfirm={deleteCalendar}/>}
+    {disconnecting && <Dialog title={t('accountUi.disconnect')} closeLabel={t('common.close')} busy={operation.busy} onClose={() => setDisconnecting(null)} footer={<><Button disabled={operation.busy} onClick={() => setDisconnecting(null)}>{t('common.cancel')}</Button><Button variant="danger" disabled={operation.busy} onClick={() => void operation.run(async current => { await api.calendar.deleteSource(disconnecting.id); if (current()) { await refresh(); if (current()) { setDisconnecting(null); setSelected(null); } } })}>{t('accountUi.disconnect')}</Button></>}><Notice danger>{t('accountUi.disconnectHint')}</Notice>{operation.failed && <Notice danger>{t('accountUi.operationFailed')}</Notice>}</Dialog>}
+    {ics && <Dialog title={t('accountUi.icsSubscription')} closeLabel={t('common.close')} onClose={() => setIcs(null)} busy={operation.busy} footer={<><Button disabled={operation.busy} onClick={() => setIcs(null)}>{t('common.cancel')}</Button><Button variant="primary" disabled={operation.busy || !ics.name.trim() || !ics.url.trim()} onClick={() => void operation.run(async current => { await api.calendar.createSource({ kind: 'ical_url', displayName: ics.name.trim(), url: normalizeSubscriptionUrl(ics.url), intervalMin: ics.interval }); if (current()) { await refresh(); if (current()) setIcs(null); } })}>{t('accountUi.addSubscription')}</Button></>}><div className="ui-form"><label>{t('accountUi.resourceName')}<input value={ics.name} onChange={event => setIcs({ ...ics, name: event.target.value })}/></label><label>{t('accountUi.serverUrl')}<input value={ics.url} onChange={event => setIcs({ ...ics, url: event.target.value })}/></label><label>{t('accountUi.syncInterval')}<select value={ics.interval} onChange={event => setIcs({ ...ics, interval: Number(event.target.value) })}>{[15,30,60,180,1440].map(minutes => <option key={minutes} value={minutes}>{t('accountUi.intervalMinutes', { count: minutes })}</option>)}</select></label>{operation.failed && <Notice danger>{t('accountUi.operationFailed')}</Notice>}</div></Dialog>}
+  </div>;
 }

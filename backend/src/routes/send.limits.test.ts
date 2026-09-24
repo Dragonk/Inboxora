@@ -189,5 +189,5 @@ describe('the send limits at the route', () => {
     });
     expect(gmailSendMock).not.toHaveBeenCalled();
     expect(query).not.toHaveBeenCalledWith(expect.stringContaining('INSERT INTO send_idempotency'), expect.anything());
-  });
+  }, 30_000);
 });

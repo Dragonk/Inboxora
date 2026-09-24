@@ -1,3 +1,5 @@
+import contactPresentation from './contactPresentation.js';
+import { parseBookFilter } from '../utils/contactBookFilter.js';
 import { Router } from 'express';
 import type { Response } from 'express';
 import type { VCardContact } from '../utils/vcard.ts';
@@ -42,6 +44,7 @@ import { GraphApiError } from '../services/providers/microsoft/graphApiClient.js
 
 const router = Router();
 router.use(requireAuth);
+router.use('/presentation', contactPresentation);
 
 function normalizeContactDate(value: unknown): string | null | undefined {
   if (value == null || value === '') return null;
@@ -299,8 +302,16 @@ router.patch('/address-books/:id', async (req, res) => {
   }
   if (rawName === undefined && visible === undefined && (davMode === undefined || davMode === null)) return res.status(400).json({ error: 'No address book changes supplied' });
   try {
-    const local = await requireLocalAddressBook(sessionUserId(req), req.params.id);
-    if ('error' in local) return res.status(local.status).json({ error: local.error });
+    // Visibility is the viewer's own preference, also for read-only provider books.
+    // Name and DAV-export policy remain local-only mutations. Imports/deletes keep
+    // their own stricter guard and never delete a provider's local projection.
+    if (rawName === undefined && (davMode === undefined || davMode === null)) {
+      const owned = await query<{ id: string }>('SELECT id FROM address_books WHERE id = $1 AND user_id = $2', [req.params.id, sessionUserId(req)]);
+      if (!owned.rows[0]) return res.status(404).json({ code: 'BOOK_NOT_AVAILABLE', error: 'Address book not found' });
+    } else {
+      const local = await requireLocalAddressBook(sessionUserId(req), req.params.id);
+      if ('error' in local) return res.status(local.status).json({ error: local.error });
+    }
     const result = await query(`UPDATE address_books SET name = COALESCE($1, name), visible = COALESCE($2, visible), dav_mode = COALESCE($3, dav_mode), updated_at = NOW() WHERE id = $4 AND user_id = $5 RETURNING id, name, source, visible, dav_mode`, [rawName === undefined ? null : localBookName(rawName), visible === undefined ? null : visible, davMode ?? null, req.params.id, req.session.userId]);
     res.json(result.rows[0]);
   } catch (caught) {
@@ -517,19 +528,12 @@ router.get('/', async (req, res) => {
   const offset = queryInt(req.query.offset, 0);
   const is_auto = queryString(req.query.is_auto);
   const addressBookId = queryString(req.query.addressBookId);
-  // addressBookIds is the multi-book filter. Its presence (including an empty value)
-  // is distinct from an omitted filter, which preserves legacy "visible books" behavior.
   const hasAddressBookIds = Object.prototype.hasOwnProperty.call(req.query, 'addressBookIds');
-  const rawAddressBookIds = req.query.addressBookIds;
-  const addressBookIds = hasAddressBookIds
-    ? (Array.isArray(rawAddressBookIds)
-      ? rawAddressBookIds.filter((id): id is string => typeof id === 'string').flatMap(id => id.split(','))
-      : [queryString(rawAddressBookIds) ?? ''])
-      .map(id => id.trim()).filter(Boolean)
-    : null;
-  const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  const parsedBooks = parseBookFilter(req.query.addressBookIds, hasAddressBookIds);
+  if (!parsedBooks.ok) return res.status(400).json({ code: 'INVALID_BOOK_FILTER', error: 'Invalid addressBookIds' });
+  const addressBookIds = parsedBooks.ids;
   const userId = sessionUserId(req);
-  const cap = Math.min(limit, 500);
+  const cap = Math.max(1, Math.min(limit, 500));
   const off = Math.max(0, offset);
 
   const conditions = ['c.user_id = $1'];
@@ -569,9 +573,6 @@ router.get('/', async (req, res) => {
   }
 
   try {
-    if (addressBookIds !== null && addressBookIds.some(id => !uuidPattern.test(id))) {
-      return res.status(400).json({ error: 'addressBookIds must contain UUIDs' });
-    }
     if (addressBookIds !== null && addressBookIds.length > 0) {
       const owned = await query<{ id: string }>(
         'SELECT id FROM address_books WHERE user_id = $1 AND id = ANY($2::uuid[])',
@@ -597,7 +598,8 @@ router.get('/', async (req, res) => {
       ORDER BY
         c.is_auto ASC,
         c.send_count DESC,
-        lower(coalesce(c.display_name, c.primary_email, '')) ASC
+        lower(coalesce(c.display_name, c.primary_email, '')) ASC,
+        c.id ASC
       LIMIT $${p} OFFSET $${p + 1}
     `, [...params, cap, off]);
 
@@ -898,10 +900,9 @@ router.post('/', async (req, res) => {
   try {
     const addressBookId = requestedAddressBookId || await defaultAddressBook(userId);
     if (!addressBookId) return res.status(404).json({ error: 'No address book available' });
-    const requestedId = requestedAddressBookId;
-    if (requestedId) {
-      const local = await requireLocalAddressBook(userId, requestedId);
-      if ('error' in local) return res.status(local.status).json({ error: local.error });
+    if (requestedAddressBookId) {
+      const owned = await query<{ id: string }>('SELECT id FROM address_books WHERE id = $1 AND user_id = $2', [addressBookId, userId]);
+      if (!owned.rows.length) return res.status(404).json({ error: 'Address book not found' });
     }
     // A provider-backed book writes to its origin first: the provider is the source of truth, and a local
     // row that claims a contact the provider never accepted is worse than a slower create.

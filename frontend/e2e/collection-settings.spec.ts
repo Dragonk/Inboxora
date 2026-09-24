@@ -1,55 +1,60 @@
 import { test, expect } from './fixtures.ts';
+import { setupV3, navigateModule } from './v3-fixtures.ts';
 
-test('calendar management hides a sidebar entry without changing event selection', async ({ page, fixtureApi }) => {
-  await fixtureApi;
-  let hidden = false;
-  const writes: unknown[] = [];
-  await page.route('**/api/calendar/sources', route => route.fulfill({ json: { sources: [] } }));
-  await page.route('**/api/calendar/presentation', route => route.fulfill({ json: { sources: [{ id: 'local', kind: 'local', label: 'Local test account', accountId: null, identityLabel: null, featureEnabled: true, canSync: false, collapsed: false }], groups: [{
-    id: 'local', kind: 'local', label: 'Local test account', accountId: null,
-    identityLabel: null, featureEnabled: true, canSync: false, collapsed: false,
-    calendars: [{ id: 'calendar-personal', sourceId: 'local', displayName: 'Personal', readOnly: false, selected: true, sidebarHidden: hidden }],
-  }] } }));
-  await page.route('**/api/calendar/presentation/calendars/calendar-personal', async route => {
-    const body = route.request().postDataJSON();
-    writes.push(body);
-    hidden = body.sidebarHidden;
-    await route.fulfill({ json: { ok: true } });
+async function openCalendar(page: any) {
+  await navigateModule(page, 'calendar');
+  if (page.viewportSize().width < 768) {
+    await page.getByTestId('calendar-mobile-panel').click();
+    await expect(page.getByTestId('calendar-mobile-dock')).toBeVisible();
+  }
+  const sidebar = page.getByTestId('calendar-sidebar');
+  await expect(sidebar).toBeVisible();
+  return sidebar;
+}
+
+test('calendar sidebar selection and collapse are independent', async ({ page, fixtureApi }) => {
+  await fixtureApi; await setupV3(page); await page.goto('/');
+  const sidebar = await openCalendar(page);
+  await expect(sidebar).toBeVisible();
+  const group = sidebar.getByTestId('calendar-source-group').first();
+  const row = sidebar.locator('[data-resource-id="calendar-personal"]');
+  await expect(row).toBeVisible();
+  const selected = row.locator('input[type="checkbox"]');
+  await expect(selected).toBeChecked();
+  const collapseRequests: unknown[] = [];
+  await page.route('**/api/calendar/presentation/sources/*', route => {
+    if (route.request().method() === 'PATCH') collapseRequests.push(route.request().postDataJSON());
+    return route.fallback();
   });
-  await page.goto('/');
-  const mobile = page.viewportSize()!.width < 768;
-  if (mobile) await page.getByTestId('mobile-topbar-menu').click();
-  await page.getByTestId('sidebar-user-menu').click();
-  if (mobile) await page.getByTestId('mobile-settings').click();
-  else await page.getByText(/^Ustawienia$|^Settings$/i).first().click();
-  if (mobile) await page.getByRole('button', { name: /^Kalendarz · Konta$|^Calendar · Accounts$/ }).click();
-  else await page.getByRole('button', { name: /^Konta$|^Accounts$/ }).nth(1).click();
-  const manager = page.getByTestId('calendar-settings-manager');
-  await expect(manager).toBeVisible();
-  await expect(manager.getByTestId('calendar-manager-source').locator('small')).toHaveText(/Moje kalendarze|My calendars/);
-  await expect(manager.getByRole('checkbox')).toHaveCount(0);
-  const visibility = manager.getByTestId('calendar-manager-visibility');
-  await visibility.click();
-  await expect(visibility).toHaveText(/Pokaż|Show/);
-  expect(writes).toEqual([{ sidebarHidden: true }]);
-  await visibility.click();
-  await expect(visibility).toHaveText(/Ukryj|Hide/);
-  expect(writes).toEqual([{ sidebarHidden: true }, { sidebarHidden: false }]);
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  const collapse = group.getByTestId('calendar-source-collapse');
+  await collapse.click();
+  await expect.poll(() => collapseRequests.length).toBe(1);
+  expect(collapseRequests[0]).toMatchObject({ collapsed: true });
+  await expect(selected).toBeChecked();
 });
 
-test('contact book management opens the canonical settings section', async ({ page, fixtureApi }) => {
-  await fixtureApi;
-  await page.route('**/api/contacts/address-books', route => route.fulfill({ json: { addressBooks: [] } }));
-  await page.goto('/');
-  const mobile = page.viewportSize()!.width < 768;
-  if (mobile) await page.getByTestId('mobile-topbar-menu').click();
-  await page.getByTestId(mobile ? 'contacts-nav-mobile' : 'contacts-nav-primary').click();
-  if (mobile) await page.getByTestId('contacts-address-books').click();
+test('calendar sidebar exposes per-calendar color palette on desktop and mobile', async ({ page, fixtureApi }) => {
+  await fixtureApi; await setupV3(page); await page.goto('/');
+  const sidebar = await openCalendar(page);
+  const row = sidebar.locator('[data-resource-id="calendar-personal"]');
+  await expect(row.getByTestId('calendar-color-button')).toBeVisible();
+  await row.getByTestId('calendar-color-button').click();
+  const palette = page.getByRole('dialog', { name: /Kolor|Color/ });
+  await expect(palette).toBeVisible();
+  await expect(palette.getByRole('button')).not.toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await expect(palette).toBeHidden();
+});
+
+test('contact settings use the current non-dialog manager shell', async ({ page, fixtureApi }) => {
+  await fixtureApi; await setupV3(page); await page.goto('/');
+  await page.route('**/api/contacts/presentation', route => route.request().method() === 'PATCH'
+    ? route.fulfill({ json: { ok: true } })
+    : route.fulfill({ json: { addressBookIds: [] } }));
+  await navigateModule(page, 'contacts');
   await page.getByTestId('contacts-manage-books').click();
-  await expect(page.getByTestId('contacts-settings')).toBeVisible();
   await expect(page.getByTestId('contacts-books-manager')).toBeVisible();
   await expect(page.getByTestId('contacts-books-manager')).not.toHaveAttribute('role', 'dialog');
-  await expect(page.getByTestId('contacts-manager-create-book')).toBeVisible();
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.getByRole('tab').nth(1).click();
+  await expect(page.getByRole('tab').nth(1)).toHaveAttribute('aria-selected', 'true');
 });

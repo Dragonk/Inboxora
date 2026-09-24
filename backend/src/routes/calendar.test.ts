@@ -265,7 +265,7 @@ describe('external calendar source pause state', () => {
       method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ enabled: false }),
     });
     expect(response.status).toBe(200);
-    expect(query).toHaveBeenCalledWith(expect.stringContaining('enabled = COALESCE($2, enabled)'), [null, false, 'source-1', 'user-1']);
+    expect(query).toHaveBeenCalledWith(expect.stringContaining('enabled = COALESCE($2, enabled)'), [null, false, 'source-1', 'user-1', null, null]);
     expect(stopCalendarSource).toHaveBeenCalledWith('source-1');
     expect(scheduleCalendarSource).not.toHaveBeenCalled();
   });
@@ -429,7 +429,7 @@ describe('local calendar API', () => {
     const response = await fetch(`${base}/api/calendar/calendars`);
 
     expect(response.status).toBe(200);
-    expect(responseArray(await response.json(), 'calendars')).toContainEqual({ id: 'calendar-1', name: 'Personal', source: 'local', read_only: false });
+    expect(responseArray(await response.json(), 'calendars')).toContainEqual(expect.objectContaining({ id: 'calendar-1', name: 'Personal', source: 'local', read_only: false }));
     // The list is aliased so the write-back collection id can be joined in without an extra query.
     expect(queryCall(0)[0]).toContain('WHERE c.user_id = $1 AND c.owner_user_id = $1');
     expect(queryCall(0)[1]).toEqual(['user-1']);

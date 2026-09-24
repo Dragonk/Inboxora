@@ -1,3 +1,4 @@
+import { calendarColorFields, colorPreferenceMap, loadCalendarColorPreferences, withCalendarPresentationColor, parseCalendarPresentationPatch, writeCalendarPresentationPatch } from '../services/calendarPresentationColors.js';
 import { calendarResources, mergeCalendarResource, rruleFromCalendarResource, setSeriesRecurrence, truncateSeriesBefore } from '../utils/calendarRecurrence.js';
 import { parseRecurrenceStructure, recurrenceToRRule, recurrenceViewFromRRule, type ParsedRecurrence } from '../utils/calendarRecurrenceRule.js';
 import { googleConfigFromEnv, isGoogleConfigured, isMicrosoftConfigured, microsoftConfigFromEnv } from '../services/providerAuthService.js';
@@ -586,7 +587,7 @@ type CalendarPresentationRow = {
 };
 
 type CalendarPresentationSource = ReturnType<typeof calendarSourceId> & { collapsed: boolean };
-type CalendarPresentationCalendar = { id: string; sourceId: string; displayName: string; readOnly: boolean; selected: boolean; sidebarHidden: boolean };
+type CalendarPresentationCalendar = { id: string; sourceId: string; displayName: string; readOnly: boolean; selected: boolean; sidebarHidden: boolean; sourceColor: string | null; colorOverride: string | null; effectiveColor: string | null };
 export type CalendarPresentation = { revision: string; sources: CalendarPresentationSource[]; calendars: CalendarPresentationCalendar[]; groups: Array<CalendarPresentationSource & { calendars: CalendarPresentationCalendar[] }> };
 
 function calendarSourceId(row: CalendarPresentationRow) {
@@ -599,8 +600,8 @@ function calendarSourceId(row: CalendarPresentationRow) {
     const connected = row.connection_status === undefined || row.connection_status === 'active';
     return { id: `${row.provider}:${identity}`, kind: row.provider, label: row.provider === 'google' ? 'Google' : 'Microsoft', accountId: row.account_id, identityLabel: row.account_email ?? row.provider_identity, featureEnabled: row.feature_enabled === true, canSync: connected && row.feature_enabled === true };
   }
-  if (row.import_source_id) return { id: `calendar-source:${row.import_source_id}`, kind: row.import_kind ?? 'ical_url', label: row.import_label ?? 'Subscription', accountId: null, identityLabel: null, featureEnabled: row.import_enabled !== false, canSync: row.import_enabled !== false };
-  return { id: `collection:${row.collection_id ?? row.id}`, kind: row.source === 'caldav' ? 'caldav' : 'ical_url', label: row.source === 'caldav' ? 'CalDAV' : 'Subscription', accountId: null, identityLabel: null, featureEnabled: true, canSync: Boolean(row.collection_id) };
+  if (row.import_source_id) return { id: `calendar-source:${row.import_source_id}`, kind: row.import_kind ?? 'ical_url', label: row.import_label ?? 'Subscription', labelKey: row.import_label ? undefined : 'accountUi.subscriptions', accountId: null, identityLabel: null, featureEnabled: row.import_enabled !== false, canSync: row.import_enabled !== false };
+  return { id: `collection:${row.collection_id ?? row.id}`, kind: row.source === 'caldav' ? 'caldav' : 'ical_url', label: row.source === 'caldav' ? 'CalDAV' : 'Subscription', labelKey: row.source === 'caldav' ? undefined : 'accountUi.subscriptions', accountId: null, identityLabel: null, featureEnabled: true, canSync: Boolean(row.collection_id) };
 }
 
 /**
@@ -634,12 +635,14 @@ export async function loadCalendarPresentation(userId: string): Promise<Calendar
   ]);
   const collapsed = new Map(sourcePrefs.rows.map(row => [row.source_id, row.collapsed]));
   const hidden = new Map(calendarPrefs.rows.map(row => [row.calendar_id, row.sidebar_hidden]));
+  const colorPreferences = colorPreferenceMap(calendarPrefs.rows);
   const rows: CalendarPresentationRow[] = [...result.rows, { id: CONTACT_CALENDAR_ID, name: appearance.name || 'Contact dates', color: appearance.color || '#e879f9', source: 'contacts', read_only: true, display_visible: appearance.displayVisible !== false, collection_id: null, provider: null, provider_identity: null, account_id: null, account_email: null, import_source_id: null, import_kind: null, import_label: null, feature_enabled: true }];
   const sourcesById = new Map<string, CalendarPresentationSource>();
   const calendars = rows.map(row => {
     const source = calendarSourceId(row);
     if (!sourcesById.has(source.id)) sourcesById.set(source.id, { ...source, collapsed: collapsed.get(source.id) === true });
-    return { id: row.id, sourceId: source.id, displayName: row.name ?? 'Untitled calendar', readOnly: row.read_only === true, selected: row.display_visible !== false, sidebarHidden: hidden.get(row.id) === true };
+    const colors = calendarColorFields(row.id, row.color, colorPreferences);
+    return { id: row.id, sourceId: source.id, displayName: row.name ?? 'Untitled calendar', readOnly: row.read_only === true, selected: row.display_visible !== false, sidebarHidden: hidden.get(row.id) === true, sourceColor: colors.source_color, colorOverride: colors.color_override, effectiveColor: colors.color };
   });
   // Sources are independent from discovered collections. Keep an authorized account
   // (including a disabled service or a failed first discovery) and a configured DAV/ICS
@@ -670,29 +673,12 @@ router.patch('/presentation/sources/:sourceId', async (req, res) => {
 });
 
 router.patch('/presentation/calendars/:calendarId', async (req, res) => {
-  const hasSidebar = typeof req.body?.sidebarHidden === 'boolean';
-  const hasColor = Object.prototype.hasOwnProperty.call(req.body ?? {}, 'colorOverride');
-  const colorOverride = req.body?.colorOverride;
-  if (!hasSidebar && !hasColor) return res.status(400).json({ error: 'sidebarHidden or colorOverride is required' });
-  if (hasColor && colorOverride !== null && (typeof colorOverride !== 'string' || !/^#[0-9a-f]{6}$/i.test(colorOverride))) {
-    return res.status(400).json({ error: 'colorOverride must be a hex color or null' });
-  }
+  const patch = parseCalendarPresentationPatch(req.body);
+  if (!patch) return res.status(400).json({ code: 'INVALID_PRESENTATION', error: 'Invalid calendar presentation' });
   const userId = sessionUserId(req);
   const presentation = await loadCalendarPresentation(userId);
-  const calendar = presentation.calendars.find(item => item.id === req.params.calendarId);
-  if (!calendar) return res.status(404).json({ error: 'Calendar not found' });
-  const sidebarHidden = hasSidebar ? req.body.sidebarHidden : calendar.sidebarHidden;
-  if (hasColor) {
-    await query(`INSERT INTO user_calendar_presentation_preferences (user_id, calendar_id, sidebar_hidden, color_override, updated_at)
-      VALUES ($1, $2, $3, $4, NOW())
-      ON CONFLICT (user_id, calendar_id) DO UPDATE SET sidebar_hidden = EXCLUDED.sidebar_hidden, color_override = EXCLUDED.color_override, updated_at = NOW()`,
-      [userId, req.params.calendarId, sidebarHidden, colorOverride]);
-  } else {
-    await query(`INSERT INTO user_calendar_presentation_preferences (user_id, calendar_id, sidebar_hidden, updated_at)
-      VALUES ($1, $2, $3, NOW())
-      ON CONFLICT (user_id, calendar_id) DO UPDATE SET sidebar_hidden = EXCLUDED.sidebar_hidden, updated_at = NOW()`,
-      [userId, req.params.calendarId, sidebarHidden]);
-  }
+  if (!presentation.calendars.some(calendar => calendar.id === req.params.calendarId)) return res.status(404).json({ error: 'Calendar not found' });
+  await writeCalendarPresentationPatch(userId, req.params.calendarId, patch);
   res.json(await loadCalendarPresentation(userId));
 });
 
@@ -701,7 +687,7 @@ router.get('/calendars', async (req, res) => {
     // `collection_id` is what the write-back opt-in is addressed by: a pulled calendar is written through
     // its collection, and the interface needs the id to offer the switch.
     `SELECT c.id, c.name, c.description, c.color, c.source, c.external_url, c.read_only, c.display_visible,
-            c.owner_user_id, c.sync_token, c.created_at, c.updated_at, c.dav_mode, ic.id AS collection_id
+            c.owner_user_id, c.sync_token, c.created_at, c.updated_at, c.dav_mode, ic.id AS collection_id, ic.source_access, ic.user_access
        FROM calendars c
        LEFT JOIN integration_collections ic ON ic.local_calendar_id = c.id AND ic.kind = 'calendar' AND ic.user_id = c.user_id
       WHERE c.user_id = $1 AND c.owner_user_id = $1
@@ -710,14 +696,13 @@ router.get('/calendars', async (req, res) => {
   );
   const userId = sessionUserId(req);
   const [appearance, preferences] = await Promise.all([
-    contactCalendarAppearance(userId),
-    query<{ calendar_id: string; color_override: string | null }>('SELECT calendar_id, color_override FROM user_calendar_presentation_preferences WHERE user_id = $1', [userId]),
+    contactCalendarAppearance(userId), loadCalendarColorPreferences(userId),
   ]);
-  const overrides = new Map(preferences.rows.map(row => [row.calendar_id, row.color_override]));
-  const calendars = result.rows.map(row => ({ ...row, color: overrides.get(row.id) || row.color }));
+  const calendars = result.rows.map(row => ({ ...row, ...calendarColorFields(row.id, row.color, preferences) }));
   res.json({ calendars: [...calendars, {
-    id: 'contacts-birthdays', name: appearance.name || 'Contact dates', custom_name: Boolean(appearance.name), description: 'Birthdays and anniversaries from contacts',
-    color: appearance.color || '#e879f9', source: 'contacts', external_url: null, read_only: true, display_visible: appearance.displayVisible !== false, dav_mode: 'off',
+    id: CONTACT_CALENDAR_ID, name: appearance.name || 'Contact dates', custom_name: Boolean(appearance.name), description: 'Birthdays and anniversaries from contacts',
+    ...calendarColorFields(CONTACT_CALENDAR_ID, appearance.color || '#e879f9', preferences),
+    source: 'contacts', external_url: null, read_only: true, display_visible: appearance.displayVisible !== false, dav_mode: 'off',
   }] });
 });
 
@@ -953,7 +938,9 @@ router.get('/events', async (req, res) => {
   // worker pool still bounds the CPU when it does happen, so a single request cannot stall
   // the process on a series the worker has not reached yet.
   const projection = await projectCalendarResources(eventRows, from, to, { userId: req.session.userId });
+  const colorPreferences = await loadCalendarColorPreferences(sessionUserId(req));
   const events = [...materializedRows, ...projection.events, ...contactEvents]
+    .map(event => withCalendarPresentationColor(event, colorPreferences))
     .sort((left, right) => eventStartTime(left.starts_at) - eventStartTime(right.starts_at));
   if (projection.truncated) {
     // A partial result must never look complete. Only the series id and a reason
@@ -1893,6 +1880,8 @@ function publicSource(source: CalendarSourceRow) {
     : source.last_error;
   return {
     id: source.id, kind: source.kind,
+    username: source.kind === 'caldav' ? source.username : undefined,
+    serverOrigin: (() => { try { return decryptedUrl ? new URL(decryptedUrl).origin : undefined; } catch { return undefined; } })(),
     displayName: source.display_name, color: source.color, intervalMin: source.interval_min,
     enabled: source.enabled, lastSyncAt: source.last_sync_at, lastError,
   };
@@ -1963,32 +1952,27 @@ router.post('/sources/:sourceId/sync', async (req, res) => {
 router.patch('/sources/:sourceId', async (req, res) => {
   const hasInterval = req.body?.intervalMin !== undefined;
   const hasEnabled = req.body?.enabled !== undefined;
-  if (!hasInterval && !hasEnabled) return res.status(400).json({ error: 'intervalMin or enabled is required' });
-  let interval: number | null = null;
-  if (hasInterval) {
-    interval = Number.parseInt(req.body.intervalMin, 10);
-    // Same bounds as the CHECK constraint and the create route, rejected explicitly
-    // rather than clamped so a bad client value is visible instead of silently ignored.
-    if (!Number.isInteger(interval) || interval < 15 || interval > 1440) {
-      return res.status(400).json({ error: 'intervalMin must be between 15 and 1440' });
-    }
-  }
+  const hasName = req.body?.displayName !== undefined;
+  const hasPassword = typeof req.body?.password === 'string' && req.body.password.length > 0;
+  if (!hasInterval && !hasEnabled && !hasName && !hasPassword) return res.status(400).json({ error: 'No source changes supplied' });
+  const name = hasName && typeof req.body.displayName === 'string' ? req.body.displayName.trim() : null;
+  if (hasName && (!name || name.length > 120)) return res.status(400).json({ code: 'INVALID_SOURCE_NAME', error: 'Invalid source name' });
+  if (req.body?.password !== undefined && (typeof req.body.password !== 'string' || req.body.password.length > 4096)) return res.status(400).json({ code: 'INVALID_PASSWORD', error: 'Invalid password' });
+  const interval = hasInterval ? Number(req.body.intervalMin) : null;
+  if (hasInterval && (!Number.isInteger(interval) || interval! < 15 || interval! > 1440)) return res.status(400).json({ error: 'intervalMin must be between 15 and 1440' });
   if (hasEnabled && typeof req.body.enabled !== 'boolean') return res.status(400).json({ error: 'enabled must be a boolean' });
+  // Credential rotation is specific to a CalDAV source. A blank field keeps the
+  // encrypted secret; URL/account identity are never silently moved by an edit.
   const result = await query<CalendarSourceRow>(
-    `UPDATE calendar_import_sources
-        SET interval_min = COALESCE($1, interval_min), enabled = COALESCE($2, enabled), updated_at = NOW()
-      WHERE id = $3 AND user_id = $4 RETURNING *`,
-    [interval, hasEnabled ? req.body.enabled : null, req.params.sourceId, req.session.userId],
+    `UPDATE calendar_import_sources SET interval_min = COALESCE($1, interval_min), enabled = COALESCE($2, enabled),
+      display_name = COALESCE($5, display_name), password = COALESCE($6, password), updated_at = NOW()
+      WHERE id = $3 AND user_id = $4 AND ($6::text IS NULL OR kind = 'caldav') RETURNING *`,
+    [interval, hasEnabled ? req.body.enabled : null, req.params.sourceId, req.session.userId, name, hasPassword ? encrypt(req.body.password) : null],
   );
   const source = result.rows[0];
   if (!source) return res.status(404).json({ error: 'Calendar source not found' });
-  if (source.enabled) {
-    // Re-arm the timer. The scheduler closes over the source row it was given, so without
-    // this a changed interval or resumed source would not take effect until restart.
-    scheduleCalendarSource(source);
-  } else {
-    await stopCalendarSource(source.id);
-  }
+  if (source.enabled) scheduleCalendarSource(source);
+  else await stopCalendarSource(source.id);
   res.json({ source: publicSource(source) });
 });
 

@@ -166,31 +166,37 @@ router.post('/connect', async (req: Request, res: Response) => {
 // Update duplicate handling / interval (and optionally rotate the password).
 router.patch('/', async (req: Request, res: Response) => {
   const body = requestBody(req);
-  const sourceId = typeof body?.sourceId === 'string' ? body.sourceId : null;
-  const existing = await getCardavConfig(sessionUserId(req), sourceId);
-  if (existing === null || !existing.serverUrl) return res.status(409).json({ error: 'CardDAV source not connected' });
-
   if (body === null) return res.status(400).json({ error: 'Invalid request body' });
+  const userId = sessionUserId(req);
+  const requestedId = typeof body.sourceId === 'string' ? body.sourceId : null;
+  const sources = await listCardavConfigs(userId);
+  const source = requestedId ? sources.find(row => row.id === requestedId) : sources.find(row => row.label === null);
+  if (!source) return res.status(404).json({ code: 'SOURCE_NOT_AVAILABLE', error: 'CardDAV source not found' });
+  const existing = await getCardavConfig(userId, source.id);
+  if (!existing?.serverUrl) return res.status(409).json({ error: 'CardDAV source not connected' });
+  const hasLabel = Object.prototype.hasOwnProperty.call(body, 'label');
+  const label = typeof body.label === 'string' ? body.label.trim() : null;
+  if (hasLabel && (!label || label.length > 120)) return res.status(400).json({ code: 'INVALID_SOURCE_NAME', error: 'Invalid source name' });
   const patch: CarddavConfigPatch = {};
   const selectedDupMode = duplicateMode(body.dupMode);
   if (selectedDupMode !== null) patch.dupMode = selectedDupMode;
-  if (body.intervalMin !== null && body.intervalMin !== undefined) patch.intervalMin = clampInterval(body.intervalMin);
-  if (typeof body.password === 'string' && body.password) patch.password = encrypt(body.password);
-
-  await query(
-    sourceId
-      ? `UPDATE user_integrations SET config = config || $2::jsonb, updated_at = NOW()
-         WHERE id = $1 AND user_id = $3 AND provider = 'carddav'`
-      : `UPDATE user_integrations SET config = config || $2::jsonb, updated_at = NOW()
-         WHERE user_id = $1 AND provider = 'carddav' AND label IS NULL`,
-    sourceId ? [sourceId, JSON.stringify(patch), sessionUserId(req)] : [sessionUserId(req), JSON.stringify(patch)],
-  );
-  if (patch.intervalMin) {
-    const sourceRows = await listCardavConfigs(sessionUserId(req));
-    const selected = sourceId ? sourceRows.find(row => row.id === sourceId) : sourceRows.find(row => row.label === null);
-    scheduleCardavUser(sessionUserId(req), patch.intervalMin, selected?.id ?? sourceId);
+  if (body.intervalMin !== null && body.intervalMin !== undefined) {
+    const minutes = Number(body.intervalMin);
+    if (!Number.isInteger(minutes) || minutes < 15 || minutes > 1440) return res.status(400).json({ error: 'Invalid sync interval' });
+    patch.intervalMin = minutes;
   }
-  res.json(publicStatus({ ...existing, ...patch }));
+  if (body.password !== undefined && (typeof body.password !== 'string' || body.password.length > 4096)) return res.status(400).json({ error: 'Invalid password' });
+  if (typeof body.password === 'string' && body.password) patch.password = encrypt(body.password);
+  try {
+    await query(`UPDATE user_integrations SET config = config || $2::jsonb,
+      label = CASE WHEN $4::boolean THEN $5::text ELSE label END, updated_at = NOW()
+      WHERE id = $1 AND user_id = $3 AND provider = 'carddav'`, [source.id, JSON.stringify(patch), userId, hasLabel, label]);
+  } catch (caught) {
+    if (toAppError(caught).code === '23505') return res.status(409).json({ code: 'SOURCE_NAME_EXISTS', error: 'Source name already exists' });
+    throw caught;
+  }
+  if (patch.intervalMin) scheduleCardavUser(userId, patch.intervalMin, source.id);
+  res.json(publicStatus({ ...existing, ...patch }, { id: source.id, label: hasLabel ? label : source.label }));
 });
 
 router.post('/sync', async (req: Request, res: Response) => {
