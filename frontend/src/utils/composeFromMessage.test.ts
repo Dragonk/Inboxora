@@ -256,6 +256,8 @@ describe('openForwardFromMessage', () => {
     assert.deepEqual(h.payload().forwardedAttachments, [
       { messageId: 'm1', part: '2', filename: 'a.pdf', type: 'application/pdf', size: 10 },
     ]);
+    assert.equal(h.payload().replyToMessageId, 'm1');
+    assert.equal(h.payload().replyParentAccountId, 'a');
   });
 });
 

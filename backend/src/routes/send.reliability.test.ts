@@ -334,8 +334,16 @@ describe('send failure semantics', () => {
 
     expect(second.status).toBe(409);
     expect(await second.json()).toEqual({ error: 'This idempotency key belongs to a different message.' });
-    expect(fingerprints).toHaveLength(2);
+    const third = await post({
+      ...defaultBody,
+      replyToMessageId: '11111111-1111-4111-8111-111111111111',
+      replyParentMessageId: '<parent@example.com>', replyParentAccountId: 'a1', sendKind: 'reply_all',
+    });
+    expect(third.status).toBe(409);
+    expect(await third.json()).toEqual({ error: 'This idempotency key belongs to a different message.' });
+    expect(fingerprints).toHaveLength(3);
     expect(fingerprints[1]).not.toBe(fingerprints[0]);
+    expect(fingerprints[2]).not.toBe(fingerprints[0]);
     expect(sendMail).not.toHaveBeenCalled();
   });
 

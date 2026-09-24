@@ -220,6 +220,11 @@ export async function openForwardFromMessage(message: ReplyMessageLike, { openCo
     quotedBodyHtml: fwdHtml,
     accountId: message.account_id,
     isForward: true,
+    // Graph forwarding is provider-native too. Preserve the selected physical
+    // copy and durable RFC fallback so `/send` can use createForward after MOVE.
+    replyToMessageId: message.selectedCopyId || message.id || null,
+    replyParentMessageId: message.message_id || null,
+    replyParentAccountId: message.account_id || null,
     forwardedAttachments: (fwdBody?.attachments || []).map(att => ({
       messageId: message.id,
       part: att.part,

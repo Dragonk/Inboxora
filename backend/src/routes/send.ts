@@ -667,10 +667,19 @@ router.post('/send', async (req, res) => {
   // two different messages are different sends, and without it in the fingerprint they collide and the second
   // replays the first delivery (MAIL-05).
   const normalizedReplyToMessageId = typeof replyToMessageId === 'string' && replyToMessageId ? replyToMessageId : null;
+  // A moved draft can retain these RFC/account fallbacks while its physical row
+  // changes. They and the requested provider action are delivery semantics, not
+  // incidental client metadata, so idempotency must distinguish them.
+  const normalizedReplyParentMessageId = typeof replyParentMessageId === 'string' && replyParentMessageId ? replyParentMessageId : null;
+  const normalizedReplyParentAccountId = typeof replyParentAccountId === 'string' && replyParentAccountId ? replyParentAccountId : null;
+  const normalizedSendKind = sendKind === 'reply' || sendKind === 'reply_all' || sendKind === 'forward' ? sendKind : null;
   const sendFingerprint = createHash('sha256').update(JSON.stringify({
     accountId, aliasId: aliasId || null, to: normalizedTo, cc: normalizedCc, bcc: normalizedBcc,
     subject: normalizedSubject, body, inputBodyIsHtml, outputBodyIsHtml, quotedBody, quotedBodyHtml, inReplyTo, references,
     replyToMessageId: normalizedReplyToMessageId,
+    replyParentMessageId: normalizedReplyParentMessageId,
+    replyParentAccountId: normalizedReplyParentAccountId,
+    sendKind: normalizedSendKind,
     attachments, forwardedAttachments, editedSignature,
     editedSignatureIsHtml: editedSignature === undefined ? null : editedSignatureIsHtml !== false,
     priority: emailPriority,
@@ -690,7 +699,7 @@ router.post('/send', async (req, res) => {
   const compatibleFingerprints = [sendFingerprint];
   // d7f514c3 used the two body-format flags but had no signature-format field.
   // It is unambiguous only when no signature override was supplied.
-  if (!normalizedReplyToMessageId && editedSignature === undefined) {
+  if (!normalizedReplyToMessageId && !normalizedReplyParentMessageId && !normalizedReplyParentAccountId && !normalizedSendKind && editedSignature === undefined) {
     const priorTwoFormatFingerprint = createHash('sha256').update(JSON.stringify({
       accountId, aliasId: aliasId || null, to: normalizedTo, cc: normalizedCc, bcc: normalizedBcc,
       subject: normalizedSubject, body, inputBodyIsHtml, outputBodyIsHtml, quotedBody, quotedBodyHtml, inReplyTo, references,
@@ -698,10 +707,10 @@ router.post('/send', async (req, res) => {
     })).digest('hex');
     compatibleFingerprints.push(priorTwoFormatFingerprint);
   }
-  if (!normalizedReplyToMessageId && editedSignatureIsHtml === undefined) compatibleFingerprints.push(legacyFingerprint);
+  if (!normalizedReplyToMessageId && !normalizedReplyParentMessageId && !normalizedReplyParentAccountId && !normalizedSendKind && editedSignatureIsHtml === undefined) compatibleFingerprints.push(legacyFingerprint);
   // 2b3d927e also used its profile-derived output flag as bodyIsHtml when the
   // field was omitted. Recognise that precise historical form, never broadly.
-  if (!normalizedReplyToMessageId && bodyIsHtml === undefined && editedSignatureIsHtml === undefined) {
+  if (!normalizedReplyToMessageId && !normalizedReplyParentMessageId && !normalizedReplyParentAccountId && !normalizedSendKind && bodyIsHtml === undefined && editedSignatureIsHtml === undefined) {
     const historicalFingerprint = createHash('sha256').update(JSON.stringify({
       accountId, aliasId: aliasId || null, to: normalizedTo, cc: normalizedCc, bcc: normalizedBcc,
       subject: normalizedSubject, body, bodyIsHtml: outputBodyIsHtml, quotedBody, quotedBodyHtml, inReplyTo, references,
