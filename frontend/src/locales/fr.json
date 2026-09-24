@@ -1091,6 +1091,7 @@
     "error": "Erreur : {{message}}",
     "dismiss": "Ignorer",
     "loadMore": "Charger plus",
+    "manage": "Gérer",
     "close": "Fermer"
   },
   "compose": {
@@ -1271,6 +1272,9 @@
       "lastSynced": "Dernière synchronisation : {{date}} · {{count}} contacts",
       "label": "Carnet d'adresses",
       "allVisible": "Tous les visibles",
+      "displayedBooks": "Carnets affichés : {{selected}} sur {{total}}",
+      "showAll": "Tout afficher",
+      "clearAll": "Tout désélectionner",
       "create": "Nouveau carnet",
       "rename": "Renommer",
       "renameTitle": "Renommer le carnet d'adresses",
@@ -2041,6 +2045,10 @@
   "calendar": {
     "invitationCancellationSent": "L’annulation de l’invitation a été envoyée.",
     "invitationCancellationStatus": "État de l’annulation de l’invitation : {{status}}",
+    "allAccounts": "Tous les comptes",
+    "chooseColor": "Choisir une couleur",
+    "reset": "Réinitialiser",
+    "toggleGroup": "Basculer le groupe",
     "hide": "Masquer",
     "show": "Afficher",
     "noCalendarsDiscovered": "Aucun calendrier trouvé pour le moment.",

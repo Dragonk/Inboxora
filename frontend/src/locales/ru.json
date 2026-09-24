@@ -1075,6 +1075,7 @@
     "error": "Ошибка: {{message}}",
     "dismiss": "Скрыть",
     "loadMore": "Загрузить ещё",
+    "manage": "Управлять",
     "close": "Закрыть"
   },
   "compose": {
@@ -1252,6 +1253,9 @@
     "addressBooks": {
       "label": "Книга контактов",
       "allVisible": "Все видимые",
+      "displayedBooks": "Показанные книги: {{selected}} из {{total}}",
+      "showAll": "Показать все",
+      "clearAll": "Снять выделение со всех",
       "create": "Новая книга",
       "rename": "Переименовать",
       "renameTitle": "Переименовать адресную книгу",
@@ -2023,6 +2027,10 @@
     "close": "Закрыть"
   },
   "calendar": {
+    "allAccounts": "Все аккаунты",
+    "chooseColor": "Выбрать цвет",
+    "reset": "Сбросить",
+    "toggleGroup": "Переключить группу",
     "hide": "Скрыть",
     "show": "Показать",
     "noCalendarsDiscovered": "Календари пока не найдены.",

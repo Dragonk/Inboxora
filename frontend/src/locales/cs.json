@@ -1075,6 +1075,7 @@
     "error": "Chyba: {{message}}",
     "dismiss": "Zavřít",
     "loadMore": "Načíst další",
+    "manage": "Spravovat",
     "close": "Zavřít"
   },
   "compose": {
@@ -1252,6 +1253,9 @@
     "addressBooks": {
       "label": "Adresář kontaktů",
       "allVisible": "Všechny viditelné",
+      "displayedBooks": "Zobrazené adresáře: {{selected}} z {{total}}",
+      "showAll": "Zobrazit vše",
+      "clearAll": "Odznačit vše",
       "create": "Nový adresář",
       "rename": "Přejmenovat",
       "renameTitle": "Přejmenovat adresář",
@@ -2025,6 +2029,10 @@
   "calendar": {
     "invitationCancellationSent": "Zrušení pozvánky bylo odesláno.",
     "invitationCancellationStatus": "Stav zrušení pozvánky: {{status}}",
+    "allAccounts": "Všechny účty",
+    "chooseColor": "Vybrat barvu",
+    "reset": "Obnovit",
+    "toggleGroup": "Přepnout skupinu",
     "hide": "Skrýt",
     "show": "Zobrazit",
     "noCalendarsDiscovered": "Zatím nebyly nalezeny žádné kalendáře.",

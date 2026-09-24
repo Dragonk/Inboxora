@@ -1075,6 +1075,7 @@
     "error": "Błąd: {{message}}",
     "dismiss": "Odrzuć",
     "loadMore": "Wczytaj więcej",
+    "manage": "Zarządzaj",
     "close": "Zamknij"
   },
   "compose": {
@@ -1252,6 +1253,9 @@
     "addressBooks": {
       "label": "Książka kontaktów",
       "allVisible": "Wszystkie widoczne",
+      "displayedBooks": "Wyświetlane książki: {{selected}} z {{total}}",
+      "showAll": "Pokaż wszystkie",
+      "clearAll": "Odznacz wszystkie",
       "create": "Nowa książka kontaktów",
       "rename": "Zmień nazwę",
       "renameTitle": "Zmień nazwę książki kontaktów",
@@ -2023,6 +2027,10 @@
     "close": "Zamknij"
   },
   "calendar": {
+    "allAccounts": "Wszystkie konta",
+    "chooseColor": "Wybierz kolor",
+    "reset": "Resetuj",
+    "toggleGroup": "Przełącz grupę",
     "hide": "Ukryj",
     "show": "Pokaż",
     "noCalendarsDiscovered": "Nie znaleziono jeszcze żadnych kalendarzy.",

@@ -2,7 +2,7 @@ import MobileFloatingAction from './MobileFloatingAction.tsx';
 import { contactDateLabel, formatContactDate } from '../utils/contactDateLabels.ts';
 import { useBackLayer } from '../hooks/useBackNavigation.ts';
 import { intlLocale } from '../utils/intlLocale.ts';
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { api } from '../utils/api.ts';
@@ -20,7 +20,7 @@ import type { StoreState } from '../store/index.ts';
 import { toAppError } from '../utils/errors.ts';
 import { providerFailureKey } from '../utils/providerFailure.ts';
 import { providerConnectorSummary } from '../utils/providerSyncSummary.ts';
-import { accountContactsSyncMessage, initialContactTarget, providerSyncAccount, writableContactTarget, type AccountContactsSyncResponse } from './contactsManagementModel.ts';
+import { accountContactsSyncMessage, groupBooksByConnection, initialContactTarget, providerSyncAccount, writableContactTarget, type AccountContactsSyncResponse } from './contactsManagementModel.ts';
 import ContactsBooksManager from './ContactsBooksManager.tsx';
 
 // Deterministic avatar color from a string
@@ -228,6 +228,10 @@ export default function ContactsPage({ isActive = true, settingsOnly = false, se
 
   const [contacts, setContacts]     = useState<ContactRow[]>([]);
   const [addressBooks, setAddressBooks] = useState<AddressBookRow[]>([]);
+  // Display selection is intentionally independent from the write target. An empty array is
+  // an explicit empty selection (zero results), never an alias for "all visible".
+  const [selectedAddressBookIds, setSelectedAddressBookIds] = useState<string[]>([]);
+  const displaySelectionInitialized = useRef(false);
   const [selectedAddressBookId, setSelectedAddressBookId] = useState('');
   // Creating has its own target so changing the list filter cannot silently
   // redirect a contact while the form is open.
@@ -300,6 +304,9 @@ export default function ContactsPage({ isActive = true, settingsOnly = false, se
   const loadingMoreRef = useRef(false);
   const searchRef      = useRef('');
   const listRequestRef = useRef(0);
+  const contactBookFilter = useMemo(() => displaySelectionInitialized.current
+    ? { addressBookIds: selectedAddressBookIds }
+    : { addressBookId: selectedAddressBookId || undefined }, [selectedAddressBookId, selectedAddressBookIds]);
 
   useEffect(() => { contactsRef.current = contacts; }, [contacts]);
   // A previous book's import confirmation must not follow the user to the next one:
@@ -321,7 +328,16 @@ export default function ContactsPage({ isActive = true, settingsOnly = false, se
     if (generation !== bookLoadGeneration.current || useStore.getState().authEpoch !== authEpoch) return;
     // Older servers and test fixtures may not expose address books yet. Contacts
     // must remain usable while the client and API roll out independently.
-    setAddressBooks(Array.isArray(books.addressBooks) ? books.addressBooks : []);
+    const nextBooks: AddressBookRow[] = Array.isArray(books.addressBooks) ? books.addressBooks as AddressBookRow[] : [];
+    setAddressBooks(nextBooks);
+    setSelectedAddressBookIds(current => {
+      const valid = new Set(nextBooks.map(book => book.id));
+      if (!displaySelectionInitialized.current && nextBooks.length > 0) {
+        displaySelectionInitialized.current = true;
+        return nextBooks.filter(book => book.visible !== false).map(book => book.id);
+      }
+      return current.filter(id => valid.has(id));
+    });
     setGoogleContacts(google ?? null);
     setMicrosoftContacts(microsoft ?? null);
     setDavStatus(dav ?? null);
@@ -337,7 +353,7 @@ export default function ContactsPage({ isActive = true, settingsOnly = false, se
     setListError(null);
     searchRef.current = q;
     try {
-      const res = await api.getContacts({ q, limit: PAGE_SIZE, offset: 0, addressBookId: selectedAddressBookId || undefined });
+      const res = await api.getContacts({ q, limit: PAGE_SIZE, offset: 0, ...contactBookFilter });
       if (requestId !== listRequestRef.current || useStore.getState().authEpoch !== authEpoch) return;
       setContacts(res.contacts);
       setTotal(res.total);
@@ -346,7 +362,7 @@ export default function ContactsPage({ isActive = true, settingsOnly = false, se
     } finally {
       if (requestId === listRequestRef.current && useStore.getState().authEpoch === authEpoch) { setLoading(false); loadingMoreRef.current = false; }
     }
-  }, [selectedAddressBookId, settingsOnly, authEpoch]);
+  }, [contactBookFilter, settingsOnly, authEpoch]);
 
   useEffect(() => {
     if (settingsOnly) return;
@@ -552,7 +568,7 @@ export default function ContactsPage({ isActive = true, settingsOnly = false, se
     const q = searchRef.current;
     const offset = contactsRef.current.length;
     const requestId = listRequestRef.current;
-    api.getContacts({ q, limit: PAGE_SIZE, offset, addressBookId: selectedAddressBookId || undefined })
+    api.getContacts({ q, limit: PAGE_SIZE, offset, ...contactBookFilter })
       .then(res => {
         if (requestId !== listRequestRef.current) return;
         setContacts(prev => [...prev, ...res.contacts]);
@@ -564,7 +580,7 @@ export default function ContactsPage({ isActive = true, settingsOnly = false, se
         loadingMoreRef.current = false;
         setLoadingMore(false);
       });
-  }, [selectedAddressBookId]);
+  }, [contactBookFilter]);
 
   const selectContact = async (c: { id: string }) => {
     setError(null);
@@ -790,11 +806,40 @@ export default function ContactsPage({ isActive = true, settingsOnly = false, se
     failureKey: code => providerFailureKey(code) ?? 'contacts.addressBooks.lastSyncFailed',
   });
   const selectedBook = addressBooks.find(book => book.id === selectedAddressBookId);
+  const toggleDisplayedBook = (id: string) => setSelectedAddressBookIds(current => current.includes(id) ? current.filter(item => item !== id) : [...current, id]);
+  const setDisplayedBooks = (ids: string[]) => setSelectedAddressBookIds([...new Set(ids)]);
+  const selectedCount = selectedAddressBookIds.length;
+  const bookGroups = groupBooksByConnection(addressBooks.map(book => ({
+    id: book.id, source: book.source ?? 'local', accountId: book.account_id ?? null,
+    connectionId: book.connection_id ?? null, accountLabel: book.account_email ?? null, book,
+  })));
   const bookControls = <div className="contacts-book-controls">
-    <div className="contacts-books" role="group" aria-label={t('contacts.addressBooks.label')}>
-      <button type="button" aria-pressed={!selectedAddressBookId} onClick={() => { setSelectedAddressBookId(''); setBooksOpen(false); }}>{t('contacts.addressBooks.allVisible')}</button>
-      {addressBooks.map(book => <button type="button" key={book.id} aria-pressed={selectedAddressBookId === book.id} onClick={() => { setSelectedAddressBookId(book.id); setBooksOpen(false); }} title={book.name ?? undefined}>{book.visible ? '' : '○ '}{book.name}</button>)}
-    </div>
+    <button type="button" className="contacts-books-trigger" data-testid="contacts-books-trigger" aria-expanded={booksOpen} onClick={() => setBooksOpen(true)}>
+      {t('contacts.addressBooks.displayedBooks', { selected: selectedCount, total: addressBooks.length })}
+    </button>
+    {booksOpen && <div className="contacts-books-panel" role="dialog" aria-label={t('contacts.addressBooks.label')}>
+      <div className="contacts-books-actions">
+        <button type="button" onClick={() => setDisplayedBooks(addressBooks.map(book => book.id))}>{t('contacts.addressBooks.showAll')}</button>
+        <button type="button" onClick={() => setDisplayedBooks([])}>{t('contacts.addressBooks.clearAll')}</button>
+        <button type="button" onClick={() => setBooksOpen(false)} aria-label={t('common.close')}>×</button>
+      </div>
+      {bookGroups.map(group => {
+        const ids = group.books.map(item => item.id);
+        const selectedInGroup = ids.filter(id => selectedAddressBookIds.includes(id)).length;
+        return <section key={group.id} className="contacts-book-group">
+          <header>
+            <input type="checkbox" aria-label={group.accountLabel ?? group.source} checked={selectedInGroup === ids.length} ref={element => { if (element) element.indeterminate = selectedInGroup > 0 && selectedInGroup < ids.length; }} onChange={() => setDisplayedBooks(selectedInGroup === ids.length ? selectedAddressBookIds.filter(id => !ids.includes(id)) : [...selectedAddressBookIds, ...ids])} />
+            <strong>{group.source}</strong>{group.accountLabel && <span>{group.accountLabel}</span>}
+          </header>
+          {group.books.map(item => <div key={item.id} className="contacts-book-row" role="button" tabIndex={0} aria-label={item.book.name ?? item.id}
+            onClick={() => toggleDisplayedBook(item.id)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); toggleDisplayedBook(item.id); } }}>
+            <input type="checkbox" aria-label={item.book.name ?? item.id} checked={selectedAddressBookIds.includes(item.id)} onClick={event => event.stopPropagation()} onChange={() => toggleDisplayedBook(item.id)} />
+            <span>{item.book.name ?? item.id}</span>
+            <small>{item.book.read_only ? t('contacts.booksManager.readOnly') : t('contacts.booksManager.readWrite')}</small>
+          </div>)}
+        </section>;
+      })}
+    </div>}
     {/* One entry point into the manager: a compact icon, because a labelled button competed with the book
         strip for the little room the header has. The panel it opens is the full manager. */}
     <button

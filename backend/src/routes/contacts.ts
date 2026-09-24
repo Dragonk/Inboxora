@@ -165,8 +165,9 @@ async function requireLocalAddressBook(userId: string, addressBookId: string): P
   );
   const book = result.rows[0];
   if (!book) return { error: 'Address book not found', status: 404 };
-  // A book has no `read_only` column: whether it accepts a write is a property of
-  // the adapter that owns its `source`, which is what the capability model answers.
+  // Imports are strictly local projections. Provider-backed books must be changed through
+  // their synchroniser/write-back adapter, never by accepting a local upload.
+  if ((book.source ?? 'local') !== 'local') return { error: 'Only local address books accept imports', status: 403 };
   if (!collectionIsWritable(book, 'contacts')) return { error: 'This address book is read-only', status: 403 };
   return { book };
 }
@@ -516,12 +517,23 @@ router.get('/', async (req, res) => {
   const offset = queryInt(req.query.offset, 0);
   const is_auto = queryString(req.query.is_auto);
   const addressBookId = queryString(req.query.addressBookId);
+  // addressBookIds is the multi-book filter. Its presence (including an empty value)
+  // is distinct from an omitted filter, which preserves legacy "visible books" behavior.
+  const hasAddressBookIds = Object.prototype.hasOwnProperty.call(req.query, 'addressBookIds');
+  const rawAddressBookIds = req.query.addressBookIds;
+  const addressBookIds = hasAddressBookIds
+    ? (Array.isArray(rawAddressBookIds)
+      ? rawAddressBookIds.filter((id): id is string => typeof id === 'string').flatMap(id => id.split(','))
+      : [queryString(rawAddressBookIds) ?? ''])
+      .map(id => id.trim()).filter(Boolean)
+    : null;
+  const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   const userId = sessionUserId(req);
   const cap = Math.min(limit, 500);
   const off = Math.max(0, offset);
 
   const conditions = ['c.user_id = $1'];
-  const params = [userId];
+  const params: Array<string | number | string[]> = [userId];
   let p = 2;
 
   if (q && q.trim()) {
@@ -542,7 +554,14 @@ router.get('/', async (req, res) => {
     conditions.push('c.is_auto = false');
   }
 
-  if (addressBookId) {
+  if (addressBookIds !== null) {
+    if (addressBookIds.length === 0) {
+      conditions.push('FALSE');
+    } else {
+      params.push(addressBookIds);
+      conditions.push(`c.address_book_id::text = ANY($${p++}::text[])`);
+    }
+  } else if (addressBookId) {
     params.push(addressBookId);
     conditions.push(`c.address_book_id = $${p++}`);
   } else {
@@ -550,6 +569,16 @@ router.get('/', async (req, res) => {
   }
 
   try {
+    if (addressBookIds !== null && addressBookIds.some(id => !uuidPattern.test(id))) {
+      return res.status(400).json({ error: 'addressBookIds must contain UUIDs' });
+    }
+    if (addressBookIds !== null && addressBookIds.length > 0) {
+      const owned = await query<{ id: string }>(
+        'SELECT id FROM address_books WHERE user_id = $1 AND id = ANY($2::uuid[])',
+        [userId, addressBookIds],
+      );
+      if (owned.rows.length !== addressBookIds.length) return res.status(403).json({ error: 'One or more address books are not available' });
+    }
     const result = await query(`
       SELECT
         c.id, c.uid, c.display_name, c.first_name, c.last_name,

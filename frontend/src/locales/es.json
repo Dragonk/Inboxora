@@ -1091,6 +1091,7 @@
     "error": "Error: {{message}}",
     "dismiss": "Descartar",
     "loadMore": "Cargar más",
+    "manage": "Gestionar",
     "close": "Cerrar"
   },
   "compose": {
@@ -1271,6 +1272,9 @@
       "lastSynced": "Última sincronización: {{date}} · {{count}} contactos",
       "label": "Libreta de contactos",
       "allVisible": "Todos los visibles",
+      "displayedBooks": "Libretas mostradas: {{selected}} de {{total}}",
+      "showAll": "Mostrar todas",
+      "clearAll": "Deseleccionar todas",
       "create": "Nueva libreta",
       "rename": "Cambiar nombre",
       "renameTitle": "Cambiar nombre de la libreta",
@@ -2041,6 +2045,10 @@
   "calendar": {
     "invitationCancellationSent": "Se ha enviado la cancelación de la invitación.",
     "invitationCancellationStatus": "Estado de cancelación de la invitación: {{status}}",
+    "allAccounts": "Todas las cuentas",
+    "chooseColor": "Elegir color",
+    "reset": "Restablecer",
+    "toggleGroup": "Alternar grupo",
     "hide": "Ocultar",
     "show": "Mostrar",
     "noCalendarsDiscovered": "Aún no se han encontrado calendarios.",

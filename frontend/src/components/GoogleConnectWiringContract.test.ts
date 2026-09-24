@@ -74,7 +74,7 @@ test('calendar settings sync exactly the selected account source; the rail only 
   assert.match(source, /updateCalendarPresentation/);
   assert.match(sidebar, /setAdminTab\('calendar'\)/);
   assert.match(sidebar, /setShowAdmin\(true\)/);
-  assert.match(sidebar, /data-testid="calendar-sidebar-manage-sources" onClick=\{openCalendarAccounts\}/);
+  assert.match(sidebar, /data-testid="calendar-sidebar-manage-sources" onClick=\{(?:openCalendarAccounts|\(\) => openCalendarAccounts\('resources'\))\}/);
   assert.doesNotMatch(sidebar, /syncAccountProviderFeature|importIcs|deleteCalendar/);
   assert.doesNotMatch(source, /providerCalendars\.sync\(/);
   assert.doesNotMatch(source, /calendar\.googleSyncing/);

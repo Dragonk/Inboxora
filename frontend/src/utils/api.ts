@@ -446,13 +446,14 @@ export const api = {
   suggestContacts: (q: string) => request('GET', `/search/contacts?q=${encodeURIComponent(q)}`),
 
   // Contacts
-  getContacts:   ({ q, limit, offset, is_auto, addressBookId }: { q?: string; limit?: string | number; offset?: string | number; is_auto?: string | boolean; addressBookId?: string } = {}) => {
+  getContacts:   ({ q, limit, offset, is_auto, addressBookId, addressBookIds }: { q?: string; limit?: string | number; offset?: string | number; is_auto?: string | boolean; addressBookId?: string; addressBookIds?: readonly string[] } = {}) => {
     const p = new URLSearchParams();
     if (q) p.set('q', q);
     if (limit !== undefined) p.set('limit', String(limit));
     if (offset !== undefined) p.set('offset', String(offset));
     if (is_auto !== undefined) p.set('is_auto', String(is_auto));
-    if (addressBookId) p.set('addressBookId', addressBookId);
+    if (addressBookIds !== undefined) p.set('addressBookIds', addressBookIds.join(','));
+    else if (addressBookId) p.set('addressBookId', addressBookId);
     const qs = p.toString();
     return request('GET', `/contacts${qs ? '?' + qs : ''}`);
   },
@@ -530,6 +531,7 @@ export const api = {
     presentation: () => request('GET', '/calendar/presentation'),
     updateSourcePresentation: (id: string, collapsed: boolean) => request('PATCH', `/calendar/presentation/sources/${encodeURIComponent(id)}`, { collapsed }),
     updateCalendarPresentation: (id: string, sidebarHidden: boolean) => request('PATCH', `/calendar/presentation/calendars/${encodeURIComponent(id)}`, { sidebarHidden }),
+    updateCalendarColorOverride: (id: string, colorOverride: string | null) => request('PATCH', `/calendar/presentation/calendars/${encodeURIComponent(id)}`, { colorOverride }),
     // A local .ics import into one calendar; keyed by UID server-side.
     importIcs: (id: string, ics: string) => request('POST', `/calendar/calendars/${encodeURIComponent(id)}/import/ics`, { ics }),
     // Google Calendar pull: status is safe for any user, sync is idempotent per cursor.

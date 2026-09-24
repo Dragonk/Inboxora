@@ -579,7 +579,7 @@ router.post('/invitations/:messageId', async (req, res) => {
 });
 
 type CalendarPresentationRow = {
-  id: string; name: string | null; color: string | null; source: string | null; read_only: boolean | null;
+  id: string; name: string | null; color: string | null; color_override?: string | null; source: string | null; read_only: boolean | null;
   display_visible: boolean | null; collection_id: string | null; provider: string | null; provider_identity: string | null;
   account_id: string | null; account_email: string | null; import_source_id: string | null; import_kind: string | null;
   import_label: string | null; feature_enabled: boolean | null; connection_status?: string | null; import_enabled?: boolean | null;
@@ -622,7 +622,7 @@ export async function loadCalendarPresentation(userId: string): Promise<Calendar
       WHERE c.user_id = $1 AND c.owner_user_id = $1 ORDER BY c.created_at ASC`, [userId]);
   const [sourcePrefs, calendarPrefs, appearance, accountSources, importSources] = await Promise.all([
     query<{ source_id: string; collapsed: boolean }>('SELECT source_id, collapsed FROM user_calendar_source_preferences WHERE user_id = $1', [userId]),
-    query<{ calendar_id: string; sidebar_hidden: boolean }>('SELECT calendar_id, sidebar_hidden FROM user_calendar_presentation_preferences WHERE user_id = $1', [userId]),
+    query<{ calendar_id: string; sidebar_hidden: boolean; color_override: string | null }>('SELECT calendar_id, sidebar_hidden, color_override FROM user_calendar_presentation_preferences WHERE user_id = $1', [userId]),
     contactCalendarAppearance(userId),
     query<CalendarPresentationRow>(`SELECT a.id AS account_id, a.email_address AS account_email, pc.provider,
       pc.provider_user_id AS provider_identity, pc.status AS connection_status, aps.enabled AS feature_enabled
@@ -670,16 +670,34 @@ router.patch('/presentation/sources/:sourceId', async (req, res) => {
 });
 
 router.patch('/presentation/calendars/:calendarId', async (req, res) => {
-  if (typeof req.body?.sidebarHidden !== 'boolean') return res.status(400).json({ error: 'sidebarHidden must be boolean' });
+  const hasSidebar = typeof req.body?.sidebarHidden === 'boolean';
+  const hasColor = Object.prototype.hasOwnProperty.call(req.body ?? {}, 'colorOverride');
+  const colorOverride = req.body?.colorOverride;
+  if (!hasSidebar && !hasColor) return res.status(400).json({ error: 'sidebarHidden or colorOverride is required' });
+  if (hasColor && colorOverride !== null && (typeof colorOverride !== 'string' || !/^#[0-9a-f]{6}$/i.test(colorOverride))) {
+    return res.status(400).json({ error: 'colorOverride must be a hex color or null' });
+  }
   const userId = sessionUserId(req);
   const presentation = await loadCalendarPresentation(userId);
-  if (!presentation.calendars.some(calendar => calendar.id === req.params.calendarId)) return res.status(404).json({ error: 'Calendar not found' });
-  await query(`INSERT INTO user_calendar_presentation_preferences (user_id, calendar_id, sidebar_hidden, updated_at) VALUES ($1, $2, $3, NOW()) ON CONFLICT (user_id, calendar_id) DO UPDATE SET sidebar_hidden = EXCLUDED.sidebar_hidden, updated_at = NOW()`, [userId, req.params.calendarId, req.body.sidebarHidden]);
+  const calendar = presentation.calendars.find(item => item.id === req.params.calendarId);
+  if (!calendar) return res.status(404).json({ error: 'Calendar not found' });
+  const sidebarHidden = hasSidebar ? req.body.sidebarHidden : calendar.sidebarHidden;
+  if (hasColor) {
+    await query(`INSERT INTO user_calendar_presentation_preferences (user_id, calendar_id, sidebar_hidden, color_override, updated_at)
+      VALUES ($1, $2, $3, $4, NOW())
+      ON CONFLICT (user_id, calendar_id) DO UPDATE SET sidebar_hidden = EXCLUDED.sidebar_hidden, color_override = EXCLUDED.color_override, updated_at = NOW()`,
+      [userId, req.params.calendarId, sidebarHidden, colorOverride]);
+  } else {
+    await query(`INSERT INTO user_calendar_presentation_preferences (user_id, calendar_id, sidebar_hidden, updated_at)
+      VALUES ($1, $2, $3, NOW())
+      ON CONFLICT (user_id, calendar_id) DO UPDATE SET sidebar_hidden = EXCLUDED.sidebar_hidden, updated_at = NOW()`,
+      [userId, req.params.calendarId, sidebarHidden]);
+  }
   res.json(await loadCalendarPresentation(userId));
 });
 
 router.get('/calendars', async (req, res) => {
-  const result = await query(
+  const result = await query<{ id: string; color: string | null; [key: string]: unknown }>(
     // `collection_id` is what the write-back opt-in is addressed by: a pulled calendar is written through
     // its collection, and the interface needs the id to offer the switch.
     `SELECT c.id, c.name, c.description, c.color, c.source, c.external_url, c.read_only, c.display_visible,
@@ -690,8 +708,14 @@ router.get('/calendars', async (req, res) => {
       ORDER BY c.created_at ASC`,
     [req.session.userId],
   );
-  const appearance = await contactCalendarAppearance(sessionUserId(req));
-  res.json({ calendars: [...result.rows, {
+  const userId = sessionUserId(req);
+  const [appearance, preferences] = await Promise.all([
+    contactCalendarAppearance(userId),
+    query<{ calendar_id: string; color_override: string | null }>('SELECT calendar_id, color_override FROM user_calendar_presentation_preferences WHERE user_id = $1', [userId]),
+  ]);
+  const overrides = new Map(preferences.rows.map(row => [row.calendar_id, row.color_override]));
+  const calendars = result.rows.map(row => ({ ...row, color: overrides.get(row.id) || row.color }));
+  res.json({ calendars: [...calendars, {
     id: 'contacts-birthdays', name: appearance.name || 'Contact dates', custom_name: Boolean(appearance.name), description: 'Birthdays and anniversaries from contacts',
     color: appearance.color || '#e879f9', source: 'contacts', external_url: null, read_only: true, display_visible: appearance.displayVisible !== false, dav_mode: 'off',
   }] });

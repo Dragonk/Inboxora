@@ -111,7 +111,10 @@ export default function CalendarSettingsManager({ locale, view = 'accounts' }: {
     id: `calendar-source:${source.id}`, kind: source.kind ?? 'ical_url', label: source.displayName ?? source.id,
     accountId: null, identityLabel: null, featureEnabled: true, canSync: true, collapsed: false,
   }))].filter(source => `${source.label} ${source.identityLabel ?? ''} ${groups.find(group => group.id === source.id)?.rows.map(row => row.calendar.name).join(' ') ?? ''}`.toLocaleLowerCase().includes(search.toLocaleLowerCase()));
-  const entry = entries.find(source => source.id === selected) ?? entries[0];
+  // V2 is a two-step flow: the account cards are the landing view and the
+  // selected account replaces them in this column. Do not implicitly open the
+  // first account; that makes it impossible to discover the complete list.
+  const entry = selected ? entries.find(source => source.id === selected) : undefined;
   useEffect(() => {
     const generation = lifetime.current;
     const accountId = entry?.accountId;
@@ -206,20 +209,20 @@ export default function CalendarSettingsManager({ locale, view = 'accounts' }: {
     <input data-testid="calendar-source-search" aria-label={t('calendar.searchSources', 'Search sources or calendars')} placeholder={t('calendar.searchSources', 'Search sources or calendars')} value={search} onChange={event => setSearch(event.target.value)} style={{ ...inputStyle, maxWidth: 360 }} />
     {adding && <CalendarSubscriptionsSettings locale={locale} creationOnly />}
     <div data-testid="calendar-source-manager" style={{ display: 'grid', gap: 16, minWidth: 0 }}>
-      <nav aria-label={t('calendar.manageSources')} style={{ display: 'grid', gap: 10, minWidth: 0 }}>
+      {!entry && <div data-testid="calendar-account-list" style={{ display: 'grid', gap: 10 }}>
         {entries.map(source => {
           const sourceRows = groups.find(group => group.id === source.id)?.rows ?? [];
-          const active = entry?.id === source.id;
-          return <button key={source.id} type="button" data-testid="calendar-manager-source" aria-pressed={active} onClick={() => setSelected(source.id)} style={{ display: 'grid', gridTemplateColumns: '38px minmax(0, 1fr) auto', gap: 12, alignItems: 'center', width: '100%', minWidth: 0, textAlign: 'left', padding: '12px 14px', border: `1px solid ${active ? 'var(--accent)' : 'var(--border-subtle)'}`, borderRadius: 10, background: active ? 'var(--accent-dim)' : 'var(--bg-tertiary)', color: 'var(--text-primary)', cursor: 'pointer' }}>
+          const active = false;
+          return <button key={source.id} type="button" data-testid="calendar-manager-source-manage" aria-pressed={active} onClick={() => setSelected(source.id)} style={{ display: 'grid', gridTemplateColumns: '38px minmax(0, 1fr) auto', gap: 12, alignItems: 'center', width: '100%', minWidth: 0, textAlign: 'left', padding: '12px 14px', border: `1px solid ${active ? 'var(--accent)' : 'var(--border-subtle)'}`, borderRadius: 10, background: active ? 'var(--accent-dim)' : 'var(--bg-tertiary)', color: 'var(--text-primary)', cursor: 'pointer' }}>
             <span aria-hidden="true" style={{ width: 38, height: 38, borderRadius: '50%', background: active ? 'var(--accent)' : 'var(--bg-secondary)', color: active ? 'var(--accent-text)' : 'var(--accent)', display: 'grid', placeItems: 'center', fontWeight: 600 }}>{source.label.slice(0, 1).toUpperCase()}</span>
             <span style={{ display: 'grid', gap: 2, minWidth: 0 }}><strong style={{ fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{source.label}</strong><small style={{ color: 'var(--text-tertiary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{source.identityLabel || sourceLabels[calendarSourceCategory(source)]}</small><small style={{ color: source.featureEnabled === false ? 'var(--text-tertiary)' : 'var(--green)' }}>{source.featureEnabled === false ? t('calendar.serviceDisabled', 'Calendar service is disabled.') : t('admin.accounts.connected', 'Connected')}</small></span>
-            <span style={{ display: 'grid', justifyItems: 'end', gap: 4, fontSize: 11, color: 'var(--text-tertiary)' }}><span>{sourceRows.length} {t('calendar.calendars')}</span><span>› {t('common.edit')}</span></span>
+            <span style={{ display: 'grid', justifyItems: 'end', gap: 4, fontSize: 11, color: 'var(--text-tertiary)' }}><span>{sourceRows.length} {t('calendar.calendars')}</span><span>› {t('common.manage', 'Manage')}</span></span>
           </button>;
         })}
-      </nav>
-      <section data-testid="calendar-source-details" style={{ display: 'grid', alignContent: 'start', gap: 12, minWidth: 0, padding: 16, border: '1px solid var(--border-subtle)', borderRadius: 10, background: 'var(--bg-secondary)' }}>
+      </div>}
+      {entry && <section data-testid="calendar-source-details" style={{ display: 'grid', alignContent: 'start', gap: 12, minWidth: 0, padding: 16, border: '1px solid var(--border-subtle)', borderRadius: 10, background: 'var(--bg-secondary)' }}>
         {entry ? <>
-          <h2 style={{ margin: 0 }}>{entry.label}</h2>
+          <Button data-testid="calendar-manager-back" variant="secondary" onClick={() => setSelected(null)}>← {t('calendar.allAccounts', 'All accounts')}</Button><h2 style={{ margin: 0 }}>{entry.label}</h2>
           {entry.identityLabel && <p style={{ margin: 0, overflowWrap: 'anywhere' }}>{entry.identityLabel}</p>}
           {!entry.featureEnabled && <p role="status">{t('calendar.serviceDisabled', 'Calendar service is disabled.')}</p>}
           {entry.accountId && <>
@@ -229,7 +232,8 @@ export default function CalendarSettingsManager({ locale, view = 'accounts' }: {
               {lifecycleAllowed && <div data-testid="calendar-native-create" style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                 <label style={{ flex: '1 1 180px' }}>{t('calendar.nativeCalendarName')}<input data-testid="calendar-native-name" maxLength={255} disabled={busy || lifecycleBlocked} value={nativeName} onChange={event => setNativeName(event.target.value)} /></label>
                 <Button data-testid="calendar-native-create-submit" disabled={busy || lifecycleBlocked || !nativeName.trim()} onClick={startNativeCreate}>{t('calendar.nativeCalendarCreate')}</Button>
-              </div>}
+              </div>
+       }
               {nativeOperation && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}><p role="status" data-testid="calendar-native-operation-status">{isConfirmedNativeCalendarOperation(nativeOperation) ? t('calendar.nativeCalendarOperationConfirmed') : t('calendar.nativeCalendarOperationPending', { state: nativeOperation.state ?? 'failed', retryAfter: nativeOperation.retryAfterSeconds ?? 0 })}</p>{(nativeOperation.state === 'pending' || nativeOperation.state === 'retryable') && <Button data-testid="calendar-native-operation-check" disabled={busy} onClick={checkNativeOperation}>{t('calendar.nativeCalendarCheckOperation')}</Button>}</div>}
             </> : <p className="settings-choice-description">{t('calendar.providerManagedHint', 'Calendar creation, renaming and deletion are managed by the provider. Configure account services in Settings → Accounts.')}</p>}
           </>}
@@ -256,7 +260,7 @@ export default function CalendarSettingsManager({ locale, view = 'accounts' }: {
             </>}
           </div>)}
         </> : <p>{t('calendar.subscribeEmpty')}</p>}
-      </section>
+      </section>}
     </div>
     {nativeDelete && <Dialog testId="calendar-native-delete-dialog" title={t('calendar.nativeCalendarDelete')} closeLabel={t('calendar.close')} busy={busy} onClose={() => setNativeDelete(null)} footer={<><Button variant="secondary" disabled={busy} onClick={() => setNativeDelete(null)}>{t('calendar.cancel')}</Button><Button data-testid="calendar-native-delete-confirm" variant="danger" disabled={busy || lifecycleBlocked} onClick={startNativeDelete}>{t('calendar.nativeCalendarDelete')}</Button></>}>
       <p>{t('calendar.nativeCalendarDeleteConfirm', { name: nativeDelete.name ?? '' })}</p>

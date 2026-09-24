@@ -286,12 +286,12 @@ export default function ContactsBooksManager(props: ContactsBooksManagerProps) {
           </div>
           {list}
         </aside>
-        <main style={{
+        {props.view !== 'accounts' && <main style={{
           flex: isMobile ? '1 1 100%' : '2 1 340px', minWidth: 0,
           display: isMobile && !mobileDetail ? 'none' : 'block',
         }}>
           {detail}
-        </main>
+        </main>}
       </div>
       {/* Sources are connection-level controls, not properties of whichever book
           happened to be selected. Keeping CardDAV here prevents a Google or

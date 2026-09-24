@@ -1091,6 +1091,7 @@
     "error": "Fehler: {{message}}",
     "dismiss": "Ausblenden",
     "loadMore": "Mehr laden",
+    "manage": "Verwalten",
     "close": "Schließen"
   },
   "compose": {
@@ -1271,6 +1272,9 @@
       "lastSynced": "Zuletzt synchronisiert: {{date}} · {{count}} Kontakte",
       "label": "Adressbuch",
       "allVisible": "Alle sichtbaren",
+      "displayedBooks": "Angezeigte Adressbücher: {{selected}} von {{total}}",
+      "showAll": "Alle anzeigen",
+      "clearAll": "Alle abwählen",
       "create": "Neues Adressbuch",
       "rename": "Umbenennen",
       "renameTitle": "Adressbuch umbenennen",
@@ -2041,6 +2045,10 @@
   "calendar": {
     "invitationCancellationSent": "Die Absage der Einladung wurde gesendet.",
     "invitationCancellationStatus": "Status der Einladungsabsage: {{status}}",
+    "allAccounts": "Alle Konten",
+    "chooseColor": "Farbe auswählen",
+    "reset": "Zurücksetzen",
+    "toggleGroup": "Gruppe umschalten",
     "hide": "Ausblenden",
     "show": "Anzeigen",
     "noCalendarsDiscovered": "Noch keine Kalender gefunden.",

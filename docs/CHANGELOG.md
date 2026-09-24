@@ -35,6 +35,7 @@ Nothing is being prepared beyond 4.1.0. Work whose version has not been chosen a
 ## [4.1.0]
 
 ### Added
+- **Settings and calendar/contact panels now follow the v2/v3 production flow.** Account cards transition to scoped details, Contacts supports grouped multi-book selection with an explicit empty set, and Calendar supports grouped visibility plus per-user color presentation overrides. Migration `0138_calendar_color_overrides.sql` adds the additive override column and must run after `0137_calendar_collection_projection_receipts.sql` before enabling the palette. Provider-backed contact imports are rejected unless the target is a local book.
 - **Native inbox rules now defer safely when a newly ingested Gmail or Microsoft message lacks body or header data.**
   Migration `0121_provider_rule_deferred_queue.sql` adds a lease-owned durable read queue. The worker fetches only
   the missing data through the provider read API before applying a rule; failed, absent or ambiguous reads back off

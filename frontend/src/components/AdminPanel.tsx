@@ -1019,12 +1019,6 @@ function AccountsTab({ onNavigate = undefined }: { onNavigate?: (tab: string) =>
           </svg>
           {t('sidebar.backToAccounts')}
         </button>
-        <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
-          {t('admin.accounts.editTitle')}
-        </div>
-        <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 16 }}>
-          {editTarget.email_address}
-        </div>
         <SettingsSectionTabs
           label={t('admin.accounts.title')}
           active={accountSection}
@@ -1041,6 +1035,12 @@ function AccountsTab({ onNavigate = undefined }: { onNavigate?: (tab: string) =>
                 { id: 'diagnostics', label: t('admin.accounts.diagnostics.title') },
               ]}
         />
+        <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
+          {t('admin.accounts.editTitle')}
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 16 }}>
+          {editTarget.email_address}
+        </div>
         <div data-testid={`account-editor-${accountSection}`} hidden={accountSection !== 'general' && accountSection !== 'servers'}>
           <AccountForm
             initial={editTarget}

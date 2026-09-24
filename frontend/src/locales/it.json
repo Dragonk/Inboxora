@@ -1091,6 +1091,7 @@
     "error": "Errore: {{message}}",
     "dismiss": "Ignora",
     "loadMore": "Carica altro",
+    "manage": "Gestisci",
     "close": "Chiudi"
   },
   "compose": {
@@ -1271,6 +1272,9 @@
       "lastSynced": "Ultima sincronizzazione: {{date}} · {{count}} contatti",
       "label": "Rubrica",
       "allVisible": "Tutti i visibili",
+      "displayedBooks": "Rubriche visualizzate: {{selected}} di {{total}}",
+      "showAll": "Mostra tutte",
+      "clearAll": "Deseleziona tutte",
       "create": "Nuova rubrica",
       "rename": "Rinomina",
       "renameTitle": "Rinomina rubrica",
@@ -2041,6 +2045,10 @@
   "calendar": {
     "invitationCancellationSent": "L’annullamento dell’invito è stato inviato.",
     "invitationCancellationStatus": "Stato dell’annullamento dell’invito: {{status}}",
+    "allAccounts": "Tutti gli account",
+    "chooseColor": "Scegli colore",
+    "reset": "Reimposta",
+    "toggleGroup": "Attiva/disattiva gruppo",
     "hide": "Nascondi",
     "show": "Mostra",
     "noCalendarsDiscovered": "Nessun calendario trovato finora.",

@@ -1075,6 +1075,7 @@
     "error": "错误：{{message}}",
     "dismiss": "忽略",
     "loadMore": "加载更多",
+    "manage": "管理",
     "close": "关闭"
   },
   "compose": {
@@ -1252,6 +1253,9 @@
     "addressBooks": {
       "label": "通讯录",
       "allVisible": "所有可见项",
+      "displayedBooks": "显示的通讯录：{{selected}} / {{total}}",
+      "showAll": "显示全部",
+      "clearAll": "取消全选",
       "create": "新建通讯录",
       "rename": "重命名",
       "renameTitle": "重命名通讯录",
@@ -2023,6 +2027,10 @@
     "close": "关闭"
   },
   "calendar": {
+    "allAccounts": "所有账户",
+    "chooseColor": "选择颜色",
+    "reset": "重置",
+    "toggleGroup": "切换分组",
     "hide": "隐藏",
     "show": "显示",
     "noCalendarsDiscovered": "尚未发现日历。",

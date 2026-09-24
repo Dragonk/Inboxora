@@ -225,6 +225,15 @@ describe('calendar presentation', () => {
     expect(responseRecord(await calendar.json())).toHaveProperty('revision');
     expect(query.mock.calls.filter(([sql]) => sql.includes('FROM calendars c') && sql.includes('provider_identity'))).toHaveLength(2);
   });
+
+  it('persists a validated per-user color override without changing provider data', async () => {
+    mockPresentationRead();
+    const response = await fetch(`${base}/api/calendar/presentation/calendars/11111111-1111-4111-8111-111111111111`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ colorOverride: '#12abef' }) });
+    expect(response.status).toBe(200);
+    expect(query.mock.calls.some(([sql, params]) => sql.includes('color_override') && Array.isArray(params) && params.includes('#12abef'))).toBe(true);
+    const invalid = await fetch(`${base}/api/calendar/presentation/calendars/11111111-1111-4111-8111-111111111111`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ colorOverride: 'red' }) });
+    expect(invalid.status).toBe(400);
+  });
 });
 
 // The events read runs two disjoint queries: materialised occurrences, and the live fallback

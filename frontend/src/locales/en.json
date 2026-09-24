@@ -1075,6 +1075,7 @@
     "error": "Error: {{message}}",
     "dismiss": "Dismiss",
     "loadMore": "Load more",
+    "manage": "Manage",
     "close": "Close"
   },
   "compose": {
@@ -1252,6 +1253,9 @@
     "addressBooks": {
       "label": "Address book",
       "allVisible": "All visible",
+      "displayedBooks": "Displayed books: {{selected}} of {{total}}",
+      "showAll": "Show all",
+      "clearAll": "Deselect all",
       "create": "New address book",
       "rename": "Rename",
       "renameTitle": "Rename address book",
@@ -2025,6 +2029,10 @@
   "calendar": {
     "invitationCancellationSent": "Invitation cancellation was sent.",
     "invitationCancellationStatus": "Invitation cancellation status: {{status}}",
+    "allAccounts": "All accounts",
+    "chooseColor": "Choose color",
+    "reset": "Reset",
+    "toggleGroup": "Toggle group",
     "hide": "Hide",
     "show": "Show",
     "noCalendarsDiscovered": "No calendars discovered yet.",

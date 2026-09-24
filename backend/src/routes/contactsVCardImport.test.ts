@@ -61,6 +61,19 @@ beforeEach(() => {
 });
 
 describe('POST /api/contacts/address-books/:id/import/vcard', () => {
+  it('rejects provider-backed books instead of writing a local projection', async () => {
+    mocks.query.mockImplementation(async (sql: string) => {
+      if (String(sql).includes('FROM address_books')) {
+        return { rows: [{ id: 'book-1', name: 'Synced', source: 'google', visible: true }], rowCount: 1 };
+      }
+      return { rows: [], rowCount: 1 };
+    });
+    const response = await importVCard({ vcard: CARD('remote-1', 'Remote', 'remote@example.test') });
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: 'Only local address books accept imports' });
+    expect(queryCallsMatching('INSERT INTO contacts')).toHaveLength(0);
+  });
+
   it('imports every card and keys it on the vCard UID', async () => {
     const response = await importVCard({ vcard: `${CARD('ada-1', 'Ada Lovelace', 'ada@example.test')}\r\n${CARD('grace-1', 'Grace Hopper', 'grace@example.test')}` });
     expect(response.status).toBe(201);
