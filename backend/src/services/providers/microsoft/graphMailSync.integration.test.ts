@@ -405,6 +405,7 @@ describeOrSkip('Microsoft Graph mail message sync (PostgreSQL)', () => {
     expect(messages.map(row => row.provider_message_id)).toEqual(['m1', 'm2']);
     expect(messages[0]).toMatchObject({ folder: 'INBOX', subject: 'Subject m1', thread_id: 'conv-m1', is_read: false, is_starred: false, from_email: 'ada@contoso.test' });
     expect(messages[1]).toMatchObject({ is_read: true, is_starred: true });
+    expect(provider.urls.some(url => url.includes('top=1000'))).toBe(true);
 
     // The cursor is stored per folder, so the next run is incremental.
     const cursors = await autocommit(client => client.query<{ cursor: string | null }>(

@@ -292,7 +292,9 @@ export interface LocalGraphMessage {
 
 export const GRAPH_MESSAGE_SELECT = 'id,internetMessageId,conversationId,subject,bodyPreview,receivedDateTime,sentDateTime,isRead,isDraft,hasAttachments,flag,from,toRecipients,ccRecipients,replyTo,changeKey,parentFolderId,internetMessageHeaders';
 /** The page size the message delta sync uses; exported so provider-side search asks for the same shape. */
-export const MESSAGE_PAGE_SIZE = 50;
+// Request a large initial delta page. Graph may clamp this value and return a nextLink, but a small value makes
+// large Outlook inboxes appear stuck at the provider's first 50-message page when Graph returns a deltaLink early.
+export const MESSAGE_PAGE_SIZE = 1000;
 
 export interface GraphMessagePage {
   value?: GraphMessage[];
