@@ -133,7 +133,9 @@ jobs:
         # Explicitly include the route/service PostgreSQL regressions outside the
         # provider directories; the upgrade gate below owns its isolated database.
         run: |
-          npx vitest run \
+          # Integration fixtures intentionally share one PostgreSQL database. Run them in one
+          # worker so fixed fixture identities cannot race across suites under SERIALIZABLE.
+          npx vitest run --maxWorkers=1 --minWorkers=1 \
             src/services/providerAuthService.integration.test.ts \
             src/services/providerTokenService.integration.test.ts \
             src/services/providerOperations.integration.test.ts \
