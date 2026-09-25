@@ -5,7 +5,8 @@ All notable changes to Inboxora are recorded here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 For the narrative version — what the release means, what to expect when upgrading, and the known
-limitations — read the matching page in the Wiki: [Release notes 4.1.0](wiki/Release-notes-4.1.0.md),
+limitations — read the matching page in the Wiki: [Release notes 4.1.1](wiki/Release-notes-4.1.1.md),
+[Release notes 4.1.0](wiki/Release-notes-4.1.0.md),
 [Release notes 4.0.4](wiki/Release-notes-4.0.4.md),
 [Release notes 4.0.3](wiki/Release-notes-4.0.3.md),
 [Release notes 4.0.2](wiki/Release-notes-4.0.2.md),
@@ -19,12 +20,18 @@ in the same commit that makes it, not gathered afterwards from the commit log, w
 "why" and keeps only the "what". `[Unreleased]` is for work whose version has not been chosen.
 
 The matching `wiki/Release-notes-<x.y.z>.md` is the narrative — user and operator impact, migration and
-configuration requirements, the **known safe limitations**, and what was verified. Release 4.1.0 is
+configuration requirements, the **known safe limitations**, and what was verified. Release 4.1.1 is
 finalized below and dated with its publication date.
 
 ## [Unreleased]
 
-Nothing is being prepared beyond 4.1.0. Work whose version has not been chosen accumulates here.
+Nothing is being prepared beyond 4.1.1. Work whose version has not been chosen accumulates here.
+
+## [4.1.1] - 2026-09-25
+
+### Fixed
+- **Threaded mail lists preserve unthreaded messages.** Rows without a non-empty `thread_key` now fall back to `thread_id`, then to a physical-message identity, so independent messages are not grouped together or hidden. Thread pagination, totals, deduplication and expansion use the same identity.
+- **Microsoft Graph mail reads and mutations preserve immutable IDs.** Body, headers, attachment metadata/downloads, inline images, ZIP downloads, read/star, move, delete, spam/ham, snooze and bulk operations use `Prefer: IdType="ImmutableId"` whenever the connection has immutable IDs enabled.
 
 ## [4.1.0] - 2026-09-25
 

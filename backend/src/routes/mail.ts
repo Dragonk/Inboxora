@@ -51,6 +51,7 @@ import {
   localAttachmentsForGraph,
 } from '../services/providers/microsoft/graphMailBody.js';
 import { resolveGraphMessageIdentity } from '../services/providers/microsoft/graphLegacyMessageBindings.js';
+import { immutableIdsEnabled } from '../services/providers/microsoft/graphMessageIdType.js';
 import type { Request as ExpressRequest, Response as ExpressResponse } from 'express';
 /** Attachment metadata as stored in messages.attachments (JSON) and fetched from IMAP. */
 interface AttachmentMeta {
@@ -385,6 +386,10 @@ router.get('/thread/:threadId', async (req, res) => {
     // valid RFC Message-ID (trimmed) deduplicates folder copies; NULL/empty values use
     // the physical row ID so otherwise unidentifiable messages remain visible. Include
     // account_id in DISTINCT ON so a unified request can never dedupe across accounts.
+    const effectiveThreadExpr = `COALESCE(NULLIF(BTRIM(m.thread_key), ''), NULLIF(BTRIM(m.thread_id), ''), '__physical__:' || m.id::text)`;
+    const threadIdentityExpr = requestedAccountId
+      ? effectiveThreadExpr
+      : `(m.account_id::text || ':' || ${effectiveThreadExpr})`;
     const result = await query(`
       WITH deduped AS (
         SELECT DISTINCT ON (m.account_id,
@@ -401,7 +406,7 @@ router.get('/thread/:threadId', async (req, res) => {
         JOIN email_accounts a ON m.account_id = a.id
         WHERE m.is_deleted = false
           AND m.account_id = ANY($1)
-          AND m.thread_key = $2
+          AND ${threadIdentityExpr} = $2
         ORDER BY m.account_id,
                  COALESCE(NULLIF(btrim(m.message_id), ''), '__physical__:' || m.id::text),
                  CASE WHEN m.folder = 'INBOX' THEN 0 ELSE 1 END,
@@ -664,7 +669,7 @@ router.get('/messages/:id/headers', async (req, res) => {
       }
       try {
         headers = await fetchGraphMessageHeaders(
-          { userId: account.user_id, connectionId: account.provider_connection_id!, config: microsoftConfigFromEnv() },
+          { userId: account.user_id, connectionId: account.provider_connection_id!, config: microsoftConfigFromEnv(), immutableIds: await immutableIdsEnabled(account.provider_connection_id!) },
           identity.providerMessageId,
         );
       } catch (caught) {
@@ -776,7 +781,7 @@ router.get('/messages/:id/attachments.zip', async (req, res) => {
           : identity.kind === 'binding_ambiguous' ? 'MESSAGE_BINDING_AMBIGUOUS' : 'MESSAGE_PROVIDER_IDENTITY_MISSING';
         return res.status(409).json({ error: 'This message has no resolvable Microsoft Graph identity', code });
       }
-      const api = { userId: account.user_id, connectionId: account.provider_connection_id!, config: microsoftConfigFromEnv() };
+      const api = { userId: account.user_id, connectionId: account.provider_connection_id!, config: microsoftConfigFromEnv(), immutableIds: await immutableIdsEnabled(account.provider_connection_id!) };
       bufferMap = new Map();
       for (const att of eligible) {
         try {
@@ -907,7 +912,7 @@ router.get('/messages/:id/attachments/:part', async (req, res) => {
         return res.status(409).json({ error: 'This message has no resolvable Microsoft Graph identity', code });
       }
       const bytes = await fetchGraphAttachmentBytes(
-        { userId: attachmentAccount.user_id, connectionId: attachmentAccount.provider_connection_id!, config: microsoftConfigFromEnv() },
+        { userId: attachmentAccount.user_id, connectionId: attachmentAccount.provider_connection_id!, config: microsoftConfigFromEnv(), immutableIds: await immutableIdsEnabled(attachmentAccount.provider_connection_id!) },
         identity.providerMessageId,
         partNum,
         ATTACHMENT_SIZE_LIMIT,
@@ -992,7 +997,7 @@ async function emptyGraphFolder(userId: string, account: EmailAccountRow, path: 
     if (!row.provider_message_id) continue;
     const removed = await deleteGraphMessagePermanently({
       userId, accountId: account.id, connectionId: account.provider_connection_id,
-      config: microsoftConfigFromEnv(), resourceId: row.id, providerMessageId: row.provider_message_id,
+      config: microsoftConfigFromEnv(), immutableIds: await immutableIdsEnabled(account.provider_connection_id), resourceId: row.id, providerMessageId: row.provider_message_id,
     });
     if (!removed.deleted) {
       refused += 1;
@@ -1248,7 +1253,7 @@ async function markAllReadOverGraph(
   messages: ReadonlyArray<{ id: string; provider_message_id: string | null }>,
 ): Promise<{ confirmed: number; failed: number }> {
   if (!account.provider_connection_id) return { confirmed: 0, failed: messages.length };
-  const api = { userId, connectionId: account.provider_connection_id, config: microsoftConfigFromEnv() };
+  const api = { userId, connectionId: account.provider_connection_id, config: microsoftConfigFromEnv(), immutableIds: await immutableIdsEnabled(account.provider_connection_id) };
   let confirmed = 0;
   let failed = 0;
   for (const message of messages) {
@@ -1367,7 +1372,7 @@ async function deleteMessageOverGraph(input: {
   if (input.destinationPath === null) {
     const deleted = await deleteGraphMessagePermanently({
       userId: input.userId, accountId: message.account_id, connectionId,
-      config: microsoftConfigFromEnv(), resourceId: identity.canonicalMessageId, providerMessageId: identity.providerMessageId,
+      config: microsoftConfigFromEnv(), immutableIds: await immutableIdsEnabled(account.provider_connection_id!), resourceId: identity.canonicalMessageId, providerMessageId: identity.providerMessageId,
     });
     if (deleted.deleted) return { ok: true, moved: false };
     const refused = deleted.code === 'RESOURCE_NOT_FOUND' || deleted.code === 'PROVIDER_AUTH_REQUIRED' || deleted.code === 'INSUFFICIENT_SCOPES' || deleted.code === 'OPERATION_FORBIDDEN';
@@ -1395,6 +1400,7 @@ async function deleteMessageOverGraph(input: {
     accountId: message.account_id,
     connectionId,
     config: microsoftConfigFromEnv(),
+    immutableIds: await immutableIdsEnabled(account.provider_connection_id!),
     resourceId: identity.canonicalMessageId,
     providerMessageId: identity.providerMessageId,
     destinationPath: input.destinationPath,
@@ -1521,6 +1527,7 @@ async function moveMessagesOverGraph(input: {
       accountId: input.accountId,
       connectionId: input.account.provider_connection_id,
       config: microsoftConfigFromEnv(),
+      immutableIds: await immutableIdsEnabled(input.account.provider_connection_id),
       resourceId: identity.canonicalMessageId,
       providerMessageId: identity.providerMessageId,
       destinationPath: input.destinationPath,
@@ -1658,6 +1665,7 @@ async function respondWithGraphBody(
     userId: account.user_id,
     connectionId: account.provider_connection_id!,
     config: microsoftConfigFromEnv(),
+    immutableIds: await immutableIdsEnabled(account.provider_connection_id!),
   };
   const providerMessageId = identity.providerMessageId;
 
@@ -2605,7 +2613,7 @@ router.post('/messages/bulk-delete', async (req, res) => {
           }
           const removed = await deleteGraphMessagePermanently({
             userId: sessionUserId(req), accountId, connectionId: account.provider_connection_id ?? '',
-            config: microsoftConfigFromEnv(), resourceId: identity.canonicalMessageId, providerMessageId: identity.providerMessageId,
+            config: microsoftConfigFromEnv(), immutableIds: await immutableIdsEnabled(account.provider_connection_id!), resourceId: identity.canonicalMessageId, providerMessageId: identity.providerMessageId,
           });
           if (removed.deleted) {
             expungedCanonicalIds.add(identity.canonicalMessageId);

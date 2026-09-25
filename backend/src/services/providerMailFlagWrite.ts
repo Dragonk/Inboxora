@@ -12,6 +12,7 @@ import {
   type GmailMailFlagPayload,
 } from './providers/google/gmailMailMutations.js';
 import { googleConfigFromEnv, microsoftConfigFromEnv } from './providerAuthService.js';
+import { immutableIdsEnabled } from './providers/microsoft/graphMessageIdType.js';
 import { toAppError } from '../utils/errors.js';
 import type { EmailAccountRow } from './imapManager.js';
 
@@ -156,7 +157,7 @@ export async function pushGraphMessageFlag(options: {
         retry: { delaySeconds: 300 },
       },
       graphFlagMutationAdapter({
-        api: { userId: options.userId, connectionId: account.provider_connection_id, config: microsoftConfigFromEnv() },
+        api: { userId: options.userId, connectionId: account.provider_connection_id, config: microsoftConfigFromEnv(), immutableIds: await immutableIdsEnabled(account.provider_connection_id) },
       }),
     );
     if (mutation.status === 'confirmed') return { status: mutation.status };

@@ -13,7 +13,7 @@ import {
 } from './graphMailMutations.js';
 import type { GraphMailFlagPayload } from './graphMailMutations.js';
 
-const API = { userId: 'user-1', connectionId: 'connection-1' };
+const API = { userId: 'user-1', connectionId: 'connection-1', immutableIds: true };
 const payload: GraphMailFlagPayload = {
   providerMessageId: 'AAMkAD-1', flag: '\\Seen', value: true, intentAt: '2026-03-04T09:00:00.000Z',
 };

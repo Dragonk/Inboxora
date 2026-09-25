@@ -7,7 +7,7 @@
 <p align="center">
   <a href="https://github.com/Dragonk/Inboxora/actions/workflows/ci.yml"><img src="https://github.com/Dragonk/Inboxora/actions/workflows/ci.yml/badge.svg?branch=dev" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue" alt="License: AGPL-3.0"></a>
-  <img src="https://img.shields.io/badge/version-4.1.0-informational" alt="Version 4.1.0">
+  <img src="https://img.shields.io/badge/version-4.1.1-informational" alt="Version 4.1.0">
 </p>
 
 Inboxora brings mail, contacts and calendars into one self-hosted application. It speaks
@@ -23,8 +23,8 @@ what 4.1 adds on top and [What's new in 4.0](#whats-new-in-40) for the rest.
 over **Microsoft Graph** and a Google account can use the **Gmail, Calendar and People APIs**, while
 every account that prefers it keeps working over plain IMAP/SMTP — including Google with an app
 password. Provider data pulled from an API can be written back once you enable it per collection, and
-the send/attachment limits follow the transport you actually send over. **4.1.0 is the current release**;
-see the [4.1.0 release notes](docs/wiki/Release-notes-4.1.0.md) for upgrade requirements, verification,
+the send/attachment limits follow the transport you actually send over. **4.1.1 is the current release**;
+see the [4.1.1 release notes](docs/wiki/Release-notes-4.1.1.md) for upgrade requirements, verification,
 and known limitations.
 
 <p align="center">
@@ -403,7 +403,7 @@ release.
 | [Migrating from MailFlow](docs/wiki/Migrating-from-MailFlow.md) | Moving a MailFlow 3.3.0 deployment to Inboxora. |
 | [Troubleshooting](docs/wiki/Troubleshooting.md) | Diagnostic paths and common failures. |
 | [Development](docs/wiki/Development.md) | Local verification, browser tests, documentation policy. |
-| [Release notes 4.1.0](docs/wiki/Release-notes-4.1.0.md) | Current release: highlights, upgrade impact, administrator steps, limitations, verification. |
+| [Release notes 4.1.1](docs/wiki/Release-notes-4.1.1.md) | Current hotfix: threaded mail visibility and Microsoft Graph immutable-ID reads/mutations. |
 | [Release notes 4.0.4](docs/wiki/Release-notes-4.0.4.md) | Previous release: desktop changes, rollout requirements and known limitations. |
 | [Release notes 4.0.3](docs/wiki/Release-notes-4.0.3.md) | Previous release: sync, IDLE, antispam and migration requirements. |
 | [Release notes 4.0.2](docs/wiki/Release-notes-4.0.2.md) | Earlier release: reliability and data-isolation patch. |
@@ -411,7 +411,7 @@ release.
 
 ## Development
 
-**4.1.0 is the current release.** Published release images and application artifacts are built by
+**4.1.1 is the current release.** Published release images and application artifacts are built by
 GitHub Actions; [`docs/IMPLEMENTATION-STATUS.md`](docs/IMPLEMENTATION-STATUS.md) records the per-package
 delivery status and verification details. `main` receives releases only through a pull request from `dev`.
 

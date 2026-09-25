@@ -4,6 +4,7 @@ import { graphDeleteIntent, graphDeleteMutationAdapter, graphMoveIntent, graphMo
 import { providerUidForGraphMessage } from './graphMail.js';
 import { runProviderMutation } from '../../providerMutationService.js';
 import type { GraphApiOptions } from './graphApiClient.js';
+import { immutableIdsEnabled } from './graphMessageIdType.js';
 
 /**
  * Move one Microsoft Graph message to a local folder path and re-home its row.
@@ -27,11 +28,13 @@ export async function moveGraphMessageToFolder(input: {
   accountId: string;
   connectionId: string;
   config?: GraphApiOptions['config'];
+  immutableIds?: boolean;
   /** The local `messages.id`. */
   resourceId: string;
   providerMessageId: string;
   destinationPath: string;
 }): Promise<MoveGraphMessageResult> {
+  const immutableIds = input.immutableIds ?? await immutableIdsEnabled(input.connectionId);
   const destinationFolderId = await graphFolderIdForPath({
     connectionId: input.connectionId,
     accountId: input.accountId,
@@ -60,6 +63,7 @@ export async function moveGraphMessageToFolder(input: {
         userId: input.userId,
         connectionId: input.connectionId,
         ...(input.config ? { config: input.config } : {}),
+        immutableIds,
       },
     }),
   );
@@ -101,10 +105,12 @@ export async function deleteGraphMessagePermanently(input: {
   accountId: string;
   connectionId: string;
   config?: GraphApiOptions['config'];
+  immutableIds?: boolean;
   /** The local `messages.id`. */
   resourceId: string;
   providerMessageId: string;
 }): Promise<DeleteGraphMessageResult> {
+  const immutableIds = input.immutableIds ?? await immutableIdsEnabled(input.connectionId);
   const payload = { providerMessageId: input.providerMessageId, intentAt: new Date().toISOString() };
   const result = await runProviderMutation(
     {
@@ -122,6 +128,7 @@ export async function deleteGraphMessagePermanently(input: {
         userId: input.userId,
         connectionId: input.connectionId,
         ...(input.config ? { config: input.config } : {}),
+        immutableIds,
       },
     }),
   );

@@ -283,11 +283,11 @@ describe('listMessages — threaded mode', () => {
 
     const cteSql = query.mock.calls[1][0];
     const countSql = query.mock.calls[2][0];
-    expect(cteSql).toContain("m.account_id::text || ':' || m.thread_key");
+    expect(cteSql).toContain("m.account_id::text || ':' || COALESCE(NULLIF(BTRIM(m.thread_key), ''), NULLIF(BTRIM(m.thread_id), ''), '__physical__:' || m.id::text)");
     expect(cteSql).toContain('m.thread_key,');
     expect(cteSql).toContain('PARTITION BY d.thread_id');
-    expect(countSql).toContain('GROUP BY m.account_id, m.thread_key');
-    expect(cteSql).toContain('pt.account_id = m.account_id AND pt.thread_key = m.thread_key');
+    expect(countSql).toContain('GROUP BY m.account_id, COALESCE(NULLIF(BTRIM(m.thread_key), \'\'), NULLIF(BTRIM(m.thread_id), \'\'), \'__physical__:\' || m.id::text)');
+    expect(cteSql).toContain('pt.account_id = m.account_id AND pt.thread_bucket = COALESCE(NULLIF(BTRIM(m.thread_key), \'\'), NULLIF(BTRIM(m.thread_id), \'\'), \'__physical__:\' || m.id::text)');
   });
 });
 
