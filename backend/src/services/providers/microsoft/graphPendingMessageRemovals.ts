@@ -1,5 +1,6 @@
 import type { PoolClient } from 'pg';
 import { query, withTransaction } from '../../db.js';
+import { ProviderAuthError } from '../../providerAuthService.js';
 import { GraphApiError } from './graphApiClient.js';
 import type { GraphApiOptions } from './graphApiClient.js';
 import {
@@ -20,6 +21,7 @@ interface PendingRemoval {
   source_folder_path: string;
   source_folder_remote_id: string;
   attempts: number;
+  claimed_at: string;
 }
 
 export interface PendingRemovalSummary {
@@ -197,7 +199,8 @@ async function claimDue(
         internet_message_id,
         source_folder_path,
         source_folder_remote_id,
-        attempts`,
+        attempts,
+        claimed_at::text AS claimed_at`,
     [connectionId, accountId, limit, CLAIM_STALE_MINUTES],
   );
 
@@ -228,41 +231,77 @@ async function destinationPath(
   return result.rows[0]?.path ?? null;
 }
 
-async function clearPending(messageRowId: string): Promise<void> {
-  await query(
-    'DELETE FROM graph_pending_message_removals WHERE message_row_id = $1',
-    [messageRowId],
+async function clearPending(row: PendingRemoval): Promise<boolean> {
+  const result = await query(
+    `DELETE FROM graph_pending_message_removals
+      WHERE message_row_id = $1
+        AND claimed_at = $2::timestamptz`,
+    [row.message_row_id, row.claimed_at],
   );
+  return (result.rowCount ?? 0) > 0;
 }
 
 async function deferPending(
-  messageRowId: string,
+  row: PendingRemoval,
   code: string,
   incrementAttempt: boolean,
   retryDelaySeconds = RETRY_DELAY_SECONDS,
-): Promise<void> {
-  await query(
+): Promise<boolean> {
+  const result = await query(
     `UPDATE graph_pending_message_removals
         SET claimed_at = NULL,
             attempts = attempts + CASE WHEN $3 THEN 1 ELSE 0 END,
             last_error_code = $2,
             verify_after = NOW() + make_interval(secs => $4),
             updated_at = NOW()
-      WHERE message_row_id = $1`,
-    [messageRowId, code, incrementAttempt, retryDelaySeconds],
+      WHERE message_row_id = $1
+        AND claimed_at = $5::timestamptz`,
+    [
+      row.message_row_id,
+      code,
+      incrementAttempt,
+      retryDelaySeconds,
+      row.claimed_at,
+    ],
   );
+  return (result.rowCount ?? 0) > 0;
 }
 
-async function confirmedDelete(messageRowId: string): Promise<void> {
-  await withTransaction(async client => {
-    await client.query('DELETE FROM messages WHERE id = $1', [messageRowId]);
-
-    // The FK normally cascades this, but also clear explicitly for the case where
-    // another worker already removed the message.
-    await client.query(
-      'DELETE FROM graph_pending_message_removals WHERE message_row_id = $1',
-      [messageRowId],
+async function confirmedDelete(row: PendingRemoval): Promise<boolean> {
+  return withTransaction(async client => {
+    // Consume the exact claim first. If a normal delta proved that the mail
+    // exists, it has already cleared this row. A later worker also carries a
+    // different claimed_at value.
+    const owned = await client.query<{
+      source_folder_path: string;
+      provider_message_id: string;
+    }>(
+      `DELETE FROM graph_pending_message_removals
+        WHERE message_row_id = $1
+          AND claimed_at = $2::timestamptz
+        RETURNING source_folder_path, provider_message_id`,
+      [row.message_row_id, row.claimed_at],
     );
+
+    const claim = owned.rows[0];
+    if (!claim) return false;
+
+    // Identity and source-folder fences also protect the ImmutableId transition:
+    // if the message row was rebound after this candidate was created, the stale
+    // candidate cannot delete it.
+    const removed = await client.query(
+      `DELETE FROM messages
+        WHERE id = $1
+          AND folder = $2
+          AND provider_message_id = $3`,
+      [
+        row.message_row_id,
+        claim.source_folder_path,
+        claim.provider_message_id,
+      ],
+    );
+
+    return (removed.rowCount ?? 0) > 0;
   });
 }
 
@@ -270,27 +309,39 @@ async function relocate(
   row: PendingRemoval,
   providerMessageId: string,
   folderPath: string,
-): Promise<void> {
-  await withTransaction(async client => {
-    // Resolve the account from the physical row. Keeping the lookup here avoids
-    // trusting any caller-supplied account identifier.
-    const owner = await client.query<{ account_id: string }>(
-      'SELECT account_id FROM messages WHERE id = $1',
-      [row.message_row_id],
+): Promise<boolean> {
+  return withTransaction(async client => {
+    const owned = await client.query<{ source_folder_path: string }>(
+      `DELETE FROM graph_pending_message_removals
+        WHERE message_row_id = $1
+          AND claimed_at = $2::timestamptz
+        RETURNING source_folder_path`,
+      [row.message_row_id, row.claimed_at],
     );
-    const accountId = owner.rows[0]?.account_id;
 
-    if (!accountId) {
-      await client.query(
-        'DELETE FROM graph_pending_message_removals WHERE message_row_id = $1',
-        [row.message_row_id],
-      );
-      return;
-    }
+    const claim = owned.rows[0];
+    if (!claim) return false;
+
+    // Lock and verify the same source projection before mutating it.
+    const owner = await client.query<{ account_id: string }>(
+      `SELECT account_id
+         FROM messages
+        WHERE id = $1
+          AND folder = $2
+          AND provider_message_id = $3
+        FOR UPDATE`,
+      [
+        row.message_row_id,
+        claim.source_folder_path,
+        row.provider_message_id,
+      ],
+    );
+
+    const accountId = owner.rows[0]?.account_id;
+    if (!accountId) return false;
 
     // A destination delta may already have inserted this exact provider object.
-    // Keep the original Inboxora row because it owns local state and annotations;
-    // remove only a duplicate proven by provider identity, never by derived UID.
+    // Keep the original Inboxora row and its local metadata.
     await client.query(
       `DELETE FROM messages
         WHERE account_id = $1
@@ -299,9 +350,6 @@ async function relocate(
       [accountId, providerMessageId, row.message_row_id],
     );
 
-    // providerUidForGraphMessage is deterministic but the legacy UID uniqueness
-    // constraint can still collide with an unrelated message. Find a free derived
-    // UID instead of deleting the unrelated row.
     let rebound = false;
 
     for (let attempt = 0; attempt < 3 && !rebound; attempt++) {
@@ -326,30 +374,37 @@ async function relocate(
                 provider_message_id = $2,
                 uid = $3,
                 synced_at = NOW()
-          WHERE id = $4`,
-        [folderPath, providerMessageId, candidateUid, row.message_row_id],
+          WHERE id = $4
+            AND folder = $5`,
+        [
+          folderPath,
+          providerMessageId,
+          candidateUid,
+          row.message_row_id,
+          claim.source_folder_path,
+        ],
       );
 
       rebound = (updated.rowCount ?? 0) > 0;
     }
 
     if (!rebound) {
-      throw new Error(`Unable to allocate a collision-free UID while relocating ${row.message_row_id}`);
+      throw new Error(
+        `Unable to allocate a collision-free UID while relocating ${row.message_row_id}`,
+      );
     }
 
-    await client.query(
-      'DELETE FROM graph_pending_message_removals WHERE message_row_id = $1',
-      [row.message_row_id],
-    );
+    return true;
   });
 }
 
 /**
  * Reconcile due tombstones.
  *
- * Mutable Graph ids require two independent negative checks separated in time.
- * Immutable ids require only the delayed direct 404 because they survive moves
- * within the mailbox.
+ * Mutable Graph ids may be used to confirm that a message still exists or moved,
+ * but they never authorize physical deletion from a 404 alone. Immutable ids are
+ * stable across mailbox moves, so a delayed direct 404 can authorize deletion
+ * while the claim, source folder and provider identity fences still hold.
  */
 export async function processGraphPendingRemovals(input: {
   userId: string;
@@ -385,20 +440,25 @@ export async function processGraphPendingRemovals(input: {
     ...(input.fetchImpl ? { fetchImpl: input.fetchImpl } : {}),
   };
 
-  for (const row of rows) {
+  for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+    const row = rows[rowIndex]!;
+
     try {
-      const direct = await fetchGraphMessageLocation(api, row.provider_message_id);
+      const direct = await fetchGraphMessageLocation(
+        api,
+        row.provider_message_id,
+      );
 
       if (direct) {
         if (!direct.parentFolderId) {
-          await deferPending(row.message_row_id, 'GRAPH_FOLDER_UNKNOWN', false);
-          summary.deferred += 1;
+          if (await deferPending(row, 'GRAPH_FOLDER_UNKNOWN', false)) {
+            summary.deferred += 1;
+          }
           continue;
         }
 
         if (direct.parentFolderId === row.source_folder_remote_id) {
-          await clearPending(row.message_row_id);
-          summary.kept += 1;
+          if (await clearPending(row)) summary.kept += 1;
           continue;
         }
 
@@ -409,39 +469,60 @@ export async function processGraphPendingRemovals(input: {
         );
 
         if (!path) {
-          await deferPending(row.message_row_id, 'GRAPH_DESTINATION_UNKNOWN', false);
-          summary.deferred += 1;
+          // Graph directly proved that this exact message is no longer in the
+          // source folder. Give folder discovery two retries to learn the
+          // destination. If it stays outside sync scope, remove only the stale
+          // local source projection.
+          if (row.attempts >= 2) {
+            if (await confirmedDelete(row)) summary.deleted += 1;
+          } else if (
+            await deferPending(
+              row,
+              'GRAPH_DESTINATION_UNKNOWN',
+              true,
+            )
+          ) {
+            summary.deferred += 1;
+          }
           continue;
         }
 
-        await relocate(row, direct.id, path);
-        summary.relocated += 1;
+        if (await relocate(row, direct.id, path)) {
+          summary.relocated += 1;
+        }
         continue;
       }
 
-      // Immutable Graph identity survives moves inside the mailbox. After the
-      // grace period, a direct 404 is therefore authoritative.
+      // Immutable identity survives moves. A delayed direct 404 may authorize
+      // deletion, but confirmedDelete still checks the claimed pending
+      // identity against the current messages row.
       if (immutableIds) {
-        await confirmedDelete(row.message_row_id);
-        summary.deleted += 1;
+        if (await confirmedDelete(row)) summary.deleted += 1;
         continue;
       }
 
       const internetMessageId = row.internet_message_id?.trim() ?? '';
 
-      // Without an independent identity a mutable-id 404 cannot authorize a
-      // destructive operation.
       if (!internetMessageId) {
-        await deferPending(row.message_row_id, 'GRAPH_NO_STABLE_ID', false);
-        summary.deferred += 1;
+        if (await deferPending(row, 'GRAPH_NO_STABLE_ID', false)) {
+          summary.deferred += 1;
+        }
         continue;
       }
 
-      const matches = await findGraphMessagesByInternetMessageId(api, internetMessageId);
+      const matches =
+        await findGraphMessagesByInternetMessageId(api, internetMessageId);
 
       if (matches.length > 1) {
-        await deferPending(row.message_row_id, 'GRAPH_IDENTITY_AMBIGUOUS', false);
-        summary.deferred += 1;
+        if (
+          await deferPending(
+            row,
+            'GRAPH_IDENTITY_AMBIGUOUS',
+            false,
+          )
+        ) {
+          summary.deferred += 1;
+        }
         continue;
       }
 
@@ -449,8 +530,9 @@ export async function processGraphPendingRemovals(input: {
         const match = matches[0]!;
 
         if (!match.parentFolderId) {
-          await deferPending(row.message_row_id, 'GRAPH_FOLDER_UNKNOWN', false);
-          summary.deferred += 1;
+          if (await deferPending(row, 'GRAPH_FOLDER_UNKNOWN', false)) {
+            summary.deferred += 1;
+          }
           continue;
         }
 
@@ -460,44 +542,82 @@ export async function processGraphPendingRemovals(input: {
           match.parentFolderId,
         );
 
+        // RFC Message-ID is not unique enough to authorize deletion if the
+        // matching object is in an unsynchronised folder. Keep retrying safely.
         if (!path) {
-          await deferPending(row.message_row_id, 'GRAPH_DESTINATION_UNKNOWN', false);
-          summary.deferred += 1;
+          if (
+            await deferPending(
+              row,
+              'GRAPH_DESTINATION_UNKNOWN',
+              false,
+            )
+          ) {
+            summary.deferred += 1;
+          }
           continue;
         }
 
-        await relocate(row, match.id, path);
-        summary.relocated += 1;
+        if (await relocate(row, match.id, path)) {
+          summary.relocated += 1;
+        }
         continue;
       }
 
-      // A mutable Graph id is not durable deletion authority. Live Outlook
-      // mailboxes have demonstrated that the old id can 404 while the message
-      // still exists, and an immediate RFC lookup may also temporarily return
-      // no match. Never physically delete such a row.
-      //
-      // Keep the durable candidate so a later delta can cancel it or relocate
-      // it. Once the mailbox has been migrated to ImmutableId, the immutable
-      // branch above may safely authorize deletion.
-      await deferPending(
-        row.message_row_id,
-        'GRAPH_DELETE_REQUIRES_IMMUTABLE_ID',
-        false,
-        300,
-      );
-      summary.deferred += 1;
+      // Mutable Graph IDs never authorize physical deletion solely from 404 +
+      // an empty RFC lookup.
+      if (
+        await deferPending(
+          row,
+          'GRAPH_DELETE_REQUIRES_IMMUTABLE_ID',
+          false,
+          300,
+        )
+      ) {
+        summary.deferred += 1;
+      }
     } catch (caught) {
-      const code = caught instanceof GraphApiError
-        ? caught.code
-        : 'INTERNAL_ERROR';
+      const code =
+        caught instanceof ProviderAuthError
+          ? caught.code
+          : caught instanceof GraphApiError
+            ? caught.code
+            : 'INTERNAL_ERROR';
 
       const retryDelay =
         caught instanceof GraphApiError && caught.retryAfterSeconds
           ? Math.max(RETRY_DELAY_SECONDS, caught.retryAfterSeconds)
           : RETRY_DELAY_SECONDS;
 
-      await deferPending(row.message_row_id, code, false, retryDelay);
-      summary.deferred += 1;
+      if (await deferPending(row, code, false, retryDelay)) {
+        summary.deferred += 1;
+      }
+
+      const fatal =
+        caught instanceof ProviderAuthError
+        || (
+          caught instanceof GraphApiError
+          && (
+            caught.code === 'PROVIDER_AUTH_REQUIRED'
+            || caught.code === 'INSUFFICIENT_SCOPES'
+          )
+        );
+
+      const throttled =
+        caught instanceof GraphApiError
+        && caught.code === 'RATE_LIMITED';
+
+      if (fatal || throttled) {
+        // Do not leave the rest of this batch claimed for ten minutes and do
+        // not keep hammering Graph after a 429 or unusable authorization.
+        for (const rest of rows.slice(rowIndex + 1)) {
+          if (await deferPending(rest, code, false, retryDelay)) {
+            summary.deferred += 1;
+          }
+        }
+
+        if (fatal) throw caught;
+        break;
+      }
     }
   }
 

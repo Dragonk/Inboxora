@@ -34,13 +34,8 @@ export async function moveGraphMessageToFolder(input: {
   providerMessageId: string;
   destinationPath: string;
 }): Promise<MoveGraphMessageResult> {
-  let immutableIds: boolean;
-  try {
-    immutableIds = input.immutableIds ?? await immutableIdsEnabled(input.connectionId);
-  } catch (caught) {
-    const code = (caught as { code?: string } | null)?.code;
-    return { moved: false, ...(code ? { code } : { code: 'INTERNAL_ERROR' }) };
-  }
+  const immutableIds =
+    input.immutableIds ?? await immutableIdsEnabled(input.connectionId);
   const destinationFolderId = await graphFolderIdForPath({
     connectionId: input.connectionId,
     accountId: input.accountId,

@@ -18,9 +18,9 @@
 
 ## Validation and upgrade
 
-The upgrade includes `0141_message_list_hot_path_indexes.sql` for the message-list hot path and `0142_graph_pending_message_removals.sql` for durable Microsoft Graph tombstone reconciliation.
+The upgrade includes `0141_message_list_hot_path_indexes.sql` for the message-list hot path, `0142_graph_pending_message_removals.sql` for durable Microsoft Graph tombstone reconciliation, and `0143_repair_message_list_hot_path_index.sql` as the forward repair for installations that already recorded the first 0141 revision.
 
 
-Apply the complete migration chain through `0142_graph_pending_message_removals.sql` before rolling out 4.1.1. The normal backend startup migration runner applies pending migrations automatically. The release includes a real PostgreSQL regression for three independent messages with null thread identifiers, reconnect cursor reset, and Graph regression coverage for immutable-ID reads, mutations, and delta pagination.
+Apply the complete migration chain through `0143_repair_message_list_hot_path_index.sql` before rolling out 4.1.1. The normal backend startup migration runner applies pending migrations automatically. The release includes a real PostgreSQL regression for three independent messages with null thread identifiers, reconnect cursor reset, and Graph regression coverage for immutable-ID reads, mutations, and delta pagination.
 
 Before publishing, validate on the `dev` deployment that threaded and flat views, refreshes and folder changes retain messages, and that old and new Microsoft messages open their bodies and support regular, inline-CID, single and ZIP attachment downloads. Do not publish if any of these live checks fail.

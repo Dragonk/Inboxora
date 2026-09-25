@@ -109,8 +109,23 @@ export async function applyGraphMessageIdTranslation(plan: GraphIdTranslationPla
             )`,
         [change.messageId, change.to],
       );
-      if ((result.rowCount ?? 0) > 0) updated += 1;
-      else skipped += 1;
+      if ((result.rowCount ?? 0) > 0) {
+        // A removal candidate stores the same provider identity separately.
+        // Translate it in the same transaction, before the connection may be
+        // marked as ImmutableId-enabled. Otherwise a stale mutable id could
+        // later 404 under ImmutableId and masquerade as a confirmed deletion.
+        await client.query(
+          `UPDATE graph_pending_message_removals
+              SET provider_message_id = $2,
+                  updated_at = NOW()
+            WHERE message_row_id = $1
+              AND provider_message_id = $3`,
+          [change.messageId, change.to, change.from],
+        );
+        updated += 1;
+      } else {
+        skipped += 1;
+      }
     }
     return { updated, skipped };
   });

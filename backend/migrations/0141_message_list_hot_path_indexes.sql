@@ -13,5 +13,5 @@ WHERE thread_id IS NOT NULL
 -- Folder membership is queried as
 -- (account_id, folder_path, message_id). The old index stopped at folder_path,
 -- forcing an extra heap/filter step for large Gmail mailboxes.
-CREATE INDEX CONCURRENTLY message_labels_folder_message_idx
+CREATE INDEX CONCURRENTLY IF NOT EXISTS message_labels_folder_message_idx
   ON message_labels (account_id, folder_path, message_id);
