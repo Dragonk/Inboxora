@@ -196,7 +196,8 @@ async function openSettingsTab(page, name) {
 // Appearance groups its options into sub-tabs; the threading settings and the
 // conversation rebuild live under Layout, not on the default Theme sub-tab.
 async function openSettingsSubTab(page, name) {
-  const button = page.locator('.admin-panel').getByRole('tab', { name: new RegExp(`^${name}$`, 'i') }).first();
+  const button = page.locator('.admin-panel button[role="tab"], .admin-panel button.admin-subtab')
+    .filter({ hasText: new RegExp(`^${name}$`, 'i') }).first();
   await button.scrollIntoViewIfNeeded();
   await button.click();
 }
@@ -347,7 +348,10 @@ test('settings: appearance, DAV access and about', async ({ page, fixtureApi }) 
 test('settings: the conversation rebuild confirmation', async ({ page, fixtureApi }) => {
   await openMail(page, fixtureApi);
   await openSettings(page);
-  await openSettingsTab(page, 'Appearance');
+  // Calendar and display both expose an Appearance entry; the rebuild controls live in display Appearance.
+  const displayAppearance = page.locator('.admin-panel').getByRole('button', { name: 'Appearance', exact: true }).last();
+  await displayAppearance.scrollIntoViewIfNeeded();
+  await displayAppearance.click();
   await openSettingsSubTab(page, 'Layout');
   const open = page.getByTestId('conversation-rebuild-open');
   await expect(open).toBeVisible();
