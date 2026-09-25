@@ -77,6 +77,9 @@ export default function ContactsBooksManager(props: ContactsBooksManagerProps) {
     for (const book of props.books) {
       const id = bookSourceId(asBook(book));
       if (id === 'local' || result.has(id)) continue;
+      // Google/Microsoft books are account-native projections. Do not manufacture a
+      // provider card from a stale local book after its Inboxora account is deleted.
+      if ((book.source === 'google' || book.source === 'microsoft') && !book.accountId) continue;
       result.set(id, { id, kind: book.source, accountId: book.accountId, name: book.sourceLabel || providerLabel(book.source, t), identity: book.accountLabel || book.sourceUsername,
         count: props.books.filter(item => bookSourceId(asBook(item)) === id).length, state: 'unknown' });
     }

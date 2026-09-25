@@ -93,7 +93,10 @@ export default function CalendarSettingsManager({ locale, view = 'accounts' }: {
   const refresh = async () => { await Promise.all([load(), provider.refresh()]); window.dispatchEvent(new Event('inboxora:calendar-changed')); };
   const runRefresh = (action: () => Promise<unknown>) => void operation.run(async current => { await action(); if (current()) await refresh(); });
   const groups = useMemo(() => calendarSidebarGroups(presentation, calendars), [presentation, calendars]);
-  const connections: ServiceConnection[] = useMemo(() => (presentation?.sources ?? []).filter(source => source.kind !== 'local').map(source => {
+  const connections: ServiceConnection[] = useMemo(() => (presentation?.sources ?? [])
+    .filter(source => source.kind !== 'local')
+    .filter(source => !['google', 'microsoft'].includes(source.kind) || Boolean(source.accountId))
+    .map(source => {
     const external = sources.find(item => `calendar-source:${item.id}` === source.id);
     const snapshot = source.accountId ? provider.snapshots[source.accountId] : undefined;
     const account = provider.accounts.find(item => item.id === source.accountId);

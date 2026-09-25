@@ -617,10 +617,39 @@ export async function loadCalendarPresentation(userId: string): Promise<Calendar
        FROM calendars c
        LEFT JOIN integration_collections ic ON ic.local_calendar_id = c.id AND ic.kind = 'calendar' AND ic.user_id = c.user_id
        LEFT JOIN provider_connections pc ON pc.id = ic.connection_id
-       LEFT JOIN email_accounts a ON a.user_id = c.user_id AND a.provider_connection_id = pc.id
+       LEFT JOIN LATERAL (
+          SELECT candidate.id, candidate.email_address
+            FROM email_accounts candidate
+           WHERE candidate.user_id = c.user_id
+             AND pc.id IS NOT NULL
+             AND (
+               candidate.id = ic.account_id
+               OR candidate.provider_connection_id = pc.id
+               OR (
+                 pc.provider_user_id IS NOT NULL
+                 AND lower(candidate.email_address) = lower(pc.provider_user_id)
+               )
+             )
+           ORDER BY
+             CASE
+               WHEN candidate.id = ic.account_id THEN 0
+               WHEN candidate.provider_connection_id = pc.id THEN 1
+               ELSE 2
+             END,
+             candidate.created_at ASC,
+             candidate.id ASC
+           LIMIT 1
+        ) a ON true
        LEFT JOIN account_provider_feature_settings aps ON aps.account_id = a.id AND aps.feature = 'calendars'
        LEFT JOIN calendar_import_sources cis ON cis.user_id = c.user_id AND c.external_url = ('source:' || cis.id::text)
-      WHERE c.user_id = $1 AND c.owner_user_id = $1 ORDER BY c.created_at ASC`, [userId]);
+      WHERE c.user_id = $1
+         AND c.owner_user_id = $1
+         AND (
+           pc.id IS NULL
+           OR pc.provider NOT IN ('google', 'microsoft')
+           OR a.id IS NOT NULL
+         )
+       ORDER BY c.created_at ASC`, [userId]);
   const [sourcePrefs, calendarPrefs, appearance, accountSources, importSources] = await Promise.all([
     query<{ source_id: string; collapsed: boolean }>('SELECT source_id, collapsed FROM user_calendar_source_preferences WHERE user_id = $1', [userId]),
     query<{ calendar_id: string; sidebar_hidden: boolean; color_override: string | null }>('SELECT calendar_id, sidebar_hidden, color_override FROM user_calendar_presentation_preferences WHERE user_id = $1', [userId]),

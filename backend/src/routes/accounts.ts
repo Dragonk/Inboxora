@@ -14,11 +14,11 @@ import { isUuid, uuidParam } from '../utils/uuid.js';
 import { toAppError } from '../utils/errors.js';
 import { cutOverMicrosoftMailAccount } from '../services/providerMailCutover.js';
 import { releaseProviderPushForConnection } from '../services/providerPushLifecycle.js';
+import { accountDeletionPlan, deleteAccountWithProviderArtifacts } from '../services/accountDeletionCleanup.js';
 import { createNativeMailAccount, describeNativeCandidates, nativeProviderReadiness } from '../services/nativeAccountService.js';
 import { classifyProviderAccountById } from '../services/providerAccountClassifier.js';
 import { describeAccountProviderFeatures } from '../services/accountProviderFeatures.js';
 import { isAccountProviderService, setAccountProviderFeatureSetting } from '../services/accountProviderFeatureSettings.js';
-import { clearSyncHintsForConnection } from '../services/providerSyncHints.js';
 import { providerIntegrationsEnabled } from '../services/providerSwitches.js';
 import { googleConfigFromEnv, microsoftConfigFromEnv } from '../services/providerAuthService.js';
 import { providerSyncPreflight, describeProviderSyncFailure } from '../services/providerSyncDiagnostics.js';
@@ -366,38 +366,35 @@ router.put('/:id', async (req, res) => {
 router.delete('/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const check = await query<{ id: string; provider_connection_id: string | null }>(
-      'SELECT id, provider_connection_id FROM email_accounts WHERE id = $1 AND user_id = $2',
-      [id, req.session.userId],
-    );
-    if (!check.rows.length) return res.status(404).json({ error: 'Account not found' });
-
-    // A deleted account must not leave a provider subscription being renewed for it. The connection is
-    // released only when no other account of this user still uses it, so deleting one of two mailboxes on a
-    // shared connection does not stop the other's notifications. Best effort, and never a reason to keep the
-    // account: the local tombstone is written either way.
-    const connectionId = check.rows[0].provider_connection_id;
-    if (connectionId) {
-      const remaining = await query<{ count: string }>(
-        'SELECT COUNT(*)::text AS count FROM email_accounts WHERE user_id = $1 AND provider_connection_id = $2 AND id <> $3',
-        [req.session.userId, connectionId, id],
-      );
-      if (Number(remaining.rows[0]?.count ?? 0) === 0) {
-        await releaseProviderPushForConnection({ userId: req.session.userId!, connectionId })
-          .catch(error => console.warn('Provider push cleanup after account delete failed:', error instanceof Error ? error.message : error));
-      } else {
-        await clearSyncHintsForConnection(connectionId).catch(() => {});
-      }
+    const userId = req.session.userId!;
+    const plan = await accountDeletionPlan(userId, id);
+    if (!plan) return res.status(404).json({ error: 'Account not found' });
+    if (plan.invitationReferences > 0) {
+      return res.status(409).json({ error: 'This account is still used to send calendar invitations. Cancel or transfer those invitations before deleting it.' });
     }
 
-    // Delete from DB first (cascades to messages and folders immediately).
+    // Stop provider-side push while the credentials/connection still exist.
+    // Only connections that become unused are released; shared connections are
+    // intentionally preserved for their remaining account(s).
+    for (const connectionId of plan.connectionsToDelete) {
+      await releaseProviderPushForConnection({ userId, connectionId })
+        .catch(error => console.warn('Provider push cleanup after account delete failed:', error instanceof Error ? error.message : error));
+    }
+
+    const deleted = await deleteAccountWithProviderArtifacts(userId, id, plan);
+    if (!deleted) return res.status(404).json({ error: 'Account not found' });
+
     // Disconnect IMAP afterward — fire-and-forget so a slow server logout
     // doesn't block the response.
-    await query('DELETE FROM email_accounts WHERE id = $1', [id]);
     imapManager.disconnectAccount(id).catch(err =>
       console.error(`Disconnect error after delete for ${id}:`, err.message)
     );
-    res.json({ ok: true });
+    res.json({
+      ok: true,
+      removedProviderConnections: plan.connectionsToDelete.length,
+      removedCalendars: deleted.calendars,
+      removedAddressBooks: deleted.addressBooks,
+    });
   } catch (caught) {
     const err = toAppError(caught);
     if (err.code === '23503') {

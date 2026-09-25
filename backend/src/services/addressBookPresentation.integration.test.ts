@@ -17,20 +17,20 @@ suite('account-scoped address book presentation (PostgreSQL)', () => {
         CREATE TABLE address_books (id uuid PRIMARY KEY, user_id uuid, name text, source text, visible boolean DEFAULT true, dav_mode text DEFAULT 'off', created_at timestamptz DEFAULT now());
         CREATE TABLE contacts (id uuid PRIMARY KEY, user_id uuid, address_book_id uuid);
         CREATE TABLE integration_collections (id uuid PRIMARY KEY, user_id uuid, local_address_book_id uuid, kind text, connection_id uuid, source_connection_id uuid, account_id uuid, source_access text, user_access text);
-        CREATE TABLE provider_connections (id uuid PRIMARY KEY, user_id uuid, provider text);
+        CREATE TABLE provider_connections (id uuid PRIMARY KEY, user_id uuid, provider text, provider_user_id text);
         CREATE TABLE user_integrations (id uuid PRIMARY KEY, user_id uuid, provider text, label text, config jsonb DEFAULT '{}'::jsonb);
         CREATE TABLE source_connections (id uuid PRIMARY KEY, user_id uuid, integration_id uuid);
-        CREATE TABLE email_accounts (id uuid PRIMARY KEY, user_id uuid, provider_connection_id uuid, email_address text, name text);
+        CREATE TABLE email_accounts (id uuid PRIMARY KEY, user_id uuid, provider_connection_id uuid, email_address text, name text, created_at timestamptz DEFAULT now());
       `);
       const owner = randomUUID(); const other = randomUUID(); const connection = randomUUID();
       const book = randomUUID(); const collection = randomUUID(); const accountA = randomUUID(); const accountB = randomUUID();
-      await client.query("INSERT INTO provider_connections VALUES ($1, $2, 'google')", [connection, owner]);
+      await client.query("INSERT INTO provider_connections (id,user_id,provider) VALUES ($1,$2,'google')", [connection, owner]);
       await client.query("INSERT INTO address_books (id,user_id,name,source) VALUES ($1,$2,'Contacts','google')", [book, owner]);
       await client.query("INSERT INTO integration_collections (id,user_id,local_address_book_id,kind,connection_id) VALUES ($1,$2,$3,'address_book',$4)", [collection, owner, book, connection]);
       await client.query("INSERT INTO email_accounts (id,user_id,provider_connection_id,email_address) VALUES ($1,$2,$3,'same@example.test')", [accountA, owner, connection]);
       await client.query('INSERT INTO contacts VALUES ($1,$3,$4),($2,$3,$4)', [randomUUID(), randomUUID(), owner, book]);
       // A foreign tenant's mailbox must never resolve as this book's action target.
-      await client.query("INSERT INTO email_accounts VALUES ($1,$2,$3,'foreign@example.test')", [randomUUID(), other, connection]);
+      await client.query("INSERT INTO email_accounts (id,user_id,provider_connection_id,email_address) VALUES ($1,$2,$3,'foreign@example.test')", [randomUUID(), other, connection]);
       const list = () => client.query(ADDRESS_BOOK_PRESENTATION_SQL, [owner]);
       expect((await list()).rows).toEqual([expect.objectContaining({ id: book, contact_count: 2, connection_id: connection, account_id: accountA, account_email: 'same@example.test' })]);
       await client.query("INSERT INTO email_accounts (id,user_id,provider_connection_id,email_address) VALUES ($1,$2,$3,'same@example.test')", [accountB, owner, connection]);

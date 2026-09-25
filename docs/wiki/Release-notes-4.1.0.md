@@ -405,6 +405,9 @@ Microsoft application is registered in this environment.
 
 - **Resource deletion confirmation names the selected resource.** Calendar and contact deletion dialogs now interpolate the actual resource name in the confirmation prompt in each supported language; deletion remains gated by exact-name entry and acknowledgement.
 
+- **Microsoft Graph legacy folder targets are no longer silently skipped.** Message sync accepts a legacy `mail_folder` collection when its local folder belongs to the resolved mailbox, while conflicting non-NULL ownership remains rejected and unresolved enabled collections return `NO_ACCOUNT_FOR_CONNECTION`.
+
+- **Native account deletion cleans up local provider projections atomically.** Exclusive Google/Microsoft provider connections, calendars and address books are retired together with the mailbox; shared connections and standalone DAV/local resources remain. Remote calendars and contacts are never deleted. Presentation queries and Calendar/Contacts managers suppress orphan native provider cards.
 - **DAV Basic and Digest authentication share one guarded client path.** CardDAV and CalDAV discovery, reads, privilege detection, ETag-protected PUT/DELETE and write-back replay Digest challenges, including Baikal-style MD5/qop=auth, while preserving public-HTTP, private-host and redirect validation. Private plaintext HTTP does not send Basic credentials before a challenge.
 
 - **Conversation Engine contention and duplicate storage are reduced.** Live ingest, retry and rebuild serialize per user/account before their serializable transaction, while `0139_conversation_raw_header_dedup.sql` clears redundant `logical_messages.raw_headers` values without removing physical `messages.conversation_raw_headers`. Run the documented pre/post `DB-CHECKS.sql`; schedule any `VACUUM FULL` or `pg_repack` separately.

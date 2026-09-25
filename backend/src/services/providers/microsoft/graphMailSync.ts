@@ -583,7 +583,13 @@ export async function listGraphFolderTargets(client: PoolClient, input: { connec
     `SELECT ic.id AS collection_id, ic.remote_id, f.path
        FROM integration_collections ic
        JOIN folders f ON f.id = ic.local_folder_id
-      WHERE ic.connection_id = $1 AND ic.account_id = $2 AND ic.kind = 'mail_folder' AND ic.enabled = true
+      WHERE ic.connection_id = $1
+         AND ic.kind = 'mail_folder'
+         AND ic.enabled = true
+         AND (
+           ic.account_id = $2
+           OR (ic.account_id IS NULL AND f.account_id = $2)
+         )
       ORDER BY ic.remote_id`,
     [input.connectionId, input.accountId],
   );
