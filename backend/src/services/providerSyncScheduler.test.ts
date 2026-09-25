@@ -420,6 +420,41 @@ describe('the schedule backs off from a throttled run', () => {
   });
 });
 
+describe('push hint mail dispatch', () => {
+  it('maps a Microsoft mail push hint to the Graph mail_folder sync', async () => {
+    mocks.syncGraphMailFolders.mockResolvedValueOnce([
+      { accountId: 'account-1' },
+    ]);
+    mocks.syncGraphMailMessagesForAccount.mockResolvedValueOnce({ messages: 1 });
+
+    await expect(runProviderSyncForHint({
+      userId: 'user-1',
+      connectionId: 'connection-1',
+      provider: 'microsoft',
+      resourceType: 'mail',
+    })).resolves.toMatchObject({ ran: true });
+
+    expect(mocks.syncGraphMailFolders).toHaveBeenCalled();
+    expect(mocks.syncGraphMailMessagesForAccount).toHaveBeenCalled();
+  });
+
+  it('maps a Gmail mail push hint to the Gmail mail_label sync', async () => {
+    mocks.listGmailMailAccounts.mockResolvedValueOnce(['account-1']);
+    mocks.syncGmailMailLabelsForAccount.mockResolvedValueOnce({ labels: 1 });
+    mocks.syncGmailMailMessagesForAccount.mockResolvedValueOnce({ messages: 1 });
+
+    await expect(runProviderSyncForHint({
+      userId: 'user-1',
+      connectionId: 'connection-1',
+      provider: 'google',
+      resourceType: 'mail',
+    })).resolves.toMatchObject({ ran: true });
+
+    expect(mocks.syncGmailMailLabelsForAccount).toHaveBeenCalled();
+    expect(mocks.syncGmailMailMessagesForAccount).toHaveBeenCalled();
+  });
+});
+
 describe('push hint optional-service gate', () => {
   it('does not call a provider after its API switch disables existing grants', async () => {
     mocks.providerOperational.google = false;
