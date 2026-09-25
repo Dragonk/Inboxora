@@ -9,6 +9,7 @@ import {
 } from './providerPushSubscriptions.js';
 import {
   createGraphSubscription,
+  ensureGraphSubscriptions,
   recordGraphRenewalFailure,
   renewGraphSubscription,
 } from './providerPushMicrosoft.js';
@@ -47,6 +48,7 @@ export function renewalJitterMs(random: () => number = Math.random): number {
 
 export interface PushRenewalSummary {
   considered: number;
+  created: number;
   renewed: number;
   recreated: number;
   failed: number;
@@ -69,11 +71,62 @@ export function shouldRecreate(error: unknown): boolean {
   return code === 'RESOURCE_NOT_FOUND' || status === 404;
 }
 
+/**
+ * Bootstrap the missing Microsoft mail subscriptions of already-connected native
+ * Graph mailboxes.
+ *
+ * Push used to be created only during explicit setup paths. Enabling
+ * PROVIDER_PUSH_ENABLED on an existing installation therefore left all existing
+ * Microsoft mailboxes on polling forever. The renewal scheduler is the natural
+ * repair point: it already runs only when push is enabled, and
+ * ensureGraphSubscriptions is idempotent for an existing live subscription.
+ */
+async function bootstrapMicrosoftMailPush(env: NodeJS.ProcessEnv): Promise<{ created: number; failed: number }> {
+  const switches = await readProviderSwitches('microsoft');
+  if (!switches.enabled || !switches.apiEnabled) return { created: 0, failed: 0 };
+
+  const targets = await query<{ user_id: string; connection_id: string }>(
+    `SELECT DISTINCT pc.user_id, pc.id AS connection_id
+       FROM provider_connections pc
+       JOIN email_accounts a
+         ON a.provider_connection_id = pc.id
+        AND a.user_id = pc.user_id
+      WHERE pc.provider = 'microsoft'
+        AND pc.status = 'active'
+        AND a.enabled = true
+        AND a.mail_transport = 'microsoft_graph'
+      ORDER BY pc.id
+      LIMIT 50`,
+  );
+
+  let created = 0;
+  let failed = 0;
+
+  for (const target of targets.rows) {
+    const result = await ensureGraphSubscriptions({
+      userId: target.user_id,
+      connectionId: target.connection_id,
+      resourceTypes: ['mail'],
+      env,
+    });
+    created += result.created.length;
+    failed += result.failed.length;
+  }
+
+  return { created, failed };
+}
+
 export async function runProviderPushRenewals(env: NodeJS.ProcessEnv = process.env): Promise<PushRenewalSummary> {
-  const summary: PushRenewalSummary = { considered: 0, renewed: 0, recreated: 0, failed: 0, skipped: 0 };
+  const summary: PushRenewalSummary = { considered: 0, created: 0, renewed: 0, recreated: 0, failed: 0, skipped: 0 };
   if (!providerPushEnabled(env)) return summary;
   // A disabled provider layer means no provider calls at all, renewals included.
   if (!providerIntegrationsEnabled()) return summary;
+
+  // Existing installations may have no subscription row at all because push can be
+  // enabled after the Microsoft account was already connected.
+  const bootstrap = await bootstrapMicrosoftMailPush(env);
+  summary.created += bootstrap.created;
+  summary.failed += bootstrap.failed;
 
   const due = await listSubscriptionsDueForRenewal({
     aheadMinutes: renewAheadMinutes(env),
@@ -186,9 +239,9 @@ async function tick(): Promise<void> {
   running = true;
   try {
     const summary = await runProviderPushRenewals();
-    if (summary.renewed || summary.recreated || summary.failed) {
+    if (summary.created || summary.renewed || summary.recreated || summary.failed) {
       console.log(
-        `Provider push renewals: considered=${summary.considered} renewed=${summary.renewed} `
+        `Provider push renewals: considered=${summary.considered} created=${summary.created} renewed=${summary.renewed} `
         + `recreated=${summary.recreated} failed=${summary.failed} skipped=${summary.skipped}`,
       );
     }

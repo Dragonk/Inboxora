@@ -1251,6 +1251,8 @@ None.
 
 ### Fixed
 
+- **Microsoft Graph push is bootstrapped for existing native mailboxes.** Enabling `PROVIDER_PUSH_ENABLED` no longer leaves accounts connected before that setting was enabled on polling only; the renewal sweep creates the missing mail subscription and polling remains the fallback.
+- **Microsoft Graph attachment metadata no longer fails on `contentId`.** Attachment listing no longer selects the derived `fileAttachment.contentId` field from the base `attachment` type, avoiding Graph's OData select error while retaining inline-CID metadata from the normal attachment response.
 - Android workflows no longer fail on `android-actions/setup-android@v3`: the action's default
   package list still contains the legacy `tools` SDK package, which Google removed from the SDK
   repository, so `sdkmanager` aborted with `Failed to find package 'tools'`. Both

@@ -70,7 +70,9 @@ describe('reading the body and attachments from Graph', () => {
         : jsonResponse({ value: [{ id: 'att-1', name: 'a' }], '@odata.nextLink': 'https://graph.microsoft.com/v1.0/attachments?page=2' });
     }));
     await expect(fetchGraphAttachments(OPTIONS, 'm1')).resolves.toEqual([{ id: 'att-1', name: 'a' }, { id: 'att-2', name: 'b' }]);
-    expect(urls.some(url => url.includes('select='))).toBe(true);
+    // `contentId` exists only on the derived fileAttachment type. Selecting it
+    // from the base attachment collection makes Graph reject the whole request.
+    expect(urls.some(url => url.includes('select='))).toBe(false);
   });
 
   it('decodes the base64 bytes of an attachment', async () => {

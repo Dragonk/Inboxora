@@ -592,7 +592,7 @@ describeOrSkip('Microsoft Graph mail message sync (PostgreSQL)', () => {
       userId: USER_ID, connectionId, accountId: ACCOUNT_ID, config: CONFIG,
       fetchImpl: fakeMailProvider({
         inbox: [{
-          value: [graphMessage('old'), graphMessage('fresh')],
+          value: [graphMessage('old'), graphMessage('fresh'), graphMessage('stale')],
           '@odata.deltaLink': DELTA_INBOX,
         }],
       }).fetchImpl,

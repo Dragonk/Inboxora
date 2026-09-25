@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   markRemoved: vi.fn(),
   renewGraph: vi.fn(),
   createGraph: vi.fn(),
+  ensureGraph: vi.fn(),
   recordGraphFailure: vi.fn(),
   renewGmail: vi.fn(),
   renewChannel: vi.fn(),
@@ -37,6 +38,7 @@ vi.mock('./providerPushMicrosoft.js', async importOriginal => ({
   ...(await importOriginal<typeof import('./providerPushMicrosoft.js')>()),
   renewGraphSubscription: mocks.renewGraph,
   createGraphSubscription: mocks.createGraph,
+  ensureGraphSubscriptions: mocks.ensureGraph,
   recordGraphRenewalFailure: mocks.recordGraphFailure,
 }));
 vi.mock('./providerPushGoogle.js', async importOriginal => ({
@@ -78,10 +80,40 @@ beforeEach(() => {
   mocks.readSwitches.mockResolvedValue({ enabled: true, apiEnabled: true });
   mocks.listDue.mockResolvedValue([]);
   mocks.markRemoved.mockResolvedValue(1);
-  mocks.query.mockResolvedValue({ rows: [{ remote_id: 'calendar-1' }] });
+  mocks.ensureGraph.mockResolvedValue({ created: [], failed: [] });
+  mocks.query.mockImplementation(async (sql: unknown) => {
+    const text = String(sql);
+    if (text.includes('SELECT remote_id FROM integration_collections')) {
+      return { rows: [{ remote_id: 'calendar-1' }] };
+    }
+    return { rows: [] };
+  });
 });
 
 describe('runProviderPushRenewals', () => {
+  it('bootstraps Microsoft mail push for an existing native mailbox', async () => {
+    mocks.query.mockImplementation(async (sql: unknown) => {
+      const text = String(sql);
+      if (text.includes("a.mail_transport = 'microsoft_graph'")) {
+        return { rows: [{ user_id: 'user-1', connection_id: 'connection-1' }] };
+      }
+      if (text.includes('SELECT remote_id FROM integration_collections')) {
+        return { rows: [{ remote_id: 'calendar-1' }] };
+      }
+      return { rows: [] };
+    });
+    mocks.ensureGraph.mockResolvedValueOnce({ created: ['mail'], failed: [] });
+
+    const summary = await runProviderPushRenewals();
+
+    expect(summary.created).toBe(1);
+    expect(mocks.ensureGraph).toHaveBeenCalledWith(expect.objectContaining({
+      userId: 'user-1',
+      connectionId: 'connection-1',
+      resourceTypes: ['mail'],
+    }));
+  });
+
   it('renews a Microsoft subscription that is close to expiry', async () => {
     mocks.listDue.mockResolvedValue([baseSubscription()]);
     const summary = await runProviderPushRenewals();

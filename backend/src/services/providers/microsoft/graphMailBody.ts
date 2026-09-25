@@ -45,7 +45,15 @@ interface GraphAttachmentPage {
   value?: GraphAttachment[];
 }
 
-export const GRAPH_ATTACHMENT_SELECT = 'id,name,contentType,size,isInline,contentId';
+/**
+ * Do not use `$select` on the attachment collection.
+ *
+ * `contentId` belongs to `fileAttachment`, not the base `attachment` type.
+ * Asking the base collection for `$select=...,contentId` makes Microsoft Graph
+ * reject the request before it can return fileAttachment-specific fields.
+ * The unselected response preserves the derived attachment shape, including
+ * `contentId` required for inline CID images.
+ */
 /** Inline images are embedded into the HTML; both bounds are deliberate. */
 export const MAX_INLINE_IMAGES = 10;
 export const MAX_INLINE_IMAGE_BYTES = 1024 * 1024;
@@ -59,7 +67,7 @@ export async function fetchGraphAttachments(api: GraphApiOptions, providerMessag
       ? await graphGet<GraphAttachmentPage>(api, nextLink)
       : await graphGet<GraphAttachmentPage>(api, graphUrl(
         `/me/messages/${encodeURIComponent(providerMessageId)}/attachments`,
-        { $select: GRAPH_ATTACHMENT_SELECT, $top: 100 },
+        { $top: 100 },
       ));
     for (const attachment of fetched.value ?? []) if (attachment.id) attachments.push(attachment);
     nextLink = (fetched as { '@odata.nextLink'?: string })['@odata.nextLink'] ?? null;

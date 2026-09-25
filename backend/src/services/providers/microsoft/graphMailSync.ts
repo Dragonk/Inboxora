@@ -455,6 +455,7 @@ interface GraphMessagePageCheckpoint {
   baselineStartedAt: string | null;
 }
 
+/** Parse a durable Graph paging checkpoint, rejecting malformed or legacy-unsafe state. */
 function parseGraphMessagePageCheckpoint(value: string | null | undefined): GraphMessagePageCheckpoint | null {
   if (!value) return null;
   try {
