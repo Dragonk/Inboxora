@@ -135,7 +135,7 @@ jobs:
         run: |
           # Integration fixtures intentionally share one PostgreSQL database. Run them in one
           # worker so fixed fixture identities cannot race across suites under SERIALIZABLE.
-          npx vitest run --maxWorkers=1 --minWorkers=1 \
+          npx vitest run --no-file-parallelism --maxWorkers=1 \
             src/services/providerAuthService.integration.test.ts \
             src/services/providerTokenService.integration.test.ts \
             src/services/providerOperations.integration.test.ts \
