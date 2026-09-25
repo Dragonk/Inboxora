@@ -386,7 +386,7 @@ router.get('/thread/:threadId', async (req, res) => {
     // valid RFC Message-ID (trimmed) deduplicates folder copies; NULL/empty values use
     // the physical row ID so otherwise unidentifiable messages remain visible. Include
     // account_id in DISTINCT ON so a unified request can never dedupe across accounts.
-    const effectiveThreadExpr = `COALESCE(NULLIF(BTRIM(m.thread_key), ''), NULLIF(BTRIM(m.thread_id), ''), '__physical__:' || m.id::text)`;
+    const effectiveThreadExpr = `m.thread_key`;
     const threadIdentityExpr = requestedAccountId
       ? effectiveThreadExpr
       : `(m.account_id::text || ':' || ${effectiveThreadExpr})`;

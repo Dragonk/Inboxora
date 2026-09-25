@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   fetchMailFolderSnapshot,
   fetchMailFolders,
+  fetchGraphMessageLocation,
   fetchMessagesDeltaPage,
   fetchWellKnownFolderIds,
   graphFolderPathMap,
@@ -305,6 +306,43 @@ describe('the compatibility uid a Graph message gets', () => {
 
   it('offers a different number for the next attempt, for a collision', () => {
     expect(providerUidForGraphMessage('AAMkAD-graph-1', 1)).not.toBe(providerUidForGraphMessage('AAMkAD-graph-1'));
+  });
+});
+
+describe('checking the current Graph message location', () => {
+  it('returns the message id and parent folder for a successful lookup', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () =>
+      jsonResponse({ id: 'message-1', parentFolderId: 'folder-1' }),
+    ));
+
+    await expect(fetchGraphMessageLocation(OPTIONS, 'message-1'))
+      .resolves.toEqual({ id: 'message-1', parentFolderId: 'folder-1' });
+  });
+
+  it('returns null only for a real Graph 404', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () =>
+      new Response(JSON.stringify({
+        error: { code: 'ErrorItemNotFound', message: 'gone' },
+      }), {
+        status: 404,
+        headers: { 'content-type': 'application/json' },
+      }),
+    ));
+
+    await expect(fetchGraphMessageLocation(OPTIONS, 'message-1'))
+      .resolves.toBeNull();
+  });
+
+  it('rejects a successful response that has no valid message id', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () =>
+      jsonResponse({ parentFolderId: 'folder-1' }),
+    ));
+
+    await expect(fetchGraphMessageLocation(OPTIONS, 'message-1'))
+      .rejects.toMatchObject({
+        code: 'INTERNAL_ERROR',
+        status: 502,
+      });
   });
 });
 

@@ -23,6 +23,11 @@ const ACCEPTED_REPLACED_MIGRATION_CHECKSUMS = new Map([
   // the first revision has the index and therefore the constraint, so accepting the old
   // checksum leaves it correct and lets it boot.
   ['0108_message_provider_identity', new Set(['77f2c82c41e14ebb8a79e6f6a3d726e33b9217c6921cf5743c2088afbbae1ba2'])],
+  // 0141 first ran on unreleased 4.1.1 dev with IF NOT EXISTS on a
+  // concurrent index. The corrected revision intentionally fails if an invalid
+  // same-named index was left behind, while dev databases that already completed
+  // the original valid build remain accepted.
+  ['0141_message_list_hot_path_indexes', new Set(['5f1c1fa28f8a587da23f358ed347273d5cd492b8d9271ccbfaaccae2432d43b1'])],
 ]);
 
 async function migrationHashes() {

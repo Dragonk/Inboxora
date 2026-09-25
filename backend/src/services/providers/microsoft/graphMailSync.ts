@@ -21,8 +21,6 @@ import {
   fetchMailFolderSnapshot,
   fetchWellKnownFolderIds,
   fetchMessagesDeltaPage,
-  fetchGraphMessageLocation,
-  findGraphMessagesByInternetMessageId,
   graphFolderPathMap,
   localMessageForGraphMessage,
   providerUidForGraphMessage,
@@ -32,6 +30,12 @@ import { drainGraphMailFlagOperations } from './graphMailMutations.js';
 import { applyIngestRulesToRows } from '../../providerIngestRules.js';
 import { persistConversationCopyForRow } from '../../conversationRowIngest.js';
 import { immutableIdsEnabled } from './graphMessageIdType.js';
+import {
+  clearGraphPendingRemoval,
+  enqueueGraphBaselineRemovalCandidates,
+  enqueueGraphPendingRemoval,
+  processGraphPendingRemovals,
+} from './graphPendingMessageRemovals.js';
 import type { ConversationAccountRow } from '../../conversationRowIngest.js';
 import type { FetchLike } from '../../providerAuthService.js';
 
@@ -439,71 +443,26 @@ interface MessageContext {
   accountId: string;
   connectionId: string;
   folderPath: string;
+  remoteFolderId?: string;
 }
 
 const MESSAGE_MAX_PAGES = 1000;
 
-/**
- * Confirm which Graph folder tombstones are safe to remove locally.
- *
- * Message delta is folder-scoped: @removed(reason=deleted) can mean either
- * "deleted" or merely "moved out of this folder". Before allowing a local
- * DELETE, ask Graph whether the message still exists under its current id.
- *
- * 200  -> keep it; the tombstone alone is not destructive authority.
- * 404  -> the item no longer exists under this folder identity, so removing
- *         the source-folder row is correct. A moved message will be ingested
- *         by its destination folder delta.
- * other failure -> throw and keep the cursor unchanged; never delete on an
- *                  uncertain provider result.
- */
-async function verifiedGraphRemovedIds(
-  api: GraphApiOptions,
-  context: MessageContext,
-  messages: readonly GraphMessage[],
-): Promise<ReadonlySet<string>> {
-  const verified = new Set<string>();
-
-  for (const message of messages) {
-    if (!message.id || message['@removed']?.reason !== 'deleted') continue;
-
-    // First try the provider id from the tombstone. A successful lookup is
-    // definitive evidence that the message still exists.
-    const location = await fetchGraphMessageLocation(api, message.id);
-    if (location !== null) continue;
-
-    // A 404 for a default Graph id does NOT prove mailbox deletion. Resolve the
-    // local row's RFC Internet Message-ID and ask Graph independently.
-    const local = await query<{ message_id: string | null }>(
-      `SELECT message_id
-         FROM messages
-        WHERE account_id = $1
-          AND provider_message_id = $2
-          AND folder = $3
-        LIMIT 1`,
-      [context.accountId, message.id, context.folderPath],
-    );
-
-    const internetMessageId = local.rows[0]?.message_id?.trim() ?? '';
-
-    // With no independent identity we cannot prove deletion safely.
-    if (!internetMessageId) continue;
-
-    const matches = await findGraphMessagesByInternetMessageId(api, internetMessageId);
-
-    // One or more current Graph objects prove that the mail still exists.
-    // Multiple results are deliberately treated as ambiguous/non-destructive.
-    if (matches.length > 0) continue;
-
-    // Only two independent observations now agree:
-    //   1. the tombstoned provider id is gone;
-    //   2. no message with the same RFC Internet Message-ID exists in Graph.
-    verified.add(message.id);
-  }
-
-  return verified;
+async function graphDatabaseNowIso(): Promise<string> {
+  const result = await query<{ now: Date }>(
+    'SELECT clock_timestamp() AS now',
+  );
+  const value = result.rows[0]?.now;
+  if (!value) throw new Error('Database did not return a baseline timestamp');
+  return new Date(value).toISOString();
 }
 
+/**
+ * Graph message delta is folder-scoped: @removed(reason=deleted) may mean a
+ * true deletion or a move out of this folder. Tombstones therefore never
+ * authorize an immediate local DELETE. They are persisted for delayed,
+ * repeatable reconciliation after the normal folder deltas have run.
+ */
 interface GraphMessagePageCheckpoint {
   nextLink: string;
   fullSync: boolean;
@@ -553,7 +512,6 @@ export async function applyGraphMailMessagesPage(
   client: PoolClient,
   context: MessageContext,
   messages: readonly GraphMessage[],
-  verifiedRemovedIds: ReadonlySet<string> = new Set<string>(),
 ): Promise<{ created: number; updated: number; deleted: number; skipped: number; rowIds: string[] }> {
   const totals = { created: 0, updated: 0, deleted: 0, skipped: 0, rowIds: [] as string[] };
   for (const message of messages) {
@@ -565,21 +523,22 @@ export async function applyGraphMailMessagesPage(
         totals.skipped += 1;
         continue;
       }
-      // A folder-level tombstone is ambiguous until Graph has been queried
-      // directly. Only a tombstone positively classified outside this database
-      // transaction may remove the source-folder projection.
-      if (!verifiedRemovedIds.has(message.id)) {
+      // Only folder-delta callers know the provider folder identity needed
+      // for durable tombstone reconciliation. Search/import callers never use
+      // tombstones and must not fabricate a remote folder id.
+      if (!context.remoteFolderId) {
         totals.skipped += 1;
         continue;
       }
 
-      const removed = await client.query(
-        'DELETE FROM messages WHERE account_id = $1 AND provider_message_id = $2 AND folder = $3',
-        [context.accountId, message.id, context.folderPath],
-      );
-
-      if ((removed.rowCount ?? 0) > 0) totals.deleted += 1;
-      else totals.skipped += 1;
+      await enqueueGraphPendingRemoval(client, {
+        connectionId: context.connectionId,
+        accountId: context.accountId,
+        providerMessageId: message.id,
+        sourceFolderPath: context.folderPath,
+        sourceFolderRemoteId: context.remoteFolderId,
+      });
+      totals.skipped += 1;
       continue;
     }
     const local = localMessageForGraphMessage(message);
@@ -655,6 +614,7 @@ export async function applyGraphMailMessagesPage(
           // The id is collected so the caller can run the conversation projection
           // **after** this transaction commits: the engine opens its own, and nesting
           // the two is the mistake this return value exists to prevent.
+          await clearGraphPendingRemoval(client, applied.id);
           totals.rowIds.push(applied.id);
           if (applied.inserted) totals.created += 1;
           else totals.updated += 1;
@@ -791,6 +751,20 @@ export async function syncGraphMailMessagesForAccount(input: {
       }
     }
   }
+  // Reconcile delayed tombstones only after the normal folder deltas. A fresh
+  // provider row gets the first chance to cancel its pending removal, so a due
+  // tombstone can never race ahead of current mailbox state.
+  const pending = await processGraphPendingRemovals({
+    userId: input.userId,
+    connectionId: input.connectionId,
+    accountId: input.accountId,
+    ...(input.config ? { config: input.config } : {}),
+    ...(input.fetchImpl ? { fetchImpl: input.fetchImpl } : {}),
+  });
+
+  totals.deleted += pending.deleted;
+  totals.updated += pending.relocated;
+
   // Existing IMAP-era rows are not re-emitted by a current Graph delta. Repair one bounded local slice after the
   // regular account pass; it has separate durable state and cannot alter any folder cursor or provider data.
   try {
@@ -850,7 +824,13 @@ export async function syncGraphMailMessagesForFolder(input: {
     ...(input.config ? { config: input.config } : {}),
     ...(input.fetchImpl ? { fetchImpl: input.fetchImpl } : {}),
   };
-  const context: MessageContext = { userId: input.userId, accountId: input.accountId, connectionId: input.connectionId, folderPath: input.target.folderPath };
+  const context: MessageContext = {
+    userId: input.userId,
+    accountId: input.accountId,
+    connectionId: input.connectionId,
+    folderPath: input.target.folderPath,
+    remoteFolderId: input.target.remoteId,
+  };
 
   try {
     const state = await withTransaction(client => readSyncState(client, syncStateId));
@@ -866,7 +846,7 @@ export async function syncGraphMailMessagesForFolder(input: {
     let fullSync = checkpoint?.fullSync ?? cursor === null;
     let nextLink: string | null = checkpoint?.nextLink ?? null;
     let baselineStartedAt: string | null = fullSync
-      ? (checkpoint?.baselineStartedAt ?? new Date().toISOString())
+      ? (checkpoint?.baselineStartedAt ?? await graphDatabaseNowIso())
       : null;
 
     const totals = { created: 0, updated: 0, deleted: 0, skipped: 0 };
@@ -890,7 +870,7 @@ export async function syncGraphMailMessagesForFolder(input: {
           cursor = null;
           nextLink = null;
           fullSync = true;
-          baselineStartedAt = new Date().toISOString();
+          baselineStartedAt = await graphDatabaseNowIso();
 
           const resetSaved = await withTransaction(client => commitSyncCheckpoint(client, {
             syncStateId,
@@ -906,16 +886,6 @@ export async function syncGraphMailMessagesForFolder(input: {
       }
       pagesFetched += 1;
 
-      // Never let a folder-level @removed directly authorize a DELETE.
-      // Provider verification happens outside the DB transaction; a network,
-      // auth or throttling failure aborts this page and leaves its delta cursor
-      // untouched so the tombstone can be retried safely.
-      const verifiedRemovedIds = await verifiedGraphRemovedIds(
-        api,
-        context,
-        fetched.messages,
-      );
-
       const applied = await withFencedSyncLease({
         syncStateId,
         generation: lease.generation,
@@ -923,7 +893,6 @@ export async function syncGraphMailMessagesForFolder(input: {
           client,
           context,
           fetched.messages,
-          verifiedRemovedIds,
         ),
       });
       await persistConversations(applied.rowIds, input.account);
@@ -967,9 +936,9 @@ export async function syncGraphMailMessagesForFolder(input: {
     }
 
     // A rebuilt Graph baseline is authoritative for messages it returns, but
-    // absence from that enumeration is not treated as a deletion. Microsoft
-    // Graph delta provides explicit @removed tombstones for messages deleted
-    // or moved out of the folder; only those events may delete provider rows.
+    // absence from that enumeration is never an immediate deletion. Stale rows
+    // become durable reconciliation candidates and must pass delayed provider
+    // verification before a local DELETE is allowed.
     //
     // This is deliberately fail-safe. A baseline can be restarted or overlap
     // mailbox changes, and inferring deletion from absence previously caused
@@ -983,6 +952,17 @@ export async function syncGraphMailMessagesForFolder(input: {
         lastErrorCode: null,
       });
       if (!saved) return false;
+
+      if (fullSync && baselineStartedAt) {
+        await enqueueGraphBaselineRemovalCandidates(client, {
+          connectionId: input.connectionId,
+          accountId: input.accountId,
+          sourceFolderPath: input.target.folderPath,
+          sourceFolderRemoteId: input.target.remoteId,
+          baselineStartedAt,
+        });
+      }
+
       // The delta was read to its end, so the run may claim a successful synchronisation (SYNC-02).
       return finishSyncRun(client, { syncStateId, generation: lease.generation, lastErrorCode: null });
     });

@@ -449,8 +449,15 @@ export async function fetchGraphMessageLocation(
       }),
     );
 
-    const id = typeof message.id === 'string' ? message.id : '';
-    if (!id) return null;
+    const id = typeof message.id === 'string' ? message.id.trim() : '';
+    if (!id) {
+      throw new GraphApiError({
+        code: 'INTERNAL_ERROR',
+        status: 502,
+        retryable: true,
+        message: 'Microsoft Graph returned a message without an id',
+      });
+    }
 
     return {
       id,

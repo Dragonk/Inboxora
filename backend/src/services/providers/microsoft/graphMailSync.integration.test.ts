@@ -405,6 +405,36 @@ async function discoverFolders(connectionId: string): Promise<void> {
   await syncGraphMailFolders({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl: fakeFolders([FLAT_TREE]).fetchImpl });
 }
 
+
+async function forcePendingRemovalsDue(): Promise<void> {
+  await autocommit(client => client.query(
+    `UPDATE graph_pending_message_removals
+        SET verify_after = NOW() - INTERVAL '1 second',
+            claimed_at = NULL
+      WHERE account_id = $1`,
+    [ACCOUNT_ID],
+  ));
+}
+
+async function pendingRemovals(): Promise<Array<{
+  provider_message_id: string;
+  attempts: number;
+  last_error_code: string | null;
+}>> {
+  const result = await autocommit(client => client.query<{
+    provider_message_id: string;
+    attempts: number;
+    last_error_code: string | null;
+  }>(
+    `SELECT provider_message_id, attempts, last_error_code
+       FROM graph_pending_message_removals
+      WHERE account_id = $1
+      ORDER BY provider_message_id`,
+    [ACCOUNT_ID],
+  ));
+  return result.rows;
+}
+
 describeOrSkip('Microsoft Graph mail message sync (PostgreSQL)', () => {
   // This suite is separate from the folder one, so it establishes the same owner
   // and the same clean slate rather than depending on a sibling suite's hooks.
@@ -468,7 +498,7 @@ describeOrSkip('Microsoft Graph mail message sync (PostgreSQL)', () => {
     expect(delta.urls.some(url => url.includes('inbox') && url.includes('deltatoken'))).toBe(true);
   });
 
-  it('keeps a tombstoned message when its old Graph id is gone but the RFC message still exists', async () => {
+  it('keeps and relocates a tombstoned message when its mutable Graph id changed', async () => {
     const connectionId = await seedConnection();
     await discoverFolders(connectionId);
 
@@ -487,7 +517,7 @@ describeOrSkip('Microsoft Graph mail message sync (PostgreSQL)', () => {
       }).fetchImpl,
     });
 
-    const provider = fakeMailProvider({
+    const tombstone = fakeMailProvider({
       inbox: [{
         value: [{
           id: 'old-id',
@@ -495,11 +525,37 @@ describeOrSkip('Microsoft Graph mail message sync (PostgreSQL)', () => {
         }],
         '@odata.deltaLink': `${DELTA_INBOX}-read`,
       }],
-      lookup: {
-        // Direct GET of old-id is gone.
-        'old-id': null,
+    });
 
-        // But the same real mail still exists under a current provider id.
+    const first = await syncGraphMailMessagesForAccount({
+      userId: USER_ID,
+      connectionId,
+      accountId: ACCOUNT_ID,
+      config: CONFIG,
+      fetchImpl: tombstone.fetchImpl,
+    });
+
+    // The delta that first sees the tombstone is never destructive and never
+    // performs the provider lookup synchronously.
+    expect(first.deleted).toBe(0);
+    expect((await storedMessages()).some(row => row.provider_message_id === 'old-id')).toBe(true);
+    expect(await pendingRemovals()).toEqual([
+      expect.objectContaining({
+        provider_message_id: 'old-id',
+        attempts: 0,
+      }),
+    ]);
+    expect(tombstone.urls.some(url => url.includes('/me/messages/old-id'))).toBe(false);
+
+    await forcePendingRemovalsDue();
+
+    const verifier = fakeMailProvider({
+      inbox: [{
+        value: [],
+        '@odata.deltaLink': `${DELTA_INBOX}-verified`,
+      }],
+      lookup: {
+        'old-id': null,
         'new-id': graphMessage('new-id', {
           internetMessageId: '<read-test@contoso.test>',
           parentFolderId: 'graph-inbox',
@@ -508,26 +564,29 @@ describeOrSkip('Microsoft Graph mail message sync (PostgreSQL)', () => {
       },
     });
 
-    const result = await syncGraphMailMessagesForAccount({
+    const second = await syncGraphMailMessagesForAccount({
       userId: USER_ID,
       connectionId,
       accountId: ACCOUNT_ID,
       config: CONFIG,
-      fetchImpl: provider.fetchImpl,
+      fetchImpl: verifier.fetchImpl,
     });
 
-    expect(result.deleted).toBe(0);
+    expect(second.deleted).toBe(0);
 
     const messages = await storedMessages();
-    expect(messages.some(row => row.provider_message_id === 'old-id')).toBe(true);
+    expect(messages.some(row => row.provider_message_id === 'old-id')).toBe(false);
+    expect(messages.some(row => row.provider_message_id === 'new-id' && row.folder === 'INBOX')).toBe(true);
+    expect(await pendingRemovals()).toEqual([]);
 
-    expect(provider.urls.some(url =>
+    expect(verifier.urls.some(url => url.includes('/me/messages/old-id'))).toBe(true);
+    expect(verifier.urls.some(url =>
       url.includes('/me/messages?') &&
       decodeURIComponent(url).includes('internetMessageId'),
     )).toBe(true);
   });
 
-  it('deletes a local message only after Graph confirms the tombstoned id no longer exists', async () => {
+  it('deletes a mutable-id message only after two delayed negative confirmations', async () => {
     const connectionId = await seedConnection();
     await discoverFolders(connectionId);
 
@@ -544,28 +603,94 @@ describeOrSkip('Microsoft Graph mail message sync (PostgreSQL)', () => {
       }).fetchImpl,
     });
 
-    const provider = fakeMailProvider({
+    const tombstone = fakeMailProvider({
       inbox: [{
         value: [{ id: 'm2', '@removed': { reason: 'deleted' } }],
         '@odata.deltaLink': `${DELTA_INBOX}-deleted`,
+      }],
+    });
+
+    const observed = await syncGraphMailMessagesForAccount({
+      userId: USER_ID,
+      connectionId,
+      accountId: ACCOUNT_ID,
+      config: CONFIG,
+      fetchImpl: tombstone.fetchImpl,
+    });
+
+    // First sighting only creates durable pending state.
+    expect(observed.deleted).toBe(0);
+    expect((await storedMessages()).map(row => row.provider_message_id))
+      .toEqual(['m1', 'm2']);
+    expect(await pendingRemovals()).toEqual([
+      expect.objectContaining({
+        provider_message_id: 'm2',
+        attempts: 0,
+      }),
+    ]);
+
+    await forcePendingRemovalsDue();
+
+    const firstVerifier = fakeMailProvider({
+      inbox: [{
+        value: [],
+        '@odata.deltaLink': `${DELTA_INBOX}-verify-1`,
       }],
       lookup: {
         m2: null,
       },
     });
 
-    const result = await syncGraphMailMessagesForAccount({
+    const firstVerification = await syncGraphMailMessagesForAccount({
       userId: USER_ID,
       connectionId,
       accountId: ACCOUNT_ID,
       config: CONFIG,
-      fetchImpl: provider.fetchImpl,
+      fetchImpl: firstVerifier.fetchImpl,
     });
 
-    expect(result.deleted).toBe(1);
+    // First negative provider verification is still not destructive.
+    expect(firstVerification.deleted).toBe(0);
+    expect((await storedMessages()).map(row => row.provider_message_id))
+      .toEqual(['m1', 'm2']);
+    expect(await pendingRemovals()).toEqual([
+      expect.objectContaining({
+        provider_message_id: 'm2',
+        attempts: 1,
+        last_error_code: 'GRAPH_DELETE_UNCONFIRMED',
+      }),
+    ]);
+
+    await forcePendingRemovalsDue();
+
+    const secondVerifier = fakeMailProvider({
+      inbox: [{
+        value: [],
+        '@odata.deltaLink': `${DELTA_INBOX}-verify-2`,
+      }],
+      lookup: {
+        m2: null,
+      },
+    });
+
+    const secondVerification = await syncGraphMailMessagesForAccount({
+      userId: USER_ID,
+      connectionId,
+      accountId: ACCOUNT_ID,
+      config: CONFIG,
+      fetchImpl: secondVerifier.fetchImpl,
+    });
+
+    expect(secondVerification.deleted).toBe(1);
     expect((await storedMessages()).map(row => row.provider_message_id))
       .toEqual(['m1']);
-    expect(provider.urls.some(url => url.includes('/me/messages/m2'))).toBe(true);
+    expect(await pendingRemovals()).toEqual([]);
+
+    expect(secondVerifier.urls.some(url => url.includes('/me/messages/m2'))).toBe(true);
+    expect(secondVerifier.urls.some(url =>
+      url.includes('/me/messages?') &&
+      decodeURIComponent(url).includes('internetMessageId'),
+    )).toBe(true);
   });
 
   it('keeps synchronising the other folders when one folder answers 404', async () => {
