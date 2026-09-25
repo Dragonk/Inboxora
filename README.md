@@ -7,7 +7,7 @@
 <p align="center">
   <a href="https://github.com/Dragonk/Inboxora/actions/workflows/ci.yml"><img src="https://github.com/Dragonk/Inboxora/actions/workflows/ci.yml/badge.svg?branch=dev" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue" alt="License: AGPL-3.0"></a>
-  <img src="https://img.shields.io/badge/version-4.1.1-informational" alt="Version 4.1.0">
+  <img src="https://img.shields.io/badge/version-4.1.1-informational" alt="Version 4.1.1">
 </p>
 
 Inboxora brings mail, contacts and calendars into one self-hosted application. It speaks

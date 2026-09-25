@@ -583,6 +583,83 @@ describeOrSkip('Microsoft Graph mail message sync (PostgreSQL)', () => {
     expect(checkpoint.rows[0]?.page_checkpoint).toBeNull();
   });
 
+  it('keeps fresh mail that was refreshed while a historical baseline was still running', async () => {
+    const connectionId = await seedConnection();
+    await discoverFolders(connectionId);
+
+    // Initial state: both messages already exist locally.
+    await syncGraphMailMessagesForAccount({
+      userId: USER_ID, connectionId, accountId: ACCOUNT_ID, config: CONFIG,
+      fetchImpl: fakeMailProvider({
+        inbox: [{
+          value: [graphMessage('old'), graphMessage('fresh')],
+          '@odata.deltaLink': DELTA_INBOX,
+        }],
+      }).fetchImpl,
+    });
+
+    // Force a new full baseline.
+    await autocommit(client => client.query(
+      "UPDATE sync_states SET cursor = NULL, page_checkpoint = NULL WHERE user_id = $1 AND feature = 'mail' AND coverage = 'messages'",
+      [USER_ID],
+    ));
+
+    let refreshedDuringBaseline = false;
+
+    const fetchImpl = async (url: string): Promise<Response> => {
+      const target = String(url);
+
+      if (target.includes('/childFolders')) {
+        return json({ value: [] });
+      }
+
+      if (target.includes('graph-inbox') && target.includes('/messages/delta')) {
+        if (!refreshedDuringBaseline) {
+          refreshedDuringBaseline = true;
+
+          // Simulate a new push/delta observation happening AFTER the historical
+          // baseline started. The historical baseline response itself intentionally
+          // does not contain this fresh message.
+          await autocommit(client => client.query(
+            "UPDATE messages SET synced_at = NOW() WHERE account_id = $1 AND provider_message_id = 'fresh'",
+            [ACCOUNT_ID],
+          ));
+        }
+
+        return json({
+          value: [graphMessage('old')],
+          '@odata.deltaLink': `${DELTA_INBOX}-baseline`,
+        });
+      }
+
+      if (target.includes('graph-sent') && target.includes('/messages/delta')) {
+        return json({
+          value: [],
+          '@odata.deltaLink': DELTA_SENT,
+        });
+      }
+
+      return json(FLAT_TREE);
+    };
+
+    const result = await syncGraphMailMessagesForAccount({
+      userId: USER_ID,
+      connectionId,
+      accountId: ACCOUNT_ID,
+      config: CONFIG,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    expect(result.fullSyncFolders).toBeGreaterThan(0);
+
+    // This is the production regression: the fresh message must NOT disappear
+    // when the historical baseline finishes and reconciles.
+    expect((await storedMessages()).map(row => row.provider_message_id)).toEqual([
+      'fresh',
+      'old',
+    ]);
+  });
+
   it('does not revert a flag the user just changed', async () => {
     const connectionId = await seedConnection();
     await discoverFolders(connectionId);
