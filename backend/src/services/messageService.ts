@@ -97,9 +97,11 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
   if (isThreaded) {
     const filterValues = [...values];
     const threadAccountParam = isSpecificAccount ? [resolvedAccountId] : scopedAccountIds;
-    // A blank thread key/id is not a shared thread: each such row keeps its physical identity.
-    // In unified inboxes, account scope remains part of the exposed row/cache identity.
-    const effectiveThreadExpr = `COALESCE(NULLIF(BTRIM(m.thread_key), ''), NULLIF(BTRIM(m.thread_id), ''), '__physical__:' || m.id::text)`;
+    // thread_key is a stored generated column and is covered by the threaded-list
+    // indexes. Historical blank thread ids are normalized by migration 0141, so
+    // the hot path can use the indexed column directly instead of recalculating a
+    // trimming/COALESCE expression for every row in GROUP BY and joins.
+    const effectiveThreadExpr = `m.thread_key`;
     const threadIdentityExpr = isSpecificAccount
       ? effectiveThreadExpr
       : `(m.account_id::text || ':' || ${effectiveThreadExpr})`;

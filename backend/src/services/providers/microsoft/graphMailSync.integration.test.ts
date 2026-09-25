@@ -343,7 +343,11 @@ function graphMessage(id: string, overrides: Record<string, unknown> = {}) {
 }
 
 /** Serve the folder tree once, then a scripted sequence of message delta pages. */
-function fakeMailProvider(script: { inbox?: unknown[]; sent?: unknown[] }) {
+function fakeMailProvider(script: {
+  inbox?: unknown[];
+  sent?: unknown[];
+  lookup?: Record<string, unknown | null>;
+}) {
   const urls: string[] = [];
   const inbox = [...(script.inbox ?? [])];
   const sent = [...(script.sent ?? [])];
@@ -355,6 +359,21 @@ function fakeMailProvider(script: { inbox?: unknown[]; sent?: unknown[] }) {
       const next = target.includes('graph-inbox') ? inbox.shift() : sent.shift();
       return json(next ?? { value: [], '@odata.deltaLink': `${DELTA_INBOX}-empty` });
     }
+
+    if (target.includes('/me/messages/')) {
+      const id = decodeURIComponent(target.split('/me/messages/')[1]?.split('?')[0] ?? '');
+      if (Object.prototype.hasOwnProperty.call(script.lookup ?? {}, id)) {
+        const value = script.lookup?.[id];
+        if (value === null) {
+          return json({ error: { code: 'ErrorItemNotFound', message: 'Message not found' } }, 404);
+        }
+        return json(value);
+      }
+
+      // Default tombstone verification: the item still exists in the mailbox.
+      return json(graphMessage(id, { parentFolderId: 'graph-inbox' }));
+    }
+
     return json(FLAT_TREE);
   };
   return { fetchImpl: fetchImpl as unknown as typeof fetch, urls };
@@ -414,7 +433,7 @@ describeOrSkip('Microsoft Graph mail message sync (PostgreSQL)', () => {
     expect(cursors.rows.map(row => row.cursor)).toContain(DELTA_INBOX);
   });
 
-  it('applies a delta change and a deletion, and re-sends the stored cursor', async () => {
+  it('applies a delta change without deleting local mail from an ambiguous tombstone, and re-sends the stored cursor', async () => {
     const connectionId = await seedConnection();
     await discoverFolders(connectionId);
     await syncGraphMailMessagesForAccount({
@@ -427,12 +446,53 @@ describeOrSkip('Microsoft Graph mail message sync (PostgreSQL)', () => {
     });
     const result = await syncGraphMailMessagesForAccount({ userId: USER_ID, connectionId, accountId: ACCOUNT_ID, config: CONFIG, fetchImpl: delta.fetchImpl });
 
-    expect(result).toMatchObject({ created: 0, updated: 1, deleted: 1, fullSyncFolders: 0 });
+    expect(result).toMatchObject({ created: 0, updated: 1, deleted: 0, skipped: 1, fullSyncFolders: 0 });
     const messages = await storedMessages();
-    expect(messages.map(row => row.provider_message_id)).toEqual(['m1']);
-    expect(messages[0]?.subject).toBe('Renamed');
+    expect(messages.map(row => row.provider_message_id)).toEqual(['m1', 'm2']);
+    expect(messages.find(row => row.provider_message_id === 'm1')?.subject).toBe('Renamed');
     // The stored delta link is what the run resumes from, not the folder's first page.
     expect(delta.urls.some(url => url.includes('inbox') && url.includes('deltatoken'))).toBe(true);
+  });
+
+  it('deletes a local message only after Graph confirms the tombstoned id no longer exists', async () => {
+    const connectionId = await seedConnection();
+    await discoverFolders(connectionId);
+
+    await syncGraphMailMessagesForAccount({
+      userId: USER_ID,
+      connectionId,
+      accountId: ACCOUNT_ID,
+      config: CONFIG,
+      fetchImpl: fakeMailProvider({
+        inbox: [{
+          value: [graphMessage('m1'), graphMessage('m2')],
+          '@odata.deltaLink': DELTA_INBOX,
+        }],
+      }).fetchImpl,
+    });
+
+    const provider = fakeMailProvider({
+      inbox: [{
+        value: [{ id: 'm2', '@removed': { reason: 'deleted' } }],
+        '@odata.deltaLink': `${DELTA_INBOX}-deleted`,
+      }],
+      lookup: {
+        m2: null,
+      },
+    });
+
+    const result = await syncGraphMailMessagesForAccount({
+      userId: USER_ID,
+      connectionId,
+      accountId: ACCOUNT_ID,
+      config: CONFIG,
+      fetchImpl: provider.fetchImpl,
+    });
+
+    expect(result.deleted).toBe(1);
+    expect((await storedMessages()).map(row => row.provider_message_id))
+      .toEqual(['m1']);
+    expect(provider.urls.some(url => url.includes('/me/messages/m2'))).toBe(true);
   });
 
   it('keeps synchronising the other folders when one folder answers 404', async () => {

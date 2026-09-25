@@ -393,6 +393,44 @@ export function localMessageForGraphMessage(message: GraphMessage): LocalGraphMe
  * Read one page of a folder's message delta, resuming from `nextLink` first and
  * falling back to the stored `deltaLink`, exactly as Graph issued them.
  */
+
+/**
+ * Resolve the current mailbox location of one message.
+ *
+ * In ImmutableId mode the id survives a move between folders in the same
+ * mailbox. Therefore:
+ * - a returned parentFolderId proves the message still exists;
+ * - RESOURCE_NOT_FOUND proves the immutable item is no longer present.
+ */
+export async function fetchGraphMessageLocation(
+  api: GraphApiOptions,
+  providerMessageId: string,
+): Promise<{ id: string; parentFolderId: string | null } | null> {
+  try {
+    const message = await graphGet<{ id?: string | null; parentFolderId?: string | null }>(
+      api,
+      graphUrl(`/me/messages/${encodeURIComponent(providerMessageId)}`, {
+        $select: 'id,parentFolderId',
+      }),
+    );
+
+    const id = typeof message.id === 'string' ? message.id : '';
+    if (!id) return null;
+
+    return {
+      id,
+      parentFolderId: typeof message.parentFolderId === 'string'
+        ? message.parentFolderId
+        : null,
+    };
+  } catch (caught) {
+    if (caught instanceof GraphApiError && caught.code === 'RESOURCE_NOT_FOUND') {
+      return null;
+    }
+    throw caught;
+  }
+}
+
 export async function fetchMessagesDeltaPage(api: GraphApiOptions, input: {
   folderId: string;
   nextLink?: string | null;

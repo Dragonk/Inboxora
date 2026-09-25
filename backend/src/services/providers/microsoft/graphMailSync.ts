@@ -21,6 +21,7 @@ import {
   fetchMailFolderSnapshot,
   fetchWellKnownFolderIds,
   fetchMessagesDeltaPage,
+  fetchGraphMessageLocation,
   graphFolderPathMap,
   localMessageForGraphMessage,
   providerUidForGraphMessage,
@@ -441,6 +442,36 @@ interface MessageContext {
 
 const MESSAGE_MAX_PAGES = 1000;
 
+/**
+ * Confirm which Graph folder tombstones are safe to remove locally.
+ *
+ * Message delta is folder-scoped: @removed(reason=deleted) can mean either
+ * "deleted" or merely "moved out of this folder". Before allowing a local
+ * DELETE, ask Graph whether the message still exists under its current id.
+ *
+ * 200  -> keep it; the tombstone alone is not destructive authority.
+ * 404  -> the item no longer exists under this folder identity, so removing
+ *         the source-folder row is correct. A moved message will be ingested
+ *         by its destination folder delta.
+ * other failure -> throw and keep the cursor unchanged; never delete on an
+ *                  uncertain provider result.
+ */
+async function verifiedGraphRemovedIds(
+  api: GraphApiOptions,
+  messages: readonly GraphMessage[],
+): Promise<ReadonlySet<string>> {
+  const verified = new Set<string>();
+
+  for (const message of messages) {
+    if (!message.id || message['@removed']?.reason !== 'deleted') continue;
+
+    const location = await fetchGraphMessageLocation(api, message.id);
+    if (location === null) verified.add(message.id);
+  }
+
+  return verified;
+}
+
 interface GraphMessagePageCheckpoint {
   nextLink: string;
   fullSync: boolean;
@@ -490,6 +521,7 @@ export async function applyGraphMailMessagesPage(
   client: PoolClient,
   context: MessageContext,
   messages: readonly GraphMessage[],
+  verifiedRemovedIds: ReadonlySet<string> = new Set<string>(),
 ): Promise<{ created: number; updated: number; deleted: number; skipped: number; rowIds: string[] }> {
   const totals = { created: 0, updated: 0, deleted: 0, skipped: 0, rowIds: [] as string[] };
   for (const message of messages) {
@@ -501,16 +533,19 @@ export async function applyGraphMailMessagesPage(
         totals.skipped += 1;
         continue;
       }
-      // The delta is folder-scoped, and Graph emits `@removed` both for a real deletion and for a message that
-      // *moved out of this folder*. Deleting by account and provider id alone therefore removed a message that
-      // had already been re-homed to the destination folder — the folder the delta was read from is the one that
-      // may be vacated, so the deletion is scoped to it (GRAPH-05). A move processed in either order now
-      // converges on one row in the destination: source-first deletes it and the destination re-creates it,
-      // destination-first leaves it untouched because its folder no longer matches.
+      // A folder-level tombstone is ambiguous until Graph has been queried
+      // directly. Only a tombstone positively classified outside this database
+      // transaction may remove the source-folder projection.
+      if (!verifiedRemovedIds.has(message.id)) {
+        totals.skipped += 1;
+        continue;
+      }
+
       const removed = await client.query(
         'DELETE FROM messages WHERE account_id = $1 AND provider_message_id = $2 AND folder = $3',
         [context.accountId, message.id, context.folderPath],
       );
+
       if ((removed.rowCount ?? 0) > 0) totals.deleted += 1;
       else totals.skipped += 1;
       continue;
@@ -838,10 +873,22 @@ export async function syncGraphMailMessagesForFolder(input: {
         throw caught;
       }
       pagesFetched += 1;
+
+      // Never let a folder-level @removed directly authorize a DELETE.
+      // Provider verification happens outside the DB transaction; a network,
+      // auth or throttling failure aborts this page and leaves its delta cursor
+      // untouched so the tombstone can be retried safely.
+      const verifiedRemovedIds = await verifiedGraphRemovedIds(api, fetched.messages);
+
       const applied = await withFencedSyncLease({
         syncStateId,
         generation: lease.generation,
-        run: client => applyGraphMailMessagesPage(client, context, fetched.messages),
+        run: client => applyGraphMailMessagesPage(
+          client,
+          context,
+          fetched.messages,
+          verifiedRemovedIds,
+        ),
       });
       await persistConversations(applied.rowIds, input.account);
       // MAIL-01: a blocked sender's mail must not stay in a native account's inbox either. The block list
