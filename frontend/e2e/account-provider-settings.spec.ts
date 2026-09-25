@@ -25,6 +25,7 @@ test('provider edits stage intent across refresh and Cancel discards it', async 
   await expect(page.getByTestId('account-summary-contacts')).toBeVisible();
   await expect(page.getByTestId('account-provider-summary').getByRole('switch')).toHaveCount(0);
   await page.getByRole('button', { name: /^Edit$|^Edytuj$/ }).click();
+  await page.getByRole('tab', { name: /^Services$|^Usługi$/ }).click();
   const calendar = page.getByTestId('account-feature-calendars');
   await expect(calendar).toHaveAttribute('aria-checked', 'true');
   await calendar.click();
