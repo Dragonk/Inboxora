@@ -1,7 +1,10 @@
 # Release notes 4.1.0
 
-**Status:** prepared on `dev`, **not released** — a version is released when `dev` is merged to `main`
-· **Previous version:** 4.0.4 · **Type:** minor
+**Status:** Released
+
+**Release date:** 2026-09-25
+
+**Previous version:** 4.0.4 · **Type:** minor
 
 4.1.0 adds a **native provider layer** and redesigns the send/attachment limits around the transport that
 actually sends. A Microsoft account can run its mailbox, calendars and contacts over **Microsoft Graph**;
@@ -124,7 +127,9 @@ without copying or losing anything local.
 
 ## Upgrade impact
 
-- **Apply migrations `0101`–`0131` in numeric order, before rolling out the application.** They are additive and no
+- **Apply the complete post-4.0.4 migration chain before rolling out the application.** The runner applies
+  `0101_provider_layer.sql` through `0140_gmail_legacy_charset_cache_refresh.sql` in lexical filename order,
+  including both `0118_carddav_source_identity.sql` and `0118_immutable_message_ids.sql`; they are additive and no
   existing table, column or row is rewritten. Several deserve naming: `0110` adds the columns the Microsoft
   device authorization uses and must be applied before a device flow is started; `0111` adds the nullable
   `messages.provider_labels` the Gmail adapter writes; `0112` adds the `read_write` value the per-collection

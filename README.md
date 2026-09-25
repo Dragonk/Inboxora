@@ -23,9 +23,9 @@ what 4.1 adds on top and [What's new in 4.0](#whats-new-in-40) for the rest.
 over **Microsoft Graph** and a Google account can use the **Gmail, Calendar and People APIs**, while
 every account that prefers it keeps working over plain IMAP/SMTP — including Google with an app
 password. Provider data pulled from an API can be written back once you enable it per collection, and
-the send/attachment limits follow the transport you actually send over. **4.1.0 is prepared on `dev`
-and is not released yet**; the [4.1.0 release notes](docs/wiki/Release-notes-4.1.0.md) state what was
-verified on the published `:dev` images and which acceptance still has to be done by hand.
+the send/attachment limits follow the transport you actually send over. **4.1.0 is the current release**;
+see the [4.1.0 release notes](docs/wiki/Release-notes-4.1.0.md) for upgrade requirements, verification,
+and known limitations.
 
 <p align="center">
   <img src="media/screenshots/mail-inbox-desktop.png" width="820" alt="Inboxora: the unified inbox with an expanded conversation and an open message">
@@ -175,11 +175,13 @@ ceiling. A refusal names the file and the exact dimension it hit rather than one
 4.1 also adds **recurring events** with invitation support, the **menu-follows-your-finger** mobile
 gesture, and hardens the built-in CalDAV/CardDAV discovery and capability surface.
 
-Apply migrations **`0101`–`0112` in order before rolling out** a build that reads the new columns; they
-are additive and no existing row is rewritten. `PROVIDER_INTEGRATIONS_ENABLED=0` disables the whole
-provider layer, and with no provider configured mail, contacts, calendars and DAV behave as in 4.0.4.
-See the [4.1.0 release notes](docs/wiki/Release-notes-4.1.0.md) for the upgrade impact, the
-administrator steps, the known limitations and what is still manual acceptance, and
+Apply the complete additive migration chain **through `0140_gmail_legacy_charset_cache_refresh.sql` before rolling out**
+a build that reads the new columns. The runner applies the post-4.0.4 files `0101`–`0140` in lexical filename
+order, including both `0118_carddav_source_identity.sql` and `0118_immutable_message_ids.sql`; no existing row
+is rewritten by the release migrations. `0139` deduplicates logical raw headers and `0140` schedules Gmail
+charset-cache refreshes. `PROVIDER_INTEGRATIONS_ENABLED=0` disables the whole provider layer, and with no provider
+configured mail, contacts, calendars and DAV behave as in 4.0.4. See the [4.1.0 release notes](docs/wiki/Release-notes-4.1.0.md)
+for the upgrade impact, administrator steps, known limitations and manual acceptance, and
 [Connecting Google and Microsoft accounts](docs/wiki/Provider-setup.md) for the registration
 procedure.
 
@@ -401,7 +403,7 @@ release.
 | [Migrating from MailFlow](docs/wiki/Migrating-from-MailFlow.md) | Moving a MailFlow 3.3.0 deployment to Inboxora. |
 | [Troubleshooting](docs/wiki/Troubleshooting.md) | Diagnostic paths and common failures. |
 | [Development](docs/wiki/Development.md) | Local verification, browser tests, documentation policy. |
-| [Release notes 4.1.0](docs/wiki/Release-notes-4.1.0.md) | 4.1.0 as prepared on `dev`: highlights, upgrade impact, administrator steps, limitations, verification. |
+| [Release notes 4.1.0](docs/wiki/Release-notes-4.1.0.md) | Current release: highlights, upgrade impact, administrator steps, limitations, verification. |
 | [Release notes 4.0.4](docs/wiki/Release-notes-4.0.4.md) | Previous release: desktop changes, rollout requirements and known limitations. |
 | [Release notes 4.0.3](docs/wiki/Release-notes-4.0.3.md) | Previous release: sync, IDLE, antispam and migration requirements. |
 | [Release notes 4.0.2](docs/wiki/Release-notes-4.0.2.md) | Earlier release: reliability and data-isolation patch. |
@@ -409,10 +411,10 @@ release.
 
 ## Development
 
-**4.1.0 is prepared on the `dev` branch and is not released yet.** Published `:dev` images are built
-from it by the `Publish to GHCR` workflow; [`docs/IMPLEMENTATION-STATUS.md`](docs/IMPLEMENTATION-STATUS.md)
-records the per-package delivery status, the frozen code SHA and the manual acceptance that is still
-outstanding. `main` receives a release only through a pull request from `dev`.
+**4.1.0 is the current release.** Published release images and application artifacts are built by
+GitHub Actions; [`docs/IMPLEMENTATION-STATUS.md`](docs/IMPLEMENTATION-STATUS.md) records the per-package
+delivery status, the release SHA and verification details. `main` receives releases only through a pull
+request from `dev`.
 
 ```bash
 # frontend

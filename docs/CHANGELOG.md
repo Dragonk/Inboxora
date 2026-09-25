@@ -13,26 +13,20 @@ limitations — read the matching page in the Wiki: [Release notes 4.1.0](wiki/R
 
 ## How entries are kept
 
-Work in progress accumulates under the section for the version it is intended for — today
-**`[4.1.0]`, which is prepared on `dev` and is not released yet** — with one heading per category in
-Keep a Changelog order (**Added → Changed → Deprecated → Removed → Fixed → Security**). A change is
-recorded in the same commit that makes it, not gathered afterwards from the commit log, which reliably
-loses the "why" and keeps only the "what". `[Unreleased]` is for work whose version has not been
-chosen, and it is empty while a version is in preparation.
+Release sections are kept under their intended version, with one heading per category in Keep a
+Changelog order (**Added → Changed → Deprecated → Removed → Fixed → Security**). A change is recorded
+in the same commit that makes it, not gathered afterwards from the commit log, which reliably loses the
+"why" and keeps only the "what". `[Unreleased]` is for work whose version has not been chosen.
 
-**A section is dated only once the version is actually released**, which happens when `dev` is merged
-to `main` — until then it carries no date, the way `[3.4.0]` does. The matching
-`wiki/Release-notes-<x.y.z>.md` is written alongside it and states its own status honestly: prepared
-on `dev`, released, or superseded. The release notes are the narrative — user and operator impact,
-migration and configuration requirements, the **known safe limitations**, and what was verified
-(including anything left **NOT RUN**). A version is never inferred from the size of the section, and a
-release is never claimed before it has happened.
+The matching `wiki/Release-notes-<x.y.z>.md` is the narrative — user and operator impact, migration and
+configuration requirements, the **known safe limitations**, and what was verified. Release 4.1.0 is
+finalized below and dated with its publication date.
 
 ## [Unreleased]
 
 Nothing is being prepared beyond 4.1.0. Work whose version has not been chosen accumulates here.
 
-## [4.1.0]
+## [4.1.0] - 2026-09-25
 
 ### Added
 - **Account/settings presentation correction.** Calendar and contact account details replace their overview; grouped display selection, scoped navigation and calendar color preview use the v2/v3 layouts. Contact display preferences are user-scoped and durable, including an empty selection. Calendar overrides are applied to calendar lists, projected/materialized events and contact-date events. System labels use the selected UI language, with new strings in all nine catalogs. This correction reuses migration `0138_calendar_color_overrides.sql` after `0137`; it introduces no new migration or provider permission. Full application quality gates and visual acceptance must be rerun after integration; the supplied component/helper tests do not replace them.
@@ -419,7 +413,8 @@ None.
 - **Microsoft Graph legacy folder targets are recovered during message sync.** A legacy `mail_folder` collection with a NULL account owner now resolves through its local folder owner, and unresolved enabled collections fail visibly instead of reporting a successful no-op.
 - **Native account deletion retires local provider artifacts safely.** Exclusive Google/Microsoft connections and their local calendar/contact projections are removed atomically; shared connections, standalone DAV sources, local resources and remote provider data are preserved. Orphaned native provider cards are suppressed defensively.
 - **Gmail replies retain the provider conversation.** Reply and Reply All sends now pass the stored Gmail `provider_thread_id` (with the `gmail:` identity fallback) alongside RFC reply headers; Gmail reply drafts carry the same `message.threadId`. New mail never invents a Gmail thread ID, and Microsoft Graph keeps its provider-native reply flow.
-- **Legacy native-provider mail rows are recoverable without guessed identities.** Gmail body, headers and attachment reads resolve an exact provider message or refuse ambiguous matches; legacy Gmail labels and Microsoft folders recover ownership from their local folder while discovery backfills only NULL account links. CalDAV `this and following` writes create the remainder before truncating the master and compensate only definite refusals.- **DAV clients support Basic and Digest challenge authentication.** CardDAV and CalDAV discovery, reads, privilege checks and write-back share one guarded path, including Baikal-style MD5 challenges without weakening SSRF or private-host policy.
+- **Legacy native-provider mail rows are recoverable without guessed identities.** Gmail body, headers and attachment reads resolve an exact provider message or refuse ambiguous matches; legacy Gmail labels and Microsoft folders recover ownership from their local folder while discovery backfills only NULL account links. CalDAV `this and following` writes create the remainder before truncating the master and compensate only definite refusals.
+- **DAV clients support Basic and Digest challenge authentication.** CardDAV and CalDAV discovery, reads, privilege checks and write-back share one guarded path, including Baikal-style MD5 challenges without weakening SSRF or private-host policy.
 - **Conversation Engine contention and duplicate storage are reduced.** Per-account serialization coordinates live ingest, retry and rebuild; migration `0139_conversation_raw_header_dedup.sql` removes redundant logical raw-header copies while retaining physical message headers.
 - **Legacy Gmail API text is decoded without losing Central-European characters.** Bounded fallback decoding handles malformed legacy charset declarations, while migration `0140_gmail_legacy_charset_cache_refresh.sql` triggers one-time on-demand refreshes for cached Gmail reader bodies without deleting messages.
 - **Provider service controls now match Settings switches.** Calendar and Contacts use accessible on/off switches on the account card, and a deliberately disabled service is visually neutral instead of green.

@@ -52,12 +52,14 @@ docker compose logs -f backend
 4.1.0 adds the native provider layer. Nothing about an existing installation stops working, and nothing is
 migrated, deleted or rewritten on its own.
 
-**Migrations.** Apply **`0101`–`0114` in order, before rolling out the application**. They are additive:
-they add tables, columns and indexes, so an interrupted run is resumable and a rollback to 4.0.4 works (the
-older code ignores the new columns). Three matter for ordering beyond the application start: `0110` before
-any device authorization is started, `0111` before the Gmail API adapter runs, and `0112` before any
-collection write-back is enabled. `0113` adds the push-subscription tables and is only used when
-`PROVIDER_PUSH_ENABLED=true`.
+**Migrations.** Apply the complete post-4.0.4 chain **`0101_provider_layer.sql` through
+`0140_gmail_legacy_charset_cache_refresh.sql` before rolling out the application**. The migration runner sorts
+full filenames lexically, so both `0118_carddav_source_identity.sql` and `0118_immutable_message_ids.sql` are
+applied in that order; do not renumber or skip either file. The chain is additive and an interrupted run is
+resumable. Apply `0110` before device authorization, `0111` before the Gmail API adapter, `0112` before collection
+write-back, `0113` before enabling provider push, `0139_conversation_raw_header_dedup.sql` before the updated
+Conversation Engine, and `0140_gmail_legacy_charset_cache_refresh.sql` before the updated Gmail reader. The
+older 4.0.4 code ignores the new columns, so a rollback remains possible after a backup.
 
 **No manual SQL is required, including for the one migration that needed a correction.** `0108` created a
 unique index on `messages (account_id, provider_message_id)` while assuming that column had always been the
