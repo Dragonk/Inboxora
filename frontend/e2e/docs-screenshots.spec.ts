@@ -196,7 +196,7 @@ async function openSettingsTab(page, name) {
 // Appearance groups its options into sub-tabs; the threading settings and the
 // conversation rebuild live under Layout, not on the default Theme sub-tab.
 async function openSettingsSubTab(page, name) {
-  const button = page.locator('.admin-panel').getByRole('button', { name: new RegExp(`^${name}$`, 'i') }).first();
+  const button = page.locator('.admin-panel').getByRole('tab', { name: new RegExp(`^${name}$`, 'i') }).first();
   await button.scrollIntoViewIfNeeded();
   await button.click();
 }
