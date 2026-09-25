@@ -953,7 +953,10 @@ export async function syncGraphMailMessagesForFolder(input: {
       });
       if (!saved) return false;
 
-      if (fullSync && baselineStartedAt) {
+      // Baseline omission may only feed destructive reconciliation when the
+      // mailbox already uses ImmutableId. With mutable Graph ids, absence is
+      // never sufficient deletion evidence.
+      if (fullSync && baselineStartedAt && api.immutableIds) {
         await enqueueGraphBaselineRemovalCandidates(client, {
           connectionId: input.connectionId,
           accountId: input.accountId,

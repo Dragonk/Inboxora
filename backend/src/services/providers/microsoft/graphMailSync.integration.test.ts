@@ -586,7 +586,7 @@ describeOrSkip('Microsoft Graph mail message sync (PostgreSQL)', () => {
     )).toBe(true);
   });
 
-  it('deletes a mutable-id message only after two delayed negative confirmations', async () => {
+  it('never deletes a mutable-id message from negative tombstone lookups alone', async () => {
     const connectionId = await seedConnection();
     await discoverFolders(connectionId);
 
@@ -618,79 +618,115 @@ describeOrSkip('Microsoft Graph mail message sync (PostgreSQL)', () => {
       fetchImpl: tombstone.fetchImpl,
     });
 
-    // First sighting only creates durable pending state.
     expect(observed.deleted).toBe(0);
     expect((await storedMessages()).map(row => row.provider_message_id))
       .toEqual(['m1', 'm2']);
-    expect(await pendingRemovals()).toEqual([
-      expect.objectContaining({
-        provider_message_id: 'm2',
-        attempts: 0,
-      }),
-    ]);
 
     await forcePendingRemovalsDue();
 
-    const firstVerifier = fakeMailProvider({
+    const missing = () => fakeMailProvider({
       inbox: [{
         value: [],
-        '@odata.deltaLink': `${DELTA_INBOX}-verify-1`,
+        '@odata.deltaLink': `${DELTA_INBOX}-verify`,
       }],
       lookup: {
         m2: null,
       },
     });
 
-    const firstVerification = await syncGraphMailMessagesForAccount({
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const provider = missing();
+
+      const result = await syncGraphMailMessagesForAccount({
+        userId: USER_ID,
+        connectionId,
+        accountId: ACCOUNT_ID,
+        config: CONFIG,
+        fetchImpl: provider.fetchImpl,
+      });
+
+      expect(result.deleted).toBe(0);
+      expect((await storedMessages()).map(row => row.provider_message_id))
+        .toEqual(['m1', 'm2']);
+
+      expect(await pendingRemovals()).toEqual([
+        expect.objectContaining({
+          provider_message_id: 'm2',
+          last_error_code: 'GRAPH_DELETE_REQUIRES_IMMUTABLE_ID',
+        }),
+      ]);
+
+      await forcePendingRemovalsDue();
+    }
+  });
+  it('deletes an immutable-id message after delayed Graph 404 confirmation', async () => {
+    const connectionId = await seedConnection();
+
+    await autocommit(client => client.query(
+      `UPDATE provider_connections
+          SET immutable_message_ids_at = NOW()
+        WHERE id = $1`,
+      [connectionId],
+    ));
+
+    await discoverFolders(connectionId);
+
+    await syncGraphMailMessagesForAccount({
       userId: USER_ID,
       connectionId,
       accountId: ACCOUNT_ID,
       config: CONFIG,
-      fetchImpl: firstVerifier.fetchImpl,
+      fetchImpl: fakeMailProvider({
+        inbox: [{
+          value: [graphMessage('immutable-m1'), graphMessage('immutable-m2')],
+          '@odata.deltaLink': DELTA_INBOX,
+        }],
+      }).fetchImpl,
     });
 
-    // First negative provider verification is still not destructive.
-    expect(firstVerification.deleted).toBe(0);
+    await syncGraphMailMessagesForAccount({
+      userId: USER_ID,
+      connectionId,
+      accountId: ACCOUNT_ID,
+      config: CONFIG,
+      fetchImpl: fakeMailProvider({
+        inbox: [{
+          value: [{
+            id: 'immutable-m2',
+            '@removed': { reason: 'deleted' },
+          }],
+          '@odata.deltaLink': `${DELTA_INBOX}-immutable-delete`,
+        }],
+      }).fetchImpl,
+    });
+
     expect((await storedMessages()).map(row => row.provider_message_id))
-      .toEqual(['m1', 'm2']);
-    expect(await pendingRemovals()).toEqual([
-      expect.objectContaining({
-        provider_message_id: 'm2',
-        attempts: 1,
-        last_error_code: 'GRAPH_DELETE_UNCONFIRMED',
-      }),
-    ]);
+      .toEqual(['immutable-m1', 'immutable-m2']);
 
     await forcePendingRemovalsDue();
 
-    const secondVerifier = fakeMailProvider({
+    const verifier = fakeMailProvider({
       inbox: [{
         value: [],
-        '@odata.deltaLink': `${DELTA_INBOX}-verify-2`,
+        '@odata.deltaLink': `${DELTA_INBOX}-immutable-verified`,
       }],
       lookup: {
-        m2: null,
+        'immutable-m2': null,
       },
     });
 
-    const secondVerification = await syncGraphMailMessagesForAccount({
+    const result = await syncGraphMailMessagesForAccount({
       userId: USER_ID,
       connectionId,
       accountId: ACCOUNT_ID,
       config: CONFIG,
-      fetchImpl: secondVerifier.fetchImpl,
+      fetchImpl: verifier.fetchImpl,
     });
 
-    expect(secondVerification.deleted).toBe(1);
+    expect(result.deleted).toBe(1);
     expect((await storedMessages()).map(row => row.provider_message_id))
-      .toEqual(['m1']);
+      .toEqual(['immutable-m1']);
     expect(await pendingRemovals()).toEqual([]);
-
-    expect(secondVerifier.urls.some(url => url.includes('/me/messages/m2'))).toBe(true);
-    expect(secondVerifier.urls.some(url =>
-      url.includes('/me/messages?') &&
-      decodeURIComponent(url).includes('internetMessageId'),
-    )).toBe(true);
   });
 
   it('keeps synchronising the other folders when one folder answers 404', async () => {

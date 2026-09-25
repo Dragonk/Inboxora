@@ -471,15 +471,21 @@ export async function processGraphPendingRemovals(input: {
         continue;
       }
 
-      // First negative result only schedules a second independent check.
-      if (row.attempts < 1) {
-        await deferPending(row.message_row_id, 'GRAPH_DELETE_UNCONFIRMED', true);
-        summary.deferred += 1;
-        continue;
-      }
-
-      await confirmedDelete(row.message_row_id);
-      summary.deleted += 1;
+      // A mutable Graph id is not durable deletion authority. Live Outlook
+      // mailboxes have demonstrated that the old id can 404 while the message
+      // still exists, and an immediate RFC lookup may also temporarily return
+      // no match. Never physically delete such a row.
+      //
+      // Keep the durable candidate so a later delta can cancel it or relocate
+      // it. Once the mailbox has been migrated to ImmutableId, the immutable
+      // branch above may safely authorize deletion.
+      await deferPending(
+        row.message_row_id,
+        'GRAPH_DELETE_REQUIRES_IMMUTABLE_ID',
+        false,
+        300,
+      );
+      summary.deferred += 1;
     } catch (caught) {
       const code = caught instanceof GraphApiError
         ? caught.code
