@@ -569,6 +569,17 @@ describeOrSkip('Microsoft Graph mail message sync (PostgreSQL)', () => {
     expect(result.incompleteFolders).toBe(1);
     // The unread page must not be mistaken for "these messages are gone".
     expect((await storedMessages()).map(row => row.provider_message_id)).toEqual(['m1', 'm2']);
+
+    // The durable continuation resumes at page 2 rather than replaying page 1 forever after a worker restart.
+    const resumed = await syncGraphMailMessagesForAccount({
+      userId: USER_ID, connectionId, accountId: ACCOUNT_ID, config: CONFIG, fetchImpl: capped.fetchImpl,
+    });
+    expect(resumed.incompleteFolders).toBe(0);
+    expect((await storedMessages()).map(row => row.provider_message_id)).toEqual(['m1', 'm2']);
+    const checkpoint = await autocommit(client => client.query<{ page_checkpoint: string | null }>(
+      "SELECT page_checkpoint FROM sync_states WHERE user_id = $1 AND feature = 'mail' AND coverage = 'messages' LIMIT 1", [USER_ID],
+    ));
+    expect(checkpoint.rows[0]?.page_checkpoint).toBeNull();
   });
 
   it('does not revert a flag the user just changed', async () => {

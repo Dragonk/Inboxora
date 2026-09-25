@@ -440,6 +440,27 @@ interface MessageContext {
 }
 
 const MESSAGE_MAX_PAGES = 1000;
+
+interface GraphMessagePageCheckpoint {
+  nextLink: string;
+  fullSync: boolean;
+  seenProviderIds: string[];
+}
+
+function parseGraphMessagePageCheckpoint(value: string | null | undefined): GraphMessagePageCheckpoint | null {
+  if (!value) return null;
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (!parsed || typeof parsed !== 'object') return null;
+    const checkpoint = parsed as Partial<GraphMessagePageCheckpoint>;
+    if (typeof checkpoint.nextLink !== 'string' || typeof checkpoint.fullSync !== 'boolean' || !Array.isArray(checkpoint.seenProviderIds)) return null;
+    const seenProviderIds = checkpoint.seenProviderIds.filter((id): id is string => typeof id === 'string');
+    return { nextLink: checkpoint.nextLink, fullSync: checkpoint.fullSync, seenProviderIds };
+  } catch {
+    return null;
+  }
+}
+
 /** The local-wins window the IMAP path uses, in seconds. */
 const LOCAL_WINS_SECONDS = 30;
 
@@ -765,11 +786,13 @@ export async function syncGraphMailMessagesForFolder(input: {
 
   try {
     const state = await withTransaction(client => readSyncState(client, syncStateId));
+    const checkpoint = parseGraphMessagePageCheckpoint(state?.pageCheckpoint);
     let cursor = state?.cursor ?? null;
-    let fullSync = cursor === null;
-    let nextLink: string | null = null;
-    // Only a baseline needs the seen-set: a delta reports deletions explicitly.
-    const seen = new Set<string>();
+    let fullSync = checkpoint?.fullSync ?? cursor === null;
+    let nextLink: string | null = checkpoint?.nextLink ?? null;
+    // Only a baseline needs the seen-set: a delta reports deletions explicitly. Keep it in the durable page
+    // checkpoint so a worker restart after a page does not restart forever at page one.
+    const seen = new Set<string>(checkpoint?.seenProviderIds ?? []);
     const totals = { created: 0, updated: 0, deleted: 0, skipped: 0 };
     let complete = false;
 
@@ -812,6 +835,17 @@ export async function syncGraphMailMessagesForFolder(input: {
       if (fetched.deltaLink) cursor = fetched.deltaLink;
       nextLink = fetched.nextLink;
       if (!nextLink) { complete = true; break; }
+
+      // A large mailbox can take many pages and a worker may restart between them. Persist the exact Graph
+      // continuation and the baseline's seen set; otherwise every retry would re-read page one and remain stuck
+      // at the provider's first page (usually 50 messages).
+      const checkpointSaved = await withTransaction(client => commitSyncCheckpoint(client, {
+        syncStateId,
+        generation: lease.generation,
+        pageCheckpoint: JSON.stringify({ nextLink, fullSync, seenProviderIds: [...seen] }),
+        lastErrorCode: null,
+      }));
+      if (!checkpointSaved) throw new SyncLeaseLostError();
     }
 
     if (!complete) {
