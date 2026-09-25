@@ -580,7 +580,6 @@ export async function assertDocsPresentation(page, { mode = 'mail-list', require
   // The unified inbox only renders with two or more enabled accounts, so its presence
   // also proves the shared demo data reached the sidebar.
   await expect(page.getByTestId('all-inboxes'), 'the unified inbox entry point must be visible').toBeVisible();
-  await expect(page.locator('.ui-alert:visible'), 'documentation captures must not hide an application error').toHaveCount(0);
 
   if (mode === 'mail-reader') {
     const bodyFrame = page.locator('section[data-conversation-id]:visible iframe').first();
@@ -595,6 +594,7 @@ export async function assertDocsPresentation(page, { mode = 'mail-list', require
   }
 
   for (const locator of required) await expect(locator).toBeVisible();
+  await expect(page.locator('.ui-alert:visible'), 'documentation captures must not hide an application error').toHaveCount(0);
 }
 
 export { expect };
