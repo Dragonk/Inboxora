@@ -111,8 +111,7 @@ async function bootstrapMicrosoftMailPush(env: NodeJS.ProcessEnv): Promise<{ cre
              AND pps.status = 'active'
              AND pps.expires_at > NOW() + INTERVAL '1 minute'
         )
-      ORDER BY pc.id
-      LIMIT 50`,
+      ORDER BY pc.id`,
   );
 
   let created = 0;
@@ -173,8 +172,7 @@ async function bootstrapGoogleMailPush(env: NodeJS.ProcessEnv): Promise<{ create
              AND pps.status = 'active'
              AND pps.expires_at > NOW() + INTERVAL '1 minute'
         )
-      ORDER BY pc.id
-      LIMIT 50`,
+      ORDER BY pc.id`,
   );
 
   let created = 0;

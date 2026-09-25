@@ -26,7 +26,7 @@ When provider push is enabled, Inboxora registers Microsoft Graph change
 notification subscriptions against:
 
 ```text
-https://<APP_URL>/api/provider-webhooks/microsoft
+<APP_URL>/api/provider-webhooks/microsoft
 ```
 
 Existing native Microsoft mailboxes are bootstrapped automatically after push is
@@ -125,7 +125,7 @@ by Google.
 Create a push subscription for the topic and point it at:
 
 ```text
-https://<APP_URL>/api/provider-webhooks/gmail?token=<GOOGLE_PUBSUB_VERIFICATION_TOKEN>
+<APP_URL>/api/provider-webhooks/gmail?token=<GOOGLE_PUBSUB_VERIFICATION_TOKEN>
 ```
 
 For example:
@@ -143,7 +143,7 @@ When using the Google Cloud Console, choose:
 - Topic: `inboxora-gmail-push`
 - Delivery type: `Push`
 - Endpoint:
-  `https://<APP_URL>/api/provider-webhooks/gmail?token=<GENERATED_TOKEN>`
+  `<APP_URL>/api/provider-webhooks/gmail?token=<GENERATED_TOKEN>`
 
 ### 6. Configure Inboxora
 

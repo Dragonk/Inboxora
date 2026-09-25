@@ -161,6 +161,7 @@ describe('runProviderPushRenewals', () => {
       .find(text => text.includes("a.mail_transport = 'microsoft_graph'"));
 
     expect(sql).toContain('NOT EXISTS');
+    expect(sql).toContain('pps.provider_connection_id = pc.id');
     expect(sql).toContain("pps.resource_type = 'mail'");
     expect(sql).toContain("pps.status = 'active'");
     expect(sql).toContain("pps.expires_at > NOW() + INTERVAL '1 minute'");
