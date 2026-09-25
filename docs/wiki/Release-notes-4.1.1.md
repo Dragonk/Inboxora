@@ -8,8 +8,13 @@
 - **Microsoft Graph immutable message IDs.** Body, headers, attachment metadata, inline images, single downloads, ZIP downloads and mail mutations consistently use `Prefer: IdType="ImmutableId"` whenever the connection has immutable IDs enabled.
 - **Microsoft Graph historical mail delta sync after reconnect.** Delta sync requests now specify page sizes via `Prefer: odata.maxpagesize=200` rather than `$top` on `/messages/delta`, keeping opaque continuation links intact across full traversals. Reconnecting a previously revoked or inactive Microsoft connection clears mail delta cursors and checkpoints to guarantee a clean baseline import, while preserving state during routine token/consent refreshes on active connections.
 
+## User and operator impact
+
+- **New users and initial mailbox sync:** New Microsoft integrations traverse historical folder items completely using `Prefer: odata.maxpagesize=200` without hitting the premature delta round termination previously caused by `$top`.
+- **Upgrading from 4.1.0:** Active connections continue synchronizing incrementally without losing state. If an existing Microsoft mailbox missed historical items during an earlier import, disconnecting and reconnecting the account now resets the mail delta state and triggers a full baseline import. Unthreaded messages without `thread_key` are immediately visible in threaded folder views.
+
 ## Validation and upgrade
 
-No new database migration is required. Apply the existing migration chain normally. The release includes a real PostgreSQL regression for three independent messages with null thread identifiers and Graph regression coverage for immutable-ID reads and mutations.
+No new database migration is required. Apply the existing migration chain normally. The release includes a real PostgreSQL regression for three independent messages with null thread identifiers, reconnect cursor reset, and Graph regression coverage for immutable-ID reads, mutations, and delta pagination.
 
 Before publishing, validate on the `dev` deployment that threaded and flat views, refreshes and folder changes retain messages, and that old and new Microsoft messages open their bodies and support regular, inline-CID, single and ZIP attachment downloads. Do not publish if any of these live checks fail.
