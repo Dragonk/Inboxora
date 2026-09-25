@@ -1377,6 +1377,7 @@ async function handleCaldavOccurrence(
   }
 
   // An edit: the earlier part keeps its occurrences, the remainder becomes its own resource at the source.
+  // Create the remainder first so a definite source refusal cannot destroy future occurrences.
   const remainderRrule = values.recurrenceProvided ? recurrenceToRRule(values.recurrence) : rruleFromCalendarResource(existing.raw_ical);
   const remainderUid = `${existing.uid}#${input.recurrenceId.replace(/[^0-9A-Za-z]/g, '')}`;
   const remainderRaw = localEventIcal({
@@ -1384,16 +1385,28 @@ async function handleCaldavOccurrence(
     url: values.url, organizer: values.organizer, attendees: values.attendees!, allDay: values.allDay,
     ...values.times!, rrule: remainderRrule,
   });
-  const truncatedWrite = await writeCaldavEventResource({
-    userId: sessionUserId(req)!, target: input.target, method: 'PUT', filename, uid: existing.uid,
-    raw: truncated.raw, exists: true, localObjectId: existing.id, localRevision: existing.etag,
-  });
-  if (truncatedWrite.status !== 'confirmed') return respondCaldavWriteBack(res, truncatedWrite);
   const remainderWrite = await writeCaldavEventResource({
     userId: sessionUserId(req)!, target: input.target, method: 'PUT', filename: `${remainderUid}.ics`,
     uid: remainderUid, raw: remainderRaw, exists: false, localObjectId: null, localRevision: null,
   });
   if (remainderWrite.status !== 'confirmed') return respondCaldavWriteBack(res, remainderWrite);
+  const truncatedWrite = await writeCaldavEventResource({
+    userId: sessionUserId(req)!, target: input.target, method: 'PUT', filename, uid: existing.uid,
+    raw: truncated.raw, exists: true, localObjectId: existing.id, localRevision: existing.etag,
+  });
+  if (truncatedWrite.status !== 'confirmed') {
+    if (truncatedWrite.status !== 'outcome_unknown') {
+      const rollback = await writeCaldavEventResource({
+        userId: sessionUserId(req)!, target: input.target, method: 'DELETE', filename: `${remainderUid}.ics`,
+        uid: remainderUid, raw: '', exists: true, localObjectId: null,
+        localRevision: remainderWrite.etag ?? crypto.createHash('sha256').update(remainderRaw).digest('hex'),
+      });
+      if (rollback.status !== 'confirmed') {
+        return res.status(502).json({ code: 'MUTATION_OUTCOME_UNKNOWN', error: 'The series could not be changed and cleanup of the temporary CalDAV remainder could not be confirmed. Synchronize the calendar before retrying.' });
+      }
+    }
+    return respondCaldavWriteBack(res, truncatedWrite);
+  }
   return res.json({ updated: true, scope: 'following' });
 }
 

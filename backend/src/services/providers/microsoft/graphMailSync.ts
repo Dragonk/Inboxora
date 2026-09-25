@@ -194,8 +194,13 @@ async function applyFolder(client: PoolClient, context: FolderContext, remoteId:
 
   if (link.rows[0]) {
     await client.query(
-      'UPDATE integration_collections SET local_folder_id = $2, updated_at = NOW() WHERE id = $1',
-      [link.rows[0].id, folderId],
+      `UPDATE integration_collections
+          SET local_folder_id = $2,
+              account_id = COALESCE(account_id, $3),
+              updated_at = NOW()
+        WHERE id = $1
+          AND (account_id IS NULL OR account_id = $3)`,
+      [link.rows[0].id, folderId, context.accountId],
     );
   } else {
     await client.query(
@@ -869,7 +874,10 @@ export async function graphFolderIdForPath(input: { connectionId: string; accoun
     `SELECT ic.remote_id
        FROM integration_collections ic
        JOIN folders f ON f.id = ic.local_folder_id
-      WHERE ic.connection_id = $1 AND ic.account_id = $2 AND ic.kind = 'mail_folder' AND f.path = $3
+      WHERE ic.connection_id = $1
+        AND ic.kind = 'mail_folder'
+        AND f.path = $3
+        AND (ic.account_id = $2 OR (ic.account_id IS NULL AND f.account_id = $2))
       LIMIT 1`,
     [input.connectionId, input.accountId, input.path],
   );

@@ -174,12 +174,35 @@ describe('scoped series mutations in a write-enabled CalDAV calendar', () => {
 
     expect(response.status).toBe(200);
     expect(mocks.put).toHaveBeenCalledTimes(2);
-    const [master, remainder] = mocks.put.mock.calls.map(call => call[0] as { filename: string; raw: string; exists: boolean });
-    expect(master?.raw).toContain('UNTIL=20260109T085959Z');
+    const [remainder, master] = mocks.put.mock.calls.map(call => call[0] as { filename: string; raw: string; exists: boolean });
     expect(remainder?.exists).toBe(false);
+    expect(master?.exists).toBe(true);
+    expect(master?.raw).toContain('UNTIL=20260109T085959Z');
     expect(remainder?.filename).toBe('uid-1#20260109T090000Z.ics');
     expect(remainder?.raw).toContain('SUMMARY:Daily (moved)');
     expect(remainder?.raw).toContain('RRULE:FREQ=DAILY;COUNT=10');
+  });
+
+  it('does not truncate the original series when creating the remainder is refused', async () => {
+    mocks.put.mockResolvedValueOnce({ status: 'conflict', created: false, code: 'VERSION_CONFLICT' });
+    const response = await call('PATCH', '/events/event-1/occurrence', { calendarId: 'calendar-1', recurrenceId: '2026-01-09T09:00:00Z', scope: 'following', summary: 'Daily (moved)', startsAt: '2026-01-09T11:00:00.000Z', endsAt: '2026-01-09T12:00:00.000Z', attendees: [] });
+    expect(response.status).toBe(412);
+    expect(mocks.put).toHaveBeenCalledOnce();
+    expect((mocks.put.mock.calls[0]?.[0] as { exists: boolean }).exists).toBe(false);
+  });
+
+  it('removes the temporary remainder when the master definitely refuses truncation', async () => {
+    mocks.put.mockResolvedValueOnce({ status: 'confirmed', created: true, etag: 'etag-remainder' }).mockResolvedValueOnce({ status: 'conflict', created: false, code: 'VERSION_CONFLICT' });
+    const response = await call('PATCH', '/events/event-1/occurrence', { calendarId: 'calendar-1', recurrenceId: '2026-01-09T09:00:00Z', scope: 'following', summary: 'Daily (moved)', startsAt: '2026-01-09T11:00:00.000Z', endsAt: '2026-01-09T12:00:00.000Z', attendees: [] });
+    expect(response.status).toBe(412);
+    expect(mocks.remove).toHaveBeenCalledWith(expect.objectContaining({ method: 'DELETE', filename: 'uid-1#20260109T090000Z.ics', localRevision: 'etag-remainder' }));
+  });
+
+  it('does not compensate an unknown master outcome', async () => {
+    mocks.put.mockResolvedValueOnce({ status: 'confirmed', created: true, etag: 'etag-remainder' }).mockResolvedValueOnce({ status: 'outcome_unknown', created: false, code: 'MUTATION_OUTCOME_UNKNOWN' });
+    const response = await call('PATCH', '/events/event-1/occurrence', { calendarId: 'calendar-1', recurrenceId: '2026-01-09T09:00:00Z', scope: 'following', summary: 'Daily (moved)', startsAt: '2026-01-09T11:00:00.000Z', endsAt: '2026-01-09T12:00:00.000Z', attendees: [] });
+    expect(response.status).toBe(502);
+    expect(mocks.remove).not.toHaveBeenCalled();
   });
 
   it('edits one occurrence without touching the series rule', async () => {

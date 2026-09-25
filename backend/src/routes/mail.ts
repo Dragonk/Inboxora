@@ -18,6 +18,7 @@ import { syncGraphMailFoldersForAccount, syncGraphMailMessagesForAccount } from 
 import type { EmailAccountRow } from '../services/imapManager.js';
 import { GraphApiError } from '../services/providers/microsoft/graphApiClient.js';
 import { GoogleApiError } from '../services/providers/google/googleApiClient.js';
+import { resolveGmailMessageIdentity } from '../services/providers/google/gmailLegacyMessageIdentity.js';
 import { gmailLabelIdForPath, syncGmailMailLabelsForAccount, syncGmailMailMessagesForAccount } from '../services/providers/google/gmailMailSync.js';
 import {
   collectGmailInlineImages,
@@ -639,6 +640,7 @@ router.get('/messages/:id/headers', async (req, res) => {
     date?: string | Date | null;
     /** The provider's immutable id, on a natively-ingested message (migration 0108). */
     provider_message_id?: string | null;
+    message_id?: string | null;
   }
   const message: MessageHeadersRow = result.rows[0];
 
@@ -669,13 +671,22 @@ router.get('/messages/:id/headers', async (req, res) => {
         console.warn('Headers Graph fetch failed:', caught instanceof Error ? caught.message : caught);
       }
     } else if (account.mail_transport === 'gmail_api') {
-      // As for Graph: the provider's own headers are the honest answer, and asking
-      // IMAP first could only time out before the fallback below.
-      if (account.provider_connection_id && message.provider_message_id) {
+      // Resolve legacy IMAP-era rows by exact evidence before asking Gmail for headers.
+      if (account.provider_connection_id) {
+        const identity = await resolveGmailMessageIdentity({ query }, {
+          userId: account.user_id, connectionId: account.provider_connection_id, config: googleConfigFromEnv(),
+        }, {
+          messageId: message.id, accountId: message.account_id, directProviderMessageId: message.provider_message_id,
+          rfcMessageId: message.message_id, fromEmail: message.from_email, subject: message.subject, date: message.date,
+        });
+        if (identity.kind !== 'resolved') {
+          const code = identity.kind === 'ambiguous' ? 'MESSAGE_BINDING_AMBIGUOUS' : 'MESSAGE_PROVIDER_IDENTITY_MISSING';
+          return res.status(409).json({ error: 'This legacy Gmail message could not be matched safely to a Gmail API message', code });
+        }
         try {
           headers = await fetchGmailMessageHeaders(
             { userId: account.user_id, connectionId: account.provider_connection_id, config: googleConfigFromEnv() },
-            message.provider_message_id,
+            identity.providerMessageId,
           );
         } catch (caught) {
           console.warn('Headers Gmail fetch failed:', caught instanceof Error ? caught.message : caught);
@@ -777,14 +788,22 @@ router.get('/messages/:id/attachments.zip', async (req, res) => {
         }
       }
     } else if (account.mail_transport === 'gmail_api') {
-      if (!account.provider_connection_id || !message.provider_message_id) {
-        return res.status(409).json({ error: 'This message has no Gmail API identity', code: 'RESOURCE_NOT_FOUND' });
+      if (!account.provider_connection_id) {
+        return res.status(409).json({ error: 'This Gmail account has no provider connection', code: 'ACCOUNT_PROVIDER_CONNECTION_MISSING' });
       }
       const api = { userId: account.user_id, connectionId: account.provider_connection_id, config: googleConfigFromEnv() };
+      const identity = await resolveGmailMessageIdentity({ query }, api, {
+        messageId: message.id, accountId: message.account_id, directProviderMessageId: message.provider_message_id,
+        rfcMessageId: message.message_id, fromEmail: message.from_email, subject: message.subject, date: message.date,
+      });
+      if (identity.kind !== 'resolved') {
+        const code = identity.kind === 'ambiguous' ? 'MESSAGE_BINDING_AMBIGUOUS' : 'MESSAGE_PROVIDER_IDENTITY_MISSING';
+        return res.status(409).json({ error: 'This legacy Gmail message could not be matched safely to a Gmail API message', code });
+      }
       bufferMap = new Map();
       for (const att of eligible) {
         try {
-          const bytes = await fetchGmailAttachmentBytes(api, message.provider_message_id, String(att.part), ZIP_MAX_FILE_BYTES);
+          const bytes = await fetchGmailAttachmentBytes(api, identity.providerMessageId, String(att.part), ZIP_MAX_FILE_BYTES);
           if (bytes.length) bufferMap.set(att.part, bytes);
         } catch (caught) {
           // One unreadable or oversized attachment must not fail the whole archive.
@@ -902,12 +921,21 @@ router.get('/messages/:id/attachments/:part', async (req, res) => {
     // A Gmail attachment is addressed by the provider's attachment id, which is what
     // the local `part` holds for a message this adapter ingested.
     if (attachmentAccount.mail_transport === 'gmail_api') {
-      if (!message.provider_message_id || !attachmentAccount.provider_connection_id) {
-        return res.status(409).json({ error: 'This message has no Gmail API identity', code: 'RESOURCE_NOT_FOUND' });
+      if (!attachmentAccount.provider_connection_id) {
+        return res.status(409).json({ error: 'This Gmail account has no provider connection', code: 'ACCOUNT_PROVIDER_CONNECTION_MISSING' });
+      }
+      const api = { userId: attachmentAccount.user_id, connectionId: attachmentAccount.provider_connection_id, config: googleConfigFromEnv() };
+      const identity = await resolveGmailMessageIdentity({ query }, api, {
+        messageId: message.id, accountId: message.account_id, directProviderMessageId: message.provider_message_id,
+        rfcMessageId: message.message_id, fromEmail: message.from_email, subject: message.subject, date: message.date,
+      });
+      if (identity.kind !== 'resolved') {
+        const code = identity.kind === 'ambiguous' ? 'MESSAGE_BINDING_AMBIGUOUS' : 'MESSAGE_PROVIDER_IDENTITY_MISSING';
+        return res.status(409).json({ error: 'This legacy Gmail message could not be matched safely to a Gmail API message', code });
       }
       const bytes = await fetchGmailAttachmentBytes(
-        { userId: attachmentAccount.user_id, connectionId: attachmentAccount.provider_connection_id, config: googleConfigFromEnv() },
-        message.provider_message_id,
+        api,
+        identity.providerMessageId,
         partNum,
         ATTACHMENT_SIZE_LIMIT,
       );
@@ -1403,13 +1431,21 @@ async function deleteMessageOverGmail(input: {
   | { ok: false; status: number; error: string; code?: string }
 > {
   const { account, message } = input;
-  if (!account.provider_connection_id || !message.provider_message_id) {
-    return { ok: false, status: 409, error: 'This message has no Gmail API identity', code: 'RESOURCE_NOT_FOUND' };
+  if (!account.provider_connection_id) {
+    return { ok: false, status: 409, error: 'This Gmail account has no provider connection', code: 'ACCOUNT_PROVIDER_CONNECTION_MISSING' };
+  }
+  const api = { userId: account.user_id, connectionId: account.provider_connection_id, config: googleConfigFromEnv() };
+  const identity = await resolveGmailMessageIdentity({ query }, api, {
+    messageId: message.id, accountId: message.account_id, directProviderMessageId: message.provider_message_id,
+    rfcMessageId: message.message_id, fromEmail: message.from_email, subject: message.subject, date: message.date,
+  });
+  if (identity.kind !== 'resolved') {
+    return { ok: false, status: 409, error: 'This legacy Gmail message could not be matched safely to a Gmail API message', code: identity.kind === 'ambiguous' ? 'MESSAGE_BINDING_AMBIGUOUS' : 'MESSAGE_PROVIDER_IDENTITY_MISSING' };
   }
   if (input.destinationPath === null) {
     const deleted = await deleteGmailMessagePermanently({
       userId: input.userId, accountId: message.account_id, connectionId: account.provider_connection_id,
-      config: googleConfigFromEnv(), resourceId: message.id, providerMessageId: message.provider_message_id,
+      config: googleConfigFromEnv(), resourceId: message.id, providerMessageId: identity.providerMessageId,
     });
     if (deleted.deleted) return { ok: true, moved: false };
     const refused = deleted.code === 'RESOURCE_NOT_FOUND' || deleted.code === 'PROVIDER_AUTH_REQUIRED' || deleted.code === 'INSUFFICIENT_SCOPES' || deleted.code === 'OPERATION_FORBIDDEN';
@@ -1427,7 +1463,7 @@ async function deleteMessageOverGmail(input: {
     connectionId: account.provider_connection_id,
     config: googleConfigFromEnv(),
     resourceId: message.id,
-    providerMessageId: message.provider_message_id,
+    providerMessageId: identity.providerMessageId,
     destinationPath: input.destinationPath,
     sourcePath: message.folder,
   });
@@ -1721,20 +1757,24 @@ async function respondWithGmailBody(
   message: ReadMessageRow,
   account: EmailAccountRow,
 ): Promise<void> {
-  if (!account.provider_connection_id || !message.provider_message_id) {
-    // An account whose message carries no provider id is a broken row rather than a
-    // temporary failure, so it is reported instead of retried for ever.
-    res.status(409).json({ error: 'This message has no Gmail API identity', code: 'RESOURCE_NOT_FOUND' });
+  if (!account.provider_connection_id) {
+    res.status(409).json({ error: 'This Gmail account has no provider connection', code: 'ACCOUNT_PROVIDER_CONNECTION_MISSING' });
     return;
   }
-  const api = {
-    userId: account.user_id,
-    connectionId: account.provider_connection_id,
-    config: googleConfigFromEnv(),
-  };
+  const api = { userId: account.user_id, connectionId: account.provider_connection_id, config: googleConfigFromEnv() };
 
   try {
-    const content = await fetchGmailMessageContent(api, message.provider_message_id);
+    const identity = await resolveGmailMessageIdentity({ query }, api, {
+      messageId: message.id, accountId: message.account_id, directProviderMessageId: message.provider_message_id,
+      rfcMessageId: message.message_id, fromEmail: message.from_email, subject: message.subject, date: message.date,
+    });
+    if (identity.kind !== 'resolved') {
+      const code = identity.kind === 'ambiguous' ? 'MESSAGE_BINDING_AMBIGUOUS' : 'MESSAGE_PROVIDER_IDENTITY_MISSING';
+      res.status(409).json({ error: 'This legacy Gmail message could not be matched safely to a Gmail API message', code });
+      return;
+    }
+    const providerMessageId = identity.providerMessageId;
+    const content = await fetchGmailMessageContent(api, providerMessageId);
     if (content.complete === false) {
       res.status(404).json({ error: 'This message no longer exists in the mailbox', code: 'RESOURCE_NOT_FOUND' });
       return;
@@ -1743,7 +1783,7 @@ async function respondWithGmailBody(
     let html: string | null = null;
     let text: string | null = null;
     if (content.html !== null) {
-      const inline = await collectGmailInlineImages(api, message.provider_message_id, content.attachments);
+      const inline = await collectGmailInlineImages(api, providerMessageId, content.attachments);
       html = sanitizeDbText(sanitizeEmail(embedGmailInlineImages(content.html, inline)));
     }
     if (content.text !== null) text = sanitizeDbText(content.text);

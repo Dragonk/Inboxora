@@ -91,6 +91,15 @@ export async function listGmailMailAccounts(client: PoolClient, input: { userId:
       WHERE a.user_id = $1 AND a.mail_transport = 'gmail_api'
         AND (
           a.provider_connection_id = $2
+          OR EXISTS (
+            SELECT 1
+              FROM integration_collections ic
+              LEFT JOIN folders f ON f.id = ic.local_folder_id
+             WHERE ic.user_id = $1
+               AND ic.connection_id = $2
+               AND ic.kind = 'mail_label'
+               AND (ic.account_id = a.id OR f.account_id = a.id)
+          )
           OR lower(a.email_address) = lower(COALESCE((
             SELECT c.provider_user_id FROM provider_connections c WHERE c.id = $2 AND c.user_id = $1
           ), ''))
@@ -159,8 +168,13 @@ async function applyLabel(client: PoolClient, context: LabelContext, remoteId: s
 
   if (link.rows[0]) {
     await client.query(
-      'UPDATE integration_collections SET local_folder_id = $2, updated_at = NOW() WHERE id = $1',
-      [link.rows[0].id, folderId],
+      `UPDATE integration_collections
+          SET local_folder_id = $2,
+              account_id = COALESCE(account_id, $3),
+              updated_at = NOW()
+        WHERE id = $1
+          AND (account_id IS NULL OR account_id = $3)`,
+      [link.rows[0].id, folderId, context.accountId],
     );
   } else {
     await client.query(
@@ -383,7 +397,10 @@ export async function gmailLabelIdForPath(input: { connectionId: string; account
     `SELECT ic.remote_id
        FROM integration_collections ic
        JOIN folders f ON f.id = ic.local_folder_id
-      WHERE ic.connection_id = $1 AND ic.account_id = $2 AND ic.kind = 'mail_label' AND f.path = $3
+      WHERE ic.connection_id = $1
+        AND ic.kind = 'mail_label'
+        AND f.path = $3
+        AND (ic.account_id = $2 OR (ic.account_id IS NULL AND f.account_id = $2))
       LIMIT 1`,
     [input.connectionId, input.accountId, input.path],
   );
@@ -402,7 +419,10 @@ export async function listGmailFolderTargets(client: PoolClient, input: { connec
     `SELECT ic.id AS collection_id, ic.remote_id, f.path
        FROM integration_collections ic
        JOIN folders f ON f.id = ic.local_folder_id
-      WHERE ic.connection_id = $1 AND ic.account_id = $2 AND ic.kind = 'mail_label' AND ic.enabled = true
+      WHERE ic.connection_id = $1
+        AND ic.kind = 'mail_label'
+        AND ic.enabled = true
+        AND (ic.account_id = $2 OR (ic.account_id IS NULL AND f.account_id = $2))
       ORDER BY f.path`,
     [input.connectionId, input.accountId],
   );
@@ -415,7 +435,9 @@ export async function gmailFolderPathByLabelId(input: { connectionId: string; ac
     `SELECT ic.remote_id, f.path
        FROM integration_collections ic
        JOIN folders f ON f.id = ic.local_folder_id
-      WHERE ic.connection_id = $1 AND ic.account_id = $2 AND ic.kind = 'mail_label'`,
+      WHERE ic.connection_id = $1
+        AND ic.kind = 'mail_label'
+        AND (ic.account_id = $2 OR (ic.account_id IS NULL AND f.account_id = $2))`,
     [input.connectionId, input.accountId],
   );
   const map = new Map<string, string>();

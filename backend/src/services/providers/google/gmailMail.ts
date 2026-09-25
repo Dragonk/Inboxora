@@ -257,10 +257,11 @@ export function localMessageForGmailMessage(
 /** Read one page of a label's message list. */
 export async function fetchGmailMessageIds(
   api: GoogleApiOptions,
-  input: { labelId?: string | null; pageToken?: string | null; maxResults?: number; includeSpamTrash?: boolean },
+  input: { labelId?: string | null; pageToken?: string | null; maxResults?: number; includeSpamTrash?: boolean; q?: string | null },
 ): Promise<{ messages: GmailMessageListEntry[]; nextPageToken: string | null }> {
   const page = await gmailGet<GmailMessageListPage>(api, `users/${GMAIL_USER}/messages`, {
     ...(input.labelId ? { labelIds: input.labelId } : {}),
+    ...(input.q ? { q: input.q } : {}),
     maxResults: input.maxResults ?? GMAIL_MESSAGE_LIST_PAGE_SIZE,
     ...(input.pageToken ? { pageToken: input.pageToken } : {}),
     ...(input.includeSpamTrash ? { includeSpamTrash: true } : {}),
