@@ -46,7 +46,7 @@ describe('the Graph send transport', () => {
 
     const result = await graphMailTransport(api).send({
       composed,
-      replyContext: { kind: 'reply_all', providerMessageId: 'parent-1' },
+      replyContext: { transport: 'microsoft_graph', kind: 'reply_all', providerMessageId: 'parent-1' },
     });
 
     expect(calls).toEqual(['reply', 'patch', 'send']);

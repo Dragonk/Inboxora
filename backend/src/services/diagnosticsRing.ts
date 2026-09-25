@@ -40,7 +40,7 @@ export interface ReplyDiagnosticEvent {
   referencesCount: number;
   providerParentResolved: boolean;
   providerResolution: 'direct' | 'legacy_alias' | 'not_applicable' | 'unresolved';
-  transportReplyMode: 'rfc_headers' | 'graph_create_reply' | 'graph_create_reply_all';
+  transportReplyMode: 'rfc_headers' | 'graph_create_reply' | 'graph_create_reply_all' | 'gmail_thread_id';
   legacyThreadMatched?: boolean;
   conversationMatched?: boolean;
   providerThreadMatched?: boolean;

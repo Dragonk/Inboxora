@@ -3,6 +3,7 @@ import type { ComposedMail } from '../../composedMail.js';
 import { gmailMessageSizeRefusal, sendGmailRawMessage } from './gmailMailSend.js';
 import type { GoogleApiOptions } from './googleApiClient.js';
 import type { TransportSendResult } from '../microsoft/graphMailTransport.js';
+import type { ReplyContext } from '../../sendTransport.js';
 
 /**
  * Gmail API's send transport.
@@ -39,7 +40,7 @@ export function gmailMailTransport(api: GmailTransportApi) {
     render: (composed: ComposedMail) => renderGmailRawMessage(composed),
     /** Keep the render a preflight measured, for the send that follows. */
     rememberRaw: (raw: Buffer) => { measuredRaw = raw; },
-    async send(input: { composed: ComposedMail }): Promise<TransportSendResult> {
+    async send(input: { composed: ComposedMail; replyContext?: ReplyContext }): Promise<TransportSendResult> {
       let raw: Buffer;
       try {
         raw = measuredRaw ?? await renderGmailRawMessage(input.composed);
@@ -67,7 +68,12 @@ export function gmailMailTransport(api: GmailTransportApi) {
         };
       }
 
-      const sent = await sendGmailRawMessage(api, raw);
+      const gmailReply = input.replyContext?.transport === 'gmail_api'
+        ? input.replyContext
+        : null;
+      const sent = await sendGmailRawMessage(api, raw, {
+        ...(gmailReply ? { threadId: gmailReply.providerThreadId } : {}),
+      });
       if (sent.status === 'accepted') {
         return {
           status: 'accepted',

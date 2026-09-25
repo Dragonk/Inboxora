@@ -62,10 +62,17 @@ function draftSaveFromResponse(response: DraftResponse | null, fallbackDraftId?:
 }
 
 /** Create the provider draft for one composed message. */
-export async function createGmailDraft(api: GoogleApiOptions, composed: ComposedMail): Promise<GmailDraftSave> {
+export async function createGmailDraft(
+  api: GoogleApiOptions,
+  composed: ComposedMail,
+  options: { threadId?: string | null } = {},
+): Promise<GmailDraftSave> {
   const raw = await renderGmailRawMessage(composed);
+  const threadId = typeof options.threadId === 'string' && options.threadId.trim()
+    ? options.threadId.trim()
+    : null;
   const created = await gmailPost<DraftResponse>(api, `users/${GMAIL_USER}/drafts`, {
-    message: { raw: toBase64Url(raw) },
+    message: { raw: toBase64Url(raw), ...(threadId ? { threadId } : {}) },
   });
   const save = draftSaveFromResponse(created);
   if (!save) {
@@ -84,12 +91,20 @@ export async function createGmailDraft(api: GoogleApiOptions, composed: Composed
  * the old identity as superseded. Every other failure — throttling, a refusal, an
  * authorization problem — propagates.
  */
-async function updateGmailDraft(api: GoogleApiOptions, draftId: string, composed: ComposedMail): Promise<GmailDraftSave | null> {
+async function updateGmailDraft(
+  api: GoogleApiOptions,
+  draftId: string,
+  composed: ComposedMail,
+  options: { threadId?: string | null } = {},
+): Promise<GmailDraftSave | null> {
   const raw = await renderGmailRawMessage(composed);
+  const threadId = typeof options.threadId === 'string' && options.threadId.trim()
+    ? options.threadId.trim()
+    : null;
   try {
     const updated = await gmailPut<DraftResponse>(api, `users/${GMAIL_USER}/drafts/${encodeURIComponent(draftId)}`, {
       id: draftId,
-      message: { raw: toBase64Url(raw) },
+      message: { raw: toBase64Url(raw), ...(threadId ? { threadId } : {}) },
     });
     return draftSaveFromResponse(updated, draftId);
   } catch (caught) {
@@ -108,16 +123,16 @@ async function updateGmailDraft(api: GoogleApiOptions, draftId: string, composed
 export async function saveGmailUserDraft(
   api: GoogleApiOptions,
   composed: ComposedMail,
-  options: { existingDraftId?: string | null } = {},
+  options: { existingDraftId?: string | null; threadId?: string | null } = {},
 ): Promise<GmailDraftSave> {
   const existing = options.existingDraftId ?? null;
   if (existing) {
-    const updated = await updateGmailDraft(api, existing, composed);
+    const updated = await updateGmailDraft(api, existing, composed, { threadId: options.threadId });
     if (updated) return { ...updated, created: false };
-    const created = await createGmailDraft(api, composed);
+    const created = await createGmailDraft(api, composed, { threadId: options.threadId });
     return { ...created, created: true, supersededId: existing };
   }
-  return createGmailDraft(api, composed);
+  return createGmailDraft(api, composed, { threadId: options.threadId });
 }
 
 /**

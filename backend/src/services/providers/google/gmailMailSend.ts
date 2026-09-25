@@ -69,12 +69,16 @@ export function gmailMessageSizeRefusal(
 export async function sendGmailRawMessage(
   api: GoogleApiOptions,
   raw: Buffer,
-  options: { fetchImpl?: typeof fetch } = {},
+  options: { fetchImpl?: typeof fetch; threadId?: string | null } = {},
 ): Promise<GmailSendOutcome> {
   const target: GoogleApiOptions = options.fetchImpl ? { ...api, fetchImpl: options.fetchImpl } : api;
   try {
+    const threadId = typeof options.threadId === 'string' && options.threadId.trim()
+      ? options.threadId.trim()
+      : null;
     const sent = await gmailPost<GmailSendMessageResult>(target, `users/${GMAIL_USER}/messages/send`, {
       raw: toBase64Url(raw),
+      ...(threadId ? { threadId } : {}),
     });
     // An accepted send whose answer carried no id is still accepted: the message left, and inventing an
     // id would be a claim about the provider we do not have.

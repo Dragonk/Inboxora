@@ -81,6 +81,23 @@ describe('sending a rendered message through Gmail', () => {
     expect(Object.keys(bodies[0] as object)).toEqual(['raw']);
   });
 
+  it('passes a real Gmail threadId for replies while preserving RFC reply headers in raw', async () => {
+    const bodies: Array<Record<string, unknown>> = [];
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init?.body)));
+      return jsonResponse({ id: 'reply-message', threadId: 'gmail-thread-123' });
+    }));
+    const raw = Buffer.from(
+      'To: you@example.test\\r\\n'
+      + 'Subject: Re: Topic\\r\\n'
+      + 'In-Reply-To: <parent@example.test>\\r\\n'
+      + 'References: <parent@example.test>\\r\\n\\r\\nReply',
+    );
+    await expect(sendGmailRawMessage(OPTIONS, raw, { threadId: 'gmail-thread-123' }))
+      .resolves.toMatchObject({ status: 'accepted' });
+    expect(bodies[0]).toEqual({ raw: raw.toString('base64url'), threadId: 'gmail-thread-123' });
+  });
+
   it('reports a 4xx read before acceptance as a refusal, retryable only for throttling', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ error: { code: 403, message: 'insufficient scope', status: 'PERMISSION_DENIED', errors: [{ reason: 'insufficientPermissions' }] } }, 403)));
     await expect(sendGmailRawMessage(OPTIONS, Buffer.from('x'))).resolves.toMatchObject({

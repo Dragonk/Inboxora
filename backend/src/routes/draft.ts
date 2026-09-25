@@ -389,7 +389,42 @@ router.post('/draft', async (req, res) => {
         ? await gmailDraftMessageIdForLocalRow(account.id, sameAccountDraft.uid, sameAccountDraft.folder)
         : null;
       const existingDraftId = existingMessageId ? await findGmailDraftIdForMessage(api, existingMessageId) : null;
-      const saved = await saveGmailUserDraft(api, composed, { existingDraftId });
+      let parentThreadId: string | null = null;
+      const physicalParentId = typeof replyToMessageId === 'string' && replyToMessageId ? replyToMessageId : null;
+      const durableParentId = typeof replyParentMessageId === 'string' && replyParentMessageId.trim()
+        ? replyParentMessageId.trim()
+        : (typeof inReplyTo === 'string' && inReplyTo.trim() ? inReplyTo.trim() : null);
+      if (physicalParentId) {
+        const parent = await query<{ provider_thread_id: string | null; thread_id: string | null; account_id: string }>(
+          `SELECT provider_thread_id, thread_id, account_id
+             FROM messages
+            WHERE id = $1 AND account_id = $2`,
+          [physicalParentId, account.id],
+        );
+        const row = parent.rows[0];
+        if (row) {
+          parentThreadId = row.provider_thread_id?.trim()
+            || (row.thread_id?.startsWith('gmail:') ? row.thread_id.slice('gmail:'.length).trim() : '')
+            || null;
+        }
+      }
+      if (!parentThreadId && durableParentId) {
+        const parent = await query<{ provider_thread_id: string | null; thread_id: string | null }>(
+          `SELECT provider_thread_id, thread_id
+             FROM messages
+            WHERE account_id = $1 AND message_id = $2 AND is_deleted = false
+            ORDER BY (folder = 'INBOX') DESC, date DESC NULLS LAST
+            LIMIT 1`,
+          [account.id, durableParentId],
+        );
+        const row = parent.rows[0];
+        if (row) {
+          parentThreadId = row.provider_thread_id?.trim()
+            || (row.thread_id?.startsWith('gmail:') ? row.thread_id.slice('gmail:'.length).trim() : '')
+            || null;
+        }
+      }
+      const saved = await saveGmailUserDraft(api, composed, { existingDraftId, threadId: parentThreadId });
 
       const record = await upsertGmailDraftRecord({
         accountId: account.id,

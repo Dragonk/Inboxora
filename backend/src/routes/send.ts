@@ -794,6 +794,7 @@ router.post('/send', async (req, res) => {
     // The answered message's provider id, when it is in **this** mailbox: that is what a provider-native reply
     // action needs (MAIL-03).
     let parentProviderMessageId: string | null = null;
+    let parentGmailThreadId: string | null = null;
     let providerResolution: 'direct' | 'legacy_alias' | 'not_applicable' | 'unresolved' = transportKind === 'microsoft_graph' ? 'unresolved' : 'not_applicable';
     // Infer the old headers-only shape before choosing the transport. Microsoft
     // cannot safely turn that shape into POST /me/messages: its reply action
@@ -821,10 +822,11 @@ router.post('/send', async (req, res) => {
       }
       const parent = await query<{
         id: string; message_id: string | null; canonical_message_id: string | null; in_reply_to: string | null;
-        thread_references: string | null; provider_message_id: string | null; account_id: string;
+        thread_references: string | null; provider_message_id: string | null; provider_thread_id: string | null;
+        thread_id: string | null; account_id: string;
       }>(
         `SELECT m.id, m.message_id, m.canonical_message_id, m.in_reply_to, m.thread_references,
-                m.provider_message_id, m.account_id
+                m.provider_message_id, m.provider_thread_id, m.thread_id, m.account_id
            FROM messages m JOIN email_accounts a ON a.id = m.account_id
           WHERE m.id = $1 AND a.user_id = $2`,
         [parentRowId, req.session.userId],
@@ -836,10 +838,11 @@ router.post('/send', async (req, res) => {
       if (!row && durableParentMessageId) {
         const movedParent = await query<{
           id: string; message_id: string | null; canonical_message_id: string | null; in_reply_to: string | null;
-          thread_references: string | null; provider_message_id: string | null; account_id: string;
+          thread_references: string | null; provider_message_id: string | null; provider_thread_id: string | null;
+          thread_id: string | null; account_id: string;
         }>(
           `SELECT m.id, m.message_id, m.canonical_message_id, m.in_reply_to, m.thread_references,
-                  m.provider_message_id, m.account_id
+                  m.provider_message_id, m.provider_thread_id, m.thread_id, m.account_id
              FROM messages m JOIN email_accounts a ON a.id = m.account_id
             WHERE m.message_id = $1 AND m.account_id = $2 AND a.user_id = $3 AND m.is_deleted = false
             ORDER BY (m.folder = 'INBOX') DESC, m.date DESC NULLS LAST LIMIT 1`,
@@ -872,6 +875,10 @@ router.post('/send', async (req, res) => {
         }
         parentProviderMessageId = identity.providerMessageId;
         providerResolution = row.provider_message_id ? 'direct' : 'legacy_alias';
+      } else if (transportKind === 'gmail_api') {
+        parentGmailThreadId = row.provider_thread_id?.trim()
+          || (row.thread_id?.startsWith('gmail:') ? row.thread_id.slice('gmail:'.length).trim() : '')
+          || null;
       }
     } else if (strictReplyParent) {
       // Do not silently turn an explicit reply, or a Graph headers-only reply,
@@ -1055,11 +1062,16 @@ router.post('/send', async (req, res) => {
       ? sendKind
       : forwardedAttachments?.length ? 'forward'
         : (replyToMessageId || inReplyTo) ? (normalizedCc.length ? 'reply_all' : 'reply') : 'new';
-    const replyContext = parentProviderMessageId
-      && transportKind === 'microsoft_graph'
-      && (effectiveSendKind === 'reply' || effectiveSendKind === 'reply_all' || effectiveSendKind === 'forward')
-      ? { kind: effectiveSendKind, providerMessageId: parentProviderMessageId }
-      : undefined;
+    const replyContext =
+      parentProviderMessageId
+        && transportKind === 'microsoft_graph'
+        && (effectiveSendKind === 'reply' || effectiveSendKind === 'reply_all' || effectiveSendKind === 'forward')
+        ? { transport: 'microsoft_graph' as const, kind: effectiveSendKind, providerMessageId: parentProviderMessageId }
+        : parentGmailThreadId
+          && transportKind === 'gmail_api'
+          && (effectiveSendKind === 'reply' || effectiveSendKind === 'reply_all')
+          ? { transport: 'gmail_api' as const, kind: effectiveSendKind, providerThreadId: parentGmailThreadId }
+          : undefined;
     if (effectiveSendKind === 'reply' || effectiveSendKind === 'reply_all') {
       recordReplyDiagnostic({
         event: 'mail_reply_resolution', accountId, transport: transportKind, sendKind: effectiveSendKind,
@@ -1068,7 +1080,9 @@ router.post('/send', async (req, res) => {
         providerParentResolved: Boolean(parentProviderMessageId), providerResolution,
         transportReplyMode: transportKind === 'microsoft_graph'
           ? effectiveSendKind === 'reply_all' ? 'graph_create_reply_all' : 'graph_create_reply'
-          : 'rfc_headers',
+          : transportKind === 'gmail_api' && parentGmailThreadId
+            ? 'gmail_thread_id'
+            : 'rfc_headers',
       });
     }
     const outcome = await transport.send({ composed, ...(rendered ? { rendered } : {}), ...(replyContext ? { replyContext } : {}) });

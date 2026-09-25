@@ -67,6 +67,17 @@ describe('saving a Gmail draft', () => {
     expect(Object.keys(calls[0]?.body ?? {})).toEqual(['message']);
   });
 
+  it('creates a reply draft with the provider threadId', async () => {
+    const bodies: Array<Record<string, unknown>> = [];
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init?.body)));
+      return jsonResponse(DRAFT);
+    }));
+    await createGmailDraft(OPTIONS, composed, { threadId: 'thread-1' });
+    expect((bodies[0]?.message as { threadId?: string })?.threadId).toBe('thread-1');
+    expect(typeof (bodies[0]?.message as { raw?: string })?.raw).toBe('string');
+  });
+
   it('patches the existing draft in place rather than leaving two', async () => {
     const calls: Array<{ url: string; method: string }> = [];
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {

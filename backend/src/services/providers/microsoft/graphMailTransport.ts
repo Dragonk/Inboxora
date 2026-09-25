@@ -41,11 +41,14 @@ export function graphMailTransport(api: GraphTransportApi) {
         // A reply or forward is staged with the provider's own action so the message carries the threading edge
         // Graph recognises, and then patched with the composed content. Without the context the draft is a new
         // message, which is what a reply to a message in **another** mailbox honestly is (MAIL-03).
-        const draft = input.replyContext
-          ? await createGraphReplyDraft(api, input.replyContext.providerMessageId, input.replyContext.kind)
+        const graphReply = input.replyContext?.transport === 'microsoft_graph'
+          ? input.replyContext
+          : null;
+        const draft = graphReply
+          ? await createGraphReplyDraft(api, graphReply.providerMessageId, graphReply.kind)
           : await createGraphDraft(api, input.composed);
         draftId = draft.id;
-        if (input.replyContext) await patchGraphDraft(api, draft.id, input.composed);
+        if (graphReply) await patchGraphDraft(api, draft.id, input.composed);
         for (const attachment of input.composed.attachments ?? []) {
           await addGraphAttachment(api, draft.id, attachment);
         }

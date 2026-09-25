@@ -151,10 +151,17 @@ export interface MailTransport {
  * the message its threading edge (MAIL-03). `providerMessageId` is the answered message's id in the **same
  * mailbox**; a reply to a message that lives in another mailbox is not modelled as a provider reply.
  */
-export interface ReplyContext {
-  kind: 'reply' | 'reply_all' | 'forward';
-  providerMessageId: string;
-}
+export type ReplyContext =
+  | {
+      transport: 'microsoft_graph';
+      kind: 'reply' | 'reply_all' | 'forward';
+      providerMessageId: string;
+    }
+  | {
+      transport: 'gmail_api';
+      kind: 'reply' | 'reply_all';
+      providerThreadId: string;
+    };
 
 /** The account fields this seam reads to choose a transport; the row itself is carried through. */
 type MailTransportAccount = Parameters<typeof createAccountSmtpTransport>[0] & {
@@ -216,7 +223,7 @@ export async function createAccountMailTransport<Account extends MailTransportAc
         kind: 'microsoft_graph',
         sendsRenderedMessage: false,
         async preflight(composed) { return preflight(composed); },
-        send: (input: { composed: ComposedMail }) => graph.send(input),
+        send: input => graph.send(input),
       },
     };
   }
@@ -249,7 +256,7 @@ export async function createAccountMailTransport<Account extends MailTransportAc
           if (raw) gmail.rememberRaw(raw);
           return refusal;
         },
-        send: (input: { composed: ComposedMail }) => gmail.send(input),
+        send: input => gmail.send(input),
       },
     };
   }
