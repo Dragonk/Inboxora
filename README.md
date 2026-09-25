@@ -413,8 +413,7 @@ release.
 
 **4.1.0 is the current release.** Published release images and application artifacts are built by
 GitHub Actions; [`docs/IMPLEMENTATION-STATUS.md`](docs/IMPLEMENTATION-STATUS.md) records the per-package
-delivery status, the release SHA and verification details. `main` receives releases only through a pull
-request from `dev`.
+delivery status and verification details. `main` receives releases only through a pull request from `dev`.
 
 ```bash
 # frontend
