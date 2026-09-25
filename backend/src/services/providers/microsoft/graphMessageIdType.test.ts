@@ -95,6 +95,7 @@ describe('planning and applying the translation', () => {
     const [pendingSql, pendingParams] =
       client.query.mock.calls[1] as [string, unknown[]];
     expect(pendingSql).toContain('graph_pending_message_removals');
+    expect(pendingSql).toContain('provider_message_id = $3');
     expect(pendingParams).toEqual([
       'row-1',
       'IMMUTABLE-1',

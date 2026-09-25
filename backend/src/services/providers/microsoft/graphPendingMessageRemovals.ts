@@ -235,8 +235,13 @@ async function clearPending(row: PendingRemoval): Promise<boolean> {
   const result = await query(
     `DELETE FROM graph_pending_message_removals
       WHERE message_row_id = $1
-        AND claimed_at = $2::timestamptz`,
-    [row.message_row_id, row.claimed_at],
+        AND claimed_at = $2::timestamptz
+        AND provider_message_id = $3`,
+    [
+      row.message_row_id,
+      row.claimed_at,
+      row.provider_message_id,
+    ],
   );
   return (result.rowCount ?? 0) > 0;
 }
@@ -255,13 +260,15 @@ async function deferPending(
             verify_after = NOW() + make_interval(secs => $4),
             updated_at = NOW()
       WHERE message_row_id = $1
-        AND claimed_at = $5::timestamptz`,
+        AND claimed_at = $5::timestamptz
+        AND provider_message_id = $6`,
     [
       row.message_row_id,
       code,
       incrementAttempt,
       retryDelaySeconds,
       row.claimed_at,
+      row.provider_message_id,
     ],
   );
   return (result.rowCount ?? 0) > 0;
@@ -279,8 +286,13 @@ async function confirmedDelete(row: PendingRemoval): Promise<boolean> {
       `DELETE FROM graph_pending_message_removals
         WHERE message_row_id = $1
           AND claimed_at = $2::timestamptz
+          AND provider_message_id = $3
         RETURNING source_folder_path, provider_message_id`,
-      [row.message_row_id, row.claimed_at],
+      [
+        row.message_row_id,
+        row.claimed_at,
+        row.provider_message_id,
+      ],
     );
 
     const claim = owned.rows[0];
@@ -315,8 +327,13 @@ async function relocate(
       `DELETE FROM graph_pending_message_removals
         WHERE message_row_id = $1
           AND claimed_at = $2::timestamptz
+          AND provider_message_id = $3
         RETURNING source_folder_path`,
-      [row.message_row_id, row.claimed_at],
+      [
+        row.message_row_id,
+        row.claimed_at,
+        row.provider_message_id,
+      ],
     );
 
     const claim = owned.rows[0];

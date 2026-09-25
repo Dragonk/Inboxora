@@ -175,13 +175,13 @@ ceiling. A refusal names the file and the exact dimension it hit rather than one
 4.1 also adds **recurring events** with invitation support, the **menu-follows-your-finger** mobile
 gesture, and hardens the built-in CalDAV/CardDAV discovery and capability surface.
 
-Apply the complete additive migration chain **through `0143_repair_message_list_hot_path_index.sql` before rolling out**
+Apply the complete additive migration chain **through `0144_normalize_message_ids.sql` before rolling out**
 a build that reads the new columns. The runner applies the post-4.0.4 files `0101`–`0143` in lexical filename
 order, including both `0118_carddav_source_identity.sql` and `0118_immutable_message_ids.sql`.
 `0139` deduplicates logical raw headers, `0140` schedules Gmail charset-cache refreshes,
 `0141` normalizes blank thread identities and adds the list hot-path index, `0142` adds durable
-Graph removal reconciliation state, and `0143` safely rebuilds that index for databases that
-may have recorded the first 0141 revision. `PROVIDER_INTEGRATIONS_ENABLED=0` disables the whole provider layer, and with no provider
+Graph removal reconciliation state, `0143` safely rebuilds that index for databases that may have
+recorded the first 0141 revision, and `0144` normalizes historical RFC Message-ID values. `PROVIDER_INTEGRATIONS_ENABLED=0` disables the whole provider layer, and with no provider
 configured mail, contacts, calendars and DAV behave as in 4.0.4. See the [4.1.0 release notes](docs/wiki/Release-notes-4.1.0.md)
 for the upgrade impact, administrator steps, known limitations and manual acceptance, and
 [Connecting Google and Microsoft accounts](docs/wiki/Provider-setup.md) for the registration

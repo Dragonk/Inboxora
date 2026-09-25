@@ -1038,8 +1038,17 @@ function parseReferences(refHeader: unknown): string[] {
 async function computeThreadId(accountId: string, messageId: string, inReplyTo: unknown, references: unknown) {
   const normalizedMessageId = messageId.trim();
   if (!normalizedMessageId) return null;
-  const refIds = parseReferences(references);
-  const reply = inReplyTo && !refIds.includes(String(inReplyTo)) ? [String(inReplyTo)] : [];
+  const refIds = parseReferences(references)
+    .map(value => value.trim())
+    .filter(Boolean);
+  const normalizedReply =
+    typeof inReplyTo === 'string'
+      ? inReplyTo.trim()
+      : String(inReplyTo ?? '').trim();
+  const reply =
+    normalizedReply && !refIds.includes(normalizedReply)
+      ? [normalizedReply]
+      : [];
   const candidates = [...refIds, ...reply];
   if (!candidates.length) return normalizedMessageId;
   const rows = await query(
@@ -3975,7 +3984,8 @@ export class ImapManager {
                     sender_name, sender_email
                   ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29)
                   ON CONFLICT (account_id, uid, folder) DO UPDATE
-                  SET subject = CASE
+                  SET message_id = COALESCE(NULLIF(EXCLUDED.message_id, ''), messages.message_id),
+                      subject = CASE
                         WHEN EXCLUDED.subject IS NOT NULL
                              AND EXCLUDED.subject != ''
                              AND EXCLUDED.subject != '(no subject)'
@@ -6503,7 +6513,8 @@ export async function upsertIngestedMessageRow(
       sender_name, sender_email
     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29)
     ON CONFLICT (account_id, uid, folder) DO UPDATE
-    SET subject = CASE
+    SET message_id = COALESCE(NULLIF(EXCLUDED.message_id, ''), messages.message_id),
+        subject = CASE
           WHEN EXCLUDED.subject IS NOT NULL
                AND EXCLUDED.subject != ''
                AND EXCLUDED.subject != '(no subject)'
