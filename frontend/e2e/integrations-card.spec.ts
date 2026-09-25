@@ -8,7 +8,7 @@ async function openIntegrations(page) {
   await page.getByText('Ustawienia', { exact: true }).first().click();
   const panel = page.locator('.admin-panel');
   await panel.locator('.admin-tab').filter({ hasText: /^Integracje$/ }).click();
-  await panel.getByRole('button', { name: 'Dostawcy poczty e-mail' }).click();
+  await panel.getByText('Dostawcy poczty e-mail', { exact: true }).click();
   return panel;
 }
 
@@ -29,32 +29,20 @@ const STATUS = {
   },
 };
 
-test('the connector card states the Microsoft requirement, lists accounts, and disconnects one', async ({ page, fixtureApi }, testInfo) => {
+test('the connector cards expose provider setup and mailbox-account guidance', async ({ page, fixtureApi }, testInfo) => {
   test.skip(testInfo.project.name !== 'chromium-desktop', 'desktop settings');
   await fixtureApi;
-  const disconnects: string[] = [];
   await page.route('**/api/integrations/status', route => route.fulfill({ json: STATUS }));
-  await page.route('**/api/integrations/provider-connections/*/disconnect', route => {
-    disconnects.push(new URL(route.request().url()).pathname);
-    return route.fulfill({ json: { connectionId: 'conn-g', collectionsDisabled: 1 } });
-  });
   await page.goto('/');
   const panel = await openIntegrations(page);
 
-  // A collapsed provider row is what a user sees first; expanding it is where the requirement,
-  // the connected accounts and the disconnect control live.
+  // A collapsed provider row is what a user sees first; expanding it exposes the
+  // provider setup controls while mailbox connections remain under Accounts.
   await panel.getByText('Microsoft 365 / Outlook.com').first().click();
-  await expect(panel.getByTestId('microsoft-mail-policy')).toContainText('wymaga');
-  await expect(panel.getByTestId('microsoft-connected-account')).toHaveText('ms-user');
+  await expect(panel.getByTestId('microsoft-accounts-hint')).toBeVisible();
+  await expect(panel.getByText('Konfiguracja rejestracji aplikacji Azure')).toBeVisible();
 
   await panel.getByText('Google (Gmail, Kalendarz, Kontakty)').first().click();
-  // The Google recommendation is stated by the provider description that predates this work, so
-  // the card must not contradict it.
-  await expect(panel.getByText('Zalecane połączenie przez API')).toBeVisible();
-  await expect(panel.getByTestId('google-connected-account')).toHaveText('g-user');
-
-  // Disconnecting asks for a specific account rather than a provider-wide guess.
-  await panel.getByTestId('google-disconnect-account').click();
-  await expect.poll(() => disconnects.length).toBe(1);
-  expect(disconnects[0]).toContain('/provider-connections/conn-g/disconnect');
+  await expect(panel.getByTestId('google-accounts-hint')).toBeVisible();
+  await expect(panel.getByText('Konfiguracja Google Cloud')).toBeVisible();
 });
