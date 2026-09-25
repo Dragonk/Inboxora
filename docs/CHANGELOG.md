@@ -30,6 +30,9 @@ Nothing is being prepared beyond 4.1.1. Work whose version has not been chosen a
 ## [4.1.1] - 2026-09-25
 
 ### Fixed
+- **Microsoft Graph rebuilt baselines no longer delete mail by omission.** Inboxora now removes a provider-backed message only when Graph delta explicitly reports an `@removed` event. Rebuilding an expired or reset delta cursor can no longer make a newly delivered or otherwise valid message disappear from the local mailbox.
+- **Microsoft Graph push is bootstrapped for existing native mailboxes.** Enabling `PROVIDER_PUSH_ENABLED` no longer leaves accounts connected before that setting was enabled on polling only; the renewal sweep creates the missing mail subscription and polling remains the fallback.
+- **Microsoft Graph attachment metadata no longer fails on `contentId`.** Attachment listing no longer selects the derived `fileAttachment.contentId` field from the base `attachment` type, avoiding Graph's OData select error while retaining inline-CID metadata from the normal attachment response.
 - **Threaded mail lists preserve unthreaded messages.** Rows without a non-empty `thread_key` now fall back to `thread_id`, then to a physical-message identity, so independent messages are not grouped together or hidden. Thread pagination, totals, deduplication and expansion use the same identity.
 - **Microsoft Graph mail reads and mutations preserve immutable IDs.** Body, headers, attachment metadata/downloads, inline images, ZIP downloads, read/star, move, delete, spam/ham, snooze and bulk operations use `Prefer: IdType="ImmutableId"` whenever the connection has immutable IDs enabled.
 - **Microsoft Graph historical mail delta synchronization.** Reconnecting a previously disconnected Microsoft integration resets mail delta cursors and checkpoints to guarantee a full historical baseline, while ordinary token/consent refresh on an active connection keeps incremental state. Delta requests specify page sizes via `Prefer: odata.maxpagesize=200` without passing `$top` query limits, and opaque next and delta links are strictly preserved.
@@ -1251,8 +1254,6 @@ None.
 
 ### Fixed
 
-- **Microsoft Graph push is bootstrapped for existing native mailboxes.** Enabling `PROVIDER_PUSH_ENABLED` no longer leaves accounts connected before that setting was enabled on polling only; the renewal sweep creates the missing mail subscription and polling remains the fallback.
-- **Microsoft Graph attachment metadata no longer fails on `contentId`.** Attachment listing no longer selects the derived `fileAttachment.contentId` field from the base `attachment` type, avoiding Graph's OData select error while retaining inline-CID metadata from the normal attachment response.
 - Android workflows no longer fail on `android-actions/setup-android@v3`: the action's default
   package list still contains the legacy `tools` SDK package, which Google removed from the SDK
   repository, so `sdkmanager` aborted with `Failed to find package 'tools'`. Both

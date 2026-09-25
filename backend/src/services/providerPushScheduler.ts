@@ -13,7 +13,13 @@ import {
   recordGraphRenewalFailure,
   renewGraphSubscription,
 } from './providerPushMicrosoft.js';
-import { recordGoogleRenewalFailure, renewCalendarChannel, renewGmailWatch } from './providerPushGoogle.js';
+import {
+  ensureGoogleSubscriptions,
+  gmailPushAvailable,
+  recordGoogleRenewalFailure,
+  renewCalendarChannel,
+  renewGmailWatch,
+} from './providerPushGoogle.js';
 
 /**
  * The renewal sweep.
@@ -95,6 +101,16 @@ async function bootstrapMicrosoftMailPush(env: NodeJS.ProcessEnv): Promise<{ cre
         AND pc.status = 'active'
         AND a.enabled = true
         AND a.mail_transport = 'microsoft_graph'
+        AND NOT EXISTS (
+          SELECT 1
+            FROM provider_push_subscriptions pps
+           WHERE pps.provider_connection_id = pc.id
+             AND pps.provider = 'microsoft'
+             AND pps.resource_type = 'mail'
+             AND pps.collection_id IS NULL
+             AND pps.status = 'active'
+             AND pps.expires_at > NOW() + INTERVAL '1 minute'
+        )
       ORDER BY pc.id
       LIMIT 50`,
   );
@@ -103,14 +119,85 @@ async function bootstrapMicrosoftMailPush(env: NodeJS.ProcessEnv): Promise<{ cre
   let failed = 0;
 
   for (const target of targets.rows) {
-    const result = await ensureGraphSubscriptions({
-      userId: target.user_id,
-      connectionId: target.connection_id,
-      resourceTypes: ['mail'],
-      env,
-    });
-    created += result.created.length;
-    failed += result.failed.length;
+    try {
+      const result = await ensureGraphSubscriptions({
+        userId: target.user_id,
+        connectionId: target.connection_id,
+        resourceTypes: ['mail'],
+        env,
+      });
+      created += result.created.length;
+      failed += result.failed.length;
+    } catch (error) {
+      failed += 1;
+      console.warn(
+        `Microsoft mail push bootstrap failed for connection ${target.connection_id}:`,
+        error instanceof Error ? error.message : error,
+      );
+    }
+  }
+
+  return { created, failed };
+}
+
+/**
+ * Bootstrap Gmail watches for existing Google-native mailboxes.
+ *
+ * Connections that predate PROVIDER_PUSH_ENABLED must not remain permanently on
+ * polling. Only connections without a healthy live mail watch are selected, so
+ * bounded batches advance naturally on later sweeps. Gmail push is attempted
+ * only when the required Pub/Sub configuration is available.
+ */
+async function bootstrapGoogleMailPush(env: NodeJS.ProcessEnv): Promise<{ created: number; failed: number }> {
+  const switches = await readProviderSwitches('google');
+  if (!switches.enabled || !switches.apiEnabled) return { created: 0, failed: 0 };
+  if (!gmailPushAvailable(env).available) return { created: 0, failed: 0 };
+
+  const targets = await query<{ user_id: string; connection_id: string }>(
+    `SELECT DISTINCT pc.user_id, pc.id AS connection_id
+       FROM provider_connections pc
+       JOIN email_accounts a
+         ON a.provider_connection_id = pc.id
+        AND a.user_id = pc.user_id
+      WHERE pc.provider = 'google'
+        AND pc.status = 'active'
+        AND a.enabled = true
+        AND a.mail_transport = 'gmail_api'
+        AND NOT EXISTS (
+          SELECT 1
+            FROM provider_push_subscriptions pps
+           WHERE pps.provider_connection_id = pc.id
+             AND pps.provider = 'google'
+             AND pps.resource_type = 'mail'
+             AND pps.collection_id IS NULL
+             AND pps.status = 'active'
+             AND pps.expires_at > NOW() + INTERVAL '1 minute'
+        )
+      ORDER BY pc.id
+      LIMIT 50`,
+  );
+
+  let created = 0;
+  let failed = 0;
+
+  for (const target of targets.rows) {
+    try {
+      const result = await ensureGoogleSubscriptions({
+        userId: target.user_id,
+        connectionId: target.connection_id,
+        calendars: [],
+        includeMail: true,
+        env,
+      });
+      created += result.created.filter(resource => resource === 'mail').length;
+      failed += result.failed.length;
+    } catch (error) {
+      failed += 1;
+      console.warn(
+        `Gmail push bootstrap failed for connection ${target.connection_id}:`,
+        error instanceof Error ? error.message : error,
+      );
+    }
   }
 
   return { created, failed };
@@ -124,9 +211,13 @@ export async function runProviderPushRenewals(env: NodeJS.ProcessEnv = process.e
 
   // Existing installations may have no subscription row at all because push can be
   // enabled after the Microsoft account was already connected.
-  const bootstrap = await bootstrapMicrosoftMailPush(env);
-  summary.created += bootstrap.created;
-  summary.failed += bootstrap.failed;
+  const microsoftBootstrap = await bootstrapMicrosoftMailPush(env);
+  summary.created += microsoftBootstrap.created;
+  summary.failed += microsoftBootstrap.failed;
+
+  const googleBootstrap = await bootstrapGoogleMailPush(env);
+  summary.created += googleBootstrap.created;
+  summary.failed += googleBootstrap.failed;
 
   const due = await listSubscriptionsDueForRenewal({
     aheadMinutes: renewAheadMinutes(env),

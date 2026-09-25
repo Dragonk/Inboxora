@@ -604,21 +604,6 @@ export async function applyGraphMailMessagesPage(
   return totals;
 }
 
-/** Remove the local provider messages of a folder that a rebuilt baseline did not list. */
-export async function reconcileGraphMailMessages(
-  client: PoolClient,
-  context: MessageContext,
-  baselineStartedAt: string,
-): Promise<number> {
-  const removed = await client.query(
-    `DELETE FROM messages
-      WHERE account_id = $1 AND folder = $2 AND provider_message_id IS NOT NULL
-        AND (synced_at IS NULL OR synced_at < $3::timestamptz)`,
-    [context.accountId, context.folderPath, baselineStartedAt],
-  );
-  return removed.rowCount ?? 0;
-}
-
 /** The enabled mail-folder collections of one connection, with their local paths. */
 export async function listGraphFolderTargets(client: PoolClient, input: { connectionId: string; accountId: string }): Promise<FolderTarget[]> {
   const result = await client.query<{ collection_id: string; remote_id: string; path: string }>(
@@ -898,17 +883,14 @@ export async function syncGraphMailMessagesForFolder(input: {
       return { ...totals, fullSync, incomplete: true };
     }
 
-    if (fullSync && baselineStartedAt) {
-      // A completed baseline may remove only rows that were already stale when
-      // this baseline started. Fresh mail observed while history was importing
-      // must survive this reconciliation.
-      totals.deleted += await withFencedSyncLease({
-        syncStateId,
-        generation: lease.generation,
-        run: client => reconcileGraphMailMessages(client, context, baselineStartedAt!),
-      });
-    }
-
+    // A rebuilt Graph baseline is authoritative for messages it returns, but
+    // absence from that enumeration is not treated as a deletion. Microsoft
+    // Graph delta provides explicit @removed tombstones for messages deleted
+    // or moved out of the folder; only those events may delete provider rows.
+    //
+    // This is deliberately fail-safe. A baseline can be restarted or overlap
+    // mailbox changes, and inferring deletion from absence previously caused
+    // newly delivered mail to disappear minutes after it had been displayed.
     const committed = await withTransaction(async client => {
       const saved = await commitSyncCheckpoint(client, {
         syncStateId,

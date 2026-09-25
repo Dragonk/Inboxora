@@ -19,6 +19,8 @@ const mocks = vi.hoisted(() => ({
   recordGraphFailure: vi.fn(),
   renewGmail: vi.fn(),
   renewChannel: vi.fn(),
+  ensureGoogle: vi.fn(),
+  gmailAvailable: vi.fn(),
   recordGoogleFailure: vi.fn(),
   readSwitches: vi.fn(),
   integrationsEnabled: vi.fn(),
@@ -45,6 +47,8 @@ vi.mock('./providerPushGoogle.js', async importOriginal => ({
   ...(await importOriginal<typeof import('./providerPushGoogle.js')>()),
   renewGmailWatch: mocks.renewGmail,
   renewCalendarChannel: mocks.renewChannel,
+  ensureGoogleSubscriptions: mocks.ensureGoogle,
+  gmailPushAvailable: mocks.gmailAvailable,
   recordGoogleRenewalFailure: mocks.recordGoogleFailure,
 }));
 
@@ -81,6 +85,8 @@ beforeEach(() => {
   mocks.listDue.mockResolvedValue([]);
   mocks.markRemoved.mockResolvedValue(1);
   mocks.ensureGraph.mockResolvedValue({ created: [], failed: [] });
+  mocks.ensureGoogle.mockResolvedValue({ created: [], failed: [] });
+  mocks.gmailAvailable.mockReturnValue({ available: true, reason: null });
   mocks.query.mockImplementation(async (sql: unknown) => {
     const text = String(sql);
     if (text.includes('SELECT remote_id FROM integration_collections')) {
@@ -112,6 +118,89 @@ describe('runProviderPushRenewals', () => {
       connectionId: 'connection-1',
       resourceTypes: ['mail'],
     }));
+  });
+
+  it('continues to due renewals when one Microsoft bootstrap lookup fails', async () => {
+    mocks.query.mockImplementation(async (sql: unknown) => {
+      const text = String(sql);
+      if (text.includes("a.mail_transport = 'microsoft_graph'")) {
+        return {
+          rows: [
+            { user_id: 'user-1', connection_id: 'connection-broken' },
+            { user_id: 'user-2', connection_id: 'connection-good' },
+          ],
+        };
+      }
+      return { rows: [] };
+    });
+
+    mocks.ensureGraph
+      .mockRejectedValueOnce(new Error('lookup failed'))
+      .mockResolvedValueOnce({ created: ['mail'], failed: [] });
+
+    mocks.listDue.mockResolvedValue([baseSubscription()]);
+
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const summary = await runProviderPushRenewals();
+
+      expect(summary.created).toBe(1);
+      expect(summary.failed).toBe(1);
+      expect(mocks.ensureGraph).toHaveBeenCalledTimes(2);
+      expect(mocks.renewGraph).toHaveBeenCalledOnce();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('selects only Microsoft mailboxes that still need a healthy mail subscription', async () => {
+    await runProviderPushRenewals();
+
+    const sql = mocks.query.mock.calls
+      .map(call => String(call[0]))
+      .find(text => text.includes("a.mail_transport = 'microsoft_graph'"));
+
+    expect(sql).toContain('NOT EXISTS');
+    expect(sql).toContain("pps.resource_type = 'mail'");
+    expect(sql).toContain("pps.status = 'active'");
+    expect(sql).toContain("pps.expires_at > NOW() + INTERVAL '1 minute'");
+  });
+
+  it('bootstraps Gmail push for an existing native Gmail mailbox', async () => {
+    mocks.query.mockImplementation(async (sql: unknown) => {
+      const text = String(sql);
+      if (text.includes("a.mail_transport = 'gmail_api'")) {
+        return { rows: [{ user_id: 'user-google', connection_id: 'connection-google' }] };
+      }
+      return { rows: [] };
+    });
+    mocks.ensureGoogle.mockResolvedValueOnce({ created: ['mail'], failed: [] });
+
+    const summary = await runProviderPushRenewals();
+
+    expect(summary.created).toBe(1);
+    expect(mocks.ensureGoogle).toHaveBeenCalledWith(expect.objectContaining({
+      userId: 'user-google',
+      connectionId: 'connection-google',
+      calendars: [],
+      includeMail: true,
+    }));
+  });
+
+  it('does not query Gmail bootstrap targets when Pub/Sub push is not configured', async () => {
+    mocks.gmailAvailable.mockReturnValueOnce({
+      available: false,
+      reason: 'PUBSUB_TOPIC_NOT_CONFIGURED',
+    });
+
+    await runProviderPushRenewals();
+
+    const googleBootstrapQueries = mocks.query.mock.calls
+      .map(call => String(call[0]))
+      .filter(text => text.includes("a.mail_transport = 'gmail_api'"));
+
+    expect(googleBootstrapQueries).toHaveLength(0);
+    expect(mocks.ensureGoogle).not.toHaveBeenCalled();
   });
 
   it('renews a Microsoft subscription that is close to expiry', async () => {

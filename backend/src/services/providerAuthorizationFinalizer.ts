@@ -157,6 +157,7 @@ const FEATURE_PIPELINE_COVERAGE: Record<FinalizedFeature, { google: string; micr
   contacts: { google: 'personal', microsoft: 'personal' },
 };
 
+/** Map an authorization purpose to the durable synchronization feature it updates. */
 function featureForPurpose(purpose: ProviderAuthorizationPurpose): FinalizedFeature {
   if (purpose === 'calendar_enable') return 'calendars';
   if (purpose === 'contacts_enable') return 'contacts';

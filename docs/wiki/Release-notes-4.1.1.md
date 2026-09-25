@@ -3,6 +3,7 @@
 **Status:** Hotfix  ·  **Release date:** 2026-09-25  ·  **Previous version:** 4.1.0
 
 ## Fixed
+- **Microsoft Graph rebuilt baselines no longer delete mail by omission.** Inboxora now removes a provider-backed message only when Graph delta explicitly reports an `@removed` event. Rebuilding an expired or reset delta cursor can no longer make a newly delivered or otherwise valid message disappear from the local mailbox.
 
 - **Microsoft Graph push starts for existing mailboxes.** When provider push is enabled after an account was already connected, Inboxora now bootstraps the missing mail subscription automatically; the two-minute polling path remains the reliability fallback.
 - **Microsoft Graph attachments load correctly.** Inboxora no longer requests `contentId` through an invalid base-attachment `$select`, so attachment metadata and inline CID images can be read without the Graph OData error.

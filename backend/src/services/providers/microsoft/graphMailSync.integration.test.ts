@@ -583,7 +583,7 @@ describeOrSkip('Microsoft Graph mail message sync (PostgreSQL)', () => {
     expect(checkpoint.rows[0]?.page_checkpoint).toBeNull();
   });
 
-  it('keeps fresh mail that was refreshed while a historical baseline was still running', async () => {
+  it('never treats omission from a rebuilt baseline as a message deletion', async () => {
     const connectionId = await seedConnection();
     await discoverFolders(connectionId);
 
@@ -652,11 +652,13 @@ describeOrSkip('Microsoft Graph mail message sync (PostgreSQL)', () => {
 
     expect(result.fullSyncFolders).toBeGreaterThan(0);
 
-    // This is the production regression: the fresh message must NOT disappear
-    // when the historical baseline finishes and reconciles.
+    // Production regression: neither a freshly observed message nor an older
+    // local message may disappear merely because a rebuilt historical baseline
+    // omitted it. Provider deletions are driven only by explicit @removed events.
     expect((await storedMessages()).map(row => row.provider_message_id)).toEqual([
       'fresh',
       'old',
+      'stale',
     ]);
   });
 
@@ -678,7 +680,7 @@ describeOrSkip('Microsoft Graph mail message sync (PostgreSQL)', () => {
     expect((await storedMessages())[0]?.is_read).toBe(true);
   });
 
-  it('rebuilds the folder when Graph rejects the delta token, and reconciles what the baseline omits', async () => {
+  it('rebuilds the folder when Graph rejects the delta token without deleting omitted local mail', async () => {
     const connectionId = await seedConnection();
     await discoverFolders(connectionId);
     await syncGraphMailMessagesForAccount({
@@ -701,9 +703,10 @@ describeOrSkip('Microsoft Graph mail message sync (PostgreSQL)', () => {
       userId: USER_ID, connectionId, accountId: ACCOUNT_ID, config: CONFIG, fetchImpl: rebuilding as unknown as typeof fetch,
     });
 
-    // m2 was not in the rebuilt baseline, so it is gone rather than stale for ever.
-    expect(result).toMatchObject({ deleted: 1, fullSyncFolders: 1 });
-    expect((await storedMessages()).map(row => row.provider_message_id)).toEqual(['m1']);
+    // A lost delta token does not make absence from the rebuilt enumeration a
+    // deletion signal. m2 remains until Graph emits an explicit @removed event.
+    expect(result).toMatchObject({ deleted: 0, fullSyncFolders: 1 });
+    expect((await storedMessages()).map(row => row.provider_message_id)).toEqual(['m1', 'm2']);
   });
 
   it('is idempotent: re-reading the same baseline changes nothing', async () => {
