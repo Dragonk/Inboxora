@@ -6,6 +6,7 @@
 
 - **Threaded mail list visibility.** Messages with empty `thread_key` now use `thread_id`, then a unique physical-message identity. Independent messages are no longer grouped into one nullable bucket or omitted. Pagination, totals, deduplication and thread expansion share the same identity rules.
 - **Microsoft Graph immutable message IDs.** Body, headers, attachment metadata, inline images, single downloads, ZIP downloads and mail mutations consistently use `Prefer: IdType="ImmutableId"` whenever the connection has immutable IDs enabled.
+- **Microsoft Graph historical mail delta sync after reconnect.** Delta sync requests now specify page sizes via `Prefer: odata.maxpagesize=200` rather than `$top` on `/messages/delta`, keeping opaque continuation links intact across full traversals. Reconnecting a previously revoked or inactive Microsoft connection clears mail delta cursors and checkpoints to guarantee a clean baseline import, while preserving state during routine token/consent refreshes on active connections.
 
 ## Validation and upgrade
 

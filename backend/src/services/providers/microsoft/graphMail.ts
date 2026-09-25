@@ -1,5 +1,5 @@
 import { createHash } from 'crypto';
-import { GraphApiError, graphGet, graphUrl } from './graphApiClient.js';
+import { GraphApiError, graphGet, graphGetWithHeaders, graphUrl } from './graphApiClient.js';
 import type { GraphApiOptions } from './graphApiClient.js';
 
 /**
@@ -291,10 +291,20 @@ export interface LocalGraphMessage {
 }
 
 export const GRAPH_MESSAGE_SELECT = 'id,internetMessageId,conversationId,subject,bodyPreview,receivedDateTime,sentDateTime,isRead,isDraft,hasAttachments,flag,from,toRecipients,ccRecipients,replyTo,changeKey,parentFolderId,internetMessageHeaders';
-/** The page size the message delta sync uses; exported so provider-side search asks for the same shape. */
-// Request a large initial delta page. Graph may clamp this value and return a nextLink, but a small value makes
-// large Outlook inboxes appear stuck at the provider's first 50-message page when Graph returns a deltaLink early.
-export const MESSAGE_PAGE_SIZE = 1000;
+/**
+ * Preferred Graph delta response size.
+ *
+ * Do not pass this as `$top` to `/messages/delta`. Microsoft documents
+ * `Prefer: odata.maxpagesize={x}` as the request-level page-size control for
+ * delta synchronization. In practice `$top` on the delta endpoint has also had
+ * provider-side behaviours where a round can terminate at the requested count,
+ * which is disastrous for an initial historical import because Inboxora would
+ * persist that premature deltaLink as if the whole folder had been traversed.
+ *
+ * 200 keeps the payload bounded (internetMessageHeaders can make one message
+ * fairly large) while still making the initial baseline efficient.
+ */
+export const MESSAGE_PAGE_SIZE = 200;
 
 export interface GraphMessagePage {
   value?: GraphMessage[];
@@ -389,13 +399,20 @@ export async function fetchMessagesDeltaPage(api: GraphApiOptions, input: {
   deltaLink?: string | null;
   top?: number;
 }): Promise<{ messages: GraphMessage[]; nextLink: string | null; deltaLink: string | null }> {
+  const requestedPageSize = Number.isFinite(input.top)
+    ? Math.max(1, Math.min(1000, Math.trunc(Number(input.top))))
+    : MESSAGE_PAGE_SIZE;
   const url = input.nextLink
     ?? input.deltaLink
     ?? graphUrl(`/me/mailFolders/${encodeURIComponent(input.folderId)}/messages/delta`, {
       $select: GRAPH_MESSAGE_SELECT,
-      $top: input.top ?? MESSAGE_PAGE_SIZE,
     });
-  const page = await graphGet<GraphMessagePage>(api, url);
+  // Keep the provider-issued nextLink/deltaLink completely opaque. Query options
+  // are encoded into those links by Graph; the page-size preference is a request
+  // header and therefore must be repeated on every request in the round.
+  const page = await graphGetWithHeaders<GraphMessagePage>(api, url, {
+    Prefer: `odata.maxpagesize=${requestedPageSize}`,
+  });
   return {
     messages: page.value ?? [],
     nextLink: page['@odata.nextLink'] ?? null,

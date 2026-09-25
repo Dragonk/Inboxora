@@ -918,13 +918,15 @@ export async function upsertProviderConnection(client: PoolClient, input: {
           SET tenant_id = COALESCE($2, tenant_id),
               provider_user_id = COALESCE($3, provider_user_id),
               client_config_id = COALESCE($4, client_config_id),
-              identity_verified_at = NOW(), status = 'active', updated_at = NOW()
+              identity_verified_at = NOW(), updated_at = NOW()
         WHERE id = $1`,
       [found.id, input.tenantId ?? null, input.providerUserId ?? null, input.clientConfigId ?? null],
     );
-    // This is a re-authorization of a connection that already exists. A previous disconnect also
-    // disabled its collections, so they have to be re-enabled here or the connection comes back
-    // into the schedule with nothing to refresh — which looks like a connector that never worked.
+    // This is a re-authorization of a connection that already exists. Let the
+    // reactivation service perform the active-state transition as well as the
+    // collection/cursor repair atomically. Setting status='active' above would
+    // erase the information that this was a real reconnect before the service
+    // gets a chance to reset Microsoft mail delta state.
     await reactivateProviderConnection(client, found.id);
     return found.id;
   }

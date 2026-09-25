@@ -32,6 +32,7 @@ Nothing is being prepared beyond 4.1.1. Work whose version has not been chosen a
 ### Fixed
 - **Threaded mail lists preserve unthreaded messages.** Rows without a non-empty `thread_key` now fall back to `thread_id`, then to a physical-message identity, so independent messages are not grouped together or hidden. Thread pagination, totals, deduplication and expansion use the same identity.
 - **Microsoft Graph mail reads and mutations preserve immutable IDs.** Body, headers, attachment metadata/downloads, inline images, ZIP downloads, read/star, move, delete, spam/ham, snooze and bulk operations use `Prefer: IdType="ImmutableId"` whenever the connection has immutable IDs enabled.
+- **Microsoft Graph historical mail delta synchronization.** Reconnecting a previously disconnected Microsoft integration resets mail delta cursors and checkpoints to guarantee a full historical baseline, while ordinary token/consent refresh on an active connection keeps incremental state. Delta requests specify page sizes via `Prefer: odata.maxpagesize=200` without passing `$top` query limits, and opaque next and delta links are strictly preserved.
 
 ## [4.1.0] - 2026-09-25
 

@@ -36,9 +36,10 @@ export async function reactivateProviderConnection(
   client: Pick<PoolClient, 'query'>,
   connectionId: string,
 ): Promise<void> {
-  await client.query(
+  const reactivated = await client.query<{ provider: string }>(
     `UPDATE provider_connections SET status = 'active', updated_at = NOW()
-      WHERE id = $1 AND status <> 'active'`,
+      WHERE id = $1 AND status <> 'active'
+      RETURNING provider`,
     [connectionId],
   );
   await client.query(
@@ -46,6 +47,34 @@ export async function reactivateProviderConnection(
       WHERE connection_id = $1 AND enabled = false`,
     [connectionId],
   );
+
+  // A disconnected Microsoft connection keeps its imported rows by design, but
+  // its per-folder Graph delta cursors are only valid for the synchronization
+  // history that existed before the disconnect. Reusing them after reconnect can
+  // make a newly authorized mailbox look "complete" while older messages were
+  // never imported (or while a previous initial baseline ended prematurely).
+  //
+  // Force a true baseline only when this call actually transitioned a revoked /
+  // inactive connection back to active. Ordinary token refresh / consent updates
+  // on an already-active connection keep their cursors and stay incremental.
+  if (reactivated.rows[0]?.provider === 'microsoft') {
+    await client.query(
+      `UPDATE sync_states
+          SET cursor = NULL,
+              page_checkpoint = NULL,
+              completed_watermark = NULL,
+              last_success_at = NULL,
+              last_error_code = NULL,
+              lease_expires_at = NULL,
+              running_owner = NULL,
+              running_started_at = NULL,
+              updated_at = NOW()
+        WHERE connection_id = $1
+          AND feature = 'mail'
+          AND coverage = 'messages'`,
+      [connectionId],
+    );
+  }
 }
 
 /** Revoke one connection owned by `userId`. Returns null when the user has no such connection. */
