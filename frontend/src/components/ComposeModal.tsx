@@ -263,6 +263,14 @@ export default function ComposeModal() {
   const draftSaveVersionRef = useRef(0);
   const [attachments, setAttachmentsState] = useState<Array<{ name?: string; size?: number; [key: string]: unknown }>>([]);
   const setAttachments = (value: React.SetStateAction<Array<{ name?: string; size?: number; [key: string]: unknown }>>) => { recordDraftEdit(); setAttachmentsState(value); };
+  /**
+   * The limits the sending account's transport is measured against, asked of the server (P06).
+   *
+   * The server stays authoritative — every refusal it answers still carries the same domain code — but a file
+   * the server would refuse does not have to be read into memory and uploaded first to learn that. A limit
+   * reported as `null` is one the transport does not have, which is not the same as zero.
+   */
+  const [sendLimits, setSendLimits] = useState<{ transport?: string; limits?: { singleAttachmentBytes?: number | null; totalAttachmentBytes?: number | null; inlineImageBytes?: number | null } } | null>(null);
   const [fwdAttachments, setFwdAttachmentsState] = useState(() => composeData?.forwardedAttachments || []);
   const setFwdAttachments = (value: React.SetStateAction<typeof fwdAttachments>) => { recordDraftEdit(); setFwdAttachmentsState(value); };
 
@@ -324,6 +332,25 @@ export default function ComposeModal() {
 
   const fromResolved = resolveFrom(fromValue);
   const fromAccount = accounts.find(a => a.id === fromResolved.accountId);
+
+  const sendingAccountId = fromResolved.accountId;
+  // Ask once per sending account; a late answer must not apply to a later session or another account.
+  useEffect(() => {
+    if (!sendingAccountId) { setSendLimits(null); return; }
+    let cancelled = false;
+    api.getSendLimits(sendingAccountId)
+      .then((data: { transport?: string; limits?: { singleAttachmentBytes?: number | null; totalAttachmentBytes?: number | null; inlineImageBytes?: number | null } }) => {
+        if (!cancelled) setSendLimits(data ?? null);
+      })
+      .catch(() => { if (!cancelled) setSendLimits(null); });
+    return () => { cancelled = true; };
+  }, [sendingAccountId]);
+
+  const limitTransportName = (transport?: string) => transport === 'microsoft_graph'
+    ? t('compose.limitTransportGraph')
+    : transport === 'gmail_api'
+      ? t('compose.limitTransportGmail')
+      : t('compose.limitTransportSmtp');
   const fromAlias = fromResolved.aliasId
     ? fromAccount?.aliases?.find(al => al.id === fromResolved.aliasId)
     : null;
@@ -368,6 +395,15 @@ export default function ComposeModal() {
   // attempt, reused across retries (so a retry after a lost response dedupes rather than
   // double-sending), and cleared on success. Fixes audit finding [1].
   const idempotencyKeyRef = useRef<string | null>(null);
+  /**
+   * True once the server answered `SEND_OUTCOME_UNKNOWN` for the current key.
+   *
+   * The key is deliberately **kept** in that state: an ordinary click then lands on the same durable intent and
+   * the server refuses to dispatch a second message, so a lost answer cannot silently become a duplicate
+   * (MAIL-05). Sending again is an explicit action below, which names the duplicate risk and mints a new key so
+   * the server treats it as a genuinely new operation.
+   */
+  const sendOutcomeUnknownRef = useRef(false);
   const replyTypeRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const shouldPositionCursorRef = useRef(isReply || isForward);
@@ -713,6 +749,26 @@ export default function ComposeModal() {
     const files = Array.from(e.target.files || []);
     if (!files.length) return;
     files.forEach(file => {
+      // Known-limit pre-check: refuse locally what the server would refuse anyway, so the user is not made to
+      // upload a file to be told its size. The server repeats the check and remains authoritative.
+      const single = sendLimits?.limits?.singleAttachmentBytes ?? null;
+      if (single !== null && file.size > single) {
+        setError(t('compose.limitAttachmentTooLarge', {
+          name: file.name, actual: byteSize(file.size), limit: byteSize(single), transport: limitTransportName(sendLimits?.transport),
+        }));
+        return;
+      }
+      const total = sendLimits?.limits?.totalAttachmentBytes ?? null;
+      if (total !== null) {
+        const already = attachments.reduce((sum, a) => sum + (a.size || 0), 0)
+          + fwdAttachments.reduce((sum, a) => sum + (Number(a.size) || 0), 0);
+        if (already + file.size > total) {
+          setError(t('compose.limitTooLarge', {
+            actual: byteSize(already + file.size), limit: byteSize(total), transport: limitTransportName(sendLimits?.transport),
+          }));
+          return;
+        }
+      }
       const reader = new FileReader();
       reader.onload = (ev) => {
         const result = ev.target?.result;
@@ -791,8 +847,11 @@ export default function ComposeModal() {
 
   const handleSend = async ({ skipSubjectWarn = false, skipAttachWarn = false } = {}) => {
     if (sending) return; // guard against a rapid double-submit (e.g. double Ctrl/Cmd+Enter)
-    const sentDraftIdentity = draftUid != null && draftFolder != null && draftAccountId && draftUidValidity != null
-      ? { accountId: draftAccountId, uid: draftUid, folder: draftFolder, uidValidity: draftUidValidity }
+    // A saved draft is identified by its account, folder and compatibility number. `uidValidity` is the
+    // IMAP guard that confirms the identity; a provider account's draft has none (its identity is the
+    // provider's immutable id, held server-side), so requiring it here would strand every provider draft.
+    const sentDraftIdentity = draftUid != null && draftFolder != null && draftAccountId
+      ? { accountId: draftAccountId, uid: draftUid, folder: draftFolder, ...(draftUidValidity != null ? { uidValidity: draftUidValidity } : {}) }
       : null;
     const { accountId, aliasId } = resolveFrom(fromValue);
     const toFinal = [...toChips, ...(toInput.trim() ? [toInput.trim()] : [])];
@@ -822,6 +881,15 @@ export default function ComposeModal() {
     const requestAuthEpoch = useStore.getState().authEpoch;
     const isCurrentSession = () => useStore.getState().authEpoch === requestAuthEpoch;
     localStorage.setItem('mailflow_last_from_account', accountId);
+    // An earlier send whose outcome the server could not confirm. An ordinary click must not dispatch again:
+    // the kept key makes the server answer with the same uncertain state. Sending a second copy is a separate,
+    // deliberate action, and the question says what the risk is (MAIL-05).
+    if (sendOutcomeUnknownRef.current) {
+      const confirmed = window.confirm(`${t('compose.sendUncertainTitle')}\n\n${t('compose.sendUncertainBody')}\n\n${t('compose.sendUncertainResend')}`);
+      if (!confirmed) return;
+      idempotencyKeyRef.current = null;
+      sendOutcomeUnknownRef.current = false;
+    }
     setSending(true);
     setError('');
     const bodyToSend = plaintextCompose ? body : (htmlMode ? htmlSource : (editor?.getHTML() ?? ''));
@@ -848,6 +916,16 @@ export default function ComposeModal() {
         ...(hasSignatureOverride ? { editedSignature: signatureToSend, editedSignatureIsHtml: !plaintextCompose } : {}),
         inReplyTo: composeData?.inReplyTo,
         references: composeData?.references || undefined,
+        // MAIL-03: what this send semantically is. A provider with its own reply action needs it to create the
+        // message as a reply rather than as a new message that merely carries RFC headers.
+        sendKind: composeData?.isForward ? 'forward'
+          // Reply All is user intent, not an accidental consequence of whether
+          // the deduplicated recipient set still has a Cc address.
+          : (composeData?.replyToMessageId || composeData?.inReplyTo) ? (composeData?.isReplyAll ? 'reply_all' : 'reply')
+            : 'new',
+        ...(composeData?.replyToMessageId ? { replyToMessageId: composeData.replyToMessageId } : {}),
+        ...(composeData?.replyParentMessageId ? { replyParentMessageId: composeData.replyParentMessageId } : {}),
+        ...(composeData?.replyParentAccountId ? { replyParentAccountId: composeData.replyParentAccountId } : {}),
         ...(priority !== 'normal' ? { priority } : {}),
         ...(attachments.length ? {
           attachments: attachments.map(a => ({
@@ -882,8 +960,8 @@ export default function ComposeModal() {
         addNotification({
           type: 'warning',
           persistent: true,
-          title: 'Message partially accepted',
-          body: `Not accepted by the mail server: ${rejectedRecipients.join(', ') || 'one or more recipients'}. The composer now contains only those recipients for a safe retry.`,
+          title: t('compose.partialDeliveryTitle'),
+          body: t('compose.partialDeliveryBody', { recipients: rejectedRecipients.join(', ') || t('compose.partialDeliveryRecipients') }),
         });
         return;
       }
@@ -891,7 +969,7 @@ export default function ComposeModal() {
       const replyThreadCacheId = isReply ? (composeData?.threadCacheId || replyThreadId) : null;
       closeCompose();
       if (sentDraftIdentity) {
-        api.deleteDraft(sentDraftIdentity.accountId, sentDraftIdentity.uid, sentDraftIdentity.folder, sentDraftIdentity.uidValidity).catch(() => {});
+        api.deleteDraft(sentDraftIdentity.accountId, sentDraftIdentity.uid, sentDraftIdentity.folder, sentDraftIdentity.uidValidity ?? null).catch(() => {});
       }
       // Prefer the Sent folder the backend actually resolved to; fall back to the account's
       // mapping only if the response didn't carry one. Avoids navigating "View" to a stale
@@ -920,7 +998,38 @@ export default function ComposeModal() {
       });
     } catch (err) {
       if (!isCurrentSession()) return;
-      setError(toAppError(err).message);
+      const appError = toAppError(err);
+      // The server answers a size refusal with a domain code, the dimension it refused on and the two byte
+      // figures — never with English prose a client would have to match.
+      const figures = appError as { actualBytes?: number; limitBytes?: number; filename?: string; transport?: string };
+      const limitRequested = ['ATTACHMENT_TOO_LARGE', 'ATTACHMENTS_TOO_LARGE', 'INLINE_IMAGES_TOO_LARGE',
+        'MESSAGE_TOO_LARGE', 'PROVIDER_MESSAGE_TOO_LARGE', 'PROVIDER_UPLOAD_TOO_LARGE', 'REQUEST_TOO_LARGE'].includes(appError.code ?? '');
+      if (limitRequested && typeof figures.actualBytes === 'number') {
+        const values = {
+          actual: byteSize(figures.actualBytes),
+          limit: byteSize(figures.limitBytes ?? 0),
+          transport: limitTransportName(figures.transport),
+        };
+        if (appError.code === 'ATTACHMENT_TOO_LARGE' || appError.code === 'PROVIDER_UPLOAD_TOO_LARGE') {
+          setError(t('compose.limitAttachmentTooLarge', { ...values, name: figures.filename ?? '' }));
+        } else {
+          setError(t('compose.limitTooLarge', values));
+        }
+      } else if (appError.code === 'ATTACHMENT_FETCH_FAILED') {
+        setError(t('compose.attachmentFetchFailed'));
+      } else if (appError.code === 'SEND_OUTCOME_UNKNOWN') {
+        // The message was handed over and the answer was lost. Saying so, and where to look, is all the interface
+        // can honestly do — and it is more than the server's sentence in another language.
+        setError(t('compose.sendUncertainBody'));
+        addNotification({ type: 'info', title: t('compose.sendUncertainTitle'), message: t('compose.sendUncertainBody') });
+        // The key is **kept**: the durable intent it created is the record of the uncertain delivery, and the
+        // next click must find that intent (and be refused) rather than dispatch a second message. Clearing it
+        // here — which is what this used to do — turned the user's next ordinary click into a fresh send and
+        // lost the protection exactly when it was needed (MAIL-05). The explicit re-send lives above handleSend.
+        sendOutcomeUnknownRef.current = true;
+      } else {
+        setError(appError.message);
+      }
       setSending(false);
     }
   };
@@ -985,8 +1094,17 @@ export default function ComposeModal() {
       editedSignature: plaintextCompose ? plainSig : signatureContentRef.current,
       inReplyTo: composeData?.inReplyTo || null,
       references: composeData?.references || null,
-      existingDraft: draftUid != null && draftFolder != null && draftAccountId && draftUidValidity != null
-        ? { accountId: draftAccountId, uid: draftUid, folder: draftFolder, uidValidity: draftUidValidity }
+      // The physical parent is required by Graph createReply after reopening a draft.
+      replyToMessageId: composeData?.replyToMessageId || null,
+      // A row UUID can change after MOVE; retain a same-account RFC identity so
+      // the send route can re-resolve a current physical copy.
+      replyParentMessageId: composeData?.replyParentMessageId || null,
+      replyParentAccountId: composeData?.replyParentAccountId || null,
+      // Graph has distinct createReply and createReplyAll actions; preserve the
+      // original intent instead of inferring it from editable recipient chips.
+      replyKind: composeData?.isReplyAll ? 'reply_all' : composeData?.isReply ? 'reply' : null,
+      existingDraft: draftUid != null && draftFolder != null && draftAccountId
+        ? { accountId: draftAccountId, uid: draftUid, folder: draftFolder, ...(draftUidValidity != null ? { uidValidity: draftUidValidity } : {}) }
         : null,
       attachmentCount: attachments.length + fwdAttachments.length,
     };
@@ -1007,6 +1125,10 @@ export default function ComposeModal() {
         editedSignatureIsHtml: !plaintextCompose,
         ...(draftSnapshot.inReplyTo ? { inReplyTo: draftSnapshot.inReplyTo } : {}),
         ...(draftSnapshot.references ? { references: draftSnapshot.references } : {}),
+        ...(draftSnapshot.replyToMessageId ? { replyToMessageId: draftSnapshot.replyToMessageId } : {}),
+        ...(draftSnapshot.replyParentMessageId ? { replyParentMessageId: draftSnapshot.replyParentMessageId } : {}),
+        ...(draftSnapshot.replyParentAccountId ? { replyParentAccountId: draftSnapshot.replyParentAccountId } : {}),
+        ...(draftSnapshot.replyKind ? { replyKind: draftSnapshot.replyKind } : {}),
         ...(draftSnapshot.existingDraft ? { existingDraft: draftSnapshot.existingDraft } : {}),
       });
       if (!isCurrentComposeSession()) return;
@@ -1543,7 +1665,7 @@ export default function ComposeModal() {
           {shouldShowSignatureEditor(fromSignature, hasPersistedSignature) && (
             <div style={{ padding: '0 16px 12px' }}>
               <div style={{ fontSize: 11, color: 'var(--text-tertiary)', margin: '8px 0 6px', userSelect: 'none' }}>
-                -- signature
+                -- {t('admin.accounts.signatureSection')}
               </div>
               {renderSignatureEditor()}
             </div>
@@ -1664,8 +1786,8 @@ export default function ComposeModal() {
             <button
               onClick={() => {
                 setShowDiscardSheet(false);
-                if (draftUid != null && draftFolder != null && draftAccountId && draftUidValidity != null) {
-                  api.deleteDraft(draftAccountId, draftUid, draftFolder, draftUidValidity).catch(() => {});
+                if (draftUid != null && draftFolder != null && draftAccountId) {
+                  api.deleteDraft(draftAccountId, draftUid, draftFolder, draftUidValidity ?? null).catch(() => {});
                 }
                 closeCompose();
               }}
@@ -2193,7 +2315,7 @@ export default function ComposeModal() {
         {shouldShowSignatureEditor(fromSignature, hasPersistedSignature) ? (
           <div style={{ padding: '0 14px 10px' }}>
             <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 6, userSelect: 'none' }}>
-              -- signature
+              -- {t('admin.accounts.signatureSection')}
             </div>
             {renderSignatureEditor()}
           </div>
@@ -2418,8 +2540,8 @@ export default function ComposeModal() {
             <button
               onClick={() => {
                 setShowCloseDialog(false);
-                if (draftUid != null && draftFolder != null && draftAccountId && draftUidValidity != null) {
-                  api.deleteDraft(draftAccountId, draftUid, draftFolder, draftUidValidity).catch(() => {});
+                if (draftUid != null && draftFolder != null && draftAccountId) {
+                  api.deleteDraft(draftAccountId, draftUid, draftFolder, draftUidValidity ?? null).catch(() => {});
                 }
                 closeCompose();
               }}
@@ -2755,10 +2877,10 @@ function RichToolbar({ editor, onAttach, onInsertImage = undefined, htmlMode, on
       {isMobile ? (
         <>
           <div ref={mobileBarRef} style={{ borderBottom: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', padding: '2px 0' }}>
-            {mtb(es.bold, 'Bold', (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().toggleBold().run(); }, <b>B</b>)}
-            {mtb(es.italic, 'Italic', (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().toggleItalic().run(); }, <i>I</i>)}
-            {mtb(es.underline, 'Underline', (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().toggleUnderline().run(); }, <u>U</u>)}
-            {mtb(es.strike, 'Strikethrough', (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().toggleStrike().run(); }, <s>S</s>)}
+            {mtb(es.bold, t('signatureEditor.bold'), (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().toggleBold().run(); }, <b>B</b>)}
+            {mtb(es.italic, t('signatureEditor.italic'), (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().toggleItalic().run(); }, <i>I</i>)}
+            {mtb(es.underline, t('signatureEditor.underline'), (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().toggleUnderline().run(); }, <u>U</u>)}
+            {mtb(es.strike, t('signatureEditor.strikethrough'), (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().toggleStrike().run(); }, <s>S</s>)}
             {onAttach && (
               <button title={t('compose.toolbar.attachFile')} onMouseDown={ (e: React.MouseEvent<HTMLElement>) => { e.preventDefault(); onAttach(); }}
                 style={{ background: 'none', border: 'none', borderRadius: 4, padding: '6px 4px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: 1, color: 'var(--text-secondary)', WebkitTapHighlightColor: 'transparent' }}>
@@ -2804,16 +2926,16 @@ function RichToolbar({ editor, onAttach, onInsertImage = undefined, htmlMode, on
                 <span style={{ fontSize: 13, fontWeight: 700, color: '#1a1a1a', lineHeight: 1, background: es.backgroundColor || '#ffd43b', padding: '0 2px', borderRadius: 2, border: '1px solid rgba(0,0,0,0.2)' }}>A</span>
               </button>
               <Sep />
-              {mtb(es.alignLeft, 'Align left', (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().setTextAlign('left').run(); }, <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="18" x2="18" y2="18"/></svg>)}
-              {mtb(es.alignCenter, 'Align center', (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().setTextAlign('center').run(); }, <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="6" y1="12" x2="18" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg>)}
-              {mtb(es.alignRight, 'Align right', (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().setTextAlign('right').run(); }, <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="9" y1="12" x2="21" y2="12"/><line x1="6" y1="18" x2="21" y2="18"/></svg>)}
+              {mtb(es.alignLeft, t('compose.toolbar.alignLeft'), (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().setTextAlign('left').run(); }, <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="18" x2="18" y2="18"/></svg>)}
+              {mtb(es.alignCenter, t('compose.toolbar.alignCenter'), (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().setTextAlign('center').run(); }, <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="6" y1="12" x2="18" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg>)}
+              {mtb(es.alignRight, t('compose.toolbar.alignRight'), (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().setTextAlign('right').run(); }, <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="9" y1="12" x2="21" y2="12"/><line x1="6" y1="18" x2="21" y2="18"/></svg>)}
               <Sep />
-              {mtb(es.bulletList, 'Bullet list', (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().toggleBulletList().run(); }, <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="9" y1="6" x2="20" y2="6"/><line x1="9" y1="12" x2="20" y2="12"/><line x1="9" y1="18" x2="20" y2="18"/><circle cx="4" cy="6" r="1.5" fill="currentColor" stroke="none"/><circle cx="4" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="4" cy="18" r="1.5" fill="currentColor" stroke="none"/></svg>)}
-              {mtb(es.orderedList, 'Numbered list', (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().toggleOrderedList().run(); }, <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="10" y1="6" x2="21" y2="6"/><line x1="10" y1="12" x2="21" y2="12"/><line x1="10" y1="18" x2="21" y2="18"/><text x="1" y="8" fontSize="7" fill="currentColor" stroke="none" fontFamily="sans-serif">1.</text><text x="1" y="14" fontSize="7" fill="currentColor" stroke="none" fontFamily="sans-serif">2.</text><text x="1" y="20" fontSize="7" fill="currentColor" stroke="none" fontFamily="sans-serif">3.</text></svg>)}
+              {mtb(es.bulletList, t('richTextEditor.bulletList'), (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().toggleBulletList().run(); }, <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="9" y1="6" x2="20" y2="6"/><line x1="9" y1="12" x2="20" y2="12"/><line x1="9" y1="18" x2="20" y2="18"/><circle cx="4" cy="6" r="1.5" fill="currentColor" stroke="none"/><circle cx="4" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="4" cy="18" r="1.5" fill="currentColor" stroke="none"/></svg>)}
+              {mtb(es.orderedList, t('richTextEditor.orderedList'), (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().toggleOrderedList().run(); }, <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="10" y1="6" x2="21" y2="6"/><line x1="10" y1="12" x2="21" y2="12"/><line x1="10" y1="18" x2="21" y2="18"/><text x="1" y="8" fontSize="7" fill="currentColor" stroke="none" fontFamily="sans-serif">1.</text><text x="1" y="14" fontSize="7" fill="currentColor" stroke="none" fontFamily="sans-serif">2.</text><text x="1" y="20" fontSize="7" fill="currentColor" stroke="none" fontFamily="sans-serif">3.</text></svg>)}
               {onToggleHtml && (
                 <>
                   <Sep />
-                  <button title={htmlMode ? 'Back to rich text' : 'Edit HTML source'} onMouseDown={ (e: React.MouseEvent<HTMLElement>) => { e.preventDefault(); onToggleHtml(); }}
+                  <button title={htmlMode ? t('compose.toolbar.backToRichText') : t('signatureEditor.sourceMode')} onMouseDown={ (e: React.MouseEvent<HTMLElement>) => { e.preventDefault(); onToggleHtml(); }}
                     style={{ background: htmlMode ? 'var(--accent-dim)' : 'none', border: 'none', borderRadius: 4, padding: '6px 10px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', color: htmlMode ? 'var(--accent)' : 'var(--text-secondary)', fontFamily: 'monospace', fontSize: 11, fontWeight: 600, letterSpacing: '-0.5px', WebkitTapHighlightColor: 'transparent' }}>{'</>'}</button>
                 </>
               )}
@@ -2882,10 +3004,10 @@ function RichToolbar({ editor, onAttach, onInsertImage = undefined, htmlMode, on
 
         <Sep />
 
-        {tb(es.bold, 'Bold', (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().toggleBold().run(); }, <b>B</b>)}
-        {tb(es.italic, 'Italic', (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().toggleItalic().run(); }, <i>I</i>)}
-        {tb(es.underline, 'Underline', (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().toggleUnderline().run(); }, <u>U</u>)}
-        {tb(es.strike, 'Strikethrough', (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().toggleStrike().run(); }, <s>S</s>)}
+        {tb(es.bold, t('signatureEditor.bold'), (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().toggleBold().run(); }, <b>B</b>)}
+        {tb(es.italic, t('signatureEditor.italic'), (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().toggleItalic().run(); }, <i>I</i>)}
+        {tb(es.underline, t('signatureEditor.underline'), (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().toggleUnderline().run(); }, <u>U</u>)}
+        {tb(es.strike, t('signatureEditor.strikethrough'), (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().toggleStrike().run(); }, <s>S</s>)}
 
         <Sep />
 
@@ -2902,18 +3024,18 @@ function RichToolbar({ editor, onAttach, onInsertImage = undefined, htmlMode, on
 
         <Sep />
 
-        {tb(es.alignLeft, 'Align left', (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().setTextAlign('left').run(); },
+        {tb(es.alignLeft, t('compose.toolbar.alignLeft'), (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().setTextAlign('left').run(); },
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="18" x2="18" y2="18"/></svg>)}
-        {tb(es.alignCenter, 'Align center', (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().setTextAlign('center').run(); },
+        {tb(es.alignCenter, t('compose.toolbar.alignCenter'), (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().setTextAlign('center').run(); },
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="6" y1="12" x2="18" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg>)}
-        {tb(es.alignRight, 'Align right', (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().setTextAlign('right').run(); },
+        {tb(es.alignRight, t('compose.toolbar.alignRight'), (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().setTextAlign('right').run(); },
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="9" y1="12" x2="21" y2="12"/><line x1="6" y1="18" x2="21" y2="18"/></svg>)}
 
         <Sep />
 
-        {tb(es.bulletList, 'Bullet list', (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().toggleBulletList().run(); },
+        {tb(es.bulletList, t('richTextEditor.bulletList'), (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().toggleBulletList().run(); },
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="9" y1="6" x2="20" y2="6"/><line x1="9" y1="12" x2="20" y2="12"/><line x1="9" y1="18" x2="20" y2="18"/><circle cx="4" cy="6" r="1.5" fill="currentColor" stroke="none"/><circle cx="4" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="4" cy="18" r="1.5" fill="currentColor" stroke="none"/></svg>)}
-        {tb(es.orderedList, 'Numbered list', (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().toggleOrderedList().run(); },
+        {tb(es.orderedList, t('richTextEditor.orderedList'), (e: React.MouseEvent) => { e.preventDefault(); editor.chain().focus().toggleOrderedList().run(); },
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="10" y1="6" x2="21" y2="6"/><line x1="10" y1="12" x2="21" y2="12"/><line x1="10" y1="18" x2="21" y2="18"/><text x="1" y="8" fontSize="7" fill="currentColor" stroke="none" fontFamily="sans-serif">1.</text><text x="1" y="14" fontSize="7" fill="currentColor" stroke="none" fontFamily="sans-serif">2.</text><text x="1" y="20" fontSize="7" fill="currentColor" stroke="none" fontFamily="sans-serif">3.</text></svg>)}
 
         <Sep />
@@ -2921,7 +3043,7 @@ function RichToolbar({ editor, onAttach, onInsertImage = undefined, htmlMode, on
         <TBtn ref={linkBtnRef} active={es.link} title={t('compose.toolbar.insertLink')} onMouseDown={openLink}>
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>
         </TBtn>
-        <button ref={emojiBtnRef} title="Emoji" onMouseDown={openEmoji}
+        <button ref={emojiBtnRef} title={t('compose.toolbar.emoji')} onMouseDown={openEmoji}
           style={{ background: 'none', border: 'none', borderRadius: 4, padding: '3px 6px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center' }}>
           <span style={{ fontSize: 13, lineHeight: 1 }}>😀</span>
         </button>
@@ -2969,7 +3091,7 @@ function RichToolbar({ editor, onAttach, onInsertImage = undefined, htmlMode, on
         {onToggleHtml && (
           <>
             <Sep />
-            <button title={htmlMode ? 'Back to rich text' : 'Edit HTML source'} onMouseDown={ (e: React.MouseEvent<HTMLElement>) => { e.preventDefault(); onToggleHtml(); }}
+            <button title={htmlMode ? t('compose.toolbar.backToRichText') : t('signatureEditor.sourceMode')} onMouseDown={ (e: React.MouseEvent<HTMLElement>) => { e.preventDefault(); onToggleHtml(); }}
               style={{
                 background: htmlMode ? 'var(--accent-dim)' : 'none', border: 'none', borderRadius: 4,
                 padding: '3px 6px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center',
@@ -3042,7 +3164,7 @@ function RichToolbar({ editor, onAttach, onInsertImage = undefined, htmlMode, on
           {es.link && (
             <button onMouseDown={ (e: React.MouseEvent<HTMLElement>) => { e.preventDefault(); editor.chain().focus().unsetLink().run(); setLinkPos(null); }}
               style={{ background: 'none', border: 'none', color: 'var(--red)', fontSize: 11, cursor: 'pointer', padding: 0, textAlign: 'left' }}>
-              Remove link
+              {t('compose.toolbar.removeLink')}
             </button>
           )}
         </div>
@@ -3439,3 +3561,9 @@ function ChipInput({ chips, onChipsChange, value, onChange, placeholder, autoFoc
   );
 }
 
+/** Bytes as a short human figure: a size message is for a person, not for a log. */
+function byteSize(bytes: number): string {
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
+  if (bytes >= 1024) return `${Math.round(bytes / 1024)} KiB`;
+  return `${bytes} B`;
+}

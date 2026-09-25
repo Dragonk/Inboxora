@@ -1,13 +1,44 @@
-import { mergeCalendarResource, truncateSeriesBefore } from '../utils/calendarRecurrence.js';
+import { calendarColorFields, colorPreferenceMap, loadCalendarColorPreferences, withCalendarPresentationColor, parseCalendarPresentationPatch, writeCalendarPresentationPatch } from '../services/calendarPresentationColors.js';
+import { calendarResources, mergeCalendarResource, rruleFromCalendarResource, setSeriesRecurrence, truncateSeriesBefore } from '../utils/calendarRecurrence.js';
+import { parseRecurrenceStructure, recurrenceToRRule, recurrenceViewFromRRule, type ParsedRecurrence } from '../utils/calendarRecurrenceRule.js';
+import { googleConfigFromEnv, isGoogleConfigured, isMicrosoftConfigured, microsoftConfigFromEnv } from '../services/providerAuthService.js';
+import { syncGoogleCalendar } from '../services/providers/google/googleCalendarSync.js';
+import { describeProviderSyncFailure, providerSyncPreflight } from '../services/providerSyncDiagnostics.js';
+import { releaseCalendarChannelForCollection } from '../services/providerPushGoogle.js';
+import { deleteCaldavEvent, putCaldavEvent } from '../services/providers/caldavWriteBack.js';
+import { davWriteBackHttpStatus, type DavWriteBackRouteResult } from '../services/providers/davWriteBack.js';
+import {
+  writeProviderCalendarOccurrence,
+  type OccurrenceScope,
+} from '../services/providerCalendarOccurrences.js';
+import { syncGraphCalendar } from '../services/providers/microsoft/graphCalendarSync.js';
+import {
+  graphEventIdForLocalRow,
+  recordGraphCalendarEventLink,
+  removeGraphCalendarEventLink,
+  resolveCalendarWriteTarget,
+  writeGraphCalendarEvent,
+} from '../services/providerCalendarWrites.js';
+import {
+  googleEventIdForLocalRow,
+  recordGoogleCalendarEventLink,
+  removeGoogleCalendarEventLink,
+  resolveGoogleCalendarWriteTarget,
+  writeGoogleCalendarEvent,
+} from '../services/providerGoogleWrites.js';
+import type { GoogleCalendarWriteTarget } from '../services/providerGoogleWrites.js';
 import type { AttachmentRef, EmailAccountRow } from '../services/imapManager.js';
 import ICAL from 'ical.js';
 import { parseInboundCalendarInvitation } from '../services/inboundCalendarInvitation.js';
 import { parseCalendarEvent } from '../utils/ical.js';
 import { descriptionContentLines, normalizeDescription } from '../utils/richText.js';
 import { Router } from 'express';
-import type { Request } from 'express';
+import { providerIntegrationsEnabled, providerOperationalForSync } from '../services/providerSwitches.js';
+import { providerConnectionFeatureEnabled } from '../services/accountProviderFeatureSettings.js';
+import type { Request, Response } from 'express';
 import crypto from 'crypto';
 import { query, withTransaction } from '../services/db.js';
+import { collectionIsWritable } from '../services/providerAccess.js';
 import { requireAuth } from '../middleware/auth.js';
 import { decrypt, encrypt } from '../services/encryption.js';
 import { validateHost } from '../services/hostValidation.js';
@@ -151,6 +182,8 @@ type LocalEventIcalInput = {
   startsAt: Date;
   endsAt: Date;
   allDay: boolean;
+  /** Server-rendered RRULE; never an unvalidated client string. */
+  rrule?: string | null;
 };
 
 /** The values an invitation request carries, shared by the create and update paths. */
@@ -166,6 +199,8 @@ type InvitationFields = {
   organizer?: string | null;
   allDay?: boolean | null;
   timezone?: string | null;
+  /** Present only when the request asked to change the series rule; null clears it. */
+  rrule?: string | null;
 };
 
 /** The outbox delivery result an invitation response reports. */
@@ -180,7 +215,7 @@ type InvitationMessageRow = {
   raw_ical?: string | null;
 };
 
-function localEventIcal({ uid, summary, description, location, url, organizer, attendees = [], startsAt, endsAt, allDay }: LocalEventIcalInput) {
+function localEventIcal({ uid, summary, description, location, url, organizer, attendees = [], startsAt, endsAt, allDay, rrule = null }: LocalEventIcalInput) {
   const dateParameter = allDay ? ';VALUE=DATE' : '';
   const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Inboxora//DAV Hub//EN', 'BEGIN:VEVENT', `UID:${uid}`, `DTSTAMP:${formatICalendarDate(new Date(), false)}`, `DTSTART${dateParameter}:${formatICalendarDate(startsAt, allDay)}`, `DTEND${dateParameter}:${formatICalendarDate(endsAt, allDay)}`];
   if (summary) lines.push(`SUMMARY:${escapeICalendarText(summary)}`);
@@ -189,6 +224,9 @@ function localEventIcal({ uid, summary, description, location, url, organizer, a
   if (url) lines.push(`URL:${String(url).replace(/[\r\n]/g, '')}`);
   if (organizer) lines.push(`ORGANIZER:mailto:${escapeICalendarText(organizer.replace(/^mailto:/i, ''))}`);
   for (const email of attendees) lines.push(`ATTENDEE:mailto:${email}`);
+  // The rule is built server-side from a validated structured input, so it never
+  // carries client text; the CR/LF strip is a defensive last line.
+  if (rrule) lines.push(`RRULE:${String(rrule).replace(/[\r\n]/g, '')}`);
   lines.push('END:VEVENT', 'END:VCALENDAR', '');
   return lines.map(foldICalendarLine).join('\r\n');
 }
@@ -223,11 +261,14 @@ function invitationOperationKey(req: Request): string {
 }
 
 function invitationRequestFingerprint(req: Request, fields: InvitationFields) {
-  const { calendarId, normalizedAttendees, times, summary, description, location, url, organizer, allDay, timezone, invitationAccount } = fields;
+  const { calendarId, normalizedAttendees, times, summary, description, location, url, organizer, allDay, timezone, invitationAccount, rrule } = fields;
   return crypto.createHash('sha256').update(JSON.stringify({
     eventId: req.params.eventId || null, calendarId, summary: summary || null, description, location, url, organizer,
     allDay: Boolean(allDay), timezone, attendees: normalizedAttendees, inviteAccountId: invitationAccount?.id || null,
     startsAt: times.startsAt.toISOString(), endsAt: times.endsAt.toISOString(),
+    // `undefined` means "keep the stored rule" and `null` means "clear it"; the
+    // two must not share an idempotency fingerprint.
+    rrule: rrule === undefined ? '<keep>' : rrule,
   })).digest('hex');
 }
 
@@ -242,7 +283,7 @@ function invitationDeliveryResponse(event: unknown, delivery: InvitationDelivery
 }
 
 async function updateInvitedEvent(req: Request, fields: InvitationFields) {
-  const { calendarId, invitationAccount, normalizedAttendees, times, summary, description, location, url, organizer, allDay, timezone } = fields;
+  const { calendarId, invitationAccount, normalizedAttendees, times, summary, description, location, url, organizer, allDay, timezone, rrule } = fields;
   const key = invitationOperationKey(req);
   const fingerprint = invitationRequestFingerprint(req, fields);
   return withTransaction(async client => {
@@ -270,26 +311,129 @@ async function updateInvitedEvent(req: Request, fields: InvitationFields) {
         : (await client.query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2 AND smtp_host IS NOT NULL', [existing.invite_account_id, req.session.userId])).rows[0] || null;
       if (!cancellationAccount) return { cancelFailed: true };
     }
-    const rawIcal = mergeCalendarResource(existing.raw_ical, localEventIcal({ uid: existing.uid, summary, description, location, url, organizer, attendees: normalizedAttendees, allDay: Boolean(allDay), ...times }));
+    const mergedIcal = mergeCalendarResource(existing.raw_ical, localEventIcal({ uid: existing.uid, summary, description, location, url, organizer, attendees: normalizedAttendees, allDay: Boolean(allDay), ...times }));
+    // `mergeCalendarResource` deliberately leaves RRULE alone (the DAV resource may
+    // carry exceptions); a series-level edit applies the validated rule explicitly.
+    const rawIcal = rrule === undefined ? mergedIcal : (setSeriesRecurrence(mergedIcal, rrule) ?? mergedIcal);
     const result = await client.query(`UPDATE calendar_events SET raw_ical = $1, summary = $2, description = $3, location = $4, url = $5, organizer = $6, starts_at = $7, ends_at = $8, all_day = $9, timezone = $10, attendees = $11, invite_account_id = $12, invitation_sequence = CASE WHEN (invite_account_id IS NOT NULL AND ${ATTENDEES_IS_ARRAY} AND jsonb_array_length(attendees) > 0) OR invitation_sequence > 0 THEN invitation_sequence + 1 ELSE 0 END, etag = gen_random_uuid()::text, updated_at = NOW() WHERE id = $13 AND calendar_id = $14 AND user_id = $15 RETURNING id, calendar_id, uid, etag, summary, description, location, url, organizer, starts_at, ends_at, all_day, timezone, attendees, invite_account_id, invitation_sequence, created_at, updated_at`, [rawIcal, summary || null, description, location, url, organizer, times.startsAt, times.endsAt, Boolean(allDay), timezone, jsonbAttendees(normalizedAttendees), invitationAccount.id, req.params.eventId, calendarId, req.session.userId]);
     const event = result.rows[0];
     const actions = [];
     if (cancelledAttendees.length) actions.push({ account: cancellationAccount, attendees: cancelledAttendees, summary: existing.summary, description: existing.description, location: existing.location, uid: existing.uid, allDay: Boolean(existing.all_day), method: 'CANCEL', sequence: Number(existing.invitation_sequence || 0) + 1, startsAt: new Date(existing.starts_at).toISOString(), endsAt: new Date(existing.ends_at).toISOString() });
-    actions.push({ account: invitationAccount, attendees: normalizedAttendees, summary, description, location, uid: event.uid, allDay: Boolean(allDay), method: 'REQUEST', sequence: event.invitation_sequence, startsAt: times.startsAt.toISOString(), endsAt: times.endsAt.toISOString() });
+    actions.push({ account: invitationAccount, attendees: normalizedAttendees, summary, description, location, uid: event.uid, allDay: Boolean(allDay), method: 'REQUEST', sequence: event.invitation_sequence, startsAt: times.startsAt.toISOString(), endsAt: times.endsAt.toISOString(), rrule });
     const outbox = await client.query('INSERT INTO calendar_invitation_outbox (user_id, event_id, idempotency_key, request_fingerprint, payload) VALUES ($1,$2,$3,$4,$5::jsonb) RETURNING id', [req.session.userId, event.id, key, fingerprint, JSON.stringify({ actions: invitationActionsForStorage(actions) })]);
     return { event, outboxId: outbox.rows[0].id, actions };
   });
 }
 
-async function writableCalendar(userId: string, calendarId: string) {
-  const result = await query(
-    'SELECT id, source, read_only FROM calendars WHERE id = $1 AND user_id = $2 AND owner_user_id = $2',
-    [calendarId, userId],
+/**
+ * Resolve which writer owns a calendar and whether it accepts a change.
+ *
+ * The answer comes from `resolveCalendarWriteTarget`, the same resolution the provider write paths use:
+ * the capability model (adapter, conflict protection, the origin's permission and the user's write-back
+ * choice) decides *whether*, and the returned target says *who*. A local calendar returns the local
+ * target; a write-enabled provider collection returns the connection and the provider's own calendar id.
+ *
+ * The shared resolver owns the local and Microsoft branches. Google's write path lives in
+ * `providerGoogleWrites.ts`, which is asked only when the shared resolver refused: it answers `google`
+ * for a write-enabled Google collection and `not_google` for everything else, so every other refusal
+ * (missing, read-only, an origin with no writer) is returned exactly as it was.
+ */
+type WritableCalendar =
+  | { ok: false; status: number; error: string }
+  | { ok: true; target: (ReturnType<typeof resolveCalendarWriteTarget> extends Promise<infer T> ? Exclude<T, { kind: 'refused' }> : never) | GoogleCalendarWriteTarget };
+
+async function writableCalendar(userId: string, calendarId: string): Promise<WritableCalendar> {
+  const target = await resolveCalendarWriteTarget(userId, calendarId);
+  if (target.kind !== 'refused') return { ok: true, target };
+  const google = await resolveGoogleCalendarWriteTarget(userId, calendarId);
+  if (google.kind === 'google') return { ok: true, target: google };
+  if (google.kind === 'refused') return { ok: false, status: google.status, error: google.error };
+  return { ok: false, status: target.status, error: target.error };
+}
+
+/**
+ * Report a provider write refusal with the shared vocabulary.
+ *
+ * `code` is what the interface switches on (`RESOURCE_NOT_FOUND`, `MUTATION_OUTCOME_UNKNOWN`, a
+ * provider problem code) and `error` is the sentence it shows; neither provider invents its own shape.
+ */
+function providerWriteRefusal(res: Response, failure: { status: number; error: string; code?: string }): void {
+  res.status(failure.status).json({
+    ...(failure.code ? { code: failure.code } : {}),
+    error: failure.error,
+  });
+}
+
+/**
+ * Answer a REST call with what the DAV source did.
+ *
+ * The same statuses the DAV handlers answer with (`davWriteBackHttpStatus`), because the web path and the DAV
+ * path are writing to the same source and must not disagree about what a conflict or an unknown outcome is.
+ */
+function respondCaldavWriteBack(res: Response, result: DavWriteBackRouteResult, body: Record<string, unknown> = {}): void {
+  if (result.retryAfterSeconds !== undefined) res.setHeader('Retry-After', String(result.retryAfterSeconds));
+  const status = davWriteBackHttpStatus(result);
+  if (status === 204 || status === 201) {
+    res.status(status).json({ ok: true, created: result.created, ...body });
+    return;
+  }
+  res.status(status).json({
+    ...(result.code ? { code: result.code } : {}),
+    error: status === 412
+      ? 'The calendar changed at its source since you loaded it. Reload and try again.'
+      : 'The calendar source refused this change.',
+    ...body,
+  });
+}
+
+/** A CalDAV collection the user enabled write-back for. */
+type CaldavWriteTarget = Extract<
+  Awaited<ReturnType<typeof resolveCalendarWriteTarget>>,
+  { kind: 'caldav' }
+>;
+
+/**
+ * Forward one local event resource to the external CalDAV source that owns the collection.
+ *
+ * The write-back client commits the local projection itself, only after the source confirms, so the caller
+ * must not also write the row: the projection and the source's answer are the same fact, and doing both would
+ * mean two writers for one event.
+ */
+async function writeCaldavEventResource(input: {
+  userId: string;
+  target: CaldavWriteTarget;
+  method: 'PUT' | 'DELETE';
+  filename: string;
+  uid: string;
+  raw: string;
+  exists: boolean;
+  localObjectId: string | null;
+  localRevision: string | null;
+}): Promise<DavWriteBackRouteResult> {
+  const calendar = { id: input.target.calendarId, external_url: input.target.externalUrl, source: 'caldav' };
+  if (input.method === 'DELETE') {
+    return await deleteCaldavEvent({
+      method: 'DELETE', userId: input.userId, calendar, filename: input.filename, uid: input.uid,
+      raw: '', parsed: null, exists: input.exists, localObjectId: input.localObjectId, localRevision: input.localRevision,
+    });
+  }
+  const parsed = parseCalendarEvent(input.raw);
+  if (!parsed) {
+    return { status: 'permanent', created: false, code: 'INVALID_REQUEST' };
+  }
+  return await putCaldavEvent({
+    method: 'PUT', userId: input.userId, calendar, filename: input.filename, uid: input.uid,
+    raw: input.raw, parsed, exists: input.exists, localObjectId: input.localObjectId, localRevision: input.localRevision,
+  });
+}
+
+/** The stored event a CalDAV write needs: its identity, its resource text and its entity-tag. */
+async function readCaldavEventRow(userId: string, calendarId: string, eventId: string) {
+  const result = await query<{ id: string; uid: string; raw_ical: string; etag: string; dav_filename: string | null }>(
+    'SELECT id, uid, raw_ical, etag, dav_filename FROM calendar_events WHERE id = $1 AND calendar_id = $2 AND user_id = $3',
+    [eventId, calendarId, userId],
   );
-  const calendar = result.rows[0];
-  if (!calendar) return { status: 404, error: 'Calendar not found' };
-  if (calendar.read_only || calendar.source !== 'local') return { status: 403, error: 'This calendar is read-only' };
-  return { calendar };
+  return result.rows[0] ?? null;
 }
 
 async function contactCalendarAppearance(userId: string): Promise<{ name?: string | null; color?: string | null; [key: string]: unknown }> {
@@ -399,7 +543,16 @@ router.delete('/invitations/:messageId', async (req, res) => {
 router.post('/invitations/:messageId', async (req, res) => {
   if (!req.body?.calendarId) return res.status(400).json({ error: 'calendarId is required' });
   const access = await writableCalendar(sessionUserId(req), req.body.calendarId);
-  if (access.error) return res.status(access.status).json({ error: access.error });
+  if (!access.ok) return res.status(access.status).json({ error: access.error });
+  if (access.target.kind !== 'local') {
+    // A provider calendar's events live at the provider. Adding the invitation only locally would put an
+    // event in Inboxora that no other client can see and that the provider never agreed to, so the write
+    // is refused with a reason instead of being accepted and then silently discarded.
+    return res.status(501).json({
+      code: 'OPERATION_FORBIDDEN',
+      error: 'Adding an invitation to a provider calendar is not available yet. Accept it in the provider and let it sync.',
+    });
+  }
   const invitation = await readMessageInvitation(req.params.messageId, sessionUserId(req));
   if (!invitation) return res.status(404).json({ error: 'Calendar invitation not found' });
   if (invitation.method !== 'REQUEST' || !invitation.event) return res.status(409).json({ error: 'This invitation cannot be added' });
@@ -426,16 +579,159 @@ router.post('/invitations/:messageId', async (req, res) => {
   res.json({ added: true, changed: Boolean(result.rows[0]), calendarId: req.body.calendarId });
 });
 
+type CalendarPresentationRow = {
+  id: string; name: string | null; color: string | null; color_override?: string | null; source: string | null; read_only: boolean | null;
+  display_visible: boolean | null; collection_id: string | null; provider: string | null; provider_identity: string | null;
+  account_id: string | null; account_email: string | null; import_source_id: string | null; import_kind: string | null;
+  import_label: string | null; feature_enabled: boolean | null; connection_status?: string | null; import_enabled?: boolean | null;
+};
+
+type CalendarPresentationSource = ReturnType<typeof calendarSourceId> & { collapsed: boolean };
+type CalendarPresentationCalendar = { id: string; sourceId: string; displayName: string; readOnly: boolean; selected: boolean; sidebarHidden: boolean; sourceColor: string | null; colorOverride: string | null; effectiveColor: string | null };
+export type CalendarPresentation = { revision: string; sources: CalendarPresentationSource[]; calendars: CalendarPresentationCalendar[]; groups: Array<CalendarPresentationSource & { calendars: CalendarPresentationCalendar[] }> };
+
+function calendarSourceId(row: CalendarPresentationRow) {
+  if (row.id === CONTACT_CALENDAR_ID || row.source === 'contacts') return { id: 'system:contacts-birthdays', kind: 'system', label: 'Contact dates', accountId: null, identityLabel: null, featureEnabled: true, canSync: false };
+  if (row.source === 'local') return { id: 'local', kind: 'local', label: 'My calendars', accountId: null, identityLabel: null, featureEnabled: true, canSync: false };
+  if (row.provider === 'google' || row.provider === 'microsoft') {
+    // An Inboxora account is durable across reauthorization. Older rows without one
+    // use the provider subject, not a transient provider connection id.
+    const identity = row.account_id ? `account:${row.account_id}` : row.provider_identity ? `identity:${row.provider_identity}` : `collection:${row.collection_id ?? row.id}`;
+    const connected = row.connection_status === undefined || row.connection_status === 'active';
+    return { id: `${row.provider}:${identity}`, kind: row.provider, label: row.provider === 'google' ? 'Google' : 'Microsoft', accountId: row.account_id, identityLabel: row.account_email ?? row.provider_identity, featureEnabled: row.feature_enabled === true, canSync: connected && row.feature_enabled === true };
+  }
+  if (row.import_source_id) return { id: `calendar-source:${row.import_source_id}`, kind: row.import_kind ?? 'ical_url', label: row.import_label ?? 'Subscription', labelKey: row.import_label ? undefined : 'accountUi.subscriptions', accountId: null, identityLabel: null, featureEnabled: row.import_enabled !== false, canSync: row.import_enabled !== false };
+  return { id: `collection:${row.collection_id ?? row.id}`, kind: row.source === 'caldav' ? 'caldav' : 'ical_url', label: row.source === 'caldav' ? 'CalDAV' : 'Subscription', labelKey: row.source === 'caldav' ? undefined : 'accountUi.subscriptions', accountId: null, identityLabel: null, featureEnabled: true, canSync: Boolean(row.collection_id) };
+}
+
+/**
+ * The sole presentation read model. Source preferences are applied only after the
+ * source and calendar identities have been derived from rows owned by this user,
+ * which prevents stale or foreign preference keys from becoming visible state.
+ */
+export async function loadCalendarPresentation(userId: string): Promise<CalendarPresentation> {
+  const result = await query<CalendarPresentationRow>(
+    `SELECT c.id, c.name, c.color, c.source, c.read_only, c.display_visible, ic.id AS collection_id,
+            pc.provider, pc.provider_user_id AS provider_identity, pc.status AS connection_status, a.id AS account_id, a.email_address AS account_email,
+            cis.id AS import_source_id, cis.kind AS import_kind, cis.display_name AS import_label, cis.enabled AS import_enabled, aps.enabled AS feature_enabled
+       FROM calendars c
+       LEFT JOIN integration_collections ic ON ic.local_calendar_id = c.id AND ic.kind = 'calendar' AND ic.user_id = c.user_id
+       LEFT JOIN provider_connections pc ON pc.id = ic.connection_id
+       LEFT JOIN LATERAL (
+          SELECT candidate.id, candidate.email_address
+            FROM email_accounts candidate
+           WHERE candidate.user_id = c.user_id
+             AND pc.id IS NOT NULL
+             AND (
+               candidate.id = ic.account_id
+               OR candidate.provider_connection_id = pc.id
+               OR (
+                 pc.provider_user_id IS NOT NULL
+                 AND lower(candidate.email_address) = lower(pc.provider_user_id)
+               )
+             )
+           ORDER BY
+             CASE
+               WHEN candidate.id = ic.account_id THEN 0
+               WHEN candidate.provider_connection_id = pc.id THEN 1
+               ELSE 2
+             END,
+             candidate.created_at ASC,
+             candidate.id ASC
+           LIMIT 1
+        ) a ON true
+       LEFT JOIN account_provider_feature_settings aps ON aps.account_id = a.id AND aps.feature = 'calendars'
+       LEFT JOIN calendar_import_sources cis ON cis.user_id = c.user_id AND c.external_url = ('source:' || cis.id::text)
+      WHERE c.user_id = $1
+         AND c.owner_user_id = $1
+         AND (
+           pc.id IS NULL
+           OR pc.provider NOT IN ('google', 'microsoft')
+           OR a.id IS NOT NULL
+         )
+       ORDER BY c.created_at ASC`, [userId]);
+  const [sourcePrefs, calendarPrefs, appearance, accountSources, importSources] = await Promise.all([
+    query<{ source_id: string; collapsed: boolean }>('SELECT source_id, collapsed FROM user_calendar_source_preferences WHERE user_id = $1', [userId]),
+    query<{ calendar_id: string; sidebar_hidden: boolean; color_override: string | null }>('SELECT calendar_id, sidebar_hidden, color_override FROM user_calendar_presentation_preferences WHERE user_id = $1', [userId]),
+    contactCalendarAppearance(userId),
+    query<CalendarPresentationRow>(`SELECT a.id AS account_id, a.email_address AS account_email, pc.provider,
+      pc.provider_user_id AS provider_identity, pc.status AS connection_status, aps.enabled AS feature_enabled
+      FROM email_accounts a JOIN provider_connections pc ON pc.id = a.provider_connection_id
+      LEFT JOIN account_provider_feature_settings aps ON aps.account_id = a.id AND aps.feature = 'calendars'
+      WHERE a.user_id = $1 AND pc.provider IN ('google', 'microsoft')`, [userId]),
+    query<CalendarPresentationRow>(`SELECT id AS import_source_id, kind AS import_kind, display_name AS import_label,
+      enabled AS import_enabled FROM calendar_import_sources WHERE user_id = $1`, [userId]),
+  ]);
+  const collapsed = new Map(sourcePrefs.rows.map(row => [row.source_id, row.collapsed]));
+  const hidden = new Map(calendarPrefs.rows.map(row => [row.calendar_id, row.sidebar_hidden]));
+  const colorPreferences = colorPreferenceMap(calendarPrefs.rows);
+  const rows: CalendarPresentationRow[] = [...result.rows, { id: CONTACT_CALENDAR_ID, name: appearance.name || 'Contact dates', color: appearance.color || '#e879f9', source: 'contacts', read_only: true, display_visible: appearance.displayVisible !== false, collection_id: null, provider: null, provider_identity: null, account_id: null, account_email: null, import_source_id: null, import_kind: null, import_label: null, feature_enabled: true }];
+  const sourcesById = new Map<string, CalendarPresentationSource>();
+  const calendars = rows.map(row => {
+    const source = calendarSourceId(row);
+    if (!sourcesById.has(source.id)) sourcesById.set(source.id, { ...source, collapsed: collapsed.get(source.id) === true });
+    const colors = calendarColorFields(row.id, row.color, colorPreferences);
+    return { id: row.id, sourceId: source.id, displayName: row.name ?? 'Untitled calendar', readOnly: row.read_only === true, selected: row.display_visible !== false, sidebarHidden: hidden.get(row.id) === true, sourceColor: colors.source_color, colorOverride: colors.color_override, effectiveColor: colors.color };
+  });
+  // Sources are independent from discovered collections. Keep an authorized account
+  // (including a disabled service or a failed first discovery) and a configured DAV/ICS
+  // source visible in management even when it currently has zero calendars.
+  for (const candidate of [...accountSources.rows, ...importSources.rows]) {
+    const source = calendarSourceId(candidate);
+    if (!sourcesById.has(source.id)) sourcesById.set(source.id, { ...source, collapsed: collapsed.get(source.id) === true });
+  }
+  const sources = [...sourcesById.values()];
+  const groups = sources.map(source => ({ ...source, calendars: calendars.filter(calendar => calendar.sourceId === source.id) }));
+  // The revision is an opaque snapshot validator, not another mutable preference.
+  const revision = crypto.createHash('sha256').update(JSON.stringify({ sources, calendars })).digest('hex');
+  return { revision, sources, calendars, groups };
+}
+
+/** Non-secret source identity and user presentation preferences for the calendar rail. */
+router.get('/presentation', async (req, res) => {
+  res.json(await loadCalendarPresentation(sessionUserId(req)));
+});
+
+router.patch('/presentation/sources/:sourceId', async (req, res) => {
+  if (typeof req.body?.collapsed !== 'boolean') return res.status(400).json({ error: 'collapsed must be boolean' });
+  const userId = sessionUserId(req);
+  const presentation = await loadCalendarPresentation(userId);
+  if (!presentation.sources.some(source => source.id === req.params.sourceId)) return res.status(404).json({ error: 'Calendar source not found' });
+  await query(`INSERT INTO user_calendar_source_preferences (user_id, source_id, collapsed, updated_at) VALUES ($1, $2, $3, NOW()) ON CONFLICT (user_id, source_id) DO UPDATE SET collapsed = EXCLUDED.collapsed, updated_at = NOW()`, [userId, req.params.sourceId, req.body.collapsed]);
+  res.json(await loadCalendarPresentation(userId));
+});
+
+router.patch('/presentation/calendars/:calendarId', async (req, res) => {
+  const patch = parseCalendarPresentationPatch(req.body);
+  if (!patch) return res.status(400).json({ code: 'INVALID_PRESENTATION', error: 'Invalid calendar presentation' });
+  const userId = sessionUserId(req);
+  const presentation = await loadCalendarPresentation(userId);
+  if (!presentation.calendars.some(calendar => calendar.id === req.params.calendarId)) return res.status(404).json({ error: 'Calendar not found' });
+  await writeCalendarPresentationPatch(userId, req.params.calendarId, patch);
+  res.json(await loadCalendarPresentation(userId));
+});
+
 router.get('/calendars', async (req, res) => {
-  const result = await query(
-    `SELECT id, name, description, color, source, external_url, read_only, display_visible, owner_user_id, sync_token, created_at, updated_at
-     FROM calendars WHERE user_id = $1 AND owner_user_id = $1 ORDER BY created_at ASC`,
+  const result = await query<{ id: string; color: string | null; [key: string]: unknown }>(
+    // `collection_id` is what the write-back opt-in is addressed by: a pulled calendar is written through
+    // its collection, and the interface needs the id to offer the switch.
+    `SELECT c.id, c.name, c.description, c.color, c.source, c.external_url, c.read_only, c.display_visible,
+            c.owner_user_id, c.sync_token, c.created_at, c.updated_at, c.dav_mode, ic.id AS collection_id, ic.source_access, ic.user_access
+       FROM calendars c
+       LEFT JOIN integration_collections ic ON ic.local_calendar_id = c.id AND ic.kind = 'calendar' AND ic.user_id = c.user_id
+      WHERE c.user_id = $1 AND c.owner_user_id = $1
+      ORDER BY c.created_at ASC`,
     [req.session.userId],
   );
-  const appearance = await contactCalendarAppearance(sessionUserId(req));
-  res.json({ calendars: [...result.rows, {
-    id: 'contacts-birthdays', name: appearance.name || 'Contact dates', custom_name: Boolean(appearance.name), description: 'Birthdays and anniversaries from contacts',
-    color: appearance.color || '#e879f9', source: 'contacts', external_url: null, read_only: true, display_visible: appearance.displayVisible !== false,
+  const userId = sessionUserId(req);
+  const [appearance, preferences] = await Promise.all([
+    contactCalendarAppearance(userId), loadCalendarColorPreferences(userId),
+  ]);
+  const calendars = result.rows.map(row => ({ ...row, ...calendarColorFields(row.id, row.color, preferences) }));
+  res.json({ calendars: [...calendars, {
+    id: CONTACT_CALENDAR_ID, name: appearance.name || 'Contact dates', custom_name: Boolean(appearance.name), description: 'Birthdays and anniversaries from contacts',
+    ...calendarColorFields(CONTACT_CALENDAR_ID, appearance.color || '#e879f9', preferences),
+    source: 'contacts', external_url: null, read_only: true, display_visible: appearance.displayVisible !== false, dav_mode: 'off',
   }] });
 });
 
@@ -460,7 +756,7 @@ router.post('/calendars', async (req, res) => {
     const result = await query(
       `INSERT INTO calendars (user_id, owner_user_id, name, color, display_visible, source, read_only)
        VALUES ($1, $1, $2, $3, $4, 'local', false)
-       RETURNING id, user_id, owner_user_id, name, description, color, source, external_url, read_only, display_visible, sync_token, created_at, updated_at`,
+       RETURNING id, user_id, owner_user_id, name, description, color, source, external_url, read_only, display_visible, sync_token, created_at, updated_at, dav_mode`,
       [req.session.userId, name, color, displayVisible],
     );
     return res.status(201).json({ calendar: result.rows[0] });
@@ -475,24 +771,40 @@ router.patch('/calendars/:calendarId', async (req, res) => {
   const name = calendarName(req.body?.name);
   const color = calendarColor(req.body?.color);
   const displayVisible = req.body?.displayVisible;
+  const davMode = req.body?.davMode;
   if (!name || color === undefined || typeof displayVisible !== 'boolean') {
     return res.status(400).json({ error: 'name, a hex color, and displayVisible are required' });
   }
+  if (davMode !== undefined && davMode !== null && davMode !== 'off' && davMode !== 'read_only' && davMode !== 'read_write') {
+    return res.status(400).json({ error: 'davMode must be off, read_only or read_write' });
+  }
   if (req.params.calendarId === 'contacts-birthdays') {
+    if (davMode !== undefined && davMode !== null) {
+      // The synthetic contact-date calendar is read-only and never DAV-exported.
+      return res.status(400).json({ error: 'The contact dates calendar cannot be shared over DAV' });
+    }
     const customName = req.body.customName === false ? null : name;
     await query(
       "UPDATE users SET preferences = COALESCE(preferences, '{}'::jsonb) || jsonb_build_object('calendarContactAppearance', $2::jsonb) WHERE id = $1",
       [req.session.userId, JSON.stringify({ name: customName, color, displayVisible })],
     );
-    return res.json({ calendar: { id: 'contacts-birthdays', name: customName || 'Contact dates', custom_name: Boolean(customName), color, display_visible: displayVisible, source: 'contacts', read_only: true } });
+    return res.json({ calendar: { id: 'contacts-birthdays', name: customName || 'Contact dates', custom_name: Boolean(customName), color, display_visible: displayVisible, source: 'contacts', read_only: true, dav_mode: 'off' } });
   }
   try {
+    const existing = await query<{ source: string | null }>(
+      'SELECT source FROM calendars WHERE id = $1 AND owner_user_id = $2 AND user_id = $2',
+      [req.params.calendarId, req.session.userId],
+    );
+    if (!existing.rows[0]) return res.status(404).json({ error: 'Calendar not found' });
+    // Generic local metadata mutations are not provider collection operations.
+    // Refuse rather than creating a misleading local/provider divergence.
+    if (existing.rows[0].source !== 'local') return res.status(409).json({ error: 'Provider calendars cannot be edited here' });
     const result = await query(
       `UPDATE calendars
-       SET name = $1, color = $2, display_visible = $3, updated_at = NOW()
-       WHERE id = $4 AND owner_user_id = $5 AND user_id = $5
-       RETURNING id, user_id, owner_user_id, name, description, color, source, external_url, read_only, display_visible, sync_token, created_at, updated_at`,
-      [name, color, displayVisible, req.params.calendarId, req.session.userId],
+       SET name = $1, color = $2, display_visible = $3, dav_mode = COALESCE($4, dav_mode), updated_at = NOW()
+       WHERE id = $5 AND owner_user_id = $6 AND user_id = $6 AND source = 'local'
+       RETURNING id, user_id, owner_user_id, name, description, color, source, external_url, read_only, display_visible, sync_token, created_at, updated_at, dav_mode`,
+      [name, color, displayVisible, davMode ?? null, req.params.calendarId, req.session.userId],
     );
     if (!result.rows[0]) return res.status(404).json({ error: 'Calendar not found' });
     return res.json({ calendar: result.rows[0] });
@@ -506,9 +818,38 @@ router.patch('/calendars/:calendarId', async (req, res) => {
 router.delete('/calendars/:calendarId', async (req, res) => {
   const confirmName = calendarName(req.body?.confirmName);
   if (!confirmName) return res.status(400).json({ error: 'confirmName is required' });
+  // The capability model decides whether the calendar may be removed at all; the
+  // DELETE that follows is scoped to the same owner and confirmed name, so the
+  // decision cannot be raced into a different row.
+  const current = await query(
+    `SELECT id, source, read_only FROM calendars
+     WHERE id = $1 AND owner_user_id = $2 AND user_id = $2 AND name = $3`,
+    [req.params.calendarId, req.session.userId, confirmName],
+  );
+  const candidate = current.rows[0];
+  if (!candidate || !collectionIsWritable(candidate, 'calendars')) return res.status(404).json({ error: 'Calendar not found' });
+  // Remote collection lifecycle needs a provider-native, journalled operation.
+  // Do not delete only the local projection through this generic endpoint.
+  if (candidate.source !== 'local') return res.status(409).json({ error: 'Provider calendars cannot be deleted here' });
+  // Stop the calendar's push channel before the collection row goes: the row's foreign key would remove the
+  // subscription record without telling Google, leaving a channel pushing at an endpoint that no longer
+  // recognises it. Best effort — the removal must not fail because Google is unreachable. A local calendar has
+  // no collection and no channel, so the lookup only happens for a provider-backed one.
+  const collection = candidate.source && candidate.source !== 'local'
+    ? await query<{ id: string }>(
+      'SELECT id FROM integration_collections WHERE local_calendar_id = $1 AND user_id = $2',
+      [req.params.calendarId, req.session.userId],
+    )
+    : { rows: [] as Array<{ id: string }> };
+  if (collection.rows[0]) {
+    await releaseCalendarChannelForCollection({
+      userId: req.session.userId!,
+      collectionId: collection.rows[0].id,
+    }).catch(error => console.warn('Calendar push channel cleanup failed:', error instanceof Error ? error.message : error));
+  }
   const result = await query(
     `DELETE FROM calendars
-     WHERE id = $1 AND owner_user_id = $2 AND user_id = $2 AND name = $3 AND source = 'local' AND read_only = false
+     WHERE id = $1 AND owner_user_id = $2 AND user_id = $2 AND name = $3
      RETURNING id`,
     [req.params.calendarId, req.session.userId, confirmName],
   );
@@ -527,8 +868,18 @@ router.get('/events', async (req, res) => {
   }
   const selection = parseCalendarSelection(req.query.calendarIds);
   if (selection.error) return res.status(400).json({ error: selection.error });
-  const selectedIds = selection.ids === null ? null : selection.ids.filter(id => id !== CONTACT_CALENDAR_ID);
-  const includeContacts = selection.ids === null || selection.ids.includes(CONTACT_CALENDAR_ID);
+  // With no explicit selection, the same durable presentation model that feeds
+  // the rail decides the default event set. Hiding removes a selected calendar
+  // from that default; collapsing is deliberately presentation-only.
+  const presentation = selection.ids === null ? await loadCalendarPresentation(sessionUserId(req)) : null;
+  // A database predating calendar rows has no durable default to constrain. Keep
+  // the historic unqualified read in that degenerate case; once any calendar is
+  // present, this always uses its selected/hidden presentation state.
+  const effectiveIds = presentation && presentation.calendars.some(calendar => calendar.id !== CONTACT_CALENDAR_ID)
+    ? presentation.calendars.filter(calendar => calendar.selected && !calendar.sidebarHidden).map(calendar => calendar.id)
+    : selection.ids;
+  const selectedIds = effectiveIds === null ? null : effectiveIds.filter(id => id !== CONTACT_CALENDAR_ID);
+  const includeContacts = effectiveIds === null || effectiveIds.includes(CONTACT_CALENDAR_ID);
   // A selection naming only the contact calendar still needs no event query, and
   // an explicitly empty selection means "no calendars at all". Ownership stays
   // enforced by the SQL predicate, so a foreign id can only match zero rows.
@@ -616,7 +967,9 @@ router.get('/events', async (req, res) => {
   // worker pool still bounds the CPU when it does happen, so a single request cannot stall
   // the process on a series the worker has not reached yet.
   const projection = await projectCalendarResources(eventRows, from, to, { userId: req.session.userId });
+  const colorPreferences = await loadCalendarColorPreferences(sessionUserId(req));
   const events = [...materializedRows, ...projection.events, ...contactEvents]
+    .map(event => withCalendarPresentationColor(event, colorPreferences))
     .sort((left, right) => eventStartTime(left.starts_at) - eventStartTime(right.starts_at));
   if (projection.truncated) {
     // A partial result must never look complete. Only the series id and a reason
@@ -643,12 +996,102 @@ router.post('/events', async (req, res) => {
   if (sendInvites && (!inviteAccountId || !normalizedAttendees.length)) {
     return res.status(400).json({ error: 'A sender account and at least one attendee are required for invitations' });
   }
+  // The rule is rendered server-side from a validated structure; a bad rule is a
+  // validation error, never a half-created series.
+  const recurrenceParse = parseRecurrenceStructure((req.body || {}).recurrence, { allDay: Boolean(allDay) });
+  if (!recurrenceParse.ok) return res.status(400).json({ error: recurrenceParse.error });
+  // One validated structure, two renderings: the iCalendar RRULE the local resource stores and the
+  // Graph pattern/range the provider write sends.
+  const recurrence = recurrenceParse.recurrence;
+  const rrule = recurrenceToRRule(recurrence);
 
   const access = await writableCalendar(sessionUserId(req), calendarId);
-  if (access.error) return res.status(access.status).json({ error: access.error });
+  if (!access.ok) return res.status(access.status).json({ error: access.error });
+  const target = access.target;
+
+  // A provider-backed calendar is written at the provider **first**. Microsoft notifies attendees itself
+  // when an event carries them, and Google does when `sendUpdates` asks it to, so Inboxora's own
+  // invitation mail is skipped on this path rather than sending a second copy.
+  let providerEvent: { providerEventId: string; uid: string } | null = null;
+  const providerIdempotencyKey = typeof req.headers['x-idempotency-key'] === 'string' ? req.headers['x-idempotency-key'].slice(0, 128) : null;
+  const eventWrite = {
+    summary: summary || null, description, location, url, startsAt: times.startsAt, endsAt: times.endsAt,
+    allDay: Boolean(allDay), attendees: normalizedAttendees,
+    // A create has nothing to clear: a missing rule is an **absent** field, not an explicit clear.
+    ...(recurrence ? { recurrence } : {}),
+  };
+  if (target.kind === 'graph') {
+    const attempt = await writeGraphCalendarEvent({
+      userId: req.session.userId!,
+      target,
+      operation: 'create',
+      idempotencyKey: providerIdempotencyKey,
+      event: eventWrite,
+    });
+    if (attempt.status === 'failed') return providerWriteRefusal(res, attempt.failure);
+    providerEvent = {
+      providerEventId: attempt.providerEventId,
+      // The provider's own iCalUId keeps the local resource, the DAV view and the next sync on one identity.
+      uid: attempt.event?.iCalUId?.trim() || `msgrap-${attempt.providerEventId}`,
+    };
+  } else if (target.kind === 'google') {
+    // Google sends the invitation from this one call when the user asked for it; with `none` it sends
+    // nothing, so the choice is stated rather than left to Google's default.
+    const attempt = await writeGoogleCalendarEvent({
+      userId: req.session.userId!,
+      target,
+      operation: 'create',
+      idempotencyKey: providerIdempotencyKey,
+      event: eventWrite,
+      sendUpdates: sendInvites ? 'all' : 'none',
+    });
+    if (attempt.status === 'failed') return providerWriteRefusal(res, attempt.failure);
+    // Same identity rule as the read path uses for an event without an iCalUID.
+    providerEvent = {
+      providerEventId: attempt.providerEventId,
+      uid: attempt.event?.iCalUID?.trim() || `${attempt.providerEventId}@google.com`,
+    };
+  }
+  if (target.kind === 'caldav') {
+    // The source owns the collection, so it is written first and the projection follows from that answer.
+    const caldavUid = crypto.randomUUID();
+    const caldavRaw = localEventIcal({ uid: caldavUid, summary, description, location, url, organizer, attendees: normalizedAttendees, allDay: Boolean(allDay), ...times, rrule });
+    const written = await writeCaldavEventResource({
+      userId: req.session.userId!, target, method: 'PUT', filename: `${caldavUid}.ics`, uid: caldavUid,
+      raw: caldavRaw, exists: false, localObjectId: null, localRevision: null,
+    });
+    if (written.status !== 'confirmed') return respondCaldavWriteBack(res, written);
+
+    const stored = await query<{ id: string }>(
+      'SELECT id FROM calendar_events WHERE calendar_id = $1 AND uid = $2 AND user_id = $3',
+      [calendarId, caldavUid, req.session.userId],
+    );
+    // Invitations are Inboxora's on this path: a plain CalDAV server is not a scheduling service, so the
+    // organiser's own mail client behaviour is reproduced here rather than assumed.
+    if (sendInvites && normalizedAttendees.length) {
+      const sender = await query<EmailAccountRow>(
+        'SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2 AND enabled = true AND smtp_host IS NOT NULL',
+        [inviteAccountId, req.session.userId],
+      );
+      if (!sender.rows[0]) return res.status(400).json({ error: 'The selected sender account is unavailable' });
+      try {
+        await sendCalendarInvitation({
+          account: sender.rows[0], attendees: normalizedAttendees, summary: summary || null, description,
+          location, uid: caldavUid, startsAt: times.startsAt, endsAt: times.endsAt, allDay: Boolean(allDay),
+          method: 'REQUEST', sequence: 0, rrule,
+        });
+      } catch (caught) {
+        console.error('Calendar invitation delivery failed:', toAppError(caught).message);
+        return res.status(201).json({ event: { id: stored.rows[0]?.id ?? null }, invitationError: 'The event was saved, but the invitation could not be sent.' });
+      }
+    }
+    return res.status(201).json({ event: { id: stored.rows[0]?.id ?? null } });
+  }
+
+  const invitesHandledByProvider = target.kind !== 'local';
 
   let invitationAccount = null;
-  if (sendInvites) {
+  if (sendInvites && !invitesHandledByProvider) {
     const sender = await query<EmailAccountRow>(
       'SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2 AND enabled = true AND smtp_host IS NOT NULL',
       [inviteAccountId, req.session.userId],
@@ -657,7 +1100,7 @@ router.post('/events', async (req, res) => {
     if (!invitationAccount) return res.status(400).json({ error: 'The selected sender account is unavailable' });
   }
 
-  if (sendInvites && invitationAccount) {
+  if (sendInvites && !invitesHandledByProvider && invitationAccount) {
     const idempotencyKey = invitationOperationKey(req);
     const fingerprint = invitationRequestFingerprint(req, { calendarId, normalizedAttendees, times, summary, description, location, url, organizer, allDay, timezone, invitationAccount });
     let outcome;
@@ -671,7 +1114,7 @@ router.post('/events', async (req, res) => {
         return { event, duplicate: true, outboxId: prior.rows[0].id, payload: prior.rows[0].payload };
       }
       const uid = crypto.randomUUID();
-      const rawIcal = localEventIcal({ uid, summary, description, location, url, organizer, attendees: normalizedAttendees, allDay: Boolean(allDay), ...times });
+      const rawIcal = localEventIcal({ uid, summary, description, location, url, organizer, attendees: normalizedAttendees, allDay: Boolean(allDay), ...times, rrule });
       const result = await client.query(
         `INSERT INTO calendar_events (calendar_id, user_id, uid, raw_ical, summary, description, location, url, organizer, starts_at, ends_at, all_day, timezone, attendees, invite_account_id)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
@@ -681,7 +1124,7 @@ router.post('/events', async (req, res) => {
       const event = result.rows[0];
       const outbox = await client.query(
         `INSERT INTO calendar_invitation_outbox (user_id, event_id, idempotency_key, request_fingerprint, payload) VALUES ($1,$2,$3,$4,$5::jsonb) RETURNING id`,
-        [req.session.userId, event.id, idempotencyKey, fingerprint, JSON.stringify({ actions: invitationActionsForStorage([{ account: invitationAccount, attendees: normalizedAttendees, summary, description, location, uid, allDay: Boolean(allDay), method: 'REQUEST', sequence: event.invitation_sequence ?? 0, startsAt: times.startsAt.toISOString(), endsAt: times.endsAt.toISOString() }]) })],
+        [req.session.userId, event.id, idempotencyKey, fingerprint, JSON.stringify({ actions: invitationActionsForStorage([{ account: invitationAccount, attendees: normalizedAttendees, summary, description, location, uid, allDay: Boolean(allDay), method: 'REQUEST', sequence: event.invitation_sequence ?? 0, startsAt: times.startsAt.toISOString(), endsAt: times.endsAt.toISOString(), rrule }]) })],
       );
         return { event, outboxId: outbox.rows[0].id };
       });
@@ -702,8 +1145,8 @@ router.post('/events', async (req, res) => {
     return res.status(201).json(invitationDeliveryResponse(outcome.event, delivered));
   }
 
-  const uid = crypto.randomUUID();
-  const rawIcal = localEventIcal({ uid, summary, description, location, url, organizer, attendees: normalizedAttendees, allDay: Boolean(allDay), ...times });
+  const uid = providerEvent?.uid ?? crypto.randomUUID();
+  const rawIcal = localEventIcal({ uid, summary, description, location, url, organizer, attendees: normalizedAttendees, allDay: Boolean(allDay), ...times, rrule });
   const result = await query<{ id: string; calendar_id: string; uid: string; etag?: string | null; summary?: string | null; description?: string | null; location?: string | null; url?: string | null; organizer?: string | null; starts_at?: string | Date | null; ends_at?: string | Date | null; all_day?: boolean | null; timezone?: string | null; attendees?: unknown; invite_account_id?: string | null; invitation_sequence?: number | null; created_at?: string | Date | null }>(
     `INSERT INTO calendar_events (
        calendar_id, user_id, uid, raw_ical, summary, description, location, url, organizer,
@@ -713,10 +1156,29 @@ router.post('/events', async (req, res) => {
                starts_at, ends_at, all_day, timezone, attendees, invite_account_id, invitation_sequence, created_at, updated_at`,
     [calendarId, req.session.userId, uid, rawIcal, summary || null, description, location, url, organizer, times.startsAt, times.endsAt, Boolean(allDay), timezone, jsonbAttendees(normalizedAttendees), invitationAccount?.id || null],
   );
+  if (providerEvent) {
+    // The link is recorded after the local row exists, so the next delta updates this row instead of
+    // inserting a second copy of the event.
+    if (target.kind === 'graph') {
+      await recordGraphCalendarEventLink({
+        userId: req.session.userId!,
+        target,
+        providerEventId: providerEvent.providerEventId,
+        localId: result.rows[0].id,
+      });
+    } else if (target.kind === 'google') {
+      await recordGoogleCalendarEventLink({
+        userId: req.session.userId!,
+        target,
+        providerEventId: providerEvent.providerEventId,
+        localId: result.rows[0].id,
+      });
+    }
+  }
   let invitationError = null;
   if (invitationAccount) {
     try {
-      await sendCalendarInvitation({ account: invitationAccount, attendees: normalizedAttendees, summary, description, location, uid, allDay: Boolean(allDay), method: 'REQUEST', sequence: result.rows[0].invitation_sequence ?? 0, ...times });
+      await sendCalendarInvitation({ account: invitationAccount, attendees: normalizedAttendees, summary, description, location, uid, allDay: Boolean(allDay), method: 'REQUEST', sequence: result.rows[0].invitation_sequence ?? 0, ...times, rrule });
     } catch (caught) {
       const error = toAppError(caught);
       invitationError = 'The event was saved, but the invitation could not be sent.';
@@ -727,46 +1189,405 @@ router.post('/events', async (req, res) => {
 });
 
 
+/**
+ * Change or cancel one occurrence (or the rest of a series) in a provider calendar.
+ *
+ * The provider is written first and must confirm: the local projection is produced afterwards by the
+ * collection's own sync, so a scoped change is rendered by the same code the next scheduled run uses and a
+ * change the provider refused cannot look saved locally. A sync that fails here is reported, not hidden —
+ * the provider holds the change and the next run projects it.
+ *
+ * Notifications are the provider's on this path (`sendUpdates: 'all'` for Google; Graph notifies its own
+ * attendees), so no duplicate invitation is sent by Inboxora.
+ */
+/** The values one occurrence-scoped request carries, parsed once for both the provider and local paths. */
+interface OccurrenceRequestValues {
+  cancel: boolean;
+  times: { startsAt: Date; endsAt: Date } | null;
+  attendees: string[] | null;
+  summary: string | null;
+  description: string | null;
+  location: string | null;
+  url: string | null;
+  organizer: string | null;
+  allDay: boolean;
+  timezone: string | null;
+  recurrenceProvided: boolean;
+  recurrence: ParsedRecurrence | null;
+}
+
+/**
+ * Change or cancel one occurrence (or the rest of a series) in a provider calendar.
+ *
+ * The provider is written first and must confirm: the local projection is produced afterwards by the
+ * collection's own sync, so a scoped change is rendered by the same code the next scheduled run uses and a
+ * change the provider refused cannot look saved locally. A sync that fails here is reported, not hidden —
+ * the provider holds the change and the next run projects it.
+ *
+ * Notifications are the provider's on this path (`sendUpdates: 'all'` for Google; Graph notifies its own
+ * attendees), so Inboxora sends no duplicate invitation.
+ */
+async function handleProviderOccurrence(
+  req: Request,
+  res: Response,
+  input: {
+    calendarId: string;
+    recurrenceId: string;
+    scope: OccurrenceScope;
+    values: OccurrenceRequestValues;
+    /** Either provider target: both carry the same four fields the write needs. */
+    target: { kind: 'graph' | 'google'; connectionId: string; collectionId: string; providerCalendarId: string; calendarId: string };
+  },
+) {
+  const userId = sessionUserId(req)!;
+  const localEventId = String(req.params.eventId);
+  const providerEventId = input.target.kind === 'graph'
+    ? await graphEventIdForLocalRow(userId, input.target.collectionId, localEventId)
+    : await googleEventIdForLocalRow(userId, input.target.collectionId, localEventId);
+  if (!providerEventId) return res.status(409).json({ error: 'This event is not linked to its provider copy yet' });
+
+  // The occurrence's own start and all-day flag come from the stored row; the endpoint's `recurrenceId` is
+  // the `RECURRENCE-ID` the provider's instance carries as its original start.
+  const stored = await query<{ uid: string; all_day: boolean | null }>(
+    'SELECT uid, all_day FROM calendar_events WHERE id = $1 AND calendar_id = $2 AND user_id = $3',
+    [localEventId, input.calendarId, userId],
+  );
+  if (!stored.rows[0]) return res.status(404).json({ error: 'Event not found' });
+
+  const idempotencyKey = typeof req.headers['x-idempotency-key'] === 'string'
+    ? req.headers['x-idempotency-key'].slice(0, 128)
+    : null;
+  const outcome = await writeProviderCalendarOccurrence({
+    target: {
+      kind: input.target.kind,
+      userId,
+      connectionId: input.target.connectionId,
+      collectionId: input.target.collectionId,
+      providerCalendarId: input.target.providerCalendarId,
+      calendarId: input.target.calendarId,
+      localEventId,
+      masterProviderId: providerEventId,
+      occurrenceStart: input.recurrenceId,
+      allDay: stored.rows[0].all_day === true,
+    },
+    scope: input.scope,
+    operation: input.values.cancel ? 'cancel' : 'update',
+    ...(input.values.cancel ? {} : {
+      values: {
+        summary: input.values.summary,
+        description: input.values.description,
+        location: input.values.location,
+        url: input.values.url,
+        startsAt: input.values.times!.startsAt,
+        endsAt: input.values.times!.endsAt,
+        allDay: input.values.allDay,
+        attendees: input.values.attendees!,
+        ...(input.values.recurrenceProvided ? { recurrence: input.values.recurrence } : {}),
+      },
+    }),
+    sendUpdates: 'all',
+    ...(idempotencyKey ? { idempotencyKey } : {}),
+  });
+  if (outcome.status !== 'confirmed') return providerWriteRefusal(res, outcome.failure);
+
+  let synced = false;
+  try {
+    if (input.target.kind === 'graph') {
+      await syncGraphCalendar({ userId, connectionId: input.target.connectionId, config: microsoftConfigFromEnv() });
+    } else {
+      await syncGoogleCalendar({ userId, connectionId: input.target.connectionId, config: googleConfigFromEnv() });
+    }
+    synced = true;
+  } catch (caught) {
+    // The provider accepted the change; the projection arrives on the next run, so this is reported rather
+    // than turned into a failure the user would read as "not saved".
+    console.error('Calendar projection after a scoped occurrence change failed:', toAppError(caught).message);
+  }
+  return res.json({
+    updated: true,
+    scope: input.scope,
+    providerEventId: outcome.providerOccurrenceId,
+    ...(outcome.createdSeriesId ? { createdSeriesId: outcome.createdSeriesId } : {}),
+    synced,
+  });
+}
+
+/**
+ * Change or cancel one occurrence (or the rest of a series) in an external CalDAV collection.
+ *
+ * The same three scopes the provider path implements, expressed in the resource the source understands: a
+ * single-occurrence change is the master with one override merged in, "this and following" is the master
+ * truncated (and, for an edit, a new resource for the remainder). Each write is forwarded through the DAV
+ * write-back client, which commits the local projection only after the source confirms.
+ */
+async function handleCaldavOccurrence(
+  req: Request,
+  res: Response,
+  input: { calendarId: string; recurrenceId: string; scope: OccurrenceScope; values: OccurrenceRequestValues; target: CaldavWriteTarget },
+) {
+  const existing = await readCaldavEventRow(sessionUserId(req)!, input.calendarId, String(req.params.eventId));
+  if (!existing) return res.status(404).json({ error: 'Event not found' });
+  const { values } = input;
+  const filename = existing.dav_filename ?? `${existing.uid}.ics`;
+
+  if (input.scope === 'single') {
+    // A cancellation is the occurrence's own component with a cancelled status; the merge below keeps it as an
+    // override of the master rather than replacing the series.
+    const master = parseCalendarEvent(existing.raw_ical);
+    const replacement = localEventIcal(
+      values.cancel
+        ? {
+          uid: existing.uid, summary: master?.summary ?? null, description: master?.description ?? null,
+          location: master?.location ?? null, url: master?.url ?? null, organizer: master?.organizer ?? null,
+          attendees: master?.attendees ?? [], allDay: master?.allDay ?? values.allDay,
+          startsAt: master?.startsAt ?? new Date(), endsAt: master?.endsAt ?? new Date(),
+        }
+        : {
+          uid: existing.uid, summary: values.summary, description: values.description, location: values.location,
+          url: values.url, organizer: values.organizer, attendees: values.attendees!, allDay: values.allDay,
+          ...values.times!,
+        },
+    );
+    const raw = mergeCalendarResource(existing.raw_ical, replacement, input.recurrenceId, values.cancel);
+    const written = await writeCaldavEventResource({
+      userId: sessionUserId(req)!, target: input.target, method: 'PUT', filename, uid: existing.uid, raw,
+      exists: true, localObjectId: existing.id, localRevision: existing.etag,
+    });
+    if (written.status !== 'confirmed') return respondCaldavWriteBack(res, written);
+    return res.json({ updated: true, scope: 'single' });
+  }
+
+  const truncated = truncateSeriesBefore(existing.raw_ical, input.recurrenceId);
+  if (!truncated) return res.status(409).json({ error: 'This occurrence is not part of the stored series' });
+  if (truncated.empty) {
+    const written = await writeCaldavEventResource({
+      userId: sessionUserId(req)!, target: input.target, method: 'DELETE', filename, uid: existing.uid, raw: '',
+      exists: true, localObjectId: existing.id, localRevision: existing.etag,
+    });
+    if (written.status !== 'confirmed') return respondCaldavWriteBack(res, written);
+    return res.json({ updated: true, scope: 'following' });
+  }
+  if (values.cancel) {
+    const written = await writeCaldavEventResource({
+      userId: sessionUserId(req)!, target: input.target, method: 'PUT', filename, uid: existing.uid,
+      raw: truncated.raw, exists: true, localObjectId: existing.id, localRevision: existing.etag,
+    });
+    if (written.status !== 'confirmed') return respondCaldavWriteBack(res, written);
+    return res.json({ updated: true, scope: 'following' });
+  }
+
+  // An edit: the earlier part keeps its occurrences, the remainder becomes its own resource at the source.
+  // Create the remainder first so a definite source refusal cannot destroy future occurrences.
+  const remainderRrule = values.recurrenceProvided ? recurrenceToRRule(values.recurrence) : rruleFromCalendarResource(existing.raw_ical);
+  const remainderUid = `${existing.uid}#${input.recurrenceId.replace(/[^0-9A-Za-z]/g, '')}`;
+  const remainderRaw = localEventIcal({
+    uid: remainderUid, summary: values.summary, description: values.description, location: values.location,
+    url: values.url, organizer: values.organizer, attendees: values.attendees!, allDay: values.allDay,
+    ...values.times!, rrule: remainderRrule,
+  });
+  const remainderWrite = await writeCaldavEventResource({
+    userId: sessionUserId(req)!, target: input.target, method: 'PUT', filename: `${remainderUid}.ics`,
+    uid: remainderUid, raw: remainderRaw, exists: false, localObjectId: null, localRevision: null,
+  });
+  if (remainderWrite.status !== 'confirmed') return respondCaldavWriteBack(res, remainderWrite);
+  const truncatedWrite = await writeCaldavEventResource({
+    userId: sessionUserId(req)!, target: input.target, method: 'PUT', filename, uid: existing.uid,
+    raw: truncated.raw, exists: true, localObjectId: existing.id, localRevision: existing.etag,
+  });
+  if (truncatedWrite.status !== 'confirmed') {
+    if (truncatedWrite.status !== 'outcome_unknown') {
+      const rollback = await writeCaldavEventResource({
+        userId: sessionUserId(req)!, target: input.target, method: 'DELETE', filename: `${remainderUid}.ics`,
+        uid: remainderUid, raw: '', exists: true, localObjectId: null,
+        localRevision: remainderWrite.etag ?? crypto.createHash('sha256').update(remainderRaw).digest('hex'),
+      });
+      if (rollback.status !== 'confirmed') {
+        return res.status(502).json({ code: 'MUTATION_OUTCOME_UNKNOWN', error: 'The series could not be changed and cleanup of the temporary CalDAV remainder could not be confirmed. Synchronize the calendar before retrying.' });
+      }
+    }
+    return respondCaldavWriteBack(res, truncatedWrite);
+  }
+  return res.json({ updated: true, scope: 'following' });
+}
+
 router.all('/events/:eventId/occurrence', async (req, res) => {
   if (!['PATCH', 'DELETE'].includes(req.method)) return res.status(405).end();
   const { calendarId, recurrenceId } = req.body || {};
   if (!calendarId || typeof recurrenceId !== 'string' || !/^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}:\d{2}Z?)?$/.test(recurrenceId)) return res.status(400).json({ error: 'A valid occurrence and calendar are required' });
-  // 'single' changes only the occurrence named; 'following' ends the series just before it.
-  // Deleting the whole series is the plain event DELETE, which already handles invitations.
-  const scope = req.body?.scope === 'following' ? 'following' : 'single';
-  if (scope !== 'single' && req.method !== 'DELETE') return res.status(400).json({ error: 'Only a cancellation can affect following occurrences' });
-  const access = await writableCalendar(sessionUserId(req), calendarId);
-  if (access.error) return res.status(access.status).json({ error: access.error });
+  // 'single' changes only the occurrence named; 'following' changes it and every later one. Deleting the
+  // whole series is the plain event DELETE, which already handles invitations.
+  const scope: OccurrenceScope = req.body?.scope === 'following' ? 'following' : 'single';
   const cancel = req.method === 'DELETE';
   const times = cancel ? null : parseEventTimes(req.body);
   const attendees = normalizeAttendees(req.body.attendees || []);
   if (!cancel && (!times || !attendees)) return res.status(400).json({ error: 'Invalid event values' });
+  // A series-level edit may carry `recurrence`; a single-occurrence edit never does. An absent field means
+  // "leave the rule alone", an explicit null clears it, and an object sets it — the same three states the
+  // whole-series update uses.
+  const recurrenceProvided = Object.prototype.hasOwnProperty.call(req.body || {}, 'recurrence');
+  const recurrenceParse = recurrenceProvided ? parseRecurrenceStructure((req.body || {}).recurrence, { allDay: Boolean(req.body?.allDay) }) : null;
+  if (recurrenceParse && !recurrenceParse.ok) return res.status(400).json({ error: recurrenceParse.error });
+  const values: OccurrenceRequestValues = {
+    cancel,
+    times,
+    attendees,
+    summary: typeof req.body?.summary === 'string' ? req.body.summary : null,
+    description: normalizeDescription(req.body?.description),
+    location: typeof req.body?.location === 'string' ? req.body.location : null,
+    url: typeof req.body?.url === 'string' ? req.body.url : null,
+    organizer: typeof req.body?.organizer === 'string' ? req.body.organizer : null,
+    allDay: Boolean(req.body?.allDay),
+    timezone: typeof req.body?.timezone === 'string' ? req.body.timezone : null,
+    recurrenceProvided,
+    recurrence: recurrenceParse?.ok ? recurrenceParse.recurrence : null,
+  };
+
+  const access = await writableCalendar(sessionUserId(req), calendarId);
+  if (!access.ok) return res.status(access.status).json({ error: access.error });
+  if (access.target.kind === 'graph' || access.target.kind === 'google') {
+    return handleProviderOccurrence(req, res, { calendarId, recurrenceId, scope, values, target: access.target });
+  }
+  if (access.target.kind === 'caldav') {
+    return handleCaldavOccurrence(req, res, { calendarId, recurrenceId, scope, values, target: access.target });
+  }
+
   const outcome = await withTransaction(async client => {
-    const row = (await client.query('SELECT uid, raw_ical, invite_account_id FROM calendar_events WHERE id = $1 AND calendar_id = $2 AND user_id = $3 FOR UPDATE', [req.params.eventId, calendarId, req.session.userId])).rows[0];
+    const row = (await client.query(
+      `SELECT uid, raw_ical, invite_account_id, invitation_sequence, summary, description, location,
+              starts_at, ends_at, all_day, ${READ_ATTENDEES}
+         FROM calendar_events WHERE id = $1 AND calendar_id = $2 AND user_id = $3 FOR UPDATE`,
+      [req.params.eventId, calendarId, req.session.userId],
+    )).rows[0];
     if (!row) return { status: 404 };
-    // A recurrence exception needs an RFC-compliant REQUEST/CANCEL sequence.
-    // Until durable per-occurrence delivery exists, do not mutate invited series.
-    if (row.invite_account_id) return { status: 409, invitedSeries: true };
+    // An invited series is mutated **and** its attendees are told, in one RFC-compliant sequence: each
+    // scoped change is an iTIP message (a REQUEST, or a CANCEL of the occurrence), sent with the sequence
+    // advanced, because an invitee's client ignores a message whose sequence it has already seen. The
+    // local change commits first and the messages go out after it, so a delivery failure cannot lose the
+    // edit and a retry has the same sequence to send.
+    let invitationPlan: {
+      account: EmailAccountRow;
+      messages: Array<Parameters<typeof sendCalendarInvitation>[0]>;
+    } | null = null;
+    if (row.invite_account_id && Array.isArray(row.attendees) && row.attendees.length) {
+      const sender = (await client.query<EmailAccountRow>(
+        'SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2 AND smtp_host IS NOT NULL',
+        [row.invite_account_id, req.session.userId],
+      )).rows[0];
+      if (!sender) return { status: 502, invitedFailure: true };
+      invitationPlan = { account: sender, messages: [] };
+    }
+    const sequence = Number(row.invitation_sequence || 0) + 1;
     if (scope === 'following') {
       const truncated = truncateSeriesBefore(row.raw_ical, recurrenceId);
       if (!truncated) return { status: 409 };
       if (truncated.empty) {
-        // Cancelling from the series' own first occurrence leaves nothing, so remove the event
-        // rather than keep a series that produces no occurrences.
+        // Acting from the series' own first occurrence leaves nothing of it, so remove the event rather
+        // than keep a series that produces no occurrences.
         await client.query('DELETE FROM calendar_events WHERE id = $1 AND calendar_id = $2 AND user_id = $3', [req.params.eventId, calendarId, req.session.userId]);
         return { status: 200 };
       }
-      await client.query('UPDATE calendar_events SET raw_ical = $1, etag = gen_random_uuid()::text, updated_at = NOW() WHERE id = $2 AND calendar_id = $3 AND user_id = $4', [truncated.raw, req.params.eventId, calendarId, req.session.userId]);
-      return { status: 200 };
+      if (cancel) {
+        await client.query('UPDATE calendar_events SET raw_ical = $1, etag = gen_random_uuid()::text, invitation_sequence = invitation_sequence + 1, updated_at = NOW() WHERE id = $2 AND calendar_id = $3 AND user_id = $4', [truncated.raw, req.params.eventId, calendarId, req.session.userId]);
+        if (invitationPlan) {
+          // There is no iTIP "cancel the rest" primitive: the invitee's copy is corrected by an update that
+          // no longer contains those occurrences, which is what the truncated rule says.
+          invitationPlan.messages.push({
+            account: invitationPlan.account, attendees: row.attendees, summary: row.summary, description: row.description,
+            location: row.location, uid: row.uid, startsAt: row.starts_at, endsAt: row.ends_at, allDay: Boolean(row.all_day),
+            method: 'REQUEST', sequence, rrule: rruleFromCalendarResource(truncated.raw),
+          });
+        }
+        return { status: 200, invitationPlan };
+      }
+      // An edit of "this and following": the earlier part keeps its occurrences and the remainder becomes a
+      // **new series** starting at the named occurrence, carrying the client's values and rule. The UID is
+      // derived from the master and the occurrence, so re-sending the same edit updates that remainder rather
+      // than creating a second one.
+      // The client's new rule when it sent one, otherwise the master's own rule verbatim — re-rendering it
+      // through the editor's structure would drop parts the editor cannot represent (a `custom` rule).
+      const remainderRrule = recurrenceProvided ? recurrenceToRRule(values.recurrence) : rruleFromCalendarResource(row.raw_ical);
+      const remainderUid = `${row.uid}#${recurrenceId.replace(/[^0-9A-Za-z]/g, '')}`;
+      const remainderRaw = localEventIcal({
+        uid: remainderUid, summary: values.summary, description: values.description, location: values.location,
+        url: values.url, organizer: values.organizer, attendees: values.attendees!, allDay: values.allDay,
+        ...values.times!, rrule: remainderRrule,
+      });
+      await client.query('UPDATE calendar_events SET raw_ical = $1, etag = gen_random_uuid()::text, invitation_sequence = invitation_sequence + 1, updated_at = NOW() WHERE id = $2 AND calendar_id = $3 AND user_id = $4', [truncated.raw, req.params.eventId, calendarId, req.session.userId]);
+      if (invitationPlan) {
+        // The earlier part is an update that ends where the split is; the remainder is a new series, which
+        // the invitee learns from its own REQUEST.
+        invitationPlan.messages.push({
+          account: invitationPlan.account, attendees: row.attendees, summary: row.summary, description: row.description,
+          location: row.location, uid: row.uid, startsAt: row.starts_at, endsAt: row.ends_at, allDay: Boolean(row.all_day),
+          method: 'REQUEST', sequence, rrule: rruleFromCalendarResource(truncated.raw),
+        });
+        invitationPlan.messages.push({
+          account: invitationPlan.account, attendees: values.attendees!, summary: values.summary, description: values.description,
+          location: values.location, uid: remainderUid, startsAt: values.times!.startsAt, endsAt: values.times!.endsAt,
+          allDay: values.allDay, method: 'REQUEST', sequence: 0, rrule: remainderRrule,
+        });
+      }
+      await client.query(
+        `INSERT INTO calendar_events (
+           calendar_id, user_id, uid, raw_ical, summary, description, location, url, organizer,
+           starts_at, ends_at, all_day, timezone, attendees
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+         ON CONFLICT (calendar_id, uid, recurrence_id) DO UPDATE SET
+           raw_ical = EXCLUDED.raw_ical, summary = EXCLUDED.summary, description = EXCLUDED.description,
+           location = EXCLUDED.location, url = EXCLUDED.url, organizer = EXCLUDED.organizer,
+           starts_at = EXCLUDED.starts_at, ends_at = EXCLUDED.ends_at, all_day = EXCLUDED.all_day,
+           timezone = EXCLUDED.timezone, attendees = EXCLUDED.attendees, etag = gen_random_uuid()::text,
+           updated_at = NOW()`,
+        [calendarId, req.session.userId, remainderUid, remainderRaw, values.summary, values.description, values.location, values.url, values.organizer, values.times!.startsAt, values.times!.endsAt, values.allDay, values.timezone, jsonbAttendees(values.attendees!)],
+      );
+      return { status: 200, invitationPlan };
     }
     const event = parseCalendarEvent(row.raw_ical);
     if (!event) return { status: 409 };
-    const replacement = localEventIcal(cancel ? { ...event, allDay: event.allDay } : { ...req.body, description: normalizeDescription(req.body?.description), attendees, ...times, uid: row.uid });
+    const replacement = localEventIcal(cancel ? { ...event, allDay: event.allDay } : { ...req.body, description: values.description, attendees: values.attendees!, ...values.times!, uid: row.uid });
     const raw = mergeCalendarResource(row.raw_ical, replacement, recurrenceId, cancel);
-    await client.query('UPDATE calendar_events SET raw_ical = $1, etag = gen_random_uuid()::text, updated_at = NOW() WHERE id = $2 AND calendar_id = $3 AND user_id = $4', [raw, req.params.eventId, calendarId, req.session.userId]);
-    return { status: 200 };
+    await client.query('UPDATE calendar_events SET raw_ical = $1, etag = gen_random_uuid()::text, invitation_sequence = invitation_sequence + 1, updated_at = NOW() WHERE id = $2 AND calendar_id = $3 AND user_id = $4', [raw, req.params.eventId, calendarId, req.session.userId]);
+    if (invitationPlan) {
+      const occurrenceTimes = cancel
+        ? { startsAt: event.startsAt, endsAt: event.endsAt }
+        : { startsAt: values.times!.startsAt, endsAt: values.times!.endsAt };
+      invitationPlan.messages.push({
+        account: invitationPlan.account,
+        attendees: cancel ? row.attendees : values.attendees!,
+        summary: cancel ? event.summary : values.summary,
+        description: cancel ? event.description : values.description,
+        location: cancel ? event.location : values.location,
+        uid: row.uid,
+        startsAt: occurrenceTimes.startsAt,
+        endsAt: occurrenceTimes.endsAt,
+        allDay: cancel ? event.allDay : values.allDay,
+        method: cancel ? 'CANCEL' : 'REQUEST',
+        sequence,
+        // The message is about one occurrence, which is exactly what `RECURRENCE-ID` tells the invitee.
+        recurrenceId,
+      });
+    }
+    return { status: 200, invitationPlan };
   });
-  if (outcome.status !== 200) return res.status(outcome.status).json({ error: outcome.invitedSeries ? 'Invited recurring occurrence mutations are not supported' : 'Calendar occurrence unavailable' });
+  if (outcome.status !== 200) {
+    return res.status(outcome.status).json({
+      error: outcome.invitedFailure
+        ? 'The invitation could not be prepared, so the occurrence was not changed.'
+        : 'Calendar occurrence unavailable',
+    });
+  }
+  if (outcome.invitationPlan?.messages.length) {
+    // The change is durable; the messages are the notification. A delivery failure is reported, not turned
+    // into a failed edit, and the sequence has already advanced so a retry cannot double-notify.
+    try {
+      for (const message of outcome.invitationPlan.messages) {
+        await sendCalendarInvitation(message);
+      }
+    } catch (caught) {
+      console.error('Calendar occurrence invitation delivery failed:', toAppError(caught).message);
+      return res.json({ updated: true, scope, invitationError: 'The occurrence was changed, but an invitation could not be sent.' });
+    }
+  }
   res.json({ updated: true, scope });
 });
 
@@ -801,6 +1622,30 @@ router.post('/events/:eventId/cancellation-delivery/retry', async (req, res) => 
   return res.json({ operation: { kind: 'cancellation', outboxId: event.cancellation_outbox_id }, invitationStatus: delivery });
 });
 
+// One event's full stored representation, used by the editor to open the whole
+// series (the list only carries materialised occurrences, not the master rule).
+router.get('/events/:eventId', async (req, res) => {
+  const result = await query<{
+    id: string; calendar_id: string; uid: string; summary?: string | null; description?: string | null;
+    location?: string | null; url?: string | null; organizer?: string | null; starts_at?: string | Date | null;
+    ends_at?: string | Date | null; all_day?: boolean | null; timezone?: string | null; attendees?: unknown;
+    invite_account_id?: string | null; recurring?: boolean | null; raw_ical?: string | null;
+    read_only?: boolean | null; source?: string | null;
+  }>(
+    `SELECT e.id, e.calendar_id, e.uid, e.summary, e.description, e.location, e.url, e.organizer,
+            e.starts_at, e.ends_at, e.all_day, e.timezone, ${READ_ATTENDEES}, e.invite_account_id,
+            e.recurring, e.raw_ical, c.read_only, c.source
+       FROM calendar_events e
+       JOIN calendars c ON c.id = e.calendar_id
+      WHERE e.id = $1 AND e.user_id = $2 AND c.user_id = $2 AND c.owner_user_id = $2`,
+    [req.params.eventId, req.session.userId],
+  );
+  const event = result.rows[0];
+  if (!event) return res.status(404).json({ error: 'Event not found' });
+  const { raw_ical: _raw, ...safe } = event;
+  res.json({ event: { ...safe, recurrence: recurrenceViewFromRRule(rruleFromCalendarResource(event.raw_ical)) } });
+});
+
 router.patch('/events/:eventId', async (req, res) => {
   const { calendarId, summary, description: rawDescription = null, location = null, url = null, organizer = null, allDay = false, timezone = null, sendInvites = false, inviteAccountId, attendees } = req.body || {};
   const description = normalizeDescription(rawDescription);
@@ -809,22 +1654,86 @@ router.patch('/events/:eventId', async (req, res) => {
   const normalizedAttendees = normalizeAttendees(attendees || []);
   if (!normalizedAttendees) return res.status(400).json({ error: 'Attendees must be valid email addresses' });
   if (sendInvites && (!inviteAccountId || !normalizedAttendees.length)) return res.status(400).json({ error: 'A sender account and at least one attendee are required for invitations' });
+  // A series-level edit carries `recurrence`; an occurrence edit never does. An
+  // absent field keeps the stored rule, an explicit null clears it.
+  const recurrenceProvided = Object.prototype.hasOwnProperty.call(req.body || {}, 'recurrence');
+  const recurrenceParse = parseRecurrenceStructure((req.body || {}).recurrence, { allDay: Boolean(allDay) });
+  if (!recurrenceParse.ok) return res.status(400).json({ error: recurrenceParse.error });
+  const recurrence = recurrenceParse.recurrence;
+  const rrule = recurrenceToRRule(recurrence);
+  const seriesRecurrence = recurrenceProvided ? { rrule } : undefined;
 
   const access = await writableCalendar(sessionUserId(req), calendarId);
-  if (access.error) return res.status(access.status).json({ error: access.error });
+  if (!access.ok) return res.status(access.status).json({ error: access.error });
+  const target = access.target;
+  if (target.kind === 'graph' || target.kind === 'google') {
+    // Provider first: an edit the provider refuses must not change the local copy, and the provider
+    // notifies attendees itself, so Inboxora's own invitation mail is skipped on this path.
+    const providerEventId = target.kind === 'graph'
+      ? await graphEventIdForLocalRow(req.session.userId!, target.collectionId, req.params.eventId)
+      : await googleEventIdForLocalRow(req.session.userId!, target.collectionId, req.params.eventId);
+    if (!providerEventId) return res.status(409).json({ error: 'This event is not linked to its provider copy yet' });
+    const eventWrite = {
+      summary: summary || null, description, location, url, startsAt: times.startsAt, endsAt: times.endsAt,
+      allDay: Boolean(allDay), attendees: normalizedAttendees,
+      // Three states reach the provider: the key is **absent** to keep the stored rule, an explicit `null`
+      // makes the event a one-off (Graph `recurrence: null`, Google `recurrence: []`), and an object sets it.
+      ...(recurrenceProvided ? { recurrence } : {}),
+    };
+    if (target.kind === 'graph') {
+      const attempt = await writeGraphCalendarEvent({ userId: req.session.userId!, target, operation: 'update', providerEventId, event: eventWrite, localResourceId: req.params.eventId });
+      if (attempt.status === 'failed') return providerWriteRefusal(res, attempt.failure);
+    } else {
+      const attempt = await writeGoogleCalendarEvent({
+        userId: req.session.userId!, target, operation: 'update', providerEventId, event: eventWrite,
+        sendUpdates: sendInvites ? 'all' : 'none', localResourceId: req.params.eventId,
+      });
+      if (attempt.status === 'failed') return providerWriteRefusal(res, attempt.failure);
+    }
+  }
+  if (target.kind === 'caldav') {
+    const existing = await readCaldavEventRow(req.session.userId!, calendarId, req.params.eventId);
+    if (!existing) return res.status(404).json({ error: 'Event not found' });
+    const merged = mergeCalendarResource(existing.raw_ical, localEventIcal({ uid: existing.uid, summary, description, location, url, organizer, attendees: normalizedAttendees, allDay: Boolean(allDay), ...times }));
+    const raw = seriesRecurrence ? (setSeriesRecurrence(merged, rrule) ?? merged) : merged;
+    const written = await writeCaldavEventResource({
+      userId: req.session.userId!, target, method: 'PUT',
+      filename: existing.dav_filename ?? `${existing.uid}.ics`, uid: existing.uid, raw,
+      exists: true, localObjectId: req.params.eventId, localRevision: existing.etag,
+    });
+    if (written.status !== 'confirmed') return respondCaldavWriteBack(res, written);
+    if (sendInvites && normalizedAttendees.length) {
+      const sender = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2 AND enabled = true AND smtp_host IS NOT NULL', [inviteAccountId, req.session.userId]);
+      if (!sender.rows[0]) return res.status(400).json({ error: 'The selected sender account is unavailable' });
+      const stored = await query<{ invitation_sequence: number | null }>('SELECT invitation_sequence FROM calendar_events WHERE id = $1 AND user_id = $2', [req.params.eventId, req.session.userId]);
+      try {
+        await sendCalendarInvitation({
+          account: sender.rows[0], attendees: normalizedAttendees, summary: summary || null, description,
+          location, uid: existing.uid, startsAt: times.startsAt, endsAt: times.endsAt, allDay: Boolean(allDay),
+          method: 'REQUEST', sequence: Number(stored.rows[0]?.invitation_sequence ?? 0) + 1,
+          ...(seriesRecurrence ? { rrule } : {}),
+        });
+      } catch (caught) {
+        console.error('Calendar invitation delivery failed:', toAppError(caught).message);
+        return res.json({ updated: true, invitationError: 'The event was saved, but the invitation could not be sent.' });
+      }
+    }
+    return res.json({ updated: true });
+  }
 
+  const invitesHandledByProvider = target.kind !== 'local';
 
   let invitationAccount = null;
-  if (sendInvites) {
+  if (sendInvites && !invitesHandledByProvider) {
     const sender = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2 AND enabled = true AND smtp_host IS NOT NULL', [inviteAccountId, req.session.userId]);
     invitationAccount = sender.rows[0] || null;
     if (!invitationAccount) return res.status(400).json({ error: 'The selected sender account is unavailable' });
   }
 
-  if (sendInvites && invitationAccount) {
+  if (sendInvites && !invitesHandledByProvider && invitationAccount) {
     let outcome;
     try {
-      outcome = await updateInvitedEvent(req, { calendarId, invitationAccount, normalizedAttendees, times, summary, description, location, url, organizer, allDay, timezone });
+      outcome = await updateInvitedEvent(req, { calendarId, invitationAccount, normalizedAttendees, times, summary, description, location, url, organizer, allDay, timezone, rrule: seriesRecurrence ? rrule : undefined });
     } catch (caught) {
       const error = toAppError(caught);
       console.error('Calendar invitation transaction failed:', error.message, error.code ? `(code ${error.code})` : '');
@@ -863,7 +1772,10 @@ router.patch('/events/:eventId', async (req, res) => {
       ? { account: cancellationAccount, attendees: cancelledAttendees, summary: existingEvent.summary, description: existingEvent.description, location: existingEvent.location, uid: existingEvent.uid, allDay: Boolean(existingEvent.all_day), method: 'CANCEL', sequence: Number(existingEvent.invitation_sequence || 0) + 1, startsAt: new Date(existingEvent.starts_at).toISOString(), endsAt: new Date(existingEvent.ends_at).toISOString() }
       : null;
 
-    const rawIcal = mergeCalendarResource(existingEvent.raw_ical, localEventIcal({ uid: existingEvent.uid, summary, description, location, url, organizer, attendees: normalizedAttendees, allDay: Boolean(allDay), ...times }));
+    const mergedIcal = mergeCalendarResource(existingEvent.raw_ical, localEventIcal({ uid: existingEvent.uid, summary, description, location, url, organizer, attendees: normalizedAttendees, allDay: Boolean(allDay), ...times }));
+    // A series-level edit applies the validated rule; an occurrence edit or a plain
+    // single-event edit leaves the stored rule (there is none) untouched.
+    const rawIcal = seriesRecurrence ? (setSeriesRecurrence(mergedIcal, rrule) ?? mergedIcal) : mergedIcal;
     const result = await client.query(`UPDATE calendar_events SET raw_ical = $1, summary = $2, description = $3, location = $4, url = $5, organizer = $6, starts_at = $7, ends_at = $8, all_day = $9, timezone = $10, attendees = $11, invite_account_id = $12, invitation_sequence = CASE WHEN (invite_account_id IS NOT NULL AND ${ATTENDEES_IS_ARRAY} AND jsonb_array_length(attendees) > 0) OR invitation_sequence > 0 THEN invitation_sequence + 1 ELSE 0 END, etag = gen_random_uuid()::text, updated_at = NOW() WHERE id = $13 AND calendar_id = $14 AND user_id = $15 RETURNING id, calendar_id, uid, etag, summary, description, location, url, organizer, starts_at, ends_at, all_day, timezone, attendees, invite_account_id, invitation_sequence, created_at, updated_at`, [rawIcal, summary || null, description, location, url, organizer, times.startsAt, times.endsAt, Boolean(allDay), timezone, jsonbAttendees(normalizedAttendees), invitationAccount?.id || null, req.params.eventId, calendarId, req.session.userId]);
     if (!result.rows[0]) return { notFound: true };
 
@@ -911,7 +1823,48 @@ router.delete('/events/:eventId', async (req, res) => {
   if (!calendarId) return res.status(400).json({ error: 'calendarId is required' });
 
   const access = await writableCalendar(sessionUserId(req), calendarId);
-  if (access.error) return res.status(access.status).json({ error: access.error });
+  if (!access.ok) return res.status(access.status).json({ error: access.error });
+  const target = access.target;
+  if (target.kind === 'graph' || target.kind === 'google') {
+    // Provider first, and the provider notifies attendees itself. An event the provider no longer has is
+    // the end state the caller asked for, so the local row is still removed and the link tombstoned.
+    const providerEventId = target.kind === 'graph'
+      ? await graphEventIdForLocalRow(req.session.userId!, target.collectionId, req.params.eventId)
+      : await googleEventIdForLocalRow(req.session.userId!, target.collectionId, req.params.eventId);
+    if (!providerEventId) return res.status(409).json({ error: 'This event is not linked to its provider copy yet' });
+    if (target.kind === 'graph') {
+      const attempt = await writeGraphCalendarEvent({ userId: req.session.userId!, target, operation: 'delete', providerEventId, localResourceId: req.params.eventId });
+      if (attempt.status === 'failed' && attempt.failure.code !== 'RESOURCE_NOT_FOUND') {
+        return providerWriteRefusal(res, attempt.failure);
+      }
+      await removeGraphCalendarEventLink({ userId: req.session.userId!, target, providerEventId });
+    } else {
+      // The cancellation is sent from the provider's own delete, so attendees are told once.
+      const attempt = await writeGoogleCalendarEvent({ userId: req.session.userId!, target, operation: 'delete', providerEventId, sendUpdates: 'all', localResourceId: req.params.eventId });
+      if (attempt.status === 'failed' && attempt.failure.code !== 'RESOURCE_NOT_FOUND') {
+        return providerWriteRefusal(res, attempt.failure);
+      }
+      await removeGoogleCalendarEventLink({ userId: req.session.userId!, target, providerEventId });
+    }
+  }
+
+  if (target.kind === 'caldav') {
+    const existing = await readCaldavEventRow(req.session.userId!, calendarId, req.params.eventId);
+    if (!existing) return res.status(404).json({ error: 'Event not found' });
+    // An event the source no longer has is the end state the caller asked for, so the local row is removed
+    // by the projection and the caller is told the deletion happened.
+    const written = await writeCaldavEventResource({
+      userId: req.session.userId!, target, method: 'DELETE',
+      filename: existing.dav_filename ?? `${existing.uid}.ics`, uid: existing.uid, raw: '',
+      exists: true, localObjectId: req.params.eventId, localRevision: existing.etag,
+    });
+    if (written.status === 'permanent' && written.code === 'RESOURCE_NOT_FOUND') {
+      await query('DELETE FROM calendar_events WHERE id = $1 AND calendar_id = $2 AND user_id = $3', [req.params.eventId, calendarId, req.session.userId]);
+      return res.status(204).end();
+    }
+    if (written.status !== 'confirmed') return respondCaldavWriteBack(res, written);
+    return res.status(204).end();
+  }
 
   const outcome = await withTransaction(async client => {
     const existing = await client.query(`SELECT uid, raw_ical, ${READ_ATTENDEES}, invite_account_id, invitation_sequence, summary, description, location, starts_at, ends_at, all_day FROM calendar_events WHERE id = $1 AND calendar_id = $2 AND user_id = $3 FOR UPDATE`, [req.params.eventId, calendarId, req.session.userId]);
@@ -969,6 +1922,8 @@ function publicSource(source: CalendarSourceRow) {
     : source.last_error;
   return {
     id: source.id, kind: source.kind,
+    username: source.kind === 'caldav' ? source.username : undefined,
+    serverOrigin: (() => { try { return decryptedUrl ? new URL(decryptedUrl).origin : undefined; } catch { return undefined; } })(),
     displayName: source.display_name, color: source.color, intervalMin: source.interval_min,
     enabled: source.enabled, lastSyncAt: source.last_sync_at, lastError,
   };
@@ -1033,27 +1988,33 @@ router.post('/sources/:sourceId/sync', async (req, res) => {
   res.json(result);
 });
 
-// Change an existing source's cadence. The interval is a per-calendar setting, so it
-// must be editable after creation and not only at creation time: how often a feed is
-// worth polling depends on how often it changes, which the user learns over time.
+// Change an existing source's cadence or pause state. Pausing is deliberately
+// separate from deletion: it stops future network calls while preserving the source
+// and its imported local projection for a later resume.
 router.patch('/sources/:sourceId', async (req, res) => {
-  if (req.body?.intervalMin === undefined) return res.status(400).json({ error: 'intervalMin is required' });
-  const interval = Number.parseInt(req.body.intervalMin, 10);
-  // Same bounds as the CHECK constraint and the create route, rejected explicitly
-  // rather than clamped so a bad client value is visible instead of silently ignored.
-  if (!Number.isInteger(interval) || interval < 15 || interval > 1440) {
-    return res.status(400).json({ error: 'intervalMin must be between 15 and 1440' });
-  }
+  const hasInterval = req.body?.intervalMin !== undefined;
+  const hasEnabled = req.body?.enabled !== undefined;
+  const hasName = req.body?.displayName !== undefined;
+  const hasPassword = typeof req.body?.password === 'string' && req.body.password.length > 0;
+  if (!hasInterval && !hasEnabled && !hasName && !hasPassword) return res.status(400).json({ error: 'No source changes supplied' });
+  const name = hasName && typeof req.body.displayName === 'string' ? req.body.displayName.trim() : null;
+  if (hasName && (!name || name.length > 120)) return res.status(400).json({ code: 'INVALID_SOURCE_NAME', error: 'Invalid source name' });
+  if (req.body?.password !== undefined && (typeof req.body.password !== 'string' || req.body.password.length > 4096)) return res.status(400).json({ code: 'INVALID_PASSWORD', error: 'Invalid password' });
+  const interval = hasInterval ? Number(req.body.intervalMin) : null;
+  if (hasInterval && (!Number.isInteger(interval) || interval! < 15 || interval! > 1440)) return res.status(400).json({ error: 'intervalMin must be between 15 and 1440' });
+  if (hasEnabled && typeof req.body.enabled !== 'boolean') return res.status(400).json({ error: 'enabled must be a boolean' });
+  // Credential rotation is specific to a CalDAV source. A blank field keeps the
+  // encrypted secret; URL/account identity are never silently moved by an edit.
   const result = await query<CalendarSourceRow>(
-    `UPDATE calendar_import_sources SET interval_min = $1, updated_at = NOW()
-     WHERE id = $2 AND user_id = $3 RETURNING *`,
-    [interval, req.params.sourceId, req.session.userId],
+    `UPDATE calendar_import_sources SET interval_min = COALESCE($1, interval_min), enabled = COALESCE($2, enabled),
+      display_name = COALESCE($5, display_name), password = COALESCE($6, password), updated_at = NOW()
+      WHERE id = $3 AND user_id = $4 AND ($6::text IS NULL OR kind = 'caldav') RETURNING *`,
+    [interval, hasEnabled ? req.body.enabled : null, req.params.sourceId, req.session.userId, name, hasPassword ? encrypt(req.body.password) : null],
   );
   const source = result.rows[0];
   if (!source) return res.status(404).json({ error: 'Calendar source not found' });
-  // Re-arm the timer. The scheduler closes over the source row it was given, so without
-  // this the new interval would not take effect until the process restarted.
-  scheduleCalendarSource(source);
+  if (source.enabled) scheduleCalendarSource(source);
+  else await stopCalendarSource(source.id);
   res.json({ source: publicSource(source) });
 });
 
@@ -1076,6 +2037,257 @@ router.delete('/sources/:sourceId', async (req, res) => {
     releaseCalendarSource(req.params.sourceId);
     if (!sourceDeleted) scheduleCalendarSource(existing.rows[0]);
     throw error;
+  }
+});
+
+// Whether Google calendars can be pulled, and what has been pulled so far. Safe
+// for any authenticated user: no credential, only counts and timestamps.
+router.get('/providers/google/status', async (req, res) => {
+  const userId = sessionUserId(req);
+  const [connections, collections] = await Promise.all([
+    query<{ id: string }>(
+      "SELECT id FROM provider_connections WHERE user_id = $1 AND provider = 'google' AND status = 'active'",
+      [userId],
+    ),
+    query<{
+      connection_id: string; calendar_id: string; name: string | null;
+      event_count: number; last_success_at: string | Date | null; last_error_code: string | null; last_error_at: string | Date | null;
+    }>(
+      `SELECT ic.connection_id, c.id AS calendar_id, c.name,
+              (SELECT COUNT(*)::int FROM calendar_events e WHERE e.calendar_id = c.id) AS event_count,
+              s.last_success_at, s.last_error_code, s.last_error_at
+         FROM integration_collections ic
+         JOIN calendars c ON c.id = ic.local_calendar_id
+         LEFT JOIN sync_states s ON s.collection_id = ic.id AND s.user_id = ic.user_id
+         JOIN provider_connections pc ON pc.id = ic.connection_id
+        WHERE ic.user_id = $1 AND ic.kind = 'calendar' AND pc.provider = 'google'
+        ORDER BY c.created_at ASC`,
+      [userId],
+    ),
+  ]);
+  res.json({
+    configured: isGoogleConfigured(googleConfigFromEnv()),
+    connected: connections.rows.length > 0,
+    connections: connections.rows.length,
+    calendars: collections.rows.map(row => ({
+      connectionId: row.connection_id,
+      calendarId: row.calendar_id,
+      name: row.name,
+      eventCount: row.event_count,
+      lastSyncedAt: row.last_success_at,
+      lastErrorCode: row.last_error_code,
+      lastErrorAt: row.last_error_at,
+    })),
+  });
+});
+
+// Pull the signed-in user's Google calendars and their events. The synced
+// calendars are read-only and hidden from DAV devices until the user enables them.
+router.post('/providers/google/sync', async (req, res) => {
+  // An installation that switched the provider layer off must not reach a provider from here either:
+  // the readiness report stops offering it, and this stops an existing collection from syncing.
+  if (!providerIntegrationsEnabled()) {
+    return res.status(403).json({ error: 'Provider integrations are disabled on this installation' });
+  }
+  if (!await providerOperationalForSync('google')) {
+    return res.status(403).json({ error: 'Google API is disabled by the administrator' });
+  }
+  const userId = sessionUserId(req);
+  const connections = await query<{ id: string }>(
+    "SELECT id FROM provider_connections WHERE user_id = $1 AND provider = 'google' AND status = 'active' ORDER BY created_at ASC",
+    [userId],
+  );
+  if (!connections.rows.length) {
+    return res.status(409).json({ error: 'Connect a Google account before syncing calendars' });
+  }
+  const config = googleConfigFromEnv();
+  if (!isGoogleConfigured(config)) {
+    return res.status(409).json({ error: 'Google API is not configured by the administrator' });
+  }
+
+  const results: Array<Record<string, unknown>> = [];
+  for (const connection of connections.rows) {
+    try {
+      if (!await providerConnectionFeatureEnabled({ userId, connectionId: connection.id, feature: 'calendars' })) {
+        results.push({ connectionId: connection.id, error: { code: 'FEATURE_DISABLED', message: 'Calendars are disabled for this account' } });
+        continue;
+      }
+      // A missing calendar scope is refused here, with the scope named, rather than sent to Google to come
+      // back as a 403 the user cannot act on.
+      const refusal = await providerSyncPreflight({ userId, connectionId: connection.id, provider: 'google', feature: 'calendar' });
+      if (refusal) {
+        results.push({ connectionId: connection.id, error: refusal });
+        continue;
+      }
+      results.push({ connectionId: connection.id, ...(await syncGoogleCalendar({ userId, connectionId: connection.id, config })) });
+    } catch (caught) {
+      results.push({
+        connectionId: connection.id,
+        error: await describeProviderSyncFailure({ userId, connectionId: connection.id, provider: 'google', feature: 'calendar', caught }),
+      });
+    }
+  }
+  res.json({ results });
+});
+
+
+// Whether Microsoft calendars can be pulled, and what has been pulled so far. The scope is
+// deliberately per provider: a Microsoft calendar and a Google calendar share the `calendar` collection
+// kind, so the connection's provider is what separates them.
+router.get('/providers/microsoft/status', async (req, res) => {
+  const userId = sessionUserId(req);
+  const [connections, collections] = await Promise.all([
+    query<{ id: string }>(
+      "SELECT id FROM provider_connections WHERE user_id = $1 AND provider = 'microsoft' AND status = 'active'",
+      [userId],
+    ),
+    query<{
+      connection_id: string; calendar_id: string; name: string | null; source_access: string | null;
+      event_count: number; last_success_at: string | Date | null; last_error_code: string | null; last_error_at: string | Date | null;
+    }>(
+      `SELECT ic.connection_id, c.id AS calendar_id, c.name, ic.source_access,
+              (SELECT COUNT(*)::int FROM calendar_events e WHERE e.calendar_id = c.id) AS event_count,
+              s.last_success_at, s.last_error_code, s.last_error_at
+         FROM integration_collections ic
+         JOIN calendars c ON c.id = ic.local_calendar_id
+         LEFT JOIN sync_states s ON s.collection_id = ic.id AND s.user_id = ic.user_id
+         JOIN provider_connections pc ON pc.id = ic.connection_id
+        WHERE ic.user_id = $1 AND ic.kind = 'calendar' AND pc.provider = 'microsoft'
+        ORDER BY c.created_at ASC`,
+      [userId],
+    ),
+  ]);
+  res.json({
+    configured: isMicrosoftConfigured(microsoftConfigFromEnv()),
+    connected: connections.rows.length > 0,
+    connections: connections.rows.length,
+    calendars: collections.rows.map(row => ({
+      connectionId: row.connection_id,
+      calendarId: row.calendar_id,
+      name: row.name,
+      // Whether the provider itself permits writes to this calendar. Read-only is the honest default.
+      canWriteAtSource: row.source_access === 'read_write',
+      eventCount: row.event_count,
+      lastSyncedAt: row.last_success_at,
+      lastErrorCode: row.last_error_code,
+      lastErrorAt: row.last_error_at,
+    })),
+  });
+});
+
+// Pull the signed-in user's Microsoft calendars and their events. The synced calendars are read-only and
+// hidden from DAV devices until the user enables them, exactly as the Google path stores them.
+router.post('/providers/microsoft/sync', async (req, res) => {
+  if (!providerIntegrationsEnabled()) {
+    return res.status(403).json({ error: 'Provider integrations are disabled on this installation' });
+  }
+  if (!await providerOperationalForSync('microsoft')) {
+    return res.status(403).json({ error: 'Microsoft API is disabled by the administrator' });
+  }
+  const userId = sessionUserId(req);
+  const connections = await query<{ id: string }>(
+    "SELECT id FROM provider_connections WHERE user_id = $1 AND provider = 'microsoft' AND status = 'active' ORDER BY created_at ASC",
+    [userId],
+  );
+  if (!connections.rows.length) {
+    return res.status(409).json({ error: 'Connect a Microsoft account before syncing calendars' });
+  }
+  const config = microsoftConfigFromEnv();
+  if (!isMicrosoftConfigured(config)) {
+    return res.status(409).json({ error: 'Microsoft API is not configured by the administrator' });
+  }
+
+  const results: Array<Record<string, unknown>> = [];
+  for (const connection of connections.rows) {
+    try {
+      if (!await providerConnectionFeatureEnabled({ userId, connectionId: connection.id, feature: 'calendars' })) {
+        results.push({ connectionId: connection.id, error: { code: 'FEATURE_DISABLED', message: 'Calendars are disabled for this account' } });
+        continue;
+      }
+      const refusal = await providerSyncPreflight({ userId, connectionId: connection.id, provider: 'microsoft', feature: 'calendar' });
+      if (refusal) {
+        results.push({ connectionId: connection.id, error: refusal });
+        continue;
+      }
+      results.push({ connectionId: connection.id, ...(await syncGraphCalendar({ userId, connectionId: connection.id, config })) });
+    } catch (caught) {
+      results.push({
+        connectionId: connection.id,
+        error: await describeProviderSyncFailure({ userId, connectionId: connection.id, provider: 'microsoft', feature: 'calendar', caught }),
+      });
+    }
+  }
+  res.json({ results });
+});
+
+
+// Import an .ics file into a local calendar. Identity is the event UID, exactly as
+// in the DAV and provider paths, so re-importing a file updates the events it
+// already has instead of creating a second copy of each series.
+router.post('/calendars/:id/import/ics', async (req, res) => {
+  const ics = typeof req.body?.ics === 'string' ? req.body.ics : '';
+  if (!ics || ics.length > 900_000) return res.status(400).json({ error: 'iCalendar file must be a non-empty file smaller than 900 KB' });
+  const userId = sessionUserId(req);
+  try {
+    const owned = await query<{ id: string; source?: string | null }>(
+      'SELECT id, source FROM calendars WHERE id = $1 AND user_id = $2',
+      [req.params.id, userId],
+    );
+    const calendar = owned.rows[0];
+    if (!calendar) return res.status(404).json({ error: 'Calendar not found' });
+    // An imported or provider calendar is written by its source, not by a file.
+    if ((calendar.source ?? 'local') !== 'local') return res.status(403).json({ error: 'This calendar is read-only' });
+
+    let resources: string[];
+    try {
+      resources = calendarResources(ics);
+    } catch {
+      return res.status(400).json({ error: 'The file is not a valid iCalendar document' });
+    }
+
+    let imported = 0;
+    // Events the file clashed with that Inboxora owns through a sent invitation.
+    let protectedEvents = 0;
+    await withTransaction(async client => {
+      for (const raw of resources) {
+        const event = parseCalendarEvent(raw);
+        // A resource the projection cannot read is skipped rather than stored broken.
+        if (!event) continue;
+        const etag = crypto.createHash('md5').update(raw).digest('hex');
+        const written = await client.query<{ id: string }>(
+          `INSERT INTO calendar_events
+             (calendar_id, user_id, uid, raw_ical, etag, summary, starts_at, ends_at, all_day, timezone, description, location, url, organizer, attendees)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::jsonb)
+           ON CONFLICT (calendar_id, uid, recurrence_id) DO UPDATE SET
+             raw_ical = EXCLUDED.raw_ical, etag = EXCLUDED.etag, summary = EXCLUDED.summary,
+             starts_at = EXCLUDED.starts_at, ends_at = EXCLUDED.ends_at, all_day = EXCLUDED.all_day,
+             timezone = EXCLUDED.timezone, description = EXCLUDED.description, location = EXCLUDED.location,
+             url = EXCLUDED.url, organizer = EXCLUDED.organizer, attendees = EXCLUDED.attendees, updated_at = NOW()
+           -- An event Inboxora owns because invitations were sent for it is not the file's
+           -- to overwrite: the CalDAV write path refuses the same conflict, and an import
+           -- must not achieve silently what a DAV client is told it cannot do.
+           WHERE calendar_events.invite_account_id IS NULL
+           RETURNING id`,
+          [
+            calendar.id, userId, event.uid, raw, etag, event.summary, event.startsAt, event.endsAt,
+            event.allDay, event.timeZone, event.description, event.location, event.url, event.organizer,
+            JSON.stringify(event.attendees),
+          ],
+        );
+        if (written.rows.length) imported += 1;
+        else protectedEvents += 1;
+      }
+    });
+    // A file whose events were all left alone because Inboxora owns them did contain
+    // events; saying "none found" would misreport what happened.
+    if (!imported && !protectedEvents) return res.status(400).json({ error: 'No events found in the file' });
+    // No manual token bump: the `calendar_events` trigger maintains `sync_version` and
+    // `sync_token` in the `sync-N` scheme the DAV endpoint advertises, and writing a
+    // random token here replaced it with a value that scheme never produces.
+    res.status(201).json({ imported, protected: protectedEvents });
+  } catch (err) {
+    console.error('iCalendar import error:', err);
+    res.status(500).json({ error: 'Failed to import the iCalendar file' });
   }
 });
 

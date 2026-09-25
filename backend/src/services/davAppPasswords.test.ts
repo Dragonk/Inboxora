@@ -15,6 +15,7 @@ function queryCall(index: number): [string, unknown[]] {
 
 import {
   createDavAppPassword,
+  findActiveDavAppPassword,
   listDavAppPasswords,
   parseDavAppPassword,
   revokeDavAppPassword,
@@ -72,5 +73,37 @@ describe('DAV application passwords', () => {
     const [sql, params] = queryCall(0);
     expect(sql).toContain('revoked_at = NOW()');
     expect(params).toEqual(['p1', 'user-1']);
+  });
+
+  it('stores the requested DAV ceiling and defaults to read_write', async () => {
+    query.mockResolvedValueOnce({ rows: [{ id: 'p1', label: 'Tablet', created_at: '2026-08-30T00:00:00.000Z', max_dav_mode: 'read_only' }] });
+    await createDavAppPassword('user-1', 'Tablet', 'read_only');
+    const [sql, params] = queryCall(0);
+    expect(sql).toContain('max_dav_mode');
+    expect(params[4]).toBe('read_only');
+
+    query.mockClear();
+    query.mockResolvedValueOnce({ rows: [{ id: 'p2', label: 'Phone', created_at: '2026-08-30T00:00:00.000Z', max_dav_mode: 'read_write' }] });
+    await createDavAppPassword('user-1', 'Phone');
+    expect(queryCall(0)[1][4]).toBe('read_write');
+  });
+
+  it('rejects an unknown DAV ceiling instead of storing it', async () => {
+    await expect(createDavAppPassword('user-1', 'Phone', 'off')).rejects.toThrow('DAV access mode must be read_only or read_write');
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  it('returns the stored ceiling when authenticating, defaulting legacy rows to read_write', async () => {
+    const secret = 'mf_dav_123e4567-e89b-12d3-a456-426614174000.exampleSecret-123456';
+    const bcrypt = (await import('bcryptjs')).default;
+    const hash = await bcrypt.hash('exampleSecret-123456', 4);
+
+    query.mockResolvedValueOnce({ rows: [{ id: 'p1', secret_hash: hash, max_dav_mode: 'read_only' }] }).mockResolvedValueOnce({ rows: [] });
+    await expect(findActiveDavAppPassword('user-1', secret)).resolves.toEqual({ id: 'p1', maxDavMode: 'read_only' });
+
+    query.mockClear();
+    // A row written before migration 0106 has no value and keeps full capability.
+    query.mockResolvedValueOnce({ rows: [{ id: 'p1', secret_hash: hash, max_dav_mode: null }] }).mockResolvedValueOnce({ rows: [] });
+    await expect(findActiveDavAppPassword('user-1', secret)).resolves.toEqual({ id: 'p1', maxDavMode: 'read_write' });
   });
 });

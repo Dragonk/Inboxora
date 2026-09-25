@@ -11,6 +11,7 @@
   - [External calendars](External-calendars.md)
   - [Mobile navigation](Mobile-navigation.md)
 - **Operations**
+  - [Connecting Google and Microsoft accounts](Provider-setup.md)
   - [Security](Security.md)
   - [Upgrading](Upgrading.md)
   - [Migrating from MailFlow](Migrating-from-MailFlow.md)
@@ -18,6 +19,7 @@
   - [Development](Development.md)
 - **Reference**
   - [V3 interface](V3-interface.md)
+  - [4.1.0 changes and release status](Release-notes-4.1.0.md)
   - [4.0.4 changes and release status](Release-notes-4.0.4.md)
   - [4.0.3 changes and release status](Release-notes-4.0.3.md)
   - [4.0.2 changes and release status](Release-notes-4.0.2.md)

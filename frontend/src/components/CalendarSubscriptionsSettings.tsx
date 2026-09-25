@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useStore } from '../store/index.ts';
 import type { CSSProperties, FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api } from '../utils/api.ts';
@@ -50,8 +51,29 @@ function calendarSources(value: unknown): CalendarSource[] {
   return value.sources.filter(isCalendarSource);
 }
 
-export default function CalendarSubscriptionsSettings({ locale }: { locale?: string }) {
+interface CalendarSubscriptionsSettingsProps {
+  locale?: string;
+  creationOnly?: boolean;
+}
+
+export default function CalendarSubscriptionsSettings({ locale, creationOnly = false }: CalendarSubscriptionsSettingsProps) {
+  const authEpoch = useStore(state => state.authEpoch);
+  // Reset forms (including credentials) and pending state when the session changes.
+  return <SessionCalendarSubscriptionsSettings key={authEpoch} locale={locale} creationOnly={creationOnly} authEpoch={authEpoch} />;
+}
+
+function SessionCalendarSubscriptionsSettings({ locale, creationOnly, authEpoch }: CalendarSubscriptionsSettingsProps & { authEpoch: number }) {
   const { t, i18n } = useTranslation();
+  const mount = useRef<object | null>(null);
+  useLayoutEffect(() => {
+    mount.current = {};
+    return () => { mount.current = null; };
+  }, []);
+  const captureSession = useCallback(() => {
+    const startedMount = mount.current;
+    return () => startedMount !== null && mount.current === startedMount
+      && useStore.getState().authEpoch === authEpoch;
+  }, [authEpoch]);
   // The resource ids are not BCP 47 tags (zhCN), so spell them out before any Intl call.
   const language = intlLocale(locale || i18n.resolvedLanguage || i18n.language) || 'en';
   const [sources, setSources] = useState<CalendarSource[]>([]);
@@ -60,19 +82,26 @@ export default function CalendarSubscriptionsSettings({ locale }: { locale?: str
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [form, setForm] = useState({ displayName: '', url: '' });
+  const [localCalendar, setLocalCalendar] = useState({ name: '', color: '#3b82f6' });
+  // Credentials belong to the Calendar settings connection flow. The source
+  // manager can then manage discovered collections without becoming a login UI.
+  const [caldavForm, setCaldavForm] = useState({ displayName: '', url: '', username: '', password: '' });
   const [country, setCountry] = useState(() => defaultHolidayCountry(language));
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (isCurrent = captureSession()) => {
+    if (!isCurrent() || creationOnly) return;
     try {
       const result = await api.calendar.listSources();
+      if (!isCurrent()) return;
       setSources(calendarSources(result));
       setError(null);
     } catch (err) {
+      if (!isCurrent()) return;
       setError(toAppError(err).message);
     } finally {
-      setLoading(false);
+      if (isCurrent()) setLoading(false);
     }
-  }, []);
+  }, [captureSession, creationOnly]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -82,19 +111,46 @@ export default function CalendarSubscriptionsSettings({ locale }: { locale?: str
     .map(entry => ({ ...entry, name: holidayCountryName(entry.code, language) }))
     .sort((a, b) => a.name.localeCompare(b.name, language)), [language]);
 
+  const submitLocalCalendar = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const name = localCalendar.name.trim();
+    if (!name) return;
+    const isCurrent = captureSession();
+    if (!isCurrent()) return;
+    setBusy(true); setError(null); setNotice(null);
+    try {
+      await api.calendar.createCalendar({ name, color: localCalendar.color, displayVisible: true });
+      if (!isCurrent()) return;
+      setLocalCalendar({ name: '', color: '#3b82f6' });
+      setNotice(t('calendar.createLocalCalendar'));
+      notifyCalendarChanged();
+    } catch (err) {
+      if (!isCurrent()) return;
+      setError(toAppError(err).message);
+    } finally {
+      if (isCurrent()) setBusy(false);
+    }
+  };
+
   const addSubscription = async ({ displayName, url, intervalMin }: { displayName: string; url: string; intervalMin: number }) => {
+    const isCurrent = captureSession();
+    if (!isCurrent()) return;
     setBusy(true); setError(null); setNotice(null);
     try {
       await api.calendar.createSource({ kind: 'ical_url', displayName, url, intervalMin });
+      if (!isCurrent()) return;
       setNotice(t('calendar.subscribeSuccess'));
-      await load();
+      await load(isCurrent);
+      if (!isCurrent()) return;
       notifyCalendarChanged();
       return true;
     } catch (err) {
+      if (!isCurrent()) return;
+      if (isRecord(err) && isCalendarSource(err.source)) notifyCalendarChanged();
       setError(toAppError(err).message || t('calendar.subscribeFailed'));
       return false;
     } finally {
-      setBusy(false);
+      if (isCurrent()) setBusy(false);
     }
   };
 
@@ -102,8 +158,37 @@ export default function CalendarSubscriptionsSettings({ locale }: { locale?: str
     event.preventDefault();
     const url = normalizeSubscriptionUrl(form.url);
     if (!url) return;
+    const isCurrent = captureSession();
     const added = await addSubscription({ displayName: form.displayName.trim(), url, intervalMin: 60 });
-    if (added) setForm({ displayName: '', url: '' });
+    if (isCurrent() && added) setForm({ displayName: '', url: '' });
+  };
+
+  const submitCalDav = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const displayName = caldavForm.displayName.trim();
+    const url = caldavForm.url.trim();
+    const username = caldavForm.username.trim();
+    if (!displayName || !url || !username || !caldavForm.password) return;
+    const isCurrent = captureSession();
+    if (!isCurrent()) return;
+    setBusy(true); setError(null); setNotice(null);
+    try {
+      await api.calendar.createSource({
+        kind: 'caldav', displayName, url, username, password: caldavForm.password, intervalMin: 60,
+      });
+      if (!isCurrent()) return;
+      setCaldavForm({ displayName: '', url: '', username: '', password: '' });
+      setNotice(t('calendar.subscribeSuccess'));
+      await load(isCurrent);
+      if (!isCurrent()) return;
+      notifyCalendarChanged();
+    } catch (err) {
+      if (!isCurrent()) return;
+      if (isRecord(err) && isCalendarSource(err.source)) notifyCalendarChanged();
+      setError(toAppError(err).message || t('calendar.subscribeFailed'));
+    } finally {
+      if (isCurrent()) setBusy(false);
+    }
   };
 
   const addHolidays = async () => {
@@ -117,28 +202,60 @@ export default function CalendarSubscriptionsSettings({ locale }: { locale?: str
   };
 
   const removeSource = async (id: string) => {
+    if (!window.confirm(t('calendar.removeSourceConfirm'))) return;
+    const isCurrent = captureSession();
+    if (!isCurrent()) return;
     setBusy(true); setError(null); setNotice(null);
     try {
       await api.calendar.deleteSource(id);
-      await load();
+      if (!isCurrent()) return;
+      await load(isCurrent);
+      if (!isCurrent()) return;
       notifyCalendarChanged();
     } catch (err) {
+      if (!isCurrent()) return;
+      if (isRecord(err) && isCalendarSource(err.source)) notifyCalendarChanged();
       setError(toAppError(err).message || t('calendar.subscribeFailed'));
     } finally {
-      setBusy(false);
+      if (isCurrent()) setBusy(false);
+    }
+  };
+
+  const toggleSource = async (id: string, enabled: boolean) => {
+    const isCurrent = captureSession();
+    if (!isCurrent()) return;
+    setBusy(true); setError(null); setNotice(null);
+    try {
+      await api.calendar.updateSource(id, { enabled });
+      if (!isCurrent()) return;
+      await load(isCurrent);
+      if (!isCurrent()) return;
+      notifyCalendarChanged();
+    } catch (err) {
+      if (!isCurrent()) return;
+      if (isRecord(err) && isCalendarSource(err.source)) notifyCalendarChanged();
+      setError(toAppError(err).message || t('calendar.subscribeFailed'));
+    } finally {
+      if (isCurrent()) setBusy(false);
     }
   };
 
   const syncSource = async (id: string) => {
+    const isCurrent = captureSession();
+    if (!isCurrent()) return;
     setBusy(true); setError(null); setNotice(null);
     try {
       await api.calendar.syncSource(id);
-      await load();
+      if (!isCurrent()) return;
+      await load(isCurrent);
+      if (!isCurrent()) return;
       notifyCalendarChanged();
     } catch (err) {
+      if (!isCurrent()) return;
+      if (isRecord(err) && isCalendarSource(err.source)) notifyCalendarChanged();
       setError(toAppError(err).message || t('calendar.subscribeFailed'));
     } finally {
-      setBusy(false);
+      if (isCurrent()) setBusy(false);
     }
   };
 
@@ -147,6 +264,16 @@ export default function CalendarSubscriptionsSettings({ locale }: { locale?: str
     <p className="settings-choice-description">{t('calendar.subscribeDescription')}</p>
     {error && <p role="alert" className="ui-alert">{error}</p>}
     {notice && <p role="status" data-testid="calendar-subscription-notice" style={success}>{notice}</p>}
+    <form data-testid="calendar-local-create-form" onSubmit={submitLocalCalendar} style={formStyle}>
+      <div className="settings-switch-label">{t('calendar.localCalendar')}</div>
+      <label style={fieldStyle}>{t('calendar.sourceName')}
+        <input required maxLength={120} value={localCalendar.name} onChange={event => setLocalCalendar(current => ({ ...current, name: event.target.value }))} style={inputStyle} />
+      </label>
+      <label style={fieldStyle}>{t('calendar.calendarColor')}
+        <input required type="color" value={localCalendar.color} onChange={event => setLocalCalendar(current => ({ ...current, color: event.target.value }))} style={{ ...inputStyle, minHeight: 38 }} />
+      </label>
+      <div><Button type="submit" variant="primary" disabled={busy || !localCalendar.name.trim()}>{t('calendar.createLocalCalendar')}</Button></div>
+    </form>
     <form onSubmit={submitUrl} style={formStyle}>
       <label style={fieldStyle}>{t('calendar.sourceName')}
         <input required maxLength={120} value={form.displayName} onChange={event => setForm(current => ({ ...current, displayName: event.target.value }))} style={inputStyle} />
@@ -156,6 +283,27 @@ export default function CalendarSubscriptionsSettings({ locale }: { locale?: str
       </label>
       <span className="settings-choice-description">{t('calendar.subscribeHint')}</span>
       <div><Button type="submit" variant="primary" disabled={busy || !form.displayName.trim() || !form.url.trim()}>{t('calendar.subscribeAdd')}</Button></div>
+    </form>
+    <form data-testid="calendar-caldav-settings-form" onSubmit={submitCalDav} style={holidayBlock}>
+      <div className="settings-switch-label">{t('calendar.caldav')}</div>
+      <p className="settings-choice-description">{t('calendar.sourceUsername')} / {t('calendar.sourcePassword')}</p>
+      <div style={holidayRow}>
+        <label style={fieldStyle}>{t('calendar.sourceName')}
+          <input required maxLength={120} value={caldavForm.displayName} onChange={event => setCaldavForm(current => ({ ...current, displayName: event.target.value }))} style={inputStyle} />
+        </label>
+        <label style={fieldStyle}>{t('calendar.sourceUrl')}
+          <input required type="url" placeholder="https://calendar.example.com/dav" value={caldavForm.url} onChange={event => setCaldavForm(current => ({ ...current, url: event.target.value }))} style={inputStyle} />
+        </label>
+      </div>
+      <div style={holidayRow}>
+        <label style={fieldStyle}>{t('calendar.sourceUsername')}
+          <input required autoComplete="username" value={caldavForm.username} onChange={event => setCaldavForm(current => ({ ...current, username: event.target.value }))} style={inputStyle} />
+        </label>
+        <label style={fieldStyle}>{t('calendar.sourcePassword')}
+          <input required type="password" autoComplete="new-password" value={caldavForm.password} onChange={event => setCaldavForm(current => ({ ...current, password: event.target.value }))} style={inputStyle} />
+        </label>
+      </div>
+      <div><Button type="submit" variant="primary" disabled={busy || !caldavForm.displayName.trim() || !caldavForm.url.trim() || !caldavForm.username.trim() || !caldavForm.password}>{t('calendar.addSource')}</Button></div>
     </form>
     <div style={holidayBlock}>
       <div className="settings-switch-label">{t('calendar.holidayTitle')}</div>
@@ -169,7 +317,7 @@ export default function CalendarSubscriptionsSettings({ locale }: { locale?: str
         <div><Button disabled={busy} onClick={addHolidays}>{t('calendar.holidayAdd')}</Button></div>
       </div>
     </div>
-    <div style={sourceBlock}>
+    {!creationOnly && <div style={sourceBlock}>
       <div className="settings-switch-label">{t('calendar.subscribeExisting')}</div>
       {!loading && !sources.length && <p className="settings-choice-description">{t('calendar.subscribeEmpty')}</p>}
       {sources.map(source => {
@@ -181,12 +329,13 @@ export default function CalendarSubscriptionsSettings({ locale }: { locale?: str
             <small>{source.kind === 'caldav' ? t('calendar.caldav') : t('calendar.icsWebcal')} &middot; {status}</small>
           </span>
           <span style={sourceActions}>
-            <Button onClick={() => syncSource(source.id)} disabled={busy}>{t('calendar.syncSource')}</Button>
+            <Button onClick={() => toggleSource(source.id, !source.enabled)} disabled={busy}>{source.enabled ? t('calendar.pauseSource') : t('calendar.resumeSource')}</Button>
+             <Button onClick={() => syncSource(source.id)} disabled={busy || !source.enabled}>{t('calendar.syncSource')}</Button>
             <Button variant="danger" onClick={() => removeSource(source.id)} disabled={busy}>{t('calendar.delete')}</Button>
           </span>
         </div>;
       })}
-    </div>
+    </div>}
   </section>;
 }
 

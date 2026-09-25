@@ -1,0 +1,11 @@
+-- GRAPH-04, the durable record that a mailbox's ids have been translated.
+--
+-- Graph answers with two kinds of message id: the default one, which can change when an item moves between
+-- folders, and the immutable one. Asking for the immutable form (`Prefer: IdType="ImmutableId"`) is what a local
+-- store wants — but doing it for a mailbox whose stored ids are still the default form would make every one of
+-- them unrecognisable, so the synchronisation may only ask after the translation has run.
+--
+-- This column is that record: the moment the translation completed for the connection. NULL means it has not, and
+-- the synchronisation keeps using the default form — which is the behaviour every existing mailbox has today, so
+-- an installation that never runs the migration tool is unaffected.
+ALTER TABLE provider_connections ADD COLUMN IF NOT EXISTS immutable_message_ids_at TIMESTAMPTZ;

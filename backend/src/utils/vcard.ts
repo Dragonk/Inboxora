@@ -526,3 +526,25 @@ export function mergeVCard(raw: string, contact: VCardContact): string {
   });
   return ['BEGIN:VCARD', ...preserved, ...replacement, 'END:VCARD'].map(foldLine).join('');
 }
+
+/**
+ * Split a `.vcf` file into its individual vCard blocks.
+ *
+ * A vCard file is a concatenation of cards, and a card's lines may be folded, so
+ * the split has to happen on the `BEGIN:VCARD`/`END:VCARD` boundaries rather than
+ * on blank lines. Anything outside a block (a comment, a stray blank line, a BOM)
+ * is ignored, and a file with no block at all yields nothing so the caller can
+ * report "no contacts" instead of importing garbage.
+ */
+export function splitVCards(raw: string): string[] {
+  if (typeof raw !== 'string' || raw.length === 0) return [];
+  const normalized = raw.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  const cards: string[] = [];
+  const pattern = /BEGIN:VCARD\n([\s\S]*?)END:VCARD/g;
+  for (const match of normalized.matchAll(pattern)) {
+    const body = match[1].trim();
+    // A block with no property at all is not a card.
+    if (body.length > 0) cards.push(`BEGIN:VCARD\n${body}\nEND:VCARD`);
+  }
+  return cards;
+}

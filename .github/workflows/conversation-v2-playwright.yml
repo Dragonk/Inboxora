@@ -1,6 +1,13 @@
 name: Conversation Engine v2 Playwright E2E
 
 on:
+  # The browser matrix is part of the `dev` integration gate, not only of a pull
+  # request: work is pushed straight to `dev`, so a trigger that only fires on PRs
+  # would leave the layer that caught the drawer regression unrun. It is the most
+  # expensive gate, and if the cost ever needs splitting, split the *projects* here
+  # (desktop on push, the rest on PR) rather than dropping the push trigger.
+  push:
+    branches: [dev]
   pull_request:
     branches: [dev, main]
   workflow_dispatch:

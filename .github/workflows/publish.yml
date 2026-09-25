@@ -39,6 +39,9 @@ jobs:
           git merge-base --is-ancestor "$source_sha" origin/dev
           echo "SOURCE_SHA=$source_sha" >> "$GITHUB_ENV"
 
+      - name: Translation release gate
+        uses: ./.github/actions/translation-gate
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 

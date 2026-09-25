@@ -1,12 +1,15 @@
 import bcrypt from 'bcryptjs';
 import { query } from './db.js';
 import { findActiveDavAppPassword } from './davAppPasswords.js';
+import type { DavMaxMode } from './davAppPasswords.js';
 
 const DUMMY_DAV_SECRET_HASH = bcrypt.hashSync('mailflow-dav-timing-equalizer', 12);
 
 export interface DavCredential {
   userId: string;
   credentialId: string;
+  /** The ceiling this device password imposes on every collection it reaches. */
+  maxDavMode: DavMaxMode;
 }
 
 function hasNonEmptyStringId(value: unknown): value is { id: string } {
@@ -38,5 +41,5 @@ export async function authenticateDavCredential(
   const credential = await findActiveDavAppPassword(user.id, password);
   if (!hasNonEmptyStringId(credential)) return null;
 
-  return { userId: user.id, credentialId: credential.id };
+  return { userId: user.id, credentialId: credential.id, maxDavMode: credential.maxDavMode };
 }

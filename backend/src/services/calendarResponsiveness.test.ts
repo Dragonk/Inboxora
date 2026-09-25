@@ -95,14 +95,32 @@ describe('calendar expansion responsiveness', () => {
       expect(inline.duration).toBeGreaterThan(100);
 
       // Pooled expansion leaves the request thread responsive: the timer keeps
-      // firing and never falls far behind, which is what a concurrent light API
-      // request experiences.
+      // firing and stays far closer to its schedule than it does while the same work
+      // runs inline, which is what a concurrent light API request experiences.
+      //
+      // Every bound here is relative to the inline run on the *same* machine, on
+      // purpose. An absolute lag threshold measures the host's load as much as the
+      // code's behaviour: the previous `pooled.max < 100` was observed failing at
+      // 162 ms on a machine that was busy running another gate, with the pool
+      // working exactly as designed. The comparison still fails if the pool stops
+      // being used — inline starves the timer, so its maximum lag approaches its own
+      // duration and its sample count collapses — but it cannot fail merely because
+      // the runner was busy.
       expect(pooled.samples).toBeGreaterThan(5);
-      expect(pooled.max).toBeLessThan(100);
+      // The lag must stay a small fraction of the work it overlaps, so a pool that
+      // technically runs on workers but blocks for most of the expansion is caught.
+      expect(pooled.max).toBeLessThan(Math.max(50, pooled.duration / 2));
 
-      // Inline expansion blocks the loop. This is the actual regression guard: if
-      // the pool ever stops being used, the timer is starved and this fails.
+      // Inline expansion blocks the loop. This is the actual regression guard: if the
+      // pool ever stops being used, the timer is starved and this fails. A starved
+      // timer usually records *no* samples at all, which is why the lag comparisons
+      // below are conditional — an empty inline run is the strongest possible signal,
+      // not a missing one.
       expect(inline.samples).toBeLessThan(pooled.samples);
+      if (inline.samples > 0) {
+        expect(pooled.max).toBeLessThan(inline.max);
+        expect(pooled.median).toBeLessThan(inline.median);
+      }
     } finally {
       if (disabled === undefined) delete process.env.CALENDAR_PROJECTION_DISABLED;
       else process.env.CALENDAR_PROJECTION_DISABLED = disabled;

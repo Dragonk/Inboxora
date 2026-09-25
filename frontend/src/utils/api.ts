@@ -64,11 +64,22 @@ async function request(method: string, path: string, body: unknown = undefined, 
     if (res.status === 401 && !path.startsWith('/auth/') && isCurrentAuthEpoch(requestAuthEpoch)) {
       window.dispatchEvent(new CustomEvent('inboxora:session_expired'));
     }
-    const err = await res.json().catch(() => ({ error: 'Request failed' }));
-    const error = new Error(err.error || 'Request failed');
+    const err: unknown = await res.json().catch(() => ({ error: 'Request failed' }));
+    const payload = typeof err === 'object' && err !== null ? err as Record<string, unknown> : {};
+    // Routes may include structured `details`, but Error.message must always be safe, short text — never
+    // JavaScript's "[object Object]" fallback.
+    const message = typeof payload.error === 'string' ? payload.error
+      : typeof payload.message === 'string' ? payload.message : 'Request failed';
+    const error = new Error(message);
     error.status = res.status;
-    if (err.source) error.source = err.source;
-    if (err.sync) error.sync = err.sync;
+    // The domain code, so a caller can answer in the user's own language rather than matching the server's prose.
+    if (typeof payload.code === 'string') (error as Error & { code?: string }).code = payload.code;
+    // Source context is a stable, server-whitelisted diagnostic value. It can be
+    // a short scope string or a persisted calendar-source descriptor; retain it
+    // without coercing structured context to an unusable message.
+    if (payload.source !== undefined) (error as unknown as Record<string, unknown>).source = payload.source;
+    if (payload.sync !== undefined) (error as unknown as Record<string, unknown>).sync = payload.sync;
+    if (payload.details) (error as Error & { details?: unknown }).details = payload.details;
     throw error;
   }
   // A successful DELETE may deliberately return no representation (HTTP 204).
@@ -259,7 +270,14 @@ export const api = {
   },
 
   // Accounts
+  // Per-user view preferences, separate from provider write permissions.
+  contactPresentation: {
+    get: () => request('GET', '/contacts/presentation'),
+    update: (data: { selectedIds?: string[] | null; collapsedSourceIds?: string[] }) => request('PATCH', '/contacts/presentation', data),
+  },
+
   getAccounts: () => request('GET', '/accounts'),
+
   addAccount: (data: unknown) => request('POST', '/accounts', data),
   updateAccount: (id: string, data: unknown) => request('PUT', `/accounts/${id}`, data),
   deleteAccount: (id: string) => request('DELETE', `/accounts/${id}`),
@@ -323,6 +341,57 @@ export const api = {
   // Integrations
   getIntegrations: () => request('GET', '/integrations'),
   getIntegrationsStatus: () => request('GET', '/integrations/status'),
+  // The Google mail migration recommendation for the signed-in user's own mailboxes, and its durable
+  // per-user-per-account suppression. The wording is the interface's; the server sends identity only.
+  getNotices: () => request('GET', '/integrations/notices'),
+  // The size limits the sending account's transport is measured against (P06). The server answers with the
+  // effective numbers; `null` means the transport declares no such ceiling.
+  getSendLimits: (accountId: string) => request('GET', `/mail/send-limits?accountId=${encodeURIComponent(accountId)}`),
+  suppressNotice: (accountId: string) => request('POST', `/integrations/notices/${encodeURIComponent(accountId)}/suppress`, {}),
+  // Add a native mailbox for a provider authorization the user already gave (Settings -> Accounts). The
+  // identity comes from the provider; an existing account for that address answers ACCOUNT_EXISTS with its id
+  // so the interface offers the migration instead of duplicating the mailbox.
+  addNativeAccount: (body: { provider: 'microsoft' | 'google'; connectionId?: string; name?: string }) =>
+    request('POST', '/accounts/native', body),
+  // One account's provider services: mail transport and whether the native one is available, plus its
+  // calendar, contacts and push state. Account-centric, so the card does not have to guess.
+  accountProviderFeatures: (accountId: string) =>
+    request('GET', `/accounts/${encodeURIComponent(accountId)}/provider-features`),
+  accountProviderStatus: (accountId: string) =>
+    request('GET', `/accounts/${encodeURIComponent(accountId)}/provider-status`),
+  // The same capability view plus what the last runs did, for the account's own diagnostics section. The
+  // server never includes a token, a secret or a raw provider payload.
+  accountProviderDiagnostics: (accountId: string) =>
+    request('GET', `/accounts/${encodeURIComponent(accountId)}/provider-diagnostics`),
+  syncAccountProviderFeature: (accountId: string, feature: 'calendars' | 'contacts') =>
+    request('POST', `/accounts/${encodeURIComponent(accountId)}/provider-features/${feature}/sync`),
+  // Native calendar lifecycle is account-scoped. The server owns collection identity,
+  // default/shared-calendar protection and journal replay; clients send only an intent key.
+  createAccountProviderCalendar: (accountId: string, body: { name: string; idempotencyKey: string }) =>
+    request('POST', `/accounts/${encodeURIComponent(accountId)}/provider-calendars`, body),
+  deleteAccountProviderCalendar: (accountId: string, collectionId: string, body: { idempotencyKey: string }) =>
+    request('DELETE', `/accounts/${encodeURIComponent(accountId)}/provider-calendars/${encodeURIComponent(collectionId)}`, body),
+  setAccountProviderFeature: (accountId: string, feature: 'calendars' | 'contacts', enabled: boolean) =>
+    request('PATCH', `/accounts/${encodeURIComponent(accountId)}/provider-features/${feature}`, { enabled }),
+  nativeAccountCandidates: (provider: 'microsoft' | 'google') =>
+    request('GET', `/accounts/native/candidates?provider=${provider}`),
+  // Move one existing account onto its provider's native transport, in place. The server decides whether
+  // that is Google or Microsoft from the account itself and refuses with a code when it cannot.
+  migrateAccount: (accountId: string, body: Record<string, unknown> = {}) =>
+    request('POST', `/accounts/${encodeURIComponent(accountId)}/migrate`, body),
+  // Disconnect a provider account the signed-in user connected. Imported data is kept.
+  disconnectProviderConnection: (id: string) => request('POST', `/integrations/provider-connections/${encodeURIComponent(id)}/disconnect`),
+  // Enable or disable write-back for one pulled collection. The server refuses when the provider does not
+  // allow writes to it, so the interface does not need to guess.
+  setCollectionWriteBack: (collectionId: string, writeBack: boolean) =>
+    request('PATCH', `/integrations/collections/${encodeURIComponent(collectionId)}`, { writeBack }),
+  // Push-assisted synchronisation: whether it can be offered here, what is registered, and how it is doing.
+  // The server derives the callback URLs from APP_URL; a client never supplies one.
+  getProviderPushStatus: () => request('GET', '/integrations/push-status'),
+  enableConnectionPush: (connectionId: string) => request('POST', `/integrations/push/connections/${encodeURIComponent(connectionId)}/enable`, {}),
+  disableConnectionPush: (connectionId: string) => request('POST', `/integrations/push/connections/${encodeURIComponent(connectionId)}/disable`, {}),
+  testProviderConfiguration: (provider: 'google' | 'microsoft') =>
+    request('POST', `/integrations/${provider}/test`),
   saveIntegration: (provider: string, config: unknown) => request('POST', `/integrations/${provider}`, config),
   deleteIntegration: (provider: string) => request('DELETE', `/integrations/${provider}`),
   startMsDeviceFlow: async () => {
@@ -331,8 +400,33 @@ export const api = {
     if (!res.ok) throw new Error(data.error || 'Failed to start device code flow');
     return data;
   },
-  pollMsDeviceFlow: async () => {
-    const res = await fetch('/oauth/microsoft/device/poll', { credentials: 'include' });
+  pollMsDeviceFlow: async (flowId?: string) => {
+    // The flow id names which pending flow to poll: a second start for another mailbox must not make
+    // the first one unobservable.
+    const suffix = flowId ? `?flowId=${encodeURIComponent(flowId)}` : '';
+    const res = await fetch(`/oauth/microsoft/device/poll${suffix}`, { credentials: 'include' });
+    return res.json();
+  },
+  // The provider (Graph) connection via device code: a public client, so it needs neither a secret nor
+  // a callback. It records a provider connection and grant, never a mailbox account.
+  startProviderMsDeviceFlow: async (purpose = 'contacts_enable', access: 'source' | 'read_only' = 'read_only') => {
+    const res = await fetch('/oauth/provider/microsoft/device', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ purpose, access }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to start device authorization');
+    return data;
+  },
+  pollProviderMsDeviceFlow: async (flowId: string) => {
+    const res = await fetch('/oauth/provider/microsoft/device/poll', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ flowId }),
+    });
     return res.json();
   },
 
@@ -359,13 +453,14 @@ export const api = {
   suggestContacts: (q: string) => request('GET', `/search/contacts?q=${encodeURIComponent(q)}`),
 
   // Contacts
-  getContacts:   ({ q, limit, offset, is_auto, addressBookId }: { q?: string; limit?: string | number; offset?: string | number; is_auto?: string | boolean; addressBookId?: string } = {}) => {
+  getContacts:   ({ q, limit, offset, is_auto, addressBookId, addressBookIds }: { q?: string; limit?: string | number; offset?: string | number; is_auto?: string | boolean; addressBookId?: string; addressBookIds?: readonly string[] } = {}) => {
     const p = new URLSearchParams();
     if (q) p.set('q', q);
     if (limit !== undefined) p.set('limit', String(limit));
     if (offset !== undefined) p.set('offset', String(offset));
     if (is_auto !== undefined) p.set('is_auto', String(is_auto));
-    if (addressBookId) p.set('addressBookId', addressBookId);
+    if (addressBookIds !== undefined) p.set('addressBookIds', addressBookIds.join(','));
+    else if (addressBookId) p.set('addressBookId', addressBookId);
     const qs = p.toString();
     return request('GET', `/contacts${qs ? '?' + qs : ''}`);
   },
@@ -379,7 +474,19 @@ export const api = {
     update: (id: string, data: unknown) => request('PATCH', `/contacts/address-books/${encodeURIComponent(id)}`, data),
     remove: (id: string) => request('DELETE', `/contacts/address-books/${encodeURIComponent(id)}`),
     importGoogleCsv: (id: string, csv: string) => request('POST', `/contacts/address-books/${encodeURIComponent(id)}/import/google-csv`, { csv }),
+    // A .vcf file, keyed by the vCard UID so a re-import updates instead of duplicating.
+    importVCard: (id: string, vcard: string) => request('POST', `/contacts/address-books/${encodeURIComponent(id)}/import/vcard`, { vcard }),
     exportUrl: (id: string, format: string) =>`${BASE}/contacts/address-books/${encodeURIComponent(id)}/export?format=${encodeURIComponent(format)}`,
+  },
+  // Google People pull: status is safe for any user, sync is idempotent per cursor.
+  googleContacts: {
+    status: () => request('GET', '/contacts/providers/google/status'),
+    sync: () => request('POST', '/contacts/providers/google/sync'),
+  },
+  // The same pair for the Microsoft Graph connector; the providers are independent.
+  microsoftContacts: {
+    status: () => request('GET', '/contacts/providers/microsoft/status'),
+    sync: () => request('POST', '/contacts/providers/microsoft/sync'),
   },
 
   // CardDAV contact sync (Nextcloud etc.)
@@ -387,14 +494,15 @@ export const api = {
     status:     ()     => request('GET',    '/carddav'),
     connect:    (data: unknown) => request('POST',   '/carddav/connect', data),
     update:     (data: unknown) => request('PATCH',  '/carddav', data),
-    sync:       ()     => request('POST',   '/carddav/sync'),
-    disconnect: ()     => request('DELETE', '/carddav'),
+    sync:       (sourceId?: string) => request('POST', '/carddav/sync', sourceId ? { sourceId } : undefined),
+    disconnect: (sourceId?: string) => request('DELETE', '/carddav', sourceId ? { sourceId } : undefined),
   },
 
   // DAV Hub — dedicated, revocable app passwords for CardDAV/CalDAV clients.
   davCredentials: {
     list:   () => request('GET', '/dav-credentials'),
-    create: (label: string) => request('POST', '/dav-credentials', { label }),
+    // The mode is this device password's ceiling; it can only narrow a collection.
+    create: (label: string, maxDavMode: 'read_only' | 'read_write' = 'read_write') => request('POST', '/dav-credentials', { label, maxDavMode }),
     revoke: (id: string) => request('DELETE', `/dav-credentials/${id}`),
   },
 
@@ -404,6 +512,7 @@ export const api = {
     addInvitation: (id: string, calendarId: string) => request('POST', `/calendar/invitations/${encodeURIComponent(id)}`, { calendarId }),
     removeInvitation: (id: string) => request('DELETE', `/calendar/invitations/${encodeURIComponent(id)}`),
     listCalendars: ({ signal }: { signal?: AbortSignal } = {}) => request('GET', '/calendar/calendars', undefined, undefined, { signal }),
+    createCalendar: (data: { name: string; color: string; displayVisible: boolean }) => request('POST', '/calendar/calendars', data),
     updateCalendar: (id: string, data: unknown) => request('PATCH', `/calendar/calendars/${encodeURIComponent(id)}`, data),
     deleteCalendar: (id: string, confirmName: string) => request('DELETE', `/calendar/calendars/${encodeURIComponent(id)}`, { confirmName }),
     // Reads accept an AbortSignal so a superseded range or an unmounting page can
@@ -415,6 +524,9 @@ export const api = {
       return request('GET', `/calendar/events?${params}`, undefined, undefined, { signal });
     },
     createEvent: (data: CalendarEventPayload, idempotencyKey: string | undefined = undefined) => request('POST', '/calendar/events', data, idempotencyKey ? { 'X-Idempotency-Key': idempotencyKey } : undefined),
+    // One event's full stored representation, including the master recurrence rule
+    // the list rows do not carry. Used by the editor to open the whole series.
+    getEvent: (id: string, { signal }: { signal?: AbortSignal } = {}) => request('GET', `/calendar/events/${encodeURIComponent(id)}`, undefined, undefined, { signal }),
     updateEvent: (id: string, data: CalendarEventPayload, idempotencyKey: string | undefined = undefined) => request('PATCH', `/calendar/events/${id}${data.recurrenceId ? '/occurrence' : ''}`, data, idempotencyKey ? { 'X-Idempotency-Key': idempotencyKey } : undefined),
     getCancellationDelivery: (id: string, { signal }: { signal?: AbortSignal } = {}) => request('GET', `/calendar/events/${encodeURIComponent(id)}/cancellation-delivery`, undefined, undefined, { signal }),
     retryCancellationDelivery: (id: string) => request('POST', `/calendar/events/${encodeURIComponent(id)}/cancellation-delivery/retry`),
@@ -423,6 +535,26 @@ export const api = {
     // which is also the path that notifies invited attendees.
     deleteEvent: (id: string, calendarId: string, recurrenceId: string | null | undefined = undefined, scope: string | null | undefined = undefined) =>recurrenceId ? request('DELETE', `/calendar/events/${encodeURIComponent(id)}/occurrence`, { calendarId, recurrenceId, ...(scope ? { scope } : {}) }) : request('DELETE', `/calendar/events/${encodeURIComponent(id)}?calendarId=${encodeURIComponent(calendarId)}`),
     listSources: () => request('GET', '/calendar/sources'),
+    presentation: () => request('GET', '/calendar/presentation'),
+    updateSourcePresentation: (id: string, collapsed: boolean) => request('PATCH', `/calendar/presentation/sources/${encodeURIComponent(id)}`, { collapsed }),
+    updateCalendarPresentation: (id: string, sidebarHidden: boolean) => request('PATCH', `/calendar/presentation/calendars/${encodeURIComponent(id)}`, { sidebarHidden }),
+    updateCalendarColorOverride: (id: string, colorOverride: string | null) => request('PATCH', `/calendar/presentation/calendars/${encodeURIComponent(id)}`, { colorOverride }),
+    // A local .ics import into one calendar; keyed by UID server-side.
+    importIcs: (id: string, ics: string) => request('POST', `/calendar/calendars/${encodeURIComponent(id)}/import/ics`, { ics }),
+    // Google Calendar pull: status is safe for any user, sync is idempotent per cursor.
+    providerCalendars: {
+      status: (provider: 'google' | 'microsoft') => request('GET', `/calendar/providers/${provider}/status`),
+      sync: (provider: 'google' | 'microsoft') => request('POST', `/calendar/providers/${provider}/sync`),
+    },
+    // Compatibility aliases; new source-management UI uses providerCalendars.
+    googleCalendars: {
+      status: () => request('GET', '/calendar/providers/google/status'),
+      sync: () => request('POST', '/calendar/providers/google/sync'),
+    },
+    microsoftCalendars: {
+      status: () => request('GET', '/calendar/providers/microsoft/status'),
+      sync: () => request('POST', '/calendar/providers/microsoft/sync'),
+    },
     createSource: (data: unknown) => request('POST', '/calendar/sources', data),
     updateSource: (id: string, data: unknown) => request('PATCH', `/calendar/sources/${encodeURIComponent(id)}`, data),
     syncSource: (id: string) => request('POST', `/calendar/sources/${encodeURIComponent(id)}/sync`),
@@ -455,8 +587,12 @@ export const api = {
 
   // Drafts
   saveDraft:   (data: unknown)              => request('POST',   '/mail/draft', data),
-  deleteDraft: (accountId: string, uid: number, folder: string, uidValidity: number) =>
-    request('DELETE', `/mail/draft/${uid}?accountId=${encodeURIComponent(accountId)}&folder=${encodeURIComponent(folder)}&uidValidity=${encodeURIComponent(uidValidity)}`),
+  // `uidValidity` is the IMAP guard on the draft's identity. A provider-native draft has none — its
+  // identity is the provider's own id, held server-side — so the parameter is omitted rather than sent
+  // as a placeholder the server would have to ignore.
+  deleteDraft: (accountId: string, uid: number, folder: string, uidValidity: number | null) =>
+    request('DELETE', `/mail/draft/${uid}?accountId=${encodeURIComponent(accountId)}&folder=${encodeURIComponent(folder)}`
+      + (uidValidity != null ? `&uidValidity=${encodeURIComponent(uidValidity)}` : '')),
 
   // Block List
   getBlockList:          ()      => request('GET',    '/block-list'),

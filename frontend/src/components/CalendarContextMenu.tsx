@@ -19,7 +19,7 @@ export default function CalendarContextMenu({ x, y, event, isMobile = false, onE
   useBackLayer(true, onClose, 4000);
   const onCloseRef = useRef(onClose);
   const [position, setPosition] = useState({ x, y });
-  const writable = event.source === 'local' && !event.read_only;
+  const writable = !event.read_only;
   const restoreFocus = useCallback(() => requestAnimationFrame(() => {
     if (triggerRef) {
       const trigger = triggerRef.current;

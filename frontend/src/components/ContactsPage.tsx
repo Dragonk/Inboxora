@@ -1,8 +1,11 @@
+import BookSelectionPanel from './accountUi/BookSelectionPanel.tsx';
+import useBookPresentation from './accountUi/useBookPresentation.ts';
+import { openSettings } from './accountUi/navigation.ts';
 import MobileFloatingAction from './MobileFloatingAction.tsx';
 import { contactDateLabel, formatContactDate } from '../utils/contactDateLabels.ts';
 import { useBackLayer } from '../hooks/useBackNavigation.ts';
 import { intlLocale } from '../utils/intlLocale.ts';
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { api } from '../utils/api.ts';
@@ -18,6 +21,10 @@ import { safeHttpUrl } from '../utils/contactLinks.ts';
 import type { CSSProperties } from 'react';
 import type { StoreState } from '../store/index.ts';
 import { toAppError } from '../utils/errors.ts';
+import { providerFailureKey } from '../utils/providerFailure.ts';
+import { providerConnectorSummary } from '../utils/providerSyncSummary.ts';
+import { accountContactsSyncMessage, initialContactTarget, providerSyncAccount, writableContactTarget, type AccountContactsSyncResponse } from './contactsManagementModel.ts';
+import ContactsBooksManager from './ContactsBooksManager.tsx';
 
 // Deterministic avatar color from a string
 function avatarColor(str: string): string {
@@ -147,32 +154,99 @@ interface ContactRow {
 }
 
 /** An address book as the contacts API returns it. */
-interface AddressBookRow { id: string; name?: string | null; [key: string]: unknown }
+interface AddressBookRow {
+  id: string;
+  name?: string | null;
+  /**
+   * The pulled collection this book belongs to, when it has one, and the server's verdict on whether the
+   * book currently accepts a write. Both come from the same capability model the calendars use, so the
+   * write-back switch is addressed and labelled the same way in both places.
+   */
+  collection_id?: string | null;
+  connection_id?: string | null;
+  provider?: 'google' | 'microsoft' | null;
+  account_id?: string | null;
+  account_email?: string | null;
+  account_name?: string | null;
+  dav_source_id?: string | null;
+  source_label?: string | null;
+  source_url?: string | null;
+  source_username?: string | null;
+  source_connection_id?: string | null;
+  contact_count?: number | null;
+  read_only?: boolean;
+  source?: string | null;
+  visible?: boolean;
+  [key: string]: unknown;
+}
 
 /** The address-book name dialog: null when closed, otherwise the mode and the value
  * being edited. A real dialog rather than window.prompt, so naming a book looks like
  * the rest of the app and can show the server's validation error in place. */
+/** The per-address-book DAV sharing mode. */
+type AddressBookDavMode = 'off' | 'read_only' | 'read_write';
+
 type BookDialogState =
   | { mode: 'create'; id: null; name: string }
-  | { mode: 'rename'; id: string; name: string };
+  | { mode: 'rename'; id: string; name: string; davMode: AddressBookDavMode; davEditable: boolean };
+
+function addressBookDavModeOf(value: unknown): AddressBookDavMode {
+  return value === 'off' || value === 'read_only' || value === 'read_write' ? value : 'read_write';
+}
+
+/** The provider contact status the sync controls read (no credential is exposed). */
+interface ProviderContactsStatus {
+  configured?: boolean;
+  connected?: boolean;
+  connections?: number;
+  books?: Array<{ addressBookId: string; contactCount?: number; lastSyncedAt?: string | null; lastErrorCode?: string | null; lastErrorAt?: string | null }>;
+}
 
 
-export default function ContactsPage({ isActive = true }) {
+export default function ContactsPage({ isActive = true, settingsOnly = false, settingsSection = 'accounts' }: { isActive?: boolean; settingsOnly?: boolean; settingsSection?: 'accounts' | 'resources' | 'import' }) {
   const { t } = useTranslation();
-  const { showContacts } = useStore();
+  const { showContacts, authEpoch } = useStore();
+  const bookLoadGeneration = useRef(0);
+  useEffect(() => () => { bookLoadGeneration.current++; }, [authEpoch]);
+  const openBookSettings = () => { setBooksOpen(false); openSettings({ module: 'contacts', section: 'accounts' }); };
   const phone = useMobile();
   const [booksOpen, setBooksOpen] = useState(false);
+  // The manager replaces the old `⋯` menu: one panel that shows which book every action applies to.
+  const [booksManagerOpen, setBooksManagerOpen] = useState(settingsOnly);
+  const [deletingBook, setDeletingBook] = useState(false);
+  const [bookDeleteError, setBookDeleteError] = useState<string | null>(null);
+  const [davBusy, setDavBusy] = useState(false);
   // The address-book name dialog: null when closed, otherwise the mode and the value
   // being edited. A real dialog rather than window.prompt, so naming a book looks like
   // the rest of the app and can show the server's validation error in place.
   const [bookDialog, setBookDialog] = useState<BookDialogState | null>(null);
   const [bookSaving, setBookSaving] = useState(false);
+  const [writingBack, setWritingBack] = useState(false);
   const [bookError, setBookError] = useState<string | null>(null);
+  // The provider contact pulls: `connected` decides whether a sync action is offered,
+  // and the notice reports what the last run of either provider changed.
+  const [googleContacts, setGoogleContacts] = useState<ProviderContactsStatus | null>(null);
+  const [microsoftContacts, setMicrosoftContacts] = useState<ProviderContactsStatus | null>(null);
+  const [providerSyncing, setProviderSyncing] = useState<'google' | 'microsoft' | 'dav' | null>(null);
+  const [providerNotice, setProviderNotice] = useState<{ provider: 'google' | 'microsoft' | 'dav'; message: string } | null>(null);
+  /** The CardDAV source's own state, so a DAV book shows its real last sync and offers its own action (DAV-05). */
+  const [davStatus, setDavStatus] = useState<{ connected?: boolean; lastSyncAt?: string | null; errorCode?: string | null } | null>(null);
+  // What the last file import added, so the user gets a confirmation instead of a
+  // silent list refresh.
+  const [importNotice, setImportNotice] = useState('');
   const isMobile = useCompactLayout();
 
   const [contacts, setContacts]     = useState<ContactRow[]>([]);
   const [addressBooks, setAddressBooks] = useState<AddressBookRow[]>([]);
+  // Display selection is intentionally independent from the write target. An empty array is
+  // an explicit empty selection (zero results), never an alias for "all visible".
+  const [booksLoaded, setBooksLoaded] = useState(false);
+  const bookPresentation = useBookPresentation(addressBooks, booksLoaded, !settingsOnly);
+  const selectedAddressBookIds = bookPresentation.selectedIds;
   const [selectedAddressBookId, setSelectedAddressBookId] = useState('');
+  // Creating has its own target so changing the list filter cannot silently
+  // redirect a contact while the form is open.
+  const [newAddressBookId, setNewAddressBookId] = useState('');
   const [total, setTotal]           = useState(0);
   const [loading, setLoading]       = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -192,6 +266,7 @@ export default function ContactsPage({ isActive = true }) {
   const selectedRowIdRef            = useRef<string | null>(null);
   const mobileBackButtonRef         = useRef<HTMLButtonElement | null>(null);
   const importInputRef              = useRef<HTMLInputElement | null>(null);
+  const importVCardRef              = useRef<HTMLInputElement | null>(null);
   const contactSelectionRequestRef  = useRef(0);
   const listResizeRef               = useRef<(() => void) | null>(null);
 
@@ -240,18 +315,55 @@ export default function ContactsPage({ isActive = true }) {
   const loadingMoreRef = useRef(false);
   const searchRef      = useRef('');
   const listRequestRef = useRef(0);
+  const selectedBookKey = selectedAddressBookIds.slice().sort().join(',');
+  const contactBookFilter = useMemo(() => ({ addressBookIds: selectedBookKey ? selectedBookKey.split(',') : [] }), [selectedBookKey]);
+  useEffect(() => {
+    if (!editing && !showNew) contactSelectionRequestRef.current += 1;
+  }, [selectedBookKey, editing, showNew]);
+  useEffect(() => {
+    setContacts([]); setTotal(0); contactsRef.current = []; totalRef.current = 0; setLoadingMore(false);
+  }, [selectedBookKey]);
+  useEffect(() => {
+    const visible = new Set(selectedBookKey ? selectedBookKey.split(',') : []);
+    // Do not discard an in-progress editor when its source is filtered out.
+    // A read-only preview outside the current result set must, however, disappear.
+    if (!editing && !showNew && selected && typeof selected.address_book_id === 'string' && !visible.has(selected.address_book_id)) {
+      setSelected(null); if (isMobile) setMobilePanel('list');
+    }
+  }, [selectedBookKey, editing, showNew, selected, isMobile]);
+  useEffect(() => { setBooksLoaded(false); setBooksOpen(false); setSelected(null); }, [authEpoch]);
 
   useEffect(() => { contactsRef.current = contacts; }, [contacts]);
+  // A previous book's import confirmation must not follow the user to the next one:
+  // it is rendered outside the address-book menu, so a stale one would be visible.
+  useEffect(() => { setImportNotice(''); }, [selectedAddressBookId]);
   useEffect(() => { totalRef.current = total; }, [total]);
 
   const loadAddressBooks = useCallback(async () => {
-    const result = await api.addressBooks.list();
+    if (useStore.getState().authEpoch !== authEpoch) return;
+    const generation = ++bookLoadGeneration.current;
+    const [books, google, microsoft, dav] = await Promise.all([
+      api.addressBooks.list(),
+      // A server without a provider adapter must not break the address books.
+      api.googleContacts.status().catch(() => null),
+      api.microsoftContacts.status().catch(() => null),
+      // DAV-05: a CardDAV book needs its own state and action too, not only the provider ones.
+      api.carddav.status().catch(() => null),
+    ]);
+    if (generation !== bookLoadGeneration.current || useStore.getState().authEpoch !== authEpoch) return;
     // Older servers and test fixtures may not expose address books yet. Contacts
     // must remain usable while the client and API roll out independently.
-    setAddressBooks(Array.isArray(result.addressBooks) ? result.addressBooks : []);
-  }, []);
+    const nextBooks: AddressBookRow[] = Array.isArray(books.addressBooks) ? books.addressBooks as AddressBookRow[] : [];
+    setAddressBooks(nextBooks);
+    setBooksLoaded(true);
+    setGoogleContacts(google ?? null);
+    setMicrosoftContacts(microsoft ?? null);
+    setDavStatus(dav ?? null);
+    if (settingsOnly) window.dispatchEvent(new Event('inboxora:contact-books-changed'));
+  }, [settingsOnly, authEpoch]);
 
   const load = useCallback(async (q = '') => {
+    if (settingsOnly || !bookPresentation.ready || useStore.getState().authEpoch !== authEpoch) return;
     const requestId = ++listRequestRef.current;
     loadingMoreRef.current = true;
     setLoadingMore(false);
@@ -259,16 +371,26 @@ export default function ContactsPage({ isActive = true }) {
     setListError(null);
     searchRef.current = q;
     try {
-      const res = await api.getContacts({ q, limit: PAGE_SIZE, offset: 0, addressBookId: selectedAddressBookId || undefined });
-      if (requestId !== listRequestRef.current) return;
+      const res = await api.getContacts({ q, limit: PAGE_SIZE, offset: 0, ...contactBookFilter });
+      if (requestId !== listRequestRef.current || useStore.getState().authEpoch !== authEpoch) return;
       setContacts(res.contacts);
       setTotal(res.total);
     } catch (err) {
-      if (requestId === listRequestRef.current) setListError(toAppError(err).message);
+      if (requestId === listRequestRef.current && useStore.getState().authEpoch === authEpoch) setListError(toAppError(err).message);
     } finally {
-      if (requestId === listRequestRef.current) { setLoading(false); loadingMoreRef.current = false; }
+      if (requestId === listRequestRef.current && useStore.getState().authEpoch === authEpoch) { setLoading(false); loadingMoreRef.current = false; }
     }
-  }, [selectedAddressBookId]);
+  }, [contactBookFilter, bookPresentation.ready, settingsOnly, authEpoch]);
+
+  useEffect(() => {
+    if (settingsOnly) return;
+    const refreshBooks = () => {
+      void loadAddressBooks().catch(err => setListError(toAppError(err).message));
+      void load(searchRef.current);
+    };
+    window.addEventListener('inboxora:contact-books-changed', refreshBooks);
+    return () => window.removeEventListener('inboxora:contact-books-changed', refreshBooks);
+  }, [settingsOnly, loadAddressBooks, load]);
 
   useEffect(() => {
     clearTimeout(searchTimer.current);
@@ -290,7 +412,7 @@ export default function ContactsPage({ isActive = true }) {
   // Both naming flows go through one dialog. Creating and renaming differ only in which
   // request is sent, so they share the field, the validation message and the keyboard flow.
   const openCreateBook = () => { setBookError(null); setBookDialog({ mode: 'create', id: null, name: '' }); };
-  const openRenameBook = (book: { id: string; name?: string | null }) => { setBookError(null); setBookDialog({ mode: 'rename', id: book.id, name: book.name ?? '' }); };
+  const openRenameBook = (book: { id: string; name?: string | null; source?: string | null; dav_mode?: unknown }) => { setBookError(null); setBookDialog({ mode: 'rename', id: book.id, name: book.name ?? '', davMode: addressBookDavModeOf(book.dav_mode), davEditable: (book.source ?? 'local') === 'local' }); };
   const submitBookDialog = async () => {
     if (!bookDialog || bookSaving) return;
     const name = bookDialog.name.trim();
@@ -303,7 +425,8 @@ export default function ContactsPage({ isActive = true }) {
         setSelectedAddressBookId(book.id);
       } else {
         // The renamed book stays selected, so the list does not jump to another book.
-        await api.addressBooks.update(bookDialog.id, { name });
+        // The DAV mode only accompanies a local book; an imported one keeps its policy.
+        await api.addressBooks.update(bookDialog.id, bookDialog.davEditable ? { name, davMode: bookDialog.davMode } : { name });
         await loadAddressBooks();
       }
       setBookDialog(null);
@@ -320,11 +443,134 @@ export default function ContactsPage({ isActive = true }) {
     } catch (err) { setListError(toAppError(err).message); }
   };
 
+  /**
+   * Enable or disable write-back for the selected pulled address book.
+   *
+   * The switch is offered only for a book that has a collection, and the server decides whether the change
+   * is allowed: a book whose source reports it as read-only answers `SOURCE_READ_ONLY` and the message is
+   * shown rather than the row being flipped locally.
+   */
+  const toggleAddressBookWriteBack = async () => {
+    const book = addressBooks.find(item => item.id === selectedAddressBookId);
+    if (!book?.collection_id) return;
+    setWritingBack(true);
+    try {
+      await api.setCollectionWriteBack(String(book.collection_id), book.read_only !== false);
+      await loadAddressBooks();
+    } catch (err) { setListError(toAppError(err).message); }
+    finally { setWritingBack(false); }
+  };
+
+  /**
+   * Delete a local address book.
+   *
+   * The last local book cannot be deleted, and a provider collection never can: it is the provider's copy of
+   * something that exists elsewhere, so deleting it here would either fail or silently stop syncing it. The
+   * server answers the same way; the panel simply does not offer what would be refused.
+   */
+  const deleteAddressBook = async () => {
+    const book = addressBooks.find(item => item.id === selectedAddressBookId);
+    const localBooks = addressBooks.filter(item => (item.source ?? 'local') === 'local');
+    if (!book || (book.source ?? 'local') !== 'local' || localBooks.length <= 1) return;
+    setDeletingBook(true);
+    setBookDeleteError(null);
+    try {
+      await api.addressBooks.remove(book.id);
+      setSelectedAddressBookId('');
+      setBooksManagerOpen(false);
+      await loadAddressBooks();
+      await load(searchRef.current);
+    } catch (err) { setBookDeleteError(toAppError(err).message); }
+    finally { setDeletingBook(false); }
+  };
+
+  /** The DAV sharing mode is a property of a local book, and the server enforces that. */
+  const changeAddressBookDavMode = async (mode: AddressBookDavMode) => {
+    const book = addressBooks.find(item => item.id === selectedAddressBookId);
+    if (!book || (book.source ?? 'local') !== 'local') return;
+    setDavBusy(true);
+    try {
+      await api.addressBooks.update(book.id, { davMode: mode });
+      await loadAddressBooks();
+    } catch (err) { setListError(toAppError(err).message); }
+    finally { setDavBusy(false); }
+  };
+
+  const operationScope = useRef({ active: true });
+  useEffect(() => {
+    const scope = { active: true };
+    operationScope.current = scope;
+    setProviderSyncing(null);
+    setProviderNotice(null);
+    setSaving(false);
+    return () => { scope.active = false; };
+  }, [authEpoch, selectedAddressBookId]);
+  const currentOperation = () => {
+    const scope = operationScope.current;
+    return () => scope.active && useStore.getState().authEpoch === authEpoch;
+  };
+
+  const runProviderContactsSync = async (provider: 'google' | 'microsoft' | 'dav') => {
+    if (providerSyncing) return;
+    const selectedProviderBook = addressBooks.find(book => book.id === selectedAddressBookId);
+    const accountId = provider !== 'dav' ? providerSyncAccount(selectedProviderBook, provider) : null;
+    if (provider !== 'dav' && !accountId) return;
+    const current = currentOperation();
+    setProviderSyncing(provider);
+    setProviderNotice(null);
+    setListError(null);
+    try {
+      if (provider === 'dav') {
+        // DAV-05: the CardDAV source has its own sync, and the selected DAV book must be able to start it.
+        const result = await api.carddav.sync() as { ok?: boolean; error?: string };
+        if (!current()) return;
+        setProviderNotice({
+          provider: 'dav',
+          message: result?.ok === false && result.error
+            ? result.error
+            : t('admin.integrations.carddav.lastSync', { when: new Date().toLocaleString() }),
+        });
+        await loadAddressBooks();
+        if (!current()) return;
+        await load(searchRef.current);
+        return;
+      }
+      // Missing ownership is never permission to synchronise every provider account.
+      if (!accountId) return;
+      const result = await api.syncAccountProviderFeature(accountId, 'contacts') as AccountContactsSyncResponse;
+      if (!current()) return;
+      setProviderNotice({ provider, message: accountContactsSyncMessage(result, provider, t) });
+      if (result.state === 'success') {
+        window.dispatchEvent(new CustomEvent('inboxora:provider-sync-completed', { detail: { accountId } }));
+      }
+      await loadAddressBooks();
+      if (!current()) return;
+      await load(searchRef.current);
+    } catch (err) {
+      if (current()) setListError(toAppError(err).message);
+    } finally {
+      if (current()) setProviderSyncing(null);
+    }
+  };
+
+  const importVCardFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file || !selectedAddressBookId) return;
+    try {
+      const result = await api.addressBooks.importVCard(selectedAddressBookId, await file.text()) as { imported?: number };
+      setImportNotice(t('contacts.addressBooks.importDone', { count: result?.imported ?? 0 }));
+      await load(search);
+      await loadAddressBooks();
+    } catch (err) { setListError(toAppError(err).message); }
+    finally { event.target.value = ''; }
+  };
+
   const importGoogleCsv = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file || !selectedAddressBookId) return;
     try {
-      await api.addressBooks.importGoogleCsv(selectedAddressBookId, await file.text());
+      const result = await api.addressBooks.importGoogleCsv(selectedAddressBookId, await file.text()) as { imported?: number };
+      setImportNotice(t('contacts.addressBooks.importDone', { count: result?.imported ?? 0 }));
       await load(search);
       await loadAddressBooks();
     } catch (err) { setListError(toAppError(err).message); }
@@ -340,7 +586,7 @@ export default function ContactsPage({ isActive = true }) {
     const q = searchRef.current;
     const offset = contactsRef.current.length;
     const requestId = listRequestRef.current;
-    api.getContacts({ q, limit: PAGE_SIZE, offset, addressBookId: selectedAddressBookId || undefined })
+    api.getContacts({ q, limit: PAGE_SIZE, offset, ...contactBookFilter })
       .then(res => {
         if (requestId !== listRequestRef.current) return;
         setContacts(prev => [...prev, ...res.contacts]);
@@ -352,7 +598,7 @@ export default function ContactsPage({ isActive = true }) {
         loadingMoreRef.current = false;
         setLoadingMore(false);
       });
-  }, [selectedAddressBookId]);
+  }, [contactBookFilter]);
 
   const selectContact = async (c: { id: string }) => {
     setError(null);
@@ -374,7 +620,13 @@ export default function ContactsPage({ isActive = true }) {
   };
 
   const startNew = () => {
+    const target = initialContactTarget(addressBooks, selectedAddressBookId);
+    if (!target) {
+      setError(t('contacts.booksManager.readOnly'));
+      return;
+    }
     contactSelectionRequestRef.current += 1;
+    setNewAddressBookId(target.id);
     setSelected(null);
     setForm(emptyContact());
     setEditing(false);
@@ -440,6 +692,8 @@ export default function ContactsPage({ isActive = true }) {
   useBackLayer(showContacts && confirmDelete, () => setConfirmDelete(false), 9100);
 
   const saveContact = async () => {
+    if (saving) return;
+    const current = currentOperation();
     setSaving(true);
     setError(null);
     try {
@@ -466,22 +720,34 @@ export default function ContactsPage({ isActive = true }) {
       };
       let saved;
       if (showNew) {
-        saved = await api.createContact({ ...payload, addressBookId: selectedAddressBookId || undefined });
+        // Re-read capabilities at save time. Never silently reroute a vanished/read-only target.
+        const latest = await api.addressBooks.list();
+        if (!current()) return;
+        const books = Array.isArray(latest.addressBooks) ? latest.addressBooks : [];
+        setAddressBooks(books);
+        if (!writableContactTarget(books, newAddressBookId)) {
+          setError(t('contacts.booksManager.readOnly'));
+          return;
+        }
+        saved = await api.createContact({ ...payload, addressBookId: newAddressBookId });
       } else {
         if (!selected) return;
         saved = await api.updateContact(selected.id, payload);
       }
       // Reload list and re-fetch the saved contact before touching UI state,
       // so that any error here is still shown inside the open form.
+      if (!current()) return;
       await load(search);
+      if (!current()) return;
       const updated = await api.getContact(saved.id);
+      if (!current()) return;
       setShowNew(false);
       setEditing(false);
       setSelected(updated);
     } catch (err) {
-      setError(toAppError(err).message);
+      if (current()) setError(toAppError(err).message);
     } finally {
-      setSaving(false);
+      if (current()) setSaving(false);
     }
   };
 
@@ -547,32 +813,135 @@ export default function ContactsPage({ isActive = true }) {
   });
   const setCategories = (value: string) => setForm(f => ({ ...f, categories: value.split(',').map(category => category.trim()).filter(Boolean) }));
 
+  const googleSummary = providerConnectorSummary(googleContacts?.books, {
+    id: book => book.addressBookId,
+    count: book => book.contactCount ?? 0,
+    failureKey: code => providerFailureKey(code) ?? 'contacts.addressBooks.lastSyncFailed',
+  });
+  const microsoftSummary = providerConnectorSummary(microsoftContacts?.books, {
+    id: book => book.addressBookId,
+    count: book => book.contactCount ?? 0,
+    failureKey: code => providerFailureKey(code) ?? 'contacts.addressBooks.lastSyncFailed',
+  });
   const selectedBook = addressBooks.find(book => book.id === selectedAddressBookId);
   const bookControls = <div className="contacts-book-controls">
-    <div className="contacts-books" role="group" aria-label={t('contacts.addressBooks.label')}>
-      <button type="button" aria-pressed={!selectedAddressBookId} onClick={() => { setSelectedAddressBookId(''); setBooksOpen(false); }}>{t('contacts.addressBooks.allVisible')}</button>
-      {addressBooks.map(book => <button type="button" key={book.id} aria-pressed={selectedAddressBookId === book.id} onClick={() => { setSelectedAddressBookId(book.id); setBooksOpen(false); }} title={book.name ?? undefined}>{book.visible ? '' : '○ '}{book.name}</button>)}
-    </div>
-    <details className="contacts-book-menu">
-      <summary aria-label={t('contacts.addressBooks.label')}>⋯</summary>
-      <div className="contacts-book-actions">
-        <select data-testid="contacts-address-book-select" aria-label={t('contacts.addressBooks.label')} value={selectedAddressBookId} onChange={ (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => setSelectedAddressBookId(e.target.value)} style={sharedInputStyle}>
-          <option value="">{t('contacts.addressBooks.allVisible')}</option>
-          {addressBooks.map(book => <option key={book.id} value={book.id}>{book.visible ? '' : '○ '}{book.name}</option>)}
-        </select>
-        <Button onClick={openCreateBook}>{t('contacts.addressBooks.create')}</Button>
-        {selectedAddressBookId && <>
-          {selectedBook?.source === 'local' && <Button data-testid="contacts-address-book-rename" onClick={() => openRenameBook(selectedBook)}>{t('contacts.addressBooks.rename')}</Button>}
-          <Button onClick={toggleAddressBookVisibility}>{t(selectedBook?.visible ? 'contacts.addressBooks.hide' : 'contacts.addressBooks.show')}</Button>
-          {selectedBook?.source === 'local' && <Button onClick={() => importInputRef.current?.click()}>{t('contacts.addressBooks.importGoogle')}</Button>}
-          <a className="ui-button" href={api.addressBooks.exportUrl(selectedAddressBookId, 'google-csv')}>{t('contacts.addressBooks.exportGoogle')}</a>
-          <a className="ui-button" href={api.addressBooks.exportUrl(selectedAddressBookId, 'outlook-csv')}>{t('contacts.addressBooks.exportOutlook')}</a>
-          <a className="ui-button" href={api.addressBooks.exportUrl(selectedAddressBookId, 'vcard')}>vCard</a>
-        </>}
-      </div>
-    </details>
+    <BookSelectionPanel books={addressBooks} selected={selectedAddressBookIds} onChange={bookPresentation.setSelected}
+      collapsed={bookPresentation.collapsed} onCollapse={bookPresentation.setCollapsed}
+      open={booksOpen} onOpen={() => setBooksOpen(true)} onClose={() => setBooksOpen(false)} hideTrigger={phone}
+      loading={!bookPresentation.ready} failed={bookPresentation.failed}/>
+    {/* One entry point into the manager: a compact icon, because a labelled button competed with the book
+        strip for the little room the header has. The panel it opens is the full manager. */}
+    <button
+      type="button"
+      data-testid="contacts-manage-books"
+      aria-label={t('contacts.booksManager.manage')}
+      title={t('contacts.booksManager.manage')}
+      onClick={openBookSettings}
+      style={{
+        flexShrink: 0,
+        width: isMobile ? 44 : 34,
+        height: isMobile ? 44 : 34,
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+        background: 'var(--bg-elevated)', border: '1px solid var(--border)',
+        borderRadius: 8, color: 'var(--text-secondary)', cursor: 'pointer', padding: 0,
+      }}
+    >
+      <svg width={isMobile ? 20 : 17} height={isMobile ? 20 : 17} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden="true">
+        {/* An address book with a bookmark, which is what the panel manages. */}
+        <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H19v15H6.5A2.5 2.5 0 0 0 4 20.5z" />
+        <path d="M4 20.5A2.5 2.5 0 0 1 6.5 18H19v3H6.5" />
+        <path d="M12 3v7l2.5-1.5L17 10V3" />
+      </svg>
+    </button>
     <input ref={importInputRef} type="file" accept=".csv,text/csv" onChange={importGoogleCsv} style={{ display: 'none' }} />
+    <input ref={importVCardRef} type="file" accept=".vcf,text/vcard" onChange={importVCardFile} style={{ display: 'none' }} />
+    {importNotice && <p role="status" data-testid="contacts-import-result" style={{ margin: '6px 0 0', fontSize: 12, color: 'var(--text-tertiary)' }}>{importNotice}</p>}
+    {providerNotice && <p role="status" data-testid={`contacts-${providerNotice.provider}-sync-result`} style={{ margin: '6px 0 0', fontSize: 12, color: 'var(--text-tertiary)' }}>{providerNotice.message}</p>}
   </div>;
+  const managerBooks = addressBooks.map(book => {
+    const source = book.source ?? 'unknown';
+    const providerForBook = source === 'google' ? 'google' : source === 'microsoft' ? 'microsoft' : null;
+    const providerRows = providerForBook === 'google' ? googleContacts?.books : providerForBook === 'microsoft' ? microsoftContacts?.books : null;
+    const row = providerRows?.find(candidate => candidate.addressBookId === book.id);
+    // DAV-05: a CardDAV book reports the source's own last sync rather than "never", and its failure code when
+    // the last run failed. The status is per source until DAV sources are separate connections (DAV-01).
+    const isDavBook = source === 'carddav' || source === 'dav';
+    const davSummary: { key: string | null; values: Record<string, string> } | null = isDavBook
+      ? davStatus?.errorCode
+        ? { key: providerFailureKey(davStatus.errorCode) ?? 'contacts.addressBooks.lastSyncFailed', values: {} }
+        : davStatus?.lastSyncAt
+          ? { key: 'admin.integrations.carddav.lastSync', values: { when: new Date(davStatus.lastSyncAt).toLocaleString() } }
+          : null
+      : null;
+    const summary = row
+      ? providerConnectorSummary([row], {
+          id: candidate => candidate.addressBookId,
+          count: candidate => candidate.contactCount ?? 0,
+          failureKey: code => providerFailureKey(code) ?? 'contacts.addressBooks.lastSyncFailed',
+        })
+      : davSummary;
+    return {
+      id: book.id,
+      name: book.name ?? '',
+      source,
+      visible: book.visible !== false,
+      readOnly: book.read_only !== false,
+      collectionId: book.collection_id ?? null,
+      accountLabel: typeof book.account_email === 'string' ? book.account_email : null,
+      accountId: book.account_id ?? null,
+      connectionId: book.connection_id ?? (typeof book.source_connection_id === 'string' ? book.source_connection_id : null),
+      davSourceId: typeof book.dav_source_id === 'string' ? book.dav_source_id : null,
+      sourceLabel: typeof book.source_label === 'string' ? book.source_label : null,
+      sourceUrl: typeof book.source_url === 'string' ? book.source_url : null,
+      sourceUsername: typeof book.source_username === 'string' ? book.source_username : null,
+      sourceAccess: typeof book.source_access === 'string' ? book.source_access : null,
+      davMode: addressBookDavModeOf(book.dav_mode),
+      accountName: typeof book.account_name === 'string' ? book.account_name : null,
+      canSyncProvider: providerForBook !== null && providerSyncAccount(book, providerForBook) !== null,
+      contactCount: typeof book.contact_count === 'number' ? book.contact_count : (row?.contactCount ?? null),
+      syncStatus: summary,
+    };
+  });
+  const booksManager = <ContactsBooksManager
+    loading={!booksLoaded}
+    open={settingsOnly || booksManagerOpen}
+    onClose={() => setBooksManagerOpen(false)}
+    books={managerBooks}
+    selectedBookId={selectedAddressBookId}
+    onSelectBook={setSelectedAddressBookId}
+    isMobile={isMobile}
+    t={t}
+    onCreate={openCreateBook}
+    onRename={book => openRenameBook(book)}
+    onToggleVisibility={toggleAddressBookVisibility}
+    onToggleWriteBack={toggleAddressBookWriteBack}
+    writingBack={writingBack}
+    canDelete
+    onDelete={deleteAddressBook}
+    deleting={deletingBook}
+    deleteError={bookDeleteError}
+    google={{ configured: !!googleContacts?.configured, connected: !!googleContacts?.connected }}
+    microsoft={{ configured: !!microsoftContacts?.configured, connected: !!microsoftContacts?.connected }}
+    syncing={providerSyncing}
+    onSync={runProviderContactsSync}
+    googleSummary={googleSummary}
+    microsoftSummary={microsoftSummary}
+    dav={{ configured: true, connected: davStatus?.connected === true }}
+    onDavChanged={async () => {
+      // DAV-01: connecting or synchronising a DAV source changes the books, so the list on screen is reloaded
+      // rather than left showing the state from before the action.
+      await loadAddressBooks();
+      await load(searchRef.current);
+    }}
+    onImportGoogleCsv={() => importInputRef.current?.click()}
+    onImportVCard={() => importVCardRef.current?.click()}
+    exportUrl={format => api.addressBooks.exportUrl(selectedAddressBookId, format)}
+    davMode={addressBookDavModeOf(selectedBook?.dav_mode)}
+    onDavModeChange={changeAddressBookDavMode}
+    davBusy={davBusy}
+    view={settingsSection}
+  />;
+
   // Rendered by both layouts: the address-book menu is shared, so its dialog must be too.
   const bookNameDialog = bookDialog && <Dialog
     title={t(bookDialog.mode === 'create' ? 'contacts.addressBooks.create' : 'contacts.addressBooks.renameTitle')}
@@ -599,6 +968,23 @@ export default function ContactsPage({ isActive = true }) {
           onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); submitBookDialog(); } }}
         />
       </label>
+      {/* DAV sharing is per address book, so a device password can never widen it. */}
+      {bookDialog.mode === 'rename' && bookDialog.davEditable && (
+        <>
+          <label>{t('calendar.davAccess')}
+            <select
+              data-testid="contacts-book-dav-mode"
+              value={bookDialog.davMode}
+              onChange={event => setBookDialog(current => current && current.mode === 'rename' ? { ...current, davMode: addressBookDavModeOf(event.target.value) } : current)}
+            >
+              <option value="off">{t('calendar.davAccessOff')}</option>
+              <option value="read_only">{t('calendar.davAccessReadOnly')}</option>
+              <option value="read_write">{t('calendar.davAccessReadWrite')}</option>
+            </select>
+          </label>
+          <p style={{ margin: 0, fontSize: 11, color: 'var(--text-tertiary)' }}>{t('contacts.addressBooks.davAccessHint')}</p>
+        </>
+      )}
     </div>
   </Dialog>;
   const searchControl = <div className="contacts-search">
@@ -738,6 +1124,14 @@ export default function ContactsPage({ isActive = true }) {
         </div>
       )}
       {inForm && (
+        <>
+          {showNew && <label data-testid="contacts-new-target" style={{ display: 'flex', gap: 8, alignItems: 'center', margin: '0 0 10px', color: 'var(--text-secondary)', fontSize: 13 }}>
+            {t('contacts.newTarget')}
+            <select value={newAddressBookId} disabled={saving} onChange={event => setNewAddressBookId(event.target.value)} style={{ maxWidth: 280 }}>
+              {!writableContactTarget(addressBooks, newAddressBookId) && <option value={newAddressBookId} disabled>{t('contacts.booksManager.readOnly')}</option>}
+              {addressBooks.filter(book => book.read_only !== true).map(book => <option key={book.id} value={book.id}>{book.name}{book.account_email ? ` · ${book.account_email}` : ''}</option>)}
+            </select>
+          </label>}
         <ContactForm
           key={showNew ? 'new' : selected?.id}
           form={form}
@@ -759,6 +1153,7 @@ export default function ContactsPage({ isActive = true }) {
           onCancel={cancelEdit}
           t={t}
         />
+        </>
       )}
       {selected && !inForm && (
         <ContactDetail
@@ -777,6 +1172,17 @@ export default function ContactsPage({ isActive = true }) {
     </>
   );
 
+  // The settings route is the sole book-management surface. It reuses this
+  // controller's operations without mounting the contact reader/list UI.
+  if (settingsOnly) return <section data-testid="contacts-settings">
+    {listError && <p role="alert" className="ui-alert">{listError}</p>}
+    {providerNotice && <p role="status">{providerNotice.message}</p>}
+    {importNotice && <p role="status">{importNotice}</p>}
+    <input ref={importInputRef} type="file" accept=".csv,text/csv" onChange={importGoogleCsv} hidden />
+    <input ref={importVCardRef} type="file" accept=".vcf,text/vcard" onChange={importVCardFile} hidden />
+    {booksManager}{bookNameDialog}
+  </section>;
+
   // ── Mobile layout ─────────────────────────────────────────────────────────
   if (isMobile) {
     const mobileHeaderTitle = mobilePanel === 'detail' && selected
@@ -791,7 +1197,7 @@ export default function ContactsPage({ isActive = true }) {
             <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m15 18-6-6 6-6"/></svg>
           </button> : undefined}
           title={mobileHeaderTitle}
-          subtitle={mobilePanel === 'detail' ? undefined : (selectedBook?.name || t('contacts.addressBooks.allVisible'))}
+          subtitle={mobilePanel === 'detail' ? undefined : t('accountUi.selectedOf', { selected: selectedAddressBookIds.length, total: addressBooks.filter(book => book.visible !== false).length })}
         >
           <HeaderAction icon="books" label={t('contacts.addressBooks.label')} data-testid="contacts-address-books" onClick={() => setBooksOpen(true)} />
           <HeaderAction icon="add" label={t('contacts.new')} data-testid="contacts-header-new" onClick={startNew} disabled={inForm} />
@@ -804,9 +1210,7 @@ export default function ContactsPage({ isActive = true }) {
           <HeaderAction icon="add" label={t('contacts.new')} onClick={startNew} disabled={inForm} />
         </div>}
         {mobilePanel === 'list' && <div className="contacts-list-header">{!phone && bookControls}{searchControl}</div>}
-        {phone && booksOpen && <Dialog title={t('contacts.addressBooks.label')} closeLabel={t('common.close')} onClose={() => setBooksOpen(false)} testId="contacts-books-dialog" className="contacts-books-dialog">
-          {bookControls}
-        </Dialog>}
+        {phone && bookControls}
         {bookNameDialog}
 
         {/* Content */}

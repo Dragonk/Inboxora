@@ -1,17 +1,50 @@
+import contactPresentation from './contactPresentation.js';
+import { parseBookFilter } from '../utils/contactBookFilter.js';
 import { Router } from 'express';
+import type { Response } from 'express';
 import type { VCardContact } from '../utils/vcard.ts';
 import { query, withTransaction } from '../services/db.js';
+import { collectionIsWritable } from '../services/providerAccess.js';
+import { ADDRESS_BOOK_PRESENTATION_SQL } from '../services/addressBookPresentation.js';
+import { providerIntegrationsEnabled, providerOperationalForSync } from '../services/providerSwitches.js';
+import { providerConnectionFeatureEnabled } from '../services/accountProviderFeatureSettings.js';
 import { requireAuth } from '../middleware/auth.js';
-import { generateVCard, mergeVCard, normalizeContactDateLabel, normalizeVCardDate, parseVCard } from '../utils/vcard.js';
+import { generateVCard, mergeVCard, normalizeContactDateLabel, normalizeVCardDate, parseVCard, splitVCards } from '../utils/vcard.js';
 import { chooseDefined, normalizeRichContactFields } from '../utils/contactFields.js';
 import { safeFetch } from '../services/safeFetch.js';
 import { contactsToGoogleCsv, contactsToOutlookCsv, contactsToVCard, parseGoogleCsv } from '../utils/contactTransfer.js';
 import crypto from 'crypto';
 import { queryInt, queryString, queryStringOr, routeParam, sessionUserId } from '../utils/query.js';
 import { toAppError } from '../utils/errors.js';
+import { googleConfigFromEnv, isGoogleConfigured, isMicrosoftBrowserFlowReady, isMicrosoftConfigured, microsoftConfigFromEnv } from '../services/providerAuthService.js';
+import { syncGoogleContacts } from '../services/providers/google/googleContactsSync.js';
+import { describeProviderSyncFailure, providerSyncPreflight } from '../services/providerSyncDiagnostics.js';
+import { GoogleApiError } from '../services/providers/google/googleApiClient.js';
+import { deleteCarddavContact, putCarddavContact } from '../services/providers/carddavWriteBack.js';
+import { davWriteBackHttpStatus, type DavWriteBackRouteResult } from '../services/providers/davWriteBack.js';
+import { syncGraphContacts } from '../services/providers/microsoft/graphContactsSync.js';
+import {
+  graphContactIdForLocalRow,
+  localUidForGraphContact,
+  recordGraphContactLink,
+  removeGraphContactLink,
+  resolveContactWriteTarget,
+  writeGraphContact,
+} from '../services/providerContactWrites.js';
+import {
+  googlePersonLinkForLocalRow,
+  localUidForGoogleContact,
+  recordGoogleContactLink,
+  removeGoogleContactLink,
+  resolveGoogleContactWriteTarget,
+  writeGoogleContact,
+} from '../services/providerGoogleWrites.js';
+import type { GoogleContactWriteTarget } from '../services/providerGoogleWrites.js';
+import { GraphApiError } from '../services/providers/microsoft/graphApiClient.js';
 
 const router = Router();
 router.use(requireAuth);
+router.use('/presentation', contactPresentation);
 
 function normalizeContactDate(value: unknown): string | null | undefined {
   if (value == null || value === '') return null;
@@ -97,7 +130,16 @@ async function defaultAddressBook(userId: string) {
   return r.rows[0].id;
 }
 
-// Bump the address book sync_token so CardDAV clients re-sync.
+/**
+ * Refresh the address book's `sync_token`, which CardDAV serves as the `getctag`.
+ *
+ * This does **not** notify collection-sync clients on its own: they compare the token the
+ * server advertises, `urn:inboxora:carddav:<book>:<version>`, and `sync_version` is bumped
+ * by the trigger on `contacts`. Both were verified against a real database — inserting a
+ * contact (what an import does per card) advances `sync_version` — so a reader should not
+ * rely on this call for change notification, nor remove the trigger believing this covers
+ * it. Kept because the getctag is what older clients poll.
+ */
 async function bumpSyncToken(addressBookId: string): Promise<void> {
   await query(
     `UPDATE address_books SET sync_token = gen_random_uuid()::text, updated_at = NOW()
@@ -111,20 +153,130 @@ function localBookName(value: unknown): string | null {
   return name.length >= 1 && name.length <= 120 ? name : null;
 }
 
-type AddressBookLookup = { book: { id: string; name?: string | null; source?: string | null; visible?: boolean | null } } | { error: string; status: number };
+type AddressBookLookup = { book: { id: string; name?: string | null; source?: string | null; visible?: boolean | null; source_access?: string | null; user_access?: string | null } } | { error: string; status: number };
 
 async function requireLocalAddressBook(userId: string, addressBookId: string): Promise<AddressBookLookup> {
-  const result = await query<{ id: string; name?: string | null; source?: string | null; visible?: boolean | null }>('SELECT id, name, source, visible FROM address_books WHERE id = $1 AND user_id = $2', [addressBookId, userId]);
+  // The collection row carries whether the origin permits writes and whether the user enabled them, so
+  // the guard is the capability model's answer rather than a comparison against the book's source.
+  const result = await query<{ id: string; name?: string | null; source?: string | null; visible?: boolean | null; source_access?: string | null; user_access?: string | null }>(
+    `SELECT ab.id, ab.name, ab.source, ab.visible, ic.source_access, ic.user_access
+       FROM address_books ab
+       LEFT JOIN integration_collections ic
+              ON ic.local_address_book_id = ab.id AND ic.kind = 'address_book' AND ic.user_id = ab.user_id
+      WHERE ab.id = $1 AND ab.user_id = $2`,
+    [addressBookId, userId],
+  );
   const book = result.rows[0];
   if (!book) return { error: 'Address book not found', status: 404 };
-  if (book.source !== 'local') return { error: 'This address book is read-only', status: 403 };
+  // Imports are strictly local projections. Provider-backed books must be changed through
+  // their synchroniser/write-back adapter, never by accepting a local upload.
+  if ((book.source ?? 'local') !== 'local') return { error: 'Only local address books accept imports', status: 403 };
+  if (!collectionIsWritable(book, 'contacts')) return { error: 'This address book is read-only', status: 403 };
   return { book };
+}
+
+/** A CardDAV book the user enabled write-back for. */
+type CarddavWriteTarget = Extract<Awaited<ReturnType<typeof resolveContactWriteTarget>>, { kind: 'carddav' }>;
+
+/**
+ * Forward one local contact resource to the external CardDAV source that owns the book.
+ *
+ * The write-back client commits the local projection itself, only after the source confirms, so the caller
+ * must not write the row as well: the projection and the source's answer are the same fact.
+ */
+async function writeCarddavContactResource(input: {
+  userId: string;
+  target: CarddavWriteTarget;
+  method: 'PUT' | 'DELETE';
+  filename: string;
+  uid: string;
+  vcard: string;
+  exists: boolean;
+  localObjectId: string | null;
+  localRevision: string | null;
+}): Promise<DavWriteBackRouteResult> {
+  const book = { id: input.target.addressBookId, external_url: input.target.externalUrl, source: 'carddav' };
+  if (input.method === 'DELETE') {
+    return await deleteCarddavContact({
+      method: 'DELETE', userId: input.userId, book, filename: input.filename, uid: input.uid,
+      card: null, vcard: '', exists: input.exists, localObjectId: input.localObjectId, localRevision: input.localRevision,
+    });
+  }
+  const card = parseVCard(input.vcard);
+  if (!card.uid) {
+    return { status: 'permanent', created: false, code: 'INVALID_REQUEST' };
+  }
+  return await putCarddavContact({
+    method: 'PUT', userId: input.userId, book, filename: input.filename, uid: input.uid,
+    card, vcard: input.vcard, exists: input.exists, localObjectId: input.localObjectId, localRevision: input.localRevision,
+  });
+}
+
+/** Answer a REST call with what the CardDAV source did, in the same vocabulary the DAV path uses. */
+function respondCarddavWriteBack(res: Response, result: DavWriteBackRouteResult, body: Record<string, unknown> = {}): void {
+  if (result.retryAfterSeconds !== undefined) res.setHeader('Retry-After', String(result.retryAfterSeconds));
+  const status = davWriteBackHttpStatus(result);
+  if (status === 204 || status === 201) {
+    res.status(status).json({ ok: true, created: result.created, ...body });
+    return;
+  }
+  res.status(status).json({
+    ...(result.code ? { code: result.code } : {}),
+    error: status === 412
+      ? 'The contact changed at its source since you loaded it. Reload and try again.'
+      : 'The contact source refused this change.',
+    ...body,
+  });
+}
+
+/**
+ * Resolve which writer owns an address book, including the Google one.
+ *
+ * `resolveContactWriteTarget` owns the local and Microsoft branches. Google's contact write path lives
+ * in `providerGoogleWrites.ts`, so it is asked only when the shared resolver refused: it answers
+ * `google` for a write-enabled Google book and `not_google` for anything else, which keeps every other
+ * refusal (missing, read-only, an origin with no writer) exactly as the capability model produced it.
+ */
+type WritableContactBook =
+  | { ok: false; status: number; error: string }
+  | { ok: true; target: (ReturnType<typeof resolveContactWriteTarget> extends Promise<infer T> ? Exclude<T, { kind: 'refused' }> : never) | GoogleContactWriteTarget };
+
+async function writableContactBook(userId: string, addressBookId: string): Promise<WritableContactBook> {
+  const target = await resolveContactWriteTarget(userId, addressBookId);
+  if (target.kind !== 'refused') return { ok: true, target };
+  const google = await resolveGoogleContactWriteTarget(userId, addressBookId);
+  if (google.kind === 'google') return { ok: true, target: google };
+  if (google.kind === 'refused') return { ok: false, status: google.status, error: google.error };
+  return { ok: false, status: target.status, error: target.error };
+}
+
+/** Report a provider contact write refusal with the shared vocabulary, as the calendar routes do. */
+function contactWriteRefusal(res: Response, failure: { status: number; error: string; code?: string }): void {
+  res.status(failure.status).json({
+    ...(failure.code ? { code: failure.code } : {}),
+    error: failure.error,
+  });
 }
 
 router.get('/address-books', async (req, res) => {
   try {
-    const result = await query(`SELECT ab.id, ab.name, ab.source, ab.visible, COUNT(c.id)::int AS contact_count FROM address_books ab LEFT JOIN contacts c ON c.address_book_id = ab.id WHERE ab.user_id = $1 GROUP BY ab.id ORDER BY ab.created_at ASC`, [req.session.userId]);
-    res.json({ addressBooks: result.rows });
+    // `collection_id` is what the write-back opt-in is addressed by, and `read_only` is the capability
+    // model's answer for the book as it stands — the same pair the calendar list exposes, so a pulled book
+    // can be switched the same way a pulled calendar can. Without them the switch had nothing to address
+    // and the write-back was unreachable for every address book.
+    const result = await query<{ id: string; source?: string | null; source_access?: string | null; user_access?: string | null; [key: string]: unknown }>(
+      ADDRESS_BOOK_PRESENTATION_SQL,
+      [req.session.userId],
+    );
+    const addressBooks = result.rows.map(row => ({
+      ...row,
+      read_only: !collectionIsWritable({
+        source: typeof row.source === 'string' ? row.source : null,
+        source_access: typeof row.source_access === 'string' ? row.source_access : null,
+        user_access: typeof row.user_access === 'string' ? row.user_access : null,
+      }, 'contacts'),
+    }));
+    res.json({ addressBooks });
   } catch (err) { console.error('Address book list error:', err); res.status(500).json({ error: 'Failed to fetch address books' }); }
 });
 
@@ -132,7 +284,7 @@ router.post('/address-books', async (req, res) => {
   const name = localBookName(req.body?.name);
   if (!name) return res.status(400).json({ error: 'Address book name must be 1 to 120 characters' });
   try {
-    const result = await query(`INSERT INTO address_books (user_id, name, source, visible) VALUES ($1, $2, 'local', true) RETURNING id, name, source, visible`, [req.session.userId, name]);
+    const result = await query(`INSERT INTO address_books (user_id, name, source, visible) VALUES ($1, $2, 'local', true) RETURNING id, name, source, visible, dav_mode`, [req.session.userId, name]);
     res.status(201).json(result.rows[0]);
   } catch (caught) {
     const err = toAppError(caught);
@@ -142,14 +294,25 @@ router.post('/address-books', async (req, res) => {
 });
 
 router.patch('/address-books/:id', async (req, res) => {
-  const { name: rawName, visible } = req.body || {};
+  const { name: rawName, visible, davMode } = req.body || {};
   if (rawName !== undefined && !localBookName(rawName)) return res.status(400).json({ error: 'Address book name must be 1 to 120 characters' });
   if (visible !== undefined && typeof visible !== 'boolean') return res.status(400).json({ error: 'visible must be a boolean' });
-  if (rawName === undefined && visible === undefined) return res.status(400).json({ error: 'No address book changes supplied' });
+  if (davMode !== undefined && davMode !== null && davMode !== 'off' && davMode !== 'read_only' && davMode !== 'read_write') {
+    return res.status(400).json({ error: 'davMode must be off, read_only or read_write' });
+  }
+  if (rawName === undefined && visible === undefined && (davMode === undefined || davMode === null)) return res.status(400).json({ error: 'No address book changes supplied' });
   try {
-    const local = await requireLocalAddressBook(sessionUserId(req), req.params.id);
-    if ('error' in local) return res.status(local.status).json({ error: local.error });
-    const result = await query(`UPDATE address_books SET name = COALESCE($1, name), visible = COALESCE($2, visible), updated_at = NOW() WHERE id = $3 AND user_id = $4 RETURNING id, name, source, visible`, [rawName === undefined ? null : localBookName(rawName), visible === undefined ? null : visible, req.params.id, req.session.userId]);
+    // Visibility is the viewer's own preference, also for read-only provider books.
+    // Name and DAV-export policy remain local-only mutations. Imports/deletes keep
+    // their own stricter guard and never delete a provider's local projection.
+    if (rawName === undefined && (davMode === undefined || davMode === null)) {
+      const owned = await query<{ id: string }>('SELECT id FROM address_books WHERE id = $1 AND user_id = $2', [req.params.id, sessionUserId(req)]);
+      if (!owned.rows[0]) return res.status(404).json({ code: 'BOOK_NOT_AVAILABLE', error: 'Address book not found' });
+    } else {
+      const local = await requireLocalAddressBook(sessionUserId(req), req.params.id);
+      if ('error' in local) return res.status(local.status).json({ error: local.error });
+    }
+    const result = await query(`UPDATE address_books SET name = COALESCE($1, name), visible = COALESCE($2, visible), dav_mode = COALESCE($3, dav_mode), updated_at = NOW() WHERE id = $4 AND user_id = $5 RETURNING id, name, source, visible, dav_mode`, [rawName === undefined ? null : localBookName(rawName), visible === undefined ? null : visible, davMode ?? null, req.params.id, req.session.userId]);
     res.json(result.rows[0]);
   } catch (caught) {
     const err = toAppError(caught);
@@ -169,6 +332,194 @@ router.delete('/address-books/:id', async (req, res) => {
   } catch (err) { console.error('Address book delete error:', err); res.status(500).json({ error: 'Failed to delete address book' }); }
 });
 
+// Whether Google contacts can be pulled, and what has been pulled so far. Safe for
+// any authenticated user: it exposes no credential, only counts and timestamps.
+router.get('/providers/google/status', async (req, res) => {
+  const userId = sessionUserId(req);
+  const [connections, books] = await Promise.all([
+    query<{ id: string }>(
+      "SELECT id FROM provider_connections WHERE user_id = $1 AND provider = 'google' AND status = 'active'",
+      [userId],
+    ),
+    query<{
+      connection_id: string; address_book_id: string; name: string | null;
+      contact_count: number; last_success_at: string | Date | null; last_error_code: string | null; last_error_at: string | Date | null;
+    }>(
+      `SELECT ic.connection_id, ab.id AS address_book_id, ab.name,
+              (SELECT COUNT(*)::int FROM contacts c WHERE c.address_book_id = ab.id) AS contact_count,
+              s.last_success_at, s.last_error_code, s.last_error_at
+         FROM integration_collections ic
+         JOIN address_books ab ON ab.id = ic.local_address_book_id
+         JOIN provider_connections pc ON pc.id = ic.connection_id AND pc.provider = 'google'
+         LEFT JOIN sync_states s ON s.collection_id = ic.id AND s.user_id = ic.user_id
+        WHERE ic.user_id = $1 AND ic.kind = 'address_book'
+        ORDER BY ab.created_at ASC`,
+      [userId],
+    ),
+  ]);
+  res.json({
+    configured: isGoogleConfigured(googleConfigFromEnv()),
+    connected: connections.rows.length > 0,
+    connections: connections.rows.length,
+    books: books.rows.map(row => ({
+      connectionId: row.connection_id,
+      addressBookId: row.address_book_id,
+      name: row.name,
+      contactCount: row.contact_count,
+      lastSyncedAt: row.last_success_at,
+      lastErrorCode: row.last_error_code,
+      lastErrorAt: row.last_error_at,
+    })),
+  });
+});
+
+// The same status and pull for the Microsoft Graph connector. Kept as its own pair
+// of routes because the two providers are configured, authorized and reported
+// independently — one being unconfigured must never hide the other.
+router.get('/providers/microsoft/status', async (req, res) => {
+  const userId = sessionUserId(req);
+  const [connections, books] = await Promise.all([
+    query<{ id: string }>(
+      "SELECT id FROM provider_connections WHERE user_id = $1 AND provider = 'microsoft' AND status = 'active'",
+      [userId],
+    ),
+    query<{
+      connection_id: string; address_book_id: string; name: string | null;
+      contact_count: number; last_success_at: string | Date | null; last_error_code: string | null; last_error_at: string | Date | null;
+    }>(
+      `SELECT ic.connection_id, ab.id AS address_book_id, ab.name,
+              (SELECT COUNT(*)::int FROM contacts c WHERE c.address_book_id = ab.id) AS contact_count,
+              s.last_success_at, s.last_error_code, s.last_error_at
+         FROM integration_collections ic
+         JOIN address_books ab ON ab.id = ic.local_address_book_id
+         JOIN provider_connections pc ON pc.id = ic.connection_id AND pc.provider = 'microsoft'
+         LEFT JOIN sync_states s ON s.collection_id = ic.id AND s.user_id = ic.user_id
+        WHERE ic.user_id = $1 AND ic.kind = 'address_book'
+        ORDER BY ab.created_at ASC`,
+      [userId],
+    ),
+  ]);
+  res.json({
+    // The flag gates a "connect an account" hint, so it must mean the browser flow is
+    // ready — not merely that a client id exists.
+    configured: isMicrosoftBrowserFlowReady(microsoftConfigFromEnv()),
+    connected: connections.rows.length > 0,
+    connections: connections.rows.length,
+    books: books.rows.map(row => ({
+      connectionId: row.connection_id,
+      addressBookId: row.address_book_id,
+      name: row.name,
+      contactCount: row.contact_count,
+      lastSyncedAt: row.last_success_at,
+      lastErrorCode: row.last_error_code,
+      lastErrorAt: row.last_error_at,
+    })),
+  });
+});
+
+router.post('/providers/microsoft/sync', async (req, res) => {
+  // An installation that switched the provider layer off must not reach a provider from here either:
+  // the readiness report stops offering it, and this stops an existing collection from syncing.
+  if (!providerIntegrationsEnabled()) {
+    return res.status(403).json({ error: 'Provider integrations are disabled on this installation' });
+  }
+  if (!await providerOperationalForSync('microsoft')) {
+    return res.status(403).json({ error: 'Microsoft API is disabled by the administrator' });
+  }
+  const userId = sessionUserId(req);
+  const connections = await query<{ id: string }>(
+    "SELECT id FROM provider_connections WHERE user_id = $1 AND provider = 'microsoft' AND status = 'active' ORDER BY created_at ASC",
+    [userId],
+  );
+  if (!connections.rows.length) {
+    return res.status(409).json({ error: 'Connect a Microsoft account before syncing contacts' });
+  }
+  const config = microsoftConfigFromEnv();
+  if (!isMicrosoftConfigured(config)) {
+    return res.status(409).json({ error: 'Microsoft API is not configured by the administrator' });
+  }
+
+  const results: Array<Record<string, unknown>> = [];
+  for (const connection of connections.rows) {
+    try {
+      if (!await providerConnectionFeatureEnabled({ userId, connectionId: connection.id, feature: 'contacts' })) {
+        results.push({ connectionId: connection.id, error: { code: 'FEATURE_DISABLED', message: 'Contacts are disabled for this account' } });
+        continue;
+      }
+      const refusal = await providerSyncPreflight({ userId, connectionId: connection.id, provider: 'microsoft', feature: 'contacts' });
+      if (refusal) {
+        results.push({ connectionId: connection.id, error: refusal });
+        continue;
+      }
+      results.push({ connectionId: connection.id, ...(await syncGraphContacts({ userId, connectionId: connection.id, config })) });
+    } catch (caught) {
+      const error = caught instanceof GraphApiError ? caught : null;
+      results.push({
+        connectionId: connection.id,
+        error: error
+          ? { code: error.code, message: error.message, retryable: error.retryable }
+          : await describeProviderSyncFailure({ userId, connectionId: connection.id, provider: 'microsoft', feature: 'contacts', caught }),
+      });
+    }
+  }
+  res.json({ results });
+});
+
+// Pull the signed-in user's Google personal contacts for every connected Google
+// provider connection. The source stays the writer: the synced books are read-only
+// and are not published to DAV devices until the user enables them.
+router.post('/providers/google/sync', async (req, res) => {
+  // An installation that switched the provider layer off must not reach a provider from here either:
+  // the readiness report stops offering it, and this stops an existing collection from syncing.
+  if (!providerIntegrationsEnabled()) {
+    return res.status(403).json({ error: 'Provider integrations are disabled on this installation' });
+  }
+  if (!await providerOperationalForSync('google')) {
+    return res.status(403).json({ error: 'Google API is disabled by the administrator' });
+  }
+  const userId = sessionUserId(req);
+  const connections = await query<{ id: string }>(
+    "SELECT id FROM provider_connections WHERE user_id = $1 AND provider = 'google' AND status = 'active' ORDER BY created_at ASC",
+    [userId],
+  );
+  if (!connections.rows.length) {
+    return res.status(409).json({ error: 'Connect a Google account before syncing contacts' });
+  }
+  const config = googleConfigFromEnv();
+  if (!isGoogleConfigured(config)) {
+    return res.status(409).json({ error: 'Google API is not configured by the administrator' });
+  }
+
+  const results: Array<Record<string, unknown>> = [];
+  for (const connection of connections.rows) {
+    try {
+      if (!await providerConnectionFeatureEnabled({ userId, connectionId: connection.id, feature: 'contacts' })) {
+        results.push({ connectionId: connection.id, error: { code: 'FEATURE_DISABLED', message: 'Contacts are disabled for this account' } });
+        continue;
+      }
+      // A grant that cannot authorize the call is refused here, with the scope that is missing, rather than
+      // sent to the provider to come back as a 403 the user cannot act on.
+      const refusal = await providerSyncPreflight({ userId, connectionId: connection.id, provider: 'google', feature: 'contacts' });
+      if (refusal) {
+        results.push({ connectionId: connection.id, error: refusal });
+        continue;
+      }
+      results.push({ connectionId: connection.id, ...(await syncGoogleContacts({ userId, connectionId: connection.id, config })) });
+    } catch (caught) {
+      const error = caught instanceof GoogleApiError ? caught : null;
+      // One failing connection must not hide the others' results, and the failure carries enough for the
+      // interface to say what to do about it.
+      results.push({
+        connectionId: connection.id,
+        error: error
+          ? { code: error.code, message: error.message, retryable: error.retryable }
+          : await describeProviderSyncFailure({ userId, connectionId: connection.id, provider: 'google', feature: 'contacts', caught }),
+      });
+    }
+  }
+  res.json({ results });
+});
+
 // GET /api/contacts
 // Query params: q (search), limit, offset, is_auto (true|false|'')
 router.get('/', async (req, res) => {
@@ -177,12 +528,16 @@ router.get('/', async (req, res) => {
   const offset = queryInt(req.query.offset, 0);
   const is_auto = queryString(req.query.is_auto);
   const addressBookId = queryString(req.query.addressBookId);
+  const hasAddressBookIds = Object.prototype.hasOwnProperty.call(req.query, 'addressBookIds');
+  const parsedBooks = parseBookFilter(req.query.addressBookIds, hasAddressBookIds);
+  if (!parsedBooks.ok) return res.status(400).json({ code: 'INVALID_BOOK_FILTER', error: 'Invalid addressBookIds' });
+  const addressBookIds = parsedBooks.ids;
   const userId = sessionUserId(req);
-  const cap = Math.min(limit, 500);
+  const cap = Math.max(1, Math.min(limit, 500));
   const off = Math.max(0, offset);
 
   const conditions = ['c.user_id = $1'];
-  const params = [userId];
+  const params: Array<string | number | string[]> = [userId];
   let p = 2;
 
   if (q && q.trim()) {
@@ -203,7 +558,14 @@ router.get('/', async (req, res) => {
     conditions.push('c.is_auto = false');
   }
 
-  if (addressBookId) {
+  if (addressBookIds !== null) {
+    if (addressBookIds.length === 0) {
+      conditions.push('FALSE');
+    } else {
+      params.push(addressBookIds);
+      conditions.push(`c.address_book_id::text = ANY($${p++}::text[])`);
+    }
+  } else if (addressBookId) {
     params.push(addressBookId);
     conditions.push(`c.address_book_id = $${p++}`);
   } else {
@@ -211,6 +573,13 @@ router.get('/', async (req, res) => {
   }
 
   try {
+    if (addressBookIds !== null && addressBookIds.length > 0) {
+      const owned = await query<{ id: string }>(
+        'SELECT id FROM address_books WHERE user_id = $1 AND id = ANY($2::uuid[])',
+        [userId, addressBookIds],
+      );
+      if (owned.rows.length !== addressBookIds.length) return res.status(403).json({ error: 'One or more address books are not available' });
+    }
     const result = await query(`
       SELECT
         c.id, c.uid, c.display_name, c.first_name, c.last_name,
@@ -220,14 +589,17 @@ router.get('/', async (req, res) => {
         c.address_book_id, ab.name AS address_book_name, c.is_auto, c.send_count, c.last_sent,
         c.etag, c.created_at, c.updated_at,
         (c.photo_data IS NOT NULL) AS has_contact_photo,
-        (ab.source = 'carddav') AS read_only
+        ab.source AS book_source, ic.source_access AS book_source_access, ic.user_access AS book_user_access
       FROM contacts c
       JOIN address_books ab ON ab.id = c.address_book_id
+      LEFT JOIN integration_collections ic
+             ON ic.local_address_book_id = c.address_book_id AND ic.kind = 'address_book' AND ic.user_id = c.user_id
       WHERE ${conditions.join(' AND ')}
       ORDER BY
         c.is_auto ASC,
         c.send_count DESC,
-        lower(coalesce(c.display_name, c.primary_email, '')) ASC
+        lower(coalesce(c.display_name, c.primary_email, '')) ASC,
+        c.id ASC
       LIMIT $${p} OFFSET $${p + 1}
     `, [...params, cap, off]);
 
@@ -236,7 +608,20 @@ router.get('/', async (req, res) => {
       params
     );
 
-    res.json({ contacts: result.rows, total: parseInt(total.rows[0].count) });
+    // Read-only is the capability model's answer for the book that owns each row,
+    // not a comparison against one adapter's source value — which is why a Google
+    // or Microsoft book is now reported read-only too instead of looking editable
+    // until the server refuses the write.
+    const contacts = result.rows.map(row => ({
+      ...row,
+      read_only: !collectionIsWritable({
+        source: typeof row.book_source === 'string' ? row.book_source : null,
+        source_access: typeof row.book_source_access === 'string' ? row.book_source_access : null,
+        user_access: typeof row.book_user_access === 'string' ? row.book_user_access : null,
+      }, 'contacts'),
+    }));
+
+    res.json({ contacts, total: parseInt(total.rows[0].count) });
   } catch (err) {
     console.error('Contacts list error:', err);
     res.status(500).json({ error: 'Failed to fetch contacts' });
@@ -364,7 +749,7 @@ router.post('/address-books/:id/import/google-csv', async (req, res) => {
         const uid = crypto.randomUUID();
         const vcard = generateVCard({ uid, ...contact });
         const etag = crypto.createHash('md5').update(vcard).digest('hex');
-        await client.query<{ vcard?: string | null }>(`INSERT INTO contacts (address_book_id, user_id, uid, vcard, etag, display_name, first_name, last_name, primary_email, emails, phones, organization, notes, birthday, anniversary, contact_dates, title, role, nickname, urls, instant_messages, categories, addresses, google_fields, is_auto) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::jsonb,$17,$18,$19,$20::jsonb,$21::jsonb,$22::jsonb,$23::jsonb,$24::jsonb,false) ON CONFLICT (address_book_id, primary_email) WHERE primary_email IS NOT NULL DO UPDATE SET vcard = EXCLUDED.vcard, etag = EXCLUDED.etag, display_name = EXCLUDED.display_name, first_name = EXCLUDED.first_name, last_name = EXCLUDED.last_name, emails = EXCLUDED.emails, phones = EXCLUDED.phones, organization = EXCLUDED.organization, notes = EXCLUDED.notes, birthday = EXCLUDED.birthday, anniversary = EXCLUDED.anniversary, contact_dates = EXCLUDED.contact_dates, title = EXCLUDED.title, role = EXCLUDED.role, nickname = EXCLUDED.nickname, urls = EXCLUDED.urls, instant_messages = EXCLUDED.instant_messages, categories = EXCLUDED.categories, addresses = EXCLUDED.addresses, google_fields = EXCLUDED.google_fields, is_auto = false, updated_at = NOW()`, [local.book.id, sessionUserId(req), uid, vcard, etag, contact.displayName || null, contact.firstName || null, contact.lastName || null, contact.emails[0]?.value || null, JSON.stringify(contact.emails), JSON.stringify(contact.phones), contact.organization || null, contact.notes || null, contact.birthday || null, contact.anniversary || null, JSON.stringify(contact.contactDates || []), contact.title || null, contact.role || null, contact.nickname || null, JSON.stringify(contact.urls || []), JSON.stringify(contact.instantMessages || []), JSON.stringify(contact.categories || []), JSON.stringify(contact.addresses || []), JSON.stringify(contact.sourceFields || {})]);
+        await client.query<{ vcard?: string | null }>(`INSERT INTO contacts (address_book_id, user_id, uid, vcard, etag, display_name, first_name, last_name, primary_email, emails, phones, organization, notes, birthday, anniversary, contact_dates, title, role, nickname, urls, instant_messages, categories, addresses, google_fields, is_auto) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::jsonb,$17,$18,$19,$20::jsonb,$21::jsonb,$22::jsonb,$23::jsonb,$24::jsonb,false) ON CONFLICT (address_book_id, uid) DO UPDATE SET vcard = EXCLUDED.vcard, etag = EXCLUDED.etag, display_name = EXCLUDED.display_name, first_name = EXCLUDED.first_name, last_name = EXCLUDED.last_name, primary_email = EXCLUDED.primary_email, emails = EXCLUDED.emails, phones = EXCLUDED.phones, organization = EXCLUDED.organization, notes = EXCLUDED.notes, birthday = EXCLUDED.birthday, anniversary = EXCLUDED.anniversary, contact_dates = EXCLUDED.contact_dates, title = EXCLUDED.title, role = EXCLUDED.role, nickname = EXCLUDED.nickname, urls = EXCLUDED.urls, instant_messages = EXCLUDED.instant_messages, categories = EXCLUDED.categories, addresses = EXCLUDED.addresses, google_fields = EXCLUDED.google_fields, is_auto = false, updated_at = NOW()`, [local.book.id, sessionUserId(req), uid, vcard, etag, contact.displayName || null, contact.firstName || null, contact.lastName || null, contact.emails[0]?.value || null, JSON.stringify(contact.emails), JSON.stringify(contact.phones), contact.organization || null, contact.notes || null, contact.birthday || null, contact.anniversary || null, JSON.stringify(contact.contactDates || []), contact.title || null, contact.role || null, contact.nickname || null, JSON.stringify(contact.urls || []), JSON.stringify(contact.instantMessages || []), JSON.stringify(contact.categories || []), JSON.stringify(contact.addresses || []), JSON.stringify(contact.sourceFields || {})]);
       }
     });
     await bumpSyncToken(local.book.id);
@@ -372,11 +757,72 @@ router.post('/address-books/:id/import/google-csv', async (req, res) => {
   } catch (err) { console.error('Google CSV import error:', err); res.status(500).json({ error: 'Failed to import Google CSV' }); }
 });
 
+// Import a `.vcf` file. Unlike the CSV import, which dedupes by e-mail address
+// (a CSV has no stable identity), a vCard carries a UID, and that UID is also what
+// DAV clients use — so the import keys on it and a re-import updates in place
+// instead of creating a second copy of every contact.
+router.post('/address-books/:id/import/vcard', async (req, res) => {
+  const vcardFile = typeof req.body?.vcard === 'string' ? req.body.vcard : '';
+  if (!vcardFile || vcardFile.length > 900_000) return res.status(400).json({ error: 'vCard file must be a non-empty file smaller than 900 KB' });
+  try {
+    const local = await requireLocalAddressBook(sessionUserId(req), req.params.id);
+    if ('error' in local) return res.status(local.status).json({ error: local.error });
+    const cards = splitVCards(vcardFile);
+    if (!cards.length) return res.status(400).json({ error: 'No contacts found in the vCard file' });
+
+    const userId = sessionUserId(req);
+    let imported = 0;
+    await withTransaction(async client => {
+      for (const raw of cards) {
+        const parsed = parseVCard(raw);
+        // A card with no recognisable property at all is skipped rather than stored blank.
+        if (!parsed.displayName && !parsed.emails.length && !parsed.phones.length) continue;
+        // A card without a UID gets one, so it still has a stable identity afterwards.
+        const uid = parsed.uid?.trim() || crypto.randomUUID();
+        const text = generateVCard({ ...parsed, uid });
+        const etag = crypto.createHash('md5').update(text).digest('hex');
+        const primaryEmail = (parsed.emails.find(email => email.primary) || parsed.emails[0])?.value?.toLowerCase() || null;
+        await client.query(
+          `INSERT INTO contacts (
+             address_book_id, user_id, uid, vcard, etag, display_name, first_name, last_name, primary_email,
+             emails, phones, organization, notes, birthday, anniversary, contact_dates, photo_data,
+             title, role, nickname, urls, instant_messages, categories, addresses, google_fields, is_auto
+           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11::jsonb,$12,$13,$14,$15,$16::jsonb,$17,$18,$19,$20,$21::jsonb,$22::jsonb,$23::jsonb,$24::jsonb,'{}'::jsonb,false)
+           ON CONFLICT (address_book_id, uid) DO UPDATE SET
+             vcard = EXCLUDED.vcard, etag = EXCLUDED.etag, display_name = EXCLUDED.display_name,
+             first_name = EXCLUDED.first_name, last_name = EXCLUDED.last_name, primary_email = EXCLUDED.primary_email,
+             emails = EXCLUDED.emails, phones = EXCLUDED.phones, organization = EXCLUDED.organization,
+             notes = EXCLUDED.notes, birthday = EXCLUDED.birthday, anniversary = EXCLUDED.anniversary,
+             contact_dates = EXCLUDED.contact_dates, photo_data = EXCLUDED.photo_data, title = EXCLUDED.title,
+             role = EXCLUDED.role, nickname = EXCLUDED.nickname, urls = EXCLUDED.urls,
+             instant_messages = EXCLUDED.instant_messages, categories = EXCLUDED.categories,
+             addresses = EXCLUDED.addresses, is_auto = false, updated_at = NOW()`,
+          [
+            local.book.id, userId, uid, text, etag,
+            parsed.displayName, parsed.firstName, parsed.lastName, primaryEmail,
+            JSON.stringify(parsed.emails), JSON.stringify(parsed.phones), parsed.organization, parsed.notes,
+            parsed.birthday, parsed.anniversary, JSON.stringify(parsed.contactDates), parsed.photoData,
+            parsed.title, parsed.role, parsed.nickname, JSON.stringify(parsed.urls), JSON.stringify(parsed.instantMessages),
+            JSON.stringify(parsed.categories), JSON.stringify(parsed.addresses),
+          ],
+        );
+        imported += 1;
+      }
+    });
+    if (!imported) return res.status(400).json({ error: 'No contacts found in the vCard file' });
+    await bumpSyncToken(local.book.id);
+    res.status(201).json({ imported });
+  } catch (err) {
+    console.error('vCard import error:', err);
+    res.status(500).json({ error: 'Failed to import the vCard file' });
+  }
+});
+
 // GET /api/contacts/:id
 router.get('/:id', async (req, res) => {
   const userId = sessionUserId(req);
   try {
-    const result = await query<{ id: string; uid: string; display_name?: string | null; first_name?: string | null; last_name?: string | null; primary_email?: string | null; emails?: unknown; phones?: unknown; organization?: string | null; notes?: string | null; birthday?: string | null; anniversary?: string | null; contactDates?: unknown; title?: string | null; role?: string | null; nickname?: string | null; urls?: unknown; addresses?: unknown; instantMessages?: unknown; categories?: string[]; googleFields?: unknown; photo_data?: string | null; vcard?: string | null; is_auto?: boolean | null; send_count?: number | null; last_sent?: string | Date | null }>(
+    const result = await query<{ id: string; uid: string; display_name?: string | null; first_name?: string | null; last_name?: string | null; primary_email?: string | null; emails?: unknown; phones?: unknown; organization?: string | null; notes?: string | null; birthday?: string | null; anniversary?: string | null; contactDates?: unknown; title?: string | null; role?: string | null; nickname?: string | null; urls?: unknown; addresses?: unknown; instantMessages?: unknown; categories?: string[]; googleFields?: unknown; photo_data?: string | null; vcard?: string | null; is_auto?: boolean | null; send_count?: number | null; last_sent?: string | Date | null; book_source?: string | null; book_source_access?: string | null; book_user_access?: string | null; read_only?: boolean }>(
       `SELECT c.id, c.uid, c.display_name, c.first_name, c.last_name,
               c.primary_email, c.emails, c.phones, c.organization,
               c.notes, c.birthday, c.anniversary, c.contact_dates AS "contactDates", c.title, c.role, c.nickname,
@@ -384,14 +830,21 @@ router.get('/:id', async (req, res) => {
               c.google_fields AS "googleFields",
               c.photo_data, c.is_auto, c.send_count, c.last_sent,
               c.etag, c.vcard, c.created_at, c.updated_at,
-              (ab.source = 'carddav') AS read_only
+              ab.source AS book_source, ic.source_access AS book_source_access, ic.user_access AS book_user_access
        FROM contacts c
        JOIN address_books ab ON ab.id = c.address_book_id
+       LEFT JOIN integration_collections ic
+              ON ic.local_address_book_id = c.address_book_id AND ic.kind = 'address_book' AND ic.user_id = c.user_id
        WHERE c.id = $1 AND c.user_id = $2`,
       [req.params.id, userId]
     );
     if (!result.rows.length) return res.status(404).json({ error: 'Contact not found' });
     const contact = result.rows[0];
+    contact.read_only = !collectionIsWritable({
+      source: contact.book_source ?? null,
+      source_access: contact.book_source_access ?? null,
+      user_access: contact.book_user_access ?? null,
+    }, 'contacts');
     if (contact.vcard) {
       const parsed = parseVCard(contact.vcard);
       const scalarFields: ReadonlyArray<'title' | 'role' | 'nickname'> = ['title', 'role', 'nickname'];
@@ -447,16 +900,64 @@ router.post('/', async (req, res) => {
   try {
     const addressBookId = requestedAddressBookId || await defaultAddressBook(userId);
     if (!addressBookId) return res.status(404).json({ error: 'No address book available' });
-    const requestedId = requestedAddressBookId;
-    if (requestedId) {
-      const local = await requireLocalAddressBook(userId, requestedId);
-      if ('error' in local) return res.status(local.status).json({ error: local.error });
+    if (requestedAddressBookId) {
+      const owned = await query<{ id: string }>('SELECT id FROM address_books WHERE id = $1 AND user_id = $2', [addressBookId, userId]);
+      if (!owned.rows.length) return res.status(404).json({ error: 'Address book not found' });
     }
-    const uid = crypto.randomUUID();
+    // A provider-backed book writes to its origin first: the provider is the source of truth, and a local
+    // row that claims a contact the provider never accepted is worse than a slower create.
+    const access = await writableContactBook(userId, addressBookId);
+    if (!access.ok) return res.status(access.status).json({ error: access.error });
+    const writeTarget = access.target;
+    let providerContactId: string | null = null;
+    let providerEtag: string | null = null;
+    let uid: string = crypto.randomUUID();
+    if (writeTarget.kind === 'graph' || writeTarget.kind === 'google') {
+      // The local book enforces one row per address; writing to the provider first and then failing the
+      // local insert would leave a contact the interface cannot see, so the duplicate is refused here.
+      if (primaryEmail) {
+        const duplicate = await query(
+          'SELECT 1 FROM contacts WHERE address_book_id = $1 AND lower(primary_email) = $2 LIMIT 1',
+          [addressBookId, primaryEmail],
+        );
+        if (duplicate.rows.length) return res.status(409).json({ error: 'A contact with that email already exists' });
+      }
+      const contact = { displayName, firstName, lastName, emails, phones, organization, notes, birthday: storedBirthday, anniversary: storedAnniversary, contactDates: storedContactDates, ...rich };
+      if (writeTarget.kind === 'graph') {
+        const attempt = await writeGraphContact({ userId, target: writeTarget, operation: 'create', contact });
+        if (attempt.status === 'failed') return contactWriteRefusal(res, attempt.failure);
+        providerContactId = attempt.providerContactId;
+        uid = localUidForGraphContact(providerContactId);
+      } else {
+        const attempt = await writeGoogleContact({ userId, target: writeTarget, operation: 'create', contact });
+        if (attempt.status === 'failed') return contactWriteRefusal(res, attempt.failure);
+        providerContactId = attempt.providerContactId;
+        // The version the create returned is what a later update must present back to People.
+        providerEtag = attempt.person?.etag ?? null;
+        uid = localUidForGoogleContact(providerContactId);
+      }
+    }
     const vcard = generateVCard({ uid, displayName, firstName, lastName, emails, phones, organization, notes, birthday: storedBirthday, anniversary: storedAnniversary, contactDates: storedContactDates, ...rich });
     const etag = crypto.createHash('md5').update(vcard).digest('hex');
 
-    const result = await query(`
+    if (writeTarget.kind === 'carddav') {
+      // Source first, and the write-back client projects the confirmed answer — so the local insert below
+      // must not also run, or the same card would be written twice.
+      const written = await writeCarddavContactResource({
+        userId, target: writeTarget, method: 'PUT', filename: `${uid}.vcf`, uid, vcard,
+        exists: false, localObjectId: null, localRevision: null,
+      });
+      if (written.status !== 'confirmed') return respondCarddavWriteBack(res, written);
+      const stored = await query('SELECT * FROM contacts WHERE user_id = $1 AND uid = $2', [userId, uid]);
+      if (!stored.rows[0]) {
+        // The source confirmed the card but the projection did not produce a row: report it rather than
+        // answering with a success the interface cannot render.
+        return res.status(502).json({ error: 'The contact was saved at its source but could not be projected' });
+      }
+      return res.status(201).json({ contact: stored.rows[0] });
+    }
+
+    const result = await query<{ id: string }>(`
       INSERT INTO contacts (
         address_book_id, user_id, uid, vcard, etag,
         display_name, first_name, last_name, primary_email,
@@ -475,8 +976,15 @@ router.post('/', async (req, res) => {
       rich.title, rich.role, rich.nickname, JSON.stringify(rich.urls), JSON.stringify(rich.instantMessages), JSON.stringify(rich.categories), JSON.stringify(rich.addresses),
     ]);
 
+    if (providerContactId && writeTarget.kind === 'graph') {
+      await recordGraphContactLink({ userId, target: writeTarget, providerContactId, localId: result.rows[0].id });
+    } else if (providerContactId && writeTarget.kind === 'google') {
+      await recordGoogleContactLink({
+        userId, target: writeTarget, providerContactId, localId: result.rows[0].id, etag: providerEtag,
+      });
+    }
     await bumpSyncToken(addressBookId);
-    res.status(201).json(result.rows[0]);
+    res.status(201).json(providerContactId ? { ...result.rows[0], providerContactId } : result.rows[0]);
   } catch (caught) {
     const err = toAppError(caught);
     if (err.code === '23505') return res.status(409).json({ error: 'A contact with that email already exists' });
@@ -510,9 +1018,12 @@ router.patch('/:id', async (req, res) => {
     );
     if (!cur.rows.length) return res.status(404).json({ error: 'Contact not found' });
     const c = cur.rows[0];
-    if (c.book_source === 'carddav') {
-      return res.status(403).json({ error: 'This contact is synced from CardDAV and is read-only' });
-    }
+    // Which writer owns this book is the capability model's answer, resolved once for the provider and
+    // the local paths alike: a local edit to a provider collection would be an apparent write-back the
+    // next sync discards.
+    const access = await writableContactBook(userId, c.address_book_id);
+    if (!access.ok) return res.status(access.status).json({ error: access.error });
+    const writeTarget = access.target;
 
     const hasRichFields = [title, role, nickname, urls, instantMessages, categories, addresses].some(value => value !== undefined);
     const rich = hasRichFields ? normalizeRichContactFields({
@@ -567,6 +1078,36 @@ router.patch('/:id', async (req, res) => {
     const vcard = c.vcard ? mergeVCard(c.vcard, contactVCard) : generateVCard(contactVCard);
     const etag = crypto.createHash('md5').update(vcard).digest('hex');
 
+    // Provider first, then the local projection: a refusal or an unknown outcome leaves the local row
+    // untouched, so the interface never shows a change the provider did not accept.
+    if (writeTarget.kind === 'graph') {
+      const providerContactId = await graphContactIdForLocalRow(userId, writeTarget.collectionId, c.id);
+      if (!providerContactId) return res.status(409).json({ error: 'This contact is not linked to its provider copy yet' });
+      const attempt = await writeGraphContact({
+        userId, target: writeTarget, operation: 'update', providerContactId, contact: contactVCard, localResourceId: c.id,
+      });
+      if (attempt.status === 'failed') return contactWriteRefusal(res, attempt.failure);
+    } else if (writeTarget.kind === 'google') {
+      const link = await googlePersonLinkForLocalRow(userId, writeTarget.collectionId, c.id);
+      if (!link) return res.status(409).json({ error: 'This contact is not linked to its provider copy yet' });
+      // People's updateContact requires the etag of the version the caller read; the link carries it.
+      const attempt = await writeGoogleContact({
+        userId, target: writeTarget, operation: 'update',
+        providerContactId: link.resourceName, contact: contactVCard, etag: link.etag, localResourceId: c.id,
+      });
+      if (attempt.status === 'failed') return contactWriteRefusal(res, attempt.failure);
+    } else if (writeTarget.kind === 'carddav') {
+      // The stored entity-tag is the version the caller's edit was based on, and the write-back forwards it
+      // as a precondition, so an edit of a card that changed at the source is refused instead of overwriting.
+      const written = await writeCarddavContactResource({
+        userId, target: writeTarget, method: 'PUT', filename: `${String(c.uid ?? c.id)}.vcf`,
+        uid: String(c.uid ?? c.id), vcard, exists: true, localObjectId: c.id, localRevision: String(c.etag ?? ''),
+      });
+      if (written.status !== 'confirmed') return respondCarddavWriteBack(res, written);
+      const stored = await query('SELECT * FROM contacts WHERE id = $1 AND user_id = $2', [c.id, userId]);
+      return res.json({ contact: stored.rows[0] ?? null });
+    }
+
     const result = await query(`
       UPDATE contacts SET
         display_name = $1, first_name = $2, last_name = $3,
@@ -604,16 +1145,59 @@ router.patch('/:id', async (req, res) => {
 router.delete('/:id', async (req, res) => {
   const userId = sessionUserId(req);
   try {
-    // Block deletion of CardDAV-synced (read-only) contacts; they reappear on next sync anyway.
-    const owner = await query(
-      `SELECT ab.source FROM contacts c JOIN address_books ab ON ab.id = c.address_book_id
+    // Block deletion of externally synced (read-only) contacts; they reappear on
+    // the next sync anyway.
+    const owner = await query<{ address_book_id: string }>(
+      `SELECT c.address_book_id FROM contacts c
        WHERE c.id = $1 AND c.user_id = $2`,
       [req.params.id, userId]
     );
     if (!owner.rows.length) return res.status(404).json({ error: 'Contact not found' });
-    if (owner.rows[0].source === 'carddav') {
-      return res.status(403).json({ error: 'This contact is synced from CardDAV and is read-only' });
+    const access = await writableContactBook(userId, owner.rows[0].address_book_id);
+    if (!access.ok) return res.status(access.status).json({ error: access.error });
+    const writeTarget = access.target;
+
+    if (writeTarget.kind === 'carddav') {
+      const row = await query<{ uid: string | null; etag: string | null }>(
+        'SELECT uid, etag FROM contacts WHERE id = $1 AND user_id = $2', [req.params.id, userId],
+      );
+      if (!row.rows[0]) return res.status(404).json({ error: 'Contact not found' });
+      const uid = row.rows[0].uid ?? req.params.id;
+      const written = await writeCarddavContactResource({
+        userId, target: writeTarget, method: 'DELETE', filename: `${uid}.vcf`, uid, vcard: '',
+        exists: true, localObjectId: req.params.id, localRevision: row.rows[0].etag ?? null,
+      });
+      // A card the source no longer has is the end state the caller asked for.
+      if (written.status === 'permanent' && written.code === 'RESOURCE_NOT_FOUND') {
+        await query('DELETE FROM contacts WHERE id = $1 AND user_id = $2', [req.params.id, userId]);
+        return res.status(204).end();
+      }
+      if (written.status !== 'confirmed') return respondCarddavWriteBack(res, written);
+      return res.status(204).end();
     }
+
+    if (writeTarget.kind === 'graph' || writeTarget.kind === 'google') {
+      const providerContactId = writeTarget.kind === 'graph'
+        ? await graphContactIdForLocalRow(userId, writeTarget.collectionId, req.params.id)
+        : (await googlePersonLinkForLocalRow(userId, writeTarget.collectionId, req.params.id))?.resourceName ?? null;
+      if (!providerContactId) return res.status(409).json({ error: 'This contact is not linked to its provider copy yet' });
+      // A contact the provider no longer has is the end state the user asked for, so its local row is
+      // removed and the link tombstoned rather than the delete being reported as a failure.
+      if (writeTarget.kind === 'graph') {
+        const attempt = await writeGraphContact({ userId, target: writeTarget, operation: 'delete', providerContactId, localResourceId: req.params.id });
+        if (attempt.status === 'failed' && attempt.failure.code !== 'RESOURCE_NOT_FOUND') {
+          return contactWriteRefusal(res, attempt.failure);
+        }
+        await removeGraphContactLink({ userId, target: writeTarget, providerContactId });
+      } else {
+        const attempt = await writeGoogleContact({ userId, target: writeTarget, operation: 'delete', providerContactId, localResourceId: req.params.id });
+        if (attempt.status === 'failed' && attempt.failure.code !== 'RESOURCE_NOT_FOUND') {
+          return contactWriteRefusal(res, attempt.failure);
+        }
+        await removeGoogleContactLink({ userId, target: writeTarget, providerContactId });
+      }
+    }
+
     const result = await query<{ address_book_id: string }>(
       'DELETE FROM contacts WHERE id = $1 AND user_id = $2 RETURNING address_book_id',
       [req.params.id, userId]

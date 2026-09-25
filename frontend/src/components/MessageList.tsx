@@ -534,16 +534,23 @@ export default function MessageList() {
       if (unreadOnly) params.unreadOnly = 'true';
       if (useStore.getState().threadedView) params.threaded = 'true';
       if (selectedFolder === 'INBOX' && (categorizationEnabled || selectedAccount?.categorization_enabled)) params.category = activeCategory;
-      const data = await api.getMessages(params);
-      appendMessages(applyDeleteGuard(applyReadGuard(data.messages)));
-      setMessagesOffset(currentOffset + data.messages.length);
-      setHasMoreMessages(currentOffset + data.messages.length < data.total);
+      // Use the same request generation as reset/refresh loads. If navigation
+      // changes the account/folder while this offset page is in flight, its
+      // callback is stale and cannot append rows into the new scope.
+      await refreshRequest.run(
+        () => api.getMessages(params),
+        (data: { messages: StoreMessageRow[]; total: number }) => {
+          appendMessages(applyDeleteGuard(applyReadGuard(data.messages)));
+          setMessagesOffset(currentOffset + data.messages.length);
+          setHasMoreMessages(currentOffset + data.messages.length < data.total);
+        },
+      );
     } catch (err) {
       console.error('Failed to load more messages:', err);
     } finally {
       setLoadingMessages(false);
     }
-  }, [selectedAccountId, selectedFolder, unreadOnly, activeCategory, pageSize, loadingMessages, hasMoreMessages, categorizationEnabled, selectedAccount?.categorization_enabled, applyReadGuard, appendMessages, setHasMoreMessages, setLoadingMessages, setMessagesOffset]);
+  }, [selectedAccountId, selectedFolder, unreadOnly, activeCategory, pageSize, loadingMessages, hasMoreMessages, categorizationEnabled, selectedAccount?.categorization_enabled, applyReadGuard, appendMessages, setHasMoreMessages, setLoadingMessages, setMessagesOffset, refreshRequest]);
 
   useEffect(() => {
     if (!loadingMessages && pendingLiveRefreshRef.current) {
@@ -1474,77 +1481,14 @@ export default function MessageList() {
   }, [setMessagesStarredState]);
 
   const handleSwipeReply = useCallback((message: ListMessage, replyAll = false) => {
-    const replyToArr = Array.isArray(message.reply_to)
-      ? message.reply_to
-      : (() => { try { return JSON.parse(message.reply_to || '[]'); } catch { return []; } })();
-    const replyTarget = (replyToArr.length && replyToArr[0].email)
-      ? replyToArr[0]
-      : { name: message.from_name || '', email: message.from_email || '' };
-    const sender = replyTarget.email ? [replyTarget] : [];
-
-    const myAccount = accounts.find(a => a.id === message.account_id);
-    const myEmail = myAccount?.email_address || '';
-    const myAddresses = new Set([
-      myEmail.toLowerCase(),
-      ...(myAccount?.aliases || [])
-        .map(al => al.email)
-        .filter((email): email is string => typeof email === 'string')
-        .map(email => email.toLowerCase()),
-    ]);
-
-    const replyAliasId = (() => {
-      const aliases = myAccount?.aliases || [];
-      if (!aliases.length) return null;
-      try {
-        const toArr = Array.isArray(message.to_addresses)
-          ? message.to_addresses
-          : JSON.parse(message.to_addresses || '[]');
-        const ccArr = Array.isArray(message.cc_addresses)
-          ? message.cc_addresses
-          : JSON.parse(message.cc_addresses || '[]');
-        const allEmails = [...toArr, ...ccArr].map(t => t.email?.toLowerCase()).filter(Boolean);
-        const fromEmail = (message.from_email || '').toLowerCase();
-        const match = aliases.find(al => {
-          if (typeof al.email !== 'string') return false;
-          const aliasEmail = al.email.toLowerCase();
-          return allEmails.includes(aliasEmail) || fromEmail === aliasEmail;
-        });
-        return match ? match.id : null;
-      } catch { return null; }
-    })();
-
-    const allRecipients = (() => {
-      try {
-        const toArr = Array.isArray(message.to_addresses)
-          ? message.to_addresses
-          : JSON.parse(message.to_addresses || '[]');
-        const ccArr = Array.isArray(message.cc_addresses)
-          ? message.cc_addresses
-          : JSON.parse(message.cc_addresses || '[]');
-        return [...toArr, ...ccArr].filter(
-          t => t.email && !myAddresses.has(t.email.toLowerCase()) && t.email !== replyTarget.email
-        );
-      } catch { return []; }
-    })();
-
-    const referencesChain = [message.in_reply_to, message.message_id]
-      .filter(Boolean).join(' ').trim() || null;
-    const rawSubject = (message.subject || '').trim();
-
-    openCompose({
-      to: sender,
-      cc: replyAll ? allRecipients : [],
-      subject: rawSubject.startsWith('Re:') ? rawSubject : rawSubject ? `Re: ${rawSubject}` : 'Re:',
-      body: '',
-      quotedBody: '',
-      inReplyTo: message.message_id,
-      references: referencesChain,
-      accountId: message.account_id,
-      aliasId: replyAliasId,
-      isReply: true,
-      isReplyAll: replyAll,
-      originalFrom: sender,
-      allRecipients,
+    // List, menu and swipe entry points intentionally use the same helper as
+    // the single reader and Conversation Reader. It carries the physical row
+    // identity to /send; RFC headers remain only a compatibility hint.
+    void openReplyFromMessage(message, {
+      accounts,
+      openCompose,
+      getMessageBody: api.getMessageBody,
+      replyAll,
     });
   }, [accounts, openCompose]);
   
@@ -2633,7 +2577,11 @@ export default function MessageList() {
           editedSignatureIsHtml: hasCanonicalSignatureText ? false : composition?.bodyIsHtml !== false,
           inReplyTo: message.draft_in_reply_to || null,
           references: message.draft_references || null,
-          isReply: Boolean(message.draft_in_reply_to),
+          replyToMessageId: typeof composition?.replyToMessageId === 'string' ? composition.replyToMessageId : null,
+          replyParentMessageId: typeof composition?.replyParentMessageId === 'string' ? composition.replyParentMessageId : null,
+          replyParentAccountId: typeof composition?.replyParentAccountId === 'string' ? composition.replyParentAccountId : null,
+          isReplyAll: composition?.replyKind === 'reply_all',
+          isReply: composition?.replyKind === 'reply' || composition?.replyKind === 'reply_all' || Boolean(message.draft_in_reply_to),
         });
       } catch (err) {
         if (!isCurrentDraftOpen()) return;
@@ -3222,7 +3170,7 @@ export default function MessageList() {
                 </div>
               ))}
               <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--border-subtle)', fontSize: 10, color: 'var(--text-tertiary)' }}>
-                {t('messageList.searchHelp.tip')} <code style={{ fontFamily: 'monospace' }}>from:amazon invoice</code>
+                {t('messageList.searchHelp.tip')} <code style={{ fontFamily: 'monospace' }}>{t('messageList.searchHelp.example')}</code>
               </div>
             </div>
           )}

@@ -13,9 +13,8 @@ import { runGtdTransitions, threadKeysForMessageIds, threadKeysInFolders, runTra
 import type { TransitionMailEngine } from './gtdTransitions.js';
 import { emitGtdIfRelevant } from './gtdSections.js';
 import { deleteUserPet } from './gtdPet.js';
-import { logger, getThreadKeyForUid, listUserAccounts, getAccountConfig, setAccountConfig } from '../api.js';
-import type { PluginContext } from '../registry.js';
-import { toAppError } from '../../utils/errors.js';
+import { logger, getThreadKeyForUid, listUserAccounts, getAccountConfig, setAccountConfig, toAppError } from '../api.js';
+import type { PluginContext } from '../api.js';
 
 // Pure helper: candidate INBOX ids minus the ones a rule genuinely deleted.
 export function selectGtdReevalIds(newInboxIds: string[], deletedIds: Iterable<string> | null | undefined): string[] {

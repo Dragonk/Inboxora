@@ -1,6 +1,6 @@
 # External calendars
 
-Inboxora subscribes to **CalDAV** and **ICS/webcal** calendars as pull-only, read-only sources.
+Inboxora subscribes to **CalDAV** and **ICS/webcal** calendars. An **ICS/webcal** feed is pull-only and read-only by nature: it has no write channel. A **CalDAV** source can additionally be written back to the server it came from, once you enable write-back for that calendar — both from Inboxora and from a DAV client, keeping the client's `If-Match` precondition (see [Contacts and DAV → Writing changes back](Contacts-and-DAV.md#writing-changes-back)). These subscriptions are **independent of the provider integrations**: connecting a Google or Microsoft account neither migrates them nor changes how they sync, and nothing here is removed because a provider was configured. Conversely, a Google calendar pulled through the API is a separate calendar from a feed of the same events.
 Add one from **Settings → Calendar → Calendar subscriptions** or from the calendar panel under
 **Manage sources**, which is also where you sync, reschedule and remove them.
 
@@ -8,7 +8,7 @@ Add one from **Settings → Calendar → Calendar subscriptions** or from the ca
 
 | Type | Needs | Use it for |
 | --- | --- | --- |
-| **CalDAV** | Server URL, remote username and password (or app password) | Nextcloud, Fastmail, Radicale, Synology and other CalDAV servers. |
+| **CalDAV** | Server URL, remote username and password (or app password) | Nextcloud, Fastmail, Radicale, Synology and other CalDAV servers. Basic and Digest challenge authentication are supported. |
 | **ICS / webcal** | A calendar URL, or a `webcal://` link | Published `.ics` feeds, holiday calendars, team schedules. |
 
 ## Add a subscription in two steps
@@ -20,6 +20,38 @@ straight away and appears as a read-only calendar named after the entry you adde
 
 The same list is available from the calendar panel under **Manage sources**, which is also where you
 remove a subscription, run **Sync now**, inspect a failure and change its cadence.
+
+## Pulling calendars from Google
+
+Once a Google account is connected, Inboxora can read that account's calendars through the Google
+Calendar API instead of a feed URL. Each Google calendar becomes its own local calendar, named after
+the Google one.
+
+- Calendars arrive with write-back **off** and with **DAV access: Disabled**, so they are not published to your
+  phone or desktop until you enable them yourself.
+- A recurring event stays **one event with one rule**, exactly as in Google — it is never split into
+  separate copies. A single moved occurrence and a single cancelled occurrence are kept as
+  exceptions to that rule.
+- Wall-clock times are stored with the zone's own daylight-saving rules, so a weekly 09:00 meeting
+  stays at 09:00 after a DST change rather than drifting by an hour.
+- Synchronisation is incremental: the first pass reads everything and stores a cursor, and later
+  passes read only what changed. If Google rejects the stored cursor, that calendar is rebuilt from
+  a fresh baseline rather than failing.
+- One calendar failing does not stop the others; the failure is reported per calendar.
+
+The in-app control for this pull is **Sync Google calendars**, in the **Manage sources** dialog
+under **Settings → Calendar → Calendar subscriptions**. It appears once a Google account is
+connected, and reports what each run did — how many calendars were read and how many events were
+added, updated and removed — including a partial failure when one calendar could not be read. The
+imported calendars appear in the calendar list straight away.
+
+Next to the sync action the dialog reports when the pull last succeeded — the freshest time across
+the imported calendars — or the error code of a failed run, so a calendar that quietly stopped
+updating is visible there instead of only in the server log.
+
+Once you have pulled a Google calendar it is refreshed automatically (every 15 minutes by default;
+an administrator can change or disable that with `PROVIDER_SYNC_INTERVAL_MINUTES`). Only calendars
+you have already pulled are refreshed — connecting an account never starts an import on its own.
 
 ### Holiday calendars
 
@@ -37,6 +69,21 @@ updates. If a country is missing from the picker, add its `https://` or `webcal:
 the subscription form above. Holiday calendars are subject to the same connection and credential
 rules as every other source.
 
+## Importing an .ics file
+
+A local calendar can also be filled from a file: open the calendar's menu, choose its appearance
+dialog and pick **Import .ics file**. This is the way to bring in an export from another client
+without publishing it as a feed first.
+
+- A file containing a recurring event keeps the series and its moved or cancelled occurrences
+  together, exactly as DAV requires; they do not become separate events.
+- Identity is the event's UID, so importing the same file again updates the events the calendar
+  already has instead of duplicating them.
+- An event the calendar cannot read is skipped rather than stored broken, and it does not stop the
+  valid events beside it. A file that is not a calendar, or that holds no event, is reported.
+- Only a local calendar accepts an import: a subscribed feed or a connected Google or Microsoft
+  calendar is written by its source.
+
 ## Sync schedule
 
 Every source has its own interval, chosen when you add it and editable at any time from its row in
@@ -53,7 +100,7 @@ single source straight away.
 - Sources are **pull-only**. Inboxora never writes to the remote calendar.
 - Each source keeps its own sync schedule (15 minutes to 24 hours, default hourly), and one source
   failing never blocks the others.
-- Removing a source removes only the local read-only copy; the remote calendar is untouched.
+- Removing a source removes only the local copy; the remote calendar is untouched.
 - Events removed from the remote feed are removed locally as well, so the local copy tracks the
   source.
 - If a source returns something unusable, Inboxora keeps the last healthy copy and reports the

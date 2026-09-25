@@ -291,6 +291,10 @@ async function findProviderConversation(client: PoolClient, hydrated: HydratedLo
   return result.rows[0]?.conversation_id || null;
 }
 
+export function conversationSerializeKey(userId: string, accountId: string): string {
+  return `inboxora:conversation:${userId}:${accountId}`;
+}
+
 export async function upsertConversationCopy(copy: ConversationCopyInput, { identities = [], provider = null, userId = null }: { identities?: unknown[]; provider?: ConversationProviderRef | null; userId?: string | null } = {}): Promise<ConversationUpsertResult> {
   // P0-02: userId MUST be passed explicitly by the caller (from session context).
   // Do NOT trust copy.user_id — it is caller-controlled and could be spoofed.
@@ -299,9 +303,11 @@ export async function upsertConversationCopy(copy: ConversationCopyInput, { iden
   // carried by the payload (that would permit cross-tenant attachment).
   const effectiveUserId = userId;
   if (!effectiveUserId) throw new Error('userId is required for conversation persistence');
+  const accountId = typeof copy.account_id === 'string' ? copy.account_id : '';
+  if (!accountId) throw new Error('account_id is required for conversation persistence');
   return withTransaction(async client => {
     return _upsertConversationCopyWithClient(client, copy, { identities, provider, userId: effectiveUserId });
-  }, { serializable: true });
+  }, { serializable: true, serializeKey: conversationSerializeKey(effectiveUserId, accountId) });
 }
 
 export async function _upsertConversationCopyWithClient(
@@ -349,7 +355,7 @@ export async function _upsertConversationCopyWithClient(
     let logical = existing.logical;
     const collision = existing.collision;
     if (!logical) {
-      const insert = await client.query(`INSERT INTO logical_messages (user_id, account_id, canonical_message_id, raw_message_id, message_id_collision_key, raw_headers, raw_in_reply_to, raw_references, parsed_in_reply_to, parsed_references, subject, canonical_subject, direction, message_date, body_fingerprint, header_fingerprint, threading_reason, threading_confidence) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) ON CONFLICT DO NOTHING RETURNING id, conversation_id`, [hydrated.userId, hydrated.accountId, hydrated.canonicalMessageId, hydrated.rawMessageId, hydrated.collisionKey, hydrated.rawHeaders, hydrated.rawInReplyTo, hydrated.rawReferences, JSON.stringify(normalizeMessageIdList(hydrated.rawInReplyTo)), JSON.stringify(normalizeMessageIdList(hydrated.rawReferences)), source.subject || null, hydrated.canonicalSubject, hydrated.direction, hydrated.messageDate, hydrated.bodyFingerprint, hydrated.headerFingerprint, decision.reason, decision.confidence]);
+      const insert = await client.query(`INSERT INTO logical_messages (user_id, account_id, canonical_message_id, raw_message_id, message_id_collision_key, raw_in_reply_to, raw_references, parsed_in_reply_to, parsed_references, subject, canonical_subject, direction, message_date, body_fingerprint, header_fingerprint, threading_reason, threading_confidence) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) ON CONFLICT DO NOTHING RETURNING id, conversation_id`, [hydrated.userId, hydrated.accountId, hydrated.canonicalMessageId, hydrated.rawMessageId, hydrated.collisionKey, hydrated.rawInReplyTo, hydrated.rawReferences, JSON.stringify(normalizeMessageIdList(hydrated.rawInReplyTo)), JSON.stringify(normalizeMessageIdList(hydrated.rawReferences)), source.subject || null, hydrated.canonicalSubject, hydrated.direction, hydrated.messageDate, hydrated.bodyFingerprint, hydrated.headerFingerprint, decision.reason, decision.confidence]);
       logical = insert.rows[0] || null;
       if (!logical) {
         const winner = hydrated.canonicalMessageId
@@ -359,7 +365,7 @@ export async function _upsertConversationCopyWithClient(
       }
       if (!logical) throw new Error('Logical message insert raced without a recoverable winner');
     }
-    else await client.query('UPDATE logical_messages SET raw_headers = COALESCE(raw_headers, $2), updated_at = NOW(), threading_reason = $3, threading_confidence = $4 WHERE id = $1 AND account_id = $5', [logical.id, hydrated.rawHeaders, decision.reason, decision.confidence, hydrated.accountId]);
+    else await client.query('UPDATE logical_messages SET updated_at = NOW(), threading_reason = $2, threading_confidence = $3 WHERE id = $1 AND account_id = $4', [logical.id, decision.reason, decision.confidence, hydrated.accountId]);
     const providerConversationId = await findProviderConversation(client, hydrated, provider);
     // Strong evidence discovered during replay/rebuild must be able to repair a
     // provisional legacy assignment. An unambiguous RFC parent is authoritative;

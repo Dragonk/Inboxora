@@ -16,7 +16,7 @@ async function openAppearance(page) {
   await page.getByTestId('sidebar-user-menu').click();
   if (page.viewportSize().width < 768) await page.getByTestId('mobile-settings').click();
   else await page.getByText(/^Ustawienia$|^Settings$/i).first().click();
-  await page.getByText(/^Wygląd$|^Appearance$/i).click();
+  await page.getByTestId('admin-tab-appearance').click();
 }
 
 const activeTheme = (page) => page.evaluate(
@@ -67,7 +67,7 @@ test('a legacy single theme preference is preserved as an explicit choice', asyn
   await page.getByTestId('sidebar-user-menu').click();
   if (page.viewportSize().width < 768) await page.getByTestId('mobile-settings').click();
   else await page.getByText(/^Ustawienia$|^Settings$/i).first().click();
-  await page.getByText(/^Wygląd$|^Appearance$/i).click();
+  await page.getByTestId('admin-tab-appearance').click();
 
   // Gruvbox is dark, so it landed in the dark slot and forced the dark appearance.
   await expect(page.getByRole('button', { name: /Zawsze ciemny|Always dark/i }))

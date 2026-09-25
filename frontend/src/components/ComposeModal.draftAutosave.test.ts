@@ -41,9 +41,21 @@ test('draft acknowledgement separates recipient and document edits from request 
   assert.match(draftSave, /if \(closeAfter && snapshotStillCurrent\) \{/);
 });
 
+test('reply drafts carry their physical parent through save and reopen (THR-07)', () => {
+  assert.match(draftSave, /replyToMessageId: composeData\?\.replyToMessageId \|\| null/);
+  assert.match(draftSave, /draftSnapshot\.replyToMessageId \? \{ replyToMessageId: draftSnapshot\.replyToMessageId \}/);
+});
+
+test('reply-all drafts preserve their Graph reply action (THR-07)', () => {
+  assert.match(draftSave, /replyKind: composeData\?\.isReplyAll \? 'reply_all' : composeData\?\.isReply \? 'reply' : null/);
+  assert.match(draftSave, /draftSnapshot\.replyKind \? \{ replyKind: draftSnapshot\.replyKind \}/);
+});
+
 test('draft replacement keeps the prior account, UID and folder as one request snapshot (V7-02)', () => {
-  assert.match(draftSave, /existingDraft: draftUid != null && draftFolder != null && draftAccountId && draftUidValidity != null/);
-  assert.match(draftSave, /\? \{ accountId: draftAccountId, uid: draftUid, folder: draftFolder, uidValidity: draftUidValidity \}/);
+  // `uidValidity` is carried when the draft has one and omitted for a provider-native draft, whose
+  // identity is the provider id held server-side — requiring it here would strand every provider draft.
+  assert.match(draftSave, /existingDraft: draftUid != null && draftFolder != null && draftAccountId/);
+  assert.match(draftSave, /\? \{ accountId: draftAccountId, uid: draftUid, folder: draftFolder, \.\.\.\(draftUidValidity != null \? \{ uidValidity: draftUidValidity \} : \{\}\) \}/);
   assert.match(draftSave, /draftSnapshot\.existingDraft \? \{ existingDraft: draftSnapshot\.existingDraft \}/);
   assert.doesNotMatch(draftSave, /existingUid:/);
 });

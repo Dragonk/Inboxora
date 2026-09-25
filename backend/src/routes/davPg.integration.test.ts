@@ -9,7 +9,7 @@ import type { authenticateDavCredential } from '../services/davCredentials.js';
 type DavCredential = NonNullable<Awaited<ReturnType<typeof authenticateDavCredential>>>;
 type DavAuthState = Omit<DavCredential, 'userId'> & { userId: DavCredential['userId'] | null };
 
-const auth = vi.hoisted<DavAuthState>(() => ({ userId: null, credentialId: 'synthetic-dav-credential' }));
+const auth = vi.hoisted<DavAuthState>(() => ({ userId: null, credentialId: 'synthetic-dav-credential', maxDavMode: 'read_write' }));
 vi.mock('../services/davCredentials.js', () => ({ authenticateDavCredential: async () => auth }));
 vi.mock('../services/rateLimiter.js', () => ({ consume: async () => ({ limited: false }) }));
 vi.mock('../services/authEvents.js', () => ({ logAuthEvent: () => {} }));

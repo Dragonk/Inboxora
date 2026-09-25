@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import type { Response } from 'express';
 import { query, type DbRow } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { imapManager } from '../index.js';
@@ -9,8 +10,27 @@ import { validateHost } from '../services/hostValidation.js';
 import { getConnectionPolicy } from '../services/connectionPolicy.js';
 import { pluginRegistry } from '../plugins/registry.js';
 import { createKeyedSerializer } from '../utils/keyedSerializer.js';
-import { uuidParam } from '../utils/uuid.js';
+import { isUuid, uuidParam } from '../utils/uuid.js';
 import { toAppError } from '../utils/errors.js';
+import { cutOverMicrosoftMailAccount } from '../services/providerMailCutover.js';
+import { releaseProviderPushForConnection } from '../services/providerPushLifecycle.js';
+import { accountDeletionPlan, deleteAccountWithProviderArtifacts } from '../services/accountDeletionCleanup.js';
+import { createNativeMailAccount, describeNativeCandidates, nativeProviderReadiness } from '../services/nativeAccountService.js';
+import { classifyProviderAccountById } from '../services/providerAccountClassifier.js';
+import { describeAccountProviderFeatures } from '../services/accountProviderFeatures.js';
+import { isAccountProviderService, setAccountProviderFeatureSetting } from '../services/accountProviderFeatureSettings.js';
+import { providerIntegrationsEnabled } from '../services/providerSwitches.js';
+import { googleConfigFromEnv, microsoftConfigFromEnv } from '../services/providerAuthService.js';
+import { providerSyncPreflight, describeProviderSyncFailure } from '../services/providerSyncDiagnostics.js';
+import { syncGoogleCalendar } from '../services/providers/google/googleCalendarSync.js';
+import { syncGraphCalendar } from '../services/providers/microsoft/graphCalendarSync.js';
+import { syncGoogleContacts } from '../services/providers/google/googleContactsSync.js';
+import { syncGraphContacts } from '../services/providers/microsoft/graphContactsSync.js';
+import { reduceProviderSyncResult } from '../services/providerSyncOutcome.js';
+import type { MicrosoftMailCutoverAccount } from '../services/providerMailCutover.js';
+import { cutOverGoogleMailAccount } from '../services/providerGoogleMailCutover.js';
+import type { GoogleMailCutoverAccount } from '../services/providerGoogleMailCutover.js';
+import calendarManagementRouter from './accountsCalendarManagement.js';
 
 // Serialize an account's reconnect triggers so a rapid settings change (e.g. a
 // gtd_enabled double-toggle) can't fire two overlapping disconnect→connect chains —
@@ -46,6 +66,8 @@ router.use(requireAuth);
 // Postgres cast error surfaces as a 500). Every :id/:aliasId in this router is a UUID.
 router.param('id', uuidParam('id'));
 router.param('aliasId', uuidParam('aliasId'));
+// Keep native collection lifecycle endpoints isolated from mailbox CRUD.
+router.use('/', calendarManagementRouter);
 
 // Fields safe to return to the client — matches the GET list, excludes credentials and tokens
 const SAFE_FIELDS = [
@@ -57,6 +79,9 @@ const SAFE_FIELDS = [
   'last_sync', 'sync_error', 'sort_order', 'folder_mappings',
   'signature', 'created_at', 'categorization_enabled',
   'antispam_enabled', 'trusted_authserv_id',
+  // v4 transport and migration state, so the account card can say which transport an account uses
+  // and why a migration it attempted did not complete. No credential or token is carried here.
+  'mail_transport', 'migration_state', 'migration_required', 'migration_error_code',
 ];
 function safeAccount(row: DbRow): Record<string, unknown> {
   const obj: Record<string, unknown> = Object.fromEntries(SAFE_FIELDS.map(k => [k, row[k]]));
@@ -86,7 +111,8 @@ router.get('/', async (req, res) => {
             smtp_host, smtp_port, smtp_tls, auth_user, smtp_auth_user, oauth_provider, enabled,
             include_in_unified_inbox,
             last_sync, sync_error, sort_order, folder_mappings, signature, created_at,
-            categorization_enabled, antispam_enabled, trusted_authserv_id
+            categorization_enabled, antispam_enabled, trusted_authserv_id,
+            mail_transport, migration_state, migration_required, migration_error_code
      FROM email_accounts WHERE user_id = $1 ORDER BY sort_order, created_at`,
     [req.session.userId]
   );
@@ -340,17 +366,35 @@ router.put('/:id', async (req, res) => {
 router.delete('/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const check = await query<{ id: string }>('SELECT id FROM email_accounts WHERE id = $1 AND user_id = $2', [id, req.session.userId]);
-    if (!check.rows.length) return res.status(404).json({ error: 'Account not found' });
+    const userId = req.session.userId!;
+    const plan = await accountDeletionPlan(userId, id);
+    if (!plan) return res.status(404).json({ error: 'Account not found' });
+    if (plan.invitationReferences > 0) {
+      return res.status(409).json({ error: 'This account is still used to send calendar invitations. Cancel or transfer those invitations before deleting it.' });
+    }
 
-    // Delete from DB first (cascades to messages and folders immediately).
+    // Stop provider-side push while the credentials/connection still exist.
+    // Only connections that become unused are released; shared connections are
+    // intentionally preserved for their remaining account(s).
+    for (const connectionId of plan.connectionsToDelete) {
+      await releaseProviderPushForConnection({ userId, connectionId })
+        .catch(error => console.warn('Provider push cleanup after account delete failed:', error instanceof Error ? error.message : error));
+    }
+
+    const deleted = await deleteAccountWithProviderArtifacts(userId, id, plan);
+    if (!deleted) return res.status(404).json({ error: 'Account not found' });
+
     // Disconnect IMAP afterward — fire-and-forget so a slow server logout
     // doesn't block the response.
-    await query('DELETE FROM email_accounts WHERE id = $1', [id]);
     imapManager.disconnectAccount(id).catch(err =>
       console.error(`Disconnect error after delete for ${id}:`, err.message)
     );
-    res.json({ ok: true });
+    res.json({
+      ok: true,
+      removedProviderConnections: plan.connectionsToDelete.length,
+      removedCalendars: deleted.calendars,
+      removedAddressBooks: deleted.addressBooks,
+    });
   } catch (caught) {
     const err = toAppError(caught);
     if (err.code === '23503') {
@@ -361,14 +405,387 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
+/**
+ * Add a **native** mail account for a mailbox the user has already authorized.
+ *
+ * The split this route exists for: Settings → Integrations configures the provider application (client id,
+ * secret, tenant, redirect URI) and Settings → Accounts connects individual mailboxes. The OAuth flows record
+ * the connection and its grant; this turns one into an account whose identity comes from the provider, with
+ * no IMAP/SMTP configuration at all and no "create an IMAP account, then migrate it" detour.
+ *
+ * An existing account for the same address is never duplicated: the answer names it and its transport so the
+ * interface can offer the migration that already exists for that provider.
+ */
+router.post('/native', async (req, res) => {
+  const userId = req.session.userId;
+  if (!userId) return res.status(401).json({ error: 'Not authenticated' });
+  const provider = req.body?.provider;
+  if (provider !== 'microsoft' && provider !== 'google') {
+    return res.status(400).json({ error: 'provider must be microsoft or google' });
+  }
+  const connectionId = req.body?.connectionId;
+  if (connectionId !== undefined && connectionId !== null && !isUuid(connectionId)) {
+    return res.status(400).json({ error: 'connectionId must be a UUID' });
+  }
+  const name = req.body?.name;
+  if (name !== undefined && name !== null && typeof name !== 'string') {
+    return res.status(400).json({ error: 'name must be a string' });
+  }
+
+  try {
+    const result = await createNativeMailAccount({ userId, provider, connectionId: connectionId ?? null, name: name ?? null });
+    switch (result.status) {
+      case 'created':
+        return res.status(201).json({
+          ok: true,
+          created: true,
+          account: result.account,
+          connectionId: result.connectionId,
+          discovered: result.discovered,
+          folders: result.folders,
+        });
+      case 'exists_native':
+        // Idempotent: the mailbox is already added on this transport.
+        return res.json({ ok: true, created: false, account: result.account, connectionId: result.connectionId });
+      case 'exists_other_transport':
+        return res.status(result.httpStatus).json({
+          error: result.message,
+          code: result.code,
+          existingAccountId: result.existingAccountId,
+          existingTransport: result.existingTransport,
+          suggestion: result.suggestion,
+        });
+      case 'refused':
+        return res.status(result.httpStatus).json({ error: result.message, code: result.code });
+      case 'not_found':
+        return res.status(404).json({ error: 'Account not found' });
+    }
+    return res.status(500).json({ error: 'Unexpected account creation outcome' });
+  } catch (caught) {
+    const err = toAppError(caught);
+    console.error('Native account creation failed:', err.message);
+    return res.status(err.status || 500).json({ error: err.message || 'The account could not be added' });
+  }
+});
+
+/**
+ * What the caller's authorized mailboxes look like: the connection for each, and whether an account already
+ * exists for that address and on which transport. The Add-account flow uses it to offer "migrate this account"
+ * instead of "add it again".
+ */
+router.get('/native/candidates', async (req, res) => {
+  const userId = req.session.userId;
+  if (!userId) return res.status(401).json({ error: 'Not authenticated' });
+  const provider = req.query.provider === 'google' ? 'google' : req.query.provider === 'microsoft' ? 'microsoft' : null;
+  if (!provider) return res.status(400).json({ error: 'provider must be microsoft or google' });
+  const candidates = await describeNativeCandidates({ userId, provider });
+  res.json({ provider, candidates, readiness: nativeProviderReadiness()[provider] });
+});
+
+/**
+ * One account's provider services: its mail transport and whether the native one is available, and the state
+ * of its calendar, contacts and push.
+ *
+ * The account card is account-centric, so this is where a user sees "Gmail API", "connect Google Calendar",
+ * "contacts: polling" — not in Integrations, which only configures the installation.
+ */
+router.get('/:id/provider-features', async (req, res) => {
+  const userId = req.session.userId;
+  if (!userId) return res.status(401).json({ error: 'Not authenticated' });
+  const features = await describeAccountProviderFeatures({ userId, accountId: req.params.id });
+  if (!features) return res.status(404).json({ error: 'Account not found' });
+  res.json(features);
+});
+
+/** One coherent read for the account card: capabilities and diagnostics share this snapshot. */
+router.get('/:id/provider-status', async (req, res) => {
+  const userId = req.session.userId;
+  if (!userId) return res.status(401).json({ error: 'Not authenticated' });
+  const features = await describeAccountProviderFeatures({ userId, accountId: req.params.id });
+  if (!features) return res.status(404).json({ error: 'Account not found' });
+  const generatedAt = new Date().toISOString();
+  // Response-local monotonic identity: clients discard superseded fetches, without
+  // claiming independent provider transactions were frozen atomically.
+  const snapshotRevision = `${features.accountId}:${generatedAt}`;
+  res.json({ ...features, generatedAt, snapshotRevision, diagnostics: { accountId: features.accountId, provider: features.provider, transport: features.mail.transport, ...features.diagnostics } });
+});
+
+/** Persist the account owner's optional calendar/contact intent, without revoking its grant. */
+router.patch('/:id/provider-features/:feature', async (req, res) => {
+  const userId = req.session.userId;
+  if (!userId) return res.status(401).json({ error: 'Not authenticated' });
+  if (!isAccountProviderService(req.params.feature)) {
+    return res.status(400).json({ error: 'feature must be calendars or contacts', code: 'INVALID_PROVIDER_FEATURE' });
+  }
+  if (typeof req.body?.enabled !== 'boolean') {
+    return res.status(400).json({ error: 'enabled must be a boolean', code: 'INVALID_PROVIDER_FEATURE_SETTING' });
+  }
+  const setting = await setAccountProviderFeatureSetting({
+    userId,
+    accountId: req.params.id,
+    feature: req.params.feature,
+    enabled: req.body.enabled,
+  });
+  if (!setting) return res.status(404).json({ error: 'Account not found', code: 'ACCOUNT_NOT_FOUND' });
+  // Persisting intent is not itself a successful synchronization. Return an explicit preparation contract so the
+  // card can offer the next safe action and never turn an unchecked/current-scope migration into a false denial.
+  const snapshot = await describeAccountProviderFeatures({ userId, accountId: req.params.id });
+  const service = req.params.feature === 'calendars' ? snapshot?.calendar : snapshot?.contacts;
+  const preparation = !req.body.enabled ? 'ready'
+    : !snapshot?.provider || !service?.connectionId ? 'authorization_required'
+      : service.authorized ? 'queued'
+        : service.missingScopes.length === 0 ? 'verification_required' : 'authorization_required';
+  res.json({ accountId: req.params.id, ...setting, preparation });
+});
+
+/** Sync exactly one enabled account service; connection identity is resolved server-side. */
+router.post('/:id/provider-features/:feature/sync', async (req, res) => {
+  const userId = req.session.userId;
+  if (!userId) return res.status(401).json({ error: 'Not authenticated', code: 'NOT_AUTHENTICATED' });
+  const requested = req.params.feature;
+  if (requested !== 'calendars' && requested !== 'contacts') {
+    return res.status(400).json({ error: 'feature must be calendars or contacts', code: 'INVALID_PROVIDER_FEATURE' });
+  }
+  if (!providerIntegrationsEnabled()) return res.status(403).json({ error: 'Provider integrations are disabled', code: 'PROVIDER_INTEGRATIONS_DISABLED' });
+  const features = await describeAccountProviderFeatures({ userId, accountId: req.params.id });
+  if (!features) return res.status(404).json({ error: 'Account not found', code: 'ACCOUNT_NOT_FOUND' });
+  const service = requested === 'calendars' ? features.calendar : features.contacts;
+  const feature = requested === 'calendars' ? 'calendar' : 'contacts';
+  if (!features.provider || !service?.connectionId) {
+    return res.status(409).json({ error: `No provider ${feature} connection for this account`, code: 'PROVIDER_AUTH_REQUIRED' });
+  }
+  // User intent owns this setting. A manual button must never silently re-enable it.
+  if (service.enabled !== true) return res.status(409).json({ error: `${requested === 'calendars' ? 'Calendars' : 'Contacts'} are disabled for this account`, code: 'FEATURE_DISABLED' });
+  const provider = features.provider;
+  const connectionId = service.connectionId;
+  const refusal = await providerSyncPreflight({ userId, connectionId, provider, feature });
+  if (refusal) {
+    return res.status(409).json({
+      connectionId, code: refusal.code, error: 'Provider authorization is required before synchronization',
+      details: { feature: refusal.feature, missingScopes: refusal.missingScopes, retryable: refusal.retryable },
+    });
+  }
+  try {
+    const result = requested === 'calendars'
+      ? (provider === 'google'
+        ? await syncGoogleCalendar({ userId, connectionId, config: googleConfigFromEnv() })
+        : await syncGraphCalendar({ userId, connectionId, config: microsoftConfigFromEnv() }))
+      : (provider === 'google'
+        ? await syncGoogleContacts({ userId, connectionId, config: googleConfigFromEnv() })
+        : await syncGraphContacts({ userId, connectionId, config: microsoftConfigFromEnv() }));
+    const reduced = reduceProviderSyncResult(result);
+    res.json({ accountId: req.params.id, connectionId, provider, feature, state: reduced.state, outcome: reduced.outcome, synchronized: reduced.synchronized, syncPending: reduced.syncPending, code: reduced.errorCode, result });
+  } catch (caught) {
+    const failure = await describeProviderSyncFailure({ userId, connectionId, provider, feature, caught });
+    res.status(502).json({ accountId: req.params.id, connectionId, provider, feature, state: 'error', code: failure.code, error: failure.message, details: failure });
+  }
+});
+
+/**
+ * The same capability view, plus what the last runs did, for the account's own diagnostics section.
+ *
+ * It is the same call rather than a second implementation: authorization is decided by the one capability
+ * evaluator, so a diagnostics screen can never disagree with the buttons beside it. No token, secret or raw
+ * provider payload is part of the answer — the evaluator reads only the granted scope names and the grant's
+ * status.
+ */
+router.get('/:id/provider-diagnostics', async (req, res) => {
+  const userId = req.session.userId;
+  if (!userId) return res.status(401).json({ error: 'Not authenticated' });
+  const features = await describeAccountProviderFeatures({ userId, accountId: req.params.id });
+  if (!features) return res.status(404).json({ error: 'Account not found' });
+  res.json({
+    accountId: features.accountId,
+    provider: features.provider,
+    transport: features.mail.transport,
+    ...features.diagnostics,
+  });
+});
+
 router.post('/:id/reconnect', async (req, res) => {
   const { id } = req.params;
   const result = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2', [id, req.session.userId]);
   if (!result.rows.length) return res.status(404).json({ error: 'Account not found' });
 
-  imapManager.connectAccount(result.rows[0]).catch(console.error);
+  const account = result.rows[0];
+  // A native account has no IMAP session to rebuild. Opening one would be a silent fallback to the
+  // transport its cutover deliberately replaced, so this refuses instead; the provider sync is the
+  // way to refresh such an account.
+  if (account.mail_transport === 'microsoft_graph' || account.mail_transport === 'gmail_api') {
+    return res.status(409).json({
+      error: 'This account reads mail through its provider. Reconnect the provider instead of the IMAP session.',
+      code: 'PROVIDER_MANAGED_TRANSPORT',
+      transport: account.mail_transport,
+    });
+  }
+
+  imapManager.connectAccount(account).catch(console.error);
   res.json({ ok: true });
 });
+
+// ── In-place transport cutover (P12) ────────────────────────────────────────
+
+/** The account fields a cutover response returns; all of them are also on the account list. */
+function cutoverAccountPayload(account: MicrosoftMailCutoverAccount | GoogleMailCutoverAccount) {
+  return {
+    id: account.id,
+    email_address: account.email_address,
+    mail_transport: account.mail_transport,
+    protocol: account.protocol,
+    provider_connection_id: account.provider_connection_id,
+    provider_mailbox_id: account.provider_mailbox_id,
+    migration_state: account.migration_state,
+    migration_required: account.migration_required,
+    mail_method_preference: account.mail_method_preference,
+    transport_generation: account.transport_generation,
+  };
+}
+
+router.post('/:id/migrate', async (req, res) => {
+  const { id } = req.params;
+  const userId = req.session.userId;
+  if (!userId) return res.status(401).json({ error: 'Not authenticated' });
+  const requestedConnection = (req.body ?? {}).connectionId;
+  if (requestedConnection !== undefined && requestedConnection !== null && !isUuid(requestedConnection)) {
+    return res.status(400).json({ error: 'connectionId must be a UUID' });
+  }
+  const allowIdentityMismatch = (req.body ?? {}).allowIdentityMismatch;
+  if (allowIdentityMismatch !== undefined && typeof allowIdentityMismatch !== 'boolean') {
+    return res.status(400).json({ error: 'allowIdentityMismatch must be a boolean' });
+  }
+
+  // Which cutover applies is decided by the shared classifier, exactly as the interface decided to offer the
+  // migration. A caller may name the provider it believes the account has, but the classification is
+  // authoritative — a legacy Gmail mailbox with a NULL `oauth_provider` used to answer "not applicable" here
+  // while the recommendation card offered the very migration.
+  try {
+    const classified = await classifyProviderAccountById({ userId, accountId: id });
+    if (!classified.account) return res.status(404).json({ error: 'Account not found' });
+    const claimed = req.body?.provider;
+    if (claimed !== undefined && claimed !== 'microsoft' && claimed !== 'google') {
+      return res.status(400).json({ error: 'provider must be microsoft or google' });
+    }
+    if (claimed && classified.kind && claimed !== classified.kind) {
+      return res.status(409).json({
+        code: 'ACCOUNT_PROVIDER_MISMATCH',
+        error: `This account is a ${classified.kind} account, not a ${claimed} one`,
+      });
+    }
+    const input = {
+      userId,
+      accountId: id,
+      connectionId: requestedConnection ?? null,
+      allowIdentityMismatch: allowIdentityMismatch === true,
+    };
+    if (classified.kind === 'google') {
+      return respondGoogleCutoverResult(res, id, await cutOverGoogleMailAccount(input));
+    }
+    if (classified.kind === 'microsoft') {
+      return respondMicrosoftCutoverResult(res, id, await cutOverMicrosoftMailAccount(input));
+    }
+    return res.status(409).json({
+      code: 'ACCOUNT_MIGRATION_NOT_APPLICABLE',
+      error: 'This account has no native provider transport to migrate to',
+    });
+  } catch (caught) {
+    const err = toAppError(caught);
+    console.error('Account cutover failed:', err.message);
+    return res.status(err.status || 500).json({ error: err.message || 'The account could not be migrated' });
+  }
+});
+
+/** The HTTP answer for a Microsoft cutover outcome. */
+function respondMicrosoftCutoverResult(res: Response, id: string, result: Awaited<ReturnType<typeof cutOverMicrosoftMailAccount>>): void {
+  switch (result.status) {
+    case 'not_found':
+      res.status(404).json({ error: 'Account not found' });
+      return;
+    case 'not_applicable':
+      res.status(409).json({ error: result.reason, code: 'ACCOUNT_MIGRATION_NOT_APPLICABLE' });
+      return;
+    case 'refused':
+      res.status(result.httpStatus).json({
+        error: result.message,
+        code: result.code,
+        ...(result.missingScopes?.length ? { missingScopes: result.missingScopes } : {}),
+        ...(result.migrationState ? { migrationState: result.migrationState } : {}),
+      });
+      return;
+    case 'already_native':
+      res.json({
+        ok: true,
+        alreadyNative: true,
+        transport: 'microsoft_graph',
+        connectionId: result.connectionId,
+        account: cutoverAccountPayload(result.account),
+      });
+      return;
+    case 'migrated':
+      // No IMAP session may outlive the switch; the transport, not the session, is authoritative now, and
+      // `protocol` keeps the legacy reconnect loops away from this account.
+      imapManager.disconnectAccount(id).catch(err =>
+        console.error(`Failed to disconnect account ${id} after the Graph cutover:`, err instanceof Error ? err.message : err)
+      );
+      res.json({
+        ok: true,
+        alreadyNative: false,
+        transport: 'microsoft_graph',
+        connectionId: result.connectionId,
+        transitions: result.transitions,
+        foldersDiscovered: result.foldersDiscovered,
+        account: cutoverAccountPayload(result.account),
+      });
+      return;
+    default:
+      res.status(500).json({ error: 'Unexpected cutover outcome' });
+  }
+}
+
+/** The HTTP answer for a Gmail cutover outcome. */
+function respondGoogleCutoverResult(res: Response, accountId: string, result: Awaited<ReturnType<typeof cutOverGoogleMailAccount>>): void {
+  switch (result.status) {
+    case 'not_found':
+      res.status(404).json({ error: 'Account not found' });
+      return;
+    case 'not_applicable':
+      res.status(409).json({ error: result.reason, code: 'ACCOUNT_MIGRATION_NOT_APPLICABLE' });
+      return;
+    case 'refused':
+      res.status(result.httpStatus).json({
+        error: result.message,
+        code: result.code,
+        ...(result.missingScopes?.length ? { missingScopes: result.missingScopes } : {}),
+        ...(result.migrationState ? { migrationState: result.migrationState } : {}),
+      });
+      return;
+    case 'already_native':
+      res.json({
+        ok: true,
+        alreadyNative: true,
+        transport: 'gmail_api',
+        connectionId: result.connectionId,
+        account: cutoverAccountPayload(result.account),
+      });
+      return;
+    case 'migrated':
+      // No IMAP session may outlive the switch; the transport, not the session, is authoritative now.
+      imapManager.disconnectAccount(accountId).catch(err =>
+        console.error(`Failed to disconnect account ${accountId} after the Gmail cutover:`, err instanceof Error ? err.message : err)
+      );
+      res.json({
+        ok: true,
+        alreadyNative: false,
+        transport: 'gmail_api',
+        connectionId: result.connectionId,
+        transitions: result.transitions,
+        labelsDiscovered: result.labelsDiscovered,
+        account: cutoverAccountPayload(result.account),
+      });
+      return;
+    default:
+      res.status(500).json({ error: 'Unexpected cutover outcome' });
+  }
+}
 
 // ── Alias CRUD ─────────────────────────────────────────────────────────────
 

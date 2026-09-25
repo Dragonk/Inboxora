@@ -11,6 +11,8 @@ declare global {
     cardavUserId?: string;
     davCredentialId?: string;
     davUserId?: string;
+    /** Ceiling of the authenticating DAV application password: read_only | read_write. */
+    davMaxMode?: 'read_only' | 'read_write';
     pushDevice?: {
       id: string;
       userId: string;

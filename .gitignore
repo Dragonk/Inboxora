@@ -38,6 +38,8 @@ Thumbs.db
 .superpowers/
 .hermes/
 output/
+# Local fork-detach backup (a repository copy kept beside the checkout); never committed.
+.fork-detach-backup/
 frontend/artifacts/
 artifacts/
 

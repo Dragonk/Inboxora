@@ -94,18 +94,18 @@ describe('POST /api/mail/draft — local row persistence', () => {
     expect(meta.bodyHtml).toContain('hello mike');
     expect(meta.bodyText).toContain('hello mike');
     expect(meta.messageId).toMatch(/^<[0-9a-f]+@mailflow\.sh>$/);
-    expect(meta.draftComposition).toMatchObject({ version: 2, authoredBody: 'hello mike', bodyIsHtml: false, signatureHtml: null, signatureText: null });
+    expect(meta.draftComposition).toMatchObject({ version: 3, authoredBody: 'hello mike', bodyIsHtml: false, signatureHtml: null, signatureText: null, replyParentMessageId: null, replyParentAccountId: null });
   });
 
   it('persists reply headers and separately editable draft composition (V10-04/V10-05)', async () => {
     const res = await fetch(`${base}/api/mail/draft`, {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ accountId: ACCOUNT_ID, subject: 'Re: x', body: 'author text', bodyIsHtml: false, editedSignature: '', quotedBody: 'old quote', inReplyTo: '<parent@example.test>', references: '<root@example.test> <parent@example.test>' }),
+      body: JSON.stringify({ accountId: ACCOUNT_ID, subject: 'Re: x', body: 'author text', bodyIsHtml: false, editedSignature: '', quotedBody: 'old quote', inReplyTo: '<parent@example.test>', references: '<root@example.test> <parent@example.test>', replyToMessageId: '11111111-1111-4111-8111-111111111111', replyKind: 'reply_all' }),
     });
     expect(res.status).toBe(200);
     expect(imapManager.upsertDraftMessageRecord).toHaveBeenCalledWith(expect.anything(), 'Drafts', 5, expect.objectContaining({
       inReplyTo: '<parent@example.test>', references: '<root@example.test> <parent@example.test>',
-      draftComposition: { version: 2, authoredBody: 'author text', bodyIsHtml: false, signatureHtml: null, signatureText: null, quotedBody: 'old quote', quotedBodyHtml: null },
+      draftComposition: { version: 3, authoredBody: 'author text', bodyIsHtml: false, signatureHtml: null, signatureText: null, quotedBody: 'old quote', quotedBodyHtml: null, replyToMessageId: '11111111-1111-4111-8111-111111111111', replyParentMessageId: null, replyParentAccountId: null, replyKind: 'reply_all' },
     }));
   });
 
@@ -188,6 +188,29 @@ describe('POST /api/mail/draft — local row persistence', () => {
     );
     const localDelete = query.mock.calls.find(([statement]) => statement.includes('DELETE FROM messages'));
     expect(localDelete?.[1]).toEqual([ACCOUNT_ID, 5, 'Drafts', 42]);
+  });
+
+  it('accepts the string uid and UIDVALIDITY the interface actually receives from a BIGINT column', async () => {
+    // `messages.uid` is BIGINT and the driver returns it as a string, so the composer sends back a
+    // string. Rejecting that form silently turned every autosave into a new draft instead of a replace.
+    query.mockReset().mockImplementation(async (statement: string) => {
+      if (statement.includes('SELECT id FROM email_accounts')) return { rows: [{ id: ACCOUNT_ID }] };
+      if (statement.includes('SELECT * FROM email_accounts WHERE id = $1')) return { rows: [ACCOUNT_ROW] };
+      if (statement.includes('SELECT draft_uid_validity FROM messages')) return { rows: [{ draft_uid_validity: '42' }] };
+      if (statement.includes('FROM folders')) return { rows: [{ path: 'Drafts' }] };
+      return { rows: [] };
+    });
+    imapManager.appendToFolder.mockResolvedValueOnce({ uid: 11, folder: 'Drafts', uidValidity: 42 });
+    const res = await fetch(`${base}/api/mail/draft`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        accountId: ACCOUNT_ID, to: ['a@b.com'], subject: 'replacement', body: 'body',
+        existingDraft: { accountId: ACCOUNT_ID, uid: '5', folder: 'Drafts', uidValidity: '42' },
+      }),
+    });
+    expect(res.status).toBe(200);
+    expect(imapManager.permanentDeleteMessage).toHaveBeenCalledWith(expect.objectContaining({ id: ACCOUNT_ID }), 5, 'Drafts', 42);
   });
 
   it('retains a replaced draft when its cached UIDVALIDITY differs from the historical identity (V8-01)', async () => {

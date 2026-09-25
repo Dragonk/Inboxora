@@ -13,10 +13,44 @@ import { Router } from 'express';
 import type { Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
 import { query } from '../services/db.js';
+import { collectionDavWritable, davWriteRefusalMessage, resolveCollectionAccess } from '../services/providerAccess.js';
+import { deleteCarddavContact, putCarddavContact } from '../services/providers/carddavWriteBack.js';
+import { davWriteBackHttpStatus } from '../services/providers/davWriteBack.js';
+import type { DavWriteBackRouteResult } from '../services/providers/davWriteBack.js';
 import { parseVCard } from '../utils/vcard.js';
 import { authLimiterConfig } from '../services/authLimiter.js';
 import { createDavAuthMiddleware } from '../services/davServerAuth.js';
+import { evaluateDavIf, ifMatchSatisfied, ifNoneMatchAllowsCreate } from '../utils/davPreconditions.js';
 import { toAppError } from '../utils/errors.js';
+
+/**
+ * Refuse a DAV write with a reason.
+ *
+ * `403` with no body is the least useful answer a client can get: it cannot distinguish a
+ * permissions problem from a collection Inboxora keeps read-only because its source writes it, and
+ * neither can a user reading a log. A `DAV:error` body is the standard place to say which.
+ */
+function davRefusal(res: Response, reason: string): void {
+  res
+    .status(403)
+    .type('application/xml')
+    .send(`<?xml version="1.0" encoding="utf-8"?><D:error xmlns:D="DAV:"><D:responsedescription>${xmlEscape(reason)}</D:responsedescription></D:error>`);
+}
+
+/**
+ * The report's root element name, with any namespace prefix removed.
+ *
+ * Dispatch used to be `body.includes('calendar-query')`, which the plan names as the wrong way: the string can
+ * appear inside an href, and a multiget naming such a resource was then read as a query. The root element is what
+ * the report actually is, and a declaration, comment or CDATA before it is skipped.
+ */
+function davReportName(body: string): string | null {
+  const withoutPreamble = body
+    .replace(/<\?xml[^>]*\?>/i, '')
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .trimStart();
+  return /^<\s*(?:[A-Za-z_][\w.-]*:)?([A-Za-z_][\w.-]*)\b/.exec(withoutPreamble)?.[1] ?? null;
+}
 
 const router = Router();
 
@@ -26,6 +60,30 @@ interface AddressBookRow {
   sync_token?: string | null;
   sync_version?: number | null;
   source?: string | null;
+  dav_mode?: string | null;
+  /** The remote address-book URL; a CardDAV import stores it here directly. */
+  external_url?: string | null;
+  /** `integration_collections.source_access`: what the origin itself permits. */
+  source_access?: string | null;
+  /** `integration_collections.user_access`: the user's own write-back opt-in. */
+  user_access?: string | null;
+}
+
+const BOOK_ACCESS_COLUMNS = 'ab.id, ab.name, ab.sync_token, ab.sync_version, ab.source, ab.dav_mode, ab.external_url, ic.source_access, ic.user_access';
+/** A book maps to at most one integration collection; an absent row leaves the columns null. */
+const BOOK_ACCESS_JOIN = `LEFT JOIN LATERAL (
+    SELECT source_access, user_access FROM integration_collections
+     WHERE local_address_book_id = ab.id ORDER BY created_at ASC LIMIT 1
+  ) ic ON true`;
+
+/**
+ * Answer an external write-back's result with the same mapping the calendar router uses. A stale
+ * local copy is a `412`; an ambiguous outcome is a `502` and never a success.
+ */
+function respondWriteBack(res: Response, result: DavWriteBackRouteResult): void {
+  if (result.retryAfterSeconds !== undefined) res.setHeader('Retry-After', String(result.retryAfterSeconds));
+  if (result.status === 'confirmed' && result.etag) res.set('ETag', `"${result.etag}"`);
+  res.status(davWriteBackHttpStatus(result)).end();
 }
 
 interface CarddavContactRow {
@@ -126,6 +184,40 @@ function xmlEscape(s: unknown) {
     .replace(/"/g, '&quot;');
 }
 
+// Advertise only what this server enforces (RFC 3744 / RFC 3253). A local address
+// book accepts PUT/DELETE, so it reports the write privileges; a book backed by an
+// external source is read-only here. The reports listed are exactly the ones the
+// REPORT route implements.
+const ADDRESSBOOK_READ_PRIVILEGES = ['<D:read/>'];
+const ADDRESSBOOK_WRITE_PRIVILEGES = ['<D:read/>', '<D:write/>', '<D:write-content/>', '<D:bind/>', '<D:unbind/>'];
+
+function addressBookPrivilegeSet(writable: boolean) {
+  const privileges = writable ? ADDRESSBOOK_WRITE_PRIVILEGES : ADDRESSBOOK_READ_PRIVILEGES;
+  return `<D:current-user-privilege-set>${privileges.map(privilege => `<D:privilege>${privilege}</D:privilege>`).join('')}</D:current-user-privilege-set>`;
+}
+
+type DavMode = 'off' | 'read_only' | 'read_write';
+
+/** An unknown/absent mode is treated as fully enabled, matching pre-0105 rows. */
+function davModeOf(value: unknown): DavMode {
+  return value === 'off' || value === 'read_only' || value === 'read_write' ? value : 'read_write';
+}
+
+/**
+ * Whether the capability model accepts a DAV write to this book. The advertised
+ * privileges and the enforced PUT/DELETE guard must be the same decision, so both
+ * come from here rather than from a local `source` comparison.
+ */
+function bookDavWritable(req: { davMaxMode?: 'read_only' | 'read_write' }, book: AddressBookRow): boolean {
+  const maxMode = req.davMaxMode === 'read_only' || req.davMaxMode === 'read_write' ? req.davMaxMode : null;
+  return collectionDavWritable(book, 'contacts', maxMode);
+}
+
+function addressBookSupportedReportSet() {
+  const reports = ['<C:addressbook-query/>', '<C:addressbook-multiget/>', '<D:sync-collection/>'];
+  return `<D:supported-report-set>${reports.map(report => `<D:supported-report>${report}</D:supported-report>`).join('')}</D:supported-report-set>`;
+}
+
 function sendXml(res: Response, status: number, xml: string) {
   res.status(status)
      .setHeader('Content-Type', 'application/xml; charset=utf-8')
@@ -134,15 +226,37 @@ function sendXml(res: Response, status: number, xml: string) {
 
 // Collect the request body as a string by reading the raw stream.
 // We do not go through express.json/text — CardDAV uses custom content types.
+/**
+ * The largest DAV body that means anything is one event or one card, and nothing else bounds this
+ * stream: the application's JSON body limit does not apply to XML, calendar and vCard content types.
+ * The cap belongs here, where the request is legitimately read.
+ *
+ * An oversized body is discarded rather than buffered, and the answer comes once the client has
+ * finished sending — replying mid-upload left the exchange hanging. The rejection carries
+ * body-parser's `entity.too.large` marker, so the application answers `413` with the same route-aware
+ * message it already gives for an oversized JSON upload.
+ */
+const DAV_BODY_LIMIT_BYTES = 1_048_576;
+
+function davBodyTooLarge(): Error & { type: string } {
+  return Object.assign(new Error('DAV request body is too large'), { type: 'entity.too.large' });
+}
+
 function rawBody(req: Request) {
-  return new Promise<string>(( resolve, reject) => {
-    // If a body parser already collected it (unlikely here), use it.
+  return new Promise<string>((resolve, reject) => {
     if (typeof req.body === 'string') return resolve(req.body);
     if (Buffer.isBuffer(req.body)) return resolve(req.body.toString('utf8'));
-    let data = '';
+    const declared = Number(req.headers['content-length'] ?? 0);
+    let tooLarge = Number.isFinite(declared) && declared > DAV_BODY_LIMIT_BYTES;
+    let body = '';
+    let seen = 0;
     req.setEncoding('utf8');
-    req.on('data', (chunk: string) => { data += chunk; });
-    req.on('end', () => resolve(data));
+    req.on('data', (chunk) => {
+      seen += Buffer.byteLength(chunk, 'utf8');
+      if (seen > DAV_BODY_LIMIT_BYTES) { tooLarge = true; return; }
+      body += chunk;
+    });
+    req.on('end', () => (tooLarge ? reject(davBodyTooLarge()) : resolve(body)));
     req.on('error', reject);
   });
 }
@@ -150,9 +264,11 @@ function rawBody(req: Request) {
 // ── OPTIONS (broadcast CardDAV support) ──────────────────────────────────────
 
 router.options('*', (req, res) => {
+  // Class 2 (LOCK) and class 3 (extended MKCOL) are not implemented; advertising
+  // them made clients probe methods that do not exist.
   res.set({
     'Allow': 'OPTIONS, GET, PUT, DELETE, PROPFIND, REPORT',
-    'DAV': '1, 2, 3, addressbook',
+    'DAV': '1, addressbook',
   }).status(200).end();
 });
 
@@ -180,7 +296,7 @@ router.propfind('/:userId/', async (req, res) => {
   if (req.params.userId !== userId) return res.status(403).end();
 
   const principalPath  = `/carddav/${userId}/`;
-  const r = await query<AddressBookRow>('SELECT id, name, sync_token, sync_version FROM address_books WHERE user_id = $1 ORDER BY created_at', [userId]);
+  const r = await query<AddressBookRow>(`SELECT ${BOOK_ACCESS_COLUMNS} FROM address_books ab ${BOOK_ACCESS_JOIN} WHERE ab.user_id = $1 AND ab.dav_mode <> 'off' ORDER BY ab.created_at`, [userId]);
   const principal = response(principalPath, [
     propstat([
       '<D:resourcetype><D:principal/><D:collection/></D:resourcetype>',
@@ -196,6 +312,8 @@ router.propfind('/:userId/', async (req, res) => {
       `<D:displayname>${xmlEscape(book.name)}</D:displayname>`,
       `<D:sync-token>${xmlEscape(syncToken(book))}</D:sync-token>`,
       `<CS:getctag>${xmlEscape(book.sync_token)}</CS:getctag>`,
+      addressBookPrivilegeSet(bookDavWritable(req, book)),
+      addressBookSupportedReportSet(),
     ], '200 OK'),
   ]));
   sendXml(res, 207, multistatus([
@@ -213,11 +331,12 @@ router.propfind('/:userId/:bookId/', async (req, res) => {
   const depth = req.headers['depth'] || '0';
 
   const bookResult = await query<AddressBookRow>(
-    'SELECT * FROM address_books WHERE id = $1 AND user_id = $2',
+    `SELECT ${BOOK_ACCESS_COLUMNS} FROM address_books ab ${BOOK_ACCESS_JOIN} WHERE ab.id = $1 AND ab.user_id = $2`,
     [req.params.bookId, userId]
   );
   if (!bookResult.rows.length) return res.status(404).end();
   const book = bookResult.rows[0];
+  if (davModeOf(book.dav_mode) === 'off') return res.status(404).end();
 
   const bookPath = `/carddav/${userId}/${book.id}/`;
 
@@ -227,6 +346,8 @@ router.propfind('/:userId/:bookId/', async (req, res) => {
       `<D:displayname>${xmlEscape(book.name)}</D:displayname>`,
       `<D:sync-token>${xmlEscape(syncToken(book))}</D:sync-token>`,
       `<CS:getctag>${xmlEscape(book.sync_token)}</CS:getctag>`,
+      addressBookPrivilegeSet(bookDavWritable(req, book)),
+      addressBookSupportedReportSet(),
     ], '200 OK'),
   ]);
 
@@ -255,6 +376,14 @@ router.propfind('/:userId/:bookId/', async (req, res) => {
 
 // ── REPORT /{userId}/{bookId}/ (addressbook-query / sync-collection) ──────────
 
+router.proppatch('/:userId/:bookId/', async (req, res) => {
+  // The attribute here is `cardavUserId` — the name this router has always used — not the
+  // `caldavUserId` of the calendar router, which is what a copied handler gets wrong.
+  const userId = req.cardavUserId;
+  if (req.params.userId !== userId) return res.status(403).end();
+  return davRefusal(res, 'Address book properties are managed by Inboxora, not by DAV clients.');
+});
+
 router.report('/:userId/:bookId/', async (req, res) => {
   const userId = req.cardavUserId;
   if (req.params.userId !== userId) return res.status(403).end();
@@ -265,13 +394,16 @@ router.report('/:userId/:bookId/', async (req, res) => {
   );
   if (!bookResult.rows.length) return res.status(404).end();
   const book = bookResult.rows[0];
+  if (davModeOf(book.dav_mode) === 'off') return res.status(404).end();
   const bookPath = `/carddav/${userId}/${book.id}/`;
 
   const body = await rawBody(req);
-  const isSyncCollection = body.includes('sync-collection');
+  // The same rule as the calendar router: the root element decides, not a substring that an href can carry.
+  const reportName = davReportName(body);
+  const isSyncCollection = reportName === 'sync-collection';
 
-  const isMultiget = body.includes('addressbook-multiget');
-  if (!isSyncCollection && !isMultiget && !body.includes('addressbook-query')) return res.status(400).end();
+  const isMultiget = reportName === 'addressbook-multiget';
+  if (!isSyncCollection && !isMultiget && reportName !== 'addressbook-query') return res.status(400).end();
   let contacts: { rows: CarddavContactRow[] } | undefined;
   let filenames: string[] = [];
   if (isSyncCollection) {
@@ -279,7 +411,9 @@ router.report('/:userId/:bookId/', async (req, res) => {
     const prefix = `urn:inboxora:carddav:${book.id}:`;
     const version = token?.startsWith(prefix) && /^\d+$/.test(token.slice(prefix.length)) ? Number(token.slice(prefix.length)) : NaN;
     if (token && (!Number.isSafeInteger(version) || version > Number(book.sync_version || 0))) {
-      return sendXml(res, 409, `${xmlHeader()}<D:error xmlns:D="${DAV_NS}"><D:valid-sync-token/></D:error>`);
+      // RFC 6578 §3.2: an invalid/expired sync token is the 403 valid-sync-token
+      // precondition, which asks the client for a full resynchronisation.
+      return sendXml(res, 403, `${xmlHeader()}<D:error xmlns:D="${DAV_NS}"><D:valid-sync-token/></D:error>`);
     }
     if (token) contacts = await query<CarddavContactRow>(
       `SELECT DISTINCT ON (filename) filename AS dav_filename, etag, vcard, deleted
@@ -337,7 +471,7 @@ router.get('/:userId/:bookId/:filename', async (req, res) => {
   const result = await query(
     `SELECT c.vcard, c.etag FROM contacts c
      JOIN address_books ab ON ab.id = c.address_book_id
-     WHERE ab.id = $1 AND ab.user_id = $2 AND COALESCE(c.dav_filename, c.uid || '.vcf') = $3`,
+     WHERE ab.id = $1 AND ab.user_id = $2 AND ab.dav_mode <> 'off' AND COALESCE(c.dav_filename, c.uid || '.vcf') = $3`,
     [req.params.bookId, userId, uid]
   );
   if (!result.rows.length) return res.status(404).end();
@@ -369,12 +503,14 @@ router.put('/:userId/:bookId/:filename', async (req, res) => {
 
   try {
     const bookResult = await query<AddressBookRow>(
-      'SELECT id, source FROM address_books WHERE id = $1 AND user_id = $2',
+      `SELECT ${BOOK_ACCESS_COLUMNS} FROM address_books ab ${BOOK_ACCESS_JOIN} WHERE ab.id = $1 AND ab.user_id = $2`,
       [req.params.bookId, userId]
     );
     if (!bookResult.rows.length) return res.status(404).end();
     const book = bookResult.rows[0];
-    if (book.source !== 'local') return res.status(403).end();
+    if (davModeOf(book.dav_mode) === 'off') return res.status(404).end();
+    const access = resolveCollectionAccess(book, { feature: 'contacts', operation: 'update', channel: 'dav', credentialMaxMode: req.davMaxMode ?? null });
+    if (!access.allowed) return davRefusal(res, davWriteRefusalMessage(access, 'address book'));
     const bookId = book.id;
 
     const existing = await query(
@@ -384,15 +520,33 @@ router.put('/:userId/:bookId/:filename', async (req, res) => {
 
     const current = existing.rows[0];
     if (current?.uid && (current.uid !== uid || (current.dav_filename || `${current.uid}.vcf`) !== filename)) return res.status(409).end();
-    if (req.headers['if-none-match'] === '*' && current) return res.status(412).end();
-    if (req.headers['if-match'] && !current) return res.status(412).end();
+    if (!ifNoneMatchAllowsCreate(req.headers['if-none-match'], Boolean(current))) return res.status(412).end();
+    // Strong If-Match comparison (RFC 9110 §13.1.1): a weak validator never matches.
+    const currentEtag = typeof current?.etag === 'string' ? current.etag : null;
+    if (!ifMatchSatisfied(req.headers['if-match'], currentEtag)) return res.status(412).end();
+    // The `If` header is a precondition too: a form we cannot evaluate fails rather
+    // than silently unprotecting the write.
+    const ifDecision = evaluateDavIf(req.headers['if'], { etag: currentEtag, syncToken: syncToken(book) });
+    if (ifDecision.status === 'bad-request') return res.status(400).end();
+    if (ifDecision.status === 'precondition-failed') return res.status(412).end();
+    // An imported address book writes through its own adapter; nothing local changes until the
+    // source confirms, so a refusal cannot leave a contact the source never accepted.
+    if (access.providerKey === 'carddav') {
+      return respondWriteBack(res, await putCarddavContact({
+        method: 'PUT',
+        userId,
+        book: { id: bookId, external_url: book.external_url ?? null, source: book.source ?? null },
+        filename: String(filename),
+        uid,
+        card: parsed,
+        vcard,
+        exists: Boolean(current),
+        localObjectId: typeof current?.id === 'string' ? current.id : null,
+        localRevision: currentEtag,
+        credentialId: req.cardavCredentialId ?? null,
+      }));
+    }
     if (existing.rows.length) {
-      // Enforce If-Match precondition (RFC 6352 §6.3.2)
-      const ifMatch = req.headers['if-match'];
-      if (ifMatch && ifMatch !== '*') {
-        const clientEtag = ifMatch.replace(/^"(.*)"$/, '$1');
-        if (clientEtag !== existing.rows[0].etag) return res.status(412).end();
-      }
       // Update
       const updated = await query(`
         UPDATE contacts SET
@@ -458,11 +612,43 @@ router.delete('/:userId/:bookId/:filename', async (req, res) => {
 
   try {
     const bookResult = await query<AddressBookRow>(
-      'SELECT id, source FROM address_books WHERE id = $1 AND user_id = $2',
+      `SELECT ${BOOK_ACCESS_COLUMNS} FROM address_books ab ${BOOK_ACCESS_JOIN} WHERE ab.id = $1 AND ab.user_id = $2`,
       [req.params.bookId, userId]
     );
     if (!bookResult.rows.length) return res.status(404).end();
-    if (bookResult.rows[0].source !== 'local') return res.status(403).end();
+    if (davModeOf(bookResult.rows[0].dav_mode) === 'off') return res.status(404).end();
+    const access = resolveCollectionAccess(bookResult.rows[0], { feature: 'contacts', operation: 'delete', channel: 'dav', credentialMaxMode: req.davMaxMode ?? null });
+    if (!access.allowed) return davRefusal(res, davWriteRefusalMessage(access, 'address book'));
+
+    const currentRow = await query<{ id: string; uid: string; etag: string }>(
+      "SELECT id, uid, etag FROM contacts WHERE address_book_id = $1 AND COALESCE(dav_filename, uid || '.vcf') = $2",
+      [req.params.bookId, uid]
+    );
+    const ifDecision = evaluateDavIf(req.headers['if'], {
+      etag: currentRow.rows[0]?.etag ?? null,
+      syncToken: syncToken(bookResult.rows[0]),
+    });
+    if (ifDecision.status === 'bad-request') return res.status(400).end();
+    if (ifDecision.status === 'precondition-failed') return res.status(412).end();
+
+    if (access.providerKey === 'carddav') {
+      const current = currentRow.rows[0];
+      if (!current) return res.status(req.headers['if-match'] ? 412 : 404).end();
+      if (!ifMatchSatisfied(req.headers['if-match'], current.etag)) return res.status(412).end();
+      return respondWriteBack(res, await deleteCarddavContact({
+        method: 'DELETE',
+        userId,
+        book: { id: bookResult.rows[0].id, external_url: bookResult.rows[0].external_url ?? null, source: bookResult.rows[0].source ?? null },
+        filename: String(uid),
+        uid: current.uid,
+        card: null,
+        vcard: '',
+        exists: true,
+        localObjectId: current.id,
+        localRevision: current.etag,
+        credentialId: req.cardavCredentialId ?? null,
+      }));
+    }
 
     const result = await query(
       `DELETE FROM contacts

@@ -196,7 +196,8 @@ async function openSettingsTab(page, name) {
 // Appearance groups its options into sub-tabs; the threading settings and the
 // conversation rebuild live under Layout, not on the default Theme sub-tab.
 async function openSettingsSubTab(page, name) {
-  const button = page.locator('.admin-panel').getByRole('button', { name: new RegExp(`^${name}$`, 'i') }).first();
+  const button = page.locator('.admin-panel button[role="tab"], .admin-panel button.admin-subtab')
+    .filter({ hasText: new RegExp(`^${name}$`, 'i') }).first();
   await button.scrollIntoViewIfNeeded();
   await button.click();
 }
@@ -287,6 +288,40 @@ test('contacts: details and the rich editor', async ({ page, fixtureApi }) => {
   ] });
 });
 
+test('settings: the provider card and its policy', async ({ page, fixtureApi }) => {
+  // The card is where the v4 provider policy is visible to an administrator: what each provider requires,
+  // which methods are ready, and the switches. It had no capture, so the documentation pages that describe
+  // it had no image of it.
+  await page.route('**/api/integrations/status', route => route.fulfill({ json: {
+    microsoft: {
+      configured: true, enabled: true, mailPolicy: 'required',
+      browser: { ready: true, missing: [] },
+      graph: { ready: true, missing: [] },
+      deviceCode: { supported: true, ready: true },
+      connections: [],
+    },
+    google: {
+      configured: true, enabled: true, mailPolicy: 'recommended',
+      browser: { ready: true, missing: [] },
+      deviceCode: { supported: false, ready: false, reason: 'not_supported' },
+      traditionalImapAvailableInInboxora: true,
+      connections: [],
+    },
+  } }));
+  await openMail(page, fixtureApi);
+  await openSettings(page);
+  await openSettingsTab(page, 'Integrations');
+  await openSettingsSubTab(page, 'Email providers');
+  // The provider rows are collapsed until they are clicked. The account boundary is
+  // part of the card's policy: configuration lives here, while mailbox OAuth lives in Accounts.
+  await page.getByText('Microsoft 365 / Outlook.com', { exact: false }).first().click();
+  await expect(page.getByTestId('microsoft-accounts-hint')).toBeVisible();
+  await capture(page, 'settings-integrations', { mode: 'workspace', require: [
+    page.getByTestId('microsoft-accounts-hint'),
+    page.getByText('Microsoft 365 / Outlook.com', { exact: false }).first(),
+  ] });
+});
+
 test('settings: appearance, DAV access and about', async ({ page, fixtureApi }) => {
   await openMail(page, fixtureApi);
   await useDavDemoData(page);
@@ -313,7 +348,10 @@ test('settings: appearance, DAV access and about', async ({ page, fixtureApi }) 
 test('settings: the conversation rebuild confirmation', async ({ page, fixtureApi }) => {
   await openMail(page, fixtureApi);
   await openSettings(page);
-  await openSettingsTab(page, 'Appearance');
+  // Calendar and display both expose an Appearance entry; the rebuild controls live in display Appearance.
+  const displayAppearance = page.locator('.admin-panel').getByRole('button', { name: 'Appearance', exact: true }).last();
+  await displayAppearance.scrollIntoViewIfNeeded();
+  await displayAppearance.click();
   await openSettingsSubTab(page, 'Layout');
   const open = page.getByTestId('conversation-rebuild-open');
   await expect(open).toBeVisible();

@@ -7,9 +7,12 @@ import { XMLParser } from 'fast-xml-parser';
 import { query } from './db.js';
 import { decrypt } from './encryption.js';
 import { safeFetch } from './safeFetch.js';
+import { davAuthenticatedFetch } from './davHttpAuth.js';
 import { getConnectionPolicy } from './connectionPolicy.js';
 import { parseCalendarEvent } from '../utils/ical.js';
 import { toAppError } from '../utils/errors.js';
+import { ensureExternalCollectionLink, type ExternalSourceKind } from './providers/externalCollectionLinks.js';
+import { discoverDavWriteAccess } from './carddavClient.js';
 
 /** A decrypted external calendar source row. */
 interface CalendarSyncState { removed?: boolean; promise?: Promise<unknown>; controller?: AbortController }
@@ -31,6 +34,11 @@ type ExternalCalendarPolicy = { allowPrivateHosts?: boolean; [key: string]: unkn
 /** Fetch options with plain-string headers (this module owns every header it sends). */
 type ExternalFetchOptions = Omit<RequestInit, 'headers'> & { headers?: Record<string, string> };
 
+/** The three external source kinds the schema admits; anything else is treated as a read-only ICS feed. */
+function externalSourceKind(kind: unknown): ExternalSourceKind {
+  return kind === 'caldav' || kind === 'carddav' ? kind : 'ical_url';
+}
+
 const parser = new XMLParser({ ignoreAttributes: false, removeNSPrefix: true, trimValues: false });
 const syncing = new Set<string>();
 const timers = new Map<string, NodeJS.Timeout>();
@@ -38,7 +46,6 @@ const inFlight = new Map<string, CalendarSyncState>();
 const stopped = new Set<string>();
 const toArray = <T>(value: T | T[] | null | undefined): T[] => (Array.isArray(value) ? value : value == null ? [] : [value]);
 const textOf = (value: unknown): string => typeof value === 'string' ? value : String((value as Record<string, unknown> | null | undefined)?.['#text'] ?? '');
-const basicAuth = (username: string, password: string): string => `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`;
 
 function calendarPayloads(raw: unknown): string[] {
   if (typeof raw !== 'string' || !raw.trim()) {
@@ -65,17 +72,20 @@ function propsOf(response: { propstat?: Record<string, unknown> | Array<Record<s
 
 async function remoteFetch(source: ExternalCalendarSource, options: ExternalFetchOptions, policy: ExternalCalendarPolicy, signal: AbortSignal | null | undefined, secretSink?: string[]): Promise<string> {
   const headers: Record<string, string> = { ...options.headers };
-  if (source.kind === 'caldav') {
-    const password = decrypt(source.password ?? '');
-    if (!password) throw new Error('Stored calendar source password is unavailable');
-    headers.Authorization = basicAuth(source.username ?? '', password);
-  }
   const url = decrypt(source.url);
   if (!url) throw new Error('Stored calendar source URL is unavailable');
   secretSink?.push(url);
   const timeout = AbortSignal.timeout(30_000);
   const requestSignal = signal ? AbortSignal.any([signal, timeout]) : timeout;
-  const response = await safeFetch(url, { ...options, headers, redirect: 'follow', signal: requestSignal }, { allowPrivate: policy.allowPrivateHosts });
+  const request = { ...options, headers, redirect: 'follow' as const, signal: requestSignal };
+  let response: Response;
+  if (source.kind === 'caldav') {
+    const password = decrypt(source.password ?? '');
+    if (!password) throw new Error('Stored calendar source password is unavailable');
+    response = await davAuthenticatedFetch(url, request, { username: source.username ?? '', password }, { allowPrivate: policy.allowPrivateHosts });
+  } else {
+    response = await safeFetch(url, request, { allowPrivate: policy.allowPrivateHosts });
+  }
   if (!response.ok && response.status !== 207) throw new Error(`Remote calendar request failed (${response.status})`);
   return response.text();
 }
@@ -103,18 +113,24 @@ function throwIfRemoved(state: CalendarSyncState): void {
 
 async function calendarFor(source: ExternalCalendarSource, state: CalendarSyncState) {
   const externalUrl = `source:${source.id}`;
-  const found = await query('SELECT id FROM calendars WHERE user_id = $1 AND owner_user_id = $1 AND external_url = $2', [source.user_id, externalUrl]);
+  const found = await query<{ id: string }>('SELECT id FROM calendars WHERE user_id = $1 AND owner_user_id = $1 AND external_url = $2', [source.user_id, externalUrl]);
   throwIfRemoved(state);
-  if (found.rows[0]) return found.rows[0].id;
+  if (found.rows[0]) {
+    await linkExternalCollection(source, found.rows[0].id);
+    return found.rows[0].id;
+  }
   for (let attempt = 0; attempt < 20; attempt++) {
     throwIfRemoved(state);
     const name = attempt ? `${source.display_name} (${attempt + 1})` : source.display_name;
     try {
-      const inserted = await query(
-        `INSERT INTO calendars (user_id, owner_user_id, name, color, source, external_url, read_only)
-         VALUES ($1, $1, $2, $3, $4, $5, true) RETURNING id`,
+      const inserted = await query<{ id: string }>(
+        // A newly connected external calendar is not published to DAV devices
+        // until the user explicitly enables it (plan §17.1).
+        `INSERT INTO calendars (user_id, owner_user_id, name, color, source, external_url, read_only, dav_mode)
+         VALUES ($1, $1, $2, $3, $4, $5, true, 'off') RETURNING id`,
         [source.user_id, name, source.color, source.kind, externalUrl],
       );
+      await linkExternalCollection(source, inserted.rows[0].id);
       return inserted.rows[0].id;
     } catch (caught) {
       const error = toAppError(caught);
@@ -122,6 +138,44 @@ async function calendarFor(source: ExternalCalendarSource, state: CalendarSyncSt
     }
   }
   throw new Error(`Could not create a calendar for "${source.display_name}"`);
+}
+
+/**
+ * Link the external collection to its source connection so the per-collection write-back switch has
+ * something to enable (P02's backfill, P10's reachability).
+ *
+ * The link is not what this sync is for, so a failure here is reported and does not fail the import —
+ * losing the events would be worse than a collection that has to be relinked on the next pass. An ICS
+ * subscription is linked as `read_only`, which is what the capability model will keep refusing.
+ */
+async function linkExternalCollection(source: ExternalCalendarSource, calendarId: string): Promise<void> {
+  try {
+    const kind = externalSourceKind(source.kind);
+    // DAV-02: a CalDAV collection is asked what this user may do with it, so a collection the server keeps
+    // read-only is recorded as such rather than assumed writable. An ICS subscription has no DAV to ask and stays
+    // read-only by its kind; a server that will not answer leaves the assumption, which a refused write corrects.
+    const discoveredAccess = kind === 'caldav'
+      ? await discoverDavWriteAccess({
+        // The same decryption `remoteFetch` uses for the collection itself, so discovery addresses the URL the
+        // sync does and not the stored ciphertext.
+        url: String(decrypt(String(source.url ?? '')) ?? ''),
+        username: String(source.username ?? ''),
+        password: String(decrypt(String(source.password ?? '')) ?? ''),
+        allowPrivate: (await getConnectionPolicy()).allowPrivateHosts === true,
+      })
+      : null;
+    await ensureExternalCollectionLink({
+      userId: String(source.user_id ?? ''),
+      kind,
+      url: typeof source.url === 'string' && source.url ? source.url : `source:${source.id}`,
+      remoteId: `source:${source.id}`,
+      label: typeof source.display_name === 'string' ? source.display_name : null,
+      localCalendarId: calendarId,
+      discoveredAccess,
+    });
+  } catch (caught) {
+    console.warn('Linking an external calendar to its source connection failed:', toAppError(caught).message);
+  }
 }
 
 async function syncSource(source: ExternalCalendarSource) {

@@ -1,5 +1,4 @@
-import { summarizeMessage, summarizeAvailable, getMessageFields, getMessageAnnotations, setMessageAnnotation } from '../api.js';
-import { toAppError } from '../../utils/errors.js';
+import { summarizeMessage, summarizeAvailable, getMessageFields, getMessageAnnotations, setMessageAnnotation, toAppError } from '../api.js';
 
 // AI-condensed one-line gist for GTD "waiting" entries. The client shows the raw
 // message snippet by default; when a gist has been generated for a waiting thread's

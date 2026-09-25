@@ -11,7 +11,7 @@ type ActiveDavAppPassword = {
 type CreatedDavAppPassword = Omit<ActiveDavAppPassword, 'last_used_at'> & { secret: string };
 type RevokedDavAppPassword = { id: string; revoked_at: string };
 
-type CreateDavAppPassword = (userId: string, label: string) => Promise<CreatedDavAppPassword>;
+type CreateDavAppPassword = (userId: string, label: string, maxDavMode?: string) => Promise<CreatedDavAppPassword>;
 type ListDavAppPasswords = (userId: string) => Promise<ActiveDavAppPassword[]>;
 type RevokeDavAppPassword = (userId: string, passwordId: unknown) => Promise<RevokedDavAppPassword | null>;
 
@@ -75,7 +75,27 @@ describe('DAV application password API', () => {
 
     expect(response.status).toBe(201);
     expect(await response.json()).toEqual({ credential: { id: 'credential-1', label: 'DAVx5 phone', created_at: '2026-08-30T00:00:00.000Z' }, secret: 'mf_dav_example.secret' });
-    expect(createDavAppPassword).toHaveBeenCalledWith('user-1', 'DAVx5 phone');
+    // No mode supplied keeps the fully capable default.
+    expect(createDavAppPassword).toHaveBeenCalledWith('user-1', 'DAVx5 phone', 'read_write');
+  });
+
+  it('forwards the chosen DAV ceiling and rejects an unknown one', async () => {
+    createDavAppPassword.mockResolvedValue({ id: 'credential-1', label: 'Tablet', created_at: '2026-08-30T00:00:00.000Z', secret: 'mf_dav_example.secret' });
+    const response = await fetch(`${base}/api/dav-credentials`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ label: 'Tablet', maxDavMode: 'read_only' }),
+    });
+    expect(response.status).toBe(201);
+    expect(createDavAppPassword).toHaveBeenCalledWith('user-1', 'Tablet', 'read_only');
+
+    // The service owns the validation, so its error must become a 400, not a 500.
+    createDavAppPassword.mockRejectedValue(new Error('DAV access mode must be read_only or read_write'));
+    const invalid = await fetch(`${base}/api/dav-credentials`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ label: 'Tablet', maxDavMode: 'off' }),
+    });
+    expect(invalid.status).toBe(400);
+    expect(await invalid.json()).toEqual({ error: 'DAV access mode must be read_only or read_write' });
   });
 
   it('revokes only an owned active credential', async () => {

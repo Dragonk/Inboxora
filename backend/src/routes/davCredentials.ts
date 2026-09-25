@@ -19,12 +19,15 @@ router.get('/', async (req: Request, res: Response) => {
 
 router.post('/', async (req: Request, res: Response) => {
   try {
-    const created = await createDavAppPassword(sessionUserId(req), req.body?.label);
+    const created = await createDavAppPassword(sessionUserId(req), req.body?.label, req.body?.maxDavMode ?? 'read_write');
     const { secret, ...credential } = created;
     res.status(201).json({ credential, secret });
   } catch (caught) {
     const err = toAppError(caught);
     if (err.message === 'A device label between 1 and 120 characters is required') {
+      return res.status(400).json({ error: err.message });
+    }
+    if (err.message === 'DAV access mode must be read_only or read_write') {
       return res.status(400).json({ error: err.message });
     }
     throw err;

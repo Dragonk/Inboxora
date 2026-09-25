@@ -47,6 +47,14 @@ interface InvitationInput {
   allDay?: boolean;
   method?: string;
   sequence?: number;
+  /** Server-rendered RRULE of the series this invitation belongs to, when any. */
+  rrule?: string | null;
+  /**
+   * The occurrence this message is about, for a scoped change to a series. The invitee's client matches it
+   * against the occurrence it already holds, so a `REQUEST` or `CANCEL` without it would be read as a change
+   * to the whole series rather than to the one occurrence the organiser edited.
+   */
+  recurrenceId?: string | null;
 }
 
 /** The account slice the invitation is sent from. */
@@ -66,7 +74,7 @@ function smtpRecipients(info: unknown, field: 'accepted' | 'rejected') {
     : [];
 }
 
-function invitationIcal({ uid, summary, description, location, organizerEmail, attendees, startsAt, endsAt, allDay = false, method, sequence }: InvitationInput) {
+function invitationIcal({ uid, summary, description, location, organizerEmail, attendees, startsAt, endsAt, allDay = false, method, sequence, rrule = null, recurrenceId = null }: InvitationInput) {
   const lines = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
@@ -81,6 +89,9 @@ function invitationIcal({ uid, summary, description, location, organizerEmail, a
     `ORGANIZER:mailto:${organizerEmail}`,
   ];
   if (method === 'CANCEL') lines.push('STATUS:CANCELLED');
+  // A scoped message names the occurrence it is about, in the instant form the local resource stores.
+  if (recurrenceId) lines.push(`RECURRENCE-ID:${formatInvitationDate(recurrenceId, allDay)}`);
+  if (rrule) lines.push(`RRULE:${String(rrule).replace(/[\r\n]/g, '')}`);
   if (summary) lines.push(`SUMMARY:${escapeICalendarText(summary)}`);
   lines.push(...descriptionContentLines(description, escapeICalendarText));
   if (location) lines.push(`LOCATION:${escapeICalendarText(location)}`);
@@ -95,7 +106,7 @@ export type PreparedCalendarInvitation = {
   dispatch: () => Promise<CalendarInvitationDelivery>;
 };
 
-export async function prepareCalendarInvitation({ account, attendees, summary, description = null, location = null, uid, startsAt, endsAt, allDay = false, method = 'REQUEST', sequence = 0 }: InvitationInput & { account: InvitationAccount }): Promise<PreparedCalendarInvitation> {
+export async function prepareCalendarInvitation({ account, attendees, summary, description = null, location = null, uid, startsAt, endsAt, allDay = false, method = 'REQUEST', sequence = 0, rrule = null, recurrenceId = null }: InvitationInput & { account: InvitationAccount }): Promise<PreparedCalendarInvitation> {
   // Transport creation can refresh credentials, validate the TLS policy and resolve
   // DNS. None of those operations hands a message to SMTP, so an outbox can safely
   // retry an error raised before this function returns.
@@ -108,7 +119,7 @@ export async function prepareCalendarInvitation({ account, attendees, summary, d
   const sendingAccount = smtp.account;
   const fromEmail = sendingAccount.email_address;
   const fromName = sendingAccount.sender_name || sendingAccount.name || fromEmail;
-  const content = invitationIcal({ uid, summary, description, location, organizerEmail: fromEmail, attendees, startsAt, endsAt, allDay, method, sequence });
+  const content = invitationIcal({ uid, summary, description, location, organizerEmail: fromEmail, attendees, startsAt, endsAt, allDay, method, sequence, rrule, recurrenceId });
   return {
     dispatch: async () => {
       const result = await smtp.transport.sendMail({

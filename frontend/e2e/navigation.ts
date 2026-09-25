@@ -8,6 +8,7 @@ export async function returnToMail(page) {
 }
 export async function openContactBooks(page) {
   if (page.viewportSize().width < 768) await page.getByTestId('contacts-address-books').click();
+  else await page.getByTestId('contacts-books-trigger').click();
 }
 // Panels can animate in (the narrow-screen bottom sheets slide up). Measuring a
 // panel's box mid-animation reads a transformed position, so geometry contracts

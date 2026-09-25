@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { calendarResources, mergeCalendarResource, projectCalendarResource, truncateSeriesBefore } from './calendarRecurrence.js';
+import { calendarResources, mergeCalendarResource, projectCalendarResource, rruleFromCalendarResource, setSeriesRecurrence, truncateSeriesBefore } from './calendarRecurrence.js';
 import { parseCalendarEvent } from './ical.js';
 import type { ParsedICalendarEvent } from './ical.js';
 import type { ProjectedEvent } from './calendarRecurrence.js';
@@ -119,7 +119,52 @@ describe('cancelling a series from an occurrence onward', () => {
       .toEqual(['01-05', '01-06', '01-07', '01-08']);
   });
 
+  it('drops COUNT when it sets UNTIL, because a rule may carry only one end', () => {
+    // RFC 5545 forbids UNTIL and COUNT together, and leaving both would tell a client that the series both
+    // ends at a boundary and produces the original number of occurrences.
+    const result = mustTruncate(seriesWith(), '2026-01-09T09:00:00');
+    const rule = result.raw.split('\r\n').find(line => line.startsWith('RRULE:'));
+    // The series starts at 09:00 Europe/Warsaw, so the instant before the 9 January occurrence is
+    // 07:59:59 UTC.
+    expect(rule).toContain('UNTIL=20260109T075959Z');
+    expect(rule).not.toContain('COUNT=');
+  });
+
   it('reports nothing to truncate for an event that does not recur', () => {
     expect(truncateSeriesBefore(seriesWith().replace('RRULE:FREQ=DAILY;COUNT=10\r\n', ''), '2026-01-09T09:00:00')).toBeNull();
+  });
+});
+
+describe('series recurrence editing', () => {
+  const series = (extra = '') => ['BEGIN:VCALENDAR', 'VERSION:2.0', 'BEGIN:VEVENT', 'UID:s', 'DTSTART;TZID=Europe/Warsaw:20260105T090000', 'DTEND;TZID=Europe/Warsaw:20260105T100000', 'RRULE:FREQ=WEEKLY;BYDAY=MO', 'SUMMARY:Standup', extra, 'END:VEVENT', 'END:VCALENDAR'].filter(Boolean).join('\r\n');
+
+  it('reads the master rule back out of a resource', () => {
+    expect(rruleFromCalendarResource(series())).toBe('FREQ=WEEKLY;BYDAY=MO');
+    expect(rruleFromCalendarResource(series().replace('RRULE:FREQ=WEEKLY;BYDAY=MO\r\n', ''))).toBeNull();
+    expect(rruleFromCalendarResource(null)).toBeNull();
+  });
+
+  it('replaces the rule while keeping editor-owned fields', () => {
+    const updated = setSeriesRecurrence(series(), 'FREQ=MONTHLY;INTERVAL=2');
+    expect(updated).not.toBeNull();
+    expect(updated).toContain('RRULE:FREQ=MONTHLY;INTERVAL=2');
+    expect(updated).toContain('SUMMARY:Standup');
+    expect(rruleFromCalendarResource(updated)).toBe('FREQ=MONTHLY;INTERVAL=2');
+  });
+
+  it('clearing the rule drops RECURRENCE-ID overrides that no longer describe anything', () => {
+    const exception = ['BEGIN:VEVENT', 'UID:s', 'RECURRENCE-ID;TZID=Europe/Warsaw:20260112T090000', 'DTSTART;TZID=Europe/Warsaw:20260112T110000', 'DTEND;TZID=Europe/Warsaw:20260112T120000', 'SUMMARY:Moved', 'END:VEVENT'].join('\r\n');
+    const withException = series().replace('END:VCALENDAR', `${exception}\r\nEND:VCALENDAR`);
+    expect(calendarResources(withException)).toHaveLength(1);
+    const cleared = setSeriesRecurrence(withException, null);
+    expect(cleared).not.toBeNull();
+    expect(rruleFromCalendarResource(cleared)).toBeNull();
+    expect(cleared).not.toContain('RECURRENCE-ID');
+    expect(cleared).not.toContain('SUMMARY:Moved');
+  });
+
+  it('leaves the resource untouched when it cannot be parsed', () => {
+    expect(setSeriesRecurrence('not an icalendar document', 'FREQ=DAILY')).toBeNull();
+    expect(setSeriesRecurrence(null, 'FREQ=DAILY')).toBeNull();
   });
 });

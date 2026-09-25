@@ -225,4 +225,38 @@ describe('PATCH /auth/preferences calendar preferences', () => {
     expect(params).toContain(JSON.stringify(['personal', 'contacts-birthdays']));
     expect(res.json).toHaveBeenCalledWith({ ok: true });
   });
+
+  it('persists the mobile drawer swipe preference as a boolean', async () => {
+    const req = mockRequest({ session: { userId: 'user-1' }, body: { mobileSidebarSwipeEnabled: false } });
+    const res = mockResponse({ status: vi.fn().mockReturnThis(), json: vi.fn() });
+
+    await patchPreferences(req, res);
+
+    const [sql, params] = recordedQueryCall(0);
+    expect(sql).toContain("jsonb_build_object('mobileSidebarSwipeEnabled'");
+    expect(params).toContain(false);
+    expect(res.json).toHaveBeenCalledWith({ ok: true });
+  });
+
+  it('rejects a non-boolean mobile drawer swipe preference', async () => {
+    const req = mockRequest({ session: { userId: 'user-1' }, body: { mobileSidebarSwipeEnabled: 'yes' } });
+    const res = mockResponse({ status: vi.fn().mockReturnThis(), json: vi.fn() });
+
+    await patchPreferences(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json).toHaveBeenCalledWith({ error: 'mobileSidebarSwipeEnabled must be a boolean' });
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  it('leaves the drawer preference absent when the client omits it', async () => {
+    const req = mockRequest({ session: { userId: 'user-1' }, body: { calendarWeekStartsOn: 1 } });
+    const res = mockResponse({ status: vi.fn().mockReturnThis(), json: vi.fn() });
+
+    await patchPreferences(req, res);
+
+    const [, params] = recordedQueryCall(0);
+    expect(params[51]).toBe(null);
+    expect(res.json).toHaveBeenCalledWith({ ok: true });
+  });
 });

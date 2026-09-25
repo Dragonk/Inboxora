@@ -73,11 +73,21 @@ export function scrubReport<T extends object>(obj: T): { scrubbed: T; counters: 
   return { scrubbed, counters };
 }
 
+/** The hashed entry asset identifies the actual loaded UI bundle without a host, query or credentials. */
+export function loadedUiEntry(): string | null {
+  if (typeof document === 'undefined') return null;
+  const script = document.querySelector('script[type="module"][src]') as HTMLScriptElement | null;
+  if (!script?.src) return null;
+  try { return new URL(script.src, window.location.origin).pathname; } catch { return null; }
+}
+
 export function collectEnvironment({ locale, theme, uiScale }: { locale?: string; theme?: string; uiScale?: number }) {
   const native = typeof window !== 'undefined' ? window.inboxoraNative : null;
   const { browser, os } = coarsenUserAgent(typeof navigator !== 'undefined' ? navigator.userAgent : '');
   return {
     platform: native ? (native.platform || 'native') : 'web',
+    route: typeof window !== 'undefined' ? window.location.pathname : null,
+    uiEntry: loadedUiEntry(),
     browser,
     os,
     locale: locale || 'en',
@@ -126,6 +136,7 @@ export async function generateReport({ locale, theme, uiScale }: Parameters<type
     events,
     warnings: server?.warnings ?? [],
     syncSignals: server?.syncSignals ?? [],
+    replyEvents: server?.replyEvents ?? [],
     connection: server?.connection ?? {},
     performance: server?.performance ?? {},
     config: server?.config ?? {},

@@ -125,7 +125,7 @@ describe('Conversation Engine v2 — real PostgreSQL concurrency', () => {
   it('25 concurrent upserts of the same physical message produce one LogicalMessage', async () => {
     const messageId = await createMessage({ messageId: `<collision-${randomUUID()}@test>`, subject: 'same-message', uid: 200 });
     const results = await Promise.all(Array.from({ length: 25 }, () =>
-      upsertConversationCopy({ id: messageId }, { userId })
+      upsertConversationCopy({ id: messageId, account_id: accountId }, { userId })
         .then(() => ({ error: null as string | null }))
         .catch((error: unknown) => ({ error: toAppError(error).message })),
     ));
@@ -148,7 +148,7 @@ describe('Conversation Engine v2 — real PostgreSQL concurrency', () => {
       providerThreadId,
       provider: 'gmail',
     }));
-    const results = await Promise.all(ids.map(id => upsertConversationCopy({ id }, {
+    const results = await Promise.all(ids.map(id => upsertConversationCopy({ id, account_id: accountId }, {
       userId,
       provider: { provider: 'gmail', isStrong: true, source: 'x-gm-thread', providerThreadId, providerMessageId: null, namespace: `account:${accountId}` },
     }).then(() => ({ error: null as string | null }))

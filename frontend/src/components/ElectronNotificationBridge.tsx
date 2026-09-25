@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.ts';
 import { api } from '../utils/api.ts';
 import { installCapacitorNativeBridge } from '../utils/capacitorNativeBridge.ts';
@@ -110,6 +111,7 @@ function parseNativeActionPayload(value: unknown): NativeActionPayload | null {
 }
 
 export default function ElectronNotificationBridge() {
+  const { t } = useTranslation();
   const addNotification = useStore((state: StoreState) => state.addNotification);
   const openCompose = useStore((state: StoreState) => state.openCompose);
   const setSelectedAccount = useStore((state: StoreState) => state.setSelectedAccount);
@@ -175,13 +177,13 @@ export default function ElectronNotificationBridge() {
       );
       addNotification({
         type: 'success',
-        title: 'Update ready',
+        title: t('nativeUpdates.ready'),
         body: manualInstall
-          ? `Inboxora downloaded and verified the update.${installCommand ? ` Install it from a terminal with:\n${installCommand}` : ''}`
-          : 'Inboxora downloaded the update.',
+          ? (installCommand ? t('nativeUpdates.manualInstall', { command: installCommand }) : t('nativeUpdates.verified'))
+          : t('nativeUpdates.downloaded'),
         allowWrap: true,
         persistent: true,
-        actionLabel: manualInstall ? 'Copy & Quit' : 'Install',
+        actionLabel: manualInstall ? t('nativeUpdates.copyAndQuit') : t('nativeUpdates.install'),
         onAction: async () => {
           if (manualInstall) {
             const result = await window.inboxoraNative?.updates?.copyInstallCommandAndQuit?.({
@@ -191,8 +193,8 @@ export default function ElectronNotificationBridge() {
             if (!result?.copied) {
               addNotification({
                 type: 'error',
-                title: 'Copy failed',
-                body: 'The update command could not be copied.',
+                title: t('nativeUpdates.copyFailed'),
+                body: t('nativeUpdates.copyFailedBody'),
               });
             }
             return;
@@ -202,11 +204,11 @@ export default function ElectronNotificationBridge() {
           if (result?.reason === 'manual-install-required' && result.installCommand) {
             addNotification({
               type: 'success',
-              title: 'Update ready',
-              body: `Inboxora downloaded and verified the update. Install it from a terminal with:\n${result.installCommand}`,
+              title: t('nativeUpdates.ready'),
+              body: t('nativeUpdates.manualInstall', { command: result.installCommand }),
               allowWrap: true,
               persistent: true,
-              actionLabel: 'Copy & Quit',
+              actionLabel: t('nativeUpdates.copyAndQuit'),
               onAction: async () => {
                 await window.inboxoraNative?.updates?.copyInstallCommandAndQuit?.({
                   installCommand: result.installCommand,
@@ -220,8 +222,8 @@ export default function ElectronNotificationBridge() {
           if (result && result.installed === false) {
             addNotification({
               type: 'error',
-              title: 'Install failed',
-              body: 'The update was downloaded, but the installer could not be started.',
+              title: t('nativeUpdates.installFailed'),
+              body: t('nativeUpdates.installFailedBody'),
             });
           }
         },
@@ -231,7 +233,7 @@ export default function ElectronNotificationBridge() {
     return () => {
       if (typeof unsubscribe === 'function') unsubscribe();
     };
-  }, [addNotification, nativeBridgeReady]);
+  }, [addNotification, nativeBridgeReady, t]);
 
   useEffect(() => {
     if (!nativeBridgeReady) return;
@@ -367,15 +369,15 @@ export default function ElectronNotificationBridge() {
           try {
             addNotification({
               type: 'info',
-              title: 'Sync started',
-              body: 'Inboxora is checking for new mail.',
+              title: t('nativeUpdates.syncStarted'),
+              body: t('nativeUpdates.syncStartedBody'),
             });
             await api.syncNow();
           } catch (error) {
             addNotification({
               type: 'error',
-              title: 'Sync failed',
-              body: toAppError(error).message || 'Could not sync mail.',
+              title: t('nativeUpdates.syncFailed'),
+              body: toAppError(error).message || t('nativeUpdates.syncFailedBody'),
             });
           }
         }
@@ -432,7 +434,7 @@ export default function ElectronNotificationBridge() {
       window.removeEventListener('message', handleNativeMessage);
       if (typeof unsubscribe === 'function') unsubscribe();
     };
-  }, [addNotification, nativeBridgeReady, openCompose, setSearchQuery, setSelectedAccount, setSelectedMessage]);
+  }, [addNotification, nativeBridgeReady, openCompose, setSearchQuery, setSelectedAccount, setSelectedMessage, t]);
 
   return null;
 }

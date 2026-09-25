@@ -76,6 +76,8 @@ function arrangeQuery(contact: ContactDateEntry[], result: typeof updatedContact
       title: null, role: null, nickname: null, urls: [], instant_messages: [], categories: [], addresses: [],
       vcard: existingVCard, book_source: 'local', address_book_id: 'book-1',
     }] })
+    // The writer is resolved from the book's collection row; a local book has none.
+    .mockResolvedValueOnce({ rows: [{ id: 'book-1', source: 'local', collection_id: null, remote_id: null, connection_id: null, source_access: null, user_access: null }] })
     .mockResolvedValueOnce({ rows: [result] })
     .mockResolvedValueOnce({ rows: [] });
 }
@@ -83,6 +85,32 @@ function arrangeQuery(contact: ContactDateEntry[], result: typeof updatedContact
 beforeEach(() => {
   query.mockReset();
   withTransaction.mockClear();
+});
+
+describe('the address-book list exposes the write-back switch', () => {
+  it('reports the collection id and the capability model’s read-only verdict per book', async () => {
+    // A pulled book: the capability model refuses a write until the user opts in, so `read_only` is true —
+    // and the `collection_id` is what the interface addresses the opt-in by. Without both, a contacts
+    // write-back switch had nothing to offer.
+    query.mockResolvedValueOnce({ rows: [{ id: 'user-1' }] });
+    query.mockResolvedValueOnce({
+      rows: [
+        { id: 'book-pulled', name: 'Contacts', source: 'google', visible: true, dav_mode: 'off', contact_count: 3, collection_id: 'collection-1', connection_id: 'connection-1', provider: 'google', account_id: 'account-1', account_email: 'one@example.test', source_access: 'read_write', user_access: 'source' },
+        { id: 'book-local', name: 'Personal', source: 'local', visible: true, dav_mode: 'off', contact_count: 1, collection_id: null, source_access: null, user_access: null },
+      ],
+    });
+    const server = createApp().listen(0);
+    try {
+      const response = await fetch(`http://127.0.0.1:${listeningPort(server)}/api/contacts/address-books`);
+      expect(response.status).toBe(200);
+      const body = await response.json() as { addressBooks: Array<{ id: string; collection_id: string | null; account_id?: string | null; account_email?: string | null; provider?: string | null; read_only: boolean }> };
+      expect(body.addressBooks.find(book => book.id === 'book-pulled')).toMatchObject({ collection_id: 'collection-1', provider: 'google', account_id: 'account-1', account_email: 'one@example.test', read_only: true });
+      // A local book has no collection and is writable, so it offers no write-back switch at all.
+      expect(body.addressBooks.find(book => book.id === 'book-local')).toMatchObject({ collection_id: null, read_only: false });
+    } finally {
+      await new Promise(resolve => server.close(resolve));
+    }
+  });
 });
 
 describe('Contact REST PATCH legacy date synchronization', () => {
@@ -290,5 +318,184 @@ describe('Google CSV import persistence', () => {
     expect(JSON.parse(stringParameter(insert[1], 20))).toEqual([]);
     expect(JSON.parse(stringParameter(insert[1], 22))).toEqual([{ type: 'home', pobox: '', extended: '', street: 'St James Square', locality: 'London', region: '', postalCode: '', country: '' }]);
     expect(JSON.parse(stringParameter(insert[1], 23))).toMatchObject({ 'Custom Field 1 - Label': 'Legacy ID', 'Custom Field 1 - Value': '42' });
+  });
+});
+
+describe('an address book written by a source cannot be deleted', () => {
+  // Deleting one would leave its integration collection with no local book (the foreign key
+  // clears the link rather than failing), and the next sync would create the book again — so
+  // the delete would appear to work and silently undo itself. The guard is what prevents it,
+  // and it is pinned here because it is otherwise only reachable through the interface.
+  for (const source of ['google', 'microsoft', 'carddav']) {
+    it(`refuses to delete a ${source} book, deleting nothing`, async () => {
+      query.mockReset();
+      query
+        .mockResolvedValueOnce({ rows: [{ id: 'user-1' }] })
+        .mockResolvedValueOnce({ rows: [{ id: 'book-1', name: 'Imported', source }] });
+
+      const server = createApp().listen(0);
+      const response = await fetch(`http://127.0.0.1:${listeningPort(server)}/api/contacts/address-books/book-1`, { method: 'DELETE' });
+      await new Promise(resolve => server.close(resolve));
+
+      expect(response.status).toBe(403);
+      expect(query.mock.calls.some(([sql]) => String(sql).includes('DELETE FROM address_books'))).toBe(false);
+    });
+  }
+
+  it('still deletes a local book when another local book remains', async () => {
+    query.mockReset();
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'user-1' }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'book-1', name: 'Personal', source: 'local' }] })
+      .mockResolvedValueOnce({ rows: [{ count: 2 }] })
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 });
+
+    const server = createApp().listen(0);
+    const response = await fetch(`http://127.0.0.1:${listeningPort(server)}/api/contacts/address-books/book-1`, { method: 'DELETE' });
+    await new Promise(resolve => server.close(resolve));
+
+    expect(response.status).toBe(204);
+    expect(query.mock.calls.some(([sql]) => String(sql).includes('DELETE FROM address_books'))).toBe(true);
+  });
+});
+
+describe('Address book DAV sharing (dav_mode)', () => {
+  it('stores a DAV mode on a local address book', async () => {
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'user-1' }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'book-1', name: 'Personal', source: 'local', visible: true }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'book-1', name: 'Personal', source: 'local', visible: true, dav_mode: 'read_only' }] });
+
+    const server = createApp().listen(0);
+    const response = await fetch(`http://127.0.0.1:${listeningPort(server)}/api/contacts/address-books/book-1`, {
+      method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ davMode: 'read_only' }),
+    });
+    await new Promise(resolve => server.close(resolve));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ dav_mode: 'read_only' });
+    const update = findQuery('UPDATE address_books SET');
+    expect(update[0]).toContain('dav_mode = COALESCE($3, dav_mode)');
+    expect(stringParameter(update[1], 2)).toBe('read_only');
+  });
+
+  it('rejects an unknown DAV mode before touching the book', async () => {
+    query.mockResolvedValueOnce({ rows: [{ id: 'user-1' }] });
+    const server = createApp().listen(0);
+    const response = await fetch(`http://127.0.0.1:${listeningPort(server)}/api/contacts/address-books/book-1`, {
+      method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ davMode: 'shared' }),
+    });
+    await new Promise(resolve => server.close(resolve));
+
+    expect(response.status).toBe(400);
+    expect(query.mock.calls.some(([sql]) => sql.includes('UPDATE address_books'))).toBe(false);
+  });
+});
+
+describe('a contact whose book is written by a source refuses REST edits', () => {
+  // The REST counterpart of the DAV rule pinned in davVisibility: the source is the
+  // writer, so a local edit would be an apparent change the next sync discards. The
+  // guard covers every non-local source, not only CardDAV, and that is what is pinned
+  // here — including the original CardDAV behaviour it generalised.
+  const contactRow = (bookSource: string) => ({
+    id: 'contact-1', uid: 'contact-1', display_name: 'Ada', first_name: null, last_name: null,
+    primary_email: null, emails: [], phones: [], organization: null, notes: null,
+    birthday: null, anniversary: null, contact_dates: [],
+    title: null, role: null, nickname: null, urls: [], instant_messages: [], categories: [], addresses: [],
+    vcard: existingVCard, book_source: bookSource, address_book_id: 'book-1',
+  });
+
+  for (const source of ['carddav', 'google', 'microsoft']) {
+    it(`refuses to edit a contact from a ${source} book, writing nothing`, async () => {
+      query
+        .mockResolvedValueOnce({ rows: [{ id: 'user-1' }] })
+        .mockResolvedValueOnce({ rows: [contactRow(source)] })
+        // A provider book the user has not enabled for write-back stays read-only, whichever source it is.
+        .mockResolvedValueOnce({ rows: [{
+          id: 'book-1', source, collection_id: 'collection-1', remote_id: 'contacts',
+          connection_id: 'connection-1', source_access: 'read_write', user_access: 'source',
+        }] })
+        // The shared resolver refused, so the Google resolver is asked whether this is a write-enabled
+        // Google book; it is not (its own query returns nothing here), and the refusal stands.
+        .mockResolvedValue({ rows: [] });
+
+      const server = createApp().listen(0);
+      const response = await fetch(`http://127.0.0.1:${listeningPort(server)}/api/contacts/contact-1`, {
+        method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ displayName: 'Changed' }),
+      });
+      await new Promise(resolve => server.close(resolve));
+
+      expect(response.status).toBe(403);
+      expect(query.mock.calls.some(([sql]) => String(sql).includes('UPDATE contacts SET'))).toBe(false);
+    });
+  }
+
+  for (const source of ['carddav', 'google', 'microsoft']) {
+    it(`refuses to delete a contact from a ${source} book, deleting nothing`, async () => {
+      query.mockReset();
+      // `requireAuth` performs the session lookup first, so the source row is second.
+      query
+        .mockResolvedValueOnce({ rows: [{ id: 'user-1' }] })
+        .mockResolvedValueOnce({ rows: [{ address_book_id: 'book-1' }] })
+        .mockResolvedValueOnce({ rows: [{
+          id: 'book-1', source, collection_id: 'collection-1', remote_id: 'contacts',
+          connection_id: 'connection-1', source_access: 'read_write', user_access: 'source',
+        }] })
+        // As above: the Google resolver's own lookup finds no write-enabled Google book.
+        .mockResolvedValue({ rows: [] });
+
+      const server = createApp().listen(0);
+      const response = await fetch(`http://127.0.0.1:${listeningPort(server)}/api/contacts/contact-1`, { method: 'DELETE' });
+      await new Promise(resolve => server.close(resolve));
+
+      expect(response.status).toBe(403);
+      expect(query.mock.calls.some(([sql]) => String(sql).includes('DELETE FROM contacts'))).toBe(false);
+    });
+  }
+
+  it('still allows editing a contact in a local book', async () => {
+    // The mirror image: the guard must not become a blanket refusal.
+    arrangeQuery([], updatedContact);
+    const server = createApp().listen(0);
+    const response = await fetch(`http://127.0.0.1:${listeningPort(server)}/api/contacts/contact-1`, {
+      method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ displayName: 'Ada' }),
+    });
+    await new Promise(resolve => server.close(resolve));
+    expect(response.status).toBe(200);
+  });
+});
+
+describe('the read-only flag comes from the capability model, for every provider', () => {
+  // The list and the single-contact read used to infer editability from one
+  // adapter's source value (`ab.source = 'carddav'`), so a Google or Microsoft
+  // book looked editable in the interface while the server refused the write.
+  for (const [source, expected] of [['local', false], ['carddav', true], ['google', true], ['microsoft', true], ['ical_url', true]] as const) {
+    it(`reports read_only=${expected} for a ${source} address book in the list`, async () => {
+      query
+        .mockResolvedValueOnce({ rows: [{ id: 'user-1' }] })
+        .mockResolvedValueOnce({ rows: [{ id: 'contact-1', display_name: 'Ada', book_source: source }] })
+        .mockResolvedValueOnce({ rows: [{ count: '1' }] });
+      const server = createApp().listen(0);
+      const response = await fetch(`http://127.0.0.1:${listeningPort(server)}/api/contacts`);
+      await new Promise(resolve => server.close(resolve));
+
+      expect(response.status).toBe(200);
+      const payload = await response.json() as { contacts: Array<{ read_only: boolean; book_source: string }> };
+      expect(payload.contacts[0].read_only).toBe(expected);
+      // The origin is still reported, so the interface can explain who owns it.
+      expect(payload.contacts[0].book_source).toBe(source);
+    });
+  }
+
+  it('reports read_only on a single contact read too', async () => {
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'user-1' }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'contact-1', display_name: 'Ada', book_source: 'google', vcard: null }] });
+    const server = createApp().listen(0);
+    const response = await fetch(`http://127.0.0.1:${listeningPort(server)}/api/contacts/contact-1`);
+    await new Promise(resolve => server.close(resolve));
+
+    expect(response.status).toBe(200);
+    expect((await response.json() as { read_only: boolean }).read_only).toBe(true);
   });
 });

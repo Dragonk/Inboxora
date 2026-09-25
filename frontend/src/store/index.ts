@@ -77,6 +77,11 @@ export interface ComposeDraft {
   isForward?: boolean;
   inReplyTo?: string | null;
   references?: string | null;
+  /** Durable RFC parent identity used if a draft's physical copy moves. */
+  replyParentMessageId?: string | null;
+  replyParentAccountId?: string | null;
+  /** The selected physical row; transports resolve it server-side when current. */
+  replyToMessageId?: string | null;
   originalFrom?: string | string[] | Array<{ email: string; name?: string | null }>;
   allRecipients?: string[];
   forwardedAttachments?: Array<{ messageId?: string; part?: string; filename?: string | null; size?: number | null; [key: string]: unknown }>;
@@ -209,6 +214,8 @@ export interface StoreState {
   setVisibleCalendarIds: (visibleCalendarIds: string[]) => void;
   mobileNavigationPosition: string;
   setMobileNavigationPosition: (mobileNavigationPosition: string) => void;
+  mobileSidebarSwipeEnabled: boolean;
+  setMobileSidebarSwipeEnabled: (mobileSidebarSwipeEnabled: boolean) => void;
   calendarInviteAccountId: string;
   setCalendarInviteAccountId: (calendarInviteAccountId: string | null) => void;
   calendarWorkDays: number[];
@@ -378,7 +385,7 @@ export interface StoreMessageRow {
   draft_alias_id?: string | null;
   draft_in_reply_to?: string | null;
   draft_references?: string | null;
-  draft_composition?: { version?: number; authoredBody?: string; bodyIsHtml?: boolean; signatureHtml?: string | null; signatureText?: string | null; quotedBody?: string | null; quotedBodyHtml?: string | null } | null;
+  draft_composition?: { version?: number; authoredBody?: string; bodyIsHtml?: boolean; signatureHtml?: string | null; signatureText?: string | null; quotedBody?: string | null; quotedBodyHtml?: string | null; replyToMessageId?: string | null; replyParentMessageId?: string | null; replyParentAccountId?: string | null; replyKind?: 'reply' | 'reply_all' | null } | null;
   reply_to?: string | null;
   delivery_addresses?: string | Array<{ email?: string | null; address?: string | null } | string> | null;
   category?: string | null;
@@ -980,6 +987,15 @@ export const useStore = create<StoreState>()((set, get) => ({
     const value = mobileNavigationPosition === 'bottom' ? 'bottom' : 'top';
     set({ mobileNavigationPosition: value });
     schedulePrefSave({ mobileNavigationPosition: value });
+  },
+  // Open the sidebar by dragging right from the left quarter of the surface.
+  // Defaults to on; an explicit stored `false` (not a missing value) disables it,
+  // so an upgrade never silently turns an existing user's gesture off or on.
+  mobileSidebarSwipeEnabled: true,
+  setMobileSidebarSwipeEnabled: (mobileSidebarSwipeEnabled: boolean) =>{
+    const value = typeof mobileSidebarSwipeEnabled === 'boolean' ? mobileSidebarSwipeEnabled : true;
+    set({ mobileSidebarSwipeEnabled: value });
+    schedulePrefSave({ mobileSidebarSwipeEnabled: value });
   },
   // The SMTP account the new-event dialog preselects for calendar invitations.
   // Empty means "no default": the dialog leaves the sender picker unselected.
@@ -1689,6 +1705,10 @@ export const useStore = create<StoreState>()((set, get) => ({
       }
       if (prefs.mobileNavigationPosition === 'top' || prefs.mobileNavigationPosition === 'bottom') {
         set({ mobileNavigationPosition: prefs.mobileNavigationPosition });
+      }
+      // Missing value keeps the default; only an explicit boolean opts the user out.
+      if (typeof prefs.mobileSidebarSwipeEnabled === 'boolean') {
+        set({ mobileSidebarSwipeEnabled: prefs.mobileSidebarSwipeEnabled });
       }
       if (typeof prefs.calendarInviteAccountId === 'string') {
         set({ calendarInviteAccountId: prefs.calendarInviteAccountId });

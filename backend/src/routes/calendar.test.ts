@@ -165,6 +165,77 @@ beforeEach(() => {
   syncCalendarSource.mockReset().mockResolvedValue({ ok: true });
 });
 
+function presentationRows() {
+  return [{
+    id: '11111111-1111-4111-8111-111111111111', name: 'Polish holidays', color: '#123456', source: 'google', read_only: true, display_visible: true,
+    collection_id: '22222222-2222-4222-8222-222222222222', provider: 'google', provider_identity: 'provider-subject', account_id: '33333333-3333-4333-8333-333333333333', account_email: 'owner@example.test',
+    import_source_id: null, import_kind: null, import_label: null, feature_enabled: true,
+  }];
+}
+
+function mockPresentationRead({ sourceCollapsed = false, calendarHidden = false }: { sourceCollapsed?: boolean; calendarHidden?: boolean } = {}) {
+  query.mockImplementation(async (sql: string) => {
+    if (sql.includes('FROM calendars c') && sql.includes('provider_identity')) return { rows: presentationRows() };
+    if (sql.includes('FROM user_calendar_source_preferences')) return { rows: sourceCollapsed ? [{ source_id: 'google:account:33333333-3333-4333-8333-333333333333', collapsed: true }] : [] };
+    if (sql.includes('FROM user_calendar_presentation_preferences')) return { rows: calendarHidden ? [{ calendar_id: '11111111-1111-4111-8111-111111111111', sidebar_hidden: true }] : [] };
+    if (sql.includes("preferences->'calendarContactAppearance'")) return { rows: [] };
+    return { rows: [] };
+  });
+}
+
+describe('calendar presentation', () => {
+  it('returns grouped durable account identities and all presentation state', async () => {
+    mockPresentationRead({ sourceCollapsed: true, calendarHidden: true });
+    const response = await fetch(`${base}/api/calendar/presentation`);
+    expect(response.status).toBe(200);
+    const body = responseRecord(await response.json());
+    expect(typeof body.revision).toBe('string');
+    expect(responseArray(body, 'groups')).toEqual(expect.arrayContaining([expect.objectContaining({
+      id: 'google:account:33333333-3333-4333-8333-333333333333', collapsed: true,
+      calendars: expect.arrayContaining([expect.objectContaining({ id: '11111111-1111-4111-8111-111111111111', selected: true, sidebarHidden: true })]),
+    })]));
+  });
+
+  it('rejects unknown source identifiers before persisting a preference', async () => {
+    mockPresentationRead();
+    const response = await fetch(`${base}/api/calendar/presentation/sources/google%3Aaccount%3Aother`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ collapsed: true }) });
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ error: 'Calendar source not found' });
+    expect(query.mock.calls.some(([sql]) => sql.includes('INSERT INTO user_calendar_source_preferences'))).toBe(false);
+  });
+
+  it('rejects unknown and unowned calendar identifiers before persisting a preference', async () => {
+    mockPresentationRead();
+    const response = await fetch(`${base}/api/calendar/presentation/calendars/44444444-4444-4444-8444-444444444444`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sidebarHidden: true }) });
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ error: 'Calendar not found' });
+    expect(query.mock.calls.some(([sql]) => sql.includes('INSERT INTO user_calendar_presentation_preferences'))).toBe(false);
+  });
+
+  it('uses the canonical loader before and after both preference updates', async () => {
+    mockPresentationRead();
+    const source = await fetch(`${base}/api/calendar/presentation/sources/google%3Aaccount%3A33333333-3333-4333-8333-333333333333`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ collapsed: true }) });
+    expect(source.status).toBe(200);
+    expect(responseRecord(await source.json())).toHaveProperty('revision');
+    expect(query.mock.calls.filter(([sql]) => sql.includes('FROM calendars c') && sql.includes('provider_identity'))).toHaveLength(2);
+
+    query.mockClear();
+    const calendar = await fetch(`${base}/api/calendar/presentation/calendars/11111111-1111-4111-8111-111111111111`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sidebarHidden: true }) });
+    expect(calendar.status).toBe(200);
+    expect(responseRecord(await calendar.json())).toHaveProperty('revision');
+    expect(query.mock.calls.filter(([sql]) => sql.includes('FROM calendars c') && sql.includes('provider_identity'))).toHaveLength(2);
+  });
+
+  it('persists a validated per-user color override without changing provider data', async () => {
+    mockPresentationRead();
+    const response = await fetch(`${base}/api/calendar/presentation/calendars/11111111-1111-4111-8111-111111111111`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ colorOverride: '#12abef' }) });
+    expect(response.status).toBe(200);
+    expect(query.mock.calls.some(([sql, params]) => sql.includes('color_override') && Array.isArray(params) && params.includes('#12abef'))).toBe(true);
+    const invalid = await fetch(`${base}/api/calendar/presentation/calendars/11111111-1111-4111-8111-111111111111`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ colorOverride: 'red' }) });
+    expect(invalid.status).toBe(400);
+  });
+});
+
 // The events read runs two disjoint queries: materialised occurrences, and the live fallback
 // for whatever the background worker has not covered. These tests route the fake data by SQL
 // content rather than by call order, so adding a query to the read path cannot silently
@@ -176,11 +247,39 @@ function mockEventRead({ events = [], contacts = [], occurrences = [] }: {
   occurrences?: Array<Record<string, unknown>>;
 } = {}) {
   query.mockImplementation(async (sql: string) => {
+    if (typeof sql === 'string' && sql.includes('FROM calendars c') && sql.includes('provider_identity')) {
+      const id = String(events[0]?.calendar_id ?? occurrences[0]?.calendar_id ?? '11111111-1111-4111-8111-111111111111');
+      return { rows: [{ id, name: 'Work', color: '#123456', source: 'local', read_only: false, display_visible: true, collection_id: null, provider: null, provider_identity: null, account_id: null, account_email: null, import_source_id: null, import_kind: null, import_label: null, feature_enabled: true }] };
+    }
+    if (typeof sql === 'string' && (sql.includes('user_calendar_source_preferences') || sql.includes('user_calendar_presentation_preferences') || sql.includes("preferences->'calendarContactAppearance'"))) return { rows: [] };
     if (typeof sql === 'string' && sql.includes('FROM calendar_occurrences o')) return { rows: occurrences };
     if (typeof sql === 'string' && sql.includes('contact_dates')) return { rows: contacts };
     return { rows: events };
   });
 }
+
+describe('external calendar source pause state', () => {
+  it('persists a pause and cancels that source scheduler without deleting its projection', async () => {
+    query.mockResolvedValueOnce({ rows: [{ id: 'source-1', kind: 'ical_url', url: 'encrypted', display_name: 'Work', interval_min: 60, enabled: false, last_sync_at: null, last_error: null }] });
+    const response = await fetch(`${base}/api/calendar/sources/source-1`, {
+      method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ enabled: false }),
+    });
+    expect(response.status).toBe(200);
+    expect(query).toHaveBeenCalledWith(expect.stringContaining('enabled = COALESCE($2, enabled)'), [null, false, 'source-1', 'user-1', null, null]);
+    expect(stopCalendarSource).toHaveBeenCalledWith('source-1');
+    expect(scheduleCalendarSource).not.toHaveBeenCalled();
+  });
+
+  it('re-arms only the resumed source', async () => {
+    query.mockResolvedValueOnce({ rows: [{ id: 'source-1', kind: 'ical_url', url: 'encrypted', display_name: 'Work', interval_min: 60, enabled: true, last_sync_at: null, last_error: null }] });
+    const response = await fetch(`${base}/api/calendar/sources/source-1`, {
+      method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ enabled: true }),
+    });
+    expect(response.status).toBe(200);
+    expect(scheduleCalendarSource).toHaveBeenCalledWith(expect.objectContaining({ id: 'source-1', enabled: true }));
+    expect(stopCalendarSource).not.toHaveBeenCalled();
+  });
+});
 
 describe('local calendar API', () => {
 
@@ -330,8 +429,9 @@ describe('local calendar API', () => {
     const response = await fetch(`${base}/api/calendar/calendars`);
 
     expect(response.status).toBe(200);
-    expect(responseArray(await response.json(), 'calendars')).toContainEqual({ id: 'calendar-1', name: 'Personal', source: 'local', read_only: false });
-    expect(queryCall(0)[0]).toContain('WHERE user_id = $1');
+    expect(responseArray(await response.json(), 'calendars')).toContainEqual(expect.objectContaining({ id: 'calendar-1', name: 'Personal', source: 'local', read_only: false }));
+    // The list is aliased so the write-back collection id can be joined in without an extra query.
+    expect(queryCall(0)[0]).toContain('WHERE c.user_id = $1 AND c.owner_user_id = $1');
     expect(queryCall(0)[1]).toEqual(['user-1']);
   });
 
@@ -359,7 +459,7 @@ describe('local calendar API', () => {
   });
 
   it('updates only an owned local calendar', async () => {
-    query.mockResolvedValueOnce({ rows: [{ id: 'calendar-2', owner_user_id: 'user-1', name: 'Updated', color: '#abcdef', display_visible: false, source: 'local', read_only: false }] });
+    query.mockResolvedValueOnce({ rows: [{ source: 'local' }] }).mockResolvedValueOnce({ rows: [{ id: 'calendar-2', owner_user_id: 'user-1', name: 'Updated', color: '#abcdef', display_visible: false, source: 'local', read_only: false }] });
 
     const response = await fetch(`${base}/api/calendar/calendars/calendar-2`, {
       method: 'PATCH', headers: { 'content-type': 'application/json' },
@@ -368,20 +468,49 @@ describe('local calendar API', () => {
 
     expect(response.status).toBe(200);
     expect(responseObject(await response.json(), 'calendar')).toMatchObject({ name: 'Updated', display_visible: false });
-    expect(queryCall(0)[0]).toContain('owner_user_id = $5');
-    expect(queryCall(0)[1]).toEqual(['Updated', '#abcdef', false, 'calendar-2', 'user-1']);
+    expect(queryCall(1)[0]).toContain("owner_user_id = $6 AND user_id = $6 AND source = 'local'");
+    // davMode is omitted here, which keeps the stored mode (COALESCE) unchanged.
+    expect(queryCall(1)[0]).toContain('dav_mode = COALESCE($4, dav_mode)');
+    expect(queryCall(1)[1]).toEqual(['Updated', '#abcdef', false, null, 'calendar-2', 'user-1']);
   });
 
-  it('allows display edits on an owned imported calendar without allowing event writes', async () => {
-    query.mockResolvedValueOnce({ rows: [{ id: 'remote-calendar', name: 'Work', color: '#123456', source: 'ical_url', read_only: true }] });
+  it('stores a DAV sharing mode on an owned calendar and rejects an unknown one', async () => {
+    query.mockResolvedValueOnce({ rows: [{ source: 'local' }] }).mockResolvedValueOnce({ rows: [{ id: 'calendar-2', name: 'Work', color: '#123456', display_visible: true, source: 'local', read_only: false, dav_mode: 'read_only' }] });
+    const response = await fetch(`${base}/api/calendar/calendars/calendar-2`, {
+      method: 'PATCH', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'Work', color: '#123456', displayVisible: true, davMode: 'read_only' }),
+    });
+    expect(response.status).toBe(200);
+    expect(responseObject(await response.json(), 'calendar').dav_mode).toBe('read_only');
+    expect(queryCall(1)[1][3]).toBe('read_only');
+
+    query.mockClear();
+    const invalid = await fetch(`${base}/api/calendar/calendars/calendar-2`, {
+      method: 'PATCH', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'Work', color: '#123456', displayVisible: true, davMode: 'shared' }),
+    });
+    expect(invalid.status).toBe(400);
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  it('refuses DAV sharing for the synthetic contact-dates calendar', async () => {
+    const response = await fetch(`${base}/api/calendar/calendars/contacts-birthdays`, {
+      method: 'PATCH', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'Contact dates', color: '#e879f9', displayVisible: true, davMode: 'read_write' }),
+    });
+    expect(response.status).toBe(400);
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  it('refuses generic local metadata edits on an imported provider calendar', async () => {
+    query.mockResolvedValueOnce({ rows: [{ source: 'ical_url' }] });
     const response = await fetch(`${base}/api/calendar/calendars/remote-calendar`, {
       method: 'PATCH', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ name: 'Work', color: '#123456', displayVisible: true }),
     });
-    expect(response.status).toBe(200);
-    expect(queryCall(0)[0]).toContain('owner_user_id = $5 AND user_id = $5');
-    expect(queryCall(0)[0]).not.toContain("source = 'local'");
-    expect(responseObject(await response.json(), 'calendar').read_only).toBe(true);
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({ error: 'Provider calendars cannot be edited here' });
+    expect(query).toHaveBeenCalledTimes(1);
   });
   it('persists contact calendar appearance per user while retaining translated default names', async () => {
     query.mockResolvedValueOnce({ rows: [] });
@@ -400,7 +529,10 @@ describe('local calendar API', () => {
     expect(responseArray(await response.json(), 'calendars')[0]).toMatchObject({ name: 'Rodzina', custom_name: true, color: '#123456', read_only: true });
   });
   it('requires exact calendar-name confirmation before deleting an owned calendar', async () => {
-    query.mockResolvedValueOnce({ rows: [{ id: 'calendar-2' }] });
+    // The capability decision loads the row, then the scoped DELETE returns it.
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'calendar-2', source: 'local', read_only: false }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'calendar-2' }] });
 
     const response = await fetch(`${base}/api/calendar/calendars/calendar-2`, {
       method: 'DELETE', headers: { 'content-type': 'application/json' },
@@ -408,9 +540,23 @@ describe('local calendar API', () => {
     });
 
     expect(response.status).toBe(204);
-    expect(queryCall(0)[0]).toContain('DELETE FROM calendars');
-    expect(queryCall(0)[0]).toContain('owner_user_id = $2');
-    expect(queryCall(0)[1]).toEqual(['calendar-2', 'user-1', 'Work']);
+    // The capability model decides on the loaded row first; the DELETE is then
+    // scoped to the same owner and confirmed name.
+    expect(queryCall(0)[0]).toContain('SELECT id, source, read_only FROM calendars');
+    const [deleteSql, deleteParameters] = queryCallContaining('DELETE FROM calendars');
+    expect(deleteSql).toContain('owner_user_id = $2');
+    expect(deleteParameters).toEqual(['calendar-2', 'user-1', 'Work']);
+  });
+
+  it('refuses provider calendar deletion instead of deleting its local projection', async () => {
+    query.mockResolvedValueOnce({ rows: [{ id: 'provider-calendar', source: 'google', read_only: false, source_access: 'read_write', user_access: 'read_write' }] });
+    const response = await fetch(`${base}/api/calendar/calendars/provider-calendar`, {
+      method: 'DELETE', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ confirmName: 'Work' }),
+    });
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({ error: 'Provider calendars cannot be deleted here' });
+    expect(query).toHaveBeenCalledTimes(1);
   });
 
   it('does not delete a calendar when server-side confirmation does not match', async () => {
@@ -616,23 +762,80 @@ describe('local calendar API', () => {
       expect(startsOf(rawIcal)).toContain('01-14T08:00');
     });
 
-    it('fails closed instead of mutating an invited series occurrence (V3-09)', async () => {
+    it('mutates an invited series occurrence and tells the attendees, in one sequence', async () => {
       query.mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })
-        .mockResolvedValueOnce({ rows: [{ uid: 'uid-1', raw_ical: daily(), invite_account_id: 'account-1' }] });
+        .mockResolvedValueOnce({ rows: [{
+          uid: 'uid-1', raw_ical: daily(), invite_account_id: 'account-1', invitation_sequence: 2,
+          summary: 'Daily', description: null, location: null, starts_at: '2026-01-05T09:00:00.000Z',
+          ends_at: '2026-01-05T10:00:00.000Z', all_day: false, attendees: ['guest@example.test'],
+        }] })
+        .mockResolvedValueOnce({ rows: [{ id: 'account-1', email_address: 'me@example.test', smtp_host: 'smtp.example.test' }] })
+        .mockResolvedValueOnce({ rows: [] });
 
       const response = await cancel({ calendarId: 'calendar-1', recurrenceId: '2026-01-09T09:00:00', scope: 'following' });
-      expect(response.status).toBe(409);
-      expect(await response.json()).toEqual({ error: 'Invited recurring occurrence mutations are not supported' });
-      expect(query.mock.calls.some(([statement]) => String(statement).startsWith('UPDATE calendar_events SET raw_ical') || String(statement).startsWith('DELETE FROM calendar_events'))).toBe(false);
-      expect(sendCalendarInvitation).not.toHaveBeenCalled();
+
+      expect(response.status).toBe(200);
+      // The series is truncated locally and the sequence advanced, so the cancellation is not a second
+      // message a client would ignore as already seen.
+      const [, updateParameters] = queryCallContaining('UPDATE calendar_events SET raw_ical');
+      expect(String(updateParameters[0])).toContain('UNTIL=');
+      expect(String(queryCallContaining('UPDATE calendar_events SET raw_ical')[0])).toContain('invitation_sequence = invitation_sequence + 1');
+      // The attendees are told: an update whose rule no longer contains the removed occurrences.
+      expect(sendCalendarInvitation).toHaveBeenCalledWith(expect.objectContaining({
+        method: 'REQUEST', sequence: 3, attendees: ['guest@example.test'], uid: 'uid-1',
+      }));
+      expect(String((sendCalendarInvitation.mock.calls[0]?.[0] as { rrule?: string }).rrule)).toContain('UNTIL=');
     });
 
-    it('refuses a following-scope edit, which has no defined meaning', async () => {
+    it('cancels one occurrence of an invited series with a RECURRENCE-ID message', async () => {
+      query.mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })
+        .mockResolvedValueOnce({ rows: [{
+          uid: 'uid-1', raw_ical: daily(), invite_account_id: 'account-1', invitation_sequence: 0,
+          summary: 'Daily', description: null, location: null, starts_at: '2026-01-05T09:00:00.000Z',
+          ends_at: '2026-01-05T10:00:00.000Z', all_day: false, attendees: ['guest@example.test'],
+        }] })
+        .mockResolvedValueOnce({ rows: [{ id: 'account-1', email_address: 'me@example.test', smtp_host: 'smtp.example.test' }] })
+        .mockResolvedValueOnce({ rows: [] });
+
+      const response = await cancel({ calendarId: 'calendar-1', recurrenceId: '2026-01-09T09:00:00Z', scope: 'single' });
+
+      expect(response.status).toBe(200);
+      expect(sendCalendarInvitation).toHaveBeenCalledWith(expect.objectContaining({
+        method: 'CANCEL', sequence: 1, recurrenceId: '2026-01-09T09:00:00Z',
+      }));
+    });
+
+    it('edits this-and-following by truncating the series and starting a new one at the occurrence', async () => {
+      query.mockResolvedValue({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })
+        .mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })
+        .mockResolvedValueOnce({ rows: [{ uid: 'uid-1', raw_ical: daily(), invite_account_id: null }] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [] });
+
       const response = await fetch(`${base}/api/calendar/events/event-1/occurrence`, {
         method: 'PATCH', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ calendarId: 'calendar-1', recurrenceId: '2026-01-09T09:00:00', scope: 'following', startsAt: '2026-01-09T09:00:00.000Z', endsAt: '2026-01-09T10:00:00.000Z' }),
+        body: JSON.stringify({
+          calendarId: 'calendar-1', recurrenceId: '2026-01-09T09:00:00', scope: 'following',
+          summary: 'Daily (moved)', startsAt: '2026-01-09T11:00:00.000Z', endsAt: '2026-01-09T12:00:00.000Z',
+        }),
       });
-      expect(response.status).toBe(400);
+      expect(response.status).toBe(200);
+
+      // The earlier part is truncated, and the remainder becomes its own series whose UID is derived from the
+      // master and the occurrence — so the same edit twice updates that remainder instead of adding a second.
+      const [, truncateParameters] = queryCallContaining('UPDATE calendar_events SET raw_ical');
+      const truncated = truncateParameters[0];
+      if (typeof truncated !== 'string') throw new Error('Truncated calendar resource is not a string');
+      expect(startsOf(truncated)).toHaveLength(4);
+      expect(startsOf(truncated)).not.toContain('01-09T08:00');
+
+      const insert = query.mock.calls.find(([statement]) => String(statement).includes('INSERT INTO calendar_events'));
+      expect(insert).toBeDefined();
+      const parameters = insert?.[1] as unknown[];
+      expect(parameters[2]).toBe('uid-1#20260109T090000');
+      expect(String(parameters[3])).toContain('RRULE:FREQ=DAILY;COUNT=10');
+      expect(String(parameters[3])).toContain('SUMMARY:Daily (moved)');
+      expect(String(parameters[3])).toContain('UID:uid-1#20260109T090000');
     });
   });
 
@@ -1443,4 +1646,122 @@ it('updates one occurrence without replacing the base-event range or description
   expect(updatedRaw).toContain('SUMMARY:Changed instance');
   expect(updatedRaw).toContain('RECURRENCE-ID;TZID=Central European Standard Time:20260917T090000');
   expect(queryCall(2)[0]).not.toContain('starts_at =');
+});
+
+describe('recurring event creation and series editing', () => {
+  const baseEvent = (extra = '') => ['BEGIN:VCALENDAR', 'VERSION:2.0', 'BEGIN:VEVENT', 'UID:uid-1',
+    'DTSTART:20260901T090000Z', 'DTEND:20260901T100000Z', 'SUMMARY:Old', extra,
+    'END:VEVENT', 'END:VCALENDAR'].filter(Boolean).join('\r\n');
+  const exception = ['BEGIN:VEVENT', 'UID:uid-1', 'RECURRENCE-ID:20260903T090000Z',
+    'DTSTART:20260903T110000Z', 'DTEND:20260903T120000Z', 'SUMMARY:Moved', 'END:VEVENT'].join('\r\n');
+  const timeFields = { startsAt: '2026-09-01T09:00:00.000Z', endsAt: '2026-09-01T10:00:00.000Z' };
+  const create = (recurrence: unknown) => fetch(`${base}/api/calendar/events`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ calendarId: 'calendar-1', summary: 'Standup', ...timeFields, recurrence }),
+  });
+  const patchSeries = (calendarId: string, body: Record<string, unknown>) => fetch(`${base}/api/calendar/events/event-1`, {
+    method: 'PATCH', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ calendarId, ...timeFields, attendees: [], ...body }),
+  });
+  const storedSeriesEvent = (raw: string) => ({
+    uid: 'uid-1', raw_ical: raw, attendees: [], invite_account_id: null, invitation_sequence: 0,
+    summary: 'Old', description: null, location: null, all_day: false,
+    starts_at: timeFields.startsAt, ends_at: timeFields.endsAt,
+  });
+  const updatedRaw = (): string => {
+    const raw = queryCallContaining('UPDATE calendar_events SET raw_ical')[1][0];
+    if (typeof raw !== 'string') throw new Error('Updated calendar resource is not a string');
+    return raw;
+  };
+
+  it('creates a recurring event by rendering the rule into the stored resource', async () => {
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'event-1', calendar_id: 'calendar-1', uid: 'uid-1', summary: 'Standup' }] });
+
+    const response = await create({ frequency: 'weekly', interval: 2, byWeekday: [1, 3] });
+    expect(response.status).toBe(201);
+    expect(queryStringParameter(1, 3)).toContain('RRULE:FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,WE');
+  });
+
+  it('renders an all-day rule with a date-valued UNTIL', async () => {
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'event-1' }] });
+
+    const response = await fetch(`${base}/api/calendar/events`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        calendarId: 'calendar-1', summary: 'All day', allDay: true,
+        startsAt: '2026-09-01T00:00:00.000Z', endsAt: '2026-09-02T00:00:00.000Z',
+        recurrence: { frequency: 'daily', until: '2026-12-31' },
+      }),
+    });
+    expect(response.status).toBe(201);
+    expect(queryStringParameter(1, 3)).toContain('RRULE:FREQ=DAILY;UNTIL=20261231');
+  });
+
+  it('rejects an invalid recurrence before writing anything', async () => {
+    query.mockResolvedValue({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] });
+
+    const response = await create({ frequency: 'hourly' });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: 'recurrence.frequency must be none, daily, weekly, monthly or yearly' });
+    expect(query.mock.calls.some(([statement]) => String(statement).includes('INSERT INTO calendar_events'))).toBe(false);
+  });
+
+  it('updates the whole series rule while keeping the editor-owned fields', async () => {
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })
+      .mockResolvedValueOnce({ rows: [storedSeriesEvent(baseEvent('RRULE:FREQ=DAILY;COUNT=5\r\n'))] })
+      .mockResolvedValueOnce({ rows: [{ id: 'event-1', calendar_id: 'calendar-1', uid: 'uid-1', summary: 'Renamed' }] });
+
+    const response = await patchSeries('calendar-1', { summary: 'Renamed', recurrence: { frequency: 'weekly', byWeekday: [2] } });
+    expect(response.status).toBe(200);
+    const raw = updatedRaw();
+    expect(raw).toContain('RRULE:FREQ=WEEKLY;BYDAY=TU');
+    expect(raw).not.toContain('FREQ=DAILY');
+    expect(raw).toContain('SUMMARY:Renamed');
+  });
+
+  it('clears the rule and the orphaned overrides when the series becomes a single event', async () => {
+    const withException = baseEvent('RRULE:FREQ=DAILY;COUNT=5\r\n').replace('END:VCALENDAR', `${exception}\r\nEND:VCALENDAR`);
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })
+      .mockResolvedValueOnce({ rows: [storedSeriesEvent(withException)] })
+      .mockResolvedValueOnce({ rows: [{ id: 'event-1' }] });
+
+    const response = await patchSeries('calendar-1', { recurrence: null });
+    expect(response.status).toBe(200);
+    const raw = updatedRaw();
+    expect(raw).not.toContain('RRULE');
+    expect(raw).not.toContain('RECURRENCE-ID');
+  });
+
+  it('keeps the stored rule when a series edit does not mention recurrence', async () => {
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })
+      .mockResolvedValueOnce({ rows: [storedSeriesEvent(baseEvent('RRULE:FREQ=DAILY;COUNT=5\r\n'))] })
+      .mockResolvedValueOnce({ rows: [{ id: 'event-1' }] });
+
+    const response = await patchSeries('calendar-1', { summary: 'Renamed only' });
+    expect(response.status).toBe(200);
+    expect(updatedRaw()).toContain('RRULE:FREQ=DAILY;COUNT=5');
+  });
+
+  it('returns the parsed rule from the single-event read the series editor opens', async () => {
+    query.mockResolvedValueOnce({ rows: [{ id: 'event-1', calendar_id: 'calendar-1', uid: 'uid-1', summary: 'Standup', attendees: [], recurring: true, raw_ical: baseEvent('RRULE:FREQ=WEEKLY;BYDAY=MO') }] });
+
+    const response = await fetch(`${base}/api/calendar/events/event-1`);
+    expect(response.status).toBe(200);
+    const event = responseObject(await response.json(), 'event');
+    expect(event.recurrence).toMatchObject({ frequency: 'weekly', byWeekday: [1], interval: 1, custom: false });
+    // The raw iCalendar body is never part of the response.
+    expect(event.raw_ical).toBeUndefined();
+  });
+
+  it('404s the series read for an event the user does not own', async () => {
+    query.mockResolvedValueOnce({ rows: [] });
+    expect((await fetch(`${base}/api/calendar/events/someone-elses`)).status).toBe(404);
+  });
 });

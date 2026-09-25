@@ -531,8 +531,15 @@ describe('insertCopiedSibling', () => {
   });
 
   it('uses the shared projection for CE metadata on partial Sent/repair envelopes', async () => {
-    const sourceText = await import('node:fs').then(({ readFileSync }) => readFileSync(new URL('./imapManager.ts', import.meta.url), 'utf8'));
-    expect(sourceText).toContain('const persistenceMessage = { ...result.rows[0], ...(rawMessage || {}) };');
+    // The projection moved to `conversationRowIngest.ts` so the Graph adapter can call
+    // it without importing the mail manager; the merge it pins is unchanged, so the
+    // assertion follows the code rather than being deleted with it. The second
+    // assertion is what makes the move safe: the mail manager must still *call* the
+    // shared function instead of having grown a second copy.
+    const sourceText = await import('node:fs').then(({ readFileSync }) => readFileSync(new URL('./conversationRowIngest.ts', import.meta.url), 'utf8'));
+    expect(sourceText).toContain('const persistenceMessage = { ...result.rows[0], ...raw };');
+    const managerText = await import('node:fs').then(({ readFileSync }) => readFileSync(new URL('./imapManager.ts', import.meta.url), 'utf8'));
+    expect(managerText).toContain("import { persistConversationCopyForRow } from './conversationRowIngest.js';");
   });
 });
 
@@ -2772,5 +2779,125 @@ describe('moveSpamCopy', () => {
     const newUid = await mgr.moveSpamCopy('acct-spam', 123, 'INBOX', 'Spam');
     expect(newUid).toBe(999);
     expect(moveMessage).toHaveBeenCalledTimes(2);
+  });
+});
+
+// The IMAP loops were written against the legacy `protocol` column, and the in-place Microsoft cutover
+// writes `protocol = 'microsoft_graph'` so they skip a native account. That makes the transport a
+// property of a different column than the one these queries filter on, so the authoritative
+// `mail_transport` is checked too: a native account must stay invisible to IMAP even if `protocol` is
+// ever reset by the reconnect route, a repair or an operator.
+describe('the IMAP account discovery is guarded on the authoritative transport', () => {
+  it('filters a native account out of the startup connect, whatever protocol says', async () => {
+    const { query } = await import('./db.js');
+    vi.mocked(query).mockReset().mockResolvedValue({ rows: [] });
+
+    const { ImapManager } = await import('./imapManager.js');
+    await new ImapManager({} as never).connectAllForUser('user-1');
+
+    const accountQuery = vi.mocked(query).mock.calls.map(call => String(call[0])).find(sql => sql.includes('FROM email_accounts'));
+    expect(accountQuery).toBeDefined();
+    expect(accountQuery).toContain('protocol');
+    expect(accountQuery).toContain("mail_transport IS NULL OR mail_transport = 'imap_smtp'");
+  });
+});
+
+// The message-list route fires a fire-and-forget body prefetch on every listing. A
+// native account has no IMAP session to prefetch over — its bodies are read on demand
+// by the transport-aware body route — so the guard lives inside the method and these
+// cases pin it rather than trusting the call site.
+describe('folder body prefetch and the account transport', () => {
+  it('does not open an IMAP session for a Microsoft Graph account', async () => {
+    const { query } = await import('./db.js');
+    vi.mocked(query).mockReset().mockResolvedValueOnce({ rows: [{ id: 'acct-1', mail_transport: 'microsoft_graph' }] });
+
+    const { ImapManager } = await import('./imapManager.js');
+    await new ImapManager({} as never).prefetchFolderBodies('acct-1', ['11111111-1111-1111-1111-111111111111']);
+
+    // One query — the account — and nothing after it: no uncached-message lookup.
+    expect(vi.mocked(query)).toHaveBeenCalledTimes(1);
+  });
+
+  it('still looks for uncached bodies on an IMAP account', async () => {
+    const { query } = await import('./db.js');
+    vi.mocked(query).mockReset()
+      .mockResolvedValueOnce({ rows: [{ id: 'acct-1', mail_transport: 'imap_smtp' }] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    const { ImapManager } = await import('./imapManager.js');
+    await new ImapManager({} as never).prefetchFolderBodies('acct-1', ['11111111-1111-1111-1111-111111111111']);
+
+    expect(vi.mocked(query)).toHaveBeenCalledTimes(2);
+  });
+});
+
+// The GTD transition path reaches `removeMessageCopy` to drop a label copy. On a
+// native account there is no IMAP session to delete it with, so the provider is asked
+// instead — the same path that would otherwise build label copies and then fail to
+// remove them.
+vi.mock('./providers/microsoft/graphMailMove.js', () => ({ deleteGraphMessagePermanently: vi.fn(async () => ({ deleted: true })) }));
+vi.mock('./providers/microsoft/graphMailSync.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./providers/microsoft/graphMailSync.js')>();
+  return {
+    ...actual,
+    graphFolderIdForPath: vi.fn(async () => 'graph-todo'),
+    syncGraphMailFoldersForAccount: vi.fn(async () => []),
+  };
+});
+vi.mock('./providers/microsoft/graphMailMutations.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./providers/microsoft/graphMailMutations.js')>();
+  return { ...actual, graphCreateMailFolder: vi.fn(async () => ({ id: 'graph-todo' })) };
+});
+
+describe('removing a message copy on a native account', () => {
+  it('asks the provider rather than IMAP', async () => {
+    const { query } = await import('./db.js');
+    vi.mocked(query).mockReset()
+      .mockResolvedValueOnce({ rows: [{ id: 'acct-1', user_id: 'user-1', mail_transport: 'microsoft_graph', provider_connection_id: 'connection-1' }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'msg-1', provider_message_id: 'AAMkAD-1' }] })
+      .mockResolvedValueOnce({ rows: [{ removed: true }] })
+      // The helper's fire-and-forget count adjustment queries again; anything past the
+      // three arranged answers resolves empty rather than undefined.
+      .mockResolvedValue({ rows: [], rowCount: 0 });
+
+    const { ImapManager } = await import('./imapManager.js');
+    const manager = new ImapManager({} as never);
+    const permanentDelete = vi.spyOn(manager, 'permanentDeleteMessage').mockResolvedValue(undefined);
+
+    await manager.removeMessageCopy('acct-1', 42, 'GTD/Todo');
+    // The IMAP delete is never attempted for an account that has no IMAP session.
+    expect(permanentDelete).not.toHaveBeenCalled();
+    // The provider removal is asked for the copy's own identity.
+    const { deleteGraphMessagePermanently } = await import('./providers/microsoft/graphMailMove.js');
+    expect(vi.mocked(deleteGraphMessagePermanently)).toHaveBeenCalledWith(expect.objectContaining({
+      accountId: 'acct-1', resourceId: 'msg-1', providerMessageId: 'AAMkAD-1',
+    }));
+  });
+});
+
+// GTD's setup step and the labels capability both ensure a folder, and the branch for a
+// native account lives in `ensureFolder` so neither of them needs its own copy of the rule.
+describe('ensuring a folder on a native account', () => {
+  it('creates and discovers it at the provider instead of opening an IMAP session', async () => {
+    const { query } = await import('./db.js');
+    vi.mocked(query).mockReset();
+    // Not discovered before the create, discovered after it — which is what makes the
+    // difference between "already there" and "created now".
+    const { graphFolderIdForPath } = await import('./providers/microsoft/graphMailSync.js');
+    vi.mocked(graphFolderIdForPath).mockReset().mockResolvedValueOnce(null as never).mockResolvedValue('graph-todo' as never);
+    const { ImapManager } = await import('./imapManager.js');
+    const manager = new ImapManager({} as never);
+
+    const result = await manager.ensureFolder(
+      { id: 'acct-1', user_id: 'user-1', mail_transport: 'microsoft_graph', provider_connection_id: 'connection-1' } as never,
+      'GTD/Todo',
+    );
+
+    const { graphCreateMailFolder } = await import('./providers/microsoft/graphMailMutations.js');
+    const { syncGraphMailFoldersForAccount } = await import('./providers/microsoft/graphMailSync.js');
+    expect(vi.mocked(graphCreateMailFolder)).toHaveBeenCalledWith(expect.objectContaining({ connectionId: 'connection-1' }), 'GTD/Todo');
+    // Discovery is what produces the local row and collection, so it must run.
+    expect(vi.mocked(syncGraphMailFoldersForAccount)).toHaveBeenCalledWith(expect.objectContaining({ accountId: 'acct-1' }));
+    expect(result).toEqual({ path: 'GTD/Todo', created: true });
   });
 });

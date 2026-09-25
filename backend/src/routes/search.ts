@@ -3,6 +3,9 @@ import type { UnifiedInboxAccount } from '../services/unifiedInbox.js';
 import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { resolveAccountScope } from '../services/unifiedInbox.js';
+import { providerIntegrationsEnabled } from '../services/providerSwitches.js';
+import { ingestGraphMailSearch } from '../services/providers/microsoft/graphMailSearch.js';
+import { toAppError } from '../utils/errors.js';
 import { queryString, queryInt } from '../utils/query.js';
 import type { Request, Response, NextFunction } from 'express';
 
@@ -11,6 +14,16 @@ router.use(requireAuth);
 
 interface SearchFilter { key: string; value: string; negate: boolean }
 interface SearchTerm { value: string; negate: boolean }
+
+/** The account columns the search scope and its provider branch read. */
+interface SearchAccount extends UnifiedInboxAccount {
+  user_id: string;
+  mail_transport?: string | null;
+  provider_connection_id?: string | null;
+}
+
+/** A provider search that failed, reported next to the local results it did not block. */
+interface ProviderSearchError { accountId: string; code?: string; error: string }
 
 // Simple in-memory rate limiter: 20 searches per minute per user.
 const searchBuckets = new Map();
@@ -137,17 +150,64 @@ router.get('/', searchLimiter, async (req: Request, res: Response) => {
   if (!trimmed) return res.json({ messages: [] });
   if (trimmed.length > 500) return res.status(400).json({ error: 'Search query too long' });
 
-  const accountsResult = await query<UnifiedInboxAccount>(
-    'SELECT id, include_in_unified_inbox FROM email_accounts WHERE user_id = $1 AND enabled = true',
+  const accountsResult = await query<SearchAccount>(
+    'SELECT id, user_id, include_in_unified_inbox, mail_transport, provider_connection_id FROM email_accounts WHERE user_id = $1 AND enabled = true',
     [req.session.userId]
   );
-  const { accountIds: targetIds } = resolveAccountScope(accountsResult.rows, accountId);
+  const accounts = accountsResult.rows;
+  const { accountIds: targetIds, resolvedAccountId } = resolveAccountScope(accounts, accountId);
   if (!targetIds.length) return res.json({ messages: [] });
+
+  // Provider-side search. The local rows are only what the delta cursor has pulled, so a
+  // native Microsoft account's mailbox holds mail this search could never see. The branch
+  // is decided by the account's **transport** (`mail_transport`) and never by `source`,
+  // and an installation with the provider layer switched off makes no outbound call.
+  const nativeGraphAccounts = accounts.filter(
+    (account): account is SearchAccount & { mail_transport: 'microsoft_graph'; provider_connection_id: string } =>
+      targetIds.includes(account.id)
+      && account.mail_transport === 'microsoft_graph'
+      && typeof account.provider_connection_id === 'string'
+      && account.provider_connection_id.length > 0,
+  );
+  const providerErrors: ProviderSearchError[] = [];
+  const searchedAccounts = new Set<string>();
+
+  /**
+   * Ingest this search's provider hits for the native accounts in scope. Returns true
+   * when at least one provider search ran, so the caller knows a re-read is worthwhile.
+   * A provider failure is recorded, never thrown: it must not fail the local search.
+   */
+  const ingestProviderHits = async (): Promise<boolean> => {
+    if (!providerIntegrationsEnabled()) return false;
+    let ran = false;
+    for (const account of nativeGraphAccounts) {
+      if (searchedAccounts.has(account.id)) continue;
+      searchedAccounts.add(account.id);
+      ran = true;
+      try {
+        await ingestGraphMailSearch({
+          userId: account.user_id,
+          connectionId: account.provider_connection_id,
+          accountId: account.id,
+          query: trimmed,
+        });
+      } catch (caught) {
+        const error = toAppError(caught);
+        providerErrors.push({
+          accountId: account.id,
+          ...(error.code ? { code: error.code } : {}),
+          error: error.message,
+        });
+        console.warn(`Provider search failed for account ${account.id}: ${error.message}`);
+      }
+    }
+    return ran;
+  };
 
   const cap = Math.max(1, Math.min(limit, 200));
   const { filters, terms } = parseSearchQuery(trimmed);
 
-  const conditions = [];
+  const conditions: string[] = [];
   const params: unknown[] = [targetIds];
   let p = 2;
 
@@ -245,8 +305,7 @@ router.get('/', searchLimiter, async (req: Request, res: Response) => {
   params.push(cap);
   params.push(off);
 
-  try {
-    const result = await query(`
+  const runLocalSearch = () => query(`
       SELECT
         m.id, m.uid, m.folder, m.subject, m.from_name, m.from_email,
         m.date, m.snippet, m.is_read, m.is_starred, m.has_attachments, m.account_id,
@@ -260,7 +319,24 @@ router.get('/', searchLimiter, async (req: Request, res: Response) => {
       LIMIT $${p} OFFSET $${p + 1}
     `, params);
 
-    res.json({ messages: result.rows, query: q });
+  try {
+    // Scoped to one account: that mailbox is the authority, so ask the provider before
+    // answering and then answer from the local model as before. Over all accounts the
+    // provider is consulted only when the local rows run short of the requested page —
+    // a full local page needs no ingest, and a hit found now would be on a later page.
+    if (resolvedAccountId) {
+      await ingestProviderHits();
+    }
+    let result = await runLocalSearch();
+    if (!resolvedAccountId && result.rows.length < cap) {
+      if (await ingestProviderHits()) result = await runLocalSearch();
+    }
+
+    res.json({
+      messages: result.rows,
+      query: q,
+      ...(providerErrors.length ? { providerErrors } : {}),
+    });
   } catch (err) {
     console.error('Search error:', err);
     res.status(500).json({ error: 'Search failed' });

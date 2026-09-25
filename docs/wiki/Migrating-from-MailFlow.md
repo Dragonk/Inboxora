@@ -284,6 +284,6 @@ supported source to 3.3.0.
 
 ## See also
 
-- [Upgrading](Upgrading) — the ordinary upgrade path between Inboxora releases.
-- [Installation](Installation) — deployment requirements and environment reference.
-- [Troubleshooting](Troubleshooting) — when something does not come across.
+- [Upgrading](Upgrading.md) — the ordinary upgrade path between Inboxora releases.
+- [Installation](Installation.md) — deployment requirements and environment reference.
+- [Troubleshooting](Troubleshooting.md) — when something does not come across.

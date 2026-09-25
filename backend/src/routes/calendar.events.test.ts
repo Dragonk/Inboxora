@@ -41,7 +41,15 @@ afterAll(async () => {
 
 beforeEach(() => {
   query.mockReset();
-  query.mockResolvedValue({ rows: [] });
+  // A normal unqualified event read now obtains its default selection from the
+  // presentation model. Keep one owned calendar in the fixture so these tests
+  // exercise the event SQL rather than the valid empty-default fast path.
+  query.mockImplementation(async (sql: string) => {
+    if (sql.includes('FROM calendars c') && sql.includes('provider_identity')) {
+      return { rows: [{ id: calendarId, name: 'Work', color: '#123456', source: 'local', read_only: false, display_visible: true, collection_id: null, provider: null, provider_identity: null, account_id: null, account_email: null, import_source_id: null, import_kind: null, import_label: null, feature_enabled: true }] };
+    }
+    return { rows: [] };
+  });
 });
 
 const RANGE = 'from=2026-09-01T00:00:00.000Z&to=2026-10-01T00:00:00.000Z';
@@ -88,16 +96,36 @@ describe('GET /api/calendar/events calendar selection', () => {
     expect(queryParameters(call)[0]).toBe('user-1');
   });
 
-  it('adds a parameterised calendar filter only when a selection is supplied', async () => {
+  it('filters the default event set through the canonical presentation selection', async () => {
     await fetch(`${base}/api/calendar/events?${RANGE}`);
-    const unfiltered = eventQuery();
-    expect(unfiltered[0]).not.toContain('ANY($4::uuid[])');
+    const defaultFiltered = eventQuery();
+    expect(defaultFiltered[0]).toContain('ANY($4::uuid[])');
+    expect(queryParameters(defaultFiltered)[3]).toEqual([calendarId]);
 
     query.mockClear();
     await fetch(`${base}/api/calendar/events?${RANGE}&calendarIds=${calendarId}`);
     const filtered = eventQuery();
     expect(filtered[0]).toContain('c.id = ANY($4::uuid[])');
     expect(queryParameters(filtered)[3]).toEqual([calendarId]);
+  });
+
+  it('excludes hidden calendars from the default events but not collapsed sources', async () => {
+    let collapsed = false;
+    let hidden = true;
+    query.mockImplementation(async (sql: string) => {
+      if (sql.includes('FROM calendars c') && sql.includes('provider_identity')) return { rows: [{ id: calendarId, name: 'Work', color: '#123456', source: 'local', read_only: false, display_visible: true, collection_id: null, provider: null, provider_identity: null, account_id: null, account_email: null, import_source_id: null, import_kind: null, import_label: null, feature_enabled: true }] };
+      if (sql.includes('FROM user_calendar_source_preferences')) return { rows: collapsed ? [{ source_id: 'local', collapsed: true }] : [] };
+      if (sql.includes('FROM user_calendar_presentation_preferences')) return { rows: hidden ? [{ calendar_id: calendarId, sidebar_hidden: true }] : [] };
+      return { rows: [] };
+    });
+    await fetch(`${base}/api/calendar/events?${RANGE}`);
+    expect(query.mock.calls.some(([sql]) => sql.includes('FROM calendar_events'))).toBe(false);
+
+    query.mockClear();
+    hidden = false;
+    collapsed = true;
+    await fetch(`${base}/api/calendar/events?${RANGE}`);
+    expect(query.mock.calls.some(([sql]) => sql.includes('FROM calendar_events'))).toBe(true);
   });
 
   it('treats an explicitly empty selection as no calendars at all', async () => {
@@ -177,6 +205,7 @@ describe('GET /api/calendar/events calendar selection', () => {
 
   it('exposes the source message folder and account so the reader can be opened', async () => {
     query.mockImplementation(async (sql: string) => {
+      if (sql.includes('FROM calendars c') && sql.includes('provider_identity')) return { rows: [{ id: calendarId, name: 'Prywatny', color: '#4b75ff', source: 'local', read_only: false, display_visible: true, collection_id: null, provider: null, provider_identity: null, account_id: null, account_email: null, import_source_id: null, import_kind: null, import_label: null, feature_enabled: true }] };
       if (sql.includes('FROM calendar_events')) {
         return { rows: [{
           id: 'row-mail', calendar_id: calendarId, uid: 'mail-1', etag: 'etag-1',
@@ -207,6 +236,7 @@ describe('GET /api/calendar/events projection outcome', () => {
 
   it('reports an incomplete series without leaking internal error text', async () => {
     query.mockImplementation(async (sql: string) => {
+      if (sql.includes('FROM calendars c') && sql.includes('provider_identity')) return { rows: [{ id: calendarId, name: 'Work', color: '#123456', source: 'local', read_only: false, display_visible: true, collection_id: null, provider: null, provider_identity: null, account_id: null, account_email: null, import_source_id: null, import_kind: null, import_label: null, feature_enabled: true }] };
       if (sql.includes('FROM calendar_events')) {
         return { rows: [{
           id: 'row-dense', calendar_id: calendarId, uid: 'dense', etag: 'etag-1',

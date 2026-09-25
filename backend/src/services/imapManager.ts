@@ -1,7 +1,7 @@
 import { ImapFlow } from 'imapflow';
 import type { FolderMappings } from '../utils/mailUtils.js';
 import type { MailboxObject } from 'imapflow';
-import { query } from './db.js';
+import { query, withTransaction } from './db.js';
 import { parseMessage, snippetFromBody, detectBulkFromParsedHeaders, parseHeadersInput, headersToRawString, decodeMimeWords, enrichParsedMetadata } from './messageParser.js';
 import { classifyMessage, loadSocialDomains, getGlobalCategorizationEnabled } from './categorizer.js';
 import { pluginRegistry } from '../plugins/registry.js';
@@ -19,11 +19,15 @@ import { RELOCATE_COPY_COLS } from '../utils/relocateColumns.js';
 import { resolveForConnection, createPinnedLookup } from './hostValidation.js';
 import { getConnectionPolicy } from './connectionPolicy.js';
 import { applyInboxRules, applyBlockList } from './inboxRules.js';
-import { generateVCard } from '../utils/vcard.js';
-import { randomUUID } from 'crypto';
-import { upsertConversationCopy } from './conversationPersistence.js';
-import { recordConversationIngestFailure } from './conversationIngestFailures.js';
-import { conversationPersistedFields, resolveOwnIdentityAddresses } from './conversationIngestEnvelope.js';
+import { learnLocalRecipient } from './contactRecipientLearning.js';
+import { deleteGraphMessagePermanently } from './providers/microsoft/graphMailMove.js';
+import { graphFolderIdForPath, syncGraphMailFoldersForAccount } from './providers/microsoft/graphMailSync.js';
+import { graphCreateMailFolder } from './providers/microsoft/graphMailMutations.js';
+import { moveGraphMessageToFolder } from './providers/microsoft/graphMailMove.js';
+import { graphFlagIntent, graphFlagMutationAdapter } from './providers/microsoft/graphMailMutations.js';
+import { runProviderMutation } from './providerMutationService.js';
+import { microsoftConfigFromEnv } from './providerAuthService.js';
+import { persistConversationCopyForRow } from './conversationRowIngest.js';
 import { providerFetchQuery, providerCapabilitiesFromClient } from './providerThreadAdapter.js';
 import { parseInboundCalendarInvitation } from './inboundCalendarInvitation.js';
 import { persistInboundCalendarInvitation } from './inboundCalendarInvitationPersistence.js';
@@ -80,37 +84,6 @@ interface IngestUnreadMessage {
   parsedHeaders?: unknown;
   _bodyText?: string;
   [key: string]: unknown;
-}
-
-async function persistConversationCopyForRow(rowId: string, account: EmailAccountRow, rawMessage: RawMessageInput | null | undefined): Promise<void> {
-  try {
-    const result = await query(`
-      SELECT m.*, a.user_id
-        FROM messages m
-        JOIN email_accounts a ON a.id = m.account_id
-       WHERE m.id = $1 AND a.id = $2`, [rowId, account.id]);
-    if (result.rows.length !== 1) return;
-    // Sent/upsert and retry paths may provide only a partial raw envelope. The
-    // persisted row is authoritative for delivery/provider/Sender metadata, so
-    // merge it before deriving provider identity and own-address resolution.
-    // This keeps live ingest, Sent ingest, retry, and rebuild on the same input
-    // contract instead of silently dropping delivery_addresses or provider IDs.
-    const persistenceMessage = { ...result.rows[0], ...(rawMessage || {}) };
-    const envelope = conversationPersistedFields(persistenceMessage, account);
-    envelope.identities = await resolveOwnIdentityAddresses({ query }, account.id, persistenceMessage);
-    await query(`UPDATE messages SET conversation_raw_headers = COALESCE($1, conversation_raw_headers), conversation_thread_index = COALESCE($2, conversation_thread_index), conversation_thread_topic = COALESCE($3, conversation_thread_topic) WHERE id = $4`, [envelope.conversation_raw_headers, envelope.conversation_thread_index, envelope.conversation_thread_topic, rowId]);
-    await upsertConversationCopy({ ...result.rows[0], ...envelope }, {
-      identities: envelope.identities,
-      provider: envelope.provider,
-      // Explicit authenticated tenant context; never infer ownership from the
-      // persisted/message payload in the conversation persistence layer.
-      userId: account.user_id,
-    });
-  } catch (caught) {
-    const err = toAppError(caught);
-    console.error('Conversation persistence error:', err.message);
-    await recordConversationIngestFailure({ userId: account.user_id, accountId: account.id, messageRowId: rowId, operation: 'imap-ingest', error: err, diagnostics: { rawMessageId: rawMessage?.envelope?.messageId || rawMessage?.messageId || null } }).catch(recordErr => console.error('Conversation failure recording error:', recordErr.message));
-  }
 }
 
 // Resolves the IMAP host for an account, applying server-level connection policy.
@@ -1132,6 +1105,15 @@ export type EmailAccountRow = {
   enabled?: boolean;
   signature?: string | null;
   smtp_host?: string | null;
+  /**
+   * The account's authoritative mail transport (migration 0101). Absent or NULL on
+   * a pre-v4 row, which means IMAP/SMTP — the only thing it could have been.
+   */
+  mail_transport?: string | null;
+  /** The provider connection a native account is bound to, if any. */
+  provider_connection_id?: string | null;
+  /** The provider's own mailbox id, when the transport is native. */
+  provider_mailbox_id?: string | null;
   id: string;
   email_address?: string;
   imap_host?: string;
@@ -1144,6 +1126,19 @@ export type EmailAccountRow = {
   oauth_access_token?: string | null;
   oauth_token_expiry?: string | Date | null;
 };
+
+/**
+ * The IMAP loops, health checks and startup connects must never see an account whose
+ * transport is native.
+ *
+ * The queries below were written against the legacy `protocol` column, and the
+ * in-place Microsoft cutover also writes `protocol = 'microsoft_graph'` so they skip
+ * a native account. This guard states the same rule against the **authoritative**
+ * `mail_transport` column as well, so a native account stays invisible to IMAP even if
+ * something later resets `protocol` (the reconnect route, a data repair, an operator).
+ * A pre-v4 row has `mail_transport IS NULL` and is IMAP, which is why NULL is allowed.
+ */
+const IMAP_TRANSPORT_GUARD = "(mail_transport IS NULL OR mail_transport = 'imap_smtp')";
 
 export interface ImapClientCfg {
   host: string;
@@ -1624,7 +1619,7 @@ export class ImapManager {
     this._healthCheckTimer = setInterval(async () => {
       try {
         const result = await query<{ id: string; email_address?: string }>(
-          "SELECT id, email_address FROM email_accounts WHERE enabled = true AND protocol = 'imap'"
+          `SELECT id, email_address FROM email_accounts WHERE enabled = true AND protocol = 'imap' AND ${IMAP_TRANSPORT_GUARD}`
         );
         for (const row of result.rows) {
           // A poll-only account (per-host budget) holds no persistent connection by design; while
@@ -2318,7 +2313,7 @@ export class ImapManager {
     const host = (account.imap_host || '').toLowerCase();
     if (!host) return true;
     const rows = await query<{ id: string }>(
-      "SELECT id FROM email_accounts WHERE enabled = true AND protocol = 'imap' AND lower(imap_host) = $1 ORDER BY created_at ASC NULLS FIRST, id ASC",
+      `SELECT id FROM email_accounts WHERE enabled = true AND protocol = 'imap' AND lower(imap_host) = $1 AND ${IMAP_TRANSPORT_GUARD} ORDER BY created_at ASC NULLS FIRST, id ASC`,
       [host]
     );
     return persistentEligible(rows.rows.map(r => r.id), account.id, cap);
@@ -2408,7 +2403,7 @@ export class ImapManager {
   async disconnectUser(userId: string) {
     try {
       const result = await query<{ id: string }>(
-        "SELECT id FROM email_accounts WHERE user_id = $1 AND protocol = 'imap'",
+        `SELECT id FROM email_accounts WHERE user_id = $1 AND protocol = 'imap' AND ${IMAP_TRANSPORT_GUARD}`,
         [userId]
       );
       await Promise.all(result.rows.map(a => this.disconnectAccount(a.id)));
@@ -2960,6 +2955,11 @@ export class ImapManager {
   // UIDNEXT, message count, and unseen count all match the cache is skipped, so reopening an
   // already-current folder does not open an IMAP connection. Returns true when a sync ran.
   async syncFolderOnDemand(account: EmailAccountRow, folder: string): Promise<boolean> {
+    // Defence in depth: the routes dispatch native accounts to their provider first, and this refuses
+    // rather than opening an IMAP session for one — the fallback a cutover exists to prevent.
+    if (account.mail_transport === 'microsoft_graph' || account.mail_transport === 'gmail_api') {
+      throw new Error(`This account reads mail through ${account.mail_transport}; its provider sync refreshes folders`);
+    }
     const key = `${account.id}:${folder}`;
     const existing = this.folderSyncInflights.get(key);
     if (existing) return existing.then(() => true);
@@ -3041,7 +3041,7 @@ export class ImapManager {
   async updateSyncIntervalForUser(userId: string, newMs: number) {
     this.userSyncIntervalMs.set(userId, newMs);
     const result = await query<EmailAccountRow>(
-      "SELECT * FROM email_accounts WHERE user_id = $1 AND enabled = true AND protocol = 'imap'",
+      `SELECT * FROM email_accounts WHERE user_id = $1 AND enabled = true AND protocol = 'imap' AND ${IMAP_TRANSPORT_GUARD}`,
       [userId]
     );
     for (const acc of result.rows) {
@@ -4145,7 +4145,7 @@ export class ImapManager {
   // downgraded by this path.
   async upsertAutoContacts(userId: string, messages: RawMessageInput[]) {
     try {
-      const abResult = await query(
+      const abResult = await query<{ id: string }>(
         `INSERT INTO address_books (user_id, name) VALUES ($1, 'Personal')
          ON CONFLICT (user_id, name) DO UPDATE SET updated_at = NOW()
          RETURNING id`,
@@ -4156,23 +4156,19 @@ export class ImapManager {
       const upsertResults = await Promise.allSettled(
         messages
           .filter((msg): msg is RawMessageInput & { fromEmail: string } => !!msg.fromEmail)
-          .map(msg => {
+          .map(async msg => {
             const primaryEmail = msg.fromEmail.toLowerCase();
-            const displayName  = (msg.fromName || '').trim() || primaryEmail;
-            const uid          = randomUUID();
-            const emails       = JSON.stringify([{ value: primaryEmail, type: 'other', primary: true }]);
-            const vcard        = generateVCard({ uid, displayName, emails: [{ value: primaryEmail, type: 'other', primary: true }] });
-            return query(`
-              INSERT INTO contacts (
-                address_book_id, user_id, uid, vcard, etag,
-                display_name, primary_email, emails, is_auto
-              )
-              VALUES ($1, $2, $3, $4, md5($4), $5, $6, $7::jsonb, true)
-              ON CONFLICT (address_book_id, primary_email) WHERE primary_email IS NOT NULL DO NOTHING
-            `, [addressBookId, userId, uid, vcard, displayName, primaryEmail, emails]);
-          })
+            const displayName = (msg.fromName || '').trim() || primaryEmail;
+            return withTransaction(client => learnLocalRecipient(client, {
+              userId,
+              addressBookId,
+              email: primaryEmail,
+              displayName,
+              source: 'inbound',
+            }));
+          }),
       );
-      const inserted = upsertResults.filter(r => r.status === 'fulfilled' && (r.value?.rowCount ?? 0) > 0).length;
+      const inserted = upsertResults.filter(result => result.status === 'fulfilled' && result.value?.created).length;
 
       // Bump sync_token only when new contacts were actually added so CardDAV
       // clients that use getctag/sync-token pick up newly discovered senders.
@@ -4827,6 +4823,12 @@ export class ImapManager {
     const accountResult = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
     if (!accountResult.rows.length) return;
     const account = accountResult.rows[0];
+    // A native account has no IMAP session to prefetch over: its bodies are read on
+    // demand, by the transport-aware body route. The guard lives here rather than at
+    // the call site so every caller is covered — the message-list route fires this
+    // fire-and-forget on each listing, and on a Graph account it could only open a
+    // connection that fails.
+    if (account.mail_transport && account.mail_transport !== 'imap_smtp') return;
     if (!providerProfile(account).snippetIndex) return;
 
     const uncachedResult = await query<{ id: string; uid: number; folder: string }>(
@@ -5229,6 +5231,22 @@ export class ImapManager {
   // folders" action reports both so the settings UI can show the real path and whether it
   // pre-existed. Namespace/delimiter/already-exists handling lives in ensureMailbox.
   async ensureFolder(account: EmailAccountRow, path: string, opts = {}) {
+    // A native account has no IMAP session, so the folder is ensured at the provider
+    // and then discovered — the discovery run is what produces the local `folders` row
+    // and its `mail_folder` collection, which is why this does not write them itself.
+    // The branch lives here rather than at each caller because the callers are the
+    // labels capability, the folder routes and GTD, and every one of them would
+    // otherwise need its own copy of the rule.
+    if (account.mail_transport && account.mail_transport !== 'imap_smtp') {
+      if (!account.provider_connection_id) throw new Error(`ensureFolder: account ${account.id} has no Microsoft connection`);
+      const connectionId = account.provider_connection_id;
+      const resolve = () => graphFolderIdForPath({ connectionId, accountId: account.id, path });
+      if (await resolve()) return { path, created: false };
+      await graphCreateMailFolder({ userId: account.user_id, connectionId, config: microsoftConfigFromEnv() }, path);
+      await syncGraphMailFoldersForAccount({ userId: account.user_id, connectionId, accountId: account.id, config: microsoftConfigFromEnv() });
+      if (!(await resolve())) throw new Error(`ensureFolder: Microsoft Graph did not create or discover "${path}"`);
+      return { path, created: true };
+    }
     return withFreshClient(account, (client) => ensureMailbox(client, path, opts));
   }
 
@@ -5364,8 +5382,11 @@ export class ImapManager {
     });
   }
 
-  async moveMessage(account: EmailAccountRow, uid: number | string, fromFolder: string, toFolder: string) {
-    let newUid = null;
+  async moveMessage(account: EmailAccountRow, uid: number | string, fromFolder: string, toFolder: string): Promise<number | null> {
+    // Annotated rather than inferred from `null`: the UIDPLUS answer arrives as
+    // `any`, so the inferred type was `null`, which made the caller's
+    // `if (newUid != null)` branch look unreachable to the compiler.
+    let newUid: number | null = null;
     try {
       await withFreshClient(account, async (client) => {
         const lock = await client.getMailboxLock(fromFolder);
@@ -5462,6 +5483,36 @@ export class ImapManager {
     const accountResult = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
     const account = accountResult.rows[0];
     if (!account) throw new Error(`removeMessageCopy: account ${accountId} not found`);
+
+    // A label copy on a native account is removed at the provider, the same way the
+    // copy itself was made: `permanentDeleteMessage` below is an IMAP call, and the
+    // GTD transition path reaches this method, so without this branch a native
+    // account would build label copies and then fail to remove them.
+    if (account.mail_transport && account.mail_transport !== 'imap_smtp') {
+      const row = await query<{ id: string; provider_message_id: string | null }>(
+        'SELECT id, provider_message_id FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3',
+        [accountId, uid, folder],
+      );
+      const copy = row.rows[0];
+      if (copy?.provider_message_id && account.provider_connection_id) {
+        const removed = await deleteGraphMessagePermanently({
+          userId: account.user_id,
+          accountId,
+          connectionId: account.provider_connection_id,
+          config: microsoftConfigFromEnv(),
+          resourceId: copy.id,
+          providerMessageId: copy.provider_message_id,
+        });
+        if (!removed.deleted) {
+          // Not confirmed: the local row stays, so the next delta reconciles rather
+          // than Inboxora forgetting a copy the mailbox still holds.
+          throw new Error(`removeMessageCopy: Microsoft Graph did not confirm the removal (${removed.code ?? 'unknown'})`);
+        }
+      }
+      const removedRow = await deleteMessageCopyRow(accountId, uid, folder);
+      await pluginRegistry.runHook('afterLabelRemove', { mgr: this.pluginFacade, account, folder, uid });
+      return removedRow;
+    }
 
     await this.permanentDeleteMessage(account, uid, folder);
     const result = await deleteMessageCopyRow(accountId, uid, folder);
@@ -5675,7 +5726,7 @@ export class ImapManager {
 
   async syncNow(userId: string, accountId = null) {
     const result = await query<EmailAccountRow>(
-      'SELECT * FROM email_accounts WHERE user_id = $1 AND enabled = true AND protocol = $2',
+      `SELECT * FROM email_accounts WHERE user_id = $1 AND enabled = true AND protocol = $2 AND ${IMAP_TRANSPORT_GUARD}`,
       [userId, 'imap']
     );
     const accounts = accountId
@@ -5739,7 +5790,7 @@ export class ImapManager {
   // runs syncFolders as part of connectAccount's startup sequence.
   async syncFoldersNow(userId: string, accountId = null) {
     const result = await query<EmailAccountRow>(
-      'SELECT * FROM email_accounts WHERE user_id = $1 AND enabled = true AND protocol = $2',
+      `SELECT * FROM email_accounts WHERE user_id = $1 AND enabled = true AND protocol = $2 AND ${IMAP_TRANSPORT_GUARD}`,
       [userId, 'imap']
     );
     const accounts = accountId
@@ -5777,11 +5828,61 @@ export class ImapManager {
     }, 60_000);
   }
 
+  /**
+   * Wake one snoozed Microsoft Graph message: move it back and mark it unread.
+   *
+   * The move goes through the same helper the snooze itself uses, so the "adopt the
+   * identity a Graph move returns" rule is not implemented twice. Marking it unread
+   * is a flag mutation on the *new* id, because the old one no longer exists after
+   * the move.
+   *
+   * Returns false when the provider did not confirm, which the caller turns into a
+   * thrown error so the snooze record survives and the row is retried next cycle
+   * rather than being dropped.
+   */
+  private async wakeSnoozedGraphMessage(
+    account: EmailAccountRow,
+    row: { user_id: string; account_id: string; message_id: string; provider_message_id: string | null; original_folder: string },
+  ): Promise<boolean> {
+    if (!account.provider_connection_id || !row.provider_message_id) return false;
+    const config = microsoftConfigFromEnv();
+    const moved = await moveGraphMessageToFolder({
+      userId: row.user_id,
+      accountId: row.account_id,
+      connectionId: account.provider_connection_id,
+      config,
+      resourceId: row.message_id,
+      providerMessageId: row.provider_message_id,
+      destinationPath: row.original_folder,
+    });
+    if (!moved.moved) {
+      console.warn(`Snooze wakeup: Microsoft Graph did not move message ${row.message_id} back to ${row.original_folder}`);
+      return false;
+    }
+    const payload = { providerMessageId: moved.newProviderMessageId, flag: '\\Seen', value: false, intentAt: new Date().toISOString() };
+    await runProviderMutation(
+      {
+        userId: row.user_id,
+        channel: 'worker',
+        operation: 'update',
+        accountId: row.account_id,
+        resourceId: row.message_id,
+        ...graphFlagIntent({ messageId: row.message_id, write: payload }),
+        payload,
+        retry: { delaySeconds: 300 },
+      },
+      graphFlagMutationAdapter({ api: { userId: row.user_id, connectionId: account.provider_connection_id, config } }),
+    ).catch(error => console.warn('Snooze wakeup: could not mark the message unread on Microsoft Graph:', error instanceof Error ? error.message : error));
+    await query('UPDATE messages SET is_read = false, read_changed_at = NOW() WHERE id = $1', [row.message_id]);
+    return true;
+  }
+
   async _runSnoozeWakeup() {
     // Find snoozed messages whose snooze_until has passed and which are still in
     // the snoozed folder (joined via stable Message-ID header).
-    const due = await query<{ snooze_id: string; user_id: string; account_id: string; message_id_header: string; original_folder: string; snoozed_folder: string; uid: number | string; is_read: boolean | null }>(`
+    const due = await query<{ snooze_id: string; user_id: string; account_id: string; message_id: string; provider_message_id: string | null; message_id_header: string; original_folder: string; snoozed_folder: string; uid: number | string; is_read: boolean | null }>(`
       SELECT sm.id AS snooze_id, sm.user_id, sm.account_id,
+             m.id AS message_id, m.provider_message_id,
              sm.message_id_header, sm.original_folder, sm.snoozed_folder, m.uid, m.is_read
       FROM snoozed_messages sm
       JOIN messages m ON m.account_id = sm.account_id
@@ -5800,6 +5901,20 @@ export class ImapManager {
         // Guard source UID before the IMAP move so reconcileDeletes cannot delete
         // the DB row if an EXPUNGE arrives from the Snoozed folder while the move
         // is in flight.
+        // A native account wakes through its provider, which re-homes the row itself
+        // (Graph re-identifies the message on every move), so the IMAP branch below —
+        // with its UIDPLUS and non-UIDPLUS cases — is skipped entirely. The snooze
+        // record, the counts and the broadcast after this block are shared.
+        if (account.mail_transport === 'microsoft_graph') {
+          const woken = await this.wakeSnoozedGraphMessage(account, row);
+          if (!woken) throw new Error('Microsoft Graph did not confirm the snooze wakeup');
+          await query('DELETE FROM snoozed_messages WHERE id = $1', [row.snooze_id]);
+          adjustFolderCounts(row.account_id, row.snoozed_folder, -1, row.is_read ? 0 : -1);
+          adjustFolderCounts(row.account_id, row.original_folder, 1, 1);
+          this.broadcast({ type: 'snooze_wakeup', accountId: row.account_id }, row.user_id);
+          continue;
+        }
+
         this._guardMoveUid(row.account_id, row.snoozed_folder, row.uid);
         let newUid;
         try {
@@ -6297,7 +6412,7 @@ export class ImapManager {
     }
 
     const result = await query<EmailAccountRow>(
-      'SELECT * FROM email_accounts WHERE user_id = $1 AND enabled = true AND protocol = $2',
+      `SELECT * FROM email_accounts WHERE user_id = $1 AND enabled = true AND protocol = $2 AND ${IMAP_TRANSPORT_GUARD}`,
       [userId, 'imap']
     );
     // Space out initial connects to stay under per-IP connection rate limits — wider for strict

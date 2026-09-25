@@ -41,7 +41,7 @@ function lastQueryCall(): [string, unknown[]] {
 vi.mock('./db.js', () => ({ query }));
 vi.mock('./safeFetch.js', () => ({ safeFetch }));
 vi.mock('./connectionPolicy.js', () => ({ getConnectionPolicy }));
-vi.mock('./encryption.js', () => ({ decrypt: (value: string) => value.startsWith('enc:v1:') ? value.slice('enc:v1:'.length) : value }));
+vi.mock('./encryption.js', () => ({ decrypt: (value: string) => value.startsWith('enc:v1:') ? value.slice('enc:v1:'.length) : value, encrypt: (value: string) => `enc:v1:${value}` }));
 
 import { stopCalendarSource, syncCalendarSource } from './externalCalendarSync.js';
 
@@ -76,6 +76,33 @@ describe('external calendar imports', () => {
     const staleDelete = queryCallContaining('DELETE FROM calendar_events');
     expect(eventInsert[1]).toContain('event-1');
     expect(staleDelete[1]).toEqual(['calendar-1', ['event-1']]);
+  });
+
+  it('links the external collection to its source connection so write-back has something to enable', async () => {
+    // P02/P10: without this link the per-collection write-back switch has no collection id and the client
+    // is never offered it, which made the external DAV write-back unreachable for real collections.
+    query.mockImplementation(async (sql: unknown) => {
+      const text = String(sql);
+      if (text.includes('FROM calendar_import_sources')) return { rows: [source] };
+      if (text.includes('FROM calendars')) return { rows: [{ id: 'calendar-1' }] };
+      if (text.includes('INSERT INTO source_connections')) return { rows: [{ id: 'source-conn-1' }] };
+      if (text.includes('INSERT INTO integration_collections')) return { rows: [{ id: 'collection-1' }] };
+      return { rows: [] };
+    });
+    safeFetch.mockResolvedValue(successfulResponse(ical));
+
+    const result = await syncCalendarSource('user-1', 'source-1');
+    expect(result.ok).toBe(true);
+    const link = query.mock.calls.find(call => String(call[0]).includes('INSERT INTO integration_collections'));
+    expect(link).toBeDefined();
+    // The link names the local calendar, the source's own remote id, and the source's own permission: an
+    // ICS subscription is read-only at the source, so the switch can be offered but a write stays refused.
+    expect(link?.[1]).toEqual([
+      'user-1', 'source-conn-1', 'calendar', 'source:source-1', 'calendar-1', null, 'read_only',
+    ]);
+    // The CalDAV/CardDAV kind maps to `read_write` at the source; that mapping and the link's shape for a
+    // writable source are pinned in `providers/externalCollectionLinks.test.ts`, which drives the helper
+    // directly rather than a second DAV multistatus fixture here.
   });
 
   it('synchronizes Exchange timezone events without replacing calendar appearance', async () => {

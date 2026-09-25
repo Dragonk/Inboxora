@@ -10,7 +10,7 @@ import { encrypt } from '../services/encryption.js';
 import { validateHost } from '../services/hostValidation.js';
 import { getConnectionPolicy } from '../services/connectionPolicy.js';
 import { discoverAddressBooks } from '../services/carddavClient.js';
-import { syncUser, scheduleCardavUser, stopCardavUser, getCardavConfig } from '../services/carddavSync.js';
+import { syncUser, scheduleCardavUser, stopCardavUser, getCardavConfig, listCardavConfigs } from '../services/carddavSync.js';
 import { sessionUserId } from '../utils/query.js';
 import { toAppError } from '../utils/errors.js';
 import type { Request, Response } from 'express';
@@ -65,10 +65,11 @@ function clampInterval(value: unknown): number {
 }
 
 // Public view of the connection — never leaks the stored password.
-function publicStatus(config: CarddavConfig | null) {
-  if (config === null || !config.serverUrl) return { connected: false };
+function publicStatus(config: CarddavConfig | null, source?: { id: string; label: string | null }) {
+  if (config === null || !config.serverUrl) return { connected: false, ...(source ? { id: source.id, label: source.label } : {}) };
   return {
     connected: true,
+    ...(source ? { id: source.id, label: source.label } : {}),
     serverUrl: config.serverUrl,
     username: config.username,
     dupMode: config.dupMode || 'separate',
@@ -81,13 +82,20 @@ function publicStatus(config: CarddavConfig | null) {
 }
 
 router.get('/', async (req: Request, res: Response) => {
-  res.json(publicStatus(await getCardavConfig(sessionUserId(req))));
+  const sources = await listCardavConfigs(sessionUserId(req));
+  const primary = sources[0] ?? null;
+  res.json({
+    ...publicStatus(primary?.config ?? null, primary ? { id: primary.id, label: primary.label } : undefined),
+    // Source-aware clients use this list; legacy clients continue reading the top-level status fields above.
+    sources: sources.map(source => publicStatus(source.config, { id: source.id, label: source.label })),
+  });
 });
 
 router.post('/connect', async (req: Request, res: Response) => {
   const body = requestBody(req);
   if (body === null) return res.status(400).json({ error: 'Server URL, username, and password are required' });
-  const { serverUrl, username, password, dupMode, intervalMin } = body;
+  const { serverUrl, username, password, dupMode, intervalMin, label: requestedLabel } = body;
+  const label = typeof requestedLabel === 'string' && requestedLabel.trim() ? requestedLabel.trim() : null;
   if (typeof serverUrl !== 'string' || !serverUrl || typeof username !== 'string' || !username || typeof password !== 'string' || !password) {
     return res.status(400).json({ error: 'Server URL, username, and password are required' });
   }
@@ -132,61 +140,102 @@ router.post('/connect', async (req: Request, res: Response) => {
     intervalMin: clampInterval(intervalMin),
     lastError: null,
   };
-  await query(
-    `INSERT INTO user_integrations (user_id, provider, config)
-     VALUES ($1, 'carddav', $2::jsonb)
-     ON CONFLICT (user_id, provider) DO UPDATE SET config = $2::jsonb, updated_at = NOW()`,
-    [sessionUserId(req), JSON.stringify(config)],
+  const stored = await query<{ id: string }>(
+    label
+      ? `INSERT INTO user_integrations (user_id, provider, config, label)
+         VALUES ($1, 'carddav', $2::jsonb, $3)
+         ON CONFLICT (user_id, provider, label) WHERE label IS NOT NULL
+         DO UPDATE SET config = EXCLUDED.config, updated_at = NOW()
+         RETURNING id`
+      : `INSERT INTO user_integrations (user_id, provider, config, label)
+         VALUES ($1, 'carddav', $2::jsonb, NULL)
+         ON CONFLICT (user_id, provider) WHERE label IS NULL
+         DO UPDATE SET config = EXCLUDED.config, updated_at = NOW()
+         RETURNING id`,
+    label ? [sessionUserId(req), JSON.stringify(config), label] : [sessionUserId(req), JSON.stringify(config)],
   );
 
   const userId = sessionUserId(req);
-  scheduleCardavUser(userId, config.intervalMin);
+  const sourceId = stored.rows[0]?.id ?? null;
+  scheduleCardavUser(userId, config.intervalMin, sourceId);
   // Kick off the first sync in the background; the client polls GET / for status.
-  syncUser(userId).catch(() => {});
-  res.json(publicStatus(config));
+  syncUser(userId, sourceId).catch(() => {});
+  res.json(publicStatus(config, sourceId ? { id: sourceId, label } : undefined));
 });
 
 // Update duplicate handling / interval (and optionally rotate the password).
 router.patch('/', async (req: Request, res: Response) => {
-  const existing = await getCardavConfig(sessionUserId(req));
-  if (existing === null || !existing.serverUrl) return res.status(409).json({ error: 'CardDAV not connected' });
-
   const body = requestBody(req);
   if (body === null) return res.status(400).json({ error: 'Invalid request body' });
+  const userId = sessionUserId(req);
+  const requestedId = typeof body.sourceId === 'string' ? body.sourceId : null;
+  const sources = await listCardavConfigs(userId);
+  const source = requestedId ? sources.find(row => row.id === requestedId) : sources.find(row => row.label === null);
+  if (!source) return res.status(404).json({ code: 'SOURCE_NOT_AVAILABLE', error: 'CardDAV source not found' });
+  const existing = await getCardavConfig(userId, source.id);
+  if (!existing?.serverUrl) return res.status(409).json({ error: 'CardDAV source not connected' });
+  const hasLabel = Object.prototype.hasOwnProperty.call(body, 'label');
+  const label = typeof body.label === 'string' ? body.label.trim() : null;
+  if (hasLabel && (!label || label.length > 120)) return res.status(400).json({ code: 'INVALID_SOURCE_NAME', error: 'Invalid source name' });
   const patch: CarddavConfigPatch = {};
   const selectedDupMode = duplicateMode(body.dupMode);
   if (selectedDupMode !== null) patch.dupMode = selectedDupMode;
-  if (body.intervalMin !== null && body.intervalMin !== undefined) patch.intervalMin = clampInterval(body.intervalMin);
+  if (body.intervalMin !== null && body.intervalMin !== undefined) {
+    const minutes = Number(body.intervalMin);
+    if (!Number.isInteger(minutes) || minutes < 15 || minutes > 1440) return res.status(400).json({ error: 'Invalid sync interval' });
+    patch.intervalMin = minutes;
+  }
+  if (body.password !== undefined && (typeof body.password !== 'string' || body.password.length > 4096)) return res.status(400).json({ error: 'Invalid password' });
   if (typeof body.password === 'string' && body.password) patch.password = encrypt(body.password);
-
-  await query(
-    `UPDATE user_integrations SET config = config || $2::jsonb, updated_at = NOW()
-     WHERE user_id = $1 AND provider = 'carddav'`,
-    [sessionUserId(req), JSON.stringify(patch)],
-  );
-  if (patch.intervalMin) scheduleCardavUser(sessionUserId(req), patch.intervalMin);
-  res.json(publicStatus({ ...existing, ...patch }));
+  try {
+    await query(`UPDATE user_integrations SET config = config || $2::jsonb,
+      label = CASE WHEN $4::boolean THEN $5::text ELSE label END, updated_at = NOW()
+      WHERE id = $1 AND user_id = $3 AND provider = 'carddav'`, [source.id, JSON.stringify(patch), userId, hasLabel, label]);
+  } catch (caught) {
+    if (toAppError(caught).code === '23505') return res.status(409).json({ code: 'SOURCE_NAME_EXISTS', error: 'Source name already exists' });
+    throw caught;
+  }
+  if (patch.intervalMin) scheduleCardavUser(userId, patch.intervalMin, source.id);
+  res.json(publicStatus({ ...existing, ...patch }, { id: source.id, label: hasLabel ? label : source.label }));
 });
 
 router.post('/sync', async (req: Request, res: Response) => {
   const userId = sessionUserId(req);
-  const config = await getCardavConfig(userId);
-  if (config === null || !config.serverUrl) return res.status(409).json({ error: 'CardDAV not connected' });
-  const result = await syncUser(userId);
-  res.json({ ...result, status: publicStatus(await getCardavConfig(userId)) });
+  const requestedSource = requestBody(req);
+  const sourceId = typeof requestedSource?.sourceId === 'string' ? requestedSource.sourceId : null;
+  const config = await getCardavConfig(userId, sourceId);
+  if (config === null || !config.serverUrl) return res.status(409).json({ error: 'CardDAV source not connected' });
+  const result = await syncUser(userId, sourceId);
+  const sources = await listCardavConfigs(userId);
+  const selected = sourceId ? sources.find(source => source.id === sourceId) : sources[0];
+  res.json({ ...result, status: publicStatus(selected?.config ?? null, selected ? { id: selected.id, label: selected.label } : undefined), sources: sources.map(source => publicStatus(source.config, { id: source.id, label: source.label })) });
 });
 
 router.delete('/', async (req: Request, res: Response) => {
   const userId = sessionUserId(req);
-  stopCardavUser(userId);
-  // Remove the synced (read-only) address books; contacts cascade with them.
+  const body = requestBody(req);
+  const sourceId = typeof body?.sourceId === 'string' ? body.sourceId : null;
+  const source = await getCardavConfig(userId, sourceId);
+  if (!source) return res.status(404).json({ error: 'CardDAV source not connected' });
+  const sourceRows = await listCardavConfigs(userId);
+  const selectedSourceId = sourceId ?? sourceRows.find(row => row.label === null)?.id ?? null;
+  stopCardavUser(selectedSourceId ?? `legacy:${userId}`);
+  // Remove only books linked to the selected source; contacts cascade with them.
   await query(
-    "DELETE FROM address_books WHERE user_id = $1 AND source = 'carddav'",
-    [userId],
+    `DELETE FROM address_books ab
+      WHERE ab.user_id = $1 AND ab.source = 'carddav'
+        AND EXISTS (
+          SELECT 1 FROM integration_collections ic
+          JOIN source_connections sc ON sc.id = ic.source_connection_id
+          WHERE ic.local_address_book_id = ab.id AND sc.integration_id = $2
+        )`,
+    [userId, selectedSourceId],
   );
   await query(
-    "DELETE FROM user_integrations WHERE user_id = $1 AND provider = 'carddav'",
-    [userId],
+    selectedSourceId
+      ? "DELETE FROM user_integrations WHERE id = $1 AND user_id = $2 AND provider = 'carddav'"
+      : "DELETE FROM user_integrations WHERE user_id = $1 AND provider = 'carddav' AND label IS NULL",
+    selectedSourceId ? [selectedSourceId, userId] : [userId],
   );
   res.json({ ok: true });
 });

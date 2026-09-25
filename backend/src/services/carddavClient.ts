@@ -9,7 +9,7 @@ import { requireCompleteMultistatus } from '../utils/davXml.js';
 
 import { XMLParser } from 'fast-xml-parser';
 import { validateHost } from './hostValidation.js';
-import { safeFetch } from './safeFetch.js';
+import { davAuthenticatedFetch } from './davHttpAuth.js';
 import { toAppError } from '../utils/errors.js';
 
 interface DavRequestOptions {
@@ -34,10 +34,6 @@ interface DavCredentials { username: string; password: string; allowPrivate?: bo
 
 const toArray = <T>(x: T | T[] | null | undefined): T[] => (Array.isArray(x) ? x : x == null ? [] : [x]);
 
-function basicAuth(username: string, password: string): string {
-  return 'Basic ' + Buffer.from(`${username}:${password}`).toString('base64');
-}
-
 async function assertHostAllowed(url: string, allowPrivate: boolean): Promise<void> {
   let hostname;
   try { hostname = new URL(url).hostname; }
@@ -51,7 +47,6 @@ async function dav(method: string, url: string, { username, password, depth, bod
   // set, book URLs) are attacker-influenced and could point at internal hosts.
   await assertHostAllowed(url, allowPrivate);
   const headers: Record<string, string> = {
-    Authorization: basicAuth(username, password),
     'Content-Type': 'application/xml; charset=utf-8',
   };
   if (depth != null) headers.Depth = String(depth);
@@ -59,7 +54,12 @@ async function dav(method: string, url: string, { username, password, depth, bod
   try {
     // safeFetch validates every redirect hop's IP (well-known discovery relies on
     // the server's 301 redirect), honouring the admin private-host policy.
-    res = await safeFetch(url, { method, headers, body, redirect: 'follow', signal: AbortSignal.timeout(30000) }, { allowPrivate });
+    res = await davAuthenticatedFetch(
+      url,
+      { method, headers, body: body as RequestInit['body'], redirect: 'follow', signal: AbortSignal.timeout(30000) },
+      { username, password },
+      { allowPrivate },
+    );
   } catch (caught) {
     const err = toAppError(caught);
     if (err.name === 'TimeoutError') throw new Error('CardDAV server did not respond (timed out)', { cause: caught });
@@ -210,6 +210,68 @@ export function parseAddressBooks(xmlText: unknown, baseUrl: string): Array<{ ur
 
 // Fetch every vCard in an address book via a filter-less addressbook-query REPORT.
 // Returns [{ href, etag, vcard }].
+/**
+ * Whether a PROPFIND's `current-user-privilege-set` grants a write (DAV-02).
+ *
+ * The audit's DAV-02: the source's permission was **asserted** as `read_write` for every collection, so the
+ * interface offered writes the server then refused. The server's own answer to this property is the fact that was
+ * missing, and these are the privileges that mean "writing is accepted here" — `write` itself, writing the content
+ * (`write-content`), changing properties (`write-properties`), and the collection-level bind/unbind. A set that
+ * names only read privileges is `read_only`; **null** means the server did not tell us (the property was absent or
+ * unreadable), which is deliberately not collapsed into either answer: guessing `read_only` there would refuse
+ * writes that work.
+ *
+ * Pure and exported: the interpretation of a server's document is exactly what should be tested without a server.
+ */
+export function davWriteAccessFromPrivilegeSet(xmlText: unknown): 'read_write' | 'read_only' | null {
+  let xml: { multistatus?: { response?: unknown } };
+  try {
+    xml = parser.parse(String(xmlText ?? '')) as { multistatus?: { response?: unknown } };
+  } catch {
+    // A document that cannot be parsed is a server that did not answer the question — the same as one that omits
+    // the property, and deliberately not an error: discovery must be able to fail without failing the pull.
+    return null;
+  }
+  const response = toArray(xml?.multistatus?.response)[0];
+  if (!response) return null;
+  const value: unknown = propsOf(response)['current-user-privilege-set'];
+  if (value == null) return null;
+  const privileges = toArray((value as { privilege?: unknown })?.privilege)
+    .map(entry => {
+      if (typeof entry === 'string') return entry.trim();
+      if (entry && typeof entry === 'object') {
+        const names = Object.keys(entry as Record<string, unknown>);
+        return names.length > 0 ? names[0] : '';
+      }
+      return '';
+    })
+    .filter(Boolean);
+  if (privileges.length === 0) return null;
+  const writes = new Set(['write', 'write-content', 'write-properties', 'bind', 'unbind']);
+  return privileges.some(privilege => writes.has(privilege)) ? 'read_write' : 'read_only';
+}
+
+/** Ask one collection what this user may do with it. A server that will not say leaves the caller's value alone. */
+export async function discoverDavWriteAccess(input: {
+  url: string;
+  username: string;
+  password: string;
+  allowPrivate?: boolean;
+}): Promise<'read_write' | 'read_only' | null> {
+  const body = `<?xml version="1.0" encoding="utf-8"?>
+<propfind xmlns="DAV:"><prop><current-user-privilege-set/></prop></propfind>`;
+  try {
+    const xmlText = await dav('PROPFIND', input.url, {
+      username: input.username, password: input.password, depth: 0, body, allowPrivate: input.allowPrivate ?? false,
+    });
+    return davWriteAccessFromPrivilegeSet(xmlText);
+  } catch (caught) {
+    // A collection that cannot be asked is not evidence of anything: the caller keeps what it has.
+    console.warn('Could not read a DAV collection\'s privileges:', toAppError(caught).message);
+    return null;
+  }
+}
+
 export async function fetchAddressBookCards({ url, username, password, allowPrivate = false }: { url: string; username: string; password: string; allowPrivate?: boolean }): Promise<Array<{ href: string; etag: string | null; vcard: string }>> {
   await assertHostAllowed(url, allowPrivate);
   const body = `<?xml version="1.0" encoding="utf-8"?>

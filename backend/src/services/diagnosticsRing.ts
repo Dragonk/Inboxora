@@ -29,8 +29,27 @@ interface SyncSignal {
 
 type SyncSignalInput = Readonly<Record<string, string | number | null | undefined>>;
 
+/** Redacted reply-path observation: no subject, recipient, row/provider identifier or content. */
+export interface ReplyDiagnosticEvent {
+  event: 'mail_reply_resolution' | 'mail_reply_ingested';
+  accountId: string | null;
+  transport: 'smtp' | 'gmail_api' | 'microsoft_graph';
+  sendKind: 'reply' | 'reply_all';
+  replyParentPresent: boolean;
+  parentRfcMessageIdPresent: boolean;
+  referencesCount: number;
+  providerParentResolved: boolean;
+  providerResolution: 'direct' | 'legacy_alias' | 'not_applicable' | 'unresolved';
+  transportReplyMode: 'rfc_headers' | 'graph_create_reply' | 'graph_create_reply_all' | 'gmail_thread_id';
+  legacyThreadMatched?: boolean;
+  conversationMatched?: boolean;
+  providerThreadMatched?: boolean;
+  t: number;
+}
+
 const WARN_CAP = 200;
 const warnings: Warning[] = [];
+const replyEvents: ReplyDiagnosticEvent[] = [];
 const broadcastCounts: Record<string, number> = Object.create(null);
 let wsConnects = 0;
 let wsDisconnects = 0;
@@ -43,6 +62,15 @@ export function recordWarning(code: string, ...accountIds: [] | [string | null |
   const accountId = accountIds[0];
   warnings.push({ t: Date.now(), code, accountId: accountId || null });
   if (warnings.length > WARN_CAP) warnings.shift();
+}
+
+export function recordReplyDiagnostic(event: Omit<ReplyDiagnosticEvent, 't'>): void {
+  replyEvents.push({ ...event, t: Date.now() });
+  if (replyEvents.length > WARN_CAP) replyEvents.shift();
+}
+
+export function getReplyDiagnosticsRaw(): ReplyDiagnosticEvent[] {
+  return replyEvents.map(event => ({ ...event }));
 }
 
 export function recordBroadcast(type: string | null | undefined): void {
@@ -133,6 +161,7 @@ export function getConnectionStats(): {
 // Test-only reset.
 export function _resetDiagnosticsRing(): void {
   warnings.length = 0;
+  replyEvents.length = 0;
   for (const key of Object.keys(broadcastCounts)) delete broadcastCounts[key];
   for (const key of Object.keys(syncSignals)) delete syncSignals[key];
   wsConnects = 0;

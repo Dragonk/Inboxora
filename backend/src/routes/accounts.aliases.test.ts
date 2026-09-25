@@ -8,7 +8,7 @@ import type { JsonBody } from '../test/json.js';
 // Alias CRUD is exercised through the mounted accounts router so these tests cover the
 // ownership checks, successful mutations, and the owner-address cache boundary together.
 // The DB, app entrypoint, and auth middleware are stubbed to keep the harness isolated.
-vi.mock('../services/db.js', () => ({ query: vi.fn() }));
+vi.mock('../services/db.js', () => ({ query: vi.fn(), withTransaction: vi.fn() }));
 vi.mock('../middleware/auth.js', () => ({
   requireAuth: (req: { headers: Record<string, string>; session?: { userId?: string } }, _res: unknown, next: () => void) => { req.session = { userId: 'u1' }; next(); },
 }));
@@ -18,12 +18,13 @@ vi.mock('../index.js', () => ({ imapManager: {} }));
 // mocked above, install it explicitly and give rejected async handlers the same 500 boundary.
 import 'express-async-errors';
 import express from 'express';
-import { query as __mock_query } from '../services/db.js';
+import { query as __mock_query, withTransaction as __mock_withTransaction } from '../services/db.js';
 import { pluginRegistry } from '../plugins/registry.js';
 import accountRoutes from './accounts.js';
 
 // Cast mocked module exports so their vitest mock helpers type-check.
 const query = vi.mocked(__mock_query);
+const withTransaction = vi.mocked(__mock_withTransaction);
 
 // The route now signals identity changes through the generic `onAccountIdentityChanged` hook
 // (GTD's owner-address cache invalidation lives behind it), so we assert the hook dispatch as the
@@ -113,6 +114,8 @@ afterAll(async () => {
 
 beforeEach(() => {
   query.mockReset();
+  withTransaction.mockReset();
+  withTransaction.mockImplementation(async callback => callback({ query } as never));
   identityHook = vi.spyOn(pluginRegistry, 'runHook').mockResolvedValue([]);
   stubQueries();
 });
@@ -199,6 +202,13 @@ describe('account alias mutation failures do not invalidate the cache', () => {
 describe('account deletion with calendar invitations', () => {
   it('returns a conflict when the account remains an invitation sender', async () => {
     query.mockImplementation(async (sql) => {
+      // The delete reads the account's connection too: push subscriptions are released with it, and a row
+      // without one (this account) releases nothing.
+      if (sql.startsWith('SELECT id, user_id, email_address, provider_connection_id')) {
+        return { rows: [{ id: URL_ACCOUNT_ID, user_id: 'u1', email_address: 'account@example.test', provider_connection_id: null }] };
+      }
+      if (sql.includes('SELECT DISTINCT pc.id')) return { rows: [] };
+      if (sql.includes('SELECT COUNT(*)::int AS count')) return { rows: [{ count: 1 }] };
       if (sql.startsWith('SELECT id FROM email_accounts')) return { rows: [{ id: URL_ACCOUNT_ID }] };
       if (sql.startsWith('DELETE FROM email_accounts')) throw Object.assign(new Error('foreign key violation'), { code: '23503' });
       throw new Error(`Unexpected query: ${sql}`);

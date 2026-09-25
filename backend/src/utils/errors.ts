@@ -1,9 +1,12 @@
+import { sendHttpBodyWindowBytes } from '../services/sendLimits.js';
 /** A throwable with the optional fields this codebase reads (Postgres codes, HTTP status). */
 export interface AppError extends Error {
   code?: string;
   status?: number;
   statusCode?: number;
   details?: unknown;
+  /** PostgreSQL's named constraint/index for a structured integrity violation. */
+  constraint?: string;
   /** IMAP: the server response code (e.g. NO/BAD) and its text. */
   serverResponseCode?: string;
   responseText?: string;
@@ -25,3 +28,31 @@ export function toAppError(value: unknown): AppError {
   return new Error(String(value)) as AppError;
 }
 
+
+/**
+ * The message for a body the JSON parser rejected as too large.
+ *
+ * The parser rejects the whole request before any route runs, so the route cannot
+ * explain its own limit — and a single attachment-flavoured message is wrong for a
+ * contact or calendar import, where "total attachment size" describes something the
+ * user was not doing. The message is chosen from the path instead.
+ */
+export function requestTooLargeMessage(path: string): string {
+  const target = typeof path === 'string' ? path : '';
+  if ((target.startsWith('/api/contacts/') || target.startsWith('/api/calendar/')) && target.includes('/import/')) {
+    return 'The file is too large. Import files must be smaller than 900 KB.';
+  }
+  if (target.startsWith('/api/gtd/pet/import')) {
+    // A spritesheet is uploaded as a base64 body, so its decoded cap is 5 MB.
+    return 'The image is too large. The spritesheet must be smaller than 5 MB.';
+  }
+  if (target.startsWith('/api/mail/send')) {
+    // The send route's window is the hard attachment ceiling carried as base64; which *transport* ceiling
+    // applies is decided later, per account, and reported with its own domain code.
+    return `Request too large. A send request may carry at most ${Math.floor(sendHttpBodyWindowBytes() / (1024 * 1024))} MB in one piece.`;
+  }
+  if (target.startsWith('/api/mail/draft')) {
+    return 'Request too large. The draft is bigger than this installation accepts.';
+  }
+  return 'Request too large.';
+}

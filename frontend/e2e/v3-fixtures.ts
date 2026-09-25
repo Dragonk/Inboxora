@@ -20,6 +20,7 @@ export async function setupV3(page) {
   const requests = { events: [], contacts: [], saves: [] };
   let contact = structuredClone(richContact);
   const books = [{ id: 'book-work', name: 'Firmowa', source: 'local', visible: true }, { id: 'book-private', name: 'Prywatna', source: 'local', visible: true }];
+  let calendarCollapsed = false;
   const calendars = [
     { id: 'calendar-personal', name: 'Osobisty', color: '#35548a', source: 'local', read_only: false, owner_user_id: 'e2e-user' },
     { id: 'calendar-remote', name: 'Zespół · CalDAV', color: '#35793a', source: 'caldav', read_only: true },
@@ -30,6 +31,26 @@ export async function setupV3(page) {
     { id: 'v3-next-month', calendar_id: 'calendar-personal', source: 'local', summary: 'Plan października', starts_at: '2026-10-01T09:00:00Z', ends_at: '2026-10-01T10:00:00Z' },
   ];
   await page.route('**/api/calendar/calendars', route => route.fulfill({ json: { calendars } }));
+  await page.route('**/api/calendar/presentation/sources/**', route => {
+    if (route.request().method() === 'PATCH') calendarCollapsed = Boolean(route.request().postDataJSON()?.collapsed);
+    return route.fulfill({ json: { ok: true } });
+  });
+  await page.route('**/api/calendar/presentation', route => route.fulfill({ json: {
+    groups: [
+      { id: 'local', kind: 'local', label: 'Moje kalendarze', accountId: null, identityLabel: null, featureEnabled: true, canSync: false, collapsed: calendarCollapsed,
+        calendars: [{ id: 'calendar-personal', sourceId: 'local', displayName: 'Osobisty', readOnly: false, selected: true, sidebarHidden: false }] },
+      { id: 'calendar-remote', kind: 'caldav', label: 'CalDAV', accountId: null, identityLabel: null, featureEnabled: true, canSync: false, collapsed: false,
+        calendars: [{ id: 'calendar-remote', sourceId: 'calendar-remote', displayName: 'Zespół · CalDAV', readOnly: true, selected: true, sidebarHidden: false }] },
+    ],
+    calendars: [
+      { id: 'calendar-personal', sourceId: 'local', displayName: 'Osobisty', readOnly: false, selected: true, sidebarHidden: false },
+      { id: 'calendar-remote', sourceId: 'calendar-remote', displayName: 'Zespół · CalDAV', readOnly: true, selected: true, sidebarHidden: false },
+    ],
+  } }));
+  await page.route('**/api/contacts/presentation', route => {
+    if (route.request().method() === 'PATCH') return route.fulfill({ json: route.request().postDataJSON() });
+    return route.fulfill({ json: { selectedIds: null, collapsedSourceIds: [] } });
+  });
   await page.route('**/api/calendar/events**', async route => {
     const request = route.request(); const url = new URL(request.url());
     if (request.method() === 'GET') {
@@ -47,6 +68,9 @@ export async function setupV3(page) {
   await page.route('**/api/calendar/sources**', route => route.fulfill({ json: { sources: [] } }));
   await page.route('**/api/contacts**', async route => {
     const request = route.request(); const url = new URL(request.url());
+    if (url.pathname.endsWith('/contacts/presentation')) {
+      return route.fulfill({ json: request.method() === 'PATCH' ? request.postDataJSON() : { selectedIds: null, collapsedSourceIds: [] } });
+    }
     if (url.pathname.includes('address-books')) {
       if (request.method() === 'PATCH') Object.assign(books.find(book => url.pathname.endsWith(book.id)), request.postDataJSON());
       return route.fulfill({ json: { addressBooks: books } });

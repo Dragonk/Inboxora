@@ -142,6 +142,19 @@ type SmtpAccountFields = {
 };
 
 export async function createAccountSmtpTransport<Account extends SmtpAccountFields>(inputAccount: Account) {
+  // A native Microsoft account sends over Graph, not SMTP, and that transport does not
+  // exist yet (v4 Stage 3). Without this guard the account falls through to the
+  // separate-credentials / IMAP-login branch below and fails with a credential error
+  // that describes neither the cause nor the missing feature. The guard lives here
+  // rather than at the call site so every caller is covered — the same reasoning as
+  // `ensureFolder` and the prefetch guard.
+  if ((inputAccount as { mail_transport?: string | null }).mail_transport === 'microsoft_graph') {
+    return {
+      status: 501,
+      error: 'Sending from a Microsoft Graph account is not available yet. The account can read, file and flag mail; sending still needs the shared send layer.',
+      code: 'OPERATION_FORBIDDEN',
+    };
+  }
   let account: SmtpAccountFields = inputAccount;
   if (account.oauth_provider === 'microsoft') {
     const expiryMs = account.oauth_token_expiry

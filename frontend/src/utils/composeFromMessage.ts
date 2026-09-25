@@ -186,6 +186,14 @@ export async function openReplyFromMessage(message: ReplyMessageLike, { accounts
     threadId: message.thread_key || message.thread_id || null,
     threadCacheId: message.thread_id || message.thread_key || null,
     conversationId: message.conversationId || message.conversation_id || null,
+    // The server, not this helper, derives authoritative RFC/provider identity
+    // from this physical row. selectedCopyId wins for a Conversation Reader copy.
+    replyToMessageId: message.selectedCopyId || message.id || null,
+    // A draft may outlive a MOVE that replaces its physical row. Preserve a
+    // stable same-account RFC identity as a resolver fallback, never as a
+    // cross-account provider identity.
+    replyParentMessageId: message.message_id || null,
+    replyParentAccountId: message.account_id || null,
   });
 }
 
@@ -212,6 +220,11 @@ export async function openForwardFromMessage(message: ReplyMessageLike, { openCo
     quotedBodyHtml: fwdHtml,
     accountId: message.account_id,
     isForward: true,
+    // Graph forwarding is provider-native too. Preserve the selected physical
+    // copy and durable RFC fallback so `/send` can use createForward after MOVE.
+    replyToMessageId: message.selectedCopyId || message.id || null,
+    replyParentMessageId: message.message_id || null,
+    replyParentAccountId: message.account_id || null,
     forwardedAttachments: (fwdBody?.attachments || []).map(att => ({
       messageId: message.id,
       part: att.part,

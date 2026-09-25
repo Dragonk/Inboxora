@@ -13,7 +13,8 @@ describe('Calendar event preview contract', () => {
     assert.doesNotMatch(calendar, /if \(!event\.read_only && event\.source === 'local'\) openEdit\(event\);/);
     // Editing stays reachable from the preview, for editable events only, and the
     // preview closes as the editor opens so two dialogs are never stacked.
-    assert.match(calendar, /const editablePreview = Boolean\(preview && !preview\.read_only && preview\.source === 'local'\);/);
+    // The server decides: a preview is editable when it is not read-only, whatever its origin.
+    assert.match(calendar, /const editablePreview = Boolean\(preview && !preview\.read_only\);/);
     assert.match(calendar, /data-testid="calendar-preview-edit"[\s\S]{0,120}setPreview\(null\); openEdit\(event\);/);
   });
 

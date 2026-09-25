@@ -214,3 +214,46 @@ it('round trips birthdays without a year without inventing a birth year', () => 
   expect(parseVCard(generateVCard(parsed)).contactDates).toEqual(parsed.contactDates);
   expect(parseVCard('BEGIN:VCARD\r\nBDAY:--0230\r\nEND:VCARD').invalidDates).toEqual(['--0230']);
 });
+
+describe('vCard 4.0 and the fields the suite had not exercised', () => {
+  it('parses a VERSION:4.0 card the way the same fields arrive in 3.0', () => {
+    // Real clients emit 4.0, and nothing in this suite used it — a format the parser ignores would
+    // have gone unnoticed behind a green suite.
+    const card = [
+      'BEGIN:VCARD', 'VERSION:4.0', 'UID:urn:uuid:card-4', 'FN:Zazółć Gęślą Jaźń',
+      'N:Gęślą;Zazółć;;;', 'EMAIL;TYPE=work:zazolc@example.test', 'TEL;TYPE=cell:+48 600 100 200',
+      'BDAY:--1210', 'ANNIVERSARY:18350708', 'ORG:Łódzkie Zakłady;Dział Łączności',
+      'TITLE:Inżynier', 'NOTE:Zapis z ósemką: łódź', 'END:VCARD', '',
+    ].join('\r\n');
+    const parsed = parseVCard(card);
+    expect(parsed).not.toBeNull();
+    expect(parsed?.displayName).toBe('Zazółć Gęślą Jaźń');
+    expect(parsed?.emails[0]?.value).toBe('zazolc@example.test');
+    expect(parsed?.phones[0]?.value).toBe('+48 600 100 200');
+    expect(parsed?.organization).toBe('Łódzkie Zakłady');
+    expect(parsed?.title).toBe('Inżynier');
+    // Non-ASCII survives round trip rather than being dropped or mangled.
+    expect(parsed?.notes).toContain('łódź');
+    expect(parsed?.anniversary).toBe('1835-07-08');
+    // A 4.0 birthday with no year is not a date the column can hold; the parser must say so rather
+    // than invent one.
+    expect(parsed?.birthday).toBeNull();
+  });
+
+  it('carries an inline photo and does not invent one from a URI', () => {
+    // `PHOTO` was the other field this suite never exercised. An inline base64 image has a column to
+    // live in; a URI is a reference to somebody else's server, which is not something the connector
+    // will fetch, so it must not be stored as if it were the image.
+    const inline = ['BEGIN:VCARD', 'VERSION:3.0', 'UID:with-photo', 'FN:Photo Person',
+      'PHOTO;ENCODING=b;TYPE=JPEG:aGVsbG8=', 'END:VCARD', ''].join('\r\n');
+    // `photoData` is a data URI, not bare base64: that is what the column holds and what the
+    // interface renders without rebuilding the MIME type.
+    expect(parseVCard(inline)?.photoData).toBe('data:image/jpeg;base64,aGVsbG8=');
+
+    const remote = ['BEGIN:VCARD', 'VERSION:4.0', 'UID:with-uri', 'FN:URI Person',
+      'PHOTO;VALUE=URI:https://example.test/photo.jpg', 'END:VCARD', ''].join('\r\n');
+    const parsed = parseVCard(remote);
+    expect(parsed?.displayName).toBe('URI Person');
+    expect(parsed?.photoData).toBeNull();
+  });
+});

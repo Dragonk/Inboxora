@@ -16,7 +16,7 @@ const openAppearance = async page => {
   await page.getByTestId('sidebar-user-menu').click();
   if (page.viewportSize().width < 768) await page.getByTestId('mobile-settings').click();
   else await page.getByText(/^Ustawienia$|^Settings$/i).first().click();
-  await page.getByText(/^Wygląd$|^Appearance$/i).first().click();
+  await page.getByText(/^Wygląd$|^Appearance$/i).last().click();
   await page.locator('.admin-panel').getByRole('button', { name: /^Układ$|^Layout$/i }).first().click();
 };
 

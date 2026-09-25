@@ -805,7 +805,7 @@ export async function patchPreferences(req: Request, res: Response) {
           autoLockMinutes, showMobileAvatars, gravatarAvatars, folderSyncInterval,
           folderOrder, senderFavicons, showMessagePreviews,
           conversation_list_view_enabled, conversation_reader_view_enabled,
-          calendarWeekStartsOn, mobileNavigationPosition, visibleCalendarIds,
+          calendarWeekStartsOn, mobileNavigationPosition, mobileSidebarSwipeEnabled, visibleCalendarIds,
           calendarWorkDays, calendarWorkHoursStart, calendarWorkHoursEnd } = req.body;
   for (const [name, value] of [
     ['conversation_list_view_enabled', conversation_list_view_enabled],
@@ -870,6 +870,9 @@ export async function patchPreferences(req: Request, res: Response) {
   }
   if (mobileNavigationPosition !== undefined && !['top', 'bottom'].includes(mobileNavigationPosition)) {
     return res.status(400).json({ error: 'mobileNavigationPosition must be top or bottom' });
+  }
+  if (mobileSidebarSwipeEnabled !== undefined && typeof mobileSidebarSwipeEnabled !== 'boolean') {
+    return res.status(400).json({ error: 'mobileSidebarSwipeEnabled must be a boolean' });
   }
   if (visibleCalendarIds !== undefined && (!Array.isArray(visibleCalendarIds) || visibleCalendarIds.length > 100 || visibleCalendarIds.some(id => typeof id !== 'string' || id.length > 128))) {
     return res.status(400).json({ error: 'visibleCalendarIds must be an array of calendar identifiers' });
@@ -965,6 +968,7 @@ export async function patchPreferences(req: Request, res: Response) {
       || CASE WHEN $49::text IS NOT NULL THEN jsonb_build_object('themeMode', $49::text) ELSE '{}'::jsonb END
       || CASE WHEN $50::text IS NOT NULL THEN jsonb_build_object('themeLight', $50::text) ELSE '{}'::jsonb END
       || CASE WHEN $51::text IS NOT NULL THEN jsonb_build_object('themeDark', $51::text) ELSE '{}'::jsonb END
+      || CASE WHEN $52::boolean IS NOT NULL THEN jsonb_build_object('mobileSidebarSwipeEnabled', $52::boolean) ELSE '{}'::jsonb END
     WHERE id = $1
   `, [req.session.userId, theme ?? null, font ?? null, layout ?? null, notificationSound ?? null,
       pageSize ?? null, scrollMode ?? null, syncInterval ?? null,
@@ -979,7 +983,8 @@ export async function patchPreferences(req: Request, res: Response) {
       calendarWeekStartsOn ?? null, mobileNavigationPosition ?? null, visibleCalendarIdsJson,
       calendarWorkDays !== undefined ? JSON.stringify(calendarWorkDays) : null,
       persistedWorkHoursStart ?? null, persistedWorkHoursEnd ?? null,
-      themePrefs.themeMode, themePrefs.themeLight, themePrefs.themeDark]);
+      themePrefs.themeMode, themePrefs.themeLight, themePrefs.themeDark,
+      mobileSidebarSwipeEnabled ?? null]);
 
   if (syncInterval != null) {
     const ms = parseInt(syncInterval) * 1000;

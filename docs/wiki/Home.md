@@ -4,9 +4,13 @@
 SMTP, CardDAV and CalDAV, so your data stays on your server and your existing devices keep
 working. This Wiki is the canonical documentation for installing, configuring and using it.
 
-Current release: **4.0.4** — see [Release notes 4.0.4](Release-notes-4.0.4.md). It is a
-desktop-app release (integrated title bar, Back / Forward, native notification settings and the
-Windows default email app); the server, database, API and configuration are unchanged from 4.0.3.
+Latest released version: **4.0.4** — see [Release notes 4.0.4](Release-notes-4.0.4.md). It is a
+desktop-app release (integrated title bar, Back / Forward, native notification settings and the Windows
+default email app); the server, database, API and configuration are unchanged from 4.0.3.
+
+**4.1.0 is prepared on `dev` and is not released yet** — see
+[Release notes 4.1.0](Release-notes-4.1.0.md) for what it adds, what upgrading involves and what is still
+manual acceptance.
 ![Inboxora mail list](https://raw.githubusercontent.com/Dragonk/Inboxora/main/media/screenshots/mail-inbox-desktop.png)
 
 ## Start here
@@ -25,6 +29,7 @@ Windows default email app); the server, database, API and configuration are unch
 | Harden a deployment | [Security](Security.md) |
 | Fix something that is not working | [Troubleshooting](Troubleshooting.md) |
 | Upgrade from 3.x or from MailFlow | [Upgrading](Upgrading.md) |
+| Connect Google or Microsoft accounts | [Connecting Google and Microsoft accounts](Provider-setup.md). **Google offers the API and the app password, and neither is forced** — mail keeps working over IMAP/SMTP with an app password, and an administrator can enable the Gmail, Calendar and People APIs. **Microsoft accounts need an authorized connection**, because Outlook.com and Microsoft 365 no longer accept a mailbox password, and can then run over **Microsoft Graph**. The switches, and what each does, are in [Configuration](Configuration.md). |
 | Move a MailFlow 3.3.0 deployment to Inboxora | [Migrating from MailFlow](Migrating-from-MailFlow.md) |
 | Build, test or contribute | [Development](Development.md) |
 
@@ -34,6 +39,9 @@ Windows default email app); the server, database, API and configuration are unch
 
 - Multiple IMAP/SMTP accounts with aliases, signatures and per-account colours, plus a
   unified inbox and unified search.
+- **Optional native transports**: Microsoft Graph for a Microsoft mailbox (reading, filing,
+  searching, drafting and sending) and the Gmail API for a Google one, each switchable per account and
+  neither required — IMAP/SMTP keeps working, including Google with an app password.
 - **Real conversation threading** from a server-side conversation engine: a message and its
   replies become one conversation, while per-folder and per-account physical copies stay
   tracked separately. Expand a thread in the list or read it whole in the conversation reader.
@@ -53,8 +61,11 @@ Windows default email app); the server, database, API and configuration are unch
   zones; editing one occurrence preserves the series.
 - Invitations sent by email with delivery status and retry, and invitations received by mail
   added to a calendar in one click.
-- Read-only **CalDAV** and **ICS/webcal** sources added from **Settings → Calendar**, including
-  one-click public-holiday feeds, plus anonymous `.ics` feed links.
+- **CalDAV** and **ICS/webcal** sources added from **Settings → Calendar**, including one-click
+  public-holiday feeds and anonymous `.ics` feed links. An ICS feed is read-only by nature; a CalDAV
+  source can be written back to its server once write-back is enabled for that calendar.
+- **Google Calendar and Microsoft Graph calendars** pulled through the connected provider, with
+  per-collection write-back once enabled.
 - A generated **Contact dates** calendar for birthdays and anniversaries.
 
 ### Contacts and DAV
@@ -62,14 +73,19 @@ Windows default email app); the server, database, API and configuration are unch
 - Multiple address books with rich vCard fields, Google CSV import, and Google CSV / Outlook
   CSV / vCard 3.0 export.
 - **CardDAV and CalDAV servers** with `.well-known` discovery and conflict detection, so DAVx5,
-  Thunderbird and native clients sync both ways.
+  Thunderbird and native clients sync both ways — including write-back to an external CalDAV/CardDAV
+  source once it is enabled for that collection.
+- **Google People and Microsoft Graph contacts**, pulled through the connected provider and written
+  back once enabled for the address book.
 - **Revocable application passwords** for DAV clients, so TOTP- and SSO-protected accounts
   still work on your phone without sharing the login password.
 
 ### Interface and platform
 
 - Desktop layout with resizable panels and a compact mode, plus a phone shell with a navigation
-  drawer, floating actions and system Back support.
+  drawer (including the menu-follows-your-finger gesture), floating actions and system Back support.
+- One composer for every account, with attachment and message limits resolved per transport, and a
+  refusal that names the file and the dimension rather than one global size.
 - Nine interface languages, ~25 themes with separate light and dark defaults, a theme mode that
   follows the system or forces an appearance, five reader layouts and configurable swipe actions.
 - Installable PWA with an unread badge and push notifications; Electron desktop and

@@ -13,7 +13,10 @@ import { redisClient } from './services/redis.js';
 import sendRoutes from './routes/send.js';
 import draftRoutes from './routes/draft.js';
 import oauthRoutes from './routes/oauth.js';
+import oauthGoogleRoutes from './routes/oauthGoogle.js';
+import oauthMicrosoftRoutes from './routes/oauthMicrosoft.js';
 import integrationsRoutes, { loadIntegrationConfigs } from './routes/integrations.js';
+import providerWebhookRoutes from './routes/providerWebhooks.js';
 import authRoutes from './routes/auth.js';
 import accountRoutes from './routes/accounts.js';
 import mailRoutes from './routes/mail.js';
@@ -43,6 +46,10 @@ import calendarRouter from './routes/calendar.js';
 import calendarFeedRouter from './routes/calendarFeed.js';
 import { startCardavScheduler } from './services/carddavSync.js';
 import { startExternalCalendarScheduler } from './services/externalCalendarSync.js';
+import { startProviderSyncScheduler } from './services/providerSyncScheduler.js';
+import { startProviderSyncHintWorker } from './services/providerSyncHintWorker.js';
+import { startProviderPushScheduler } from './services/providerPushScheduler.js';
+import { startProviderRuleDeferredWorker } from './services/providerRuleDeferred.js';
 import { encryptExistingCredentials, query } from './services/db.js';
 import { runMigrations } from './services/migrations.js';
 import { parseVCard } from './utils/vcard.js';
@@ -59,7 +66,8 @@ import { startCalendarInvitationOutboxWorker } from './services/calendarInvitati
 import { startOccurrenceScheduler } from './services/calendarOccurrences.js';
 import { start as startSpamRetrainScheduler } from './services/spamScheduler.js';
 import { createBrowserCors } from './middleware/browserCors.js';
-import { toAppError } from './utils/errors.js';
+import {toAppError, requestTooLargeMessage } from './utils/errors.js';
+import { sendHttpBodyWindowBytes } from './services/sendLimits.js';
 
 const packageMeta = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf-8'));
 let buildMeta: { version?: string } = {};
@@ -160,17 +168,32 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   res.setHeader('Referrer-Policy', 'same-origin');
   next();
 });
-// 25 MB attachment limit → ~34 MB base64 on the wire; add headroom for the rest of the payload.
-app.use('/api/mail/send', express.json({ limit: '35mb' }));
+// The body window is the *transport-aware* hard attachment ceiling carried as base64, plus headroom for the
+// rest of the payload (P06). It has to be wide enough for the largest file a supported provider accepts — a
+// Graph upload session takes 150 MB — because the JSON body carries those bytes before the route can apply
+// the per-transport limits; a body over this window is still refused (`REQUEST_TOO_LARGE`), and a body inside
+// it but above the transport's own ceiling is refused by the route with the dimension that was hit.
+app.use('/api/mail/send', express.json({ limit: sendHttpBodyWindowBytes() }));
 app.use('/api/mail/draft', express.json({ limit: '35mb' }));
 // A pet-import body carries a base64 spritesheet (~33% larger than the 5 MB sheet cap
 // enforced after decode in gtdPet.importPet), so it needs more than the global 1 MB.
 app.use('/api/gtd/pet/import', express.json({ limit: '8mb' }));
 app.use(express.json({ limit: '1mb' }));
-// Return a clean JSON error when the body parser rejects an oversized payload.
-app.use((err: Error & { type?: string }, req: Request, res: Response, next: NextFunction) => {
+// Return a clean JSON error when the body parser rejects an oversized payload. The send route answers with
+// the same domain shape its own guards use (`REQUEST_TOO_LARGE` on the `http_body` dimension), so a client
+// does not have to treat the parser's refusal as a different kind of failure from the route's.
+app.use((err: Error & { type?: string; limit?: number; length?: number }, req: Request, res: Response, next: NextFunction) => {
   if (err.type === 'entity.too.large') {
-    return res.status(413).json({ error: 'Request too large. Total attachment size must not exceed 25 MB.' });
+    if (req.path.startsWith('/api/mail/send')) {
+      return res.status(413).json({
+        code: 'REQUEST_TOO_LARGE',
+        dimension: 'http_body',
+        ...(Number.isFinite(err.length) ? { actualBytes: Number(err.length) } : {}),
+        limitBytes: sendHttpBodyWindowBytes(),
+        error: requestTooLargeMessage(req.path),
+      });
+    }
+    return res.status(413).json({ error: requestTooLargeMessage(req.path) });
   }
   next(err);
 });
@@ -184,8 +207,12 @@ app.use(sessionMiddleware);
 // (/carddav) and OAuth flows (/oauth) are mounted outside /api and use their own
 // auth, so they are intentionally not gated here.
 const CSRF_SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+const CSRF_EXEMPT_PREFIXES = ['/provider-webhooks/'];
 app.use('/api', (req: Request, res: Response, next: NextFunction) => {
   if (CSRF_SAFE_METHODS.has(req.method)) return next();
+  // A provider webhook authenticates itself and cannot set a browser header; exempting the prefix here is
+  // what lets it through without weakening the gate on the cookie-authenticated surface.
+  if (CSRF_EXEMPT_PREFIXES.some(prefix => req.path.startsWith(prefix))) return next();
   if (req.get('X-Requested-With')) return next();
   return res.status(403).json({ error: 'Missing required X-Requested-With header' });
 });
@@ -196,6 +223,8 @@ app.use('/api', (req: Request, res: Response, next: NextFunction) => {
 // Matches the full path (minus query) so it can't fail open on mount-relative paths.
 const LOCK_ALLOWED = new Set(['/api/auth/unlock', '/api/auth/logout', '/api/auth/me', '/api/health', '/api/version']);
 app.use('/api', (req: Request, res: Response, next: NextFunction) => {
+  // A provider webhook has no session to lock, and a locked browser session must never stop synchronisation.
+  if (req.path.startsWith('/provider-webhooks/')) return next();
   if (req.session?.locked && !LOCK_ALLOWED.has(req.originalUrl.split('?')[0])) {
     return res.status(423).json({ error: 'Locked', locked: true });
   }
@@ -217,7 +246,16 @@ app.use('/api/auth', authRoutes);
 app.use('/api/auth/oidc', oidcApiRouter);
 app.use('/auth/oidc', oidcBrowserRouter);
 app.use('/oauth', oauthRoutes);
+// Google web OAuth lives on the same public path as the Microsoft flow; the two
+// routers own disjoint route names.
+app.use('/oauth', oauthGoogleRoutes);
+// The Graph provider flow deliberately uses /oauth/provider/microsoft, leaving the
+// existing /oauth/microsoft account-connection flow untouched.
+app.use('/oauth', oauthMicrosoftRoutes);
 app.use('/api/integrations', integrationsRoutes);
+// Provider notifications are called by the provider, not by a browser: they carry no session and no CSRF
+// header, and they authenticate themselves (Graph's clientState, Google's channel or Pub/Sub token).
+app.use('/api/provider-webhooks', providerWebhookRoutes);
 app.use('/api/accounts', accountRoutes);
 app.use('/api/mail', mailRoutes);
 app.use('/api/mail', conversationsRoutes);
@@ -278,6 +316,13 @@ app.get('/api/update', async (_req: Request, res: Response) => {
 // The `express-async-errors` import above patches Express 4 to forward async
 // rejections here; without both pieces, a thrown DB error hangs the request.
 app.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
+  // A DAV route's oversized body arrives here rather than at the mapper above the routers, since
+  // error handlers registered before a failing layer are never searched for.
+  const typed = err as { type?: string } | null;
+  if (typed?.type === 'entity.too.large') {
+    if (res.headersSent) return;
+    return res.status(413).json({ error: requestTooLargeMessage(req.path) });
+  }
   console.error('Unhandled route error:', err);
   if (res.headersSent) return;
   res.status(500).json({ error: 'Internal server error' });
@@ -328,6 +373,17 @@ imapManager.startSnoozeWatcher();
 // Schedule periodic CardDAV contact sync for any connected accounts.
 startCardavScheduler();
 startExternalCalendarScheduler().catch(err => console.warn('External calendar scheduler start failed:', err.message));
+// Refresh the Google collections a user already pulled (contacts, calendars) without
+// touching the ones they never asked for; PROVIDER_SYNC_INTERVAL_MINUTES=0 disables it.
+startProviderSyncScheduler();
+// Push-assisted synchronisation is additive: the worker turns a recorded notification into the same sync the
+// schedule runs, and the renewal sweep keeps the provider-side subscriptions alive. Both no-op when
+// PROVIDER_PUSH_ENABLED is off, and polling continues either way.
+startProviderSyncHintWorker();
+startProviderPushScheduler();
+// Hydrate native-provider rule inputs that were unavailable during ingest. This worker
+// retries reads only; it never replays an action with an unknown provider outcome.
+startProviderRuleDeferredWorker();
 // Retry conversation persistence failures without blocking IMAP synchronization.
 setInterval(() => retryConversationIngestFailures({ limit: 25 }).catch(err => console.warn('Conversation ingest retry failed:', err.message)), 5 * 60 * 1000);
 // Retry calendar invitations whose SMTP delivery failed, so a transient outage

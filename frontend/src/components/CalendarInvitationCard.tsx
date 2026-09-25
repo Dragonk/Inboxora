@@ -38,7 +38,7 @@ export default function CalendarInvitationCard({ messageId }: { messageId: strin
     setInvitation(null); setError(false); setOutcome(null); setLocalEvent(null);
     Promise.all([api.calendar.getInvitation(messageId), api.calendar.listCalendars()]).then(([result, list]) => {
       if (cancelled) return;
-      const writable = (list.calendars || []).filter((calendar: WritableCalendar) => !calendar.read_only && calendar.source === 'local');
+      const writable = (list.calendars || []).filter((calendar: WritableCalendar) => !calendar.read_only);
       setInvitation(result.invitation);
       setLocalEvent(result.invitation?.localEvent || null);
       setCalendars(writable);

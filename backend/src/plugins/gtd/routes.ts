@@ -4,9 +4,7 @@ import { getGtdSections } from './gtdSections.js';
 import { queueGistGeneration } from './gtdGist.js';
 import { importPet, decodeUploadedSheet, getPetMeta, getPetSheet, parsePetSlug, customPetSlug } from './gtdPet.js';
 import { getGtdConfig, resolveGtdStateFolder, sanitizeGtdFolders, sanitizeGtdFoldersDetailed, DEFAULT_GTD_FOLDERS, planGtdFolderPersist, invalidateGtdConfigCache } from './gtdConfig.js';
-import { applyLabel, removeExactLabelCopy, removeLabel, markThreadRead, ensureLabelFolders, archiveInboxCopy, broadcast, loadOwnedMessage, getOwnedAccount, getMessageCopyFolders, getAccountConfig, setAccountConfig } from '../api.js';
-import { queryString, queryInt, routeParam, sessionUserId } from '../../utils/query.js';
-import { toAppError } from '../../utils/errors.js';
+import { applyLabel, removeExactLabelCopy, removeLabel, markThreadRead, ensureLabelFolders, archiveInboxCopy, broadcast, loadOwnedMessage, getOwnedAccount, getMessageCopyFolders, getAccountConfig, setAccountConfig, queryString, queryInt, routeParam, sessionUserId, toAppError } from '../api.js';
 import type { Request, Response } from 'express';
 
 const router = Router();
@@ -368,6 +366,7 @@ router.post('/folders/ensure', async (req: Request, res: Response) => {
 
   const account = await getOwnedAccount(sessionUserId(req), accountId);
   if (!account) return res.status(404).json({ error: 'Account not found' });
+
 
   // Reject a form mapping onto a reserved system folder before creating anything — the same
   // /done permanent-delete hazard the account settings save path guards against.

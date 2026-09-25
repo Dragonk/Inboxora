@@ -1,0 +1,18 @@
+name: Translation release gate
+description: Reject missing translations and untranslated UI before publishing artifacts.
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v6
+      with:
+        node-version: "22"
+        cache: npm
+        cache-dependency-path: frontend/package-lock.json
+    - name: Install frontend dependencies
+      shell: bash
+      working-directory: frontend
+      run: npm ci
+    - name: Check translations
+      shell: bash
+      working-directory: frontend
+      run: npm run test:i18n

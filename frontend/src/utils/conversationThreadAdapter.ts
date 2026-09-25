@@ -116,6 +116,8 @@ interface NativeThreadMessageLike {
   from_email?: string;
   to_addresses?: unknown;
   cc_addresses?: unknown;
+  in_reply_to?: string | null;
+  thread_references?: string | null;
   delivery_addresses?: unknown;
   list_unsubscribe?: unknown;
   unsubscribed_at?: unknown;
@@ -165,6 +167,10 @@ function nativeCopy(copy: ConversationCopyLike, logical: LogicalMessageLike, con
     logical_message_id: logical.id,
     thread_id: conversationId,
     message_id: copy.messageId ?? copy.message_id ?? logical.canonicalMessageId ?? logical.canonical_message_id,
+    in_reply_to: copy.inReplyTo ?? copy.in_reply_to ?? null,
+    inReplyTo: copy.inReplyTo ?? copy.in_reply_to ?? null,
+    thread_references: copy.references ?? copy.thread_references ?? null,
+    references: copy.references ?? copy.thread_references ?? null,
     subject: copy.subject ?? logical.subject,
     from_name: copy.fromName ?? copy.from_name,
     from_email: copy.fromEmail ?? copy.from_email,
@@ -273,6 +279,10 @@ export function nativeThreadToReaderMessages(threadMessages: unknown, accountId:
       to_addresses: msg.to_addresses,
       cc: msg.cc_addresses,
       cc_addresses: msg.cc_addresses,
+      inReplyTo: msg.in_reply_to,
+      in_reply_to: msg.in_reply_to,
+      references: msg.thread_references,
+      thread_references: msg.thread_references,
       date: msg.date,
       snippet: msg.snippet,
       isRead: msg.is_read,

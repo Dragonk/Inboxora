@@ -14,7 +14,7 @@ import { query } from './db.js';
 import { redisClient } from './redis.js';
 import { loadAiConfig } from './aiProvider.js';
 import { getActivatedPlugins } from '../plugins/activation.js';
-import { getWarningsRaw, getConnectionStats, getSyncSignalsRaw } from './diagnosticsRing.js';
+import { getWarningsRaw, getConnectionStats, getSyncSignalsRaw, getReplyDiagnosticsRaw } from './diagnosticsRing.js';
 import { getPerformanceSnapshot } from './performanceMetrics.js';
 
 const packageMeta = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf-8'));
@@ -184,6 +184,14 @@ export async function buildServerReport(userId: string, salt: string) {
 
   let dbOk = true;
   try { await query('SELECT 1'); } catch { dbOk = false; }
+  // Migration names are operational metadata, not user content or credentials.
+  // Recording the applied ledger lets a support report distinguish an old schema
+  // from a stale UI/API bundle without exposing the database itself.
+  let migrations: string[] = [];
+  try {
+    const applied = await query<{ version: string }>('SELECT version FROM schema_migrations ORDER BY version ASC');
+    migrations = applied.rows.map(row => row.version).filter(version => typeof version === 'string').slice(-200);
+  } catch { /* diagnostics stays available on a partially initialized database */ }
   let redisOk = true;
   try { await redisClient.ping(); } catch { redisOk = false; }
 
@@ -212,14 +220,23 @@ export async function buildServerReport(userId: string, salt: string) {
       lastSeenAgeSeconds: Math.round((Date.now() - s.lastT) / 1000),
     }));
 
+  const replyEvents = getReplyDiagnosticsRaw()
+    .filter(event => !event.accountId || userAccountIds.has(event.accountId))
+    .map(({ accountId, t, ...event }) => ({
+      ...event,
+      ...(accountId ? { accountRef: hashRef(accountId, salt) } : {}),
+      ageSeconds: Math.round((Date.now() - t) / 1000),
+    }));
+
   return {
     versions: { backend: BACKEND_VERSION, gitSha: process.env.BUILD_SHA || 'dev' },
-    server: { uptimeSeconds: Math.round(process.uptime()), dbOk, redisOk },
+    server: { uptimeSeconds: Math.round(process.uptime()), dbOk, redisOk, migrations },
     accounts,
     folders,
     counts: { unreadTotal, unreadByAccountRef },
     warnings,
     syncSignals,
+    replyEvents,
     connection: getConnectionStats(),
     performance: getPerformanceSnapshot(),
     config: { aiEnabled, aiProvider, plugins },

@@ -115,6 +115,13 @@ migrations as a release, and rolling back to an older image is not supported.
 | `FCM_SERVICE_ACCOUNT_JSON` | No | Optional/experimental FCM transport for custom Android builds. Not required. |
 | `DOMAIN` / `ACME_EMAIL` | No | Only for the bundled Caddy profile that terminates TLS itself. |
 | `IMAP_MAX_PERSISTENT_PER_HOST` | No | Caps always-on IMAP connections per host when one mail server limits them. |
+| `MAIL_MAX_MESSAGE_BYTES` | No | The **fallback** ceiling on one composed message, in bytes, used for a transport that declares none of its own (SMTP). Default 25 MiB. It does not raise a provider's own limit and does not cap a provider that declares a larger one. |
+| `MAIL_MAX_ATTACHMENT_BYTES` | No | The **hard** ceiling, in bytes, on one attachment and on all attachments of one message, applied to every transport. Defaults to the largest file a supported provider carries (Microsoft Graph's 150 MB upload-session file), so leaving it unset does not cap Graph. Set it lower when a reverse proxy in front of Inboxora has a smaller body limit. |
+| `PROVIDER_INTEGRATIONS_ENABLED` | No | `0` disables the whole provider layer, including the API authorization flows and the sync paths. |
+| `PROVIDER_SYNC_INTERVAL_MINUTES` | No | How often already-pulled provider collections are refreshed (default 15; `0` leaves syncing to the user). |
+| `MS_CLIENT_ID` / `MS_TENANT_ID` / `MS_CLIENT_SECRET` / `MS_REDIRECT_URI` | No | The Entra application for Microsoft mailbox sign-in and the Graph connector (browser method). |
+| `MS_PROVIDER_REDIRECT_URI` | No | The Graph connector's own callback; derived from `APP_URL` when unset. |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `GOOGLE_REDIRECT_URI` | No | The Google OAuth client for the Gmail, Calendar and People APIs. Optional: Google mail keeps working over IMAP/SMTP with an app password without it. |
 | `POSTGRES_DATA` / `REDIS_DATA` / `PUID` / `PGID` | No | Bind mounts and ownership for Unraid-style deployments. |
 | `UPDATE_CHECK_DISABLED` | No | Disables the server-side GitHub release check. |
 
@@ -160,6 +167,14 @@ All three are configured inside the application after startup:
 
 Never paste deployment secrets, app passwords or OAuth credentials into issue reports, Wiki
 pages or source control.
+
+## Instant synchronisation (optional)
+
+Push-assisted synchronisation is off by default. To use it, make Inboxora reachable over HTTPS at `APP_URL`
+and set `PROVIDER_PUSH_ENABLED=true`; for Gmail, also create a Cloud Pub/Sub topic and push subscription as
+described in **Provider setup**. Both the Graph and the Calendar callbacks are derived from `APP_URL`, so no
+per-account URL is ever configured. Without a public URL the installation synchronises by polling, which is
+the supported default — no account is treated as broken for lacking push.
 
 ## Upgrades and backups
 

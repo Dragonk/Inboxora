@@ -160,7 +160,7 @@ export function snippetFromBody(text: string, html?: string | null) {
 const SNIPPET_SKIP_TAGS = new Set(['script', 'style', 'head', 'title', 'noscript']);
 const SNIPPET_VISIBLE_CAP = 260; // stop after this many visible chars — comfortably over the 200-char snippet
 
-function extractHtmlSnippetText(html: string) {
+function extractHtmlSnippetText(html: string, visibleCap = SNIPPET_VISIBLE_CAP) {
   let out = '';
   let skipDepth = 0;
   let visible = 0;
@@ -178,7 +178,7 @@ function extractHtmlSnippetText(html: string) {
       if (/^\s*$/.test(clean)) { addSeparator(); return; } // collapse whitespace-only runs (incl. de-filler'd text)
       out += clean;
       visible += clean.replace(/\s+/g, '').length;
-      if (visible >= SNIPPET_VISIBLE_CAP) done = true;
+      if (visible >= visibleCap) done = true;
     },
   }, { decodeEntities: true, lowerCaseTags: true });
 
@@ -194,6 +194,14 @@ function extractHtmlSnippetText(html: string) {
 // only the post-extraction text cleanup stays as regex — ##marker## placeholders, residual
 // invisibles, decorative divider runs, and whitespace collapse — all operating on already
 // extracted visible text (bounded, linear).
+/** Plain visible HTML text for rule hydration, retaining substantially more input than a UI snippet. */
+export function extractHtmlTextForRules(html: string) {
+  return extractHtmlSnippetText(html, 1_048_576)
+    .replace(INVISIBLE_CHARS_RE, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 export function buildSnippetFromHtml(html: string) {
   return extractHtmlSnippetText(html)
     // Strip ##marker## template placeholders emitted by some marketing tools
@@ -311,6 +319,56 @@ function decodeBodyPart(buf: Buffer | Uint8Array, encoding: string | null | unde
 // Header names are lowercased. Multiple values for the same header are joined with '\n'.
 // Decode RFC 2047 MIME encoded-words (=?charset?Q/B?text?=) in a header string.
 // Adjacent encoded words separated only by whitespace are joined per RFC 2047 §6.2.
+/**
+ * The charset label of an RFC 2047 encoded word.
+ *
+ * `=?utf-8*en?Q?...?=` carries an optional language tag, which is not part of the charset, and a label may be
+ * quoted. `TextDecoder` accepts the IANA labels themselves (`iso-8859-2`, `windows-1250`), so only the noise
+ * around them is removed here.
+ */
+function encodedWordCharset(raw: string): string {
+  return raw.trim().replace(/^['"]|['"]$/g, '').split('*')[0].trim().toLowerCase();
+}
+
+/**
+ * Decode one encoded word's payload with **its own charset**.
+ *
+ * Decoding every encoded word as UTF-8 is what turns Polish mail into mojibake: a sender whose client used
+ * ISO-8859-2 or Windows-1250 — both common for Polish, and what Outlook and older clients emit — produces
+ * bytes that are not valid UTF-8, and the replacement characters are what the user sees. `TextDecoder` is the
+ * same mechanism the body decoder above uses; a label it does not know falls back to a byte-for-byte
+ * single-byte mapping, which is what an unknown single-byte charset actually is, rather than to a second
+ * UTF-8 decode.
+ */
+function decodeEncodedWord(charset: string, encoding: 'B' | 'Q', text: string): string {
+  let bytes: Buffer;
+  if (encoding === 'B') {
+    bytes = Buffer.from(text.replace(/\s+/g, ''), 'base64');
+  } else {
+    const out: number[] = [];
+    for (let i = 0; i < text.length; i++) {
+      const char = text[i];
+      // In Q encoding an underscore is a space, and `=XX` is one octet of the charset's own encoding.
+      if (char === '_') { out.push(0x20); continue; }
+      if (char === '=' && /^[0-9A-Fa-f]{2}$/.test(text.slice(i + 1, i + 3))) {
+        out.push(parseInt(text.slice(i + 1, i + 3), 16));
+        i += 2;
+        continue;
+      }
+      out.push(char.charCodeAt(0) & 0xff);
+    }
+    bytes = Buffer.from(out);
+  }
+
+  const label = encodedWordCharset(charset);
+  if (!label || label === 'us-ascii' || label === 'ascii') return bytes.toString('utf8');
+  try {
+    return new TextDecoder(label, { fatal: false }).decode(bytes);
+  } catch {
+    return bytes.toString('latin1');
+  }
+}
+
 export function decodeMimeWords(str: string) {
   if (!str || !str.includes('=?')) return str;
   let s = str;
@@ -319,17 +377,12 @@ export function decodeMimeWords(str: string) {
     prev = s;
     s = s.replace(/(=\?[^?]+\?[BQbq]\?[^?]*\?=)\s+(=\?[^?]+\?[BQbq]\?[^?]*\?=)/g, '$1$2');
   } while (s !== prev);
-  return s.replace(/=\?([^?]+)\?([BQbq])\?([^?]*)\?=/g, (match, charset, enc, text: string) => {
+  return s.replace(/=\?([^?]+)\?([BQbq])\?([^?]*)\?=/g, (match, charset: string, enc: string, text: string) => {
     try {
-      if (enc.toUpperCase() === 'Q') {
-        const bytes = text.replace(/_/g, ' ').replace(/=([0-9A-Fa-f]{2})/g, (_, h) => String.fromCharCode(parseInt(h, 16)));
-        return Buffer.from(bytes, 'binary').toString('utf8');
-      }
-      return Buffer.from(text, 'base64').toString('utf8');
+      return decodeEncodedWord(charset, enc.toUpperCase() as 'B' | 'Q', text);
     } catch { return match; }
   });
 }
-
 export function parseRawHeaders(buf: Buffer | string): Record<string, string> {
   if (!buf) return {};
   const text = Buffer.isBuffer(buf) ? buf.toString('utf8') : String(buf);

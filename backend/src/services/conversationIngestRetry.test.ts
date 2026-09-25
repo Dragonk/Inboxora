@@ -27,6 +27,7 @@ type PersistResult = { conversationId: string };
 type RetryMocks = {
   claim: (options: { userId?: string | null; limit?: number }) => Promise<ClaimedFailure[]>;
   resolve: (id: string) => Promise<void>;
+  query: (text: string, params?: unknown[]) => Promise<{ rows: Array<{ account_id: string }> }>;
   withTransaction: <T>(
     callback: (client: TransactionClient) => Promise<T>,
     options: { serializable: boolean },
@@ -40,26 +41,27 @@ type RetryMocks = {
   providerIdentity: (message: MessageRow, copy: MessageRow) => ProviderIdentity;
 };
 
-const { claim, resolve, withTransaction, _upsertWithClient, resolveOwnIdentity, providerIdentity } = vi.hoisted<{
+const { claim, resolve, query, withTransaction, _upsertWithClient, resolveOwnIdentity, providerIdentity } = vi.hoisted<{
   [Key in keyof RetryMocks]: ReturnType<typeof vi.fn<RetryMocks[Key]>>;
 }>(() => ({
   claim: vi.fn<RetryMocks['claim']>(),
   resolve: vi.fn<RetryMocks['resolve']>(),
+  query: vi.fn<RetryMocks['query']>(),
   withTransaction: vi.fn<RetryMocks['withTransaction']>(),
   _upsertWithClient: vi.fn<RetryMocks['_upsertWithClient']>(),
   resolveOwnIdentity: vi.fn<RetryMocks['resolveOwnIdentity']>(),
   providerIdentity: vi.fn<RetryMocks['providerIdentity']>(),
 }));
 vi.mock('./conversationIngestFailures.js', () => ({ claimConversationIngestFailures: claim, resolveConversationIngestFailure: resolve }));
-vi.mock('./db.js', () => ({ withTransaction }));
+vi.mock('./db.js', () => ({ query, withTransaction }));
 vi.mock('./conversationIngestEnvelope.js', () => ({ resolveOwnIdentityAddresses: resolveOwnIdentity }));
 vi.mock('./conversationProviderEnvelope.js', () => ({ providerIdentityForCopy: providerIdentity }));
-vi.mock('./conversationPersistence.js', () => ({ _upsertConversationCopyWithClient: _upsertWithClient }));
+vi.mock('./conversationPersistence.js', () => ({ _upsertConversationCopyWithClient: _upsertWithClient, conversationSerializeKey: () => 'conversation-live-lock' }));
 import { retryConversationIngestFailures } from './conversationIngestRetry.js';
 
 describe('conversation ingest retry', () => {
   beforeEach(() => {
-    claim.mockReset(); resolve.mockReset(); withTransaction.mockReset();
+    claim.mockReset(); resolve.mockReset(); query.mockReset(); withTransaction.mockReset();
     _upsertWithClient.mockReset(); resolveOwnIdentity.mockReset();
     resolveOwnIdentity.mockResolvedValue([]);
     providerIdentity.mockImplementation(() => ({ provider: 'gmail', providerThreadId: 't1', isStrong: true }));
@@ -67,6 +69,7 @@ describe('conversation ingest retry', () => {
 
   it('resolves successfully persisted failures using a single transaction client', async () => {
     claim.mockResolvedValueOnce([{ id: 'f1', user_id: 'u1', message_row_id: 'm1' }]);
+    query.mockResolvedValueOnce({ rows: [{ account_id: 'a1' }] });
     const client: TransactionClient = {
       query: vi.fn<TransactionClient['query']>().mockResolvedValueOnce({ rows: [{ id: 'm1', user_id: 'u1', account_id: 'a1' }] }),
     };
@@ -96,6 +99,7 @@ describe('conversation ingest retry', () => {
 
   it('keeps a failed item unresolved and does not expose credentials', async () => {
     claim.mockResolvedValueOnce([{ id: 'f2', user_id: 'u1', message_row_id: 'm2' }]);
+    query.mockResolvedValueOnce({ rows: [] });
     const client: TransactionClient = {
       query: vi.fn<TransactionClient['query']>().mockResolvedValueOnce({ rows: [] }),
     };
@@ -109,6 +113,7 @@ describe('conversation ingest retry', () => {
 
   it('passes userId from the failure record to _upsertConversationCopyWithClient', async () => {
     claim.mockResolvedValueOnce([{ id: 'f3', user_id: 'u2', message_row_id: 'm3' }]);
+    query.mockResolvedValueOnce({ rows: [{ account_id: 'a2' }] });
     const client: TransactionClient = {
       query: vi.fn<TransactionClient['query']>().mockResolvedValueOnce({ rows: [{ id: 'm3', user_id: 'u2', account_id: 'a2' }] }),
     };

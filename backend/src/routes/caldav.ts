@@ -3,12 +3,66 @@
 
 import { Router } from 'express';
 import { parseCalendarEvent, parseUtc } from '../utils/ical.js';
+import { projectCalendarResource } from '../utils/calendarRecurrence.js';
 export { parseCalendarEvent } from '../utils/ical.js';
 import { query } from '../services/db.js';
 import { authLimiterConfig } from '../services/authLimiter.js';
 import { createDavAuthMiddleware } from '../services/davServerAuth.js';
+import { collectionDavWritable, davWriteRefusalMessage, resolveCollectionAccess } from '../services/providerAccess.js';
+import { deleteCaldavEvent, putCaldavEvent } from '../services/providers/caldavWriteBack.js';
+import { davWriteBackHttpStatus } from '../services/providers/davWriteBack.js';
+import type { DavWriteBackRouteResult } from '../services/providers/davWriteBack.js';
+import { evaluateDavIf, ifMatchSatisfied } from '../utils/davPreconditions.js';
 import { toAppError } from '../utils/errors.js';
 import type { Request, Response, NextFunction } from 'express';
+
+/**
+ * Refuse a DAV write with a reason.
+ *
+ * `403` with no body is the least useful answer a client can get: it cannot distinguish a
+ * permissions problem from a collection Inboxora keeps read-only because its source writes it, and
+ * neither can a user reading a log. A `DAV:error` body is the standard place to say which.
+ */
+function davRefusal(res: Response, reason: string): void {
+  res
+    .status(403)
+    .type('application/xml')
+    .send(`<?xml version="1.0" encoding="utf-8"?><D:error xmlns:D="DAV:"><D:responsedescription>${xmlEscape(reason)}</D:responsedescription></D:error>`);
+}
+
+/**
+ * Answer an external write-back's result.
+ *
+ * The mapping lives in the write-back module so the two DAV routers cannot drift; here only the
+ * ETag a confirmed write produced is added, because a client stores it for its next `If-Match`.
+ */
+function respondWriteBack(res: Response, result: DavWriteBackRouteResult): void {
+  if (result.retryAfterSeconds !== undefined) res.setHeader('Retry-After', String(result.retryAfterSeconds));
+  if (result.status === 'confirmed' && result.etag) res.setHeader('ETag', `"${result.etag}"`);
+  res.status(davWriteBackHttpStatus(result)).end();
+}
+
+/** The collection columns the capability model and the write-back both read. */
+interface CalendarAccessRow {
+  id: string;
+  name?: string | null;
+  sync_token?: string | null;
+  read_only?: boolean | null;
+  source?: string | null;
+  dav_mode?: string | null;
+  external_url?: string | null;
+  /** `integration_collections.source_access`: what the origin itself permits. */
+  source_access?: string | null;
+  /** `integration_collections.user_access`: the user's own write-back opt-in. */
+  user_access?: string | null;
+}
+
+const CALENDAR_ACCESS_COLUMNS = 'c.id, c.name, c.sync_token, c.read_only, c.source, c.dav_mode, c.external_url, ic.source_access, ic.user_access';
+/** A calendar maps to at most one integration collection; an absent row leaves the columns null. */
+const CALENDAR_ACCESS_JOIN = `LEFT JOIN LATERAL (
+    SELECT source_access, user_access FROM integration_collections
+     WHERE local_calendar_id = c.id ORDER BY created_at ASC LIMIT 1
+  ) ic ON true`;
 
 const router = Router();
 const caldavBuckets = new Map();
@@ -44,16 +98,54 @@ function sendXml(res: Response, status: number, body: string) {
   res.status(status).setHeader('Content-Type', 'application/xml; charset=utf-8').send(body);
 }
 
+/**
+ * The largest DAV body that means anything is one event or one card, and nothing else bounds this
+ * stream: the application's JSON body limit does not apply to XML, calendar and vCard content types.
+ * The cap belongs here, where the request is legitimately read.
+ *
+ * An oversized body is discarded rather than buffered, and the answer comes once the client has
+ * finished sending — replying mid-upload left the exchange hanging. The rejection carries
+ * body-parser's `entity.too.large` marker, so the application answers `413` with the same route-aware
+ * message it already gives for an oversized JSON upload.
+ */
+const DAV_BODY_LIMIT_BYTES = 1_048_576;
+
+function davBodyTooLarge(): Error & { type: string } {
+  return Object.assign(new Error('DAV request body is too large'), { type: 'entity.too.large' });
+}
+
 function rawBody(req: Request) {
-  return new Promise<string>(( resolve, reject) => {
+  return new Promise<string>((resolve, reject) => {
     if (typeof req.body === 'string') return resolve(req.body);
     if (Buffer.isBuffer(req.body)) return resolve(req.body.toString('utf8'));
+    const declared = Number(req.headers['content-length'] ?? 0);
+    let tooLarge = Number.isFinite(declared) && declared > DAV_BODY_LIMIT_BYTES;
     let body = '';
+    let seen = 0;
     req.setEncoding('utf8');
-    req.on('data', (chunk) => { body += chunk; });
-    req.on('end', () => resolve(body));
+    req.on('data', (chunk) => {
+      seen += Buffer.byteLength(chunk, 'utf8');
+      if (seen > DAV_BODY_LIMIT_BYTES) { tooLarge = true; return; }
+      body += chunk;
+    });
+    req.on('end', () => (tooLarge ? reject(davBodyTooLarge()) : resolve(body)));
     req.on('error', reject);
   });
+}
+
+/**
+ * The report's root element name, with any namespace prefix removed.
+ *
+ * Dispatch used to be `body.includes('calendar-query')`, which the plan names as the wrong way: the string can
+ * appear inside an href, and a multiget naming such a resource was then read as a query. The root element is what
+ * the report actually is, and a declaration, comment or CDATA before it is skipped.
+ */
+function davReportName(body: string): string | null {
+  const withoutPreamble = body
+    .replace(/<\?xml[^>]*\?>/i, '')
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .trimStart();
+  return /^<\s*(?:[A-Za-z_][\w.-]*:)?([A-Za-z_][\w.-]*)\b/.exec(withoutPreamble)?.[1] ?? null;
 }
 
 function uidFromCalendarHref(href: string) {
@@ -65,7 +157,9 @@ function uidFromCalendarHref(href: string) {
 }
 
 function etagMatches(header: string, etag: string): boolean {
-  return header === '*' || header.split(',').some((value: string) => value.trim().replace(/^W\//, '').replaceAll('"', '') === etag);
+  // Strong comparison for If-Match (RFC 9110 §13.1.1): a weak validator never
+  // matches. Kept as a thin alias so the two call sites read the same as before.
+  return ifMatchSatisfied(header, etag);
 }
 
 function multistatus(responses: string[]) {
@@ -86,6 +180,54 @@ function response(href: string, properties: string[], status = '200 OK') {
     `</D:prop><D:status>HTTP/1.1 ${status}</D:status></D:propstat>`,
     '</D:response>',
   ].join('');
+}
+
+// RFC 3744 privileges this server can actually enforce. The home collection is a
+// container only — MKCALENDAR is not implemented — so it advertises read; a
+// calendar collection adds the write privileges only when it is not read-only.
+const READ_PRIVILEGES = ['<D:read/>'];
+const WRITE_PRIVILEGES = ['<D:read/>', '<D:write/>', '<D:write-content/>', '<D:bind/>', '<D:unbind/>'];
+
+type DavMode = 'off' | 'read_only' | 'read_write';
+
+/** An unknown/absent mode is treated as fully enabled, matching pre-0105 rows. */
+function davModeOf(value: unknown): DavMode {
+  return value === 'off' || value === 'read_only' || value === 'read_write' ? value : 'read_write';
+}
+
+function privilegeSet(writable: boolean) {
+  const privileges = writable ? WRITE_PRIVILEGES : READ_PRIVILEGES;
+  return `<D:current-user-privilege-set>${privileges.map(privilege => `<D:privilege>${privilege}</D:privilege>`).join('')}</D:current-user-privilege-set>`;
+}
+
+// Only the reports this route actually implements are advertised (RFC 3253).
+function supportedReportSet() {
+  const reports = ['<C:calendar-query/>', '<C:calendar-multiget/>', '<D:sync-collection/>'];
+  return `<D:supported-report-set>${reports.map(report => `<D:supported-report>${report}</D:supported-report>`).join('')}</D:supported-report-set>`;
+}
+
+/** The authenticating device password's ceiling, or `null` when it sets none. */
+function credentialMaxMode(req: Request): 'read_only' | 'read_write' | null {
+  return req.davMaxMode === 'read_only' || req.davMaxMode === 'read_write' ? req.davMaxMode : null;
+}
+
+/** Whether the capability model accepts a DAV write to this calendar. */
+function calendarDavWritable(req: Request, calendar: { source?: string | null; read_only?: boolean | null; dav_mode?: string | null }): boolean {
+  return collectionDavWritable(calendar, 'calendars', credentialMaxMode(req));
+}
+
+/** The `Depth: 1` member listing of a calendar collection (RFC 4791 §5.2). */
+function calendarCollectionProperties(calendar: { id: string; name?: string | null; sync_token?: string | null }, writable: boolean): string[] {
+  // `writable` comes from the capability resolver, the same decision the PUT and
+  // DELETE handlers enforce, so the advertised privileges cannot offer a write
+  // the guard would refuse.
+  return [
+    '<D:resourcetype><D:collection/><C:calendar/></D:resourcetype>',
+    `<D:displayname>${xmlEscape(calendar.name)}</D:displayname>`,
+    `<D:sync-token>${xmlEscape(calendar.sync_token)}</D:sync-token>`,
+    privilegeSet(writable),
+    supportedReportSet(),
+  ];
 }
 
 function caldavRateLimit(req: Request, res: Response, next: NextFunction) {
@@ -113,9 +255,11 @@ router.use((req, _res, next) => {
 });
 
 router.options('*', (_req: Request, res: Response) => {
+  // Class 2 (LOCK) and class 3 (extended MKCOL) are not implemented and must not
+  // be advertised; `calendar-access` plus class 1 matches the methods below.
   res.set({
     Allow: 'OPTIONS, GET, PUT, DELETE, PROPFIND, REPORT',
-    DAV: '1, 2, 3, calendar-access',
+    DAV: '1, calendar-access',
   }).status(200).end();
 });
 
@@ -132,58 +276,73 @@ router.propfind('/', (req: Request, res: Response) => {
 router.propfind('/:userId/', async (req: Request, res: Response) => {
   if (req.params.userId !== req.caldavUserId) return res.status(403).end();
 
-  const calendars = await query(
-    'SELECT id, name, sync_token FROM calendars WHERE user_id = $1 ORDER BY created_at ASC',
+  const calendars = await query<CalendarAccessRow>(
+    // A collection turned off is not discoverable at all.
+    `SELECT ${CALENDAR_ACCESS_COLUMNS} FROM calendars c ${CALENDAR_ACCESS_JOIN}
+      WHERE c.user_id = $1 AND c.dav_mode <> 'off' ORDER BY c.created_at ASC`,
     [req.caldavUserId],
   );
   const principalPath = `/caldav/${req.caldavUserId}/`;
-  const calendarHome = calendars.rows[0]
-    ? `/caldav/${req.caldavUserId}/${calendars.rows[0].id}/`
-    : principalPath;
-
-  sendXml(res, 207, multistatus([
+  // The home is the principal collection itself, not one of its calendars: the old
+  // response pointed `calendar-home-set` at the first calendar, so a client that
+  // trusted it never discovered the others (plan A07/RFC 4791 §6.2.1).
+  const responses = [
     response(principalPath, [
       '<D:resourcetype><D:principal/><D:collection/></D:resourcetype>',
       `<D:displayname>${xmlEscape(req.caldavUserId)}</D:displayname>`,
       `<D:current-user-principal><D:href>${xmlEscape(principalPath)}</D:href></D:current-user-principal>`,
-      `<C:calendar-home-set><D:href>${xmlEscape(calendarHome)}</D:href></C:calendar-home-set>`,
+      `<C:calendar-home-set><D:href>${xmlEscape(principalPath)}</D:href></C:calendar-home-set>`,
+      // The home is a container; creating/removing calendars over DAV is not supported.
+      privilegeSet(false),
     ]),
-  ]));
+  ];
+  // Depth: 1 lists the member calendar collections; Depth: 0 (the default) returns
+  // only the home itself, as RFC 4918 requires.
+  if (String(req.headers.depth ?? '0') === '1') {
+    for (const calendar of calendars.rows) {
+      responses.push(response(`${principalPath}${calendar.id}/`, calendarCollectionProperties(calendar, calendarDavWritable(req, calendar))));
+    }
+  }
+  sendXml(res, 207, multistatus(responses));
 });
 
 router.propfind('/:userId/:calendarId/', async (req: Request, res: Response) => {
   if (req.params.userId !== req.caldavUserId) return res.status(403).end();
 
-  const result = await query(
-    'SELECT id, name, sync_token FROM calendars WHERE id = $1 AND user_id = $2',
+  const result = await query<CalendarAccessRow>(
+    `SELECT ${CALENDAR_ACCESS_COLUMNS} FROM calendars c ${CALENDAR_ACCESS_JOIN} WHERE c.id = $1 AND c.user_id = $2`,
     [req.params.calendarId, req.caldavUserId],
   );
   const calendar = result.rows[0];
-  if (!calendar) return res.status(404).end();
+  // An off collection is reported as missing, so its existence is not leaked.
+  if (!calendar || davModeOf(calendar.dav_mode) === 'off') return res.status(404).end();
 
-  const calendarPath = `/caldav/${req.caldavUserId}/${calendar.id}/`;
   sendXml(res, 207, multistatus([
-    response(calendarPath, [
-      '<D:resourcetype><D:collection/><C:calendar/></D:resourcetype>',
-      `<D:displayname>${xmlEscape(calendar.name)}</D:displayname>`,
-      `<D:sync-token>${xmlEscape(calendar.sync_token)}</D:sync-token>`,
-    ]),
+    response(`/caldav/${req.caldavUserId}/${calendar.id}/`, calendarCollectionProperties(calendar, calendarDavWritable(req, calendar))),
   ]));
+});
+
+router.proppatch('/:userId/:calendarId/', async (req: Request, res: Response) => {
+  if (req.params.userId !== req.caldavUserId) return res.status(403).end();
+  return davRefusal(res, 'Calendar properties are managed by Inboxora, not by DAV clients.');
 });
 
 router.report('/:userId/:calendarId/', async (req: Request, res: Response) => {
   if (req.params.userId !== req.caldavUserId) return res.status(403).end();
-  const calendarResult = await query<{ sync_version: number; [key: string]: unknown }>(
-    'SELECT id, sync_token, sync_version FROM calendars WHERE id = $1 AND user_id = $2',
+  const calendarResult = await query<{ sync_version: number; dav_mode?: string | null; [key: string]: unknown }>(
+    'SELECT id, sync_token, sync_version, dav_mode FROM calendars WHERE id = $1 AND user_id = $2',
     [req.params.calendarId, req.caldavUserId],
   );
   const calendar = calendarResult.rows[0];
-  if (!calendar) return res.status(404).end();
+  if (!calendar || davModeOf(calendar.dav_mode) === 'off') return res.status(404).end();
 
   const body = await rawBody(req);
-  const isSyncCollection = body.includes('sync-collection');
-  const isCalendarQuery = body.includes('calendar-query');
-  const isCalendarMultiget = body.includes('calendar-multiget');
+  // Dispatch on the report's root element, not on a substring of its body.
+  const reportName = davReportName(body);
+  const isSyncCollection = reportName === 'sync-collection';
+  const isCalendarQuery = reportName === 'calendar-query';
+  const isCalendarMultiget = reportName === 'calendar-multiget';
+  if (!reportName) return res.status(400).end();
   if (!isSyncCollection && !isCalendarQuery && !isCalendarMultiget) return res.status(400).end();
 
   const basePath = `/caldav/${req.caldavUserId}/${calendar.id}/`;
@@ -193,7 +352,9 @@ router.report('/:userId/:calendarId/', async (req: Request, res: Response) => {
     const match = requestedToken?.match(/^sync-(\d+)$/);
     const requestedVersion = match ? Number(match[1]) : null;
     if (requestedToken && (requestedVersion === null || !Number.isSafeInteger(requestedVersion) || requestedVersion > calendar.sync_version)) {
-      return sendXml(res, 409, `<?xml version="1.0" encoding="UTF-8"?><D:error xmlns:D="${DAV_NS}"><D:valid-sync-token/></D:error>`);
+      // RFC 6578 §3.2: an unrecognised/expired sync token is the 403
+      // DAV:valid-sync-token precondition, which tells the client to resynchronise.
+      return sendXml(res, 403, `<?xml version="1.0" encoding="UTF-8"?><D:error xmlns:D="${DAV_NS}"><D:valid-sync-token/></D:error>`);
     }
     if (requestedToken) {
       const changes = await query<CalendarEventRow>(
@@ -237,7 +398,17 @@ router.report('/:userId/:calendarId/', async (req: Request, res: Response) => {
         "SELECT uid, recurrence_id, etag, raw_ical, dav_filename FROM calendar_events WHERE calendar_id = $1 AND recurrence_id = $2 ORDER BY uid ASC",
         [calendar.id, ''],
       );
-    events = current.rows;
+    // `OR recurring` selects candidates; it is not the final word. A series whose rule never lands inside the
+    // requested window is a candidate that matches nothing, and returning it hands the client resources it did
+    // not ask for — so the projection decides, which is also what makes the filter correct across DST and
+    // overrides rather than approximately right.
+    events = start && end
+      // The row is a calendar_events record; the projection reads its raw iCalendar, which is the only
+      // part of it the helper needs.
+      ? current.rows.filter(row => projectCalendarResource(
+        row as unknown as Parameters<typeof projectCalendarResource>[0], start, end,
+      ).length > 0)
+      : current.rows;
   }
 
   const responses = events.map((event) => response(`${basePath}${encodeURIComponent(event.dav_filename || `${event.uid}.ics`)}`, event.deleted
@@ -256,7 +427,7 @@ router.get('/:userId/:calendarId/:filename', async (req: Request, res: Response)
   const result = await query(
     `SELECT e.raw_ical, e.etag FROM calendar_events e
      JOIN calendars c ON c.id = e.calendar_id
-     WHERE c.id = $1 AND c.user_id = $2 AND COALESCE(e.dav_filename, e.uid || '.ics') = $3`,
+     WHERE c.id = $1 AND c.user_id = $2 AND c.dav_mode <> 'off' AND COALESCE(e.dav_filename, e.uid || '.ics') = $3`,
     [req.params.calendarId, req.caldavUserId, uid],
   );
   if (!result.rows[0]) return res.status(404).end();
@@ -266,18 +437,22 @@ router.get('/:userId/:calendarId/:filename', async (req: Request, res: Response)
 
 router.put('/:userId/:calendarId/:filename', async (req: Request, res: Response) => {
   if (req.params.userId !== req.caldavUserId) return res.status(403).end();
-  const calendarResult = await query(
-    'SELECT id, source, read_only FROM calendars WHERE id = $1 AND user_id = $2',
+  const calendarResult = await query<CalendarAccessRow>(
+    `SELECT ${CALENDAR_ACCESS_COLUMNS} FROM calendars c ${CALENDAR_ACCESS_JOIN} WHERE c.id = $1 AND c.user_id = $2`,
     [req.params.calendarId, req.caldavUserId],
   );
   const calendar = calendarResult.rows[0];
-  if (!calendar) return res.status(404).end();
-  if (calendar.source !== 'local' || calendar.read_only) return res.status(403).end();
+  if (!calendar || davModeOf(calendar.dav_mode) === 'off') return res.status(404).end();
+  // One decision, from the capability model: the source's adapter, the
+  // collection's own access and the device password's ceiling are combined there
+  // rather than re-derived here.
+  const access = resolveCollectionAccess(calendar, { feature: 'calendars', operation: 'update', channel: 'dav', credentialMaxMode: credentialMaxMode(req) });
+  if (!access.allowed) return davRefusal(res, davWriteRefusalMessage(access, 'calendar'));
   const event = parseCalendarEvent(await rawBody(req));
   const filename = req.params.filename;
   if (!event) return res.status(400).end();
-  const currentResult = await query<{ uid: string; dav_filename?: string | null; etag: string; invite_account_id?: string | null }>(
-    "SELECT uid, dav_filename, etag, invite_account_id FROM calendar_events WHERE calendar_id = $1 AND (uid = $2 OR COALESCE(dav_filename, uid || '.ics') = $4) AND recurrence_id = $3",
+  const currentResult = await query<{ id: string; uid: string; dav_filename?: string | null; etag: string; invite_account_id?: string | null }>(
+    "SELECT id, uid, dav_filename, etag, invite_account_id FROM calendar_events WHERE calendar_id = $1 AND (uid = $2 OR COALESCE(dav_filename, uid || '.ics') = $4) AND recurrence_id = $3",
     [calendar.id, event.uid, '', filename],
   );
   const current = currentResult.rows[0];
@@ -285,6 +460,28 @@ router.put('/:userId/:calendarId/:filename', async (req: Request, res: Response)
   if (current?.invite_account_id) return res.status(409).end();
   if (req.headers['if-none-match'] === '*' && current) return res.status(412).end();
   if (req.headers['if-match'] && (!current || !etagMatches(req.headers['if-match'], current.etag))) return res.status(412).end();
+  // The `If` header is a precondition too: a form we cannot evaluate fails rather
+  // than silently unprotecting the write.
+  const ifDecision = evaluateDavIf(req.headers['if'], { etag: current?.etag ?? null, syncToken: calendar.sync_token ?? null });
+  if (ifDecision.status === 'bad-request') return res.status(400).end();
+  if (ifDecision.status === 'precondition-failed') return res.status(412).end();
+  // An imported collection writes through its own adapter; the source's answer is what decides
+  // whether the local projection changes at all.
+  if (access.providerKey === 'caldav') {
+    return respondWriteBack(res, await putCaldavEvent({
+      method: 'PUT',
+      userId: req.caldavUserId,
+      calendar: { id: calendar.id, external_url: calendar.external_url ?? null, source: calendar.source ?? null },
+      filename: String(filename),
+      uid: event.uid,
+      raw: event.raw,
+      parsed: event,
+      exists: Boolean(current),
+      localObjectId: current?.id ?? null,
+      localRevision: current?.etag ?? null,
+      credentialId: req.caldavCredentialId ?? null,
+    }));
+  }
   let stored;
   try {
     stored = await query(
@@ -310,16 +507,40 @@ router.put('/:userId/:calendarId/:filename', async (req: Request, res: Response)
 
 router.delete('/:userId/:calendarId/:filename', async (req: Request, res: Response) => {
   if (req.params.userId !== req.caldavUserId) return res.status(403).end();
-  const calendarResult = await query('SELECT id, source, read_only FROM calendars WHERE id = $1 AND user_id = $2', [req.params.calendarId, req.caldavUserId]);
+  const calendarResult = await query<CalendarAccessRow>(
+    `SELECT ${CALENDAR_ACCESS_COLUMNS} FROM calendars c ${CALENDAR_ACCESS_JOIN} WHERE c.id = $1 AND c.user_id = $2`,
+    [req.params.calendarId, req.caldavUserId],
+  );
   const calendar = calendarResult.rows[0];
-  if (!calendar) return res.status(404).end();
-  if (calendar.source !== 'local' || calendar.read_only) return res.status(403).end();
+  if (!calendar || davModeOf(calendar.dav_mode) === 'off') return res.status(404).end();
+  const access = resolveCollectionAccess(calendar, { feature: 'calendars', operation: 'delete', channel: 'dav', credentialMaxMode: credentialMaxMode(req) });
+  if (!access.allowed) return davRefusal(res, davWriteRefusalMessage(access, 'calendar'));
   const uid = req.params.filename;
-  const currentResult = await query<{ etag: string; invite_account_id?: string | null }>("SELECT etag, invite_account_id FROM calendar_events WHERE calendar_id = $1 AND COALESCE(dav_filename, uid || '.ics') = $2 AND recurrence_id = $3", [calendar.id, uid, '']);
+  const currentResult = await query<{ id: string; uid: string; etag: string; invite_account_id?: string | null }>("SELECT id, uid, etag, invite_account_id FROM calendar_events WHERE calendar_id = $1 AND COALESCE(dav_filename, uid || '.ics') = $2 AND recurrence_id = $3", [calendar.id, uid, '']);
   const current = currentResult.rows[0];
   if (!current) return res.status(404).end();
   if (current.invite_account_id) return res.status(409).end();
   if (req.headers['if-match'] && !etagMatches(req.headers['if-match'], current.etag)) return res.status(412).end();
+  // The `If` header is a precondition too: a form we cannot evaluate fails rather
+  // than silently unprotecting the delete.
+  const ifDecision = evaluateDavIf(req.headers['if'], { etag: current.etag, syncToken: calendar.sync_token ?? null });
+  if (ifDecision.status === 'bad-request') return res.status(400).end();
+  if (ifDecision.status === 'precondition-failed') return res.status(412).end();
+  if (access.providerKey === 'caldav') {
+    return respondWriteBack(res, await deleteCaldavEvent({
+      method: 'DELETE',
+      userId: req.caldavUserId,
+      calendar: { id: calendar.id, external_url: calendar.external_url ?? null, source: calendar.source ?? null },
+      filename: String(uid),
+      uid: current.uid,
+      raw: '',
+      parsed: null,
+      exists: true,
+      localObjectId: current.id,
+      localRevision: current.etag,
+      credentialId: req.caldavCredentialId ?? null,
+    }));
+  }
   const deleted = await query(
     "DELETE FROM calendar_events WHERE calendar_id = $1 AND COALESCE(dav_filename, uid || '.ics') = $2 AND recurrence_id = $3 AND invite_account_id IS NULL AND etag = $4 RETURNING id",
     [calendar.id, uid, '', current.etag],

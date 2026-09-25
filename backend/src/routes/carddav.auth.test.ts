@@ -62,7 +62,7 @@ beforeEach(() => {
 
 describe('CardDAV authentication', () => {
   it('accepts only a dedicated DAV app password', async () => {
-    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
+    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1', maxDavMode: 'read_write' });
 
     const response = await fetch(`${base}/carddav/`, {
       method: 'OPTIONS',
@@ -90,7 +90,7 @@ describe('CardDAV authentication', () => {
   });
 
   it('discovers every provisioned address book for a DAV client', async () => {
-    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
+    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1', maxDavMode: 'read_write' });
     query.mockResolvedValueOnce({ rows: [
       { id: 'personal-contacts', name: 'Prywatne', sync_token: 'sync-private' },
       { id: 'work-contacts', name: 'Służbowe', sync_token: 'sync-work' },
@@ -105,14 +105,37 @@ describe('CardDAV authentication', () => {
     const xml = await response.text();
     expect(xml).toContain('/carddav/user-1/personal-contacts/');
     expect(xml).toContain('/carddav/user-1/work-contacts/');
-    expect(query).toHaveBeenCalledWith(
-      'SELECT id, name, sync_token, sync_version FROM address_books WHERE user_id = $1 ORDER BY created_at',
-      ['user-1'],
-    );
+    const discovery = query.mock.calls.find(([sql]) => String(sql).includes('FROM address_books ab'));
+    expect(discovery?.[1]).toEqual(['user-1']);
+    expect(String(discovery?.[0])).toContain('ab.user_id = $1');
+    expect(String(discovery?.[0])).toContain("ab.dav_mode <> 'off'");
+  });
+
+  it('advertises CardDAV write privileges only for a local address book', async () => {
+    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1', maxDavMode: 'read_write' });
+
+    query.mockResolvedValueOnce({ rows: [{ id: 'book-local', name: 'Personal', sync_token: 'sync-1', source: 'local' }] });
+    const local = await fetch(`${base}/carddav/user-1/book-local/`, {
+      method: 'PROPFIND',
+      headers: { authorization: basic('sam@example.test', 'secret'), depth: '0' },
+    });
+    const localBody = await local.text();
+    expect(localBody).toContain('<D:current-user-privilege-set>');
+    expect(localBody).toContain('<D:privilege><D:write/></D:privilege>');
+
+    query.mockReset();
+    query.mockResolvedValueOnce({ rows: [{ id: 'book-remote', name: 'Remote', sync_token: 'sync-2', source: 'carddav' }] });
+    const remote = await fetch(`${base}/carddav/user-1/book-remote/`, {
+      method: 'PROPFIND',
+      headers: { authorization: basic('sam@example.test', 'secret'), depth: '0' },
+    });
+    const remoteBody = await remote.text();
+    expect(remoteBody).toContain('<D:privilege><D:read/></D:privilege>');
+    expect(remoteBody).not.toContain('<D:write');
   });
 
   it('rejects writes to an imported address book', async () => {
-    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
+    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1', maxDavMode: 'read_write' });
     query.mockResolvedValueOnce({ rows: [{ id: 'book-1', source: 'carddav' }] });
 
     const response = await fetch(`${base}/carddav/user-1/book-1/contact-1.vcf`, {
@@ -128,7 +151,7 @@ describe('CardDAV authentication', () => {
   });
 
   it('maps all local CardDAV create date and photo columns by position', async () => {
-    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
+    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1', maxDavMode: 'read_write' });
     query
       .mockResolvedValueOnce({ rows: [{ id: 'book-1', source: 'local' }] })
       .mockResolvedValueOnce({ rows: [] })
@@ -161,7 +184,7 @@ describe('CardDAV authentication', () => {
   });
 
   it('rejects an impossible BDAY before querying the address book', async () => {
-    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
+    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1', maxDavMode: 'read_write' });
 
     const response = await fetch(`${base}/carddav/user-1/book-1/contact-1.vcf`, {
       method: 'PUT',
@@ -177,7 +200,7 @@ describe('CardDAV authentication', () => {
   });
 
   it('rejects unsafe quoted labelled-date parameters before querying the address book', async () => {
-    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
+    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1', maxDavMode: 'read_write' });
 
     const response = await fetch(`${base}/carddav/user-1/book-1/contact-1.vcf`, {
       method: 'PUT',
@@ -190,7 +213,7 @@ describe('CardDAV authentication', () => {
   });
 
   it('rejects raw line breaks inside quoted labelled-date parameters before querying the address book', async () => {
-    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
+    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1', maxDavMode: 'read_write' });
 
     const response = await fetch(`${base}/carddav/user-1/book-1/contact-1.vcf`, {
       method: 'PUT',
@@ -203,7 +226,7 @@ describe('CardDAV authentication', () => {
   });
 
   it('persists valid Android labelled dates on a local CardDAV write', async () => {
-    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
+    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1', maxDavMode: 'read_write' });
     query
       .mockResolvedValueOnce({ rows: [{ id: 'book-1', source: 'local' }] })
       .mockResolvedValueOnce({ rows: [] })
@@ -225,7 +248,7 @@ describe('CardDAV authentication', () => {
   });
 
   it('persists semicolons in labelled dates on a local CardDAV write', async () => {
-    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
+    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1', maxDavMode: 'read_write' });
     query
       .mockResolvedValueOnce({ rows: [{ id: 'book-1', source: 'local' }] })
       .mockResolvedValueOnce({ rows: [] })
@@ -247,7 +270,7 @@ describe('CardDAV authentication', () => {
   });
 
   it('rejects replacing an existing DAV path with a different UID', async () => {
-    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
+    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1', maxDavMode: 'read_write' });
     query.mockResolvedValueOnce({ rows: [{ id: 'book-1', source: 'local' }] }).mockResolvedValueOnce({ rows: [{ uid: 'path-a', dav_filename: 'path-a.vcf', etag: 'old' }] });
     const response = await fetch(`${base}/carddav/user-1/book-1/path-a.vcf`, {
       method: 'PUT',
@@ -260,7 +283,7 @@ describe('CardDAV authentication', () => {
   });
 
   it('rejects an impossible BDAY before querying the address book', async () => {
-    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
+    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1', maxDavMode: 'read_write' });
 
     const response = await fetch(`${base}/carddav/user-1/book-1/contact-1.vcf`, {
       method: 'PUT',
@@ -276,7 +299,7 @@ describe('CardDAV authentication', () => {
   });
 
   it('persists valid Android labelled dates on a local CardDAV write', async () => {
-    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
+    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1', maxDavMode: 'read_write' });
     query
       .mockResolvedValueOnce({ rows: [{ id: 'book-1', source: 'local' }] })
       .mockResolvedValueOnce({ rows: [] })
@@ -298,7 +321,7 @@ describe('CardDAV authentication', () => {
   });
 
   it('rejects replacing an existing DAV path with a different UID', async () => {
-    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
+    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1', maxDavMode: 'read_write' });
     query.mockResolvedValueOnce({ rows: [{ id: 'book-1', source: 'local' }] }).mockResolvedValueOnce({ rows: [{ uid: 'path-a', dav_filename: 'path-a.vcf', etag: 'old' }] });
     const response = await fetch(`${base}/carddav/user-1/book-1/path-a.vcf`, {
       method: 'PUT',
@@ -312,7 +335,7 @@ describe('CardDAV authentication', () => {
 });
 
 it('accepts a client chosen filename and maps every rich field and preferred email', async () => {
- authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
+ authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1', maxDavMode: 'read_write' });
  query.mockResolvedValueOnce({ rows: [{ id: 'book-1', source: 'local' }] }).mockResolvedValueOnce({ rows: [] });
  const raw = ['BEGIN:VCARD', 'VERSION:3.0', 'UID:embedded-uid', 'FN:Ada', 'EMAIL;TYPE=HOME:home@example.test', 'EMAIL;TYPE=WORK,PREF:work@example.test', 'TITLE:Director', 'ROLE:Design', 'NICKNAME:A', 'URL:https://example.test', 'IMPP:matrix:ada@example.test', 'CATEGORIES:Team', 'ADR;TYPE=WORK:;;Main Street;Warsaw;;;Poland', 'END:VCARD'].join('\r\n');
  const response = await fetch(`${base}/carddav/user-1/book-1/client-generated.vcf`, { method: 'PUT', headers: { authorization: basic('sam@example.test','secret'), 'if-none-match': '*' }, body: raw });
@@ -324,10 +347,13 @@ it('accepts a client chosen filename and maps every rich field and preferred ema
  expect(sql).toContain('instant_messages, categories, addresses, dav_filename');
 });
 it('enforces create-only and update-only CardDAV preconditions before modifying a contact', async () => {
-  authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
+  authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1', maxDavMode: 'read_write' });
   const preconditions: Array<{ headers: Record<string, string>; rows: Array<{ id: string; uid: string; etag: string }> }> = [
     { headers: { 'if-none-match': '*' }, rows: [{ id: 'contact', uid: 'same', etag: 'old' }] },
     { headers: { 'if-match': '"missing"' }, rows: [] },
+    // A weak validator must never satisfy If-Match (RFC 9110 strong comparison),
+    // even when its value is the current ETag.
+    { headers: { 'if-match': 'W/"old"' }, rows: [{ id: 'contact', uid: 'same', etag: 'old' }] },
   ];
   for (const { headers, rows } of preconditions) {
     query.mockReset(); query.mockResolvedValueOnce({ rows: [{ id: 'book-1', source: 'local' }] }).mockResolvedValueOnce({ rows });
@@ -337,7 +363,7 @@ it('enforces create-only and update-only CardDAV preconditions before modifying 
 });
 
 it('returns CardDAV deltas with deletion tombstones and a collection-scoped token', async () => {
-  authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
+  authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1', maxDavMode: 'read_write' });
   query.mockResolvedValueOnce({ rows: [{ id: 'book-1', sync_version: '7' }] })
     .mockResolvedValueOnce({ rows: [{ dav_filename: 'removed.vcf', deleted: true }] });
   const result = await fetch(`${base}/carddav/user-1/book-1/`, {
@@ -352,19 +378,20 @@ it('returns CardDAV deltas with deletion tombstones and a collection-scoped toke
 });
 
 it('rejects an old or foreign CardDAV token instead of silently missing deletions', async () => {
-  authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
+  authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1', maxDavMode: 'read_write' });
   query.mockResolvedValueOnce({ rows: [{ id: 'book-1', sync_version: 7 }] });
   const result = await fetch(`${base}/carddav/user-1/book-1/`, {
     method: 'REPORT', headers: { authorization: basic('test', 'dav-password') },
     body: '<D:sync-collection xmlns:D="DAV:"><D:sync-token>legacy-random-token</D:sync-token></D:sync-collection>',
   });
-  expect(result.status).toBe(409);
+  // RFC 6578 §3.2: an unrecognised sync token is the 403 valid-sync-token precondition.
+  expect(result.status).toBe(403);
   expect(await result.text()).toContain('valid-sync-token');
   expect(query).toHaveBeenCalledTimes(1);
 });
 
 it('limits CardDAV multiget to requested filenames and reports missing resources', async () => {
-  authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
+  authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1', maxDavMode: 'read_write' });
   query.mockResolvedValueOnce({ rows: [{ id: 'book-1' }] }).mockResolvedValueOnce({ rows: [{ uid: 'embedded-uid', dav_filename: 'ada lovelace.vcf', etag: 'a', vcard: 'FN:Ada' }] });
   const result = await fetch(`${base}/carddav/user-1/book-1/`, {
     method: 'REPORT', headers: { authorization: basic('test', 'dav-password') },

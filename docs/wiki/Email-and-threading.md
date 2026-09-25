@@ -7,6 +7,13 @@ works in practice and what the rest of the mail side offers.
 ## Accounts, folders and the unified inbox
 
 - Multiple IMAP/SMTP accounts can be added, edited, reordered, disabled and reconnected.
+
+**Mail has one transport: IMAP/SMTP, for every provider.** The Google and Microsoft API connections described
+in [Connecting Google and Microsoft accounts](Provider-setup.md) serve **contacts and calendars**; they do not
+send or receive mail, and connecting one does not change how a mailbox is reached. Gmail keeps working with an
+app password, and Microsoft mail needs the API connection *for the mailbox sign-in* — a different use of the
+same authorization — rather than for the messages themselves. There is therefore no second mail transport to
+choose between, and nothing that could silently fall back to another one.
 - Each account has a colour, a sender name, optional **aliases** (send-as addresses with their
   own Reply-To and signature) and an HTML **signature**.
 - Folder roles (Sent, Drafts, Trash, Spam, Archive) are detected from IMAP special-use flags or
@@ -34,6 +41,11 @@ A message is matched to a conversation in this order:
 
 Unresolved references are re-checked later, so a reply that arrives before its parent still
 joins the right thread.
+
+Conversation Engine writes for one user/account are serialized across live ingest, retry and rebuild to reduce
+avoidable PostgreSQL serialization/deadlock contention while preserving concurrency between different accounts.
+The complete physical raw headers remain in `messages.conversation_raw_headers`; the redundant
+`logical_messages.raw_headers` copy is no longer populated.
 
 Provider mapping differs by service:
 
@@ -155,9 +167,14 @@ walkthrough and the scripted alternative.
 - Rich text or plain text, per your compose preference. Rich text supports formatting, lists,
   links, tables and images.
 - To, Cc and Bcc with per-address copy, plus header-injection validation.
-- Attachments and inline images, with a combined size limit; the composer warns when the body
-  mentions an attachment but none is attached, and asks for confirmation when the subject is
-  empty.
+- Attachments and inline images. The composer warns when the body mentions an attachment but none is attached,
+  and asks for confirmation when the subject is empty. It asks the server what the sending account's transport
+  accepts and refuses a file that is already over that limit, before reading or uploading it; the server repeats
+  every check and remains authoritative. The limits belong to the transport — a Microsoft Graph account carries a
+  file up to 150 MB through a resumable upload session, Gmail bounds the encoded raw message at 25 MB, and an SMTP
+  account is bounded by `MAIL_MAX_MESSAGE_BYTES` (25 MiB by default) — and a refusal names the dimension, the real
+  byte count and the limit, so removing the file it names and sending again is the whole recovery. Passing those
+  checks means the transport accepted the message, not that the recipient's server will.
 - Drafts autosave to the account's IMAP **Drafts** folder. Attachments are **not** stored in
   drafts, and the interface says so.
 - Sending is idempotent: a retry after a lost response returns the first result instead of

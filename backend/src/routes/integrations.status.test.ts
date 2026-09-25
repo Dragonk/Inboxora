@@ -42,19 +42,41 @@ vi.mock('../middleware/auth.js', () => ({
 import 'express-async-errors';
 import integrationsRoutes from './integrations.js';
 
+interface ProviderReadiness {
+  configured: boolean;
+  enabled: boolean;
+  mailPolicy: string;
+  browser: { ready: boolean; missing: string[]; redirectUri?: string | null };
+  deviceCode: { supported: boolean; ready: boolean; reason?: string };
+  /** Only Microsoft reports it: the Graph connector has its own callback. */
+  graph?: { ready: boolean; missing: string[]; redirectUri?: string | null };
+  /** The caller's own connections, ids only. */
+  connections?: Array<{ id: string; providerUserId: string | null; status: string }>;
+}
+
 interface IntegrationStatus {
-  microsoft: {
-    configured: boolean;
-  };
+  microsoft: ProviderReadiness;
+  google: ProviderReadiness & { traditionalImapAvailableInInboxora: boolean };
+}
+
+function isReadiness(value: unknown): value is ProviderReadiness {
+  if (typeof value !== 'object' || value === null) return false;
+  const candidate = value as Record<string, unknown>;
+  const browser = candidate.browser as Record<string, unknown> | undefined;
+  const deviceCode = candidate.deviceCode as Record<string, unknown> | undefined;
+  return typeof candidate.configured === 'boolean'
+    && typeof candidate.enabled === 'boolean'
+    && typeof candidate.mailPolicy === 'string'
+    && typeof browser === 'object' && browser !== null
+    && typeof browser.ready === 'boolean' && Array.isArray(browser.missing)
+    && typeof deviceCode === 'object' && deviceCode !== null
+    && typeof deviceCode.supported === 'boolean' && typeof deviceCode.ready === 'boolean';
 }
 
 function isIntegrationStatus(value: unknown): value is IntegrationStatus {
-  if (typeof value !== 'object' || value === null || !('microsoft' in value)) return false;
-  const { microsoft } = value;
-  return typeof microsoft === 'object'
-    && microsoft !== null
-    && 'configured' in microsoft
-    && typeof microsoft.configured === 'boolean';
+  if (typeof value !== 'object' || value === null) return false;
+  const candidate = value as Record<string, unknown>;
+  return isReadiness(candidate.microsoft) && isReadiness(candidate.google);
 }
 
 async function integrationStatusBody(response: globalThis.Response): Promise<IntegrationStatus> {
@@ -91,7 +113,15 @@ function closeServer(server: Server): Promise<void> {
 
 let server: Server | undefined;
 let base: string | undefined;
-const savedClientId = process.env.MS_CLIENT_ID;
+const PROVIDER_ENV_KEYS = [
+  'MS_CLIENT_ID', 'MS_CLIENT_SECRET', 'MS_REDIRECT_URI',
+  'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_REDIRECT_URI',
+] as const;
+const originalProviderEnv = new Map(PROVIDER_ENV_KEYS.map(key => [key, process.env[key]]));
+
+function clearProviderEnv() {
+  for (const key of PROVIDER_ENV_KEYS) delete process.env[key];
+}
 
 function integrationBase(): string {
   if (base === undefined) throw new Error('Integration test server has not started');
@@ -110,31 +140,127 @@ beforeAll(async () => {
 
 afterAll(async () => {
   if (server !== undefined) await closeServer(server);
-  if (savedClientId === undefined) delete process.env.MS_CLIENT_ID;
-  else process.env.MS_CLIENT_ID = savedClientId;
+  for (const key of PROVIDER_ENV_KEYS) {
+    const value = originalProviderEnv.get(key);
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
 });
 
-afterEach(() => { delete process.env.MS_CLIENT_ID; });
+afterEach(() => { clearProviderEnv(); });
 
 describe('GET /api/integrations/status (non-admin capability check)', () => {
-  it('is reachable by a non-admin (not behind requireAdmin) and reports configured=true when MS_CLIENT_ID is set', async () => {
+  it('is reachable by a non-admin and reports Microsoft device readiness from a Client ID alone', async () => {
     process.env.MS_CLIENT_ID = 'some-client-id';
     const res = await fetch(`${integrationBase()}/api/integrations/status`);
     expect(res.status).toBe(200);
-    await expect(integrationStatusBody(res)).resolves.toEqual({ microsoft: { configured: true } });
+    const body = await integrationStatusBody(res);
+    expect(body.microsoft.configured).toBe(true);
+    expect(body.microsoft.enabled).toBe(true);
+    // Device code needs no redirect URI and no secret; the web flow needs the secret. The callback itself is
+    // generated from APP_URL and is never a "missing field".
+    expect(body.microsoft.deviceCode).toMatchObject({ supported: true, ready: true });
+    expect(body.microsoft.browser.ready).toBe(false);
+    expect(body.microsoft.browser.missing).toEqual(['clientSecret']);
+    expect(body.microsoft.mailPolicy).toBe('required');
+  });
+
+  it('reports the Graph connector readiness and the canonical callback it uses', async () => {
+    process.env.MS_CLIENT_ID = 'some-client-id';
+    process.env.MS_CLIENT_SECRET = 'some-secret';
+    process.env.APP_URL = 'https://inboxora.example';
+    // A legacy value is ignored: the callback is generated, so it cannot disagree with the flow.
+    process.env.MS_REDIRECT_URI = 'https://legacy.example/oauth/provider/microsoft/callback';
+
+    const body = await integrationStatusBody(await fetch(`${integrationBase()}/api/integrations/status`));
+    expect(body.microsoft.browser.ready).toBe(true);
+    expect(body.microsoft.graph).toMatchObject({ ready: true, missing: [] });
+    // One callback, shown by the card, sent by the flow and used by the token exchange.
+    expect(body.microsoft.graph?.redirectUri).toBe('https://inboxora.example/oauth/microsoft/callback');
+    expect(body.microsoft.browser.redirectUri).toBe('https://inboxora.example/oauth/microsoft/callback');
+  });
+
+  it('offers nothing when the provider layer is switched off for the installation', async () => {
+    process.env.MS_CLIENT_ID = 'some-client-id';
+    process.env.MS_CLIENT_SECRET = 'some-secret';
+    process.env.MS_REDIRECT_URI = 'https://inboxora.example/oauth/microsoft/callback';
+    process.env.GOOGLE_CLIENT_ID = 'google-client';
+    process.env.GOOGLE_CLIENT_SECRET = 'google-secret';
+    process.env.GOOGLE_REDIRECT_URI = 'https://inboxora.example/oauth/google/callback';
+    process.env.PROVIDER_INTEGRATIONS_ENABLED = '0';
+    try {
+      const body = await integrationStatusBody(await fetch(`${integrationBase()}/api/integrations/status`));
+      // The card must stop offering what the flows would refuse.
+      expect(body.microsoft.enabled).toBe(false);
+      expect(body.microsoft.browser.ready).toBe(false);
+      expect(body.google.enabled).toBe(false);
+      expect(body.google.browser.ready).toBe(false);
+    } finally {
+      delete process.env.PROVIDER_INTEGRATIONS_ENABLED;
+    }
+  });
+
+  it('reports Microsoft web readiness once the client and the secret are present', async () => {
+    process.env.MS_CLIENT_ID = 'some-client-id';
+    process.env.MS_CLIENT_SECRET = 'some-secret';
+    const body = await integrationStatusBody(await fetch(`${integrationBase()}/api/integrations/status`));
+    expect(body.microsoft.browser).toMatchObject({ ready: true, missing: [] });
+    expect(body.microsoft.browser.redirectUri).toBe('https://inboxora.example/oauth/microsoft/callback');
   });
 
   it('reports configured=false when MS_CLIENT_ID is unset', async () => {
     const res = await fetch(`${integrationBase()}/api/integrations/status`);
     expect(res.status).toBe(200);
-    await expect(integrationStatusBody(res)).resolves.toEqual({ microsoft: { configured: false } });
+    const body = await integrationStatusBody(res);
+    expect(body.microsoft.configured).toBe(false);
+    expect(body.microsoft.enabled).toBe(false);
+    expect(body.microsoft.browser.ready).toBe(false);
+    expect(body.microsoft.deviceCode).toMatchObject({ supported: true, ready: false, reason: 'missing_client_id' });
+  });
+
+  it('never advertises a Google device-code flow and keeps IMAP/SMTP available', async () => {
+    const body = await integrationStatusBody(await fetch(`${integrationBase()}/api/integrations/status`));
+    expect(body.google.mailPolicy).toBe('recommended');
+    expect(body.google.traditionalImapAvailableInInboxora).toBe(true);
+    expect(body.google.deviceCode).toEqual({ supported: false, ready: false, reason: 'not_supported' });
+    expect(body.google.browser.ready).toBe(false);
+    expect(body.google.browser.missing).toEqual(['clientId', 'clientSecret']);
+  });
+
+  it('reports Google browser readiness once the web fields are present', async () => {
+    process.env.GOOGLE_CLIENT_ID = 'google-client';
+    process.env.GOOGLE_CLIENT_SECRET = 'google-secret';
+    try {
+      const body = await integrationStatusBody(await fetch(`${integrationBase()}/api/integrations/status`));
+      expect(body.google.browser).toMatchObject({ ready: true, missing: [] });
+      expect(body.google.browser.redirectUri).toBe('https://inboxora.example/oauth/google/callback');
+      expect(body.microsoft.configured).toBe(false);
+    } finally {
+      delete process.env.GOOGLE_CLIENT_ID;
+      delete process.env.GOOGLE_CLIENT_SECRET;
+    }
+  });
+
+  it('reports only the caller own connections, and only their ids', async () => {
+    process.env.MS_CLIENT_ID = 'some-client-id';
+    const body = await integrationStatusBody(await fetch(`${integrationBase()}/api/integrations/status`));
+    // The field must exist even with nothing connected, so the card can distinguish
+    // "not connected" from "status not loaded".
+    expect(body.microsoft.connections).toEqual([]);
+    expect(body.google.connections).toEqual([]);
   });
 
   it('never leaks credentials in the response', async () => {
     process.env.MS_CLIENT_ID = 'super-secret-client-id';
-    const res = await fetch(`${integrationBase()}/api/integrations/status`);
-    const body = await res.text();
-    expect(body).not.toContain('super-secret-client-id');
+    process.env.MS_CLIENT_SECRET = 'super-secret-value';
+    try {
+      const res = await fetch(`${integrationBase()}/api/integrations/status`);
+      const body = await res.text();
+      expect(body).not.toContain('super-secret-client-id');
+      expect(body).not.toContain('super-secret-value');
+    } finally {
+      delete process.env.MS_CLIENT_SECRET;
+    }
   });
 });
 

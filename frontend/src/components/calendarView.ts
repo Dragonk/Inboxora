@@ -150,6 +150,27 @@ export function createDayEventsResolver(events: CalendarViewEvent[] | null | und
   };
 }
 
+/** The recurrence editor fields. `none` (or a missing object) means a single event. */
+export type RecurrenceFrequency = 'none' | 'daily' | 'weekly' | 'monthly' | 'yearly';
+export interface RecurrenceForm {
+  frequency?: RecurrenceFrequency;
+  interval?: number;
+  /** 0 = Sunday … 6 = Saturday, matching the work-day preference. */
+  byWeekday?: number[];
+  end?: 'never' | 'until' | 'count';
+  until?: string;
+  count?: number;
+}
+
+/** The structured rule the API accepts; the server renders the RRULE. */
+export interface RecurrencePayload {
+  frequency: Exclude<RecurrenceFrequency, 'none'>;
+  interval?: number;
+  byWeekday?: number[];
+  until?: string;
+  count?: number;
+}
+
 /** The event/calendar form the payload builders read. */
 export interface CalendarEventForm {
   summary?: string;
@@ -165,7 +186,83 @@ export interface CalendarEventForm {
   organizer?: string;
   recurrenceId?: string | null;
   sendInvites?: boolean;
+  mode?: 'create' | 'edit';
+  /** Which occurrence of a series the edit applies to. */
+  /** Which part of a series the editor is changing: the occurrence, it and the rest, or the whole series. */
+  editScope?: 'single' | 'following' | 'series';
+  /** The master event id of a series (the list row carries its occurrence id). */
+  seriesId?: string;
+  recurrence?: RecurrenceForm;
+  /** A stored rule the editor cannot represent; kept untouched unless replaced. */
+  recurrenceRaw?: string | null;
+  recurrencePreserve?: boolean;
   [key: string]: unknown;
+}
+
+/**
+ * Build the structured recurrence for the API. `ok: false` means the user left a
+ * required end value empty, so the caller shows the generic invalid-event error
+ * rather than silently creating a different rule.
+ */
+export function buildRecurrence(form: CalendarEventForm): { ok: true; recurrence: RecurrencePayload | null } | { ok: false } {
+  const recurrence = form.recurrence;
+  const frequency = recurrence?.frequency ?? 'none';
+  if (frequency === 'none') return { ok: true, recurrence: null };
+
+  const payload: RecurrencePayload = { frequency };
+  const interval = Number(recurrence?.interval ?? 1);
+  if (!Number.isInteger(interval) || interval < 1 || interval > 999) return { ok: false };
+  if (interval > 1) payload.interval = interval;
+
+  if (frequency === 'weekly') {
+    const weekdays = Array.isArray(recurrence?.byWeekday)
+      ? [...new Set(recurrence.byWeekday)].filter(day => Number.isInteger(day) && day >= 0 && day <= 6).sort((left, right) => left - right)
+      : [];
+    if (weekdays.length) payload.byWeekday = weekdays;
+  }
+
+  if (recurrence?.end === 'until') {
+    const raw = String(recurrence.until ?? '');
+    const until = form.allDay ? raw.slice(0, 10) : (fromDateTimeLocal(raw) ?? raw);
+    if (!until) return { ok: false };
+    payload.until = until;
+  } else if (recurrence?.end === 'count') {
+    const count = Number(recurrence.count ?? 1);
+    if (!Number.isInteger(count) || count < 1 || count > 1000) return { ok: false };
+    payload.count = count;
+  }
+  return { ok: true, recurrence: payload };
+}
+
+/** The recurrence controls a stored series rule populates, or the create defaults. */
+export function recurrenceFormFromStored(stored: { frequency?: string; interval?: number; byWeekday?: number[]; until?: string | null; count?: number | null; custom?: boolean; raw?: string } | null | undefined, allDay: boolean): { recurrence: RecurrenceForm; recurrenceRaw: string | null; recurrencePreserve: boolean } {
+  if (!stored || typeof stored.frequency !== 'string') {
+    return { recurrence: { frequency: 'none', interval: 1, byWeekday: [], end: 'never', until: '', count: 1 }, recurrenceRaw: null, recurrencePreserve: false };
+  }
+  const frequency = ['daily', 'weekly', 'monthly', 'yearly'].includes(stored.frequency) ? stored.frequency as RecurrencePayload['frequency'] : 'none';
+  const count = typeof stored.count === 'number' && stored.count > 0 ? stored.count : null;
+  const until = typeof stored.until === 'string' && stored.until ? stored.until : '';
+  return {
+    recurrence: {
+      frequency,
+      interval: typeof stored.interval === 'number' && stored.interval > 0 ? stored.interval : 1,
+      byWeekday: Array.isArray(stored.byWeekday) ? stored.byWeekday : [],
+      end: count !== null ? 'count' : until ? 'until' : 'never',
+      until: until && !allDay ? icalUntilToDateTimeLocal(until) : until,
+      count: count ?? 1,
+    },
+    recurrenceRaw: typeof stored.raw === 'string' ? stored.raw : null,
+    recurrencePreserve: stored.custom === true,
+  };
+}
+
+/** An iCalendar UNTIL (basic format, usually UTC) as a `datetime-local` value. */
+function icalUntilToDateTimeLocal(value: string): string {
+  const match = /^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})Z?)?$/.exec(value);
+  if (!match) return value;
+  const [, year, month, day, hours = '00', minutes = '00'] = match;
+  const iso = `${year}-${month}-${day}T${hours}:${minutes}:00${value.endsWith('Z') ? 'Z' : ''}`;
+  return toDateTimeLocal(iso);
 }
 
 
@@ -222,8 +319,20 @@ export function eventPayload(form: CalendarEventForm): Record<string, unknown> |
   const attendees = Array.isArray(form.attendees) ? form.attendees.map(value => value.trim()).filter(Boolean) : [];
   const sendInvites = Boolean(form.sendInvites);
   if (sendInvites && (!form.inviteAccountId || !attendees.length)) return null;
+  const recurrenceBuild = buildRecurrence(form);
+  if (!recurrenceBuild.ok) return null;
+  // Create sends a rule only when one was chosen. A series edit always states the
+  // intended rule (null clears it) unless it is preserving a foreign rule the
+  // editor cannot represent. Any other edit must not touch the series rule.
+  // "This and following" states the rule the remainder keeps, exactly as a whole-series edit does; a
+  // single-occurrence edit must not touch the rule at all.
+  const includeRecurrence = form.mode === 'create'
+    ? recurrenceBuild.recurrence !== null
+    : (form.editScope === 'series' || form.editScope === 'following') && !form.recurrencePreserve;
   return {
-    ...(form.recurrenceId ? { recurrenceId: form.recurrenceId } : {}),
+    ...(form.recurrenceId && form.editScope !== 'series' ? { recurrenceId: form.recurrenceId } : {}),
+    ...(form.editScope === 'following' ? { scope: 'following' } : {}),
+    ...(includeRecurrence ? { recurrence: recurrenceBuild.recurrence } : {}),
     calendarId: form.calendarId,
     summary: String(form.summary ?? '').trim(),
     description: richTextOrNull(form.description),

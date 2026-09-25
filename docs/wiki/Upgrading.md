@@ -47,6 +47,64 @@ Watch the backend logs for migrations on the first start after an upgrade:
 docker compose logs -f backend
 ```
 
+## Upgrading to 4.1.0
+
+4.1.0 adds the native provider layer. Nothing about an existing installation stops working, and nothing is
+migrated, deleted or rewritten on its own.
+
+**Migrations.** Apply the complete post-4.0.4 chain **`0101_provider_layer.sql` through
+`0140_gmail_legacy_charset_cache_refresh.sql` before rolling out the application**. The migration runner sorts
+full filenames lexically, so both `0118_carddav_source_identity.sql` and `0118_immutable_message_ids.sql` are
+applied in that order; do not renumber or skip either file. The chain is additive and an interrupted run is
+resumable. Apply `0110` before device authorization, `0111` before the Gmail API adapter, `0112` before collection
+write-back, `0113` before enabling provider push, `0139_conversation_raw_header_dedup.sql` before the updated
+Conversation Engine, and `0140_gmail_legacy_charset_cache_refresh.sql` before the updated Gmail reader. The
+older 4.0.4 code ignores the new columns, so a rollback remains possible after a backup.
+
+**No manual SQL is required, including for the one migration that needed a correction.** `0108` created a
+unique index on `messages (account_id, provider_message_id)` while assuming that column had always been the
+native provider identity. On a Gmail IMAP mailbox it is X-GM-MSGID instead, which is mailbox-wide: the same
+message legitimately carries the same value in every folder/label copy (INBOX, `[Gmail]/Important`,
+`[Gmail]/All Mail`, custom labels), so a real mailbox with duplicate values failed the index with `23505` and
+the backend stopped at that migration. The corrected `0108` clears that column for the accounts whose own
+transport is the legacy one (`mail_transport` NULL or `imap_smtp`) before creating the index and leaves it
+alone for native accounts. **No row is deleted**, and `uid`, `folder`, `message_id`, `thread_key`,
+`provider_thread_id` (X-GM-THRID) and every Conversation Engine value are preserved, so conversations, rules,
+snoozes and Gmail threading are unaffected.
+
+Upgrade from 4.0.4 databases containing legacy Gmail IMAP folder copies is covered by an integration test
+(`backend/src/services/upgradeFrom404.integration.test.ts`), which builds the historical schema with the
+production migration runner, seeds that exact duplicate-copy shape, and then upgrades it the way the backend
+does at start-up. A `dev` database that already applied the first revision of `0108` keeps booting: its
+recorded checksum is accepted rather than treated as a mismatch, and **`0114` then performs the same
+normalisation unconditionally**, so a leftover legacy provider id cannot collide with the index during a
+later IMAP copy or a new Gmail label. Nothing is required from the operator in any of these states.
+
+**What changes without you doing anything**
+
+| Area | After the upgrade |
+| --- | --- |
+| Mail | Unchanged transports. An account with `mail_transport` unset or `imap_smtp` keeps using IMAP/SMTP exactly as before. |
+| Google accounts | Unchanged. The app-password path keeps working and is a supported long-term choice; if the API is configured, the accounts settings show a recommendation you may *Ignore* or dismiss with *do not show again* (durable, per user and per mailbox). Nothing migrates on its own. |
+| Microsoft accounts | Unchanged until you authorize a connection. Once the Graph connection exists you can **migrate the account in place**: the same account row, no duplicate, no local data copied or lost, and no IMAP/SMTP fallback afterwards. |
+| Imported collections | Still read-only, now with a per-collection **write-back** switch where the source allows it. |
+| DAV | The endpoints are unchanged. An external CalDAV/CardDAV collection becomes writable back to its server once you enable write-back for it — its link is created on the next sync of that source. |
+| Send limits | `MAIL_MAX_MESSAGE_BYTES` is now the **fallback** ceiling for SMTP only, and the new `MAIL_MAX_ATTACHMENT_BYTES` is the hard installation ceiling. A Microsoft Graph account is no longer bounded by the SMTP-era 25 MB total. |
+
+**Migration 0139 and 0140.** Apply `0139_conversation_raw_header_dedup.sql` after `0138_calendar_color_overrides.sql`, then `0140_gmail_legacy_charset_cache_refresh.sql`, before serving the new Conversation Engine/Gmail reader code. Migration 0139 clears redundant nullable `logical_messages.raw_headers` payloads while retaining the column; physical `messages.conversation_raw_headers` remains intact. Migration 0140 only marks cached Gmail API reader bodies incomplete so they refresh on demand and are not deleted. Run the documented `DB-CHECKS.sql` queries on a staging copy before and after 0139. Ordinary `VACUUM (ANALYZE)` may reclaim dead space for reuse; returning relation files to the OS requires a separately scheduled `VACUUM FULL` or `pg_repack` maintenance window and is never run automatically.
+
+**Recommended post-upgrade steps**
+
+1. Apply the migrations and start the new version; confirm folders, mail and DAV still work.
+2. Configure a provider as [Connecting Google and Microsoft accounts](Provider-setup.md) describes, if you
+   intend to use the APIs.
+3. For each Microsoft account you want on Graph: connect the Graph authorization (browser or device code),
+   then migrate the account from the accounts settings.
+4. Decide write-back per collection: leave pulled collections read-only unless you want edits forwarded to
+   the source.
+5. If your server or reverse proxy bounds request bodies, review `MAIL_MAX_ATTACHMENT_BYTES` so the two
+   agree.
+
 ## Upgrading to 4.0.0
 
 4.0.0 is a major release: it adds calendars, contacts, DAV and the conversation engine. Most of
@@ -69,6 +127,9 @@ straightforward — but note the following.
 | Conversation metadata | Populated as mail syncs. Historical mail is grouped gradually; an administrator can run a rebuild per account. |
 | Calendar | New local calendars start empty. Add CalDAV or ICS sources to import existing ones. |
 | Contacts | New empty address books. Import a Google CSV, or connect a CardDAV account to pull existing contacts. |
+| Google accounts | **Nothing is removed and nothing is forced.** An existing mail account keeps working with its Google app password, and an administrator can *optionally* register a Google OAuth client to pull that account's contacts and calendars read-only. Connecting the API does not change the mail transport and does not ask for Gmail permissions. |
+| Microsoft accounts | Mail needs the API connection, because Outlook.com and Microsoft 365 no longer accept a mailbox password. An administrator registers one Azure application — with either the browser or the device-code method — and each user then authorizes their own account. Existing accounts and their local history stay in place; they simply cannot reach the mailbox until that authorization happens. |
+| Imported collections | Contacts and calendars pulled from a provider are **read-only** here until write-back is enabled for a collection (4.1 adds that per-collection switch): the provider is their writer, so an edit made before enabling it is refused rather than silently undone at the next refresh. |
 | DAV | CardDAV and CalDAV endpoints become available. Existing devices need an **application password** from Settings → DAV access. |
 | Docker stack | A new **ntfy** service and a new `ntfy_data` volume are added for Android instant notifications. They are independent of PostgreSQL and Redis, so no mail, calendar or contact data is touched. Refresh the published `docker-compose.yml` from the release before pulling. |
 | Notifications (Android) | Set the **ntfy** app's **Default server** to `https://<your-domain>` — the origin, **no `/push` path** (the ntfy app rejects a base URL with a path). Inboxora proxies the UnifiedPush topic namespace at that origin. PWA Web Push is unchanged. |
@@ -88,6 +149,60 @@ straightforward — but note the following.
 5. Create DAV application passwords for each device and re-add the account on the device.
 6. If a mailbox is still grouped oddly afterwards, review **Threading diagnostics** for the
    affected conversations and use the manual merge, split or lock actions.
+
+### If nothing is configured for a provider yet
+
+The upgrade does not require a provider to be configured, and an installation may run with none. Mail over
+IMAP/SMTP keeps working for every account that uses a password, including Google with an app password.
+
+When an administrator does configure one:
+
+1. register the application as [Connecting Google and Microsoft accounts](Provider-setup.md) describes;
+2. save the client id (and secret, where the method needs one) on the provider card, and check that the card
+   reports the method as ready;
+3. each user authorizes their own account from the same card — the administrator's configuration and the
+   user's authorization are deliberately separate, and no account is created or changed by configuring the
+   application.
+
+### About the provider notices
+
+The **Microsoft requirement** is stated on the provider card whenever it is opened, and it deliberately has
+no dismissal: a requirement that can be permanently hidden is a requirement that gets lost. The **Google
+recommendation** appears in the accounts settings for a Gmail mailbox that could use the API, with *Ignore*
+(which the interface forgets) and *do not show again* (a durable, per-user, per-mailbox suppression stored
+on the server). An administrator can switch a provider or one of its methods off, which is enforced, and the
+whole provider layer can be switched off for an installation with `PROVIDER_INTEGRATIONS_ENABLED=0`.
+
+## If a migration is interrupted
+
+The migrations are **additive**: they add tables, columns and indexes and rewrite none, so an interruption leaves a
+partially extended schema rather than damaged data. What it can leave behind is an **invalid index**, because five of the
+files build indexes with `CREATE INDEX CONCURRENTLY` outside a transaction — a cancelled or failed concurrent build
+leaves the index present but unusable, and the next run may then report a duplicate-object error instead of completing.
+
+Check for one before re-running:
+
+```sql
+SELECT indexrelid::regclass AS invalid_index FROM pg_index WHERE NOT indisvalid;
+```
+
+If that returns rows, drop them and apply the migration file again:
+
+```sql
+DROP INDEX CONCURRENTLY <invalid_index>;
+```
+
+```bash
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/migrations/<the interrupted file>.sql
+```
+
+The runner records each file it has applied with its checksum, so a re-run **skips what is already applied** and refuses
+rather than guessing if a file's content no longer matches its record (`Migration checksum mismatch`). Check which file
+was in flight before re-running rather than assuming: the interrupted one is the only file that should need to be
+applied by hand.
+
+**Do not** re-run the whole chain by hand, and do not drop tables to "start clean": the schema is extended in place, and
+the rows it extends are what the application is serving.
 
 ## Rollback
 

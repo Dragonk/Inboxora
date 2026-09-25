@@ -1,11 +1,20 @@
+import { CalendarAccountsSettings, ContactAccountsSettings, SectionTabs } from './accountUi/SettingsSections.tsx';
+import MailAccountEditor from './accountUi/MailAccountEditor.tsx';
+import { useSettingsTarget, isCurrentSettingsTarget } from './accountUi/navigation.ts';
+import './accountUi/accountUi.css';
 import { refreshUnreadCounts } from '../utils/unreadRefresh.ts';
 import { useBackLayer } from '../hooks/useBackNavigation.ts';
 import { intlLocale } from '../utils/intlLocale.ts';
 import { folderLabel } from '../utils/folderLabels.ts';
 import { inputStyle as sharedInputStyle } from './ui.tsx';
 import ConversationRebuild from './ConversationRebuild.tsx';
+import CalendarSettingsManager from './CalendarSettingsManager.tsx';
 import CalendarSubscriptionsSettings from './CalendarSubscriptionsSettings.tsx';
-import { useCallback, useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
+import AddAccountFlow, { type IntegrationStatus } from './AddAccountFlow.tsx';
+import { transportLabel } from './AccountProviderServices.tsx';
+import AccountProviderServices from './AccountProviderServices.tsx';
+import DavCopyValue from './DavCopyValue.tsx';
+import { useCallback, useState, useEffect, useLayoutEffect, useRef, useMemo, useId } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.ts';
 import { getPluginMeta } from '../plugins/registry.ts';
@@ -44,6 +53,7 @@ import DiagnosticsReportModal from './DiagnosticsReportModal.tsx';
 import { getEffectiveShortcuts, getGroupedActions, ACTION_DEFS, SPECIAL_KEY_LABELS, parseModKey, modLabel } from '../utils/defaultShortcuts.ts';
 import { unifiedUnreadTotal } from '../utils/unifiedInbox.ts';
 import { toAppError } from '../utils/errors.ts';
+import { providerFailureKey } from '../utils/providerFailure.ts';
 import { isValidForwardAddress } from '../utils/ruleActions.ts';
 import type { CSSProperties, SVGProps } from 'react';
 import type { StoreState } from '../store/index.ts';
@@ -77,7 +87,7 @@ interface PluginsSectionProps { onNavigate?: (tab: string, subTab?: string) => v
 interface ConfirmOverlayProps { dialog?: { title?: React.ReactNode; message?: React.ReactNode; confirmLabel?: React.ReactNode; onConfirm: () => void; danger?: boolean } | null; onClose: () => void }
 interface SubTabsProps { tabs: Array<{ id: string; label?: string; content?: React.ReactNode }>; initialTab?: string | null }
 interface SsoIdentity { id: string; address?: string; name?: string; provider_name?: string | null; email?: string | null; issuer?: string | null; [key: string]: unknown }
-interface DavCredential { id: string; label?: string; created_at: string; last_used_at?: string; [key: string]: unknown }
+interface DavCredential { id: string; label?: string; created_at: string; last_used_at?: string; max_dav_mode?: string | null; [key: string]: unknown }
 interface SearchIndexItem { label: string; keywords: string[]; tab: string; subtab?: string; adminOnly?: boolean; mobileHidden?: boolean; breadcrumb: string }
 interface SearchResultsViewProps { results: SearchIndexItem[]; query: string; onNavigate: (tab: string, subtab?: string) => void; t: TFunction }
 
@@ -96,6 +106,39 @@ function Field({ label, required = false, children }: FieldProps) {
 const inputStyle = sharedInputStyle;
 
 const TOGGLE_OFF_BACKGROUND = 'var(--border)';
+
+interface SettingsSectionTab {
+  id: string;
+  label: React.ReactNode;
+}
+
+function SettingsSectionTabs({ tabs, active, onChange, label }: { tabs: SettingsSectionTab[]; active: string; onChange: (id: string) => void; label: string }) {
+  return <div role="tablist" aria-label={label} style={{ display: 'flex', gap: 0, overflowX: 'auto', overflowY: 'hidden', borderBottom: '1px solid var(--border-subtle)', marginBottom: 28 }}>
+    {tabs.map(tab => <button
+      key={tab.id}
+      type="button"
+      role="tab"
+      aria-selected={active === tab.id}
+      tabIndex={active === tab.id ? 0 : -1}
+      onClick={() => onChange(tab.id)}
+      onKeyDown={event => {
+        if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+        event.preventDefault();
+        const currentIndex = tabs.findIndex(item => item.id === active);
+        const nextIndex = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (currentIndex + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
+        const tabList = event.currentTarget.parentElement;
+        onChange(tabs[nextIndex].id);
+        requestAnimationFrame(() => tabList?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[nextIndex]?.focus());
+      }}
+      style={{
+        flexShrink: 0, padding: '8px 16px', marginBottom: -1, border: 0,
+        borderBottom: `2px solid ${active === tab.id ? 'var(--accent)' : 'transparent'}`,
+        background: 'none', color: active === tab.id ? 'var(--accent)' : 'var(--text-secondary)',
+        fontSize: 13, lineHeight: '18px', fontWeight: active === tab.id ? 600 : 400, cursor: 'pointer', whiteSpace: 'nowrap',
+      }}
+    >{tab.label}</button>)}
+  </div>;
+}
 
 // ─── Color picker ─────────────────────────────────────────────────────────────
 const COLORS = [
@@ -146,14 +189,34 @@ interface AccountFormProps {
   initial?: Partial<AccountFormState> | null;
   onSave: (form: AccountFormState) => void;
   onCancel: () => void;
+  /** Refreshes the account summary after a provider-service mutation. */
+  onReload?: () => void;
+  /** The edit parent returns to the account list after every staged change commits. */
+  onComplete?: () => void;
+  /** Account services have their own sub-tab in the account editor. */
+  showProviderServices?: boolean;
+  /** Limits an existing IMAP account editor to metadata or server fields. */
+  section?: 'all' | 'general' | 'servers';
+  hideActions?: boolean;
+  submitRef?: { current: (() => Promise<void>) | null };
+  onSavingChange?: (busy: boolean) => void;
+  onErrorChange?: (error: string) => void;
 }
 
 
-function AccountForm({ initial = undefined, onSave, onCancel }: AccountFormProps) {
+function AccountForm({ initial = undefined, onSave, onCancel, onReload, onComplete, showProviderServices = true, section = 'all', hideActions = false, submitRef, onSavingChange, onErrorChange }: AccountFormProps) {
   const { t } = useTranslation();
   const { categorizationEnabled } = useStore();
 
   const isEdit = !!initial?.id;
+  /**
+   * A native account is not an IMAP account: showing it host/port/user/password fields would invite edits that
+   * fight the transport the provider owns. Those fields exist only for `imap_smtp` (and for the as-yet
+   * unrecorded transport of a fresh account).
+   */
+  const nativeTransport = isEdit && (initial?.mail_transport === 'microsoft_graph' || initial?.mail_transport === 'gmail_api')
+    ? initial?.mail_transport
+    : null;
   const [form, setForm] = useState<AccountFormState>({
       name: '', email_address: '', color: '#6366f1', protocol: 'imap',
       imap_host: '', imap_port: 993, imap_skip_tls_verify: false,
@@ -168,6 +231,7 @@ function AccountForm({ initial = undefined, onSave, onCancel }: AccountFormProps
   const [showSmtpPass, setShowSmtpPass] = useState(false);
   const [selectedPreset, setSelectedPreset] = useState<string | null>(null);
   const [mailPolicy, setMailPolicy] = useState({ allowPrivateHosts: false, allowInsecureTls: false, allowNonstandardPorts: false });
+  const [stagedFeatureChanges, setStagedFeatureChanges] = useState<Partial<Record<'calendars' | 'contacts', boolean>>>({});
 
   useEffect(() => {
     api.admin.getSettings()
@@ -188,11 +252,15 @@ function AccountForm({ initial = undefined, onSave, onCancel }: AccountFormProps
   };
 
   const handleSubmit = async () => {
-    if (!form.email_address || !form.auth_user || !form.imap_host) {
+    const sessionEpoch = useStore.getState().authEpoch;
+    // Provider-managed accounts do not expose IMAP credentials. Requiring their
+    // hidden fields made a harmless metadata edit impossible unless the user
+    // entered a fictitious host.
+    if (!form.email_address || (!nativeTransport && (!form.auth_user || !form.imap_host))) {
       setError(t('admin.accounts.errorRequired'));
       return;
     }
-    if (!isEdit && !form.auth_pass) {
+    if (!nativeTransport && !isEdit && !form.auth_pass) {
       setError(t('admin.accounts.errorPasswordRequired'));
       return;
     }
@@ -200,14 +268,30 @@ function AccountForm({ initial = undefined, onSave, onCancel }: AccountFormProps
     setError('');
     try {
       await onSave(form);
+      if (useStore.getState().authEpoch !== sessionEpoch) return;
+      // Provider intent changes share the edit form's explicit Save/Cancel
+      // boundary. The account update is already durable if one feature fails,
+      // so surface that failure instead of claiming that every change saved.
+      if (isEdit && initial?.id) {
+        for (const [service, enabled] of Object.entries(stagedFeatureChanges) as Array<['calendars' | 'contacts', boolean]>) {
+          await api.setAccountProviderFeature(initial.id, service, enabled);
+        }
+      }
+      if (useStore.getState().authEpoch !== sessionEpoch) return;
+      onReload?.();
+      onComplete?.();
     } catch (err) {
-      setError(toAppError(err).message);
-      setSaving(false);
+      if (useStore.getState().authEpoch === sessionEpoch) { setError(toAppError(err).message); setSaving(false); }
     }
   };
 
+  // A stable mounted form supplies the one Save action shared by all editor tabs.
+  useLayoutEffect(() => { if (!submitRef) return; submitRef.current = handleSubmit; return () => { submitRef.current = null; }; });
+  useEffect(() => { onSavingChange?.(saving); }, [saving, onSavingChange]);
+  useEffect(() => { onErrorChange?.(error); }, [error, onErrorChange]);
   return (
     <div>
+      {section !== 'servers' && <>
       {/* Presets (add only) */}
       {!isEdit && (
         <div style={{ display: 'flex', gap: 6, marginBottom: 18, flexWrap: 'wrap' }}>
@@ -265,156 +349,168 @@ function AccountForm({ initial = undefined, onSave, onCancel }: AccountFormProps
             onBlur={e => e.target.style.borderColor = 'var(--border)'} />
         </Field>
       )}
+      </>}
 
-      <div style={{ height: 1, background: 'var(--border-subtle)', margin: '16px 0' }} />
-      <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 10, fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
-        {t('admin.accounts.imapSection')}
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 90px', gap: 10 }}>
-        <Field label={t('admin.accounts.imapHost')} required>
-          <input value={form.imap_host || ''} onChange={e => set('imap_host', e.target.value)}
-            placeholder={t('admin.accounts.imapHostPh')} style={inputStyle}
-            onFocus={e => e.target.style.borderColor = 'var(--accent)'}
-            onBlur={e => e.target.style.borderColor = 'var(--border)'} />
-        </Field>
-        <Field label={t('admin.accounts.imapPort')}>
-          <input
-            type={mailPolicy.allowNonstandardPorts ? 'text' : 'number'}
-            value={form.imap_port || 993}
-            onChange={e => set('imap_port', mailPolicy.allowNonstandardPorts ? e.target.value : parseInt(e.target.value))}
-            style={inputStyle}
-            onFocus={e => e.target.style.borderColor = 'var(--accent)'}
-            onBlur={e => e.target.style.borderColor = 'var(--border)'} />
-        </Field>
-      </div>
-
-      <Field label={t('admin.accounts.authUser')} required>
-        <input value={form.auth_user || ''} onChange={e => set('auth_user', e.target.value)}
-          placeholder={t('admin.accounts.authUserPh')} style={inputStyle}
-          onFocus={e => e.target.style.borderColor = 'var(--accent)'}
-          onBlur={e => e.target.style.borderColor = 'var(--border)'} />
-      </Field>
-
-      <Field label={isEdit ? t('admin.accounts.password') + ' (' + t('admin.accounts.passwordPhEdit') + ')' : t('admin.accounts.password')} required={!isEdit}>
-        <div style={{ position: 'relative' }}>
-          <input type={showPass ? 'text' : 'password'}
-            value={form.auth_pass || ''} onChange={e => set('auth_pass', e.target.value)}
-            placeholder={isEdit ? '••••••••' : t('admin.accounts.passwordPhNew')}
-            style={{ ...inputStyle, paddingRight: 36 }}
-            onFocus={e => e.target.style.borderColor = 'var(--accent)'}
-            onBlur={e => e.target.style.borderColor = 'var(--border)'} />
-          <button onClick={() => setShowPass(!showPass)} style={{
-            position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
-            background: 'none', border: 'none', color: 'var(--text-tertiary)', cursor: 'pointer',
-            display: 'flex', padding: 2,
-          }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              {showPass
-                ? <><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></>
-                : <><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></>
-              }
-            </svg>
-          </button>
+      {nativeTransport ? (section !== 'servers' && (
+        // Read-only for a provider-managed account: the transport and the mailbox identity are the
+        // provider's, and "reconnect" is the action that changes them — not a host field.
+        <div data-testid="native-transport-section" style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.7 }}>
+          {t('admin.accounts.addAccountFlow.nativeTransport', { transport: nativeTransport === 'microsoft_graph' ? 'Microsoft Graph' : 'Gmail API' })}
         </div>
-      </Field>
+      )) : (section !== 'general' && (
+        <>
+        <div style={{ height: 1, background: 'var(--border-subtle)', margin: '16px 0' }} />
+        <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 10, fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
+          {t('admin.accounts.imapSection')}
+        </div>
 
-      {mailPolicy.allowInsecureTls && (
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginTop: 10 }}>
-          <button
-            type="button"
-            onClick={() => set('imap_skip_tls_verify', !form.imap_skip_tls_verify)}
-            style={{
-              width: 36, height: 20, borderRadius: 10, border: 'none', cursor: 'pointer', padding: 0,
-              background: form.imap_skip_tls_verify ? 'var(--amber)' : TOGGLE_OFF_BACKGROUND,
-              position: 'relative', transition: 'background 0.2s', flexShrink: 0, marginTop: 1,
-            }}
-          >
-            <span style={{
-              position: 'absolute', top: 2, left: form.imap_skip_tls_verify ? 18 : 2, width: 16, height: 16,
-              borderRadius: '50%', background: 'white', transition: 'left 0.2s',
-            }} />
-          </button>
-          <div>
-            <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{t('admin.accounts.skipTlsVerify')}</div>
-            <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>{t('admin.accounts.skipTlsVerifyDesc')}</div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 90px', gap: 10 }}>
+          <Field label={t('admin.accounts.imapHost')} required>
+            <input value={form.imap_host || ''} onChange={e => set('imap_host', e.target.value)}
+              placeholder={t('admin.accounts.imapHostPh')} style={inputStyle}
+              onFocus={e => e.target.style.borderColor = 'var(--accent)'}
+              onBlur={e => e.target.style.borderColor = 'var(--border)'} />
+          </Field>
+          <Field label={t('admin.accounts.imapPort')}>
+            <input
+              type={mailPolicy.allowNonstandardPorts ? 'text' : 'number'}
+              value={form.imap_port || 993}
+              onChange={e => set('imap_port', mailPolicy.allowNonstandardPorts ? e.target.value : parseInt(e.target.value))}
+              style={inputStyle}
+              onFocus={e => e.target.style.borderColor = 'var(--accent)'}
+              onBlur={e => e.target.style.borderColor = 'var(--border)'} />
+          </Field>
+        </div>
+
+        <Field label={t('admin.accounts.authUser')} required>
+          <input value={form.auth_user || ''} onChange={e => set('auth_user', e.target.value)}
+            placeholder={t('admin.accounts.authUserPh')} style={inputStyle}
+            onFocus={e => e.target.style.borderColor = 'var(--accent)'}
+            onBlur={e => e.target.style.borderColor = 'var(--border)'} />
+        </Field>
+
+        <Field label={isEdit ? t('admin.accounts.password') + ' (' + t('admin.accounts.passwordPhEdit') + ')' : t('admin.accounts.password')} required={!isEdit}>
+          <div style={{ position: 'relative' }}>
+            <input type={showPass ? 'text' : 'password'}
+              value={form.auth_pass || ''} onChange={e => set('auth_pass', e.target.value)}
+              placeholder={isEdit ? '••••••••' : t('admin.accounts.passwordPhNew')}
+              style={{ ...inputStyle, paddingRight: 36 }}
+              onFocus={e => e.target.style.borderColor = 'var(--accent)'}
+              onBlur={e => e.target.style.borderColor = 'var(--border)'} />
+            <button onClick={() => setShowPass(!showPass)} style={{
+              position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
+              background: 'none', border: 'none', color: 'var(--text-tertiary)', cursor: 'pointer',
+              display: 'flex', padding: 2,
+            }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                {showPass
+                  ? <><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></>
+                  : <><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></>
+                }
+              </svg>
+            </button>
           </div>
-        </div>
-      )}
+        </Field>
 
-      {isMicrosoftImapHost(form.imap_host) && (
-        <div style={{
-          display: 'flex', alignItems: 'flex-start', gap: 10,
-          padding: '10px 14px', marginTop: 10,
-          background: 'rgba(248,113,113,0.07)',
-          border: '1px solid rgba(248,113,113,0.3)',
-          borderRadius: 8, fontSize: 13, color: 'var(--text-primary)',
-        }}>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--red)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: 1 }}>
-            <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
-          </svg>
-          <div>
-            <div style={{ fontWeight: 600, marginBottom: 3 }}>{t('admin.accounts.microsoftImapUnsupported')}</div>
-            <div style={{ color: 'var(--text-secondary)', lineHeight: 1.5 }}>{t('admin.accounts.microsoftImapNote')}</div>
+        {mailPolicy.allowInsecureTls && (
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginTop: 10 }}>
+            <button
+              type="button"
+              onClick={() => set('imap_skip_tls_verify', !form.imap_skip_tls_verify)}
+              style={{
+                width: 36, height: 20, borderRadius: 10, border: 'none', cursor: 'pointer', padding: 0,
+                background: form.imap_skip_tls_verify ? 'var(--amber)' : TOGGLE_OFF_BACKGROUND,
+                position: 'relative', transition: 'background 0.2s', flexShrink: 0, marginTop: 1,
+              }}
+            >
+              <span style={{
+                position: 'absolute', top: 2, left: form.imap_skip_tls_verify ? 18 : 2, width: 16, height: 16,
+                borderRadius: '50%', background: 'white', transition: 'left 0.2s',
+              }} />
+            </button>
+            <div>
+              <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{t('admin.accounts.skipTlsVerify')}</div>
+              <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>{t('admin.accounts.skipTlsVerifyDesc')}</div>
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      <div style={{ height: 1, background: 'var(--border-subtle)', margin: '4px 0 16px', marginTop: isMicrosoftImapHost(form.imap_host) ? 16 : '4px' }} />
-      <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 10, fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
-        {t('admin.accounts.smtpSection')}
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 90px', gap: 10 }}>
-        <Field label={t('admin.accounts.smtpHost')}>
-          <input value={form.smtp_host || ''} onChange={e => set('smtp_host', e.target.value)}
-            placeholder={t('admin.accounts.smtpHostPh')} style={inputStyle}
-            onFocus={e => e.target.style.borderColor = 'var(--accent)'}
-            onBlur={e => e.target.style.borderColor = 'var(--border)'} />
-        </Field>
-        <Field label={t('admin.accounts.smtpPort')}>
-          <input
-            type={mailPolicy.allowNonstandardPorts ? 'text' : 'number'}
-            value={form.smtp_port || 587}
-            onChange={e => set('smtp_port', mailPolicy.allowNonstandardPorts ? e.target.value : parseInt(e.target.value))}
-            style={inputStyle}
-            onFocus={e => e.target.style.borderColor = 'var(--accent)'}
-            onBlur={e => e.target.style.borderColor = 'var(--border)'} />
-        </Field>
-      </div>
-
-      <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 12, marginBottom: 4, lineHeight: 1.5 }}>
-        {t('admin.accounts.smtpAuthNote')}
-      </div>
-      <Field label={t('admin.accounts.smtpAuthUser')}>
-        <input value={form.smtp_auth_user || ''} onChange={e => set('smtp_auth_user', e.target.value)}
-          placeholder={t('admin.accounts.smtpAuthUserPh')} style={inputStyle}
-          onFocus={e => e.target.style.borderColor = 'var(--accent)'}
-          onBlur={e => e.target.style.borderColor = 'var(--border)'} />
-      </Field>
-      <Field label={t('admin.accounts.smtpAuthPass')}>
-        <div style={{ position: 'relative' }}>
-          <input type={showSmtpPass ? 'text' : 'password'}
-            value={form.smtp_auth_pass || ''} onChange={e => set('smtp_auth_pass', e.target.value)}
-            placeholder={isEdit ? '••••••••' : ''}
-            style={{ ...inputStyle, paddingRight: 36 }}
-            onFocus={e => e.target.style.borderColor = 'var(--accent)'}
-            onBlur={e => e.target.style.borderColor = 'var(--border)'} />
-          <button type="button" onClick={() => setShowSmtpPass(!showSmtpPass)} style={{
-            position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
-            background: 'none', border: 'none', color: 'var(--text-tertiary)', cursor: 'pointer',
-            display: 'flex', padding: 2,
+        {isMicrosoftImapHost(form.imap_host) && (
+          <div style={{
+            display: 'flex', alignItems: 'flex-start', gap: 10,
+            padding: '10px 14px', marginTop: 10,
+            background: 'rgba(248,113,113,0.07)',
+            border: '1px solid rgba(248,113,113,0.3)',
+            borderRadius: 8, fontSize: 13, color: 'var(--text-primary)',
           }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              {showSmtpPass
-                ? <><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></>
-                : <><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></>
-              }
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--red)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: 1 }}>
+              <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
             </svg>
-          </button>
-        </div>
-      </Field>
+            <div>
+              <div style={{ fontWeight: 600, marginBottom: 3 }}>{t('admin.accounts.microsoftImapUnsupported')}</div>
+              <div style={{ color: 'var(--text-secondary)', lineHeight: 1.5 }}>{t('admin.accounts.microsoftImapNote')}</div>
+            </div>
+          </div>
+        )}
 
+        <div style={{ height: 1, background: 'var(--border-subtle)', margin: '4px 0 16px', marginTop: isMicrosoftImapHost(form.imap_host) ? 16 : '4px' }} />
+        <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 10, fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
+          {t('admin.accounts.smtpSection')}
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 90px', gap: 10 }}>
+          <Field label={t('admin.accounts.smtpHost')}>
+            <input value={form.smtp_host || ''} onChange={e => set('smtp_host', e.target.value)}
+              placeholder={t('admin.accounts.smtpHostPh')} style={inputStyle}
+              onFocus={e => e.target.style.borderColor = 'var(--accent)'}
+              onBlur={e => e.target.style.borderColor = 'var(--border)'} />
+          </Field>
+          <Field label={t('admin.accounts.smtpPort')}>
+            <input
+              type={mailPolicy.allowNonstandardPorts ? 'text' : 'number'}
+              value={form.smtp_port || 587}
+              onChange={e => set('smtp_port', mailPolicy.allowNonstandardPorts ? e.target.value : parseInt(e.target.value))}
+              style={inputStyle}
+              onFocus={e => e.target.style.borderColor = 'var(--accent)'}
+              onBlur={e => e.target.style.borderColor = 'var(--border)'} />
+          </Field>
+        </div>
+
+        <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 12, marginBottom: 4, lineHeight: 1.5 }}>
+          {t('admin.accounts.smtpAuthNote')}
+        </div>
+        <Field label={t('admin.accounts.smtpAuthUser')}>
+          <input value={form.smtp_auth_user || ''} onChange={e => set('smtp_auth_user', e.target.value)}
+            placeholder={t('admin.accounts.smtpAuthUserPh')} style={inputStyle}
+            onFocus={e => e.target.style.borderColor = 'var(--accent)'}
+            onBlur={e => e.target.style.borderColor = 'var(--border)'} />
+        </Field>
+        <Field label={t('admin.accounts.smtpAuthPass')}>
+          <div style={{ position: 'relative' }}>
+            <input type={showSmtpPass ? 'text' : 'password'}
+              value={form.smtp_auth_pass || ''} onChange={e => set('smtp_auth_pass', e.target.value)}
+              placeholder={isEdit ? '••••••••' : ''}
+              style={{ ...inputStyle, paddingRight: 36 }}
+              onFocus={e => e.target.style.borderColor = 'var(--accent)'}
+              onBlur={e => e.target.style.borderColor = 'var(--border)'} />
+            <button type="button" onClick={() => setShowSmtpPass(!showSmtpPass)} style={{
+              position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
+              background: 'none', border: 'none', color: 'var(--text-tertiary)', cursor: 'pointer',
+              display: 'flex', padding: 2,
+            }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                {showSmtpPass
+                  ? <><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></>
+                  : <><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></>
+                }
+              </svg>
+            </button>
+          </div>
+        </Field>
+
+        </>
+      ))}
+      {section !== 'servers' && <>
       <div style={{ height: 1, background: 'var(--border-subtle)', margin: '16px 0' }} />
       <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 10, fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
         {t('admin.accounts.signatureSection')}
@@ -430,9 +526,12 @@ function AccountForm({ initial = undefined, onSave, onCancel }: AccountFormProps
           <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 10, fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
             {t('admin.accounts.unifiedInboxSection')}
           </div>
-          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+          <div className="settings-switch-row" style={{ display: 'flex', flexDirection: 'row-reverse', justifyContent: 'space-between', alignItems: 'center', gap: 16, padding: '12px 0' }}>
             <button
               type="button"
+              role="switch"
+              aria-label={t('admin.accounts.unifiedInboxEnabled')}
+              aria-checked={form.include_in_unified_inbox !== false}
               aria-pressed={form.include_in_unified_inbox !== false}
               onClick={() => set('include_in_unified_inbox', form.include_in_unified_inbox === false)}
               style={{
@@ -461,9 +560,12 @@ function AccountForm({ initial = undefined, onSave, onCancel }: AccountFormProps
           <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 10, fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
             {t('admin.accounts.categorizationSection')}
           </div>
-          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, opacity: categorizationEnabled ? 0.5 : 1 }}>
+          <div className="settings-switch-row" style={{ display: 'flex', flexDirection: 'row-reverse', justifyContent: 'space-between', alignItems: 'center', gap: 16, padding: '12px 0', opacity: categorizationEnabled ? 0.5 : 1 }}>
             <button
               type="button"
+              role="switch"
+              aria-label={t('admin.accounts.categorizationEnabled')}
+              aria-checked={Boolean(categorizationEnabled || form.categorization_enabled)}
               disabled={categorizationEnabled}
               onClick={() => !categorizationEnabled && set('categorization_enabled', !form.categorization_enabled)}
               style={{
@@ -492,9 +594,12 @@ function AccountForm({ initial = undefined, onSave, onCancel }: AccountFormProps
           <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 10, fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
             {t('spam.settingsTitle')}
           </div>
-          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+          <div className="settings-switch-row" style={{ display: 'flex', flexDirection: 'row-reverse', justifyContent: 'space-between', alignItems: 'center', gap: 16, padding: '12px 0' }}>
             <button
               type="button"
+              role="switch"
+              aria-label={t('spam.enableAccount')}
+              aria-checked={Boolean(form.antispam_enabled)}
               onClick={() => set('antispam_enabled', !form.antispam_enabled)}
               style={{
                 width: 36, height: 20, borderRadius: 10, border: 'none',
@@ -532,7 +637,20 @@ function AccountForm({ initial = undefined, onSave, onCancel }: AccountFormProps
         </>
       )}
 
-      {error && (
+      {showProviderServices && isEdit && nativeTransport && initial?.id && (
+        <section data-testid="account-edit-provider-services" style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--border-subtle)' }}>
+          <AccountProviderServices
+            accountId={initial.id}
+            reload={onReload ?? (() => {})}
+            t={t}
+            deferServiceChanges
+            onFeatureIntentChange={(service, enabled) => setStagedFeatureChanges(current => ({ ...current, [service]: enabled }))}
+          />
+        </section>
+      )}
+      </>}
+
+      {!hideActions && error && (
         <div style={{
           padding: '10px 14px', background: 'rgba(248,113,113,0.1)',
           border: '1px solid rgba(248,113,113,0.3)', borderRadius: 8,
@@ -542,7 +660,7 @@ function AccountForm({ initial = undefined, onSave, onCancel }: AccountFormProps
         </div>
       )}
 
-      <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+      {!hideActions && <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
         <button onClick={handleSubmit} disabled={saving || (!isEdit && isMicrosoftImapHost(form.imap_host))} style={{
           flex: 1, padding: '10px', background: 'var(--accent)',
           border: 'none', borderRadius: 8, color: 'var(--accent-text)',
@@ -559,22 +677,124 @@ function AccountForm({ initial = undefined, onSave, onCancel }: AccountFormProps
         }}>
           {t('common.cancel')}
         </button>
-      </div>
+      </div>}
     </div>
   );
 }
 
 // ─── Accounts Tab ─────────────────────────────────────────────────────────────
-function AccountsTab() {
+function AccountsTab({ onNavigate = undefined }: { onNavigate?: (tab: string) => void } = {}) {
   const { t } = useTranslation();
-  const { accounts, setAccounts, updateAccount, unreadCounts, setUnreadCounts, addNotification, backfillProgress } = useStore();
-  const [subview, setSubview] = useState('list'); // 'list' | 'add' | 'edit' | 'folders' | 'aliases'
+  const { accounts, setAccounts, updateAccount, unreadCounts, setUnreadCounts, addNotification, backfillProgress, user } = useStore();
+  const [subview, setSubview] = useState('list'); // 'list' | 'add' | 'add-imap' | 'edit' | 'folders' | 'aliases'
+  // Readiness only. The Accounts screen decides whether a provider sign-in can be offered; it never shows a
+  // client id, a secret or a redirect URI, because those are the administrator's, in Integrations.
+  const [integrationStatus, setIntegrationStatus] = useState<IntegrationStatus | null>(null);
+  const loadAccounts = useCallback(() => {
+    api.getAccounts().then(setAccounts).catch(console.error);
+  }, [setAccounts]);
+  const loadIntegrationStatus = useCallback(() => {
+    api.getIntegrationsStatus()
+      .then((status: IntegrationStatus) => setIntegrationStatus(status))
+      .catch(() => { /* without it the Add-account screen offers the setup hint instead of a sign-in */ });
+  }, []);
+  useEffect(() => { loadIntegrationStatus(); }, [loadIntegrationStatus]);
   const [editTarget, setEditTarget] = useState<AdminAccount | null>(null);
+  useSettingsTarget('accounts', target => {
+    if (target.module !== 'accounts') return;
+    if (target.add) { setSubview('add'); return; }
+    const id = target.accountId;
+    if (!id) return;
+    const local = accounts.find(account => account.id === id);
+    if (local) { setEditTarget(local); setSubview('edit'); return; }
+    const epoch = useStore.getState().authEpoch;
+    void api.getAccounts().then((loaded: AdminAccount[]) => {
+      if (useStore.getState().authEpoch !== epoch || !isCurrentSettingsTarget(target)) return;
+      const found = loaded.find(account => account.id === id);
+      if (found) { setEditTarget(found); setSubview('edit'); }
+      else addNotification({ type: 'error', title: t('accountUi.targetUnavailable'), body: t('accountUi.targetUnavailable') });
+    }).catch(() => { if (useStore.getState().authEpoch === epoch && isCurrentSettingsTarget(target)) addNotification({ type: 'error', title: t('accountUi.operationFailed'), body: t('accountUi.operationFailed') }); });
+  });
+
   const [folderMappings, setFolderMappings] = useState<Record<string, string | null>>({});
   const [availableFolders, setAvailableFolders] = useState<Array<{ path?: string; name?: string; [key: string]: unknown }>>([]);
   const [foldersLoading, setFoldersLoading] = useState(false);
   const [foldersSaving, setFoldersSaving] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState<ConfirmOverlayProps['dialog'] | null>(null);
+  /**
+   * The Google mail migration recommendation (P09). "Ignore" is this component's own memory for the
+   * session; "do not show again" is a server-side suppression that survives a reload and another
+   * device. The server decides which accounts have an active notice, so the interface never invents one.
+   */
+  const [notices, setNotices] = useState<Array<{ accountId: string; address: string; noticeType: string; hasGmailGrant?: boolean }>>([]);
+  const [ignoredNotices, setIgnoredNotices] = useState<string[]>([]);
+  const [migratingNotice, setMigratingNotice] = useState<string | null>(null);
+  const loadNotices = () => api.getNotices()
+    .then((data: { notices?: Array<{ accountId: string; address: string; noticeType: string; hasGmailGrant?: boolean }> }) => {
+      setNotices(Array.isArray(data?.notices) ? data.notices : []);
+      return data;
+    })
+    .catch(() => null);
+  useEffect(() => {
+    let cancelled = false;
+    api.getNotices()
+      .then((data: { notices?: Array<{ accountId: string; address: string; noticeType: string; hasGmailGrant?: boolean }> }) => {
+        if (!cancelled) setNotices(Array.isArray(data?.notices) ? data.notices : []);
+      })
+      .catch(() => { /* a notice that cannot be loaded is simply not shown */ });
+    return () => { cancelled = true; };
+  }, []);
+  /**
+   * "Migrate to the Google API": authorize Gmail when the mailbox has no Gmail-scoped grant yet, then move
+   * the account onto the Gmail API transport.
+   *
+   * The authorization opens in its own tab (the flow owns the callback), and this waits for the grant to
+   * appear before asking the server to migrate — the server would refuse without it, and a refusal is not
+   * the outcome the user asked for. A failure leaves the account on IMAP/SMTP and keeps the recommendation:
+   * suppressing the notice is a separate decision the user makes, never a side effect of a failed migration.
+   */
+  const migrateNoticeAccount = async (notice: { accountId: string; hasGmailGrant?: boolean }) => {
+    setMigratingNotice(notice.accountId);
+    try {
+      let ready = notice.hasGmailGrant === true;
+      if (!ready) {
+        const tab = document.createElement('a');
+        tab.href = '/oauth/google?purpose=mail_migration';
+        tab.target = '_blank';
+        tab.rel = 'opener';
+        document.body.appendChild(tab);
+        tab.click();
+        document.body.removeChild(tab);
+        // The grant lands on the server when the flow completes; poll for it rather than guess a delay.
+        for (let attempt = 0; attempt < 30 && !ready; attempt += 1) {
+          await new Promise(resolve => setTimeout(resolve, 3000));
+          const data = await loadNotices();
+          ready = data?.notices?.find(item => item.accountId === notice.accountId)?.hasGmailGrant === true;
+        }
+        if (!ready) {
+          addNotification({ type: 'info', title: t('admin.accounts.googleMigrateTitle'), body: t('admin.accounts.googleMigrateAuthorize') });
+          return;
+        }
+      }
+      await api.migrateAccount(notice.accountId);
+      const accounts = await api.getAccounts();
+      setAccounts(accounts);
+      await loadNotices();
+      addNotification({ type: 'success', title: t('admin.accounts.googleMigrateTitle'), body: t('admin.accounts.googleMigrateSuccess') });
+    } catch (err) {
+      addNotification({ type: 'error', title: t('admin.accounts.googleMigrateTitle'), body: toAppError(err).message });
+    } finally {
+      setMigratingNotice(null);
+    }
+  };
+  const suppressNotice = async (accountId: string) => {
+    try {
+      await api.suppressNotice(accountId);
+      setNotices(current => current.filter(notice => notice.accountId !== accountId));
+    } catch (err) {
+      addNotification({ type: 'error', title: t('admin.accounts.noticeError'), body: toAppError(err).message });
+    }
+  };
 
   // Alias form state
   const [aliasFormMode, setAliasFormMode] = useState<'add' | 'edit' | null>(null);
@@ -592,6 +812,7 @@ function AccountsTab() {
   };
 
   const handleEdit = async (form: AccountFormState) => {
+    const sessionEpoch = useStore.getState().authEpoch;
     if (!editTarget) return;
     const updates: Record<string, unknown> = { name: form.name, sender_name: form.sender_name || null, color: form.color, imap_host: form.imap_host, imap_port: form.imap_port, imap_skip_tls_verify: !!form.imap_skip_tls_verify, smtp_host: form.smtp_host, smtp_port: form.smtp_port, smtp_tls: form.smtp_tls, signature: form.signature || null, categorization_enabled: !!form.categorization_enabled, antispam_enabled: !!form.antispam_enabled, trusted_authserv_id: form.trusted_authserv_id ?? null, include_in_unified_inbox: form.include_in_unified_inbox !== false };
     if (form.auth_pass) updates.auth_pass = form.auth_pass;
@@ -606,6 +827,7 @@ function AccountsTab() {
       updates.smtp_auth_pass = null;
     }
     const updated = await api.updateAccount(editTarget.id, updates);
+    if (useStore.getState().authEpoch !== sessionEpoch) return;
     const nextAccounts = accounts.map((account: { id: string; [key: string]: unknown }) => account.id === editTarget.id
       ? { ...account, ...updated }
       : account);
@@ -615,15 +837,13 @@ function AccountsTab() {
       byAccount: unreadCounts.byAccount,
     });
     refreshUnreadCounts();
-    setSubview('list');
-    setEditTarget(null);
   };
 
   const handleDelete = (id: string) => {
     setConfirmDialog({
-      title: 'Remove account?',
-      message: 'All synced messages for this account will be deleted. This cannot be undone.',
-      confirmLabel: 'Remove',
+      title: t('accountUi.removeAccount'),
+      message: t('accountUi.removeAccountHint'),
+      confirmLabel: t('accountUi.remove'),
       onConfirm: async () => {
         await api.deleteAccount(id);
         setAccounts(accounts.filter((a: { id?: string; [key: string]: unknown }) => a.id !== id));
@@ -661,7 +881,7 @@ function AccountsTab() {
       const folders = await api.getFolders(account.id);
       setAvailableFolders(folders);
     } catch (err) {
-      addNotification({ type: 'error', title: 'Could not load folders', body: toAppError(err).message });
+      addNotification({ type: 'error', title: t('admin.accounts.loadFoldersError'), body: toAppError(err).message });
     } finally {
       setFoldersLoading(false);
     }
@@ -680,7 +900,7 @@ function AccountsTab() {
       setSubview('list');
       setEditTarget(null);
     } catch (err) {
-      addNotification({ type: 'error', title: 'Could not save folder mappings', body: toAppError(err).message });
+      addNotification({ type: 'error', title: t('admin.accounts.saveFolderMappingsError'), body: toAppError(err).message });
     } finally {
       setFoldersSaving(false);
     }
@@ -760,6 +980,8 @@ function AccountsTab() {
   };
 
   if (subview === 'add') {
+    // A mailbox is added by kind, never through the IMAP form by default: Microsoft and Google accounts are
+    // created natively from an authorization, and only "another provider" opens the IMAP/SMTP form.
     return (
       <div>
         <button onClick={() => setSubview('list')} style={{
@@ -772,18 +994,26 @@ function AccountsTab() {
           </svg>
           {t('sidebar.backToAccounts')}
         </button>
-        <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 20 }}>
+        <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 12 }}>
           {t('admin.accounts.addTitle')}
         </div>
-        <AccountForm onSave={handleAdd} onCancel={() => setSubview('list')} />
+        <AddAccountFlow
+          status={integrationStatus}
+          reloadAccounts={loadAccounts}
+          goToIntegrations={() => onNavigate?.('integrations')}
+          onChooseImap={() => setSubview('add-imap')}
+          onClose={() => setSubview('list')}
+          isAdmin={Boolean(user?.isAdmin)}
+          t={t}
+        />
       </div>
     );
   }
 
-  if (subview === 'edit' && editTarget) {
+  if (subview === 'add-imap') {
     return (
       <div>
-        <button onClick={() => { setSubview('list'); setEditTarget(null); }} style={{
+        <button onClick={() => setSubview('add')} style={{
           display: 'flex', alignItems: 'center', gap: 6,
           background: 'none', border: 'none', color: 'var(--text-secondary)',
           cursor: 'pointer', fontSize: 13, padding: '0 0 16px 0',
@@ -794,14 +1024,20 @@ function AccountsTab() {
           {t('sidebar.backToAccounts')}
         </button>
         <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
-          {t('admin.accounts.editTitle')}
+          {t('admin.accounts.addTitle')}
         </div>
-        <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 20 }}>
-          {editTarget.email_address}
+        <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 16 }}>
+          {t('admin.accounts.addAccountFlow.imapDescription')}
         </div>
-        <AccountForm initial={editTarget} onSave={handleEdit} onCancel={() => { setSubview('list'); setEditTarget(null); }} />
+        <AccountForm onSave={handleAdd} onCancel={() => setSubview('add')} />
       </div>
     );
+  }
+
+  if (subview === 'edit' && editTarget) {
+    return <MailAccountEditor key={editTarget.id} account={editTarget} onSave={handleEdit} reload={loadAccounts}
+      onClose={() => { setSubview('list'); setEditTarget(null); }}
+      renderForm={props => <AccountForm {...props} initial={editTarget} />} />;
   }
 
   if (subview === 'aliases' && editTarget) {
@@ -1064,9 +1300,12 @@ function AccountsTab() {
   return (
     <>
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>
-          {t('admin.accounts.title')}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap', marginBottom: 20 }}>
+        <div>
+          <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>
+            {t('admin.accounts.title')}
+          </div>
+          <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--text-tertiary)', lineHeight: 1.5 }}>{t('admin.integrations.accountHint')}</p>
         </div>
         <button onClick={() => setSubview('add')} style={{
           display: 'flex', alignItems: 'center', gap: 6,
@@ -1087,126 +1326,100 @@ function AccountsTab() {
         </div>
       )}
 
-      {accounts.map(account => { const progress = backfillProgress[account.id]; return (
-        <div key={account.id} style={{
-          border: '1px solid var(--border-subtle)', borderRadius: 10,
-          background: 'var(--bg-tertiary)', marginBottom: 10, overflow: 'hidden',
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', flexWrap: 'wrap' }}>
-            <div style={{
-              width: 38, height: 38, borderRadius: '50%', flexShrink: 0,
-              background: account.color ?? undefined, display: 'flex', alignItems: 'center',
-              justifyContent: 'center', fontSize: 15, fontWeight: 600, color: 'white',
-            }}>
-              {account.name?.[0]?.toUpperCase() || '?'}
+      {notices
+        .filter(notice => !ignoredNotices.includes(notice.accountId))
+        .map(notice => (
+          <div
+            key={notice.accountId}
+            data-testid="google-mail-recommendation"
+            style={{
+              border: '1px solid var(--border-subtle)', borderLeft: '3px solid var(--accent)',
+              borderRadius: 10, background: 'var(--bg-tertiary)', padding: '12px 14px', marginBottom: 10,
+            }}
+          >
+            <div style={{ fontSize: 13, color: 'var(--text-primary)', lineHeight: 1.5 }}>
+              {t('admin.accounts.googleRecommendation', { address: notice.address })}
             </div>
-            <div style={{ flex: '1 1 150px', minWidth: 140 }}>
-              <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {account.name}
-              </div>
-              <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {account.email_address}
-              </div>
-              <div style={{ fontSize: 11, marginTop: 3, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                {account.sync_error ? (
-                  <span style={{
-                    color: 'var(--red)',
-                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                  }}>⚠ {account.sync_error}</span>
-                ) : (
-                  <>
-                    <span style={{ color: 'var(--green)' }}>● {t('admin.accounts.connected')}</span>
-                    <span style={{ color: 'var(--text-tertiary)' }}>
-                      {account.imap_host}:{account.imap_port}
-                    </span>
-                  </>
-                )}
-              </div>
-            </div>
-            <div style={{ display: 'flex', gap: 6, flexShrink: 0, marginLeft: 'auto' }}>
-              {account.sync_error && (
-                <IconBtn onClick={() => handleReconnect(account.id)} title={t('sidebar.accountMenu.reconnect')}>
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <polyline points="23 4 23 10 17 10"/>
-                    <path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/>
-                  </svg>
-                </IconBtn>
-              )}
-              <IconBtn onClick={() => { setEditTarget(account); setSubview('edit'); }} title={t('common.edit')}>
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
-                  <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
-                </svg>
-              </IconBtn>
-              <IconBtn onClick={() => handleFolderMappingOpen(account)} title={t('admin.accounts.folderMappings')}>
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
-                </svg>
-              </IconBtn>
-              <IconBtn onClick={() => handleAliasOpen(account)} title={t('admin.accounts.aliases')}>
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <circle cx="12" cy="8" r="4"/>
-                  <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/>
-                </svg>
-              </IconBtn>
-              <IconBtn onClick={() => handleSyncFolders(account.id)} title={t('admin.accounts.syncFolders')}>
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
-                  <path d="M9 13a3 3 0 015.4-1.5M15 15a3 3 0 01-5.4 1.5"/>
-                </svg>
-              </IconBtn>
-              <IconBtn onClick={() => handleReindex(account.id)} title={t('admin.accounts.reindex')} disabled={!!progress}>
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-                </svg>
-              </IconBtn>
-              <IconBtn onClick={() => handleDelete(account.id)} title={t('common.remove')} danger>
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <polyline points="3 6 5 6 21 6"/>
-                  <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a1 1 0 011-1h4a1 1 0 011 1v2"/>
-                </svg>
-              </IconBtn>
+            <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                data-testid="google-recommendation-migrate"
+                disabled={migratingNotice === notice.accountId}
+                onClick={() => migrateNoticeAccount(notice)}
+                style={{
+                  padding: '6px 12px', background: 'var(--accent)', border: 'none',
+                  borderRadius: 7, color: 'var(--accent-text)', fontSize: 12,
+                  cursor: migratingNotice === notice.accountId ? 'not-allowed' : 'pointer',
+                  opacity: migratingNotice === notice.accountId ? 0.7 : 1,
+                }}
+              >
+                {migratingNotice === notice.accountId ? t('admin.accounts.googleMigratePending') : t('admin.accounts.googleMigrate')}
+              </button>
+              <button
+                type="button"
+                data-testid="google-recommendation-ignore"
+                onClick={() => setIgnoredNotices(current => [...current, notice.accountId])}
+                style={{
+                  padding: '6px 12px', background: 'var(--bg-elevated)', border: '1px solid var(--border)',
+                  borderRadius: 7, color: 'var(--text-secondary)', fontSize: 12, cursor: 'pointer',
+                }}
+              >
+                {t('admin.accounts.noticeIgnore')}
+              </button>
+              <button
+                type="button"
+                data-testid="google-recommendation-suppress"
+                onClick={() => suppressNotice(notice.accountId)}
+                style={{
+                  padding: '6px 12px', background: 'var(--bg-elevated)', border: '1px solid var(--border)',
+                  borderRadius: 7, color: 'var(--text-secondary)', fontSize: 12, cursor: 'pointer',
+                }}
+              >
+                {t('admin.accounts.noticeNever')}
+              </button>
             </div>
           </div>
+        ))}
 
-          {/* Connection details bar */}
-          <div style={{
-            padding: '8px 14px', borderTop: '1px solid var(--border-subtle)',
-            background: 'var(--bg-secondary)',
-            display: 'flex', gap: 20, flexWrap: 'wrap',
-          }}>
-            {[
-              ['IMAP', `${account.imap_host}:${account.imap_port}`],
-              ['SMTP', `${account.smtp_host}:${account.smtp_port}`],
-              [t('admin.accounts.lastSync'), account.last_sync ? new Date(account.last_sync).toLocaleTimeString() : t('common.never')],
-            ].map(([label, val]) => (
-              <div key={label} style={{ fontSize: 11 }}>
-                <span style={{ color: 'var(--text-tertiary)' }}>{label} </span>
-                <span style={{ color: 'var(--text-secondary)', fontFamily: 'JetBrains Mono, monospace' }}>{val}</span>
-              </div>
-            ))}
-            {progress && (
-              <div style={{ width: '100%', marginTop: 4 }}>
-                <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 4 }}>
-                  {progress.total
-                    ? t('admin.accounts.reindexProgress', {
-                        synced: progress.synced,
-                        total: progress.total,
-                      })
-                    : t('admin.accounts.reindexing')}
-                </div>
-                {typeof progress.total === 'number' && typeof progress.synced === 'number' && (
-                  <div style={{ height: 3, borderRadius: 2, background: 'var(--border-subtle)', overflow: 'hidden' }}>
-                    <div style={{
-                      height: '100%', borderRadius: 2,
-                      background: 'var(--accent)',
-                      width: `${Math.min(100, Math.round((progress.synced / progress.total) * 100))}%`,
-                      transition: 'width 0.3s ease',
-                    }} />
-                  </div>
+      {accounts.map(account => { const progress = backfillProgress[account.id]; const transport = transportLabel(typeof account.mail_transport === 'string' ? account.mail_transport : 'imap'); return (
+        <div key={account.id} style={{ border: '1px solid var(--border-subtle)', borderRadius: 10, background: 'var(--bg-tertiary)', marginBottom: 10, overflow: 'hidden' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', minWidth: 0 }}>
+            <div style={{ width: 38, height: 38, borderRadius: '50%', flexShrink: 0, background: account.color ?? 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, fontWeight: 600, color: 'white' }}>
+              {account.name?.[0]?.toUpperCase() || '?'}
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{account.name}</div>
+              <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{transport} · {account.email_address}</div>
+              <div style={{ fontSize: 11, marginTop: 4, display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
+                {account.sync_error ? (
+                  <span style={{ color: 'var(--red)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>⚠ {account.sync_error}</span>
+                ) : (
+                  <span style={{ color: 'var(--green)', display: 'inline-flex', alignItems: 'center', gap: 5 }}><span aria-hidden="true" style={{ width: 5, height: 5, borderRadius: '50%', background: 'currentColor' }} />{t('admin.accounts.connected')}</span>
                 )}
               </div>
-            )}
+            </div>
+            <button type="button" onClick={() => { setEditTarget(account); setSubview('edit'); }} style={{ flexShrink: 0, padding: '6px 10px', border: '1px solid var(--border)', borderRadius: 6, background: 'var(--bg-elevated)', color: 'var(--text-primary)', fontSize: 12, fontWeight: 500, cursor: 'pointer' }}>
+              {t('common.edit')}
+            </button>
+            <details style={{ position: 'relative', flexShrink: 0 }}>
+              <summary aria-label={t('message.more')} title={t('message.more')} style={{ listStyle: 'none', cursor: 'pointer', color: 'var(--text-tertiary)', padding: '5px 2px', lineHeight: 1 }}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg>
+              </summary>
+              <div style={{ position: 'absolute', right: 0, top: 'calc(100% + 6px)', zIndex: 1, minWidth: 150, padding: 6, border: '1px solid var(--border-subtle)', borderRadius: 8, background: 'var(--bg-elevated)', boxShadow: '0 4px 14px rgba(0, 0, 0, 0.12)', display: 'flex', gap: 4, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                {account.sync_error && <IconBtn onClick={() => handleReconnect(account.id)} title={t('sidebar.accountMenu.reconnect')}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg></IconBtn>}
+                <IconBtn onClick={() => handleFolderMappingOpen(account)} title={t('admin.accounts.folderMappings')}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg></IconBtn>
+                <IconBtn onClick={() => handleAliasOpen(account)} title={t('admin.accounts.aliases')}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg></IconBtn>
+                <IconBtn onClick={() => handleSyncFolders(account.id)} title={t('admin.accounts.syncFolders')}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 012-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/><path d="M9 13a3 3 0 015.4-1.5M15 15a3 3 0 01-5.4 1.5"/></svg></IconBtn>
+                <IconBtn onClick={() => handleReindex(account.id)} title={t('admin.accounts.reindex')} disabled={!!progress}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></IconBtn>
+                <IconBtn onClick={() => handleDelete(account.id)} title={t('common.remove')} danger><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a1 1 0 011-1h4a1 1 0 011 1v2"/></svg></IconBtn>
+              </div>
+            </details>
+          </div>
+          <div style={{ padding: '8px 14px', borderTop: '1px solid var(--border-subtle)', background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', fontSize: 11, lineHeight: 1.5 }}>
+            <span data-testid="account-card-transport" style={{ color: 'var(--text-secondary)' }}><span style={{ color: 'var(--text-tertiary)' }}>{t('admin.accounts.transport')} </span>{transport}</span>
+            <span style={{ color: 'var(--text-secondary)' }}><span style={{ color: 'var(--text-tertiary)' }}>{t('admin.accounts.lastSync')} </span>{account.last_sync ? new Date(account.last_sync).toLocaleTimeString() : t('common.never')}</span>
+            <AccountProviderServices accountId={account.id} reload={loadAccounts} t={t} compact />
+            {progress && <div style={{ width: '100%', marginTop: 2 }}><div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 4 }}>{progress.total ? t('admin.accounts.reindexProgress', { synced: progress.synced, total: progress.total }) : t('admin.accounts.reindexing')}</div>{typeof progress.total === 'number' && typeof progress.synced === 'number' && <div style={{ height: 3, borderRadius: 2, background: 'var(--border-subtle)', overflow: 'hidden' }}><div style={{ height: '100%', borderRadius: 2, background: 'var(--accent)', width: `${Math.min(100, Math.round((progress.synced / progress.total) * 100))}%`, transition: 'width 0.3s ease' }} /></div>}</div>}
           </div>
         </div>
       ); })}
@@ -1720,13 +1933,14 @@ function SwipeActionIcon({ action, size = 17 }: SwipeActionIconProps) {
   return <svg {...common}><rect x="2" y="3" width="20" height="5" rx="1"/><path d="M4 8v11a1 1 0 001 1h14a1 1 0 001-1V8"/><polyline points="9 13 12 16 15 13"/><line x1="12" y1="11" x2="12" y2="16"/></svg>;
 }
 
-function CalendarSettingsTab() {
+function CalendarAppearanceSettingsTab({ section = 'accounts' }: { section?: 'accounts' | 'appearance' }) {
   const { t, i18n } = useTranslation();
+  const [accountSection, setAccountSection] = useState('accounts');
   const { calendarWeekStartsOn, setCalendarWeekStartsOn, calendarWorkDays, setCalendarWorkDays, calendarWorkHoursStart, setCalendarWorkHoursStart, calendarWorkHoursEnd, setCalendarWorkHoursEnd, calendarWorkHoursError, calendarInviteAccountId, setCalendarInviteAccountId, accounts } = useStore();
   // Only accounts that can actually send mail may be offered as a default sender.
   const senderAccounts = (accounts || []).filter(account => account.enabled && account.smtp_host);
   return <div data-testid="calendar-settings">
-      <div>
+      {section === 'appearance' && <div>
         <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 16 }}>
           {t('calendar.title')}
         </div>
@@ -1772,11 +1986,38 @@ function CalendarSettingsTab() {
             <span className="settings-choice-description">{t('calendar.defaultInviteAccountDescription')}</span>
           </label>
         </div>
-      </div>
-      <CalendarSubscriptionsSettings locale={intlLocale(i18n.resolvedLanguage || i18n.language)} />
+      </div>}
+      {section === 'accounts' && <>
+        <SettingsSectionTabs
+          label={t('calendar.title')}
+          active={accountSection}
+          onChange={setAccountSection}
+          tabs={[
+            { id: 'accounts', label: t('admin.tabs.accounts') },
+            { id: 'resources', label: t('calendar.calendars') },
+            { id: 'import', label: t('calendar.subscribeTitle') },
+          ]}
+        />
+        {(accountSection === 'accounts' || accountSection === 'resources') && <div data-testid={`calendar-settings-${accountSection}`}>
+          <header style={{ marginBottom: 16 }}>
+            <h2 style={{ margin: 0, fontSize: 15 }}>{accountSection === 'accounts' ? t('calendar.manageSources') : t('calendar.calendars')}</h2>
+            <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--text-tertiary)', lineHeight: 1.5 }}>{accountSection === 'accounts' ? t('calendar.subscribeDescription') : t('calendar.providerManagedHint')}</p>
+          </header>
+          <CalendarSettingsManager locale={intlLocale(i18n.resolvedLanguage || i18n.language)} view={accountSection as 'accounts' | 'resources'} />
+        </div>}
+        {accountSection === 'import' && <div data-testid="calendar-settings-import">
+          <CalendarSubscriptionsSettings locale={intlLocale(i18n.resolvedLanguage || i18n.language)} />
+        </div>}
+      </>}
 
   </div>;
 }
+
+function CalendarSettingsTab({ section = 'accounts' }: { section?: 'accounts' | 'appearance' }) {
+  return section === 'appearance' ? <CalendarAppearanceSettingsTab section="appearance" /> : <CalendarAccountsSettings />;
+}
+
+function ContactsSettingsTab() { return <ContactAccountsSettings />; }
 
 // One shared presentation for a settings choice group, matching the message-list
 // settings: the option name, a short line explaining what the group controls, and
@@ -1838,7 +2079,7 @@ function LayoutsTab() {
   const { t, i18n } = useTranslation();
   const isMobile = useMobile();
   const { layout, setLayout, pageSize, setPageSize, scrollMode, setScrollMode, swipeActions, setSwipeAction, syncInterval, setSyncInterval, folderSyncInterval, setFolderSyncInterval, threadedView, setThreadedView, plaintextEmail, setPlaintextEmail, hoverQuickActions, setHoverQuickActions, showMobileAvatars, setShowMobileAvatars, gravatarAvatars, setGravatarAvatars, replyDefault, setReplyDefault, markReadBehavior, setMarkReadBehavior, markReadDelay, setMarkReadDelay, senderFavicons, senderFaviconsSaving, setSenderFavicons, showMessagePreviews, setShowMessagePreviews, conversationReaderViewEnabled, setConversationReaderViewEnabled, fontSize, setFontSize } = useStore();
-  const { mobileNavigationPosition, setMobileNavigationPosition } = useStore();
+  const { mobileNavigationPosition, setMobileNavigationPosition, mobileSidebarSwipeEnabled, setMobileSidebarSwipeEnabled } = useStore();
   const [senderFaviconsError, setSenderFaviconsError] = useState('');
 
   // "Set Inboxora as your default email app": registerProtocolHandler is the
@@ -2007,6 +2248,18 @@ function LayoutsTab() {
           onChange={setMobileNavigationPosition}
           options={[["top", t('admin.appearance.navigationTop'), t('admin.appearance.navigationTopDesc')], ["bottom", t('admin.appearance.navigationBottom'), t('admin.appearance.navigationBottomDesc')]]}
         />
+        <div style={{ marginTop: 18 }}>
+          <SettingsChoices
+            label={t('admin.appearance.mobileSidebarSwipe')}
+            value={mobileSidebarSwipeEnabled ? 'on' : 'off'}
+            onChange={value => setMobileSidebarSwipeEnabled(value === 'on')}
+            testId="mobile-sidebar-swipe-setting"
+            options={[
+              ['off', t('conversation.readerOff'), t('admin.appearance.mobileSidebarSwipeOffDesc')],
+              ['on', t('conversation.readerOn'), t('admin.appearance.mobileSidebarSwipeOnDesc')],
+            ]}
+          />
+        </div>
       </div>
 
       {/* Message list behaviour */}
@@ -2308,30 +2561,34 @@ function LayoutsTab() {
 
       {/* Threading mode — Grupowanie wiadomości (same option row as the rest) */}
       <div style={{ marginTop: 28, paddingTop: 22, borderTop: '1px solid var(--border-subtle)' }}>
-        <SettingsSwitchRow
+        <SettingsChoices
           label={t('conversation.groupIntoConversations')}
-          description={t('admin.messageList.threadingDesc')}
           testId="conversation-list-toggle"
-          checked={threadedView}
-          onChange={setThreadedView}
-          ariaLabel={threadedView ? t('conversation.groupIntoConversationsOn') : t('conversation.seriesOff')}
+          value={threadedView ? 'on' : 'off'}
+          onChange={value => setThreadedView(value === 'on')}
+          options={[
+            ['off', t('conversation.seriesOff'), t('conversation.groupingOffDesc')],
+            ['on', t('conversation.groupIntoConversationsOn'), t('conversation.groupingOnDesc')],
+          ]}
         />
       </div>
 
       {/* Conversation reader — Czytnik wiadomości (same option row as the rest) */}
       <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--border-subtle)' }}>
-        <SettingsSwitchRow
+        <SettingsChoices
           label={t('conversation.conversationReader')}
-          description={t('conversation.readerDesc')}
           testId="conversation-reader-toggle"
-          checked={conversationReaderViewEnabled}
-          onChange={setConversationReaderViewEnabled}
-          ariaLabel={conversationReaderViewEnabled ? t('conversation.readerOn') : t('conversation.readerOff')}
+          value={conversationReaderViewEnabled ? 'on' : 'off'}
+          onChange={value => setConversationReaderViewEnabled(value === 'on')}
+          options={[
+            ['off', t('conversation.readerOff'), t('conversation.readerOffDesc')],
+            ['on', t('conversation.readerOn'), t('conversation.readerOnDesc')],
+          ]}
         />
       </div>
 
       {/* Rebuilding existing mail's threading — the step that groups a mailbox
-          migrated from MailFlow — sits beside the two threading switches. */}
+          migrated from MailFlow — sits beside the two threading choices. */}
       <ConversationRebuild />
 
       {/* Compose format */}
@@ -2483,166 +2740,40 @@ function LayoutsTab() {
 }
 
 // ─── Integrations Tab ────────────────────────────────────────────────────────
-// CardDAV contact sync (e.g. Nextcloud). One-way, read-only pull.
-function CardDavCard() {
-  const { t } = useTranslation();
-  const [status, setStatus] = useState<{ username?: string; serverUrl?: string; contactCount?: number; bookCount?: number; lastSyncAt?: string; lastError?: string; dupMode?: string; intervalMin?: number | string; [key: string]: unknown } | null>(null); // null while loading
-  const [expanded, setExpanded] = useState(false);
-  const [form, setForm] = useState({ serverUrl: '', username: '', password: '', dupMode: 'separate', intervalMin: 60 });
-  const [connecting, setConnecting] = useState(false);
-  const [syncing, setSyncing] = useState(false);
-  const [disconnecting, setDisconnecting] = useState(false);
-  const [error, setError] = useState('');
-
-  useEffect(() => { api.carddav.status().then(setStatus).catch(() => setStatus({ connected: false })); }, []);
-
-  const connected = status?.connected;
-  const loading = status === null;
-
-  const handleConnect = async () => {
-    setConnecting(true); setError('');
-    try {
-      const s = await api.carddav.connect({
-        serverUrl: form.serverUrl.trim(), username: form.username.trim(),
-        password: form.password, dupMode: form.dupMode, intervalMin: Number(form.intervalMin),
-      });
-      setStatus(s); setForm(f => ({ ...f, password: '' }));
-    } catch (e) { setError(toAppError(e).message || t('admin.integrations.carddav.connectFailed')); }
-    finally { setConnecting(false); }
-  };
-  const handleSync = async () => {
-    setSyncing(true); setError('');
-    try { const r = await api.carddav.sync(); setStatus(r.status); if (!r.ok && r.error) setError(r.error); }
-    catch (e) { setError(toAppError(e).message); }
-    finally { setSyncing(false); }
-  };
-  const handleDisconnect = async () => {
-    setDisconnecting(true); setError('');
-    try { await api.carddav.disconnect(); setStatus({ connected: false }); }
-    catch (e) { setError(toAppError(e).message); }
-    finally { setDisconnecting(false); }
-  };
-  const updateSetting = async (patch: Record<string, unknown>) => {
-    setStatus(s => ({ ...s, ...patch }));
-    try { await api.carddav.update(patch); } catch (e) { setError(toAppError(e).message); }
-  };
-
-  const inputStyle: CSSProperties = { padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)', fontSize: 13, outline: 'none', width: '100%', boxSizing: 'border-box' };
-  const labelStyle: CSSProperties = { fontSize: 12, fontWeight: 500, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 };
-  const errBox = error && (
-    <div style={{ fontSize: 13, color: 'var(--red, #f87171)', padding: '8px 10px', borderRadius: 6, background: 'rgba(248,113,113,0.08)' }}>{error}</div>
-  );
-
-  return (
-    <div style={{ border: '1px solid var(--border-subtle)', borderRadius: 12, overflow: 'hidden', marginBottom: 12 }}>
-      <div
-        onClick={() => setExpanded(!expanded)}
-        style={{ padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer', background: 'var(--bg-tertiary)' }}
-        onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
-        onMouseLeave={e => e.currentTarget.style.background = 'var(--bg-tertiary)'}
-      >
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2">
-          <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/>
-        </svg>
-        <div style={{ flex: 1 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>{t('admin.integrations.carddav.title')}</span>
-            <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, background: (!loading && connected) ? 'rgba(34,197,94,0.1)' : 'var(--bg-primary)', color: (!loading && connected) ? '#22c55e' : 'var(--text-tertiary)', border: `1px solid ${(!loading && connected) ? '#22c55e' : 'var(--border)'}` }}>
-              {loading ? '...' : (connected ? t('admin.integrations.carddav.connected') : t('admin.integrations.carddav.notConnected'))}
-            </span>
-          </div>
-          <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2 }}>{t('admin.integrations.carddav.description')}</div>
-        </div>
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-tertiary)" strokeWidth="2.5" style={{ transform: expanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s', flexShrink: 0 }}><polyline points="6 9 12 15 18 9"/></svg>
-      </div>
-
-      {expanded && (
-        <div style={{ padding: '16px 18px', borderTop: '1px solid var(--border-subtle)', display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {loading ? (
-            <div style={{ color: 'var(--text-tertiary)', fontSize: 13 }}>{t('admin.integrations.loading')}</div>
-          ) : connected ? (
-            <>
-              <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
-                <div><strong style={{ color: 'var(--text-primary)' }}>{status.username}</strong> @ {status.serverUrl}</div>
-                <div style={{ marginTop: 4 }}>
-                  {t('admin.integrations.carddav.summary', { contacts: status.contactCount ?? 0, books: status.bookCount ?? 0 })}
-                  {' · '}
-                  {t('admin.integrations.carddav.lastSync', { when: status.lastSyncAt ? new Date(status.lastSyncAt).toLocaleString() : t('common.never') })}
-                </div>
-                {status.lastError && (
-                  <div style={{ marginTop: 4, color: 'var(--red, #f87171)' }}>{t('admin.integrations.carddav.syncFailed', { error: status.lastError })}</div>
-                )}
-              </div>
-
-              <div>
-                <label style={labelStyle}>{t('admin.integrations.carddav.dupLabel')}</label>
-                <select value={status.dupMode || 'separate'} onChange={e => updateSetting({ dupMode: e.target.value })} style={{ ...inputStyle, cursor: 'pointer' }}>
-                  <option value="separate">{t('admin.integrations.carddav.dupSeparate')}</option>
-                  <option value="merge">{t('admin.integrations.carddav.dupMerge')}</option>
-                  <option value="skip">{t('admin.integrations.carddav.dupSkip')}</option>
-                </select>
-              </div>
-              <div>
-                <label style={labelStyle}>{t('admin.integrations.carddav.intervalLabel')}</label>
-                <input type="number" min="15" max="1440" value={status.intervalMin || 60}
-                  onChange={e => setStatus(s => ({ ...s, intervalMin: e.target.value }))}
-                  onBlur={e => updateSetting({ intervalMin: Number(e.target.value) })} style={inputStyle} />
-              </div>
-              {errBox}
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button onClick={handleSync} disabled={syncing} style={{ padding: '6px 14px', borderRadius: 7, cursor: syncing ? 'default' : 'pointer', border: 'none', background: 'var(--accent)', color: 'var(--accent-text)', fontSize: 13, fontWeight: 500, opacity: syncing ? 0.7 : 1 }}>
-                  {syncing ? t('admin.integrations.carddav.syncing') : t('admin.integrations.carddav.syncNow')}
-                </button>
-                <button onClick={handleDisconnect} disabled={disconnecting} style={{ padding: '6px 14px', borderRadius: 7, cursor: disconnecting ? 'default' : 'pointer', border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-secondary)', fontSize: 13, opacity: disconnecting ? 0.6 : 1 }}>
-                  {disconnecting ? t('common.loading') : t('admin.integrations.carddav.disconnect')}
-                </button>
-              </div>
-            </>
-          ) : (
-            <>
-              <div><label style={labelStyle}>{t('admin.integrations.carddav.serverLabel')}</label>
-                <input type="text" value={form.serverUrl} onChange={e => setForm(f => ({ ...f, serverUrl: e.target.value }))} placeholder={t('admin.integrations.carddav.serverPh')} style={inputStyle} /></div>
-              <div><label style={labelStyle}>{t('admin.integrations.carddav.userLabel')}</label>
-                <input type="text" value={form.username} onChange={e => setForm(f => ({ ...f, username: e.target.value }))} placeholder={t('admin.integrations.carddav.userPh')} style={inputStyle} /></div>
-              <div><label style={labelStyle}>{t('admin.integrations.carddav.passLabel')}</label>
-                <input type="password" autoComplete="new-password" value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} placeholder={t('admin.integrations.carddav.passPh')} style={inputStyle} /></div>
-              <div><label style={labelStyle}>{t('admin.integrations.carddav.dupLabel')}</label>
-                <select value={form.dupMode} onChange={e => setForm(f => ({ ...f, dupMode: e.target.value }))} style={{ ...inputStyle, cursor: 'pointer' }}>
-                  <option value="separate">{t('admin.integrations.carddav.dupSeparate')}</option>
-                  <option value="merge">{t('admin.integrations.carddav.dupMerge')}</option>
-                  <option value="skip">{t('admin.integrations.carddav.dupSkip')}</option>
-                </select></div>
-              {errBox}
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button onClick={handleConnect} disabled={connecting || !form.serverUrl.trim() || !form.username.trim() || !form.password}
-                  style={{ padding: '6px 14px', borderRadius: 7, cursor: (connecting || !form.serverUrl.trim() || !form.username.trim() || !form.password) ? 'default' : 'pointer', border: 'none', background: 'var(--accent)', color: 'var(--accent-text)', fontSize: 13, fontWeight: 500, opacity: (connecting || !form.serverUrl.trim() || !form.username.trim() || !form.password) ? 0.7 : 1 }}>
-                  {connecting ? t('admin.integrations.carddav.connecting') : t('admin.integrations.carddav.connect')}
-                </button>
-              </div>
-              <div style={{ fontSize: 12, color: 'var(--text-tertiary)', lineHeight: 1.5 }}>{t('admin.integrations.carddav.help')}</div>
-            </>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
 
 function IntegrationsTab() {
+
   const { t } = useTranslation();
   const { setAccounts, setTodoistConnected, user } = useStore();
   const isAdmin = !!user?.isAdmin;
   const [subTab, setSubTab] = useState('emailProviders');
+  const integrationPanelId = useId();
+  const providerHeaderStyle: React.CSSProperties = {
+    padding: '14px 16px', display: 'flex', alignItems: 'center', flexWrap: 'wrap',
+    gap: 12, cursor: 'pointer', background: 'var(--bg-tertiary)',
+    transition: 'background 0.1s',
+  };
+  const providerActionsStyle: React.CSSProperties = {
+    display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8,
+  };
   const [configs, setConfigs] = useState<Record<string, { clientId?: string; [key: string]: unknown }>>({});
   // Non-admins can't read the full config (admin-only), but need to know whether
   // Microsoft OAuth is configured so the connect buttons enable. (#315)
-  const [msStatus, setMsStatus] = useState<{ configured?: boolean; [key: string]: unknown } | null>(null); // { configured } for non-admins
+  const [msStatus, setMsStatus] = useState<{ configured?: boolean; browser?: { ready?: boolean; missing?: string[]; redirectUri?: string }; graph?: { ready?: boolean; missing?: string[]; redirectUri?: string }; deviceCode?: { ready?: boolean; reason?: string }; connections?: Array<{ id: string; providerUserId?: string | null }>; mailPolicy?: string; [key: string]: unknown } | null>(null); // { configured } for non-admins
   const [loading, setLoading] = useState(true);
   const [msForm, setMsForm] = useState({ clientId: '', clientSecret: '', tenantId: '', redirectUri: '' });
   const [msExpanded, setMsExpanded] = useState(false);
+  // Google provider card. It shares the Microsoft card's layout but not its
+  // fields or methods: no tenant, no device flow, and IMAP/SMTP app-password
+  // mail never depends on this configuration.
+  const [googleForm, setGoogleForm] = useState({ clientId: '', clientSecret: '', redirectUri: '' });
+  const [googleExpanded, setGoogleExpanded] = useState(false);
+  useSettingsTarget('integrations', target => { if (target.module === 'integrations') { setSubTab('emailProviders'); if (target.provider === 'google') setGoogleExpanded(true); if (target.provider === 'microsoft') setMsExpanded(true); } });
+  const [googleStatus, setGoogleStatus] = useState<{ configured?: boolean; browser?: { ready?: boolean; missing?: string[]; redirectUri?: string }; connections?: Array<{ id: string; providerUserId?: string | null }>; mailPolicy?: string; traditionalImapAvailableInInboxora?: boolean; [key: string]: unknown } | null>(null);
+  const [googleSaving, setGoogleSaving] = useState(false);
+  const [googleSaveMsg, setGoogleSaveMsg] = useState('');
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState('');
-  const [connectingMs, setConnectingMs] = useState(false);
   const [deviceFlow, setDeviceFlow] = useState<{ userCode?: string; verificationUri?: string; interval?: number; [key: string]: unknown } | null>(null); // { userCode, verificationUri, interval }
   const [deviceStatus, setDeviceStatus] = useState<string | null>(null); // 'pending'|'success'|'declined'|'expired'|'error'
   const devicePollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -2668,23 +2799,32 @@ function IntegrationsTab() {
               tenantId: data.microsoft.tenantId || '',
               redirectUri: data.microsoft.redirectUri || '',
             });
-            setMsExpanded(true);
+          }
+          if (data.google) {
+            setGoogleForm({
+              clientId: data.google.clientId || '',
+              clientSecret: data.google.clientSecret || '',
+              redirectUri: data.google.redirectUri || '',
+            });
           }
         })
         .catch(console.error)
         .finally(() => setLoading(false));
-      // Admins configure Microsoft OAuth via the DB form OR via env vars; the env-only case has no
+      // Admins configure OAuth via the DB form OR via env vars; the env-only case has no
       // DB row, so also read the env-aware capability status (#359), otherwise the connect button
       // stays wrongly disabled for admins while non-admins on the same instance can connect.
       api.getIntegrationsStatus()
-        .then(data => setMsStatus(data.microsoft || null))
+        .then(data => {
+          setMsStatus(data.microsoft || null);
+          setGoogleStatus(data.google || null);
+        })
         .catch(console.error);
     } else {
       // Non-admins can only read the capability status, not the config itself.
       api.getIntegrationsStatus()
         .then(data => {
           setMsStatus(data.microsoft || null);
-          if (data.microsoft?.configured) setMsExpanded(true);
+          setGoogleStatus(data.google || null);
         })
         .catch(console.error)
         .finally(() => setLoading(false));
@@ -2708,16 +2848,35 @@ function IntegrationsTab() {
     // which tab/modal is currently open.
     const handleMessage = (e: MessageEvent) => {
       if (e.origin !== window.location.origin) return;
-      if (e.data?.type === 'oauth_success' && e.data?.provider === 'microsoft') {
+      if (e.data?.type === 'oauth_success' && e.data?.provider === 'google') {
+        // A Google authorization stores a provider connection; nothing is added to
+        // the account list, so the Google card reports it and its readiness refreshes.
+        setGoogleSaveMsg(t('admin.integrations.google.connectedNote'));
+        setGoogleExpanded(true);
+        api.getIntegrationsStatus().then(data => setGoogleStatus(data.google || null)).catch(console.error);
+        if (isAdmin) api.getIntegrations().then(setConfigs).catch(console.error);
+        // The contacts page reads this status to offer the pull.
+        api.getAccounts().then(setAccounts).catch(console.error);
+      } else if (e.data?.type === 'oauth_success' && e.data?.provider === 'microsoft_graph') {
+        // The Graph connector is a per-user connection now; the card that started it refreshes itself, and
+        // the installation's status is refreshed here so the Integrations summary stays accurate.
+        api.getIntegrationsStatus().then(data => setMsStatus(data.microsoft || null)).catch(console.error);
+      } else if (e.data?.type === 'oauth_success' && e.data?.provider === 'microsoft') {
         setSaveMsg(t('admin.integrations.microsoft.connectedNote'));
-        setConnectingMs(false);
         // Reload both so the new account appears in the sidebar immediately.
         // getIntegrations is admin-only; non-admins already have the capability status.
         if (isAdmin) api.getIntegrations().then(setConfigs).catch(console.error);
         api.getAccounts().then(setAccounts).catch(console.error);
       } else if (e.data?.type === 'oauth_error') {
-        setSaveMsg('Error: ' + e.data.error);
-        setConnectingMs(false);
+        // The popup does not report which provider failed, so the message stays in the
+        // mailbox area and is not attributed. What must not happen is a button staying
+        // disabled: every flow that could be pending is released here.
+        //
+        // The code is mapped to the sentence written for it when there is one — a revoked consent
+        // arrives here as `invalid_grant` or `REAUTH_REQUIRED`, and "reconnect the account" is the
+        // action it calls for — and shown raw otherwise, so nothing is hidden.
+        const failureKey = providerFailureKey(typeof e.data.error === 'string' ? e.data.error : null);
+        setSaveMsg(failureKey ? t(failureKey) : 'Error: ' + e.data.error);
       }
     };
     window.addEventListener('message', handleMessage);
@@ -2733,21 +2892,70 @@ function IntegrationsTab() {
       setSaveMsg('Client ID and Tenant ID are required');
       return;
     }
+    // The same guard as the Google card: a stored secret belongs to the client id it was issued for.
+    const storedMs = (configs.microsoft ?? null) as { clientId?: string; clientSecret?: string } | null;
+    const msSecretUntouched = !msForm.clientSecret || msForm.clientSecret === storedMs?.clientSecret;
+    if (storedMs?.clientId && msForm.clientId !== storedMs.clientId && msSecretUntouched) {
+      if (!window.confirm(t('admin.integrations.clientIdChangeConfirm'))) return;
+    }
     setSaving(true);
     setSaveMsg('');
     try {
-      await api.saveIntegration('microsoft', msForm);
+      await api.saveIntegration('microsoft', { clientId: msForm.clientId, clientSecret: msForm.clientSecret, tenantId: msForm.tenantId });
       // Update local state so "Connect account" button enables immediately
       // without requiring a page reload.
       setConfigs(prev => ({
         ...prev,
-        microsoft: { clientId: msForm.clientId, tenantId: msForm.tenantId, redirectUri: msForm.redirectUri },
+        microsoft: { clientId: msForm.clientId, tenantId: msForm.tenantId },
       }));
       setSaveMsg(t('admin.integrations.microsoft.savedNote'));
     } catch (err) {
       setSaveMsg('Error: ' + toAppError(err).message);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleSaveGoogle = async () => {
+    if (!googleForm.clientId || !googleForm.clientSecret) {
+      setGoogleSaveMsg('Client ID and Client Secret are required');
+      return;
+    }
+    // AD07, against AD05: the API keeps a stored secret when the edit omits a new one — that is what lets an
+    // administrator change a redirect URI without retyping it — so a new Client ID would silently be paired
+    // with a secret issued for the previous client, and the mismatch would surface only at the provider. The
+    // stored secret arrives masked, so an untouched field is comparable with what the API returned.
+    const storedGoogle = (configs.google ?? null) as { clientId?: string; clientSecret?: string } | null;
+    const googleSecretUntouched = !googleForm.clientSecret || googleForm.clientSecret === storedGoogle?.clientSecret;
+    if (storedGoogle?.clientId && googleForm.clientId !== storedGoogle.clientId && googleSecretUntouched) {
+      if (!window.confirm(t('admin.integrations.clientIdChangeConfirm'))) return;
+    }
+    setGoogleSaving(true);
+    setGoogleSaveMsg('');
+    try {
+      await api.saveIntegration('google', { clientId: googleForm.clientId, clientSecret: googleForm.clientSecret });
+      // Keep the masked secret in local state so reopening the card does not
+      // resubmit an empty value, which the API would treat as "keep existing".
+      setConfigs(prev => ({
+        ...prev,
+        google: { clientId: googleForm.clientId, clientSecret: '••••••••' },
+      }));
+      setGoogleSaveMsg(t('admin.integrations.google.savedNote'));
+    } catch (err) {
+      setGoogleSaveMsg('Error: ' + toAppError(err).message);
+    } finally {
+      setGoogleSaving(false);
+    }
+  };
+
+  const handleRemoveGoogle = async () => {
+    try {
+      await api.deleteIntegration('google');
+      setConfigs(c => { const n = { ...c }; delete n.google; return n; });
+      setGoogleForm({ clientId: '', clientSecret: '', redirectUri: '' });
+      setGoogleSaveMsg('');
+    } catch (err) {
+      setGoogleSaveMsg('Error: ' + toAppError(err).message);
     }
   };
 
@@ -2766,7 +2974,7 @@ function IntegrationsTab() {
       const intervalMs = (data.interval || 5) * 1000;
       devicePollRef.current = setInterval(async () => {
         try {
-          const result = await api.pollMsDeviceFlow();
+          const result = await api.pollMsDeviceFlow(data.flowId);
           if (result.status === 'pending') return;
           if (devicePollRef.current !== null) clearInterval(devicePollRef.current);
           devicePollRef.current = null;
@@ -2788,19 +2996,7 @@ function IntegrationsTab() {
     }
   };
 
-  const handleConnectMs = () => {
-    setConnectingMs(true);
-    // Use a real anchor click so the browser treats it as a normal navigation
-    // window.open gets intercepted by some browser extensions (e.g. claude.ai in Zen)
-    const a = document.createElement('a');
-    a.href = '/oauth/microsoft';
-    a.target = '_blank';
-    a.rel = 'opener';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(() => setConnectingMs(false), 5000);
-  };
+
 
   const handleTdConnect = async () => {
     const trimmed = tdToken.trim();
@@ -2836,35 +3032,38 @@ function IntegrationsTab() {
   // Configured if the admin has a saved DB config OR the server has env-var config (#359);
   // non-admins only ever have the env-aware capability status.
   const msConfigured = (isAdmin ? configs.microsoft?.clientId : null) || msStatus?.configured;
-
-  const subTabStyle = (key: string) => ({
-    padding: '7px 14px',
-    background: 'none',
-    border: 'none',
-    borderBottom: `2px solid ${subTab === key ? 'var(--accent)' : 'transparent'}`,
-    marginBottom: -1,
-    color: subTab === key ? 'var(--accent)' : 'var(--text-secondary)',
-    cursor: 'pointer',
-    fontSize: 13,
-    fontWeight: subTab === key ? 600 : 400,
-    transition: 'color 0.1s',
-  });
+  // The browser method needs a confidential client: a client id alone is enough for the
+  // device method (which has its own control) but not for this button, so gating it on
+  // `configured` offered a flow that fails at Microsoft.
+  // The device method has its own readiness: a client id is enough for it, but the saved
+  // configuration can switch it off, and the button must honour that or the switch is
+  // decoration.
+  const msDeviceReady = Boolean(msStatus?.deviceCode?.ready);
+  // The connected accounts, so a user can see what is connected and undo it. Imported data is
+  // kept by the endpoint; the wording says so rather than leaving it to be discovered.
+  // Google browser readiness comes from the backend so the UI never treats a
+  // saved Client ID alone as a working OAuth client.
+  const googleConfigured = (isAdmin ? configs.google?.clientId : null) || googleStatus?.configured;
+  const googleWebReady = !!googleStatus?.browser?.ready;
 
   return (
-    <div>
+    <div className="au-workspace au-integrations">
+
+      <SectionTabs panelId={integrationPanelId}
+        label={t('admin.integrations.title')}
+        active={subTab}
+        onChange={setSubTab}
+        tabs={[
+          { id: 'emailProviders', label: t('admin.integrations.tabEmailProviders') },
+          { id: 'apps', label: t('admin.integrations.tabApps') },
+        ]}
+      />
       <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
         {t('admin.integrations.title')}
       </div>
 
-      {/* Sub-tabs */}
-      <div style={{ display: 'flex', borderBottom: '1px solid var(--border-subtle)', marginBottom: 20 }}>
-        <button style={subTabStyle('emailProviders')} onClick={() => setSubTab('emailProviders')}>
-          {t('admin.integrations.tabEmailProviders')}
-        </button>
-        <button style={subTabStyle('apps')} onClick={() => setSubTab('apps')}>
-          {t('admin.integrations.tabApps')}
-        </button>
-      </div>
+      <section id={integrationPanelId} role="tabpanel" aria-labelledby={`${integrationPanelId}-tab-${subTab}`}>
+
 
       {subTab === 'emailProviders' && (
         <div>
@@ -2878,12 +3077,18 @@ function IntegrationsTab() {
           }}>
             {/* Header */}
             <div
-              onClick={() => setMsExpanded(!msExpanded)}
-              style={{
-                padding: '14px 16px', display: 'flex', alignItems: 'center',
-                gap: 12, cursor: 'pointer', background: 'var(--bg-tertiary)',
-                transition: 'background 0.1s',
+              role="button"
+              tabIndex={0}
+              aria-expanded={msExpanded}
+              aria-controls="microsoft-provider-config"
+              onClick={() => setMsExpanded(expanded => !expanded)}
+              onKeyDown={event => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault();
+                  setMsExpanded(expanded => !expanded);
+                }
               }}
+              style={providerHeaderStyle}
               onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
               onMouseLeave={e => e.currentTarget.style.background = 'var(--bg-tertiary)'}
             >
@@ -2895,7 +3100,7 @@ function IntegrationsTab() {
                 <rect x="11" y="11" width="9" height="9" fill="#ffb900"/>
               </svg>
 
-              <div style={{ flex: 1 }}>
+              <div style={{ flex: '1 1 180px', minWidth: 0 }}>
                 <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-primary)' }}>
                   {t('admin.integrations.microsoft.title')}
                 </div>
@@ -2930,34 +3135,29 @@ function IntegrationsTab() {
               </div>
             </div>
 
+            {/* Where mailboxes are added. Integrations configures the application; Accounts connects mailboxes. */}
+            <div data-testid="microsoft-accounts-hint" style={{ fontSize: 11, color: 'var(--text-tertiary)', padding: '8px 16px' }}>
+              {t('admin.integrations.accountHint')}
+            </div>
+
             {/* Expanded form */}
             {msExpanded && (
-              <div style={{ padding: '16px', borderTop: '1px solid var(--border-subtle)' }}>
+              <div id="microsoft-provider-config" style={{ padding: '16px', borderTop: '1px solid var(--border-subtle)' }}>
                 {/* Admin-only: setup instructions + credential form. Non-admins can't
                     read or write the global config, so they see only the note + connect
                     buttons below. (#315) */}
                 {isAdmin && (<>
                 {/* Setup instructions */}
-                <div style={{
-                  padding: '12px 14px', borderRadius: 8, marginBottom: 16,
-                  background: 'rgba(124,106,247,0.06)',
-                  border: '1px solid rgba(124,106,247,0.15)',
-                  fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.7,
-                }}>
-                  <div style={{ fontWeight: 600, color: 'var(--accent)', marginBottom: 6 }}>
-                    {t('admin.integrations.microsoft.setupTitle')}
-                  </div>
-                  <ol style={{ margin: 0, paddingLeft: 18 }}>
+                <details className="au-setup"><summary>{t('admin.integrations.microsoft.setupTitle')}</summary><ol style={{ margin: 0, paddingLeft: 18 }}>
                     <li>{t('admin.integrations.microsoft.step1')}</li>
                     <li>{t('admin.integrations.microsoft.step2')}</li>
                     <li>{t('admin.integrations.microsoft.step3')}</li>
                     <li>{t('admin.integrations.microsoft.step4')}</li>
                     <li>{t('admin.integrations.microsoft.step5')}</li>
                     <li>{t('admin.integrations.microsoft.step6')}</li>
-                  </ol>
-                </div>
+                  </ol></details>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 12, marginBottom: 12 }}>
                   <Field label={t('admin.integrations.microsoft.clientId')} required>
                     <input value={msForm.clientId} onChange={e => setMsForm(f => ({ ...f, clientId: e.target.value }))}
                       placeholder={t('admin.integrations.microsoft.clientIdPh')}
@@ -2987,14 +3187,16 @@ function IntegrationsTab() {
                 </Field>
 
                 <Field label={t('admin.integrations.microsoft.redirectUri')}>
-                  <input value={msForm.redirectUri}
-                    onChange={e => setMsForm(f => ({ ...f, redirectUri: e.target.value }))}
-                    placeholder={`http://${window.location.hostname}:8080/oauth/microsoft/callback`}
-                    style={inputStyle}
-                    onFocus={e => e.target.style.borderColor = 'var(--accent)'}
-                    onBlur={e => e.target.style.borderColor = 'var(--border)'} />
+                  <div data-testid="microsoft-generated-redirect-uri" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <code style={{ ...inputStyle, flex: 1, minWidth: 0, overflowWrap: 'anywhere', cursor: 'text' }}>{msStatus?.graph?.redirectUri || msStatus?.browser?.redirectUri || t('admin.integrations.appUrlRequired')}</code>
+                    <button type="button" onClick={() => navigator.clipboard?.writeText(msStatus?.graph?.redirectUri || msStatus?.browser?.redirectUri || '')}
+                      disabled={!(msStatus?.graph?.redirectUri || msStatus?.browser?.redirectUri)}
+                      style={{ padding: '8px 10px', border: '1px solid var(--border)', borderRadius: 7, background: 'var(--bg-elevated)', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+                      {t('common.copy')}
+                    </button>
+                  </div>
                   <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 5 }}>
-                    {t('admin.integrations.microsoft.redirectUriNote', { uri: `${window.location.protocol}//${window.location.hostname}${window.location.port ? ':' + window.location.port : ''}/oauth/microsoft/callback` })}
+                    {t('admin.integrations.microsoft.redirectUriNote', { uri: msStatus?.graph?.redirectUri || msStatus?.browser?.redirectUri || '' })}
                   </div>
                 </Field>
                 </>)}
@@ -3024,7 +3226,7 @@ function IntegrationsTab() {
                   </div>
                 )}
 
-                <div style={{ display: 'flex', gap: 8 }}>
+                <div style={providerActionsStyle}>
                   {isAdmin && (
                   <button onClick={handleSaveMs} disabled={saving} style={{
                     padding: '9px 16px', background: 'var(--bg-elevated)',
@@ -3036,28 +3238,17 @@ function IntegrationsTab() {
                   </button>
                   )}
 
-                  <button
-                    onClick={handleConnectMs}
-                    disabled={!msConfigured || connectingMs}
-                    title={!msConfigured ? t('admin.integrations.microsoft.save') : ''}
-                    style={{
-                      padding: '9px 16px', background: msConfigured ? 'var(--accent)' : 'var(--bg-elevated)',
-                      border: `1px solid ${msConfigured ? 'var(--accent)' : 'var(--border)'}`,
-                      borderRadius: 8, color: msConfigured ? 'white' : 'var(--text-tertiary)',
-                      cursor: msConfigured && !connectingMs ? 'pointer' : 'not-allowed',
-                      fontSize: 13, fontWeight: 500,
-                      opacity: !msConfigured || connectingMs ? 0.6 : 1,
-                      display: 'flex', alignItems: 'center', gap: 6,
-                    }}
-                  >
-                    <svg width="14" height="14" viewBox="0 0 21 21" fill="none">
-                      <rect x="1" y="1" width="9" height="9" fill="currentColor" opacity="0.9"/>
-                      <rect x="11" y="1" width="9" height="9" fill="currentColor" opacity="0.7"/>
-                      <rect x="1" y="11" width="9" height="9" fill="currentColor" opacity="0.7"/>
-                      <rect x="11" y="11" width="9" height="9" fill="currentColor" opacity="0.5"/>
-                    </svg>
-                    {connectingMs ? t('admin.integrations.microsoft.redirecting') : t('admin.integrations.microsoft.connect')}
-                  </button>
+
+
+                  {/* The Graph API connection is separate from the mailbox sign-in
+                      above: it never creates or migrates an account, so it is
+                      offered as its own, clearly named action. */}
+                  {/* Gated on the connector's own readiness, not the mailbox flow's: the two
+                      have different callbacks, and tying them together hid this button in an
+                      installation that has a working connector but no mailbox sign-in. The
+                      device method is the same connector without a secret or callback, so it
+                      keeps the section visible where only a public client is registered. */}
+                  <ProviderConfigTest provider="microsoft" />
 
                   {isAdmin && msConfigured && (
                     <button onClick={async () => {
@@ -3080,6 +3271,12 @@ function IntegrationsTab() {
                   )}
                 </div>
 
+                {/* The Graph authorization is a per-user connection, so it is started from the mailbox it belongs
+                    to, in Settings → Accounts, rather than from the installation's configuration. */}
+                <div data-testid="microsoft-accounts-only" style={{ marginTop: 10, fontSize: 12, color: 'var(--text-tertiary)' }}>
+                  {t('admin.integrations.microsoft.connectInAccounts')}
+                </div>
+
                 {/* Device code flow */}
                 <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--border-subtle)' }}>
                   <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>
@@ -3092,14 +3289,14 @@ function IntegrationsTab() {
                   {!deviceFlow && (
                     <button
                       onClick={handleStartDeviceFlow}
-                      disabled={!msConfigured}
-                      title={!msConfigured ? t('admin.integrations.microsoft.save') : ''}
+                      disabled={!msConfigured || !msDeviceReady}
+                      title={!msConfigured || !msDeviceReady ? t('admin.integrations.microsoft.save') : ''}
                       style={{
                         padding: '8px 14px', background: 'var(--bg-elevated)',
                         border: '1px solid var(--border)', borderRadius: 8,
-                        color: msConfigured ? 'var(--text-primary)' : 'var(--text-tertiary)',
-                        cursor: msConfigured ? 'pointer' : 'not-allowed',
-                        fontSize: 12, fontWeight: 500, opacity: msConfigured ? 1 : 0.5,
+                        color: msConfigured && msDeviceReady ? 'var(--text-primary)' : 'var(--text-tertiary)',
+                        cursor: msConfigured && msDeviceReady ? 'pointer' : 'not-allowed',
+                        fontSize: 12, fontWeight: 500, opacity: msConfigured && msDeviceReady ? 1 : 0.5,
                       }}
                     >
                       {t('admin.integrations.microsoft.deviceCodeStart')}
@@ -3171,6 +3368,191 @@ function IntegrationsTab() {
               </div>
             )}
           </div>
+
+              {/* Google — same card layout as Microsoft, different methods. */}
+              <div style={{
+                border: '1px solid var(--border-subtle)', borderRadius: 12,
+                overflow: 'hidden', marginBottom: 12,
+              }}>
+                <div
+                  role="button"
+                  tabIndex={0}
+                  aria-expanded={googleExpanded}
+                  aria-controls="google-provider-config"
+                  onClick={() => setGoogleExpanded(expanded => !expanded)}
+                  onKeyDown={event => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      setGoogleExpanded(expanded => !expanded);
+                    }
+                  }}
+                  style={providerHeaderStyle}
+                  onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
+                  onMouseLeave={e => e.currentTarget.style.background = 'var(--bg-tertiary)'}
+                >
+                  <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
+                    <path fill="#4285F4" d="M23.5 12.3c0-.8-.1-1.6-.2-2.3H12v4.5h6.5c-.3 1.5-1.1 2.7-2.4 3.6v3h3.9c2.3-2.1 3.5-5.2 3.5-8.8z"/>
+                    <path fill="#34A853" d="M12 24c3.2 0 5.9-1.1 7.9-2.9l-3.9-3c-1.1.7-2.4 1.1-4 1.1-3.1 0-5.7-2.1-6.6-4.9H1.4v3.1C3.4 21.3 7.4 24 12 24z"/>
+                    <path fill="#FBBC05" d="M5.4 14.3c-.2-.7-.4-1.5-.4-2.3s.2-1.6.4-2.3V6.6H1.4C.5 8.2 0 10 0 12s.5 3.8 1.4 5.4l4-3.1z"/>
+                    <path fill="#EA4335" d="M12 4.8c1.8 0 3.3.6 4.6 1.8l3.4-3.4C17.9 1.2 15.2 0 12 0 7.4 0 3.4 2.7 1.4 6.6l4 3.1C6.3 6.9 8.9 4.8 12 4.8z"/>
+                  </svg>
+                  <div style={{ flex: '1 1 180px', minWidth: 0 }}>
+                    <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-primary)' }}>
+                      {t('admin.integrations.google.title')}
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 1 }}>
+                      {t('admin.integrations.google.description')}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    {googleConfigured ? (
+                      <span style={{
+                        fontSize: 11, padding: '3px 8px', borderRadius: 20,
+                        background: googleWebReady ? 'rgba(74,222,128,0.1)' : 'rgba(251,191,36,0.12)',
+                        color: googleWebReady ? 'var(--green)' : 'var(--yellow, #fbbf24)',
+                        border: `1px solid ${googleWebReady ? 'rgba(74,222,128,0.2)' : 'rgba(251,191,36,0.3)'}`,
+                        fontWeight: 500,
+                      }}>
+                        {t('admin.integrations.microsoft.configured')}
+                      </span>
+                    ) : (
+                      <span style={{
+                        fontSize: 11, padding: '3px 8px', borderRadius: 20,
+                        background: 'var(--bg-elevated)', color: 'var(--text-tertiary)',
+                        border: '1px solid var(--border)',
+                      }}>
+                        {t('admin.integrations.microsoft.notConfigured')}
+                      </span>
+                    )}
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                      stroke="var(--text-tertiary)" strokeWidth="2"
+                      style={{ transform: googleExpanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }}>
+                      <polyline points="6 9 12 15 18 9"/>
+                    </svg>
+                  </div>
+                </div>
+
+                <div data-testid="google-accounts-hint" style={{ fontSize: 11, color: 'var(--text-tertiary)', padding: '8px 16px' }}>
+                  {t('admin.integrations.accountHint')}
+                </div>
+
+                {googleExpanded && (
+                  <div id="google-provider-config" style={{ padding: '16px', borderTop: '1px solid var(--border-subtle)' }}>
+                    {isAdmin && (<>
+                      <details className="au-setup"><summary>{t('admin.integrations.google.setupTitle')}</summary><ol style={{ margin: 0, paddingLeft: 18 }}>
+                          <li>{t('admin.integrations.google.step1')}</li>
+                          <li>{t('admin.integrations.google.step2')}</li>
+                          <li>{t('admin.integrations.google.step3')}</li>
+                          <li>{t('admin.integrations.google.step4')}</li>
+                        </ol></details>
+
+                      <Field label={t('admin.integrations.microsoft.clientId')} required>
+                        <input value={googleForm.clientId} onChange={e => setGoogleForm(f => ({ ...f, clientId: e.target.value }))}
+                          placeholder={t('admin.integrations.google.clientIdPh')}
+                          style={{ ...inputStyle, fontFamily: 'JetBrains Mono, monospace', fontSize: 12 }}
+                          onFocus={e => e.target.style.borderColor = 'var(--accent)'}
+                          onBlur={e => e.target.style.borderColor = 'var(--border)'} />
+                      </Field>
+
+                      <Field label={t('admin.integrations.microsoft.clientSecret')} required>
+                        <input type="password" autoComplete="new-password" value={googleForm.clientSecret}
+                          onChange={e => setGoogleForm(f => ({ ...f, clientSecret: e.target.value }))}
+                          placeholder={t('admin.integrations.microsoft.clientSecretPh')}
+                          style={inputStyle}
+                          onFocus={e => e.target.style.borderColor = 'var(--accent)'}
+                          onBlur={e => e.target.style.borderColor = 'var(--border)'} />
+                      </Field>
+
+                      <Field label={t('admin.integrations.microsoft.redirectUri')} required>
+                        <div data-testid="google-generated-redirect-uri" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                          <code style={{ ...inputStyle, flex: 1, minWidth: 0, overflowWrap: 'anywhere', cursor: 'text' }}>{googleStatus?.browser?.redirectUri || t('admin.integrations.appUrlRequired')}</code>
+                          <button type="button" onClick={() => navigator.clipboard?.writeText(googleStatus?.browser?.redirectUri || '')}
+                            disabled={!googleStatus?.browser?.redirectUri}
+                            style={{ padding: '8px 10px', border: '1px solid var(--border)', borderRadius: 7, background: 'var(--bg-elevated)', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+                            {t('common.copy')}
+                          </button>
+                        </div>
+                        <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 5 }}>
+                          {t('admin.integrations.google.redirectUriNote', { uri: googleStatus?.browser?.redirectUri || '' })}
+                        </div>
+                      </Field>
+                    </>)}
+
+                    {!isAdmin && (
+                      <div style={{
+                        padding: '12px 14px', borderRadius: 8, marginBottom: 16,
+                        background: 'rgba(124,106,247,0.06)',
+                        border: '1px solid rgba(124,106,247,0.15)',
+                        fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6,
+                      }}>
+                        {googleConfigured
+                          ? t('admin.integrations.google.userNoteConfigured')
+                          : t('admin.integrations.google.userNoteNotConfigured')}
+                      </div>
+                    )}
+
+                    <div style={{
+                      padding: '10px 12px', borderRadius: 8, marginBottom: 10,
+                      background: 'var(--bg-elevated)', border: '1px solid var(--border)',
+                      fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6,
+                    }}>
+                      {t('admin.integrations.google.appPasswordNote')}
+                    </div>
+
+                    <div style={{
+                      padding: '10px 12px', borderRadius: 8, marginBottom: 14,
+                      background: 'var(--bg-elevated)', border: '1px solid var(--border)',
+                      fontSize: 12, color: 'var(--text-tertiary)', lineHeight: 1.6,
+                    }}>
+                      {t('admin.integrations.google.deviceNotSupported')}
+                    </div>
+
+                    {/* A Google authorization belongs to one mailbox, so it is started from that account's card
+                        in Settings → Accounts, not from the installation's configuration. */}
+                    <div data-testid="google-accounts-only" style={{ marginBottom: 14, fontSize: 12, color: 'var(--text-tertiary)' }}>
+                      {t('admin.integrations.google.connectInAccounts')}
+                    </div>
+
+                    {googleSaveMsg && (
+                      <div style={{
+                        padding: '10px 14px', borderRadius: 8, marginBottom: 12, fontSize: 13,
+                        background: googleSaveMsg.startsWith('Error') ? 'rgba(248,113,113,0.1)' : 'rgba(74,222,128,0.1)',
+                        border: `1px solid ${googleSaveMsg.startsWith('Error') ? 'rgba(248,113,113,0.3)' : 'rgba(74,222,128,0.2)'}`,
+                        color: googleSaveMsg.startsWith('Error') ? 'var(--red)' : 'var(--green)',
+                      }}>
+                        {googleSaveMsg}
+                      </div>
+                    )}
+
+                    {isAdmin && (
+                      <div style={providerActionsStyle}>
+                        <button onClick={handleSaveGoogle} disabled={googleSaving} style={{
+                          padding: '9px 16px', background: 'var(--bg-elevated)',
+                          border: '1px solid var(--border)', borderRadius: 8,
+                          color: 'var(--text-primary)', cursor: googleSaving ? 'not-allowed' : 'pointer',
+                          fontSize: 13, fontWeight: 500, opacity: googleSaving ? 0.7 : 1,
+                        }}>
+                          {googleSaving ? t('common.saving') : t('admin.integrations.google.save')}
+                        </button>
+                        <ProviderConfigTest provider="google" />
+                        {googleConfigured && (
+                          <button onClick={handleRemoveGoogle} style={{
+                            padding: '9px 12px', background: 'transparent',
+                            border: '1px solid transparent', borderRadius: 8,
+                            color: 'var(--text-tertiary)', cursor: 'pointer', fontSize: 13,
+                            marginLeft: 'auto',
+                          }}
+                          onMouseEnter={e => { e.currentTarget.style.color = 'var(--red)'; e.currentTarget.style.borderColor = 'rgba(248,113,113,0.3)'; }}
+                          onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-tertiary)'; e.currentTarget.style.borderColor = 'transparent'; }}
+                          >
+                            {t('admin.integrations.microsoft.remove')}
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
         </div>
       )}
         </div>
@@ -3299,9 +3681,9 @@ function IntegrationsTab() {
             )}
           </div>
 
-          <CardDavCard />
         </div>
       )}
+      </section>
     </div>
   );
 }
@@ -4943,9 +5325,9 @@ function SystemEmailSection() {
           <label style={{ display: 'block', fontSize: 12, color: 'var(--text-secondary)', marginBottom: 5 }}>{t('admin.systemEmail.encryption')}</label>
           <select value={form.tls} onChange={e => setForm(f => ({ ...f, tls: e.target.value }))}
             style={{ width: '100%', background: 'var(--bg-tertiary)', border: '1px solid var(--border)', borderRadius: 6, padding: '7px 10px', color: 'var(--text-primary)', fontSize: 13 }}>
-            <option value="STARTTLS">STARTTLS (port 587)</option>
-            <option value="SSL">SSL/TLS (port 465)</option>
-            <option value="none">None (port 25)</option>
+            <option value="STARTTLS">{t('admin.systemEmail.starttlsOption')}</option>
+            <option value="SSL">{t('admin.systemEmail.tlsOption')}</option>
+            <option value="none">{t('admin.systemEmail.noSecurityOption')}</option>
           </select>
         </div>
 
@@ -6666,7 +7048,7 @@ function RulesTab() {
                       style={{ ...inputStyle, flex: 1 }}
                       value={cond.value || ''}
                       onChange={e => setCondition(idx, 'value', e.target.value)}
-                      placeholder="value"
+                      placeholder={t('admin.rules.valuePlaceholder')}
                     />
                   </>
                 )}
@@ -6914,7 +7296,7 @@ function RulesTab() {
                   <input type="checkbox" checked={rule.enabled} onChange={() => handleToggle(rule)} />
                 </label>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 2 }}>{rule.name || '(unnamed)'}</div>
+                  <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 2 }}>{rule.name || t('admin.rules.unnamed')}</div>
                   <div style={{ fontSize: 11, color: 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     {conditionSummary(rule)} → {actionSummary(rule)}
                   </div>
@@ -7235,7 +7617,8 @@ function MailboxCleanupTab() {
 
 const TAB_GROUPS = [
   { id: 'account-mail', labelKey: 'admin.tabs.groupAccountMail', tabIds: ['accounts', 'notifications', 'rules', 'categories', 'cleanup'] },
-  { id: 'calendar', labelKey: 'calendar.title', tabIds: ['calendar'] },
+  { id: 'calendar', labelKey: 'calendar.title', tabIds: ['calendar', 'calendar-appearance'] },
+  { id: 'contacts', labelKey: 'contacts.title', tabIds: ['contacts'] },
   { id: 'display', labelKey: 'admin.tabs.groupDisplay', tabIds: ['appearance', 'shortcuts'] },
   { id: 'security-integrations', labelKey: 'admin.tabs.groupSecurityIntegrations', tabIds: ['security', 'dav-credentials', 'integrations', 'ai', 'ai-actions', 'plugins'] },
   { id: 'admin', labelKey: 'admin.tabs.groupAdmin', tabIds: ['users', 'sso'] },
@@ -7263,7 +7646,9 @@ const TABS = [
     id: 'cleanup', labelKey: 'admin.tabs.cleanup', beta: true,
     icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M19 3l-6 6"/><path d="M14 4l6 6"/><path d="M11 8l-7 7c-1 1-1 3 0 4s3 1 4 0l7-7"/><path d="M6 20l-3-3"/></svg>,
   },
-  { id: 'calendar', labelKey: 'calendar.title', icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 11h18"/></svg> },
+  { id: 'calendar-appearance', labelKey: 'admin.tabs.appearance', icon: <span aria-hidden="true">◐</span> },
+  { id: 'contacts', labelKey: 'admin.tabs.accounts', icon: <span aria-hidden="true">☷</span> },
+  { id: 'calendar', labelKey: 'admin.tabs.accounts', icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 11h18"/></svg> },
   // Display
   {
     id: 'appearance', labelKey: 'admin.tabs.appearance',
@@ -8849,14 +9234,49 @@ function SearchResultsView({ results, query, onNavigate, t }: SearchResultsViewP
 }
 
 function DavCredentialsTab() {
-  const { t } = useTranslation(); const [credentials, setCredentials] = useState<DavCredential[]>([]); const [label, setLabel] = useState(''); const [secret, setSecret] = useState(''); const [error, setError] = useState(''); const [loading, setLoading] = useState(true); const [busy, setBusy] = useState(false); const [copied, setCopied] = useState(false);
-  const load = useCallback(async () => { setLoading(true); try { const result = await api.davCredentials.list(); setCredentials(result.credentials || []); } catch (err) { setError(toAppError(err).message || t('admin.davCredentials.loadError')); } finally { setLoading(false); } }, [t]);
-  useEffect(() => { load(); }, [load]);
-  const create = async () => { if (!label.trim()) return; setBusy(true); setError(''); setSecret(''); setCopied(false); try { const result = await api.davCredentials.create(label.trim()); setCredentials(current => [result.credential, ...current]); setLabel(''); setSecret(result.secret); } catch (err) { setError(toAppError(err).message || t('admin.davCredentials.createError')); } finally { setBusy(false); } };
-  const copy = async () => { try { await navigator.clipboard.writeText(secret); setCopied(true); } catch { setError(t('admin.davCredentials.copyError')); } };
-  const revoke = async (credential: DavCredential) => { setBusy(true); setError(''); try { await api.davCredentials.revoke(credential.id); setCredentials(current => current.filter(item => item.id !== credential.id)); } catch (err) { setError(toAppError(err).message || t('admin.davCredentials.revokeError')); } finally { setBusy(false); } };
+  const { t } = useTranslation(); const [credentials, setCredentials] = useState<DavCredential[]>([]); const [label, setLabel] = useState(''); const [secret, setSecret] = useState(''); const [error, setError] = useState(''); const [loading, setLoading] = useState(true); const [busy, setBusy] = useState(false); const [maxMode, setMaxMode] = useState<'read_only' | 'read_write'>('read_write');
+  const scope = useRef(0);
+  const load = useCallback(async () => {
+    const generation = scope.current;
+    setLoading(true);
+    try {
+      const result = await api.davCredentials.list();
+      if (generation === scope.current) setCredentials(result.credentials || []);
+    } catch (err) {
+      if (generation === scope.current) setError(toAppError(err).message || t('admin.davCredentials.loadError'));
+    } finally { if (generation === scope.current) setLoading(false); }
+  }, [t]);
+  useEffect(() => { scope.current += 1; return () => { scope.current += 1; }; }, []);
+  useEffect(() => { void load(); }, [load]);
+  const create = async () => {
+    if (busy || loading || !label.trim()) return;
+    const generation = scope.current;
+    setBusy(true); setError(''); setSecret('');
+    try {
+      const result = await api.davCredentials.create(label.trim(), maxMode);
+      if (generation !== scope.current) return;
+      setCredentials(current => [result.credential, ...current]); setLabel(''); setSecret(result.secret);
+    } catch (err) {
+      if (generation === scope.current) setError(toAppError(err).message || t('admin.davCredentials.createError'));
+    } finally { if (generation === scope.current) setBusy(false); }
+  };
+  const revoke = async (credential: DavCredential) => {
+    if (busy || loading) return;
+    const generation = scope.current;
+    setBusy(true); setError('');
+    try {
+      await api.davCredentials.revoke(credential.id);
+      if (generation === scope.current) setCredentials(current => current.filter(item => item.id !== credential.id));
+    } catch (err) {
+      if (generation === scope.current) setError(toAppError(err).message || t('admin.davCredentials.revokeError'));
+    } finally { if (generation === scope.current) setBusy(false); }
+  };
   const endpoint = window.location.origin;
-  return <div style={{ maxWidth: 680 }}><h2 style={{ marginTop: 0 }}>{t('admin.davCredentials.title')}</h2><p style={{ color: 'var(--text-secondary)' }}>{t('admin.davCredentials.description')}</p>{error && <div role="alert" style={{ color: 'var(--red)', marginBottom: 12 }}>{error}</div>}<div style={{ display: 'flex', gap: 8, marginBottom: 18 }}><input aria-label={t('admin.davCredentials.label')} value={label} maxLength={120} onChange={e => setLabel(e.target.value)} onKeyDown={e => e.key === 'Enter' && create()} placeholder={t('admin.davCredentials.labelPlaceholder')} style={inputStyle}/><button disabled={busy || !label.trim()} onClick={create} style={{ background: 'var(--accent)', color: 'var(--accent-text)', border: 0, borderRadius: 6, padding: '7px 12px', cursor: 'pointer', whiteSpace: 'nowrap' }}>{t('admin.davCredentials.create')}</button></div>{secret && <section style={{ border: '1px solid var(--accent)', borderRadius: 8, padding: 16, marginBottom: 18 }}><strong>{t('admin.davCredentials.secretTitle')}</strong><p>{t('admin.davCredentials.secretWarning')}</p><code style={{ display: 'block', overflowWrap: 'anywhere' }}>{secret}</code><button onClick={copy} style={{ marginTop: 10 }}>{copied ? t('admin.davCredentials.copied') : t('common.copy')}</button></section>}<section style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 16, marginBottom: 18 }}><strong>{t('admin.davCredentials.davx5Title')}</strong><p>{t('admin.davCredentials.davx5Description')}</p><code>{endpoint}/.well-known/carddav</code><br/><code>{endpoint}/.well-known/caldav</code><p style={{ color: 'var(--text-tertiary)', marginBottom: 0 }}>{t('admin.davCredentials.davx5Username')}</p></section><h3>{t('admin.davCredentials.activeTitle')}</h3>{loading ? <p>{t('common.loading')}</p> : credentials.length === 0 ? <p>{t('admin.davCredentials.empty')}</p> : <div style={{ display: 'grid', gap: 8 }}>{credentials.map(credential => <div key={credential.id} style={{ display: 'flex', gap: 12, alignItems: 'center', border: '1px solid var(--border)', borderRadius: 8, padding: 12 }}><div style={{ flex: 1 }}><strong>{credential.label}</strong><div style={{ color: 'var(--text-tertiary)', fontSize: 12 }}>{t('admin.davCredentials.metadata', { created: new Date(credential.created_at).toLocaleString(), used: credential.last_used_at ? new Date(credential.last_used_at).toLocaleString() : t('common.never') })}</div></div><button disabled={busy} onClick={() => revoke(credential)} style={{ color: 'var(--red)' }}>{t('admin.davCredentials.revoke')}</button></div>)}</div>}</div>;
+  return <div style={{ maxWidth: 680, minWidth: 0, overflowWrap: 'anywhere' }}><h2 style={{ marginTop: 0 }}>{t('admin.davCredentials.title')}</h2><p style={{ color: 'var(--text-secondary)' }}>{t('admin.davCredentials.description')}</p>{error && <div role="alert" style={{ color: 'var(--red)', marginBottom: 12 }}>{error}</div>}<div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 18 }}><input aria-label={t('admin.davCredentials.label')} value={label} maxLength={120} onChange={e => setLabel(e.target.value)} onKeyDown={e => e.key === 'Enter' && create()} placeholder={t('admin.davCredentials.labelPlaceholder')} style={{ ...inputStyle, flex: '1 1 180px', minWidth: 0 }}/>
+<select data-testid="dav-credential-max-mode" aria-label={t('admin.davCredentials.maxMode')} value={maxMode} onChange={e => setMaxMode(e.target.value === 'read_only' ? 'read_only' : 'read_write')} style={{ ...inputStyle, flex: '1 1 170px', minWidth: 0, maxWidth: '100%' }}><option value="read_write">{t('admin.davCredentials.maxModeReadWrite')}</option><option value="read_only">{t('admin.davCredentials.maxModeReadOnly')}</option></select><button type="button" disabled={busy || loading || !label.trim()} onClick={create} style={{ background: 'var(--accent)', color: 'var(--accent-text)', border: 0, borderRadius: 6, padding: '7px 12px', cursor: 'pointer', whiteSpace: 'nowrap' }}>{t('admin.davCredentials.create')}</button></div>{secret && <section style={{ border: '1px solid var(--accent)', borderRadius: 8, padding: 16, marginBottom: 18 }}><strong>{t('admin.davCredentials.secretTitle')}</strong><p>{t('admin.davCredentials.secretWarning')}</p><DavCopyValue label={t('admin.davCredentials.secretTitle')} value={secret} /></section>}<section style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 16, marginBottom: 18 }}><strong>{t('admin.davCredentials.davx5Title')}</strong><p>{t('admin.davCredentials.davx5Description')}</p>
+<DavCopyValue label="CardDAV" value={`${endpoint}/.well-known/carddav`} />
+<DavCopyValue label="CalDAV" value={`${endpoint}/.well-known/caldav`} />
+<p style={{ color: 'var(--text-tertiary)', marginBottom: 0 }}>{t('admin.davCredentials.davx5Username')}</p></section><h3>{t('admin.davCredentials.activeTitle')}</h3>{loading ? <p>{t('common.loading')}</p> : credentials.length === 0 ? <p>{t('admin.davCredentials.empty')}</p> : <div style={{ display: 'grid', gap: 8 }}>{credentials.map(credential => <div key={credential.id} style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', minWidth: 0, border: '1px solid var(--border)', borderRadius: 8, padding: 12 }}><div style={{ flex: '1 1 180px', minWidth: 0 }}><strong>{credential.label}</strong><div style={{ color: 'var(--text-tertiary)', fontSize: 12 }}>{t('admin.davCredentials.metadata', { created: new Date(credential.created_at).toLocaleString(), used: credential.last_used_at ? new Date(credential.last_used_at).toLocaleString() : t('common.never') })}</div></div><div style={{ color: 'var(--text-tertiary)', fontSize: 12 }}>{t('admin.davCredentials.mode', { mode: credential.max_dav_mode === 'read_only' ? t('admin.davCredentials.maxModeReadOnly') : t('admin.davCredentials.maxModeReadWrite') })}</div><button disabled={busy} onClick={() => revoke(credential)} style={{ color: 'var(--red)' }}>{t('admin.davCredentials.revoke')}</button></div>)}</div>}</div>;
 }
 
 export default function AdminPanel() {
@@ -8939,11 +9359,13 @@ export default function AdminPanel() {
 
   const tabContent = (
     <>
-      {adminTab === 'accounts' && <AccountsTab />}
+      {adminTab === 'accounts' && <AccountsTab onNavigate={tab => setAdminTab(tab as typeof adminTab)} />}
       {adminTab === 'rules' && <RulesAndBlockListTab initialSubTab={pendingSubTab} />}
       {adminTab === 'categories' && <CategoriesSection initialSubTab={pendingSubTab} />}
       {adminTab === 'cleanup' && <MailboxCleanupTab />}
       {adminTab === 'calendar' && <CalendarSettingsTab />}
+      {adminTab === 'calendar-appearance' && <CalendarSettingsTab section="appearance" />}
+      {adminTab === 'contacts' && <ContactsSettingsTab />}
       {adminTab === 'appearance' && <AppearanceTab initialSubTab={pendingSubTab} />}
       {adminTab === 'integrations' && <IntegrationsTab />}
       {adminTab === 'users' && <UsersTab />}
@@ -9007,6 +9429,7 @@ export default function AdminPanel() {
             {visibleTabs.map(tab => (
               <button
                 key={tab.id}
+                data-testid={`admin-tab-${tab.id}`}
                 className={adminTab === tab.id && !searchResults ? 'admin-tab admin-tab-active' : 'admin-tab'}
                 onClick={() => handleTabClick(tab.id)}
                 style={{
@@ -9020,6 +9443,8 @@ export default function AdminPanel() {
                 }}
               >
                 <span style={{ display: 'flex', opacity: adminTab === tab.id && !searchResults ? 1 : 0.7 }}>{tab.icon}</span>
+                {(tab.id === 'calendar' || tab.id === 'calendar-appearance') && `${t('calendar.title')} · `}
+                {tab.id === 'contacts' && `${t('contacts.title')} · `}
                 {t(tab.labelKey)}
                 {tab.beta && <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.06em', padding: '1px 4px', borderRadius: 3, background: adminTab === tab.id && !searchResults ? 'rgba(255,255,255,0.25)' : 'color-mix(in srgb, var(--accent) 15%, transparent)', color: adminTab === tab.id && !searchResults ? '#fff' : 'var(--accent)' }}>BETA</span>}
               </button>
@@ -9103,6 +9528,7 @@ export default function AdminPanel() {
                   return (
                     <button
                       key={tab.id}
+                      data-testid={`admin-tab-${tab.id}`}
                       className={isActive ? 'admin-tab admin-tab-active' : 'admin-tab'}
                       onClick={() => handleTabClick(tab.id)}
                       style={{
@@ -9187,6 +9613,66 @@ export default function AdminPanel() {
           {searchResults !== null ? <SearchResultsView results={searchResults} query={searchQuery} onNavigate={navigateTo} t={t} /> : tabContent}
         </div>
       </div>
+    </div>
+  );
+}
+
+
+/**
+ * Check the saved provider credentials against the provider, and say which of the two it is.
+ *
+ * Readiness means the fields are present and the method is enabled; it does not mean the provider accepts them,
+ * so a client id with a stray space or a secret taken from the wrong column reads as ready until an authorization
+ * fails at the provider. This is the control for the endpoint that tells the difference.
+ */
+function ProviderConfigTest({ provider }: { provider: 'google' | 'microsoft' }) {
+  const { t } = useTranslation();
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
+
+  const run = async () => {
+    setBusy(true);
+    setResult(null);
+    try {
+      const answer = await api.testProviderConfiguration(provider) as { ok?: boolean; code?: string };
+      if (answer?.ok) {
+        setResult({ ok: true, message: t('admin.integrations.test.accepted') });
+      } else if (answer?.code === 'ADMIN_CONFIGURATION_REQUIRED') {
+        setResult({ ok: false, message: t('admin.integrations.test.missingClientId') });
+      } else if (answer?.code === 'UPSTREAM_UNAVAILABLE') {
+        setResult({ ok: false, message: t('admin.integrations.test.unreachable') });
+      } else {
+        setResult({ ok: false, message: t('admin.integrations.test.rejected') });
+      }
+    } catch {
+      setResult({ ok: false, message: t('admin.integrations.test.unreachable') });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div style={{ marginTop: 12 }}>
+      <button
+        onClick={run}
+        disabled={busy}
+        data-testid={`provider-test-${provider}`}
+        style={{
+          padding: '8px 14px', background: 'var(--bg-elevated)', border: '1px solid var(--border)',
+          borderRadius: 8, color: busy ? 'var(--text-tertiary)' : 'var(--text-primary)',
+          cursor: busy ? 'wait' : 'pointer', fontSize: 12, fontWeight: 500,
+        }}
+      >
+        {busy ? t('admin.integrations.test.testing') : t('admin.integrations.test.button')}
+      </button>
+      {result && (
+        <div
+          data-testid={`provider-test-result-${provider}`}
+          style={{ marginTop: 6, fontSize: 12, color: result.ok ? 'var(--green)' : 'var(--red, #f87171)' }}
+        >
+          {result.message}
+        </div>
+      )}
     </div>
   );
 }

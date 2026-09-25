@@ -17,8 +17,7 @@ import { queueReadStateMutation, isLatestReadStateMutation } from '../utils/read
 import { queueStarStateMutation, isLatestStarStateMutation } from '../utils/starStateMutation.ts';
 import { BUILTIN_SUMMARIZE, summarizePromptForLocale } from '../aiActions.ts';
 import { getResults, saveResult, removeResult } from '../aiResults.ts';
-import { pickReplyAlias, collectOwnAddresses } from '../utils/replyAlias.ts';
-import { buildReplyHeaders } from '../utils/composeFromMessage.ts';
+import { openReplyFromMessage } from '../utils/composeFromMessage.ts';
 import { sanitizeMessageHtml } from './MessageBodyRenderer.tsx';
 import { getEmailSurface } from '../themes.ts';
 import MessageDetailContent from './MessageDetailContent.tsx';
@@ -1087,85 +1086,21 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
 
   const handleReply = (replyAll = false) => {
     if (!message) return;
-    const date = message.date ? new Date(message.date).toLocaleString() : '';
-    const safeName = (message.from_name || '').replace(/[\r\n]+/g, ' ');
-    const fromStr = safeName
-      ? `${safeName} <${message.from_email}>`
-      : message.from_email || '';
-    const quotedText = body?.text
-      ? `\n\n---\nOn ${date}, ${fromStr} wrote:\n${body.text.split('\n').map(l => '> ' + l).join('\n')}`
-      : '';
-    const quotedBodyHtml = body?.html
-      ? `<div style="border-left:3px solid var(--border,#ccc);padding-left:12px;margin-top:12px;color:var(--text-secondary,#666)"><p style="margin:0 0 6px;font-size:12px">On ${date}, ${fromStr} wrote:</p>${body.html}</div>`
-      : null;
-
-    const replyToArr = Array.isArray(message.reply_to)
-      ? message.reply_to
-      : (() => { try { return JSON.parse(message.reply_to || '[]'); } catch { return []; } })();
-    const replyTarget = (replyToArr.length && replyToArr[0].email)
-      ? replyToArr[0]
-      : { name: message.from_name || '', email: message.from_email || '' };
-    const sender = replyTarget.email ? [replyTarget] : [];
-
-    const myAccount = accounts.find(a => a.id === message.account_id);
-
-    const replyAliasId = pickReplyAlias({
-      aliases: myAccount?.aliases || [],
-      deliveryAddresses: message.delivery_addresses,
-      toAddresses: message.to_addresses,
-      ccAddresses: message.cc_addresses,
-      fromEmail: message.from_email,
-    });
-
-    const myAddresses = collectOwnAddresses({ account: myAccount, message });
-    const allRecipients = (() => {
-      try {
-        const toArr = Array.isArray(message.to_addresses)
-          ? message.to_addresses
-          : JSON.parse(message.to_addresses || '[]');
-        const ccArr = Array.isArray(message.cc_addresses)
-          ? message.cc_addresses
-          : JSON.parse(message.cc_addresses || '[]');
-        const seen = new Set();
-        return [...toArr, ...ccArr].filter(t => {
-          const email = t.email?.toLowerCase();
-          if (!email || myAddresses.has(email) || email === (replyTarget.email || '').toLowerCase() || seen.has(email)) return false;
-          seen.add(email);
-          return true;
-        });
-      } catch { return []; }
-    })();
-
-    // Use the shared buildReplyHeaders helper so single and conversation replies
-    // produce identical References/In-Reply-To headers (ordered, normalized, deduped).
-    const { inReplyTo, references: referencesChain } = buildReplyHeaders(message);
-
-    const rawSubject = (message.subject || '').trim();
-    const reSubject = rawSubject.startsWith('Re:') ? rawSubject : rawSubject ? `Re: ${rawSubject}` : 'Re:';
-
-    openCompose({
-      to: sender,
-      cc: replyAll ? allRecipients : [],
-      subject: reSubject,
-      body: '',
-      quotedBody: quotedText,
-      quotedBodyHtml,
-      inReplyTo,
-      references: referencesChain,
-      accountId: message.account_id,
-      aliasId: replyAliasId,
-      isReply: true,
-      isReplyAll: replyAll,
-      originalFrom: sender,
-      allRecipients,
-      threadId: message.thread_key || message.thread_id,
-      threadCacheId: message.thread_id || message.thread_key,
+    // All entry points use the same intent builder. The physical row reaches
+    // /send, while RFC headers are compatibility hints derived server-side.
+    void openReplyFromMessage(message, {
+      accounts,
+      openCompose,
+      getMessageBody: api.getMessageBody,
+      replyAll,
     });
   };
 
+  const esc = (s: string | null | undefined) => (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
   const handleForward = () => {
     if (!message) return;
-    const date = message.date ? new Date(message.date).toLocaleString() : '';
+    const date = message.date ? new Date(message.date).toLocaleString(i18n.language) : '';
     const safeName = (message.from_name || '').replace(/[\r\n]+/g, ' ');
     const fromStr = safeName
       ? `${safeName} <${message.from_email}>`
@@ -1175,9 +1110,17 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     const toStr = parseAddressField(message.to_addresses);
     const ccStr = parseAddressField(message.cc_addresses);
 
-    const fwdText = `\n\n---------- Forwarded message ----------\nFrom: ${fromStr}\nDate: ${date}\nSubject: ${safeSubject}${toStr ? `\nTo: ${toStr}` : ''}${ccStr ? `\nCc: ${ccStr}` : ''}\n\n${body?.text || ''}`;
+    const forwardHeading = `---------- ${t('message.forwardedMessage')} ----------`;
+    const forwardHeaders = [
+      `${t('compose.from')}: ${fromStr}`,
+      `${t('message.date')}: ${date}`,
+      `${t('compose.subject')}: ${safeSubject}`,
+      ...(toStr ? [`${t('compose.to')}: ${toStr}`] : []),
+      ...(ccStr ? [`${t('compose.cc')}: ${ccStr}`] : []),
+    ];
+    const fwdText = `\n\n${[forwardHeading, ...forwardHeaders].join('\n')}\n\n${body?.text || ''}`;
     const fwdHtml = body?.html
-      ? `<div style="border-left:3px solid var(--border,#ccc);padding-left:12px;margin-top:12px;color:var(--text-secondary,#666)"><p style="margin:0 0 6px;font-size:12px">---------- Forwarded message ----------<br>From: ${fromStr}<br>Date: ${date}<br>Subject: ${safeSubject}${toStr ? `<br>To: ${toStr}` : ''}${ccStr ? `<br>Cc: ${ccStr}` : ''}</p>${body.html}</div>`
+      ? `<div style="border-left:3px solid var(--border,#ccc);padding-left:12px;margin-top:12px;color:var(--text-secondary,#666)"><p style="margin:0 0 6px;font-size:12px">${[forwardHeading, ...forwardHeaders].map(esc).join('<br>')}</p>${body.html}</div>`
       : null;
     openCompose({
       subject: message.subject?.startsWith('Fwd:') ? message.subject : `Fwd: ${message.subject}`,
@@ -1213,8 +1156,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
 
   const handlePrint = () => {
     if (!message) return;
-    const esc = (s: string | null | undefined) => (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    const date = message.date ? new Date(message.date).toLocaleString() : '';
+    const date = message.date ? new Date(message.date).toLocaleString(i18n.language) : '';
     const fromStr = message.from_name
       ? `${esc(message.from_name)} &lt;${esc(message.from_email)}&gt;`
       : esc(message.from_email);
@@ -1246,12 +1188,12 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   @media print { body { margin: 16px; } }
 </style></head><body>
 <div class="header">
-  <h1>${esc(message.subject) || '(no subject)'}</h1>
+  <h1>${esc(message.subject || t('common.noSubject'))}</h1>
   <div class="meta">
-    <div><span>From:</span> ${fromStr}</div>
-    <div><span>To:</span> ${toStr}</div>
-    ${ccStr ? `<div><span>Cc:</span> ${ccStr}</div>` : ''}
-    <div><span>Date:</span> ${date}</div>
+    <div><span>${esc(t('compose.from'))}:</span> ${fromStr}</div>
+    <div><span>${esc(t('compose.to'))}:</span> ${toStr}</div>
+    ${ccStr ? `<div><span>${esc(t('compose.cc'))}:</span> ${ccStr}</div>` : ''}
+    <div><span>${esc(t('message.date'))}:</span> ${esc(date)}</div>
   </div>
 </div>
 ${bodyContent}
@@ -2114,7 +2056,7 @@ ${bodyContent}
                   </div>
                   {ccList.length > 0 && (
                     <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      <span>Cc </span>
+                      <span>{t('compose.cc')} </span>
                       <span style={{ color: 'var(--text-secondary)' }}>
                         {ccList.map((r: { name?: string | null; email?: string | null }, i: number) => (
                           <span key={i}>{r.name || r.email}{i < ccList.length - 1 ? ', ' : ''}</span>
@@ -2156,7 +2098,7 @@ ${bodyContent}
                   </div>
                   {ccList.length > 0 && (
                     <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2 }}>
-                      <span>Cc </span>
+                      <span>{t('compose.cc')} </span>
                       <span style={{ color: 'var(--text-secondary)' }}>
                         {ccList.map((r, i) => (
                           <span key={i}>

@@ -199,3 +199,4 @@ describe('POST /api/gtd/folders/ensure — persist effective paths', () => {
     expect(invalidateGtdConfigCache).toHaveBeenCalledWith(ACCOUNT_ID);
   });
 });
+

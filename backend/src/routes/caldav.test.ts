@@ -68,7 +68,7 @@ beforeEach(() => {
 
 describe('CalDAV discovery', () => {
   it('advertises calendar access after dedicated DAV app-password authentication', async () => {
-    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
+    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1', maxDavMode: 'read_write' });
 
     const response = await fetch(`${base}/caldav/`, {
       method: 'OPTIONS',
@@ -81,7 +81,7 @@ describe('CalDAV discovery', () => {
   });
 
   it('returns the authenticated user principal from root PROPFIND', async () => {
-    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
+    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1', maxDavMode: 'read_write' });
 
     const response = await fetch(`${base}/caldav/`, {
       method: 'PROPFIND',
@@ -92,9 +92,9 @@ describe('CalDAV discovery', () => {
     expect(await response.text()).toContain('/caldav/user-1/');
   });
 
-  it('exposes only the authenticated user calendar home', async () => {
-    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
-    query.mockResolvedValueOnce({ rows: [{ id: 'calendar-1', name: 'Personal', sync_token: 'token-1' }] });
+  it('points calendar-home-set at the home collection, not the first calendar (A07)', async () => {
+    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1', maxDavMode: 'read_write' });
+    query.mockResolvedValueOnce({ rows: [{ id: 'calendar-1', name: 'Personal', sync_token: 'sync-0', read_only: false }] });
 
     const response = await fetch(`${base}/caldav/user-1/`, {
       method: 'PROPFIND',
@@ -102,13 +102,56 @@ describe('CalDAV discovery', () => {
     });
 
     expect(response.status).toBe(207);
-    expect(await response.text()).toContain('/caldav/user-1/calendar-1/');
-    expect(query.mock.calls[0][0]).toContain('WHERE user_id = $1');
+    const body = await response.text();
+    // Depth: 0 returns only the home itself, and the home-set is the home URL even
+    // when calendars exist. The old response returned the first calendar here, so a
+    // client that trusted it could never discover the others.
+    expect(body).toContain('<C:calendar-home-set><D:href>/caldav/user-1/</D:href></C:calendar-home-set>');
+    expect(body).not.toContain('/caldav/user-1/calendar-1/');
+    expect(query.mock.calls[0][0]).toContain('WHERE c.user_id = $1');
     expect(query.mock.calls[0][1]).toEqual(['user-1']);
   });
 
+  it('lists the member calendars on Depth: 1 with honest privileges and reports', async () => {
+    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1', maxDavMode: 'read_write' });
+    query.mockResolvedValueOnce({ rows: [
+      { id: 'calendar-1', name: 'Personal', sync_token: 'sync-3', read_only: false },
+      { id: 'calendar-2', name: 'Read only', sync_token: 'sync-1', read_only: true },
+    ] });
+
+    const response = await fetch(`${base}/caldav/user-1/`, {
+      method: 'PROPFIND',
+      headers: { authorization: basic('sam@example.test', 'test-dav-password'), depth: '1' },
+    });
+
+    expect(response.status).toBe(207);
+    const body = await response.text();
+    expect(body).toContain('/caldav/user-1/calendar-1/');
+    expect(body).toContain('/caldav/user-1/calendar-2/');
+    expect(body).toContain('<D:supported-report-set>');
+    expect(body).toContain('<C:calendar-query/>');
+    expect(body).toContain('<D:sync-collection/>');
+    expect(body).toContain('<D:current-user-privilege-set>');
+  });
+
+  it('advertises only the DAV classes it implements', async () => {
+    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1', maxDavMode: 'read_write' });
+
+    const response = await fetch(`${base}/caldav/`, {
+      method: 'OPTIONS',
+      headers: { authorization: basic('sam@example.test', 'test-dav-password') },
+    });
+
+    const dav = response.headers.get('dav') || '';
+    expect(dav).toContain('calendar-access');
+    // No LOCK (class 2) and no extended MKCOL (class 3): advertising them made
+    // clients probe methods this server does not implement.
+    expect(dav).not.toMatch(/\b2\b/);
+    expect(dav).not.toMatch(/\b3\b/);
+  });
+
   it('lists only calendars owned by the DAV user', async () => {
-    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
+    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1', maxDavMode: 'read_write' });
     query.mockResolvedValueOnce({ rows: [{ id: 'calendar-1', name: 'Personal', sync_token: 'token-1' }] });
 
     const response = await fetch(`${base}/caldav/user-1/calendar-1/`, {
@@ -118,8 +161,43 @@ describe('CalDAV discovery', () => {
 
     expect(response.status).toBe(207);
     expect(await response.text()).toContain('Personal');
-    expect(query.mock.calls[0][0]).toContain('WHERE id = $1 AND user_id = $2');
+    expect(query.mock.calls[0][0]).toContain('WHERE c.id = $1 AND c.user_id = $2');
     expect(query.mock.calls[0][1]).toEqual(['calendar-1', 'user-1']);
+  });
+
+  it('advertises write privileges only for a writable calendar', async () => {
+    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1', maxDavMode: 'read_write' });
+    query.mockResolvedValueOnce({ rows: [{ id: 'calendar-1', name: 'Personal', sync_token: 'sync-1', read_only: false }] });
+    const writable = await fetch(`${base}/caldav/user-1/calendar-1/`, {
+      method: 'PROPFIND',
+      headers: { authorization: basic('sam@example.test', 'test-dav-password'), depth: '0' },
+    });
+    const writableBody = await writable.text();
+    expect(writableBody).toContain('<D:current-user-privilege-set>');
+    expect(writableBody).toContain('<D:privilege><D:write/></D:privilege>');
+    expect(writableBody).toContain('<D:privilege><D:bind/></D:privilege>');
+
+    query.mockReset();
+    query.mockResolvedValueOnce({ rows: [{ id: 'calendar-2', name: 'Imported', sync_token: 'sync-2', read_only: true }] });
+    const readOnly = await fetch(`${base}/caldav/user-1/calendar-2/`, {
+      method: 'PROPFIND',
+      headers: { authorization: basic('sam@example.test', 'test-dav-password'), depth: '0' },
+    });
+    const readOnlyBody = await readOnly.text();
+    expect(readOnlyBody).toContain('<D:privilege><D:read/></D:privilege>');
+    expect(readOnlyBody).not.toContain('<D:write');
+
+    // A calendar synced from an external source is writable only through its own
+    // adapter, so CalDAV must not advertise write privileges for it.
+    query.mockReset();
+    query.mockResolvedValueOnce({ rows: [{ id: 'calendar-3', name: 'Remote', sync_token: 'sync-3', read_only: false, source: 'caldav' }] });
+    const synced = await fetch(`${base}/caldav/user-1/calendar-3/`, {
+      method: 'PROPFIND',
+      headers: { authorization: basic('sam@example.test', 'test-dav-password'), depth: '0' },
+    });
+    const syncedBody = await synced.text();
+    expect(syncedBody).toContain('<D:privilege><D:read/></D:privilege>');
+    expect(syncedBody).not.toContain('<D:write');
   });
 });
 
@@ -165,7 +243,7 @@ describe('CalDAV calendar objects', () => {
   });
 
   it('creates a local event with an ETag and returns it through GET', async () => {
-    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
+    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1', maxDavMode: 'read_write' });
     query
       .mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })
       .mockResolvedValueOnce({ rows: [] })
@@ -198,7 +276,7 @@ describe('CalDAV calendar objects', () => {
   });
 
   it('accepts folded properties and DATE all-day values', async () => {
-    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
+    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1', maxDavMode: 'read_write' });
     query
       .mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })
       .mockResolvedValueOnce({ rows: [] })
@@ -218,7 +296,7 @@ describe('CalDAV calendar objects', () => {
   });
 
   it('converts TZID events and supported durations to UTC', async () => {
-    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
+    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1', maxDavMode: 'read_write' });
     query
       .mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })
       .mockResolvedValueOnce({ rows: [] })
@@ -237,7 +315,7 @@ describe('CalDAV calendar objects', () => {
   });
 
   it('rejects malformed end semantics before storing', async () => {
-    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
+    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1', maxDavMode: 'read_write' });
     for (const body of [
       'BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nUID:both-end-values\r\nDTSTART:20260901T090000Z\r\nDTEND:20260901T100000Z\r\nDURATION:PT1H\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n',
     ]) {
@@ -252,7 +330,7 @@ describe('CalDAV calendar objects', () => {
   });
 
   it('rejects an unknown sync token before enumerating calendar objects', async () => {
-    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
+    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1', maxDavMode: 'read_write' });
     query.mockResolvedValueOnce({ rows: [{ id: 'calendar-1', sync_token: 'current-token' }] });
 
     const response = await fetch(`${base}/caldav/user-1/calendar-1/`, {
@@ -261,13 +339,15 @@ describe('CalDAV calendar objects', () => {
       body: '<D:sync-collection xmlns:D="DAV:"><D:sync-token>stale-token</D:sync-token></D:sync-collection>',
     });
 
-    expect(response.status).toBe(409);
+    // RFC 6578 §3.2: an unrecognised sync token is the 403 valid-sync-token
+    // precondition, which tells the client to resynchronise from scratch.
+    expect(response.status).toBe(403);
     expect(await response.text()).toContain('valid-sync-token');
     expect(query).toHaveBeenCalledTimes(1);
   });
 
   it('returns only changes since a sync token, including deletion tombstones', async () => {
-    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
+    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1', maxDavMode: 'read_write' });
     query
       .mockResolvedValueOnce({ rows: [{ id: 'calendar-1', sync_token: 'sync-3', sync_version: 3 }] })
       .mockResolvedValueOnce({ rows: [
@@ -292,7 +372,7 @@ describe('CalDAV calendar objects', () => {
   });
 
   it('returns only explicitly requested resources for calendar-multiget', async () => {
-    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
+    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1', maxDavMode: 'read_write' });
     query
       .mockResolvedValueOnce({ rows: [{ id: 'calendar-1', sync_token: 'sync-3', sync_version: 3 }] })
       .mockResolvedValueOnce({ rows: [{ uid: 'event-1', etag: 'etag-1', raw_ical: 'BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n' }] });
@@ -309,7 +389,7 @@ describe('CalDAV calendar objects', () => {
   });
 
   it('filters calendar-query results to the requested time range', async () => {
-    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
+    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1', maxDavMode: 'read_write' });
     query
       .mockResolvedValueOnce({ rows: [{ id: 'calendar-1', sync_token: 'sync-3', sync_version: 3 }] })
       .mockResolvedValueOnce({ rows: [{ uid: 'event-1', etag: 'etag-1', raw_ical: 'BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n' }] });
@@ -326,7 +406,7 @@ describe('CalDAV calendar objects', () => {
   });
 
   it('rejects a stale conditional update without mutating the event', async () => {
-    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
+    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1', maxDavMode: 'read_write' });
     query
       .mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })
       .mockResolvedValueOnce({ rows: [{ etag: 'current-etag' }] });
@@ -341,8 +421,43 @@ describe('CalDAV calendar objects', () => {
     expect(query).toHaveBeenCalledTimes(2);
   });
 
+  it('rejects a weak If-Match validator even when its value matches (RFC 9110 strong comparison)', async () => {
+    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1', maxDavMode: 'read_write' });
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })
+      .mockResolvedValueOnce({ rows: [{ etag: 'current-etag' }] });
+
+    const response = await fetch(`${base}/caldav/user-1/calendar-1/event-1.ics`, {
+      method: 'PUT',
+      headers: { authorization: basic('sam@example.test', 'test-dav-password'), 'if-match': 'W/"current-etag"' },
+      body: 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:event-1\r\nDTSTART:20260901T090000Z\r\nDTEND:20260901T100000Z\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n',
+    });
+
+    expect(response.status).toBe(412);
+    // The two reads are the calendar and the current event; no write was attempted.
+    expect(query).toHaveBeenCalledTimes(2);
+    expect(query.mock.calls.some(([sql]) => String(sql).includes('INSERT INTO calendar_events'))).toBe(false);
+  });
+
+  it('accepts a strong If-Match validator that matches the current ETag', async () => {
+    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1', maxDavMode: 'read_write' });
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })
+      .mockResolvedValueOnce({ rows: [{ uid: 'event-1', etag: 'current-etag' }] })
+      .mockResolvedValueOnce({ rows: [{ uid: 'event-1', etag: 'next-etag' }] });
+
+    const response = await fetch(`${base}/caldav/user-1/calendar-1/event-1.ics`, {
+      method: 'PUT',
+      headers: { authorization: basic('sam@example.test', 'test-dav-password'), 'if-match': '"current-etag"' },
+      body: 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:event-1\r\nDTSTART:20260901T090000Z\r\nDTEND:20260901T100000Z\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n',
+    });
+
+    expect(response.status).toBe(204);
+    expect(response.headers.get('etag')).toBe('"next-etag"');
+  });
+
   it('rejects CalDAV mutation of an event whose invitation lifecycle is managed by Inboxora', async () => {
-    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
+    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1', maxDavMode: 'read_write' });
     query
       .mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })
       .mockResolvedValueOnce({ rows: [{ etag: 'current-etag', invite_account_id: 'account-1' }] });
@@ -357,7 +472,7 @@ describe('CalDAV calendar objects', () => {
   });
 
   it('rejects CalDAV deletion of an event whose invitation lifecycle is managed by Inboxora', async () => {
-    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
+    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1', maxDavMode: 'read_write' });
     query
       .mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })
       .mockResolvedValueOnce({ rows: [{ etag: 'current-etag', invite_account_id: 'account-1' }] });
@@ -371,7 +486,7 @@ describe('CalDAV calendar objects', () => {
   });
 
   it('keeps the CalDAV write guarded when an invitation is enabled after its initial read', async () => {
-    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
+    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1', maxDavMode: 'read_write' });
     query
       .mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })
       .mockResolvedValueOnce({ rows: [{ etag: 'current-etag', invite_account_id: null }] })
@@ -388,7 +503,7 @@ describe('CalDAV calendar objects', () => {
   });
 
   it('keeps the CalDAV deletion guarded when an invitation is enabled after its initial read', async () => {
-    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
+    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1', maxDavMode: 'read_write' });
     query
       .mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })
       .mockResolvedValueOnce({ rows: [{ etag: 'current-etag', invite_account_id: null }] })
@@ -405,7 +520,7 @@ describe('CalDAV calendar objects', () => {
 });
 
  it('maps folded event metadata and quoted participant parameters through DAV PUT', async () => {
-  authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
+  authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1', maxDavMode: 'read_write' });
   query.mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] })
     .mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [{ uid: 'synthetic-exchange-event', etag: 'mapped' }] });
   const raw = outlookCalendar('09', 'DESCRIPTION:First line\\nSecond \r\n line\r\nLOCATION:Room\\, A\r\nURL:https://example.test/meeting\r\nORGANIZER;CN="Team: Europe":mailto:team@example.test\r\nATTENDEE;CN="Doe; Jane":mailto:jane@example.test\r\n');
@@ -417,7 +532,7 @@ describe('CalDAV calendar objects', () => {
  });
 
 it('keeps client resource filenames independent of the embedded calendar UID', async () => {
- authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
+ authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1', maxDavMode: 'read_write' });
  query.mockResolvedValueOnce({ rows: [{ id: 'calendar-1', source: 'local', read_only: false }] }).mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [{ uid: 'synthetic-exchange-event', etag: 'etag' }] });
  const response = await fetch(`${base}/caldav/user-1/calendar-1/client-generated.ics`, { method: 'PUT', headers: { authorization: basic('sam@example.test','secret'), 'if-none-match': '*' }, body: outlookCalendar() });
  expect(response.status).toBe(201);
@@ -427,4 +542,58 @@ it('keeps client resource filenames independent of the embedded calendar UID', a
  const get = await fetch(`${base}/caldav/user-1/calendar-1/client-generated.ics`, { headers: { authorization: basic('sam@example.test','secret') } });
  expect(get.status).toBe(200); expect(queryParametersAt(0)[2]).toBe('client-generated.ics');
  expect(query.mock.calls[0][0]).toContain('COALESCE(e.dav_filename');
+
+});
+
+describe('a time-range query is decided by the projection', () => {
+  it('excludes a series that never occurs inside the window', async () => {
+    // `OR recurring` selects candidates; a series whose rule never lands in the window is one that matches
+    // nothing, and returning it hands the client resources it did not ask for.
+    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1', maxDavMode: 'read_write' });
+    const inside = [
+      'BEGIN:VCALENDAR', 'VERSION:2.0', 'BEGIN:VEVENT', 'UID:inside-window',
+      'DTSTART:20260901T090000Z', 'DTEND:20260901T100000Z',
+      'RRULE:FREQ=DAILY;COUNT=3', 'SUMMARY:Daily', 'END:VEVENT', 'END:VCALENDAR', '',
+    ].join('\r\n');
+    const outside = [
+      'BEGIN:VCALENDAR', 'VERSION:2.0', 'BEGIN:VEVENT', 'UID:outside-window',
+      'DTSTART:20200101T090000Z', 'DTEND:20200101T100000Z',
+      'RRULE:FREQ=DAILY;COUNT=3', 'SUMMARY:Long finished', 'END:VEVENT', 'END:VCALENDAR', '',
+    ].join('\r\n');
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'calendar-1', sync_token: 'sync-9', sync_version: 9 }] })
+      .mockResolvedValueOnce({ rows: [
+        { uid: 'inside-window', etag: 'etag-1', raw_ical: inside, dav_filename: null },
+        { uid: 'outside-window', etag: 'etag-2', raw_ical: outside, dav_filename: null },
+      ] });
+
+    const response = await fetch(`${base}/caldav/user-1/calendar-1/`, {
+      method: 'REPORT',
+      headers: { authorization: basic('sam@example.test', 'test-dav-password'), 'content-type': 'application/xml' },
+      body: '<C:calendar-query xmlns:C="urn:ietf:params:xml:ns:caldav"><C:filter><C:comp-filter name="VCALENDAR"><C:comp-filter name="VEVENT"><C:time-range start="20260901T000000Z" end="20260904T000000Z"/></C:comp-filter></C:comp-filter></C:filter></C:calendar-query>',
+    });
+    const xml = await response.text();
+    expect(xml).toContain('inside-window');
+    expect(xml).not.toContain('outside-window');
+  });
+});
+
+describe('a report is dispatched by its root element', () => {
+  it('reads a multiget as a multiget even when an href carries another report name', async () => {
+    // Dispatch used to be a substring search, so a client asking for a resource whose filename contains
+    // "calendar-query" had its request read as a query — the plan names this as the thing not to do.
+    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1', maxDavMode: 'read_write' });
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'calendar-1', sync_token: 'sync-4', sync_version: 4 }] })
+      .mockResolvedValueOnce({ rows: [{ uid: 'named-oddly', etag: 'etag-1', raw_ical: 'BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n', dav_filename: 'calendar-query.ics' }] });
+
+    const response = await fetch(`${base}/caldav/user-1/calendar-1/`, {
+      method: 'REPORT',
+      headers: { authorization: basic('sam@example.test', 'test-dav-password'), 'content-type': 'application/xml' },
+      body: '<C:calendar-multiget xmlns:C="urn:ietf:params:xml:ns:caldav" xmlns:D="DAV:"><D:prop><D:getetag/></D:prop><D:href>/caldav/user-1/calendar-1/calendar-query.ics</D:href></C:calendar-multiget>',
+    });
+    // A multiget answers 207 with the requested resource; being read as a query would have answered differently.
+    expect(response.status).toBe(207);
+    expect(await response.text()).toContain('calendar-query.ics');
+  });
 });

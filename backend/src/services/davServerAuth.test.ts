@@ -31,9 +31,9 @@ function response(): DavResponse {
 
 describe('createDavAuthMiddleware', () => {
   it('authenticates a dedicated DAV credential and attaches its ownership to the request', async () => {
-    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1' });
+    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1', maxDavMode: 'read_write' });
     const middleware = createDavAuthMiddleware({ realm: 'Inboxora CalDAV', eventType: 'caldav_auth_fail' });
-    const req: { headers: Record<string, string>; ip?: string; davCredentialId?: string; davUserId?: string } = { headers: { authorization: `Basic ${Buffer.from('sam@example.test:test-dav-password').toString('base64')}` }, ip: '127.0.0.1' };
+    const req: { headers: Record<string, string>; ip?: string; davCredentialId?: string; davUserId?: string; davMaxMode?: 'read_only' | 'read_write' } = { headers: { authorization: `Basic ${Buffer.from('sam@example.test:test-dav-password').toString('base64')}` }, ip: '127.0.0.1' };
     const res = response();
     const next = vi.fn();
 
@@ -42,6 +42,8 @@ describe('createDavAuthMiddleware', () => {
     expect(authenticateDavCredential).toHaveBeenCalledWith('sam@example.test', 'test-dav-password');
     expect(req.davUserId).toBe('user-1');
     expect(req.davCredentialId).toBe('credential-1');
+    // The credential's ceiling travels with the request so the DAV handlers can enforce it.
+    expect(req.davMaxMode).toBe('read_write');
     expect(next).toHaveBeenCalledOnce();
   });
 });

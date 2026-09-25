@@ -242,4 +242,168 @@ describe('migration integrity', () => {
     expect(source).toContain('0098_spam_training_identity');
     expect(source).toContain('82716d8414acd5f2a26fad940165827df0e48cc676a38ac20fd1a96ccb5b0ded');
   });
+
+  it('adds the provider layer additively without forcing a transport', () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/0101_provider_layer.sql'), 'utf8');
+    // Every new object is created conditionally, so a fresh install and an
+    // upgrade from 0100 both converge on the same schema.
+    for (const table of [
+      'provider_connections', 'oauth_grants', 'account_notice_preferences',
+      'account_integrations', 'source_connections', 'integration_collections',
+      'remote_object_links', 'provider_operations', 'sync_states',
+    ]) {
+      expect(sql).toContain(`CREATE TABLE IF NOT EXISTS ${table}`);
+    }
+    // New account columns are nullable or defaulted; nothing rewrites protocol.
+    expect(sql).toContain('ADD COLUMN IF NOT EXISTS mail_transport VARCHAR(32)');
+    expect(sql).toContain('ADD COLUMN IF NOT EXISTS migration_required BOOLEAN NOT NULL DEFAULT false');
+    expect(sql).not.toMatch(/UPDATE\s+email_accounts\s+SET\s+mail_transport/i);
+    expect(sql).not.toMatch(/UPDATE\s+email_accounts\s+SET\s+migration_required/i);
+    // The owner composite keys are what stop a child row from mixing users.
+    expect(sql).toContain('account_notice_preferences_account_owner_fk');
+    expect(sql).toContain('REFERENCES email_accounts(id, user_id)');
+    // Widening the calendar/address-book source check stays backward compatible.
+    expect(sql).toContain("CHECK (source IN ('local', 'caldav', 'ical_url', 'microsoft', 'google'))");
+  });
+
+  it('adds operation claims, sync leases and the domain outbox without rewriting rows', () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/0102_operation_journal_and_outbox.sql'), 'utf8');
+    // Claim ownership and the monotonic fencing token the journal relies on.
+    expect(sql).toContain('ADD COLUMN IF NOT EXISTS claim_token UUID');
+    expect(sql).toContain('ADD COLUMN IF NOT EXISTS generation BIGINT NOT NULL DEFAULT 1');
+    expect(sql).toContain('ADD COLUMN IF NOT EXISTS result JSONB');
+    // Sync-run ownership and failure timestamps.
+    expect(sql).toContain('ADD COLUMN IF NOT EXISTS running_owner TEXT');
+    expect(sql).toContain('ADD COLUMN IF NOT EXISTS last_error_at TIMESTAMPTZ');
+    // Outbox idempotency is enforced by the database, not by the caller.
+    expect(sql).toContain('CREATE TABLE IF NOT EXISTS domain_outbox');
+    expect(sql).toContain('UNIQUE (user_id, topic, dedupe_key)');
+    expect(sql).toContain("CHECK (status IN ('pending', 'processing', 'done', 'failed'))");
+    // Expand-only: the migration defines no data rewrite.
+    expect(sql).not.toMatch(/UPDATE\s+provider_operations/i);
+    expect(sql).not.toMatch(/UPDATE\s+sync_states/i);
+  });
+
+  it('stores OAuth authorization flows hashed, single-use and owner-scoped', () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/0103_oauth_authorization_flows.sql'), 'utf8');
+    expect(sql).toContain('CREATE TABLE IF NOT EXISTS oauth_authorization_flows');
+    // Only a hash of the one-time state is stored, and it is unique.
+    expect(sql).toContain('state_hash          TEXT NOT NULL UNIQUE');
+    expect(sql).toContain('oauth_authorization_flows_account_owner_fk');
+    expect(sql).toContain('REFERENCES email_accounts(id, user_id)');
+    expect(sql).toContain("CHECK (status IN ('pending', 'exchanging', 'completed', 'failed', 'expired', 'cancelled'))");
+    expect(sql).toContain("CHECK (auth_flow IN ('browser', 'device_code'))");
+  });
+
+  it('adds a single-flight refresh lease to OAuth grants', () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/0104_oauth_grant_refresh_lease.sql'), 'utf8');
+    expect(sql).toContain('ADD COLUMN IF NOT EXISTS refresh_lease_owner TEXT');
+    expect(sql).toContain('ADD COLUMN IF NOT EXISTS refresh_lease_expires_at TIMESTAMPTZ');
+    expect(sql).toContain('oauth_grants_refresh_lease_idx');
+    // Expand-only: no token is rewritten by the migration.
+    expect(sql).not.toMatch(/UPDATE\s+oauth_grants/i);
+  });
+
+  it('adds per-collection DAV visibility with a behaviour-preserving default', () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/0105_collection_dav_mode.sql'), 'utf8');
+    // Defaulting to read_write keeps existing local collections exactly as they were.
+    expect(sql).toContain("ADD COLUMN IF NOT EXISTS dav_mode VARCHAR(16) NOT NULL DEFAULT 'read_write'");
+    expect(sql).toContain('calendars_dav_mode_check');
+    expect(sql).toContain('address_books_dav_mode_check');
+    expect(sql).toContain("CHECK (dav_mode IN ('off', 'read_only', 'read_write'))");
+    expect(sql).toContain('calendars_user_dav_idx');
+    expect(sql).toContain('address_books_user_dav_idx');
+    // Expand-only: no collection is rewritten by the migration.
+    expect(sql).not.toMatch(/UPDATE\s+calendars/i);
+    expect(sql).not.toMatch(/UPDATE\s+address_books/i);
+  });
+
+  it('adds a per-credential DAV ceiling with a preserving default', () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/0106_dav_credential_max_mode.sql'), 'utf8');
+    // Defaulting to read_write keeps every existing device password as capable as before.
+    expect(sql).toContain("ADD COLUMN IF NOT EXISTS max_dav_mode VARCHAR(16) NOT NULL DEFAULT 'read_write'");
+    expect(sql).toContain('dav_app_passwords_max_dav_mode_check');
+    expect(sql).toContain("CHECK (max_dav_mode IN ('read_only', 'read_write'))");
+    // Expand-only: no credential is rewritten by the migration.
+    expect(sql).not.toMatch(/UPDATE\s+dav_app_passwords/i);
+  });
+
+  it('adds a lease-owned native provider rule read queue without rewriting messages', () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/0121_provider_rule_deferred_queue.sql'), 'utf8');
+    expect(sql).toContain('CREATE TABLE IF NOT EXISTS provider_rule_deferred_messages');
+    expect(sql).toContain('UNIQUE (message_id)');
+    expect(sql).toContain('lease_owner TEXT');
+    expect(sql).toContain("transport IN ('gmail_api', 'microsoft_graph')");
+    expect(sql).not.toMatch(/UPDATE\s+messages/i);
+  });
+
+  it('binds CardDAV books to one source and adds a fenced source lease', () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/0122_carddav_source_ownership_and_leases.sql'), 'utf8');
+    expect(sql).toContain('ADD COLUMN IF NOT EXISTS source_connection_id UUID REFERENCES source_connections(id) ON DELETE CASCADE');
+    expect(sql).toContain('HAVING count(DISTINCT sc.id) = 1');
+    expect(sql).toContain('address_books_carddav_source_url_key');
+    expect(sql).toContain('CREATE TABLE IF NOT EXISTS carddav_source_sync_leases');
+    expect(sql).toContain('generation BIGINT NOT NULL DEFAULT 1');
+  });
+
+  it('persists Gmail baseline generations without rewriting messages', () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/0123_gmail_baseline_generations.sql'), 'utf8');
+    expect(sql).toContain('CREATE TABLE IF NOT EXISTS gmail_baseline_runs');
+    expect(sql).toContain("status IN ('active', 'completed', 'abandoned')");
+    expect(sql).toContain('CREATE TABLE IF NOT EXISTS gmail_baseline_seen');
+    expect(sql).toContain('PRIMARY KEY (baseline_run_id, provider_message_id)');
+    expect(sql).not.toMatch(/UPDATE\s+messages/i);
+  });
+
+  it('records whether stored provider headers are complete without rewriting messages', () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/0124_message_header_completeness.sql'), 'utf8');
+    expect(sql).toContain('parsed_headers_complete BOOLEAN NOT NULL DEFAULT false');
+    expect(sql).not.toMatch(/UPDATE\s+messages/i);
+  });
+
+  it('keeps verified Graph legacy aliases separate from provider identities', () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/0126_graph_legacy_message_bindings.sql'), 'utf8');
+    expect(sql).toContain('CREATE TABLE IF NOT EXISTS graph_legacy_message_bindings');
+    expect(sql).toContain('legacy_message_id UUID PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE');
+    expect(sql).toContain("status IN ('bound', 'needs_review')");
+    expect(sql).not.toMatch(/UPDATE\s+messages/i);
+  });
+
+  it('separates current OAuth-token scopes from consent history without guessing legacy grants', () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/0127_oauth_grant_current_scopes.sql'), 'utf8');
+    expect(sql).toContain('ADD COLUMN IF NOT EXISTS current_scopes TEXT[]');
+    expect(sql).not.toMatch(/UPDATE\s+oauth_grants/i);
+  });
+
+  it('keeps calendar presentation preferences user-scoped and independent of provider mutations', () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/0129_calendar_presentation_preferences.sql'), 'utf8');
+    expect(sql).toContain('CREATE TABLE IF NOT EXISTS user_calendar_source_preferences');
+    expect(sql).toContain('CREATE TABLE IF NOT EXISTS user_calendar_presentation_preferences');
+    expect(sql).toContain('PRIMARY KEY (user_id, source_id)');
+    expect(sql).toContain('PRIMARY KEY (user_id, calendar_id)');
+    expect(sql).not.toMatch(/UPDATE\s+calendars/i);
+  });
+
+  it('separates Gmail rule, reader and attachment-metadata completeness', () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/0130_gmail_message_completeness.sql'), 'utf8');
+    expect(sql).toContain('gmail_rule_body_complete BOOLEAN NOT NULL DEFAULT false');
+    expect(sql).toContain('gmail_reader_body_complete BOOLEAN NOT NULL DEFAULT false');
+    expect(sql).toContain('gmail_attachment_metadata_complete BOOLEAN NOT NULL DEFAULT false');
+  });
+
+  it('persists Graph attachment metadata completeness independently of body cache', () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/0132_graph_attachment_metadata_completeness.sql'), 'utf8');
+    expect(sql).toContain('graph_attachment_metadata_complete BOOLEAN NOT NULL DEFAULT false');
+  });
+
+  it('widens the OAuth flow purpose CHECK to accept account_enable', () => {
+    // AUTH-01: the route-level allow-list was not the only gate — 0103's CHECK rejected account_enable too, so
+    // a reconnect flow could never be persisted. The fix must widen the constraint, not rewrite 0103.
+    const sql = readFileSync(join(process.cwd(), 'migrations/0115_oauth_account_enable_purpose.sql'), 'utf8');
+    expect(sql).toContain('oauth_authorization_flows_purpose_check');
+    expect(sql).toContain("'account_enable'");
+    // Additive: it must not drop or rewrite rows.
+    expect(sql).not.toMatch(/DELETE\s+FROM\s+oauth_authorization_flows/i);
+    expect(sql).not.toMatch(/UPDATE\s+oauth_authorization_flows/i);
+  });
 });

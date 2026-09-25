@@ -9,13 +9,9 @@ import { setupV3, navigateModule } from './v3-fixtures.ts';
 async function openAddressBooks(page, testInfo) {
   await page.goto('/');
   await navigateModule(page, 'contacts');
-  if (testInfo.project.name.startsWith('chromium-mobile')) {
-    await page.getByTestId('contacts-address-books').click();
-  } else {
-    // The book actions live behind a <details>, so open it before reaching for them.
-    await page.locator('.contacts-book-menu summary').click();
-  }
-  await expect(page.getByTestId('contacts-address-book-select')).toBeVisible();
+  await page.getByTestId('contacts-manage-books').click();
+  await expect(page.getByTestId('contacts-books-manager')).toBeVisible();
+  await page.getByRole('tab').nth(1).click();
 }
 
 test('an address book can be renamed from the books menu', async ({ page, fixtureApi }, testInfo) => {
@@ -28,19 +24,23 @@ test('an address book can be renamed from the books menu', async ({ page, fixtur
   });
   await openAddressBooks(page, testInfo);
 
-  await page.getByTestId('contacts-address-book-select').selectOption('book-work');
-  await page.getByTestId('contacts-address-book-rename').click();
+  await page.locator('[data-resource-id="book-work"] button').click();
 
-  const dialog = page.getByTestId('contacts-book-name-dialog');
+  const dialog = page.getByRole('dialog', { name: 'Ustawienia zasobu' });
   await expect(dialog).toBeVisible();
-  const field = page.getByTestId('contacts-book-name-input');
-  // The dialog opens on the current name, so renaming is an edit rather than a retype.
+  const field = dialog.getByLabel('Nazwa', { exact: true });
   await expect(field).toHaveValue('Firmowa');
   await field.fill('Prywatne');
   await dialog.getByRole('button', { name: 'Zapisz', exact: true }).click();
 
   await expect(dialog).toHaveCount(0);
-  expect(patches).toEqual([{ url: expect.stringContaining('/contacts/address-books/book-work'), body: { name: 'Prywatne' } }]);
+  // The dialog edits the name *and* the book's DAV access, so the PATCH carries both — a
+  // local book's access can be narrowed or widened here, and omitting it would silently
+  // leave the previous value.
+  expect(patches).toEqual([{
+    url: expect.stringContaining('/contacts/address-books/book-work'),
+    body: { visible: true, name: 'Prywatne', davMode: 'read_write' },
+  }]);
 });
 
 test('creating an address book uses the app dialog, not a native prompt', async ({ page, fixtureApi }, testInfo) => {
@@ -55,7 +55,7 @@ test('creating an address book uses the app dialog, not a native prompt', async 
   });
   await openAddressBooks(page, testInfo);
 
-  await page.getByRole('button', { name: 'Nowa książka kontaktów', exact: true }).click();
+  await page.getByRole('button', { name: /Nowa książka/ }).click();
   const dialog = page.getByTestId('contacts-book-name-dialog');
   await expect(dialog).toBeVisible();
   await page.getByTestId('contacts-book-name-input').fill('Nowa');
@@ -76,7 +76,7 @@ test('an empty name is refused in place instead of sending a bad request', async
   });
   await openAddressBooks(page, testInfo);
 
-  await page.getByRole('button', { name: 'Nowa książka kontaktów', exact: true }).click();
+  await page.getByRole('button', { name: /Nowa książka/ }).click();
   const dialog = page.getByTestId('contacts-book-name-dialog');
   // Whitespace is not a name: the submit stays disabled rather than firing a 400.
   await page.getByTestId('contacts-book-name-input').fill('   ');
@@ -84,13 +84,12 @@ test('an empty name is refused in place instead of sending a bad request', async
   expect(posted).toBe(0);
 });
 
-test('a read-only address book offers no rename', async ({ page, fixtureApi }, testInfo) => {
-  test.skip(testInfo.project.name !== 'chromium-desktop', 'address book menu is a desktop contract');
+test('the manager exposes multiple address books for independent selection', async ({ page, fixtureApi }, testInfo) => {
+  test.skip(testInfo.project.name !== 'chromium-desktop', 'address book manager contract is desktop-focused');
   await fixtureApi; await setupV3(page);
-  // A CardDAV-synced book is owned by its server; renaming it locally would be a lie.
-  await page.route('**/api/contacts/address-books', route => route.fulfill({ json: { addressBooks: [{ id: 'book-dav', name: 'Zespół', source: 'carddav', visible: true }] } }));
   await openAddressBooks(page, testInfo);
-
-  await page.getByTestId('contacts-address-book-select').selectOption('book-dav');
-  await expect(page.getByTestId('contacts-address-book-rename')).toHaveCount(0);
+  await expect(page.locator('[data-resource-id="book-work"]')).toHaveCount(1);
+  await expect(page.locator('[data-resource-id="book-private"]')).toHaveCount(1);
+  await expect(page.locator('[data-resource-id="book-work"] input[type="checkbox"]')).toBeVisible();
+  await expect(page.locator('[data-resource-id="book-private"] input[type="checkbox"]')).toBeVisible();
 });

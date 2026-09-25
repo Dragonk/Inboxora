@@ -6,8 +6,13 @@ vi.mock('../middleware/auth.js', () => ({
 vi.mock('../services/redis.js', () => ({
   redisClient: { get: vi.fn().mockResolvedValue(null), set: vi.fn().mockResolvedValue('OK'), del: vi.fn() },
 }));
-vi.mock('../index.js', () => ({ imapManager: { fetchAttachment: vi.fn() } }));
+vi.mock('../index.js', () => ({ imapManager: { fetchAttachment: vi.fn(), appendToSent: vi.fn(), syncFolderOnDemand: vi.fn(), upsertSentMessageRecord: vi.fn() } }));
 vi.mock('../services/smtpTransport.js', () => ({ createAccountSmtpTransport: vi.fn() }));
+// A forwarded message whose *sending* account is native still reads its bytes from the source account, and the
+// sending account's transport is bound by the seam — so that half is faked here rather than dialled.
+vi.mock('../utils/mailUtils.js', () => ({ resolveSentFolder: vi.fn(async () => 'Sent') }));
+vi.mock('../services/providers/microsoft/graphMailSend.js', () => ({ createGraphDraft: vi.fn(async () => ({ id: 'draft-1' })), sendGraphDraft: vi.fn(async () => ({ status: 'accepted' })) }));
+vi.mock('../services/providers/microsoft/graphMailAttachments.js', () => ({ addGraphAttachment: vi.fn(async () => ({ id: 'att-1', strategy: 'direct' })) }));
 
 import express from 'express';
 import sendRoutes from './send.js';
@@ -78,13 +83,50 @@ describe('POST /api/mail/send — forwarded attachment guards (#F2)', () => {
       accountId: ACCOUNT_ID, to: ['x@example.com'],
       forwardedAttachments: [{ messageId: MSG_ID, part: '2' }],
     });
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(413);
     const body = await res.json();
     expect(hasError(body)).toBe(true);
     if (hasError(body)) {
-      expect(body.error).toMatch(/exceeds 25 MB/);
+      // §22.1: this guard totals uploads and forwarded attachments, so the dimension is the attachment total
+      // rather than the composed message — the two are refused for different reasons and carry different codes.
+      const refused = body as unknown as { code?: string; dimension?: string; actualBytes?: number; limitBytes?: number };
+      expect(refused.code).toBe('ATTACHMENTS_TOO_LARGE');
+      expect(refused.dimension).toBe('attachments');
+      expect(refused.actualBytes).toBeGreaterThan(refused.limitBytes ?? 0);
     }
     // The whole point: no IMAP fetch happens when the declared size already blows the limit.
     expect(imapManager.fetchAttachment).not.toHaveBeenCalled();
+  });
+
+  it('accounts a forwarded attachment against the sending transport, while reading it from its own', async () => {
+    // The same 30 MB declared attachment that SMTP refuses: the sending account is native Microsoft Graph, whose
+    // ceiling carries it, so the declared guard must not refuse it — and the bytes are still read from the source
+    // account over the source account's transport (IMAP here, faked), never over the sending account's.
+    const graphAccount = { ...ACCOUNT, mail_transport: 'microsoft_graph', provider_connection_id: 'connection-1' };
+    query.mockImplementation((sql) => {
+      if (sql.includes('FROM email_accounts WHERE id = $1 AND user_id = $2')) return Promise.resolve({ rows: [graphAccount] });
+      if (sql.includes('SELECT preferences FROM users')) return Promise.resolve({ rows: [{ preferences: {} }] });
+      if (sql.includes('FROM email_accounts WHERE id = ANY')) return Promise.resolve({ rows: [ACCOUNT] });
+      if (sql.includes('FROM messages m') && sql.includes('m.id = ANY')) {
+        return Promise.resolve({ rows: [{
+          id: MSG_ID, uid: 5, folder: 'INBOX', account_id: ACCOUNT_ID,
+          attachments: [{ part: '2', size: 30_000_000, filename: 'big.pdf', type: 'application/pdf' }],
+        }] });
+      }
+      if (sql.includes('INSERT INTO send_idempotency')) return Promise.resolve({ rows: [{ status: 'pending' }] });
+      return Promise.resolve({ rows: [] });
+    });
+    const { imapManager: mocked } = await import('../index.js');
+    vi.mocked(mocked.fetchAttachment).mockResolvedValue(Buffer.alloc(1024, 1));
+
+    const res = await post({
+      accountId: ACCOUNT_ID, to: ['x@example.com'],
+      forwardedAttachments: [{ messageId: MSG_ID, part: '2' }],
+    });
+    expect(res.status).toBe(200);
+    // The source account's transport served the read; the sending account's transport did the send.
+    expect(vi.mocked(mocked.fetchAttachment)).toHaveBeenCalledOnce();
+    const { sendGraphDraft } = await import('../services/providers/microsoft/graphMailSend.js');
+    expect(vi.mocked(sendGraphDraft)).toHaveBeenCalledOnce();
   });
 });

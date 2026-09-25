@@ -8,6 +8,7 @@ import { conversationApi } from '../utils/conversationApi.ts';
 import { useWebSocket } from '../hooks/useWebSocket.ts';
 import { useBackLayer, useBackNavigation } from '../hooks/useBackNavigation.ts';
 import { useMobile } from '../hooks/useMobile.ts';
+import { useMobileDrawerGesture } from '../hooks/useMobileDrawerGesture.ts';
 import { useCompactLayout } from '../hooks/useCompactLayout.ts';
 import { Button, PanelResizeHandle } from './ui.tsx';
 import { MobileHeaderHost } from './MobileModuleHeader.tsx';
@@ -32,6 +33,7 @@ import { desktopTitlebarHeight, isElectronShell } from '../utils/desktopShell.ts
 import { usePluginSlot, PluginRuntime } from '../plugins/PluginSlot.tsx';
 import type { StoreState } from '../store/index.ts';
 import { toAppError } from '../utils/errors.ts';
+import { providerFailureKey } from '../utils/providerFailure.ts';
 
 const ContactsPage = lazy(() => import('./ContactsPage.tsx'));
 const CalendarPage = lazy(() => import('./CalendarPage.tsx'));
@@ -92,7 +94,7 @@ export default function MailApp() {
     setShowAdmin, setAdminTab, composing, sidebarCollapsed, layout,
     unreadCounts, selectedAccountId, openCompose, setSelectedAccount,
     shortcuts, selectedMessageId, setSelectedMessage,
-    mobileSidebarOpen, setMobileSidebarOpen, mobileNavigationPosition, addNotification,
+    mobileSidebarOpen, setMobileSidebarOpen, mobileNavigationPosition, mobileSidebarSwipeEnabled, addNotification,
     fontSize, showAppBadge,
     sidebarWidth, setSidebarWidth, setIsSidebarResizing,
     showContacts, showCalendar, setShowContacts, setShowCalendar, setTodoistConnected,
@@ -135,6 +137,9 @@ export default function MailApp() {
       selectedCopyId,
       account_id: copy.accountId,
       message_id: copy.messageId || copy.canonicalMessageId,
+      // One physical source of truth: selectedCopyId is the actual messages.id
+      // behind this Conversation Reader card, never the logical-message wrapper.
+      replyToMessageId: selectedCopyId,
       subject: copy.subject,
       from_email: copy.fromEmail,
       from_name: copy.fromName,
@@ -316,11 +321,29 @@ export default function MailApp() {
 
   const [showShortcutHelp, setShowShortcutHelp] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
-  const sidebarDragRef = useRef<{ startX: number; startY: number; [key: string]: unknown } | null>(null);
   type PanelDragHandlers = { onMouseMove: (mv: MouseEvent) => void; onMouseUp: () => void };
   const sidebarResizeRef = useRef<PanelDragHandlers | null>(null);
   const listResizeRef = useRef<(() => void) | null>(null);
   const rightSidebarResizeRef = useRef<PanelDragHandlers | null>(null);
+
+  // Mobile drawer gesture: the coordinator owns the pointer sequence and writes
+  // the drawer position directly, so the message list is never re-rendered per
+  // pointermove. Rows consult the same arbiter (see useSwipeRow).
+  const mobileContentRef = useRef<HTMLDivElement | null>(null);
+  const mobileDrawerRef = useRef<HTMLDivElement | null>(null);
+  const mobileBackdropRef = useRef<HTMLDivElement | null>(null);
+  useMobileDrawerGesture({
+    isMobile,
+    enabled: mobileSidebarSwipeEnabled,
+    open: mobileSidebarOpen,
+    surfaceRef: mobileContentRef,
+    drawerRef: mobileDrawerRef,
+    backdropRef: mobileBackdropRef,
+    onOpen: () => setMobileSidebarOpen(true),
+    onClose: () => setMobileSidebarOpen(false),
+    // Changing account or module invalidates an in-flight sequence.
+    resetKey: `${selectedAccountId ?? ''}:${showContacts}:${showCalendar}`,
+  });
 
   // Keep the right sidebar's width CSS var in sync with the persisted preference.
   useEffect(() => {
@@ -806,10 +829,27 @@ export default function MailApp() {
       api.getAccounts()
         .then(accounts => { setAccounts(accounts); })
         .catch(console.error);
-      setAdminTab('accounts');
-      setShowAdmin(true);
+      if (provider === 'google') {
+        // Google API authorization stores a provider connection; it does not create
+        // or migrate a mailbox, so this must not open the Accounts screen.
+        addNotification({ type: 'info', title: t('contacts.googleConnected.title'), body: t('contacts.googleConnected.body') });
+      } else if (provider === 'microsoft_graph') {
+        // Same rule for the Graph provider flow: a connection, not a mailbox.
+        addNotification({ type: 'info', title: t('providers.microsoftGraphConnected.title'), body: t('providers.microsoftGraphConnected.body') });
+      } else {
+        setAdminTab('accounts');
+        setShowAdmin(true);
+      }
     } else if (oauthError) {
+      // A failed authorization used to clear the URL and say nothing, so the only sign of it was
+      // that nothing happened. The code is reported the way the connector's failures are.
       window.history.replaceState({}, '', '/');
+      const key = providerFailureKey(oauthError);
+      addNotification({
+        type: 'error',
+        title: t('providers.connectFailedTitle'),
+        body: key ? t(key) : oauthError,
+      });
     } else if (oidcSuccess) {
       window.history.replaceState({}, '', '/');
       if (oidcSuccess === 'linked') {
@@ -859,10 +899,12 @@ export default function MailApp() {
               only while the reader was open, stacking a second header under this bar — so
               the reader (like the list) must count as active. */}
           <MobileTopBar position={mobileNavigationPosition} moduleActive actionsRef={setMobileHeaderHost} onMenu={() => setMobileSidebarOpen(true)} onCompose={() => openCompose({ accountId: selectedAccountId || undefined })} t={t} />
-          <div style={{ display: 'flex', flex: 1, minHeight: 0, width: '100%', position: 'relative' }}>
+          <div ref={mobileContentRef} style={{ display: 'flex', flex: 1, minHeight: 0, width: '100%', position: 'relative' }}>
           {/* Backdrop — covers full screen including status bar area */}
           {mobileSidebarOpen && (
             <div
+              ref={mobileBackdropRef}
+              data-testid="mobile-sidebar-backdrop"
               onClick={() => setMobileSidebarOpen(false)}
               style={{
                 position: 'fixed', inset: 0, zIndex: 1299,
@@ -872,8 +914,10 @@ export default function MailApp() {
               }}
             />
           )}
-          {/* Slide-in sidebar drawer */}
+          {/* Slide-in sidebar drawer. Dragging it left to close is arbitrated by
+              useMobileDrawerGesture, so no local touch handlers live here. */}
           <div
+            ref={mobileDrawerRef}
             data-testid="mobile-sidebar"
             inert={mobileSidebarOpen ? undefined : true}
             style={{
@@ -882,17 +926,6 @@ export default function MailApp() {
               transform: mobileSidebarOpen ? 'translateX(0)' : 'translateX(-100%)',
               transition: 'transform 0.25s cubic-bezier(0.25,0.46,0.45,0.94)',
               boxShadow: mobileSidebarOpen ? 'var(--shadow-drawer)' : 'none',
-            }}
-            onTouchStart={ (e: React.TouchEvent<HTMLElement>) => {
-              sidebarDragRef.current = { startX: e.touches[0].clientX, startY: e.touches[0].clientY };
-            }}
-            onTouchEnd={ (e: React.TouchEvent<HTMLElement>) => {
-              const start = sidebarDragRef.current;
-              sidebarDragRef.current = null;
-              if (!start) return;
-              const dx = e.changedTouches[0].clientX - start.startX;
-              const dy = e.changedTouches[0].clientY - start.startY;
-              if (dx < -60 && Math.abs(dy) < Math.abs(dx)) setMobileSidebarOpen(false);
             }}
           >
             <Sidebar onEditProfile={() => setMobileProfileOpen(true)} />
@@ -906,7 +939,9 @@ export default function MailApp() {
           <div data-ce-reader-enabled={conversationReaderViewEnabled ? 'true' : 'false'} data-ce-reader-state={conversationReaderViewEnabled ? 'enabled' : 'disabled'} data-ce-conversation-id={conversationId || ''} data-ce-selected-message-id={selectedMessageId || ''} data-ce-resolution-error={conversationResolutionError ? 'true' : 'false'} style={{ flex: 1, display: !showContacts && !showCalendar && !selectedMessageId && !(conversationReaderViewEnabled && conversationId) ? 'flex' : 'none', overflow: 'hidden', height: '100%' }}>
             <MessageList />
           </div>
-          <div data-ce-reader-pane="true" style={{ flex: 1, display: !showContacts && !showCalendar && (selectedMessageId || (conversationReaderViewEnabled && conversationId)) ? 'flex' : 'none', overflow: 'hidden', height: '100%', minWidth: 0 }}>
+          {/* The reader keeps native text selection: the drawer does not claim a
+              gesture that starts here (the menu button and Back still work). */}
+          <div data-ce-reader-pane="true" data-mobile-gesture-ignore="true" style={{ flex: 1, display: !showContacts && !showCalendar && (selectedMessageId || (conversationReaderViewEnabled && conversationId)) ? 'flex' : 'none', overflow: 'hidden', height: '100%', minWidth: 0 }}>
             <MessagePane mode={conversationReaderViewEnabled && (conversationId || nativeThreadId) ? 'conversation' : 'single'} conversationId={conversationId} targetLogicalMessageId={targetLogicalMessageId} selectedConversationCopy={selectedConversationCopy} nativeThreadId={nativeThreadId} nativeFolder={nativeFolder} onReply={replyFromConversation} onNativeThreadUnavailable={handleNativeThreadUnavailable} onMobileBack={closeReader} />
           </div>
           {mobileProfileOpen && <ProfileModal onClose={() => setMobileProfileOpen(false)} />}

@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { allDayEventSegment, createDayEventsResolver, centeredScrollLeft, eventPayload, eventsForDay, layoutAllDayEvents, layoutTimedEvents, monthRange, shiftCalendarAnchor, sortedDayEvents, toggleAllDayTimes, weekFocusIndex, weekRange } from './calendarView.ts';
+import { allDayEventSegment, buildRecurrence, createDayEventsResolver, centeredScrollLeft, eventPayload, eventsForDay, layoutAllDayEvents, layoutTimedEvents, monthRange, recurrenceFormFromStored, shiftCalendarAnchor, sortedDayEvents, toggleAllDayTimes, weekFocusIndex, weekRange } from './calendarView.ts';
 
 describe('calendar desktop helpers', () => {
   it('returns an exclusive month range', () => {
@@ -231,5 +231,90 @@ describe('calendar all-day and multi-day stretch layout', () => {
   it('ignores timed events, which the time grid lays out separately', () => {
     const timed = { id: 'timed', starts_at: '2026-09-14T09:00:00', ends_at: '2026-09-14T10:00:00' };
     assert.deepEqual(layoutAllDayEvents([timed], day), []);
+  });
+});
+
+describe('calendar recurrence form', () => {
+  const base = { calendarId: 'cal-1', startsAt: '2026-09-01T09:00', endsAt: '2026-09-01T10:00', allDay: false };
+
+  it('treats none or a missing rule as a single event', () => {
+    assert.deepEqual(buildRecurrence({ ...base, recurrence: { frequency: 'none' } }), { ok: true, recurrence: null });
+    assert.deepEqual(buildRecurrence(base), { ok: true, recurrence: null });
+  });
+
+  it('renders the chosen frequency, interval and sorted weekdays', () => {
+    assert.deepEqual(buildRecurrence({ ...base, recurrence: { frequency: 'daily' } }), { ok: true, recurrence: { frequency: 'daily' } });
+    const weekly = buildRecurrence({ ...base, recurrence: { frequency: 'weekly', interval: 2, byWeekday: [3, 1, 1] } });
+    assert.deepEqual(weekly, { ok: true, recurrence: { frequency: 'weekly', interval: 2, byWeekday: [1, 3] } });
+  });
+
+  it('sends a date-only UNTIL for an all-day series and an ISO instant otherwise', () => {
+    const allDay = buildRecurrence({ ...base, allDay: true, recurrence: { frequency: 'daily', end: 'until', until: '2026-12-31' } });
+    assert.deepEqual(allDay, { ok: true, recurrence: { frequency: 'daily', until: '2026-12-31' } });
+    const timed = buildRecurrence({ ...base, recurrence: { frequency: 'daily', end: 'until', until: '2026-12-31T23:59' } });
+    assert.equal(timed.ok, true);
+    if (!timed.ok || !timed.recurrence) throw new Error('expected a rule');
+    assert.match(String(timed.recurrence.until), /^2026-12-31T\d{2}:59:00\.000Z$/);
+  });
+
+  it('rejects an empty end value or an out-of-range count instead of guessing', () => {
+    assert.deepEqual(buildRecurrence({ ...base, recurrence: { frequency: 'daily', end: 'until', until: '' } }), { ok: false });
+    assert.deepEqual(buildRecurrence({ ...base, recurrence: { frequency: 'daily', end: 'count', count: 0 } }), { ok: false });
+    assert.deepEqual(buildRecurrence({ ...base, recurrence: { frequency: 'daily', interval: 0 } }), { ok: false });
+  });
+
+  it('never puts recurrence on a single-occurrence edit', () => {
+    const payload = eventPayload({
+      ...base, mode: 'edit', id: 'event-1', recurrenceId: '2026-09-08T09:00:00', editScope: 'single',
+      recurrence: { frequency: 'weekly', byWeekday: [1] },
+    });
+    assert.equal(payload?.recurrenceId, '2026-09-08T09:00:00');
+    assert.equal(payload?.recurrence, undefined);
+  });
+
+  it('states the intended rule on a series edit, including clearing it', () => {
+    const withRule = eventPayload({
+      ...base, mode: 'edit', id: 'event-1', seriesId: 'event-1', editScope: 'series',
+      recurrence: { frequency: 'monthly' },
+    });
+    assert.equal(withRule?.recurrenceId, undefined);
+    assert.deepEqual(withRule?.recurrence, { frequency: 'monthly' });
+
+    const cleared = eventPayload({
+      ...base, mode: 'edit', id: 'event-1', seriesId: 'event-1', editScope: 'series',
+      recurrence: { frequency: 'none' },
+    });
+    assert.equal(cleared?.recurrence, null);
+  });
+
+  it('keeps a foreign rule untouched when the series edit did not replace it', () => {
+    const payload = eventPayload({
+      ...base, mode: 'edit', id: 'event-1', seriesId: 'event-1', editScope: 'series',
+      recurrence: { frequency: 'monthly' }, recurrencePreserve: true,
+    });
+    assert.equal('recurrence' in (payload ?? {}), false);
+  });
+
+  it('adds a rule to a new event only when one was chosen', () => {
+    const withRule = eventPayload({ ...base, mode: 'create', recurrence: { frequency: 'yearly' } });
+    assert.deepEqual(withRule?.recurrence, { frequency: 'yearly' });
+    const without = eventPayload({ ...base, mode: 'create', recurrence: { frequency: 'none' } });
+    assert.equal('recurrence' in (without ?? {}), false);
+  });
+
+  it('maps a stored rule back into the editor, flagging a custom one', () => {
+    const plain = recurrenceFormFromStored({ frequency: 'weekly', interval: 2, byWeekday: [1, 3], count: 5, custom: false, raw: 'FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,WE;COUNT=5' }, false);
+    assert.equal(plain.recurrencePreserve, false);
+    assert.deepEqual(plain.recurrence, { frequency: 'weekly', interval: 2, byWeekday: [1, 3], end: 'count', until: '', count: 5 });
+
+    const custom = recurrenceFormFromStored({ frequency: 'monthly', interval: 1, byWeekday: [], until: null, count: null, custom: true, raw: 'FREQ=MONTHLY;BYDAY=2MO;BYSETPOS=1' }, false);
+    assert.equal(custom.recurrencePreserve, true);
+    assert.equal(custom.recurrenceRaw, 'FREQ=MONTHLY;BYDAY=2MO;BYSETPOS=1');
+  });
+
+  it('defaults to no repeat when there is no stored rule', () => {
+    const form = recurrenceFormFromStored(null, false);
+    assert.equal(form.recurrence.frequency, 'none');
+    assert.equal(form.recurrencePreserve, false);
   });
 });

@@ -21,8 +21,102 @@ noted.
 | Sync actions | Sync folders now, reconnect, re-index for search, toggle inbox categorisation. |
 
 Microsoft 365 accounts use OAuth2 and need an administrator to register an Azure application
-under **Settings → Integrations** first. Google mail accounts are connected with a Google app
-password.
+under **Settings → Integrations → Email providers**, where both providers are configured side by
+side rather than in two competing places.
+
+**Google has two methods and neither is forced.** An administrator can register a Google Cloud OAuth
+client to enable the API-based integrations — connecting a Google account to pull its **contacts**
+and **calendars** read-only — and a Google mailbox can equally be used with an **app password** over
+IMAP/SMTP. Connecting the API does not migrate mail and does not ask for Gmail permissions, and not
+configuring it leaves the app-password path fully available. The card states the recommendation rather
+than a requirement.
+
+**Microsoft is the other way round**: Outlook.com and Microsoft 365 no longer accept a mailbox
+password, so those accounts need an authorized connection (browser flow or device code). Mail can then run
+over OAuth2 IMAP/SMTP or, after an in-place migration, over **Microsoft Graph** — with calendars and
+contacts on the same connection — and the card says so.
+
+### Send and attachment limits
+
+The ceiling that applies to a send is the **transport's**, computed as
+`min(installation ceiling, provider ceiling, operation ceiling)`. The provider's own numbers live in one place in
+the code (`backend/src/services/providers/mailCapabilities.ts`), so they cannot drift between the adapter that hits
+them and the guard that reports them:
+
+| Transport | One attachment | Whole message | Notes |
+| --- | --- | --- | --- |
+| SMTP | fallback ceiling | fallback ceiling (`MAIL_MAX_MESSAGE_BYTES`) | No universal SMTP limit exists, so the installation's fallback is what applies. |
+| Microsoft Graph | **150 MB** through a resumable upload session | 150 MB | Above **3 MB** a file stops travelling inline and becomes an upload session (a choice of method, not a ceiling), with resume, chunk alignment, expiry and cancel. |
+| Gmail API | the raw-message ceiling | **25 MB** raw RFC-822 | Gmail bounds the message it is handed, so the *encoded* size is what is measured, not the sum of the files. |
+
+Two environment values adjust the installation's side of that minimum:
+
+- `MAIL_MAX_MESSAGE_BYTES` — the **fallback** composed-message ceiling, used only for a transport that declares no
+  ceiling of its own (SMTP). It defaults to 25 MiB. It never shrinks a provider that declares a larger limit, so it
+  does not cap a Graph account at 25 MB.
+- `MAIL_MAX_ATTACHMENT_BYTES` — the **hard** installation ceiling, applied to one attachment and to their total on
+  every transport whatever a provider would accept. It defaults to Graph's own 150 MB, so leaving it unset does not
+  cap Graph; set it lower to bound the installation as a whole (for example to match a reverse proxy's body limit).
+
+A refusal names the dimension it hit — `ATTACHMENT_TOO_LARGE` (one file), `ATTACHMENTS_TOO_LARGE` (their total),
+`INLINE_IMAGES_TOO_LARGE` (the images the composer turns `data:` URIs into), `MESSAGE_TOO_LARGE` (the composed
+RFC-822 message on SMTP), `PROVIDER_MESSAGE_TOO_LARGE` (Gmail's raw message), `PROVIDER_UPLOAD_TOO_LARGE` (a Graph
+upload-session file) or `REQUEST_TOO_LARGE` (the HTTP body) — and carries `actualBytes`, `limitBytes`, the
+`dimension` and the `transport`, so a client never has to read English prose. Provider-measured refusals are decided
+**before** anything is dispatched, so they cannot be mistaken for an unknown outcome.
+
+The composer asks the server for the sending account's limits (`GET /api/mail/send-limits?accountId=…`) and refuses
+a file it already knows cannot be sent, before that file is read or uploaded; the server remains authoritative and
+repeats every check.
+
+Two switches govern the provider layer:
+
+- `PROVIDER_SYNC_INTERVAL_MINUTES` — how often already-pulled collections are refreshed (15 by
+  default); `0` disables the schedule and leaves syncing to the user.
+- `PROVIDER_INTEGRATIONS_ENABLED` — `0` stops this installation offering or starting **any**
+  provider authorization and stops the sync paths too, so an installation that must not call a
+  provider does not; unset means enabled. The per-provider and per-method switches in the card narrow
+  a configured installation further.
+- `GRAPH_CALENDAR_DELTA_VERSION` — `v1.0` (default) or `beta`. Which contract the Microsoft calendar's
+  change-tracking read uses. Microsoft documents the per-calendar event delta as a preview capability and the stable
+  alternative returns repeating events in a shape that loses the series master, so neither is free; `beta` makes
+  each changed event read back in full (one extra request each). Write paths always use the stable contract.
+- `PROVIDER_NATIVE_RULES` — **off unless set to `1`**. Whether the user's inbox rules run on mail that a Gmail or
+  Microsoft account synchronises. Opt-in because a rule can be global (`account_id` null) and can delete mail:
+  switching it on applies rules a native mailbox may never have run, so it is a deliberate operator decision rather
+  than a consequence of upgrading. The block list is not gated — blocking a sender is an explicit instruction and
+  always moves that sender's mail to the account's trash (or deletes it, when the account has no trash).
+
+The same Entra application is also what the **Microsoft Graph** API integration uses. Its
+authorization entry point is `/oauth/provider/microsoft` and it asks only for the scopes of the
+purpose it was started with (`mail_migration`, `calendar_enable` or `contacts_enable`), so granting
+calendars never grants the mailbox. It is deliberately separate from `/oauth/microsoft`, which is
+the existing mailbox sign-in.
+
+Step-by-step registration for both providers — the exact redirect URIs, environment variables,
+permissions and a troubleshooting table — is in
+[Connecting Google and Microsoft accounts](Provider-setup.md).
+
+## Instant synchronisation (push)
+
+Push is an administrator-level setting, not a per-user one:
+
+| Variable | Meaning |
+| --- | --- |
+| `APP_URL` | The public address Inboxora is reached on. The provider callback URLs are derived from it (`/api/provider-webhooks/...`); HTTPS is required outside `localhost`. |
+| `PROVIDER_PUSH_ENABLED` | Off by default. With it off — or without a usable `APP_URL` — synchronisation is polling-only. |
+| `GOOGLE_PUBSUB_TOPIC` | `projects/{project}/topics/{name}`, the topic Gmail's `watch` publishes to. |
+| `GOOGLE_PUBSUB_VERIFICATION_TOKEN` | Shared secret (at least 16 characters) that authenticates a Pub/Sub push. |
+| `PROVIDER_PUSH_RENEW_AHEAD_MINUTES` | How far before expiry subscriptions are renewed (default 30). |
+| `PROVIDER_PUSH_SWEEP_MS` | How often the renewal sweep runs (default 10 minutes, jittered). |
+| `PROVIDER_SYNC_HINT_DEBOUNCE_MS` | The window a burst of notifications is coalesced into one sync (default 2000 ms). |
+| `PROVIDER_SYNC_HINT_POLL_MS` | How often queued sync hints are drained (default 15 s). |
+
+Push is an accelerator, never a requirement: `PROVIDER_SYNC_INTERVAL_MINUTES` still refreshes every pulled
+collection, a missed notification is recovered by the ordinary delta sync, and an account is never reported as
+broken because a notification could not be delivered. Each connection is switched on from its card in the
+provider settings, and `GET /api/integrations/push-status` reports what is registered, when it expires and
+when it last delivered.
 
 ## Appearance
 

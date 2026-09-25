@@ -94,6 +94,16 @@ function deliveryAddresses(value: unknown): DeliveryAddress[] | string | undefin
 
 interface ConversationCopyView {
   id?: string;
+  messageId?: string;
+  message_id?: string;
+  canonicalMessageId?: string;
+  canonical_message_id?: string;
+  inReplyTo?: string;
+  in_reply_to?: string;
+  references?: string;
+  thread_references?: string;
+  replyTo?: unknown;
+  reply_to?: unknown;
   accountId?: string;
   account_id?: string;
   date?: string | number | Date;
@@ -121,11 +131,21 @@ interface ConversationCopyView {
   [key: string]: unknown;
 }
 
-function copyView(value: unknown): ConversationCopyView {
+export function conversationCopyView(value: unknown): ConversationCopyView {
   if (!isRecord(value)) return {};
 
   return {
     id: text(value.id),
+    messageId: text(value.messageId),
+    message_id: text(value.message_id),
+    canonicalMessageId: text(value.canonicalMessageId),
+    canonical_message_id: text(value.canonical_message_id),
+    inReplyTo: text(value.inReplyTo),
+    in_reply_to: text(value.in_reply_to),
+    references: text(value.references),
+    thread_references: text(value.thread_references),
+    replyTo: value.replyTo,
+    reply_to: value.reply_to,
     accountId: text(value.accountId),
     account_id: text(value.account_id),
     date: timestamp(value.date),
@@ -175,7 +195,7 @@ export default function ConversationMessage({ conversationId, message, selectedC
   const { t } = useTranslation();
   const isMobile = useMobile();
   const { replyDefault, aiActions, setShowAdmin, setAdminTab, blockRemoteImages, imageWhitelist } = useStore();
-  const copy = copyView(preferredAccountCopy(message, selectedAccountId, selectedCopyId));
+  const copy = conversationCopyView(preferredAccountCopy(message, selectedAccountId, selectedCopyId));
   const messageSubject = text(message.subject);
   const messageDate = timestamp(message.messageDate);
   const initialBodyLayoutRef = useRef(onInitialBodyLayout);
