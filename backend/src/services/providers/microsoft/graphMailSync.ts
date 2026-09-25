@@ -22,6 +22,7 @@ import {
   fetchWellKnownFolderIds,
   fetchMessagesDeltaPage,
   fetchGraphMessageLocation,
+  findGraphMessagesByInternetMessageId,
   graphFolderPathMap,
   localMessageForGraphMessage,
   providerUidForGraphMessage,
@@ -458,6 +459,7 @@ const MESSAGE_MAX_PAGES = 1000;
  */
 async function verifiedGraphRemovedIds(
   api: GraphApiOptions,
+  context: MessageContext,
   messages: readonly GraphMessage[],
 ): Promise<ReadonlySet<string>> {
   const verified = new Set<string>();
@@ -465,8 +467,38 @@ async function verifiedGraphRemovedIds(
   for (const message of messages) {
     if (!message.id || message['@removed']?.reason !== 'deleted') continue;
 
+    // First try the provider id from the tombstone. A successful lookup is
+    // definitive evidence that the message still exists.
     const location = await fetchGraphMessageLocation(api, message.id);
-    if (location === null) verified.add(message.id);
+    if (location !== null) continue;
+
+    // A 404 for a default Graph id does NOT prove mailbox deletion. Resolve the
+    // local row's RFC Internet Message-ID and ask Graph independently.
+    const local = await query<{ message_id: string | null }>(
+      `SELECT message_id
+         FROM messages
+        WHERE account_id = $1
+          AND provider_message_id = $2
+          AND folder = $3
+        LIMIT 1`,
+      [context.accountId, message.id, context.folderPath],
+    );
+
+    const internetMessageId = local.rows[0]?.message_id?.trim() ?? '';
+
+    // With no independent identity we cannot prove deletion safely.
+    if (!internetMessageId) continue;
+
+    const matches = await findGraphMessagesByInternetMessageId(api, internetMessageId);
+
+    // One or more current Graph objects prove that the mail still exists.
+    // Multiple results are deliberately treated as ambiguous/non-destructive.
+    if (matches.length > 0) continue;
+
+    // Only two independent observations now agree:
+    //   1. the tombstoned provider id is gone;
+    //   2. no message with the same RFC Internet Message-ID exists in Graph.
+    verified.add(message.id);
   }
 
   return verified;
@@ -878,7 +910,11 @@ export async function syncGraphMailMessagesForFolder(input: {
       // Provider verification happens outside the DB transaction; a network,
       // auth or throttling failure aborts this page and leaves its delta cursor
       // untouched so the tombstone can be retried safely.
-      const verifiedRemovedIds = await verifiedGraphRemovedIds(api, fetched.messages);
+      const verifiedRemovedIds = await verifiedGraphRemovedIds(
+        api,
+        context,
+        fetched.messages,
+      );
 
       const applied = await withFencedSyncLease({
         syncStateId,

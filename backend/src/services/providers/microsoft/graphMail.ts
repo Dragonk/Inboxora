@@ -402,6 +402,41 @@ export function localMessageForGraphMessage(message: GraphMessage): LocalGraphMe
  * - a returned parentFolderId proves the message still exists;
  * - RESOURCE_NOT_FOUND proves the immutable item is no longer present.
  */
+
+/**
+ * Find the current Graph representation of a message by its RFC Internet
+ * Message-ID.
+ *
+ * Default Graph message ids are not durable enough to prove deletion. The
+ * Internet Message-ID gives tombstone reconciliation an independent identity.
+ * Multiple matches are returned rather than guessed between: ambiguity must
+ * never authorize a destructive local delete.
+ */
+export async function findGraphMessagesByInternetMessageId(
+  api: GraphApiOptions,
+  internetMessageId: string,
+): Promise<GraphMessage[]> {
+  const normalized = internetMessageId.trim();
+  if (!normalized) return [];
+
+  // OData string literals escape a quote by doubling it. URL encoding itself is
+  // handled by graphUrl/URLSearchParams.
+  const escaped = normalized.replace(/'/g, "''");
+
+  const page = await graphGet<GraphMessagePage>(
+    api,
+    graphUrl('/me/messages', {
+      $select: GRAPH_MESSAGE_SELECT,
+      $filter: `internetMessageId eq '${escaped}'`,
+      $top: 5,
+    }),
+  );
+
+  return (page.value ?? []).filter(
+    (message): message is GraphMessage => typeof message.id === 'string' && message.id.length > 0,
+  );
+}
+
 export async function fetchGraphMessageLocation(
   api: GraphApiOptions,
   providerMessageId: string,

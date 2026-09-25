@@ -360,6 +360,20 @@ function fakeMailProvider(script: {
       return json(next ?? { value: [], '@odata.deltaLink': `${DELTA_INBOX}-empty` });
     }
 
+    if (target.includes('/me/messages?')) {
+      const parsed = new URL(target);
+      const filter = parsed.searchParams.get('$filter') ?? '';
+
+      const match = filter.match(/internetMessageId eq '(.+)'/);
+      const internetMessageId = match?.[1]?.replace(/''/g, "'") ?? '';
+
+      const values = Object.values(script.lookup ?? {})
+        .filter((value): value is Record<string, unknown> => value !== null && typeof value === 'object')
+        .filter(value => value.internetMessageId === internetMessageId);
+
+      return json({ value: values });
+    }
+
     if (target.includes('/me/messages/')) {
       const id = decodeURIComponent(target.split('/me/messages/')[1]?.split('?')[0] ?? '');
       if (Object.prototype.hasOwnProperty.call(script.lookup ?? {}, id)) {
@@ -452,6 +466,65 @@ describeOrSkip('Microsoft Graph mail message sync (PostgreSQL)', () => {
     expect(messages.find(row => row.provider_message_id === 'm1')?.subject).toBe('Renamed');
     // The stored delta link is what the run resumes from, not the folder's first page.
     expect(delta.urls.some(url => url.includes('inbox') && url.includes('deltatoken'))).toBe(true);
+  });
+
+  it('keeps a tombstoned message when its old Graph id is gone but the RFC message still exists', async () => {
+    const connectionId = await seedConnection();
+    await discoverFolders(connectionId);
+
+    await syncGraphMailMessagesForAccount({
+      userId: USER_ID,
+      connectionId,
+      accountId: ACCOUNT_ID,
+      config: CONFIG,
+      fetchImpl: fakeMailProvider({
+        inbox: [{
+          value: [graphMessage('old-id', {
+            internetMessageId: '<read-test@contoso.test>',
+          })],
+          '@odata.deltaLink': DELTA_INBOX,
+        }],
+      }).fetchImpl,
+    });
+
+    const provider = fakeMailProvider({
+      inbox: [{
+        value: [{
+          id: 'old-id',
+          '@removed': { reason: 'deleted' },
+        }],
+        '@odata.deltaLink': `${DELTA_INBOX}-read`,
+      }],
+      lookup: {
+        // Direct GET of old-id is gone.
+        'old-id': null,
+
+        // But the same real mail still exists under a current provider id.
+        'new-id': graphMessage('new-id', {
+          internetMessageId: '<read-test@contoso.test>',
+          parentFolderId: 'graph-inbox',
+          isRead: true,
+        }),
+      },
+    });
+
+    const result = await syncGraphMailMessagesForAccount({
+      userId: USER_ID,
+      connectionId,
+      accountId: ACCOUNT_ID,
+      config: CONFIG,
+      fetchImpl: provider.fetchImpl,
+    });
+
+    expect(result.deleted).toBe(0);
+
+    const messages = await storedMessages();
+    expect(messages.some(row => row.provider_message_id === 'old-id')).toBe(true);
+
+    expect(provider.urls.some(url =>
+      url.includes('/me/messages?') &&
+      decodeURIComponent(url).includes('internetMessageId'),
+    )).toBe(true);
   });
 
   it('deletes a local message only after Graph confirms the tombstoned id no longer exists', async () => {
