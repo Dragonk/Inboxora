@@ -502,6 +502,27 @@ export async function useEnglishWorkspaceData(page) {
     send_count: 42, last_sent: '2026-09-08T10:00:00Z',
   };
 
+  await page.route('**/api/calendar/presentation', route => route.fulfill({ json: {
+    revision: 'docs-demo',
+    sources: [
+      { id: 'local', kind: 'local', label: 'My calendars', accountId: null, identityLabel: null, featureEnabled: true, canSync: true, collapsed: false },
+      { id: 'calendar-source:team', kind: 'caldav', label: 'Team · CalDAV', accountId: null, identityLabel: null, featureEnabled: true, canSync: true, collapsed: false },
+    ],
+    calendars: [
+      { id: 'calendar-personal', sourceId: 'local', displayName: 'Personal', readOnly: false, selected: true, sidebarHidden: false, sourceColor: '#35548a', colorOverride: null, effectiveColor: '#35548a' },
+      { id: 'calendar-team', sourceId: 'calendar-source:team', displayName: 'Team · CalDAV', readOnly: true, selected: true, sidebarHidden: false, sourceColor: '#35793a', colorOverride: null, effectiveColor: '#35793a' },
+    ],
+    groups: [
+      {
+        id: 'local', kind: 'local', label: 'My calendars', accountId: null, identityLabel: null, featureEnabled: true, canSync: true, collapsed: false,
+        calendars: [{ id: 'calendar-personal', sourceId: 'local', displayName: 'Personal', readOnly: false, selected: true, sidebarHidden: false, sourceColor: '#35548a', colorOverride: null, effectiveColor: '#35548a' }],
+      },
+      {
+        id: 'calendar-source:team', kind: 'caldav', label: 'Team · CalDAV', accountId: null, identityLabel: null, featureEnabled: true, canSync: true, collapsed: false,
+        calendars: [{ id: 'calendar-team', sourceId: 'calendar-source:team', displayName: 'Team · CalDAV', readOnly: true, selected: true, sidebarHidden: false, sourceColor: '#35793a', colorOverride: null, effectiveColor: '#35793a' }],
+      },
+    ],
+  } }));
   await page.route('**/api/calendar/calendars', route => route.fulfill({ json: { calendars } }));
   await page.route('**/api/calendar/sources**', route => route.fulfill({ json: { sources: [] } }));
   await page.route('**/api/calendar/events**', route => {
@@ -573,6 +594,7 @@ export async function assertDocsPresentation(page, { mode = 'mail-list', require
   }
 
   for (const locator of required) await expect(locator).toBeVisible();
+  await expect(page.locator('.ui-alert:visible'), 'documentation captures must not hide an application error').toHaveCount(0);
 }
 
 export { expect };
