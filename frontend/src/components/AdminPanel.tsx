@@ -9429,6 +9429,7 @@ export default function AdminPanel() {
             {visibleTabs.map(tab => (
               <button
                 key={tab.id}
+                data-testid={`admin-tab-${tab.id}`}
                 className={adminTab === tab.id && !searchResults ? 'admin-tab admin-tab-active' : 'admin-tab'}
                 onClick={() => handleTabClick(tab.id)}
                 style={{
@@ -9527,6 +9528,7 @@ export default function AdminPanel() {
                   return (
                     <button
                       key={tab.id}
+                      data-testid={`admin-tab-${tab.id}`}
                       className={isActive ? 'admin-tab admin-tab-active' : 'admin-tab'}
                       onClick={() => handleTabClick(tab.id)}
                       style={{

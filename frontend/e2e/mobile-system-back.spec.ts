@@ -79,12 +79,12 @@ for (const native of [false, true]) {
       await back(page, native);
       await expect(page.getByTestId('calendar-event-dialog')).toHaveCount(0);
       await page.getByTestId('calendar-mobile-panel').click();
-      await page.getByRole('button', { name: 'Zarządzaj źródłami' }).click();
+      await page.getByTestId('calendar-sidebar-manage-sources').click();
       await back(page, native);
-      await expect(page.getByTestId('calendar-mobile-dock')).toBeVisible();
-      await expect(page.getByRole('dialog')).toHaveCount(1);
+      await expect(page.locator('.admin-panel')).toBeVisible();
       await back(page, native);
-      await expect(page.getByRole('dialog')).toHaveCount(0);
+      await expect(page.locator('.admin-panel')).toHaveCount(0);
+      await expect(page.getByTestId('calendar-page')).toBeVisible();
       await page.getByTestId('mobile-topbar-menu').click();
       await page.getByTestId('sidebar-user-menu').click();
       await page.getByTestId('mobile-settings').click();

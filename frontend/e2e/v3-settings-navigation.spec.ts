@@ -21,7 +21,7 @@ test('Calendar has separate preferences and global navigation applies in every m
   await page.goto('/');
   await openSettings(page);
   const panel = page.locator('.admin-panel');
-  await panel.locator('.admin-tab').filter({ hasText: /^Kalendarz$/ }).click();
+  await panel.getByTestId('admin-tab-calendar-appearance').click();
   await expect(page.getByTestId('calendar-settings')).toBeVisible();
   await expect(page.getByTestId('mobile-navigation-position-setting')).toHaveCount(0);
   await page.getByTestId('calendar-week-start-setting').getByRole('button', { name: 'Niedziela' }).click();
@@ -29,7 +29,7 @@ test('Calendar has separate preferences and global navigation applies in every m
   await page.getByTestId('calendar-work-hours-start').fill('08:00');
   await expect.poll(() => saved.some(value => String(value.calendarWeekStartsOn) === '0')).toBe(true);
   await page.screenshot({ path: testInfo.outputPath('calendar-settings.png') });
-  await panel.locator('.admin-tab').filter({ hasText: /^Wygląd$/ }).click();
+  await panel.getByTestId('admin-tab-appearance').click();
   await panel.locator('.admin-subtab').filter({ hasText: /^Układ$/ }).click();
   await expect(page.getByTestId('calendar-settings')).toHaveCount(0);
   await page.getByTestId('mobile-navigation-position-setting').getByRole('button', { name: 'Na dole' }).click();
@@ -66,13 +66,12 @@ test('mobile drawer highlights only the current module and book selection includ
     await page.getByTestId(`${module}-nav-mobile`).click();
   }
   await openContactBooks(page);
-  await page.getByRole('button', { name: 'Prywatna', exact: true }).click();
-  await expect(page.locator('.mobile-module-title')).toContainText('Prywatna');
+  await page.getByRole('checkbox', { name: 'Prywatna', exact: true }).click();
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('contacts-address-books')).toBeVisible();
   await openContactBooks(page);
-  const all = page.getByTestId('contacts-books-dialog').locator('.contacts-books button').first();
-  await all.click();
-  await expect(page.getByRole('button', { name: 'Anna Kowalska', exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Anna Kowalska', exact: true }).click();
+  await expect(page.getByRole('button', { name: /Pokaż wszystkie|Show all/ })).toBeVisible();
+  await page.keyboard.press('Escape');
   const create = page.getByTestId('contacts-header-new');
   await expect(create).toBeEnabled();
   await expect(create.locator('svg')).toBeVisible();

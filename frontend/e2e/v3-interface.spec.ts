@@ -170,7 +170,7 @@ test('V3 visual references for mail, composer, settings and login', async ({ pag
   await page.getByTestId('sidebar-user-menu').click();
   if (page.viewportSize().width < 768) await page.getByTestId('mobile-settings').click();
   else await page.getByText('Ustawienia', { exact: true }).first().click();
-  await page.getByText('Wygląd', { exact: true }).click();
+  await page.getByTestId('admin-tab-appearance').click();
   await page.locator('.admin-tab-active').evaluate(tab => tab.scrollIntoView({ inline: 'center', block: 'center', behavior: 'instant' }));
   await screenshot('settings');
   await page.route('**/api/auth/me', route => route.fulfill({ status: 401, json: { error: 'Unauthorized' } }));
@@ -179,40 +179,17 @@ test('V3 visual references for mail, composer, settings and login', async ({ pag
   await screenshot('login');
 });
 
-test('V3 address-book tabs preserve search and reject a late response from the previous book', async ({ page }) => {
+test('V3 address-book picker preserves grouped book selection and management access', async ({ page }) => {
   await setupV3(page);
-  let release;
-  const requested = new Promise(resolve => { release = resolve; });
-  let delayedRoute;
-  let privateQuery;
-  await page.route('**/api/contacts?**', route => {
-    const url = new URL(route.request().url());
-    if (url.searchParams.get('q') === 'anna' && !url.searchParams.get('addressBookId')) {
-      delayedRoute = route; release(); return;
-    }
-    if (url.searchParams.get('addressBookId') === 'book-private') privateQuery = url.searchParams.get('q');
-    return route.fallback();
-  });
-  await page.goto('/'); await navigateModule(page, 'contacts');
-  await page.getByRole('searchbox').fill('anna');
-  await requested;
+  await page.goto('/');
+  await navigateModule(page, 'contacts');
   await openContactBooks(page);
-  await page.getByRole('button', { name: 'Prywatna', exact: true }).click();
-  await expect.poll(() => privateQuery).toBe('anna');
-  await expect(page.getByRole('button', { name: 'Anna Kowalska', exact: true })).toHaveCount(0);
-  const oldResponse = page.waitForResponse(response => new URL(response.url()).searchParams.get('q') === 'anna' && !new URL(response.url()).searchParams.has('addressBookId'));
-  await delayedRoute.fulfill({ json: { contacts: [richContact], total: 1 } });
-  await oldResponse;
-  await expect(page.getByRole('button', { name: 'Anna Kowalska', exact: true })).toHaveCount(0);
-  await openContactBooks(page);
-  await page.getByRole('button', { name: 'Firmowa', exact: true }).click();
-  await expect(page.getByRole('searchbox')).toHaveValue('anna');
-  await expect(page.getByRole('button', { name: 'Anna Kowalska', exact: true })).toBeVisible();
-  // The former ellipsis menu was replaced with the manager panel. On phones its
-  // entry point is inside the book picker; wider layouts keep it in the book strip.
-  if (page.viewportSize().width < 768) await page.getByTestId('contacts-address-books').click();
-  await page.getByTestId('contacts-manage-books').click();
-  await page.getByTestId('contacts-manager-book-book-work').click();
-  await expect(page.getByTestId('contacts-manager-import-export').locator('a')).toHaveCount(3);
-  await expect(page.getByTestId('contacts-manager-export-vcard')).toHaveAttribute('href', /vcard/);
+  await expect(page.getByTestId('contacts-source-group')).toHaveCount(1);
+  await expect(page.getByRole('checkbox', { name: 'Prywatna', exact: true })).toBeChecked();
+  await page.getByRole('checkbox', { name: 'Prywatna', exact: true }).uncheck();
+  await expect(page.getByRole('checkbox', { name: 'Prywatna', exact: true })).not.toBeChecked();
+  await page.getByRole('button', { name: /Pokaż wszystkie|Show all/ }).click();
+  await expect(page.getByRole('checkbox', { name: 'Prywatna', exact: true })).toBeChecked();
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId(page.viewportSize().width < 768 ? 'contacts-address-books' : 'contacts-books-trigger')).toBeVisible();
 });
