@@ -2045,6 +2045,7 @@ router.delete('/legacy-sources/:sourceIdentity', async (req, res) => {
     source: string | null;
     collection_id: string | null;
     import_source_id: string | null;
+    source_connection_id: string | null;
     provider: string | null;
   }>(
     `SELECT DISTINCT
@@ -2052,6 +2053,7 @@ router.delete('/legacy-sources/:sourceIdentity', async (req, res) => {
             c.source,
             ic.id AS collection_id,
             cis.id AS import_source_id,
+            ic.source_connection_id,
             pc.provider
        FROM calendars c
        LEFT JOIN integration_collections ic
@@ -2083,7 +2085,7 @@ router.delete('/legacy-sources/:sourceIdentity', async (req, res) => {
   }
 
   // If the proper source still exists, normal disconnect must be used.
-  if (row.import_source_id) {
+  if (row.import_source_id || row.source_connection_id) {
     return res.status(409).json({
       code: 'CURRENT_SOURCE',
       error: 'This calendar source is still connected and must be disconnected normally',
