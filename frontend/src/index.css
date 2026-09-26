@@ -899,14 +899,15 @@ body, #root {
   color: #ffffff !important;
 }
 
-/* ── Electron desktop title bar ──────────────────────────────────────────────
-   Draggable strip drawn by DesktopTitleBar inside the hidden-title-bar window
-   (Window Controls Overlay). Interactive children opt out again. The web build
-   never renders these classes. */
+/* ── Integrated desktop title bar ────────────────────────────────────────────
+   Shared by Electron and installed Chromium PWAs using Window Controls Overlay.
+   Interactive children opt out of the draggable region. Normal browser tabs do
+   not render this bar. */
 .desktop-titlebar {
   -webkit-app-region: drag;
   app-region: drag;
   user-select: none;
+  -webkit-user-select: none;
 }
 .desktop-titlebar__control {
   -webkit-app-region: no-drag;

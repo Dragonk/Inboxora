@@ -141,7 +141,7 @@ export default function App() {
       <>
         {/* No in-app toolbar exists yet, but the hidden-title-bar Electron window
             still needs a draggable strip while the session is checked. */}
-        {isElectronShell() && <DesktopTitleBar variant="drag" />}
+        <DesktopTitleBar variant="drag" />
         <div style={{
           height: 'var(--app-height, 100svh)', display: 'flex', alignItems: 'center',
           justifyContent: 'center', background: 'var(--bg-primary)'
@@ -164,7 +164,7 @@ export default function App() {
     <>
       {/* Login and lock screens have no app toolbar, but the Electron window still
           needs a draggable strip because its native title bar is hidden. */}
-      {isElectronShell() && (!user || isLocked) && <DesktopTitleBar variant="drag" />}
+      {(!user || isLocked) && <DesktopTitleBar variant="drag" />}
       <Routes>
         <Route path="/login" element={user ? <Navigate to="/" replace /> : <LoginPage />} />
         <Route path="/register" element={user ? <Navigate to="/" replace /> : <LoginPage />} />

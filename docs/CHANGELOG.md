@@ -25,7 +25,9 @@ finalized below and dated with its publication date.
 
 ## [Unreleased]
 
-Nothing is being prepared beyond 4.1.1. Work whose version has not been chosen accumulates here.
+### Fixed
+
+- **Desktop overlay sizing.** The drag strip and scaled mail viewport follow live window-controls-overlay height changes without a window resize.
 
 ## [4.1.1] - 2026-09-25
 

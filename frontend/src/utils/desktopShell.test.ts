@@ -4,7 +4,9 @@ import assert from 'node:assert/strict';
 import {
   DEFAULT_DESKTOP_TITLEBAR_HEIGHT,
   desktopTitlebarHeight,
+  isDesktopTitlebarShell,
   isElectronShell,
+  isPwaWindowControlsOverlay,
   parseCssColor,
   relativeLuminance,
   titlebarThemeForBackground,
@@ -30,6 +32,37 @@ test('only the Electron shell is detected as desktop, never the web or Capacitor
   assert.equal(withWindow({ inboxoraNative: { shell: 'electron' } }, isElectronShell), true);
 });
 
+test('only a visible desktop-PWA WCO gains the integrated title bar', () => {
+  const hidden = {
+    navigator: {
+      windowControlsOverlay: {
+        visible: false,
+        getTitlebarAreaRect: () => ({ height: 52 }),
+      },
+    },
+  };
+  const visible = {
+    navigator: {
+      windowControlsOverlay: {
+        visible: true,
+        getTitlebarAreaRect: () => ({ height: 52 }),
+      },
+    },
+  };
+
+  assert.equal(withWindow({}, isPwaWindowControlsOverlay), false);
+  assert.equal(withWindow(hidden, isPwaWindowControlsOverlay), false);
+  assert.equal(withWindow(visible, isPwaWindowControlsOverlay), true);
+  assert.equal(withWindow(visible, isDesktopTitlebarShell), true);
+  assert.equal(
+    withWindow({
+      inboxoraNative: { shell: 'electron' },
+      navigator: visible.navigator,
+    }, isPwaWindowControlsOverlay),
+    false,
+  );
+});
+
 test('the titlebar height contract matches the Electron shell', () => {
   assert.equal(DEFAULT_DESKTOP_TITLEBAR_HEIGHT, 48);
 });
@@ -41,6 +74,19 @@ test('titlebar height comes from the native bridge when present', () => {
     DEFAULT_DESKTOP_TITLEBAR_HEIGHT,
   );
   assert.equal(withWindow({}, desktopTitlebarHeight), DEFAULT_DESKTOP_TITLEBAR_HEIGHT);
+});
+
+test('titlebar height follows the visible PWA overlay geometry', () => {
+  const pwa = {
+    navigator: {
+      windowControlsOverlay: {
+        visible: true,
+        getTitlebarAreaRect: () => ({ height: 54 }),
+      },
+    },
+  };
+
+  assert.equal(withWindow(pwa, desktopTitlebarHeight), 54);
 });
 
 test('parses the CSS color shapes the theme variables resolve to', () => {

@@ -31,7 +31,12 @@ import ProfileModal from './ProfileModal.tsx';
 import CommandPalette from './CommandPalette.tsx';
 import DesktopTitleBar from './desktop/DesktopTitleBar.tsx';
 import { AppViewHistoryRecorder } from './desktop/useAppViewHistory.tsx';
-import { desktopTitlebarHeight, isElectronShell } from '../utils/desktopShell.ts';
+import {
+  desktopTitlebarHeight,
+  desktopWindowControlsOverlay,
+  isDesktopTitlebarShell,
+  isElectronShell,
+} from '../utils/desktopShell.ts';
 import { usePluginSlot, PluginRuntime } from '../plugins/PluginSlot.tsx';
 import type { StoreState } from '../store/index.ts';
 import { toAppError } from '../utils/errors.ts';
@@ -294,10 +299,36 @@ export default function MailApp() {
 
   const scale = fontSize / 100;
   const hasNativeBridge = Boolean(window.inboxoraNative || window.Capacitor?.isNativePlatform?.());
-  // Electron draws its own title bar above the app; the strip it occupies comes
-  // out of the content viewport so scaled layouts and fixed drawers still align.
-  const desktopShell = isElectronShell();
-  const titlebarHeight = desktopShell ? desktopTitlebarHeight() : 0;
+  // Electron and a WCO PWA share the same Inboxora title bar. The reserved
+  // height follows the browser's live overlay geometry so content never ends up
+  // underneath the native caption buttons.
+  const [desktopTitlebar, setDesktopTitlebar] = useState(() => ({
+    enabled: isDesktopTitlebarShell(),
+    height: isDesktopTitlebarShell() ? desktopTitlebarHeight() : 0,
+  }));
+
+  useEffect(() => {
+    if (isElectronShell()) return undefined;
+
+    const overlay = desktopWindowControlsOverlay();
+    if (!overlay) return undefined;
+
+    const update = () => {
+      const enabled = isDesktopTitlebarShell();
+      setDesktopTitlebar({
+        enabled,
+        height: enabled ? desktopTitlebarHeight() : 0,
+      });
+    };
+
+    update();
+    overlay.addEventListener('geometrychange', update);
+    return () => overlay.removeEventListener('geometrychange', update);
+  }, []);
+
+  const desktopShell = desktopTitlebar.enabled;
+  const titlebarHeight = desktopTitlebar.height;
+
   const [vpSize, setVpSize] = useState(() => ({
     w: window.innerWidth,
     h: Math.max(0, window.innerHeight - titlebarHeight),
@@ -307,6 +338,7 @@ export default function MailApp() {
       w: window.innerWidth,
       h: Math.max(0, window.innerHeight - titlebarHeight),
     });
+    update();
     window.addEventListener('resize', update);
     return () => window.removeEventListener('resize', update);
   }, [titlebarHeight]);
