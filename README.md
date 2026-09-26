@@ -405,8 +405,9 @@ release.
 | [Migrating from MailFlow](docs/wiki/Migrating-from-MailFlow.md) | Moving a MailFlow 3.3.0 deployment to Inboxora. |
 | [Troubleshooting](docs/wiki/Troubleshooting.md) | Diagnostic paths and common failures. |
 | [Development](docs/wiki/Development.md) | Local verification, browser tests, documentation policy. |
-| [Release notes 4.1.1](docs/wiki/Release-notes-4.1.1.md) | Current hotfix: threaded mail visibility and Microsoft Graph immutable-ID reads/mutations. |
-| [Release notes 4.0.4](docs/wiki/Release-notes-4.0.4.md) | Previous release: desktop changes, rollout requirements and known limitations. |
+| [Release notes 4.1.1](docs/wiki/Release-notes-4.1.1.md) | Current release: Graph reliability, live mailbox refresh, unread indicators and legacy DAV/ICS cleanup. |
+| [Release notes 4.1.0](docs/wiki/Release-notes-4.1.0.md) | Previous feature release: native Google/Microsoft providers, provider sync and write-back. |
+| [Release notes 4.0.4](docs/wiki/Release-notes-4.0.4.md) | Previous 4.0 release: desktop changes, rollout requirements and known limitations. |
 | [Release notes 4.0.3](docs/wiki/Release-notes-4.0.3.md) | Previous release: sync, IDLE, antispam and migration requirements. |
 | [Release notes 4.0.2](docs/wiki/Release-notes-4.0.2.md) | Earlier release: reliability and data-isolation patch. |
 | [Release notes 4.0.0](docs/wiki/Release-notes-4.0.0.md) | Why this is a major release and what changed. |
