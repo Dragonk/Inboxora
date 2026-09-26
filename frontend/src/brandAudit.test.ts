@@ -13,6 +13,8 @@ type ManifestIcon = {
 
 type Manifest = {
   icons: ManifestIcon[];
+  display?: string;
+  display_override?: string[];
 };
 
 const isManifestIcon = (value: unknown): value is ManifestIcon =>
@@ -30,7 +32,10 @@ const isManifest = (value: unknown): value is Manifest =>
   value !== null &&
   "icons" in value &&
   Array.isArray(value.icons) &&
-  value.icons.every(isManifestIcon);
+  value.icons.every(isManifestIcon) &&
+  (!("display_override" in value) ||
+    (Array.isArray(value.display_override) &&
+      value.display_override.every((entry) => typeof entry === "string")));
 
 test("Inboxora branding is used by user-visible application surfaces", async () => {
   const checks: readonly (readonly [file: string, expected: string])[] = [
@@ -78,7 +83,7 @@ test("Inboxora wordmark and versioned PWA assets replace legacy MailFlow brandin
   assert.doesNotMatch(logo, /inboxora-ui-logo-(light|dark)\.png/, "the inline monogram must not fall back to the legacy PNG pair");
   assert.doesNotMatch(logo, /inboxora-mark\.svg/, "shared logo component must not use the deprecated hexagon mark");
   assert.doesNotMatch(logo, /inboxora-icon-512\.png/, "shared logo component must not use the black-background PWA icon");
-  assert.match(index, /manifest\.json\?v=inboxora-3/, "the updated manifest must bypass legacy PWA metadata caches");
+  assert.match(index, /manifest\.json\?v=inboxora-4/, "the WCO manifest must bypass legacy PWA metadata caches");
   assert.match(app, /sw\.js\?v=inboxora-3/, "the updated service worker must replace legacy registrations");
   assert.doesNotMatch(index, /inboxora-mark\.svg/, "the transparent UI logo must not replace the browser favicon");
   assert.match(logo, /BRAND_ENVELOPE/);
@@ -86,6 +91,8 @@ test("Inboxora wordmark and versioned PWA assets replace legacy MailFlow brandin
   assert.match(index, /inboxora-envelope-512\.png/);
   const metadata: unknown = JSON.parse(manifest);
   assert.ok(isManifest(metadata), "manifest icons must have string src, sizes, and purpose fields");
+  assert.equal(metadata.display, "standalone");
+  assert.deepEqual(metadata.display_override, ["window-controls-overlay"]);
   assert.deepEqual(metadata.icons.map((icon) => [icon.sizes, icon.purpose]), [['192x192', 'any'], ['512x512', 'any'], ['512x512', 'maskable']]);
   for (const icon of metadata.icons) {
     const png = await readFile(new URL(`../public${icon.src}`, import.meta.url));

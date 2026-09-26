@@ -1,9 +1,9 @@
 /**
- * Helpers for the Electron desktop shell.
+ * Helpers for Inboxora's integrated desktop title bar.
  *
- * The web/PWA build must never gain desktop-only chrome, so every call site asks
- * `isElectronShell()` instead of guessing from the presence of the native bridge
- * (Capacitor Android exposes the same `window.inboxoraNative` object).
+ * Electron exposes its native title-bar bridge. Installed Chromium PWAs can use
+ * the same application chrome through Window Controls Overlay (WCO). Normal
+ * browser tabs and Capacitor Android must never gain this desktop-only chrome.
  */
 
 /** Window Controls Overlay height; mirrors TITLEBAR_HEIGHT in desktop-settings.cjs. */
@@ -15,13 +15,53 @@ export function isElectronShell(): boolean {
   return window.inboxoraNative?.shell === 'electron';
 }
 
-/** Strip for the custom title bar, from the preload when available. */
+type WindowControlsOverlayLike = EventTarget & {
+  readonly visible: boolean;
+  getTitlebarAreaRect(): { height: number };
+};
+
+/** Chromium's desktop-PWA Window Controls Overlay, when the browser exposes it. */
+export function desktopWindowControlsOverlay(): WindowControlsOverlayLike | null {
+  if (typeof window === 'undefined') return null;
+
+  const navigatorValue = (window as Window & {
+    navigator?: Navigator & {
+      windowControlsOverlay?: WindowControlsOverlayLike;
+    };
+  }).navigator;
+
+  return navigatorValue?.windowControlsOverlay ?? null;
+}
+
+/** Whether an installed desktop PWA is currently running in WCO mode. */
+export function isPwaWindowControlsOverlay(): boolean {
+  if (typeof window === 'undefined' || isElectronShell()) return false;
+  return desktopWindowControlsOverlay()?.visible === true;
+}
+
+/** Whether Inboxora should render and reserve its integrated desktop title bar. */
+export function isDesktopTitlebarShell(): boolean {
+  return isElectronShell() || isPwaWindowControlsOverlay();
+}
+
+/** Height reserved by Electron or the active desktop-PWA title-bar overlay. */
 export function desktopTitlebarHeight(): number {
   if (typeof window === 'undefined') return DEFAULT_DESKTOP_TITLEBAR_HEIGHT;
-  const height = window.inboxoraNative?.titlebar?.height;
-  return typeof height === 'number' && Number.isFinite(height) && height > 0
-    ? height
-    : DEFAULT_DESKTOP_TITLEBAR_HEIGHT;
+
+  if (isElectronShell()) {
+    const height = window.inboxoraNative?.titlebar?.height;
+    return typeof height === 'number' && Number.isFinite(height) && height > 0
+      ? height
+      : DEFAULT_DESKTOP_TITLEBAR_HEIGHT;
+  }
+
+  const overlay = desktopWindowControlsOverlay();
+  if (overlay?.visible) {
+    const height = overlay.getTitlebarAreaRect().height;
+    if (Number.isFinite(height) && height > 0) return height;
+  }
+
+  return DEFAULT_DESKTOP_TITLEBAR_HEIGHT;
 }
 
 /** Whether the platform draws the traffic lights on the left (macOS). */
@@ -97,9 +137,9 @@ export function titlebarThemeForBackground(background: unknown): TitlebarTheme |
 // writes on every observed style mutation.
 let lastSyncedTheme = '';
 
-/** Read the resolved `--bg-primary` and push the matching overlay theme to main. */
+/** Keep Electron or PWA window chrome aligned with the resolved Inboxora theme. */
 export function syncDesktopTitlebarTheme(): void {
-  if (typeof window === 'undefined' || !isElectronShell()) return;
+  if (typeof window === 'undefined' || !isDesktopTitlebarShell()) return;
   let background: string;
   try {
     background = getComputedStyle(document.documentElement).getPropertyValue('--bg-primary');
@@ -111,5 +151,15 @@ export function syncDesktopTitlebarTheme(): void {
   const key = `${theme.color}|${theme.symbolColor}`;
   if (key === lastSyncedTheme) return;
   lastSyncedTheme = key;
-  window.inboxoraNative?.titlebar?.setTheme?.(theme)?.catch?.(() => {});
+
+  if (isElectronShell()) {
+    window.inboxoraNative?.titlebar?.setTheme?.(theme)?.catch?.(() => {});
+    return;
+  }
+
+  // In WCO mode the browser still owns the caption buttons. Keep their surrounding
+  // browser chrome aligned with the same resolved Inboxora surface colour.
+  document
+    .querySelector<HTMLMetaElement>('meta[name="theme-color"]')
+    ?.setAttribute('content', theme.color);
 }

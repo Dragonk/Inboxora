@@ -6,26 +6,26 @@ import type { StoreState } from '../../store/index.ts';
 import { LAYOUTS } from '../../layouts.ts';
 import { useCompactLayout } from '../../hooks/useCompactLayout.ts';
 import { shortcutBus } from '../../utils/shortcutBus.ts';
-import { desktopTitlebarHeight, isElectronShell, isMacDesktopShell, syncDesktopTitlebarTheme } from '../../utils/desktopShell.ts';
+import {
+  desktopTitlebarHeight,
+  desktopWindowControlsOverlay,
+  isDesktopTitlebarShell,
+  isElectronShell,
+  isMacDesktopShell,
+  syncDesktopTitlebarTheme,
+} from '../../utils/desktopShell.ts';
 import { navigateAppHistory, useAppViewHistoryState } from './useAppViewHistory.tsx';
 
 /**
- * Integrated title bar for the Electron shell.
+ * Integrated title bar shared by Electron and installed desktop PWAs using WCO.
  *
- * The window uses `titleBarStyle: 'hidden'` with the Window Controls Overlay, so
- * this component only draws the Inboxora part (back / forward / search /
- * settings) and leaves the native minimize / maximize / close buttons to the OS.
- * It renders nothing in the browser and in the Capacitor shell: the web build
- * must not gain desktop-only chrome.
+ * Inboxora draws Back / Forward / search / settings while the operating system
+ * keeps ownership of minimize / maximize / close. A normal browser tab and the
+ * Capacitor shell render no additional desktop chrome.
  *
  * Back / Forward walk Inboxora's own view history (see useAppViewHistory), not
- * `webContents.navigationHistory`: the app swaps Zustand state rather than
- * loading documents, so the browser history only ever held login/OAuth pages.
- *
- * Shell detection is fixed for the page load (the Electron preload runs before
- * the bundle), so the outer component needs no hooks and can decide up front.
+ * document history: these views are Zustand state transitions.
  */
-const ELECTRON_SHELL = isElectronShell();
 // Layout presets are keyed by the persisted layout name; an unknown key falls back
 // to the default preset, exactly like MailApp does.
 const LAYOUT_BY_NAME: Record<string, { direction?: string }> = LAYOUTS;
@@ -33,16 +33,38 @@ const LAYOUT_BY_NAME: Record<string, { direction?: string }> = LAYOUTS;
 interface DesktopTitleBarProps {
   /**
    * 'full' — the complete bar with navigation, search and settings (main app).
-   * 'drag' — a drag-only strip for screens without an app toolbar (login/lock),
-   *          so a hidden-title-bar window can still be moved.
+   * 'drag' — a drag-only strip for screens without an app toolbar (login/lock).
    */
   variant?: 'full' | 'drag';
+}
+
+/**
+ * WCO visibility and geometry can change while an installed PWA window is alive.
+ * Electron is fixed for the life of the renderer, so it needs no listener.
+ */
+function useDesktopTitlebarShell(): boolean {
+  const [enabled, setEnabled] = useState(() => isDesktopTitlebarShell());
+
+  useEffect(() => {
+    if (isElectronShell()) return undefined;
+
+    const overlay = desktopWindowControlsOverlay();
+    if (!overlay) return undefined;
+
+    const update = () => setEnabled(isDesktopTitlebarShell());
+    update();
+    overlay.addEventListener('geometrychange', update);
+
+    return () => overlay.removeEventListener('geometrychange', update);
+  }, []);
+
+  return enabled;
 }
 
 /** Keep the native overlay colours in step with the resolved Inboxora theme. */
 function useTitlebarThemeSync() {
   useEffect(() => {
-    if (!ELECTRON_SHELL) return undefined;
+    if (!isDesktopTitlebarShell()) return undefined;
 
     let scheduled = false;
     const schedule = () => {
@@ -62,9 +84,13 @@ function useTitlebarThemeSync() {
     const media = window.matchMedia?.('(prefers-color-scheme: dark)');
     media?.addEventListener?.('change', schedule);
 
+    const overlay = desktopWindowControlsOverlay();
+    overlay?.addEventListener('geometrychange', schedule);
+
     return () => {
       observer.disconnect();
       media?.removeEventListener?.('change', schedule);
+      overlay?.removeEventListener('geometrychange', schedule);
     };
   }, []);
 }
@@ -276,6 +302,7 @@ function DesktopTitleBarContent() {
 }
 
 export default function DesktopTitleBar({ variant = 'full' }: DesktopTitleBarProps) {
-  if (!ELECTRON_SHELL) return null;
+  const enabled = useDesktopTitlebarShell();
+  if (!enabled) return null;
   return variant === 'drag' ? <DesktopDragStrip /> : <DesktopTitleBarContent />;
 }

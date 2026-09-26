@@ -3,6 +3,9 @@
   "short_name": "Inboxora",
   "description": "Your private inbox for email, contacts and calendars",
   "start_url": "/",
+  "display_override": [
+    "window-controls-overlay"
+  ],
   "display": "standalone",
   "background_color": "#f5f4ef",
   "theme_color": "#35558a",
