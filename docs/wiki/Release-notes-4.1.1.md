@@ -3,6 +3,7 @@
 **Status:** Hotfix  ·  **Release date:** 2026-09-25  ·  **Previous version:** 4.1.0
 
 ## Fixed
+- **Legacy CardDAV, CalDAV and ICS sources can be removed again.** Older installations can retain local DAV or calendar-subscription projections after their original connection metadata is no longer available. These orphaned entries now expose a local removal action in Contacts and Calendar settings. Cleanup is scoped to the authenticated user, never contacts or deletes data from the remote server, and refuses current CardDAV integrations, current CalDAV/ICS sources, Google/Microsoft provider calendars and local Inboxora calendars. Existing source disconnect behaviour is unchanged, and no database migration is required.
 - **Graph bulk move results expose per-message failures.** If a provider move is not projected locally, the response identifies that message in `failed` and sets `ok` to false; confirmed moves still appear in `moved`. No migration or configuration change is required. Route regression tests cover failed, successful and mixed results.
 - **Microsoft Graph rebuilt baselines no longer delete mail by omission.** Inboxora now removes a provider-backed message only when Graph delta explicitly reports an `@removed` event. Rebuilding an expired or reset delta cursor can no longer make a newly delivered or otherwise valid message disappear from the local mailbox.
 
