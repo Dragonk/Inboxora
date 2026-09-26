@@ -34,6 +34,10 @@ export async function resolveGraphMessageIdentity(
        JOIN messages canonical ON canonical.id = b.canonical_message_id
       WHERE b.legacy_message_id = $1 AND b.account_id = $2 AND b.connection_id = $3
         AND b.status IN ('bound', 'needs_review') AND canonical.account_id = $2
+        AND (b.evidence->>'kind' = 'confirmed_provider_move'
+          OR b.evidence->>'physical_move_confirmed' = 'true'
+          OR canonical.folder = (SELECT legacy.folder FROM messages legacy
+              WHERE legacy.id = b.legacy_message_id AND legacy.account_id = $2))
       LIMIT 2`,
     [input.messageId, input.accountId, input.connectionId],
   );
@@ -88,6 +92,8 @@ export async function bindVerifiedLegacyGraphMessage(
         AND m.from_email IS NOT DISTINCT FROM $3
         AND m.date IS NOT DISTINCT FROM $4::timestamptz
         AND m.id <> $5
+        AND m.folder = (SELECT canonical.folder FROM messages canonical
+                        WHERE canonical.id=$5 AND canonical.account_id=$1)
       ORDER BY m.id
       LIMIT 2`,
     [input.accountId, rfcMessageId, input.fromEmail, input.date, input.canonicalMessageId],

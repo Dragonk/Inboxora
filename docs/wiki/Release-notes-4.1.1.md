@@ -24,3 +24,19 @@ The upgrade includes `0141_message_list_hot_path_indexes.sql` for the message-li
 Apply the complete migration chain through `0144_normalize_message_ids.sql` before rolling out 4.1.1. The normal backend startup migration runner applies pending migrations automatically. The release includes a real PostgreSQL regression for three independent messages with null thread identifiers, reconnect cursor reset, and Graph regression coverage for immutable-ID reads, mutations, and delta pagination.
 
 Before publishing, validate on the `dev` deployment that threaded and flat views, refreshes and folder changes retain messages, and that old and new Microsoft messages open their bodies and support regular, inline-CID, single and ZIP attachment downloads. Do not publish if any of these live checks fail.
+
+
+## Additional Graph consistency repair
+
+Apply migrations in order through `0145_graph_consistency.sql` before this backend starts.
+This forward migration leaves 0141–0144 unchanged, normalizes the same whitespace as
+JavaScript ingestion, repairs matching snooze references and adds confirmed-MOVE receipts.
+Read/unread deltas preserve omitted metadata. Only inserted arrivals enter ingest rules.
+Moves update one canonical row and do not identify physical copies by RFC Message-ID.
+Cleanup verifies an explicit per-item Graph ID conversion and the current stable location;
+failed conversions, unavailable services and unknown folder mappings remain visible/retryable.
+This is not a blanket ban on real deletions and is not a bulk identity migration.
+
+Release gate: run the PostgreSQL tests (not skipped), then read, spam/ham, round-trip move,
+provider-side delete, delayed replay and two physical copies with the same Message-ID on
+an actual mailbox. Track UUIDs as well as subjects. Do not release based on a mock-only run.

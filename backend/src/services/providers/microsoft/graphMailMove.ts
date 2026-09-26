@@ -1,7 +1,7 @@
-import { query } from '../../db.js';
+import { withTransaction } from '../../db.js';
 import { graphFolderIdForPath } from './graphMailSync.js';
 import { graphDeleteIntent, graphDeleteMutationAdapter, graphMoveIntent, graphMoveMutationAdapter } from './graphMailMutations.js';
-import { providerUidForGraphMessage } from './graphMail.js';
+import { projectGraphMove } from './graphMailContinuity.js';
 import { runProviderMutation } from '../../providerMutationService.js';
 import type { GraphApiOptions } from './graphApiClient.js';
 import { immutableIdsEnabled } from './graphMessageIdType.js';
@@ -72,22 +72,15 @@ export async function moveGraphMessageToFolder(input: {
     return { moved: false, ...(result.code ? { code: result.code } : {}) };
   }
 
-  const newUid = providerUidForGraphMessage(result.value.id);
-  // A stale row at the destination holding the same derived number would collide.
-  await query(
-    'DELETE FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3 AND id != $4',
-    [input.accountId, newUid, input.destinationPath, input.resourceId],
-  );
-  const updated = await query(
-    'UPDATE messages SET folder = $1, uid = $2, provider_message_id = $3 WHERE id = $4',
-    [input.destinationPath, newUid, result.value.id, input.resourceId],
-  );
-  if ((updated.rowCount ?? 0) === 0) {
-    // A concurrent sync removed the row; the destination's next delta re-ingests it
-    // under its new id, so this is a warning rather than a failure.
-    console.warn(`Graph move: the local row ${input.resourceId} was gone before it could be re-homed`);
+  const targetId = result.value.id;
+  const projected = await withTransaction(client => projectGraphMove(client, {
+    accountId: input.accountId, connectionId: input.connectionId, rowId: input.resourceId,
+    sourceId: input.providerMessageId, targetId, targetPath: input.destinationPath,
+  }));
+  if (!projected.moved || !projected.uid) {
+    return { moved: false, code: 'MUTATION_OUTCOME_UNKNOWN' };
   }
-  return { moved: true, newProviderMessageId: result.value.id, newUid };
+  return { moved: true, newProviderMessageId: targetId, newUid: projected.uid };
 }
 
 /**

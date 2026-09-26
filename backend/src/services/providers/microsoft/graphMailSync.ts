@@ -1,4 +1,7 @@
 import type { PoolClient } from 'pg';
+import { graphDeltaFields } from './graphDeltaFields.js';
+import { lockGraphMailWrites, admitGraphDeltaLocation, prepareGraphDeltaPage } from './graphMailContinuity.js';
+import type { GraphLocationChecks } from './graphMailContinuity.js';
 import { query, withSavepoint, withTransaction } from '../../db.js';
 import { toAppError } from '../../../utils/errors.js';
 import { bindVerifiedLegacyGraphMessage } from './graphLegacyMessageBindings.js';
@@ -512,8 +515,10 @@ export async function applyGraphMailMessagesPage(
   client: PoolClient,
   context: MessageContext,
   messages: readonly GraphMessage[],
-): Promise<{ created: number; updated: number; deleted: number; skipped: number; rowIds: string[] }> {
-  const totals = { created: 0, updated: 0, deleted: 0, skipped: 0, rowIds: [] as string[] };
+  locationChecks: GraphLocationChecks = new Map(),
+): Promise<{ created: number; updated: number; deleted: number; skipped: number; rowIds: string[]; ingestRowIds: string[] }> {
+  await lockGraphMailWrites(client, context.accountId);
+  const totals = { created: 0, updated: 0, deleted: 0, skipped: 0, rowIds: [] as string[], ingestRowIds: [] as string[] };
   for (const message of messages) {
     if (!message.id) { totals.skipped += 1; continue; }
     if (message['@removed']) {
@@ -541,6 +546,10 @@ export async function applyGraphMailMessagesPage(
       totals.skipped += 1;
       continue;
     }
+    if (!await admitGraphDeltaLocation(client, {
+      accountId: context.accountId, connectionId: context.connectionId,
+      folderPath: context.folderPath, messageId: message.id, checks: locationChecks,
+    })) { totals.skipped += 1; continue; }
     const local = localMessageForGraphMessage(message);
     if (!local) { totals.skipped += 1; continue; }
     let applied: { id: string; inserted: boolean } | null = null;
@@ -559,26 +568,28 @@ export async function applyGraphMailMessagesPage(
              ON CONFLICT (account_id, provider_message_id) WHERE provider_message_id IS NOT NULL DO UPDATE SET
                folder = EXCLUDED.folder,
                uid = EXCLUDED.uid,
-               message_id = EXCLUDED.message_id,
-               thread_id = EXCLUDED.thread_id,
-               subject = EXCLUDED.subject,
-               from_name = EXCLUDED.from_name,
-               from_email = EXCLUDED.from_email,
-               to_addresses = EXCLUDED.to_addresses,
-               cc_addresses = EXCLUDED.cc_addresses,
-               reply_to = EXCLUDED.reply_to,
+               message_id = CASE WHEN $21::jsonb ? 'internetMessageId' THEN EXCLUDED.message_id ELSE messages.message_id END,
+               thread_id = CASE WHEN $21::jsonb ? 'conversationId' THEN EXCLUDED.thread_id ELSE messages.thread_id END,
+               subject = CASE WHEN $21::jsonb ? 'subject' THEN EXCLUDED.subject ELSE messages.subject END,
+               from_name = CASE WHEN $21::jsonb ? 'from' THEN EXCLUDED.from_name ELSE messages.from_name END,
+               from_email = CASE WHEN $21::jsonb ? 'from' THEN EXCLUDED.from_email ELSE messages.from_email END,
+               to_addresses = CASE WHEN $21::jsonb ? 'toRecipients' THEN EXCLUDED.to_addresses ELSE messages.to_addresses END,
+               cc_addresses = CASE WHEN $21::jsonb ? 'ccRecipients' THEN EXCLUDED.cc_addresses ELSE messages.cc_addresses END,
+               reply_to = CASE WHEN $21::jsonb ? 'replyTo' THEN EXCLUDED.reply_to ELSE messages.reply_to END,
                -- Graph delta entries may omit internet headers; retain prior hydration.
                list_unsubscribe = COALESCE(EXCLUDED.list_unsubscribe, messages.list_unsubscribe),
                list_unsubscribe_post = COALESCE(EXCLUDED.list_unsubscribe_post, messages.list_unsubscribe_post),
-               date = EXCLUDED.date,
-               snippet = EXCLUDED.snippet,
+               date = CASE WHEN $21::jsonb ?| ARRAY['receivedDateTime','sentDateTime'] THEN EXCLUDED.date ELSE messages.date END,
+               snippet = CASE WHEN $21::jsonb ? 'bodyPreview' THEN EXCLUDED.snippet ELSE messages.snippet END,
                is_read = CASE
+                 WHEN NOT ($21::jsonb ? 'isRead') THEN messages.is_read
                  WHEN messages.read_changed_at IS NULL OR messages.read_changed_at < NOW() - make_interval(secs => $20)
                    THEN EXCLUDED.is_read ELSE messages.is_read END,
                is_starred = CASE
+                 WHEN NOT ($21::jsonb ? 'flag') THEN messages.is_starred
                  WHEN messages.star_changed_at IS NULL OR messages.star_changed_at < NOW() - make_interval(secs => $20)
                    THEN EXCLUDED.is_starred ELSE messages.is_starred END,
-               has_attachments = EXCLUDED.has_attachments,
+               has_attachments = CASE WHEN $21::jsonb ? 'hasAttachments' THEN EXCLUDED.has_attachments ELSE messages.has_attachments END,
                synced_at = NOW()
              RETURNING id, (xmax = 0) AS inserted`,
             [
@@ -587,6 +598,7 @@ export async function applyGraphMailMessagesPage(
               JSON.stringify(local.toAddresses), JSON.stringify(local.ccAddresses), JSON.stringify(local.replyTo),
               local.listUnsubscribe, local.listUnsubscribePost,
               local.date, local.snippet, local.isRead, local.isStarred, local.hasAttachments, LOCAL_WINS_SECONDS,
+              JSON.stringify(graphDeltaFields(message)),
             ],
           );
           return result.rows[0] ?? null;
@@ -616,7 +628,7 @@ export async function applyGraphMailMessagesPage(
           // the two is the mistake this return value exists to prevent.
           await clearGraphPendingRemoval(client, applied.id);
           totals.rowIds.push(applied.id);
-          if (applied.inserted) totals.created += 1;
+          if (applied.inserted) { totals.created += 1; totals.ingestRowIds.push(applied.id); }
           else totals.updated += 1;
         }
       } catch (caught) {
@@ -886,13 +898,15 @@ export async function syncGraphMailMessagesForFolder(input: {
       }
       pagesFetched += 1;
 
+      const prepared = await prepareGraphDeltaPage(api, {
+        accountId: input.accountId, folderPath: input.target.folderPath,
+        remoteFolderId: input.target.remoteId, messages: fetched.messages,
+      });
       const applied = await withFencedSyncLease({
         syncStateId,
         generation: lease.generation,
         run: client => applyGraphMailMessagesPage(
-          client,
-          context,
-          fetched.messages,
+          client, context, prepared.messages, prepared.checks,
         ),
       });
       await persistConversations(applied.rowIds, input.account);
@@ -904,7 +918,7 @@ export async function syncGraphMailMessagesForFolder(input: {
         connectionId: input.connectionId,
         account: input.account,
         folder: input.target.folderPath,
-        rowIds: applied.rowIds,
+        rowIds: applied.ingestRowIds,
         providerName: 'Microsoft Graph',
       }).catch((error: unknown) => console.warn('Microsoft Graph ingest block list failed:', error instanceof Error ? error.message : error));
       totals.created += applied.created;
@@ -954,9 +968,9 @@ export async function syncGraphMailMessagesForFolder(input: {
       if (!saved) return false;
 
       // Baseline omission may only feed destructive reconciliation when the
-      // mailbox already uses ImmutableId. With mutable Graph ids, absence is
+      // per-item verifier has established stable Graph identity. Absence is
       // never sufficient deletion evidence.
-      if (fullSync && baselineStartedAt && api.immutableIds) {
+      if (fullSync && baselineStartedAt) {
         await enqueueGraphBaselineRemovalCandidates(client, {
           connectionId: input.connectionId,
           accountId: input.accountId,

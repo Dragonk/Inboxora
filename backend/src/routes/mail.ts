@@ -3519,20 +3519,7 @@ router.delete('/messages/:id', async (req, res) => {
     if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error, ...(outcome.code ? { code: outcome.code } : {}) });
 
     if (outcome.moved && trashPath) {
-      // A Graph move re-identifies the message: the local row adopts the new id and
-      // the new compatibility number, so the next delta matches instead of
-      // re-inserting a second row.
-      await query('DELETE FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3 AND id != $4',
-        [message.account_id, outcome.newUid, trashPath, id]);
-      const updated = await query(
-        'UPDATE messages SET folder = $1, uid = $2, provider_message_id = $3 WHERE id = $4',
-        [trashPath, outcome.newUid, outcome.newProviderMessageId, id],
-      );
-      if ((updated.rowCount ?? 0) === 0) {
-        // A concurrent sync removed the source row. That is not a failure: the
-        // destination's next delta lists the message under its new id and re-ingests it.
-        console.warn('Graph move: the local row was gone before it could be re-homed; the next sync will re-ingest it');
-      }
+      // The shared Graph mover already committed identity and folder atomically.
       adjustFolderCounts(message.account_id, message.folder, -1, -wasUnread);
       adjustFolderCounts(message.account_id, trashPath, 1, wasUnread);
     } else {
@@ -3768,12 +3755,13 @@ async function moveForSpamLabel(messageId: string, userId: string, destinationFo
       // because a training row for a move that did not happen would be a lie.
       return { ok: false, status: 502, error: 'Microsoft Graph did not confirm the move' };
     }
-    newUid = move.newUids[messageId] ?? null;
+    const canonicalMessageId = move.movedIds[0]!;
+    newUid = move.newUids[canonicalMessageId] ?? null;
     // The move re-homed the row; the user's verdict is recorded separately, exactly
     // as the IMAP branch records it alongside its own folder/uid update.
     await query(
       `UPDATE messages SET spam_user_override = $1, spam_verdict = $1, spam_analyzed_at = NOW() WHERE id = $2`,
-      [label, messageId]
+      [label, canonicalMessageId]
     );
   } else if (account.mail_transport === 'gmail_api') {
     const move = await moveMessagesOverGmail({
@@ -3860,6 +3848,7 @@ async function moveForSpamLabel(messageId: string, userId: string, destinationFo
     ).catch(err => console.warn('Failed to auto-persist folder_mappings.spam:', err.message));
   }
 
+  imapManager.broadcast({ type: 'folder_updated', folder: message.folder, accountId: account.id }, userId);
   imapManager.broadcast(
     { type: 'folder_updated', folder: destinationFolder, accountId: account.id },
     userId

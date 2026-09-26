@@ -344,50 +344,67 @@ function graphMessage(id: string, overrides: Record<string, unknown> = {}) {
 
 /** Serve the folder tree once, then a scripted sequence of message delta pages. */
 function fakeMailProvider(script: {
-  inbox?: unknown[];
-  sent?: unknown[];
-  lookup?: Record<string, unknown | null>;
+  inbox?: unknown[]; sent?: unknown[]; lookup?: Record<string, unknown | null>;
+  idTranslations?: Record<string, string>;
+  conversionError?: { status: number; code: string };
 }) {
   const urls: string[] = [];
   const inbox = [...(script.inbox ?? [])];
   const sent = [...(script.sent ?? [])];
-  const fetchImpl = async (url: string): Promise<Response> => {
-    const target = String(url);
-    urls.push(target);
+  const current = new Map<string, Record<string, unknown>>();
+  for (const [pages, parent] of [[script.inbox ?? [], 'graph-inbox'], [script.sent ?? [], 'graph-sent']] as const) {
+    for (const page of pages) {
+      if (!page || typeof page !== 'object') continue;
+      const values = (page as { value?: unknown }).value;
+      if (!Array.isArray(values)) continue;
+      for (const value of values) {
+        if (value && typeof value === 'object' && typeof value.id === 'string' && !value['@removed']) {
+          current.set(value.id, { parentFolderId: parent, ...value });
+        }
+      }
+    }
+  }
+  const immutable = (id: string): string => id.startsWith('R::') ? id.slice(3) : script.idTranslations?.[id] ?? `I::${id}`;
+  const rest = (id: string): string => {
+    const candidates = Object.entries(script.idTranslations ?? {}).filter(([, stable]) => stable === id).map(([key]) => key);
+    return candidates.find(key => script.lookup?.[key] !== null && (script.lookup?.[key] !== undefined || current.has(key)))
+      ?? candidates[0] ?? (id.startsWith('I::') ? id.slice(3) : `R::${id}`);
+  };
+  const fetchImpl = async (url: string, init?: RequestInit): Promise<Response> => {
+    const target = String(url); urls.push(target);
+    if (target.includes('/translateExchangeIds')) {
+      if (script.conversionError) return json({ error: { code: script.conversionError.code, message: 'cannot convert' } }, script.conversionError.status);
+      const body = JSON.parse(String(init?.body)) as { inputIds: string[]; sourceIdType: string; targetIdType: string };
+      return json({ value: body.inputIds.map(sourceId => ({ sourceId,
+        targetId: body.sourceIdType === 'restId' ? immutable(sourceId) : rest(sourceId),
+      })) });
+    }
     if (target.includes('/childFolders')) return json({ value: [] });
     if (target.includes('/messages/delta')) {
       const next = target.includes('graph-inbox') ? inbox.shift() : sent.shift();
-      return json(next ?? { value: [], '@odata.deltaLink': `${DELTA_INBOX}-empty` });
+      return json(next ?? { value: [], '@odata.deltaLink': target.includes('graph-inbox') ? `${DELTA_INBOX}-empty` : `${DELTA_SENT}-empty` });
     }
-
     if (target.includes('/me/messages?')) {
-      const parsed = new URL(target);
-      const filter = parsed.searchParams.get('$filter') ?? '';
-
-      const match = filter.match(/internetMessageId eq '(.+)'/);
-      const internetMessageId = match?.[1]?.replace(/''/g, "'") ?? '';
-
-      const values = Object.values(script.lookup ?? {})
-        .filter((value): value is Record<string, unknown> => value !== null && typeof value === 'object')
-        .filter(value => value.internetMessageId === internetMessageId);
-
-      return json({ value: values });
+      const filter = new URL(target).searchParams.get('$filter') ?? '';
+      const messageId = filter.match(/internetMessageId eq '(.+)'/)?.[1]?.replace(/''/g, "'") ?? '';
+      return json({ value: Object.values(script.lookup ?? {}).filter(value =>
+        value !== null && typeof value === 'object' && 'internetMessageId' in value && value.internetMessageId === messageId,
+      ) });
     }
-
     if (target.includes('/me/messages/')) {
-      const id = decodeURIComponent(target.split('/me/messages/')[1]?.split('?')[0] ?? '');
-      if (Object.prototype.hasOwnProperty.call(script.lookup ?? {}, id)) {
-        const value = script.lookup?.[id];
-        if (value === null) {
-          return json({ error: { code: 'ErrorItemNotFound', message: 'Message not found' } }, 404);
-        }
-        return json(value);
+      const id = decodeURIComponent(new URL(target).pathname.split('/me/messages/')[1] ?? '');
+      const isStable = id.startsWith('I::') || Object.values(script.idTranslations ?? {}).includes(id);
+      const key = isStable ? rest(id) : id;
+      let value: unknown = Object.prototype.hasOwnProperty.call(script.lookup ?? {}, key)
+        ? script.lookup?.[key] : current.get(key) ?? graphMessage(key, { parentFolderId: 'graph-inbox' });
+      if (value === null) return json({ error: { code: 'ErrorItemNotFound', message: 'Message not found' } }, 404);
+      if (value && typeof value === 'object') {
+        const prefer = new Headers(init?.headers).get('prefer') ?? '';
+        // The input stable ID is already the identity validated by conversion.
+        value = { ...value, id: prefer.includes('ImmutableId') ? (isStable ? id : key) : key };
       }
-
-      // Default tombstone verification: the item still exists in the mailbox.
-      return json(graphMessage(id, { parentFolderId: 'graph-inbox' }));
+      return json(value);
     }
-
     return json(FLAT_TREE);
   };
   return { fetchImpl: fetchImpl as unknown as typeof fetch, urls };
@@ -554,6 +571,7 @@ describeOrSkip('Microsoft Graph mail message sync (PostgreSQL)', () => {
         value: [],
         '@odata.deltaLink': `${DELTA_INBOX}-verified`,
       }],
+      idTranslations: { 'old-id': 'I::same-object', 'new-id': 'I::same-object' },
       lookup: {
         'old-id': null,
         'new-id': graphMessage('new-id', {
@@ -579,14 +597,12 @@ describeOrSkip('Microsoft Graph mail message sync (PostgreSQL)', () => {
     expect(messages.some(row => row.provider_message_id === 'new-id' && row.folder === 'INBOX')).toBe(true);
     expect(await pendingRemovals()).toEqual([]);
 
-    expect(verifier.urls.some(url => url.includes('/me/messages/old-id'))).toBe(true);
-    expect(verifier.urls.some(url =>
-      url.includes('/me/messages?') &&
-      decodeURIComponent(url).includes('internetMessageId'),
-    )).toBe(true);
+    expect(verifier.urls.some(url => decodeURIComponent(url).includes('/me/messages/I::same-object'))).toBe(true);
+    expect(verifier.urls.some(url => url.includes('/me/translateExchangeIds'))).toBe(true);
+    expect(verifier.urls.some(url => url.includes('/me/messages?'))).toBe(false);
   });
 
-  it('never deletes a mutable-id message from negative tombstone lookups alone', async () => {
+  it('never deletes a message when its identity format cannot be verified', async () => {
     const connectionId = await seedConnection();
     await discoverFolders(connectionId);
 
@@ -625,6 +641,7 @@ describeOrSkip('Microsoft Graph mail message sync (PostgreSQL)', () => {
     await forcePendingRemovalsDue();
 
     const missing = () => fakeMailProvider({
+      conversionError: { status: 400, code: "ErrorInvalidIdMalformed" },
       inbox: [{
         value: [],
         '@odata.deltaLink': `${DELTA_INBOX}-verify`,
@@ -652,7 +669,7 @@ describeOrSkip('Microsoft Graph mail message sync (PostgreSQL)', () => {
       expect(await pendingRemovals()).toEqual([
         expect.objectContaining({
           provider_message_id: 'm2',
-          last_error_code: 'GRAPH_DELETE_REQUIRES_IMMUTABLE_ID',
+          last_error_code: 'INTERNAL_ERROR',
         }),
       ]);
 
@@ -982,16 +999,24 @@ describeOrSkip('Microsoft Graph mail message sync (PostgreSQL)', () => {
       fetchImpl: fakeMailProvider({ inbox: [{ value: [graphMessage('m1'), graphMessage('m2')], '@odata.deltaLink': DELTA_INBOX }] }).fetchImpl,
     });
 
-    let calls = 0;
-    const rebuilding = async (url: string): Promise<Response> => {
-      const target = String(url);
-      if (target.includes('/childFolders')) return json({ value: [] });
-      if (target.includes('/messages/delta')) {
-        calls += 1;
-        if (calls === 1) return json({ error: { code: 'syncStateNotFound', message: 'expired' } }, 410);
-        return json({ value: [graphMessage('m1')], '@odata.deltaLink': `${DELTA_INBOX}-rebuilt` });
+    let rejectedInboxCursor = false;
+    const rebuildingProvider = fakeMailProvider({
+      inbox: [{
+        value: [graphMessage('m1')],
+        '@odata.deltaLink': `${DELTA_INBOX}-rebuilt`,
+      }],
+      sent: [{
+        value: [],
+        '@odata.deltaLink': `${DELTA_SENT}-rebuilt`,
+      }],
+    });
+    const rebuilding = async (url: string, init?: RequestInit): Promise<Response> => {
+      // Expire only the saved INBOX cursor; Sent keeps its own page and cursor.
+      if (String(url) === DELTA_INBOX && !rejectedInboxCursor) {
+        rejectedInboxCursor = true;
+        return json({ error: { code: 'syncStateNotFound', message: 'expired' } }, 410);
       }
-      return json(FLAT_TREE);
+      return rebuildingProvider.fetchImpl(url, init);
     };
     const result = await syncGraphMailMessagesForAccount({
       userId: USER_ID, connectionId, accountId: ACCOUNT_ID, config: CONFIG, fetchImpl: rebuilding as unknown as typeof fetch,
@@ -999,8 +1024,13 @@ describeOrSkip('Microsoft Graph mail message sync (PostgreSQL)', () => {
 
     // A lost delta token does not make absence from the rebuilt enumeration a
     // deletion signal. m2 remains until Graph emits an explicit @removed event.
-    expect(result).toMatchObject({ deleted: 0, fullSyncFolders: 1 });
-    expect((await storedMessages()).map(row => row.provider_message_id)).toEqual(['m1', 'm2']);
+    expect(rejectedInboxCursor).toBe(true);
+    expect(result).toMatchObject({
+      deleted: 0, fullSyncFolders: 1, failedFolders: 0, incompleteFolders: 0,
+    });
+    const stored = await storedMessages();
+    expect(stored.map(row => row.provider_message_id)).toEqual(['m1', 'm2']);
+    expect(stored.every(row => row.folder === 'INBOX')).toBe(true);
   });
 
   it('is idempotent: re-reading the same baseline changes nothing', async () => {

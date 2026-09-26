@@ -30,6 +30,10 @@ Nothing is being prepared beyond 4.1.1. Work whose version has not been chosen a
 ## [4.1.1] - 2026-09-25
 
 ### Fixed
+- **Graph delta updates preserve omitted envelope fields.** Read/star changes do not erase the subject, RFC Message-ID, recipients, dates or preview, and do not rerun arrival rules.
+- **Graph moves preserve physical identity.** Provider-confirmed moves are projected atomically and replayed source pages are checked; spam/ham updates the canonical row and refreshes both folders. RFC Message-ID equality is not used to merge provider copies.
+- **Required migration order:** apply the complete chain through `0145_graph_consistency.sql` before starting this build. `0141` adds list indexes, `0142` adds removal candidates, `0143` repairs index state, `0144` normalizes historical identities and `0145` aligns Unicode whitespace, repairs snooze references and records confirmed Graph moves. Previously applied migrations are unchanged.
+
 - **Microsoft Graph rebuilt baselines no longer delete mail by omission.** Inboxora now removes a provider-backed message only when Graph delta explicitly reports an `@removed` event. Rebuilding an expired or reset delta cursor can no longer make a newly delivered or otherwise valid message disappear from the local mailbox.
 - **Microsoft Graph push is bootstrapped for existing native mailboxes.** Enabling `PROVIDER_PUSH_ENABLED` no longer leaves accounts connected before that setting was enabled on polling only; the renewal sweep creates the missing mail subscription and polling remains the fallback.
 - **Microsoft Graph attachment metadata no longer fails on `contentId`.** Attachment listing no longer selects the derived `fileAttachment.contentId` field from the base `attachment` type, avoiding Graph's OData select error while retaining inline-CID metadata from the normal attachment response.

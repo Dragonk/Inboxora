@@ -175,8 +175,8 @@ ceiling. A refusal names the file and the exact dimension it hit rather than one
 4.1 also adds **recurring events** with invitation support, the **menu-follows-your-finger** mobile
 gesture, and hardens the built-in CalDAV/CardDAV discovery and capability surface.
 
-Apply the complete additive migration chain **through `0144_normalize_message_ids.sql` before rolling out**
-a build that reads the new columns. The runner applies the post-4.0.4 files `0101`–`0143` in lexical filename
+Apply the complete additive migration chain **through `0145_graph_consistency.sql` before rolling out**
+a build that reads the new columns. The runner applies the post-4.0.4 files `0101`–`0145` in lexical filename
 order, including both `0118_carddav_source_identity.sql` and `0118_immutable_message_ids.sql`.
 `0139` deduplicates logical raw headers, `0140` schedules Gmail charset-cache refreshes,
 `0141` normalizes blank thread identities and adds the list hot-path index, `0142` adds durable
@@ -446,3 +446,5 @@ fork with distinct product goals; the required upstream notices remain preserved
 Licensed under [AGPL-3.0](LICENSE). If you run a modified Inboxora as a network service, you
 must offer its corresponding source to your users. Contributions are accepted under the same
 terms — see [CONTRIBUTING.md](CONTRIBUTING.md).
+
+The Graph consistency hotfix additionally requires `0145_graph_consistency.sql`: Unicode-consistent identity normalization, snooze-reference repair and durable confirmed-MOVE receipts. Apply the full startup migration chain before serving requests.
