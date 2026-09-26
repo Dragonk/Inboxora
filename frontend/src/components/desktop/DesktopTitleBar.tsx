@@ -43,7 +43,10 @@ interface DesktopTitleBarProps {
  * Electron is fixed for the life of the renderer, so it needs no listener.
  */
 function useDesktopTitlebarShell(): boolean {
-  const [enabled, setEnabled] = useState(() => isDesktopTitlebarShell());
+  const [shell, setShell] = useState(() => ({
+    enabled: isDesktopTitlebarShell(),
+    height: desktopTitlebarHeight(),
+  }));
 
   useEffect(() => {
     if (isElectronShell()) return undefined;
@@ -51,14 +54,17 @@ function useDesktopTitlebarShell(): boolean {
     const overlay = desktopWindowControlsOverlay();
     if (!overlay) return undefined;
 
-    const update = () => setEnabled(isDesktopTitlebarShell());
+    const update = () => setShell({
+      enabled: isDesktopTitlebarShell(),
+      height: desktopTitlebarHeight(),
+    });
     update();
     overlay.addEventListener('geometrychange', update);
 
     return () => overlay.removeEventListener('geometrychange', update);
   }, []);
 
-  return enabled;
+  return shell.enabled;
 }
 
 /** Keep the native overlay colours in step with the resolved Inboxora theme. */

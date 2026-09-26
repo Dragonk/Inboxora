@@ -338,6 +338,7 @@ export default function MailApp() {
       w: window.innerWidth,
       h: Math.max(0, window.innerHeight - titlebarHeight),
     });
+    update();
     window.addEventListener('resize', update);
     return () => window.removeEventListener('resize', update);
   }, [titlebarHeight]);
