@@ -43,3 +43,15 @@ This is not a blanket ban on real deletions and is not a bulk identity migration
 Release gate: run the PostgreSQL tests (not skipped), then read, spam/ham, round-trip move,
 provider-side delete, delayed replay and two physical copies with the same Message-ID on
 an actual mailbox. Track UUIDs as well as subjects. Do not release based on a mock-only run.
+
+## Live mail refresh and unread indicators (PR14)
+
+Graph/Gmail background commits now publish user-scoped mailbox invalidations. The browser refreshes the current list and unread counts without F5, including message-state and folder-membership changes. UI invalidation is independent of alerts, notification permission and historical import notifications.
+
+Visible clients reconcile local API data within roughly 60 seconds plus API latency if an event is lost, even while WebSocket ping/pong remains healthy. Returning from sleep, offline mode or bfcache revalidates the view. Refresh bursts are serialized; current selection, reader and account/folder scope remain intact. This is not additional polling of Microsoft/Google.
+
+The tab title shows `(N) Inboxora` when unread indicators are enabled. Supported installed PWAs use one service-worker badge writer with current authenticated unread counts; unavailable/denied Badging API support does not block the message list. The existing favicon/branding remains unchanged. The unified unread total excludes opted-out accounts, archived/deleted/placeholder rows and includes Gmail INBOX membership without double-counting labels.
+
+No new database migration or service is introduced. The existing migration endpoint remains `0145_graph_consistency.sql`. PR13's legacy DAV/ICS cleanup and the existing Graph identity/removal protections remain unchanged.
+
+Validation before release: execute the new PostgreSQL/WebSocket regressions (not skipped), the full backend/frontend suites and the live-browser test. Then verify Graph, Gmail and IMAP with a continuously open tab, disabled notifications, read/unread on another device, lost WS events, search/threaded views, and an installed PWA's actual OS badge. Build success alone does not establish live-mailbox correctness.

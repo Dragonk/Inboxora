@@ -9,7 +9,7 @@ describe('WebSocket BFCache wake contract', () => {
     assert.match(source, /const onPageShow = \(event: PageTransitionEvent\) => \{ if \(event\.persisted\) revive\(\); \};/);
     assert.match(source, /window\.addEventListener\('pageshow', onPageShow\)/);
     assert.match(source, /window\.removeEventListener\('pageshow', onPageShow\)/);
-    assert.match(source, /window\.dispatchEvent\(new CustomEvent\('inboxora:refresh', \{ detail: \{ refreshThreads: true \} \}\)\)/);
-    assert.match(source, /refreshUnreadCounts\(\)/);
+    assert.match(source, /const revive = \(\) => \{[\s\S]*?requestMailRefresh\(\);[\s\S]*?restorePushSubscription\(\);/);
+    assert.match(source, /import \{ requestMailRefresh, cancelMailRefresh \} from '\.\.\/utils\/mailRefresh\.ts';/);
   });
 });

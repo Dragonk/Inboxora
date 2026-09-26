@@ -1,3 +1,4 @@
+import { publishMailStateChanged } from '../../mailStateEvents.js';
 import type { PoolClient } from 'pg';
 import { query, withSavepoint, withTransaction } from '../../db.js';
 import { toAppError } from '../../../utils/errors.js';
@@ -938,8 +939,13 @@ export async function syncGmailMailMessagesForAccount(input: {
    * Apply one page/thread in a transaction fenced to this run's generation. A worker whose lease expired and
    * was superseded cannot commit its projection over the newer run's (SYNC-03).
    */
-  const fenced = <T>(run: (client: PoolClient) => Promise<T>): Promise<T> =>
-    withFencedSyncLease({ syncStateId, generation: lease.generation, run });
+  const fenced = async <T>(run: (client: PoolClient) => Promise<T>): Promise<T> => {
+    const result = await withFencedSyncLease({ syncStateId, generation: lease.generation, run });
+    // Gmail membership is multi-label: invalidate the account after the commit,
+    // not merely the thread's current primary storage folder.
+    publishMailStateChanged({ userId: input.userId, accountId: input.accountId });
+    return result;
+  };
   /** Mark the run finished. Only a run that completed its declared scope may claim a successful sync (SYNC-02). */
   const finish = async (): Promise<void> => {
     const done = await withTransaction(client => finishSyncRun(client, { syncStateId, generation: lease.generation, lastErrorCode: null }));
@@ -964,6 +970,7 @@ export async function syncGmailMailMessagesForAccount(input: {
       rowIds,
       providerName: 'Gmail',
     }).catch((error: unknown) => console.warn('Gmail ingest block list failed:', error instanceof Error ? error.message : error));
+    if (rowIds.length) publishMailStateChanged({ userId: input.userId, accountId: input.accountId });
   };
 
   const maxThreadsPerRun = input.maxThreadsPerRun ?? GMAIL_MAX_THREADS_PER_RUN;
@@ -1008,6 +1015,9 @@ export async function syncGmailMailMessagesForAccount(input: {
       await finish();
     }
     await withTransaction(client => releaseSyncLease(client, { syncStateId, generation: lease.generation })).catch(() => {});
+    if (totals.created || totals.updated || totals.deleted) {
+      publishMailStateChanged({ userId: input.userId, accountId: input.accountId });
+    }
     return { accountId: input.accountId, labels: targets.length, ...totals, fullSync, incomplete, cursor, mode };
   } catch (caught) {
     // See the Graph mail sync: an authorization failure is a `ProviderAuthError`, not a `GoogleApiError`, and
@@ -1084,7 +1094,9 @@ async function runIncremental(
   }
 
   if (deletedMessageIds.size > 0) {
-    totals.deleted += await withTransaction(client => deleteGmailMessagesByProviderId(client, context.accountId, [...deletedMessageIds]));
+    const deleted = await withTransaction(client => deleteGmailMessagesByProviderId(client, context.accountId, [...deletedMessageIds]));
+    totals.deleted += deleted;
+    if (deleted) publishMailStateChanged({ userId: api.userId, accountId: context.accountId });
   }
 
   await renew();

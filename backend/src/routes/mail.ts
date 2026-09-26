@@ -1,3 +1,4 @@
+import { readUnreadInboxCounts } from '../services/unreadInboxCounts.js';
 import { Router } from 'express';
 import type { UnifiedInboxAccount } from '../services/unifiedInbox.js';
 import { createRequire } from 'module';
@@ -429,23 +430,11 @@ router.get('/thread/:threadId', async (req, res) => {
 // (~60 s) after new mail arrives. Querying messages directly means the count
 // returned immediately after the new_messages WS event is always authoritative.
 router.get('/unread-counts', async (req, res) => {
-  const result = await query<{ account_id: string; include_in_unified_inbox?: boolean; count: string }>(`
-    SELECT m.account_id, a.include_in_unified_inbox, COUNT(*) AS count
-    FROM messages m
-    JOIN email_accounts a ON a.id = m.account_id
-    WHERE a.user_id = $1 AND a.enabled = true
-      AND m.folder = 'INBOX' AND m.is_read = false AND m.is_deleted = false
-    GROUP BY m.account_id, a.include_in_unified_inbox
-  `, [req.session.userId]);
-
-  const byAccount: Record<string, number> = {};
-  let total = 0;
-  for (const row of result.rows) {
-    byAccount[row.account_id] = parseInt(row.count);
-    if (row.include_in_unified_inbox !== false) total += parseInt(row.count);
-  }
+  const userId = req.session.userId;
+  if (!userId) return res.status(401).json({ error: 'Not authenticated' });
+  const counts = await readUnreadInboxCounts(userId);
   res.set('Cache-Control', 'no-store');
-  res.json({ total, byAccount });
+  res.json(counts);
 });
 
 // Hard cap on a live IMAP body fetch. Connection acquisition is already bounded at 30s

@@ -46,11 +46,17 @@ function _applyServerCounts(counts: ReturnType<typeof useStore.getState>['unread
 let requestVersion = 0;
 export async function refreshUnreadCounts() {
   const version = ++requestVersion;
+  const authEpoch = useStore.getState().authEpoch;
   const before = useStore.getState().unreadCounts;
   try {
     const counts = await api.getUnreadCounts();
     // A newer request or optimistic mutation owns the UI now.
-    if (version !== requestVersion || before !== useStore.getState().unreadCounts) return;
+    const current = useStore.getState();
+    if (version !== requestVersion || current.authEpoch !== authEpoch || !current.user || current.isLocked
+        || before !== current.unreadCounts) return;
     _applyServerCounts(counts);
   } catch { /* Reconnect, next arrival or explicit refresh retries. */ }
 }
+
+/** Invalidate in-flight reads on lock/unmount even if the user logs back into the same session. */
+export function invalidateUnreadCountRequests(): void { requestVersion += 1; }

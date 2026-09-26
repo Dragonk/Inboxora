@@ -30,6 +30,10 @@ Nothing is being prepared beyond 4.1.1. Work whose version has not been chosen a
 ## [4.1.1] - 2026-09-25
 
 ### Fixed
+
+- **Live mail updates without page reload.** Native Graph and Gmail synchronization now emits owner-scoped, coalesced post-commit invalidations; open clients reconcile lists, label membership and counters without F5. Import/replay updates do not replay new-mail alerts.
+- **Freshness recovery with a healthy WebSocket.** Visible clients also reconcile local API data when mail events are missed, and serialize bursts without resetting the current view. This does not reset provider cursors or increase provider polling.
+- **Consistent unread indicators.** Browser titles and supported PWA badges follow the unread inbox scope, including Gmail label membership and archive exclusion. Lock/logout clear indicators; badge failures do not block mail updates. Delayed Web Push payload counts no longer overwrite current server counts.
 - **Legacy CardDAV, CalDAV and ICS sources can be removed locally.** Orphaned source projections left by older connection models can now be forgotten from Contacts and Calendar settings without contacting the unavailable remote server. Current DAV sources, native Google/Microsoft projections and local Inboxora resources remain protected and continue using their existing lifecycle paths. CardDAV cleanup preserves books owned directly or through collection links by a current integration, and removes orphaned books and their legacy connection in one transaction.
 - **Graph bulk moves report unprojected items.** The response includes failed message IDs when a provider move cannot be projected locally, while confirmed items remain in `moved`.
 - **Graph accepts hydrated items with empty display metadata.** Blank subject, preview or RFC Message-ID values no longer block a sync page; physical-identity and folder checks remain enforced.

@@ -1,3 +1,4 @@
+import { publishMailStateChanged } from '../../mailStateEvents.js';
 import type { PoolClient } from 'pg';
 import { graphDeltaFields } from './graphDeltaFields.js';
 import { lockGraphMailWrites, admitGraphDeltaLocation, prepareGraphDeltaPage } from './graphMailContinuity.js';
@@ -776,6 +777,9 @@ export async function syncGraphMailMessagesForAccount(input: {
 
   totals.deleted += pending.deleted;
   totals.updated += pending.relocated;
+  if (pending.deleted || pending.relocated) {
+    publishMailStateChanged({ userId: input.userId, accountId: input.accountId });
+  }
 
   // Existing IMAP-era rows are not re-emitted by a current Graph delta. Repair one bounded local slice after the
   // regular account pass; it has separate durable state and cannot alter any folder cursor or provider data.
@@ -909,6 +913,10 @@ export async function syncGraphMailMessagesForFolder(input: {
           client, context, prepared.messages, prepared.checks,
         ),
       });
+      // The fenced page transaction has committed; never publish from inside it.
+      if (applied.created || applied.updated || applied.deleted) {
+        publishMailStateChanged({ userId: input.userId, accountId: input.accountId });
+      }
       await persistConversations(applied.rowIds, input.account);
       // MAIL-01: a blocked sender's mail must not stay in a native account's inbox either. The block list
       // runs on the rows this page just stored, through the provider port, and only for a folder that is the
@@ -921,6 +929,10 @@ export async function syncGraphMailMessagesForFolder(input: {
         rowIds: applied.ingestRowIds,
         providerName: 'Microsoft Graph',
       }).catch((error: unknown) => console.warn('Microsoft Graph ingest block list failed:', error instanceof Error ? error.message : error));
+      // Rules can finish after the first invalidation. Reconcile their final state too.
+      if (applied.created || applied.updated || applied.deleted) {
+        publishMailStateChanged({ userId: input.userId, accountId: input.accountId });
+      }
       totals.created += applied.created;
       totals.updated += applied.updated;
       totals.deleted += applied.deleted;

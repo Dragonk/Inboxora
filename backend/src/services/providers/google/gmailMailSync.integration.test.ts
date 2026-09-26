@@ -1,3 +1,4 @@
+import { subscribeMailStateChanges } from '../../mailStateEvents.js';
 // Real PostgreSQL tests for the Gmail API label/message vertical (P08). The
 // provider is faked at the HTTP boundary; label projection, the collection links,
 // the history cursor, the baseline checkpoint, the lease and the message rows are
@@ -308,6 +309,32 @@ describeOrSkip('Gmail API label and message ingest (PostgreSQL)', () => {
     const links = await autocommit(client => client.query(
       `SELECT remote_id FROM integration_collections WHERE connection_id = $1 AND kind = 'mail_label'`, [connectionId]));
     expect(links.rows.map(row => row.remote_id).sort()).toEqual(['DRAFT', 'INBOX', 'Label_2', 'SENT', 'SPAM', 'TRASH']);
+  });
+
+  it('publishes an owner-scoped invalidation after a real Gmail baseline commit', async () => {
+    const connectionId = await seedConnection();
+    await syncGmailMailLabels({ userId: USER_ID, connectionId, config: CONFIG,
+      fetchImpl: fakeGmail([{ match: /\/labels$/, handle: () => json(LABELS) }]).fetchImpl });
+    const delivered: string[] = [];
+    const stop = subscribeMailStateChanges(USER_ID, event => { delivered.push(event.accountId); });
+    const wrongOwner: string[] = [];
+    const stopOther = subscribeMailStateChanges('pr14-unrelated-owner', event => { wrongOwner.push(event.accountId); });
+    try {
+      const inbox = message('pr14-gmail', 'pr14-thread', ['UNREAD', 'INBOX']);
+      const provider = fakeGmail([
+        { match: /\/profile$/, handle: () => json({ historyId: '1400' }) },
+        { match: /\/messages$/, handle: url => json(!url.searchParams.get('labelIds') || url.searchParams.get('labelIds') === 'INBOX'
+          ? { messages: [{ id: 'pr14-gmail', threadId: 'pr14-thread' }] } : { messages: [] }) },
+        { match: /\/threads\/pr14-thread$/, handle: () => json({ id: 'pr14-thread', historyId: '1400', messages: [inbox] }) },
+      ]);
+      const result = await syncGmailMailMessagesForAccount({ userId: USER_ID, connectionId, accountId: ACCOUNT_ID, config: CONFIG, fetchImpl: provider.fetchImpl });
+      expect(result.created).toBe(1);
+      await new Promise(resolve => setTimeout(resolve, 350));
+      expect(delivered.length).toBeGreaterThan(0);
+      expect(delivered.every(id => id === ACCOUNT_ID)).toBe(true);
+      expect(wrongOwner).toEqual([]);
+      expect((await storedMessages()).find(row => row.provider_message_id === 'pr14-gmail')).toMatchObject({ folder: 'INBOX', is_read: false });
+    } finally { stop(); stopOther(); }
   });
 
   it('builds a baseline from the message list and stores the mailbox history cursor', async () => {

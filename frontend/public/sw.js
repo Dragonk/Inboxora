@@ -1,3 +1,5 @@
+// Badge handling is isolated and does not intercept application requests.
+importScripts('/mail-badge.js?v=pr14');
 // Inboxora Service Worker — handles Web Push and notification clicks.
 // Intentionally minimal: no fetch interception, no caching strategy.
 // The sole purpose of this SW is push delivery and notification click handling.
@@ -28,7 +30,6 @@ self.addEventListener('push', (event) => {
     title       = 'Inboxora',
     body        = 'New message',
     url         = '/',
-    unreadCount,          // intentionally no default — undefined means "don't touch badge"
   } = data;
 
   // Delivery must not depend on enumerating open tabs: the app can be closed
@@ -37,11 +38,7 @@ self.addEventListener('push', (event) => {
     body, icon: '/inboxora-envelope-512.png', badge: '/inboxora-envelope-badge.png',
     data: { url }, tag: 'mailflow-new-mail', renotify: true,
   })];
-  try {
-    if (self.navigator && 'setAppBadge' in self.navigator && unreadCount != null) {
-      work.push(unreadCount > 0 ? self.navigator.setAppBadge(unreadCount) : self.navigator.clearAppBadge());
-    }
-  } catch (_) {}
+  work.push(self.inboxoraRefreshBadge());
   work.push(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clients => {
     for (const client of clients) client.postMessage({ type: 'inboxora_mail_changed' });
   }).catch(() => {}));

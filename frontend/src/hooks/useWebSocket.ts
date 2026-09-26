@@ -4,7 +4,7 @@ import { useStore } from '../store/index.ts';
 import { api } from '../utils/api.ts';
 import { installCapacitorNativeBridge } from '../utils/capacitorNativeBridge.ts';
 import { playNotificationSound } from '../utils/notificationSounds.ts';
-import { refreshUnreadCounts } from '../utils/unreadRefresh.ts';
+import { requestMailRefresh, cancelMailRefresh } from '../utils/mailRefresh.ts';
 import { restorePushSubscription } from '../utils/pushSubscription.ts';
 import { ensureNativePushRegistered } from '../utils/nativePush.ts';
 import { dispatchPluginWsMessage, dispatchPluginReconnect } from '../plugins/events.ts';
@@ -26,12 +26,10 @@ async function _forwardNativeNewMailNotification(notification: { title?: string;
 }
 
 // Auth-related close codes that should not trigger reconnect
-const NO_RECONNECT_CODES = new Set([4001, 4003]);
+const NO_RECONNECT_CODES = new Set([1008, 4001, 4003]);
 
 // Module-level timer for debouncing backfill_progress refreshes
 let backfillRefreshTimer: ReturnType<typeof setTimeout> | undefined = undefined;
-// Debounce the unread-count refetch triggered by cross-device flag updates.
-let flagCountRefreshTimer: ReturnType<typeof setTimeout> | undefined = undefined;
 const BACKOFF_BASE = 1000;
 const BACKOFF_MAX = 30000;
 
@@ -59,6 +57,7 @@ interface WsMessageFlagChange {
 
 /** Every core WebSocket message shape, discriminated on `type`. */
 type WsIncomingMessage =
+  | { type: 'mail_state_changed'; accountId: string; folders: string[] | null }
   | { type: 'new_messages'; accountId: string; folder: string; messages?: WsMessageRow[]; count: number; alertMessages?: WsMessageRow[]; alertCount?: number }
   | { type: 'exists_hint'; accountId: string; delta: number }
   | { type: 'account_connected'; accountId: string }
@@ -107,7 +106,7 @@ function isWsMessageFlagChange(value: unknown): value is WsMessageFlagChange {
 }
 
 function isCoreMessageType(value: string): value is CoreMessageType {
-  return value === 'new_messages' || value === 'exists_hint' || value === 'account_connected'
+  return value === 'mail_state_changed' || value === 'new_messages' || value === 'exists_hint' || value === 'account_connected'
     || value === 'folders_synced' || value === 'account_error' || value === 'backfill_all_start'
     || value === 'backfill_progress' || value === 'backfill_complete' || value === 'backfill_all_complete'
     || value === 'folder_updated' || value === 'sync_complete' || value === 'folder_emptied'
@@ -117,6 +116,9 @@ function isCoreMessageType(value: string): value is CoreMessageType {
 function isWsIncomingMessage(value: unknown): value is WsIncomingMessage {
   if (!isRecord(value) || typeof value.type !== 'string') return false;
   switch (value.type) {
+    case 'mail_state_changed':
+      return typeof value.accountId === 'string' && (value.folders === null
+        || (Array.isArray(value.folders) && value.folders.length <= 32 && value.folders.every(folder => typeof folder === 'string')));
     case 'new_messages':
       return typeof value.accountId === 'string' && typeof value.folder === 'string' && typeof value.count === 'number'
         && (value.messages === undefined || (Array.isArray(value.messages) && value.messages.every(isWsMessageRow)))
@@ -159,7 +161,7 @@ export function useWebSocket() {
   // reconnectAttempt can't be used for this: revive() resets it to 0 before
   // reconnecting, which made a wake-triggered reconnect look like a first connect.
   const hasConnectedBefore = useRef(false);
-  const { addNotification, updateAccount, setFolders, setBackfillProgress } = useStore();
+  const { addNotification, updateAccount, setBackfillProgress } = useStore();
 
   const handleMessage = useCallback((data: DecodedWsMessage) => {
     if (!isWsIncomingMessage(data)) {
@@ -168,11 +170,18 @@ export function useWebSocket() {
     }
 
     switch (data.type) {
+      case 'mail_state_changed': {
+        recordDiagEvent({ category: 'event', type: 'mail_state_changed', accountId: data.accountId });
+        requestMailRefresh(data.accountId);
+        break;
+      }
       case 'new_messages': {
         // Blip the sync icon — a real change just synced in, so show background activity
         // even though we no longer broadcast sync_complete on every (mostly-idle) tick.
         window.dispatchEvent(new CustomEvent('inboxora:sync_done'));
         const { messages, count, accountId, folder } = data;
+        // Invalidation does not require an alert payload, sound or permission.
+        requestMailRefresh(accountId);
         // alertMessages/alertCount are provided by the server when inbox rules ran;
         // they exclude messages silenced by a mark_read rule. Fall back to the full
         // messages/count for servers or code paths that don't send the alert fields.
@@ -210,25 +219,12 @@ export function useWebSocket() {
             _forwardNativeNewMailNotification(notification);
           }
 
-          // Refresh the message list when the affected folder is visible
-          const store = useStore.getState();
-          const isRelevant =
-            (store.selectedAccountId === null && accountAffectsUnifiedInbox(store.accounts, accountId)) ||
-            store.selectedAccountId === accountId;
-          const folderVisible = store.selectedFolder === (folder || 'INBOX');
-
-          if (isRelevant && folderVisible) {
-            window.dispatchEvent(new CustomEvent('inboxora:refresh', { detail: { refreshThreads: true } }));
-          }
         }
 
         // Refresh unread counts from the server. Messages are fully inserted in the
         // DB by the time new_messages fires, so this returns the authoritative count
         // and corrects any optimistic delta that exists_hint applied earlier.
         // Also handles periodic syncs that have no preceding exists_hint.
-        if (isInbox) {
-          refreshUnreadCounts();
-        }
         break;
       }
 
@@ -258,8 +254,12 @@ export function useWebSocket() {
       case 'folders_synced': {
         // The folder structure was re-listed (periodic folder sync or a manual
         // "Sync folders now") — refetch so new/renamed folders appear in the sidebar.
+        const epoch = useStore.getState().authEpoch;
         api.getFolders(data.accountId)
-          .then(f => useStore.getState().setFolders(data.accountId, f))
+          .then(f => {
+            const current = useStore.getState();
+            if (mountedRef.current && current.authEpoch === epoch && current.user && !current.isLocked) current.setFolders(data.accountId, f);
+          })
           .catch(() => {});
         break;
       }
@@ -281,20 +281,20 @@ export function useWebSocket() {
         // Debounce to avoid hammering the API on every batch
         clearTimeout(backfillRefreshTimer);
         backfillRefreshTimer = setTimeout(() => {
-          window.dispatchEvent(new CustomEvent('inboxora:refresh', { detail: { refreshThreads: true } }));
+          requestMailRefresh();
         }, 2000);
         break;
       }
 
       case 'backfill_complete': {
         clearTimeout(backfillRefreshTimer);
-        window.dispatchEvent(new CustomEvent('inboxora:refresh', { detail: { refreshThreads: true } }));
+        requestMailRefresh();
         break;
       }
 
       case 'backfill_all_complete': {
         clearTimeout(backfillRefreshTimer);
-        window.dispatchEvent(new CustomEvent('inboxora:refresh', { detail: { refreshThreads: true } }));
+        requestMailRefresh();
         const { backfillProgress } = useStore.getState();
         const completedBackfillProgress = { ...backfillProgress };
         delete completedBackfillProgress[data.accountId];
@@ -303,70 +303,23 @@ export function useWebSocket() {
       }
 
       case 'folder_updated': {
-        // Emitted by move/archive/delete routes after messages leave one folder and land in
-        // another. The event names ONE folder (usually the move destination), but the change
-        // matters to whoever is viewing the *source* too — that's the device the message must
-        // disappear from. So refresh the current view for any relevant account rather than only
-        // when the viewed folder matches the event's folder; otherwise a move on one device
-        // isn't reflected on another until a manual reload. Blip the sync icon so the change is
-        // visible, refresh counts for sidebar badges, but no sounds/notifications.
-        const { accountId: fuAccountId } = data;
-        const fuStore = useStore.getState();
-        const fuRelevant =
-          (fuStore.selectedAccountId === null && accountAffectsUnifiedInbox(fuStore.accounts, fuAccountId)) ||
-          fuStore.selectedAccountId === fuAccountId;
-        if (fuRelevant) {
-          window.dispatchEvent(new CustomEvent('inboxora:refresh', { detail: { refreshThreads: true } }));
-          window.dispatchEvent(new CustomEvent('inboxora:sync_done'));
-        }
-        refreshUnreadCounts();
+        requestMailRefresh(data.accountId);
         break;
       }
 
       case 'sync_complete': {
-        window.dispatchEvent(new CustomEvent('inboxora:refresh', { detail: { refreshThreads: true } }));
-        window.dispatchEvent(new CustomEvent('inboxora:sync_done'));
-        // Re-fetch unread counts so sidebar badges reflect messages marked read
-        // in external clients (the message list refresh alone doesn't update counts).
-        refreshUnreadCounts();
-        // Re-fetch per-folder counts for the affected account so sidebar folder
-        // badges stay in sync (unread_count, total_count). Only refresh accounts
-        // whose folders are already loaded to avoid unnecessary requests.
-        const { accountId } = data;
-        if (accountId && useStore.getState().folders[accountId]) {
-          api.getFolders(accountId).then(f => setFolders(accountId, f)).catch(() => {});
-        }
+        requestMailRefresh(data.accountId ?? undefined);
         break;
       }
 
       case 'folder_emptied': {
-        // Background empty finished (see mail.js /folders/empty). Toast the outcome and refresh
-        // the view and counts either way — on failure the messages are still on the server and
-        // should reappear.
-        const { accountId, ok } = data;
-        addNotification({ title: ok ? t('sidebar.emptied') : t('sidebar.emptyFailed') });
-        window.dispatchEvent(new CustomEvent('inboxora:refresh', { detail: { refreshThreads: true } }));
-        window.dispatchEvent(new CustomEvent('inboxora:sync_done'));
-        refreshUnreadCounts();
-        if (accountId && useStore.getState().folders[accountId]) {
-          api.getFolders(accountId).then(f => setFolders(accountId, f)).catch(() => {});
-        }
+        addNotification({ title: data.ok ? t('sidebar.emptied') : t('sidebar.emptyFailed') });
+        requestMailRefresh(data.accountId);
         break;
       }
-
-      case 'snooze_wakeup': {
-        window.dispatchEvent(new CustomEvent('inboxora:refresh', { detail: { refreshThreads: true } }));
-        refreshUnreadCounts();
-        break;
-      }
-
+      case 'snooze_wakeup':
       case 'flags_synced': {
-        // Lightweight flag update (read/starred changed on another client).
-        // Refresh the message list and unread counts, and blip the sync icon so background
-        // sync activity stays visible now that sync_complete no longer fires every tick.
-        window.dispatchEvent(new CustomEvent('inboxora:refresh', { detail: { refreshThreads: true } }));
-        window.dispatchEvent(new CustomEvent('inboxora:sync_done'));
-        refreshUnreadCounts();
+        requestMailRefresh(data.accountId);
         break;
       }
 
@@ -384,18 +337,13 @@ export function useWebSocket() {
             if (typeof c.is_starred === 'boolean') patch.is_starred = c.is_starred;
             if (Object.keys(patch).length) updateMessage(c.id, patch);
           }
-          clearTimeout(flagCountRefreshTimer);
-          flagCountRefreshTimer = setTimeout(() => {
-            // A collapsed thread may contain changed copies absent from the local cache.
-            window.dispatchEvent(new CustomEvent('inboxora:refresh', { detail: { refreshThreads: true } }));
-            refreshUnreadCounts();
-          }, 400);
+          requestMailRefresh(data.accountId);
         }
         break;
       }
 
     }
-  }, [addNotification, updateAccount, setFolders, setBackfillProgress, t]);
+  }, [addNotification, updateAccount, setBackfillProgress, t]);
 
   const connect = useCallback(() => {
     // Clean up any existing socket before opening a new one — prevents duplicate
@@ -408,7 +356,11 @@ export function useWebSocket() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const ws: HeartbeatWebSocket = new WebSocket(`${protocol}//${window.location.host}/ws`);
 
+    const socketAuthEpoch = useStore.getState().authEpoch;
     ws.onopen = () => {
+      const auth = useStore.getState();
+      if (!mountedRef.current || auth.authEpoch !== socketAuthEpoch || !auth.user || auth.isLocked) { ws.close(); return; }
+      requestMailRefresh();
       const wasReconnect = hasConnectedBefore.current;
       hasConnectedBefore.current = true;
       reconnectAttempt.current = 0;
@@ -428,8 +380,7 @@ export function useWebSocket() {
       // On reconnect, catch up on any messages that arrived during the outage
       if (wasReconnect) {
         recordDiagEvent({ category: 'ws', type: 'reconnect' });
-        window.dispatchEvent(new CustomEvent('inboxora:refresh', { detail: { refreshThreads: true } }));
-        refreshUnreadCounts();
+        requestMailRefresh();
         // A plugin's rail/derived data can drift during the outage — events fired while the socket
         // was down are lost, not buffered. Let each activated plugin resync (GTD refetches its
         // sections). Core stays plugin-agnostic.
@@ -438,6 +389,8 @@ export function useWebSocket() {
     };
 
     ws.onmessage = (event) => {
+      const auth = useStore.getState();
+      if (auth.authEpoch !== socketAuthEpoch || !auth.user || auth.isLocked) return;
       ws._lastActivity = Date.now(); // any inbound frame (incl. pong) proves the socket is alive
       try {
         if (typeof event.data !== 'string') return;
@@ -465,6 +418,8 @@ export function useWebSocket() {
     connect();
     return () => {
       mountedRef.current = false;
+      cancelMailRefresh();
+      clearTimeout(backfillRefreshTimer);
       clearTimeout(reconnectTimer.current);
       if (wsRef.current) wsRef.current.close();
     };
@@ -475,8 +430,7 @@ export function useWebSocket() {
   useEffect(() => {
     const revive = () => {
       if (document.visibilityState !== 'visible') return;
-      window.dispatchEvent(new CustomEvent('inboxora:refresh', { detail: { refreshThreads: true } }));
-      refreshUnreadCounts();
+      requestMailRefresh();
       restorePushSubscription();
       const ws = wsRef.current;
       if (ws?.readyState === WebSocket.OPEN && Date.now() - (ws._lastActivity || 0) > 30000) {
@@ -489,9 +443,13 @@ export function useWebSocket() {
         connect();
       }
     };
-    const pushed = (event: MessageEvent) => { if (event.data?.type === 'inboxora_mail_changed') revive(); };
+    const pushed = (event: MessageEvent) => {
+      if (event.data?.type !== 'inboxora_mail_changed') return;
+      requestMailRefresh(); // counts also reconcile for a live background window
+      revive();
+    };
     const onPageShow = (event: PageTransitionEvent) => { if (event.persisted) revive(); };
-    const countsChanged = () => refreshUnreadCounts();
+    const countsChanged = () => requestMailRefresh();
     navigator.serviceWorker?.addEventListener('message', pushed);
     window.addEventListener('inboxora:unread_changed', countsChanged);
     restorePushSubscription();
