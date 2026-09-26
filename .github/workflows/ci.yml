@@ -166,6 +166,7 @@ jobs:
             src/services/providers/google src/services/providers/microsoft \
             src/services/providers/externalCollectionLinks.integration.test.ts \
             src/services/providerPushSubscriptions.integration.test.ts \
+            src/routes/carddavAccount.integration.test.ts \
             src/routes/davPg.integration.test.ts
 
       # The upgrade gate needs a database of its own: it builds the 4.0.4 state (migrations up to 0107, with
