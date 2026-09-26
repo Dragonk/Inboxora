@@ -1,3 +1,6 @@
+import { noteMailListLoaded } from '../utils/mailRefresh.ts';
+import { createCoalescedTask } from '../utils/coalescedTask.ts';
+import { readMailWindow } from '../utils/mailWindow.ts';
 import { refreshUnreadCounts } from '../utils/unreadRefresh.ts';
 import { MobileModuleHeader, HeaderAction } from './MobileModuleHeader.tsx';
 import MobileFloatingAction from './MobileFloatingAction.tsx';
@@ -255,7 +258,6 @@ export default function MessageList() {
   const pendingDeleteTimers = useRef(new Map()); // id/thread key -> pending delete metadata
 
   const recentMessageOpenUntilRef = useRef(0);
-  const deferredRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   // Bulk selection state
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -353,6 +355,7 @@ export default function MessageList() {
 
   const searchSeq = useRef(0);
   const pendingLiveRefreshRef = useRef(false);
+  const searchInProgress = useStore((state: StoreState) => state.isSearching);
   type RefreshRequest = ReturnType<typeof createLatestRequest>;
   const refreshRequestRef = useRef<RefreshRequest | null>(null);
   if (refreshRequestRef.current === null) refreshRequestRef.current = createLatestRequest();
@@ -491,6 +494,7 @@ export default function MessageList() {
           (data: { messages: StoreMessageRow[]; total: number }) => {
             if (cancelled) return;
             console.info(`[perf] messages load ${Date.now() - __t0}ms unified=${!selectedAccountId} count=${data.messages.length} total=${data.total}`);
+            noteMailListLoaded();
             setMessagesTotal(data.total);
             setMessages(applyReadGuard(data.messages));
             setMessagesOffset(data.messages.length);
@@ -553,73 +557,80 @@ export default function MessageList() {
   }, [selectedAccountId, selectedFolder, unreadOnly, activeCategory, pageSize, loadingMessages, hasMoreMessages, categorizationEnabled, selectedAccount?.categorization_enabled, applyReadGuard, appendMessages, setHasMoreMessages, setLoadingMessages, setMessagesOffset, refreshRequest]);
 
   useEffect(() => {
-    if (!loadingMessages && pendingLiveRefreshRef.current) {
+    if (!loadingMessages && !searchInProgress && pendingLiveRefreshRef.current) {
       pendingLiveRefreshRef.current = false;
       window.dispatchEvent(new CustomEvent('inboxora:refresh'));
     }
-  }, [loadingMessages]);
+  }, [loadingMessages, searchInProgress]);
 
-  // Listen for background refresh events from WebSocket. If a message was just
-  // opened, give its body request a brief head start before reloading the full list.
+  // One in-flight refresh and one remembered follow-up. Never reset the view
+  // token, selection, open reader or expanded thread for a background update.
   useEffect(() => {
+    let active = true;
+    const epoch = useStore.getState().authEpoch;
+    const isCurrent = () => active && useStore.getState().authEpoch === epoch;
     const run = async () => {
-      try {
-        const state = useStore.getState();
-        const ps = state.pageSize;
-        const sm = state.scrollMode;
-        let params: QueryParams;
-        if (sm === 'paginated') {
-          const pg = currentPageRef.current;
-          params = { limit: ps, offset: (pg - 1) * ps };
-        } else {
-          const currentOffset = state.messagesOffset;
-          // Backend caps limit at 500 — don't request more or the list silently shrinks
-          params = { limit: Math.min(currentOffset || ps, 500), offset: 0 };
-        }
-        if (selectedAccountId) { params.accountId = selectedAccountId; params.folder = selectedFolder; }
-        if (unreadOnly) params.unreadOnly = 'true';
-        if (state.threadedView) params.threaded = 'true';
-        if (selectedFolder === 'INBOX' && (categorizationEnabled || selectedAccount?.categorization_enabled)) params.category = activeCategory;
-        await refreshRequest.run(
-          () => api.getMessages(params),
-          (data: { messages: StoreMessageRow[]; total: number }) => {
-            setMessagesTotal(data.total);
-            // If the unread filter is on and the currently open message was just marked
-            // read, the server won't return it — preserve it so the user can keep reading.
-            let msgs = applyDeleteGuard(applyReadGuard(data.messages));
-            const activeId = useStore.getState().selectedMessageId;
-            if (unreadOnly && activeId && !msgs.some((m: StoreMessageRow) => m.id === activeId)) {
-              const kept = useStore.getState().messages.find((m: StoreMessageRow) => m.id === activeId);
-              if (kept) msgs = [kept, ...msgs];
-            }
-            setMessages(msgs);
-            if (sm === 'paginated') {
-              setHasMoreMessages(false);
-            } else {
-              setMessagesOffset(data.messages.length);
-              setHasMoreMessages(data.messages.length < data.total);
-            }
-          },
-        );
-      } catch { /* intentional */ }
-    };
-
-    const handler = () => {
-      if (useStore.getState().loadingMessages) pendingLiveRefreshRef.current = true;
-      if (!useStore.getState().loadingMessages && !searchQuery.trim()) {
-        const delayMs = Math.max(0, recentMessageOpenUntilRef.current - Date.now());
-        clearTimeout(deferredRefreshTimerRef.current);
-        if (delayMs > 0) {
-          deferredRefreshTimerRef.current = setTimeout(run, delayMs);
-        } else {
-          run();
-        }
+      if (!isCurrent()) return;
+      if (useStore.getState().loadingMessages || useStore.getState().isSearching) {
+        pendingLiveRefreshRef.current = true;
+        return;
       }
+      if (searchQuery.trim()) {
+        setSearchReloadToken(value => value + 1);
+        return;
+      }
+      const state = useStore.getState();
+      const ps = state.pageSize;
+      const sm = state.scrollMode;
+      const params: QueryParams = sm === 'paginated'
+        ? { limit: ps, offset: (currentPageRef.current - 1) * ps }
+        : { limit: state.messagesOffset || ps, offset: 0 };
+      if (selectedAccountId) { params.accountId = selectedAccountId; params.folder = selectedFolder; }
+      if (unreadOnly) params.unreadOnly = 'true';
+      if (state.threadedView) params.threaded = 'true';
+      if (selectedFolder === 'INBOX' && (categorizationEnabled || selectedAccount?.categorization_enabled)) params.category = activeCategory;
+      await refreshRequest.run(
+        () => readMailWindow<StoreMessageRow>(
+          (limit, offset) => api.getMessages({ ...params, limit, offset }),
+          Number(params.limit), Number(params.offset),
+        ),
+        (data: { messages: StoreMessageRow[]; total: number }) => {
+          if (!isCurrent()) return;
+          noteMailListLoaded();
+          setMessagesTotal(data.total);
+          let msgs = applyDeleteGuard(applyReadGuard(data.messages));
+          const activeId = useStore.getState().selectedMessageId;
+          if (unreadOnly && activeId && !msgs.some(message => message.id === activeId)) {
+            const kept = useStore.getState().messages.find(message => message.id === activeId);
+            if (kept) msgs = [kept, ...msgs];
+          }
+          setMessages(msgs);
+          if (sm === 'paginated') setHasMoreMessages(false);
+          else {
+            setMessagesOffset(data.messages.length);
+            setHasMoreMessages(data.messages.length < data.total);
+          }
+        },
+      );
+      if (isCurrent() && selectedFolder === 'INBOX' && (categorizationEnabled || selectedAccount?.categorization_enabled)) {
+        try {
+          const data = await api.getCategoryCounts(selectedAccountId ? { accountId: selectedAccountId } : {});
+          if (isCurrent()) useStore.getState().setCategoryCounts(data.counts || {});
+        } catch { /* Keep the previous categories; subsequent invalidation retries. */ }
+      }
+    };
+    const refresh = createCoalescedTask(run, {
+      onError: () => console.warn('Background mail refresh failed; keeping the previous view'),
+    });
+    const handler = () => {
+      if (!isCurrent()) return;
+      refresh.request(Math.max(250, recentMessageOpenUntilRef.current - Date.now()));
     };
     window.addEventListener('inboxora:refresh', handler);
     return () => {
+      active = false;
+      refresh.dispose();
       window.removeEventListener('inboxora:refresh', handler);
-      clearTimeout(deferredRefreshTimerRef.current);
     };
   }, [selectedAccountId, selectedFolder, unreadOnly, activeCategory, searchQuery, categorizationEnabled, selectedAccount?.categorization_enabled, applyReadGuard, setHasMoreMessages, setMessages, setMessagesOffset, setMessagesTotal, refreshRequest]);
 
@@ -640,6 +651,7 @@ export default function MessageList() {
       try {
         const data = await api.search(searchQuery, selectedAccountId || undefined, { offset: 0, limit: searchPageSize, folder: searchFolder });
         if (searchSeq.current !== seq) return;
+        noteMailListLoaded();
         searchFetchedOffsetRef.current = data.messages.length;
         setSearchResults(applyReadGuard(data.messages));
         setSearchHasMore(data.messages.length === searchPageSize);
@@ -649,14 +661,13 @@ export default function MessageList() {
         if (searchSeq.current === seq) setIsSearching(false);
       }
     }, 300);
-    return () => clearTimeout(searchTimer.current);
+    return () => { clearTimeout(searchTimer.current); searchSeq.current += 1; };
   }, [searchQuery, selectedAccountId, searchFolder, searchPageSize, searchReloadToken, unifiedInboxAccountKey, applyReadGuard, setIsSearching, setSearchResults]);
 
   // Re-run an active search (and refresh the folder view) after inbox rules run, since
   // rules can move messages out of the searched folder and a search snapshot would
   // otherwise keep showing them. Scoped to the explicit rules-ran event rather than the
-  // frequent inboxora:refresh (which is intentionally ignored while searching to keep
-  // results stable during background syncs). Fixes #223.
+  // coalesced inboxora:refresh (which preserves the current query and scope). Fixes #223.
   useEffect(() => {
     const handler = () => {
       // Bumps the search effect if a query is active (it no-ops on an empty query);
@@ -741,6 +752,7 @@ export default function MessageList() {
       await refreshRequest.run(
         () => api.getMessages(params),
         (data: { messages: StoreMessageRow[]; total: number }) => {
+          noteMailListLoaded();
           setMessagesTotal(data.total);
           setMessages(applyReadGuard(data.messages));
           setMessagesOffset((pageNum - 1) * pageSize + data.messages.length);

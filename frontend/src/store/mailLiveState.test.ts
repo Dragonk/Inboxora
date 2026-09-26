@@ -96,7 +96,12 @@ test('a late unread-count response cannot overwrite a newer response or an optim
   const resolvers: Array<(value: UnreadCounts | PromiseLike<UnreadCounts>) => void> = [];
   api.getUnreadCounts = () => new Promise<UnreadCounts>(resolve => resolvers.push(resolve));
   try {
-    useStore.setState({ accounts: [{ id: 'a', enabled: true }], unreadCounts: { total: 3, byAccount: { a: 3 } } });
+    useStore.setState({
+      user: { id: 'test-user' },
+      isLocked: false,
+      accounts: [{ id: 'a', enabled: true }],
+      unreadCounts: { total: 3, byAccount: { a: 3 } },
+    });
     const old = refreshUnreadCounts(); const recent = refreshUnreadCounts();
     resolvers[1]({ total: 2, byAccount: { a: 2 } }); await recent;
     resolvers[0]({ total: 3, byAccount: { a: 3 } }); await old;

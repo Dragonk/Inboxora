@@ -109,3 +109,44 @@ test('V3 calendar creates, reloads and deletes an event against the live API', a
     expect(cleanup.ok()).toBe(true);
   }
 });
+
+// Exercise the actual WorkerNavigator methods. API stubs cannot catch a native
+// renderer termination when the browser has no service-worker BadgeService.
+test('native service-worker badges keep the real app alive across reload', async ({ authenticatedPage: page }) => {
+  const crashes: string[] = [];
+  page.on('crash', () => crashes.push('renderer crashed'));
+  await expect.poll(() => page.evaluate(() => Boolean(navigator.serviceWorker.controller))).toBe(true);
+
+  const worker = page.context().serviceWorkers()
+    .find(candidate => new URL(candidate.url()).pathname === '/sw.js');
+  expect(worker, 'the application service worker must be running').toBeDefined();
+  if (!worker) throw new Error('Application service worker is missing');
+
+  await expect.poll(() => worker.evaluate(() =>
+    typeof (globalThis as unknown as { inboxoraRefreshBadge?: unknown }).inboxoraRefreshBadge,
+  )).toBe('function');
+
+  const completed = await worker.evaluate(async () => {
+    const scope = globalThis as unknown as {
+      navigator: { setAppBadge?: (count: number) => Promise<void>; clearAppBadge?: () => Promise<void> };
+      inboxoraRefreshBadge: () => Promise<unknown>;
+    };
+    if (typeof scope.navigator.setAppBadge !== 'function' || typeof scope.navigator.clearAppBadge !== 'function') {
+      throw new Error('Real browser must expose native service-worker Badging API');
+    }
+    await scope.navigator.setAppBadge(7);
+    await scope.navigator.clearAppBadge();
+    // Restore the real authoritative count using the application's worker code.
+    await scope.inboxoraRefreshBadge();
+    // A resolved JS promise can precede a bad Mojo-message renderer termination.
+    await new Promise(resolve => setTimeout(resolve, 250));
+    return 'native calls completed';
+  });
+  expect(completed).toBe('native calls completed');
+  await expect(page.getByText('Golden conversation thread', { exact: true }).first()).toBeVisible();
+  expect(crashes).toEqual([]);
+
+  await page.reload();
+  await expect(page.getByText('Golden conversation thread', { exact: true }).first()).toBeVisible();
+  expect(crashes).toEqual([]);
+});

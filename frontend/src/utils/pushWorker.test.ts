@@ -14,7 +14,20 @@ function worker(matchAll: () => Promise<unknown>): {
   const self = { addEventListener: (type: string, listener: (event: unknown) => void) => { listeners[type] = listener; },
     registration: { showNotification: async (...args: unknown[]) => shown.push(args) }, clients: { matchAll }, navigator: {},
   };
-  vm.runInNewContext(readFileSync(new URL('../../public/sw.js', import.meta.url), 'utf8'), { self, fetch: async (url: string, options: { headers: Record<string, string> }) => { sent.push([url, options]); return { ok: true }; } });
+  vm.runInNewContext(
+    readFileSync(new URL('../../public/sw.js', import.meta.url), 'utf8'),
+    {
+      self,
+      importScripts: (url: string) => {
+        assert.equal(url, '/mail-badge.js?v=pr14');
+        Reflect.set(self, 'inboxoraRefreshBadge', async () => {});
+      },
+      fetch: async (url: string, options: { headers: Record<string, string> }) => {
+        sent.push([url, options]);
+        return { ok: true };
+      },
+    },
+  );
   return { listeners, shown, sent };
 }
 test('push displays with no app window and even when enumerating clients fails', async () => {

@@ -1,3 +1,4 @@
+import { subscribeMailStateChanges } from './mailStateEvents.js';
 import { recordWsConnect, recordWsDisconnect } from './diagnosticsRing.js';
 
 // Derive the expected origin from APP_URL once at startup.
@@ -49,6 +50,7 @@ interface ImapManagerLike {
 
 export function setupWebSocket(wss: WebSocketServerLike, sessionMiddleware: SessionMiddlewareLike, imapManager: ImapManagerLike) {
   wss.on('connection', (ws: WebSocketLike, req: { headers: { origin?: string }; session?: { userId?: string; locked?: boolean } | null }) => {
+    let unsubscribeMailState: (() => void) | undefined;
     // Transport errors can arrive during session lookup, before authentication.
     ws.on('error', (err: unknown) => {
       console.warn('WebSocket transport error:', err instanceof Error ? err.message : String(err));
@@ -95,6 +97,11 @@ export function setupWebSocket(wss: WebSocketServerLike, sessionMiddleware: Sess
         return;
       }
       ws.userId = userId;
+      unsubscribeMailState = subscribeMailStateChanges(userId, event => {
+        if (ws.readyState !== 1 || req.session?.userId !== userId || req.session?.locked) return;
+        try { ws.send(JSON.stringify(event)); }
+        catch { ws.terminate(); }
+      });
       recordWsConnect();
       ws._diagCounted = true;
       console.log(`WebSocket connected for user ${userId}`);
@@ -113,6 +120,7 @@ export function setupWebSocket(wss: WebSocketServerLike, sessionMiddleware: Sess
     });
 
     ws.on('close', () => {
+      unsubscribeMailState?.();
       if (ws._diagCounted) recordWsDisconnect();
       console.log(`WebSocket disconnected`);
     });

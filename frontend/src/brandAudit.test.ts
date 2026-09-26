@@ -34,7 +34,7 @@ const isManifest = (value: unknown): value is Manifest =>
 
 test("Inboxora branding is used by user-visible application surfaces", async () => {
   const checks: readonly (readonly [file: string, expected: string])[] = [
-    ["frontend/src/components/MailApp.tsx", "document.title = 'Inboxora'"],
+    ["frontend/src/utils/mailIndicators.ts", "Inboxora"],
     ["frontend/src/components/AdminPanel.tsx", "fromName: 'Inboxora'"],
     ["frontend/src/components/ElectronNotificationBridge.tsx", "t('nativeUpdates.downloaded')"],
     ["frontend/src/components/TodoistTaskModal.tsx", "View in Inboxora"],

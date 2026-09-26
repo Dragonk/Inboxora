@@ -104,6 +104,7 @@ jobs:
         working-directory: frontend
         env:
           PLAYWRIGHT_REAL_APP: '1'
+          DEBUG: 'pw:browser'
           PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/ms-playwright
           PLAYWRIGHT_WEB_SERVER_COMMAND: VITE_E2E_API_TARGET=http://127.0.0.1:3000 npm run dev -- --host 127.0.0.1 --port 4173
           VITE_E2E_API_TARGET: http://127.0.0.1:3000

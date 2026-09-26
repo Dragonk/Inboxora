@@ -1,3 +1,5 @@
+import { requestMailRefresh, mailListNeedsRefresh } from '../utils/mailRefresh.ts';
+import { syncMailIndicators, clearMailIndicators } from '../utils/mailIndicators.ts';
 import { refreshUnreadCounts } from '../utils/unreadRefresh.ts';
 import type { TFunction } from 'i18next';
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
@@ -312,7 +314,7 @@ export default function MailApp() {
   useEffect(() => {
     const onVisible = () => {
       if (document.visibilityState === 'visible') {
-        window.dispatchEvent(new CustomEvent('inboxora:refresh'));
+        requestMailRefresh();
       }
     };
     document.addEventListener('visibilitychange', onVisible);
@@ -474,7 +476,7 @@ export default function MailApp() {
   useBackLayer(mobileSidebarOpen, () => setMobileSidebarOpen(false), 1300);
   useBackLayer(showAdmin, () => setShowAdmin(false), 2000);
 
-  const wsRef = useWebSocket();
+  useWebSocket();
 
   // Open a specific message by id (fetch → cache → select). Shared by the on-load
   // deep-link path and the service-worker notification-tap path so both behave
@@ -634,38 +636,25 @@ export default function MailApp() {
       refreshUnreadCounts();
     };
     refreshCounts();
-    // Visible tabs converge even if an individual WebSocket event was lost.
-    const interval = setInterval(() => { if (document.visibilityState === 'visible') refreshCounts(); }, 60000);
-    return () => { active = false; clearInterval(interval); };
+    // One freshness loop below owns background list/count reconciliation.
+    return () => { active = false; };
   }, [authEpoch, setAccounts, setUnreadCounts, setTodoistConnected]);
 
-  // WebSocket-independent periodic refresh of the open message list, at the user's chosen sync
-  // interval. Only fires when the tab is visible AND the socket is not OPEN — a true fallback so
-  // read state and new mail still converge if the WebSocket is down, without redundant refetching
-  // while it's healthy (the socket delivers updates instantly in that case).
+  // Socket OPEN proves transport liveness, not delivery of every mail event.
+  // Reconcile LOCAL API data within 60s of its last accepted read, even when
+  // ping/pong is healthy. This never triggers a provider sync or resets cursors.
   useEffect(() => {
-    const ms = Math.max(15, syncInterval || 60) * 1000;
-    const id = setInterval(() => {
-      if (document.visibilityState === 'visible' && wsRef.current?.readyState !== WebSocket.OPEN) {
-        window.dispatchEvent(new CustomEvent('inboxora:refresh', { detail: { refreshThreads: true } }));
-        refreshUnreadCounts();
-      }
-    }, ms);
-    return () => clearInterval(id);
-  }, [syncInterval, wsRef]);
+    const maxAge = Math.min(50_000, Math.max(15_000, (syncInterval || 60) * 1000));
+    const timer = setInterval(() => {
+      if (document.visibilityState === 'visible' && mailListNeedsRefresh(maxAge)) requestMailRefresh();
+    }, 10_000);
+    return () => clearInterval(timer);
+  }, [syncInterval]);
 
-  // Update browser tab title and PWA home screen badge with unread count
   useEffect(() => {
-    const total = unreadCounts.total;
-    document.title = 'Inboxora';
-    // App-icon badge always reflects total unread across all accounts so that
-    // selecting a zero-unread account never clears the home screen badge.
-    if ('setAppBadge' in navigator) {
-      if (showAppBadge && total > 0) navigator.setAppBadge(total).catch(() => {});
-      else navigator.clearAppBadge().catch(() => {});
-    }
-    window.inboxoraNative?.badges?.setUnreadCount?.(total).catch(() => {});
-  }, [unreadCounts, showAppBadge]);
+    syncMailIndicators(unreadCounts.total, showAppBadge);
+  }, [unreadCounts.total, showAppBadge]);
+  useEffect(() => () => clearMailIndicators(), [authEpoch]);
 
   // ── Global keyboard shortcut listener ──────────────────────────────────────
   // Uses refs for composing/showAdmin so the listener doesn't need to

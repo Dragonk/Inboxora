@@ -3,6 +3,7 @@
 **Status:** Hotfix  ·  **Release date:** 2026-09-25  ·  **Previous version:** 4.1.0
 
 ## Fixed
+- **Legacy CardDAV, CalDAV and ICS sources can be removed again.** Older installations can retain local DAV or calendar-subscription projections after their original connection metadata is no longer available. These orphaned entries now expose a local removal action in Contacts and Calendar settings. Cleanup is scoped to the authenticated user, never contacts or deletes data from the remote server, and refuses current CardDAV integrations, current CalDAV/ICS sources, Google/Microsoft provider calendars and local Inboxora calendars. Existing source disconnect behaviour is unchanged, and no database migration is required. CardDAV cleanup preserves books owned directly or through collection links by a current integration, and removes orphaned books and their legacy connection in one transaction. Legacy connection metadata is retained while a preserved book still directly references it, preventing cascading deletion. No configuration change is required. PostgreSQL route regressions cover ownership protection, isolation and rollback; frontend behavioral tests cover cleanup eligibility and API selection.
 - **Graph bulk move results expose per-message failures.** If a provider move is not projected locally, the response identifies that message in `failed` and sets `ok` to false; confirmed moves still appear in `moved`. No migration or configuration change is required. Route regression tests cover failed, successful and mixed results.
 - **Microsoft Graph rebuilt baselines no longer delete mail by omission.** Inboxora now removes a provider-backed message only when Graph delta explicitly reports an `@removed` event. Rebuilding an expired or reset delta cursor can no longer make a newly delivered or otherwise valid message disappear from the local mailbox.
 
@@ -42,3 +43,15 @@ This is not a blanket ban on real deletions and is not a bulk identity migration
 Release gate: run the PostgreSQL tests (not skipped), then read, spam/ham, round-trip move,
 provider-side delete, delayed replay and two physical copies with the same Message-ID on
 an actual mailbox. Track UUIDs as well as subjects. Do not release based on a mock-only run.
+
+## Live mail refresh and unread indicators (PR14)
+
+Graph/Gmail background commits now publish user-scoped mailbox invalidations. The browser refreshes the current list and unread counts without F5, including message-state and folder-membership changes. UI invalidation is independent of alerts, notification permission and historical import notifications.
+
+Visible clients reconcile local API data within roughly 60 seconds plus API latency if an event is lost, even while WebSocket ping/pong remains healthy. Returning from sleep, offline mode or bfcache revalidates the view. Refresh bursts are serialized; current selection, reader and account/folder scope remain intact. This is not additional polling of Microsoft/Google.
+
+The tab title shows `(N) Inboxora` when unread indicators are enabled. Supported installed PWAs use one service-worker badge writer with current authenticated unread counts; unavailable/denied Badging API support does not block the message list. The existing favicon/branding remains unchanged. The unified unread total excludes opted-out accounts, archived/deleted/placeholder rows and includes Gmail INBOX membership without double-counting labels.
+
+No new database migration or service is introduced. The existing migration endpoint remains `0145_graph_consistency.sql`. PR13's legacy DAV/ICS cleanup and the existing Graph identity/removal protections remain unchanged.
+
+Validation before release: execute the new PostgreSQL/WebSocket regressions (not skipped), the full backend/frontend suites and the live-browser test. Then verify Graph, Gmail and IMAP with a continuously open tab, disabled notifications, read/unread on another device, lost WS events, search/threaded views, and an installed PWA's actual OS badge. Build success alone does not establish live-mailbox correctness.
