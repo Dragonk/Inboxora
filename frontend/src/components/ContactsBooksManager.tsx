@@ -10,6 +10,7 @@ import { openSettings, useSettingsTarget, type SettingsTarget } from './accountU
 import { useProviderAccounts, useAccountOperation } from './accountUi/useAccounts.ts';
 import DavSourceEditor, { type DavSource } from './accountUi/DavSourceEditor.tsx';
 import DeleteResourceDialog from './accountUi/DeleteResourceDialog.tsx';
+import { isLegacyCardDavSource } from './accountUi/sourceRemoval.ts';
 
 export interface ManagerBook {
   id: string; name: string; source: string; visible: boolean; readOnly: boolean;
@@ -43,6 +44,7 @@ export default function ContactsBooksManager(props: ContactsBooksManagerProps) {
   const [adding, setAdding] = useState(false); const [davEditor, setDavEditor] = useState<DavSource | 'new' | null>(null);
   const [editing, setEditing] = useState<{ book: ManagerBook; name: string; visible: boolean; writeBack: boolean; davMode: 'off' | 'read_only' | 'read_write' } | null>(null);
   const [deleting, setDeleting] = useState<ManagerBook | null>(null); const [disconnecting, setDisconnecting] = useState<DavSource | null>(null);
+  const [forgetting, setForgetting] = useState<ServiceConnection | null>(null);
   const [target, setTarget] = useState<SettingsTarget | null>(null); const [targetMissing, setTargetMissing] = useState(false);
   const life = useRef(0);
   const loadDav = useCallback(async () => {
@@ -54,7 +56,7 @@ export default function ContactsBooksManager(props: ContactsBooksManagerProps) {
     } catch { if (generation === life.current && useStore.getState().authEpoch === epoch) setDavFailed(true); }
     finally { if (generation === life.current && useStore.getState().authEpoch === epoch) setDavLoading(false); }
   }, [epoch]);
-  useEffect(() => { life.current++; setSelectedSourceId(null); setEditing(null); setDeleting(null); setDavSources([]); setDavLoading(true); void loadDav(); const cancel = () => { life.current++; }; return cancel; }, [loadDav]);
+  useEffect(() => { life.current++; setSelectedSourceId(null); setEditing(null); setDeleting(null); setForgetting(null); setDavSources([]); setDavLoading(true); void loadDav(); const cancel = () => { life.current++; }; return cancel; }, [loadDav]);
   const refresh = async () => { await props.onDavChanged(); await Promise.all([provider.refresh(), loadDav()]); };
   const resources: ServiceResource[] = props.books.map(book => ({ id: book.id, sourceId: bookSourceId(asBook(book)), name: book.name || t('accountUi.unnamed'), visible: book.visible, readOnly: book.readOnly, count: book.contactCount }));
   const connections = useMemo(() => {
@@ -108,6 +110,7 @@ export default function ContactsBooksManager(props: ContactsBooksManagerProps) {
   const renderDetail = (source: ServiceConnection) => {
     const snapshot = source.accountId ? provider.snapshots[source.accountId] : undefined;
     const dav = davSources.find(item => `carddav:source:${item.id}` === source.id);
+    const legacyDav = isLegacyCardDavSource(source, dav);
     const ownedBooks = props.books.filter(book => bookSourceId(asBook(book)) === source.id);
     return <>
       <Header title={source.name} description={`${providerLabel(source.kind, t)}${source.identity ? ` · ${source.identity}` : ''}`}>{source.accountId && <Button onClick={() => openSettings({ module: 'accounts', accountId: source.accountId!, section: 'services' })}>{t('accountUi.accountSettings')}</Button>}</Header>
@@ -120,6 +123,7 @@ export default function ContactsBooksManager(props: ContactsBooksManagerProps) {
       </section>
       <section className="au-section"><h3>{t('accountUi.booksOnAccount')}</h3><div className="au-resource-group">{ownedBooks.map(book => <div className="au-resource" key={book.id}><div className="au-grow"><strong>{book.name}</strong><small>{t(book.readOnly ? 'accountUi.readOnly' : 'accountUi.readWrite')}</small></div><Button onClick={() => editResource(book.id)}>{t('accountUi.resourceSettings')}</Button></div>)}</div>{!ownedBooks.length && <p className="au-note">{t('accountUi.noResources')}</p>}<div className="au-actions"><Button onClick={() => openResources(source.id)}>{t('accountUi.showResources')}</Button></div></section>
       {dav && <section className="au-section"><p>{t('accountUi.disconnectHint')}</p><Button variant="danger" onClick={() => setDisconnecting(dav)}>{t('accountUi.disconnect')}</Button></section>}
+      {legacyDav && <section className="au-section"><p>{t('accountUi.disconnectHint')}</p><Button variant="danger" onClick={() => setForgetting(source)}>{t('accountUi.disconnect')}</Button></section>}
     </>;
   };
   if (!props.open) return null;
@@ -154,5 +158,6 @@ export default function ContactsBooksManager(props: ContactsBooksManagerProps) {
     </Dialog>}
     {deleting && <DeleteResourceDialog name={deleting.name} identity={deleting.accountLabel ?? t('accountUi.storedInInboxora')} busy={operation.busy} failed={operation.failed} onClose={() => setDeleting(null)} onConfirm={() => void operation.run(async current => { await api.addressBooks.remove(deleting.id); if (current()) { await refresh(); if (current()) { setDeleting(null); setEditing(null); } } })}/>}
     {disconnecting && <Dialog title={t('accountUi.disconnect')} closeLabel={t('common.close')} busy={operation.busy} onClose={() => setDisconnecting(null)} footer={<><Button onClick={() => setDisconnecting(null)} disabled={operation.busy}>{t('common.cancel')}</Button><Button variant="danger" disabled={operation.busy} onClick={() => void operation.run(async current => { await api.carddav.disconnect(disconnecting.id); if (current()) { await refresh(); if (current()) { setDisconnecting(null); setSelectedSourceId(null); } } })}>{t('accountUi.disconnect')}</Button></>}><Notice danger>{t('accountUi.disconnectHint')}</Notice>{operation.failed && <Notice danger>{t('accountUi.operationFailed')}</Notice>}</Dialog>}
+    {forgetting && <Dialog title={t('accountUi.disconnect')} closeLabel={t('common.close')} busy={operation.busy} onClose={() => setForgetting(null)} footer={<><Button onClick={() => setForgetting(null)} disabled={operation.busy}>{t('common.cancel')}</Button><Button variant="danger" disabled={operation.busy} onClick={() => void operation.run(async current => { await api.carddav.forgetLegacy(forgetting.id); if (current()) { await refresh(); if (current()) { setForgetting(null); setSelectedSourceId(null); } } })}>{t('accountUi.disconnect')}</Button></>}><Notice danger>{t('accountUi.disconnectHint')}</Notice>{operation.failed && <Notice danger>{t('accountUi.operationFailed')}</Notice>}</Dialog>}
   </div>;
 }

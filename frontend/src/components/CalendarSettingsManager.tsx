@@ -16,6 +16,7 @@ import { useProviderAccounts, useAccountOperation } from './accountUi/useAccount
 import DavSourceEditor from './accountUi/DavSourceEditor.tsx';
 import DeleteResourceDialog from './accountUi/DeleteResourceDialog.tsx';
 import { previewCalendarColor } from './accountUi/calendarPreview.ts';
+import { calendarSourceRemoval, confirmCalendarSourceRemoval, type CalendarSourceRemoval } from './accountUi/sourceRemoval.ts';
 
 type DavMode = 'off' | 'read_only' | 'read_write';
 interface Source { id: string; displayName?: string; kind?: string; url?: string; serverOrigin?: string; username?: string; intervalMin?: number; enabled?: boolean; lastError?: string | null; lastSyncAt?: string | null }
@@ -32,7 +33,8 @@ export default function CalendarSettingsManager({ locale, view = 'accounts' }: {
   const [presentation, setPresentation] = useState<CalendarPresentation | null>(null); const [loading, setLoading] = useState(true); const [readFailed, setReadFailed] = useState(false);
   const [selected, setSelected] = useState<string | null>(null); const [filter, setFilter] = useState('all'); const [adding, setAdding] = useState(false);
   const [davEditor, setDavEditor] = useState<Source | 'new' | null>(null); const [editing, setEditing] = useState<ResourceDraft | null>(null);
-  const [deleting, setDeleting] = useState<CalendarRow | null>(null); const [disconnecting, setDisconnecting] = useState<Source | null>(null);
+  const [deleting, setDeleting] = useState<CalendarRow | null>(null);
+  const [removing, setRemoving] = useState<CalendarSourceRemoval | null>(null);
   const [create, setCreate] = useState<{ name: string; color: string; accountId: string } | null>(null);
   const [pending, setPending] = useState<Record<string, NativeIntent>>({}); const [target, setTarget] = useState<SettingsTarget | null>(null); const [missing, setMissing] = useState(false);
   const [ics, setIcs] = useState<{ name: string; url: string; interval: number } | null>(null);
@@ -106,7 +108,10 @@ export default function CalendarSettingsManager({ locale, view = 'accounts' }: {
       color: account?.color, count: groups.find(group => group.id === source.id)?.rows.length ?? 0,
       lastSync: external?.lastSyncAt ?? snapshot?.diagnostics?.calendar?.lastSuccessfulSync, state };
   }), [presentation, sources, provider.snapshots, provider.accounts, groups, t]);
-  const accountConnections = connections.filter(connection => ['google','microsoft','caldav'].includes(connection.kind));
+  const accountConnections = connections.filter(connection =>
+    ['google', 'microsoft', 'caldav'].includes(connection.kind)
+    || connection.id.startsWith('collection:')
+  );
   const resources: ServiceResource[] = groups.flatMap(group => group.rows.map(({ calendar, view: row }) => ({ id: calendar.id, sourceId: group.id,
     name: calendar.id === 'contacts-birthdays' && !calendar.custom_name ? t('accountUi.contactDates') : calendar.name || t('accountUi.unnamed'),
     color: calendar.color, visible: !row.sidebarHidden, readOnly: calendar.read_only === true })));
@@ -194,6 +199,7 @@ export default function CalendarSettingsManager({ locale, view = 'accounts' }: {
   const sourceDetail = (connection: ServiceConnection) => {
     const snapshot = connection.accountId ? provider.snapshots[connection.accountId] : undefined;
     const external = sources.find(source => `calendar-source:${source.id}` === connection.id);
+    const removal = calendarSourceRemoval(connection, external);
     const rows = resources.filter(resource => resource.sourceId === connection.id);
     return <>
       <Header title={connection.name} description={connection.identity}>{connection.accountId && <Button onClick={() => openSettings({ module: 'accounts', accountId: connection.accountId!, section: 'services' })}>{t('accountUi.accountSettings')}</Button>}</Header>
@@ -206,7 +212,7 @@ export default function CalendarSettingsManager({ locale, view = 'accounts' }: {
         if (syncFailed(response)) throw new Error('PROVIDER_SYNC_FAILED');
       })}><Icon name="sync"/>{t('accountUi.syncNow')}</Button>{external && <Button onClick={() => setDavEditor(external)}>{t('accountUi.editConnection')}</Button>}</div></section>
       <section className="au-section"><h3>{t('accountUi.calendarsOnAccount')}</h3><div className="au-resource-group">{rows.map(resource => <div className="au-resource" key={resource.id}><span className="au-color-dot" style={{ background: resource.color || 'var(--accent)' }}/><div className="au-grow"><strong>{resource.name}</strong><small>{t(resource.readOnly ? 'accountUi.readOnly' : 'accountUi.readWrite')}</small></div><Button onClick={() => edit(resource.id)}>{t('accountUi.resourceSettings')}</Button></div>)}</div><div className="au-actions"><Button onClick={() => openResources(connection.id)}>{t('accountUi.showResources')}</Button>{connection.accountId && <Button disabled={operation.busy || Boolean(pending[connection.accountId])} onClick={() => setCreate({ name: '', color: '#35558a', accountId: connection.accountId! })}>{t('accountUi.newCalendar')}</Button>}</div></section>
-      {external && <section className="au-section"><p>{t('accountUi.disconnectHint')}</p><Button variant="danger" onClick={() => setDisconnecting(external)}>{t('accountUi.disconnect')}</Button></section>}
+      {removal && <section className="au-section"><p>{t('accountUi.disconnectHint')}</p><Button variant="danger" onClick={() => setRemoving(removal)}>{t('accountUi.disconnect')}</Button></section>}
     </>;
   };
   const imports = <>
@@ -218,7 +224,7 @@ export default function CalendarSettingsManager({ locale, view = 'accounts' }: {
     })}>{t('accountUi.import')}</Button></div>{imported && <Notice>{t('accountUi.importResult', { count: imported.imported, protected: imported.protected })}</Notice>}</section>
     <section className="au-operation"><h3>{t('accountUi.icsSubscription')}</h3><p>{t('accountUi.icsHint')}</p><Button onClick={() => setIcs({ name: '', url: '', interval: 60 })}>{t('accountUi.addSubscription')}</Button></section>
     <section className="au-operation"><h3>{t('accountUi.holidays')}</h3><label className="au-field"><span>{t('accountUi.country')}</span><select value={country} onChange={event => setCountry(event.target.value)}>{HOLIDAY_CALENDARS.map(entry => <option key={entry.code} value={entry.code}>{holidayCountryName(entry.code, language)}</option>)}</select></label><Button disabled={operation.busy} onClick={() => runRefresh(async () => { const entry = HOLIDAY_CALENDARS.find(item => item.code === country); if (entry) await api.calendar.createSource({ kind: 'ical_url', displayName: t('calendar.holidayName', { country: holidayCountryName(country, language) }), url: holidayCalendarUrl(entry.file), intervalMin: HOLIDAY_SYNC_INTERVAL_MIN }); })}>{t('accountUi.addSubscription')}</Button></section>
-    <div className="au-section-label">{t('accountUi.subscriptions')}</div>{sources.filter(source => source.kind !== 'caldav').map(source => <div className="au-account-card" key={source.id}><div className="au-account-main"><div className="au-grow"><div className="au-account-name">{source.displayName}</div><div className="au-account-status"><Status state={source.enabled === false ? 'off' : source.lastError ? 'failed' : source.lastSyncAt ? 'ready' : 'pending'}/></div></div><Switch label={t('accountUi.synchronization')} checked={source.enabled !== false} disabled={operation.busy} onChange={enabled => runRefresh(() => api.calendar.updateSource(source.id, { enabled }))}/><Button onClick={() => setDisconnecting(source)}>{t('accountUi.disconnect')}</Button></div></div>)}
+    <div className="au-section-label">{t('accountUi.subscriptions')}</div>{sources.filter(source => source.kind !== 'caldav').map(source => <div className="au-account-card" key={source.id}><div className="au-account-main"><div className="au-grow"><div className="au-account-name">{source.displayName}</div><div className="au-account-status"><Status state={source.enabled === false ? 'off' : source.lastError ? 'failed' : source.lastSyncAt ? 'ready' : 'pending'}/></div></div><Switch label={t('accountUi.synchronization')} checked={source.enabled !== false} disabled={operation.busy} onChange={enabled => runRefresh(() => api.calendar.updateSource(source.id, { enabled }))}/><Button onClick={() => setRemoving({ kind: 'current', id: source.id })}>{t('accountUi.disconnect')}</Button></div></div>)}
   </>;
   return <div className="au-workspace" data-testid="calendar-settings-manager">
     {(readFailed || operation.failed) && <Notice danger>{t('accountUi.operationFailed')}<Button onClick={() => void load()}>{t('accountUi.retry')}</Button></Notice>}
@@ -240,7 +246,7 @@ export default function CalendarSettingsManager({ locale, view = 'accounts' }: {
       {(editing.calendar.source === 'local' || nativeCalendarDeleteAllowed(editing.calendar)) && <div className="au-section"><Button variant="danger" disabled={operation.busy} onClick={() => setDeleting(editing.calendar)}>{t('accountUi.deleteResource')}</Button></div>}
     </div></Dialog>}
     {deleting && <DeleteResourceDialog name={deleting.name ?? ''} remote={deleting.source !== 'local'} identity={sourceForCalendar(deleting.id)?.identityLabel ?? undefined} busy={operation.busy} failed={operation.failed} onClose={() => setDeleting(null)} onConfirm={deleteCalendar}/>}
-    {disconnecting && <Dialog title={t('accountUi.disconnect')} closeLabel={t('common.close')} busy={operation.busy} onClose={() => setDisconnecting(null)} footer={<><Button disabled={operation.busy} onClick={() => setDisconnecting(null)}>{t('common.cancel')}</Button><Button variant="danger" disabled={operation.busy} onClick={() => void operation.run(async current => { await api.calendar.deleteSource(disconnecting.id); if (current()) { await refresh(); if (current()) { setDisconnecting(null); setSelected(null); } } })}>{t('accountUi.disconnect')}</Button></>}><Notice danger>{t('accountUi.disconnectHint')}</Notice>{operation.failed && <Notice danger>{t('accountUi.operationFailed')}</Notice>}</Dialog>}
+    {removing && <Dialog title={t('accountUi.disconnect')} closeLabel={t('common.close')} busy={operation.busy} onClose={() => setRemoving(null)} footer={<><Button disabled={operation.busy} onClick={() => setRemoving(null)}>{t('common.cancel')}</Button><Button variant="danger" disabled={operation.busy} onClick={() => void operation.run(async current => { await confirmCalendarSourceRemoval(api.calendar, removing); if (current()) { await refresh(); if (current()) { setRemoving(null); setSelected(null); } } })}>{t('accountUi.disconnect')}</Button></>}><Notice danger>{t('accountUi.disconnectHint')}</Notice>{operation.failed && <Notice danger>{t('accountUi.operationFailed')}</Notice>}</Dialog>}
     {ics && <Dialog title={t('accountUi.icsSubscription')} closeLabel={t('common.close')} onClose={() => setIcs(null)} busy={operation.busy} footer={<><Button disabled={operation.busy} onClick={() => setIcs(null)}>{t('common.cancel')}</Button><Button variant="primary" disabled={operation.busy || !ics.name.trim() || !ics.url.trim()} onClick={() => void operation.run(async current => { await api.calendar.createSource({ kind: 'ical_url', displayName: ics.name.trim(), url: normalizeSubscriptionUrl(ics.url), intervalMin: ics.interval }); if (current()) { await refresh(); if (current()) setIcs(null); } })}>{t('accountUi.addSubscription')}</Button></>}><div className="ui-form"><label>{t('accountUi.resourceName')}<input value={ics.name} onChange={event => setIcs({ ...ics, name: event.target.value })}/></label><label>{t('accountUi.serverUrl')}<input value={ics.url} onChange={event => setIcs({ ...ics, url: event.target.value })}/></label><label>{t('accountUi.syncInterval')}<select value={ics.interval} onChange={event => setIcs({ ...ics, interval: Number(event.target.value) })}>{[15,30,60,180,1440].map(minutes => <option key={minutes} value={minutes}>{t('accountUi.intervalMinutes', { count: minutes })}</option>)}</select></label>{operation.failed && <Notice danger>{t('accountUi.operationFailed')}</Notice>}</div></Dialog>}
   </div>;
 }

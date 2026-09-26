@@ -183,6 +183,172 @@ function mockPresentationRead({ sourceCollapsed = false, calendarHidden = false 
   });
 }
 
+describe('DELETE /api/calendar/legacy-sources/:sourceIdentity', () => {
+  const collectionId = '44444444-4444-4444-8444-444444444444';
+  const calendarId = '55555555-5555-4555-8555-555555555555';
+
+  it('forgets an orphaned legacy CalDAV projection locally', async () => {
+    query
+      .mockResolvedValueOnce({
+        rows: [{
+          id: calendarId,
+          source: 'caldav',
+          collection_id: collectionId,
+          import_source_id: null,
+          provider: null,
+        }],
+      })
+      .mockResolvedValueOnce({ rows: [] });
+
+    const response = await fetch(
+      `${base}/api/calendar/legacy-sources/${encodeURIComponent(`collection:${collectionId}`)}`,
+      { method: 'DELETE' },
+    );
+
+    expect(response.status).toBe(204);
+    expect(query).toHaveBeenCalledTimes(2);
+
+    const [selectSql, selectParams] = queryCall(0);
+    expect(selectSql).toContain('c.user_id = $2');
+    expect(selectParams).toEqual([collectionId, 'user-1']);
+
+    const [deleteSql, deleteParams] = queryCall(1);
+    expect(deleteSql).toContain('DELETE FROM calendars');
+    expect(deleteSql).toContain('user_id = $2');
+    expect(deleteParams).toEqual([calendarId, 'user-1']);
+  });
+
+  it('forgets an orphaned legacy ICS projection locally', async () => {
+    query
+      .mockResolvedValueOnce({
+        rows: [{
+          id: calendarId,
+          source: 'ical_url',
+          collection_id: collectionId,
+          import_source_id: null,
+          provider: null,
+        }],
+      })
+      .mockResolvedValueOnce({ rows: [] });
+
+    const response = await fetch(
+      `${base}/api/calendar/legacy-sources/${encodeURIComponent(`collection:${collectionId}`)}`,
+      { method: 'DELETE' },
+    );
+
+    expect(response.status).toBe(204);
+    expect(query).toHaveBeenCalledTimes(2);
+    expect(queryCall(1)[1]).toEqual([calendarId, 'user-1']);
+  });
+
+  it('refuses a current calendar_import_sources-backed source', async () => {
+    query.mockResolvedValueOnce({
+      rows: [{
+        id: calendarId,
+        source: 'caldav',
+        collection_id: collectionId,
+        import_source_id: '66666666-6666-4666-8666-666666666666',
+        provider: null,
+      }],
+    });
+
+    const response = await fetch(
+      `${base}/api/calendar/legacy-sources/${encodeURIComponent(`collection:${collectionId}`)}`,
+      { method: 'DELETE' },
+    );
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ code: 'CURRENT_SOURCE' });
+    expect(query).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses Google and Microsoft provider projections', async () => {
+    query.mockResolvedValueOnce({
+      rows: [{
+        id: calendarId,
+        source: 'google',
+        collection_id: collectionId,
+        import_source_id: null,
+        provider: 'google',
+      }],
+    });
+
+    let response = await fetch(
+      `${base}/api/calendar/legacy-sources/${encodeURIComponent(`collection:${collectionId}`)}`,
+      { method: 'DELETE' },
+    );
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ code: 'PROTECTED_SOURCE' });
+    expect(query.mock.calls.some(([sql]) => String(sql).includes('DELETE FROM calendars'))).toBe(false);
+
+    query.mockReset().mockResolvedValueOnce({
+      rows: [{
+        id: calendarId,
+        source: 'microsoft',
+        collection_id: collectionId,
+        import_source_id: null,
+        provider: 'microsoft',
+      }],
+    });
+
+    response = await fetch(
+      `${base}/api/calendar/legacy-sources/${encodeURIComponent(`collection:${collectionId}`)}`,
+      { method: 'DELETE' },
+    );
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ code: 'PROTECTED_SOURCE' });
+    expect(query.mock.calls.some(([sql]) => String(sql).includes('DELETE FROM calendars'))).toBe(false);
+  });
+
+  it('refuses local Inboxora calendars', async () => {
+    query.mockResolvedValueOnce({
+      rows: [{
+        id: calendarId,
+        source: 'local',
+        collection_id: null,
+        import_source_id: null,
+        provider: null,
+      }],
+    });
+
+    const response = await fetch(
+      `${base}/api/calendar/legacy-sources/${encodeURIComponent(`collection:${calendarId}`)}`,
+      { method: 'DELETE' },
+    );
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ code: 'PROTECTED_SOURCE' });
+    expect(query).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns 404 for an unavailable or foreign legacy source', async () => {
+    query.mockResolvedValueOnce({ rows: [] });
+
+    const response = await fetch(
+      `${base}/api/calendar/legacy-sources/${encodeURIComponent(`collection:${collectionId}`)}`,
+      { method: 'DELETE' },
+    );
+
+    expect(response.status).toBe(404);
+    expect(await response.json()).toMatchObject({ code: 'SOURCE_NOT_AVAILABLE' });
+    expect(queryCall(0)[1]).toEqual([collectionId, 'user-1']);
+  });
+
+  it('rejects malformed legacy source identities', async () => {
+    const response = await fetch(
+      `${base}/api/calendar/legacy-sources/not-a-source`,
+      { method: 'DELETE' },
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ code: 'INVALID_LEGACY_SOURCE' });
+    expect(query).not.toHaveBeenCalled();
+  });
+});
+
+
 describe('calendar presentation', () => {
   it('returns grouped durable account identities and all presentation state', async () => {
     mockPresentationRead({ sourceCollapsed: true, calendarHidden: true });
