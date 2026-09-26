@@ -4,6 +4,8 @@ import { listeningPort } from '../test/net.js';
 
 const mocks = vi.hoisted(() => ({
   query: vi.fn(),
+  transactionQuery: vi.fn(),
+  withTransaction: vi.fn(),
   getCardavConfig: vi.fn(),
   listCardavConfigs: vi.fn(),
   scheduleCardavUser: vi.fn(),
@@ -17,7 +19,7 @@ vi.mock('../middleware/auth.js', () => ({
     next();
   },
 }));
-vi.mock('../services/db.js', () => ({ query: mocks.query }));
+vi.mock('../services/db.js', () => ({ query: mocks.query, withTransaction: mocks.withTransaction }));
 vi.mock('../services/encryption.js', () => ({ encrypt: (value: string) => value }));
 vi.mock('../services/hostValidation.js', () => ({ validateHost: vi.fn() }));
 vi.mock('../services/connectionPolicy.js', () => ({ getConnectionPolicy: vi.fn() }));
@@ -59,6 +61,8 @@ beforeEach(() => {
     { id: 'source-b', label: 'B', config: { serverUrl: 'https://b.example' } },
   ]);
   mocks.query.mockResolvedValue({ rows: [] });
+  mocks.transactionQuery.mockResolvedValue({ rows: [] });
+  mocks.withTransaction.mockImplementation(async callback => callback({ query: mocks.transactionQuery }));
 });
 
 describe('DELETE /api/carddav legacy source cleanup', () => {
@@ -67,9 +71,7 @@ describe('DELETE /api/carddav legacy source cleanup', () => {
 
   it('forgets an orphaned legacy CardDAV connection locally', async () => {
     mocks.query
-      .mockResolvedValueOnce({ rows: [{ id: connectionId, integration_id: null }] })
-      .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [] });
+      .mockResolvedValueOnce({ rows: [{ id: connectionId, integration_id: null }] });
 
     const response = await fetch(
       `${base}/api/carddav/legacy/${encodeURIComponent(`carddav:connection:${connectionId}`)}`,
@@ -77,10 +79,13 @@ describe('DELETE /api/carddav legacy source cleanup', () => {
     );
 
     expect(response.status).toBe(204);
-    expect(mocks.query).toHaveBeenCalledTimes(3);
-    expect(String(mocks.query.mock.calls[1]?.[0])).toContain("ab.source = 'carddav'");
-    expect(mocks.query.mock.calls[1]?.[1]).toEqual(['user-1', connectionId]);
-    expect(String(mocks.query.mock.calls[2]?.[0])).toContain('integration_id IS NULL');
+    expect(mocks.query).toHaveBeenCalledTimes(1);
+    expect(mocks.withTransaction).toHaveBeenCalledTimes(1);
+    expect(mocks.transactionQuery).toHaveBeenCalledTimes(2);
+    expect(String(mocks.transactionQuery.mock.calls[0]?.[0])).toContain("ab.source = 'carddav'");
+    expect(mocks.transactionQuery.mock.calls[0]?.[1]).toEqual(['user-1', connectionId]);
+    expect(String(mocks.transactionQuery.mock.calls[1]?.[0])).toContain('integration_id IS NULL');
+    expect(mocks.transactionQuery.mock.calls[1]?.[1]).toEqual([connectionId, 'user-1']);
   });
 
   it('refuses to forget a current integration-backed CardDAV connection', async () => {

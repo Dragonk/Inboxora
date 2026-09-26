@@ -10,6 +10,7 @@ import { openSettings, useSettingsTarget, type SettingsTarget } from './accountU
 import { useProviderAccounts, useAccountOperation } from './accountUi/useAccounts.ts';
 import DavSourceEditor, { type DavSource } from './accountUi/DavSourceEditor.tsx';
 import DeleteResourceDialog from './accountUi/DeleteResourceDialog.tsx';
+import { isLegacyCardDavSource } from './accountUi/sourceRemoval.ts';
 
 export interface ManagerBook {
   id: string; name: string; source: string; visible: boolean; readOnly: boolean;
@@ -109,13 +110,7 @@ export default function ContactsBooksManager(props: ContactsBooksManagerProps) {
   const renderDetail = (source: ServiceConnection) => {
     const snapshot = source.accountId ? provider.snapshots[source.accountId] : undefined;
     const dav = davSources.find(item => `carddav:source:${item.id}` === source.id);
-    const legacyDav = source.kind === 'carddav'
-      && !dav
-      && !source.accountId
-      && (
-        source.id.startsWith('carddav:connection:')
-        || source.id.startsWith('carddav:book:')
-      );
+    const legacyDav = isLegacyCardDavSource(source, dav);
     const ownedBooks = props.books.filter(book => bookSourceId(asBook(book)) === source.id);
     return <>
       <Header title={source.name} description={`${providerLabel(source.kind, t)}${source.identity ? ` · ${source.identity}` : ''}`}>{source.accountId && <Button onClick={() => openSettings({ module: 'accounts', accountId: source.accountId!, section: 'services' })}>{t('accountUi.accountSettings')}</Button>}</Header>

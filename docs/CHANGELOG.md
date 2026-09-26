@@ -30,7 +30,7 @@ Nothing is being prepared beyond 4.1.1. Work whose version has not been chosen a
 ## [4.1.1] - 2026-09-25
 
 ### Fixed
-- **Legacy CardDAV, CalDAV and ICS sources can be removed locally.** Orphaned source projections left by older connection models can now be forgotten from Contacts and Calendar settings without contacting the unavailable remote server. Current DAV sources, native Google/Microsoft projections and local Inboxora resources remain protected and continue using their existing lifecycle paths.
+- **Legacy CardDAV, CalDAV and ICS sources can be removed locally.** Orphaned source projections left by older connection models can now be forgotten from Contacts and Calendar settings without contacting the unavailable remote server. Current DAV sources, native Google/Microsoft projections and local Inboxora resources remain protected and continue using their existing lifecycle paths. CardDAV cleanup preserves books owned directly or through collection links by a current integration, and removes orphaned books and their legacy connection in one transaction.
 - **Graph bulk moves report unprojected items.** The response includes failed message IDs when a provider move cannot be projected locally, while confirmed items remain in `moved`.
 - **Graph accepts hydrated items with empty display metadata.** Blank subject, preview or RFC Message-ID values no longer block a sync page; physical-identity and folder checks remain enforced.
 - **Graph delta updates preserve omitted envelope fields.** Read/star changes do not erase the subject, RFC Message-ID, recipients, dates or preview, and do not rerun arrival rules.

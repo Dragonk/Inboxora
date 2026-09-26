@@ -280,6 +280,7 @@ describe('DELETE /api/calendar/legacy-sources/:sourceIdentity', () => {
 
     expect(response.status).toBe(409);
     expect(await response.json()).toMatchObject({ code: 'PROTECTED_SOURCE' });
+    expect(query.mock.calls.some(([sql]) => String(sql).includes('DELETE FROM calendars'))).toBe(false);
 
     query.mockReset().mockResolvedValueOnce({
       rows: [{
@@ -298,6 +299,7 @@ describe('DELETE /api/calendar/legacy-sources/:sourceIdentity', () => {
 
     expect(response.status).toBe(409);
     expect(await response.json()).toMatchObject({ code: 'PROTECTED_SOURCE' });
+    expect(query.mock.calls.some(([sql]) => String(sql).includes('DELETE FROM calendars'))).toBe(false);
   });
 
   it('refuses local Inboxora calendars', async () => {

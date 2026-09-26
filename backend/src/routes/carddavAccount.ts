@@ -4,7 +4,7 @@
 // distinct from routes/carddav.js, which is the CardDAV *server* MailFlow exposes.
 
 import { Router } from 'express';
-import { query } from '../services/db.js';
+import { query, withTransaction } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { encrypt } from '../services/encryption.js';
 import { validateHost } from '../services/hostValidation.js';
@@ -262,32 +262,56 @@ router.delete('/legacy/:sourceIdentity', async (req: Request, res: Response) => 
     // Remove only address books owned by this exact legacy source connection.
     // integration_collections is checked too because older projections may
     // predate address_books.source_connection_id.
-    await query(
-      `DELETE FROM address_books ab
-        WHERE ab.user_id = $1
-          AND ab.source = 'carddav'
-          AND (
-            ab.source_connection_id = $2
-            OR EXISTS (
+    await withTransaction(async client => {
+      await client.query(
+        `DELETE FROM address_books ab
+          WHERE ab.user_id = $1
+            AND ab.source = 'carddav'
+            AND (
+              ab.source_connection_id = $2
+              OR EXISTS (
+                SELECT 1
+                  FROM integration_collections ic
+                 WHERE ic.user_id = ab.user_id
+                   AND ic.kind = 'address_book'
+                   AND ic.local_address_book_id = ab.id
+                   AND ic.source_connection_id = $2
+              )
+            )
+            AND NOT EXISTS (
+              SELECT 1 FROM source_connections owner
+               WHERE owner.id = ab.source_connection_id
+                 AND owner.user_id = ab.user_id
+                 AND owner.integration_id IS NOT NULL
+            )
+            AND NOT EXISTS (
               SELECT 1
                 FROM integration_collections ic
+                JOIN source_connections owner ON owner.id = ic.source_connection_id
+                 AND owner.user_id = ic.user_id
                WHERE ic.user_id = ab.user_id
                  AND ic.kind = 'address_book'
                  AND ic.local_address_book_id = ab.id
-                 AND ic.source_connection_id = $2
-            )
-          )`,
-      [userId, id],
-    );
+                 AND owner.integration_id IS NOT NULL
+            )`,
+        [userId, id],
+      );
 
-    await query(
-      `DELETE FROM source_connections
-        WHERE id = $1
-          AND user_id = $2
-          AND kind = 'carddav'
-          AND integration_id IS NULL`,
-      [id, userId],
-    );
+      // Retained books may still reference this legacy connection with ON DELETE
+      // CASCADE. Keep that metadata until those books no longer depend on it.
+      await client.query(
+        `DELETE FROM source_connections sc
+          WHERE sc.id = $1
+            AND sc.user_id = $2
+            AND sc.kind = 'carddav'
+            AND sc.integration_id IS NULL
+            AND NOT EXISTS (
+              SELECT 1 FROM address_books ab
+               WHERE ab.source_connection_id = sc.id
+            )`,
+        [id, userId],
+      );
+    });
 
     return res.status(204).end();
   }
