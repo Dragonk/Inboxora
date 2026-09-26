@@ -7,6 +7,8 @@ import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vites
 
 const mocks = vi.hoisted(() => ({
   query: vi.fn(),
+  withTransaction: vi.fn(),
+  projectMove: vi.fn<typeof import('../services/providers/microsoft/graphMailContinuity.js').projectGraphMove>(),
   runProviderMutation: vi.fn(),
   graphFolderIdForPath: vi.fn(),
   resolveTrashFolder: vi.fn(),
@@ -17,7 +19,7 @@ const mocks = vi.hoisted(() => ({
   permanentDeleteMessage: vi.fn(),
 }));
 
-vi.mock('../services/db.js', () => ({ query: mocks.query, withTransaction: vi.fn() }));
+vi.mock('../services/db.js', () => ({ query: mocks.query, withTransaction: mocks.withTransaction }));
 vi.mock('../middleware/auth.js', () => ({
   requireAuth: (req: { headers: Record<string, string>; session?: { userId?: string } }, _res: unknown, next: () => void) => { req.session = { userId: 'user-1' }; next(); },
 }));
@@ -38,6 +40,12 @@ vi.mock('../index.js', () => ({
   },
 }));
 vi.mock('../services/providerMutationService.js', () => ({ runProviderMutation: mocks.runProviderMutation }));
+// SQL and rollback behavior are exercised with PostgreSQL in
+// graphMailContinuity.integration.test.ts. These route tests keep the real
+// Graph mover and assert its transaction/projector boundary explicitly.
+vi.mock('../services/providers/microsoft/graphMailContinuity.js', () => ({
+  projectGraphMove: mocks.projectMove,
+}));
 vi.mock('../services/providers/microsoft/graphMailSync.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../services/providers/microsoft/graphMailSync.js')>();
   return { ...actual, graphFolderIdForPath: mocks.graphFolderIdForPath };
@@ -61,6 +69,7 @@ import express from 'express';
 import mailRoutes from './mail.js';
 import type { Server } from 'node:http';
 import { listeningPort } from '../test/net.js';
+import { providerUidForGraphMessage } from '../services/providers/microsoft/graphMail.js';
 
 const MESSAGE_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const ACCOUNT_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -99,6 +108,12 @@ afterAll(async () => {
 
 beforeEach(() => {
   for (const mock of Object.values(mocks)) mock.mockReset();
+  mocks.withTransaction.mockImplementation(async (
+    run: (client: { query: typeof mocks.query }) => Promise<unknown>,
+  ) => run({ query: mocks.query }));
+  mocks.projectMove.mockResolvedValue({
+    moved: true, uid: providerUidForGraphMessage('AAMkAD-2'),
+  });
   mocks.query.mockResolvedValue({ rows: [], rowCount: 1 });
   mocks.resolveTrashFolder.mockResolvedValue('Trash');
   mocks.resolveAllDraftsPaths.mockResolvedValue(new Set<string>());
@@ -115,6 +130,16 @@ function arrangeDelete(message: Record<string, unknown> = {}) {
 
 const deleteMessage = () => fetch(`${base}/api/mail/messages/${MESSAGE_ID}`, { method: 'DELETE' });
 
+/** Assert that the real mover delegates exactly the canonical identity. */
+function expectProjectedMove(targetPath: string, rowId = MESSAGE_ID, sourceId = 'AAMkAD-1') {
+  expect(mocks.withTransaction).toHaveBeenCalled();
+  expect(mocks.projectMove).toHaveBeenCalledTimes(1);
+  expect(mocks.projectMove).toHaveBeenCalledWith({ query: mocks.query }, {
+    accountId: ACCOUNT_ID, connectionId: 'connection-1', rowId,
+    sourceId, targetId: 'AAMkAD-2', targetPath,
+  });
+}
+
 describe('a Graph message goes to Trash through the provider', () => {
   it('moves it to the deleted-items folder and re-homes the local row onto its new identity', async () => {
     arrangeDelete();
@@ -128,14 +153,25 @@ describe('a Graph message goes to Trash through the provider', () => {
     expect(request.payload).toMatchObject({ providerMessageId: 'AAMkAD-1', destinationFolderId: 'graph-deleteditems' });
     expect(adapter).toMatchObject({ resourceType: 'message', idempotent: false });
 
-    // The row adopts the id Graph handed back, so the next delta matches it.
-    const update = mocks.query.mock.calls.find(([sql]) => String(sql).includes('provider_message_id = $3'));
-    expect(update).toBeDefined();
-    expect(update?.[1]?.[0]).toBe('Trash');
-    expect(update?.[1]?.[2]).toBe('AAMkAD-2');
-    // A stale row at the destination is removed first, as the IMAP path does.
-    expect(mocks.query.mock.calls.some(([sql]) => String(sql).includes('uid = $2 AND folder = $3 AND id != $4'))).toBe(true);
+    expectProjectedMove('Trash');
+    // The route must not repeat the projector's work or delete UID collisions.
+    expect(mocks.query.mock.calls.some(([sql]) => String(sql).includes('DELETE FROM messages'))).toBe(false);
     expect(mocks.broadcast).toHaveBeenCalledWith({ type: 'folder_updated', folder: 'INBOX', accountId: ACCOUNT_ID }, 'user-1');
+  });
+
+  it('does not report Trash success when the local projection was not applied', async () => {
+    arrangeDelete();
+    mocks.runProviderMutation.mockResolvedValue({
+      status: 'confirmed', operationId: 'op-1', value: { id: 'AAMkAD-2' }, replayed: false,
+    });
+    mocks.projectMove.mockResolvedValue({ moved: false, uid: null });
+
+    const response = await deleteMessage();
+    expect(response.status).toBe(502);
+    expect(await response.json()).toMatchObject({ code: 'MUTATION_OUTCOME_UNKNOWN' });
+    expectProjectedMove('Trash');
+    expect(mocks.query.mock.calls.some(([sql]) => String(sql).includes('DELETE FROM messages'))).toBe(false);
+    expect(mocks.broadcast).not.toHaveBeenCalled();
   });
 
   it('removes it permanently when it is already in Trash', async () => {

@@ -196,7 +196,8 @@ export async function prepareGraphDeltaPage(api:GraphApiOptions,input:{
       if(!message || !message.id || !message.parentFolderId) throw new Error('Invalid Graph message snapshot');
       if(message.parentFolderId!==input.remoteFolderId) continue;
       if(message.id!==event.id) throw new Error('Graph snapshot has a different physical identity');
-      if(needsHydration && !graphHasEnvelope(message)) throw new Error('Graph snapshot has no message envelope');
+      // Empty subject/preview/RFC Message-ID values are legal in a hydrated item.
+      // The identity and folder checks above, not display content, admit it.
       if(current) checks.set(event.id,current);
     }
     if(message.parentFolderId && message.parentFolderId!==input.remoteFolderId) continue;

@@ -18,10 +18,10 @@
 
 ## Validation and upgrade
 
-The upgrade includes `0141_message_list_hot_path_indexes.sql` for the message-list hot path, `0142_graph_pending_message_removals.sql` for durable Microsoft Graph tombstone reconciliation, and `0143_repair_message_list_hot_path_index.sql` as the forward repair for installations that already recorded the first 0141 revision, and `0144_normalize_message_ids.sql` to normalize historical RFC Message-ID values.
+The upgrade includes `0141_message_list_hot_path_indexes.sql` for the message-list hot path, `0142_graph_pending_message_removals.sql` for durable Microsoft Graph tombstone reconciliation, and `0143_repair_message_list_hot_path_index.sql` as the forward repair for installations that already recorded the first 0141 revision, `0144_normalize_message_ids.sql` to normalize historical RFC Message-ID values, and `0145_graph_consistency.sql` for Unicode-consistent normalization, snooze-reference repair and confirmed Graph moves.
 
 
-Apply the complete migration chain through `0144_normalize_message_ids.sql` before rolling out 4.1.1. The normal backend startup migration runner applies pending migrations automatically. The release includes a real PostgreSQL regression for three independent messages with null thread identifiers, reconnect cursor reset, and Graph regression coverage for immutable-ID reads, mutations, and delta pagination.
+Apply the complete migration chain through `0145_graph_consistency.sql` before rolling out 4.1.1. The normal backend startup migration runner applies pending migrations automatically. The release includes a real PostgreSQL regression for three independent messages with null thread identifiers, reconnect cursor reset, and Graph regression coverage for immutable-ID reads, mutations, and delta pagination.
 
 Before publishing, validate on the `dev` deployment that threaded and flat views, refreshes and folder changes retain messages, and that old and new Microsoft messages open their bodies and support regular, inline-CID, single and ZIP attachment downloads. Do not publish if any of these live checks fail.
 
@@ -32,6 +32,7 @@ Apply migrations in order through `0145_graph_consistency.sql` before this backe
 This forward migration leaves 0141–0144 unchanged, normalizes the same whitespace as
 JavaScript ingestion, repairs matching snooze references and adds confirmed-MOVE receipts.
 Read/unread deltas preserve omitted metadata. Only inserted arrivals enter ingest rules.
+A hydrated item with empty display metadata no longer blocks a delta page; provider identity and folder validation remain mandatory.
 Moves update one canonical row and do not identify physical copies by RFC Message-ID.
 Cleanup verifies an explicit per-item Graph ID conversion and the current stable location;
 failed conversions, unavailable services and unknown folder mappings remain visible/retryable.

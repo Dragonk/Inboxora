@@ -30,6 +30,7 @@ Nothing is being prepared beyond 4.1.1. Work whose version has not been chosen a
 ## [4.1.1] - 2026-09-25
 
 ### Fixed
+- **Graph accepts hydrated items with empty display metadata.** Blank subject, preview or RFC Message-ID values no longer block a sync page; physical-identity and folder checks remain enforced.
 - **Graph delta updates preserve omitted envelope fields.** Read/star changes do not erase the subject, RFC Message-ID, recipients, dates or preview, and do not rerun arrival rules.
 - **Graph moves preserve physical identity.** Provider-confirmed moves are projected atomically and replayed source pages are checked; spam/ham updates the canonical row and refreshes both folders. RFC Message-ID equality is not used to merge provider copies.
 - **Required migration order:** apply the complete chain through `0145_graph_consistency.sql` before starting this build. `0141` adds list indexes, `0142` adds removal candidates, `0143` repairs index state, `0144` normalizes historical identities and `0145` aligns Unicode whitespace, repairs snooze references and records confirmed Graph moves. Previously applied migrations are unchanged.

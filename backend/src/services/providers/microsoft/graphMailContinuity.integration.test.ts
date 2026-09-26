@@ -9,7 +9,13 @@ import { providerUidForGraphMessage } from './graphMail.js';
 if (process.env.DB_HOST && process.env.DB_NAME && !process.env.DB_NAME.includes('test')) {
   throw new Error('Graph continuity tests require an isolated test database');
 }
-const suite=process.env.DB_HOST && process.env.DB_NAME ? describe:describe.skip;
+// The unit-only CI job has no PostgreSQL. Its dedicated database job sets
+// REQUIRE_GRAPH_POSTGRES, so missing DB configuration there must fail, not skip.
+const hasGraphPostgres = Boolean(process.env.DB_HOST && process.env.DB_NAME);
+if (process.env.REQUIRE_GRAPH_POSTGRES === '1' && !hasGraphPostgres) {
+  throw new Error('Required Graph PostgreSQL tests need DB_HOST and DB_NAME');
+}
+const suite = hasGraphPostgres ? describe : describe.skip;
 const userId='00000000-0000-0000-0000-00000000fca1';
 const accountId='00000000-0000-0000-0000-00000000fca2';
 let connectionId:string;

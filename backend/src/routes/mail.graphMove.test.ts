@@ -8,6 +8,8 @@ import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vites
 
 const mocks = vi.hoisted(() => ({
   query: vi.fn(),
+  withTransaction: vi.fn(),
+  projectMove: vi.fn<typeof import('../services/providers/microsoft/graphMailContinuity.js').projectGraphMove>(),
   runProviderMutation: vi.fn(),
   graphFolderIdForPath: vi.fn(),
   markAllReadImap: vi.fn(),
@@ -24,7 +26,7 @@ const mocks = vi.hoisted(() => ({
   archiveGmailMessage: vi.fn(),
 }));
 
-vi.mock('../services/db.js', () => ({ query: mocks.query, withTransaction: vi.fn() }));
+vi.mock('../services/db.js', () => ({ query: mocks.query, withTransaction: mocks.withTransaction }));
 vi.mock('../middleware/auth.js', () => ({
   requireAuth: (req: { headers: Record<string, string>; session?: { userId?: string } }, _res: unknown, next: () => void) => { req.session = { userId: 'user-1' }; next(); },
 }));
@@ -43,6 +45,12 @@ vi.mock('../index.js', () => ({
   },
 }));
 vi.mock('../services/providerMutationService.js', () => ({ runProviderMutation: mocks.runProviderMutation }));
+// SQL and rollback behavior are exercised with PostgreSQL in
+// graphMailContinuity.integration.test.ts. These route tests keep the real
+// Graph mover and assert its transaction/projector boundary explicitly.
+vi.mock('../services/providers/microsoft/graphMailContinuity.js', () => ({
+  projectGraphMove: mocks.projectMove,
+}));
 vi.mock('../services/providers/google/gmailMailMove.js', () => ({
   archiveGmailMessage: mocks.archiveGmailMessage,
   moveGmailMessageToLabel: vi.fn(),
@@ -72,6 +80,7 @@ import express from 'express';
 import mailRoutes from './mail.js';
 import type { Server } from 'node:http';
 import { listeningPort } from '../test/net.js';
+import { providerUidForGraphMessage } from '../services/providers/microsoft/graphMail.js';
 
 const MESSAGE_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const ACCOUNT_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -110,6 +119,12 @@ afterAll(async () => {
 
 beforeEach(() => {
   for (const mock of Object.values(mocks)) mock.mockReset();
+  mocks.withTransaction.mockImplementation(async (
+    run: (client: { query: typeof mocks.query }) => Promise<unknown>,
+  ) => run({ query: mocks.query }));
+  mocks.projectMove.mockResolvedValue({
+    moved: true, uid: providerUidForGraphMessage('AAMkAD-2'),
+  });
   mocks.query.mockResolvedValue({ rows: [], rowCount: 1 });
   mocks.graphFolderIdForPath.mockResolvedValue('graph-archive');
   mocks.resolveArchiveFolder.mockResolvedValue('Archive');
@@ -131,6 +146,16 @@ function arrangeOwnedMessages(message: Record<string, unknown> = {}) {
 const post = (path: string, body: Record<string, unknown>) =>
   fetch(`${base}/api/mail${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
 
+/** Assert that the real mover delegates exactly the canonical identity. */
+function expectProjectedMove(targetPath: string, rowId = MESSAGE_ID, sourceId = 'AAMkAD-1') {
+  expect(mocks.withTransaction).toHaveBeenCalled();
+  expect(mocks.projectMove).toHaveBeenCalledTimes(1);
+  expect(mocks.projectMove).toHaveBeenCalledWith({ query: mocks.query }, {
+    accountId: ACCOUNT_ID, connectionId: 'connection-1', rowId,
+    sourceId, targetId: 'AAMkAD-2', targetPath,
+  });
+}
+
 describe('bulk-move files a Graph message through the provider', () => {
   it('moves it and re-homes the row onto the returned identity', async () => {
     arrangeOwnedMessages();
@@ -143,9 +168,8 @@ describe('bulk-move files a Graph message through the provider', () => {
     expect(request.payload).toMatchObject({ providerMessageId: 'AAMkAD-1', destinationFolderId: 'graph-archive' });
     expect(adapter).toMatchObject({ resourceType: 'message', idempotent: false });
 
-    const update = mocks.query.mock.calls.find(([sql]) => String(sql).includes('provider_message_id = $3'));
-    expect(update?.[1]?.[0]).toBe('Archive');
-    expect(update?.[1]?.[2]).toBe('AAMkAD-2');
+    expectProjectedMove('Archive');
+    expect(mocks.query.mock.calls.some(([sql]) => String(sql).includes('DELETE FROM messages'))).toBe(false);
     // The IMAP bulk move is not involved for a native account.
     expect(mocks.bulkMoveMessages).not.toHaveBeenCalled();
     expect(mocks.broadcast).toHaveBeenCalledWith({ type: 'folder_updated', folder: 'Archive', accountId: ACCOUNT_ID }, 'user-1');
@@ -162,6 +186,7 @@ describe('bulk-move files a Graph message through the provider', () => {
     const [request] = mocks.runProviderMutation.mock.calls[0];
     expect(request).toMatchObject({ resourceId: canonicalId, payload: { providerMessageId: 'AAMkAD-canonical' } });
     expect(request.resourceId).not.toBe(MESSAGE_ID);
+    expectProjectedMove('Archive', canonicalId, 'AAMkAD-canonical');
   });
 
   it('moves nothing when the destination is not a folder the account discovered', async () => {
@@ -172,6 +197,18 @@ describe('bulk-move files a Graph message through the provider', () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ ok: true, moved: [] });
     expect(mocks.runProviderMutation).not.toHaveBeenCalled();
+  });
+
+  it('does not report a move when the provider succeeded but the local projection was not applied', async () => {
+    arrangeOwnedMessages();
+    mocks.projectMove.mockResolvedValue({ moved: false, uid: null });
+
+    const response = await post('/messages/bulk-move', { ids: [MESSAGE_ID], folder: 'Archive' });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, moved: [] });
+    expectProjectedMove('Archive');
+    expect(mocks.broadcast).not.toHaveBeenCalled();
+    expect(mocks.adjustFolderCounts).not.toHaveBeenCalled();
   });
 
   it('reports only the messages the provider confirmed', async () => {
@@ -215,8 +252,8 @@ describe('bulk-archive keeps a Graph row out of the re-insert CTE', () => {
     // Graph move has no new IMAP UID, so it would be deleted with nothing put back.
     expect(mocks.query.mock.calls.some(([sql]) => String(sql).includes('DELETE FROM messages WHERE id = ANY'))).toBe(false);
     expect(mocks.query.mock.calls.some(([sql]) => String(sql).includes('RELOCATE_INSERT_COLS') || String(sql).includes('WITH deleted AS'))).toBe(false);
-    // The row was re-homed instead.
-    expect(mocks.query.mock.calls.some(([sql]) => String(sql).includes('provider_message_id = $3'))).toBe(true);
+    // The transaction-owned projector, not the route's IMAP CTE, re-homes it.
+    expectProjectedMove('Archive');
     expect(mocks.bulkMoveMessages).not.toHaveBeenCalled();
   });
 
@@ -263,7 +300,7 @@ describe('bulk-delete keeps a Graph row out of the re-insert statement too', () 
     // The CTE would delete the row and re-insert it under an IMAP UID the provider
     // does not have, so it must never see a Graph row.
     expect(mocks.query.mock.calls.some(([sql]) => String(sql).includes('DELETE FROM messages WHERE id = ANY'))).toBe(false);
-    expect(mocks.query.mock.calls.some(([sql]) => String(sql).includes('provider_message_id = $3'))).toBe(true);
+    expectProjectedMove('Trash');
     expect(mocks.bulkMoveMessages).not.toHaveBeenCalled();
   });
 
