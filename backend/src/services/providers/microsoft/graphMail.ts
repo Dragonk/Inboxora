@@ -1,5 +1,5 @@
 import { createHash } from 'crypto';
-import { GraphApiError, graphGet, graphUrl } from './graphApiClient.js';
+import { GraphApiError, graphGet, graphGetWithHeaders, graphUrl } from './graphApiClient.js';
 import type { GraphApiOptions } from './graphApiClient.js';
 
 /**
@@ -291,8 +291,20 @@ export interface LocalGraphMessage {
 }
 
 export const GRAPH_MESSAGE_SELECT = 'id,internetMessageId,conversationId,subject,bodyPreview,receivedDateTime,sentDateTime,isRead,isDraft,hasAttachments,flag,from,toRecipients,ccRecipients,replyTo,changeKey,parentFolderId,internetMessageHeaders';
-/** The page size the message delta sync uses; exported so provider-side search asks for the same shape. */
-export const MESSAGE_PAGE_SIZE = 50;
+/**
+ * Preferred Graph delta response size.
+ *
+ * Do not pass this as `$top` to `/messages/delta`. Microsoft documents
+ * `Prefer: odata.maxpagesize={x}` as the request-level page-size control for
+ * delta synchronization. In practice `$top` on the delta endpoint has also had
+ * provider-side behaviours where a round can terminate at the requested count,
+ * which is disastrous for an initial historical import because Inboxora would
+ * persist that premature deltaLink as if the whole folder had been traversed.
+ *
+ * 200 keeps the payload bounded (internetMessageHeaders can make one message
+ * fairly large) while still making the initial baseline efficient.
+ */
+export const MESSAGE_PAGE_SIZE = 200;
 
 export interface GraphMessagePage {
   value?: GraphMessage[];
@@ -381,19 +393,106 @@ export function localMessageForGraphMessage(message: GraphMessage): LocalGraphMe
  * Read one page of a folder's message delta, resuming from `nextLink` first and
  * falling back to the stored `deltaLink`, exactly as Graph issued them.
  */
+
+/**
+ * Resolve the current mailbox location of one message.
+ *
+ * In ImmutableId mode the id survives a move between folders in the same
+ * mailbox. Therefore:
+ * - a returned parentFolderId proves the message still exists;
+ * - RESOURCE_NOT_FOUND proves the immutable item is no longer present.
+ */
+
+/**
+ * Find the current Graph representation of a message by its RFC Internet
+ * Message-ID.
+ *
+ * Default Graph message ids are not durable enough to prove deletion. The
+ * Internet Message-ID gives tombstone reconciliation an independent identity.
+ * Multiple matches are returned rather than guessed between: ambiguity must
+ * never authorize a destructive local delete.
+ */
+export async function findGraphMessagesByInternetMessageId(
+  api: GraphApiOptions,
+  internetMessageId: string,
+): Promise<GraphMessage[]> {
+  const normalized = internetMessageId.trim();
+  if (!normalized) return [];
+
+  // OData string literals escape a quote by doubling it. URL encoding itself is
+  // handled by graphUrl/URLSearchParams.
+  const escaped = normalized.replace(/'/g, "''");
+
+  const page = await graphGet<GraphMessagePage>(
+    api,
+    graphUrl('/me/messages', {
+      $select: GRAPH_MESSAGE_SELECT,
+      $filter: `internetMessageId eq '${escaped}'`,
+      $top: 5,
+    }),
+  );
+
+  return (page.value ?? []).filter(
+    (message): message is GraphMessage => typeof message.id === 'string' && message.id.length > 0,
+  );
+}
+
+export async function fetchGraphMessageLocation(
+  api: GraphApiOptions,
+  providerMessageId: string,
+): Promise<{ id: string; parentFolderId: string | null } | null> {
+  try {
+    const message = await graphGet<{ id?: string | null; parentFolderId?: string | null }>(
+      api,
+      graphUrl(`/me/messages/${encodeURIComponent(providerMessageId)}`, {
+        $select: 'id,parentFolderId',
+      }),
+    );
+
+    const id = typeof message.id === 'string' ? message.id.trim() : '';
+    if (!id) {
+      throw new GraphApiError({
+        code: 'INTERNAL_ERROR',
+        status: 502,
+        retryable: true,
+        message: 'Microsoft Graph returned a message without an id',
+      });
+    }
+
+    return {
+      id,
+      parentFolderId: typeof message.parentFolderId === 'string'
+        ? message.parentFolderId
+        : null,
+    };
+  } catch (caught) {
+    if (caught instanceof GraphApiError && caught.code === 'RESOURCE_NOT_FOUND') {
+      return null;
+    }
+    throw caught;
+  }
+}
+
 export async function fetchMessagesDeltaPage(api: GraphApiOptions, input: {
   folderId: string;
   nextLink?: string | null;
   deltaLink?: string | null;
   top?: number;
 }): Promise<{ messages: GraphMessage[]; nextLink: string | null; deltaLink: string | null }> {
+  const requestedPageSize = Number.isFinite(input.top)
+    ? Math.max(1, Math.min(1000, Math.trunc(Number(input.top))))
+    : MESSAGE_PAGE_SIZE;
   const url = input.nextLink
     ?? input.deltaLink
     ?? graphUrl(`/me/mailFolders/${encodeURIComponent(input.folderId)}/messages/delta`, {
       $select: GRAPH_MESSAGE_SELECT,
-      $top: input.top ?? MESSAGE_PAGE_SIZE,
     });
-  const page = await graphGet<GraphMessagePage>(api, url);
+  // Keep the provider-issued nextLink/deltaLink completely opaque. Query options
+  // are encoded into those links by Graph; the page-size preference is a request
+  // header and therefore must be repeated on every request in the round.
+  const page = await graphGetWithHeaders<GraphMessagePage>(api, url, {
+    Prefer: `odata.maxpagesize=${requestedPageSize}`,
+  });
   return {
     messages: page.value ?? [],
     nextLink: page['@odata.nextLink'] ?? null,

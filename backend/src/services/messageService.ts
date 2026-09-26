@@ -97,11 +97,14 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
   if (isThreaded) {
     const filterValues = [...values];
     const threadAccountParam = isSpecificAccount ? [resolvedAccountId] : scopedAccountIds;
-    // Legacy thread_key values are only account-local. In unified inboxes, expose a
-    // composite row/cache identity while retaining the raw thread_key for expansion.
+    // thread_key is a stored generated column and is covered by the threaded-list
+    // indexes. Historical blank thread ids are normalized by migration 0141, so
+    // the hot path can use the indexed column directly instead of recalculating a
+    // trimming/COALESCE expression for every row in GROUP BY and joins.
+    const effectiveThreadExpr = `m.thread_key`;
     const threadIdentityExpr = isSpecificAccount
-      ? 'm.thread_key'
-      : `(m.account_id::text || ':' || m.thread_key)`;
+      ? effectiveThreadExpr
+      : `(m.account_id::text || ':' || ${effectiveThreadExpr})`;
     // The thread badge must equal the number of unique children the expansion renders.
     // /mail/thread/:threadId loads ALL folders (Inbox + Sent + Archive + duplicates) and
     // deduplicates by message_id, so thread_totals must count across all folders too.
@@ -109,15 +112,15 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
     // (Inbox+Sent+Inbox) — a silent mismatch between the list and the reader.
     const threadResult = await query(`
       WITH paged_threads AS (
-        SELECT m.account_id, m.thread_key
+        SELECT m.account_id, ${effectiveThreadExpr} AS thread_bucket
         FROM messages m
         WHERE ${where}
-        GROUP BY m.account_id, m.thread_key
-        ORDER BY MAX(m.date) DESC, m.account_id, m.thread_key
+        GROUP BY m.account_id, ${effectiveThreadExpr}
+        ORDER BY MAX(m.date) DESC, m.account_id, thread_bucket
         LIMIT $${p + 1} OFFSET $${p + 2}
       ),
       deduped AS MATERIALIZED (
-        SELECT DISTINCT ON (m.account_id, m.thread_key,
+        SELECT DISTINCT ON (m.account_id, ${effectiveThreadExpr},
                             COALESCE(NULLIF(btrim(m.message_id), ''), '__physical__:' || m.id::text))
                m.id, m.uid, m.folder, m.message_id,
                ${threadIdentityExpr} AS thread_id,
@@ -138,12 +141,12 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
                      AND photo_contact.photo_data IS NOT NULL
                 )) AS has_contact_photo
         FROM messages m
-        JOIN paged_threads pt ON pt.account_id = m.account_id AND pt.thread_key = m.thread_key
+        JOIN paged_threads pt ON pt.account_id = m.account_id AND pt.thread_bucket = ${effectiveThreadExpr}
         JOIN email_accounts a ON m.account_id = a.id
 
         WHERE ${where}
         ORDER BY m.account_id,
-                 m.thread_key,
+                 ${effectiveThreadExpr},
                  COALESCE(NULLIF(btrim(m.message_id), ''), '__physical__:' || m.id::text),
                  CASE WHEN m.folder = 'INBOX' THEN 0 ELSE 1 END,
                  m.date ASC
@@ -155,7 +158,7 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
                -- fall back to their physical message ID so they remain visible/countable.
                COUNT(DISTINCT COALESCE(NULLIF(btrim(m.message_id), ''), '__physical__:' || m.id::text))::int AS message_count
         FROM messages m
-        JOIN paged_threads pt ON pt.account_id = m.account_id AND pt.thread_key = m.thread_key
+        JOIN paged_threads pt ON pt.account_id = m.account_id AND pt.thread_bucket = ${effectiveThreadExpr}
         WHERE m.account_id = ANY($${p})
           AND m.is_deleted = false
         GROUP BY ${threadIdentityExpr}
@@ -195,10 +198,10 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
     const threadCountResult = await query(`
       SELECT COUNT(*)::int AS total
       FROM (
-        SELECT m.account_id, m.thread_key
+        SELECT m.account_id, ${effectiveThreadExpr} AS thread_bucket
         FROM messages m
         WHERE ${where}
-        GROUP BY m.account_id, m.thread_key
+        GROUP BY m.account_id, ${effectiveThreadExpr}
       ) counted_threads
     `, filterValues);
 

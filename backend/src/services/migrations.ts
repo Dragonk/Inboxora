@@ -7,6 +7,8 @@ import { backfillRichContactFields } from './contactRichBackfill.js';
 
 const MIGRATIONS_DIR = join(dirname(fileURLToPath(import.meta.url)), '../../migrations');
 const ACCEPTED_REPLACED_MIGRATION_CHECKSUMS = new Map([
+  // An unreleased dev build applied this exact 0141 variant; 0143 repairs index state.
+  ['0141_message_list_hot_path_indexes', new Set(['ea9970699ba04a4dd16616e0a63470a944d5c2e008c8c34905ffa3642b90922b'])],
   ['0072_calendar_source_url_secrets', new Set(['5ca9454166b08d0af82935dd4032510e07b1836c61fec61223c305b6608f17a4'])],
   // 0098 shipped in the unreleased 4.0.3 dev cycle with a content fallback
   // that hashed raw values and preferred the physical copy triple over

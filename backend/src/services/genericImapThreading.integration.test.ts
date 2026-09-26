@@ -160,6 +160,18 @@ describeOrSkip('generic IMAP threading (PostgreSQL)', () => {
     expect(graph.isStrong).toBe(true);
   });
 
+  it('keeps independent messages with no thread key or id as separate threaded rows', async () => {
+    for (let index = 0; index < 3; index += 1) {
+      await query(
+        `INSERT INTO messages(account_id, uid, folder, message_id, thread_id, subject, from_email, to_addresses, date, snippet, is_read)
+         VALUES($1,$2,'INBOX',$3,NULL,$4,'sender@ovh.example','[{"address":"me@ovh.example"}]',$5,'Synthetic message',false)`,
+        [accountId, 1000 + index, `<physical-${randomUUID()}@ovh.example>`, `Independent ${index}`, new Date(`2026-12-0${index + 1}T09:00:00Z`)],
+      );
+    }
+    const listed = await listMessages({ userId, accountId, threaded: true });
+    expect(listed.messages.filter(row => String(row.subject ?? '').startsWith('Independent '))).toHaveLength(3);
+  });
+
   it('lists the RFC chain as one conversation and the same-subject pair as two', async () => {
     // The same assertion through the query the interface uses, not only through the stored ids.
     const listed = await listMessages({ userId, accountId, threaded: true });

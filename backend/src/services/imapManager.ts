@@ -1036,11 +1036,21 @@ function parseReferences(refHeader: unknown): string[] {
 // Compute the legacy thread_id for IMAP list compatibility. Conversation v2 owns
 // semantic grouping; never merge independent messages by normalized subject alone.
 async function computeThreadId(accountId: string, messageId: string, inReplyTo: unknown, references: unknown) {
-  if (!messageId) return null;
-  const refIds = parseReferences(references);
-  const reply = inReplyTo && !refIds.includes(String(inReplyTo)) ? [String(inReplyTo)] : [];
+  const normalizedMessageId = messageId.trim();
+  if (!normalizedMessageId) return null;
+  const refIds = parseReferences(references)
+    .map(value => value.trim())
+    .filter(Boolean);
+  const normalizedReply =
+    typeof inReplyTo === 'string'
+      ? inReplyTo.trim()
+      : String(inReplyTo ?? '').trim();
+  const reply =
+    normalizedReply && !refIds.includes(normalizedReply)
+      ? [normalizedReply]
+      : [];
   const candidates = [...refIds, ...reply];
-  if (!candidates.length) return messageId;
+  if (!candidates.length) return normalizedMessageId;
   const rows = await query(
     `SELECT message_id, thread_id FROM messages
        WHERE account_id = $1 AND message_id = ANY($2::text[]) AND thread_id IS NOT NULL`,
@@ -3339,7 +3349,7 @@ export class ImapManager {
               text = body.text;
               atts = body.attachments;
             }
-            const msgId = sanitizeStr(parsed.messageId);
+            const msgId = sanitizeStr(parsed.messageId).trim();
             const inReplyTo = sanitizeStr(parsed.inReplyTo);
             const refs = sanitizeStr(parsed.references);
             const threadId = await computeThreadId(account.id, msgId, inReplyTo, refs);
@@ -3948,7 +3958,7 @@ export class ImapManager {
                   atts = body.attachments;
                 }
 
-                const bfMsgId    = sanitizeStr(parsed.messageId);
+                const bfMsgId    = sanitizeStr(parsed.messageId).trim();
                 const bfReplyTo  = sanitizeStr(parsed.inReplyTo);
                 const bfRefs     = sanitizeStr(parsed.references);
                 const bfThreadId = await computeThreadId(account.id, bfMsgId, bfReplyTo, bfRefs);
@@ -3974,7 +3984,8 @@ export class ImapManager {
                     sender_name, sender_email
                   ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29)
                   ON CONFLICT (account_id, uid, folder) DO UPDATE
-                  SET subject = CASE
+                  SET message_id = COALESCE(NULLIF(EXCLUDED.message_id, ''), messages.message_id),
+                      subject = CASE
                         WHEN EXCLUDED.subject IS NOT NULL
                              AND EXCLUDED.subject != ''
                              AND EXCLUDED.subject != '(no subject)'
@@ -4561,7 +4572,7 @@ export class ImapManager {
     references?: string | string[] | null;
   }) {
     if (!uid || !folder) return;
-    const msgId = sanitizeStr(messageId);
+    const msgId = sanitizeStr(messageId).trim();
     // Thread the Sent copy into its conversation the same way a real sync does — via the
     // RFC 5322 References/In-Reply-To chain — instead of rooting it at its own Message-ID.
     // Self-rooting orphaned every sent message into its own thread, showing as a duplicate
@@ -4656,7 +4667,7 @@ export class ImapManager {
     date?: Date;
   }) {
     if (!uid || !folder) return;
-    const msgId = sanitizeStr(messageId);
+    const msgId = sanitizeStr(messageId).trim();
     await query(`
       INSERT INTO messages (
         account_id, uid, folder, message_id, subject,
@@ -6476,7 +6487,7 @@ export async function upsertIngestedMessageRow(
   parsed: IngestedParsedMessage,
   opts: { sanitizeHtml: string | null; textBody: string | null; attachments: unknown[] },
 ): Promise<{ rows: Array<{ id: string; is_new?: boolean }> }> {
-  const msgId = sanitizeStr(parsed.messageId);
+  const msgId = sanitizeStr(parsed.messageId).trim();
   const inReplyTo = sanitizeStr(parsed.inReplyTo);
   const refs = sanitizeStr(parsed.references);
   const threadId = await computeThreadId(account.id, msgId, inReplyTo, refs);
@@ -6502,7 +6513,8 @@ export async function upsertIngestedMessageRow(
       sender_name, sender_email
     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29)
     ON CONFLICT (account_id, uid, folder) DO UPDATE
-    SET subject = CASE
+    SET message_id = COALESCE(NULLIF(EXCLUDED.message_id, ''), messages.message_id),
+        subject = CASE
           WHEN EXCLUDED.subject IS NOT NULL
                AND EXCLUDED.subject != ''
                AND EXCLUDED.subject != '(no subject)'

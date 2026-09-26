@@ -5,7 +5,8 @@ All notable changes to Inboxora are recorded here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 For the narrative version — what the release means, what to expect when upgrading, and the known
-limitations — read the matching page in the Wiki: [Release notes 4.1.0](wiki/Release-notes-4.1.0.md),
+limitations — read the matching page in the Wiki: [Release notes 4.1.1](wiki/Release-notes-4.1.1.md),
+[Release notes 4.1.0](wiki/Release-notes-4.1.0.md),
 [Release notes 4.0.4](wiki/Release-notes-4.0.4.md),
 [Release notes 4.0.3](wiki/Release-notes-4.0.3.md),
 [Release notes 4.0.2](wiki/Release-notes-4.0.2.md),
@@ -19,12 +20,28 @@ in the same commit that makes it, not gathered afterwards from the commit log, w
 "why" and keeps only the "what". `[Unreleased]` is for work whose version has not been chosen.
 
 The matching `wiki/Release-notes-<x.y.z>.md` is the narrative — user and operator impact, migration and
-configuration requirements, the **known safe limitations**, and what was verified. Release 4.1.0 is
+configuration requirements, the **known safe limitations**, and what was verified. Release 4.1.1 is
 finalized below and dated with its publication date.
 
 ## [Unreleased]
 
-Nothing is being prepared beyond 4.1.0. Work whose version has not been chosen accumulates here.
+Nothing is being prepared beyond 4.1.1. Work whose version has not been chosen accumulates here.
+
+## [4.1.1] - 2026-09-25
+
+### Fixed
+- **Graph bulk moves report unprojected items.** The response includes failed message IDs when a provider move cannot be projected locally, while confirmed items remain in `moved`.
+- **Graph accepts hydrated items with empty display metadata.** Blank subject, preview or RFC Message-ID values no longer block a sync page; physical-identity and folder checks remain enforced.
+- **Graph delta updates preserve omitted envelope fields.** Read/star changes do not erase the subject, RFC Message-ID, recipients, dates or preview, and do not rerun arrival rules.
+- **Graph moves preserve physical identity.** Provider-confirmed moves are projected atomically and replayed source pages are checked; spam/ham updates the canonical row and refreshes both folders. RFC Message-ID equality is not used to merge provider copies.
+- **Required migration order:** apply the complete chain through `0145_graph_consistency.sql` before starting this build. `0141` adds list indexes, `0142` adds removal candidates, `0143` repairs index state, `0144` normalizes historical identities and `0145` aligns Unicode whitespace, repairs snooze references and records confirmed Graph moves. Previously applied migrations are unchanged.
+
+- **Microsoft Graph rebuilt baselines no longer delete mail by omission.** Inboxora now removes a provider-backed message only when Graph delta explicitly reports an `@removed` event. Rebuilding an expired or reset delta cursor can no longer make a newly delivered or otherwise valid message disappear from the local mailbox.
+- **Microsoft Graph push is bootstrapped for existing native mailboxes.** Enabling `PROVIDER_PUSH_ENABLED` no longer leaves accounts connected before that setting was enabled on polling only; the renewal sweep creates the missing mail subscription and polling remains the fallback.
+- **Microsoft Graph attachment metadata no longer fails on `contentId`.** Attachment listing no longer selects the derived `fileAttachment.contentId` field from the base `attachment` type, avoiding Graph's OData select error while retaining inline-CID metadata from the normal attachment response.
+- **Threaded mail lists preserve unthreaded messages.** Rows without a non-empty `thread_key` now fall back to `thread_id`, then to a physical-message identity, so independent messages are not grouped together or hidden. Thread pagination, totals, deduplication and expansion use the same identity.
+- **Microsoft Graph mail reads and mutations preserve immutable IDs.** Body, headers, attachment metadata/downloads, inline images, ZIP downloads, read/star, move, delete, spam/ham, snooze and bulk operations use `Prefer: IdType="ImmutableId"` whenever the connection has immutable IDs enabled.
+- **Microsoft Graph historical mail delta synchronization.** Reconnecting a previously disconnected Microsoft integration resets mail delta cursors and checkpoints to guarantee a full historical baseline, while ordinary token/consent refresh on an active connection keeps incremental state. Delta requests specify page sizes via `Prefer: odata.maxpagesize=200` without passing `$top` query limits, and opaque next and delta links are strictly preserved.
 
 ## [4.1.0] - 2026-09-25
 

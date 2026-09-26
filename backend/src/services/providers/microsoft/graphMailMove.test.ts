@@ -7,11 +7,16 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   query: vi.fn(),
+  projectMove: vi.fn(),
   runProviderMutation: vi.fn(),
   graphFolderIdForPath: vi.fn(),
 }));
 
-vi.mock('../../db.js', () => ({ query: mocks.query, withTransaction: vi.fn() }));
+vi.mock('../../db.js', () => ({
+  query: mocks.query,
+  withTransaction: async (run: (client: { query: typeof mocks.query }) => Promise<unknown>) => run({ query: mocks.query }),
+}));
+vi.mock('./graphMailContinuity.js', () => ({ projectGraphMove: mocks.projectMove }));
 vi.mock('../../providerMutationService.js', () => ({ runProviderMutation: mocks.runProviderMutation }));
 vi.mock('./graphMailSync.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./graphMailSync.js')>();
@@ -31,6 +36,7 @@ const input = {
 };
 
 beforeEach(() => {
+  mocks.projectMove.mockReset().mockResolvedValue({ moved: true, uid: providerUidForGraphMessage("AAMkAD-2") });
   mocks.query.mockReset().mockResolvedValue({ rows: [], rowCount: 1 });
   mocks.runProviderMutation.mockReset();
   mocks.graphFolderIdForPath.mockReset().mockResolvedValue('graph-snoozed');
@@ -44,10 +50,17 @@ describe('moving one Graph message onto a local folder', () => {
 
     const expectedUid = providerUidForGraphMessage('AAMkAD-2');
     expect(result).toEqual({ moved: true, newProviderMessageId: 'AAMkAD-2', newUid: expectedUid });
-    // A stale row at the destination holding the same derived number is removed first.
-    expect(mocks.query.mock.calls.some(([sql]) => String(sql).includes('uid = $2 AND folder = $3 AND id != $4'))).toBe(true);
-    const update = mocks.query.mock.calls.find(([sql]) => String(sql).includes('provider_message_id = $3'));
-    expect(update?.[1]).toEqual(['Snoozed', expectedUid, 'AAMkAD-2', 'message-1']);
+    expect(mocks.projectMove).toHaveBeenCalledWith(expect.anything(), {
+      accountId: 'account-1', connectionId: 'connection-1', rowId: 'message-1',
+      sourceId: 'AAMkAD-1', targetId: 'AAMkAD-2', targetPath: 'Snoozed',
+    });
+    expect(mocks.query.mock.calls.some(([sql]) => String(sql).includes('DELETE FROM messages'))).toBe(false);
+  });
+
+  it('does not report success when the local canonical row was not projected', async () => {
+    mocks.runProviderMutation.mockResolvedValue({ status: 'confirmed', value: { id: 'AAMkAD-2' } });
+    mocks.projectMove.mockResolvedValue({ moved: false, uid: null });
+    await expect(moveGraphMessageToFolder(input)).resolves.toEqual({ moved: false, code: 'MUTATION_OUTCOME_UNKNOWN' });
   });
 
   it('refuses a destination the account never discovered, without calling the provider', async () => {

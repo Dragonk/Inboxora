@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   fetchMailFolderSnapshot,
   fetchMailFolders,
+  fetchGraphMessageLocation,
   fetchMessagesDeltaPage,
   fetchWellKnownFolderIds,
   graphFolderPathMap,
@@ -308,11 +309,50 @@ describe('the compatibility uid a Graph message gets', () => {
   });
 });
 
+describe('checking the current Graph message location', () => {
+  it('returns the message id and parent folder for a successful lookup', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () =>
+      jsonResponse({ id: 'message-1', parentFolderId: 'folder-1' }),
+    ));
+
+    await expect(fetchGraphMessageLocation(OPTIONS, 'message-1'))
+      .resolves.toEqual({ id: 'message-1', parentFolderId: 'folder-1' });
+  });
+
+  it('returns null only for a real Graph 404', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () =>
+      new Response(JSON.stringify({
+        error: { code: 'ErrorItemNotFound', message: 'gone' },
+      }), {
+        status: 404,
+        headers: { 'content-type': 'application/json' },
+      }),
+    ));
+
+    await expect(fetchGraphMessageLocation(OPTIONS, 'message-1'))
+      .resolves.toBeNull();
+  });
+
+  it('rejects a successful response that has no valid message id', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () =>
+      jsonResponse({ parentFolderId: 'folder-1' }),
+    ));
+
+    await expect(fetchGraphMessageLocation(OPTIONS, 'message-1'))
+      .rejects.toMatchObject({
+        code: 'INTERNAL_ERROR',
+        status: 502,
+      });
+  });
+});
+
 describe('reading a message delta page', () => {
-  it('asks the folder delta endpoint with the selected fields on the first call', async () => {
+  it('asks the folder delta endpoint with selected fields and a page-size preference', async () => {
     const urls: string[] = [];
-    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    const requestHeaders: Headers[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
       urls.push(String(url));
+      requestHeaders.push(new Headers(init?.headers));
       return jsonResponse({ value: [{ id: 'm1' }], '@odata.deltaLink': 'https://graph.microsoft.com/v1.0/delta?token=1' });
     }));
 
@@ -321,12 +361,17 @@ describe('reading a message delta page', () => {
     expect(page.deltaLink).toBe('https://graph.microsoft.com/v1.0/delta?token=1');
     expect(urls[0]).toContain('/me/mailFolders/graph-inbox/messages/delta');
     expect(urls[0]).toContain('select=');
+    expect(urls[0]).not.toContain('$top=');
+    expect(urls[0]).not.toContain('%24top=');
+    expect(requestHeaders[0]?.get('prefer')).toContain('odata.maxpagesize=200');
   });
 
-  it('follows the next link and then the stored delta link exactly as Graph issued them', async () => {
+  it('follows opaque next and delta links and repeats the page-size preference', async () => {
     const seen: string[] = [];
-    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    const prefers: Array<string | null> = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
       seen.push(String(url));
+      prefers.push(new Headers(init?.headers).get('prefer'));
       return jsonResponse({ value: [] });
     }));
 
@@ -336,5 +381,24 @@ describe('reading a message delta page', () => {
       'https://graph.microsoft.com/v1.0/next?page=2',
       'https://graph.microsoft.com/v1.0/delta?token=stored',
     ]);
+    expect(prefers).toEqual([
+      expect.stringContaining('odata.maxpagesize=200'),
+      expect.stringContaining('odata.maxpagesize=200'),
+    ]);
+  });
+
+  it('uses an injected page size only as a Prefer header', async () => {
+    let seenUrl = '';
+    let seenPrefer: string | null = null;
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      seenUrl = String(url);
+      seenPrefer = new Headers(init?.headers).get('prefer');
+      return jsonResponse({ value: [], '@odata.deltaLink': 'https://graph.microsoft.com/v1.0/delta?token=done' });
+    }));
+
+    await fetchMessagesDeltaPage(OPTIONS, { folderId: 'f', top: 17 });
+    expect(seenUrl).not.toContain('$top=');
+    expect(seenUrl).not.toContain('%24top=');
+    expect(seenPrefer).toContain('odata.maxpagesize=17');
   });
 });

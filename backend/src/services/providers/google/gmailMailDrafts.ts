@@ -231,7 +231,10 @@ export interface GmailDraftRecord {
  */
 export async function upsertGmailDraftRecord(input: GmailDraftRecordInput): Promise<GmailDraftRecord> {
   const uid = providerUidForGmailMessage(input.providerMessageId);
-  const providerThreadId = input.threadId ?? null;
+  const providerThreadId =
+    typeof input.threadId === 'string'
+      ? (input.threadId.trim() || null)
+      : null;
   const result = await query<{ id: string; uid: string }>(
     `INSERT INTO messages (
        account_id, uid, folder, provider_message_id, message_id, subject,

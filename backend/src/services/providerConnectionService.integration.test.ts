@@ -12,6 +12,7 @@ import { pool } from './db.js';
 import {
   GOOGLE_GRANT_AUDIENCE,
   GOOGLE_ISSUER,
+  MICROSOFT_ISSUER,
   storeOAuthGrant,
   upsertProviderConnection,
 } from './providerAuthService.js';
@@ -154,6 +155,40 @@ describeOrSkip('disconnectProviderConnection (PostgreSQL)', () => {
     ));
     expect(collections.rows[0]?.enabled).toBe(true);
     expect((await listProviderSyncTargets()).filter(target => target.connectionId === connectionId)).toHaveLength(1);
+  });
+
+  it('resets Microsoft mail cursors only after a real reconnect', async () => {
+    const connectionId = await inTransaction(client => upsertProviderConnection(client, {
+      userId: USER_ID, provider: 'microsoft', issuer: MICROSOFT_ISSUER, subject: 'sub-ms-reconnect',
+    }));
+    await autocommit(async client => {
+      await client.query(
+        `INSERT INTO sync_states (user_id, connection_id, feature, coverage, cursor, page_checkpoint, last_success_at)
+         VALUES ($1, $2, 'mail', 'messages', 'https://graph.example/delta?token=old', '{"nextLink":"https://graph.example/next"}', NOW())`,
+        [USER_ID, connectionId],
+      );
+      await client.query("UPDATE provider_connections SET status = 'revoked' WHERE id = $1", [connectionId]);
+    });
+
+    await inTransaction(client => upsertProviderConnection(client, {
+      userId: USER_ID, provider: 'microsoft', issuer: MICROSOFT_ISSUER, subject: 'sub-ms-reconnect',
+    }));
+    const state = await autocommit(client => client.query<{ cursor: string | null; page_checkpoint: string | null }>(
+      "SELECT cursor, page_checkpoint FROM sync_states WHERE connection_id = $1 AND feature = 'mail' AND coverage = 'messages'", [connectionId],
+    ));
+    expect(state.rows[0]).toEqual({ cursor: null, page_checkpoint: null });
+
+    // An already-active authorization update must not erase incremental state.
+    await autocommit(client => client.query(
+      "UPDATE sync_states SET cursor = 'https://graph.example/delta?token=new', page_checkpoint = '{\"nextLink\":\"https://graph.example/next-2\"}' WHERE connection_id = $1", [connectionId],
+    ));
+    await inTransaction(client => upsertProviderConnection(client, {
+      userId: USER_ID, provider: 'microsoft', issuer: MICROSOFT_ISSUER, subject: 'sub-ms-reconnect',
+    }));
+    const retained = await autocommit(client => client.query<{ cursor: string | null; page_checkpoint: string | null }>(
+      "SELECT cursor, page_checkpoint FROM sync_states WHERE connection_id = $1 AND feature = 'mail' AND coverage = 'messages'", [connectionId],
+    ));
+    expect(retained.rows[0]).toEqual({ cursor: 'https://graph.example/delta?token=new', page_checkpoint: '{"nextLink":"https://graph.example/next-2"}' });
   });
 
   it('refuses a connection that belongs to another user, changing nothing', async () => {

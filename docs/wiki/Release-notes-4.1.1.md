@@ -1,0 +1,44 @@
+# Release notes 4.1.1
+
+**Status:** Hotfix  ·  **Release date:** 2026-09-25  ·  **Previous version:** 4.1.0
+
+## Fixed
+- **Graph bulk move results expose per-message failures.** If a provider move is not projected locally, the response identifies that message in `failed` and sets `ok` to false; confirmed moves still appear in `moved`. No migration or configuration change is required. Route regression tests cover failed, successful and mixed results.
+- **Microsoft Graph rebuilt baselines no longer delete mail by omission.** Inboxora now removes a provider-backed message only when Graph delta explicitly reports an `@removed` event. Rebuilding an expired or reset delta cursor can no longer make a newly delivered or otherwise valid message disappear from the local mailbox.
+
+- **Microsoft Graph push starts for existing mailboxes.** When provider push is enabled after an account was already connected, Inboxora now bootstraps the missing mail subscription automatically; the two-minute polling path remains the reliability fallback.
+- **Microsoft Graph attachments load correctly.** Inboxora no longer requests `contentId` through an invalid base-attachment `$select`, so attachment metadata and inline CID images can be read without the Graph OData error.
+- **Threaded mail list visibility.** Messages with empty `thread_key` now use `thread_id`, then a unique physical-message identity. Independent messages are no longer grouped into one nullable bucket or omitted. Pagination, totals, deduplication and thread expansion share the same identity rules.
+- **Microsoft Graph immutable message IDs.** Body, headers, attachment metadata, inline images, single downloads, ZIP downloads and mail mutations consistently use `Prefer: IdType="ImmutableId"` whenever the connection has immutable IDs enabled.
+- **Microsoft Graph historical mail delta sync after reconnect.** Delta sync requests now specify page sizes via `Prefer: odata.maxpagesize=200` rather than `$top` on `/messages/delta`, keeping opaque continuation links intact across full traversals. Reconnecting a previously revoked or inactive Microsoft connection clears mail delta cursors and checkpoints to guarantee a clean baseline import, while preserving state during routine token/consent refreshes on active connections.
+
+## User and operator impact
+
+- **New users and initial mailbox sync:** New Microsoft integrations traverse historical folder items completely using `Prefer: odata.maxpagesize=200` without hitting the premature delta round termination previously caused by `$top`.
+- **Upgrading from 4.1.0:** Active connections continue synchronizing incrementally without losing state. If an existing Microsoft mailbox missed historical items during an earlier import, disconnecting and reconnecting the account now resets the mail delta state and triggers a full baseline import. Unthreaded messages without `thread_key` are immediately visible in threaded folder views.
+
+## Validation and upgrade
+
+The upgrade includes `0141_message_list_hot_path_indexes.sql` for the message-list hot path, `0142_graph_pending_message_removals.sql` for durable Microsoft Graph tombstone reconciliation, and `0143_repair_message_list_hot_path_index.sql` as the forward repair for installations that already recorded the first 0141 revision, `0144_normalize_message_ids.sql` to normalize historical RFC Message-ID values, and `0145_graph_consistency.sql` for Unicode-consistent normalization, snooze-reference repair and confirmed Graph moves.
+
+
+Apply the complete migration chain through `0145_graph_consistency.sql` before rolling out 4.1.1. The normal backend startup migration runner applies pending migrations automatically. The release includes a real PostgreSQL regression for three independent messages with null thread identifiers, reconnect cursor reset, and Graph regression coverage for immutable-ID reads, mutations, and delta pagination.
+
+Before publishing, validate on the `dev` deployment that threaded and flat views, refreshes and folder changes retain messages, and that old and new Microsoft messages open their bodies and support regular, inline-CID, single and ZIP attachment downloads. Do not publish if any of these live checks fail.
+
+
+## Additional Graph consistency repair
+
+Apply migrations in order through `0145_graph_consistency.sql` before this backend starts.
+This forward migration leaves 0141–0144 unchanged, normalizes the same whitespace as
+JavaScript ingestion, repairs matching snooze references and adds confirmed-MOVE receipts.
+Read/unread deltas preserve omitted metadata. Only inserted arrivals enter ingest rules.
+A hydrated item with empty display metadata no longer blocks a delta page; provider identity and folder validation remain mandatory.
+Moves update one canonical row and do not identify physical copies by RFC Message-ID.
+Cleanup verifies an explicit per-item Graph ID conversion and the current stable location;
+failed conversions, unavailable services and unknown folder mappings remain visible/retryable.
+This is not a blanket ban on real deletions and is not a bulk identity migration.
+
+Release gate: run the PostgreSQL tests (not skipped), then read, spam/ham, round-trip move,
+provider-side delete, delayed replay and two physical copies with the same Message-ID on
+an actual mailbox. Track UUIDs as well as subjects. Do not release based on a mock-only run.

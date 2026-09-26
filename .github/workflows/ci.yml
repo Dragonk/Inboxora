@@ -123,6 +123,8 @@ jobs:
           DB_NAME: mailflow_test
           DB_USER: mailflow_test
           DB_PASSWORD: mailflow_test
+          # This job must execute the Graph continuity suite, never silently skip it.
+          REQUIRE_GRAPH_POSTGRES: "1"
           REQUIRE_DAV_POSTGRES: "1"
           # The send-ledger suite is skipped without this flag, so a job that omits it
           # would report the durable send intent as covered while never running it.

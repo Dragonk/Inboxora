@@ -7,12 +7,14 @@ import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vites
 const mocks = vi.hoisted(() => ({
   query: vi.fn(),
   fetchGraphMessageBody: vi.fn(),
+  fetchGraphMessageHeaders: vi.fn(),
   fetchGraphAttachments: vi.fn(),
   collectGraphInlineImages: vi.fn(),
   fetchGraphAttachmentBytes: vi.fn(),
   noteUserActivity: vi.fn(),
   fetchMessageBody: vi.fn(),
   fetchAttachment: vi.fn(),
+  immutableIdsEnabled: vi.fn(),
 }));
 
 vi.mock('../services/db.js', () => ({ query: mocks.query, withTransaction: vi.fn() }));
@@ -31,6 +33,10 @@ vi.mock('../index.js', () => ({
     pluginFacade: {},
   },
 }));
+vi.mock('../services/providers/microsoft/graphMessageIdType.js', () => ({
+  immutableIdsEnabled: mocks.immutableIdsEnabled,
+}));
+
 vi.mock('../services/providerAuthService.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../services/providerAuthService.js')>()),
   microsoftConfigFromEnv: () => ({ clientId: 'client-1', clientSecret: 'secret-1', redirectUri: 'https://x/cb', tenantId: 'common' }),
@@ -41,6 +47,7 @@ vi.mock('../services/providers/microsoft/graphMailBody.js', async (importOrigina
   return {
     ...actual,
     fetchGraphMessageBody: mocks.fetchGraphMessageBody,
+    fetchGraphMessageHeaders: mocks.fetchGraphMessageHeaders,
     fetchGraphAttachments: mocks.fetchGraphAttachments,
     collectGraphInlineImages: mocks.collectGraphInlineImages,
     fetchGraphAttachmentBytes: mocks.fetchGraphAttachmentBytes,
@@ -90,6 +97,7 @@ afterAll(async () => {
 beforeEach(() => {
   for (const mock of Object.values(mocks)) mock.mockReset();
   mocks.query.mockResolvedValue({ rows: [], rowCount: 0 });
+  mocks.immutableIdsEnabled.mockResolvedValue(true);
   mocks.collectGraphInlineImages.mockResolvedValue([]);
 });
 
@@ -111,6 +119,8 @@ describe('a Graph message body is read from the provider and cached', () => {
     expect(payload.html).not.toContain('<script');
     // The inline image is not offered as a file to download.
     expect(payload.attachments.map(attachment => attachment.part)).toEqual(['att-1']);
+    expect(mocks.fetchGraphMessageBody.mock.calls[0][0]).toMatchObject({ immutableIds: true });
+    expect(mocks.fetchGraphAttachments.mock.calls[0][0]).toMatchObject({ immutableIds: true });
 
     // The body is cached in the same columns the IMAP path writes.
     const cache = mocks.query.mock.calls.find(([sql]) => String(sql).includes('SET body_html = $1'));
@@ -119,6 +129,17 @@ describe('a Graph message body is read from the provider and cached', () => {
     expect(JSON.parse(String(cache?.[1]?.[2]))).toHaveLength(1);
     expect(cache?.[1]?.[5]).toBe(true);
     expect(mocks.noteUserActivity).not.toHaveBeenCalled();
+  });
+
+  it('passes immutable IDs when fetching Graph headers', async () => {
+    mocks.query
+      .mockResolvedValueOnce({ rows: [messageRow()], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ id: ACCOUNT_ID, user_id: 'user-1', mail_transport: 'microsoft_graph', provider_connection_id: 'connection-1' }], rowCount: 1 });
+    mocks.fetchGraphMessageHeaders.mockResolvedValue('X-Test: yes\\r\\n');
+
+    const response = await fetch(`${base}/api/mail/messages/${MESSAGE_ID}/headers`);
+    expect(response.status).toBe(200);
+    expect(mocks.fetchGraphMessageHeaders).toHaveBeenCalledWith(expect.objectContaining({ immutableIds: true }), 'AAMkAD-1');
   });
 
   it('returns a fetched Graph body when attachment metadata fails, without caching an empty list', async () => {
@@ -212,7 +233,7 @@ describe('a Graph attachment downloads by its provider id', () => {
     expect(await response.text()).toBe('hello world');
     expect(mocks.fetchAttachment).not.toHaveBeenCalled();
     // The size ceiling the IMAP path enforces is applied to the Graph fetch too.
-    expect(mocks.fetchGraphAttachmentBytes).toHaveBeenCalledWith(expect.anything(), 'AAMkAD-1', 'att-1', 50 * 1024 * 1024);
+    expect(mocks.fetchGraphAttachmentBytes).toHaveBeenCalledWith(expect.objectContaining({ immutableIds: true }), 'AAMkAD-1', 'att-1', 50 * 1024 * 1024);
   });
 
   it('answers not found for a part the message does not have', async () => {

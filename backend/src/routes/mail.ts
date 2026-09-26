@@ -51,6 +51,7 @@ import {
   localAttachmentsForGraph,
 } from '../services/providers/microsoft/graphMailBody.js';
 import { resolveGraphMessageIdentity } from '../services/providers/microsoft/graphLegacyMessageBindings.js';
+import { immutableIdsEnabled } from '../services/providers/microsoft/graphMessageIdType.js';
 import type { Request as ExpressRequest, Response as ExpressResponse } from 'express';
 /** Attachment metadata as stored in messages.attachments (JSON) and fetched from IMAP. */
 interface AttachmentMeta {
@@ -385,6 +386,10 @@ router.get('/thread/:threadId', async (req, res) => {
     // valid RFC Message-ID (trimmed) deduplicates folder copies; NULL/empty values use
     // the physical row ID so otherwise unidentifiable messages remain visible. Include
     // account_id in DISTINCT ON so a unified request can never dedupe across accounts.
+    const effectiveThreadExpr = `m.thread_key`;
+    const threadIdentityExpr = requestedAccountId
+      ? effectiveThreadExpr
+      : `(m.account_id::text || ':' || ${effectiveThreadExpr})`;
     const result = await query(`
       WITH deduped AS (
         SELECT DISTINCT ON (m.account_id,
@@ -401,7 +406,7 @@ router.get('/thread/:threadId', async (req, res) => {
         JOIN email_accounts a ON m.account_id = a.id
         WHERE m.is_deleted = false
           AND m.account_id = ANY($1)
-          AND m.thread_key = $2
+          AND ${threadIdentityExpr} = $2
         ORDER BY m.account_id,
                  COALESCE(NULLIF(btrim(m.message_id), ''), '__physical__:' || m.id::text),
                  CASE WHEN m.folder = 'INBOX' THEN 0 ELSE 1 END,
@@ -664,7 +669,7 @@ router.get('/messages/:id/headers', async (req, res) => {
       }
       try {
         headers = await fetchGraphMessageHeaders(
-          { userId: account.user_id, connectionId: account.provider_connection_id!, config: microsoftConfigFromEnv() },
+          { userId: account.user_id, connectionId: account.provider_connection_id!, config: microsoftConfigFromEnv(), immutableIds: await immutableIdsEnabled(account.provider_connection_id!) },
           identity.providerMessageId,
         );
       } catch (caught) {
@@ -776,7 +781,7 @@ router.get('/messages/:id/attachments.zip', async (req, res) => {
           : identity.kind === 'binding_ambiguous' ? 'MESSAGE_BINDING_AMBIGUOUS' : 'MESSAGE_PROVIDER_IDENTITY_MISSING';
         return res.status(409).json({ error: 'This message has no resolvable Microsoft Graph identity', code });
       }
-      const api = { userId: account.user_id, connectionId: account.provider_connection_id!, config: microsoftConfigFromEnv() };
+      const api = { userId: account.user_id, connectionId: account.provider_connection_id!, config: microsoftConfigFromEnv(), immutableIds: await immutableIdsEnabled(account.provider_connection_id!) };
       bufferMap = new Map();
       for (const att of eligible) {
         try {
@@ -907,7 +912,7 @@ router.get('/messages/:id/attachments/:part', async (req, res) => {
         return res.status(409).json({ error: 'This message has no resolvable Microsoft Graph identity', code });
       }
       const bytes = await fetchGraphAttachmentBytes(
-        { userId: attachmentAccount.user_id, connectionId: attachmentAccount.provider_connection_id!, config: microsoftConfigFromEnv() },
+        { userId: attachmentAccount.user_id, connectionId: attachmentAccount.provider_connection_id!, config: microsoftConfigFromEnv(), immutableIds: await immutableIdsEnabled(attachmentAccount.provider_connection_id!) },
         identity.providerMessageId,
         partNum,
         ATTACHMENT_SIZE_LIMIT,
@@ -992,7 +997,7 @@ async function emptyGraphFolder(userId: string, account: EmailAccountRow, path: 
     if (!row.provider_message_id) continue;
     const removed = await deleteGraphMessagePermanently({
       userId, accountId: account.id, connectionId: account.provider_connection_id,
-      config: microsoftConfigFromEnv(), resourceId: row.id, providerMessageId: row.provider_message_id,
+      config: microsoftConfigFromEnv(), immutableIds: await immutableIdsEnabled(account.provider_connection_id), resourceId: row.id, providerMessageId: row.provider_message_id,
     });
     if (!removed.deleted) {
       refused += 1;
@@ -1248,7 +1253,7 @@ async function markAllReadOverGraph(
   messages: ReadonlyArray<{ id: string; provider_message_id: string | null }>,
 ): Promise<{ confirmed: number; failed: number }> {
   if (!account.provider_connection_id) return { confirmed: 0, failed: messages.length };
-  const api = { userId, connectionId: account.provider_connection_id, config: microsoftConfigFromEnv() };
+  const api = { userId, connectionId: account.provider_connection_id, config: microsoftConfigFromEnv(), immutableIds: await immutableIdsEnabled(account.provider_connection_id) };
   let confirmed = 0;
   let failed = 0;
   for (const message of messages) {
@@ -1367,7 +1372,7 @@ async function deleteMessageOverGraph(input: {
   if (input.destinationPath === null) {
     const deleted = await deleteGraphMessagePermanently({
       userId: input.userId, accountId: message.account_id, connectionId,
-      config: microsoftConfigFromEnv(), resourceId: identity.canonicalMessageId, providerMessageId: identity.providerMessageId,
+      config: microsoftConfigFromEnv(), immutableIds: await immutableIdsEnabled(account.provider_connection_id!), resourceId: identity.canonicalMessageId, providerMessageId: identity.providerMessageId,
     });
     if (deleted.deleted) return { ok: true, moved: false };
     const refused = deleted.code === 'RESOURCE_NOT_FOUND' || deleted.code === 'PROVIDER_AUTH_REQUIRED' || deleted.code === 'INSUFFICIENT_SCOPES' || deleted.code === 'OPERATION_FORBIDDEN';
@@ -1395,6 +1400,7 @@ async function deleteMessageOverGraph(input: {
     accountId: message.account_id,
     connectionId,
     config: microsoftConfigFromEnv(),
+    immutableIds: await immutableIdsEnabled(account.provider_connection_id!),
     resourceId: identity.canonicalMessageId,
     providerMessageId: identity.providerMessageId,
     destinationPath: input.destinationPath,
@@ -1521,6 +1527,7 @@ async function moveMessagesOverGraph(input: {
       accountId: input.accountId,
       connectionId: input.account.provider_connection_id,
       config: microsoftConfigFromEnv(),
+      immutableIds: await immutableIdsEnabled(input.account.provider_connection_id),
       resourceId: identity.canonicalMessageId,
       providerMessageId: identity.providerMessageId,
       destinationPath: input.destinationPath,
@@ -1658,6 +1665,7 @@ async function respondWithGraphBody(
     userId: account.user_id,
     connectionId: account.provider_connection_id!,
     config: microsoftConfigFromEnv(),
+    immutableIds: await immutableIdsEnabled(account.provider_connection_id!),
   };
   const providerMessageId = identity.providerMessageId;
 
@@ -2605,7 +2613,7 @@ router.post('/messages/bulk-delete', async (req, res) => {
           }
           const removed = await deleteGraphMessagePermanently({
             userId: sessionUserId(req), accountId, connectionId: account.provider_connection_id ?? '',
-            config: microsoftConfigFromEnv(), resourceId: identity.canonicalMessageId, providerMessageId: identity.providerMessageId,
+            config: microsoftConfigFromEnv(), immutableIds: await immutableIdsEnabled(account.provider_connection_id!), resourceId: identity.canonicalMessageId, providerMessageId: identity.providerMessageId,
           });
           if (removed.deleted) {
             expungedCanonicalIds.add(identity.canonicalMessageId);
@@ -2908,6 +2916,7 @@ router.post('/messages/bulk-move', async (req, res) => {
     // Graph moves are already applied by the branch above; they belong in the count
     // and broadcast pass, not in the CTE that re-inserts an IMAP row.
     const graphMovedIds: string[] = [];
+    const graphFailedIds: string[] = [];
     const uidUpdates = [];
     const resyncAccounts = []; // accounts whose moved msgs lacked new UIDs (non-UIDPLUS)
     for (const [accountId, msgs] of Object.entries(byAccount)) {
@@ -2933,6 +2942,7 @@ router.post('/messages/bulk-move', async (req, res) => {
         // below, and a Graph move re-identifies the message, so the CTE would delete the
         // row and re-insert it under a UID the provider does not have.
         graphMovedIds.push(...graphMove.movedIds);
+        graphFailedIds.push(...graphMove.failedIds);
         continue;
       }
       // Gmail keeps the message's identity across a move, so the caller's UIDPLUS
@@ -3024,7 +3034,10 @@ router.post('/messages/bulk-move', async (req, res) => {
     // Refresh GTD section data for any moved thread that still carries a GTD label sibling.
     notifyMailMutation(owned, sessionUserId(req));
 
-    res.json({ ok: true, moved: [...movedIds, ...graphMovedIds] });
+    const moved = [...movedIds, ...graphMovedIds];
+    res.json(graphFailedIds.length > 0
+      ? { ok: false, moved, failed: graphFailedIds }
+      : { ok: true, moved });
   } catch (err) {
     console.error('bulk-move error:', err);
     res.status(500).json({ error: 'Failed to move messages' });
@@ -3511,20 +3524,7 @@ router.delete('/messages/:id', async (req, res) => {
     if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error, ...(outcome.code ? { code: outcome.code } : {}) });
 
     if (outcome.moved && trashPath) {
-      // A Graph move re-identifies the message: the local row adopts the new id and
-      // the new compatibility number, so the next delta matches instead of
-      // re-inserting a second row.
-      await query('DELETE FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3 AND id != $4',
-        [message.account_id, outcome.newUid, trashPath, id]);
-      const updated = await query(
-        'UPDATE messages SET folder = $1, uid = $2, provider_message_id = $3 WHERE id = $4',
-        [trashPath, outcome.newUid, outcome.newProviderMessageId, id],
-      );
-      if ((updated.rowCount ?? 0) === 0) {
-        // A concurrent sync removed the source row. That is not a failure: the
-        // destination's next delta lists the message under its new id and re-ingests it.
-        console.warn('Graph move: the local row was gone before it could be re-homed; the next sync will re-ingest it');
-      }
+      // The shared Graph mover already committed identity and folder atomically.
       adjustFolderCounts(message.account_id, message.folder, -1, -wasUnread);
       adjustFolderCounts(message.account_id, trashPath, 1, wasUnread);
     } else {
@@ -3760,12 +3760,13 @@ async function moveForSpamLabel(messageId: string, userId: string, destinationFo
       // because a training row for a move that did not happen would be a lie.
       return { ok: false, status: 502, error: 'Microsoft Graph did not confirm the move' };
     }
-    newUid = move.newUids[messageId] ?? null;
+    const canonicalMessageId = move.movedIds[0]!;
+    newUid = move.newUids[canonicalMessageId] ?? null;
     // The move re-homed the row; the user's verdict is recorded separately, exactly
     // as the IMAP branch records it alongside its own folder/uid update.
     await query(
       `UPDATE messages SET spam_user_override = $1, spam_verdict = $1, spam_analyzed_at = NOW() WHERE id = $2`,
-      [label, messageId]
+      [label, canonicalMessageId]
     );
   } else if (account.mail_transport === 'gmail_api') {
     const move = await moveMessagesOverGmail({
@@ -3852,6 +3853,7 @@ async function moveForSpamLabel(messageId: string, userId: string, destinationFo
     ).catch(err => console.warn('Failed to auto-persist folder_mappings.spam:', err.message));
   }
 
+  imapManager.broadcast({ type: 'folder_updated', folder: message.folder, accountId: account.id }, userId);
   imapManager.broadcast(
     { type: 'folder_updated', folder: destinationFolder, accountId: account.id },
     userId

@@ -370,10 +370,23 @@ export async function runProviderSyncForHint(input: {
   if (optionalFeature && !await providerConnectionFeatureEnabled({
     userId: input.userId, connectionId: input.connectionId, feature: optionalFeature,
   })) return { ran: false, reason: 'FEATURE_DISABLED' };
-  const sync = syncFor(input.provider, input.resourceType);
+  // Push uses the provider-agnostic resource name `mail`, while the polling
+  // scheduler dispatches through provider-specific collection kinds:
+  // Gmail -> mail_label, Microsoft Graph -> mail_folder.
+  const dispatchKind = input.resourceType === 'mail'
+    ? (input.provider === 'google' ? 'mail_label' : 'mail_folder')
+    : input.resourceType;
+
+  const sync = syncFor(input.provider, dispatchKind);
   if (!sync) return { ran: false, reason: 'NO_SYNC_FOR_RESOURCE' };
   await sync(
-    { userId: input.userId, connectionId: input.connectionId, provider: input.provider, features: [input.resourceType], discovery: false },
+    {
+      userId: input.userId,
+      connectionId: input.connectionId,
+      provider: input.provider,
+      features: [dispatchKind],
+      discovery: false,
+    },
     googleConfig,
     microsoftConfig,
   );

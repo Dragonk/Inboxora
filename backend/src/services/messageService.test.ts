@@ -284,10 +284,12 @@ describe('listMessages — threaded mode', () => {
     const cteSql = query.mock.calls[1][0];
     const countSql = query.mock.calls[2][0];
     expect(cteSql).toContain("m.account_id::text || ':' || m.thread_key");
-    expect(cteSql).toContain('m.thread_key,');
+    expect(cteSql).toContain('SELECT m.account_id, m.thread_key AS thread_bucket');
+    expect(cteSql).toContain('GROUP BY m.account_id, m.thread_key');
+    expect(cteSql).toContain('pt.thread_bucket = m.thread_key');
     expect(cteSql).toContain('PARTITION BY d.thread_id');
     expect(countSql).toContain('GROUP BY m.account_id, m.thread_key');
-    expect(cteSql).toContain('pt.account_id = m.account_id AND pt.thread_key = m.thread_key');
+    expect(cteSql).toContain('pt.account_id = m.account_id AND pt.thread_bucket = m.thread_key');
   });
 });
 

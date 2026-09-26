@@ -76,6 +76,7 @@ describe('planning and applying the translation', () => {
   it('records the immutable id, and skips a row whose new id another row already holds', async () => {
     const client = { query: vi.fn()
       .mockResolvedValueOnce({ rowCount: 1 })
+      .mockResolvedValueOnce({ rowCount: 1 })
       .mockResolvedValueOnce({ rowCount: 0 }) };
     withTransaction.mockImplementation((async (run: (value: unknown) => Promise<unknown>) => run(client)) as never);
 
@@ -91,7 +92,18 @@ describe('planning and applying the translation', () => {
     expect(result).toEqual({ updated: 1, skipped: 1 });
     // The second row would have collided with an id another row of the same account already holds, so it is skipped
     // rather than allowed to break that identity.
-    const [sql, params] = client.query.mock.calls[1] as [string, unknown[]];
+    const [pendingSql, pendingParams] =
+      client.query.mock.calls[1] as [string, unknown[]];
+    expect(pendingSql).toContain('graph_pending_message_removals');
+    expect(pendingSql).toContain('provider_message_id = $3');
+    expect(pendingParams).toEqual([
+      'row-1',
+      'IMMUTABLE-1',
+      'AAMkAD-1',
+    ]);
+
+    const [sql, params] =
+      client.query.mock.calls[2] as [string, unknown[]];
     expect(sql).toContain('NOT EXISTS');
     expect(params).toEqual(['row-2', 'IMMUTABLE-3']);
   });

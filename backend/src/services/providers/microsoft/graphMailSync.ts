@@ -1,4 +1,7 @@
 import type { PoolClient } from 'pg';
+import { graphDeltaFields } from './graphDeltaFields.js';
+import { lockGraphMailWrites, admitGraphDeltaLocation, prepareGraphDeltaPage } from './graphMailContinuity.js';
+import type { GraphLocationChecks } from './graphMailContinuity.js';
 import { query, withSavepoint, withTransaction } from '../../db.js';
 import { toAppError } from '../../../utils/errors.js';
 import { bindVerifiedLegacyGraphMessage } from './graphLegacyMessageBindings.js';
@@ -30,6 +33,12 @@ import { drainGraphMailFlagOperations } from './graphMailMutations.js';
 import { applyIngestRulesToRows } from '../../providerIngestRules.js';
 import { persistConversationCopyForRow } from '../../conversationRowIngest.js';
 import { immutableIdsEnabled } from './graphMessageIdType.js';
+import {
+  clearGraphPendingRemoval,
+  enqueueGraphBaselineRemovalCandidates,
+  enqueueGraphPendingRemoval,
+  processGraphPendingRemovals,
+} from './graphPendingMessageRemovals.js';
 import type { ConversationAccountRow } from '../../conversationRowIngest.js';
 import type { FetchLike } from '../../providerAuthService.js';
 
@@ -437,9 +446,59 @@ interface MessageContext {
   accountId: string;
   connectionId: string;
   folderPath: string;
+  remoteFolderId?: string;
 }
 
 const MESSAGE_MAX_PAGES = 1000;
+
+async function graphDatabaseNowIso(): Promise<string> {
+  const result = await query<{ now: Date }>(
+    'SELECT clock_timestamp() AS now',
+  );
+  const value = result.rows[0]?.now;
+  if (!value) throw new Error('Database did not return a baseline timestamp');
+  return new Date(value).toISOString();
+}
+
+/**
+ * Graph message delta is folder-scoped: @removed(reason=deleted) may mean a
+ * true deletion or a move out of this folder. Tombstones therefore never
+ * authorize an immediate local DELETE. They are persisted for delayed,
+ * repeatable reconciliation after the normal folder deltas have run.
+ */
+interface GraphMessagePageCheckpoint {
+  nextLink: string;
+  fullSync: boolean;
+  /**
+   * Wall-clock start of the full baseline.
+   *
+   * Every Graph row observed during the baseline receives synced_at = NOW().
+   * Reconciliation may therefore delete only rows that still pre-date this
+   * watermark. Mail received or refreshed while the historical baseline is
+   * running is protected even if that baseline snapshot did not contain it.
+   */
+  baselineStartedAt: string | null;
+}
+
+/** Parse a durable Graph paging checkpoint, rejecting malformed or legacy-unsafe state. */
+function parseGraphMessagePageCheckpoint(value: string | null | undefined): GraphMessagePageCheckpoint | null {
+  if (!value) return null;
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (!parsed || typeof parsed !== 'object') return null;
+    const checkpoint = parsed as Partial<GraphMessagePageCheckpoint>;
+    if (typeof checkpoint.nextLink !== 'string' || typeof checkpoint.fullSync !== 'boolean') return null;
+    const baselineStartedAt =
+      typeof checkpoint.baselineStartedAt === 'string'
+      && Number.isFinite(Date.parse(checkpoint.baselineStartedAt))
+        ? checkpoint.baselineStartedAt
+        : null;
+    return { nextLink: checkpoint.nextLink, fullSync: checkpoint.fullSync, baselineStartedAt };
+  } catch {
+    return null;
+  }
+}
+
 /** The local-wins window the IMAP path uses, in seconds. */
 const LOCAL_WINS_SECONDS = 30;
 
@@ -456,30 +515,43 @@ export async function applyGraphMailMessagesPage(
   client: PoolClient,
   context: MessageContext,
   messages: readonly GraphMessage[],
-  seenProviderIds?: Set<string>,
-): Promise<{ created: number; updated: number; deleted: number; skipped: number; rowIds: string[] }> {
-  const totals = { created: 0, updated: 0, deleted: 0, skipped: 0, rowIds: [] as string[] };
+  locationChecks: GraphLocationChecks = new Map(),
+): Promise<{ created: number; updated: number; deleted: number; skipped: number; rowIds: string[]; ingestRowIds: string[] }> {
+  await lockGraphMailWrites(client, context.accountId);
+  const totals = { created: 0, updated: 0, deleted: 0, skipped: 0, rowIds: [] as string[], ingestRowIds: [] as string[] };
   for (const message of messages) {
     if (!message.id) { totals.skipped += 1; continue; }
     if (message['@removed']) {
-      // The delta is folder-scoped, and Graph emits `@removed` both for a real deletion and for a message that
-      // *moved out of this folder*. Deleting by account and provider id alone therefore removed a message that
-      // had already been re-homed to the destination folder — the folder the delta was read from is the one that
-      // may be vacated, so the deletion is scoped to it (GRAPH-05). A move processed in either order now
-      // converges on one row in the destination: source-first deletes it and the destination re-creates it,
-      // destination-first leaves it untouched because its folder no longer matches.
-      const removed = await client.query(
-        'DELETE FROM messages WHERE account_id = $1 AND provider_message_id = $2 AND folder = $3',
-        [context.accountId, message.id, context.folderPath],
-      );
-      if ((removed.rowCount ?? 0) > 0) totals.deleted += 1;
-      else totals.skipped += 1;
+      // Be conservative with destructive provider events. Only an explicit
+      // `deleted` removal is authoritative enough to remove the local row.
+      if (message['@removed'].reason !== 'deleted') {
+        totals.skipped += 1;
+        continue;
+      }
+      // Only folder-delta callers know the provider folder identity needed
+      // for durable tombstone reconciliation. Search/import callers never use
+      // tombstones and must not fabricate a remote folder id.
+      if (!context.remoteFolderId) {
+        totals.skipped += 1;
+        continue;
+      }
+
+      await enqueueGraphPendingRemoval(client, {
+        connectionId: context.connectionId,
+        accountId: context.accountId,
+        providerMessageId: message.id,
+        sourceFolderPath: context.folderPath,
+        sourceFolderRemoteId: context.remoteFolderId,
+      });
+      totals.skipped += 1;
       continue;
     }
+    if (!await admitGraphDeltaLocation(client, {
+      accountId: context.accountId, connectionId: context.connectionId,
+      folderPath: context.folderPath, messageId: message.id, checks: locationChecks,
+    })) { totals.skipped += 1; continue; }
     const local = localMessageForGraphMessage(message);
     if (!local) { totals.skipped += 1; continue; }
-    seenProviderIds?.add(local.providerMessageId);
-
     let applied: { id: string; inserted: boolean } | null = null;
     for (let attempt = 0; attempt < 3 && !applied; attempt++) {
       const uid = attempt === 0 ? local.uid : providerUidForGraphMessage(local.providerMessageId, attempt);
@@ -496,26 +568,28 @@ export async function applyGraphMailMessagesPage(
              ON CONFLICT (account_id, provider_message_id) WHERE provider_message_id IS NOT NULL DO UPDATE SET
                folder = EXCLUDED.folder,
                uid = EXCLUDED.uid,
-               message_id = EXCLUDED.message_id,
-               thread_id = EXCLUDED.thread_id,
-               subject = EXCLUDED.subject,
-               from_name = EXCLUDED.from_name,
-               from_email = EXCLUDED.from_email,
-               to_addresses = EXCLUDED.to_addresses,
-               cc_addresses = EXCLUDED.cc_addresses,
-               reply_to = EXCLUDED.reply_to,
+               message_id = CASE WHEN $21::jsonb ? 'internetMessageId' THEN EXCLUDED.message_id ELSE messages.message_id END,
+               thread_id = CASE WHEN $21::jsonb ? 'conversationId' THEN EXCLUDED.thread_id ELSE messages.thread_id END,
+               subject = CASE WHEN $21::jsonb ? 'subject' THEN EXCLUDED.subject ELSE messages.subject END,
+               from_name = CASE WHEN $21::jsonb ? 'from' THEN EXCLUDED.from_name ELSE messages.from_name END,
+               from_email = CASE WHEN $21::jsonb ? 'from' THEN EXCLUDED.from_email ELSE messages.from_email END,
+               to_addresses = CASE WHEN $21::jsonb ? 'toRecipients' THEN EXCLUDED.to_addresses ELSE messages.to_addresses END,
+               cc_addresses = CASE WHEN $21::jsonb ? 'ccRecipients' THEN EXCLUDED.cc_addresses ELSE messages.cc_addresses END,
+               reply_to = CASE WHEN $21::jsonb ? 'replyTo' THEN EXCLUDED.reply_to ELSE messages.reply_to END,
                -- Graph delta entries may omit internet headers; retain prior hydration.
                list_unsubscribe = COALESCE(EXCLUDED.list_unsubscribe, messages.list_unsubscribe),
                list_unsubscribe_post = COALESCE(EXCLUDED.list_unsubscribe_post, messages.list_unsubscribe_post),
-               date = EXCLUDED.date,
-               snippet = EXCLUDED.snippet,
+               date = CASE WHEN $21::jsonb ?| ARRAY['receivedDateTime','sentDateTime'] THEN EXCLUDED.date ELSE messages.date END,
+               snippet = CASE WHEN $21::jsonb ? 'bodyPreview' THEN EXCLUDED.snippet ELSE messages.snippet END,
                is_read = CASE
+                 WHEN NOT ($21::jsonb ? 'isRead') THEN messages.is_read
                  WHEN messages.read_changed_at IS NULL OR messages.read_changed_at < NOW() - make_interval(secs => $20)
                    THEN EXCLUDED.is_read ELSE messages.is_read END,
                is_starred = CASE
+                 WHEN NOT ($21::jsonb ? 'flag') THEN messages.is_starred
                  WHEN messages.star_changed_at IS NULL OR messages.star_changed_at < NOW() - make_interval(secs => $20)
                    THEN EXCLUDED.is_starred ELSE messages.is_starred END,
-               has_attachments = EXCLUDED.has_attachments,
+               has_attachments = CASE WHEN $21::jsonb ? 'hasAttachments' THEN EXCLUDED.has_attachments ELSE messages.has_attachments END,
                synced_at = NOW()
              RETURNING id, (xmax = 0) AS inserted`,
             [
@@ -524,6 +598,7 @@ export async function applyGraphMailMessagesPage(
               JSON.stringify(local.toAddresses), JSON.stringify(local.ccAddresses), JSON.stringify(local.replyTo),
               local.listUnsubscribe, local.listUnsubscribePost,
               local.date, local.snippet, local.isRead, local.isStarred, local.hasAttachments, LOCAL_WINS_SECONDS,
+              JSON.stringify(graphDeltaFields(message)),
             ],
           );
           return result.rows[0] ?? null;
@@ -551,8 +626,9 @@ export async function applyGraphMailMessagesPage(
           // The id is collected so the caller can run the conversation projection
           // **after** this transaction commits: the engine opens its own, and nesting
           // the two is the mistake this return value exists to prevent.
+          await clearGraphPendingRemoval(client, applied.id);
           totals.rowIds.push(applied.id);
-          if (applied.inserted) totals.created += 1;
+          if (applied.inserted) { totals.created += 1; totals.ingestRowIds.push(applied.id); }
           else totals.updated += 1;
         }
       } catch (caught) {
@@ -565,21 +641,6 @@ export async function applyGraphMailMessagesPage(
     if (!applied) totals.skipped += 1;
   }
   return totals;
-}
-
-/** Remove the local provider messages of a folder that a rebuilt baseline did not list. */
-export async function reconcileGraphMailMessages(
-  client: PoolClient,
-  context: MessageContext,
-  seenProviderIds: ReadonlySet<string>,
-): Promise<number> {
-  const removed = await client.query(
-    `DELETE FROM messages
-      WHERE account_id = $1 AND folder = $2 AND provider_message_id IS NOT NULL
-        AND provider_message_id <> ALL($3::text[])`,
-    [context.accountId, context.folderPath, [...seenProviderIds]],
-  );
-  return removed.rowCount ?? 0;
 }
 
 /** The enabled mail-folder collections of one connection, with their local paths. */
@@ -702,6 +763,20 @@ export async function syncGraphMailMessagesForAccount(input: {
       }
     }
   }
+  // Reconcile delayed tombstones only after the normal folder deltas. A fresh
+  // provider row gets the first chance to cancel its pending removal, so a due
+  // tombstone can never race ahead of current mailbox state.
+  const pending = await processGraphPendingRemovals({
+    userId: input.userId,
+    connectionId: input.connectionId,
+    accountId: input.accountId,
+    ...(input.config ? { config: input.config } : {}),
+    ...(input.fetchImpl ? { fetchImpl: input.fetchImpl } : {}),
+  });
+
+  totals.deleted += pending.deleted;
+  totals.updated += pending.relocated;
+
   // Existing IMAP-era rows are not re-emitted by a current Graph delta. Repair one bounded local slice after the
   // regular account pass; it has separate durable state and cannot alter any folder cursor or provider data.
   try {
@@ -761,19 +836,37 @@ export async function syncGraphMailMessagesForFolder(input: {
     ...(input.config ? { config: input.config } : {}),
     ...(input.fetchImpl ? { fetchImpl: input.fetchImpl } : {}),
   };
-  const context: MessageContext = { userId: input.userId, accountId: input.accountId, connectionId: input.connectionId, folderPath: input.target.folderPath };
+  const context: MessageContext = {
+    userId: input.userId,
+    accountId: input.accountId,
+    connectionId: input.connectionId,
+    folderPath: input.target.folderPath,
+    remoteFolderId: input.target.remoteId,
+  };
 
   try {
     const state = await withTransaction(client => readSyncState(client, syncStateId));
+    let checkpoint = parseGraphMessagePageCheckpoint(state?.pageCheckpoint);
     let cursor = state?.cursor ?? null;
-    let fullSync = cursor === null;
-    let nextLink: string | null = null;
-    // Only a baseline needs the seen-set: a delta reports deletions explicitly.
-    const seen = new Set<string>();
+
+    // A checkpoint written before baselineStartedAt existed cannot safely support
+    // destructive reconciliation. Restart that baseline instead of guessing.
+    if (checkpoint?.fullSync && checkpoint.baselineStartedAt === null) {
+      checkpoint = null;
+    }
+
+    let fullSync = checkpoint?.fullSync ?? cursor === null;
+    let nextLink: string | null = checkpoint?.nextLink ?? null;
+    let baselineStartedAt: string | null = fullSync
+      ? (checkpoint?.baselineStartedAt ?? await graphDatabaseNowIso())
+      : null;
+
     const totals = { created: 0, updated: 0, deleted: 0, skipped: 0 };
     let complete = false;
+    let pagesFetched = 0;
+    const maxPages = input.maxPages ?? MESSAGE_MAX_PAGES;
 
-    for (let page = 0; page < (input.maxPages ?? MESSAGE_MAX_PAGES); page++) {
+    while (pagesFetched < maxPages) {
       let fetched;
       try {
         fetched = await fetchMessagesDeltaPage(api, {
@@ -782,17 +875,40 @@ export async function syncGraphMailMessagesForFolder(input: {
           deltaLink: nextLink ? null : cursor,
         });
       } catch (caught) {
-        // An expired delta token: rebuild this folder from a baseline instead of failing.
-        if (caught instanceof GraphApiError && caught.code === 'INVALID_SYNC_CURSOR' && cursor) {
+        // Either a saved deltaLink or an in-flight nextLink may expire. Clear the
+        // rejected continuation DURABLY before starting a new baseline; otherwise
+        // a process restart can restore the same broken nextLink forever.
+        if (caught instanceof GraphApiError && caught.code === 'INVALID_SYNC_CURSOR' && (cursor || nextLink)) {
           cursor = null;
           nextLink = null;
           fullSync = true;
-          seen.clear();
+          baselineStartedAt = await graphDatabaseNowIso();
+
+          const resetSaved = await withTransaction(client => commitSyncCheckpoint(client, {
+            syncStateId,
+            generation: lease.generation,
+            cursor: null,
+            clearPageCheckpoint: true,
+            lastErrorCode: null,
+          }));
+          if (!resetSaved) throw new SyncLeaseLostError();
           continue;
         }
         throw caught;
       }
-      const applied = await withFencedSyncLease({ syncStateId, generation: lease.generation, run: client => applyGraphMailMessagesPage(client, context, fetched.messages, seen) });
+      pagesFetched += 1;
+
+      const prepared = await prepareGraphDeltaPage(api, {
+        accountId: input.accountId, folderPath: input.target.folderPath,
+        remoteFolderId: input.target.remoteId, messages: fetched.messages,
+      });
+      const applied = await withFencedSyncLease({
+        syncStateId,
+        generation: lease.generation,
+        run: client => applyGraphMailMessagesPage(
+          client, context, prepared.messages, prepared.checks,
+        ),
+      });
       await persistConversations(applied.rowIds, input.account);
       // MAIL-01: a blocked sender's mail must not stay in a native account's inbox either. The block list
       // runs on the rows this page just stored, through the provider port, and only for a folder that is the
@@ -802,7 +918,7 @@ export async function syncGraphMailMessagesForFolder(input: {
         connectionId: input.connectionId,
         account: input.account,
         folder: input.target.folderPath,
-        rowIds: applied.rowIds,
+        rowIds: applied.ingestRowIds,
         providerName: 'Microsoft Graph',
       }).catch((error: unknown) => console.warn('Microsoft Graph ingest block list failed:', error instanceof Error ? error.message : error));
       totals.created += applied.created;
@@ -812,6 +928,16 @@ export async function syncGraphMailMessagesForFolder(input: {
       if (fetched.deltaLink) cursor = fetched.deltaLink;
       nextLink = fetched.nextLink;
       if (!nextLink) { complete = true; break; }
+
+      // Keep the continuation checkpoint bounded. The watermark stays constant
+      // for the whole full baseline and survives worker/process restarts.
+      const checkpointSaved = await withTransaction(client => commitSyncCheckpoint(client, {
+        syncStateId,
+        generation: lease.generation,
+        pageCheckpoint: JSON.stringify({ nextLink, fullSync, baselineStartedAt }),
+        lastErrorCode: null,
+      }));
+      if (!checkpointSaved) throw new SyncLeaseLostError();
     }
 
     if (!complete) {
@@ -823,11 +949,14 @@ export async function syncGraphMailMessagesForFolder(input: {
       return { ...totals, fullSync, incomplete: true };
     }
 
-    if (fullSync) {
-      // A baseline lists everything that still exists, so anything else is gone.
-      totals.deleted += await withFencedSyncLease({ syncStateId, generation: lease.generation, run: client => reconcileGraphMailMessages(client, context, seen) });
-    }
-
+    // A rebuilt Graph baseline is authoritative for messages it returns, but
+    // absence from that enumeration is never an immediate deletion. Stale rows
+    // become durable reconciliation candidates and must pass delayed provider
+    // verification before a local DELETE is allowed.
+    //
+    // This is deliberately fail-safe. A baseline can be restarted or overlap
+    // mailbox changes, and inferring deletion from absence previously caused
+    // newly delivered mail to disappear minutes after it had been displayed.
     const committed = await withTransaction(async client => {
       const saved = await commitSyncCheckpoint(client, {
         syncStateId,
@@ -837,6 +966,20 @@ export async function syncGraphMailMessagesForFolder(input: {
         lastErrorCode: null,
       });
       if (!saved) return false;
+
+      // Baseline omission may only feed destructive reconciliation when the
+      // per-item verifier has established stable Graph identity. Absence is
+      // never sufficient deletion evidence.
+      if (fullSync && baselineStartedAt) {
+        await enqueueGraphBaselineRemovalCandidates(client, {
+          connectionId: input.connectionId,
+          accountId: input.accountId,
+          sourceFolderPath: input.target.folderPath,
+          sourceFolderRemoteId: input.target.remoteId,
+          baselineStartedAt,
+        });
+      }
+
       // The delta was read to its end, so the run may claim a successful synchronisation (SYNC-02).
       return finishSyncRun(client, { syncStateId, generation: lease.generation, lastErrorCode: null });
     });
