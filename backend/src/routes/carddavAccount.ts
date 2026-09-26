@@ -211,6 +211,139 @@ router.post('/sync', async (req: Request, res: Response) => {
   res.json({ ...result, status: publicStatus(selected?.config ?? null, selected ? { id: selected.id, label: selected.label } : undefined), sources: sources.map(source => publicStatus(source.config, { id: source.id, label: source.label })) });
 });
 
+// Forget an orphaned legacy CardDAV projection locally.
+//
+// Current CardDAV sources are owned by user_integrations and continue to use
+// DELETE /carddav. Older projections may survive without that integration row.
+// This endpoint only removes Inboxora's local projection and never contacts the
+// remote CardDAV server.
+router.delete('/legacy/:sourceIdentity', async (req: Request, res: Response) => {
+  const userId = sessionUserId(req);
+  const identity = Array.isArray(req.params.sourceIdentity)
+    ? req.params.sourceIdentity[0]
+    : req.params.sourceIdentity;
+
+  const match = /^carddav:(connection|book):([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/i.exec(identity);
+  if (!match) {
+    return res.status(400).json({
+      code: 'INVALID_LEGACY_SOURCE',
+      error: 'Invalid legacy CardDAV source identity',
+    });
+  }
+
+  const [, kind, id] = match;
+
+  if (kind === 'connection') {
+    const source = await query<{ id: string; integration_id: string | null }>(
+      `SELECT id, integration_id
+         FROM source_connections
+        WHERE id = $1
+          AND user_id = $2
+          AND kind = 'carddav'`,
+      [id, userId],
+    );
+
+    if (!source.rows[0]) {
+      return res.status(404).json({
+        code: 'SOURCE_NOT_AVAILABLE',
+        error: 'Legacy CardDAV source not found',
+      });
+    }
+
+    // A source with integration_id is a current CardDAV source. Do not let the
+    // legacy cleanup path bypass normal source isolation/lifecycle.
+    if (source.rows[0].integration_id) {
+      return res.status(409).json({
+        code: 'CURRENT_SOURCE',
+        error: 'This CardDAV source is still connected and must be disconnected normally',
+      });
+    }
+
+    // Remove only address books owned by this exact legacy source connection.
+    // integration_collections is checked too because older projections may
+    // predate address_books.source_connection_id.
+    await query(
+      `DELETE FROM address_books ab
+        WHERE ab.user_id = $1
+          AND ab.source = 'carddav'
+          AND (
+            ab.source_connection_id = $2
+            OR EXISTS (
+              SELECT 1
+                FROM integration_collections ic
+               WHERE ic.user_id = ab.user_id
+                 AND ic.kind = 'address_book'
+                 AND ic.local_address_book_id = ab.id
+                 AND ic.source_connection_id = $2
+            )
+          )`,
+      [userId, id],
+    );
+
+    await query(
+      `DELETE FROM source_connections
+        WHERE id = $1
+          AND user_id = $2
+          AND kind = 'carddav'
+          AND integration_id IS NULL`,
+      [id, userId],
+    );
+
+    return res.status(204).end();
+  }
+
+  // Very old projections can have no source connection at all. In that case
+  // the displayed book itself is the only unambiguous local identity.
+  const book = await query<{
+    id: string;
+    source_connection_id: string | null;
+    linked: boolean;
+  }>(
+    `SELECT ab.id,
+            ab.source_connection_id,
+            EXISTS (
+              SELECT 1
+                FROM integration_collections ic
+               WHERE ic.user_id = ab.user_id
+                 AND ic.kind = 'address_book'
+                 AND ic.local_address_book_id = ab.id
+                 AND (
+                   ic.source_connection_id IS NOT NULL
+                   OR ic.connection_id IS NOT NULL
+                 )
+            ) AS linked
+       FROM address_books ab
+      WHERE ab.id = $1
+        AND ab.user_id = $2
+        AND ab.source = 'carddav'`,
+    [id, userId],
+  );
+
+  if (!book.rows[0]) {
+    return res.status(404).json({
+      code: 'SOURCE_NOT_AVAILABLE',
+      error: 'Legacy CardDAV source not found',
+    });
+  }
+
+  if (book.rows[0].source_connection_id || book.rows[0].linked) {
+    return res.status(409).json({
+      code: 'CURRENT_SOURCE',
+      error: 'This CardDAV book is still attached to a source connection',
+    });
+  }
+
+  await query(
+    `DELETE FROM address_books
+      WHERE id = $1
+        AND user_id = $2
+        AND source = 'carddav'`,
+    [id, userId],
+  );
+
+  return res.status(204).end();
+});
+
 router.delete('/', async (req: Request, res: Response) => {
   const userId = sessionUserId(req);
   const body = requestBody(req);

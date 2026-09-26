@@ -2018,6 +2018,104 @@ router.patch('/sources/:sourceId', async (req, res) => {
   res.json({ source: publicSource(source) });
 });
 
+// Forget an orphaned legacy CalDAV/ICS projection locally.
+//
+// Current CalDAV and iCal URL sources have calendar_import_sources rows and use
+// DELETE /sources/:sourceId. A collection:<uuid> presentation identity can
+// remain when the old source metadata is gone. This cleanup path never sends a
+// remote DAV delete.
+router.delete('/legacy-sources/:sourceIdentity', async (req, res) => {
+  const identity = Array.isArray(req.params.sourceIdentity)
+    ? req.params.sourceIdentity[0]
+    : req.params.sourceIdentity;
+  const match = /^collection:([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/i.exec(identity);
+
+  if (!match) {
+    return res.status(400).json({
+      code: 'INVALID_LEGACY_SOURCE',
+      error: 'Invalid legacy calendar source identity',
+    });
+  }
+
+  const userId = sessionUserId(req);
+  const id = match[1];
+
+  const target = await query<{
+    id: string;
+    source: string | null;
+    collection_id: string | null;
+    import_source_id: string | null;
+    provider: string | null;
+  }>(
+    `SELECT DISTINCT
+            c.id,
+            c.source,
+            ic.id AS collection_id,
+            cis.id AS import_source_id,
+            pc.provider
+       FROM calendars c
+       LEFT JOIN integration_collections ic
+              ON ic.local_calendar_id = c.id
+             AND ic.kind = 'calendar'
+             AND ic.user_id = c.user_id
+       LEFT JOIN provider_connections pc
+              ON pc.id = ic.connection_id
+             AND pc.user_id = c.user_id
+       LEFT JOIN calendar_import_sources cis
+              ON cis.user_id = c.user_id
+             AND c.external_url = ('source:' || cis.id::text)
+      WHERE c.user_id = $2
+        AND (
+          ic.id = $1
+          OR (ic.id IS NULL AND c.id = $1)
+        )
+      LIMIT 1`,
+    [id, userId],
+  );
+
+  const row = target.rows[0];
+
+  if (!row) {
+    return res.status(404).json({
+      code: 'SOURCE_NOT_AVAILABLE',
+      error: 'Legacy calendar source not found',
+    });
+  }
+
+  // If the proper source still exists, normal disconnect must be used.
+  if (row.import_source_id) {
+    return res.status(409).json({
+      code: 'CURRENT_SOURCE',
+      error: 'This calendar source is still connected and must be disconnected normally',
+    });
+  }
+
+  // Never let the legacy cleanup endpoint delete native-provider, local or
+  // synthetic Inboxora calendars.
+  if (
+    row.provider === 'google'
+    || row.provider === 'microsoft'
+    || row.source === 'google'
+    || row.source === 'microsoft'
+    || row.source === 'local'
+    || row.source === 'contacts'
+  ) {
+    return res.status(409).json({
+      code: 'PROTECTED_SOURCE',
+      error: 'This calendar is not an orphaned CalDAV or subscription source',
+    });
+  }
+
+  await query(
+    `DELETE FROM calendars
+      WHERE id = $1
+        AND user_id = $2`,
+    [row.id, userId],
+  );
+
+  return res.status(204).end();
+});
+
 router.delete('/sources/:sourceId', async (req, res) => {
   const existing = await query('SELECT * FROM calendar_import_sources WHERE id = $1 AND user_id = $2', [req.params.sourceId, req.session.userId]);
   if (!existing.rows[0]) return res.status(404).json({ error: 'Calendar source not found' });

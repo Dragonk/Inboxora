@@ -61,6 +61,88 @@ beforeEach(() => {
   mocks.query.mockResolvedValue({ rows: [] });
 });
 
+describe('DELETE /api/carddav legacy source cleanup', () => {
+  const connectionId = '11111111-1111-4111-8111-111111111111';
+  const bookId = '22222222-2222-4222-8222-222222222222';
+
+  it('forgets an orphaned legacy CardDAV connection locally', async () => {
+    mocks.query
+      .mockResolvedValueOnce({ rows: [{ id: connectionId, integration_id: null }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    const response = await fetch(
+      `${base}/api/carddav/legacy/${encodeURIComponent(`carddav:connection:${connectionId}`)}`,
+      { method: 'DELETE' },
+    );
+
+    expect(response.status).toBe(204);
+    expect(mocks.query).toHaveBeenCalledTimes(3);
+    expect(String(mocks.query.mock.calls[1]?.[0])).toContain("ab.source = 'carddav'");
+    expect(mocks.query.mock.calls[1]?.[1]).toEqual(['user-1', connectionId]);
+    expect(String(mocks.query.mock.calls[2]?.[0])).toContain('integration_id IS NULL');
+  });
+
+  it('refuses to forget a current integration-backed CardDAV connection', async () => {
+    mocks.query.mockResolvedValueOnce({
+      rows: [{ id: connectionId, integration_id: '33333333-3333-4333-8333-333333333333' }],
+    });
+
+    const response = await fetch(
+      `${base}/api/carddav/legacy/${encodeURIComponent(`carddav:connection:${connectionId}`)}`,
+      { method: 'DELETE' },
+    );
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ code: 'CURRENT_SOURCE' });
+    expect(mocks.query).toHaveBeenCalledTimes(1);
+  });
+
+  it('forgets an ownerless legacy CardDAV book only by exact book id', async () => {
+    mocks.query
+      .mockResolvedValueOnce({
+        rows: [{ id: bookId, source_connection_id: null, linked: false }],
+      })
+      .mockResolvedValueOnce({ rows: [] });
+
+    const response = await fetch(
+      `${base}/api/carddav/legacy/${encodeURIComponent(`carddav:book:${bookId}`)}`,
+      { method: 'DELETE' },
+    );
+
+    expect(response.status).toBe(204);
+    expect(mocks.query).toHaveBeenCalledTimes(2);
+    expect(String(mocks.query.mock.calls[1]?.[0])).toContain("source = 'carddav'");
+    expect(mocks.query.mock.calls[1]?.[1]).toEqual([bookId, 'user-1']);
+  });
+
+  it('refuses a legacy book that is still linked to a source', async () => {
+    mocks.query.mockResolvedValueOnce({
+      rows: [{ id: bookId, source_connection_id: connectionId, linked: true }],
+    });
+
+    const response = await fetch(
+      `${base}/api/carddav/legacy/${encodeURIComponent(`carddav:book:${bookId}`)}`,
+      { method: 'DELETE' },
+    );
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ code: 'CURRENT_SOURCE' });
+    expect(mocks.query).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects malformed legacy source identities', async () => {
+    const response = await fetch(`${base}/api/carddav/legacy/not-a-source`, {
+      method: 'DELETE',
+    });
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ code: 'INVALID_LEGACY_SOURCE' });
+    expect(mocks.query).not.toHaveBeenCalled();
+  });
+});
+
+
 describe('DELETE /api/carddav source isolation', () => {
   it('disconnects only the requested source and its linked address books', async () => {
     const response = await fetch(`${base}/api/carddav/`, {

@@ -28,3 +28,12 @@ test('manager keeps provider synchronization account-scoped and DAV-aware', asyn
   assert.match(source, /api\.carddav\.sync/);
   assert.match(source, /api\.carddav\.disconnect/);
 });
+
+test('manager exposes local cleanup for orphaned legacy CardDAV groups', async () => {
+  const source = await read('ContactsBooksManager.tsx');
+
+  assert.match(source, /carddav:connection:/);
+  assert.match(source, /carddav:book:/);
+  assert.match(source, /api\.carddav\.forgetLegacy/);
+  assert.match(source, /setForgetting\(source\)/);
+});

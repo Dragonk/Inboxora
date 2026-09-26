@@ -496,6 +496,8 @@ export const api = {
     update:     (data: unknown) => request('PATCH',  '/carddav', data),
     sync:       (sourceId?: string) => request('POST', '/carddav/sync', sourceId ? { sourceId } : undefined),
     disconnect: (sourceId?: string) => request('DELETE', '/carddav', sourceId ? { sourceId } : undefined),
+    forgetLegacy: (sourceIdentity: string) =>
+      request('DELETE', `/carddav/legacy/${encodeURIComponent(sourceIdentity)}`),
   },
 
   // DAV Hub — dedicated, revocable app passwords for CardDAV/CalDAV clients.
@@ -559,6 +561,8 @@ export const api = {
     updateSource: (id: string, data: unknown) => request('PATCH', `/calendar/sources/${encodeURIComponent(id)}`, data),
     syncSource: (id: string) => request('POST', `/calendar/sources/${encodeURIComponent(id)}/sync`),
     deleteSource: (id: string) => request('DELETE', `/calendar/sources/${encodeURIComponent(id)}`),
+    forgetLegacySource: (sourceIdentity: string) =>
+      request('DELETE', `/calendar/legacy-sources/${encodeURIComponent(sourceIdentity)}`),
   },
 
   // Image whitelist
