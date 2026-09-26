@@ -2916,6 +2916,7 @@ router.post('/messages/bulk-move', async (req, res) => {
     // Graph moves are already applied by the branch above; they belong in the count
     // and broadcast pass, not in the CTE that re-inserts an IMAP row.
     const graphMovedIds: string[] = [];
+    const graphFailedIds: string[] = [];
     const uidUpdates = [];
     const resyncAccounts = []; // accounts whose moved msgs lacked new UIDs (non-UIDPLUS)
     for (const [accountId, msgs] of Object.entries(byAccount)) {
@@ -2941,6 +2942,7 @@ router.post('/messages/bulk-move', async (req, res) => {
         // below, and a Graph move re-identifies the message, so the CTE would delete the
         // row and re-insert it under a UID the provider does not have.
         graphMovedIds.push(...graphMove.movedIds);
+        graphFailedIds.push(...graphMove.failedIds);
         continue;
       }
       // Gmail keeps the message's identity across a move, so the caller's UIDPLUS
@@ -3032,7 +3034,10 @@ router.post('/messages/bulk-move', async (req, res) => {
     // Refresh GTD section data for any moved thread that still carries a GTD label sibling.
     notifyMailMutation(owned, sessionUserId(req));
 
-    res.json({ ok: true, moved: [...movedIds, ...graphMovedIds] });
+    const moved = [...movedIds, ...graphMovedIds];
+    res.json(graphFailedIds.length > 0
+      ? { ok: false, moved, failed: graphFailedIds }
+      : { ok: true, moved });
   } catch (err) {
     console.error('bulk-move error:', err);
     res.status(500).json({ error: 'Failed to move messages' });

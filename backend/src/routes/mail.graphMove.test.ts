@@ -195,7 +195,7 @@ describe('bulk-move files a Graph message through the provider', () => {
 
     const response = await post('/messages/bulk-move', { ids: [MESSAGE_ID], folder: 'Nowhere' });
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ ok: true, moved: [] });
+    expect(await response.json()).toEqual({ ok: false, moved: [], failed: [MESSAGE_ID] });
     expect(mocks.runProviderMutation).not.toHaveBeenCalled();
   });
 
@@ -205,10 +205,31 @@ describe('bulk-move files a Graph message through the provider', () => {
 
     const response = await post('/messages/bulk-move', { ids: [MESSAGE_ID], folder: 'Archive' });
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ ok: true, moved: [] });
+    expect(await response.json()).toEqual({ ok: false, moved: [], failed: [MESSAGE_ID] });
     expectProjectedMove('Archive');
     expect(mocks.broadcast).not.toHaveBeenCalled();
     expect(mocks.adjustFolderCounts).not.toHaveBeenCalled();
+  });
+
+  it('reports a projection failure alongside a successfully moved Graph message', async () => {
+    const secondId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+    mocks.query
+      .mockResolvedValueOnce({ rows: [messageRow(), messageRow({ id: secondId, provider_message_id: 'AAMkAD-3' })], rowCount: 2 })
+      .mockResolvedValueOnce({ rows: [{ id: 'folder-1' }], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [graphAccount()], rowCount: 1 });
+    mocks.projectMove
+      .mockResolvedValueOnce({ moved: false, uid: null })
+      .mockResolvedValueOnce({ moved: true, uid: providerUidForGraphMessage('AAMkAD-4') });
+    mocks.runProviderMutation
+      .mockResolvedValueOnce({ status: 'confirmed', operationId: 'op-1', value: { id: 'AAMkAD-2' }, replayed: false })
+      .mockResolvedValueOnce({ status: 'confirmed', operationId: 'op-2', value: { id: 'AAMkAD-4' }, replayed: false });
+
+    const response = await post('/messages/bulk-move', { ids: [MESSAGE_ID, secondId], folder: 'Archive' });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: false, moved: [secondId], failed: [MESSAGE_ID] });
+    expect(mocks.projectMove).toHaveBeenCalledTimes(2);
+    expect(mocks.adjustFolderCounts).toHaveBeenCalledWith(ACCOUNT_ID, 'INBOX', -1, -1);
+    expect(mocks.adjustFolderCounts).toHaveBeenCalledWith(ACCOUNT_ID, 'Archive', 1, 1);
   });
 
   it('reports only the messages the provider confirmed', async () => {
@@ -216,7 +237,7 @@ describe('bulk-move files a Graph message through the provider', () => {
     mocks.runProviderMutation.mockResolvedValue({ status: 'permanent', operationId: 'op-1', code: 'RESOURCE_NOT_FOUND', replayed: false });
 
     const response = await post('/messages/bulk-move', { ids: [MESSAGE_ID], folder: 'Archive' });
-    expect(await response.json()).toEqual({ ok: true, moved: [] });
+    expect(await response.json()).toEqual({ ok: false, moved: [], failed: [MESSAGE_ID] });
     // Nothing is re-homed, so the message stays where the user can still see it.
     expect(mocks.query.mock.calls.some(([sql]) => String(sql).includes('provider_message_id = $3'))).toBe(false);
     expect(mocks.broadcast).not.toHaveBeenCalled();

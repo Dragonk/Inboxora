@@ -3,6 +3,7 @@
 **Status:** Hotfix  ·  **Release date:** 2026-09-25  ·  **Previous version:** 4.1.0
 
 ## Fixed
+- **Graph bulk move results expose per-message failures.** If a provider move is not projected locally, the response identifies that message in `failed` and sets `ok` to false; confirmed moves still appear in `moved`. No migration or configuration change is required. Route regression tests cover failed, successful and mixed results.
 - **Microsoft Graph rebuilt baselines no longer delete mail by omission.** Inboxora now removes a provider-backed message only when Graph delta explicitly reports an `@removed` event. Rebuilding an expired or reset delta cursor can no longer make a newly delivered or otherwise valid message disappear from the local mailbox.
 
 - **Microsoft Graph push starts for existing mailboxes.** When provider push is enabled after an account was already connected, Inboxora now bootstraps the missing mail subscription automatically; the two-minute polling path remains the reliability fallback.

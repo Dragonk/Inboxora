@@ -30,6 +30,7 @@ Nothing is being prepared beyond 4.1.1. Work whose version has not been chosen a
 ## [4.1.1] - 2026-09-25
 
 ### Fixed
+- **Graph bulk moves report unprojected items.** The response includes failed message IDs when a provider move cannot be projected locally, while confirmed items remain in `moved`.
 - **Graph accepts hydrated items with empty display metadata.** Blank subject, preview or RFC Message-ID values no longer block a sync page; physical-identity and folder checks remain enforced.
 - **Graph delta updates preserve omitted envelope fields.** Read/star changes do not erase the subject, RFC Message-ID, recipients, dates or preview, and do not rerun arrival rules.
 - **Graph moves preserve physical identity.** Provider-confirmed moves are projected atomically and replayed source pages are checked; spam/ham updates the canonical row and refreshes both folders. RFC Message-ID equality is not used to merge provider copies.
