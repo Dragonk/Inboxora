@@ -172,4 +172,21 @@ describe.skipIf(!enabled)('automatic storage maintenance with real PostgreSQL', 
     expect(full.resources.every(r=>(r.vcard?.length ?? 0)>100000)).toBe(true);
   });
 
+  it('re-arms a previously completed VACUUM when a later header batch repairs more rows',async()=>{
+    const header='Subject: Later repair\r\n';
+    const encoded=[...Buffer.from(header).entries()].map(([i,b])=>`${i}: ${b}`).join('\r\n');
+    const id=randomUUID();
+    await query("INSERT INTO messages(id,account_id,uid,folder,conversation_raw_headers) VALUES($1,$2,777,'INBOX',$3)",[id,account,encoded]);
+    await query(`INSERT INTO storage_maintenance(task,progress,completed_at,next_run_at)
+      VALUES('vacuum:messages','{"needed":false}',NOW(),NOW()+INTERVAL '1 day')
+      ON CONFLICT(task) DO UPDATE SET progress=EXCLUDED.progress,completed_at=EXCLUDED.completed_at,next_run_at=EXCLUDED.next_run_at`);
+    await query(`INSERT INTO storage_maintenance(task,next_run_at) SELECT 'headers:'||id::text,NOW()+INTERVAL '1 day' FROM email_accounts WHERE id<>$1
+      ON CONFLICT(task) DO UPDATE SET next_run_at=EXCLUDED.next_run_at`,[account]);
+    await runStorageMaintenancePass();
+    const vacuum=(await query<{needed:string;completed_at:string|null;due:boolean}>(`SELECT progress->>'needed' AS needed,completed_at,next_run_at<=NOW() AS due
+      FROM storage_maintenance WHERE task='vacuum:messages'`)).rows[0];
+    expect(vacuum).toMatchObject({needed:'true',completed_at:null,due:true});
+    expect((await query('SELECT conversation_raw_headers FROM messages WHERE id=$1',[id])).rows[0].conversation_raw_headers).toBe(header);
+  });
+
 });

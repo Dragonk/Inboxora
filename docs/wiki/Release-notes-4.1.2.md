@@ -121,6 +121,8 @@ Never add the logical header number to physical journal bytes as a forecast. Nor
 activity can change the current size while the repair runs. The full status command without
 `--summary` includes per-task checkpoints and skipped values; logs use `[storage-maintenance]`.
 
+Each later header-repair batch re-arms a previously completed VACUUM immediately; a stale completed/delayed VACUUM checkpoint cannot leave the initial sweep permanently pending.
+
 Ordinary background VACUUM makes repaired header pages reusable and may release empty tail
 pages. It has a dedicated 10-minute maintenance budget rather than the short request
 timeout; cancellation or contention schedules an hourly retry rather than repeated restarts. It does **not** guarantee immediate physical shrinkage of `messages`. No automatic

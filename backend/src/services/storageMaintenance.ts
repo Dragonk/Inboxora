@@ -130,8 +130,13 @@ async function repairOneAccount(client: PoolClient): Promise<boolean> {
         skipped_in_sweep: (prior.cursor ? prior.skipped_in_sweep ?? 0 : 0) + stats.skipped,
       }, stats.next === null, stats.next === null ? 86400 : 0);
       if (stats.repaired) {
-        await client.query(`INSERT INTO storage_maintenance(task, progress) VALUES ('vacuum:messages', '{"needed":true}')
-          ON CONFLICT(task) DO UPDATE SET progress = storage_maintenance.progress || '{"needed":true}'::jsonb`);
+        await client.query(`INSERT INTO storage_maintenance(task, progress, completed_at, next_run_at, updated_at)
+          VALUES ('vacuum:messages', '{"needed":true}', NULL, NOW(), NOW())
+          ON CONFLICT(task) DO UPDATE SET
+            progress = storage_maintenance.progress || '{"needed":true}'::jsonb,
+            completed_at = NULL,
+            next_run_at = NOW(),
+            updated_at = NOW()`);
       }
       if (stats.repaired && (repaired % 1000 === 0 || stats.next === null)) {
         console.info('[storage-maintenance] header progress', JSON.stringify({ repaired, logical_bytes_saved: saved }));
