@@ -17,6 +17,7 @@ vi.mock('../middleware/auth.js', () => ({
 vi.mock('../index.js', () => ({
   imapManager: {
     noteUserActivity: vi.fn(), fetchMessageBody: vi.fn(), fetchAttachment: vi.fn(), broadcast: vi.fn(),
+    prefetchFolderBodies: vi.fn(async () => undefined),
     setFlag: vi.fn(), _resolveFlagPush: vi.fn(), _enqueueFlagPush: vi.fn(), pluginFacade: {},
   },
 }));
@@ -28,11 +29,13 @@ vi.mock('../services/providerAuthService.js', async importOriginal => ({
 import { pool } from '../services/db.js';
 import { MICROSOFT_GRANT_AUDIENCE, MICROSOFT_ISSUER, storeOAuthGrant, upsertProviderConnection } from '../services/providerAuthService.js';
 import { applyGraphMailMessagesPage } from '../services/providers/microsoft/graphMailSync.js';
+import { bindVerifiedLegacyGraphMessage } from '../services/providers/microsoft/graphLegacyMessageBindings.js';
 import { repairExistingGraphLegacyMessageBindings } from '../services/providers/microsoft/graphLegacyMessageBindingRepair.js';
 import mailRoutes from './mail.js';
 import { listeningPort } from '../test/net.js';
 
 const hasPg = process.env.DB_HOST && process.env.DB_NAME;
+if (hasPg && !process.env.DB_NAME?.includes('test')) throw new Error('Graph identity route tests require an isolated test database');
 const describeOrSkip = hasPg ? describe : describe.skip;
 const USER_ID = '00000000-0000-0000-0000-00000000l101'.replace('l', '1');
 const ACCOUNT_ID = '00000000-0000-0000-0000-00000000a101';
@@ -208,4 +211,174 @@ describeOrSkip('LIVE-01 legacy Graph identity route (PostgreSQL)', { timeout: 30
       await expect(response.json()).resolves.toMatchObject({ text: 'recovered cache body' });
     } finally { vi.unstubAllGlobals(); }
   });
+
+  interface MailReadReply {
+    messages: Array<{ id: string; is_read: boolean; message_count?: number; unread_count?: number }>;
+    total: number;
+  }
+  interface UnreadReply { total: number; byAccount: Record<string, number> }
+  // The assertions below validate each endpoint's concrete success contract.
+  async function readJson<T>(response: Response): Promise<T> {
+    expect(response.status).toBe(200);
+    return await response.json() as T;
+  }
+
+  async function seedReadAliases(nativeUnread: number, legacyUnread: boolean) {
+    const connectionId = await autocommit(client => upsertProviderConnection(client, {
+      userId: USER_ID, provider: 'microsoft', issuer: MICROSOFT_ISSUER, subject: 'read-alias-consistency',
+    }));
+    await autocommit(client => client.query(
+      `INSERT INTO email_accounts(id,user_id,name,email_address,protocol,mail_transport,provider_connection_id,migration_state)
+       VALUES($1,$2,'Read consistency','read-consistency@example.test','imap','microsoft_graph',$3,'active_native')`,
+      [ACCOUNT_ID, USER_ID, connectionId],
+    ));
+    const canonical: string[] = [], legacy: string[] = [];
+    const threadId = 'read-alias-thread';
+    for (let n = 0; n < 17; n++) {
+      const id = crypto.randomUUID(); canonical.push(id);
+      const date = new Date(Date.UTC(2026, 8, 27, 10, n)).toISOString();
+      const rfc = `<read-alias-${n}@example.test>`;
+      if (n < 4) {
+        const alias = crypto.randomUUID(); legacy.push(alias);
+        await autocommit(client => client.query(
+          `INSERT INTO messages(id,account_id,uid,folder,message_id,from_email,date,subject,is_read,thread_id)
+           VALUES($1,$2,$3,'INBOX',$4,'sender@example.test',$5,'Read consistency',$6,$7)`,
+          [alias, ACCOUNT_ID, n + 1, rfc, date, !legacyUnread, threadId],
+        ));
+      }
+      await autocommit(client => client.query(
+        `INSERT INTO messages(id,account_id,uid,folder,message_id,from_email,date,subject,is_read,thread_id,provider_message_id)
+         VALUES($1,$2,$3,'INBOX',$4,'sender@example.test',$5,'Read consistency',$6,$7,$8)`,
+        [id, ACCOUNT_ID, n + 1001, rfc, date, n >= nativeUnread, threadId, `graph-read-alias-${n}`],
+      ));
+      if (n < 4) expect(await autocommit(client => bindVerifiedLegacyGraphMessage(client, {
+        accountId: ACCOUNT_ID, connectionId, canonicalMessageId: id, providerMessageId: `graph-read-alias-${n}`,
+        rfcMessageId: rfc, fromEmail: 'sender@example.test', date,
+      }))).toBe('bound');
+    }
+    return { connectionId, canonical, legacy, threadId };
+  }
+
+  it('does not count four stale unread legacy aliases when all 17 verified native messages are read', async () => {
+    const { canonical, legacy, threadId } = await seedReadAliases(0, true);
+    const counts = await nativeFetch(`${base}/api/mail/unread-counts`).then(readJson<UnreadReply>);
+    expect(counts).toEqual({ total: 0, byAccount: {} });
+    const filtered = await nativeFetch(`${base}/api/mail/messages?accountId=${ACCOUNT_ID}&threaded=true&unreadOnly=true`).then(readJson<MailReadReply>);
+    expect(filtered.messages).toEqual([]);
+    const flat = await nativeFetch(`${base}/api/mail/messages?accountId=${ACCOUNT_ID}`).then(readJson<MailReadReply>);
+    expect(flat.total).toBe(17);
+    expect(flat.messages.map((m: { id: string }) => m.id).sort()).toEqual([...canonical].sort());
+    const thread = await nativeFetch(`${base}/api/mail/thread/${threadId}?accountId=${ACCOUNT_ID}`).then(readJson<MailReadReply>);
+    expect(thread.messages).toHaveLength(17);
+    expect(thread.messages.every((m: { is_read: boolean }) => m.is_read)).toBe(true);
+    expect(thread.messages.map((m: { id: string }) => m.id).sort()).toEqual([...canonical].sort());
+    // Projection does not delete recovery rows or invalidate old UUID links.
+    const retained = await autocommit(client => client.query('SELECT id FROM messages WHERE id=ANY($1::uuid[]) AND is_deleted=false', [legacy]));
+    expect(retained.rows).toHaveLength(4);
+  });
+
+  it('expands the four genuinely unread native messages rather than their already-read aliases', async () => {
+    const { canonical, threadId } = await seedReadAliases(4, false);
+    const filtered = await nativeFetch(`${base}/api/mail/messages?accountId=${ACCOUNT_ID}&threaded=true&unreadOnly=true`).then(readJson<MailReadReply>);
+    expect(filtered.messages).toHaveLength(1);
+    expect(filtered.messages[0]).toMatchObject({ message_count: 17, unread_count: 4 });
+    const thread = await nativeFetch(`${base}/api/mail/thread/${threadId}?accountId=${ACCOUNT_ID}`).then(readJson<MailReadReply>);
+    expect(thread.messages.filter((m: { is_read: boolean }) => !m.is_read).map((m: { id: string }) => m.id).sort()).toEqual(canonical.slice(0, 4).sort());
+    expect(thread.messages.map((m: { id: string }) => m.id).sort()).toEqual([...canonical].sort());
+  });
+
+
+  it.each([
+    ['ambiguous binding', "UPDATE graph_legacy_message_bindings SET status='needs_review' WHERE account_id=$1"],
+    ['no verified binding', 'DELETE FROM graph_legacy_message_bindings WHERE account_id=$1'],
+    ['changed connection', "UPDATE email_accounts SET provider_connection_id=NULL WHERE id=$1"],
+    ['IMAP fallback', "UPDATE email_accounts SET mail_transport='imap_smtp' WHERE id=$1"],
+    ['deleted canonical', "UPDATE messages SET is_deleted=true WHERE account_id=$1 AND provider_message_id IS NOT NULL"],
+    ['missing provider identity', "UPDATE messages SET provider_message_id=NULL WHERE account_id=$1"],
+    ['unconfirmed folder change', "UPDATE messages SET folder='Archive' WHERE account_id=$1 AND provider_message_id IS NOT NULL"],
+  ])('retains legacy recovery rows for %s', async (_name, sql) => {
+    const { legacy } = await seedReadAliases(0, true);
+    await autocommit(client => client.query(sql, [ACCOUNT_ID]));
+    const flat = await nativeFetch(`${base}/api/mail/messages?accountId=${ACCOUNT_ID}`).then(readJson<MailReadReply>);
+    const visible = new Set(flat.messages.map((m: { id: string }) => m.id));
+    expect(legacy.every(id => visible.has(id))).toBe(true);
+    const counts = await nativeFetch(`${base}/api/mail/unread-counts`).then(readJson<UnreadReply>);
+    expect(counts).toEqual({ total: 4, byAccount: { [ACCOUNT_ID]: 4 } });
+  });
+
+  it('a verified provider move does not resurrect old inbox aliases or their old thread bucket', async () => {
+    const { canonical, legacy, threadId } = await seedReadAliases(0, true);
+    await autocommit(client => client.query("UPDATE messages SET folder='Archive', thread_id='moved-thread' WHERE account_id=$1 AND provider_message_id IS NOT NULL", [ACCOUNT_ID]));
+    await autocommit(client => client.query("UPDATE graph_legacy_message_bindings SET evidence=jsonb_build_object('kind','confirmed_provider_move') WHERE account_id=$1", [ACCOUNT_ID]));
+    const inbox = await nativeFetch(`${base}/api/mail/messages?accountId=${ACCOUNT_ID}&threaded=true`).then(readJson<MailReadReply>);
+    expect(inbox).toMatchObject({ messages: [], total: 0 });
+    const counts = await nativeFetch(`${base}/api/mail/unread-counts`).then(readJson<UnreadReply>);
+    expect(counts.total).toBe(0);
+    const oldThread = await nativeFetch(`${base}/api/mail/thread/${threadId}?accountId=${ACCOUNT_ID}`).then(readJson<MailReadReply>);
+    expect(oldThread.messages).toEqual([]);
+    const archive = await nativeFetch(`${base}/api/mail/messages?accountId=${ACCOUNT_ID}&folder=Archive&threaded=true`).then(readJson<MailReadReply>);
+    expect(archive.messages).toHaveLength(1);
+    expect(archive.messages[0]).toMatchObject({ message_count: 17, unread_count: 0 });
+    const moved = await nativeFetch(`${base}/api/mail/thread/moved-thread?accountId=${ACCOUNT_ID}`).then(readJson<MailReadReply>);
+    expect(moved.messages.map((m: { id: string }) => m.id).sort()).toEqual([...canonical].sort());
+    const retained = await autocommit(client => client.query('SELECT id FROM messages WHERE id=ANY($1::uuid[]) AND is_deleted=false', [legacy]));
+    expect(retained.rows).toHaveLength(4);
+  });
+
+
+  it('reads and unreads the 17 canonical thread IDs through HTTP and the Graph write boundary', async () => {
+    const { connectionId, canonical, threadId } = await seedReadAliases(4, false);
+    await autocommit(client => storeOAuthGrant(client, {
+      connectionId, audience: MICROSOFT_GRANT_AUDIENCE, accessToken: 'access-valid', refreshToken: 'refresh-valid',
+      expiresAt: new Date(Date.now() + 3_600_000), scopes: ['https://graph.microsoft.com/Mail.ReadWrite'], clientIdAtIssue: 'client-1',
+    }));
+    const writes: Array<{ providerId: string; read: boolean }> = [];
+    vi.stubGlobal('fetch', (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (!url.startsWith('https://graph.microsoft.com/')) return nativeFetch(input, init);
+      expect(init?.method).toBe('PATCH');
+      const body = JSON.parse(String(init?.body));
+      expect(typeof body.isRead).toBe('boolean');
+      writes.push({ providerId: decodeURIComponent(new URL(url).pathname.split('/').at(-1)!), read: body.isRead });
+      return new Response(null, { status: 204 });
+    }) as typeof fetch);
+    try {
+      for (const read of [true, false, true]) {
+        writes.length = 0;
+        const response = await nativeFetch(`${base}/api/mail/messages/bulk-read`, {
+          method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ids: canonical, read }),
+        });
+        expect(response.status).toBe(200);
+        const result = await readJson<{ updated: string[] }>(response);
+        expect(result.updated.length).toBeGreaterThan(0);
+        expect(writes).toHaveLength(result.updated.length);
+        expect(writes.every(write => write.providerId.startsWith('graph-read-alias-') && write.read === read)).toBe(true);
+        const counts = await nativeFetch(`${base}/api/mail/unread-counts`).then(readJson<UnreadReply>);
+        expect(counts.total).toBe(read ? 0 : 17);
+        const thread = await nativeFetch(`${base}/api/mail/thread/${threadId}?accountId=${ACCOUNT_ID}`).then(readJson<MailReadReply>);
+        expect(thread.messages).toHaveLength(17);
+        expect(thread.messages.every((m: { is_read: boolean }) => m.is_read === read)).toBe(true);
+        const filtered = await nativeFetch(`${base}/api/mail/messages?accountId=${ACCOUNT_ID}&threaded=true&unreadOnly=true`).then(readJson<MailReadReply>);
+        expect(filtered.messages).toHaveLength(read ? 0 : 1);
+      }
+    } finally { vi.unstubAllGlobals(); }
+  });
+
+
+  it('never substitutes a bound canonical row from a different account', async () => {
+    const { canonical, legacy, connectionId } = await seedReadAliases(0, true);
+    const otherAccount = crypto.randomUUID();
+    await autocommit(client => client.query(
+      `INSERT INTO email_accounts(id,user_id,name,email_address,protocol,mail_transport,provider_connection_id)
+       VALUES($1,$2,'Other identity','other@example.test','imap','microsoft_graph',$3)`, [otherAccount, USER_ID, connectionId],
+    ));
+    // Simulate inconsistent legacy binding data: its pointer must not be trusted
+    // across accounts merely because the canonical UUID exists.
+    await autocommit(client => client.query('UPDATE messages SET account_id=$1 WHERE id=ANY($2::uuid[])', [otherAccount, canonical]));
+    const flat = await nativeFetch(`${base}/api/mail/messages?accountId=${ACCOUNT_ID}`).then(readJson<MailReadReply>);
+    expect(flat.messages.map((m: { id: string }) => m.id).sort()).toEqual([...legacy].sort());
+    const counts = await nativeFetch(`${base}/api/mail/unread-counts`).then(readJson<UnreadReply>);
+    expect(counts.byAccount[ACCOUNT_ID]).toBe(4);
+  });
+
 });

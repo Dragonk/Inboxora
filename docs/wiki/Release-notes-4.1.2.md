@@ -124,6 +124,36 @@ version metadata confirmed that the reported live instance was already on the pr
 mailbox contents and provider acknowledgements were not accessed in these tests; the
 maintainer's acceptance test remains required before release.
 
+## Microsoft Graph compatibility aliases and phantom unread rows
+
+A real PostgreSQL + HTTP regression reproduced an additional server-side cause:
+17 native Graph messages were read, while four verified legacy IMAP aliases still
+had unread flags. The physical unread counter returned four, and the unread filter
+and thread expansion could select different physical rows for the same bound mail.
+This was not merely a frontend cache discrepancy. The inverse state (four native
+messages unread but their aliases read) also produced inconsistent expansion flags.
+
+A shared read projection now excludes only a verified compatibility alias whose
+canonical provider message is present, non-deleted, in the same account and current
+native Graph connection, and in the same folder or backed by a confirmed provider
+move. Lists (including pagination/counts), expansion and unread counters use the
+same rule before applying unread filtering. Diagnostics apply the same alias rule.
+No rows are deleted and no read flags are rewritten by this projection; old UUID
+body links still resolve. Missing/ambiguous bindings, changed connections, IMAP
+fallback, deleted/missing canonical identity and unconfirmed moves preserve recovery
+visibility. Same RFC Message-ID without a verified binding is not enough to exclude
+anything. No migration, provider poll or historical resync is required.
+
+Integration tests include both 17/4 divergences, flat/threaded/unread views, retained
+legacy links/rows, invalid binding guards, confirmed moves and HTTP read/unread/read
+cycles using canonical IDs against a mocked Graph HTTP boundary. Those cycles return
+0/17/0 unread and preserve all 17 children. Provider transport behavior itself is not
+changed, and no live production provider acknowledgement is claimed. The projection
+was also exercised with the actual list service on an isolated 30,000-message test
+database; EXPLAIN confirmed indexed canonical lookups rather than per-row provider requests, with
+warm scoped/unified requests in tens of milliseconds on this development server.
+These timings are not a production latency guarantee.
+
 ## Storage repair and bounded synchronization
 
 Two independent growth defects are addressed. IMAP binary headers were converted into

@@ -1,3 +1,4 @@
+import { visiblePhysicalMessageSql } from '../services/messageVisibility.js';
 import { readUnreadInboxCounts } from '../services/unreadInboxCounts.js';
 import { Router } from 'express';
 import type { UnifiedInboxAccount } from '../services/unifiedInbox.js';
@@ -407,6 +408,7 @@ router.get('/thread/:threadId', async (req, res) => {
         FROM messages m
         JOIN email_accounts a ON m.account_id = a.id
         WHERE m.is_deleted = false
+          AND ${visiblePhysicalMessageSql}
           AND m.account_id = ANY($1)
           AND ${threadIdentityExpr} = $2
         ORDER BY m.account_id,

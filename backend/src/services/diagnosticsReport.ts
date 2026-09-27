@@ -1,3 +1,4 @@
+import { visiblePhysicalMessageSql } from './messageVisibility.js';
 // Sanitized diagnostics report builder (server side).
 //
 // Principle: ALLOWLIST, never redact. This module assembles a report from an
@@ -124,6 +125,7 @@ export async function buildServerReport(userId: string, salt: string) {
        JOIN email_accounts a ON a.id = m.account_id
       WHERE a.user_id = $1 AND a.enabled = true
         AND m.folder = 'INBOX' AND m.is_read = false AND m.is_deleted = false
+        AND ${visiblePhysicalMessageSql}
       GROUP BY m.account_id`,
     [userId],
   );

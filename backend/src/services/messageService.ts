@@ -1,3 +1,4 @@
+import { visiblePhysicalMessageSql } from './messageVisibility.js';
 import { query } from './db.js';
 import type { UnifiedInboxAccount } from './unifiedInbox.js';
 import { resolveAccountScope } from './unifiedInbox.js';
@@ -13,7 +14,7 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
   } = resolveAccountScope(accountsResult.rows, accountId);
   if (!scopedAccountIds.length) return { messages: [], total: 0 };
 
-  let whereConditions = ['m.is_deleted = false'];
+  let whereConditions = ['m.is_deleted = false', visiblePhysicalMessageSql];
   const values = [];
   let p = 1;
 
@@ -161,6 +162,7 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
         JOIN paged_threads pt ON pt.account_id = m.account_id AND pt.thread_bucket = ${effectiveThreadExpr}
         WHERE m.account_id = ANY($${p})
           AND m.is_deleted = false
+          AND ${visiblePhysicalMessageSql}
         GROUP BY ${threadIdentityExpr}
       ),
       ranked AS (
