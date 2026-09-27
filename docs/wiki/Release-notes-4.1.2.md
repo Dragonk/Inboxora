@@ -123,7 +123,8 @@ an image**; its Docker logging policy must be updated/recreated separately.
 Coverage includes real PostgreSQL no-op updates, Google/Graph/CardDAV replays with unchanged
 physical tuples, missing provider timestamp stability, DAV rename/delete/full-resync behavior,
 retention floors, tenant isolation, concurrent workers, bounded header repair and rollback,
-retired-file reclamation, visible-body limits/cooldowns and late-read fences. A populated
+retired-file reclamation, visible-body limits/cooldowns and late-read fences. A paused-worker timer regression verifies that auth retention still runs without starting
+header repair. A populated
 0145 database upgrade test runs the actual startup scheduler, interrupts after one header
 batch, restarts it, and verifies exact canonical IDs/content and measured file reduction.
 

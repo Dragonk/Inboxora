@@ -10,6 +10,8 @@ beforeEach(()=>{query.mockReset().mockResolvedValue({rows:[],rowCount:0});vi.res
 it('uses a maintenance timeout instead of the 15-second request timeout and restores it',async()=>{
   expect(await vacuumRepairedMessages(client)).toBe(true);
   const calls=query.mock.calls.map(c=>c[0]);
+  expect(calls).toContain("SET statement_timeout = '10min'");
+  expect(calls).toContain('VACUUM (ANALYZE, PARALLEL 0) messages');
   expect(calls.indexOf("SET statement_timeout = '10min'")).toBeLessThan(calls.indexOf('VACUUM (ANALYZE, PARALLEL 0) messages'));
   expect(calls.at(-1)).toBe("SET statement_timeout = '15s'");
   expect(query.mock.calls.find(c=>c[0].includes('INSERT INTO storage_maintenance'))?.[1]).toEqual(['vacuum:messages','{"needed":false}',true,86400]);
