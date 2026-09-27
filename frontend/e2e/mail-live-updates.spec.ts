@@ -4,10 +4,10 @@ import { navigateModule } from './v3-fixtures.ts';
 // These tests mock the mailbox; native service-worker coverage lives in real-app.spec.ts.
 test.use({ serviceWorkers: 'block' });
 
-async function liveMailbox(page, fixtureApi, reader = false, initialSize = 5) {
+async function liveMailbox(page, fixtureApi, reader = false, initialSize = 5, options = {}) {
   page.__conversationMatrix = reader ? '11' : '10';
-  page.__preferencesOverride = { markReadBehavior: 'manual', notificationSound: 'none' };
-  const state = { unread: new Set([1, initialSize]), size: initialSize, listRequests: 0 };
+  page.__preferencesOverride = { markReadBehavior: options.markReadBehavior || 'manual', notificationSound: 'none' };
+  const state = { unread: new Set(options.unread || [1, initialSize]), size: initialSize, listRequests: 0 };
   const copy = n => ({ id: `conversation-gmail-copy-${n}`, account_id: 'account-gmail', folder: 'INBOX', thread_id: 'conversation-gmail', thread_key: 'conversation-gmail', message_id: `<fixture-${n}>`, subject: 'Live conversation', from_email: 'sender@example.test', date: new Date(2026, 8, n).toISOString(), is_read: !state.unread.has(n), body_text: `Live message ${n}` });
   await page.route('**/api/accounts', route => route.fulfill({ json: fixtureApi.accounts.map(account => ({ ...account, enabled: true })) }));
   await page.route(url => url.pathname === '/api/mail/messages', route => {
@@ -26,6 +26,13 @@ async function liveMailbox(page, fixtureApi, reader = false, initialSize = 5) {
   await page.goto(`/?list=1&reader=${Number(reader)}`);
   await expect.poll(() => Boolean(socket)).toBe(true);
   await bootRefresh;
+  if (options.unreadOnly) {
+    const filtered = page.waitForResponse(response => new URL(response.url()).pathname === '/api/mail/messages'
+      && new URL(response.url()).searchParams.get('unreadOnly') === 'true');
+    if (page.viewportSize().width < 768) await page.getByRole('button', { name: /tylko nieprzeczytane|unread only/i }).click();
+    else await page.getByTitle(/tylko nieprzeczytane|unread only/i).click();
+    await filtered;
+  }
   const parent = () => page.locator('[data-thread-row-parent="true"]');
   await expect(parent()).toBeVisible();
   await parent().locator(`button[aria-label*='(${initialSize})']`).click();
@@ -322,5 +329,43 @@ for (const delivery of ['during', 'after']) {
       await expect(page.locator('[data-thread-row-child]')).toHaveCount(17);
     } finally { releaseOld(); releaseFresh(); releaseWrites(); }
     await expect(parent()).toHaveAttribute('data-unread', 'false');
+  });
+}
+
+
+for (const action of ['open', 'context']) {
+  test(`reading the last non-head child via ${action} clears its 17-message parent without a list reload`, async ({ page, fixtureApi }, testInfo) => {
+    test.skip(action === 'context' && testInfo.project.name !== 'chromium-desktop', 'child context menu uses native desktop interaction');
+    test.skip(!['chromium-desktop', 'chromium-mobile-390'].includes(testInfo.project.name), 'desktop and mobile native list');
+    const id = 'conversation-gmail-copy-1';
+    // The full-message GET can observe the committed write before it renders.
+    // It must not need a second auto-read to repair the list's parent aggregate.
+    await page.route(`**/api/mail/messages/${id}`, route => route.fulfill({ json: {
+      id, account_id: 'account-gmail', thread_id: 'conversation-gmail', thread_key: 'conversation-gmail',
+      folder: 'INBOX', is_read: true, subject: 'Last unread child', from_email: 'sender@example.test',
+    } }));
+    const { state, parent } = await liveMailbox(page, fixtureApi, false, 17, { unread: [1], unreadOnly: true, markReadBehavior: action === 'open' ? 'instant' : 'manual' });
+    let writes = 0;
+    await page.route('**/api/mail/messages/bulk-read', async route => {
+      const body = route.request().postDataJSON();
+      expect(body).toEqual({ ids: [id], read: true });
+      writes++;
+      state.unread.delete(1);
+      await route.fulfill({ json: { ok: true, updated: [id] } });
+    });
+    // Preserve the pre-action list snapshot. Correctness must come from the
+    // physical-copy mutation, not eventually from an unrelated mailbox GET.
+    await page.route(url => url.pathname === '/api/mail/messages', route => route.abort());
+    const child = page.locator(`[data-thread-row-child="${id}"]`);
+    await expect(parent()).toHaveAttribute('data-unread', 'true');
+    if (action === 'open') await child.click();
+    else {
+      await child.click({ button: 'right' });
+      await page.getByText(/oznacz jako przeczytan|mark as read/i).last().click();
+    }
+    await expect.poll(() => writes).toBe(1);
+    await expect(child).toHaveAttribute('data-unread', 'false');
+    await expect(parent()).toHaveAttribute('data-unread', 'false');
+    await expect(page.locator('[data-thread-row-child][data-unread="true"]')).toHaveCount(0);
   });
 }

@@ -11,7 +11,7 @@ import { createMailListCache } from './mailListCache.ts';
 const source = readFileSync(new URL('./mailRefresh.ts', import.meta.url), 'utf8');
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-type Methods = { requestMailRefresh: (id?: string) => void; cancelMailRefresh: () => void; noteMailListLoaded: () => void; mailListNeedsRefresh: (age?: number) => boolean };
+type Methods = { requestMailRefresh: (id?: string, options?: { invalidateCache?: boolean }) => void; cancelMailRefresh: () => void; noteMailListLoaded: () => void; mailListNeedsRefresh: (age?: number) => boolean };
 function harness(getFolders: (id: string) => Promise<Array<{ path: string }>> = async () => [{ path: 'INBOX' }]) {
   const cache = createMailListCache();
   const events: string[] = []; const writes: string[] = [];
@@ -114,5 +114,29 @@ test('remote account hints evict warm snapshots immediately, before the refresh 
     assert.ok(h.cache.get(other, 1));
     h.methods.cancelMailRefresh();
     assert.equal(h.cache.get(other, 1), undefined);
+  } finally { h.methods.cancelMailRefresh(); }
+});
+
+
+test('wake and freshness checks retain bounded snapshots, but concrete changes and lock still evict', async () => {
+  const h = harness();
+  const scopes = [{ limit: 50 }, { limit: 50, accountId: 'A' }, { limit: 50, accountId: 'B' }];
+  try {
+    h.methods.requestMailRefresh('A'); await wait(330);
+    for (const params of scopes) h.cache.finish(h.cache.begin(params, 1), {
+      messages: [{ id: 'copy', account_id: params.accountId || 'A' }], total: 1,
+    });
+    h.events.length = 0;
+    h.methods.requestMailRefresh(undefined, { invalidateCache: false });
+    for (const params of scopes) assert.ok(h.cache.get(params, 1));
+    await wait(330);
+    assert.deepEqual(h.events, ['inboxora:refresh', 'inboxora:sync_done']);
+    for (const params of scopes) assert.ok(h.cache.get(params, 1));
+    h.methods.requestMailRefresh('A');
+    assert.equal(h.cache.get(scopes[0], 1), undefined);
+    assert.equal(h.cache.get(scopes[1], 1), undefined);
+    assert.ok(h.cache.get(scopes[2], 1));
+    h.methods.cancelMailRefresh();
+    assert.equal(h.cache.get(scopes[2], 1), undefined);
   } finally { h.methods.cancelMailRefresh(); }
 });

@@ -88,6 +88,39 @@ viewport/mode exclusions); the full frontend unit suite passed 3,229 cases. Thes
 local results do not substitute for the exact-commit GitHub CI and CodeRabbit gates
 before publishing the development images.
 
+## Follow-up after the first development acceptance test
+
+The first development build did not cover two production-like paths reported by the
+maintainer. Seven new desktop/mobile browser checks reproduced failures before these
+follow-up changes. Opening the final unread non-head child, or marking it individually,
+left all 17 children read while the parent remained unread: the single-copy caller had
+included an `unread_count` override reserved for whole-thread actions. Single-copy writes
+and rollbacks now update only physical read state; the store derives the parent from
+complete membership or applies a known-copy delta for an incomplete expansion. A singleton
+updates its own badge even without expansion. These tests also run with the unread filter
+active and block subsequent list requests so eventual revalidation cannot mask the defect.
+
+Navigation tests now include offscreen server flag events and waking the application,
+not just a quiet mocked mailbox. Bulk-read broadcasts are partitioned by their already
+verified account. The frontend retains that scope when the physical copy is not loaded,
+and reader writes/count refreshes carry their known account too. Thus an event concerning
+one account no longer discards all previously visited accounts. A visibility/online or
+periodic freshness check retains the existing 60-second bounded snapshots while still
+requesting current list/count data; concrete mail changes still hard-invalidate affected
+snapshots and in-flight results. Lock/logout protections, query separation and write
+completion fences are unchanged. No migration or provider-side read/write behavior changes
+are included in this follow-up.
+
+The new failure cases passed 28 repeated desktop/mobile checks after the fix (the native
+desktop context-menu case has no equivalent browser right-click on mobile). The actual
+native-list service was also measured locally with 30,000 synthetic PostgreSQL messages:
+warm account reads took about 11–21 ms and unified reads about 29–41 ms. This did not
+reproduce a slow database query and is not a production performance measurement. Public
+version metadata confirmed that the reported live instance was already on the previous
+`a7ee6598` build, so the report was not attributed to an old installation. Production
+mailbox contents and provider acknowledgements were not accessed in these tests; the
+maintainer's acceptance test remains required before release.
+
 ## Storage repair and bounded synchronization
 
 Two independent growth defects are addressed. IMAP binary headers were converted into

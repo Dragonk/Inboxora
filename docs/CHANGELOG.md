@@ -36,6 +36,10 @@ finalized below and dated with its publication date.
 
 ### Fixed
 
+- **Single-message read state in expanded threads.** Opening or individually marking a child no longer sends a whole-thread aggregate override. Reading the last unread child updates its parent immediately, including with the unread filter active; singleton badges and partial expansions keep their correct unread totals.
+- **Warm navigation under real refresh traffic.** Bulk-read socket notifications now carry their account scope, and offscreen flags, reader writes and reader count refreshes preserve unrelated account snapshots. Wake/online and periodic freshness checks revalidate without discarding bounded snapshots merely because a check was requested. Concrete mutations, unknown change scope, lock and session changes still invalidate normally.
+
+
 - **Responsive account navigation.** Recently visited account and unified-inbox first pages render from bounded, session-only memory snapshots while fresh data loads in the background. Superseded list requests are aborted, and mutations, account changes, live invalidations, logout and lock invalidate snapshots. Cold views still wait for their own data; another account's rows are never used as a placeholder. Known-scope read and local mutations invalidate only affected accounts plus the unified view, retaining unrelated snapshots and in-flight revalidations. Scoped cache fences run both before a write and after it settles, preventing overlapping reads from preserving pre-write flags.
 - **Bounded thread reconciliation.** Expanded membership is checked once per actual server list snapshot rather than per changed row object, avoiding redundant requests after count corrections. List responses racing a whole-thread read are fenced and reconciled without adding a fetch to steady-state actions. Explicit read intents survive account navigation without restoring the old expansion, and failed no-op reads retain their original state.
 

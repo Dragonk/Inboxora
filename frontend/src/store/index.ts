@@ -1,3 +1,4 @@
+import { nativeThreadCacheMatchesRow, normalizedNativeThreadMembers } from '../utils/nativeThreadMembership.ts';
 import { invalidateMailListCache, invalidateMailListCacheForAccounts } from '../utils/mailListCache.ts';
 import { resolveSelectedAccount, pruneFolders } from '../utils/accountScope.ts';
 import { create } from 'zustand';
@@ -128,7 +129,7 @@ export interface StoreState {
   messages: StoreMessageRow[];
   setMessages: (messages: StoreMessageRow[]) => void;
   appendMessages: (newMessages: StoreMessageRow[]) => void;
-  updateMessage: (id: string, updates: Record<string, unknown>) => void;
+  updateMessage: (id: string, updates: Record<string, unknown>, accountHint?: string) => void;
   removeMessage: (id: string) => void;
   removeMessages: (ids: string[]) => void;
   restoreMessages: (msgs: StoreMessageRow[]) => void;
@@ -727,15 +728,23 @@ export const useStore = create<StoreState>()((set, get) => ({
     const messages = appendMessagesByIdentity(state.messages, newMessages);
     return messages === state.messages ? {} : { messages };
   }),
-  updateMessage: (id: string, updates: Record<string, unknown>) =>set((state: StoreStateRead) => {
+  updateMessage: (id: string, updates: Record<string, unknown>, accountHint?: string) =>set((state: StoreStateRead) => {
     const keys = Object.keys(updates);
     if (keys.length && !(keys.length === 1 && keys[0] === 'message_count')) {
-      const accountIds = messageAccountScope(state, new Set([id]));
+      // A scoped server event may refer to an offscreen copy. Its account is
+      // still known even when no row is loaded; do not evict every other inbox.
+      const accountIds = messageAccountScope(state, new Set([id]))
+        ?? (typeof accountHint === 'string' && accountHint.trim() === accountHint && accountHint.length > 0 ? [accountHint] : undefined);
       if (accountIds && Object.hasOwn(updates, 'account_id')) {
         invalidateMailListCacheForAccounts([...accountIds, updates.account_id]);
       } else invalidateMailListCacheForAccounts(accountIds);
     }
-    const apply = (m: StoreMessageRow) => m.id === id ? { ...m, ...updates } : m;
+    let matched = false;
+    const apply = (m: StoreMessageRow) => {
+      if (m.id !== id) return m;
+      matched = true;
+      return { ...m, ...updates };
+    };
     const threadMessages = Object.fromEntries(
       Object.entries(state.threadMessages).map(([tid, msgs]) => [tid, msgs.map(apply)])
     );
@@ -745,12 +754,25 @@ export const useStore = create<StoreState>()((set, get) => ({
     const messages = state.messages.map(m => {
       const updated = apply(m);
       if (!state.threadedView || !m.thread_id || aggregateUpdate || typeof updates.is_read !== 'boolean') return updated;
-      const subs = threadMessages[m.thread_id || m.id];
-      if (!subs?.some(copy => copy.id === id)) return updated;
-      const unread_count = subs.filter(copy => !copy.is_read).length;
+      const tid = m.thread_id || m.id;
+      const subs = threadMessages[tid];
+      const before = state.threadMessages[tid]?.find(copy => copy.id === id);
+      if (!before) {
+        // A singleton never needs expansion to keep its own badge in sync.
+        return m.id === id && Number(m.message_count) === 1
+          ? { ...updated, unread_count: updates.is_read ? 0 : 1 } : updated;
+      }
+      // Derive a full aggregate only from complete membership. A stale 14-child
+      // cache must not mark three unseen replies read when its last child changes.
+      const unread_count = nativeThreadCacheMatchesRow(m, subs)
+        ? normalizedNativeThreadMembers(subs).filter(copy => !copy.is_read).length
+        : Math.max(0, (Number(m.unread_count) || 0) + Number(!updates.is_read) - Number(!before.is_read));
       return { ...updated, unread_count, is_read: unread_count === 0 };
     });
-    return { messages, searchResults: state.searchResults.map(apply), threadMessages };
+    const searchResults = state.searchResults.map(apply);
+    // Cache invalidation already happened. An offscreen event needs no store
+    // notification or full list/sidebar rerender when it changed no loaded row.
+    return matched ? { messages, searchResults, threadMessages } : state;
   }),
   removeMessage: (id: string) =>set((state: StoreStateRead) => {
     invalidateMailListCacheForAccounts(messageAccountScope(state, new Set([id])));

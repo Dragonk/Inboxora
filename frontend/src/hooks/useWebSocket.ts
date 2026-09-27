@@ -335,7 +335,7 @@ export function useWebSocket() {
             const patch: { is_read?: boolean; is_starred?: boolean } = {};
             if (typeof c.is_read === 'boolean') patch.is_read = c.is_read;
             if (typeof c.is_starred === 'boolean') patch.is_starred = c.is_starred;
-            if (Object.keys(patch).length) updateMessage(c.id, patch);
+            if (Object.keys(patch).length) updateMessage(c.id, patch, data.accountId);
           }
           requestMailRefresh(data.accountId);
         }
@@ -430,7 +430,7 @@ export function useWebSocket() {
   useEffect(() => {
     const revive = () => {
       if (document.visibilityState !== 'visible') return;
-      requestMailRefresh();
+      requestMailRefresh(undefined, { invalidateCache: false });
       restorePushSubscription();
       const ws = wsRef.current;
       if (ws?.readyState === WebSocket.OPEN && Date.now() - (ws._lastActivity || 0) > 30000) {
@@ -449,7 +449,10 @@ export function useWebSocket() {
       revive();
     };
     const onPageShow = (event: PageTransitionEvent) => { if (event.persisted) revive(); };
-    const countsChanged = () => requestMailRefresh();
+    const countsChanged = (event: Event) => {
+      const accountId: unknown = event instanceof CustomEvent ? event.detail?.accountId : undefined;
+      requestMailRefresh(typeof accountId === 'string' && accountId.trim() === accountId && accountId.length > 0 ? accountId : undefined);
+    };
     navigator.serviceWorker?.addEventListener('message', pushed);
     window.addEventListener('inboxora:unread_changed', countsChanged);
     restorePushSubscription();

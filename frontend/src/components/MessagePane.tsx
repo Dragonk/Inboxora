@@ -211,7 +211,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
         decrementUnread(msg.account_id);
         adjustCategoryCount(msg.category || 'primary', -1);
         setPending(msg.id, msg.account_id);
-        const mutation = queueReadStateMutation(msg.id, true, read => api.bulkRead([msg.id], read));
+        const mutation = queueReadStateMutation(msg.id, true, read => api.bulkRead([msg.id], read, [msg.account_id]));
         mutation.promise
           .then(() => {
             if (!isLatestReadStateMutation(msg.id, mutation.version)) return;
@@ -1046,7 +1046,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
                 decUnread(target.account_id);
                 adjCat(target.category || 'primary', -1);
                 setPending(target.id, target.account_id);
-                const mutation = queueReadStateMutation(target.id, true, read => api.bulkRead([target.id], read));
+                const mutation = queueReadStateMutation(target.id, true, read => api.bulkRead([target.id], read, [target.account_id]));
                 mutation.promise
                   .then(() => {
                     if (!isLatestReadStateMutation(target.id, mutation.version)) return;
@@ -1351,7 +1351,7 @@ ${bodyContent}
     adjustCategoryCount(message.category || 'primary', 1);
     completedMarkReadMap.delete(message.id);
     pendingMarkReadMap.delete(message.id);
-    const mutation = queueReadStateMutation(message.id, false, read => api.bulkRead([message.id], read));
+    const mutation = queueReadStateMutation(message.id, false, read => api.bulkRead([message.id], read, [message.account_id]));
     mutation.promise.catch((e: unknown) => {
       if (!isLatestReadStateMutation(message.id, mutation.version)) return;
       console.error('markUnread failed:', toAppError(e).message);
@@ -1673,7 +1673,7 @@ ${bodyContent}
           decrementUnread(message.account_id);
           adjustCategoryCount(message.category || 'primary', -1);
           setPending(message.id, message.account_id);
-          const mutation = queueReadStateMutation(message.id, true, read => api.bulkRead([message.id], read));
+          const mutation = queueReadStateMutation(message.id, true, read => api.bulkRead([message.id], read, [message.account_id]));
           mutation.promise.catch((e: unknown) => {
             if (!isLatestReadStateMutation(message.id, mutation.version)) return;
             console.error('markRead failed:', toAppError(e).message);

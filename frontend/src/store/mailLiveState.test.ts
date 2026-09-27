@@ -166,3 +166,49 @@ test('message mutations evict only complete affected scopes, including search an
   useStore.getState().restoreMessages([]);
   for (const params of [unified, ...scopes]) assert.ok(mailListCache.get(params, 1));
 });
+
+
+test('an account-scoped offscreen flag does not discard another account navigation snapshot', async () => {
+  const { mailListCache } = await import('../utils/mailListCache.ts');
+  seed();
+  const scopes = [{ limit: 50 }, ...['a', 'b'].map(accountId => ({ limit: 50, accountId }))];
+  const populate = () => scopes.forEach(params => mailListCache.finish(mailListCache.begin(params, 1), {
+    messages: [{ id: 'cached', account_id: 'accountId' in params ? params.accountId : 'a' }], total: 1,
+  }));
+  populate();
+  const beforeOffscreen = useStore.getState();
+  useStore.getState().updateMessage('not-in-loaded-page', { is_read: true }, 'a');
+  assert.equal(useStore.getState(), beforeOffscreen);
+  assert.equal(mailListCache.get(scopes[0], 1), undefined);
+  assert.equal(mailListCache.get(scopes[1], 1), undefined);
+  assert.ok(mailListCache.get(scopes[2], 1));
+  assert.equal(useStore.getState().messages[0].unread_count, 2);
+  populate();
+  // A known physical row takes precedence over a mismatched hint.
+  useStore.getState().updateMessage('newest', { is_read: true }, 'b');
+  assert.equal(mailListCache.get(scopes[1], 1), undefined);
+  assert.ok(mailListCache.get(scopes[2], 1));
+  for (const invalid of ['', ' a ']) {
+    populate(); useStore.getState().updateMessage('not-loaded', { is_read: true }, invalid);
+    assert.equal(mailListCache.get(scopes[2], 1), undefined);
+  }
+});
+
+test('a physical read updates a singleton badge without requiring an expansion', () => {
+  seed();
+  useStore.setState({ messages: [{ id: 'only', account_id: 'a', thread_id: 'a:only', message_count: 1, unread_count: 1, is_read: false }], threadMessages: {} });
+  useStore.getState().updateMessage('only', { is_read: true });
+  assert.equal(useStore.getState().messages[0].unread_count, 0);
+  useStore.getState().updateMessage('only', { is_read: false });
+  assert.equal(useStore.getState().messages[0].unread_count, 1);
+});
+
+test('reading a known child in an incomplete expansion preserves unobserved unread replies', () => {
+  seed();
+  useStore.setState({ messages: [{ id: 'newest', account_id: 'a', thread_id: 'a:thread', message_count: 3, unread_count: 3, is_read: false }] });
+  useStore.getState().updateMessage('older', { is_read: true });
+  assert.equal(useStore.getState().messages[0].unread_count, 2);
+  useStore.getState().updateMessage('newest', { is_read: true });
+  assert.equal(useStore.getState().messages[0].unread_count, 1);
+  assert.equal(useStore.getState().messages[0].is_read, false);
+});

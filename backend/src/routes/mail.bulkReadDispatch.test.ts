@@ -89,6 +89,9 @@ describe('bulk read/unread dispatches on the account transport', () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ ok: true, updated: [MESSAGE_ID] });
 
+    expect(mocks.broadcast).toHaveBeenCalledWith({
+      type: 'message_flags', accountId: ACCOUNT_ID, changes: [{ id: MESSAGE_ID, is_read: true }],
+    }, 'user-1');
     expect(mocks.setFlag).not.toHaveBeenCalled();
     expect(mocks.runProviderMutation).toHaveBeenCalledTimes(1);
     const [request, adapter] = mocks.runProviderMutation.mock.calls[0];
@@ -105,6 +108,9 @@ describe('bulk read/unread dispatches on the account transport', () => {
     const response = await post('/messages/bulk-read', { ids: [MESSAGE_ID], read: true });
     expect(response.status).toBe(200);
 
+    expect(mocks.broadcast).toHaveBeenCalledWith({
+      type: 'message_flags', accountId: ACCOUNT_ID, changes: [{ id: MESSAGE_ID, is_read: true }],
+    }, 'user-1');
     expect(mocks.setFlag).not.toHaveBeenCalled();
     const [request] = mocks.runProviderMutation.mock.calls[0];
     expect(request.payload).toMatchObject({ providerMessageId: 'm1', flag: '\\Seen', value: true });

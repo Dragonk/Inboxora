@@ -109,7 +109,7 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
   const navigationStateRef = useRef<Map<string, NavigationAlignmentState>>(new Map());
   const automaticScrollRef = useRef(false);
   const [activeTargetLogicalId, setActiveTargetLogicalId] = useState<string | null>(null);
-  const updateMessage = useStore((state: { updateMessage: (id: string, updates: Record<string, unknown>) => void }) => state.updateMessage);
+  const updateMessage = useStore((state: StoreState) => state.updateMessage);
   const refreshEpoch = useRef(0);
 
   useEffect(() => {
@@ -188,12 +188,12 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
       // the global selection here because the reader can still contain another copy.
       setCompletedDelete(copyId);
     } else if (action === 'read' && copyId) {
-      updateMessage(copyId, { is_read: isRead, isRead });
+      updateMessage(copyId, { is_read: isRead, isRead }, selectedAccountId ?? undefined);
     } else if (action === 'star' && copyId) {
-      updateMessage(copyId, { is_starred: isStarred, isStarred });
+      updateMessage(copyId, { is_starred: isStarred, isStarred }, selectedAccountId ?? undefined);
     }
     window.dispatchEvent(new CustomEvent('inboxora:refresh'));
-  }, [updateMessage]);
+  }, [updateMessage, selectedAccountId]);
   useEffect(() => {
     const handleConversationRefresh = (event: CustomEvent<{ refreshThreads?: boolean; conversationId?: string }>) => {
       if (event.detail?.refreshThreads || (event.type === 'inboxora:conversation-refresh' && event.detail?.conversationId === conversationId)) refresh().catch(() => {});
@@ -224,8 +224,8 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
         return ownCopy ? { ...message, copies, unread: !read } : message;
       }),
     });
-    updateMessage(copyId, { is_read: read, isRead: read });
-  }, [updateMessage]);
+    updateMessage(copyId, { is_read: read, isRead: read }, selectedAccountId ?? undefined);
+  }, [updateMessage, selectedAccountId]);
 
   // Every read write (automatic and explicit) shares this per-copy serialized lane.
   // That keeps a late automatic read from overwriting a newer explicit unread intent.
@@ -245,13 +245,13 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
     adjustCount(read);
     if (affectsInbox && read) setPending(copyId, accountId);
     setLocalReadState(copyId, read);
-    const mutation = queueReadStateMutation(copyId, read, targetRead => api.bulkRead([copyId], targetRead));
+    const mutation = queueReadStateMutation(copyId, read, targetRead => api.bulkRead([copyId], targetRead, [accountId]));
     return mutation.promise.then(() => { refreshEpoch.current += 1; }).catch((error: unknown) => {
       if (isLatestReadStateMutation(copyId, mutation.version)) { setLocalReadState(copyId, before); adjustCount(!read); }
       throw error;
     }).finally(() => {
       if (isLatestReadStateMutation(copyId, mutation.version)) pendingMarkReadMap.delete(copyId);
-      window.dispatchEvent(new CustomEvent('inboxora:unread_changed'));
+      window.dispatchEvent(new CustomEvent('inboxora:unread_changed', { detail: { accountId } }));
     });
   }, [messages, setLocalReadState]);
 

@@ -20,7 +20,8 @@ async function mailbox(page, fixtureApi) {
     }));
     await route.fulfill({ json: { messages: rows, total: rows.length } });
   });
-  await page.routeWebSocket('**/ws*', () => {});
+  let socket;
+  await page.routeWebSocket('**/ws*', ws => { socket = ws; });
   // The initial WebSocket handshake legitimately invalidates pre-handshake
   // snapshots. Warm navigation starts after its mandatory catch-up response.
   const bootRefresh = page.waitForResponse(response => new URL(response.url()).pathname === '/api/mail/messages'
@@ -34,7 +35,7 @@ async function mailbox(page, fixtureApi) {
     if (name) await page.getByText(name, { exact: true }).click();
     else await page.getByTestId('all-inboxes').click();
   };
-  return { state, navigate, release: () => { state.held = false; state.releases.splice(0).forEach(resolve => resolve()); } };
+  return { state, navigate, send: data => socket.send(JSON.stringify(data)), release: () => { state.held = false; state.releases.splice(0).forEach(resolve => resolve()); } };
 }
 
 test('warm account and unified navigation renders before the revalidation response', async ({ page, fixtureApi }) => {
@@ -121,5 +122,34 @@ for (const method of ['open', 'mark']) {
       await expect(page.locator('[data-msgid]')).toHaveCount(0);
     } finally { release(); }
     await expect(page.locator('[data-msgid]')).toHaveCount(3);
+  });
+}
+
+
+for (const trigger of ['offscreen-flag', 'wake']) {
+  test(`${trigger} keeps unrelated visited inboxes visible before the next HTTP response`, async ({ page, fixtureApi }) => {
+    const { state, navigate, send, release } = await mailbox(page, fixtureApi);
+    for (const account of fixtureApi.accounts) {
+      await navigate(account.name);
+      await expect(page.locator(`[data-msgid="nav-${account.id}"]`)).toBeVisible();
+    }
+    const before = state.requests.length;
+    if (trigger === 'offscreen-flag') {
+      // A real backend broadcasts changes for copies outside this loaded page.
+      send({ type: 'message_flags', accountId: 'account-gmail', changes: [{ id: 'offscreen-gmail-copy', is_read: true }] });
+      // Wait for the scoped coordinator to finish its counts request.
+      await page.waitForResponse(response => new URL(response.url()).pathname === '/api/mail/unread-counts');
+    } else {
+      const refreshed = page.waitForResponse(response => new URL(response.url()).pathname === '/api/mail/messages');
+      await page.evaluate(() => window.dispatchEvent(new Event('online')));
+      await refreshed;
+    }
+    state.held = true;
+    try {
+      await navigate('Outlook fixture');
+      await expect.poll(() => state.requests.length).toBeGreaterThan(before);
+      await expect(page.locator('[data-msgid="nav-account-outlook"]')).toBeVisible();
+      await expect(page.locator('[data-msgid]')).toHaveCount(1);
+    } finally { release(); }
   });
 }

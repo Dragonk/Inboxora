@@ -988,7 +988,7 @@ export default function MessageList() {
       // that actionMessages still reflects the pre-update sub-message states,
       // letting us compute the exact delta for any needed correction.
     } else {
-      updateReadRow({ is_read: read, unread_count: read ? 0 : 1 });
+      updateReadRow({ is_read: read });
     }
     if (read) {
       if (estimatedDelta > 0) {
@@ -1012,7 +1012,7 @@ export default function MessageList() {
       console.error('Failed to load thread for read state change:', toAppError(err).message);
       if (!isCurrentSession() || !isLatestPerCopyMutation(intentId, resolution.version)) return;
       // Revert the optimistic update
-      updateReadRow({ is_read: message.is_read, unread_count: previousUnread });
+      updateReadRow({ is_read: message.is_read, ...(isThreadRow ? { unread_count: previousUnread } : {}) });
       if (read && estimatedDelta > 0) { incrementUnread(message.account_id, estimatedDelta); adjustCategoryCount(message.category, estimatedDelta); }
       else if (!read && estimatedDelta > 0) { decrementUnread(message.account_id, estimatedDelta); adjustCategoryCount(message.category, -estimatedDelta); }
       return;
@@ -1107,7 +1107,7 @@ export default function MessageList() {
         }
         if (listRaced) window.dispatchEvent(new Event('inboxora:refresh'));
       } else if (!isThreadRow && failedIds.has(String(message.id))) {
-        updateReadRow({ is_read: message.is_read, unread_count: previousUnread });
+        updateReadRow({ is_read: message.is_read });
       }
       actionMessages.forEach(msg => window.dispatchEvent(new CustomEvent('inboxora:read-state', {
         detail: { id: msg.id, read: failedIds.has(String(msg.id)) ? Boolean(msg.is_read) : read },
@@ -1133,7 +1133,7 @@ export default function MessageList() {
         updateReadRow({ is_read: originalUnread === 0, unread_count: originalUnread });
         if (isCurrentScope()) setCachedThreadStates(message, 'is_read', new Map(actionMessages.map(msg => [String(msg.id), msg.is_read])));
       } else {
-        updateReadRow({ is_read: message.is_read, unread_count: previousUnread });
+        updateReadRow({ is_read: message.is_read });
       }
       if (read) {
         if (actualDelta > 0) { incrementUnread(message.account_id, actualDelta); adjustCategoryCount(message.category, actualDelta); }
@@ -2684,9 +2684,8 @@ export default function MessageList() {
     clearTimeout(autoMarkReadTimerRef.current);
     autoMarkReadTimerRef.current = undefined;
     if (message.is_read || markReadBehavior === 'manual') return;
-    const prevUnread = message.unread_count;
     const doMarkRead = () => {
-      updateMessage(message.id, { is_read: true, unread_count: 0 });
+      updateMessage(message.id, { is_read: true });
       decrementUnread(message.account_id);
       adjustCategoryCount(message.category, -1);
       // Also decrement the sidebar folder badge, so INBOX (etc.) updates immediately on open
@@ -2702,7 +2701,7 @@ export default function MessageList() {
         })
         .catch(e => {
           console.error('markRead failed:', toAppError(e).message);
-          updateMessage(message.id, { is_read: false, unread_count: prevUnread });
+          updateMessage(message.id, { is_read: false });
           incrementUnread(message.account_id);
           adjustCategoryCount(message.category, 1);
           useStore.getState().adjustFolderUnread(message.account_id, message.folder, +1);
