@@ -1,3 +1,4 @@
+import { invalidateMailListCache } from '../utils/mailListCache.ts';
 import { resolveSelectedAccount, pruneFolders } from '../utils/accountScope.ts';
 import { create } from 'zustand';
 import { api } from '../utils/api.ts';
@@ -523,6 +524,7 @@ export const useStore = create<StoreState>()((set, get) => ({
       && localStorage.getItem(NAVIGATION_OWNER_KEY) === user.id;
     const resetPrivateState = identityChanged && !isOwnedBootstrap;
     if (identityChanged) {
+      invalidateMailListCache();
       setAuthEpoch(get().authEpoch + 1);
       cancelPendingPrefSave();
       if (resetPrivateState) {
@@ -582,6 +584,7 @@ export const useStore = create<StoreState>()((set, get) => ({
   isLocked: localStorage.getItem('mailflow_locked') === '1',
   setLocked: (locked: boolean) =>{
     if (locked) {
+      invalidateMailListCache();
       const { selectedMessageId } = get();
       if (selectedMessageId) localStorage.setItem('mailflow_locked_message', selectedMessageId);
       localStorage.setItem('mailflow_locked', '1');
@@ -621,14 +624,18 @@ export const useStore = create<StoreState>()((set, get) => ({
   accountsReady: false, // true once the initial getAccounts() call has resolved
   setAccounts: (accounts: Array<{ id: string; enabled?: boolean; include_in_unified_inbox?: boolean; [key: string]: unknown }> | undefined) =>{
     if (!Array.isArray(accounts)) return;
+    invalidateMailListCache();
     const previous = get().selectedAccountId;
     const selected = resolveSelectedAccount(accounts, previous);
     set((state: StoreStateRead) => ({ accounts, accountsReady: true, folders: pruneFolders(state.folders, accounts) }));
     if (selected !== previous) get().setSelectedAccount(selected);
   },
-  updateAccount: (id: string, updates: Record<string, unknown>) =>set((state: StoreStateRead) => ({
-    accounts: state.accounts.map(a => a.id === id ? { ...a, ...updates } : a)
-  })),
+  updateAccount: (id: string, updates: Record<string, unknown>) =>set((state: StoreStateRead) => {
+    if (['enabled', 'include_in_unified_inbox', 'name', 'email_address', 'color', 'categorization_enabled'].some(key => Object.hasOwn(updates, key))) {
+      invalidateMailListCache(id);
+    }
+    return { accounts: state.accounts.map(a => a.id === id ? { ...a, ...updates } : a) };
+  }),
 
   // Navigation
   selectedAccountId: localStorage.getItem('mailflow_selected_account') || null, // '' stored as null
@@ -689,6 +696,7 @@ export const useStore = create<StoreState>()((set, get) => ({
     return messages === state.messages ? {} : { messages };
   }),
   updateMessage: (id: string, updates: Record<string, unknown>) =>set((state: StoreStateRead) => {
+    invalidateMailListCache();
     const apply = (m: StoreMessageRow) => m.id === id ? { ...m, ...updates } : m;
     const threadMessages = Object.fromEntries(
       Object.entries(state.threadMessages).map(([tid, msgs]) => [tid, msgs.map(apply)])
@@ -706,16 +714,20 @@ export const useStore = create<StoreState>()((set, get) => ({
     });
     return { messages, searchResults: state.searchResults.map(apply), threadMessages };
   }),
-  removeMessage: (id: string) =>set((state: StoreStateRead) => ({
-    messages: state.messages.filter(m => m.id !== id),
-    searchResults: state.searchResults.filter(m => m.id !== id),
-    selectedMessageId: state.selectedMessageId === id ? null : state.selectedMessageId,
-  })),
+  removeMessage: (id: string) =>set((state: StoreStateRead) => {
+    invalidateMailListCache();
+    return {
+      messages: state.messages.filter(m => m.id !== id),
+      searchResults: state.searchResults.filter(m => m.id !== id),
+      selectedMessageId: state.selectedMessageId === id ? null : state.selectedMessageId,
+    };
+  }),
   // Remove many messages in a single state update. Bulk triage (e.g. archiving ~40 rows)
   // otherwise calls removeMessage once per id, firing one store update — and, in a
   // non-virtualized list, one re-render — each, which stalls the UI. This collapses them
   // into one filter pass and one update.
   removeMessages: (ids: string[]) =>set((state: StoreStateRead) => {
+    invalidateMailListCache();
     const idSet = ids instanceof Set ? ids : new Set(ids);
     if (idSet.size === 0) return {};
     return {
@@ -725,6 +737,7 @@ export const useStore = create<StoreState>()((set, get) => ({
     };
   }),
   restoreMessages: (msgs: StoreMessageRow[]) =>set((state: StoreStateRead) => {
+    invalidateMailListCache();
     const list = Array.isArray(msgs) ? msgs : [msgs];
     const sort = (arr: StoreMessageRow[]) => [...arr].sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
     // Deduplicate against both the main list and searchResults by stable identity (Message-ID when

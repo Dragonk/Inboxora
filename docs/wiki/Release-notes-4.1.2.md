@@ -4,6 +4,71 @@
 production deployment is part of this change. Release only after the maintainer's
 existing database test and the original #16 reporter's confirmation.
 
+## Account and unified-inbox navigation performance
+
+Changing accounts previously discarded the visible list and waited for the next HTTP
+response on every visit. Returning from Calendar/Contacts retained the mounted live
+mail view, explaining why that path felt faster. Recently visited first pages now
+render immediately from an in-memory snapshot, then always revalidate with the API.
+The key includes the complete list query (account, folder, unread/category filters,
+thread grouping and page size) and is isolated by authentication epoch.
+
+Snapshots are not persisted: at most eight query entries and 1,000 total metadata rows
+are retained for at most 60 seconds. Offset pages and large infinite-scroll windows
+are not added to this navigation cache. Local mail mutations, account/configuration
+changes and live invalidations evict obsolete snapshots and fence older in-flight
+responses. Logout, lock and session changes clear them. Body-access bookkeeping does
+not invalidate useful navigation data. A cold view intentionally shows loading rather
+than another account's mail; a warm view keeps its last snapshot on a transient refresh
+failure. It is not considered fresh until revalidation succeeds.
+
+Navigation aborts superseded list HTTP requests, including pagination/background
+loads; a late completion cannot clear the new view's loading indicator. Returning
+from Calendar/Contacts still preserves the mounted live view and loaded pages. Native
+thread expansions are not restored from the navigation snapshots. Their reconciliation
+is bounded by server list generations rather than row-object identity, so optimistic
+flags and count corrections do not repeatedly fetch a removed representative.
+Explicit read/unread intents continue for the same authenticated user after account
+navigation, while their old expansion cannot be written into the new view.
+
+Before the navigation fix, a browser regression with its revalidation response held
+open showed zero rows on return to the already visited unified inbox. After the fix,
+account/unified snapshots render before that response is released, on desktop and
+mobile. These controlled API tests establish removal of the HTTP wait from warm
+navigation; they are not a measurement of production Microsoft/Gmail/IMAP latency.
+Unit coverage checks cache lifetime/size, scoped keys, invalidation and stale-session
+responses. There is no new backend migration, setting or provider polling introduced
+by this navigation change.
+
+## Thread expansion and read state
+
+Mailbox pagination does not limit the number of children in an expanded native thread.
+A stale frontend expansion could nevertheless show 14 cached messages after the mailbox
+list had refreshed to 17; marking the whole thread read could then act on only those
+14 cached IDs and leave the three newer replies unread.
+
+Expanded membership is now reconciled when the current list row no longer matches its
+cache. Explicit whole-thread read and unread actions fetch a current server membership
+snapshot rather than trusting an older expansion. Their intent and completion follow
+the account-local thread even when an unread/filter refresh changes its representative
+message. Superseded expansion responses cannot overwrite the action's membership, and
+late loads are checked against their authenticated view and component lifetime.
+Only an expanded row is automatically reconciled; collapsed mailbox rows do not each
+trigger a thread request. An inconsistent/transient server snapshot is retried on a
+later list snapshot or refresh hint, not in a render/request loop.
+
+These are frontend changes using the existing authorized thread/read endpoints; they
+add no migration, setting, provider resync, or mailbox-data rewrite. Replies arriving
+after the action's resolved snapshot are still new messages, not silently marked read.
+Existing folder-copy deduplication and provider read-write semantics are unchanged.
+
+Validation on ubuntu-dev includes a failing-before/passing-after browser reproduction
+of the 14/17 mismatch and incomplete read action, plus desktop/mobile regressions for
+read/unread cycles, delayed expansion responses, replacement representatives, bounded
+reconciliation and a 101-message expansion. These browser tests use synthetic mailbox
+responses against the built application; they do not claim validation against the
+maintainer's live Microsoft mailbox or provider-side delivery.
+
 ## Storage repair and bounded synchronization
 
 Two independent growth defects are addressed. IMAP binary headers were converted into

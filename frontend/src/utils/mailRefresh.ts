@@ -1,3 +1,4 @@
+import { invalidateMailListCache } from './mailListCache.ts';
 import { api } from './api.ts';
 import { useStore } from '../store/index.ts';
 import { refreshUnreadCounts, invalidateUnreadCountRequests } from './unreadRefresh.ts';
@@ -32,6 +33,7 @@ export function mailListNeedsRefresh(maxAgeMs = 50_000): boolean {
 
 /** Tear down pending work on lock/logout; every asynchronous write also checks authEpoch. */
 export function cancelMailRefresh(): void {
+  invalidateMailListCache();
   lifetime += 1;
   invalidateUnreadCountRequests();
   worker?.dispose();
@@ -48,6 +50,7 @@ export function cancelMailRefresh(): void {
 export function requestMailRefresh(accountId?: string): void {
   const state = useStore.getState();
   if (!state.user || state.isLocked) return;
+  invalidateMailListCache(accountId);
   if (sessionEpoch !== state.authEpoch) {
     cancelMailRefresh();
     sessionEpoch = state.authEpoch;

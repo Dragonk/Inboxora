@@ -1,3 +1,4 @@
+import { mailListCache, invalidateMailListCache, type MailListSnapshot } from './mailListCache.ts';
 import type { StoreMessageRow } from '../store/index.ts';
 import type { GtdFolderMap } from './gtd.ts';
 import { getAuthEpoch, isCurrentAuthEpoch } from './authEpoch.ts';
@@ -44,6 +45,7 @@ export function toSearchParams(params: QueryParams): string {
 }
 
 async function request(method: string, path: string, body: unknown = undefined, extraHeaders: Record<string, string> | undefined = undefined, extraOptions: RequestInit = {}) {
+  if (method !== 'GET' && path.startsWith('/mail/') && !path.endsWith('/body-access')) invalidateMailListCache();
   const headers: Record<string, string> = { [CSRF_HEADER]: CSRF_VALUE, ...(extraHeaders || {}) };
   if (body) headers['Content-Type'] = 'application/json';
   const opts: RequestInit = {
@@ -294,9 +296,17 @@ export const api = {
   deleteAlias: (accountId: string, aliasId: string) => request('DELETE', `/accounts/${accountId}/aliases/${aliasId}`),
 
   // Mail
-  getMessages: (params: QueryParams) =>{
-    const qs = toSearchParams(params);
-    return request('GET', `/mail/messages?${qs}`);
+  getCachedMessages: (params: QueryParams): MailListSnapshot | undefined => mailListCache.get(params, getAuthEpoch()),
+  getMessages: async (params: QueryParams, options: { signal?: AbortSignal } = {}): Promise<MailListSnapshot> => {
+    const epoch = getAuthEpoch();
+    const ticket = mailListCache.begin(params, epoch);
+    try {
+      const data: MailListSnapshot = await request('GET', `/mail/messages?${toSearchParams(params)}`, undefined, undefined, options);
+      if (isCurrentAuthEpoch(epoch) && !options.signal?.aborted) mailListCache.finish(ticket, data);
+      return data;
+    } finally {
+      mailListCache.finish(ticket);
+    }
   },
   getMessage: (id: string) => request('GET', `/mail/messages/${id}`),
   // Resolve a deep-link reference (stable Message-ID header, or a legacy UUID) to the

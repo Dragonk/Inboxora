@@ -6,6 +6,7 @@ type NativeThreadMember = {
   id?: unknown;
   message_id?: unknown;
   messageId?: unknown;
+  account_id?: unknown;
 };
 
 function membershipKey(message: NativeThreadMember): string {
@@ -40,4 +41,19 @@ export function singletonNativeThreadTarget<T>(row: T | null | undefined, normal
   }
   if (row) return row;
   return normalizedMembers[0] || null;
+}
+
+/** A cached expansion is usable only while it still covers the current list row. */
+export function nativeThreadCacheMatchesRow(
+  row: NativeThreadMember & { message_count?: unknown },
+  cached: readonly NativeThreadMember[] | null | undefined,
+): boolean {
+  if (!Array.isArray(cached) || cached.length === 0) return false;
+  const members = normalizedNativeThreadMembers(cached);
+  const expected = Number(row.message_count);
+  if (Number.isFinite(expected) && expected > 0 && members.length !== expected) return false;
+  if (row.account_id && members.some(member => member.account_id && member.account_id !== row.account_id)) return false;
+  // The representative can change after a read/filter refresh or provider move.
+  // Match a normalized identity as well as a physical ID for deduplicated folders.
+  return members.some(member => member.id === row.id || membershipKey(member) === membershipKey(row));
 }

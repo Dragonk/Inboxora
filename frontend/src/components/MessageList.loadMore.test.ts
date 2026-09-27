@@ -4,9 +4,11 @@ import { readFile } from 'node:fs/promises';
 
 test('offset pages share the navigation-safe latest-request guard', async () => {
   const source = await readFile(new URL('./MessageList.tsx', import.meta.url), 'utf8');
-  const loadMore = source.slice(source.indexOf('const loadMore = useCallback'), source.indexOf('// Listen for background refresh events'));
-  assert.match(loadMore, /await refreshRequest\.run\(\s*\(\) => api\.getMessages\(params\)/);
+  const loadMore = source.slice(source.indexOf('const loadMore = useCallback'), source.indexOf('  useEffect(() => {', source.indexOf('const loadMore = useCallback')));
+  assert.match(loadMore, /await refreshRequest\.run\(\s*\(\) => api\.getMessages\(params, \{ signal \}\)/);
   assert.match(loadMore, /appendMessages\(applyDeleteGuard\(applyReadGuard\(data\.messages\)\)\)/);
   assert.match(loadMore, /setMessagesOffset\(currentOffset \+ data\.messages\.length\)/);
-  assert.doesNotMatch(loadMore, /const data = await api\.getMessages\(params\)/);
+  assert.match(loadMore, /const signal = listAbortRef\.current\?\.signal/);
+  assert.match(loadMore, /if \(!signal\?\.aborted\) setLoadingMessages\(false\)/);
+  assert.doesNotMatch(loadMore, /const data = await api\.getMessages\(params, \{ signal \}\)/);
 });

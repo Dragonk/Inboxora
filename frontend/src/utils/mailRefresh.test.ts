@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import ts from 'typescript';
 import { createCoalescedTask } from './coalescedTask.ts';
+import { createMailListCache } from './mailListCache.ts';
 
 // Execute the real coordinator with store/HTTP boundaries replaced. No source-text
 // assertion is used to stand in for behavior; the compiler is already a dev dependency.
@@ -12,6 +13,7 @@ const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.Modu
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 type Methods = { requestMailRefresh: (id?: string) => void; cancelMailRefresh: () => void; noteMailListLoaded: () => void; mailListNeedsRefresh: (age?: number) => boolean };
 function harness(getFolders: (id: string) => Promise<Array<{ path: string }>> = async () => [{ path: 'INBOX' }]) {
+  const cache = createMailListCache();
   const events: string[] = []; const writes: string[] = [];
   let counts = 0; let invalidated = 0; let now = 100_000;
   const state = {
@@ -25,6 +27,7 @@ function harness(getFolders: (id: string) => Promise<Array<{ path: string }>> = 
     window: { dispatchEvent: (event: { type: string }) => { events.push(event.type); } },
     CustomEvent: class { constructor(public type: string) {} },
     require: (name: string) => {
+      if (name === './mailListCache.ts') return { invalidateMailListCache: (id?: string) => cache.invalidate(id) };
       if (name === './api.ts') return { api: { getFolders } };
       if (name === '../store/index.ts') return { useStore: { getState: () => state } };
       if (name === './coalescedTask.ts') return { createCoalescedTask };
@@ -37,7 +40,7 @@ function harness(getFolders: (id: string) => Promise<Array<{ path: string }>> = 
     },
   };
   vm.runInNewContext(compiled, context);
-  return { methods: context.exports as Methods, state, events, writes, counts: () => counts,
+  return { cache, methods: context.exports as Methods, state, events, writes, counts: () => counts,
     invalidated: () => invalidated, advance: (ms: number) => { now += ms; } };
 }
 
@@ -89,5 +92,27 @@ test('freshness is measured from a successful view read, not WebSocket liveness'
     h.advance(1); assert.equal(h.methods.mailListNeedsRefresh(), true);
     h.methods.noteMailListLoaded(); h.state.selectedAccountId = 'B';
     assert.equal(h.methods.mailListNeedsRefresh(), true);
+  } finally { h.methods.cancelMailRefresh(); }
+});
+
+
+test('remote account hints evict warm snapshots immediately, before the refresh debounce', () => {
+  const h = harness();
+  try {
+    // Bootstrap the coordinator, then cache data obtained during this session.
+    h.methods.requestMailRefresh('A');
+    const unified = { limit: 50, offset: 0 };
+    const account = { ...unified, accountId: 'A' };
+    const other = { ...unified, accountId: 'B' };
+    const snapshot = { messages: [{ id: 'm', account_id: 'A' }], total: 1 };
+    for (const params of [unified, account, other]) h.cache.finish(h.cache.begin(params, 1), snapshot);
+    const pending = h.cache.begin(account, 1);
+    h.methods.requestMailRefresh('A');
+    h.cache.finish(pending, snapshot);
+    assert.equal(h.cache.get(unified, 1), undefined);
+    assert.equal(h.cache.get(account, 1), undefined);
+    assert.ok(h.cache.get(other, 1));
+    h.methods.cancelMailRefresh();
+    assert.equal(h.cache.get(other, 1), undefined);
   } finally { h.methods.cancelMailRefresh(); }
 });

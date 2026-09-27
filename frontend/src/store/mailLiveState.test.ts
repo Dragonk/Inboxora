@@ -112,3 +112,25 @@ test('a late unread-count response cannot overwrite a newer response or an optim
     assert.equal(useStore.getState().unreadCounts.total, 1);
   } finally { api.getUnreadCounts = original; }
 });
+
+test('navigation snapshots are evicted by local changes, account changes, lock and logout', async () => {
+  const { mailListCache } = await import('../utils/mailListCache.ts');
+  const params = { limit: 50, offset: 0 };
+  const populate = () => {
+    mailListCache.finish(mailListCache.begin(params, 1), { messages: [{ id: 'newest', account_id: 'a' }], total: 1 });
+    assert.ok(mailListCache.get(params, 1));
+  };
+  seed();
+  for (const action of [
+    () => useStore.getState().updateMessage('newest', { is_read: true }),
+    () => useStore.getState().removeMessage('newest'),
+    () => useStore.getState().removeMessages(['newest']),
+    () => useStore.getState().restoreMessages([{ id: 'newest', account_id: 'a' }]),
+    () => useStore.getState().setAccounts([{ id: 'a', enabled: true }]),
+    () => useStore.getState().updateAccount('a', { include_in_unified_inbox: false }),
+    () => useStore.getState().setLocked(true),
+    () => { useStore.setState({ user: { id: 'old-user' } }); useStore.getState().setUser(null); },
+  ]) {
+    populate(); action(); assert.equal(mailListCache.get(params, 1), undefined);
+  }
+});
