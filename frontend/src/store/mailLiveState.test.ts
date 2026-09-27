@@ -134,3 +134,32 @@ test('navigation snapshots are evicted by local changes, account changes, lock a
     populate(); action(); assert.equal(mailListCache.get(params, 1), undefined);
   }
 });
+
+test('message mutations evict only complete affected scopes, including search and cached children', async () => {
+  const { mailListCache } = await import('../utils/mailListCache.ts');
+  const unified = { limit: 50, offset: 0 };
+  const scopes = ['a', 'b', 'c'].map(accountId => ({ ...unified, accountId }));
+  const a = { id: 'a-1', account_id: 'a' }, b = { id: 'b-1', account_id: 'b' }, c = { id: 'c-1', account_id: 'c' };
+  const prepare = () => {
+    seed();
+    useStore.setState({ messages: [a], searchResults: [b], threadMessages: { c: [c] } });
+    for (const params of [unified, ...scopes]) mailListCache.finish(mailListCache.begin(params, 1), { messages: [a], total: 1 });
+  };
+  const check = (evicted: string[]) => {
+    assert.equal(mailListCache.get(unified, 1), undefined);
+    for (const scope of scopes) assert.equal(Boolean(mailListCache.get(scope, 1)), !evicted.includes(scope.accountId));
+  };
+  prepare(); useStore.getState().updateMessage(a.id, { is_read: true }); check(['a']);
+  prepare(); useStore.getState().removeMessage(b.id); check(['b']);
+  prepare(); useStore.getState().removeMessages([a.id, c.id, c.id]); check(['a', 'c']);
+  prepare(); useStore.getState().restoreMessages([{ ...a, id: 'restored-a' }, { ...b, id: 'restored-b' }]); check(['a', 'b']);
+  prepare(); useStore.getState().restoreMessages([{ ...a, account_id: 'c' }]); check(['a', 'c']);
+  prepare(); useStore.getState().updateMessage(a.id, { account_id: 'c' }); check(['a', 'c']);
+  prepare(); useStore.getState().removeMessages([a.id, 'unknown']); check(['a', 'b', 'c']);
+  prepare(); useStore.getState().updateMessage('unknown', { is_read: true }); check(['a', 'b', 'c']);
+  prepare();
+  useStore.getState().updateMessage(a.id, { message_count: 17 });
+  useStore.getState().removeMessages([]);
+  useStore.getState().restoreMessages([]);
+  for (const params of [unified, ...scopes]) assert.ok(mailListCache.get(params, 1));
+});

@@ -81,3 +81,45 @@ test('failed warm revalidation keeps the scoped snapshot without replacing it wi
   await expect(page.locator('[data-msgid]')).toHaveCount(3);
   await expect(page.locator('[data-msgid="nav-account-outlook"]')).toContainText('v1');
 });
+
+for (const method of ['open', 'mark']) {
+  test(`reading Gmail via ${method} keeps unrelated account navigation warm`, async ({ page, fixtureApi }) => {
+    const { state, navigate, release } = await mailbox(page, fixtureApi);
+    let reads = 0;
+    const message = { id: 'nav-account-gmail', account_id: 'account-gmail', folder: 'INBOX', subject: 'Navigation Gmail fixture v1', from_email: 'sender@example.test', date: '2026-09-27T10:00:00Z' };
+    await page.route(url => url.pathname === '/api/mail/messages/nav-account-gmail', route => route.fulfill({ json: { ...message, is_read: reads > 0 } }));
+    await page.route('**/api/mail/messages/nav-account-gmail/body*', route => route.fulfill({ json: { html: '<p>Navigation body</p>', text: 'Navigation body' } }));
+    await page.route('**/api/mail/messages/bulk-read', async route => {
+      expect(route.request().postDataJSON()).toEqual({ ids: ['nav-account-gmail'], read: true });
+      reads++;
+      await route.fulfill({ json: { ok: true, updated: ['nav-account-gmail'] } });
+    });
+    for (const account of [fixtureApi.accounts[1], fixtureApi.accounts[2], fixtureApi.accounts[0]]) {
+      await navigate(account.name);
+      await expect(page.locator('[data-msgid]')).toHaveCount(1);
+      await expect(page.locator(`[data-msgid="nav-${account.id}"]`)).toBeVisible();
+    }
+    const row = page.locator('[data-msgid="nav-account-gmail"]');
+    if (method === 'open') {
+      await row.click();
+      await expect.poll(() => reads).toBeGreaterThan(0);
+      if (page.viewportSize().width < 768) await page.getByTestId('message-pane-back').click();
+    } else {
+      if (page.viewportSize().width < 768) await row.getByRole('button', { name: /more/i }).click();
+      else await row.click({ button: 'right' });
+      await page.getByText(/mark as read/i).last().click();
+      await expect.poll(() => reads).toBeGreaterThan(0);
+    }
+    state.held = true;
+    try {
+      for (const account of fixtureApi.accounts.slice(1)) {
+        await navigate(account.name);
+        await expect(page.locator(`[data-msgid="nav-${account.id}"]`)).toBeVisible();
+      }
+      await navigate();
+      // The unified snapshot includes Gmail and must have been invalidated.
+      await expect(page.locator('[data-msgid]')).toHaveCount(0);
+    } finally { release(); }
+    await expect(page.locator('[data-msgid]')).toHaveCount(3);
+  });
+}

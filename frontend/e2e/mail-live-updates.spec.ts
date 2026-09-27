@@ -267,3 +267,52 @@ test('an explicit read finishes after account navigation without restoring the o
   await expect(page.locator('[data-msgid="other-account-row"]')).toBeVisible();
   await expect(page.locator('[data-thread-row-child]')).toHaveCount(0);
 });
+
+for (const delivery of ['during', 'after']) {
+  test(`a pre-write list snapshot delivered ${delivery} thread read cannot restore the unread aggregate`, async ({ page, fixtureApi }, testInfo) => {
+    test.skip(!['chromium-desktop', 'chromium-mobile-390'].includes(testInfo.project.name), 'desktop and mobile list/write ordering');
+    const { state, parent, copy } = await liveMailbox(page, fixtureApi, false, 17);
+    let releaseOld, releaseFresh, releaseWrites;
+    const oldGate = new Promise(resolve => { releaseOld = resolve; });
+    const freshGate = new Promise(resolve => { releaseFresh = resolve; });
+    const writeGate = new Promise(resolve => { releaseWrites = resolve; });
+    let listRequests = 0;
+    const oldParent = { ...copy(17), message_count: 17, unread_count: state.unread.size, is_read: false };
+    await page.route(url => url.pathname === '/api/mail/messages', async route => {
+      const first = ++listRequests === 1;
+      await (first ? oldGate : freshGate);
+      await route.fulfill({ json: { messages: [first ? oldParent : { ...copy(17), message_count: 17, unread_count: state.unread.size, is_read: state.unread.size === 0 }], total: 1 } });
+    });
+    const ids = new Set();
+    await page.route('**/api/mail/messages/bulk-read', async route => {
+      for (const id of route.request().postDataJSON().ids) { ids.add(id); state.unread.delete(Number(id.split('-').at(-1))); }
+      await writeGate;
+      await route.fulfill({ json: { ok: true } });
+    });
+    await page.evaluate(() => {
+      window.__readCompletions = 0;
+      window.addEventListener('inboxora:read-state', () => { window.__readCompletions++; });
+      window.dispatchEvent(new Event('inboxora:refresh'));
+    });
+    try {
+      await expect.poll(() => listRequests).toBe(1);
+      if (testInfo.project.name === 'chromium-desktop') await parent().click({ button: 'right' });
+      else await parent().getByRole('button', { name: /więcej|more/i }).click();
+      await page.getByText(/oznacz jako przeczytan|mark as read/i).last().click();
+      await expect.poll(() => ids.size).toBe(17);
+      const deliverOld = async () => {
+        const response = page.waitForResponse(response => new URL(response.url()).pathname === '/api/mail/messages');
+        releaseOld(); await response;
+        await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      };
+      if (delivery === 'during') await deliverOld();
+      releaseWrites();
+      await expect.poll(() => page.evaluate(() => window.__readCompletions)).toBe(17);
+      if (delivery === 'after') await deliverOld();
+      // Fresh reconciliation remains blocked: it cannot mask a stale-data flash.
+      await expect(parent()).toHaveAttribute('data-unread', 'false');
+      await expect(page.locator('[data-thread-row-child]')).toHaveCount(17);
+    } finally { releaseOld(); releaseFresh(); releaseWrites(); }
+    await expect(parent()).toHaveAttribute('data-unread', 'false');
+  });
+}

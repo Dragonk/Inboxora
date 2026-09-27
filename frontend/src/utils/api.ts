@@ -1,4 +1,4 @@
-import { mailListCache, invalidateMailListCache, type MailListSnapshot } from './mailListCache.ts';
+import { mailListCache, invalidateMailListCacheForAccounts, type MailListSnapshot } from './mailListCache.ts';
 import type { StoreMessageRow } from '../store/index.ts';
 import type { GtdFolderMap } from './gtd.ts';
 import { getAuthEpoch, isCurrentAuthEpoch } from './authEpoch.ts';
@@ -44,8 +44,8 @@ export function toSearchParams(params: QueryParams): string {
   return search.toString();
 }
 
-async function request(method: string, path: string, body: unknown = undefined, extraHeaders: Record<string, string> | undefined = undefined, extraOptions: RequestInit = {}) {
-  if (method !== 'GET' && path.startsWith('/mail/') && !path.endsWith('/body-access')) invalidateMailListCache();
+async function request(method: string, path: string, body: unknown = undefined, extraHeaders: Record<string, string> | undefined = undefined, extraOptions: RequestInit = {}, mailCacheAccountIds?: readonly unknown[]) {
+  if (method !== 'GET' && path.startsWith('/mail/') && !path.endsWith('/body-access')) invalidateMailListCacheForAccounts(mailCacheAccountIds);
   const headers: Record<string, string> = { [CSRF_HEADER]: CSRF_VALUE, ...(extraHeaders || {}) };
   if (body) headers['Content-Type'] = 'application/json';
   const opts: RequestInit = {
@@ -325,7 +325,8 @@ export const api = {
     const query = qs.size ? `?${qs}` : '';
     return request('GET', `/mail/thread/${encodeURIComponent(threadId)}${query}`);
   },
-  bulkRead: (ids: string[], read: boolean) => request('POST', '/mail/messages/bulk-read', { ids, read }),
+  bulkRead: (ids: string[], read: boolean, accountIds?: readonly unknown[]) =>
+    request('POST', '/mail/messages/bulk-read', { ids, read }, undefined, {}, accountIds),
   markStarred: (id: string, starred: boolean) => request('PATCH', `/mail/messages/${id}/star`, { starred }),
   markAllRead: (accountId: string, folder: string) => request('POST', '/mail/mark-all-read', { accountId, folder }),
   deleteMessage: (id: string) => request('DELETE', `/mail/messages/${id}`),

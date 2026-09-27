@@ -47,3 +47,27 @@ test('body access bookkeeping does not evict unrelated navigation data', async (
   await api.getMessages(params); await api.touchMessageBody('m');
   assert.deepEqual(api.getCachedMessages(params), data);
 });
+
+test('bulk read scopes invalidation to all target accounts and keeps the wire payload unchanged', async () => {
+  let sent: unknown;
+  globalThis.fetch = async (_input, init) => {
+    if (init?.method === 'POST') sent = JSON.parse(String(init.body));
+    return json(init?.method === 'POST' ? { ok: true } : data);
+  };
+  const scopes = [params, ...['a', 'b', 'c'].map(accountId => ({ ...params, accountId }))];
+  for (const scope of scopes) await api.getMessages(scope);
+  await api.bulkRead(['a-1', 'b-1'], true, ['a', 'b', 'a']);
+  for (const scope of scopes.slice(0, 3)) assert.equal(api.getCachedMessages(scope), undefined);
+  assert.ok(api.getCachedMessages(scopes[3]));
+  assert.deepEqual(sent, { ids: ['a-1', 'b-1'], read: true });
+});
+
+test('missing, empty or incomplete bulk-read scope retains global invalidation', async () => {
+  globalThis.fetch = async () => json(data);
+  const other = { ...params, accountId: 'other' };
+  for (const hint of [undefined, [], ['a', undefined], ['a', ''], ['a', null], ['a', 0], [' a ']]) {
+    await api.getMessages(other);
+    await api.bulkRead(['a-1', 'unknown-id'], true, hint);
+    assert.equal(api.getCachedMessages(other), undefined);
+  }
+});

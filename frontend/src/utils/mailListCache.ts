@@ -7,7 +7,7 @@ type Ticket = { key: string; epoch: number; revision: number; request: number; a
 /** Bounded, memory-only first-page snapshots. They are never a substitute for revalidation. */
 export function createMailListCache({ maxEntries = 8, maxRows = 1000, maxAgeMs = 60_000, now = Date.now } = {}) {
   const entries = new Map<string, { value: MailListSnapshot; at: number; accountId: string | null }>();
-  const latest = new Map<string, number>();
+  const latest = new Map<string, { request: number; accountId: string | null }>();
   let epoch = -1;
   let revision = 0;
   let sequence = 0;
@@ -28,13 +28,14 @@ export function createMailListCache({ maxEntries = 8, maxRows = 1000, maxAgeMs =
     .filter(([, value]) => value !== undefined && value !== null).sort(([a], [b]) => a.localeCompare(b)));
   return {
     clear,
-    invalidate(accountId?: string) {
-      // Fence all in-flight writes even when only one account's stored snapshots
-      // are evicted: a pre-mutation response must not repopulate an obsolete list.
-      revision += 1; latest.clear();
-      for (const [key, entry] of entries) {
-        if (!accountId || !entry.accountId || entry.accountId === accountId) remove(key);
-      }
+    invalidate(scope?: string | readonly string[]) {
+      if (scope === undefined) { clear(); return; }
+      const affected = new Set(typeof scope === 'string' ? [scope] : scope);
+      const matches = (accountId: string | null) => !accountId || affected.has(accountId);
+      for (const [key, entry] of entries) if (matches(entry.accountId)) remove(key);
+      // Evict matching in-flight tickets too. Unrelated revalidations can still
+      // populate their own snapshots; unified requests always intersect a change.
+      for (const [key, entry] of latest) if (matches(entry.accountId)) latest.delete(key);
     },
     get(params: Params, authEpoch: number): MailListSnapshot | undefined {
       enter(authEpoch);
@@ -53,11 +54,12 @@ export function createMailListCache({ maxEntries = 8, maxRows = 1000, maxAgeMs =
       if (Number(params.offset || 0) !== 0 || Number(params.limit || 50) > 500) return undefined;
       const key = keyFor(params);
       const request = ++sequence;
-      latest.set(key, request);
-      return { key, epoch, revision, request, accountId: typeof params.accountId === 'string' ? params.accountId : null };
+      const accountId = typeof params.accountId === 'string' ? params.accountId : null;
+      latest.set(key, { request, accountId });
+      return { key, epoch, revision, request, accountId };
     },
     finish(ticket: Ticket | undefined, value?: MailListSnapshot): void {
-      if (!ticket || ticket.epoch !== epoch || ticket.revision !== revision || latest.get(ticket.key) !== ticket.request) return;
+      if (!ticket || ticket.epoch !== epoch || ticket.revision !== revision || latest.get(ticket.key)?.request !== ticket.request) return;
       latest.delete(ticket.key);
       if (!value || value.messages.length > maxRows) return;
       remove(ticket.key);
@@ -73,4 +75,14 @@ export function createMailListCache({ maxEntries = 8, maxRows = 1000, maxAgeMs =
 }
 
 export const mailListCache = createMailListCache();
-export const invalidateMailListCache = (accountId?: string): void => mailListCache.invalidate(accountId);
+export const invalidateMailListCache = (accountId?: string): void => invalidateMailListCacheForAccounts(accountId === undefined ? undefined : [accountId]);
+
+
+/** Scope must cover every target. Missing/invalid hints retain the safe global fallback. */
+export function invalidateMailListCacheForAccounts(accountIds?: readonly unknown[]): void {
+  if (!accountIds?.length || !accountIds.every((id): id is string => typeof id === 'string' && id.length > 0 && id === id.trim())) {
+    mailListCache.invalidate();
+    return;
+  }
+  mailListCache.invalidate(accountIds);
+}

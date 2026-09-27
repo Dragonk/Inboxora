@@ -77,3 +77,25 @@ describe('bounded navigation snapshots', () => {
     time = 10; assert.equal(cache.get(params, 1), undefined);
   });
 });
+
+describe('account-scoped invalidation fences', () => {
+  it('fences affected and unified requests while preserving unrelated in-flight snapshots', () => {
+    const cache = createMailListCache();
+    const a = { ...params, accountId: 'a' }, b = { ...params, accountId: 'b' }, c = { ...params, accountId: 'c' };
+    const pending = [params, a, b, c].map(query => cache.begin(query, 1));
+    cache.invalidate(['a', 'b', 'a']);
+    pending.forEach(ticket => cache.finish(ticket, snapshot()));
+    for (const query of [params, a, b]) assert.equal(cache.get(query, 1), undefined);
+    assert.ok(cache.get(c, 1));
+  });
+  it('never permits a matching older request to overwrite a post-invalidation response', () => {
+    const cache = createMailListCache();
+    const a = { ...params, accountId: 'a' };
+    const old = cache.begin(a, 1);
+    cache.invalidate('a');
+    const value = snapshot('fresh');
+    cache.finish(cache.begin(a, 1), value);
+    cache.finish(old, snapshot('stale'));
+    assert.equal(cache.get(a, 1), value);
+  });
+});

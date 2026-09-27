@@ -11,6 +11,7 @@ import { useEffect, useLayoutEffect, useRef, useCallback, useState } from 'react
 import { useTranslation } from 'react-i18next';
 import { useStore, selectSelectedMessageMid } from '../store/index.ts';
 import { api, isAbortError } from '../utils/api.ts';
+import { invalidateMailListCache } from '../utils/mailListCache.ts';
 import { LAYOUTS, localizedLayout, normalizeLayout } from '../layouts.ts';
 import { senderColor } from '../themes.ts';
 import { useMobile } from '../hooks/useMobile.ts';
@@ -970,6 +971,7 @@ export default function MessageList() {
     // Reserve the logical intent before any asynchronous thread resolution. A
     // later click must invalidate this action even if this GET is still pending.
     const isCurrentScope = captureThreadScope();
+    const listGenerationAtIntent = threadListGenerationRef.current;
     // The user requested the whole thread, not only the children cached before
     // new replies arrived. Resolve server membership for every explicit intent.
     const resolution = queuePerCopyMutation(intentId, 'read', () => resolveMessagesForThreadAction(message, { forceRefresh: true }));
@@ -1063,7 +1065,7 @@ export default function MessageList() {
       mutations = actionMessages.map(msg => ({ msg, mutation: queueReadStateMutation(
         msg.id, read, targetRead => {
           if (!isCurrentSession()) return Promise.reject(new Error('Read action belongs to an expired session'));
-          return api.bulkRead([msg.id], targetRead);
+          return api.bulkRead([msg.id], targetRead, [msg.account_id]);
         },
       ) }));
       const results = await Promise.allSettled(mutations.map(({ mutation }) => mutation.promise));
@@ -1073,14 +1075,9 @@ export default function MessageList() {
         result.status === 'rejected' ? [String(mutations[index].msg.id)] : []
       )));
       if (failedIds.size > 0) {
-        if (isCurrentScope()) setCachedThreadStates(message, 'is_read', new Map(actionMessages.filter(msg => failedIds.has(String(msg.id))).map(msg => [String(msg.id), msg.is_read])));
-        const finalUnread = actionMessages.filter(msg => (
-          failedIds.has(String(msg.id)) ? !msg.is_read : !read
-        )).length;
         const failedTransitionCount = actionMessages.filter(msg => (
           failedIds.has(String(msg.id)) && msg.is_read !== read
         )).length;
-        if (isThreadRow) updateReadRow({ is_read: finalUnread === 0, unread_count: finalUnread });
         if (failedTransitionCount > 0) {
           if (read) {
             incrementUnread(message.account_id, failedTransitionCount);
@@ -1091,6 +1088,28 @@ export default function MessageList() {
           }
         }
         failedIds.forEach(id => pendingMarkReadMap.delete(id));
+      }
+      if (isThreadRow && isCurrentScope()) {
+        // A list SELECT may finish during the writes or after their completion.
+        // Fence it, then reconcile only when a request actually raced this intent;
+        // steady-state read actions must not introduce another list GET.
+        const listRaced = threadListGenerationRef.current !== listGenerationAtIntent || refreshRequest.isPending();
+        if (listRaced) refreshRequest.invalidate();
+        invalidateMailListCache(message.account_id);
+        const finalStates = new Map(actionMessages.map(msg => [String(msg.id), failedIds.has(String(msg.id)) ? msg.is_read : read]));
+        setCachedThreadStates(message, 'is_read', finalStates);
+        const current = useStore.getState();
+        const row = current.messages.find(row => (row.thread_id || row.id) === tid && row.account_id === message.account_id);
+        const cached = current.threadMessages[tid];
+        // Count newer replies too, rather than silently marking a post-snapshot
+        // arrival read or deriving a whole-thread total from incomplete children.
+        if (row && nativeThreadCacheMatchesRow(row, cached)) {
+          const unread = normalizedNativeThreadMembers(cached).filter(child => !child.is_read).length;
+          updateReadRow({ is_read: unread === 0, unread_count: unread });
+        }
+        if (listRaced) window.dispatchEvent(new Event('inboxora:refresh'));
+      } else if (!isThreadRow && failedIds.has(String(message.id))) {
+        updateReadRow({ is_read: message.is_read, unread_count: previousUnread });
       }
       actionMessages.forEach(msg => window.dispatchEvent(new CustomEvent('inboxora:read-state', {
         detail: { id: msg.id, read: failedIds.has(String(msg.id)) ? Boolean(msg.is_read) : read },
@@ -1128,7 +1147,7 @@ export default function MessageList() {
     }
   }, [
     resolveMessagesForThreadAction, isThreadListRow, updateMessage,
-    setCachedThreadStates, setThreadMessages, setLoadingThread, captureThreadScope,
+    setCachedThreadStates, setThreadMessages, setLoadingThread, captureThreadScope, refreshRequest,
     decrementUnread, incrementUnread, adjustCategoryCount,
   ]);
 
@@ -2093,7 +2112,10 @@ export default function MessageList() {
     setSelectedIds(new Set());
     setSelectionModeActive(false);
     try {
-      await api.bulkRead(ids, markAsRead);
+      const accountsById = new Map(msgs.map(msg => [msg.id, msg.account_id]));
+      // Retain undefined for an unresolved ID: incomplete scope must fall back
+      // to global eviction, not preserve a possibly affected account snapshot.
+      await api.bulkRead(ids, markAsRead, [...new Set(ids.map(id => accountsById.get(id)))]);
     } catch (err) {
       console.error('Bulk mark read failed:', err);
       msgs.forEach(msg => updateMessage(msg.id, { is_read: msg.is_read, unread_count: msg.unread_count }));
@@ -2673,8 +2695,8 @@ export default function MessageList() {
       // rather than lagging until the next folder-count refresh.
       useStore.getState().adjustFolderUnread(message.account_id, message.folder, -1);
       setPending(message.id, message.account_id);
-      api.bulkRead([message.id], true)
-        .catch(() => api.bulkRead([message.id], true))
+      api.bulkRead([message.id], true, [message.account_id])
+        .catch(() => api.bulkRead([message.id], true, [message.account_id]))
         .then(() => {
           pendingMarkReadMap.delete(message.id);
           completedMarkReadMap.set(message.id, message.account_id);

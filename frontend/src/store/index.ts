@@ -1,4 +1,4 @@
-import { invalidateMailListCache } from '../utils/mailListCache.ts';
+import { invalidateMailListCache, invalidateMailListCacheForAccounts } from '../utils/mailListCache.ts';
 import { resolveSelectedAccount, pruneFolders } from '../utils/accountScope.ts';
 import { create } from 'zustand';
 import { api } from '../utils/api.ts';
@@ -434,6 +434,38 @@ type StoreStateRead = Pick<StoreState,
   | 'user'
 >;
 
+// Resolve complete pre-mutation scope without flattening every cached thread.
+// Unknown physical IDs require global eviction rather than an incomplete hint.
+function messageAccountScope(
+  state: Pick<StoreStateRead, 'messages' | 'searchResults' | 'threadMessages'>,
+  ids: ReadonlySet<string>,
+  additionalRows: readonly StoreMessageRow[] = [],
+): string[] | undefined {
+  const unresolved = new Set(ids);
+  const accounts = new Set<string>();
+  const collect = (rows: readonly StoreMessageRow[]) => {
+    if (!unresolved.size) return;
+    for (const row of rows) {
+      if (!unresolved.has(row.id) || !row.account_id) continue;
+      accounts.add(row.account_id);
+      unresolved.delete(row.id);
+      if (!unresolved.size) break;
+    }
+  };
+  collect(state.messages);
+  collect(state.searchResults);
+  if (unresolved.size) for (const rows of Object.values(state.threadMessages)) collect(rows);
+  // A restored copy may carry a different account than a row already present.
+  // Include both scopes rather than allowing the restored row to mask the old one.
+  for (const row of additionalRows) {
+    if (!ids.has(row.id)) continue;
+    if (!row.account_id) return undefined;
+    accounts.add(row.account_id);
+    unresolved.delete(row.id);
+  }
+  return unresolved.size ? undefined : [...accounts];
+}
+
 // Accumulate rapid preference changes and flush at most once per second.
 let _prefFlushTimer: ReturnType<typeof setTimeout> | null = null;
 let _pendingPrefs: Record<string, unknown> = {};
@@ -696,7 +728,13 @@ export const useStore = create<StoreState>()((set, get) => ({
     return messages === state.messages ? {} : { messages };
   }),
   updateMessage: (id: string, updates: Record<string, unknown>) =>set((state: StoreStateRead) => {
-    invalidateMailListCache();
+    const keys = Object.keys(updates);
+    if (keys.length && !(keys.length === 1 && keys[0] === 'message_count')) {
+      const accountIds = messageAccountScope(state, new Set([id]));
+      if (accountIds && Object.hasOwn(updates, 'account_id')) {
+        invalidateMailListCacheForAccounts([...accountIds, updates.account_id]);
+      } else invalidateMailListCacheForAccounts(accountIds);
+    }
     const apply = (m: StoreMessageRow) => m.id === id ? { ...m, ...updates } : m;
     const threadMessages = Object.fromEntries(
       Object.entries(state.threadMessages).map(([tid, msgs]) => [tid, msgs.map(apply)])
@@ -715,7 +753,7 @@ export const useStore = create<StoreState>()((set, get) => ({
     return { messages, searchResults: state.searchResults.map(apply), threadMessages };
   }),
   removeMessage: (id: string) =>set((state: StoreStateRead) => {
-    invalidateMailListCache();
+    invalidateMailListCacheForAccounts(messageAccountScope(state, new Set([id])));
     return {
       messages: state.messages.filter(m => m.id !== id),
       searchResults: state.searchResults.filter(m => m.id !== id),
@@ -727,9 +765,9 @@ export const useStore = create<StoreState>()((set, get) => ({
   // non-virtualized list, one re-render — each, which stalls the UI. This collapses them
   // into one filter pass and one update.
   removeMessages: (ids: string[]) =>set((state: StoreStateRead) => {
-    invalidateMailListCache();
     const idSet = ids instanceof Set ? ids : new Set(ids);
     if (idSet.size === 0) return {};
+    invalidateMailListCacheForAccounts(messageAccountScope(state, idSet));
     return {
       messages: state.messages.filter(m => !idSet.has(m.id)),
       searchResults: state.searchResults.filter(m => !idSet.has(m.id)),
@@ -737,8 +775,9 @@ export const useStore = create<StoreState>()((set, get) => ({
     };
   }),
   restoreMessages: (msgs: StoreMessageRow[]) =>set((state: StoreStateRead) => {
-    invalidateMailListCache();
     const list = Array.isArray(msgs) ? msgs : [msgs];
+    if (!list.length) return {};
+    invalidateMailListCacheForAccounts(messageAccountScope(state, new Set(list.map(row => row.id)), list));
     const sort = (arr: StoreMessageRow[]) => [...arr].sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
     // Deduplicate against both the main list and searchResults by stable identity (Message-ID when
     // present, else id): if the message is already present — including re-added by a network

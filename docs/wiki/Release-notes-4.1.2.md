@@ -17,8 +17,11 @@ Snapshots are not persisted: at most eight query entries and 1,000 total metadat
 are retained for at most 60 seconds. Offset pages and large infinite-scroll windows
 are not added to this navigation cache. Local mail mutations, account/configuration
 changes and live invalidations evict obsolete snapshots and fence older in-flight
-responses. Logout, lock and session changes clear them. Body-access bookkeeping does
-not invalidate useful navigation data. A cold view intentionally shows loading rather
+responses. Logout, lock and session changes clear them. Known-scope flag/read/delete/undo operations invalidate all affected accounts and
+unified snapshots, including their in-flight writes, while preserving unrelated
+account snapshots and pending revalidations. Incomplete or unknown scope falls back
+to global invalidation. Local message-count-only corrections do not discard the
+navigation cache. Body-access bookkeeping does not invalidate useful navigation data. A cold view intentionally shows loading rather
 than another account's mail; a warm view keeps its last snapshot on a transient refresh
 failure. It is not considered fresh until revalidation succeeds.
 
@@ -54,7 +57,10 @@ the account-local thread even when an unread/filter refresh changes its represen
 message. Superseded expansion responses cannot overwrite the action's membership, and
 late loads are checked against their authenticated view and component lifetime.
 Only an expanded row is automatically reconciled; collapsed mailbox rows do not each
-trigger a thread request. An inconsistent/transient server snapshot is retried on a
+trigger a thread request. A list response that races a whole-thread write is fenced
+and revalidated after completion, so an older aggregate cannot restore the unread
+badge. Final aggregates include any newer cached replies rather than silently marking
+them read. This extra list-only revalidation is conditional on an actual request race. An inconsistent/transient server snapshot is retried on a
 later list snapshot or refresh hint, not in a render/request loop.
 
 These are frontend changes using the existing authorized thread/read endpoints; they
