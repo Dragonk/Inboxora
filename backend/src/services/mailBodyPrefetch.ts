@@ -87,6 +87,7 @@ export async function prefetchVisibleBodies(account: PrefetchAccount, ids: strin
     const messages = await client.query<PrefetchMessage>(`UPDATE messages SET body_prefetch_after=NOW()+INTERVAL '5 minutes'
       WHERE id IN (SELECT id FROM messages WHERE account_id=$1 AND id=ANY($2::uuid[]) AND is_deleted=false
         AND body_html IS NULL AND body_text IS NULL
+        AND (body_cache_evicted_at IS NULL OR body_last_opened_at > body_cache_evicted_at)
         AND NOT (gmail_reader_body_complete AND gmail_attachment_metadata_complete)
         AND (body_prefetch_after IS NULL OR body_prefetch_after <= NOW())
         ORDER BY array_position($2::uuid[],id) LIMIT $3 FOR UPDATE SKIP LOCKED)

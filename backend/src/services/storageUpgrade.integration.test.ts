@@ -38,6 +38,11 @@ describe.skipIf(!enabled)('populated 4.1.1 automatic background upgrade', () => 
     const before=await canonical();
     const oldSize=Number((await query("SELECT pg_total_relation_size('calendar_sync_changes')+pg_total_relation_size('contact_sync_changes') AS size")).rows[0].size);
     await runMigrations();await runMigrations();
+    const grace = await query<{n:number;recent:number;never_opened:number}>(`SELECT COUNT(*)::int AS n,
+      COUNT(*) FILTER (WHERE body_cache_refreshed_at > NOW()-INTERVAL '5 minutes')::int AS recent,
+      COUNT(*) FILTER (WHERE body_last_opened_at IS NULL)::int AS never_opened FROM messages WHERE account_id=$1`,[account]);
+    expect(grace.rows[0]).toEqual({n:121,recent:121,never_opened:121});
+
     expect(await canonical()).toEqual(before);
     expect((await readDavSyncSnapshot('calendar',calendar,user,50000)).status).toBe('expired');
     expect((await readDavSyncSnapshot('contacts',book,user,5000)).status).toBe('expired');

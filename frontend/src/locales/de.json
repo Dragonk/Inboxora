@@ -1055,6 +1055,32 @@
       "loadError": "Die Einstellungen zum Vorabladen konnten nicht geladen werden.",
       "saveError": "Die Einstellungen zum Vorabladen konnten nicht gespeichert werden.",
       "saved": "Einstellung zum Vorabladen gespeichert."
+    },
+    "retention": {
+      "title": "Datenaufbewahrung",
+      "description": "Globale Administratoreinstellungen für alle Benutzer. Zeiträume in Tagen; Änderungen gelten ohne Neustart für neue Bereinigungsläufe.",
+      "cacheSafety": "Nur lokaler Nachrichtentext/HTML und eingebettete Bilder verfallen. Nachrichten bleiben in der Liste und beim Anbieter; erneutes Öffnen lädt den Inhalt. Entwürfe, lokale Kopien ohne Quelle und ausstehende Vorgänge sind geschützt. Dies ist kein Offline-Archiv.",
+      "mail_body_cache_days": "Aufbewahrung des Inhaltscaches (Tage)",
+      "mail_body_cache_days_hint": "Standard: 30. 7 für eine Woche, 30 für einen Monat, 0 für unbegrenzt. Ab letztem Öffnen oder Speichern des Inhalts; Synchronisierung und Vorabladen zählen nicht als Öffnen. Vorhandene Caches beginnen eine neue Frist beim Upgrade.",
+      "dav_history_days": "DAV-Änderungsverlauf (Tage)",
+      "dav_history_days_hint": "Standard: 30. Löschen des CalDAV/CardDAV-Verlaufs entfernt keine Termine oder Kontakte. Ältere Tokens erfordern eine vollständige Synchronisierung.",
+      "dav_history_max_entries": "DAV-Einträge pro Kalender/Adressbuch",
+      "dav_history_max_entries_hint": "Standard: 10.000; Bereich: 100–100.000. Nur letzte Metadaten oder Löschmarkierung pro Ressource, keine wiederholten vollständigen Kopien.",
+      "auth_log_days": "Authentifizierungsprotokolle (Tage)",
+      "auth_log_days_hint": "Standard: 90. Anmelde- und Authentifizierungsereignisse.",
+      "conversation_audit_days": "Protokolle des Konversationsneuaufbaus (Tage)",
+      "conversation_audit_days_hint": "Standard: 30. Löscht alte Neuaufbauberichte, nicht Konversationen.",
+      "resolved_ingest_error_days": "Behobene Verarbeitungsfehler (Tage)",
+      "resolved_ingest_error_days_hint": "Standard: 7. Offene Fehler und ausstehende Reparaturen bleiben erhalten.",
+      "completed_outbox_payload_days": "Inhalte abgeschlossener Warteschlangenereignisse (Tage)",
+      "completed_outbox_payload_days_hint": "Standard: 7. Löscht Nutzdaten abgeschlossener interner Ereignisse. Schlüssel gegen Mehrfachversand und ausstehende/ungeklärte Vorgänge bleiben erhalten.",
+      "policy": "Die Bereinigung läuft in kleinen Hintergrundchargen. Kürzere Fristen können beim nächsten Lauf Verlauf löschen; längere stellen ihn nicht wieder her. Nicht zwischengespeicherter Text wird bis zum erneuten Laden nicht lokal durchsucht. PostgreSQL kann Platz wiederverwenden, ohne Dateien sofort zu verkleinern.",
+      "docker": "Docker-stdout/stderr-Protokolle sind separat: Standard-Compose rotiert 3 × 10 MiB pro Dienst. Eigenes Compose auf dem Server konfigurieren; dieses Formular ändert es nicht.",
+      "paused": "Datenwartung durch STORAGE_MAINTENANCE_ENABLED=false pausiert. Cache-/DAV-Bereinigung pausiert; Sicherheits- und Betriebsprotokolle werden weiterhin bereinigt.",
+      "invalid": "Ganze Zahlen innerhalb der angegebenen Grenzen eingeben. Nur der Inhaltscache erlaubt 0 für unbegrenzt.",
+      "loadError": "Aufbewahrungseinstellungen konnten nicht geladen werden.",
+      "saveError": "Aufbewahrungseinstellungen konnten nicht gespeichert werden.",
+      "saved": "Aufbewahrungseinstellungen gespeichert."
     }
   },
   "blockList": {

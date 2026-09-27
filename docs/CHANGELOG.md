@@ -29,6 +29,9 @@ finalized below and dated with its publication date.
 
 ### Changed
 
+- **Global data-retention controls.** Administration → Performance now exposes body-cache expiry (default 30 days, 0 means unlimited), DAV history age/count, authentication logs, conversation audit, resolved ingestion errors and completed internal-outbox payload age. Changes are validated atomically and apply to new background batches without restarting.
+- **Idle mail body expiry, not mail deletion.** Cached text/HTML and embedded images can expire after the last opening/cache fill; message rows, snippets, headers, attachment metadata and remote mail remain. Reopening refetches content, including through native Gmail/Graph. Drafts, uncertain/local-only sources and pending work are protected. Existing caches get an upgrade grace period. Local body search cannot search an evicted body until it is fetched again.
+
 - **Bounded visible-body warming for IMAP, Gmail API and Microsoft Graph.** Administrators can set a 0–100-message visible prefetch window in Settings → Administration → Performance (default 25; 0 disables it), applied to new batches without restart. The first configured number of messages in a visible folder view can be warmed under a shared concurrency/cache-size/cooldown policy. Full historical IMAP body prefetch and historical snippet scanning are no longer defaults. Foreground reading, rules, drafts and existing cached bodies remain intact; IMAP body rules explicitly hydrate required uncached content rather than depending on speculative prefetch; provider throttling exceptions remain enforced. Graph reader completeness is tracked separately from rule-only text extraction.
 
 ### Fixed
@@ -39,7 +42,7 @@ finalized below and dated with its publication date.
 - **Operational history retention.** Background cleanup bounds each deletion batch; expired authentication/rebuild audit and resolved conversation failures are retired. Completed domain-outbox payloads are cleared while durable deduplication identities, pending/uncertain writes, provider receipts and spam-training examples remain protected. Both standard Compose distributions rotate container logs.
 - **Desktop overlay sizing.** The drag strip and scaled mail viewport follow live window-controls-overlay height changes without a window resize.
 - **Repair isolation and scale gates.** Locked/slow accounts and retired journals back off independently; privacy-log retention remains active while data maintenance is paused. DAV full sync returns separate resource rows rather than one oversized aggregate. VACUUM uses a maintenance timeout and hourly failure backoff. Native AMD64/ARM64 builds must both pass before shared `dev` image tags change.
-- **Upgrade order:** apply `0146_bounded_dav_sync_storage.sql`, `0147_mail_prefetch_backoff.sql`, then `0148_graph_reader_body_completeness.sql` through normal startup. Replace all old backend workers together; pre-upgrade DAV tokens require one full resync. Back up first. This is a proposed 4.1.2 fix, not a published release; local production verification and reporter verification remain release gates.
+- **Upgrade order:** apply `0146_bounded_dav_sync_storage.sql`, `0147_mail_prefetch_backoff.sql`, then `0148_graph_reader_body_completeness.sql` and `0149_body_cache_retention.sql` through normal startup. Replace all old backend workers together; pre-upgrade DAV tokens require one full resync. Back up first. This is a proposed 4.1.2 fix, not a published release; local production verification and reporter verification remain release gates.
 
 ## [4.1.1] - 2026-09-25
 

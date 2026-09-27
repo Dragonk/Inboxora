@@ -243,6 +243,9 @@ router.get('/conversations/:conversationId/logical-messages/:logicalMessageId/bo
        LIMIT 1
     `, [req.params.logicalMessageId, req.session.userId, canonicalId, req.query.copyId || null, accountId]);
     if (!result.rows.length) return res.status(404).json({ error: 'Logical message body not found' });
+    await client.query(`UPDATE messages m SET body_last_opened_at=clock_timestamp()
+      FROM email_accounts a WHERE m.id=$1 AND m.account_id=a.id AND a.user_id=$2`,
+    [result.rows[0].physical_copy_id,req.session.userId]);
     const requestedRemoteImages = req.query.remoteImages === '1';
     const explicitOptIn = req.get('X-MailFlow-Image-Opt-In') === '1';
     const policyBlocksImages = shouldBlockRemoteImages(result.rows[0].preferences, result.rows[0]);

@@ -186,6 +186,8 @@ export const api = {
   patch: (path: string, body: unknown) => request('PATCH', path, body),
   delete: (path: string) => request('DELETE', path),
 
+  touchMessageBody: (id: string) => request('POST', `/mail/messages/${id}/body-access`),
+
   // Auth
   login: (username: string, password: string) => request('POST', '/auth/login', { username, password }),
   register: (username: string, password: string, inviteToken: string | null) => request('POST', '/auth/register', { username, password, inviteToken }),
@@ -245,6 +247,8 @@ export const api = {
     deleteUser: (id: string) => request('DELETE', `/admin/users/${id}`),
     disableUserTotp: (id: string) => request('POST', `/admin/users/${id}/totp/disable`),
     getSettings: () => request('GET', '/admin/settings'),
+    getRetention: () => request('GET', '/admin/retention'),
+    updateRetention: (data: unknown) => request('PATCH', '/admin/retention', data),
     updateSettings: (data: unknown) => request('PATCH', '/admin/settings', data),
     getInvites: (params: QueryParams) => request('GET', '/admin/invites' + (params ? '?' + toSearchParams(params) : '')),
     createInvite: (email: string) => request('POST', '/admin/invites', { email }),

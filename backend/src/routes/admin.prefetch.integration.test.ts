@@ -5,6 +5,7 @@ import {afterAll,afterEach,beforeAll,beforeEach,describe,expect,it,vi} from 'vit
 vi.mock('../index.js',()=>({imapManager:{disconnectUser:vi.fn()}}));
 import adminRouter from './admin.js';
 import {query,pool} from '../services/db.js';
+import {RETENTION_KEYS} from '../services/storageRetentionSettings.js';
 import {readMailPrefetchLimit} from '../services/mailPrefetchSettings.js';
 import {mockSession} from '../test/http.js';
 import {listeningPort} from '../test/net.js';
@@ -24,9 +25,9 @@ describe.skipIf(!enabled)('admin prefetch configuration with real authorization 
   beforeEach(async()=>{
     admin=randomUUID();member=randomUUID();
     await query("INSERT INTO users(id,username,password_hash,is_admin) VALUES($1,$3,'unused',true),($2,$4,'unused',false)",[admin,member,`admin-${admin}`,`member-${member}`]);
-    await query("DELETE FROM system_settings WHERE key='mail_body_prefetch_limit'");
+    await query("DELETE FROM system_settings WHERE key='mail_body_prefetch_limit' OR key=ANY($1::text[])",[RETENTION_KEYS]);
   });
-  afterEach(async()=>{vi.unstubAllEnvs();await query('DELETE FROM users WHERE id=ANY($1::uuid[])',[[admin,member]]);await query("DELETE FROM system_settings WHERE key='mail_body_prefetch_limit'");});
+  afterEach(async()=>{vi.unstubAllEnvs();await query('DELETE FROM users WHERE id=ANY($1::uuid[])',[[admin,member]]);await query("DELETE FROM system_settings WHERE key='mail_body_prefetch_limit' OR key=ANY($1::text[])",[RETENTION_KEYS]);});
   afterAll(async()=>{await new Promise<void>((resolve,reject)=>server.close(err=>err?reject(err):resolve()));await pool.end();});
   const get=(user=admin)=>fetch(base+'/admin/settings',{headers:{'x-test-user':user}});
   const patch=(body:unknown,user=admin)=>fetch(base+'/admin/settings',{method:'PATCH',headers:{'x-test-user':user,'content-type':'application/json'},body:JSON.stringify(body)});
@@ -58,4 +59,18 @@ describe.skipIf(!enabled)('admin prefetch configuration with real authorization 
     expect(await (await get()).json()).toMatchObject({settings:{mail_body_prefetch_limit:'30'},mailPrefetch:{disabledByEnvironment:true}});
     expect(await readMailPrefetchLimit(pool)).toBe(0);
   });
+  it('saves global retention settings atomically and enforces live admin permissions',async()=>{
+    const read=()=>fetch(base+'/admin/retention',{headers:{'x-test-user':admin}});
+    const write=(body:unknown,user=admin)=>fetch(base+'/admin/retention',{method:'PATCH',headers:{'x-test-user':user,'content-type':'application/json'},body:JSON.stringify(body)});
+    expect(await (await read()).json()).toMatchObject({values:{mail_body_cache_days:30,auth_log_days:90,dav_history_days:30}});
+    expect((await write({mail_body_cache_days:7,auth_log_days:14})).status).toBe(200);
+    expect(await (await read()).json()).toMatchObject({values:{mail_body_cache_days:7,auth_log_days:14}});
+    expect((await write({mail_body_cache_days:30,auth_log_days:0})).status).toBe(400);
+    expect(await (await read()).json()).toMatchObject({values:{mail_body_cache_days:7,auth_log_days:14}});
+    expect((await write({mail_body_cache_days:0},member)).status).toBe(403);
+    expect((await fetch(base+'/admin/retention')).status).toBe(401);
+    expect((await write({mail_body_cache_days:0})).status).toBe(200);
+    expect(await (await read()).json()).toMatchObject({values:{mail_body_cache_days:0}});
+  });
+
 });

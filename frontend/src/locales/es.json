@@ -1055,6 +1055,32 @@
       "loadError": "No se pudieron cargar los ajustes de precarga.",
       "saveError": "No se pudieron guardar los ajustes de precarga.",
       "saved": "Ajuste de precarga guardado."
+    },
+    "retention": {
+      "title": "Retención de datos",
+      "description": "Ajustes globales del administrador para todos los usuarios. Periodos en días; los nuevos lotes de limpieza usan los cambios sin reiniciar.",
+      "cacheSafety": "Solo caducan el texto/HTML local y las imágenes incrustadas. Los mensajes siguen en la lista y en el proveedor; al abrirlos se descarga el contenido. Se protegen borradores, copias locales sin origen y operaciones pendientes. No es un archivo sin conexión.",
+      "mail_body_cache_days": "Duración de la caché de contenido (días)",
+      "mail_body_cache_days_hint": "Predeterminado: 30. 7 para una semana, 30 para un mes, 0 sin caducidad. Desde la última apertura o almacenamiento; la sincronización y precarga no cuentan como apertura. Las cachés existentes empiezan un periodo nuevo al actualizar.",
+      "dav_history_days": "Historial de cambios DAV (días)",
+      "dav_history_days_hint": "Predeterminado: 30. Borrar el historial CalDAV/CardDAV no elimina eventos ni contactos. Los tokens antiguos requieren una sincronización completa.",
+      "dav_history_max_entries": "Entradas DAV por calendario/libreta",
+      "dav_history_max_entries_hint": "Predeterminado: 10 000; rango: 100–100 000. Últimos metadatos o marcador de eliminación, no copias completas repetidas.",
+      "auth_log_days": "Registros de autenticación (días)",
+      "auth_log_days_hint": "Predeterminado: 90. Historial de acceso y autenticación.",
+      "conversation_audit_days": "Auditoría de reconstrucción de conversaciones (días)",
+      "conversation_audit_days_hint": "Predeterminado: 30. Elimina informes antiguos, no conversaciones.",
+      "resolved_ingest_error_days": "Errores de procesamiento resueltos (días)",
+      "resolved_ingest_error_days_hint": "Predeterminado: 7. Se conservan errores sin resolver y reparaciones pendientes.",
+      "completed_outbox_payload_days": "Contenido de eventos internos completados (días)",
+      "completed_outbox_payload_days_hint": "Predeterminado: 7. Elimina cargas de eventos completados; conserva claves contra envíos duplicados y operaciones pendientes o inciertas.",
+      "policy": "La limpieza funciona en lotes pequeños. Acortar el periodo puede borrar historial en el siguiente ciclo; ampliarlo no restaura registros. El texto sin caché no participa en búsquedas locales hasta descargarse otra vez. PostgreSQL puede reutilizar espacio sin reducir los archivos de inmediato.",
+      "docker": "Los registros stdout/stderr de Docker son independientes: Compose estándar rota 3 × 10 MiB por servicio. Configura tu Compose en el servidor; este formulario no lo modifica.",
+      "paused": "Mantenimiento pausado por STORAGE_MAINTENANCE_ENABLED=false. La limpieza de caché/DAV está pausada; la retención de registros operativos y de seguridad sigue activa.",
+      "invalid": "Introduce enteros dentro de los límites. Solo la caché permite 0 sin caducidad.",
+      "loadError": "No se pudieron cargar los ajustes de retención.",
+      "saveError": "No se pudieron guardar los ajustes de retención.",
+      "saved": "Ajustes de retención guardados."
     }
   },
   "blockList": {

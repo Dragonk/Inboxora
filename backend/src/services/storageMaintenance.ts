@@ -1,3 +1,5 @@
+import { readStorageRetentionPolicy } from './storageRetentionSettings.js';
+import { expireMailBodyCache, BODY_CACHE_RETENTION_BATCH } from './mailBodyCacheRetention.js';
 import type { PoolClient } from 'pg';
 import { pool, query } from './db.js';
 import { repairConversationHeadersWithClient } from './conversationHeaderRepair.js';
@@ -79,13 +81,14 @@ export async function pruneDavJournal(client: PoolClient, kind: 'calendar' | 'co
   const table = calendar ? 'calendar_sync_changes' : 'contact_sync_changes';
   const scope = calendar ? 'calendar_id' : 'address_book_id';
   return transaction(client, async () => {
+    const policy = await readStorageRetentionPolicy(client);
     const owner = await client.query(`SELECT id FROM ${parent} WHERE id = $1 FOR UPDATE`, [id]);
     if (!owner.rows.length) return 0;
     const cutoff = await client.query<{ cutoff: string | null }>(`SELECT MAX(version)::text AS cutoff FROM (
-      SELECT version FROM ${table} WHERE ${scope} = $1 AND created_at < NOW() - INTERVAL '30 days'
+      SELECT version FROM ${table} WHERE ${scope} = $1 AND created_at < NOW() - $3 * INTERVAL '1 day'
       UNION ALL
       (SELECT version FROM ${table} WHERE ${scope} = $1 ORDER BY version DESC OFFSET $2 LIMIT 1)
-    ) candidates`, [id, DAV_MAX_CHANGES]);
+    ) candidates`, [id, policy.dav_history_max_entries, policy.dav_history_days]);
     const version = cutoff.rows[0].cutoff;
     if (version === null) return 0;
     const removed = await client.query<{ version: string }>(`DELETE FROM ${table} WHERE (${scope}, version) IN (
@@ -175,21 +178,23 @@ async function retainOneCollection(client: PoolClient): Promise<boolean> {
  * writes, sync cursors, tombstone candidates or spam-training examples. */
 export async function pruneOperationalHistory(client: PoolClient): Promise<number> {
   let changed = 0;
+  const policy = await readStorageRetentionPolicy(client);
   const rules = [
-    ['auth_events', "created_at < NOW() - INTERVAL '90 days'"],
-    ['conversation_rebuild_audit', "created_at < NOW() - INTERVAL '30 days'"],
-    ['conversation_ingest_failures', "resolved_at IS NOT NULL AND resolved_at < NOW() - INTERVAL '7 days'"],
+    ['auth_events', 'created_at', '', policy.auth_log_days],
+    ['conversation_rebuild_audit', 'created_at', '', policy.conversation_audit_days],
+    ['conversation_ingest_failures', 'resolved_at', 'resolved_at IS NOT NULL AND', policy.resolved_ingest_error_days],
   ] as const;
-  for (const [table, predicate] of rules) {
+  for (const [table, column, extra, days] of rules) {
     const result = await client.query(`DELETE FROM ${table} WHERE id IN (
-      SELECT id FROM ${table} WHERE ${predicate} ORDER BY created_at LIMIT $1 FOR UPDATE SKIP LOCKED
-    )`, [BATCH_SIZE]);
+      SELECT id FROM ${table} WHERE ${extra} ${column} < NOW() - $2 * INTERVAL '1 day'
+      ORDER BY created_at LIMIT $1 FOR UPDATE SKIP LOCKED
+    )`, [BATCH_SIZE,days]);
     changed += result.rowCount ?? 0;
   }
   const outbox = await client.query(`UPDATE domain_outbox SET payload = '{}'::jsonb, last_error = NULL
     WHERE id IN (SELECT id FROM domain_outbox WHERE status = 'done'
-      AND updated_at < NOW() - INTERVAL '7 days' AND payload <> '{}'::jsonb
-      ORDER BY updated_at LIMIT $1 FOR UPDATE SKIP LOCKED)`, [BATCH_SIZE]);
+      AND updated_at < NOW() - $2 * INTERVAL '1 day' AND (payload <> '{}'::jsonb OR last_error IS NOT NULL)
+      ORDER BY updated_at LIMIT $1 FOR UPDATE SKIP LOCKED)`, [BATCH_SIZE,policy.completed_outbox_payload_days]);
   changed += outbox.rowCount ?? 0;
   return changed;
 }
@@ -200,8 +205,8 @@ export async function readStorageMaintenanceStatus() {
       pg_total_relation_size('messages')::text AS messages_bytes,
       pg_total_relation_size('calendar_sync_changes')::text AS calendar_journal_bytes,
       pg_total_relation_size('contact_sync_changes')::text AS contact_journal_bytes`);
-  const tasks = await query<{ task: string; progress: Progress; completed_at: string | null; updated_at: string }>(
-    'SELECT task, progress, completed_at, updated_at FROM storage_maintenance ORDER BY task');
+  const tasks = await query<{ task: string; progress: Progress; completed_at: string | null; updated_at: string; next_run_at: string }>(
+    'SELECT task, progress, completed_at, updated_at, next_run_at FROM storage_maintenance ORDER BY task');
   return { current: current.rows[0], tasks: tasks.rows };
 }
 
@@ -215,6 +220,28 @@ async function runDueOperationalRetention(client: PoolClient): Promise<number> {
   } catch (error) {
     await deferTask(client, 'logs', {}, error);
     return 0;
+  }
+}
+
+async function runBodyCacheRetention(client: PoolClient): Promise<boolean> {
+  const previous = await client.query<{ progress: Progress; deferred: boolean }>(
+    "SELECT progress,next_run_at>NOW() AS deferred FROM storage_maintenance WHERE task='body-cache'");
+  if (previous.rows[0]?.deferred) return false;
+  try {
+    return await transaction(client, async () => {
+      const result = await expireMailBodyCache(client);
+      const prior = previous.rows[0]?.progress ?? {};
+      await save(client, 'body-cache', { evicted: Number(prior.evicted ?? 0) + result.evicted,
+        logical_bytes_saved: Number(prior.logical_bytes_saved ?? 0) + result.logicalBytes,
+        evicted_last_batch: result.evicted }, result.evicted < BODY_CACHE_RETENTION_BATCH,
+        result.evicted < BODY_CACHE_RETENTION_BATCH ? 3600 : 0);
+      // Autovacuum handles ordinary cache eviction; do not force one VACUUM per
+      // hundred evictions or mix this periodic task with initial repair completion.
+      return result.evicted === BODY_CACHE_RETENTION_BATCH;
+    });
+  } catch (error) {
+    await deferTask(client, 'body-cache', previous.rows[0]?.progress ?? {}, error);
+    return false;
   }
 }
 
@@ -261,6 +288,7 @@ export async function runStorageMaintenancePass(): Promise<boolean> {
     const headers = await repairOneAccount(client);
     const journals = await retainOneCollection(client);
     const logs = await runDueOperationalRetention(client);
+    const cache = await runBodyCacheRetention(client);
     // Normal VACUUM only: never automatically take a long exclusive lock on mail.
     // Retired journals already released real files above. Repaired header space
     // becomes reusable; physical message-file reduction is measured, not promised.
@@ -283,7 +311,7 @@ export async function runStorageMaintenancePass(): Promise<boolean> {
             AND completed_at IS NOT NULL) = 2
           AND NOT EXISTS (SELECT 1 FROM storage_maintenance WHERE task = 'vacuum:messages' AND progress->>'needed' = 'true')`);
     }
-    return headers || journals || logs > 0;
+    return headers || journals || logs > 0 || cache;
   } finally {
     // Dedicated maintenance session is discarded: no advisory locks, altered
     // timeouts or aborted transaction can leak into an application request.

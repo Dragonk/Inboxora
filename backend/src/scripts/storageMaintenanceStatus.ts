@@ -23,7 +23,9 @@ try {
       headers_repaired: headers.reduce((n,t)=>n+Number(t.progress.repaired ?? 0),0),
       header_logical_bytes_saved: headers.reduce((n,t)=>n+Number(t.progress.logical_bytes_saved ?? 0),0),
       header_candidates_skipped_last_sweep: headers.reduce((n,t)=>n+Number(t.progress.skipped_in_sweep ?? 0),0),
-      note: 'Logical header savings are not additional measured filesystem savings. Current database size also includes concurrent normal activity.',
+      body_caches_evicted: Number(status.tasks.find(t=>t.task==='body-cache')?.progress.evicted ?? 0),
+      body_cache_logical_bytes_saved: Number(status.tasks.find(t=>t.task==='body-cache')?.progress.logical_bytes_saved ?? 0),
+      note: 'Logical cache/header savings are not additional measured filesystem savings. Current database size also includes concurrent normal activity.',
     };
     console.log(JSON.stringify(args.includes('--summary')?summary:{summary,...status},null,2));
   }

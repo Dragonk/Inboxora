@@ -22,7 +22,7 @@ every poll, and an exact iCalendar replay is not reserialized into a different E
 
 The normal startup migration sequence is **0146 → 0147_mail_prefetch_backoff.sql →
 0148_graph_reader_body_completeness.sql**, after all existing migrations through 0145.
-These are new migrations; prior files/checksums are unchanged. The migration is a metadata
+These are new migrations; prior files/checksums are unchanged. Migration 0149 adds the administrator-configurable idle-cache retention described below, after 0148. The migration is a metadata
 cutover, not a multi-GB rewrite. **Upgrade all backend instances together**: an old worker
 cannot safely serve the new compact journal layout. Every existing DAV collection advances
 its minimum token once. Old DAV tokens receive `403 DAV:valid-sync-token`; a full sync
@@ -47,8 +47,8 @@ The cap is an eventual retention target between worker passes, not an insert-tim
 Token, floor, latest state and canonical payload in each incremental report are read in
 one PostgreSQL snapshot as separate rows (not one size-limited aggregate JSON value), so a concurrent writer/cleanup cannot silently hide a change.
 
-Operational cleanup retains authentication audit for 90 days, conversation rebuild audit
-for 30 days and resolved conversation-ingest failures for 7 days. Each pass processes at
+Operational cleanup defaults to authentication audit for 90 days, conversation rebuild audit
+for 30 days and resolved conversation-ingest failures for 7 days; administrators can now change these values in Performance. Each pass processes at
 most 500 records per table. Completed domain-outbox payloads older than 7 days are cleared,
 but the delivery deduplication key is retained. Pending/failed/uncertain operations, send
 receipts, provider cursors and spam-training examples are not treated as disposable logs.
@@ -96,8 +96,7 @@ Late background results cannot overwrite a foreground cache, a changed message o
 revoked/switched account binding. Neither warming path marks provider messages as read.
 The 2 MiB budget limits the cached speculative result, **not all bytes transferred by a
 provider response**. Ordinary attachment downloads, drafts/sent bodies, rules and foreground
-reading retain their existing behavior. This is not an offline archive or a body-retention
-feature, and it does not delete legitimate cached content to make a size report look smaller.
+reading retain their existing behavior. The prefetch policy is not an offline archive. Separate idle-cache retention is now configurable as documented below; its logical cache savings are reported separately from physical journal reclamation.
 
 ## Operator procedure and before/after measurements
 
@@ -167,3 +166,53 @@ QEMU. Platform jobs push immutable digests only; the shared `dev` tags are updat
 both architectures and both component manifests pass verification. A single-platform build
 can no longer replace the shared multi-platform tag. Built backend images execute both
 maintenance CLI `--help` checks before promotion. Stable/versioned tags are not changed.
+
+## Global retention settings and idle body caches
+
+Settings → Administration → Performance now contains a separate **Data retention** form.
+The administrator configures all users globally; ordinary users cannot read or modify it.
+Changes are validated before any write, saved atomically, and reschedule the next bounded
+cleanup batch without restarting. Invalid stored settings stop cleanup instead of guessing.
+
+Defaults: body cache **30 days** (0 = no expiry), DAV history **30 days / 10,000 latest
+entries per collection**, authentication audit **90 days**, conversation rebuild audit
+**30 days**, resolved ingestion failures **7 days**, completed internal outbox payloads
+**7 days**. Day limits are 1–3650 except cache (0–3650); the DAV count range is 100–100,000.
+Expanding a retention period cannot recover logs already removed. Pending/uncertain delivery,
+provider operation state, deduplication receipts, canonical events/contacts and messages
+are not disposable log history. Custom Docker logging still requires host Compose changes;
+this form does not control Docker stdout/stderr retention.
+
+Apply new migration **0149_body_cache_retention.sql after 0148** using normal startup.
+It adds cache/access timestamps, a bounded-cleanup index and a body-write trigger. Old
+cache timestamps start at the upgrade, not the message's sent date or its Seen flag, so
+there is no immediate bulk eviction of long-standing caches. The migration also re-arms
+the already-deployed stale `needed=true`/completed VACUUM checkpoint.
+
+The worker clears only `body_text`/`body_html` (including inline data-URI images) after the
+configured idle period, using the later of last body opening and cache population/change.
+Mail remains in the message list and on the provider. Snippets, threading/raw headers and
+attachment metadata remain. A subsequent ordinary body request fetches it through the
+account's IMAP/Gmail/Graph transport and caches it again. Browser-memory revisits explicitly
+record an opening too. Synchronization, marking unread and background prefetch are not
+openings. Previously evicted bodies are excluded from speculative list prefetch until an
+explicit opening, preventing an evict/prefetch loop. Required feature reads, including
+inbox rules, continue independently of speculative warming.
+
+Cleanup takes at most 100 row locks with SKIP LOCKED per pass. A foreground opening updates
+its access timestamp under the same row lock; cleanup cannot clear that newly accessed
+row. Zero disables expiry. Drafts/composer state, nonpositive or unverified IMAP UIDs,
+unbound native identities, disconnected provider accounts, pending source removals,
+body-dependent rule work and uncertain delivery/operations are excluded. This is a local
+cache, **not an offline archive**: remote access must still be available for a later refill.
+Backend expiry does not remotely erase an already rendered browser-memory copy.
+
+Read-only status includes `body_caches_evicted`, `body_cache_logical_bytes_saved` and per-task
+next-run times. These are logical payload savings, not promised filesystem reduction;
+normal autovacuum reuses pages without a mandatory `VACUUM FULL`. Local full-text body search
+has less cached material after expiry, although subject/snippet metadata remains searchable.
+
+Validation covers configuration boundaries/authorization, 7/30/0 policy changes, native
+provider bindings, protected drafts and pending work, real HTTP cache reads/refills,
+concurrent opening vs cleanup, prefetch-loop prevention and safe upgrade timestamps.
+No production database is modified by the development tests.

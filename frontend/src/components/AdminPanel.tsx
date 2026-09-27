@@ -1,3 +1,4 @@
+import StorageRetentionSettings from './StorageRetentionSettings.tsx';
 import MailPrefetchSettings from './MailPrefetchSettings.tsx';
 import { CalendarAccountsSettings, ContactAccountsSettings, SectionTabs } from './accountUi/SettingsSections.tsx';
 import MailAccountEditor from './accountUi/MailAccountEditor.tsx';
@@ -9375,7 +9376,7 @@ export default function AdminPanel() {
       {adminTab === 'appearance' && <AppearanceTab initialSubTab={pendingSubTab} />}
       {adminTab === 'integrations' && <IntegrationsTab />}
       {adminTab === 'users' && <UsersTab />}
-      {adminTab === 'performance' && isAdmin && <MailPrefetchSettings />}
+      {adminTab === 'performance' && isAdmin && <><MailPrefetchSettings /><StorageRetentionSettings /></>}
       {adminTab === 'sso' && <SSOTab />}
       {adminTab === 'security' && <SecurityPrivacyTab initialSubTab={pendingSubTab} />}
       {adminTab === 'dav-credentials' && <DavCredentialsTab />}

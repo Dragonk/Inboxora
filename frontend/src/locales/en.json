@@ -1039,6 +1039,32 @@
       "loadError": "Could not load prefetch settings.",
       "saveError": "Could not save prefetch settings.",
       "saved": "Prefetch setting saved."
+    },
+    "retention": {
+      "title": "Data retention",
+      "description": "Global administrator settings for all users. Durations are in days; changes apply to new cleanup batches without a restart.",
+      "cacheSafety": "Only local message text/HTML and embedded images expire. Messages stay on the list and at the provider; reopening downloads the body again. Drafts, unbound local copies and pending work are protected. This is not an offline archive.",
+      "mail_body_cache_days": "Body cache lifetime (days)",
+      "mail_body_cache_days_hint": "Default: 30. Use 7 for a week, 30 for a month, or 0 for no expiry. Counted from the latest opening or cache fill; background sync and prefetch do not count as an opening. Existing caches start a fresh period at upgrade.",
+      "dav_history_days": "DAV change history (days)",
+      "dav_history_days_hint": "Default: 30. Expiring CalDAV/CardDAV history never deletes events or contacts. Older sync tokens request a full synchronization.",
+      "dav_history_max_entries": "DAV entries per calendar/address book",
+      "dav_history_max_entries_hint": "Default: 10,000; range: 100–100,000. Keeps the latest metadata/deletion entry per resource, not full repeated event/contact copies.",
+      "auth_log_days": "Authentication logs (days)",
+      "auth_log_days_hint": "Default: 90. Applies to login and authentication audit entries.",
+      "conversation_audit_days": "Conversation rebuild audit (days)",
+      "conversation_audit_days_hint": "Default: 30. Removes old rebuild reports, not conversations.",
+      "resolved_ingest_error_days": "Resolved ingestion errors (days)",
+      "resolved_ingest_error_days_hint": "Default: 7. Unresolved errors and pending repair work are not removed.",
+      "completed_outbox_payload_days": "Completed outbox payloads (days)",
+      "completed_outbox_payload_days_hint": "Default: 7. Removes payloads of completed internal events; delivery deduplication keys and pending/uncertain operations remain.",
+      "policy": "Cleanup runs in small background batches. Shorter periods may remove eligible history at the next pass; longer periods do not restore deleted logs. Uncached text is not part of local body search until fetched again. Free pages can be reused by PostgreSQL without immediately shrinking its files.",
+      "docker": "Docker stdout/stderr logs are separate: standard Compose rotates 3 × 10 MiB per service. Configure custom Compose logging on the host; this form does not change it.",
+      "paused": "Data maintenance is paused by STORAGE_MAINTENANCE_ENABLED=false. Cache/DAV cleanup is paused; operational/security log retention remains active.",
+      "invalid": "Enter whole numbers within the displayed limits. Only body cache accepts 0 for no expiry.",
+      "loadError": "Could not load retention settings.",
+      "saveError": "Could not save retention settings.",
+      "saved": "Retention settings saved."
     }
   },
   "blockList": {

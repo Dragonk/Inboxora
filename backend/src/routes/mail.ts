@@ -457,13 +457,29 @@ function fetchWithTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
+// A UI cache hit is still an opening; Seen and sync timestamps are independent.
+router.post('/messages/:id/body-access', async (req, res) => {
+  const { id } = req.params;
+  if (!UUID_RE.test(id)) return res.status(400).json({ error: 'Invalid message id' });
+  const touched = await query(`UPDATE messages m SET body_last_opened_at=clock_timestamp()
+    FROM email_accounts a WHERE m.id=$1 AND m.account_id=a.id AND a.user_id=$2
+    RETURNING m.id`, [id,req.session.userId]);
+  if (!touched.rows.length) return res.status(404).json({ error: 'Message not found' });
+  res.json({ ok: true });
+});
+
 // Get full message body + attachments list
 router.get('/messages/:id/body', async (req, res) => {
   const { id } = req.params;
   if (!UUID_RE.test(id)) return res.status(400).json({ error: 'Invalid message id' });
 
   const result = await query<ReadMessageRow>(`
-    SELECT m.*, a.user_id, a.mail_transport, u.preferences, ci.message_id AS calendar_invitation_id FROM messages m
+    WITH accessed AS (
+      UPDATE messages m SET body_last_opened_at=clock_timestamp()
+      FROM email_accounts owner WHERE m.id=$1 AND m.account_id=owner.id AND owner.user_id=$2
+      RETURNING m.*
+    )
+    SELECT m.*, a.user_id, a.mail_transport, u.preferences, ci.message_id AS calendar_invitation_id FROM accessed m
     JOIN email_accounts a ON m.account_id = a.id
     JOIN users u ON u.id = a.user_id
     LEFT JOIN inbound_calendar_invitations ci ON ci.message_id = m.id
