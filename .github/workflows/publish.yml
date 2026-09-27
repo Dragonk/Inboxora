@@ -7,6 +7,11 @@ on:
         description: "Optional immutable commit SHA reachable from the branch selected for this manual run (defaults to that selected revision)"
         required: false
         type: string
+      platforms:
+        description: "Docker platforms to publish (use linux/amd64 for an x86_64 test build)"
+        required: false
+        default: "linux/amd64,linux/arm64"
+        type: string
 
 permissions:
   contents: read
@@ -72,7 +77,7 @@ jobs:
         with:
           context: .
           file: ./backend/Dockerfile
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ inputs.platforms || 'linux/amd64,linux/arm64' }}
           push: true
           tags: ${{ steps.meta-backend.outputs.tags }}
           labels: ${{ steps.meta-backend.outputs.labels }}
@@ -98,7 +103,7 @@ jobs:
         with:
           context: .
           file: ./frontend/Dockerfile
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ inputs.platforms || 'linux/amd64,linux/arm64' }}
           push: true
           tags: ${{ steps.meta-frontend.outputs.tags }}
           labels: ${{ steps.meta-frontend.outputs.labels }}
