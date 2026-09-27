@@ -1,3 +1,4 @@
+import { readMailPrefetchLimit } from './mailPrefetchSettings.js';
 import { pool } from './db.js';
 import { googleConfigFromEnv, microsoftConfigFromEnv } from './providerAuthService.js';
 import { fetchGmailMessageContent, collectGmailInlineImages, embedGmailInlineImages, localAttachmentsForGmail } from './providers/google/gmailMailBody.js';
@@ -7,7 +8,6 @@ import { sanitizeEmail } from './emailSanitizer.js';
 import { snippetFromBody } from './messageParser.js';
 import { toAppError } from '../utils/errors.js';
 
-export const VISIBLE_PREFETCH_LIMIT = 3;
 export const MAX_PREFETCH_CACHE_BYTES = 2 * 1024 * 1024;
 const active = new Set<string>();
 
@@ -59,16 +59,18 @@ export async function readNativePrefetchBody(account: PrefetchAccount, message: 
   return null;
 }
 
-/** Best-effort warming of at most three visible messages, at most two accounts
+/** Best-effort warming of the admin-configured visible window, at most two accounts
  * per process, one request stream per account across replicas. There is no
  * durable mailbox-wide queue: switching folders cannot enqueue the whole inbox. */
 export async function prefetchVisibleBodies(account: PrefetchAccount, ids: string[], read: BodyPrefetchReader): Promise<void> {
   if (!bodyPrefetchEnabled() || active.has(account.id) || active.size >= 2) return;
-  const candidates = [...new Set(ids)].slice(0, VISIBLE_PREFETCH_LIMIT);
-  if (!candidates.length) return;
+  if (!ids.length) return;
   active.add(account.id);
   const client = await pool.connect().catch(error => { active.delete(account.id); throw error; });
   try {
+    const limit = await readMailPrefetchLimit(client);
+    if (limit === 0) return;
+    const candidates = [...new Set(ids)].slice(0, limit);
     const lock = await client.query<{ ok: boolean }>('SELECT pg_try_advisory_lock(hashtext($1), 147) AS ok', [`mail-body-prefetch:${account.id}`]);
     if (!lock.rows[0].ok) return;
     const transport = account.mail_transport || 'imap_smtp';
@@ -88,7 +90,11 @@ export async function prefetchVisibleBodies(account: PrefetchAccount, ids: strin
         AND NOT (gmail_reader_body_complete AND gmail_attachment_metadata_complete)
         AND (body_prefetch_after IS NULL OR body_prefetch_after <= NOW())
         ORDER BY array_position($2::uuid[],id) LIMIT $3 FOR UPDATE SKIP LOCKED)
-      RETURNING id,uid,folder,provider_message_id,row_version`, [account.id,candidates,VISIBLE_PREFETCH_LIMIT]);
+      RETURNING id,uid,folder,provider_message_id,row_version`, [account.id,candidates,limit]);
+    // UPDATE ... RETURNING does not promise list order. Warm the first visible
+    // messages first, rather than letting a larger batch reorder the reader's wait.
+    const rank = new Map(candidates.map((id, index) => [id, index]));
+    messages.rows.sort((a,b) => rank.get(a.id)! - rank.get(b.id)!);
     for (const message of messages.rows) {
       try {
         const body = await read(message);

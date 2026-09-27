@@ -45,7 +45,8 @@
       "groupSecurityIntegrations": "Zabezpečení a integrace",
       "groupAdmin": "Správa",
       "plugins": "Pluginy",
-      "davCredentials": "Přístup DAV"
+      "davCredentials": "Přístup DAV",
+      "performance": "Výkon"
     },
     "categories": {
       "title": "Kategorie e-mailů",
@@ -1026,6 +1027,18 @@
       "maxModeReadWrite": "Čtení i zápis",
       "maxModeReadOnly": "Pouze pro čtení",
       "mode": "Přístup: {{mode}}"
+    },
+    "prefetch": {
+      "title": "Předběžné načítání zpráv",
+      "description": "Nastavení správce pro všechny uživatele. Načítá obsah prvních zpráv v aktuálně zobrazeném seznamu složky přes IMAP, Gmail API nebo Microsoft Graph.",
+      "limitLabel": "Počet předem načítaných zpráv",
+      "hint": "Výchozí hodnota: 25. Zadejte 0–100; 0 předběžné načítání vypne. Změny platí pro nové dávky bez restartu serveru.",
+      "policy": "Zprávy se v rámci účtu načítají postupně, nikoli všechny najednou. Obsah v mezipaměti se přeskakuje; limity souběžnosti, čekání požadované poskytovatelem a limit mezipaměti na zprávu zůstávají aktivní. Stávající pošta v mezipaměti se nemaže.",
+      "environmentOff": "Předběžné načítání je vypnuto nastavením serveru MAIL_BODY_PREFETCH=off. Níže uvedená hodnota se uloží, ale použije se až po zrušení tohoto nastavení.",
+      "invalid": "Zadejte celé číslo od 0 do 100.",
+      "loadError": "Nastavení předběžného načítání se nepodařilo načíst.",
+      "saveError": "Nastavení předběžného načítání se nepodařilo uložit.",
+      "saved": "Nastavení předběžného načítání bylo uloženo."
     }
   },
   "blockList": {

@@ -976,7 +976,8 @@
       "groupSecurityIntegrations": "Sicurezza e integrazioni",
       "groupAdmin": "Amministrazione",
       "plugins": "Plugin",
-      "davCredentials": "Accesso DAV"
+      "davCredentials": "Accesso DAV",
+      "performance": "Prestazioni"
     },
     "title": "Impostazioni",
     "users": {
@@ -1042,6 +1043,18 @@
       "maxModeReadWrite": "Lettura e scrittura",
       "maxModeReadOnly": "Solo lettura",
       "mode": "Accesso: {{mode}}"
+    },
+    "prefetch": {
+      "title": "Precaricamento del contenuto dei messaggi",
+      "description": "Impostazione amministrativa per tutti gli utenti. Prepara il contenuto dei primi messaggi nell’elenco della cartella corrente tramite IMAP, Gmail API o Microsoft Graph.",
+      "limitLabel": "Messaggi da precaricare",
+      "hint": "Valore predefinito: 25. Inserisci 0–100; 0 disattiva il precaricamento. Le modifiche valgono per i nuovi gruppi senza riavviare il server.",
+      "policy": "I messaggi vengono scaricati in sequenza per account, non tutti insieme. Il contenuto già in cache viene saltato; restano attivi i limiti di concorrenza, le attese del provider e il limite di cache per messaggio. La posta già memorizzata non viene eliminata.",
+      "environmentOff": "Il precaricamento è disattivato dall’impostazione del server MAIL_BODY_PREFETCH=off. Il numero verrà salvato, ma sarà applicato solo dopo la rimozione di questa impostazione prioritaria.",
+      "invalid": "Inserisci un numero intero da 0 a 100.",
+      "loadError": "Impossibile caricare le impostazioni di precaricamento.",
+      "saveError": "Impossibile salvare le impostazioni di precaricamento.",
+      "saved": "Impostazione di precaricamento salvata."
     }
   },
   "blockList": {

@@ -147,6 +147,7 @@ jobs:
           npx vitest run --no-file-parallelism --maxWorkers=1 \
             src/services/storageMaintenance.integration.test.ts \
             src/services/mailBodyPrefetch.integration.test.ts \
+            src/routes/admin.prefetch.integration.test.ts \
             src/services/imapRuleBody.integration.test.ts \
             src/services/providerAuthService.integration.test.ts \
             src/services/providerTokenService.integration.test.ts \

@@ -976,7 +976,8 @@
       "groupSecurityIntegrations": "Sécurité et intégrations",
       "groupAdmin": "Administration",
       "plugins": "Extensions",
-      "davCredentials": "Accès DAV"
+      "davCredentials": "Accès DAV",
+      "performance": "Performances"
     },
     "title": "Paramètres",
     "users": {
@@ -1042,6 +1043,18 @@
       "maxModeReadWrite": "Lecture et écriture",
       "maxModeReadOnly": "Lecture seule",
       "mode": "Accès : {{mode}}"
+    },
+    "prefetch": {
+      "title": "Préchargement du contenu des messages",
+      "description": "Paramètre administrateur pour tous les utilisateurs. Prépare le contenu des premiers messages de la liste du dossier actuel via IMAP, Gmail API ou Microsoft Graph.",
+      "limitLabel": "Nombre de messages à précharger",
+      "hint": "Valeur par défaut : 25. Saisissez 0–100 ; 0 désactive le préchargement. Les changements concernent les nouveaux lots sans redémarrage du serveur.",
+      "policy": "Les messages sont téléchargés successivement par compte, pas tous à la fois. Le contenu déjà en cache est ignoré ; les limites de concurrence, les délais du fournisseur et le budget de cache par message sont conservés. Les messages déjà en cache ne sont pas supprimés.",
+      "environmentOff": "Le préchargement est désactivé par le paramètre serveur MAIL_BODY_PREFETCH=off. Le nombre ci-dessous sera enregistré, mais ne sera appliqué qu’après la suppression de cette priorité.",
+      "invalid": "Saisissez un nombre entier de 0 à 100.",
+      "loadError": "Impossible de charger les paramètres de préchargement.",
+      "saveError": "Impossible d’enregistrer les paramètres de préchargement.",
+      "saved": "Paramètre de préchargement enregistré."
     }
   },
   "blockList": {

@@ -976,7 +976,8 @@
       "groupSecurityIntegrations": "Seguridad e integraciones",
       "groupAdmin": "Administración",
       "plugins": "Complementos",
-      "davCredentials": "Acceso DAV"
+      "davCredentials": "Acceso DAV",
+      "performance": "Rendimiento"
     },
     "title": "Ajustes",
     "users": {
@@ -1042,6 +1043,18 @@
       "maxModeReadWrite": "Lectura y escritura",
       "maxModeReadOnly": "Solo lectura",
       "mode": "Acceso: {{mode}}"
+    },
+    "prefetch": {
+      "title": "Precarga del contenido de mensajes",
+      "description": "Ajuste del administrador para todos los usuarios. Prepara el contenido de los primeros mensajes de la lista de la carpeta actual mediante IMAP, Gmail API o Microsoft Graph.",
+      "limitLabel": "Mensajes que se precargan",
+      "hint": "Valor predeterminado: 25. Introduce 0–100; 0 desactiva la precarga. Los cambios se aplican a nuevos lotes sin reiniciar el servidor.",
+      "policy": "Los mensajes se descargan secuencialmente por cuenta, no todos a la vez. Se omite el contenido ya almacenado; se mantienen los límites de concurrencia, las esperas del proveedor y el límite de caché por mensaje. No se elimina el correo ya almacenado.",
+      "environmentOff": "La precarga está desactivada por el ajuste del servidor MAIL_BODY_PREFETCH=off. El número se guardará, pero solo se aplicará cuando se retire esa anulación.",
+      "invalid": "Introduce un número entero entre 0 y 100.",
+      "loadError": "No se pudieron cargar los ajustes de precarga.",
+      "saveError": "No se pudieron guardar los ajustes de precarga.",
+      "saved": "Ajuste de precarga guardado."
     }
   },
   "blockList": {

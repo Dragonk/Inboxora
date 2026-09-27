@@ -14,24 +14,25 @@ describe.skipIf(!enabled)('visible mail body prefetch with real PostgreSQL', () 
     return id;
   }
   beforeEach(async()=>{
+    await query("DELETE FROM system_settings WHERE key='mail_body_prefetch_limit'");
     user=randomUUID();accountId=randomUUID();otherId=randomUUID();uid=1;
     await query("INSERT INTO users(id,username,password_hash) VALUES($1,$2,'unused')",[user,`prefetch-${user}`]);
     await query("INSERT INTO email_accounts(id,user_id,name,email_address,protocol,mail_transport) VALUES($1,$3,'A','a@example.test','imap','imap_smtp'),($2,$3,'B','b@example.test','imap','imap_smtp')",[accountId,otherId,user]);
   });
-  afterEach(async()=>{vi.unstubAllEnvs();vi.restoreAllMocks();await query('DELETE FROM users WHERE id=$1',[user]);});
+  afterEach(async()=>{vi.unstubAllEnvs();vi.restoreAllMocks();await query('DELETE FROM users WHERE id=$1',[user]);await query("DELETE FROM system_settings WHERE key='mail_body_prefetch_limit'");});
   afterAll(async()=>{await pool.end();});
-  it('warms at most three visible owned messages, leaves history untouched and reuses the cache',async()=>{
-    const ids=[];for(let n=0;n<6;n++)ids.push(await message());
+  it('warms the first 25 visible owned messages by default, leaves history untouched and reuses the cache',async()=>{
+    const ids=[];for(let n=0;n<30;n++)ids.push(await message());
     const reader=vi.fn(async (_m: PrefetchMessage)=>({html:null,text:'Warmed',attachments:[]}));
     await prefetchVisibleBodies(account(),ids,reader);
-    expect(reader).toHaveBeenCalledTimes(3);
+    expect(reader).toHaveBeenCalledTimes(25);
     const rows=await query<{id:string;body_text:string|null}>('SELECT id,body_text FROM messages WHERE account_id=$1',[accountId]);
-    expect(rows.rows.filter(r=>r.body_text==='Warmed').map(r=>r.id).sort()).toEqual(ids.slice(0,3).sort());
-    await prefetchVisibleBodies(account(),ids,reader);expect(reader).toHaveBeenCalledTimes(3);
+    expect(rows.rows.filter(r=>r.body_text==='Warmed').map(r=>r.id).sort()).toEqual(ids.slice(0,25).sort());
+    await prefetchVisibleBodies(account(),ids,reader);expect(reader).toHaveBeenCalledTimes(25);
     const foreign=await message(otherId);
     await prefetchVisibleBodies(account(),[foreign],reader);
-    await prefetchVisibleBodies({...account(),user_id:randomUUID()},[ids[3]],reader);
-    expect(reader).toHaveBeenCalledTimes(3);
+    await prefetchVisibleBodies({...account(),user_id:randomUUID()},[ids[25]],reader);
+    expect(reader).toHaveBeenCalledTimes(25);
   });
   it('cannot overwrite a foreground read or a row changed during the network request',async()=>{
     const first=await message(),second=await message();
@@ -83,6 +84,38 @@ describe.skipIf(!enabled)('visible mail body prefetch with real PostgreSQL', () 
     await prefetchVisibleBodies(account(),[id],async()=>({html:null,text:'',attachments:[]}));
     expect((await query('SELECT body_text,body_html,attachments FROM messages WHERE id=$1',[id])).rows[0])
       .toEqual({body_text:null,body_html:null,attachments:known});
+  });
+
+  it('applies a saved 30-message limit, then 0, then 20 without restart',async()=>{
+    const ids=[];for(let n=0;n<35;n++)ids.push(await message());
+    const reader=vi.fn(async()=>({html:null,text:'Dynamic'}));
+    await query("INSERT INTO system_settings(key,value) VALUES('mail_body_prefetch_limit','30')");
+    await prefetchVisibleBodies(account(),ids,reader);expect(reader).toHaveBeenCalledTimes(30);
+    await query("UPDATE system_settings SET value='0' WHERE key='mail_body_prefetch_limit'");
+    const later=[];for(let n=0;n<25;n++)later.push(await message());
+    await prefetchVisibleBodies(account(),later,reader);expect(reader).toHaveBeenCalledTimes(30);
+    await query("UPDATE system_settings SET value='20' WHERE key='mail_body_prefetch_limit'");
+    await prefetchVisibleBodies(account(),later,reader);expect(reader).toHaveBeenCalledTimes(50);
+    expect((await query('SELECT COUNT(*)::int AS n FROM messages WHERE id=ANY($1::uuid[]) AND body_text IS NOT NULL',[later])).rows[0].n).toBe(20);
+  });
+  it('keeps the configured visible window instead of filling it from older rows, and fetches in list order',async()=>{
+    await query("INSERT INTO system_settings(key,value) VALUES('mail_body_prefetch_limit','3')");
+    const ids=[];for(let n=0;n<5;n++)ids.push(await message());
+    const order=[ids[3],ids[1],ids[4],ids[0],ids[2]];
+    await query("UPDATE messages SET body_text='Already cached' WHERE id=$1",[order[1]]);
+    const reader=vi.fn(async (_message: PrefetchMessage)=>({html:null,text:'Warm'}));
+    await prefetchVisibleBodies(account(),[order[0],order[0],...order.slice(1)],reader);
+    expect(reader.mock.calls.map(([message])=>message.id)).toEqual([order[0],order[2]]);
+    expect((await query('SELECT COUNT(*)::int AS n FROM messages WHERE id=ANY($1::uuid[]) AND body_text IS NOT NULL',[order.slice(3)])).rows[0].n).toBe(0);
+  });
+  it('does not issue provider reads for corrupt stored settings or an environment override',async()=>{
+    await query("INSERT INTO system_settings(key,value) VALUES('mail_body_prefetch_limit','1000000')");
+    const id=await message();const reader=vi.fn(async()=>({html:null,text:'Never'}));
+    await prefetchVisibleBodies(account(),[id],reader);expect(reader).not.toHaveBeenCalled();
+    await query("UPDATE system_settings SET value='30' WHERE key='mail_body_prefetch_limit'");
+    vi.stubEnv('MAIL_BODY_PREFETCH','off');
+    await prefetchVisibleBodies(account(),[id],reader);expect(reader).not.toHaveBeenCalled();
+    expect((await query('SELECT body_prefetch_after FROM messages WHERE id=$1',[id])).rows[0].body_prefetch_after).toBeNull();
   });
 
 });

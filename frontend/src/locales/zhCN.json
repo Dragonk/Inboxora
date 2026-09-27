@@ -960,7 +960,8 @@
       "groupSecurityIntegrations": "安全与集成",
       "groupAdmin": "管理",
       "plugins": "插件",
-      "davCredentials": "DAV 访问"
+      "davCredentials": "DAV 访问",
+      "performance": "性能"
     },
     "title": "设置",
     "users": {
@@ -1026,6 +1027,18 @@
       "maxModeReadWrite": "读写",
       "maxModeReadOnly": "只读",
       "mode": "访问权限：{{mode}}"
+    },
+    "prefetch": {
+      "title": "邮件正文预加载",
+      "description": "适用于所有用户的管理员设置。通过 IMAP、Gmail API 或 Microsoft Graph 预先加载当前文件夹列表中靠前邮件的正文。",
+      "limitLabel": "预加载邮件数量",
+      "hint": "默认值：25。输入 0–100；0 表示关闭预加载。更改对新批次生效，无需重启服务器。",
+      "policy": "每个账户按顺序加载邮件，不会同时加载全部邮件。已缓存的正文将跳过；并发限制、服务商要求的等待时间以及每封邮件的缓存大小限制仍然有效。不会删除已有邮件缓存。",
+      "environmentOff": "服务器设置 MAIL_BODY_PREFETCH=off 已关闭预加载。下方数量会保存，但只有取消该强制设置后才会生效。",
+      "invalid": "请输入 0 到 100 之间的整数。",
+      "loadError": "无法加载预加载设置。",
+      "saveError": "无法保存预加载设置。",
+      "saved": "预加载设置已保存。"
     }
   },
   "blockList": {

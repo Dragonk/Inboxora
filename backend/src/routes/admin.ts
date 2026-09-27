@@ -1,3 +1,4 @@
+import { DEFAULT_MAIL_PREFETCH_LIMIT, MAX_MAIL_PREFETCH_LIMIT, MAIL_PREFETCH_SETTING_KEY, parseMailPrefetchLimit, storedMailPrefetchLimit } from '../services/mailPrefetchSettings.js';
 import { Router } from 'express';
 import crypto from 'crypto';
 import type { ConnectionOptions } from 'tls';
@@ -96,7 +97,11 @@ router.get('/settings', async (req, res) => {
   const result = await query<{ key: string; value: string }>('SELECT key, value FROM system_settings');
   const settings: Record<string, string> = {};
   for (const row of result.rows) settings[row.key] = row.value;
-  res.json({ settings });
+  settings[MAIL_PREFETCH_SETTING_KEY] = String(storedMailPrefetchLimit(settings[MAIL_PREFETCH_SETTING_KEY]));
+  res.json({ settings, mailPrefetch: {
+    defaultLimit: DEFAULT_MAIL_PREFETCH_LIMIT, maxLimit: MAX_MAIL_PREFETCH_LIMIT,
+    disabledByEnvironment: process.env.MAIL_BODY_PREFETCH === 'off',
+  } });
 });
 
 router.get('/auth-events', async (req, res) => {
@@ -114,6 +119,12 @@ router.get('/auth-events', async (req, res) => {
 });
 
 router.patch('/settings', async (req, res) => {
+  const hasPrefetchLimit = Object.prototype.hasOwnProperty.call(req.body, MAIL_PREFETCH_SETTING_KEY);
+  const prefetchLimit = hasPrefetchLimit ? parseMailPrefetchLimit(req.body[MAIL_PREFETCH_SETTING_KEY]) : null;
+  // Validate before any existing setting is written, including in a mixed patch.
+  if (hasPrefetchLimit && prefetchLimit === null) {
+    return res.status(400).json({ error: `mail_body_prefetch_limit must be an integer from 0 to ${MAX_MAIL_PREFETCH_LIMIT}`, code: 'INVALID_PREFETCH_LIMIT' });
+  }
   const { registration_open, internal_auth_disabled, auth_max_attempts, auth_window_minutes,
     allow_private_hosts, allow_insecure_tls, allow_nonstandard_ports,
     mfa_enforcement, mfa_device_trust, custom_css } = req.body;
@@ -226,6 +237,12 @@ router.patch('/settings', async (req, res) => {
       [sanitized]
     );
     console.log(`[admin] ${req.session.username} updated custom_css (${sanitized.length} chars)`);
+  }
+  if (hasPrefetchLimit) {
+    await query(`INSERT INTO system_settings (key, value, updated_at) VALUES ($1, $2, NOW())
+      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+    [MAIL_PREFETCH_SETTING_KEY, String(prefetchLimit)]);
+    console.log(`[admin] ${req.session.username} set mail_body_prefetch_limit=${prefetchLimit}`);
   }
   invalidateConnectionPolicyCache();
   res.json({ ok: true });

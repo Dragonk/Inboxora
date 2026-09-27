@@ -1,3 +1,4 @@
+import MailPrefetchSettings from './MailPrefetchSettings.tsx';
 import { CalendarAccountsSettings, ContactAccountsSettings, SectionTabs } from './accountUi/SettingsSections.tsx';
 import MailAccountEditor from './accountUi/MailAccountEditor.tsx';
 import { useSettingsTarget, isCurrentSettingsTarget } from './accountUi/navigation.ts';
@@ -7621,7 +7622,7 @@ const TAB_GROUPS = [
   { id: 'contacts', labelKey: 'contacts.title', tabIds: ['contacts'] },
   { id: 'display', labelKey: 'admin.tabs.groupDisplay', tabIds: ['appearance', 'shortcuts'] },
   { id: 'security-integrations', labelKey: 'admin.tabs.groupSecurityIntegrations', tabIds: ['security', 'dav-credentials', 'integrations', 'ai', 'ai-actions', 'plugins'] },
-  { id: 'admin', labelKey: 'admin.tabs.groupAdmin', tabIds: ['users', 'sso'] },
+  { id: 'admin', labelKey: 'admin.tabs.groupAdmin', tabIds: ['users', 'sso', 'performance'] },
 ];
 
 const TABS = [
@@ -7695,6 +7696,10 @@ const TABS = [
     id: 'sso', labelKey: 'admin.tabs.sso',
     adminOnly: true,
     icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>,
+  },
+  {
+    id: 'performance', labelKey: 'admin.tabs.performance', adminOnly: true,
+    icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M4 18a9 9 0 1116 0M12 13l4-5"/><circle cx="12" cy="13" r="1"/></svg>,
   },
   // About (ungrouped, pinned to bottom)
   {
@@ -9196,6 +9201,7 @@ function makeSearchIndex(t: TFunction): SearchIndexItem[] {
     // Shortcuts (desktop only)
     { label: tabLabel('shortcuts'), keywords: ['shortcut', 'keyboard', 'hotkey', 'keybind', 'key binding', 'compose shortcut', 'reply shortcut'], tab: 'shortcuts', mobileHidden: true, breadcrumb: tabLabel('shortcuts') },
     // Admin-only
+    { label: t('admin.prefetch.title'), keywords: ['prefetch', 'cache', 'performance', 'wydajność', 'pobieranie', 'wyprzedzeniem', 'limit', 'synchronization'], tab: 'performance', adminOnly: true, breadcrumb: tabLabel('performance') },
     { label: t('admin.systemEmail.tabUsers'), keywords: ['user', 'invite', 'admin', 'role', 'manage users', 'add user'], tab: 'users', adminOnly: true, breadcrumb: tabLabel('users') },
     { label: t('admin.systemEmail.tabEmail'), keywords: ['system email', 'smtp', 'admin email', 'invite email', 'outgoing email'], tab: 'users', adminOnly: true, breadcrumb: tabLabel('users') },
     { label: t('admin.sso.title'), keywords: ['sso', 'oidc', 'single sign on', 'oauth', 'provider', 'identity provider'], tab: 'sso', adminOnly: true, breadcrumb: tabLabel('sso') },
@@ -9369,6 +9375,7 @@ export default function AdminPanel() {
       {adminTab === 'appearance' && <AppearanceTab initialSubTab={pendingSubTab} />}
       {adminTab === 'integrations' && <IntegrationsTab />}
       {adminTab === 'users' && <UsersTab />}
+      {adminTab === 'performance' && isAdmin && <MailPrefetchSettings />}
       {adminTab === 'sso' && <SSOTab />}
       {adminTab === 'security' && <SecurityPrivacyTab initialSubTab={pendingSubTab} />}
       {adminTab === 'dav-credentials' && <DavCredentialsTab />}

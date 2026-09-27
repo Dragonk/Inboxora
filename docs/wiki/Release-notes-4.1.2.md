@@ -57,8 +57,22 @@ receipts, provider cursors and spam-training examples are not treated as disposa
 
 Body prefetch existed in upstream MailFlow and predates Inboxora's TypeScript migration.
 The new policy keeps the useful latency optimization without automatically reading the
-whole historical mailbox: at most **three visible messages**, **two active accounts per
-process**, and **one request stream per account across replicas**. Cached messages and
+whole historical mailbox: **25 visible messages by default**, **two active accounts per
+process**, and **one request stream per account across replicas**.
+Administrators set **0–100 messages** in **Settings → Administration → Performance**;
+**0 disables prefetch**. The setting is persisted in the existing `system_settings` table
+under `mail_body_prefetch_limit` and is read for every new batch on every backend, without
+restart or a new schema migration. An already-started batch may finish with its original
+limit. `MAIL_BODY_PREFETCH=off` is a server-level override, shown explicitly in the UI.
+The limit describes the first messages in the current folder list, not parallel requests
+or a global cache-size cap. Already-cached messages do not cause older rows outside that
+window to be fetched. Messages are warmed in display order, one at a time per account.
+Changing the limit does not delete existing cached bodies or change the 2 MiB per-message
+speculative cache budget. The same value applies to IMAP, Gmail API and Graph, subject to
+their existing provider safety exceptions. Larger windows trade more network/database
+work for more messages likely to be ready before the reader opens them; this is not a
+measured latency guarantee.
+ Cached messages and
 recent failed/empty/oversized reads are skipped. Provider retry hints can extend the
 account cooldown; a failure stops the rest of the speculative batch.
 

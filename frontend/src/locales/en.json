@@ -960,7 +960,8 @@
       "groupSecurityIntegrations": "Security & Integrations",
       "groupAdmin": "Administration",
       "plugins": "Plugins",
-      "davCredentials": "DAV access"
+      "davCredentials": "DAV access",
+      "performance": "Performance"
     },
     "title": "Settings",
     "users": {
@@ -1026,6 +1027,18 @@
       "maxModeReadWrite": "Read and write",
       "maxModeReadOnly": "Read only",
       "mode": "Access: {{mode}}"
+    },
+    "prefetch": {
+      "title": "Message body prefetch",
+      "description": "Administrator setting for all users. Prepare the bodies of the first messages in the current folder list, using IMAP, Gmail API or Microsoft Graph.",
+      "limitLabel": "Messages to prefetch",
+      "hint": "Default: 25. Enter 0–100; 0 disables prefetch. Changes apply to new batches without restarting the server.",
+      "policy": "Messages are fetched sequentially per account, not all at once. Cached bodies are skipped; concurrency limits, provider backoff and the per-message cache budget stay in place. Existing cached mail is not deleted.",
+      "environmentOff": "Prefetch is disabled by the server setting MAIL_BODY_PREFETCH=off. The number below is saved but will apply only after that override is removed.",
+      "invalid": "Enter a whole number from 0 to 100.",
+      "loadError": "Could not load prefetch settings.",
+      "saveError": "Could not save prefetch settings.",
+      "saved": "Prefetch setting saved."
     }
   },
   "blockList": {
