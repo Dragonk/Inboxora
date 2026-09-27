@@ -29,7 +29,7 @@ finalized below and dated with its publication date.
 
 ### Changed
 
-- **Bounded visible-body warming for IMAP, Gmail API and Microsoft Graph.** The first three messages in a visible folder view can be warmed under a shared concurrency/cache-size/cooldown policy. Full historical IMAP body prefetch and historical snippet scanning are no longer defaults. Foreground reading, rules, drafts and existing cached bodies remain intact; provider throttling exceptions remain enforced. Graph reader completeness is tracked separately from rule-only text extraction.
+- **Bounded visible-body warming for IMAP, Gmail API and Microsoft Graph.** The first three messages in a visible folder view can be warmed under a shared concurrency/cache-size/cooldown policy. Full historical IMAP body prefetch and historical snippet scanning are no longer defaults. Foreground reading, rules, drafts and existing cached bodies remain intact; IMAP body rules explicitly hydrate required uncached content rather than depending on speculative prefetch; provider throttling exceptions remain enforced. Graph reader completeness is tracked separately from rule-only text extraction.
 
 ### Fixed
 

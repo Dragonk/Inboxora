@@ -67,7 +67,12 @@ with their own transports and existing provider safety exceptions (including sen
 IMAP providers). Normal IMAP sync and historical backfill fetch metadata by default.
 Historical snippet scanning is explicitly opt-in. Missing bodies remain available when
 opened; snippets may remain blank until a visible/foreground read or a rule needs them.
-Existing cached bodies are not evicted or rewritten by the upgrade.
+Existing cached bodies are not evicted or rewritten by the upgrade. Enabled IMAP body
+rules explicitly read an uncached message when evaluating it; this is required feature
+data, not background prefetch. Native Gmail/Graph retain their durable rule-hydration
+paths. Failed or empty reads, changed/moved copies and oversized HTML-only input remain unknown
+and cannot trigger a negative body condition. Required reads do not enable full-history
+prefetch or fall back to IMAP on a native Google/Microsoft account.
 
 Gmail warms the complete MIME body plus attachment metadata; bounded CID data can be
 embedded. Graph warms only its body; the normal reader obtains attachment metadata/CID
