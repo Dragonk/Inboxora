@@ -183,7 +183,7 @@ async function consolidateLegacyLogicalRows(client: PoolClient, hydrated: Hydrat
   return { ...winner, message_id_collision_key: hydrated.collisionKey };
 }
 
-async function findExistingLogical(client: PoolClient, hydrated: HydratedPersistedMessage, { repairExisting = false }: { repairExisting?: boolean } = {}) {
+async function findExistingLogical(client: PoolClient, hydrated: HydratedPersistedMessage, { repairExisting = false, sourceLogicalId = null }: { repairExisting?: boolean; sourceLogicalId?: string | null } = {}) {
   if (hydrated.canonicalMessageId) {
     // P1-07: query directly by (user_id, canonical_message_id, collision_key)
     // instead of LIMIT 2 + JS filtering. This handles >=3 collision variants
@@ -218,6 +218,18 @@ async function findExistingLogical(client: PoolClient, hydrated: HydratedPersist
       [hydrated.userId, hydrated.canonicalMessageId, hydrated.accountId],
     );
     return { logical: null, collision: existing.rows.length > 0 };
+  }
+  // A physical copy without an RFC Message-ID already has a durable, tenant-
+  // checked attachment. Repairing its byte-expanded headers (or hydrating its
+  // body cache) must not create another logical message just because the cache
+  // fingerprint changed. Only the verified DB row supplies sourceLogicalId.
+  if (sourceLogicalId) {
+    const linked = await client.query(`
+      SELECT id, conversation_id, message_id_collision_key FROM logical_messages
+       WHERE id = $1 AND user_id = $2 AND account_id = $3
+         AND canonical_message_id IS NULL
+       FOR UPDATE`, [sourceLogicalId, hydrated.userId, hydrated.accountId]);
+    if (linked.rows.length) return { logical: linked.rows[0], collision: false };
   }
   const result = await client.query(`SELECT id, conversation_id, message_id_collision_key FROM logical_messages WHERE user_id = $1 AND account_id = $4 AND canonical_message_id IS NULL AND body_fingerprint = $2 AND header_fingerprint = $3 ORDER BY created_at ASC LIMIT 1 FOR UPDATE`, [hydrated.userId, hydrated.bodyFingerprint, hydrated.headerFingerprint, hydrated.accountId]);
   return { logical: result.rows[0] || null, collision: false };
@@ -322,7 +334,7 @@ export async function _upsertConversationCopyWithClient(
       // transaction/session context explicitly rather than trusting copy.user_id.
       const effectiveUserId = userId;
       if (!effectiveUserId) throw new Error('userId is required for conversation persistence');
-      const verified = await client.query(`SELECT m.*, a.user_id, a.automated_series_mode FROM messages m JOIN email_accounts a ON a.id = m.account_id WHERE m.id = $1 AND a.user_id = $2 FOR UPDATE`, [copy.id, effectiveUserId]);
+      const verified = await client.query(`SELECT m.*, a.user_id, a.automated_series_mode FROM messages m JOIN email_accounts a ON a.id = m.account_id WHERE m.id = $1 AND a.user_id = $2 FOR UPDATE OF m`, [copy.id, effectiveUserId]);
     if (verified.rows.length !== 1) throw new Error('Conversation copy not found or owner mismatch');
     const source = { ...verified.rows[0], user_id: verified.rows[0].user_id };
     const hydrated = await hydrateLogicalMessage(source, { identities, userId: effectiveUserId });
@@ -332,7 +344,7 @@ export async function _upsertConversationCopyWithClient(
     const seriesMode = source.automated_series_mode || 'off';
     // P1-08: findPreviousSeriesMessage now returns an array of bounded candidates.
     // Iterate newest→oldest and pick the first VALID one for the series decision.
-    const previousSeriesCandidates = await findPreviousSeriesMessage(client, hydrated);
+    const previousSeriesCandidates = seriesMode === 'off' ? null : await findPreviousSeriesMessage(client, hydrated);
     let series = null;
     let matchedPrevious = null;
     if (previousSeriesCandidates) {
@@ -351,7 +363,7 @@ export async function _upsertConversationCopyWithClient(
     }
     if (series && !parent?.ambiguous) { decision.kind = series.kind || decision.kind; decision.reason = series.kind || decision.reason; decision.confidence = series.confidence || decision.confidence; }
     if (parent?.ambiguous) decision.reason = parent.relationType;
-    const existing = await findExistingLogical(client, hydrated, { repairExisting });
+    const existing = await findExistingLogical(client, hydrated, { repairExisting, sourceLogicalId: typeof source.logical_message_id === 'string' ? source.logical_message_id : null });
     let logical = existing.logical;
     const collision = existing.collision;
     if (!logical) {

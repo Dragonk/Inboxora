@@ -59,3 +59,125 @@ The tab title shows `(N) Inboxora` when unread indicators are enabled. Supported
 No new database migration or service is introduced. The existing migration endpoint remains `0145_graph_consistency.sql`. PR13's legacy DAV/ICS cleanup and the existing Graph identity/removal protections remain unchanged.
 
 Validation before release: execute the new PostgreSQL/WebSocket regressions (not skipped), the full backend/frontend suites and the live-browser test. Then verify Graph, Gmail and IMAP with a continuously open tab, disabled notifications, read/unread on another device, lost WS events, search/threaded views, and an installed PWA's actual OS badge. Build success alone does not establish live-mailbox correctness.
+
+## Unreleased follow-up: IMAP storage growth and serialization (#16)
+
+This follow-up is not part of the already-published 4.1.1 image. Use a build containing this
+change (or its subsequent release) before running the maintenance commands below. It does
+not change the release number or any previously applied migration. The existing migration
+chain through `0145_graph_consistency.sql` remains the prerequisite; there is no new migration.
+
+### Cause and behavior
+
+The report concerns **disk usage**, particularly PostgreSQL TOAST and container logs, not
+process RAM. ImapFlow exposes fetched `headers` as a `Buffer`. The conversation envelope
+serializer treated its `entries()` as a header map, storing `0: 82`, `1: 101`, etc. instead of
+RFC header text. A 6,819-byte synthetic header became 71,834 bytes (10.53×) before database
+compression. This is a confirmed defect, not intended caching overhead. These figures are
+logical payload bytes, **not** a measurement of the reporter's database or a promise of the
+same filesystem reduction. Migration `0139` stopped the second copy on `logical_messages`,
+but left this independent expansion on `messages`, explaining why a clean installation
+could grow again.
+
+The fix decodes binary headers directly, retaining folding, repeated fields and Unicode.
+It also moves the header update and identity lookup inside the same per-account,
+SERIALIZABLE transaction as conversation projection. The old standalone update could run
+while another projection/rebuild held that lock, and remained committed if projection
+failed. Unchanged headers are no longer rewritten. Account joins lock the message, not the
+unrelated account row; disabled automated-series matching avoids loading unused candidates.
+Existing attached messages without an RFC Message-ID retain their logical-message and
+conversation identity after a header/body cache change. Authentication, account boundaries,
+manual threading state, transaction isolation and retry handling remain enforced.
+
+Occasional serialization retries can still occur with other concurrent writers; this is
+not a claim that every `40001` is a defect or can be eliminated. Do not suppress PostgreSQL
+errors or reduce isolation to hide a failure. Both standard Compose files now bound
+stdout/stderr JSON logs to three 10 MiB files per service. This is a per-container log bound,
+not a cap on PostgreSQL tables, indexes, WAL, Redis persistence, images or custom log files.
+An overridden logging collector should keep its own appropriate retention policy.
+
+Inboxora intentionally stores message metadata, conversation data and physical-copy headers
+locally. Body caching/prefetch depends on the provider and access path. This fix does not turn
+it into a metadata-only client, promise that any mailbox fits in a 3 GB LXC, or copy every
+attachment into PostgreSQL. Assess actual mailbox size and Docker/database overhead separately.
+
+### Existing installations: diagnose before writing
+
+After installing the fixed backend, updating Compose, and **recreating** affected containers
+to apply logging options, inspect the report without modifying data:
+
+```sh
+docker compose exec -T backend node dist/scripts/repairConversationHeaders.js
+```
+
+Use the same Compose `-f` options/project name as the installation. The default command is
+read-only and prints only counts/byte totals, not mail content, addresses or credentials.
+`repairable`, `beforeBytes`, `afterBytes` and `logicalBytesSaved` describe valid legacy payloads
+before TOAST compression. `skipped` counts malformed, non-UTF-8 or unusually large candidates
+left untouched. All local accounts are visited using owner/account-scoped queries. Each batch
+has at most 50 rows and payloads are fetched individually; values over 16 MiB are skipped.
+
+Read-only PostgreSQL checks (run through an authorized SQL client) separate live data from
+other disk consumers without printing mail content:
+
+```sql
+SELECT pg_size_pretty(pg_database_size(current_database())) AS database_size;
+SELECT relname,
+       pg_size_pretty(pg_total_relation_size(relid)) AS total_with_indexes_toast,
+       pg_size_pretty(pg_table_size(relid)) AS table_with_toast,
+       pg_size_pretty(pg_indexes_size(relid)) AS indexes,
+       n_live_tup, n_dead_tup, last_autovacuum
+FROM pg_stat_user_tables
+ORDER BY pg_total_relation_size(relid) DESC
+LIMIT 15;
+SELECT count(*) AS messages,
+       count(*) FILTER (WHERE conversation_raw_headers LIKE '0: %') AS legacy_candidates,
+       sum(octet_length(conversation_raw_headers)) AS logical_header_bytes
+FROM messages;
+```
+
+The aggregate header check scans the table; use it during a quiet period on a large mailbox.
+Also inspect filesystem usage and `docker system df -v` to distinguish database volumes,
+container writable layers and images. `docker inspect` can show each container's `LogPath`
+and `HostConfig.LogConfig`. Inspect file sizes with host tools, **not** manual edits/truncation
+of Docker-managed log files. Use PostgreSQL/admin filesystem diagnostics separately for WAL
+and custom log destinations; relation sizes alone do not account for the entire LXC.
+
+### Optional repair
+
+Back up the database and ensure free working space first: even a shrinking UPDATE generates
+WAL and old row versions. Do not run a repair on a completely full filesystem or alongside
+old backend workers that can reintroduce the byte expansion. With the fixed build deployed:
+
+```sh
+docker compose exec -T backend node dist/scripts/repairConversationHeaders.js --apply
+```
+
+The command decodes only validated, sequential byte lists, updates physical header payloads
+under the shared account lock, commits bounded batches and can be rerun after interruption.
+It does not delete messages, clear bodies, alter provider cursors, discard logical identities
+or rebuild user conversations. A failing batch rolls back in full; earlier committed batches
+remain repaired. Ambiguous/oversized values are reported and left intact rather than guessed
+or truncated. There is deliberately no automatic startup rewrite of a potentially full DB.
+
+Ordinary autovacuum/VACUUM makes dead space reusable; it generally does **not** shrink the
+files immediately. `VACUUM FULL` requires an exclusive table lock and additional disk space,
+so it is not run by this command and is not an automatic recommendation for a full LXC.
+Plan any physical compaction separately with a backup and a maintenance window. Do not delete
+or recreate the database as the default recovery procedure.
+
+### Regression coverage and limits
+
+Coverage includes binary header/view boundaries, exact folding/Unicode, real PostgreSQL
+lock ordering and rollback, concurrent ingestion, no-op updates, tenant rejection, bounded
+repair/dry-run/idempotence, unchanged message/conversation IDs after rebuild, malformed and
+oversized values, and repair-batch rollback. The PostgreSQL workflow explicitly executes
+the storage regressions; the push-stack workflow resolves **both** Compose files, including
+the optional HTTPS service, and checks every service's log configuration.
+
+The reporter's exact table/TOAST/WAL/log breakdown still needs confirmation after deployment.
+Do not equate a reproduced defect with proof that it explains every byte in their LXC.
+
+References: [Docker JSON log rotation](https://docs.docker.com/engine/logging/drivers/json-file/),
+[PostgreSQL vacuum/space reuse](https://www.postgresql.org/docs/16/routine-vacuuming.html),
+[PostgreSQL transaction isolation](https://www.postgresql.org/docs/16/transaction-iso.html).

@@ -47,6 +47,10 @@ jobs:
         working-directory: backend
         run: npm run build
 
+      - name: Verify the production header-repair entry point
+        working-directory: backend
+        run: node dist/scripts/repairConversationHeaders.js --help
+
       - name: Lint
         working-directory: backend
         run: npm run lint

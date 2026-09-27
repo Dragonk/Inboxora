@@ -8,6 +8,7 @@
     "declaration": false,
     "sourceMap": true
   },
+  "files": ["src/scripts/repairConversationHeaders.ts"],
   "include": ["src/**/*"],
   "exclude": [
     "node_modules",

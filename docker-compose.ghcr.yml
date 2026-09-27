@@ -9,6 +9,14 @@
 # To pin a specific version instead of latest, set INBOXORA_VERSION in your .env:
 #   INBOXORA_VERSION=4.0.1
 
+# Bound stdout/stderr growth (not database/WAL or application log files).
+# Existing containers must be recreated to adopt a logging configuration change.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
 
   # ── Frontend (nginx — serves React SPA + proxies API) ───────────────────────
@@ -18,6 +26,7 @@ services:
     image: ghcr.io/dragonk/inboxora-frontend:${INBOXORA_VERSION:-latest}
     container_name: inboxora-frontend
     restart: unless-stopped
+    logging: *default-logging
     ports:
       - "${APP_PORT:-443}:443"
       - "${APP_HTTP_PORT:-80}:80"
@@ -40,6 +49,7 @@ services:
     image: ghcr.io/dragonk/inboxora-backend:${INBOXORA_VERSION:-latest}
     container_name: inboxora-backend
     restart: unless-stopped
+    logging: *default-logging
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health || exit 1"]
       interval: 15s
@@ -78,6 +88,7 @@ services:
     image: postgres:16-alpine
     container_name: inboxora-postgres
     restart: unless-stopped
+    logging: *default-logging
     environment:
       POSTGRES_DB: ${DB_NAME:-inboxora}
       POSTGRES_USER: ${DB_USER:-inboxora}
@@ -98,6 +109,7 @@ services:
     image: redis:7-alpine
     container_name: inboxora-redis
     restart: unless-stopped
+    logging: *default-logging
     command: redis-server --save 60 1 --loglevel warning
     volumes:
       - redis_data:/data
@@ -132,6 +144,7 @@ services:
     image: binwiederhier/ntfy:v2.28.0
     container_name: inboxora-ntfy
     restart: unless-stopped
+    logging: *default-logging
     command: serve
     environment:
       NTFY_LISTEN_HTTP: ":80"
@@ -164,6 +177,7 @@ services:
     image: caddy:2-alpine
     container_name: inboxora-caddy
     restart: unless-stopped
+    logging: *default-logging
     ports:
       - "80:80"
       - "443:443"

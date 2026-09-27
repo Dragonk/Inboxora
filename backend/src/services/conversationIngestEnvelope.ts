@@ -33,6 +33,12 @@ export function conversationRawHeaders(rawMessage: RawHeadersInput | null | unde
   const headers = rawMessage?.headers;
   if (!headers) return null;
   if (typeof headers === 'string') return headers;
+  // ImapFlow returns Buffer. Its entries() yields [byteOffset, byteValue], not
+  // [headerName, headerValue]; serializing those pairs inflated headers ~10x (#16).
+  // Preserve the exact view boundaries for Uint8Array/subarray inputs as well.
+  if (headers instanceof Uint8Array) {
+    return Buffer.from(headers.buffer, headers.byteOffset, headers.byteLength).toString('utf8');
+  }
   if (isHeaderEntriesProvider(headers)) {
     return [...headers.entries()].map(([name, value]) => `${name}: ${value}`).join('\r\n');
   }

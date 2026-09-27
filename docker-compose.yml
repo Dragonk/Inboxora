@@ -1,3 +1,11 @@
+# Bound stdout/stderr growth (not database/WAL or application log files).
+# Existing containers must be recreated to adopt a logging configuration change.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
 
   # ── Frontend (nginx — serves React SPA + proxies API) ───────────────────────
@@ -13,6 +21,7 @@ services:
         VITE_EMAIL_DIV_RENDER: ${VITE_EMAIL_DIV_RENDER:-false}
     container_name: mailflow-frontend
     restart: unless-stopped
+    logging: *default-logging
     ports:
       - "${APP_PORT:-443}:443"
       - "${APP_HTTP_PORT:-80}:80"
@@ -39,6 +48,7 @@ services:
         BUILD_SHA: ${GIT_SHA:-dev}
     container_name: mailflow-backend
     restart: unless-stopped
+    logging: *default-logging
     environment:
       NODE_ENV: production
       PORT: 3000
@@ -77,6 +87,7 @@ services:
     image: postgres:16-alpine
     container_name: mailflow-postgres
     restart: unless-stopped
+    logging: *default-logging
     # PUID/PGID default to 0:0 (root), identical to the image's normal behaviour.
     # Set them (e.g. 99:100 on Unraid) only when bind-mounting POSTGRES_DATA to a host
     # share, and chown that share to the same uid:gid first.
@@ -101,6 +112,7 @@ services:
     image: redis:7-alpine
     container_name: mailflow-redis
     restart: unless-stopped
+    logging: *default-logging
     user: "${PUID:-0}:${PGID:-0}"
     command: redis-server --save 60 1 --loglevel warning
     volumes:
@@ -136,6 +148,7 @@ services:
     image: binwiederhier/ntfy:v2.28.0
     container_name: mailflow-ntfy
     restart: unless-stopped
+    logging: *default-logging
     command: serve
     environment:
       NTFY_LISTEN_HTTP: ":80"
@@ -168,6 +181,7 @@ services:
     image: caddy:2-alpine
     container_name: mailflow-caddy
     restart: unless-stopped
+    logging: *default-logging
     ports:
       - "80:80"
       - "443:443"

@@ -34,7 +34,7 @@ export async function retryConversationIngestFailures({ userId = null, limit = 2
              FROM messages m
              JOIN email_accounts a ON a.id = m.account_id
             WHERE m.id = $1 AND a.user_id = $2
-            FOR UPDATE`,
+            FOR UPDATE OF m`,
           [failure.message_row_id, failure.user_id],
         );
         if (row.rows.length !== 1) throw new Error('Message row no longer exists');

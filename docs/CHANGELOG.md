@@ -27,6 +27,8 @@ finalized below and dated with its publication date.
 
 ### Fixed
 
+- **IMAP header storage growth (#16).** Decode ImapFlow `Buffer`/`Uint8Array` headers as RFC text rather than serializing every byte as a numbered header (~10.5× logical expansion in the regression fixture). Header persistence now shares the account-serialized transaction with conversation projection, skips unchanged header writes and preserves existing no-Message-ID attachments when cached headers change. Disabled automated-series matching no longer loads candidate bodies/headers. Both Compose distributions rotate container logs at 10 MiB × 3 files. An explicit, read-only-by-default `repairConversationHeaders` command recovers legacy byte-expanded headers in bounded batches; no schema change, automatic rewrite, mail deletion or `VACUUM FULL` is introduced.
+
 - **Desktop overlay sizing.** The drag strip and scaled mail viewport follow live window-controls-overlay height changes without a window resize.
 
 ## [4.1.1] - 2026-09-25
