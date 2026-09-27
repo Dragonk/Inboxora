@@ -5,7 +5,7 @@ All notable changes to Inboxora are recorded here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 For the narrative version — what the release means, what to expect when upgrading, and the known
-limitations — read the matching page in the Wiki: [Release notes 4.1.1](wiki/Release-notes-4.1.1.md),
+limitations — read the matching page in the Wiki: [Draft release notes 4.1.2](wiki/Release-notes-4.1.2.md), [Release notes 4.1.1](wiki/Release-notes-4.1.1.md),
 [Release notes 4.1.0](wiki/Release-notes-4.1.0.md),
 [Release notes 4.0.4](wiki/Release-notes-4.0.4.md),
 [Release notes 4.0.3](wiki/Release-notes-4.0.3.md),
@@ -25,11 +25,19 @@ finalized below and dated with its publication date.
 
 ## [Unreleased]
 
+## [4.1.2] - Unreleased
+
+### Changed
+
+- **Bounded visible-body warming for IMAP, Gmail API and Microsoft Graph.** The first three messages in a visible folder view can be warmed under a shared concurrency/cache-size/cooldown policy. Full historical IMAP body prefetch and historical snippet scanning are no longer defaults. Foreground reading, rules, drafts and existing cached bodies remain intact; provider throttling exceptions remain enforced. Graph reader completeness is tracked separately from rule-only text extraction.
+
 ### Fixed
 
-- **IMAP header storage growth (#16).** Decode ImapFlow `Buffer`/`Uint8Array` headers as RFC text rather than serializing every byte as a numbered header (~10.5× logical expansion in the regression fixture). Header persistence now shares the account-serialized transaction with conversation projection, skips unchanged header writes and preserves existing no-Message-ID attachments when cached headers change. Disabled automated-series matching no longer loads candidate bodies/headers. Both Compose distributions rotate container logs at 10 MiB × 3 files. An explicit, read-only-by-default `repairConversationHeaders` command recovers legacy byte-expanded headers in bounded batches; no schema change, automatic rewrite, mail deletion or `VACUUM FULL` is introduced.
-
+- **Automatic storage repair (#16).** A resumable, single-flight background worker repairs byte-expanded IMAP headers in small transactions and records measured before/current database sizes and logical header savings. It also releases retired DAV journal files without a full rewrite of message tables. Normal VACUUM makes repaired header space reusable; no automatic `VACUUM FULL` or mail/body deletion is performed.
+- **Calendar and contact sync journal growth.** CalDAV/CardDAV journals store only the latest metadata/tombstone per resource, not full copies of every iCalendar/vCard. Unchanged ICS/CardDAV/Google/Graph projections skip row rewrites; stable provider timestamps and exact replay handling avoid artificial ETag changes. Retention keeps at most 30 days/10,000 latest change entries per collection between cleanup passes, with atomic token-floor advancement and snapshot-consistent DAV reports.
+- **Operational history retention.** Background cleanup bounds each deletion batch; expired authentication/rebuild audit and resolved conversation failures are retired. Completed domain-outbox payloads are cleared while durable deduplication identities, pending/uncertain writes, provider receipts and spam-training examples remain protected. Both standard Compose distributions rotate container logs.
 - **Desktop overlay sizing.** The drag strip and scaled mail viewport follow live window-controls-overlay height changes without a window resize.
+- **Upgrade order:** apply `0146_bounded_dav_sync_storage.sql`, `0147_mail_prefetch_backoff.sql`, then `0148_graph_reader_body_completeness.sql` through normal startup. Replace all old backend workers together; pre-upgrade DAV tokens require one full resync. Back up first. This is a proposed 4.1.2 fix, not a published release; local production verification and reporter verification remain release gates.
 
 ## [4.1.1] - 2026-09-25
 

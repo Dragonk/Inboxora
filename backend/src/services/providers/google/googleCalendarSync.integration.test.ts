@@ -406,4 +406,20 @@ describeOrSkip('Google Calendar sync (PostgreSQL)', { timeout: PG_TEST_TIMEOUT_M
     });
     expect(result.errors).toEqual([{ calendarId: 'primary', code: 'SYNC_ALREADY_RUNNING' }]);
   });
+  it('does not rewrite an unchanged calendar event or append DAV history on replay', async () => {
+    const connectionId = await seedConnection();
+    const run = () => syncGoogleCalendar({ userId: USER_ID, connectionId, config: CONFIG,
+      fetchImpl: fakeProvider([
+        () => json(CALENDAR_LIST),
+        () => json({ items: [single], nextSyncToken: 'stable-token' }),
+      ]).fetchImpl });
+    await run();
+    const snapshot = async () => (await autocommit(client => client.query(
+      `SELECT e.id, e.ctid::text AS tuple, e.raw_ical, e.etag, c.sync_version::text AS version
+       FROM calendar_events e JOIN calendars c ON c.id=e.calendar_id WHERE e.user_id=$1 ORDER BY e.id`, [USER_ID]))).rows;
+    const before = await snapshot(); expect(before).toHaveLength(1);
+    await run(); await run();
+    expect(await snapshot()).toEqual(before);
+  });
+
 });

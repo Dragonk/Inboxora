@@ -492,4 +492,19 @@ describeOrSkip('Microsoft Graph contacts sync (PostgreSQL)', () => {
       fetchImpl: fakeProvider([() => json({ value: [] })]).fetchImpl,
     })).rejects.toMatchObject({ name: 'GraphApiError', code: 'SYNC_ALREADY_RUNNING' });
   });
+  it('does not rewrite unchanged contact tuples or churn CardDAV versions on replay', async () => {
+    const connectionId = await seedConnection();
+    const record = contact('stable', 'Stable Person', 'stable@example.test');
+    const provider = fakeProvider([() => json({ value: [record], '@odata.deltaLink': DELTA_BASE + '?$deltatoken=stable' })]);
+    const run = () => syncGraphContacts({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl: provider.fetchImpl });
+    await run();
+    const snapshot = async () => (await autocommit(client => client.query(
+      `SELECT c.id, c.ctid::text AS tuple, c.vcard, c.etag, b.sync_version::text AS version
+       FROM contacts c JOIN address_books b ON b.id=c.address_book_id WHERE c.user_id=$1 ORDER BY c.id`, [USER_ID]))).rows;
+    const before = await snapshot();
+    expect(before).toHaveLength(1);
+    await run(); await run();
+    expect(await snapshot()).toEqual(before);
+  });
+
 });

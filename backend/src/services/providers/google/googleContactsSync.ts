@@ -171,7 +171,9 @@ async function applyPerson(client: PoolClient, context: ApplyContext, person: Go
          title = $15, role = $16, nickname = $17, urls = $18::jsonb, instant_messages = $19::jsonb,
          categories = $20::jsonb, addresses = $21::jsonb, is_auto = false, updated_at = NOW()
        WHERE id = $22 AND user_id = $23
-       RETURNING id`,
+       AND (contacts.vcard, contacts.etag, contacts.display_name, contacts.first_name, contacts.last_name, contacts.primary_email, contacts.emails, contacts.phones, contacts.organization, contacts.notes, contacts.birthday, contacts.anniversary, contacts.contact_dates, contacts.photo_data, contacts.title, contacts.role, contacts.nickname, contacts.urls, contacts.instant_messages, contacts.categories, contacts.addresses, contacts.is_auto)
+          IS DISTINCT FROM ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9, $10, $11, $12, $13::jsonb, $14, $15, $16, $17, $18::jsonb, $19::jsonb, $20::jsonb, $21::jsonb, false)
+        RETURNING id`,
       [
         vcard, etag, parsed.displayName, parsed.firstName, parsed.lastName, primaryEmail,
         JSON.stringify(parsed.emails), JSON.stringify(parsed.phones), parsed.organization, parsed.notes,
@@ -181,7 +183,10 @@ async function applyPerson(client: PoolClient, context: ApplyContext, person: Go
       ],
     );
     // A contact deleted locally is recreated from the source on the next sync.
-    if (!updated.rows.length) localId = null;
+    if (!updated.rows.length) {
+      const unchanged = await client.query<{ id: string }>('SELECT id FROM contacts WHERE id = $1 AND user_id = $2', [localId, context.userId]);
+      localId = unchanged.rows[0]?.id ?? null;
+    }
   }
 
   let outcome: 'created' | 'updated' = 'updated';
@@ -201,6 +206,8 @@ async function applyPerson(client: PoolClient, context: ApplyContext, person: Go
          role = EXCLUDED.role, nickname = EXCLUDED.nickname, urls = EXCLUDED.urls,
          instant_messages = EXCLUDED.instant_messages, categories = EXCLUDED.categories,
          addresses = EXCLUDED.addresses, is_auto = false, updated_at = NOW()
+       WHERE (contacts.vcard, contacts.etag, contacts.display_name, contacts.first_name, contacts.last_name, contacts.primary_email, contacts.emails, contacts.phones, contacts.organization, contacts.notes, contacts.birthday, contacts.anniversary, contacts.contact_dates, contacts.photo_data, contacts.title, contacts.role, contacts.nickname, contacts.urls, contacts.instant_messages, contacts.categories, contacts.addresses, contacts.is_auto)
+         IS DISTINCT FROM (EXCLUDED.vcard, EXCLUDED.etag, EXCLUDED.display_name, EXCLUDED.first_name, EXCLUDED.last_name, EXCLUDED.primary_email, EXCLUDED.emails, EXCLUDED.phones, EXCLUDED.organization, EXCLUDED.notes, EXCLUDED.birthday, EXCLUDED.anniversary, EXCLUDED.contact_dates, EXCLUDED.photo_data, EXCLUDED.title, EXCLUDED.role, EXCLUDED.nickname, EXCLUDED.urls, EXCLUDED.instant_messages, EXCLUDED.categories, EXCLUDED.addresses, false)
        RETURNING id`,
       [
         context.addressBookId, context.userId, uid, vcard, etag, parsed.displayName, parsed.firstName, parsed.lastName, primaryEmail,
@@ -211,6 +218,12 @@ async function applyPerson(client: PoolClient, context: ApplyContext, person: Go
       ],
     );
     localId = inserted.rows[0]?.id ?? null;
+    if (!localId) {
+      const unchanged = await client.query<{ id: string }>(
+        "SELECT id FROM contacts WHERE address_book_id = $1 AND user_id = $2 AND uid = $3",
+        [context.addressBookId, context.userId, uid]);
+      localId = unchanged.rows[0]?.id ?? null;
+    }
     if (!localId) return 'skipped';
     outcome = link.rows[0] ? 'updated' : 'created';
   }

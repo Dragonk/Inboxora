@@ -58,6 +58,9 @@ services:
       start_period: 30s
     environment:
       NODE_ENV: production
+      STORAGE_MAINTENANCE_ENABLED: ${STORAGE_MAINTENANCE_ENABLED:-true}
+      MAIL_BODY_PREFETCH: ${MAIL_BODY_PREFETCH:-visible}
+      IMAP_HISTORICAL_SNIPPETS: ${IMAP_HISTORICAL_SNIPPETS:-false}
       PORT: 3000
       SESSION_SECRET: ${SESSION_SECRET}
       APP_URL: ${APP_URL:-}

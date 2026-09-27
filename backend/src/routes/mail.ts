@@ -87,6 +87,7 @@ interface ReadMessageRow {
   provider_message_id?: string | null;
   mail_transport?: string | null;
   gmail_reader_body_complete?: boolean;
+  graph_reader_body_complete?: boolean;
   gmail_attachment_metadata_complete?: boolean;
   graph_attachment_metadata_complete?: boolean;
   snippet?: string | null;
@@ -1661,7 +1662,10 @@ async function respondWithGraphBody(
   try {
     // The body is independently useful. An attachments-list failure must not turn a readable message into a
     // false 404/503, nor may it overwrite a previously complete attachment cache with an empty list.
-    const body = await fetchGraphMessageBody(api, providerMessageId);
+    const cachedBody = message.body_html || message.body_text;
+    const body = message.graph_reader_body_complete === true && cachedBody && !/\bcid:/i.test(message.body_html ?? '')
+      ? { contentType: message.body_html ? 'html' : 'text', content: cachedBody }
+      : await fetchGraphMessageBody(api, providerMessageId);
     let attachments: Awaited<ReturnType<typeof fetchGraphAttachments>> = [];
     let attachmentProblem: GraphApiError | null = null;
     try {
@@ -1693,9 +1697,10 @@ async function respondWithGraphBody(
             SET body_html = $1, body_text = $2,
                 attachments = CASE WHEN $3::jsonb IS NULL THEN attachments ELSE $3::jsonb END,
                 graph_attachment_metadata_complete = CASE WHEN $6::boolean THEN true ELSE graph_attachment_metadata_complete END,
+                graph_reader_body_complete = graph_reader_body_complete OR $7::boolean,
                 snippet = CASE WHEN $5 != '' THEN $5 ELSE snippet END
           WHERE id = $4`,
-        [html, text, visibleAttachments ? JSON.stringify(visibleAttachments) : null, message.id, snip, attachmentProblem === null]
+        [html, text, visibleAttachments ? JSON.stringify(visibleAttachments) : null, message.id, snip, attachmentProblem === null, body !== null]
       );
     }
 

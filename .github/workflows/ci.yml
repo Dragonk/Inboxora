@@ -49,7 +49,9 @@ jobs:
 
       - name: Verify the production header-repair entry point
         working-directory: backend
-        run: node dist/scripts/repairConversationHeaders.js --help
+        run: |
+          node dist/scripts/repairConversationHeaders.js --help
+          node dist/scripts/storageMaintenanceStatus.js --help
 
       - name: Lint
         working-directory: backend
@@ -130,6 +132,7 @@ jobs:
           # This job must execute the Graph continuity suite, never silently skip it.
           REQUIRE_GRAPH_POSTGRES: "1"
           REQUIRE_DAV_POSTGRES: "1"
+          REQUIRE_STORAGE_POSTGRES: "1"
           # The send-ledger suite is skipped without this flag, so a job that omits it
           # would report the durable send intent as covered while never running it.
           REQUIRE_SEND_POSTGRES: "1"
@@ -142,6 +145,8 @@ jobs:
           # Integration fixtures intentionally share one PostgreSQL database. Run them in one
           # worker so fixed fixture identities cannot race across suites under SERIALIZABLE.
           npx vitest run --no-file-parallelism --maxWorkers=1 \
+            src/services/storageMaintenance.integration.test.ts \
+            src/services/mailBodyPrefetch.integration.test.ts \
             src/services/providerAuthService.integration.test.ts \
             src/services/providerTokenService.integration.test.ts \
             src/services/providerOperations.integration.test.ts \
@@ -190,6 +195,20 @@ jobs:
             -c 'DROP DATABASE IF EXISTS inboxora_upgrade_gate' \
             -c 'CREATE DATABASE inboxora_upgrade_gate'
           npx vitest run src/services/upgradeFrom404.integration.test.ts
+
+      - name: Populated 4.1.1 automatic storage upgrade
+        working-directory: backend
+        env:
+          DB_HOST: 127.0.0.1
+          DB_PORT: "5432"
+          DB_NAME: inboxora_storage_upgrade
+          DB_USER: mailflow_test
+          DB_PASSWORD: mailflow_test
+          STORAGE_UPGRADE_GATE: "1"
+        run: |
+          PGPASSWORD=mailflow_test psql -h 127.0.0.1 -U mailflow_test -d postgres -v ON_ERROR_STOP=1 \
+            -c 'CREATE DATABASE inboxora_storage_upgrade'
+          npx vitest run src/services/storageUpgrade.integration.test.ts
 
   frontend:
     name: Frontend

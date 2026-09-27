@@ -222,7 +222,9 @@ async function syncSource(source: ExternalCalendarSource) {
          ON CONFLICT (calendar_id, uid, recurrence_id) DO UPDATE SET raw_ical = EXCLUDED.raw_ical,
            etag = EXCLUDED.etag, summary = EXCLUDED.summary, starts_at = EXCLUDED.starts_at, ends_at = EXCLUDED.ends_at,
            all_day = EXCLUDED.all_day, timezone = EXCLUDED.timezone, description = EXCLUDED.description,
-           location = EXCLUDED.location, url = EXCLUDED.url, organizer = EXCLUDED.organizer, attendees = EXCLUDED.attendees, updated_at = NOW()`,
+           location = EXCLUDED.location, url = EXCLUDED.url, organizer = EXCLUDED.organizer, attendees = EXCLUDED.attendees, updated_at = NOW()
+         WHERE (calendar_events.raw_ical, calendar_events.etag, calendar_events.summary, calendar_events.starts_at, calendar_events.ends_at, calendar_events.all_day, calendar_events.timezone, calendar_events.description, calendar_events.location, calendar_events.url, calendar_events.organizer, calendar_events.attendees)
+           IS DISTINCT FROM (EXCLUDED.raw_ical, EXCLUDED.etag, EXCLUDED.summary, EXCLUDED.starts_at, EXCLUDED.ends_at, EXCLUDED.all_day, EXCLUDED.timezone, EXCLUDED.description, EXCLUDED.location, EXCLUDED.url, EXCLUDED.organizer, EXCLUDED.attendees)`,
         [calendarId, source.user_id, event.uid, event.raw, etag, event.summary, event.startsAt, event.endsAt, event.allDay, event.timeZone, event.description, event.location, event.url, event.organizer, JSON.stringify(event.attendees)],
       );
     }

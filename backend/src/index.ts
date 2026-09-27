@@ -8,6 +8,7 @@ import { readFileSync } from 'fs';
 import { WebSocketServer } from 'ws';
 import RedisStore from 'connect-redis';
 import 'dotenv/config';
+import { startStorageMaintenance, stopStorageMaintenance } from './services/storageMaintenance.js';
 import { redisClient } from './services/redis.js';
 
 import sendRoutes from './routes/send.js';
@@ -428,12 +429,14 @@ if (process.env.NODE_ENV !== 'test' && process.env.E2E_DISABLE_IMAP_CONNECT !== 
 
 const PORT = process.env.PORT || 3000;
 httpServer.listen(PORT, () => {
+  startStorageMaintenance();
   console.log(`Inboxora backend running on port ${PORT}`);
 });
 
 process.on('SIGTERM', () => {
   console.log('SIGTERM received — shutting down gracefully');
   httpServer.close(async () => {
+    await stopStorageMaintenance();
     try { await redisClient.quit(); } catch { /* ignore */ }
     process.exit(0);
   });

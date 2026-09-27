@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('imapflow', () => ({ ImapFlow: vi.fn() }));
+vi.mock('./mailBodyPrefetch.js', () => ({ prefetchVisibleBodies: vi.fn(), readNativePrefetchBody: vi.fn() }));
+import { prefetchVisibleBodies, readNativePrefetchBody } from './mailBodyPrefetch.js';
 vi.mock('./db.js', () => ({ query: vi.fn() }));
 vi.mock('./messageParser.js', () => ({ parseMessage: vi.fn(), buildSnippetFromHtml: vi.fn(), snippetFromBody: vi.fn(), decodeMimeWords: vi.fn(), detectBulkFromParsedHeaders: vi.fn(), parseRawHeaders: vi.fn(), enrichParsedMetadata: vi.fn((parsed) => parsed) }));
 vi.mock('../routes/oauth.js', () => ({ refreshMicrosoftToken: vi.fn() }));
@@ -2802,32 +2804,37 @@ describe('the IMAP account discovery is guarded on the authoritative transport',
   });
 });
 
-// The message-list route fires a fire-and-forget body prefetch on every listing. A
-// native account has no IMAP session to prefetch over — its bodies are read on demand
-// by the transport-aware body route — so the guard lives inside the method and these
-// cases pin it rather than trusting the call site.
+// The shared visible-body warmer chooses the correct transport and never opens
+// an IMAP connection for a native provider account.
 describe('folder body prefetch and the account transport', () => {
-  it('does not open an IMAP session for a Microsoft Graph account', async () => {
-    const { query } = await import('./db.js');
-    vi.mocked(query).mockReset().mockResolvedValueOnce({ rows: [{ id: 'acct-1', mail_transport: 'microsoft_graph' }] });
-
-    const { ImapManager } = await import('./imapManager.js');
-    await new ImapManager({} as never).prefetchFolderBodies('acct-1', ['11111111-1111-1111-1111-111111111111']);
-
-    // One query — the account — and nothing after it: no uncached-message lookup.
-    expect(vi.mocked(query)).toHaveBeenCalledTimes(1);
+  it.each(['microsoft_graph', 'gmail_api'])('delegates %s to the native reader', async transport => {
+    const selected = { id: 'acct-1', user_id: 'user-1', mail_transport: transport };
+    vi.mocked(query).mockReset().mockResolvedValueOnce({ rows: [selected] });
+    vi.mocked(prefetchVisibleBodies).mockReset().mockResolvedValue(undefined);
+    const mgr = new ImapManager({} as never);
+    const imapRead = vi.spyOn(mgr, 'fetchMessageBody');
+    await mgr.prefetchFolderBodies('acct-1', ['11111111-1111-1111-1111-111111111111']);
+    expect(query).toHaveBeenCalledTimes(1);
+    expect(prefetchVisibleBodies).toHaveBeenCalledWith(selected, ['11111111-1111-1111-1111-111111111111'], expect.any(Function));
+    const reader = vi.mocked(prefetchVisibleBodies).mock.calls[0][2];
+    const message = { id:'m', uid:1, folder:'INBOX', provider_message_id:'remote', row_version:1 };
+    await reader(message);
+    expect(readNativePrefetchBody).toHaveBeenCalledWith(selected, message);
+    expect(imapRead).not.toHaveBeenCalled();
+    imapRead.mockRestore();
   });
 
-  it('still looks for uncached bodies on an IMAP account', async () => {
-    const { query } = await import('./db.js');
-    vi.mocked(query).mockReset()
-      .mockResolvedValueOnce({ rows: [{ id: 'acct-1', mail_transport: 'imap_smtp' }] })
-      .mockResolvedValueOnce({ rows: [] });
-
-    const { ImapManager } = await import('./imapManager.js');
-    await new ImapManager({} as never).prefetchFolderBodies('acct-1', ['11111111-1111-1111-1111-111111111111']);
-
-    expect(vi.mocked(query)).toHaveBeenCalledTimes(2);
+  it('delegates IMAP reads through the same bounded policy', async () => {
+    const selected = { id:'acct-1', user_id:'user-1', mail_transport:'imap_smtp' };
+    query.mockReset().mockResolvedValueOnce({ rows:[selected] });
+    vi.mocked(prefetchVisibleBodies).mockReset().mockResolvedValue(undefined);
+    const mgr = new ImapManager({} as never);
+    const read = vi.spyOn(mgr,'fetchMessageBody').mockResolvedValue({ html:null,text:'body',attachments:[] });
+    await mgr.prefetchFolderBodies('acct-1',['11111111-1111-1111-1111-111111111111']);
+    expect(prefetchVisibleBodies).toHaveBeenCalledOnce();
+    await vi.mocked(prefetchVisibleBodies).mock.calls[0][2]({ id:'m',uid:42,folder:'INBOX',provider_message_id:null,row_version:1 });
+    expect(read).toHaveBeenCalledWith(selected,42,'INBOX');
+    read.mockRestore();
   });
 });
 

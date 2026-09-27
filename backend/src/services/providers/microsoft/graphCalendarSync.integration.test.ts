@@ -342,6 +342,23 @@ describeOrSkip('Microsoft Graph calendar sync (PostgreSQL)', { timeout: PG_TEST_
     // The rebuild reconciles: the event the baseline no longer lists is gone.
     expect((await storedEvents()).map(event => event.uid)).toEqual(['standup@contoso.test']);
   });
+  it('keeps the canonical event tuple and DAV version on an unchanged Graph replay', async () => {
+    const connectionId = await seedConnection();
+    const provider = fakeProvider([
+      graphPath('/v1.0/me/calendars', { value: [CALENDAR_LIST.value[0]] }),
+      graphPath('/beta/me/calendars/cal-1/events/delta', { value: [{ id: single.id }], '@odata.deltaLink': DELTA_LINK_1 }),
+      graphUrl(DELTA_LINK_1, { value: [{ id: single.id }], '@odata.deltaLink': DELTA_LINK_1 }),
+      graphPath('/v1.0/me/calendars/cal-1/events/evt-single', single),
+    ]);
+    const run = () => syncGraphCalendar({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl: provider.fetchImpl });
+    const result = await run(); expect(result.errors).toEqual([]);
+    const snapshot = async () => (await autocommit(client => client.query(
+      `SELECT e.id, e.ctid::text AS tuple, e.raw_ical, e.etag, c.sync_version::text AS version
+       FROM calendar_events e JOIN calendars c ON c.id=e.calendar_id WHERE e.user_id=$1 ORDER BY e.id`, [USER_ID]))).rows;
+    const before = await snapshot(); expect(before).toHaveLength(1);
+    await run(); await run(); expect(await snapshot()).toEqual(before);
+  });
+
 });
 
 function calendarColors(rows: Array<{ color: string }>): string[] {

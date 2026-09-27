@@ -1,3 +1,4 @@
+import { readDavSyncSnapshot } from '../services/davSyncSnapshot.js';
 // CardDAV server — supports Apple Contacts, Thunderbird, DAVx5 / Android.
 // Protocol: RFC 6352 (CardDAV), RFC 4918 (WebDAV).
 // Auth: HTTP Basic with dedicated, revocable DAV application passwords.
@@ -406,6 +407,7 @@ router.report('/:userId/:bookId/', async (req, res) => {
   if (!isSyncCollection && !isMultiget && reportName !== 'addressbook-query') return res.status(400).end();
   let contacts: { rows: CarddavContactRow[] } | undefined;
   let filenames: string[] = [];
+  let responseSyncToken = syncToken(book);
   if (isSyncCollection) {
     const token = body.match(/<(?:[\w.-]+:)?sync-token(?:\s[^>]*)?>([^<]*)<\/(?:[\w.-]+:)?sync-token>/)?.[1]?.trim();
     const prefix = `urn:inboxora:carddav:${book.id}:`;
@@ -415,10 +417,11 @@ router.report('/:userId/:bookId/', async (req, res) => {
       // precondition, which asks the client for a full resynchronisation.
       return sendXml(res, 403, `${xmlHeader()}<D:error xmlns:D="${DAV_NS}"><D:valid-sync-token/></D:error>`);
     }
-    if (token) contacts = await query<CarddavContactRow>(
-      `SELECT DISTINCT ON (filename) filename AS dav_filename, etag, vcard, deleted
-       FROM contact_sync_changes WHERE address_book_id = $1 AND version > $2 AND version <= $3
-       ORDER BY filename, version DESC`, [book.id, version, book.sync_version || 0]);
+    const snapshot = await readDavSyncSnapshot('contacts', book.id, userId!, token ? version : null);
+    if (snapshot.status === 'missing') return res.status(404).end();
+    if (snapshot.status === 'expired') return sendXml(res, 403, `${xmlHeader()}<D:error xmlns:D="${DAV_NS}"><D:valid-sync-token/></D:error>`);
+    contacts = { rows: snapshot.resources };
+    responseSyncToken = snapshot.token;
   } else if (isMultiget) {
     try {
       filenames = [...new Set([...body.matchAll(/<(?:[\w.-]+:)?href(?:\s[^>]*)?>([^<]+)<\/(?:[\w.-]+:)?href>/g)]
@@ -451,7 +454,7 @@ router.report('/:userId/:bookId/', async (req, res) => {
       xmlHeader(),
       `<D:multistatus xmlns:D="${DAV_NS}" xmlns:C="${CARD_NS}">`,
       ...cardResponses,
-      `<D:sync-token>${xmlEscape(syncToken(book))}</D:sync-token>`,
+      `<D:sync-token>${xmlEscape(responseSyncToken)}</D:sync-token>`,
       '</D:multistatus>',
     ].join('');
     return sendXml(res, 207, xml);

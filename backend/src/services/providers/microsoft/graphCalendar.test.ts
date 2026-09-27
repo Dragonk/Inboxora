@@ -262,3 +262,16 @@ describe('the Graph event delta page', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 });
+
+
+it('does not invent a new DTSTAMP when the unchanged provider object lacks timestamps', () => {
+  vi.useFakeTimers();
+  try {
+    const event = { id:'stable',start:{dateTime:'2026-09-27T09:00:00',timeZone:'UTC'},end:{dateTime:'2026-09-27T10:00:00',timeZone:'UTC'} };
+    vi.setSystemTime(new Date('2026-09-27T00:00:00Z'));
+    const first = buildGraphEventICalendar(event);
+    vi.setSystemTime(new Date('2026-10-01T00:00:00Z'));
+    expect(buildGraphEventICalendar(event)).toBe(first);
+    expect(first).toContain('DTSTAMP:19700101T000000Z');
+  } finally { vi.useRealTimers(); }
+});

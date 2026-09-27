@@ -126,10 +126,15 @@ export async function applyProviderCalendarEventGroup<Event>(
               organizer = $7, starts_at = $8, ends_at = $9, all_day = $10, timezone = $11,
               attendees = $12::jsonb, updated_at = NOW()
         WHERE id = $13 AND user_id = $14
+        AND (calendar_events.raw_ical, calendar_events.etag, calendar_events.summary, calendar_events.description, calendar_events.location, calendar_events.url, calendar_events.organizer, calendar_events.starts_at, calendar_events.ends_at, calendar_events.all_day, calendar_events.timezone, calendar_events.attendees)
+          IS DISTINCT FROM ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb)
         RETURNING id`,
       [mergedRaw, etag, ...columns, JSON.stringify(parsed.attendees), localId, context.userId],
     );
-    if (!updated.rows.length) localId = null;
+    if (!updated.rows.length) {
+      const unchanged = await client.query<{ id: string }>('SELECT id FROM calendar_events WHERE id = $1 AND user_id = $2', [localId, context.userId]);
+      localId = unchanged.rows[0]?.id ?? null;
+    }
   }
   if (!localId) {
     const inserted = await client.query<{ id: string }>(
@@ -143,10 +148,18 @@ export async function applyProviderCalendarEventGroup<Event>(
          organizer = EXCLUDED.organizer, starts_at = EXCLUDED.starts_at, ends_at = EXCLUDED.ends_at,
          all_day = EXCLUDED.all_day, timezone = EXCLUDED.timezone, attendees = EXCLUDED.attendees,
          updated_at = NOW()
+       WHERE (calendar_events.raw_ical, calendar_events.etag, calendar_events.summary, calendar_events.description, calendar_events.location, calendar_events.url, calendar_events.organizer, calendar_events.starts_at, calendar_events.ends_at, calendar_events.all_day, calendar_events.timezone, calendar_events.attendees)
+         IS DISTINCT FROM (EXCLUDED.raw_ical, EXCLUDED.etag, EXCLUDED.summary, EXCLUDED.description, EXCLUDED.location, EXCLUDED.url, EXCLUDED.organizer, EXCLUDED.starts_at, EXCLUDED.ends_at, EXCLUDED.all_day, EXCLUDED.timezone, EXCLUDED.attendees)
        RETURNING id`,
       [context.calendarId, context.userId, uid, mergedRaw, etag, ...columns, JSON.stringify(parsed.attendees)],
     );
     localId = inserted.rows[0]?.id ?? null;
+    if (!localId) {
+      const unchanged = await client.query<{ id: string }>(
+        "SELECT id FROM calendar_events WHERE calendar_id = $1 AND user_id = $2 AND uid = $3 AND recurrence_id = ''",
+        [context.calendarId, context.userId, uid]);
+      localId = unchanged.rows[0]?.id ?? null;
+    }
     if (!localId) return 'skipped';
     outcome = link.rows[0] ? 'updated' : 'created';
   }

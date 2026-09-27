@@ -1,3 +1,4 @@
+import type { PoolClient } from 'pg';
 import { query, withTransaction } from './db.js';
 import { conversationSerializeKey } from './conversationPersistence.js';
 
@@ -47,18 +48,19 @@ export interface HeaderRepairStats {
   next: string | null;
 }
 
-/** Operator-only repair, scoped by both owner and account; no messages or thread identities are deleted. */
-export async function repairConversationHeadersBatch({
-  userId, accountId, afterId = null, limit = 50, apply = false,
-}: {
+export interface HeaderRepairOptions {
   userId: string;
   accountId: string;
   afterId?: string | null;
   limit?: number;
   apply?: boolean;
-}): Promise<HeaderRepairStats> {
+}
+
+/** Caller owns the transaction and, for writes, the conversation account lock. */
+export async function repairConversationHeadersWithClient(client: PoolClient, {
+  userId, accountId, afterId = null, limit = 50, apply = false,
+}: HeaderRepairOptions): Promise<HeaderRepairStats> {
   if (!Number.isInteger(limit) || limit < 1 || limit > 250) throw new Error('Repair limit must be an integer from 1 to 250');
-  return withTransaction(async client => {
     if (!apply) await client.query('SET TRANSACTION READ ONLY');
     const candidates = await client.query<{ id: string; bytes: number }>(`
       SELECT m.id, octet_length(m.conversation_raw_headers) AS bytes
@@ -97,7 +99,15 @@ export async function repairConversationHeadersBatch({
       }
     }
     return stats;
-  }, { serializeKey: apply ? conversationSerializeKey(userId, accountId) : null });
+}
+
+/** Explicit CLI wrapper; the background worker commits its checkpoint in the same transaction. */
+export async function repairConversationHeadersBatch(options: HeaderRepairOptions): Promise<HeaderRepairStats> {
+  const limit = options.limit ?? 50;
+  if (!Number.isInteger(limit) || limit < 1 || limit > 250) throw new Error('Repair limit must be an integer from 1 to 250');
+  return withTransaction(client => repairConversationHeadersWithClient(client, options), {
+    serializeKey: options.apply ? conversationSerializeKey(options.userId, options.accountId) : null,
+  });
 }
 
 /** Account identifiers only: never print addresses, subjects, headers or credentials. */
