@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       source_sha:
-        description: "Optional immutable commit SHA reachable from origin/dev (defaults to the selected dev revision)"
+        description: "Optional immutable commit SHA reachable from the branch selected for this manual run (defaults to that selected revision)"
         required: false
         type: string
 
@@ -27,16 +27,18 @@ jobs:
           ref: ${{ inputs.source_sha || github.sha }}
           fetch-depth: 0
 
-      - name: Assert a dev-reachable immutable source revision
+      - name: Assert an immutable source revision reachable from the selected branch
         env:
           REQUESTED_SHA: ${{ inputs.source_sha }}
           SELECTED_SHA: ${{ github.sha }}
+          SELECTED_REF: ${{ github.ref_name }}
         run: |
           source_sha="${REQUESTED_SHA:-$SELECTED_SHA}"
           [[ "$source_sha" =~ ^[0-9a-f]{40}$ ]]
           test "$(git rev-parse HEAD)" = "$source_sha"
-          git fetch origin dev
-          git merge-base --is-ancestor "$source_sha" origin/dev
+          test -n "$SELECTED_REF"
+          git fetch origin "$SELECTED_REF"
+          git merge-base --is-ancestor "$source_sha" "origin/$SELECTED_REF"
           echo "SOURCE_SHA=$source_sha" >> "$GITHUB_ENV"
 
       - name: Translation release gate
