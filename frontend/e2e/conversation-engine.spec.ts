@@ -548,6 +548,15 @@ test.describe('reader target navigation follow-up', () => {
     await expect(m5).toHaveAttribute('data-unread', 'false');
     await expect(m3).toHaveCSS('font-weight', '700');
     await expect(m5).toHaveCSS('font-weight', '400');
+    await expect.poll(() => page.__unreadCopies).toEqual(['conversation-gmail-copy-3']);
+    // Exercise the normal post-write revalidation explicitly, not only the
+    // optimistic render before the coalesced refresh has a chance to run.
+    const refreshed = page.waitForResponse(response => new URL(response.url()).pathname === '/api/mail/thread/conversation-gmail');
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent('inboxora:refresh', { detail: { refreshThreads: true } })));
+    await refreshed;
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    await expect(m3).toHaveAttribute('data-unread', 'true');
+    await expect(m5).toHaveAttribute('data-unread', 'false');
 
     await page.locator('[data-msgid="conversation-gmail-copy-3"]:visible').click();
     await expect(reader).toHaveAttribute('data-selected-copy-id', 'conversation-gmail-copy-3');
@@ -561,6 +570,7 @@ test.describe('reader target navigation follow-up', () => {
       'conversation-gmail-copy-5',
     ]);
     await expect(m3).toHaveAttribute('data-unread', 'false');
+    await expect.poll(() => page.__unreadCopies).toEqual([]);
   });
 
   test('aligns the selected message action toolbar at the reader visible top and never resnaps', async ({ page, fixtureApi }) => {

@@ -143,7 +143,10 @@ test('message mutations evict only complete affected scopes, including search an
   const prepare = () => {
     seed();
     useStore.setState({ messages: [a], searchResults: [b], threadMessages: { c: [c] } });
-    for (const params of [unified, ...scopes]) mailListCache.finish(mailListCache.begin(params, 1), { messages: [a], total: 1 });
+    for (const params of [unified, ...scopes]) {
+      const accountId = 'accountId' in params ? String(params.accountId) : 'a';
+      mailListCache.finish(mailListCache.begin(params, 1), { messages: [{ id: `cached-${accountId}`, account_id: accountId }], total: 1 });
+    }
   };
   const check = (evicted: string[]) => {
     assert.equal(mailListCache.get(unified, 1), undefined);

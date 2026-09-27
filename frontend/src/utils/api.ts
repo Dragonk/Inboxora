@@ -45,48 +45,57 @@ export function toSearchParams(params: QueryParams): string {
 }
 
 async function request(method: string, path: string, body: unknown = undefined, extraHeaders: Record<string, string> | undefined = undefined, extraOptions: RequestInit = {}, mailCacheAccountIds?: readonly unknown[]) {
-  if (method !== 'GET' && path.startsWith('/mail/') && !path.endsWith('/body-access')) invalidateMailListCacheForAccounts(mailCacheAccountIds);
-  const headers: Record<string, string> = { [CSRF_HEADER]: CSRF_VALUE, ...(extraHeaders || {}) };
-  if (body) headers['Content-Type'] = 'application/json';
-  const opts: RequestInit = {
-    method,
-    credentials: 'include',
-    headers,
-    ...extraOptions,
-  };
-  if (body) opts.body = JSON.stringify(body);
-  // Capture before fetch so a late response cannot emit an auth event into a newer SPA session.
+  // Capture before either cache fence, so a late write cannot invalidate a
+  // newer session. Keep the scope stable until the write settles.
   const requestAuthEpoch = getAuthEpoch();
-  const res = await fetch(BASE + path, opts);
-  if (!res.ok) {
-    if (res.status === 423 && isCurrentAuthEpoch(requestAuthEpoch)) {
-      // Server-enforced screen lock (#235) — surface the lock overlay from current-session calls only.
-      window.dispatchEvent(new CustomEvent('inboxora:locked'));
+  const affectsMailCache = method !== 'GET' && path.startsWith('/mail/') && !path.endsWith('/body-access');
+  const cacheScope = mailCacheAccountIds ? [...mailCacheAccountIds] : undefined;
+  if (affectsMailCache) invalidateMailListCacheForAccounts(cacheScope);
+  try {
+    const headers: Record<string, string> = { [CSRF_HEADER]: CSRF_VALUE, ...(extraHeaders || {}) };
+    if (body) headers['Content-Type'] = 'application/json';
+    const opts: RequestInit = {
+      method,
+      credentials: 'include',
+      headers,
+      ...extraOptions,
+    };
+    if (body) opts.body = JSON.stringify(body);
+    const res = await fetch(BASE + path, opts);
+    if (!res.ok) {
+      if (res.status === 423 && isCurrentAuthEpoch(requestAuthEpoch)) {
+        // Server-enforced screen lock (#235) — surface the lock overlay from current-session calls only.
+        window.dispatchEvent(new CustomEvent('inboxora:locked'));
+      }
+      if (res.status === 401 && !path.startsWith('/auth/') && isCurrentAuthEpoch(requestAuthEpoch)) {
+        window.dispatchEvent(new CustomEvent('inboxora:session_expired'));
+      }
+      const err: unknown = await res.json().catch(() => ({ error: 'Request failed' }));
+      const payload = typeof err === 'object' && err !== null ? err as Record<string, unknown> : {};
+      // Routes may include structured `details`, but Error.message must always be safe, short text — never
+      // JavaScript's "[object Object]" fallback.
+      const message = typeof payload.error === 'string' ? payload.error
+        : typeof payload.message === 'string' ? payload.message : 'Request failed';
+      const error = new Error(message);
+      error.status = res.status;
+      // The domain code, so a caller can answer in the user's own language rather than matching the server's prose.
+      if (typeof payload.code === 'string') (error as Error & { code?: string }).code = payload.code;
+      // Source context is a stable, server-whitelisted diagnostic value. It can be
+      // a short scope string or a persisted calendar-source descriptor; retain it
+      // without coercing structured context to an unusable message.
+      if (payload.source !== undefined) (error as unknown as Record<string, unknown>).source = payload.source;
+      if (payload.sync !== undefined) (error as unknown as Record<string, unknown>).sync = payload.sync;
+      if (payload.details) (error as Error & { details?: unknown }).details = payload.details;
+      throw error;
     }
-    if (res.status === 401 && !path.startsWith('/auth/') && isCurrentAuthEpoch(requestAuthEpoch)) {
-      window.dispatchEvent(new CustomEvent('inboxora:session_expired'));
-    }
-    const err: unknown = await res.json().catch(() => ({ error: 'Request failed' }));
-    const payload = typeof err === 'object' && err !== null ? err as Record<string, unknown> : {};
-    // Routes may include structured `details`, but Error.message must always be safe, short text — never
-    // JavaScript's "[object Object]" fallback.
-    const message = typeof payload.error === 'string' ? payload.error
-      : typeof payload.message === 'string' ? payload.message : 'Request failed';
-    const error = new Error(message);
-    error.status = res.status;
-    // The domain code, so a caller can answer in the user's own language rather than matching the server's prose.
-    if (typeof payload.code === 'string') (error as Error & { code?: string }).code = payload.code;
-    // Source context is a stable, server-whitelisted diagnostic value. It can be
-    // a short scope string or a persisted calendar-source descriptor; retain it
-    // without coercing structured context to an unusable message.
-    if (payload.source !== undefined) (error as unknown as Record<string, unknown>).source = payload.source;
-    if (payload.sync !== undefined) (error as unknown as Record<string, unknown>).sync = payload.sync;
-    if (payload.details) (error as Error & { details?: unknown }).details = payload.details;
-    throw error;
+    // A successful DELETE may deliberately return no representation (HTTP 204).
+    if (res.status === 204) return null;
+    return await res.json();
+  } finally {
+    // An overlapping GET may contain pre-commit data. Fence entries and tickets
+    // on success and failure: a network failure need not mean nothing changed.
+    if (affectsMailCache && isCurrentAuthEpoch(requestAuthEpoch)) invalidateMailListCacheForAccounts(cacheScope);
   }
-  // A successful DELETE may deliberately return no representation (HTTP 204).
-  if (res.status === 204) return null;
-  return res.json();
 }
 
 // Aborting a request rejects with a DOMException named AbortError (or, in some

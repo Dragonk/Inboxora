@@ -11,7 +11,6 @@ import { useEffect, useLayoutEffect, useRef, useCallback, useState } from 'react
 import { useTranslation } from 'react-i18next';
 import { useStore, selectSelectedMessageMid } from '../store/index.ts';
 import { api, isAbortError } from '../utils/api.ts';
-import { invalidateMailListCache } from '../utils/mailListCache.ts';
 import { LAYOUTS, localizedLayout, normalizeLayout } from '../layouts.ts';
 import { senderColor } from '../themes.ts';
 import { useMobile } from '../hooks/useMobile.ts';
@@ -1095,7 +1094,6 @@ export default function MessageList() {
         // steady-state read actions must not introduce another list GET.
         const listRaced = threadListGenerationRef.current !== listGenerationAtIntent || refreshRequest.isPending();
         if (listRaced) refreshRequest.invalidate();
-        invalidateMailListCache(message.account_id);
         const finalStates = new Map(actionMessages.map(msg => [String(msg.id), failedIds.has(String(msg.id)) ? msg.is_read : read]));
         setCachedThreadStates(message, 'is_read', finalStates);
         const current = useStore.getState();

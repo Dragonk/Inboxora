@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 import { createMailListCache } from './mailListCache.ts';
 
 const params = { limit: 50, offset: 0, threaded: 'true' };
-const snapshot = (id = 'm', size = 1) => ({ messages: Array.from({ length: size }, (_, index) => ({ id: `${id}-${index}`, account_id: 'a' })), total: size });
+const snapshot = (id = 'm', size = 1, accountId = 'a') => ({ messages: Array.from({ length: size }, (_, index) => ({ id: `${id}-${index}`, account_id: accountId })), total: size });
 
 describe('bounded navigation snapshots', () => {
   it('separates account, folder, filter, grouping, category and page-size scopes', () => {
@@ -27,9 +27,9 @@ describe('bounded navigation snapshots', () => {
   it('caps entries with LRU eviction and caps retained row count', () => {
     const cache = createMailListCache({ maxEntries: 2, maxRows: 4 });
     const a = { ...params, accountId: 'a' }, b = { ...params, accountId: 'b' }, c = { ...params, accountId: 'c' };
-    cache.finish(cache.begin(a, 1), snapshot('a', 2)); cache.finish(cache.begin(b, 1), snapshot('b', 2));
+    cache.finish(cache.begin(a, 1), snapshot('a', 2, 'a')); cache.finish(cache.begin(b, 1), snapshot('b', 2, 'b'));
     assert.ok(cache.get(a, 1));
-    cache.finish(cache.begin(c, 1), snapshot('c', 2));
+    cache.finish(cache.begin(c, 1), snapshot('c', 2, 'c'));
     assert.equal(cache.get(b, 1), undefined); assert.ok(cache.get(a, 1));
     cache.finish(cache.begin(params, 1), snapshot('new', 4));
     assert.equal(cache.get(a, 1), undefined); assert.equal(cache.get(c, 1), undefined);
@@ -54,7 +54,7 @@ describe('bounded navigation snapshots', () => {
   it('invalidates the affected account and unified view without evicting unrelated accounts', () => {
     const cache = createMailListCache();
     const a = { ...params, accountId: 'a' }, b = { ...params, accountId: 'b' };
-    for (const query of [params, a, b]) cache.finish(cache.begin(query, 1), snapshot());
+    for (const query of [params, a, b]) cache.finish(cache.begin(query, 1), snapshot('m', 1, 'accountId' in query ? String(query.accountId) : 'a'));
     cache.invalidate('a');
     assert.equal(cache.get(params, 1), undefined); assert.equal(cache.get(a, 1), undefined); assert.ok(cache.get(b, 1));
   });
@@ -82,11 +82,14 @@ describe('account-scoped invalidation fences', () => {
   it('fences affected and unified requests while preserving unrelated in-flight snapshots', () => {
     const cache = createMailListCache();
     const a = { ...params, accountId: 'a' }, b = { ...params, accountId: 'b' }, c = { ...params, accountId: 'c' };
-    const pending = [params, a, b, c].map(query => cache.begin(query, 1));
+    const pending = [params, a, b, c].map(query => ({ query, ticket: cache.begin(query, 1) }));
     cache.invalidate(['a', 'b', 'a']);
-    pending.forEach(ticket => cache.finish(ticket, snapshot()));
+    pending.forEach(({ query, ticket }) => {
+      const accountId = 'accountId' in query ? String(query.accountId) : 'a';
+      cache.finish(ticket, snapshot(accountId, 1, accountId));
+    });
     for (const query of [params, a, b]) assert.equal(cache.get(query, 1), undefined);
-    assert.ok(cache.get(c, 1));
+    assert.equal(cache.get(c, 1)?.messages[0]?.account_id, 'c');
   });
   it('never permits a matching older request to overwrite a post-invalidation response', () => {
     const cache = createMailListCache();

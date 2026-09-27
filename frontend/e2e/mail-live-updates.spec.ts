@@ -18,8 +18,14 @@ async function liveMailbox(page, fixtureApi, reader = false, initialSize = 5) {
   await page.route('**/api/mail/unread-counts', route => route.fulfill({ json: { total: state.unread.size, byAccount: { 'account-gmail': state.unread.size } } }));
   let socket;
   await page.routeWebSocket('**/ws', ws => { socket = ws; ws.onMessage(message => { if (JSON.parse(message).type === 'ping') ws.send(JSON.stringify({ type: 'pong' })); }); });
+  // Wait for the socket's required catch-up GET before installing test-specific
+  // delayed responses. A live socket alone does not mean its coalesced refresh
+  // has finished; otherwise that refresh can consume the test's first gate.
+  const bootRefresh = page.waitForResponse(response => new URL(response.url()).pathname === '/api/mail/messages'
+    && state.listRequests >= 2);
   await page.goto(`/?list=1&reader=${Number(reader)}`);
   await expect.poll(() => Boolean(socket)).toBe(true);
+  await bootRefresh;
   const parent = () => page.locator('[data-thread-row-parent="true"]');
   await expect(parent()).toBeVisible();
   await parent().locator(`button[aria-label*='(${initialSize})']`).click();
@@ -141,9 +147,10 @@ test('a delayed expansion cannot restore obsolete membership after a whole-threa
   let release;
   const gate = new Promise(resolve => { release = resolve; });
   let requested = 0;
+  let heldRequest;
   await page.route('**/api/mail/thread/*', async route => {
     const first = ++requested === 1;
-    if (first) await gate;
+    if (first) { heldRequest = route.request(); await gate; }
     await route.fulfill({ json: { messages: first ? oldMessages : Array.from({ length: state.size }, (_, index) => copy(index + 1)) } });
   });
   await page.evaluate(() => window.dispatchEvent(new CustomEvent('inboxora:refresh', { detail: { refreshThreads: true } })));
@@ -162,9 +169,10 @@ test('a delayed expansion cannot restore obsolete membership after a whole-threa
   else await parent().getByRole('button', { name: /więcej|more/i }).click();
   await page.getByText(/oznacz jako przeczytan|mark as read/i).last().click();
   await expect.poll(() => readIds.size).toBe(17);
-  const staleResponse = page.waitForResponse(response => new URL(response.url()).pathname.includes('/mail/thread/'));
+  const staleResponse = page.waitForResponse(response => response.request() === heldRequest);
   release();
   await staleResponse;
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   await expect(page.locator('[data-thread-row-child]')).toHaveCount(17);
   await expect(parent()).toHaveAttribute('data-unread', 'false');
 });

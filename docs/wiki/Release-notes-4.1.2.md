@@ -20,8 +20,10 @@ changes and live invalidations evict obsolete snapshots and fence older in-fligh
 responses. Logout, lock and session changes clear them. Known-scope flag/read/delete/undo operations invalidate all affected accounts and
 unified snapshots, including their in-flight writes, while preserving unrelated
 account snapshots and pending revalidations. Incomplete or unknown scope falls back
-to global invalidation. Local message-count-only corrections do not discard the
-navigation cache. Body-access bookkeeping does not invalidate useful navigation data. A cold view intentionally shows loading rather
+to global invalidation. Writes invalidate matching snapshots and pending tickets
+both before sending and after settlement, including failed or interrupted writes;
+late completion from an older authentication epoch cannot clear a new session.
+Local message-count-only corrections do not discard the navigation cache. Body-access bookkeeping does not invalidate useful navigation data. A cold view intentionally shows loading rather
 than another account's mail; a warm view keeps its last snapshot on a transient refresh
 failure. It is not considered fresh until revalidation succeeds.
 
@@ -74,6 +76,17 @@ read/unread cycles, delayed expansion responses, replacement representatives, bo
 reconciliation and a 101-message expansion. These browser tests use synthetic mailbox
 responses against the built application; they do not claim validation against the
 maintainer's live Microsoft mailbox or provider-side delivery.
+
+The final local pass also covers write-completion cache fences on success, HTTP
+failure and interrupted requests, preserving unrelated accounts and newer sessions.
+The mocked mailbox now commits successful read writes before returning success, so
+reader revalidation is checked against the resulting state rather than an immutable
+unread fixture. Delayed-response tests wait for the socket's initial catch-up and
+identify the exact held request, without relaxing their membership assertions.
+The focused desktop/390px mobile browser run passed 109 cases (49 existing
+viewport/mode exclusions); the full frontend unit suite passed 3,229 cases. These
+local results do not substitute for the exact-commit GitHub CI and CodeRabbit gates
+before publishing the development images.
 
 ## Storage repair and bounded synchronization
 
