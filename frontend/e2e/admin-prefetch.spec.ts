@@ -72,9 +72,15 @@ test('an old pending save cannot update a remounted settings editor',async({page
   await expect.poll(()=>pending).toBe(true);
   await page.getByTestId('admin-tab-appearance').click();await page.getByTestId('admin-tab-performance').click();
   await expect(page.getByTestId('mail-prefetch-limit')).toHaveValue('25');
+  const input=page.getByTestId('mail-prefetch-limit');
+  const save=page.getByTestId('mail-prefetch-settings').getByRole('button',{name:/^Zapisz$|^Save$/});
+  const oldSaveResponse=page.waitForResponse(response=>response.request().method()==='PATCH' && response.url().includes('/api/admin/settings'));
+  // Using the old submitted value makes a stale savedValue disable Save.
+  await input.fill('30');await expect(save).toBeEnabled();
   release();
-  // A fresh edit after the old response should not inherit "saved" or old values.
-  await page.getByTestId('mail-prefetch-limit').fill('20');
+  const response=await oldSaveResponse;await response.finished();
+  // Let the fetch continuation and React commit run before checking old results.
+  await page.evaluate(()=>new Promise<void>(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve()))));
   await expect(page.getByTestId('mail-prefetch-saved')).toHaveCount(0);
-  await expect(page.getByTestId('mail-prefetch-limit')).toHaveValue('20');
+  await expect(input).toHaveValue('30');await expect(save).toBeEnabled();
 });
