@@ -12,3 +12,10 @@ describe('storage worker startup wiring',()=>{
     expect(source).toContain('await stopStorageMaintenance();');
   });
 });
+
+
+it('pausing data repair leaves the independent privacy-log retention scheduler active', () => {
+  const source = readFileSync(new URL('./storageMaintenance.ts', import.meta.url), 'utf8');
+  expect(source).toContain("const repairEnabled = env.STORAGE_MAINTENANCE_ENABLED !== 'false'");
+  expect(source).toContain('repairEnabled ? runStorageMaintenancePass() : runOperationalRetentionPass()');
+});

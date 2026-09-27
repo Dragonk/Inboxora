@@ -39,6 +39,12 @@ async function save(client: PoolClient, task: string, progress: Progress, done: 
   [task, JSON.stringify(progress), done, delaySeconds]);
 }
 
+async function deferTask(client: PoolClient, task: string, progress: Progress, error: unknown, delaySeconds = 300): Promise<void> {
+  const code = toAppError(error).code ?? 'MAINTENANCE_FAILED';
+  await save(client, task, { ...progress, last_error_code: code }, false, delaySeconds);
+  console.warn('[storage-maintenance] task deferred:', task, code);
+}
+
 /** These two journals were retired atomically with a DAV token floor advance in
  * 0146. TRUNCATE releases their heap/TOAST/index files without copying GB of data.
  * Never truncate a current journal or a canonical event/contact/message table. */
@@ -46,16 +52,21 @@ export async function releaseRetiredDavJournals(client: PoolClient): Promise<num
   let released = 0;
   for (const table of RETIRED) {
     const task = `retired:${table}`;
-    const previous = await client.query('SELECT 1 FROM storage_maintenance WHERE task = $1 AND completed_at IS NOT NULL', [task]);
-    if (previous.rows.length) continue;
-    await transaction(client, async () => {
-      const before = await client.query<{ bytes: string }>('SELECT pg_total_relation_size($1::regclass) AS bytes', [table]);
-      await client.query(`TRUNCATE TABLE ${table}`); // fixed allowlist, no CASCADE
-      const after = await client.query<{ bytes: string }>('SELECT pg_total_relation_size($1::regclass) AS bytes', [table]);
-      const freed = Math.max(0, Number(before.rows[0].bytes) - Number(after.rows[0].bytes));
-      await save(client, task, { before_bytes: before.rows[0].bytes, after_bytes: after.rows[0].bytes, released_bytes: freed }, true);
-      released += freed;
-    });
+    const previous = await client.query<{ progress: Progress; deferred: boolean; completed_at: string | null }>(
+      'SELECT progress, completed_at, next_run_at > NOW() AS deferred FROM storage_maintenance WHERE task = $1', [task]);
+    if (previous.rows[0]?.completed_at || previous.rows[0]?.deferred) continue;
+    try {
+      await transaction(client, async () => {
+        const before = await client.query<{ bytes: string }>('SELECT pg_total_relation_size($1::regclass) AS bytes', [table]);
+        await client.query(`TRUNCATE TABLE ${table}`); // fixed allowlist, no CASCADE
+        const after = await client.query<{ bytes: string }>('SELECT pg_total_relation_size($1::regclass) AS bytes', [table]);
+        const freed = Math.max(0, Number(before.rows[0].bytes) - Number(after.rows[0].bytes));
+        await save(client, task, { before_bytes: before.rows[0].bytes, after_bytes: after.rows[0].bytes, released_bytes: freed }, true);
+        released += freed;
+      });
+    } catch (error) {
+      await deferTask(client, task, previous.rows[0]?.progress ?? {}, error);
+    }
   }
   return released;
 }
@@ -126,6 +137,10 @@ async function repairOneAccount(client: PoolClient): Promise<boolean> {
         console.info('[storage-maintenance] header progress', JSON.stringify({ repaired, logical_bytes_saved: saved }));
       }
     });
+  } catch (error) {
+    // The failed transaction rolled back data and checkpoint together. Keep the
+    // old cursor and counters, but let other accounts and retention make progress.
+    await deferTask(client, `headers:${account.id}`, account.progress ?? {}, error);
   } finally {
     await client.query('SELECT pg_advisory_unlock(hashtext($1), hashtext($2))', [key, key + ':2']);
   }
@@ -133,8 +148,8 @@ async function repairOneAccount(client: PoolClient): Promise<boolean> {
 }
 
 async function retainOneCollection(client: PoolClient): Promise<boolean> {
-  const result = await client.query<{ id: string; kind: 'calendar' | 'contacts'; task: string }>(`
-    SELECT scopes.* FROM (
+  const result = await client.query<{ id: string; kind: 'calendar' | 'contacts'; task: string; progress: Progress | null }>(`
+    SELECT scopes.*, s.progress FROM (
       SELECT id, 'calendar' AS kind, 'dav:calendar:' || id::text AS task FROM calendars
       UNION ALL SELECT id, 'contacts', 'dav:contacts:' || id::text FROM address_books
     ) scopes LEFT JOIN storage_maintenance s ON s.task = scopes.task
@@ -142,8 +157,12 @@ async function retainOneCollection(client: PoolClient): Promise<boolean> {
     ORDER BY s.updated_at ASC NULLS FIRST, scopes.task LIMIT 1`);
   const collection = result.rows[0];
   if (!collection) return false;
-  const removed = await pruneDavJournal(client, collection.kind, collection.id);
-  await save(client, collection.task, { removed_last_batch: removed }, removed < BATCH_SIZE, removed < BATCH_SIZE ? 3600 : 0);
+  try {
+    const removed = await pruneDavJournal(client, collection.kind, collection.id);
+    await save(client, collection.task, { removed_last_batch: removed }, removed < BATCH_SIZE, removed < BATCH_SIZE ? 3600 : 0);
+  } catch (error) {
+    await deferTask(client, collection.task, collection.progress ?? {}, error);
+  }
   return true;
 }
 
@@ -181,6 +200,49 @@ export async function readStorageMaintenanceStatus() {
   return { current: current.rows[0], tasks: tasks.rows };
 }
 
+async function runDueOperationalRetention(client: PoolClient): Promise<number> {
+  const due = await client.query("SELECT 1 FROM storage_maintenance WHERE task = 'logs' AND next_run_at > NOW()");
+  if (due.rows.length) return 0;
+  try {
+    const changed = await pruneOperationalHistory(client);
+    await save(client, 'logs', { changed_last_batch: changed }, changed === 0, changed ? 0 : 3600);
+    return changed;
+  } catch (error) {
+    await deferTask(client, 'logs', {}, error);
+    return 0;
+  }
+}
+
+/** VACUUM is not a short OLTP statement. Give it a generous, finite budget and
+ * back off after cancellation/lock contention; never retry every minute forever. */
+export async function vacuumRepairedMessages(client: PoolClient): Promise<boolean> {
+  try {
+    await client.query("SET vacuum_cost_delay = '2ms'");
+    await client.query("SET maintenance_work_mem = '16MB'");
+    await client.query("SET statement_timeout = '10min'");
+    await client.query('VACUUM (ANALYZE, PARALLEL 0) messages');
+    await save(client, 'vacuum:messages', { needed: false }, true, 86400);
+    return true;
+  } catch (error) {
+    await deferTask(client, 'vacuum:messages', { needed: true }, error, 3600);
+    return false;
+  } finally {
+    await client.query("SET statement_timeout = '15s'");
+  }
+}
+
+/** Pausing data repair must not disable privacy/security-log retention. */
+export async function runOperationalRetentionPass(): Promise<boolean> {
+  const client = await pool.connect();
+  try {
+    const lock = await client.query<{ locked: boolean }>('SELECT pg_try_advisory_lock($1) AS locked', [WORKER_LOCK]);
+    if (!lock.rows[0].locked) return false;
+    await client.query("SET statement_timeout = '15s'");
+    await client.query("SET lock_timeout = '250ms'");
+    return (await runDueOperationalRetention(client)) > 0;
+  } finally { client.release(true); }
+}
+
 /** One bounded pass; PostgreSQL owns single-flight across processes and restarts. */
 export async function runStorageMaintenancePass(): Promise<boolean> {
   const client = await pool.connect();
@@ -193,23 +255,14 @@ export async function runStorageMaintenancePass(): Promise<boolean> {
     if (released) console.info('[storage-maintenance] retired DAV journal files released', JSON.stringify({ released_bytes: released }));
     const headers = await repairOneAccount(client);
     const journals = await retainOneCollection(client);
-    const logDue = await client.query("SELECT 1 FROM storage_maintenance WHERE task = 'logs' AND next_run_at > NOW()");
-    let logs = 0;
-    if (!logDue.rows.length) {
-      logs = await pruneOperationalHistory(client);
-      await save(client, 'logs', { changed_last_batch: logs }, logs === 0, logs ? 0 : 3600);
-    }
+    const logs = await runDueOperationalRetention(client);
     // Normal VACUUM only: never automatically take a long exclusive lock on mail.
     // Retired journals already released real files above. Repaired header space
     // becomes reusable; physical message-file reduction is measured, not promised.
     if (!headers) {
       const vacuum = await client.query("SELECT 1 FROM storage_maintenance WHERE task = 'vacuum:messages' AND progress->>'needed' = 'true' AND next_run_at <= NOW()");
       if (vacuum.rows.length) {
-        await client.query("SET vacuum_cost_delay = '2ms'");
-        await client.query("SET maintenance_work_mem = '16MB'");
-        await client.query('VACUUM (ANALYZE, PARALLEL 0) messages');
-        await save(client, 'vacuum:messages', { needed: false }, true, 86400);
-
+        await vacuumRepairedMessages(client);
       }
     }
     if (!headers && !journals && logs === 0) {
@@ -219,7 +272,11 @@ export async function runStorageMaintenancePass(): Promise<boolean> {
         WHERE task = 'baseline' AND completed_at IS NULL
           AND NOT EXISTS (SELECT 1 FROM email_accounts a
             LEFT JOIN storage_maintenance h ON h.task = 'headers:' || a.id::text
-            WHERE h.task IS NULL OR h.completed_at IS NULL)`);
+            WHERE h.task IS NULL OR h.completed_at IS NULL)
+          AND (SELECT COUNT(*) FROM storage_maintenance WHERE task IN
+            ('retired:calendar_sync_changes_legacy_0146', 'retired:contact_sync_changes_legacy_0146')
+            AND completed_at IS NOT NULL) = 2
+          AND NOT EXISTS (SELECT 1 FROM storage_maintenance WHERE task = 'vacuum:messages' AND progress->>'needed' = 'true')`);
     }
     return headers || journals || logs > 0;
   } finally {
@@ -235,12 +292,13 @@ let generation = 0;
 export function startStorageMaintenance(env: NodeJS.ProcessEnv = process.env): void {
   const own = ++generation;
   if (timer) clearTimeout(timer);
-  if (env.NODE_ENV === 'test' || env.STORAGE_MAINTENANCE_ENABLED === 'false') return;
+  if (env.NODE_ENV === 'test') return;
+  const repairEnabled = env.STORAGE_MAINTENANCE_ENABLED !== 'false';
   const tick = async () => {
     if (own !== generation) return;
     let delay = 60_000;
     try {
-      current = runStorageMaintenancePass();
+      current = repairEnabled ? runStorageMaintenancePass() : runOperationalRetentionPass();
       if (await current) delay = 1000;
     } catch (error) {
       console.warn('[storage-maintenance] deferred; next pass will retry:', toAppError(error).message);

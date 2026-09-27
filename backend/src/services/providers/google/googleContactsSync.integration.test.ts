@@ -388,7 +388,8 @@ describeOrSkip('Google contacts sync (PostgreSQL)', () => {
        FROM contacts c JOIN address_books b ON b.id=c.address_book_id WHERE c.user_id=$1 ORDER BY c.id`, [USER_ID]))).rows;
     const before = await snapshot();
     expect(before).toHaveLength(1);
-    await run(); await run();
+    await expect(run()).resolves.toMatchObject({ incomplete: false, disabled: false });
+    await expect(run()).resolves.toMatchObject({ incomplete: false, disabled: false });
     expect(await snapshot()).toEqual(before);
   });
 

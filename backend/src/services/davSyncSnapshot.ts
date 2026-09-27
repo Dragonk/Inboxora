@@ -29,14 +29,14 @@ export async function readDavSyncSnapshot(kind: DavKind, id: string, userId: str
   const suffix = isCalendar ? '.ics' : '.vcf';
   const payload = isCalendar ? 'raw_ical' : 'vcard';
   const result = await query<{
-    sync_version: string; sync_min_version: string; resources: DavSyncResource[];
+    sync_version: string; sync_min_version: string; resource: DavSyncResource | null;
   }>(`
     WITH owner AS (
       SELECT id, sync_version, sync_min_version FROM ${collection}
        WHERE id = $1 AND user_id = $2 AND dav_mode <> 'off'
     )
     SELECT o.sync_version::text, o.sync_min_version::text,
-           COALESCE(jsonb_agg(r.resource ORDER BY r.path) FILTER (WHERE r.resource IS NOT NULL), '[]'::jsonb) AS resources
+           r.resource
       FROM owner o
       LEFT JOIN LATERAL (
         SELECT COALESCE(e.dav_filename, e.uid || '${suffix}') AS path,
@@ -56,12 +56,12 @@ export async function readDavSyncSnapshot(kind: DavKind, id: string, userId: str
          WHERE $3::bigint IS NOT NULL AND $3 >= o.sync_min_version AND $3 <= o.sync_version
            AND j.${scope} = o.id AND j.version > $3 AND j.version <= o.sync_version
       ) r ON true
-     GROUP BY o.id, o.sync_version, o.sync_min_version`, [id, userId, after]);
+     ORDER BY r.path`, [id, userId, after]);
   const row = result.rows[0];
   if (!row) return { status: 'missing', token: '', resources: [] };
   if (after !== null && (BigInt(after) < BigInt(row.sync_min_version) || BigInt(after) > BigInt(row.sync_version))) {
     return { status: 'expired', token: '', resources: [] };
   }
-  return { status: 'ok', resources: row.resources,
+  return { status: 'ok', resources: result.rows.flatMap(item => item.resource ? [item.resource] : []),
     token: isCalendar ? `sync-${row.sync_version}` : `urn:inboxora:carddav:${id}:${row.sync_version}` };
 }

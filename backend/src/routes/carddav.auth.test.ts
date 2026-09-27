@@ -365,7 +365,7 @@ it('enforces create-only and update-only CardDAV preconditions before modifying 
 it('returns CardDAV deltas with deletion tombstones and a collection-scoped token', async () => {
   authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1', maxDavMode: 'read_write' });
   query.mockResolvedValueOnce({ rows: [{ id: 'book-1', sync_version: '7' }] })
-    .mockResolvedValueOnce({ rows: [{ sync_version: '7', sync_min_version: '0', resources: [{ dav_filename: 'removed.vcf', deleted: true }] }] });
+    .mockResolvedValueOnce({ rows: [{ sync_version: '7', sync_min_version: '0', resource: { dav_filename: 'removed.vcf', deleted: true } }] });
   const result = await fetch(`${base}/carddav/user-1/book-1/`, {
     method: 'REPORT', headers: { authorization: basic('test', 'dav-password') },
     body: '<D:sync-collection xmlns:D="DAV:"><D:sync-token>urn:inboxora:carddav:book-1:5</D:sync-token></D:sync-collection>',

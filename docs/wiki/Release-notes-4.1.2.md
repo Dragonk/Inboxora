@@ -32,7 +32,9 @@ this schema; restore the pre-upgrade backup for a true rollback.
 Ten seconds after HTTP startup, a single-flight worker checks retired journal files,
 legacy headers and due retention work. It operates in bounded transactions, checkpoints
 header data and progress atomically, yields between batches, and retries after contention.
-A restart resumes the saved cursor rather than repeating/counting committed work. Header
+A restart resumes the saved cursor rather than repeating/counting committed work. Each failing
+account/collection receives its own persisted retry deadline, so one locked or slow resource
+does not starve other accounts, journal retention or security-log cleanup. Header
 payloads are fetched individually (50 rows per transaction, 16 MiB per-payload safety limit).
 Ambiguous/invalid UTF-8 or oversized legacy values are reported and left intact.
 
@@ -43,7 +45,7 @@ journal entries are retired after 30 days or when a collection exceeds 10,000 en
 in batches of 500; an atomic minimum-token advance makes older clients resynchronize.
 The cap is an eventual retention target between worker passes, not an insert-time limit.
 Token, floor, latest state and canonical payload in each incremental report are read in
-one PostgreSQL snapshot, so a concurrent writer/cleanup cannot silently hide a change.
+one PostgreSQL snapshot as separate rows (not one size-limited aggregate JSON value), so a concurrent writer/cleanup cannot silently hide a change.
 
 Operational cleanup retains authentication audit for 90 days, conversation rebuild audit
 for 30 days and resolved conversation-ingest failures for 7 days. Each pass processes at
@@ -101,14 +103,16 @@ activity can change the current size while the repair runs. The full status comm
 `--summary` includes per-task checkpoints and skipped values; logs use `[storage-maintenance]`.
 
 Ordinary background VACUUM makes repaired header pages reusable and may release empty tail
-pages. It does **not** guarantee immediate physical shrinkage of `messages`. No automatic
+pages. It has a dedicated 10-minute maintenance budget rather than the short request
+timeout; cancellation or contention schedules an hourly retry rather than repeated restarts. It does **not** guarantee immediate physical shrinkage of `messages`. No automatic
 `VACUUM FULL` is performed: it requires a table-wide exclusive lock and extra working space.
 The compact-journal cutover does release the retired journal files without such a mail-table
 rewrite. PostgreSQL allocated file size, uncompressed column bytes, WAL, host filesystem
 allocation/compression and container logs are separate measurements.
 
 Defaults require no new environment settings. `STORAGE_MAINTENANCE_ENABLED=false` pauses
-the worker (not the schema/token cutover); `MAIL_BODY_PREFETCH=off` disables speculative
+data-repair/DAV-retention tasks (not the schema/token cutover); the lightweight
+privacy/operational-history retention pass remains active; `MAIL_BODY_PREFETCH=off` disables speculative
 body reads; `IMAP_HISTORICAL_SNIPPETS=true` explicitly restores historical snippet scans.
 Both standard Compose files expose these switches and rotate stdout/stderr logs at
 three 10 MiB files per service. A **custom existing Compose file is not changed by pulling
@@ -132,3 +136,12 @@ that should the reporter be asked to verify; no stable release is authorized by 
 This planned release also includes the already-integrated desktop window-controls-overlay
 changes: the title-bar drag strip and scaled mail viewport follow live overlay sizing.
 This storage follow-up does not introduce another frontend redesign.
+
+## Dev image publication
+
+Manual `dev` publication validates an immutable source SHA against the explicitly selected
+repository branch. AMD64 and ARM64 images are built on native GitHub runners rather than
+QEMU. Platform jobs push immutable digests only; the shared `dev` tags are updated only after
+both architectures and both component manifests pass verification. A single-platform build
+can no longer replace the shared multi-platform tag. Built backend images execute both
+maintenance CLI `--help` checks before promotion. Stable/versioned tags are not changed.

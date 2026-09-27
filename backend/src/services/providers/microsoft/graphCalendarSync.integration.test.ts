@@ -356,7 +356,8 @@ describeOrSkip('Microsoft Graph calendar sync (PostgreSQL)', { timeout: PG_TEST_
       `SELECT e.id, e.ctid::text AS tuple, e.raw_ical, e.etag, c.sync_version::text AS version
        FROM calendar_events e JOIN calendars c ON c.id=e.calendar_id WHERE e.user_id=$1 ORDER BY e.id`, [USER_ID]))).rows;
     const before = await snapshot(); expect(before).toHaveLength(1);
-    await run(); await run(); expect(await snapshot()).toEqual(before);
+    await expect(run()).resolves.toMatchObject({ errors: [] });
+    await expect(run()).resolves.toMatchObject({ errors: [] }); expect(await snapshot()).toEqual(before);
   });
 
 });

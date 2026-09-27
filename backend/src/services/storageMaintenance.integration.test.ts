@@ -1,7 +1,8 @@
+import { readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
-import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { pool, query } from './db.js';
-import { DAV_MAX_CHANGES, pruneDavJournal, pruneOperationalHistory, releaseRetiredDavJournals, runStorageMaintenancePass } from './storageMaintenance.js';
+import { DAV_MAX_CHANGES, pruneDavJournal, pruneOperationalHistory, releaseRetiredDavJournals, runStorageMaintenancePass, runOperationalRetentionPass } from './storageMaintenance.js';
 import { conversationSerializeKey } from './conversationPersistence.js';
 import { readDavSyncSnapshot } from './davSyncSnapshot.js';
 const enabled = Boolean(process.env.DB_HOST && process.env.DB_NAME);
@@ -20,6 +21,7 @@ describe.skipIf(!enabled)('automatic storage maintenance with real PostgreSQL', 
     await query("INSERT INTO contacts(id,address_book_id,user_id,uid,vcard,etag) VALUES($1,$2,$3,'storage-contact',$4,'v1')",[contact,book,user,card]);
   });
   afterEach(async () => {
+    vi.restoreAllMocks();
     await query('DELETE FROM users WHERE id=$1',[user]);
     await query("DELETE FROM storage_maintenance WHERE task LIKE '%'||$1 OR task LIKE '%'||$2 OR task LIKE '%'||$3",[calendar,book,account]);
   });
@@ -81,9 +83,14 @@ describe.skipIf(!enabled)('automatic storage maintenance with real PostgreSQL', 
     const guard=await pool.connect(),worker=await pool.connect();
     try{
       await guard.query('BEGIN');await guard.query('SELECT 1 FROM calendar_sync_changes_legacy_0146 LIMIT 1');
-      await expect(releaseRetiredDavJournals(worker)).rejects.toMatchObject({code:'55P03'});
-      expect((await query("SELECT 1 FROM storage_maintenance WHERE task='retired:calendar_sync_changes_legacy_0146'")).rows).toHaveLength(0);
-      await guard.query('COMMIT');await releaseRetiredDavJournals(worker);
+      vi.spyOn(console,'warn').mockImplementation(()=>{});
+      await releaseRetiredDavJournals(worker);
+      const deferred = await query<{progress:{last_error_code:string};deferred:boolean}>("SELECT progress,next_run_at>NOW() AS deferred FROM storage_maintenance WHERE task='retired:calendar_sync_changes_legacy_0146'");
+      expect(deferred.rows[0]).toMatchObject({progress:{last_error_code:'55P03'},deferred:true});
+      await guard.query('COMMIT');
+      await query("UPDATE storage_maintenance SET next_run_at=NOW() WHERE task='retired:calendar_sync_changes_legacy_0146'");
+      await releaseRetiredDavJournals(worker);
+      expect((await query("SELECT completed_at FROM storage_maintenance WHERE task='retired:calendar_sync_changes_legacy_0146'")).rows[0].completed_at).not.toBeNull();
     }finally{await guard.query('ROLLBACK');guard.release();worker.release();}
   });
   it('repairs headers automatically without double-counting concurrent workers',async()=>{
@@ -121,6 +128,48 @@ describe.skipIf(!enabled)('automatic storage maintenance with real PostgreSQL', 
     await query('UPDATE storage_maintenance SET next_run_at=NOW() WHERE task=$1',[`headers:${account}`]);
     await runStorageMaintenancePass();
     expect((await query('SELECT completed_at FROM storage_maintenance WHERE task=$1',[`headers:${account}`])).rows[0].completed_at).not.toBeNull();
+  });
+
+  it('backs off a locked header row while operational retention continues',async()=>{
+    const rawHeader='Subject: Locked row\r\n';
+    const encoded=[...Buffer.from(rawHeader).entries()].map(([i,b])=>`${i}: ${b}`).join('\r\n');
+    const id=randomUUID();
+    await query("INSERT INTO messages(id,account_id,uid,folder,conversation_raw_headers) VALUES($1,$2,99,'INBOX',$3)",[id,account,encoded]);
+    await query(`INSERT INTO storage_maintenance(task,next_run_at) SELECT 'headers:'||id::text,NOW()+INTERVAL '1 day' FROM email_accounts WHERE id<>$1 ON CONFLICT(task) DO UPDATE SET next_run_at=EXCLUDED.next_run_at`,[account]);
+    await query("INSERT INTO auth_events(event_type,user_id,success,created_at) VALUES('login',$1,false,NOW()-INTERVAL '91 days')",[user]);
+    await query("DELETE FROM storage_maintenance WHERE task='logs'");
+    const guard=await pool.connect();
+    vi.spyOn(console,'warn').mockImplementation(()=>{});
+    try{
+      await guard.query('BEGIN');await guard.query('SELECT id FROM messages WHERE id=$1 FOR UPDATE',[id]);
+      await runStorageMaintenancePass();
+      const state=(await query("SELECT progress,next_run_at>NOW() AS deferred FROM storage_maintenance WHERE task=$1",[`headers:${account}`])).rows[0];
+      expect(state).toMatchObject({progress:{last_error_code:'55P03'},deferred:true});
+      expect((await query('SELECT id FROM auth_events WHERE user_id=$1',[user])).rows).toHaveLength(0);
+      expect((await query('SELECT conversation_raw_headers FROM messages WHERE id=$1',[id])).rows[0].conversation_raw_headers).toBe(encoded);
+    }finally{await guard.query('ROLLBACK');guard.release();}
+    await query('UPDATE storage_maintenance SET next_run_at=NOW() WHERE task=$1',[`headers:${account}`]);
+    await runStorageMaintenancePass();
+    expect((await query('SELECT conversation_raw_headers FROM messages WHERE id=$1',[id])).rows[0].conversation_raw_headers).toBe(rawHeader);
+  });
+  it('privacy-log-only maintenance does not run data repairs',async()=>{
+    await query("INSERT INTO auth_events(event_type,user_id,success,created_at) VALUES('login',$1,false,NOW()-INTERVAL '91 days')",[user]);
+    await query("DELETE FROM storage_maintenance WHERE task='logs'");
+    await runOperationalRetentionPass();
+    expect((await query('SELECT id FROM auth_events WHERE user_id=$1',[user])).rows).toHaveLength(0);
+    expect((await query('SELECT task FROM storage_maintenance WHERE task=$1',[`headers:${account}`])).rows).toHaveLength(0);
+  });
+  it('reads full DAV resources as separate snapshot rows, including an empty collection',async()=>{
+    expect(readFileSync(new URL('./davSyncSnapshot.ts',import.meta.url),'utf8')).not.toMatch(/jsonb_agg/);
+    await query('DELETE FROM contacts WHERE id=$1',[contact]);
+    const empty=await readDavSyncSnapshot('contacts',book,user,null);
+    expect(empty.status).toBe('ok');expect(empty.resources).toEqual([]);
+    await query(`INSERT INTO contacts(address_book_id,user_id,uid,vcard,etag)
+      SELECT $1,$2,'large-'||n,'BEGIN:VCARD\r\nPHOTO:'||repeat('a',100000)||'\r\nEND:VCARD','stable'
+      FROM generate_series(1,100) n`,[book,user]);
+    const full=await readDavSyncSnapshot('contacts',book,user,null);
+    expect(full.status).toBe('ok');expect(full.resources).toHaveLength(100);
+    expect(full.resources.every(r=>(r.vcard?.length ?? 0)>100000)).toBe(true);
   });
 
 });

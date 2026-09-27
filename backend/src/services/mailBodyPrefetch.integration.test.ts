@@ -76,4 +76,13 @@ describe.skipIf(!enabled)('visible mail body prefetch with real PostgreSQL', () 
     try{await prefetchVisibleBodies(account(),[id],reader);expect(reader).toHaveBeenCalledTimes(1);}finally{finish();await flight;}
     vi.stubEnv('MAIL_BODY_PREFETCH','off');await prefetchVisibleBodies(account(),[await message()],reader);expect(reader).toHaveBeenCalledTimes(1);
   });
+  it('does not replace IMAP attachment metadata with an empty speculative body',async()=>{
+    const id=await message();
+    const known=[{part:'1',filename:'kept.pdf',size:12}];
+    await query('UPDATE messages SET attachments=$2::jsonb WHERE id=$1',[id,JSON.stringify(known)]);
+    await prefetchVisibleBodies(account(),[id],async()=>({html:null,text:'',attachments:[]}));
+    expect((await query('SELECT body_text,body_html,attachments FROM messages WHERE id=$1',[id])).rows[0])
+      .toEqual({body_text:null,body_html:null,attachments:known});
+  });
+
 });

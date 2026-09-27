@@ -350,10 +350,10 @@ describe('CalDAV calendar objects', () => {
     authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1', maxDavMode: 'read_write' });
     query
       .mockResolvedValueOnce({ rows: [{ id: 'calendar-1', sync_token: 'sync-3', sync_version: 3 }] })
-      .mockResolvedValueOnce({ rows: [{ sync_version: '3', sync_min_version: '0', resources: [
-        { uid: 'updated', dav_filename: 'updated.ics', recurrence_id: '', etag: 'etag-2', deleted: false, raw_ical: 'BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n' },
-        { uid: 'deleted', dav_filename: 'deleted.ics', recurrence_id: '', etag: null, deleted: true, raw_ical: null },
-      ] }] });
+      .mockResolvedValueOnce({ rows: [
+        { sync_version: '3', sync_min_version: '0', resource: { uid: 'updated', dav_filename: 'updated.ics', recurrence_id: '', etag: 'etag-2', deleted: false, raw_ical: 'BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n' } },
+        { sync_version: '3', sync_min_version: '0', resource: { uid: 'deleted', dav_filename: 'deleted.ics', recurrence_id: '', etag: null, deleted: true, raw_ical: null } },
+      ] });
 
     const response = await fetch(`${base}/caldav/user-1/calendar-1/`, {
       method: 'REPORT',
