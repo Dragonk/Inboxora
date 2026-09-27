@@ -14,7 +14,7 @@ The key includes the complete list query (account, folder, unread/category filte
 thread grouping and page size) and is isolated by authentication epoch.
 
 Snapshots are not persisted: at most eight query entries and 1,000 total metadata rows
-are retained for at most 60 seconds. Offset pages and large infinite-scroll windows
+are retained for at most five minutes. Offset pages and large infinite-scroll windows
 are not added to this navigation cache. Local mail mutations, account/configuration
 changes and live invalidations evict obsolete snapshots and fence older in-flight
 responses. Logout, lock and session changes clear them. Known-scope flag/read/delete/undo operations invalidate all affected accounts and
@@ -105,9 +105,12 @@ not just a quiet mocked mailbox. Bulk-read broadcasts are partitioned by their a
 verified account. The frontend retains that scope when the physical copy is not loaded,
 and reader writes/count refreshes carry their known account too. Thus an event concerning
 one account no longer discards all previously visited accounts. A visibility/online or
-periodic freshness check retains the existing 60-second bounded snapshots while still
+periodic freshness check retains the bounded navigation snapshots while still
 requesting current list/count data; concrete mail changes still hard-invalidate affected
-snapshots and in-flight results. Lock/logout protections, query separation and write
+snapshots and in-flight results. Snapshot retention is five minutes rather than
+one minute, so another account does not become cold during a normal reading session;
+navigation still always starts an immediate API revalidation, and expiry never grants
+freshness. Row/entry limits and query isolation remain bounded. Lock/logout protections, query separation and write
 completion fences are unchanged. No migration or provider-side read/write behavior changes
 are included in this follow-up.
 

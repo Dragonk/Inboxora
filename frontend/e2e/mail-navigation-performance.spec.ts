@@ -126,8 +126,13 @@ for (const method of ['open', 'mark']) {
 }
 
 
-for (const trigger of ['offscreen-flag', 'wake']) {
+for (const trigger of ['offscreen-flag', 'wake', 'two-minute-read']) {
   test(`${trigger} keeps unrelated visited inboxes visible before the next HTTP response`, async ({ page, fixtureApi }) => {
+    if (trigger === 'two-minute-read') await page.addInitScript(() => {
+      const originalNow = Date.now.bind(Date);
+      window.__navigationClockOffset = 0;
+      Date.now = () => originalNow() + window.__navigationClockOffset;
+    });
     const { state, navigate, send, release } = await mailbox(page, fixtureApi);
     for (const account of fixtureApi.accounts) {
       await navigate(account.name);
@@ -139,6 +144,8 @@ for (const trigger of ['offscreen-flag', 'wake']) {
       send({ type: 'message_flags', accountId: 'account-gmail', changes: [{ id: 'offscreen-gmail-copy', is_read: true }] });
       // Wait for the scoped coordinator to finish its counts request.
       await page.waitForResponse(response => new URL(response.url()).pathname === '/api/mail/unread-counts');
+    } else if (trigger === 'two-minute-read') {
+      await page.evaluate(() => { window.__navigationClockOffset = 120_000; });
     } else {
       const refreshed = page.waitForResponse(response => new URL(response.url()).pathname === '/api/mail/messages');
       await page.evaluate(() => window.dispatchEvent(new Event('online')));

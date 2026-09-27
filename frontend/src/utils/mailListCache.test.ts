@@ -102,3 +102,13 @@ describe('account-scoped invalidation fences', () => {
     assert.equal(cache.get(a, 1), value);
   });
 });
+
+it('retains a visited inbox across a normal two-minute reading session, with a five-minute hard limit', () => {
+  let time = 0;
+  const cache = createMailListCache({ now: () => time });
+  cache.finish(cache.begin(params, 1), snapshot());
+  time = 120_000;
+  assert.ok(cache.get(params, 1));
+  time = 300_000;
+  assert.equal(cache.get(params, 1), undefined);
+});

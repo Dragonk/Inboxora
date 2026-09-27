@@ -5,7 +5,7 @@ type Params = Record<string, string | number | boolean | null | undefined>;
 type Ticket = { key: string; epoch: number; revision: number; request: number; accountId: string | null };
 
 /** Bounded, memory-only first-page snapshots. They are never a substitute for revalidation. */
-export function createMailListCache({ maxEntries = 8, maxRows = 1000, maxAgeMs = 60_000, now = Date.now } = {}) {
+export function createMailListCache({ maxEntries = 8, maxRows = 1000, maxAgeMs = 300_000, now = Date.now } = {}) {
   const entries = new Map<string, { value: MailListSnapshot; at: number; accountId: string | null }>();
   const latest = new Map<string, { request: number; accountId: string | null }>();
   let epoch = -1;
