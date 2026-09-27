@@ -136,7 +136,7 @@ messages unread but their aliases read) also produced inconsistent expansion fla
 A shared read projection now excludes only a verified compatibility alias whose
 canonical provider message is present, non-deleted, in the same account and current
 native Graph connection, and in the same folder or backed by a confirmed provider
-move. Lists (including pagination/counts), expansion and unread counters use the
+move. Lists (including pagination/counts), expansion and inbox/category unread counters use the
 same rule before applying unread filtering. Diagnostics apply the same alias rule.
 No rows are deleted and no read flags are rewritten by this projection; old UUID
 body links still resolve. Missing/ambiguous bindings, changed connections, IMAP
@@ -147,7 +147,8 @@ anything. No migration, provider poll or historical resync is required.
 Integration tests include both 17/4 divergences, flat/threaded/unread views, retained
 legacy links/rows, invalid binding guards, confirmed moves and HTTP read/unread/read
 cycles using canonical IDs against a mocked Graph HTTP boundary. Those cycles return
-0/17/0 unread and preserve all 17 children. Provider transport behavior itself is not
+0/17/0 inbox/category unread and preserve all 17 children. The HTTP test also verifies
+every exact provider ID and value patched, rather than only the number of calls. Provider transport behavior itself is not
 changed, and no live production provider acknowledgement is claimed. The projection
 was also exercised with the actual list service on an isolated 30,000-message test
 database; EXPLAIN confirmed indexed canonical lookups rather than per-row provider requests, with

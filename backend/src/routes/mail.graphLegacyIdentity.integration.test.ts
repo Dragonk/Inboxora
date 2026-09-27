@@ -263,6 +263,8 @@ describeOrSkip('LIVE-01 legacy Graph identity route (PostgreSQL)', { timeout: 30
     const { canonical, legacy, threadId } = await seedReadAliases(0, true);
     const counts = await nativeFetch(`${base}/api/mail/unread-counts`).then(readJson<UnreadReply>);
     expect(counts).toEqual({ total: 0, byAccount: {} });
+    const categories = await nativeFetch(`${base}/api/mail/category-counts?accountId=${ACCOUNT_ID}`).then(readJson<{ counts: Record<string, number> }>);
+    expect(categories.counts).toEqual({ primary: 0 });
     const filtered = await nativeFetch(`${base}/api/mail/messages?accountId=${ACCOUNT_ID}&threaded=true&unreadOnly=true`).then(readJson<MailReadReply>);
     expect(filtered.messages).toEqual([]);
     const flat = await nativeFetch(`${base}/api/mail/messages?accountId=${ACCOUNT_ID}`).then(readJson<MailReadReply>);
@@ -343,18 +345,24 @@ describeOrSkip('LIVE-01 legacy Graph identity route (PostgreSQL)', { timeout: 30
       return new Response(null, { status: 204 });
     }) as typeof fetch);
     try {
-      for (const read of [true, false, true]) {
+      for (const [index, read] of [true, false, true].entries()) {
         writes.length = 0;
         const response = await nativeFetch(`${base}/api/mail/messages/bulk-read`, {
           method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ids: canonical, read }),
         });
         expect(response.status).toBe(200);
         const result = await readJson<{ updated: string[] }>(response);
-        expect(result.updated.length).toBeGreaterThan(0);
-        expect(writes).toHaveLength(result.updated.length);
-        expect(writes.every(write => write.providerId.startsWith('graph-read-alias-') && write.read === read)).toBe(true);
+        const expectedIds = index === 0 ? canonical.slice(0, 4) : canonical;
+        expect([...result.updated].sort()).toEqual([...expectedIds].sort());
+        expect(writes).toHaveLength(expectedIds.length);
+        expect(writes.map(write => write.providerId).sort()).toEqual(
+          expectedIds.map(id => `graph-read-alias-${canonical.indexOf(id)}`).sort(),
+        );
+        expect(writes.every(write => write.read === read)).toBe(true);
         const counts = await nativeFetch(`${base}/api/mail/unread-counts`).then(readJson<UnreadReply>);
         expect(counts.total).toBe(read ? 0 : 17);
+        const categories = await nativeFetch(`${base}/api/mail/category-counts?accountId=${ACCOUNT_ID}`).then(readJson<{ counts: Record<string, number> }>);
+        expect(categories.counts).toEqual({ primary: read ? 0 : 17 });
         const thread = await nativeFetch(`${base}/api/mail/thread/${threadId}?accountId=${ACCOUNT_ID}`).then(readJson<MailReadReply>);
         expect(thread.messages).toHaveLength(17);
         expect(thread.messages.every((m: { is_read: boolean }) => m.is_read === read)).toBe(true);

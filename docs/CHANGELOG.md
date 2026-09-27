@@ -36,7 +36,7 @@ finalized below and dated with its publication date.
 
 ### Fixed
 
-- **Microsoft legacy-alias read consistency.** Mail lists, thread expansion, unread counts and diagnostics now use the native physical message behind a verified current Graph compatibility binding. Stale legacy IMAP flags can no longer leave four phantom unread entries beside 17 read messages or make the unread filter and expansion choose different copies. Old rows/UUID links remain intact; unverified or stale bindings retain their recovery rows.
+- **Microsoft legacy-alias read consistency.** Mail lists, thread expansion, inbox/category unread counts and diagnostics now use the native physical message behind a verified current Graph compatibility binding. Stale legacy IMAP flags can no longer leave four phantom unread entries beside 17 read messages or make the unread filter and expansion choose different copies. Old rows/UUID links remain intact; unverified or stale bindings retain their recovery rows.
 
 
 - **Single-message read state in expanded threads.** Opening or individually marking a child no longer sends a whole-thread aggregate override. Reading the last unread child updates its parent immediately, including with the unread filter active; singleton badges and partial expansions keep their correct unread totals.

@@ -3925,6 +3925,7 @@ router.get('/category-counts', async (req, res) => {
     WHERE m.account_id = ANY($1)
       AND m.folder = 'INBOX'
       AND m.is_deleted = false
+      AND ${visiblePhysicalMessageSql}
     GROUP BY COALESCE(m.category, 'primary')
   `, [scopedIds]);
 
